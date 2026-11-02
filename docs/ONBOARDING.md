@@ -120,18 +120,21 @@ rebrew todo              # prioritized action list (what to work on next)
 ### 5. Start reversing
 
 ```bash
-rebrew skeleton 0x00401000          # generate a function skeleton (convention-aware)
+# intake wrote one stub per function, for example src/SERVER/fcn_00401000.c;
+# edit that file, then:
 rebrew test src/SERVER/fcn_00401000.c   # compile, byte-compare, auto-update STATUS
 rebrew diff src/SERVER/fcn_00401000.c   # see WHY bytes differ (register/reloc/structural)
 rebrew diagnose near src/SERVER/fcn_00401000.c  # classify the delta + GA mutation hints
 rebrew verify            # bulk: compile every annotated function, compare, promote STATUS
 rebrew match run src/SERVER/fcn_00401000.c # GA engine: search for the byte-perfect C
+rebrew skeleton 0x00401000               # only for an inventory VA with no source; prints its file
 ```
 
 Before reversing, rule out library code: statically linked CRT sits in
 `.text` looking exactly like target code:
 
 ```bash
+rebrew library init-signatures --matched-only   # copy matching signatures into flirt_sigs/ (needs ReconDB)
 rebrew library scan-signatures flirt_sigs/              # identify library functions via FLIRT
 rebrew library crt-match --all --fix-source   # auto-annotate MSVCRT functions
 ```

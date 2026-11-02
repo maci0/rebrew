@@ -448,7 +448,7 @@ def match_text(
     *va* is ``base_va + offset``.  Broad signatures (more than
     *max_ambiguous* candidate names at one offset) are skipped so library
     identification never guesses.  Shared by ``rebrew library scan-signatures``, ``rebrew
-    analyze``, and ``rebrew library identify``.
+    binary analyze``, and ``rebrew library identify``.
 
     *stride* defaults to :func:`arch_stride` for *arch* (2 for SH2, 4 for the
     other RISC arches, 16 for x86); function sizes are decoded with the same

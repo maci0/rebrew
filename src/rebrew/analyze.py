@@ -140,9 +140,8 @@ def _collect_imports(binary: Path) -> dict[str, Any]:
 
     # 16-bit NE: the loader parses the module reference + imported names
     # tables directly (Borland Delphi/Turbo Pascal Windows targets).  The
-    # per-import table layout varies between Borland linkers and is not yet
-    # decoded, so the dossier reports the imported module blocks (each is a
-    # separate ordinal-import group) rather than unreliable per-import rows.
+    # dossier reports the imported module blocks (each a separate
+    # ordinal-import group) so the DLL set is visible.
     if is_ne(binary):
         info = load_binary(binary)
         dlls = Counter[str]()

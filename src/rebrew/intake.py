@@ -185,7 +185,7 @@ def classify_all(
 ) -> int:
     """Write a STUB .c + blocker for every function (document-unmatched step).
 
-    Shared by ``rebrew intake`` (fresh onboarding) and ``rebrew
+    Shared by ``rebrew intake`` (fresh onboarding) and ``rebrew source
     document-unmatched`` (existing projects).  *metadata_dir* defaults to
     ``project/src`` (the standard layout); pass ``cfg.metadata_dir`` to
     honor a custom layout. Existing address annotations anywhere under

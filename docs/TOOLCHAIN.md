@@ -974,7 +974,7 @@ DOS/Windows games and Borland Delphi 1.0 apps) are now parsed natively:
    module reference + imported names = Win16 imports).  Segments become
    `BinaryInfo` sections with synthetic flat VAs `(segment << 16 | offset)`,
    so `load_binary`, `extract_raw_bytes`, `rebrew binary strings`, and `rebrew
-   analyze` work on NE targets.  A capstone-based probe classifies code vs
+   binary analyze` work on NE targets.  A capstone-based probe classifies code vs
    data segments: Borland segments carry a `[index\x00][name-string][content]`
    marker (detected conditionally; MSVC 16-bit segments start directly with
    code and the probe does not skip bytes for them).  `is_ne` reads the

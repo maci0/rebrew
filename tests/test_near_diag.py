@@ -344,6 +344,17 @@ class TestAnalyzeVerdict:
         assert "mut_reorder_register_vars" in md  # a real operator name
         assert "|" in md
 
+    def test_catalog_json_emits_one_document(self) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.near_diag import app
+
+        result = CliRunner().invoke(app, ["--catalog", "--json"])
+        assert result.exit_code == 0, result.output
+        payload = cli_payload(result)
+        assert list(payload) == ["catalog"]
+        assert "`register`" in payload["catalog"]
+
 
 class TestAnalyzeDegenerate:
     def test_empty_target_bytes(self) -> None:

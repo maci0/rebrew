@@ -67,13 +67,15 @@ use the binary stem (`server`); binary filenames keep the extension (`server.dll
 
 ```bash
 rebrew todo --json                       # select an existing stub or uncovered function
-rebrew skeleton 0x10003DA0               # only when this inventory VA has no source
-rebrew test src/server/func_10003da0.c --json
-rebrew diff src/server/func_10003da0.c --json
+rebrew test src/server/fcn_10003da0.c --json
+rebrew diff src/server/fcn_10003da0.c --json
 rebrew verify --compare --json
 rebrew lint --json
 rebrew coverage export --output snapshots/                          # optional portable snapshots for offline viewing
 ```
+
+`intake` names its stubs `fcn_<VA>.c`; for a catalog VA with no source,
+`rebrew skeleton 0xVA` prints the file it creates.
 
 Check library attribution before implementing a function. `test` and `verify`
 earn byte verdicts, including regressions. EXACT and RELOC count as matched;
@@ -136,10 +138,13 @@ needs a JDK and Apache Ant on PATH to build JPype 1.7.1 on Python 3.15
 Clean clone needs **uv**, **Python 3.15+** (`.python-version`), **nasm** and
 **bun** on `PATH`, a sibling [`resembl`](https://github.com/maci0/resembl) checkout at
 `../resembl` (tag `v3.10.2`, matching CI `RESEMBL_REF` / `uv.lock`; `make setup`
-also requires `HEAD` to be the `RESEMBL_SHA` commit CI's `resembl-sha` pins), and
-**bash** for the `make clone-resembl` step below.  **bun** drives the
+also requires `HEAD` to be the `RESEMBL_SHA` commit CI's `resembl-sha` pins),
+**bash** for the `make clone-resembl` step below, and **cc**, **pkg-config**
+and **json-c** development files for the native unshare runner tests
+(`build-essential pkg-config libjson-c-dev` on Debian/Ubuntu).  **bun** drives the
 `tests/dashboard_*.mjs` interaction tests, which skip without it, so `make test`
-fails on a missing bun while `make test-one` only warns.  **shellcheck** is optional
+fails on a missing bun while `make test-one` only warns; the native runner
+preflight likewise fails `make test` and passes `make test-one`.  **shellcheck** is optional
 locally but not in CI: the pre-commit shell hook skips itself without it, so
 `make check` warns rather than fails, and CI's pre-commit job installs it.  See
 [`CONTRIBUTING.md`](https://github.com/maci0/rebrew/blob/main/CONTRIBUTING.md); `make help` lists targets.
@@ -149,14 +154,14 @@ Run the following from the directory that will hold both checkouts:
 git clone https://github.com/maci0/rebrew.git
 cd rebrew/
 make doctor                # report every missing prerequisite (uv, ../resembl, bash, nasm,
-                           # bun, shellcheck, yamllint, vnu, venv extras) with the fix for each;
-                           # read-only, and exits non-zero only for a host tool the two steps
-                           # below cannot install
+                           # bun, cc/pkg-config/json-c, shellcheck, yamllint, vnu, venv extras)
+                           # with the fix for each; read-only, and exits non-zero only for a
+                           # host tool the two steps below cannot install
 make clone-resembl         # clone sibling resembl pin (tag v3.10.2) into ../resembl
 make setup                 # uv sync --locked --all-extras --group similarity + pre-commit hooks
 make add-dep ADD_DEP_SPEC=<spec>  # add a dependency (wraps `uv add`; prints the license-table step)
 make test-one T=tests/test_annotation_roundtrip.py   # single-file edit-test loop
-make test                  # full suite (needs nasm + bun)
+make test                  # full suite (needs nasm, bun, and cc/pkg-config/json-c)
 make lint                  # ruff check (same as CI)
 make format                # ruff format (writes)
 make all                   # local gates: format-check, lint, mypy, audit, coverage, gen-fixtures-check, cycles-check, layering-check, idempotency-check, cli-contract

@@ -44,9 +44,9 @@ def __getattr__(name: str) -> Any:
 
     ``lief._lief`` is a 148ms native load paid by every CLI invocation,
     including ones that never parse a binary (``--help``, ``status`` on a
-    cached project).  Annotations are strings (``from __future__`` is
-    absent here — the names below are only evaluated by type checkers),
-    so deferring costs nothing at runtime.
+    cached project).  Annotations are strings (``from __future__ import
+    annotations``), so the names below are only evaluated by type checkers and
+    deferring costs nothing at runtime.
 
     ``logging.disable()`` flips a LIEF process-global, so it runs once
     under a lock: a parallel batch would otherwise let a worker's first

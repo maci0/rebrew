@@ -331,7 +331,7 @@ def cfg_similarity(
             "matched_blocks": 0,
         }
 
-    # Greedy best-match blocks by mnemonic-multiset cosine, weighted by size.
+    # Greedy best-match blocks by mnemonic-multiset cosine, weighted by instruction count.
     sigs_t = [Counter(m) for _, _, m in tb]
     sigs_c = [Counter(m) for _, _, m in cb]
     norms_t = [_norm(s) for s in sigs_t]

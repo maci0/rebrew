@@ -25,7 +25,10 @@ def resolve_cflags(
 
     Fallback chain: per-function metadata CFLAGS → per-module
     ``cflags_presets`` (``rebrew cfg module set-cflags``) → ``[compiler].cflags``
-    → ``"/O2 /Gd"``.  Single source of truth so match/diff/verify/test/
+    → ``"/O2 /Gd"`` for an MSVC-style profile when the key is absent.  An
+    explicitly empty ``[compiler].cflags`` means "no default flags", and a
+    posix-style profile falls back to no flags instead of the MSVC spelling.
+    Single source of truth so match/diff/verify/test/
     prove/probe/diagnose gap agree on the flags a function compiles with — a per-module preset
     must not make ``rebrew match run`` report EXACT while ``rebrew verify``
     recompiles with different flags and demotes it.

@@ -370,7 +370,7 @@ graph TD
     Text -->|no| Whole{--whole-binary?}
     TA --> Whole
     Whole -->|yes| WB[+ exports/imports/resources<br/>sections/header freshness]
-    Whole -->|no| Gate{--compare<br/>regression vs last run?}
+    Whole -->|no| Gate{--compare<br/>regression vs saved baseline?}
     WB --> Gate
     Gate -->|yes| CI[exit 1, CI gate]
     Gate -->|no| OK[exit 0]
@@ -522,7 +522,8 @@ Output prefixes for unambiguous parsing:
 
 `--data` and `--whole-binary` run image-only checks and do not compile
 functions. Add `--functions` to run the function pipeline too; bare `verify`,
-`--text`, or a source/scope selection already does. The JSON report records
+`--text`, `--context`, `--fix-sizes`, a `--dir` selection, or a source/scope
+selection already does. The JSON report records
 `functions_checked`.
 
 With `--source-targets`, FILE uses an explicit current-directory-relative or
@@ -1808,7 +1809,7 @@ rebrew match run src/game/f.c --seed 7 --json
 
 `rebrew match batch [OPTIONS]`
 
-Select project functions and run `--algorithm ga`, `flags`, or `flags-then-ga`. `--target` and `--all-targets` are mutually exclusive. `--max-stubs 0` means unlimited; `--max-size 0` disables the upper size cap. `--seed-llm` is confined to `match run`.
+Select project functions and run `--algorithm ga`, `flags`, or `flags-then-ga`. `--target` and `--all-targets` are mutually exclusive. `--max-stubs 0` means unlimited; `--max-size` defaults to `9999`, which disables the upper size cap (a smaller value keeps only functions at or below it). `--seed-llm` is confined to `match run`.
 
 `--all-targets` continues after a compiler or config exception on one target.
 `errors` counts those targets, and the command exits 2, including
@@ -2228,7 +2229,7 @@ aborting the batch).
 | `--va` | str | — | Target VA in hex (default: from metadata) |
 | `--size` | int | — | Target size in bytes (default: from metadata) |
 | `--fix-blocker` | flag | `False` | Write the verdict as BLOCKER metadata for the function (skipped on a match) |
-| `--catalog` | flag | `False` | Print the symptom index (delta category → suggestion → GA mutations) |
+| `--catalog` | flag | `False` | Print the symptom index (delta category → suggestion → GA mutations); with `--json`, returns it as `{"catalog": <markdown>}` |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |

@@ -408,7 +408,7 @@ class LinkConfig:
     """Declarative linker settings for byte-identical PE reconstruction.
 
     Mirrors the ``[link]`` section of ``rebrew-project.toml``.  ``rebrew
-    round-trip --fix-headers`` patches the reasm copy with these values, and
+    build round-trip --fix-headers`` patches the reasm copy with these values, and
     the round-trip report's ``header_parity`` compares them against the
     original binary so header mismatches are visible (previously only .text
     bytes were checked).

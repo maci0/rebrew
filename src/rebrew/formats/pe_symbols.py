@@ -9,7 +9,7 @@ Two public entry points:
 
 - :func:`pe_directories` dumps those structures as typed records
   (:class:`PeImport`, :class:`PeExport`).  It is the shared reader: ``rebrew
-  pe-info`` reports the same records it does.
+  binary pe`` reports the same records it does.
 - :func:`pe_symbols` turns them into named :class:`PeSymbol` records, which
   :mod:`rebrew.symbol_addrs` folds into its splat-style export.
 

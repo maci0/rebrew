@@ -85,8 +85,8 @@ class SolutionEntry:
 
     :func:`save_solution` normalizes whatever the caller passes into this form,
     because the only reader (``rebrew match batch`` seeding) resolves it as
-    ``project_root / source_file``.  A path outside the project root is stored
-    absolute and still resolves correctly."""
+    ``project_root / source_file``.  An absolute path outside the project root
+    is stored absolute and still resolves correctly."""
 
     target: str = ""
     """Target module name (e.g. ``SERVER``).  Empty for legacy single-target
@@ -309,9 +309,11 @@ def _is_stale(project_root: Path, entry: SolutionEntry) -> bool:
 def _relative_source(project_root: Path, source_file: str) -> str:
     """Normalize *source_file* to a path relative to *project_root*.
 
-    Callers pass absolute paths, cwd-relative paths, or already-relative ones.
-    Anything that resolves under the project root becomes root-relative;
-    anything else is stored absolute so it still resolves unambiguously.
+    Callers pass absolute paths, cwd-relative paths, or paths already relative
+    to the project root.  Anything that resolves under the project root becomes
+    root-relative.  An absolute path outside the root is stored absolute so it
+    still resolves unambiguously; a relative path outside the root is kept as
+    given and is assumed to be project-root-relative by the reader.
     """
     if not source_file:
         return source_file

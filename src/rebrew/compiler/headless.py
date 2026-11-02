@@ -340,9 +340,9 @@ def _reap_dead_xvfb() -> None:
     """Retire the generations of Xvfb that have already exited.
 
     ``poll`` is the reap: a server whose process is gone is collected here
-    instead of lingering as a zombie, and its cookie file goes with it.  A
-    cookie is the only credential the server accepts, so leaving one behind
-    per death hands a long-lived batch a credential for nothing.
+    instead of lingering as a zombie, and its cookie file goes with it.  The
+    file is a per-run temp artefact, not an access-control credential (see the
+    module docstring), so it should not outlive the server it belongs to.
     """
     for entry in [entry for entry in _owned_xvfb if entry[0].poll() is not None]:
         _owned_xvfb.remove(entry)

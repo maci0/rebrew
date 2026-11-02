@@ -387,7 +387,9 @@ def main(
 ) -> None:
     """Compile SOURCE and classify its byte delta against the target function."""
     if catalog:
-        if not json_output:
+        if json_output:
+            json_print({"catalog": catalog_markdown()})
+        else:
             print(catalog_markdown(), end="")
         return
 
