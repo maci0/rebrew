@@ -30,7 +30,13 @@ lazy from rebrew.metadata.bindings import (
     read_source_bindings,
 )
 lazy from rebrew.sources import iter_library_headers, iter_sources, source_exts
-lazy from rebrew.utils import clip_span, fold_ident, preset_module_key, rel_display_path
+lazy from rebrew.utils import (
+    RESERVED_WINDOWS_STEMS,
+    clip_span,
+    fold_ident,
+    preset_module_key,
+    rel_display_path,
+)
 
 # ---------------------------------------------------------------------------
 # Unmatchable function detection
@@ -51,16 +57,6 @@ _SEH_FS = bytes([0x64, 0xA1, 0x00, 0x00, 0x00, 0x00])
 _SANITIZE_NON_ALNUM_RE = re.compile(r"[^a-zA-Z0-9_]")
 _SANITIZE_MULTI_UNDERSCORE_RE = re.compile(r"_+")
 
-#: Windows reserves these device basenames on every directory (case-insensitive,
-#: even with an extension appended): creating ``aux.c`` or ``nul.c`` fails there
-#: although every character is legal.  Generated files get a trailing underscore
-#: instead so a project checked out on both hosts keeps working.
-_WINDOWS_RESERVED_BASENAMES = frozenset(
-    {"CON", "PRN", "AUX", "NUL"}
-    | {f"COM{n}" for n in range(1, 10)}
-    | {f"LPT{n}" for n in range(1, 10)}
-)
-
 
 def avoid_windows_reserved(name: str) -> str:
     """Append ``_`` when *name* is a Windows reserved device basename.
@@ -68,7 +64,7 @@ def avoid_windows_reserved(name: str) -> str:
     Applied to generated *filenames* (:func:`make_filename`, binsync.importer);
     symbol names keep their binary fidelity for byte matching.
     """
-    if name.upper() in _WINDOWS_RESERVED_BASENAMES:
+    if name.upper() in RESERVED_WINDOWS_STEMS:
         return name + "_"
     return name
 

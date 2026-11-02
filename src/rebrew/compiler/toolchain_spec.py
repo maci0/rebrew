@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, cast
+from typing import Literal, cast, get_args
 
 #: Flag syntax a toolchain takes: MSVC's ``/I``/``/Fo``/``/c`` or POSIX's
 #: ``-I``/``-o``/``-c``.  Drives config's ``posix_style`` and the default
@@ -36,7 +36,7 @@ def flags_style_from_str(value: object) -> FlagsStyle:
 #: ``pipeline`` uses POSIX single-source arguments and disables batch dispatch.
 ArgStyle = Literal["msvc", "posix", "pipeline", "dos", "borland", "watcom"]
 
-ARG_STYLES: frozenset[str] = frozenset({"msvc", "posix", "pipeline", "dos", "borland", "watcom"})
+ARG_STYLES: frozenset[str] = frozenset(get_args(ArgStyle))
 
 
 def arg_style_from_str(value: object) -> ArgStyle:

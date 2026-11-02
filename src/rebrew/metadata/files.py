@@ -21,6 +21,16 @@ lazy from rebrew.utils import (
     load_tomllib,
 )
 
+#: The four managed metadata collections, one main TOML plus its ``.d`` drop-ins.
+METADATA_FILENAMES = frozenset(
+    {
+        "rebrew-functions.toml",
+        "rebrew-data.toml",
+        "rebrew-types.toml",
+        "rebrew-libraries.toml",
+    }
+)
+
 
 def metadata_paths(path: Path) -> tuple[Path, ...]:
     """Return the optional main TOML followed by direct, sorted ``.d/*.toml`` files."""
@@ -341,12 +351,7 @@ class TomlStore:
 
     def documents(self, *, recursive: bool = False) -> tuple[Path, ...]:
         """Discover logical TOML collections, excluding caches and nested projects."""
-        names = {
-            "rebrew-functions.toml",
-            "rebrew-data.toml",
-            "rebrew-types.toml",
-            "rebrew-libraries.toml",
-        }
+        names = METADATA_FILENAMES
         if not recursive:
             return tuple(
                 path for path in project_metadata_paths(self.path.parent) if path.name in names

@@ -90,11 +90,7 @@ def resolve_function(
 
     resolved = str(resolve_source_arg(cfg, raw))
     source_path = Path(resolved).resolve()
-    # If still not a file, treat as unresolved symbol/VA lookup failure.
     if not source_path.is_file():
-        # Allow bare symbol that resolve_source_arg may have returned as Path
-        # even when not found — try metadata lookup with cfg.module?
-        # Fail with actionable message instead of writing to wrong key.
         error_exit(
             f"Cannot resolve function {raw!r} to a source file or VA "
             "(pass a .c path, 0xVA, symbol, or use --va 0x... to disambiguate)",

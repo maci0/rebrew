@@ -14,21 +14,13 @@ from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 lazy import hashlib
 
-lazy from rebrew.metadata.files import TomlStore
+lazy from rebrew.metadata.files import METADATA_FILENAMES, TomlStore
 lazy from rebrew.metadata.locking import project_transaction
 lazy from rebrew.metadata.sqlite import SqliteStore
 lazy from rebrew.registry import iter_optional_provider_dicts
 lazy from rebrew.utils import load_tomllib
 lazy from rebrew.workspace.config import CONFIG_NAME, walk_up_to_root
 
-METADATA_FILENAMES = frozenset(
-    {
-        "rebrew-functions.toml",
-        "rebrew-data.toml",
-        "rebrew-types.toml",
-        "rebrew-libraries.toml",
-    }
-)
 Fingerprint = tuple[tuple[str, int, int, int, int], ...]
 Validator = Callable[[Any], Any]
 

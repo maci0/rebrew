@@ -117,7 +117,7 @@ _FILENAME_COMPONENT_MAX_CHARS = 200
 #: ``NUL``, ``NUL.json`` and ``nul.best.c`` all address the null device, so a
 #: write silently succeeds and the bytes are discarded.  Matched against the
 #: part before the first dot, which is what Win32's name parser reads.
-_RESERVED_WINDOWS_STEMS = frozenset(
+RESERVED_WINDOWS_STEMS = frozenset(
     {"CON", "PRN", "AUX", "NUL"}
     | {f"{prefix}{n}" for prefix in ("COM", "LPT") for n in range(1, 10)}
 )
@@ -1082,7 +1082,7 @@ def filename_component(name: str) -> str:
     name = unicodedata.normalize("NFC", name)
     cleaned = _FILENAME_COMPONENT_RE.sub("_", name).lstrip(".-")
     cleaned = cleaned[:_FILENAME_COMPONENT_MAX_CHARS].rstrip("._-")
-    if cleaned.partition(".")[0].upper() in _RESERVED_WINDOWS_STEMS:
+    if cleaned.partition(".")[0].upper() in RESERVED_WINDOWS_STEMS:
         cleaned = f"_{cleaned}"
     if not cleaned:
         digest = hashlib.sha256(name.encode("utf-8", "surrogateescape")).hexdigest()[:16]
