@@ -929,7 +929,7 @@ _VERIFY_CACHE_LOCK = threading.Lock()
 def _verify_cache_write_lock(cache_path: Path) -> Iterator[None]:
     """Thread + cross-process lock around a verify-cache read-modify-write.
 
-    Same discipline as ``rebrew.metadata.document.metadata_write_lock``: the thread
+    Same discipline as ``rebrew.metadata.storage.metadata_write_lock``: the thread
     lock serializes in-process writers; an advisory ``flock`` on a sidecar
     ``.lock`` file serializes concurrent processes (e.g. ``rebrew verify
     --watch`` saving while ``rebrew test`` patches a promotion — without
@@ -958,7 +958,7 @@ def cache_identity_matches(raw: dict[str, Any], cfg: ProjectConfig) -> bool:
     check, used by :func:`verify_cache_matches_cfg` (whole-file predicate),
     :func:`patch_verify_cache_entries` (in-lock guard), :func:`load_verify_cache`
     (the serve path), and every read-only consumer (``status``, ``todo``,
-    ``residue``, ``build_db``), so they cannot drift.
+    ``residue``, ``coverage export``), so they cannot drift.
 
     Drift is not cosmetic: a reader that omits the compiler dimension keeps
     reporting verdicts earned under a toolchain or comparison-logic version

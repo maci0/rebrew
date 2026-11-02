@@ -451,11 +451,11 @@ workflow failures without an additional authority or storage system.
 
 ## Knowledge capture
 
-- [ ] **Jev as a typed decision layer over `todo` / `near-diag` (out of tree).**
+- [ ] **Jev as a typed decision layer over `todo` / `diagnose near` (out of tree).**
   Pain: agents pick the wrong next tool, reread 167 MSVC6 shapes, and spend
   codegen-LLM budget on library leftovers, stale blockers, and inverted
   briefs. Feature: a guild-rebrew script that sends `todo --json` +
-  `near-diag --json` + blocker prose to TypeSafe Jev (Choice / Score /
+  `diagnose near --json` + blocker prose to TypeSafe Jev (Choice / Score /
   Noul) and confidence-gates the next command; no C generation, no
   rebrew package change. Keep only if it beats `todo` on a labeled
   NEAR_MATCHING slice. Evidence: [JEV.md](JEV.md); workflow-traps §1
@@ -790,7 +790,7 @@ Evidence: guild-rebrew/.scratch/goal-tl-callee-identities/{resolver-binding-conf
   file, but `library bind-source` refuses its FUNCTION rows ("No library
   declaration"), so renaming the symbols (`_vfs_GetByte` to `_get_byte`) and
   setting `marker_type = "LIBRARY"` and the new `file` took a script over
-  `rebrew.metadata.record_migrated_markers`. Feature: `library bind-source
+  `rebrew.metadata.functions.record_function_rows`. Feature: `library bind-source
   --adopt` (or `library adopt <va> <source> --symbol`) that converts a FUNCTION
   row in place, for every module that shares the file. Evidence: guild
   round 18, `.scratch/r18/rebind_zlib.py`.

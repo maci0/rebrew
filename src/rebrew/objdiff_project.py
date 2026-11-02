@@ -19,7 +19,7 @@ This module provides two entry points:
   and flags (the same resolution ``rebrew test``/``verify`` use).
 
 Target objects carry no relocations (the reference binary gives raw bytes);
-objdiff diffs them byte-wise, which is exactly the rebrew match runing model.
+objdiff diffs them byte-wise, which is exactly the `rebrew match run` model.
 """
 
 from __future__ import annotations
