@@ -35,7 +35,7 @@ lazy from rebrew.data_scan import (
     verify_bss_layout,
 )
 lazy from rebrew.metadata.storage import metadata_store
-lazy from rebrew.utils import atomic_write_text, untrusted_ident
+lazy from rebrew.utils import TerminalTable, atomic_write_text, untrusted_ident
 
 app = typer.Typer(
     help="Inspect global data, edit metadata, and generate declarations and layout repairs.",
@@ -408,20 +408,20 @@ def execute_data(
             if json_output:
                 json_print(report)
             else:
-                console.print(
-                    f"{'TU':58} {'#sym':>4} {'min addr':>10} {'max addr':>10} "
-                    f"{'data':>7} {'bss':>7}"
-                )
-                console.print("-" * 104)
+                table = TerminalTable()
+                for label in ("TU", "#sym", "min addr", "max addr", "data", "bss", "Flags"):
+                    table.add_column(label, justify="left" if label in ("TU", "Flags") else "right")
                 for r in report["rows"]:
-                    flag = f"  <== {'/'.join(r['flags'])} VIOLATION" if r["flags"] else ""
-                    sym_count = len(set(r["dsyms"]) | set(r["bsyms"]))
-                    console.print(
-                        f"{untrusted_ident(r['obj']):58} {sym_count:4} "
-                        f"{r['min_addr']:#10x} {r['max_addr']:#10x} "
-                        f"{r['dsize']:#7x} {r['bsize']:#7x}{flag}"
+                    table.add_row(
+                        untrusted_ident(r["obj"]),
+                        str(len(set(r["dsyms"]) | set(r["bsyms"]))),
+                        f"{r['min_addr']:#x}",
+                        f"{r['max_addr']:#x}",
+                        f"{r['dsize']:#x}",
+                        f"{r['bsize']:#x}",
+                        f"{'/'.join(r['flags'])} VIOLATION" if r["flags"] else "",
                     )
-                console.print("-" * 104)
+                console.print(table)
                 console.print(f"violations: {report['violations']}")
                 for r in report["rows"]:
                     if r.get("error"):

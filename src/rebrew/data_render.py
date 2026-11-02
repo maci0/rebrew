@@ -12,12 +12,17 @@ from typing import TYPE_CHECKING, Any
 lazy from rich.console import Console, Group
 lazy from rich.panel import Panel
 lazy from rich.syntax import Syntax
-lazy from rich.table import Table
 lazy from rich.text import Text
 
 lazy from rebrew.present import bar_plain, count_column, ratio_bar
 lazy from rebrew.status_style import STATUS_COLORS
-lazy from rebrew.utils import floor_pct, merged_span_bytes, untrusted_literal, untrusted_text
+lazy from rebrew.utils import (
+    TerminalTable,
+    floor_pct,
+    merged_span_bytes,
+    untrusted_literal,
+    untrusted_text,
+)
 
 if TYPE_CHECKING:
     from rebrew.data_scan import BssReport, DispatchTable, ScanResult
@@ -42,7 +47,7 @@ def render_dispatch(console: Console, tables: list[DispatchTable]) -> None:
     console.print(Panel(summary_body, title="Dispatch Tables"))
 
     for tbl in tables:
-        t = Table(
+        t = TerminalTable(
             title=(
                 f"0x{tbl.va:08x} ({untrusted_text(tbl.section)}) — {tbl.num_entries} entries, "
                 f"{floor_pct(tbl.resolved, tbl.num_entries, 0):.0f}% resolved"
@@ -94,7 +99,7 @@ def render_bss(console: Console, report: BssReport) -> None:
     )
 
     if report.known_entries:
-        tbl = Table(show_header=True, header_style="bold", border_style="dim")
+        tbl = TerminalTable(show_header=True, header_style="bold", border_style="dim")
         tbl.add_column("VA", style="cyan", no_wrap=True)
         tbl.add_column("Name")
         tbl.add_column("Size", justify="right")
@@ -111,7 +116,7 @@ def render_bss(console: Console, report: BssReport) -> None:
         console.print()
 
     if report.gaps:
-        gap_tbl = Table(
+        gap_tbl = TerminalTable(
             title="[bold red]BSS Gaps (potential missing globals)[/]",
             show_header=True,
             header_style="bold",
@@ -156,7 +161,7 @@ def render_globals(console: Console, scan: ScanResult, conflicts_only: bool = Fa
             )
         return
 
-    tbl = Table(show_header=True, header_style="bold", border_style="dim")
+    tbl = TerminalTable(show_header=True, header_style="bold", border_style="dim")
     tbl.add_column("VA", style="cyan", no_wrap=True)
     tbl.add_column("Name")
     tbl.add_column("Type")
@@ -287,7 +292,7 @@ def render_summary(console: Console, scan: ScanResult, sections: dict[str, dict[
     """Print section-level summary."""
     rows = section_summary(scan, sections)
 
-    tbl = Table(
+    tbl = TerminalTable(
         show_header=True,
         header_style="bold",
         box=None,

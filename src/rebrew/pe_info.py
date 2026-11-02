@@ -41,7 +41,6 @@ lazy from pathlib import Path
 lazy from typing import Any
 
 import typer
-lazy from rich.table import Table
 
 from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, resolve_binary_arg
 lazy from rebrew.formats.binary_loader import decode_binary_name, detect_format_and_arch
@@ -55,7 +54,7 @@ lazy from rebrew.formats.pe_symbols import (
 lazy from rebrew.formats.pe_symbols import (
     as_list as _safe_list,
 )
-lazy from rebrew.utils import untrusted_ident
+lazy from rebrew.utils import TerminalTable, untrusted_ident
 
 # ---------------------------------------------------------------------------
 # Named constants
@@ -965,7 +964,9 @@ def _hex(value: object) -> str:
 
 def _print_human(info: dict[str, object], binary: Path) -> None:
     """Render the payload as Rich tables on stderr."""
-    identity = Table(title=f"PE info: {untrusted_ident(binary.name)}", expand=False, pad_edge=False)
+    identity = TerminalTable(
+        title=f"PE info: {untrusted_ident(binary.name)}", expand=False, pad_edge=False
+    )
     identity.add_column("Field", style="bold")
     identity.add_column("Value", overflow="fold")
     for key, value in info.items():
@@ -981,7 +982,7 @@ def _print_human(info: dict[str, object], binary: Path) -> None:
 
     sections = info.get("sections")
     if isinstance(sections, list) and sections:
-        table = Table(title="Sections")
+        table = TerminalTable(title="Sections")
         table.add_column("Name")
         table.add_column("VA", justify="right")
         table.add_column("VSize", justify="right")
@@ -1008,7 +1009,7 @@ def _print_human(info: dict[str, object], binary: Path) -> None:
 
     security = info.get("security_flags")
     if isinstance(security, dict):
-        table = Table(title="Security flags")
+        table = TerminalTable(title="Security flags")
         table.add_column("Flag", style="bold")
         table.add_column("Value", justify="right")
         for key, value in security.items():
@@ -1026,7 +1027,7 @@ def _print_human(info: dict[str, object], binary: Path) -> None:
         score = info.get("security_score")
         if isinstance(score, dict):
             console.print(f"security score: {score.get('enabled')}/{score.get('total')}")
-        table = Table(title="Security checklist")
+        table = TerminalTable(title="Security checklist")
         table.add_column("Item", style="bold")
         table.add_column("State")
         table.add_column("Flag", overflow="fold")
@@ -1045,7 +1046,7 @@ def _print_human(info: dict[str, object], binary: Path) -> None:
 
     exports = info.get("exports")
     if isinstance(exports, list) and exports:
-        table = Table(title="Exports")
+        table = TerminalTable(title="Exports")
         table.add_column("Name", overflow="fold")
         table.add_column("VA", justify="right")
         table.add_column("Ordinal", justify="right")
@@ -1064,7 +1065,7 @@ def _print_human(info: dict[str, object], binary: Path) -> None:
 
     debug = info.get("debug")
     if isinstance(debug, list) and debug:
-        table = Table(title="Debug")
+        table = TerminalTable(title="Debug")
         table.add_column("Type")
         table.add_column("PDB path", overflow="fold")
         table.add_column("GUID")
@@ -1082,7 +1083,7 @@ def _print_human(info: dict[str, object], binary: Path) -> None:
 
     delay = info.get("delay_imports")
     if isinstance(delay, list) and delay:
-        table = Table(title="Delay imports")
+        table = TerminalTable(title="Delay imports")
         table.add_column("DLL", overflow="fold")
         table.add_column("Name", overflow="fold")
         table.add_column("Ordinal", justify="right")
@@ -1107,7 +1108,7 @@ def _print_human(info: dict[str, object], binary: Path) -> None:
 
     version = info.get("version_info")
     if isinstance(version, dict) and version:
-        table = Table(title="Version info")
+        table = TerminalTable(title="Version info")
         table.add_column("Field", style="bold")
         table.add_column("Value", overflow="fold")
         for key, value in version.items():
@@ -1118,7 +1119,7 @@ def _print_human(info: dict[str, object], binary: Path) -> None:
     if isinstance(rich, dict) and rich.get("present"):
         entries = rich.get("entries")
         if isinstance(entries, list):
-            table = Table(title="Rich header")
+            table = TerminalTable(title="Rich header")
             table.add_column("Id", justify="right")
             table.add_column("Build", justify="right")
             table.add_column("Count", justify="right")
@@ -1150,7 +1151,7 @@ def _print_va_table(info: dict[str, object], key: str, title: str) -> None:
         return
     if not isinstance(values, list) or not values:
         return
-    table = Table(title=title)
+    table = TerminalTable(title=title)
     table.add_column("#", justify="right")
     table.add_column("VA", justify="right")
     for index, value in enumerate(values[:_MAX_TABLE_ROWS]):

@@ -21,7 +21,6 @@ lazy from string import Template
 
 import typer
 from typer.models import TyperPath
-lazy from rich.table import Table
 
 from rebrew.cli import (
     EXIT_ERROR,
@@ -42,6 +41,7 @@ lazy from rebrew.compiler.toolchain import (
 lazy from rebrew.utils import (
     RETRYABLE_HTTP_STATUS,
     SOURCE_CHECKOUT,
+    TerminalTable,
     atomic_write_text,
     container_runtime,
     run_process_group,
@@ -129,7 +129,7 @@ def list_cmd(
     if json_output:
         json_print({"toolchains": rows, "docker_available": docker_available()})
         return
-    table = Table(title="Toolchains", header_style="bold")
+    table = TerminalTable(title="Toolchains", header_style="bold")
     show_origin = any(r.get("origin", "packaged") != "packaged" for r in rows)
     columns = ["Name", "Image", "Binary", "Runtime", "Flags", "Obj"]
     if show_origin:

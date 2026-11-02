@@ -25,7 +25,6 @@ import re
 lazy from typing import Any
 
 import typer
-lazy from rich.table import Table
 
 from rebrew.cli import (
     EXIT_OK,
@@ -36,13 +35,13 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
-lazy from rebrew.utils import parse_int_literal, untrusted_ident
+lazy from rebrew.utils import TerminalTable, parse_int_literal, untrusted_ident
 
 #: Maximum table entries to read (the bounds-check count normally bounds it;
 #: this is a safety cap against misreading a data region as a giant table).
 _MAX_TABLE_ENTRIES = 256
 
-#: Table rows shown in the human table before collapsing the rest.
+#: TerminalTable rows shown in the human table before collapsing the rest.
 _MAX_TABLE_ROWS = 24
 
 #: ``jmp dword ptr [edx*4 + 0x12345678]`` — capstone renders the scaled
@@ -384,7 +383,7 @@ def main(
         console.print(f"[bold]Dispatch @ 0x{sw['jmp_va']:08x}:[/] jmp {escape(operand)}")
         if sw["bounds"] is not None:
             console.print(f"  bounds: index <= 0x{sw['bounds']:x} ({sw['entries']} entries)")
-        table = Table(show_header=True, header_style="bold")
+        table = TerminalTable(show_header=True, header_style="bold")
         table.add_column("Case", justify="right")
         table.add_column("Handler VA", style="cyan")
         table.add_column("Function", style="magenta")
@@ -446,12 +445,18 @@ def _scan_all(cfg: Any, window: int, json_output: bool) -> None:
         console.print("[yellow]No function-list entry has a jump-table dispatch.[/]")
         raise typer.Exit(code=EXIT_OK)
     console.print(f"[bold]{len(found)} function(s) with jump-table dispatches:[/]")
+    table = TerminalTable()
+    for label in ("VA", "Function", "Dispatches", "Cases", "Inspect"):
+        table.add_column(label)
     for f in sorted(found, key=lambda x: -x["dispatches"]):
-        console.print(
-            f"  [cyan]{f['va']}[/] {untrusted_ident(f['name']):<24s} "
-            f"{f['dispatches']} dispatch(es), {f['cases']} case(s) — "
-            f"rebrew binary switches {f['va']}"
+        table.add_row(
+            f"[cyan]{f['va']}[/]",
+            untrusted_ident(f["name"]),
+            str(f["dispatches"]),
+            str(f["cases"]),
+            f"rebrew binary switches {f['va']}",
         )
+    console.print(table)
 
 
 def main_entry() -> None:

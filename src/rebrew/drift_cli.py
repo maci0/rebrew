@@ -16,7 +16,6 @@ lazy from pathlib import Path
 lazy from typing import Any
 
 import typer
-lazy from rich.table import Table
 
 from rebrew.cli import (
     CFLAGS_HELP,
@@ -39,6 +38,7 @@ lazy from rebrew.config import target_module
 lazy from rebrew.drift import DerivedRegion, DriftWindow, derive_regions, drift_windows
 lazy from rebrew.formats.binary_loader import extract_raw_bytes
 lazy from rebrew.metadata.bindings import read_function_fields, read_source_bindings
+lazy from rebrew.utils import TerminalTable
 
 # Module-form registration (empty ``attr`` in app/builtins.py) resolves BOTH a
 # ``main`` callable and a module-level ``app``.  A module exposing only ``main``
@@ -67,7 +67,7 @@ def _emit_text(windows: list[DriftWindow], derived: list[DerivedRegion]) -> None
         )
         return
 
-    table = Table(title=f"{len(windows)} branch pair(s) measuring drift")
+    table = TerminalTable(title=f"{len(windows)} branch pair(s) measuring drift")
     table.add_column("at", justify="right")
     table.add_column("ref →", justify="right")
     table.add_column("ours →", justify="right")

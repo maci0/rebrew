@@ -18,7 +18,7 @@ pinned docker image).
 ## Bootstrap (clean clone)
 
 Needs **uv** (CI pins `uv-version` in `.github/actions/uv-env/action.yml`,
-currently `0.13.5`), **Python 3.15+** (see `.python-version`), **nasm** on `PATH`
+currently `0.13.6`), **Python 3.15+** (see `.python-version`), **nasm** on `PATH`
 (CI installs nasm for asm round-trip tests), and **bun** on `PATH` (the
 `tests/dashboard_*.mjs` interaction tests skip without it, so a host with no
 bun cannot run the dashboard JS exercised by CI; `make test` fails on a

@@ -26,7 +26,7 @@ def _commands(command: Any, path: tuple[str, ...] = ()) -> Iterator[tuple[Any, t
 
 
 class TestMountedHelp:
-    @pytest.mark.parametrize("width", [60, 80, 120])
+    @pytest.mark.parametrize("width", [60, 80, 100, 120])
     def test_every_help_page_renders_without_project_state(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, width: int
     ) -> None:

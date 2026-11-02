@@ -15,7 +15,6 @@ import logging
 lazy from pathlib import Path
 
 import typer
-lazy from rich.table import Table
 
 from rebrew.cli import (
     EXIT_ERROR,
@@ -34,6 +33,7 @@ lazy from rebrew.catalog import cached_function_list, scan_reversed_dir
 lazy from rebrew.config import ProjectConfig, inventory_path_for
 lazy from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary
 lazy from rebrew.formats.binary_model import BinaryInfo
+lazy from rebrew.utils import TerminalTable
 
 log = logging.getLogger(__name__)
 
@@ -84,7 +84,7 @@ def load_functions(cfg: ProjectConfig) -> list[dict[str, int | str]]:
 
 def cmd_list(candidates: list[tuple[int, int, str]]) -> None:
     """List candidate functions."""
-    table = Table(title=f"Candidates ({len(candidates)}, sorted by size)")
+    table = TerminalTable(title=f"Candidates ({len(candidates)}, sorted by size)")
     table.add_column("#", justify="right", style="bold")
     table.add_column("VA", style="cyan")
     table.add_column("Size", justify="right")

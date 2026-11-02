@@ -50,7 +50,6 @@ lazy from itertools import pairwise
 lazy from typing import Any
 
 import typer
-lazy from rich.table import Table
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
 lazy from rebrew.analysis import data_references, direct_call_target, section_range
@@ -62,6 +61,7 @@ lazy from rebrew.catalog import (
 lazy from rebrew.config import ProjectConfig, arch_pointer_size, inventory_path_for
 lazy from rebrew.formats.binary_loader import capstone_config_for, extract_bytes_at_va, load_binary
 lazy from rebrew.formats.binary_model import BinaryInfo
+lazy from rebrew.utils import TerminalTable
 
 # ---------------------------------------------------------------------------
 # Optional-signal constants
@@ -776,7 +776,7 @@ def main(
         f"({clustered_count}/{total_funcs} functions in {len(clusters)} clusters)\n"
     )
 
-    table = Table(show_header=True, header_style="bold")
+    table = TerminalTable(show_header=True, header_style="bold")
     table.add_column("Cluster", justify="right", style="dim")
     table.add_column("VA Range", style="cyan")
     table.add_column("Funcs", justify="right")

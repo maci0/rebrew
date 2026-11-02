@@ -5,7 +5,7 @@ see [`AGENTS.md`](../AGENTS.md); for the CLI surface see [`CLI.md`](CLI.md).
 
 ## Python and dependency baseline
 
-Use Python 3.15.1 (`.python-version`); the package requires Python 3.15+.
+Use Python 3.15.2 (`.python-version`); the package requires Python 3.15+.
 Ruff targets Python 3.15, including deferred annotations and unparenthesized
 exception lists. Byte comparisons intentionally use `map(strict=False)` when
 only the shared prefix contributes matches.

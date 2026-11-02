@@ -29,7 +29,6 @@ lazy from typing import Any
 
 import typer
 lazy from rich.panel import Panel
-lazy from rich.table import Table
 lazy from rich.text import Text
 
 from rebrew.cli import EXIT_ERROR, TargetOption, console, json_print
@@ -43,7 +42,7 @@ from rebrew.config import (
 )
 from rebrew.errors import RebrewError
 lazy from rebrew.metadata.storage import metadata_store
-lazy from rebrew.utils import md5_file, read_json_text
+lazy from rebrew.utils import TerminalTable, md5_file, read_json_text
 
 logger = logging.getLogger(__name__)
 
@@ -1168,7 +1167,7 @@ def main(
 
 def render_doctor(report: DoctorReport) -> None:
     """Print the doctor panel. The title is the target name, not a filesystem path."""
-    table = Table(show_header=True, header_style="bold", pad_edge=False, expand=False)
+    table = TerminalTable(show_header=True, header_style="bold", pad_edge=False, expand=False)
     table.add_column("", width=2, no_wrap=True)
     table.add_column("Check", width=20, no_wrap=True, overflow="ellipsis")
     table.add_column("Message", overflow="fold")

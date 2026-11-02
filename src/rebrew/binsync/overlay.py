@@ -36,7 +36,6 @@ lazy from pathlib import Path
 lazy from typing import Any
 
 import typer
-lazy from rich.table import Table
 
 from rebrew.cli import (
     EXIT_MISMATCH,
@@ -79,7 +78,7 @@ lazy from rebrew.cross_import import (
     unmatched_dest_bytes,
 )
 lazy from rebrew.sources import contained_path, source_roots
-lazy from rebrew.utils import fold_ident, preset_module_key, strip_body
+lazy from rebrew.utils import TerminalTable, fold_ident, preset_module_key, strip_body
 
 log = logging.getLogger(__name__)
 
@@ -748,7 +747,7 @@ def overlay_state(
 
 def _print_result(result: dict[str, Any], *, resolved: bool) -> None:
     """Render the Rich table plus the one-line summary."""
-    table = Table(
+    table = TerminalTable(
         title=f"binsync-overlay {result['from_target']} -> {result['target']}",
         header_style="bold",
     )

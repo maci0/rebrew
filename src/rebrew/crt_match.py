@@ -21,7 +21,6 @@ lazy from pathlib import Path
 lazy from typing import Any
 
 import typer
-lazy from rich.table import Table
 
 from rebrew.cli import (
     TargetOption,
@@ -39,7 +38,7 @@ lazy from rebrew.sources import (
     iter_library_headers,
     iter_sources,
 )
-lazy from rebrew.utils import fold_ident, preset_module_key
+lazy from rebrew.utils import TerminalTable, fold_ident, preset_module_key
 
 log = logging.getLogger(__name__)
 
@@ -485,7 +484,7 @@ def source_auto_writable(match: CrtMatch) -> bool:
 
 
 def _render_index_table(entries: list[CrtSourceEntry]) -> None:
-    table = Table(title="CRT Source Index")
+    table = TerminalTable(title="CRT Source Index")
     table.add_column("Module")
     table.add_column("Name")
     table.add_column("File")
@@ -505,7 +504,7 @@ def _render_index_table(entries: list[CrtSourceEntry]) -> None:
 
 
 def _render_match_table(matches: list[CrtMatch]) -> None:
-    table = Table(title="CRT Match Results")
+    table = TerminalTable(title="CRT Match Results")
     table.add_column("VA")
     table.add_column("Binary")
     table.add_column("Module")

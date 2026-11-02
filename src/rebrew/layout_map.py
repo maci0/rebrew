@@ -30,7 +30,6 @@ if TYPE_CHECKING:
     import lief
 
 import typer
-lazy from rich.table import Table
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
 lazy from rebrew.catalog.loaders import cached_function_list
@@ -39,7 +38,7 @@ lazy from rebrew.config import ProjectConfig, inventory_path_for
 lazy from rebrew.cu_map import classify_gap
 lazy from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary
 lazy from rebrew.formats.binary_model import BinaryInfo
-lazy from rebrew.utils import atomic_write_text
+lazy from rebrew.utils import TerminalTable, atomic_write_text
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
@@ -406,7 +405,7 @@ def _print_summary(manifest: Manifest) -> None:
         f"({manifest['format']}/{manifest['arch']}) "
         f"{len(manifest['sections'])} sections, {manifest['functions']} functions"
     )
-    table = Table(show_header=True, header_style="bold")
+    table = TerminalTable(show_header=True, header_style="bold")
     table.add_column("section", justify="left")
     for col in ("va", "vsize", "raw", "chars"):
         table.add_column(col, justify="right")

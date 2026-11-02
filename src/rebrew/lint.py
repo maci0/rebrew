@@ -19,7 +19,6 @@ lazy from collections.abc import Callable, Iterable
 lazy from typing import Any
 
 import typer
-lazy from rich.table import Table
 lazy from rich.text import Text
 
 from rebrew.c_parser import (
@@ -79,6 +78,7 @@ lazy from rebrew.sources import (
     source_exts,
 )
 lazy from rebrew.utils import (
+    TerminalTable,
     preset_module_key,
     read_source_text,
     rel_display_path,
@@ -2512,7 +2512,7 @@ def _print_summary(results: list[LintResult]) -> None:
         kind_counts += r._kind_counts
 
     console.print()
-    table = Table(title="Summary", show_lines=False, pad_edge=False)
+    table = TerminalTable(title="Summary", show_lines=False, pad_edge=False)
     table.add_column("Category", style="bold")
     table.add_column("Value")
     table.add_column("Count", justify="right", width=8, no_wrap=True)

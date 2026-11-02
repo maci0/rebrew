@@ -23,10 +23,10 @@ lazy from pathlib import Path
 lazy from typing import Any
 
 import typer
-lazy from rich.table import Table
 
 from rebrew.cli import MIN_STRING_LEN_HELP, TargetOption, console, json_print, untrusted_ident
 lazy from rebrew.config import load_config
+lazy from rebrew.utils import TerminalTable
 
 logger = logging.getLogger(__name__)
 
@@ -808,7 +808,7 @@ def main(
         f"image base [cyan]0x{meta['image_base']:x}[/cyan])"
     )
 
-    table = Table(title="Sections", box=None)
+    table = TerminalTable(title="Sections", box=None)
     table.add_column("Name")
     table.add_column("VA", justify="right")
     table.add_column("Size", justify="right")

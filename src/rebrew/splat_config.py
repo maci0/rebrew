@@ -82,7 +82,6 @@ from typing import TYPE_CHECKING, Any
 lazy import shutil
 
 import typer
-lazy from rich.table import Table
 
 from rebrew.cli import (
     TargetOption,
@@ -95,6 +94,7 @@ lazy from rebrew.config import target_module
 lazy from rebrew.metadata.bindings import iter_source_bindings
 lazy from rebrew.sources import iter_sources
 lazy from rebrew.utils import (
+    TerminalTable,
     atomic_write_text,
     library_header_name,
     parse_int_literal,
@@ -2159,7 +2159,7 @@ def _render(plan: ImportPlan, result: dict[str, Any], *, written: bool) -> None:
         console.print(f"  [yellow]note:[/yellow] {untrusted_ident(note)}")
 
     if plan.sections:
-        table = Table(title="layout sections", header_style="bold")
+        table = TerminalTable(title="layout sections", header_style="bold")
         for col in ("section", "rva", "virtual", "raw", "raw ptr"):
             table.add_column(col)
         for section in plan.sections:
@@ -2175,7 +2175,7 @@ def _render(plan: ImportPlan, result: dict[str, Any], *, written: bool) -> None:
         console.print(table)
 
     if plan.annotations:
-        table = Table(title="annotations", header_style="bold")
+        table = TerminalTable(title="annotations", header_style="bold")
         for col in ("kind", "va", "name", "size", "file", "state"):
             table.add_column(col)
         for ann in plan.annotations:
@@ -2204,7 +2204,9 @@ def _render(plan: ImportPlan, result: dict[str, Any], *, written: bool) -> None:
         console.print(f"[dim]skipped {untrusted_ident(name)}: {untrusted_ident(reason)}[/dim]")
 
     if plan.splat.ignored:
-        ignored = Table(title="ignored config keys", header_style="bold dim", title_style="dim")
+        ignored = TerminalTable(
+            title="ignored config keys", header_style="bold dim", title_style="dim"
+        )
         ignored.add_column("key", style="dim")
         ignored.add_column("why rebrew does not read it", style="dim")
         for item in plan.splat.ignored:

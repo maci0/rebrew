@@ -27,7 +27,6 @@ lazy from pathlib import Path
 
 import typer
 lazy import tree_sitter as ts
-lazy from rich.table import Table
 
 from rebrew.cli import (
     EXIT_ERROR,
@@ -45,7 +44,13 @@ lazy from rebrew.c_parser import (
     parse_c_source,
 )
 lazy from rebrew.sources import iter_sources
-lazy from rebrew.utils import rel_display_path, split_source_lines, untrusted_ident, untrusted_text
+lazy from rebrew.utils import (
+    TerminalTable,
+    rel_display_path,
+    split_source_lines,
+    untrusted_ident,
+    untrusted_text,
+)
 
 log = logging.getLogger(__name__)
 
@@ -539,7 +544,7 @@ def main(
         f"low: {by_severity['low']}):"
     )
     root = Path(str(result["root"]))
-    table = Table()
+    table = TerminalTable()
     table.add_column("Severity", style="bold", no_wrap=True)
     table.add_column("Rule", no_wrap=True)
     table.add_column("CWE", no_wrap=True)

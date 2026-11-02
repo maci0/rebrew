@@ -31,7 +31,7 @@ it belongs to rather than starting a sixth.
   ``CONTAINER_RUNTIMES``, ``find_install_tool``, ``md5_file``,
   ``SOURCE_CHECKOUT`` (the contributor checkout, ``None`` in an install),
   ``rel_display_path``
-- **Presentation helpers**: ``console`` (the stderr sink every module imports,
+- **Presentation helpers**: ``TerminalTable`` (width-aware reports), ``console`` (the stderr sink every module imports,
   so target strings are scrubbed once and for all), ``BYTES_PER_MIB``,
   ``clip_span``,
   ``merged_span_bytes``, ``floor_pct``, ``close_response``,
@@ -76,9 +76,12 @@ lazy import unicodedata
 lazy from collections.abc import Callable, Iterator, Sequence
 
 from rich.console import Console
+from rich.table import Table
 lazy import tomlkit
+lazy from rich.console import ConsoleOptions, RenderResult
 lazy from rich.errors import MarkupError
 lazy from rich.markup import escape as rich_escape
+lazy from rich.text import Text
 lazy from tomlkit import TOMLDocument
 lazy from tomlkit.exceptions import InternalParserError, ParseError
 
@@ -208,6 +211,85 @@ def untrusted_text(value: object) -> str:
     column to read as a different name or status.
     """
     return rich_escape(untrusted_literal(value))
+
+
+class TerminalTable(Table):
+    """Keep tables intact when they fit; stack labeled fields when they do not.
+
+    Rich otherwise shrinks fixed columns and ellipsizes comparison verdicts,
+    addresses and numbers. Measure against the available container width, so
+    the same policy also applies inside panels and on resized terminals.
+    """
+
+    @override
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        columns = self.columns
+        if not columns:
+            return
+        cells = [list(column.cells) for column in columns]
+        required = (len(columns) - 1 + 2 * self.show_edge) if self.box else 0
+        _, right, _, left = self.padding
+        clipped = False
+        for index, column in enumerate(columns):
+            content = [*cells[index]]
+            if self.show_header:
+                content.append(column.header)
+            if self.show_footer:
+                content.append(column.footer)
+            measurements = [console.measure(cell, options=options) for cell in content]
+            minimum = max(
+                (m.maximum if column.no_wrap else m.minimum for m in measurements), default=0
+            )
+            clipped |= any(
+                limit is not None and minimum > limit for limit in (column.width, column.max_width)
+            )
+            required += max(minimum, column.width or 0, column.min_width or 0)
+            pad_left, pad_right = (0, right) if self.collapse_padding else (left, right)
+            required += (pad_left if self.pad_edge or index else 0) + (
+                pad_right if self.pad_edge or index < len(columns) - 1 else 0
+            )
+        if not clipped and required <= options.max_width:
+            yield from super().__rich_console__(console, options)
+            return
+
+        stacked = Table(
+            title=self.title,
+            caption=self.caption,
+            title_style=self.title_style,
+            caption_style=self.caption_style,
+            show_header=False,
+            box=None,
+            pad_edge=False,
+            padding=(0, 1),
+            expand=True,
+        )
+        if self.show_header:
+            label_width = max(
+                (console.measure(column.header, options=options).maximum for column in columns),
+                default=0,
+            )
+            stacked.add_column(
+                style=self.header_style, width=min(label_width, max(1, options.max_width // 3))
+            )
+        stacked.add_column(overflow="fold", ratio=1)
+        records = [(row.style, [values[i] for values in cells]) for i, row in enumerate(self.rows)]
+        if not records and self.show_header:
+            records.append((None, [""] * len(columns)))
+        if self.show_footer:
+            records.append((self.footer_style, [column.footer for column in columns]))
+        for row_index, (row_style, values) in enumerate(records):
+            if row_index:
+                stacked.add_row(*([""] * (2 if self.show_header else 1)))
+            for column, value in zip(columns, values, strict=True):
+                if isinstance(value, str):
+                    value = console.render_str(value)
+                if isinstance(value, Text):
+                    value = value.copy()
+                    value.no_wrap = False
+                    value.overflow = "fold"
+                fields = [column.header, value] if self.show_header else [value]
+                stacked.add_row(*fields, style=row_style or column.style)
+        yield stacked
 
 
 class _TargetSafeConsole(Console):

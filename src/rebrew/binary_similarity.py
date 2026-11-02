@@ -35,7 +35,8 @@ from typing import TYPE_CHECKING, Any
 lazy from pathlib import Path
 
 import typer
-lazy from rich.table import Table
+
+lazy from rebrew.utils import TerminalTable
 
 if TYPE_CHECKING:
     import numpy as np
@@ -352,7 +353,7 @@ def run_binary_similarity(
         f"  [bold]overall (byte-weighted): {result['overall']:.1f}%[/bold]  "
         f"mean {result['mean']:.1f} · median {result['median']:.1f}"
     )
-    table = Table(show_header=True, header_style="bold", pad_edge=False)
+    table = TerminalTable(show_header=True, header_style="bold", pad_edge=False)
     table.add_column("Bucket")
     table.add_column("Count", justify="right")
     table.add_column("Bytes", justify="right")

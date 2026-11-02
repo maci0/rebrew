@@ -555,7 +555,9 @@ def _emit_outcome(message: str, *, json_mode: bool) -> None:
     if json_mode:
         json_print({"outcome": "mismatch", "message": message})
         return
-    console.print(f"[red bold]error:[/red bold] {untrusted_text(message)}", soft_wrap=True)
+    console.print(
+        f"[red bold]error:[/red bold] {untrusted_text(message)}", soft_wrap=not console.is_terminal
+    )
 
 
 def error_exit(
@@ -586,11 +588,11 @@ def error_exit(
     if use_json:
         _write_error(kind, msg, hint)
     else:
-        # soft_wrap keeps embedded commands/paths contiguous. Without it
-        # Rich folds mid-token (for example `rebrew coverage catalog …`).
         safe = untrusted_text(msg)
-        suffix = f" {hint}" if hint else ""
-        console.print(f"[red bold]error:[/red bold] {safe}{suffix}", soft_wrap=True)
+        suffix = f"\n{hint}" if hint else ""
+        console.print(
+            f"[red bold]error:[/red bold] {safe}{suffix}", soft_wrap=not console.is_terminal
+        )
     raise typer.Exit(code=code)
 
 
@@ -1007,7 +1009,9 @@ def run_cli(app: Callable[[], Any]) -> None:
         if _json_mode_active():
             _write_error("failure", str(e), "")
         else:
-            console.print(f"[red]error:[/red] {untrusted_text(str(e))}", soft_wrap=True)
+            console.print(
+                f"[red]error:[/red] {untrusted_text(str(e))}", soft_wrap=not console.is_terminal
+            )
         raise SystemExit(EXIT_ERROR) from None
     except KeyboardInterrupt:
         console.print("[red]error:[/red] Interrupted by user")

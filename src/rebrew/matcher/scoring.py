@@ -10,15 +10,19 @@ import threading
 from collections import Counter, OrderedDict
 from typing import override  # decorator: definition-time use
 lazy from collections.abc import Callable, Sequence
+lazy from io import StringIO
 lazy from typing import TYPE_CHECKING, Any
 
 import capstone
+lazy from rich.console import Console
+lazy from rich.text import Text
 
 if TYPE_CHECKING:
     import numpy as np
 
 from rebrew.errors import RebrewError
 from rebrew.utils import BYTES_PER_MIB
+lazy from rebrew.utils import TerminalTable
 
 lazy from .core import Score, StructuralSimilarity
 
@@ -966,13 +970,8 @@ def diff_functions(
     # invalid_relocs per instruction (O(insns × invalid_relocs) → O(bytes)).
     invalid_mask = _build_invalid_reloc_mask(target_bytes, invalid_relocs, pointer_size)
 
-    # Build rows with match markers.  When as_dict is True we collect
-    # structured dicts and simple counters instead of formatted lines.
-    # summary_only (used by structural_similarity, which needs only the
-    # counts + mnemonics) skips the per-instruction hex/disasm/dict building
-    # entirely — that overhead was significant in the verify hot path.
-    rows: list[tuple[str, str]] = []  # (match_char, formatted_line) — populated in print mode
-    insn_data: list[dict[str, Any]] = []  # populated only when as_dict=True
+    # Both human and machine reports use the same instruction records.
+    insn_data: list[dict[str, Any]] = []
     target_mnems: list[str] = []
     cand_mnems: list[str] = []
     exact_count = 0
@@ -984,19 +983,15 @@ def diff_functions(
     for i in range(max_insns):
         t_bytes_hex = ""
         t_disasm = ""
-        t_str = ""
         if i < len(target_insns):
             _, _, t_m, t_o, t_b = target_insns[i]
             target_mnems.append(t_m)
             if not summary_only:
                 t_bytes_hex = t_b.hex()
                 t_disasm = f"{t_m} {t_o}".strip()
-                if not as_dict:
-                    t_str = f"{t_m:6} {t_o}"
 
         c_bytes_hex = ""
         c_disasm = ""
-        c_str = ""
         match_char = "  "
         if i < len(cand_insns):
             c_a, c_s, c_m, c_o, c_b = cand_insns[i]
@@ -1004,8 +999,6 @@ def diff_functions(
             if not summary_only:
                 c_bytes_hex = c_b.hex()
                 c_disasm = f"{c_m} {c_o}".strip()
-                if not as_dict:
-                    c_str = f"{c_m:6} {c_o}"
 
             if i < len(target_insns):
                 t_a, t_s, _, _, t_b = target_insns[i]
@@ -1048,69 +1041,33 @@ def diff_functions(
 
         if summary_only:
             continue
-        if as_dict:
-            insn_data.append(
-                {
-                    "index": i,
-                    "match": match_char.strip() or None,
-                    "target": {"bytes": t_bytes_hex, "disasm": t_disasm} if t_bytes_hex else None,
-                    "candidate": {"bytes": c_bytes_hex, "disasm": c_disasm}
-                    if c_bytes_hex
-                    else None,
-                }
-            )
-        else:
-            line = f"{t_bytes_hex:20} {t_str:30} | {match_char} | {c_bytes_hex:20} {c_str}"
-            rows.append((match_char, line))
+        insn_data.append(
+            {
+                "index": i,
+                "match": match_char.strip() or None,
+                "target": {"bytes": t_bytes_hex, "disasm": t_disasm} if t_bytes_hex else None,
+                "candidate": {"bytes": c_bytes_hex, "disasm": c_disasm} if c_bytes_hex else None,
+            }
+        )
 
+    payload: dict[str, Any] = {
+        "target_size": len(target_bytes),
+        "candidate_size": len(candidate_bytes),
+        "summary": {
+            "exact": exact_count,
+            "reloc": reloc_count,
+            "reg": reg_count,
+            "structural": mismatch_count,
+            "invalid": invalid_reloc_count,
+            "total": max_insns,
+        },
+    }
+    if not summary_only:
+        payload["instructions"] = insn_data
+    payload["mnemonics"] = {"target": target_mnems, "candidate": cand_mnems}
     if as_dict:
-        payload: dict[str, Any] = {
-            "target_size": len(target_bytes),
-            "candidate_size": len(candidate_bytes),
-            "summary": {
-                "exact": exact_count,
-                "reloc": reloc_count,
-                "reg": reg_count,
-                "structural": mismatch_count,
-                "invalid": invalid_reloc_count,
-                "total": max_insns,
-            },
-        }
-        if not summary_only:
-            payload["instructions"] = insn_data
-        # Collected in the same pass, so structural_similarity needs no second
-        # disassembly of either side.
-        payload["mnemonics"] = {"target": target_mnems, "candidate": cand_mnems}
         return payload
-
-    print(f"\nTarget ({len(target_bytes)}B) vs Candidate ({len(candidate_bytes)}B)")
-    if mismatches_only:
-        print("Showing ** and XX lines only (structural and invalid-relocation mismatches)")
-    print("-" * 80)
-    print(
-        f"{'Target bytes':20} {'Target disassembly':30} | MS | "
-        f"{'Candidate bytes':20} {'Candidate disassembly'}"
-    )
-    print("-" * 80)
-
-    for match_char, line in rows:
-        if mismatches_only and match_char not in ("**", "XX"):
-            continue
-        print(line)
-
-    print("-" * 80)
-    if not mismatches_only:
-        print("== : exact match")
-        print("~~ : relocation difference (acceptable)")
-        if register_aware:
-            print("RR : register encoding difference")
-        print("** : structural difference")
-    print(
-        f"Summary: {mismatch_count} structural diff(s), "
-        f"{reg_count} register diff(s), "
-        f"{reloc_count} reloc diff(s), {invalid_reloc_count} invalid reloc(s), "
-        f"{exact_count} exact match(es)"
-    )
+    print_diff_summary(payload, mismatches_only=mismatches_only, register_aware=register_aware)
     return None
 
 
@@ -1120,6 +1077,7 @@ def print_diff_summary(
     mismatches_only: bool = False,
     register_aware: bool = False,
     write: Callable[[str], None] = print,
+    width: int | None = None,
 ) -> None:
     """Render a ``diff_functions(..., as_dict=True)`` payload as the human table.
 
@@ -1144,13 +1102,15 @@ def print_diff_summary(
     )
     if mismatches_only:
         write("Showing ** and XX lines only (structural and invalid-relocation mismatches)")
-    write("-" * 80)
-    write(
-        f"{'Target bytes':20} {'Target disassembly':30} | MS | "
-        f"{'Candidate bytes':20} {'Candidate disassembly'}"
-    )
-    write("-" * 80)
-
+    table = TerminalTable(pad_edge=False)
+    for label in (
+        "Target bytes",
+        "Target disassembly",
+        "MS",
+        "Candidate bytes",
+        "Candidate disassembly",
+    ):
+        table.add_column(label, no_wrap=True)
     for row in summary.get("instructions") or []:
         match = row.get("match")
         match_char = match if match in ("==", "~~", "XX", "RR", "**") else "  "
@@ -1158,13 +1118,19 @@ def print_diff_summary(
             continue
         t = row.get("target") or {}
         c = row.get("candidate") or {}
-        t_str = _pad_disasm(t.get("disasm") or "")
-        c_str = _pad_disasm(c.get("disasm") or "")
-        write(
-            f"{t.get('bytes', ''):20} {t_str:30} | {match_char} | {c.get('bytes', ''):20} {c_str}"
+        table.add_row(
+            Text(t.get("bytes", "")),
+            Text(t.get("disasm") or ""),
+            Text(match_char),
+            Text(c.get("bytes", "")),
+            Text(c.get("disasm") or ""),
         )
 
-    write("-" * 80)
+    buffer = StringIO()
+    terminal = Console(file=buffer, width=width, color_system=None, highlight=False)
+    terminal.print(table)
+    for line in buffer.getvalue().splitlines():
+        write(line.rstrip())
     if not mismatches_only:
         write("== : exact match")
         write("~~ : relocation difference (acceptable)")
@@ -1177,14 +1143,6 @@ def print_diff_summary(
         f"{reloc_count} reloc diff(s), {invalid_reloc_count} invalid reloc(s), "
         f"{exact_count} exact match(es)"
     )
-
-
-def _pad_disasm(disasm: str) -> str:
-    """Rebuild the ``f"{mnemonic:6} {op_str}"`` cell from combined disasm text."""
-    if not disasm:
-        return ""
-    mnemonic, _, rest = disasm.partition(" ")
-    return f"{mnemonic:6} {rest}"
 
 
 def structural_similarity(

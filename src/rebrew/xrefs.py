@@ -20,7 +20,6 @@ lazy from pathlib import Path
 lazy from typing import Any
 
 import typer
-lazy from rich.table import Table
 
 from rebrew.cli import (
     EXIT_ERROR,
@@ -42,6 +41,7 @@ lazy from rebrew.analysis import (
 lazy from rebrew.formats.binary_loader import load_binary
 lazy from rebrew.formats.binary_model import BinaryInfo
 lazy from rebrew.formats.import_table import parse_import_table
+lazy from rebrew.utils import TerminalTable
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -270,7 +270,7 @@ def main(
         if json_output:
             json_print(payload)
         else:
-            table = Table(title=f"calls from {target_va:#x} ({calls_from} bytes)")
+            table = TerminalTable(title=f"calls from {target_va:#x} ({calls_from} bytes)")
             table.add_column("callee")
             table.add_column("count", justify="right")
             for row in payload["callees"]:
@@ -304,7 +304,7 @@ def main(
         )
     for ref_kind in sorted(counts):
         console.print(f"  [bold]{ref_kind}[/]: {counts[ref_kind]}")
-    table = Table(title=f"xrefs to 0x{target_va:08X}")
+    table = TerminalTable(title=f"xrefs to 0x{target_va:08X}")
     table.add_column("from_va", justify="right")
     table.add_column("kind")
     table.add_column("instruction")

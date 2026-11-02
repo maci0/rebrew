@@ -15,7 +15,6 @@ lazy import math
 lazy from typing import Any
 
 import typer
-lazy from rich.table import Table
 
 from rebrew.cli import (
     TargetOption,
@@ -37,7 +36,7 @@ from rebrew.instruction_clones import (
 )
 lazy from rebrew.analysis import DEFAULT_CS_ARCH, DEFAULT_CS_MODE
 lazy from rebrew.config import ProjectConfig, inventory_path_for
-lazy from rebrew.utils import untrusted_ident
+lazy from rebrew.utils import TerminalTable, untrusted_ident
 
 #: Smallest duplicate group ``rebrew similarity function --cluster`` reports.
 MIN_CLUSTER_SIZE = 2
@@ -407,7 +406,7 @@ def main(
         console.print("[yellow]No similar functions found.[/yellow]")
         return
 
-    table = Table(title=f"Functions similar to {untrusted_ident(va)}", show_header=True)
+    table = TerminalTable(title=f"Functions similar to {untrusted_ident(va)}", show_header=True)
     table.add_column("Rank", justify="right")
     table.add_column("VA")
     table.add_column("Score", justify="right")
@@ -432,7 +431,7 @@ def _print_submatch(report: dict[str, Any]) -> None:
     if not runs:
         console.print("[yellow]No common run at or above the minimum length.[/yellow]")
         return
-    table = Table(show_header=True, header_style="bold")
+    table = TerminalTable(show_header=True, header_style="bold")
     table.add_column("Left")
     table.add_column("Right")
     table.add_column("Insns", justify="right")
@@ -457,7 +456,7 @@ def _print_clusters(report: dict[str, Any]) -> None:
     if not report["clusters"]:
         console.print("[yellow]No duplicate groups found.[/yellow]")
         return
-    table = Table(show_header=True, header_style="bold")
+    table = TerminalTable(show_header=True, header_style="bold")
     table.add_column("Group", justify="right")
     table.add_column("Size", justify="right")
     table.add_column("Insns", justify="right")

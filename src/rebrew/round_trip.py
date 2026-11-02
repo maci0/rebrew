@@ -34,7 +34,6 @@ lazy from typing import Any
 import typer
 lazy from rich.console import Group
 lazy from rich.panel import Panel
-lazy from rich.table import Table
 lazy from rich.text import Text
 
 from rebrew.cli import (
@@ -63,6 +62,7 @@ lazy from rebrew.sections import trim_trailing_padding
 lazy from rebrew.sources import iter_sources
 lazy from rebrew.status_style import STATUS_COLORS
 lazy from rebrew.utils import (
+    TerminalTable,
     atomic_write_bytes,
     floor_pct,
     merged_span_bytes,
@@ -1007,10 +1007,10 @@ def _render_rich(report: dict[str, Any]) -> None:
         summary_items.append(Text.from_markup(f"  [dim]Output:[/dim] {untrusted_ident(out_path)}"))
 
     # --- Mismatch table ---
-    table_items: list[Table] = []
+    table_items: list[TerminalTable] = []
     if mismatches:
         summary_items.append(Text(""))  # spacer before table
-        table = Table(title="Mismatches", show_header=True, header_style="bold")
+        table = TerminalTable(title="Mismatches", show_header=True, header_style="bold")
         table.add_column("VA", style="cyan", no_wrap=True)
         table.add_column("Symbol", style="magenta")
         table.add_column("Status", style="bold")
@@ -1039,7 +1039,7 @@ def _render_rich(report: dict[str, Any]) -> None:
         subtitle = f"[bold red]✗ {n} mismatch{'es' if n != 1 else ''}[/bold red]"
 
     # --- Assemble panel ---
-    all_content: list[Text | Table] = [*summary_items, *table_items]
+    all_content: list[Text | TerminalTable] = [*summary_items, *table_items]
     panel = Panel(
         Group(*all_content),
         title=title,

@@ -26,10 +26,10 @@ lazy from typing import Any
 
 import typer
 from rich.console import Console
-lazy from rich.table import Table
 
 lazy from rebrew.cli import console, error_exit, json_print
 lazy from rebrew.config import REBREW_SKILLS_DIR_ENV, ConfigError, env_dir_path
+lazy from rebrew.utils import TerminalTable
 
 logger = logging.getLogger(__name__)
 
@@ -240,7 +240,7 @@ def list_skills(
         console.print("[yellow]No skills found under agent-skills/.[/yellow]")
         return
 
-    table = Table(show_header=True, header_style="bold")
+    table = TerminalTable(show_header=True, header_style="bold")
     table.add_column("Name", style="cyan", no_wrap=True)
     table.add_column("Description")
     for s in skills:

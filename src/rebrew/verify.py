@@ -39,7 +39,6 @@ import typer
 from typer.models import TyperPath
 lazy import capstone
 lazy from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn
-lazy from rich.table import Table
 lazy from rich.text import Text
 
 from rebrew.cli import (
@@ -82,6 +81,7 @@ lazy from rebrew.metadata.functions import canonical_status, should_promote_stat
 lazy from rebrew.sources import contained_path, source_roots
 lazy from rebrew.status_style import DISPLAY_STATUSES, STATUS_COLORS, STATUS_LEGEND_ORDER
 lazy from rebrew.utils import (
+    TerminalTable,
     atomic_write_text,
     floor_pct,
     interruptible_pool,
@@ -3559,7 +3559,9 @@ def render_verify_summary(results: list[dict[str, Any]]) -> None:
     from rebrew.present import bar_plain, count_column
 
     console.print()
-    table = Table(title="Verification Summary", show_header=True, expand=False, pad_edge=False)
+    table = TerminalTable(
+        title="Verification Summary", show_header=True, expand=False, pad_edge=False
+    )
     table.add_column("VA", style="cyan", width=12, no_wrap=True)
     table.add_column("Symbol", style="magenta", overflow="ellipsis", no_wrap=True)
     count_column(table, "Size", width=8)
@@ -3599,7 +3601,9 @@ def render_verify_summary(results: list[dict[str, Any]]) -> None:
     ]
     shown.extend(sorted(set(counts) - set(STATUS_LEGEND_ORDER)))
 
-    stat_table = Table(title="STATUS Breakdown", show_header=False, expand=False, pad_edge=False)
+    stat_table = TerminalTable(
+        title="STATUS Breakdown", show_header=False, expand=False, pad_edge=False
+    )
     stat_table.add_column("Category", style="cyan", width=16, no_wrap=True)
     count_column(stat_table, "Count", width=8)
     for status in shown:

@@ -16,7 +16,6 @@ lazy from typing import Any
 
 import typer
 lazy from rich.console import Console
-lazy from rich.table import Table
 
 from rebrew.cli import (
     SIZE_HELP,
@@ -31,7 +30,7 @@ from rebrew.cli import (
 )
 lazy from rebrew.analysis import DEFAULT_CS_ARCH, DEFAULT_CS_MODE
 lazy from rebrew.near_analysis import analyze, blocker_text, catalog_markdown
-lazy from rebrew.utils import untrusted_ident
+lazy from rebrew.utils import TerminalTable, untrusted_ident
 lazy from rebrew.workspace.status import NEAR_MATCH_CANDIDATE_STATUSES
 
 
@@ -482,7 +481,7 @@ def main(
         json_print(result)
         return
 
-    table = Table(title=f"Delta classification for 0x{va_int:08x}", show_header=True)
+    table = TerminalTable(title=f"Delta classification for 0x{va_int:08x}", show_header=True)
     table.add_column("Category", style="bold")
     table.add_column("Bytes", justify="right")
     table.add_column("% of total", justify="right")

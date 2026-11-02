@@ -40,7 +40,6 @@ lazy from pathlib import Path
 lazy from typing import Any, Literal
 
 import typer
-lazy from rich.table import Table
 
 from rebrew.cli import (
     EXIT_ERROR,
@@ -52,7 +51,7 @@ from rebrew.cli import (
 )
 lazy from rebrew.config import ProjectConfig, inventory_path_for
 lazy from rebrew.rename_ops import c_name_from_symbol
-lazy from rebrew.utils import untrusted_ident
+lazy from rebrew.utils import TerminalTable, untrusted_ident
 lazy from rebrew.workspace.status import EARNED_STATUSES
 
 log = logging.getLogger(__name__)
@@ -1225,7 +1224,7 @@ def main(
     if not recs:
         console.print("Nothing to recommend — layout and hygiene look clean.")
         return
-    table = Table(show_header=True, header_style="bold")
+    table = TerminalTable(show_header=True, header_style="bold")
     table.add_column("Kind", style="cyan")
     table.add_column("Detail")
     table.add_column("Conf", justify="right")

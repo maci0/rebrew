@@ -12,7 +12,6 @@ import logging
 lazy from pathlib import Path
 
 import typer
-lazy from rich.table import Table
 
 from rebrew.cli import (
     EXIT_MISMATCH,
@@ -36,7 +35,7 @@ lazy from rebrew.binsync.state import (
     sync_health,
     sync_health_messages,
 )
-lazy from rebrew.utils import fold_ident, preset_module_key, strip_body
+lazy from rebrew.utils import TerminalTable, fold_ident, preset_module_key, strip_body
 
 log = logging.getLogger(__name__)
 
@@ -254,7 +253,7 @@ def main(
         console.print("[green]No divergences — rebrew and BinSync are in sync.[/green]")
         return
 
-    table = Table(title=f"BinSync divergences ({len(divergences)})", show_lines=False)
+    table = TerminalTable(title=f"BinSync divergences ({len(divergences)})", show_lines=False)
     table.add_column("VA", style="cyan", no_wrap=True)
     table.add_column("Field")
     table.add_column("Local", overflow="fold")

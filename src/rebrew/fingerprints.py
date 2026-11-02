@@ -31,7 +31,6 @@ lazy from pathlib import Path
 lazy from typing import Any, cast
 
 import typer
-lazy from rich.table import Table
 
 from rebrew.cli import (
     EXIT_ERROR,
@@ -43,6 +42,7 @@ from rebrew.cli import (
     untrusted_ident,
 )
 from rebrew.errors import RebrewError
+lazy from rebrew.utils import TerminalTable
 
 log = logging.getLogger(__name__)
 
@@ -529,7 +529,7 @@ def main(
         json_print(bundle)
         return
 
-    table = Table(
+    table = TerminalTable(
         title=f"Fingerprint: {untrusted_ident(binary.name)}", expand=False, pad_edge=False
     )
     table.add_column("Field", style="bold")
@@ -548,7 +548,7 @@ def main(
 
     sections = cast(list[dict[str, object]], bundle["section_entropies"])
     if sections:
-        section_table = Table(title="Sections")
+        section_table = TerminalTable(title="Sections")
         section_table.add_column("Name")
         section_table.add_column("VA")
         section_table.add_column("VSize", justify="right")

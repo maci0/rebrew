@@ -38,12 +38,11 @@ lazy from string import Formatter
 lazy from typing import Any
 
 import typer
-lazy from rich.table import Table
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
 lazy from rebrew.formats.pe_headers import pe_layout
 lazy from rebrew.formats.pe_image import derive_link_options, parse_pe
-lazy from rebrew.utils import run_process_group, untrusted_ident
+lazy from rebrew.utils import TerminalTable, run_process_group, untrusted_ident
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
@@ -292,7 +291,9 @@ def main(
                 continue
             linked_any = True
             stamp_only &= set(r["diffs"])
-        table = Table(title="build sweep-link-flags — header fields differing from the reference")
+        table = TerminalTable(
+            title="build sweep-link-flags — header fields differing from the reference"
+        )
         table.add_column("candidate")
         table.add_column("diffs", justify="right")
         table.add_column("fields")

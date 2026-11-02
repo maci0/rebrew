@@ -39,6 +39,7 @@ from rebrew.metadata.bindings import (
     read_source_bindings,
 )
 from rebrew.utils import fold_ident, read_compile_source
+lazy from rebrew.utils import TerminalTable
 
 if TYPE_CHECKING:
     from rebrew.compiler.cache import CacheBackend
@@ -716,10 +717,15 @@ def run_single_toolchain_sweep(
         )
         return
 
-    console.print("[bold]Toolchain sweep:[/bold]")
+    table = TerminalTable(title="Toolchain sweep")
+    table.add_column("Toolchain")
+    table.add_column("Score", justify="right")
+    table.add_column("Bytes", justify="right")
+    table.add_column("Status")
     for score_val, matched, count, total, profile in results:
         tag = "[green]EXACT[/green]" if matched and count == total else ""
-        console.print(f"  {profile:10s} score={score_val:9.2f}  {count}/{total} bytes {tag}")
+        table.add_row(profile, f"{score_val:.2f}", f"{count}/{total}", tag)
+    console.print(table)
     if results:
         best = results[0]
         if best[1] and best[2] == best[3]:
@@ -789,13 +795,20 @@ def run_single_toolchain_flag_sweep(
         )
         return
 
-    console.print("[bold]Toolchain + flag sweep:[/bold]")
+    table = TerminalTable(title="Toolchain + flag sweep")
+    table.add_column("Toolchain")
+    table.add_column("Best score", justify="right")
+    table.add_column("Flags")
+    table.add_column("Status")
     for r in rows:
-        tag = "[green]EXACT[/green]" if r["exact"] else ""
-        score = f"{r['best_score']:.2f}" if r["best_score"] is not None else "    n/a"
-        console.print(
-            f"  {r['toolchain']:10s} best={score:>9s}  {r['flags'] or '(no flags)'} {tag}"
+        score = f"{r['best_score']:.2f}" if r["best_score"] is not None else "n/a"
+        table.add_row(
+            r["toolchain"],
+            score,
+            r["flags"] or "(no flags)",
+            "[green]EXACT[/green]" if r["exact"] else "",
         )
+    console.print(table)
     if rows and rows[0]["exact"]:
         console.print(
             f"[green]Full match with {rows[0]['toolchain']} — switch the project profile "

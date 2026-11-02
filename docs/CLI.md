@@ -109,6 +109,13 @@ selects `auto`, `text`, or `json`; `auto` stays text, and a command's own
 `-o` is still a destination path. In JSON mode the last stderr line of a
 failure is `{"error":{"kind","message","hint"}}`. Exit 1 is a mismatch
 outcome, not an error kind: the report stays on stdout.
+
+Human-readable tables adapt to the available terminal width, including inside
+panels. When columns cannot fit without clipping values, rows become aligned
+label/value blocks. Addresses, verdicts, and measured numbers stay complete;
+long text wraps. Help and report layouts are checked at 60, 80, 100, and 120
+columns. JSON and source/assembly exports retain their machine-readable formats.
+
 A confirmation prompt rejects non-terminal stdin before reading it.
 `cache clear`, `cfg target remove`, `cfg module remove`,
 `coverage catalog --fix-sizes`, `source merge`, and `source split` need a

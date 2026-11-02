@@ -26,7 +26,6 @@ lazy from pathlib import Path
 lazy from typing import Any
 
 import typer
-lazy from rich.table import Table
 
 from rebrew.cli import (
     EXIT_ERROR,
@@ -41,6 +40,7 @@ from rebrew.cli import (
 lazy from rebrew.analysis import Xref, iter_strings, string_refs
 lazy from rebrew.formats.binary_loader import load_binary
 lazy from rebrew.formats.binary_model import BinaryInfo
+lazy from rebrew.utils import TerminalTable
 
 # Data-ish sections scanned when --section is not given; mirrors the
 # analysis.py default so the "nothing to scan" note can be detected here.
@@ -195,7 +195,7 @@ def main(
     if payload["count"] == 0:
         return
 
-    table = Table(
+    table = TerminalTable(
         title=f"Strings in {untrusted_ident(binary.name)}", show_header=True, header_style="bold"
     )
     table.add_column("VA", justify="right", style="cyan")

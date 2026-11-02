@@ -29,7 +29,6 @@ lazy import heapq
 
 import typer
 lazy from rich.panel import Panel
-lazy from rich.table import Table
 
 from rebrew.cli import (
     TargetOption,
@@ -59,6 +58,7 @@ lazy from rebrew.metadata.bindings import SourceBinding, read_source_bindings
 lazy from rebrew.metadata.functions import as_metadata_int, get_entry, load_metadata
 lazy from rebrew.rename_ops import c_name_from_symbol
 lazy from rebrew.sources import iter_sources
+lazy from rebrew.utils import TerminalTable
 
 logger = logging.getLogger(__name__)
 
@@ -545,7 +545,7 @@ def _print_section(title: str, columns: tuple[str, ...], rows: list[tuple[Any, .
     if not rows:
         console.print(f"[dim]{title}: none[/]")
         return
-    table = Table(title=title, show_header=True, header_style="bold")
+    table = TerminalTable(title=title, show_header=True, header_style="bold")
     for column in columns:
         table.add_column(column)
     for row in rows:

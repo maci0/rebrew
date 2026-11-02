@@ -522,7 +522,7 @@ class TestCiPins:
         # One matrix entry, like the coverage floor and the fixture sweep:
         # the two tests read the checked-in tree, so the 3.15 baseline agrees.
         step = ci.split("- name: Install vnu", 1)[1].split("- name:", 1)[0]
-        assert "if: matrix.python-version == '3.15.1'" in step
+        assert "if: matrix.python-version == '3.15.2'" in step
         # The cache must restore before the install that reads it, and its
         # key has to cover the pin, which lives in the helper rather than
         # the workflow: a key missing it serves a validator never checked.

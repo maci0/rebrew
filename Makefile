@@ -55,7 +55,7 @@ RESEMBL_REF ?= v3.10.1
 RESEMBL_SHA ?= b82067833085810ce07067a621e3d7521d69eff6
 RESEMBL_DIR := $(abspath $(CURDIR)/../resembl)
 # Match the CI uv pin so local sync/audit behavior tracks CI.
-UV_VERSION ?= 0.13.5
+UV_VERSION ?= 0.13.6
 
 # Single-file / nodeid override for the edit-test loop:
 #   make test-one T=tests/test_annotation.py
@@ -1006,7 +1006,7 @@ smoke-wheel: require-dist ensure-uv
 
 # Run all non-mutating verification gates (mirrors CI lint + test +
 # cli-contract jobs: ruff, mypy, uv audit, pytest under the COV_FLOOR gate
-# (CI runs `make coverage` on Python 3.15.1),
+# (CI runs `make coverage` on Python 3.15.2),
 # fixture
 # freshness, idempotency sweep, CLI help greps, plus the import-cycle and
 # import-layering hooks that the CI pre-commit job also runs).  For full hook

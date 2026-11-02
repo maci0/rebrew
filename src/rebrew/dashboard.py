@@ -2885,7 +2885,7 @@ def _server_notice(level: str, message: str) -> None:
     ``message`` is Rich markup; the surrounding text is local (host, port,
     resolved path), never request-derived.
     """
-    console.print(_stamped(level, message), soft_wrap=True)
+    console.print(_stamped(level, message), soft_wrap=not console.is_terminal)
 
 
 class _CorrelatedFormatter(logging.Formatter):
@@ -3374,7 +3374,7 @@ class _Handler(BaseHTTPRequestHandler):
         console.print(
             _escape_log_text(_stamped("INFO", f"{self.address_string()} {fmt % args}")),
             markup=False,
-            soft_wrap=True,
+            soft_wrap=not console.is_terminal,
         )
 
     @override

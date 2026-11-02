@@ -21,7 +21,6 @@ lazy from typing import Any
 
 import typer
 lazy from rich.panel import Panel
-lazy from rich.table import Table
 lazy from rich.text import Text
 
 from rebrew.cli import (
@@ -41,7 +40,7 @@ lazy from rebrew.present import BAR_WIDTH as _BAR_WIDTH
 lazy from rebrew.present import filled_cells as _filled
 lazy from rebrew.present import ratio_bar as _bar
 lazy from rebrew.sources import iter_sources
-lazy from rebrew.utils import clip_span, floor_pct, merged_span_bytes
+lazy from rebrew.utils import TerminalTable, clip_span, floor_pct, merged_span_bytes
 lazy from rebrew.workspace.status import MATCHED_STATUSES, STUB_PLACEHOLDER_STATUSES
 
 log = logging.getLogger(__name__)
@@ -1348,14 +1347,14 @@ def _ticks(part: float, whole: float) -> str:
     return "█" * _filled(part, whole, _TICK_WIDTH)
 
 
-def _breakdown_table(*, byte_counts: bool = False, percent: bool = True) -> Table:
+def _breakdown_table(*, byte_counts: bool = False, percent: bool = True) -> TerminalTable:
     """Count table with optional function byte totals.
 
     ``percent`` adds a ratio column and tick marks. The code-account table
     leaves it off: that percentage already leads the block, and a per-status
     ratio reads as a second match score.
     """
-    table = Table(
+    table = TerminalTable(
         show_header=True,
         header_style="bold",
         pad_edge=False,
@@ -1463,7 +1462,7 @@ def _data_block(report: StatusReport) -> list[Any]:
             f"[{color}]{count}[/{color}]",
             *ratio,
         )
-    sections = Table(box=None, pad_edge=False, padding=(0, 2))
+    sections = TerminalTable(box=None, pad_edge=False, padding=(0, 2))
     sections.add_column("Section", no_wrap=True)
     for label in ("Verified", "Drift", "Unchecked", "Total"):
         sections.add_column(label, justify="right", no_wrap=True)
@@ -1525,7 +1524,7 @@ def _file_rows(report: StatusReport) -> list[Any]:
     gap = report.file_total_bytes - report.file_matched_bytes
     rows.append(Text(f"{gap:,}B differ or are missing", style="dim"))
     if report.file_sections:
-        table = Table(box=None, pad_edge=False, padding=(0, 2))
+        table = TerminalTable(box=None, pad_edge=False, padding=(0, 2))
         table.add_column("File region", no_wrap=True)
         for label in ("Same bytes", "Different / missing", "Total bytes"):
             table.add_column(label, justify="right", no_wrap=True)

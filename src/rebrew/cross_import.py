@@ -30,7 +30,6 @@ lazy from dataclasses import replace
 lazy from pathlib import Path
 
 import typer
-lazy from rich.table import Table
 
 from rebrew.cli import (
     TargetOption,
@@ -46,6 +45,7 @@ lazy from rebrew.config import ProjectConfig, inventory_path_for, target_module
 lazy from rebrew.similar import disasm_signature, similarity_score
 lazy from rebrew.sources import contained_path, iter_sources, source_roots
 lazy from rebrew.utils import (
+    TerminalTable,
     atomic_write_text,
     preset_module_key,
     read_source_text,
@@ -1604,7 +1604,7 @@ def main(
         json_print(payload)
         return
 
-    table = Table(
+    table = TerminalTable(
         title=f"source import-related {from_target} → {cfg.target_name}", header_style="bold"
     )
     for col in (

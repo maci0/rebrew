@@ -17,9 +17,9 @@ from pathlib import Path
 lazy from typing import Any
 
 import typer
-lazy from rich.table import Table
 
 lazy from rebrew.cli import console, json_print
+lazy from rebrew.utils import TerminalTable
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
@@ -146,7 +146,7 @@ def main(
         return
 
     # Pretty print a table
-    table = Table(show_header=True, header_style="bold magenta")
+    table = TerminalTable(show_header=True, header_style="bold magenta")
     table.add_column("File", style="dim", width=40)
     table.add_column("Lines", justify="right")
     table.add_column("Suggestions")

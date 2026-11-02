@@ -1,5 +1,6 @@
 """Tests for rebrew.matcher core, compiler, scoring, and parsers."""
 
+import re
 import struct
 from pathlib import Path
 
@@ -294,7 +295,7 @@ class TestDiffFunctionsEdges:
         cand = b"\x57\x89\xe5\xc3"
         diff_functions(target, cand, reloc_offsets=[0], invalid_relocs=[0])
         out = capsys.readouterr().out
-        assert "| XX |" in out
+        assert re.search(r"(?:MS\s+|[│|]\s*)XX(?:\s|[│|])", out)
         result = diff_functions(target, cand, reloc_offsets=[0], invalid_relocs=[0], as_dict=True)
         assert result is not None
         # All three instructions overlap the invalid four-byte window.
@@ -309,8 +310,8 @@ class TestDiffFunctionsEdges:
         cand = b"\x57\x89\xe5\xc3"
         diff_functions(target, cand, reloc_offsets=[0], invalid_relocs=None)
         out = capsys.readouterr().out
-        assert "| XX |" not in out
-        assert "| ~~ |" in out
+        assert not re.search(r"(?:MS\s+|[│|]\s*)XX(?:\s|[│|])", out)
+        assert re.search(r"(?:MS\s+|[│|]\s*)~~(?:\s|[│|])", out)
 
     def test_invalid_reloc_outside_code_still_normalized(self, capsys) -> None:
         """An invalid reloc entirely beyond the code does not mark any byte XX;
@@ -321,8 +322,8 @@ class TestDiffFunctionsEdges:
         cand = b"\x57\x89\xe5\xc3"
         diff_functions(target, cand, reloc_offsets=[0], invalid_relocs=[100])
         out = capsys.readouterr().out
-        assert "| XX |" not in out
-        assert "| ~~ |" in out
+        assert not re.search(r"(?:MS\s+|[│|]\s*)XX(?:\s|[│|])", out)
+        assert re.search(r"(?:MS\s+|[│|]\s*)~~(?:\s|[│|])", out)
 
     def test_build_invalid_reloc_mask_boundaries(self) -> None:
         from rebrew.matcher.scoring import _build_invalid_reloc_mask

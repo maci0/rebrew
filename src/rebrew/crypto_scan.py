@@ -27,7 +27,6 @@ lazy from pathlib import Path
 lazy from typing import Any, Literal
 
 import typer
-lazy from rich.table import Table
 
 from rebrew.cli import (
     EXIT_ERROR,
@@ -37,7 +36,7 @@ from rebrew.cli import (
     json_print,
     resolve_binary_arg,
 )
-lazy from rebrew.utils import untrusted_text
+lazy from rebrew.utils import TerminalTable, untrusted_text
 
 # ---------------------------------------------------------------------------
 # Constant tables (fixed algorithm constants, embedded as literals)
@@ -435,7 +434,7 @@ def main(
     console.print(
         f"[bold]{result['count']}[/] crypto indicator(s) in [bold]{untrusted_text(binary)}[/]:"
     )
-    table = Table()
+    table = TerminalTable()
     table.add_column("Confidence", style="bold")
     table.add_column("Kind")
     table.add_column("Name")

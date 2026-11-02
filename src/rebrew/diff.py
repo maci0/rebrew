@@ -405,7 +405,8 @@ def run_diff(
             summary,
             mismatches_only=mismatches_only,
             register_aware=register_aware,
-            write=lambda line: console.print(line, soft_wrap=True, markup=False, highlight=False),
+            write=lambda line: console.print(line, markup=False, highlight=False),
+            width=console.width,
         )
 
     if isinstance(summary, dict) and summary.get("instructions"):

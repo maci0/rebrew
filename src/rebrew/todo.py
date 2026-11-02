@@ -27,7 +27,6 @@ if TYPE_CHECKING:
 
 import typer
 lazy from rich.panel import Panel
-lazy from rich.table import Table
 
 from rebrew.cli import (
     AllTargetsOption,
@@ -55,7 +54,7 @@ lazy from rebrew.naming import (
 )
 lazy from rebrew.present import ratio_bar
 lazy from rebrew.status import effective_status
-lazy from rebrew.utils import floor_pct
+lazy from rebrew.utils import TerminalTable, floor_pct
 lazy from rebrew.workspace.status import (
     EARNED_STATUSES,
     FUZZY_STATUSES,
@@ -1926,7 +1925,7 @@ def main(
     # Match % is the figure that must not read as 100% for a near miss.  Fixed
     # widths that sum past a dumb terminal (80) are reduced evenly and that
     # column collapses to nothing, so only Name and Description flex.
-    table = Table(
+    table = TerminalTable(
         show_header=True, header_style="bold", pad_edge=False, expand=True, padding=(0, 1)
     )
     table.add_column("#", style="dim", width=3, justify="right", no_wrap=True)

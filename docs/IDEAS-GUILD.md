@@ -4240,3 +4240,16 @@ The selected-symbol scaffold update prototype now also handles uniquely parsed
 function definitions, so a reviewed empty special can remove a superseded
 comparison stub without regenerating unrelated definitions. Guarded TU merging
 and raw-link verification remain separate work.
+
+## Target-aware contract audit for conditional prototypes (2026-11-02)
+
+`rebrew types contracts` reports an incompatible return type when a shared header
+has mutually exclusive `REBREW_SERVER` and client declarations, because the
+current audit includes both conditional branches for each target. In guild-rebrew,
+replay `rebrew types contracts --name ch_PlaceOnGround --all-targets --json`:
+client contexts report both the server `void` declaration and client `int`
+declaration even though configured target compilation selects only one.
+Add target-aware preprocessing or a conservative conditional evaluation mode
+that records the exact macro/include context and leaves unresolvable branches
+explicit. This would distinguish real per-target contract conflicts from
+mutually exclusive declarations without discarding unknowns.

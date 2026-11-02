@@ -33,6 +33,7 @@ from rebrew.cli import (
     untrusted_ident,
 )
 lazy from rebrew.data_ownership import LinkSymbol, is_compiler_literal, parse_link_map
+lazy from rebrew.utils import TerminalTable
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
@@ -163,13 +164,19 @@ def main(
             }
         )
     else:
-        for row in flagged:
-            console.print(
-                f"{row['first_va']} {row['section']:6} "
-                f"{untrusted_ident(Path(row['object']).name):32} {row['shape']:24} "
-                + "; ".join(_describe(issue) for issue in row["issues"]),
-                soft_wrap=True,
-            )
+        if flagged:
+            table = TerminalTable()
+            for label in ("VA", "Section", "Object", "Shape", "Issues"):
+                table.add_column(label)
+            for row in flagged:
+                table.add_row(
+                    row["first_va"],
+                    row["section"],
+                    untrusted_ident(Path(row["object"]).name),
+                    row["shape"],
+                    "; ".join(_describe(issue) for issue in row["issues"]),
+                )
+            console.print(table)
         console.print(f"checked {len(rows)} object section(s), {len(flagged)} flagged")
     if flagged:
         raise typer.Exit(code=EXIT_MISMATCH)

@@ -11,10 +11,9 @@ lazy import unicodedata
 lazy from typing import Any
 
 import typer
-lazy from rich.table import Table
 
 from rebrew.cli import TargetOption, console, json_print, require_config
-lazy from rebrew.utils import untrusted_text
+lazy from rebrew.utils import TerminalTable, untrusted_text
 
 app = typer.Typer(
     help="Query the GA solutions database (winning fingerprints + run history).",
@@ -120,7 +119,7 @@ def main(
         console.print("[dim]No solutions found.[/dim]")
         return
 
-    table = Table(
+    table = TerminalTable(
         title="Best GA outcome per function" if best else "Winning solutions",
         box=None,
     )
