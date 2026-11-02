@@ -1256,6 +1256,7 @@ def build_source_known_functions(cfg: ProjectConfig, src_dir: Path) -> dict[int,
     """
     from rebrew.config import target_module
     from rebrew.metadata.bindings import read_source_bindings
+    from rebrew.metadata.functions import load_metadata
     from rebrew.sources import iter_sources
     from rebrew.utils import rel_display_path
 
@@ -1263,12 +1264,15 @@ def build_source_known_functions(cfg: ProjectConfig, src_dir: Path) -> dict[int,
     metadata_dir = cfg.metadata_dir
     target = target_module(cfg)
     project_root = getattr(cfg, "root", None)
+    # One read-only load for the walk, as in the other whole-tree scans here.
+    function_entries = load_metadata(metadata_dir, deepcopy=False)
     for cfile in iter_sources(src_dir, cfg):
         for entry in read_source_bindings(
             cfile,
             target_name=target,
             metadata_dir=metadata_dir,
             project_root=project_root,
+            function_entries=function_entries,
         ):
             if entry.va:
                 known_functions[entry.va] = {

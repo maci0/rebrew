@@ -98,6 +98,11 @@ def _collect_annotations(cfg: ProjectConfig) -> list[SourceBinding]:
     metadata_dir = cfg.metadata_dir
     target = target_module(cfg)
     project_root = getattr(cfg, "root", None)
+    # One read-only load for the walk: read_source_bindings otherwise
+    # re-fingerprints the same store once per source file.
+    from rebrew.metadata.functions import load_metadata
+
+    function_entries = load_metadata(metadata_dir, deepcopy=False) if metadata_dir else None
     for cfile in iter_sources(cfg.reversed_dir, cfg):
         try:
             annos.extend(
@@ -106,6 +111,7 @@ def _collect_annotations(cfg: ProjectConfig) -> list[SourceBinding]:
                     target_name=target,
                     metadata_dir=metadata_dir,
                     project_root=project_root,
+                    function_entries=function_entries,
                 )
             )
         except (OSError, KeyError, ValueError, TypeError) as exc:

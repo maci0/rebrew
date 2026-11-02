@@ -522,6 +522,12 @@ def load_existing_vas(src_dir: str | Path, cfg: ProjectConfig | None = None) -> 
     existing: dict[int, str] = {}
     metadata_dir = cfg.metadata_dir if cfg else None
     target = target_module(cfg)
+    # One read-only load for the walk: read_source_bindings and
+    # library_bindings_for_file otherwise re-fingerprint the same store once
+    # per source and once per library header.
+    from rebrew.metadata.functions import load_metadata
+
+    function_entries = load_metadata(metadata_dir, deepcopy=False) if metadata_dir else None
     for cfile in iter_sources(src_path, cfg):
         rel_name = rel_display_path(cfile, src_path)
         entries = read_source_bindings(
@@ -529,6 +535,7 @@ def load_existing_vas(src_dir: str | Path, cfg: ProjectConfig | None = None) -> 
             target_name=target,
             metadata_dir=metadata_dir,
             project_root=getattr(cfg, "root", None),
+            function_entries=function_entries,
         )
         for entry in entries:
             if entry.is_data:
@@ -540,7 +547,9 @@ def load_existing_vas(src_dir: str | Path, cfg: ProjectConfig | None = None) -> 
     # Scan library_*.h files for identified CRT/zlib functions (plus the
     # project's shared root when cfg says this directory is the target tree).
     for hfile in iter_library_headers(src_path, cfg):
-        lib_entries = library_bindings_for_file(hfile, metadata_dir=metadata_dir)
+        lib_entries = library_bindings_for_file(
+            hfile, metadata_dir=metadata_dir, function_entries=function_entries
+        )
         for entry in lib_entries:
             if entry.va < min_valid_va_for(cfg):
                 continue

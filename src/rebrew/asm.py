@@ -178,6 +178,9 @@ def build_function_lookup(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
         metadata_dir = cfg.metadata_dir
         target = target_module(cfg)
         project_root = getattr(cfg, "root", None)
+        from rebrew.metadata.functions import load_metadata
+
+        function_entries = load_metadata(metadata_dir, deepcopy=False)
         for cfile in iter_sources(src_dir, cfg):
             try:
                 entries = read_source_bindings(
@@ -185,6 +188,7 @@ def build_function_lookup(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
                     target_name=target,
                     metadata_dir=metadata_dir,
                     project_root=project_root,
+                    function_entries=function_entries,
                 )
                 for entry in entries:
                     # The C name wins. A missing name uses the symbol:

@@ -110,6 +110,11 @@ def collect(
     files: dict[Path, str] = {}
     problems: list[str] = []
     notes: list[str] = []
+    metadata_dir = cfg.metadata_dir
+    project_root = getattr(cfg, "root", None)
+    from rebrew.metadata.functions import load_metadata
+
+    function_entries = load_metadata(metadata_dir, deepcopy=False)
     # iter_sources (not a bare reversed_dir rglob): shared sources serve every
     # target and need CMake flags too, and the glob honours source_ext
     # (a bare "*.c" drops every .cpp source).
@@ -119,7 +124,10 @@ def collect(
         entries = [
             e
             for e in read_source_bindings(
-                src, metadata_dir=cfg.metadata_dir, project_root=getattr(cfg, "root", None)
+                src,
+                metadata_dir=metadata_dir,
+                project_root=project_root,
+                function_entries=function_entries,
             )
             if e.va
             and preset_module_key(e.module) == preset_module_key(target_module_name)

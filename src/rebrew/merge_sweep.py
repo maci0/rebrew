@@ -650,6 +650,9 @@ def _parse_annotations_fallback(cfg: ProjectConfig) -> dict[int, Any]:
     out: dict[int, Any] = {}
     metadata_dir = cfg.metadata_dir
     project_root = getattr(cfg, "root", None)
+    from rebrew.metadata.functions import load_metadata
+
+    function_entries = load_metadata(metadata_dir, deepcopy=False)
     for src in iter_sources(cfg.reversed_dir, cfg):
         try:
             anns = read_source_bindings(
@@ -657,6 +660,7 @@ def _parse_annotations_fallback(cfg: ProjectConfig) -> dict[int, Any]:
                 target_name=target_module_name,
                 metadata_dir=metadata_dir,
                 project_root=project_root,
+                function_entries=function_entries,
             )
         except (OSError, ValueError) as exc:
             # Every annotation in this file is then absent from the fallback
