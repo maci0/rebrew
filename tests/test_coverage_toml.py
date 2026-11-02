@@ -1127,39 +1127,55 @@ class TestMemo:
         assert first[TARGET] is second[TARGET]
         assert load_coverage_from(tmp_path / "db", TARGET).target == TARGET
 
-    def test_concurrent_misses_share_one_published_object(
+    def test_concurrent_misses_scan_once_and_share_object(
         self,
         write: Callable[[dict[str, Any]], list[Path]],
         data: dict[str, Any],
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Two request threads that miss together must not key caches on
-        different equal-valued dicts: the first publisher is the object every
-        caller gets, as it is on the warm path."""
+        """A cold burst parses the directory once and every caller gets that
+        scan's objects, so no request can key a cache on an equal-valued copy."""
         import threading
+        import time
         from concurrent.futures import ThreadPoolExecutor
 
         write(data)
         coverage_toml._ALL_CACHE = None
+        coverage_toml._ALL_INFLIGHT.clear()
         real = coverage_toml._read_document
-        barrier = threading.Barrier(4, timeout=5)
+        start = threading.Barrier(4, timeout=5)
+        entered = threading.Event()
+        release = threading.Event()
+        calls = 0
 
         def slow(path: Path, target: str) -> CoverageSnapshot:
-            barrier.wait()
+            nonlocal calls
+            calls += 1
+            entered.set()
+            assert release.wait(5)
             return real(path, target)
 
         monkeypatch.setattr(coverage_toml, "_read_document", slow)
+
+        def load() -> dict[str, CoverageSnapshot]:
+            start.wait()
+            return load_all_coverage_from(tmp_path / "db")
+
         with ThreadPoolExecutor(max_workers=4) as executor:
-            results = list(
-                executor.map(
-                    lambda _: load_all_coverage_from(tmp_path / "db"),
-                    range(4),
-                )
-            )
+            futures = [executor.submit(load) for _ in range(4)]
+            assert entered.wait(5)
+            # Give the other three time to reach the in-flight wait rather than
+            # racing past it after the leader publishes.
+            time.sleep(0.05)
+            release.set()
+            results = [future.result(timeout=5) for future in futures]
+        assert calls == 1
         assert results[0]
         assert all(result is results[0] for result in results)
         assert all(result[TARGET] is results[0][TARGET] for result in results)
+        assert load_all_coverage_from(tmp_path / "db") is results[0]
+        assert calls == 1
 
     def test_bare_key_cache_serves_concurrent_renders(
         self, monkeypatch: pytest.MonkeyPatch

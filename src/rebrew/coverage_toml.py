@@ -1403,6 +1403,13 @@ _ALL_CACHE: (
     tuple[tuple[Path, tuple[tuple[str, int, int, int, int], ...]], dict[str, CoverageSnapshot]]
     | None
 ) = None
+#: In-flight directory scans, keyed the same way as ``_ALL_CACHE``.  A miss
+#: parses outside the lock, so without this every request that misses together
+#: re-reads and re-parses the same documents; the dashboard is a
+#: ``ThreadingHTTPServer`` and a cold start made that N full parses of the
+#: target tree.  Waiters block on the leader's event and then take the
+#: published snapshots, so one scan serves the burst.
+_ALL_INFLIGHT: dict[tuple[Path, tuple[tuple[str, int, int, int, int], ...]], threading.Event] = {}
 
 
 def _stat_key(db_directory: Path) -> tuple[tuple[str, int, int, int, int], ...]:
@@ -1472,30 +1479,50 @@ def load_all_coverage_from(db_directory: Path) -> dict[str, CoverageSnapshot]:
 
     Unreadable documents are logged and skipped. Unchanged directories reuse
     the same immutable snapshots; normal project readers use coverage_project.
+    Concurrent misses for one directory scan it once and share the result.
     """
     global _ALL_CACHE
     db_directory = Path(db_directory)
     key = (db_directory, _stat_key(db_directory))
-    with _ALL_CACHE_LOCK:
-        cached = _ALL_CACHE
-        if cached is not None and cached[0] == key:
-            return cached[1]
+    while True:
+        with _ALL_CACHE_LOCK:
+            cached = _ALL_CACHE
+            if cached is not None and cached[0] == key:
+                return cached[1]
+            event = _ALL_INFLIGHT.get(key)
+            if event is None:
+                event = threading.Event()
+                _ALL_INFLIGHT[key] = event
+                break
+        # Another caller owns this scan.  Wait for it, then re-check the
+        # cache: the directory may have changed meanwhile, in which case this
+        # caller computes a fresh key and starts the next scan.
+        event.wait()
+
     snapshots: dict[str, CoverageSnapshot] = {}
-    for name, _mtime_ns, _size, _ino, _ctime_ns in key[1]:
-        # NFC: lookups and the writer use the NFC config target name, but a
-        # decomposing filesystem (HFS+/APFS) lists the file NFD.
-        target = unicodedata.normalize("NFC", name[len(_FILENAME_PREFIX) : -len(_FILENAME_SUFFIX)])
-        path = db_directory / name
-        try:
-            snapshots[target] = _read_document(path, target)
-        except CoverageTomlError as exc:
-            log.warning("coverage_toml: skipping %s: %s", path, exc)
-    with _ALL_CACHE_LOCK:
-        cached = _ALL_CACHE
-        if cached is not None and cached[0] == key:
-            return cached[1]
-        _ALL_CACHE = (key, snapshots)
-    return snapshots
+    try:
+        for name, _mtime_ns, _size, _ino, _ctime_ns in key[1]:
+            # NFC: lookups and the writer use the NFC config target name, but a
+            # decomposing filesystem (HFS+/APFS) lists the file NFD.
+            target = unicodedata.normalize(
+                "NFC", name[len(_FILENAME_PREFIX) : -len(_FILENAME_SUFFIX)]
+            )
+            path = db_directory / name
+            try:
+                snapshots[target] = _read_document(path, target)
+            except CoverageTomlError as exc:
+                log.warning("coverage_toml: skipping %s: %s", path, exc)
+        with _ALL_CACHE_LOCK:
+            cached = _ALL_CACHE
+            if cached is not None and cached[0] == key:
+                return cached[1]
+            _ALL_CACHE = (key, snapshots)
+        return snapshots
+    finally:
+        with _ALL_CACHE_LOCK:
+            if _ALL_INFLIGHT.get(key) is event:
+                del _ALL_INFLIGHT[key]
+            event.set()
 
 
 def load_coverage_from(db_directory: Path, target: str) -> CoverageSnapshot:
