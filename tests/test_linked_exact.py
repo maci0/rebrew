@@ -41,10 +41,12 @@ def _project(root: Path) -> Path:
         f"/* ADDRESS: SERVER 0x{_VA:x} */\n\nint foo(void) {{ return 1; }}\n",
         metadata_fields={f"SERVER.0x{_VA:x}": {"kind": "FUNCTION", "size": int(f"{_SIZE}", 0)}},
     )
+    # Age the source before the link: freshness compares the source's latest
+    # change against the image timestamp, and utime itself bumps change time.
+    _age(source)
     built = root / "build" / "server"
     built.parent.mkdir()
     built.write_bytes(make_pe(_CODE + b"\xcc" * 10))
-    _age(source)
     return built
 
 
@@ -187,6 +189,26 @@ class TestPromotion:
         assert kept["reason"] == "source newer than the built image"
         assert _stored(tmp_path)["status"] == "RELOC"
 
+    def test_source_rewritten_with_restored_mtime_stays_reloc(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An in-place rewrite that restores mtime still postdates the build."""
+        built = _project(tmp_path)
+        os.utime(built, ns=(1_500_000_000, 1_500_000_000))
+        source = tmp_path / "src" / "foo.c"
+        old = source.stat()
+        source.write_bytes(source.read_bytes())
+        os.utime(source, ns=(old.st_atime_ns, 1_200_000_000))
+        after = source.stat()
+        assert (after.st_mtime_ns, after.st_size) == (1_200_000_000, old.st_size)
+        assert after.st_mtime_ns < built.stat().st_mtime_ns
+        assert after.st_ctime_ns > built.stat().st_mtime_ns
+        _mock(monkeypatch)
+        report = _verify(tmp_path, "--text", "--raw-link")
+        (kept,) = report["text"]["linked"]["kept_reloc"]
+        assert kept["reason"] == "source newer than the built image"
+        assert _stored(tmp_path)["status"] == "RELOC"
+
 
 class TestStickiness:
     @pytest.mark.parametrize("full", [False, True])
@@ -279,13 +301,16 @@ class TestStickiness:
     ) -> None:
         from rebrew.app.main import app
 
-        _project(tmp_path)
+        built = _project(tmp_path)
         source = tmp_path / "src" / "foo.c"
         source.write_text(
             source.read_text()
             + f"/* ADDRESS: SERVER 0x{_VA + 0x10:x} */\nint bar(void) {{ return 0; }}\n"
         )
         _age(source)
+        # The edit postdates the link; age the source, then link again, so the
+        # image under test is the one built from the multi-function file.
+        os.utime(built, None)
         _mock(monkeypatch)
         _verify(tmp_path, "--text", "--raw-link")
         assert _stored(tmp_path)["status"] == "EXACT"

@@ -24,6 +24,8 @@ lazy import json
 lazy from pathlib import Path
 lazy from typing import Any
 
+lazy from rebrew.utils import last_change_ns
+
 __all__ = [
     "LINKED_MESSAGE",
     "image_sha256",
@@ -163,11 +165,15 @@ def promote_linked_exact(
 
     *results* are the run's report rows; *placed_vas* the annotated VAs the
     built image places there.  A candidate is a RELOC row placed at its VA
-    whose source is not newer than *built* and whose built bytes equal the
-    reference bytes.  With *write*, each candidate's STATUS becomes EXACT with
-    linked evidence in one locked metadata write and its row is rewritten;
-    without it the rows and the store stay unchanged.  Returns the report
-    block: counts plus the rows that were not promoted, with the reason.
+    whose source has not changed since *built* and whose built bytes equal the
+    reference bytes.  Source freshness uses the later of mtime and change
+    time: an in-place rewrite that restored the old mtime (``cp -p``, a
+    timestamp-preserving editor) still postdates the link and must not be
+    promoted from the older image.  With *write*, each candidate's STATUS
+    becomes EXACT with linked evidence in one locked metadata write and its
+    row is rewritten; without it the rows and the store stay unchanged.
+    Returns the report block: counts plus the rows that were not promoted,
+    with the reason.
     """
     from rebrew.compiler.compile import clears_blocker
     from rebrew.compiler.overrides import resolve_compile_overrides_cached
@@ -212,7 +218,7 @@ def promote_linked_exact(
         if source is None or not source.is_file():
             _keep(row, "source not found")
             continue
-        if source.stat().st_mtime_ns > built_mtime:
+        if last_change_ns(source.stat()) > built_mtime:
             _keep(row, "source newer than the built image")
             continue
         size = int(getattr(entry, "size", 0) or 0)
