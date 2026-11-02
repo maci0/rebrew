@@ -374,13 +374,14 @@ def update_cflags_annotation(
     """Update the ``cflags`` for a function — writes to the metadata.
 
     When *module* and *va* are provided they identify the function; otherwise
-    the first FUNCTION/STUB/... marker in *filepath* is used (legacy
-    single-function callers).  Multi-function files must pass the matched
-    stub's identity — scanning the first marker writes CFLAGS under the
-    wrong key while STATUS promotion targets the correct VA.
+    *filepath* must carry exactly one function binding, which supplies the
+    identity (single-function callers).  A multi-function file has no unique
+    binding, so the update returns False; callers must pass the matched
+    stub's identity.
 
-    Returns True if the metadata was updated, False if the marker could not
-    be read or the CFLAGS were already current (a successful no-op).
+    Returns True if the metadata was updated, False when the file has no
+    unique function binding or the CFLAGS were already current (a successful
+    no-op).
     """
     from rebrew.metadata.functions import get_entry, update_field
 

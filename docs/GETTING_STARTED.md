@@ -63,8 +63,9 @@ cp /path/to/your-game.exe ./game.exe
 ```
 
 (`rebrew intake` copies it into `original/` itself. Re-running `intake` on
-the copy it already made is a no-op, so a re-discovered binary is safe to
-pass again.)
+the copy it already made skips the copy and re-runs discovery in place; it
+does not demote functions you have already worked on, so a re-discovered
+binary is safe to pass again.)
 
 ### 2. Onboard it
 

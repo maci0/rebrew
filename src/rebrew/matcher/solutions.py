@@ -239,7 +239,7 @@ def _iter_run_records(path: Path) -> Iterator[dict[str, Any]]:
 def load_solutions_file(path: Path) -> list[SolutionEntry]:
     """Load solution entries from another project's run log.
 
-    Supports cross-project seeding: ``rebrew match run --seed-solutions-file
+    Supports cross-project seeding: ``rebrew match batch --seed-solutions-file
     ../other-project/.rebrew/ga_runs.jsonl`` transfers winning
     cflags/source fingerprints between projects sharing a compiler.
     Returns an empty list when the file is missing or malformed (never

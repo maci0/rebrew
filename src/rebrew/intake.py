@@ -229,8 +229,8 @@ def classify_all(
     identity_rows: list[dict[str, Any]] = []
     for va, size, _name in funcs:
         reason = blocker_reason(family, size, hint)
-        # Pure C. The comment does not match the legacy marker grammar, so
-        # the row in rebrew-functions.toml is what names the function.
+        # Pure C. The ADDRESS anchor binds the identity; the blocker reason is
+        # an ordinary comment.
         stub = (
             f"/* ADDRESS: {target_module_name} 0x{va:08x} */\n\n"
             f"void fcn_{va:08x}(void)\n{{\n    /* {reason} */\n}}\n"

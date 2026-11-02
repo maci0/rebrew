@@ -384,9 +384,10 @@ def merge_sizeless_warning(res: dict[str, Any], size: int | None) -> dict[str, A
 def _library_vas(cfg: ProjectConfig) -> set[int]:
     """VAs the destination binary gets from a linked library, not game source.
 
-    ``// LIBRARY:`` rows in the target's ``library_*.h`` headers, plus rows
-    whose module is named in ``targets.<name>.external_libs`` (D3DX8, LIBCMT,
-    MSS32, …).  Cross-import must never create a game-source annotation for one:
+    ``LIBRARY`` rows whose ``file`` is one of the target's ``library_*.h``
+    headers, plus rows whose module is named in
+    ``targets.<name>.external_libs`` (D3DX8, LIBCMT, MSS32, …).  Cross-import
+    must never create a game-source annotation for one:
     the code is linker-supplied, byte-identical across the clients by
     construction, and importing it turns a library band into dozens of
     unmatchable "game" functions; guild-rebrew matched ~50 D3DX8

@@ -88,10 +88,10 @@ def mark_import_stubs(
     """Record LIBRARY rows for import stubs.
 
     Creates ``<reversed_dir>/library_imports.h`` when missing so the header
-    scan can find the rows. Skips VAs already covered by a source, a store
-    row, or a legacy marker still in the header. Returns the number of new
-    rows. Import stubs detected in .text become LIBRARY functions that
-    ``rebrew library crt-match`` can then attribute to CRT sources.
+    scan can find the rows. Skips VAs already covered by a source or a store
+    row. Returns the number of new rows. Import stubs detected in .text become
+    LIBRARY functions that ``rebrew library crt-match`` can then attribute to
+    CRT sources.
 
     A stub whose row carries a retired binding cannot be rewritten through the
     identity writer, because that writer refuses retired rows. *rebind_retired*
@@ -118,8 +118,8 @@ def mark_import_stubs(
     out_file = Path(cfg.reversed_dir) / "library_imports.h"
     existing, encoding = read_source_text(out_file) if out_file.exists() else ("", "utf-8")
 
-    # A decompiled .c and a store row both count. A legacy marker still in
-    # the header counts too, and a dry run must not migrate it away.
+    # A decompiled .c and a store row both count; the digest below rejects a
+    # concurrent write that lands after this scan.
     store = metadata_store(Path(metadata_dir) / METADATA_FILENAME)
     digest = store.digest()
     annotated = set(load_existing_vas(cfg.reversed_dir, cfg))

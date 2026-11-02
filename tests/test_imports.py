@@ -497,8 +497,8 @@ class TestImportsMark:
         )
 
         assert mark_import_stubs(cfg, {0x401000: "Existing", 0x402000: "MessageBoxA"}) == 1
-        # The legacy marker is migrated off the header. The comment stays in
-        # the encoding it was written in, and the new VA is a store row.
+        # The existing LIBRARY row is kept. The header's comment stays in the
+        # encoding it was written in, and the new VA is added as a store row.
         assert out.read_bytes() == comment_line
         migrated = get_entry(cfg.metadata_dir, 0x401000, "SERVER")
         assert migrated["kind"] == "LIBRARY"

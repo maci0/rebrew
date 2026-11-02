@@ -312,14 +312,14 @@ def match_function(
 def collect_library_annotations(
     cfg: ProjectConfig,
 ) -> list[tuple[Path, SourceBinding]]:
-    """Collect LIBRARY-marker annotations from source files.
+    """Collect LIBRARY bindings from source files.
 
-    ``reversed_dir`` is per-target (``src/<marker>``), so the module filter
+    ``reversed_dir`` is per-target (``src/<module>``), so the module filter
     here — not the parser's ``target_name`` filter — decides what counts as a
     library function.  Passing ``target_name=None`` keeps cross-module
-    ``// LIBRARY: MSVCRT``-style markers (the documented ``library_modules``
-    convention); only FUNCTION/LIBRARY bindings are collected, so GLOBAL/DATA
-    annotations never match against the CRT index.
+    ``LIBRARY`` rows (the documented ``library_modules`` convention); only
+    FUNCTION/LIBRARY bindings are collected, so GLOBAL/DATA annotations never
+    match against the CRT index.
     """
     annotations: list[tuple[Path, SourceBinding]] = []
     library_modules = {preset_module_key(m) for m in getattr(cfg, "library_modules", [])}
@@ -444,11 +444,10 @@ def match_all(cfg: ProjectConfig) -> list[CrtMatch]:
         if not binary_name:
             continue
 
-        # LIBRARY metadata entries often carry the TARGET's module (e.g.
-        # `// LIBRARY: SERVER 0x...`) rather than the library's module, so
-        # the marker module may not own an index.  Fall back to every
-        # configured library index — the library identity is decided by the
-        # name match, not the marker module.
+        # LIBRARY metadata entries often carry the TARGET's module (e.g. a row
+        # under SERVER) rather than the library's module, so that module may
+        # not own an index.  Fall back to every configured library index — the
+        # library identity is decided by the name match, not the row's module.
         if module_key in indexes:
             candidates: list[tuple[str, list[CrtSourceEntry]]] = [
                 (ann.module or "", indexes[module_key])
