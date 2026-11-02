@@ -67,6 +67,11 @@ _METADATA_DOC_CACHE_LOCK = threading.Lock()
 #: large pytest session with unique tmp_path TOMLs) cannot retain every
 #: parsed table until exit.  Eviction is FIFO on insertion order.
 _METADATA_DOC_CACHE_MAX = 64
+#: Version of the on-disk parsed-row sidecar.  The file fingerprint only says
+#: the input did not change; it says nothing about the parser that produced the
+#: rows, so a deploy must not read sidecars written by older row semantics.
+#: Bump whenever :func:`parse_metadata_doc` changes what it emits.
+_DOC_CACHE_VERSION = 1
 
 #: Path and ``(mtime_ns, ctime_ns, size, ino)`` for every metadata input.  mtime alone misses
 #: another process's rewrite inside one timestamp tick (coarse filesystems,
@@ -121,8 +126,10 @@ def _read_doc_cache(
         payload = json.loads(_doc_cache_file(path).read_text(encoding="utf-8"))
     except OSError, UnicodeError, json.JSONDecodeError, TypeError:
         return None
-    if not isinstance(payload, dict) or payload.get("fingerprint") != _fingerprint_token(
-        fingerprint, known_fields
+    if (
+        not isinstance(payload, dict)
+        or payload.get("version") != _DOC_CACHE_VERSION
+        or payload.get("fingerprint") != _fingerprint_token(fingerprint, known_fields)
     ):
         return None
     rows = payload.get("rows")
@@ -153,6 +160,7 @@ def _write_doc_cache(
     """Store *result* for the next process. A failure leaves the TOML path working."""
     cache_path = _doc_cache_file(path)
     payload = {
+        "version": _DOC_CACHE_VERSION,
         "fingerprint": _fingerprint_token(fingerprint, known_fields),
         "rows": [[module, va, fields] for (module, va), fields in result.items()],
     }

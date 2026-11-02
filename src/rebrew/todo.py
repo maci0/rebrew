@@ -1008,7 +1008,10 @@ def _collect_library_candidates(
 
 
 # Process-local extern names. The JSON file is the next process's cache.
+# Bounded: one entry holds every source in a project, so a long-lived process
+# that visits many roots must not retain each project's source names until exit.
 _EXTERN_CACHE: dict[str, dict[str, Any]] = {}
+_EXTERN_CACHE_MAX = 8
 
 
 def _extern_path_key(path: Path) -> str:
@@ -1080,6 +1083,8 @@ def _begin_extern_cache(directory: Path) -> dict[str, Any]:
             if isinstance(path_key, str) and parsed is not None:
                 files[path_key] = parsed
     record: dict[str, Any] = {"dir": directory, "files": files, "dirty": False}
+    if len(_EXTERN_CACHE) >= _EXTERN_CACHE_MAX and key not in _EXTERN_CACHE:
+        _EXTERN_CACHE.pop(next(iter(_EXTERN_CACHE)), None)
     _EXTERN_CACHE[key] = record
     return record
 

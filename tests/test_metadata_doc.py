@@ -54,6 +54,29 @@ class TestParsedDocumentCache:
         # A corrupt disk cache can reuse the separately fingerprinted raw input.
         assert parses == 2
 
+    def test_sidecar_from_older_rows_is_ignored(self, tmp_path: Path) -> None:
+        """A sidecar without the current row version must not be served."""
+        import json
+
+        from rebrew.metadata.document import (
+            _doc_cache_file,
+            _read_doc_cache,
+            _write_doc_cache,
+        )
+
+        store = tmp_path / "rebrew-functions.toml"
+        store.write_text('format = 3\n["GAME.0x00001000"]\nname = "f"\n', encoding="utf-8")
+        fingerprint = ((str(store), 1, 2, 3, 4),)
+        rows = {("GAME", 0x1000): {"name": "f"}}
+        _write_doc_cache(store, fingerprint, None, rows)
+        assert _read_doc_cache(store, fingerprint, None) == rows
+
+        cache_path = _doc_cache_file(store)
+        payload = json.loads(cache_path.read_text(encoding="utf-8"))
+        del payload["version"]
+        cache_path.write_text(json.dumps(payload), encoding="utf-8")
+        assert _read_doc_cache(store, fingerprint, None) is None
+
 
 class TestQualifiedKey:
     def test_with_module(self) -> None:

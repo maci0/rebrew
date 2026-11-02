@@ -237,6 +237,19 @@ class TestCallerCounts:
         assert todo._caller_counts(cfg, {"a.c"}, scanned=scanned) == {}
         assert calls["n"] == 0
 
+    def test_extern_cache_is_bounded(self, tmp_path: Path) -> None:
+        """A process that visits many project roots must not retain every one."""
+        import rebrew.todo as todo
+
+        todo._EXTERN_CACHE.clear()
+        directories = [tmp_path / f"project-{index}" for index in range(todo._EXTERN_CACHE_MAX + 2)]
+        for directory in directories:
+            directory.mkdir()
+            todo._begin_extern_cache(directory)
+        assert len(todo._EXTERN_CACHE) == todo._EXTERN_CACHE_MAX
+        assert str(directories[0]) not in todo._EXTERN_CACHE
+        assert str(directories[-1]) in todo._EXTERN_CACHE
+
 
 class TestCollectors:
     @pytest.mark.parametrize(

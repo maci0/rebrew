@@ -6,6 +6,7 @@
 - Speed up project lint by reusing source bindings for duplicate-global checks and resolving retired source paths once per batch; detect metadata-only duplicate globals in nested source directories.
 - Reuse fingerprinted metadata parses, declaration inventories and path resolution while preserving validation and isolated results.
 - Avoid rescanning installed plugin metadata when unrelated project outputs change.
+- Bound the in-process extern-name, name-cover and role-fact caches, and version parsed metadata-row sidecars so an upgrade never reads rows from older semantics.
 
 ## [6.14.3] - 2026-11-02
 

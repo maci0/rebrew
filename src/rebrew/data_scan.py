@@ -366,8 +366,10 @@ def _store_names_the_file(
 
 # Process-local cover of files whose stored names already answer the reloc
 # map. The disk file is what the next process reads; this dict only avoids
-# parsing that JSON again inside one process.
+# parsing that JSON again inside one process. Bounded: each entry keeps one
+# stat per source, so a process that visits many roots must not retain them all.
 _NAME_COVER_CACHE: dict[str, dict[str, Any]] = {}
+_NAME_COVER_CACHE_MAX = 8
 
 
 def _path_key(path: Path) -> str:
@@ -429,6 +431,8 @@ def _begin_name_cover(metadata_dir: Path) -> dict[str, Any]:
             if isinstance(path_key, str) and parsed is not None:
                 files[path_key] = parsed
     record = {"dir": metadata_dir, "stamp": stamp, "files": files, "dirty": False}
+    if len(_NAME_COVER_CACHE) >= _NAME_COVER_CACHE_MAX and key not in _NAME_COVER_CACHE:
+        _NAME_COVER_CACHE.pop(next(iter(_NAME_COVER_CACHE)), None)
     _NAME_COVER_CACHE[key] = record
     return record
 
@@ -466,7 +470,11 @@ def _flush_name_cover(cover: dict[str, Any]) -> None:
 
 # Bump when the recorded fact shape or the parser inputs change.
 _ROLE_FACT_VERSION = 1
+# Bounded: one entry holds per-file parse facts for every source under one
+# target identity, so `data list --all-targets` must not retain every target's
+# facts until the process exits.
 _ROLE_FACT_CACHE: dict[str, dict[str, Any]] = {}
+_ROLE_FACT_CACHE_MAX = 8
 
 
 def _role_identity(cfg: ProjectConfig | None) -> str:
@@ -542,6 +550,8 @@ def _begin_role_cache(metadata_dir: Path, cfg: ProjectConfig | None) -> dict[str
         "files": files,
         "dirty": False,
     }
+    if len(_ROLE_FACT_CACHE) >= _ROLE_FACT_CACHE_MAX and key not in _ROLE_FACT_CACHE:
+        _ROLE_FACT_CACHE.pop(next(iter(_ROLE_FACT_CACHE)), None)
     _ROLE_FACT_CACHE[key] = record
     return record
 

@@ -282,3 +282,20 @@ def test_warm_data_scan_replays_roles_without_parsing_again(tmp_path: Path, monk
     assert externs.call_count == 2
     assert changed.globals["first"].defined_in == ["a.c"]
     assert changed.globals["first"].referenced_in == []
+
+
+def test_data_scan_caches_are_bounded(tmp_path: Path) -> None:
+    """Per-root and per-target fact caches must not grow with every root visited."""
+    import rebrew.data_scan as data_scan
+
+    data_scan._NAME_COVER_CACHE.clear()
+    data_scan._ROLE_FACT_CACHE.clear()
+    roots = [tmp_path / f"root-{index}" for index in range(data_scan._NAME_COVER_CACHE_MAX + 2)]
+    for root in roots:
+        root.mkdir()
+        data_scan._begin_name_cover(root)
+        data_scan._begin_role_cache(root, None)
+    assert len(data_scan._NAME_COVER_CACHE) == data_scan._NAME_COVER_CACHE_MAX
+    assert len(data_scan._ROLE_FACT_CACHE) == data_scan._ROLE_FACT_CACHE_MAX
+    assert str(roots[0].resolve()) not in data_scan._NAME_COVER_CACHE
+    assert str(roots[-1].resolve()) in data_scan._NAME_COVER_CACHE
