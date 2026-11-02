@@ -17,6 +17,7 @@ lazy import struct
 lazy import unicodedata
 lazy import warnings
 lazy from collections import defaultdict
+lazy from collections.abc import Sequence
 lazy from itertools import combinations
 lazy from pathlib import Path
 lazy from types import SimpleNamespace
@@ -941,6 +942,7 @@ def scan_globals(
     declarations: bool = True,
     fact_cache: dict[str, dict[str, Any]] | None = None,
     facts_out: dict[str, dict[str, Any]] | None = None,
+    scanned: Sequence[Path] | None = None,
 ) -> ScanResult:
     """Scan reversed source files for global declarations.
 
@@ -1031,7 +1033,7 @@ def scan_globals(
     # fingerprint, target, and source stamp replays those facts and does not
     # parse the file again. The reloc map keeps its own name cover.
     role_cache = _begin_role_cache(metadata_dir, cfg) if record_roles else None
-    for cfile in iter_sources_and_headers(src_dir, cfg):
+    for cfile in iter_sources_and_headers(src_dir, cfg, scanned=scanned):
         # A cover hit has no names to add. Callers that keep per-file facts
         # still take the collect path; verify preparation does not.
         if (
@@ -1180,7 +1182,12 @@ def scan_globals(
     return result
 
 
-def scan_data_annotations(src_dir: Path, cfg: ProjectConfig | None = None) -> list[dict[str, Any]]:
+def scan_data_annotations(
+    src_dir: Path,
+    cfg: ProjectConfig | None = None,
+    *,
+    scanned: Sequence[Path] | None = None,
+) -> list[dict[str, Any]]:
     """Scan for ``// DATA: MODULE 0xVA`` annotations in source files.
 
     These mark standalone global data objects for tracking in the catalog.
@@ -1209,7 +1216,7 @@ def scan_data_annotations(src_dir: Path, cfg: ProjectConfig | None = None) -> li
     # Same for the function store: read_source_bindings re-reads and
     # re-fingerprints it once per file unless the batch hands it over.
     function_entries = load_metadata(metadata_dir, deepcopy=False)
-    for cfile in iter_sources_and_headers(src_dir, cfg):
+    for cfile in iter_sources_and_headers(src_dir, cfg, scanned=scanned):
         rel_name = rel_display_path(cfile, src_dir)
         for ann in read_source_bindings(
             cfile,

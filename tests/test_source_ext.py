@@ -111,6 +111,22 @@ class TestScanFiles:
         assert len(combined) == len(set(combined))
         assert any(path.name == "library_zlib.h" for path in combined)
 
+    def test_sources_and_headers_reuse_a_shared_scan(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A caller that already walked the tree hands the result over, not a second walk."""
+        import rebrew.sources as sources
+
+        src = self._tree(tmp_path)
+        scanned = scan_files(src)
+        expected = [path.name for path in iter_sources_and_headers(src)]
+
+        def no_walk(*_args: Any, **_kwargs: Any) -> list[Path]:
+            raise AssertionError("iter_sources_and_headers walked the tree again")
+
+        monkeypatch.setattr(sources, "scan_files", no_walk)
+        assert [path.name for path in iter_sources_and_headers(src, scanned=scanned)] == expected
+
     def test_sources_and_headers_classify_each_suffix_once(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

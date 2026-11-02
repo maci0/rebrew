@@ -36,6 +36,7 @@ lazy from rebrew.data_scan import (
     verify_bss_layout,
 )
 lazy from rebrew.metadata.storage import metadata_store
+lazy from rebrew.sources import scan_files
 lazy from rebrew.utils import TerminalTable, atomic_write_text, untrusted_ident
 
 app = typer.Typer(
@@ -562,7 +563,11 @@ def execute_data(
                 console.print(f"  {untrusted_ident(f)}: {n}")
         return
 
-    scan = scan_globals(src_dir, cfg=cfg)
+    # One tree walk serves both scans below; each used to traverse the same
+    # sources and headers on its own. A missing tree stays an empty scan, not
+    # a directory-read warning from the walk.
+    tree = scan_files(src_dir) if src_dir.exists() else []
+    scan = scan_globals(src_dir, cfg=cfg, scanned=tree)
 
     sections: dict[str, dict[str, Any]] = {}
     bin_info: Any = None  # single lazy binary parse, shared with data dispatch
@@ -610,7 +615,7 @@ def execute_data(
                     + ", ".join(f"{untrusted_ident(n)}@0x{va:x}" for n, va in out_of_range[:8])
                 )
 
-    data_anns = scan_data_annotations(src_dir, cfg=cfg)
+    data_anns = scan_data_annotations(src_dir, cfg=cfg, scanned=tree)
     scan.data_annotations = data_anns
 
     # Presentation helpers — CLI-only; keep library imports of scan_globals free

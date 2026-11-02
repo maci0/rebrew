@@ -343,6 +343,8 @@ def iter_headers(
 def iter_sources_and_headers(
     directory: Path | str | ProjectConfig,
     cfg: ProjectConfig | None = None,
+    *,
+    scanned: Sequence[Path] | None = None,
 ) -> list[Path]:
     """Sources first, then headers that are not already in that list.
 
@@ -350,11 +352,13 @@ def iter_sources_and_headers(
     redeclaration of the same name. A header the source-extension list
     already includes is not yielded twice. One directory walk feeds both
     halves, including the shared root when it is a different tree.
+
+    *scanned* is a :func:`scan_files` result for the same directory; pass it
+    when a command needs this list beside another view of the tree.
     """
     dir_path, cfg = _resolve_dir_and_cfg(directory, cfg)
     extensions = {ext.lower() for ext in (source_exts(cfg) or [".c"])}
     wanted = extensions | {".h"}
-    scanned = scan_files(dir_path)
     files = _files_matching(dir_path, lambda path: path.suffix.lower() in wanted, scanned=scanned)
     shared = _should_include_shared(dir_path, cfg)
     if shared is not None:

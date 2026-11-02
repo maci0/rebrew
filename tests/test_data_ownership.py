@@ -8,7 +8,7 @@ from source_util import write_source
 
 from rebrew.c_parser import find_variable_roles
 from rebrew.data_render import render_globals
-from rebrew.data_scan import scan_globals
+from rebrew.data_scan import scan_data_annotations, scan_globals
 
 
 def test_function_pointer_type_keeps_calling_convention_in_inventory(tmp_path: Path) -> None:
@@ -248,6 +248,24 @@ class TestRoleIndexing:
         assert scan.globals["second"].defined_in == ["z.c"]
         assert scan.globals["first"].referenced_in == ["z.c"]
         assert scan.globals["second"].referenced_in == ["a.c", "z.c"]
+
+
+def test_data_scans_reuse_a_shared_tree_walk(tmp_path: Path, monkeypatch) -> None:
+    """``rebrew data list`` walks the tree once and hands it to both scans."""
+    import rebrew.sources as sources
+
+    (tmp_path / "a.c").write_text("int first;\nint table[4];\n")
+    scanned = sources.scan_files(tmp_path)
+
+    def no_walk(*_args: object, **_kwargs: object) -> list[Path]:
+        raise AssertionError("data scans walked the tree again")
+
+    monkeypatch.setattr(sources, "scan_files", no_walk)
+    scan = scan_globals(tmp_path, scanned=scanned)
+    annotations = scan_data_annotations(tmp_path, scanned=scanned)
+
+    assert set(scan.globals) == {"first", "table"}
+    assert annotations == []
 
 
 def test_warm_data_scan_replays_roles_without_parsing_again(tmp_path: Path, monkeypatch) -> None:
