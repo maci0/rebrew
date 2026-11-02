@@ -1,4 +1,4 @@
-"""Tests for rebrew sync --pull-data (Ghidra data label fetching)."""
+"""Tests for rebrew sync pull-data (Ghidra data label fetching)."""
 
 import json
 import re

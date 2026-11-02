@@ -2645,7 +2645,7 @@ class TestRunOneStubGaPersistsFlags:
 
 
 class TestCrossProjectSeeding:
-    """rebrew match --all --seed-solutions-file <other-project>/.rebrew/ga_runs.jsonl.
+    """rebrew match batch --seed-solutions-file <other-project>/.rebrew/ga_runs.jsonl.
 
     Cross-project seeding transfers winning cflags (and source files when
     they resolve) from another project's solutions into this project's batch

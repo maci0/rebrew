@@ -1641,8 +1641,10 @@ def run_batch(
     prepare_entries → scope → run_verification → STATUS sync.  Returns the
     verdict bundle; each caller emits its own shape
     (``test --all`` prints a compact summary, ``verify`` saves the full
-    report + baseline + gate).  *no_promote* (test's measure-only mode)
-    previews STATUS writes while the results still compute.
+    report + baseline + gate).  *full* ignores saved verification verdicts
+    (``--no-cache``); the compile-object cache may still be reused.
+    *no_promote* (test's measure-only mode) previews STATUS writes while the
+    results still compute.
     """
     (
         unique_entries,

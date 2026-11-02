@@ -738,7 +738,7 @@ class TestBinsyncCatalogSync:
         exported as its own function.  Heuristic discovery emits switch arms as
         pseudo-functions (`case.0x...`), so guild-rebrew's state dir gained 18
         of them -- and because import reads the same state back,
-        `rebrew sync --pull` then proposed creating them as real functions
+        `rebrew sync pull` then proposed creating them as real functions
         inside code that was already EXACT/RELOC.
         """
         write_source(tmp_path / "rebrew-project.toml", _TOML_WITH_SERVER, encoding="utf-8")

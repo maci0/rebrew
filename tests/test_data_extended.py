@@ -333,7 +333,7 @@ class TestEmitExternDecl:
 
 
 class TestSetDataType:
-    """`rebrew data --set-type`: fix a declared global type through the tool.
+    """`rebrew data set --type`: fix a declared global type through the tool.
 
     The metadata type decides what the header generator emits, so a wrong one
     has to be correctable without hand-editing the TOML.
@@ -1479,7 +1479,7 @@ class TestDataMarkerScan:
 
 
 class TestSetDataSection:
-    """`rebrew data --set-section`: give a `// GLOBAL:` marker its SECTION.
+    """`rebrew data set --section`: give a `// GLOBAL:` marker its SECTION.
 
     W016 fires for every DATA/GLOBAL marker whose metadata has no SECTION, so a
     global that exists only through an annotation needs a tool-side way to

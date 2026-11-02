@@ -665,7 +665,7 @@ class TestAllTargetsParallel:
 
 
 class TestMatchCliLink:
-    """PRD 04: rebrew match --link threads a linker command into the linked GA."""
+    """PRD 04: rebrew match run --link threads a linker command into the linked GA."""
 
     def _cfg(self, tmp_path: Path) -> SimpleNamespace:
         return SimpleNamespace(

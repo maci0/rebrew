@@ -1,4 +1,4 @@
-"""Tests for rebrew imports — import-table symbol recovery."""
+"""Tests for rebrew binary imports — import-table symbol recovery."""
 
 import struct
 import tempfile

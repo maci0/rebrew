@@ -566,8 +566,8 @@ def main(
             )
         # The batch path is verify's shared pipeline (scan → scope →
         # compile → STATUS sync), emitted in test's shape:
-        # always recompile (full), filterable by --dir/--module, measurable
-        # via --no-promote.
+        # rechecks every entry without saved verdicts, filterable by
+        # --dir/--module, measurable via --no-promote.
         emit_test_batch(
             cfg,
             batch_dir=batch_dir,
@@ -2476,7 +2476,8 @@ def emit_test_batch(
 ) -> None:
     """Run the shared batch pipeline, emitted in ``test --all`` shape.
 
-    Always recompiles (full).  ``--dry-run`` lists candidates without
+    Rechecks every selected entry without saved verdicts; compiler objects may
+    still come from the compile cache.  ``--dry-run`` lists candidates without
     compiling; ``--no-promote`` measures without writing STATUS.  Raises
     typer.Exit per the exit-code contract (0 match, 1 needs-work,
     2 tooling).
