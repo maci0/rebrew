@@ -65,6 +65,59 @@ class TestBindingWork:
         assert bindings.read_source_bindings(file, metadata_dir=tmp_path)[0].name == "f"
         assert reads == [file]
 
+    def test_batch_scan_loads_both_stores_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A multi-file scan shares one function read and one data index."""
+        from rebrew.metadata import data as data_module
+        from rebrew.metadata.functions import load_metadata
+
+        sources = []
+        functions = {}
+        data = {}
+        for i in range(6):
+            path = tmp_path / f"f{i}.c"
+            path.write_text(
+                f"/* ADDRESS: S 0x{0x1000 + i * 16:x} */\nint f{i}(void) {{ return 0; }}\n"
+                f"/* ADDRESS: S 0x{0x8000 + i * 4:x} */\nint g{i} = {i};\n",
+                encoding="utf-8",
+            )
+            sources.append(path)
+            functions[("S", 0x1000 + i * 16)] = {
+                "file": path.name,
+                "name": f"f{i}",
+                "kind": "FUNCTION",
+                "size": 8,
+            }
+            data[("S", 0x8000 + i * 4)] = {
+                "file": path.name,
+                "name": f"g{i}",
+                "kind": "DATA",
+                "size": 4,
+            }
+        save_metadata(tmp_path, functions)
+        save_data_metadata(tmp_path, data, expected_hash=None)
+
+        function_reads: list[int] = []
+        data_indexes: list[int] = []
+        real_load = load_metadata
+        real_index = data_module.data_file_index
+
+        def counted_load(*args: Any, **kwargs: Any) -> Any:
+            function_reads.append(1)
+            return real_load(*args, **kwargs)
+
+        def counted_index(*args: Any, **kwargs: Any) -> Any:
+            data_indexes.append(1)
+            return real_index(*args, **kwargs)
+
+        monkeypatch.setattr("rebrew.metadata.functions.load_metadata", counted_load)
+        monkeypatch.setattr(data_module, "data_file_index", counted_index)
+        found = bindings.iter_source_bindings(sources, target="S", metadata_dir=tmp_path)
+        assert [len(annos) for _, annos in found] == [2] * len(sources)
+        assert len(function_reads) == 1
+        assert len(data_indexes) == 1
+
     def test_unbound_anchors_load_the_function_map_once(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

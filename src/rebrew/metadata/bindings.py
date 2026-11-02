@@ -942,22 +942,32 @@ def iter_source_bindings(
         anchor validation. Only files absent from both stores are parsed.
     """
     data_index: dict[str, list[tuple[str, int, dict[str, Any]]]] = {}
-    if inventory_only and metadata_dir is not None:
-        from rebrew.metadata.data import data_file_index
-        from rebrew.metadata.functions import load_metadata, resolve_metadata_dir
-
-        metadata_dir = resolve_metadata_dir(metadata_dir)
-        project_root = project_root or _binding_project_root(metadata_dir)
-        if function_entries is None:
-            function_entries = load_metadata(metadata_dir, deepcopy=False)
-        data_index = data_file_index(metadata_dir)
     # The store root does not move while the batch runs, so resolve it once.
     # A walked source path is already under that root; spelling it relative is
     # pure string work, while ``relpath`` would realpath both sides per file.
-    metadata_root = metadata_dir.resolve() if inventory_only and metadata_dir is not None else None
+    metadata_root: Path | None = None
+    metadata_ready = False
     results: list[tuple[Path, list[SourceBinding]]] = []
     for src in sources:
         try:
+            # Load the store-backed indexes on the first source, not once per
+            # source.  A batch used to let every file call ``load_metadata``
+            # and ``data_rows_for_path``, which re-resolved the metadata
+            # backend (one config stat) and re-scanned the data index per file.
+            # Success is cached for the batch; a failure falls through to the
+            # per-source handler below, so a broken store keeps the old
+            # skip-and-warn behaviour.
+            if metadata_dir is not None and not metadata_ready:
+                from rebrew.metadata.data import data_file_index
+                from rebrew.metadata.functions import load_metadata, resolve_metadata_dir
+
+                metadata_dir = resolve_metadata_dir(metadata_dir)
+                project_root = project_root or _binding_project_root(metadata_dir)
+                if function_entries is None:
+                    function_entries = load_metadata(metadata_dir, deepcopy=False)
+                data_index = data_file_index(metadata_dir)
+                metadata_root = metadata_dir.resolve()
+                metadata_ready = True
             if metadata_root is not None and src.is_absolute() and ".." not in src.parts:
                 text = str(src)
                 root_text = str(metadata_root).rstrip("/") or "/"
@@ -1002,7 +1012,7 @@ def iter_source_bindings(
                 base_dir=base_dir,
                 metadata_dir=metadata_dir,
                 project_root=project_root,
-                function_entries=function_entries if inventory_only else None,
+                function_entries=function_entries,
                 preloaded_data_rows=preloaded_data,
             )
         except Exception as exc:
