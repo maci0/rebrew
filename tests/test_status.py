@@ -1151,9 +1151,7 @@ class TestVerifyCacheHelpers:
         info = _load_verify_info(cfg, sources=[])
         assert info is not None and info.stale
 
-    def test_source_rewrite_with_restored_mtime_marks_summary_stale(
-        self, tmp_path: Path
-    ) -> None:
+    def test_source_rewrite_with_restored_mtime_marks_summary_stale(self, tmp_path: Path) -> None:
         """Change time, not only mtime, decides whether the summary is current."""
         import os
 

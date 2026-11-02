@@ -1320,7 +1320,7 @@ def _file_annotated_vas(path: Path, cache: dict[Path, set[int]] | None = None) -
 
     try:
         found = {a.va for a in read_source_bindings(path)}
-    except (OSError, ValueError):
+    except OSError, ValueError:
         found = set()
     if cache is not None:
         cache[path] = found

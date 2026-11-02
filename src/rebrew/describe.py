@@ -102,7 +102,9 @@ def _collect_annotations(cfg: ProjectConfig) -> list[SourceBinding]:
     # re-fingerprints the same store once per source file.
     from rebrew.metadata.functions import load_metadata
 
-    function_entries = load_metadata(metadata_dir, deepcopy=False) if metadata_dir else None
+    function_entries = (
+        load_metadata(metadata_dir, deepcopy=False) if metadata_dir is not None else None
+    )
     for cfile in iter_sources(cfg.reversed_dir, cfg):
         try:
             annos.extend(
