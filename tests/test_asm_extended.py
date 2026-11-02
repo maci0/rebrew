@@ -1,4 +1,4 @@
-"""Tests for rebrew asm.py — disasm, NASM conversion, inline C, batch extraction."""
+"""Tests for ``rebrew.asm`` — disasm, NASM conversion, inline C, batch extraction."""
 
 from pathlib import Path
 from shutil import which
@@ -525,7 +525,7 @@ class TestHexModeTruncation:
 
 class TestStaleSizeWarning:
     """A stale function-list size truncates the dump mid-instruction and
-    breaks calling-convention inference — `rebrew asm` must warn and extend
+    breaks calling-convention inference — `rebrew binary asm show` must warn and extend
     (default size) or warn only (explicit --size)."""
 
     _PROJECT_TOML = """\
@@ -740,7 +740,7 @@ timeout = 60
 
 
 class TestHexDisassembly:
-    """``hex_disassembly()`` is the importable form of ``rebrew asm --format hex``."""
+    """``hex_disassembly()`` is the importable form of ``rebrew binary asm show --format hex``."""
 
     def test_returns_the_cli_listing(self, tmp_path: Path) -> None:
         from bin_util import make_pe

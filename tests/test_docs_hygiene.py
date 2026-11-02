@@ -154,6 +154,35 @@ def test_every_nested_cli_route_is_documented() -> None:
     assert not missing, f"Runtime routes missing from docs/CLI.md: {sorted(missing)}"
 
 
+def test_cli_reference_counts_match_the_registered_tree() -> None:
+    """The header counts are measured against the Typer tree, not remembered."""
+    import typer
+    from typer._click.core import Command
+    from typer.core import TyperGroup
+
+    from rebrew.app.main import app
+
+    root = typer.main.get_command(app)
+    groups = leaves = 0
+
+    def walk(command: object) -> None:
+        nonlocal groups, leaves
+        if isinstance(command, TyperGroup):
+            groups += 1
+            for child in command.commands.values():
+                walk(child)
+        elif isinstance(command, Command):
+            leaves += 1
+
+    walk(root)
+    cli = " ".join((ROOT / "docs" / "CLI.md").read_text(encoding="utf-8").split())
+    expected = (
+        f"The CLI exposes {groups + leaves} surfaces: {leaves} leaf commands "
+        f"and {groups} groups, including the root."
+    )
+    assert expected in cli, f"docs/CLI.md header should say: {expected}"
+
+
 #: Commands intentionally absent from the agent skills — meta/niche tooling
 #: agents never drive (PE resource compare, skill discovery, the clispec
 #: document).  Every

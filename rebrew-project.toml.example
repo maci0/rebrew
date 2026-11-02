@@ -131,12 +131,12 @@ source_ext = ".c"
 # dll_exports = { 0x00401000 = "GameMain" }
 # r2_bogus_vas = [0x00412340]
 
-# Module names this target is built from (written by `rebrew cfg add-module`).
+# Module names this target is built from (written by `rebrew cfg module add`).
 # Informational for editors and the UI; it does not filter annotations.
 # origins = ["GAME", "ZLIB"]
 
 # Position-alignment package (image base, section geometry, exports, imports)
-# written by `rebrew gen-layout --layout-config`. The layout tooling reads it
+# written by `rebrew build layout --layout-config`. The layout tooling reads it
 # directly; do not hand-edit.
 # [targets.game.layout]
 # image_base = 0x00400000
@@ -201,7 +201,7 @@ GAME = "/O2 /Gd"
 # -----------------------------------------------------------------------------
 
 [link]
-# Optional PE header reconstruction fields applied by `rebrew round-trip --fix-headers`.
+# Optional PE header reconstruction fields applied by `rebrew build round-trip --fix-headers`.
 # linker_version = "6.0"
 # os_version = "4.0"
 # subsystem_version = "4.0"
@@ -214,7 +214,7 @@ GAME = "/O2 /Gd"
 # file_align = 0x1000
 
 # -----------------------------------------------------------------------------
-# LLM Seeding Settings (rebrew match --seed-llm)
+# LLM Seeding Settings (rebrew match run --seed-llm)
 # Prefer environment variables (REBREW_LLM_*) so secrets are not committed.
 # -----------------------------------------------------------------------------
 

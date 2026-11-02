@@ -114,7 +114,7 @@ class TestListSizeFor:
 
 
 class TestCallingConvention:
-    """rebrew asm infers the per-function calling convention from the
+    """``rebrew binary asm show`` infers the per-function calling convention from the
     epilogue + this-pointer usage — the answer every manual decompilation
     pass re-derives from the disassembly."""
 

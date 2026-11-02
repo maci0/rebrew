@@ -435,12 +435,13 @@ WRITE_COMMANDS = [
     "data set --type 0x00403000=int",
     "data set --section 0x00403000=.data",
     # The ``cfg`` writers into rebrew-project.toml, one per shape the file can
-    # take: a scalar assignment, a whole-table write (``set-compiler`` rewrites
-    # the [compiler] block), an append to a list (``add-module`` pushes onto
-    # ``origins``), a nested table insert (``set-cflags``), and a new top-level
-    # section (``add-target``).  Every one is a second write of the same value
-    # on a re-run, and a writer that appended a second key, a repeated header,
-    # or a duplicate list entry instead would show up as a changed tree.
+    # take: a scalar assignment, a whole-table write (``cfg target set-compiler``
+    # rewrites the [compiler] block), an append to a list (``cfg module add``
+    # pushes onto ``origins``), a nested table insert (``cfg module set-cflags``),
+    # and a new top-level section (``cfg target add``).  Every one is a second
+    # write of the same value on a re-run, and a writer that appended a second
+    # key, a repeated header, or a duplicate list entry instead would show up as
+    # a changed tree.
     "cfg set project.name idem",
     "cfg target set-compiler SERVER msvc-6.0",
     "cfg module add GAME -t SERVER",

@@ -1,6 +1,6 @@
 # CLI Reference
 
-The CLI exposes 226 surfaces: 194 leaf commands and 32 groups, including the
+The CLI exposes 233 surfaces: 200 leaf commands and 33 groups, including the
 root. They are registered under the unified `rebrew` entry point in `app/main.py`
 (`CliComponent` rows in `app/builtins.py`).
 Only `rebrew` is installed. Invoke tools as subcommands:

@@ -243,7 +243,7 @@ cookbooks + 4 patterns + smart-home demo + agent skill):
 
 | Cookbook / pattern | Primitive used | Rebrew analogue |
 | ------------------ | -------------- | --------------- |
-| [Skill suggestion](https://docs.typesafe.ai/cookbooks/skill_suggestion.md) | rank-all Choice, then reread top-3 | packaged skill roster (5 skills, not 182) |
+| [Skill suggestion](https://docs.typesafe.ai/cookbooks/skill_suggestion.md) | rank-all Choice, then reread top-3 | packaged skill roster (six skills, not 182) |
 | [Intent routing](https://docs.typesafe.ai/patterns/intent-routing.md) | Choice → handler | which CLI / skill owns this turn |
 | [Hierarchical classification](https://docs.typesafe.ai/cookbooks/hierarchical_classification.md) | beam of Choice down a tree | origin family → CU → function |
 | [Classification + confidence](https://docs.typesafe.ai/cookbooks/classification_using_confidence.md) | Choice, report parent when unsure | origin / CU: GAME vs CRT vs ZLIB; else "unknown" |
@@ -296,7 +296,7 @@ deterministic (`--guess-compiler`, FLIRT, CRT).
 Jev on the side, not instead:
 
 - **Skill suggestion** (Hermes cookbook: wrong loads 16.8% → 7.3%,
-  needless 9.8% → 4.0%). Rank the five packaged skills against the
+  needless 9.8% → 4.0%). Rank the six packaged skills against the
   user/agent turn; second call rereads the top three with full
   `SKILL.md`. Either call may return "none". Rebrew's roster is tiny:
   this is cheap and stops `rebrew-matching` from eating an intake

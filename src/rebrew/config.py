@@ -340,12 +340,12 @@ ARCH_PRESETS: dict[str, _ArchPreset] = {
 _ARCH_BIG_ENDIAN = frozenset({"mips32", "mips64", "ppc32", "ppc64", "sh2"})
 
 #: Pointer width assumed for an arch string with no preset.  x86_32 is the
-#: documented default profile (see AGENTS.md), so an unknown arch sizes like it
-#: rather than failing; every preset arch carries its real width.
+#: default architecture, so an unknown arch sizes like it rather than failing;
+#: every preset arch carries its real width.
 _DEFAULT_POINTER_SIZE = 4
 
 #: Fill bytes assumed for an arch string with no preset, matching the x86_32
-#: profile for the same reason as :data:`_DEFAULT_POINTER_SIZE`.
+#: preset for the same reason as :data:`_DEFAULT_POINTER_SIZE`.
 _DEFAULT_PADDING_BYTES: list[int] = [0xCC, 0x90]
 
 

@@ -458,7 +458,7 @@ class TestRebrewTestBatchJson:
 
 
 class TestAsmJsonSchema:
-    """``rebrew asm --json`` payload, built by the real dump path.
+    """``rebrew binary asm show --json`` payload, built by the real dump path.
 
     The keys are the ones ``rebrew.asm._run_hex_mode`` prints; a field rename
     or a dropped annotation must fail here.

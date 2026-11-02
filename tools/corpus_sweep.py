@@ -8,9 +8,10 @@ bug, add a regression test, re-run the sweep until it is green.
 Commands per project (all read-only, no wine needed for these):
 
     rebrew doctor --json               # toolchain/config health (exit 0 = clean)
-    rebrew analyze --json              # dossier (must be pure JSON, exit 0)
-    rebrew identify-library --dry-run --json
+    rebrew binary analyze --json       # dossier (must be pure JSON, exit 0)
+    rebrew library identify --dry-run --json
     rebrew status --json
+    rebrew lint --json
 
 Exit 0 when every project passes every command; 1 otherwise.  A project whose
 ``rebrew-project.toml`` is missing is skipped (not a failure).
@@ -37,8 +38,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 _COMMANDS = [
     "doctor --json",
-    "analyze --json",
-    "identify-library --dry-run --json",
+    "binary analyze --json",
+    "library identify --dry-run --json",
     "status --json",
     "lint --json",
 ]

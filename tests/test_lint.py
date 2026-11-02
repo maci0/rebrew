@@ -1207,7 +1207,7 @@ class TestW020AsmDump:
         assert [line for line, code, _ in result.warnings if code == "W020"] == [7]
 
     def test_bare_emit_spelling_warns(self, tmp_path: Path) -> None:
-        """`rebrew asm` writes the bare `_emit 0xNN` form, so W020 must match it."""
+        """`rebrew binary asm show` writes the bare `_emit 0xNN` form, so W020 must match it."""
         body = "int f(void) {\n    __asm { _emit 0x55 }\n    return 0;\n}\n"
         result = self._lint(tmp_path, body)
         assert any(c == "W020" for _, c, _ in result.warnings)

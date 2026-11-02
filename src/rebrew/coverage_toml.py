@@ -1,11 +1,11 @@
 """coverage_toml.py – clear-text TOML coverage output for a catalog snapshot.
 
 The normalizers live in :mod:`rebrew.coverage_db`, which computed every value in
-pure Python before the SQLite writer it also held bound it to a column.  This
-module imports those normalizers rather than restating them, so the document and
-the catalog snapshot cannot report different facts about the same
-the in-process catalog dict — a second implementation of the cell clamp or the status
-sanitizer is exactly the drift this file exists to remove.
+pure Python even while it also held a SQLite writer that bound each value to a
+column.  This module imports those normalizers rather than restating them, so
+the document and the catalog snapshot cannot report different facts about the
+same in-process catalog dict: a second implementation of the cell clamp or the
+status sanitizer is exactly the drift this file exists to remove.
 
 Only facts are stored.  The removed ``build_db`` materialized per-section
 buckets, the per-section cell JSON and the ``summary`` blob because a SQL reader

@@ -1,4 +1,4 @@
-"""Tests for ``rebrew asm --format cfg`` — one function's CFG from the CLI.
+"""Tests for ``rebrew binary asm show --format cfg`` — one function's CFG from the CLI.
 
 The payload is what a renderer consumes: per block its absolute VA, byte
 size, instruction count and first/last instruction text; per edge the
@@ -87,7 +87,7 @@ def _run(
     *extra: str,
     **patch_kwargs: Any,
 ) -> Result:
-    """Invoke ``rebrew asm <va> --format cfg`` against stubbed inputs."""
+    """Invoke ``rebrew binary asm show <va> --format cfg`` against stubbed inputs."""
     _patch(monkeypatch, tmp_path, code, **patch_kwargs)
     return runner.invoke(_app(), [f"0x{BASE_VA:x}", "--format", "cfg", *extra])
 

@@ -820,8 +820,8 @@ def _collect_new_functions(
 
     # Statically linked library code sits in .text looking exactly like game
     # code, and reversing it is wasted work -- the linker supplies those bytes
-    # anyway.  AGENTS.md makes this the FIRST check before reversing anything
-    # (68 functions were once reversed by mistake and matched for weeks).
+    # anyway.  Identify it before reversing anything (68 functions were once
+    # reversed by mistake and matched for weeks).
     # Recommending it as new work is therefore actively harmful, and it was
     # happening: all three surviving start-function actions on guild-rebrew
     # were LIBCMT (`_ftell`, `_strncnt`, `___ld12mul`).  Reuse lib_match's own
