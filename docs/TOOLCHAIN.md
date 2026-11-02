@@ -622,7 +622,7 @@ honor a per-function toolchain:
   `cflags`), so `verify` and batch `test --all` recompile with the same
   compiler that produced the match.
 - The metadata value is read through the normal annotation pipeline
-  (`merge_into_annotation` overlays it onto the parsed function), so any
+  (`merge_into_binding` overlays it onto the parsed function), so any
   tool that compiles a function (test, verify, diff, prove, match, the
   GA, flag sweeps) transparently uses the overridden compiler.
 - CLI `--toolchain`/`--cflags` still take precedence over the metadata
@@ -1107,8 +1107,9 @@ See [BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md) for the sync feature matrix
 
 Used for decompilation backends (r2ghidra, r2dec), as an alternative analysis
 perspective, and as packaged `rebrew.discoverers` providers (rizin `aaa` /
-`aa; aap`).  Rebrew auto-detects whichever is installed (`rz` preferred over
-`r2`).  Third-party discoverers plug in via the `rebrew.discoverers`
+`aa; aap`).  The decompiler backends auto-detect whichever is installed (`rz`
+preferred over `r2`); the packaged discoverers invoke `rizin` directly.
+Third-party discoverers plug in via the `rebrew.discoverers`
 entry-point group without host edits.
 
 **Data files consumed by rebrew:**

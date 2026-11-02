@@ -73,8 +73,8 @@ rebrew intake ./game.exe
 ```
 
 This one command: detects the compiler (MSVC 8.0, say), scaffolds the
-project, copies the binary, enumerates functions, and writes a `// STUB:`
-skeleton for each one. You will see something like:
+project, copies the binary, enumerates functions, and writes a STUB
+skeleton plus a BLOCKER for each one. You will see something like:
 
 ```
 Intake complete: game (msvc-8.0)

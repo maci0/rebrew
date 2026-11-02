@@ -329,13 +329,13 @@ def _staleness_fix(cfg: ProjectConfig | None) -> str:
     Stale annotations have two very different causes: the target binary was
     replaced (refresh the function inventory), or the annotations moved / the inventory
     no longer reflects the target (re-annotate) — recommending ``rebrew
-    intake`` for the second case is wrong.  The binary-vs-list mtime
-    comparison is a cheap proxy: a binary newer than the list means it
-    plausibly changed after the list was written; a list at least as new as
-    the binary means the binary cannot have changed since, so the bindings
-    (or a list regenerated from a different binary, e.g. a rebuild) are at
-    fault.  Falls back to a cause-neutral message when either file's mtime
-    is unavailable.
+    intake`` for the second case is wrong.  The binary's last change time
+    against the list's mtime is a cheap proxy: a binary newer than the list
+    means it plausibly changed after the list was written; a list at least as
+    new as the binary means the binary cannot have changed since, so the
+    bindings (or a list regenerated from a different binary, e.g. a rebuild)
+    are at fault.  Falls back to a cause-neutral message when either file's
+    timestamp is unavailable.
     """
     binary_newer: bool | None = None
     try:
@@ -343,10 +343,10 @@ def _staleness_fix(cfg: ProjectConfig | None) -> str:
         rev_dir = getattr(cfg, "reversed_dir", None)
         inv_path = inventory_path_for(rev_dir, cfg) if rev_dir else None
         if inv_path is not None and bin_path.is_file() and inv_path.is_file():
-            # Nanosecond change times: second-granularity mtimes tie when a
+            # Nanosecond timestamps: second-granularity mtimes tie when a
             # rebuild and inventory refresh land in the same wall-clock second
-            # (common on scripts / coarse Docker volume clocks), and ctime
-            # catches a rebuild that restored the old mtime.
+            # (common on scripts / coarse Docker volume clocks), and the
+            # binary's change time catches a rebuild that restored its mtime.
             binary_newer = last_change_ns(bin_path.stat()) > inv_path.stat().st_mtime_ns
     except OSError:
         binary_newer = None
@@ -427,7 +427,7 @@ def _check_W028_stale_annotation(
             host_size = 0
         if host_size and host[0] + host_size <= va_int:
             return
-    # Append the mtime-aware fix hint only to the first stale address in the
+    # Append the staleness fix hint only to the first stale address in the
     # file — repeating it per binding would drown the signal.
     hint = _staleness_fix(cfg) if not any(c == "W028" for _, c, _ in result.warnings) else ""
     if host is not None:
@@ -1208,7 +1208,7 @@ def _check_config_rules(
 ) -> None:
     """Config-aware checks (E012).
 
-    A stacked shared-source address anchor for ANOTHER target (``// ADDRESS: V1 0xVA``
+    A stacked shared-source address anchor for ANOTHER target (``/* ADDRESS: V1 0xVA */``
     in a file linted under V2) is not a mismatch: one ``src/shared`` file
     serves every target with one address anchor per target (ADR-010).  Accept any
     module that names a known project target; only a module naming NO

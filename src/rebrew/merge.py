@@ -5,7 +5,7 @@ deduplicating preamble lines and sorting function blocks by virtual address.
 
 With ``--shared``, twin files (same body, different target modules — the
 per-target copies ``cross-import`` used to make) collapse into one stacked
-block per body (one ``// ADDRESS: <module> <va>`` anchor per target,
+block per body (one ``/* ADDRESS: <module> <va> */`` anchor per target,
 ADR-022): the migration path from N copies to one shared file.  Bodies
 that differ between targets are refused, never averaged.
 

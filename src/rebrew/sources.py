@@ -304,7 +304,7 @@ def iter_sources(
     When *cfg* is provided and *directory* is the target's ``reversed_dir``,
     the project's shared-sources root (``cfg.shared_dir``, e.g.
     ``src/shared``) is merged in: files there serve **every** target, with
-    one ``// ADDRESS: <module> <va>`` anchor per target and ``#ifdef``
+    one ``/* ADDRESS: <module> <va> */`` anchor per target and ``#ifdef``
     deltas driven by the per-target ``defines``.
 
     *scanned* is a :func:`scan_files` result for the same directory.

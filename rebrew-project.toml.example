@@ -1,6 +1,6 @@
 # =============================================================================
 # rebrew-project.toml.example
-# Complete template demonstrating all configuration sections and options.
+# Template demonstrating every configuration section and the common options.
 # Copy and adapt this file to rebrew-project.toml in your project root.
 # =============================================================================
 
@@ -74,7 +74,7 @@ format = "pe"
 # Default: "x86_32"
 arch = "x86_32"
 
-# Module identifier in metadata keys and address anchors (e.g. // ADDRESS: GAME 0x00401000).
+# Module identifier in metadata keys and address anchors (e.g. /* ADDRESS: GAME 0x00401000 */).
 # Default: target name uppercased with non-alphanumeric chars stripped.
 module = "GAME"
 

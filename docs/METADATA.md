@@ -353,7 +353,7 @@ until that program changes with it.
    No module-less metadata keys: the writers reject an empty module (a bare
    `0xVA` key was once writable but never readable; the guard now raises
    instead).
-4. Caches must be invalidation-correct: mtime-keyed or content-keyed, and
+4. Caches must be invalidation-correct: stat-keyed or content-keyed, and
    written with the shared `atomic_write_text` / `metadata_write_lock`
    machinery (tool-owned TOML uses `atomic_write_locked` so the file stays
    mode 0444). `write_coverage_toml` holds `_coverage_write_lock` across

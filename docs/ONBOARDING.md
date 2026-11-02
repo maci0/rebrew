@@ -74,7 +74,7 @@ rebrew intake original/server.dll --toolchain msvc-6.0   # or pin it explicitly
    intake is a safe re-discovery)
 3. copies the binary to `original/`
 4. **enumerates functions** via discoverer plugins → `src/SERVER/function_structure.json`
-5. **documents every function** as a `// STUB:` skeleton with a BLOCKER,
+5. **documents every function** as a STUB skeleton with a BLOCKER,
    so `rebrew status`/`rebrew todo` show the full reversing landscape
 
 When it finishes you get a summary like:
@@ -182,8 +182,8 @@ integer VAs:
 
 ```bash
 # Ghidra: Auto-Analyze, export the function list, save as above.
-# radare2 / rizin headless:
-r2 -q -c 'aaa; aflj' original/mygame.exe > /tmp/funcs.json
+# rizin headless (the packaged discoverer's executable):
+rizin -q -c 'aaa; aflj' original/mygame.exe > /tmp/funcs.json
 python3 -c "
 import json
 funcs = json.load(open('/tmp/funcs.json'))

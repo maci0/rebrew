@@ -511,13 +511,13 @@ class ProjectConfig:
     """Project-level shared-sources root (``src/shared`` by default).
 
     Sources here are scanned for EVERY target and may carry one
-    ``// ADDRESS: <module> <va>`` anchor per target (the same function at
+    ``/* ADDRESS: <module> <va> */`` anchor per target (the same function at
     a different VA in each version) plus ``#ifdef`` deltas driven by the
     per-target ``defines``.  ``None`` (or an empty ``[project] shared_dir``)
     disables shared sources.
     """
     bin_dir: Path = field(default_factory=lambda: Path())
-    module: str = ""  # Prefix used in annotations, e.g. // ADDRESS: SERVER 0x... (default: target_name.upper())
+    module: str = ""  # prefix in /* ADDRESS: SERVER 0x... */ (default: target_name.upper())
     r2_bogus_vas: list[int] = field(default_factory=list)  # VAs with known-bad r2 size data
     check_known_bindings: bool = False  # reject contradictory mapped native operands
 
@@ -953,7 +953,7 @@ def _target_module_value(raw: Any, target: str, field_name: str) -> str:
 
     Absent or blank ``module`` uses the derived name (target upper-cased,
     non-identifier characters stripped). An explicit module must be one
-    token: whitespace never matches ``// ADDRESS: MODULE 0xVA``, and a
+    token: whitespace never matches ``/* ADDRESS: MODULE 0xVA */``, and a
     module containing ``.0x`` makes ``parse_metadata_key`` split the module
     off the VA. A target whose name derives nothing and sets no module
     fails the load — an empty module drops every function out of
@@ -978,7 +978,7 @@ def _target_module_value(raw: Any, target: str, field_name: str) -> str:
     if any(ch.isspace() for ch in text):
         raise ConfigError(
             f"rebrew-project.toml {field_name} = {text!r} is not a single token "
-            "(address modules are one word: // ADDRESS: MODULE 0xVA)"
+            "(address modules are one word: /* ADDRESS: MODULE 0xVA */)"
         )
     if ".0x" in text.casefold():
         raise ConfigError(
@@ -992,7 +992,7 @@ def target_module(cfg: Any) -> str:
     """Return the annotation module for *cfg*.
 
     The module is the ``MODULE`` half of every ``MODULE.0xVA`` metadata key
-    and of every ``// ADDRESS: MODULE 0xVA`` line, so it must resolve the
+    and of every ``/* ADDRESS: MODULE 0xVA */`` line, so it must resolve the
     same way everywhere: an entry written under one spelling is invisible to
     a reader using another.  The rule is ``cfg.module``, else the target name
     with non-identifier characters stripped and upper-cased (the same
