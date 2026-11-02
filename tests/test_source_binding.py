@@ -873,6 +873,25 @@ def test_apply_parses_metadata_only_under_lock(tmp_path: Path, batch: bool) -> N
     assert load.call_count == 1
 
 
+def test_target_selection_loads_the_function_store_once(tmp_path: Path) -> None:
+    """The whole-tree scan preloads the store instead of probing it per source."""
+    from rebrew import source_selection
+
+    cfg = _project(tmp_path)
+    for index in range(4):
+        (cfg.reversed_dir / f"extra{index}.c").write_text(
+            f"int extra{index}(void) {{ return {index}; }}\n"
+        )
+    real = source_selection.load_metadata
+    with (
+        patch.object(source_selection, "load_metadata", wraps=real) as outer,
+        patch("rebrew.metadata.functions.load_metadata", wraps=real) as inner,
+    ):
+        own, _foreign = source_selection.collect_target_sources(cfg, "GAME")
+    assert cfg.reversed_dir / "f.c" in own
+    assert outer.call_count + inner.call_count == 1
+
+
 def test_apply_rechecks_review_input_after_acquiring_lock(tmp_path: Path) -> None:
     from contextlib import contextmanager
 
