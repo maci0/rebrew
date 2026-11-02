@@ -551,20 +551,13 @@ class TestMutationSuggestions:
         assert any(op in mutations for op in reg_ops)
 
 
-def _invoke_fix_blocker(
-    tmp_path: Path,
-    monkeypatch: Any,
-    *extra_args: str,
-    verdict: str = "STRUCTURAL (90% of delta)",
-    suggestion: str = "Different layout.",
-    existing_entry: dict[str, str] | None = None,
-) -> tuple[Any, list[object]]:
-    """Run ``--fix-blocker`` on one stub; return the CLI result and the writes."""
+def _patch_near_diag_cli(monkeypatch: Any, tmp_path: Path, *, size: int) -> Path:
+    """Point the near-diag CLI at one stub; return the source path.
+
+    The byte and object-parse boundaries stay with the caller, since each
+    scenario matches different bytes.
+    """
     from types import SimpleNamespace as NS
-
-    from typer.testing import CliRunner
-
-    from rebrew.near_diag import app
 
     cfg = NS(
         root=tmp_path,
@@ -582,9 +575,33 @@ def _invoke_fix_blocker(
         src,
         "/* ADDRESS: S 0x1000 */\n\nint f(void) { return 0; }\n",
         encoding="utf-8",
-        metadata_fields={"S.0x1000": {"kind": "FUNCTION", "size": 8}},
+        metadata_fields={"S.0x1000": {"kind": "FUNCTION", "size": size}},
         metadata_dir=tmp_path,
     )
+    monkeypatch.setattr(
+        "rebrew.metadata.bindings.read_source_bindings",
+        lambda *a, **k: [NS(va=0x1000, size=size, symbol="_f", module="S", cflags="")],
+    )
+    monkeypatch.setattr(
+        "rebrew.compiler.compile.compile_to_obj", lambda *a, **k: (Path("o.obj"), "")
+    )
+    return src
+
+
+def _invoke_fix_blocker(
+    tmp_path: Path,
+    monkeypatch: Any,
+    *extra_args: str,
+    verdict: str = "STRUCTURAL (90% of delta)",
+    suggestion: str = "Different layout.",
+    existing_entry: dict[str, str] | None = None,
+) -> tuple[Any, list[object]]:
+    """Run ``--fix-blocker`` on one stub; return the CLI result and the writes."""
+    from typer.testing import CliRunner
+
+    from rebrew.near_diag import app
+
+    src = _patch_near_diag_cli(monkeypatch, tmp_path, size=8)
     writes: list[object] = []
     monkeypatch.setattr("rebrew.metadata.functions.update_field", lambda *a, **k: writes.append(a))
     if existing_entry is not None:
@@ -599,15 +616,8 @@ def _invoke_fix_blocker(
         },
     )
     monkeypatch.setattr(
-        "rebrew.metadata.bindings.read_source_bindings",
-        lambda *a, **k: [NS(va=0x1000, size=8, symbol="_f", module="S", cflags="")],
-    )
-    monkeypatch.setattr(
         "rebrew.formats.binary_loader.extract_raw_bytes",
         lambda *a, **k: b"\x55\x8b\xec\x5d\xc3",
-    )
-    monkeypatch.setattr(
-        "rebrew.compiler.compile.compile_to_obj", lambda *a, **k: (Path("o.obj"), "")
     )
     monkeypatch.setattr(
         "rebrew.matcher.parsers.parse_obj_symbol_and_relocs",
@@ -927,42 +937,13 @@ class TestValidatedRelocMasking:
     def _invoke_diag(
         self, monkeypatch, tmp_path: Path, compiled: bytes, target: bytes, reloc_fn=None
     ) -> dict:
-        from types import SimpleNamespace as NS
-
         from typer.testing import CliRunner
 
         from rebrew.near_diag import app
 
-        cfg = NS(
-            root=tmp_path,
-            reversed_dir=tmp_path,
-            metadata_dir=tmp_path,
-            module="S",
-            source_ext=".c",
-            target_name="S",
-            target_binary=tmp_path / "x.exe",
-        )
-        monkeypatch.setattr(
-            "rebrew.near_diag.require_config", lambda target=None, json_mode=False: cfg
-        )
-        monkeypatch.setattr("rebrew.cli.resolve_source_arg", lambda cfg, s: s)
-        src = tmp_path / "f.c"
-        write_source(
-            src,
-            "/* ADDRESS: S 0x1000 */\n\nint f(void) { return 0; }\n",
-            encoding="utf-8",
-            metadata_fields={"S.0x1000": {"kind": "FUNCTION", "size": 10}},
-            metadata_dir=tmp_path,
-        )
-        monkeypatch.setattr(
-            "rebrew.metadata.bindings.read_source_bindings",
-            lambda *a, **k: [NS(va=0x1000, size=10, symbol="_f", module="S", cflags="")],
-        )
+        src = _patch_near_diag_cli(monkeypatch, tmp_path, size=10)
         monkeypatch.setattr(
             "rebrew.formats.binary_loader.extract_raw_bytes", lambda *a, **k: target
-        )
-        monkeypatch.setattr(
-            "rebrew.compiler.compile.compile_to_obj", lambda *a, **k: (Path("o.obj"), "")
         )
         monkeypatch.setattr(
             "rebrew.matcher.parsers.parse_obj_symbol_and_relocs",
@@ -1039,42 +1020,13 @@ class TestFixBlockerStatus:
     missing/STUB made status reports count documented functions as stubs."""
 
     def _invoke_fix(self, monkeypatch, tmp_path: Path, *extra_args: str) -> None:
-        from types import SimpleNamespace as NS
-
         from typer.testing import CliRunner
 
         from rebrew.near_diag import app
 
-        cfg = NS(
-            root=tmp_path,
-            reversed_dir=tmp_path,
-            metadata_dir=tmp_path,
-            module="S",
-            source_ext=".c",
-            target_name="S",
-            target_binary=tmp_path / "x.exe",
-        )
-        monkeypatch.setattr(
-            "rebrew.near_diag.require_config", lambda target=None, json_mode=False: cfg
-        )
-        monkeypatch.setattr("rebrew.cli.resolve_source_arg", lambda cfg, s: s)
-        src = tmp_path / "f.c"
-        write_source(
-            src,
-            "/* ADDRESS: S 0x1000 */\n\nint f(void) { return 0; }\n",
-            encoding="utf-8",
-            metadata_fields={"S.0x1000": {"kind": "FUNCTION", "size": 10}},
-            metadata_dir=tmp_path,
-        )
-        monkeypatch.setattr(
-            "rebrew.metadata.bindings.read_source_bindings",
-            lambda *a, **k: [NS(va=0x1000, size=10, symbol="_f", module="S", cflags="")],
-        )
+        src = _patch_near_diag_cli(monkeypatch, tmp_path, size=10)
         monkeypatch.setattr(
             "rebrew.formats.binary_loader.extract_raw_bytes", lambda *a, **k: b"\x01\x03"
-        )
-        monkeypatch.setattr(
-            "rebrew.compiler.compile.compile_to_obj", lambda *a, **k: (Path("o.obj"), "")
         )
         monkeypatch.setattr(
             "rebrew.matcher.parsers.parse_obj_symbol_and_relocs",

@@ -46,6 +46,26 @@ app = typer.Typer(
 _COMPARED = (".text", ".rdata", ".data", ".data1", ".rsrc")
 
 
+def _count_window(reference: bytes, built: bytes, start: int, end: int) -> tuple[int, int, int]:
+    """Same-offset (matches, informative matches, informative bytes) over ``[start, end)``.
+
+    A zero reference byte counts as a match only when the build is also zero;
+    informative bytes are the reference's nonzero ones, which carry content.
+    """
+    same = 0
+    informative_same = 0
+    informative_compared = 0
+    for i in range(start, end):
+        if reference[i]:
+            informative_compared += 1
+            if reference[i] == built[i]:
+                informative_same += 1
+                same += 1
+        elif built[i] == 0:
+            same += 1
+    return same, informative_same, informative_compared
+
+
 def score(reference: bytes, built: bytes, reference_sections: dict[str, Any]) -> dict[str, Any]:
     """Same-offset matches overall and per reference section window."""
     sections: dict[str, dict[str, int]] = {}
@@ -60,17 +80,9 @@ def score(reference: bytes, built: bytes, reference_sections: dict[str, Any]) ->
         start = section.file_offset
         end = start + section.raw_size
         window = min(end, len(built))
-        same = 0
-        informative_same = 0
-        informative_compared = 0
-        for i in range(start, window):
-            if reference[i]:
-                informative_compared += 1
-                if reference[i] == built[i]:
-                    informative_same += 1
-                    same += 1
-            elif built[i] == 0:
-                same += 1
+        same, informative_same, informative_compared = _count_window(
+            reference, built, start, window
+        )
         sections[name] = {
             "same": same,
             "compared": max(0, window - start),
@@ -82,17 +94,9 @@ def score(reference: bytes, built: bytes, reference_sections: dict[str, Any]) ->
         info_total += informative_same
         info_compared += informative_compared
     file_compared = min(len(reference), len(built))
-    file_same = 0
-    file_info_same = 0
-    file_info_compared = 0
-    for i in range(file_compared):
-        if reference[i]:
-            file_info_compared += 1
-            if reference[i] == built[i]:
-                file_info_same += 1
-                file_same += 1
-        elif built[i] == 0:
-            file_same += 1
+    file_same, file_info_same, file_info_compared = _count_window(
+        reference, built, 0, file_compared
+    )
     return {
         "same": total,
         "compared": compared,

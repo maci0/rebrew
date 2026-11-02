@@ -140,15 +140,12 @@ def classify_gap(
     if len(data) == 0:
         return "padding"
 
-    # All padding bytes?
     if all(b in padding_bytes for b in data):
         return "padding"
 
-    # Jump table?
     if is_jump_table(data, text_va, text_size, arch, endian):
         return "jump_table"
 
-    # Size-based threshold
     if len(data) <= 64:
         return "small_nonpadding"
     return "large_nonpadding"
