@@ -121,17 +121,18 @@ def entry_fingerprint(cfg: ProjectConfig, entry: Any) -> EntryFingerprint | None
         st.st_mtime_ns,
         st.st_size,
         st.st_ino,
+        st.st_ctime_ns,
         str(filepath),
     )
     return fingerprint
 
 
-#: ``id(entry)`` -> ``(weakref, fingerprint, mtime_ns, size, ino, path)``.
+#: ``id(entry)`` -> ``(weakref, fingerprint, mtime_ns, size, ino, ctime_ns, path)``.
 #: SourceBinding is unhashable (it defines equality), so this cannot be a
 #: WeakKeyDictionary.  The weakref drops the row when the entry is collected
 #: and rejects an id that a new object reused.
 _FRESH_FINGERPRINTS: dict[
-    int, tuple[weakref.ReferenceType[Any], EntryFingerprint, int, int, int, str]
+    int, tuple[weakref.ReferenceType[Any], EntryFingerprint, int, int, int, int, str]
 ] = {}
 #: Reentrant because the weakref callback :func:`_drop` runs synchronously on
 #: the thread that triggers collection, including inside the ``with`` block
@@ -147,6 +148,7 @@ def _remember_fingerprint(
     mtime_ns: int,
     size: int,
     ino: int,
+    ctime_ns: int,
     path_str: str,
 ) -> None:
     """Stash *fingerprint* for *entry* until the object is collected."""
@@ -165,18 +167,26 @@ def _remember_fingerprint(
         # recomputes.  The hit check never reads the stash.
         return
     with _FRESH_FINGERPRINT_LOCK:
-        _FRESH_FINGERPRINTS[ident] = (ref, fingerprint, mtime_ns, size, ino, path_str)
+        _FRESH_FINGERPRINTS[ident] = (
+            ref,
+            fingerprint,
+            mtime_ns,
+            size,
+            ino,
+            ctime_ns,
+            path_str,
+        )
 
 
 def _recall_fingerprint(
     entry: Any,
-) -> tuple[EntryFingerprint, int, int, int, str] | None:
+) -> tuple[EntryFingerprint, int, int, int, int, str] | None:
     """Return the stash for *entry*, or None when it is missing or reused."""
     with _FRESH_FINGERPRINT_LOCK:
         row = _FRESH_FINGERPRINTS.get(id(entry))
     if row is None or row[0]() is not entry:
         return None
-    return row[1], row[2], row[3], row[4], row[5]
+    return row[1], row[2], row[3], row[4], row[5], row[6]
 
 
 def fresh_entry_fingerprint(cfg: ProjectConfig, entry: Any) -> EntryFingerprint | None:
@@ -185,23 +195,26 @@ def fresh_entry_fingerprint(cfg: ProjectConfig, entry: Any) -> EntryFingerprint 
     :func:`entry_fingerprint` records the value it just computed, including
     the resolved path.  The verify writer calls this so an all-hit save does
     not walk the include closure or the source roots a second time.  The
-    reuse holds only while a fresh ``stat`` of that resolved path matches
-    ``(mtime_ns, size, ino)``.  A header edit that leaves the source stat
-    alone can be stored from the earlier check; the next check stats the
-    header and misses, so the stored row is not served.  The hit check does
-    not call this.
+    reuse holds only while a fresh ``stat`` of that resolved path still
+    matches ``(mtime_ns, size, ino, ctime_ns)``: change time catches an
+    in-place rewrite that restores the old mtime and size, which would
+    otherwise store this run's verdict under the previous body's identity.
+    A header edit that leaves the source stat alone can be stored from the
+    earlier check; the next check stats the header and misses, so the stored
+    row is not served.  The hit check does not call this.
     """
     stashed = _recall_fingerprint(entry)
     if stashed is not None:
-        fingerprint, mtime_ns, size, ino, path_str = stashed
+        fingerprint, mtime_ns, size, ino, ctime_ns, path_str = stashed
         try:
             st = Path(path_str).stat()
         except OSError:
             st = None
-        if st is not None and (st.st_mtime_ns, st.st_size, st.st_ino) == (
+        if st is not None and (st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns) == (
             mtime_ns,
             size,
             ino,
+            ctime_ns,
         ):
             return fingerprint
     return entry_fingerprint(cfg, entry)
@@ -233,17 +246,18 @@ def cflags_equivalent(stored: str, current: str) -> bool:
     return canonicalize_cflags(stored_flags) == canonicalize_cflags(current_flags)
 
 
-def _package_source_fingerprint() -> tuple[tuple[str, int, int, int], ...]:
-    """``(path, mtime_ns, size, ino)`` for every ``.py`` file in the package.
+def _package_source_fingerprint() -> tuple[tuple[str, int, int, int, int], ...]:
+    """``(path, mtime_ns, size, ino, ctime_ns)`` for every ``.py`` file in the package.
 
     Not memoized, for the reason :func:`_headers_stat_fingerprint` is not: a
     long-lived process (``verify --watch``, the dashboard) must see an edit to
-    the comparison logic, which is the whole point of the hash.
+    the comparison logic, which is the whole point of the hash.  Change time
+    catches an in-place rewrite that restores the old mtime and size.
     """
     import rebrew
 
     pkg_root = Path(rebrew.__file__).resolve().parent
-    entries: list[tuple[str, int, int, int]] = []
+    entries: list[tuple[str, int, int, int, int]] = []
     for path in pkg_root.rglob("*.py"):
         try:
             st = path.stat()
@@ -253,9 +267,9 @@ def _package_source_fingerprint() -> tuple[tuple[str, int, int, int], ...]:
             # existed is re-served as current.  An unreadable marker keeps
             # the key distinct (same rule as
             # ``compiler.cache.include_fingerprint``).
-            entries.append((f"{path}\0unreadable", 0, 0, 0))
+            entries.append((f"{path}\0unreadable", 0, 0, 0, 0))
             continue
-        entries.append((str(path), st.st_mtime_ns, st.st_size, st.st_ino))
+        entries.append((str(path), st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns))
     return tuple(sorted(entries))
 
 
@@ -263,7 +277,7 @@ def _package_source_fingerprint() -> tuple[tuple[str, int, int, int], ...]:
 #: fingerprint.  Lock-guarded: ``verify -j N`` computes cache identity from
 #: worker threads.
 _COMPARE_LOGIC_MEMO_LOCK = threading.Lock()
-_COMPARE_LOGIC_MEMO: tuple[tuple[tuple[str, int, int, int], ...], str] | None = None
+_COMPARE_LOGIC_MEMO: tuple[tuple[tuple[str, int, int, int, int], ...], str] | None = None
 
 
 def _compare_logic_hash() -> str:
@@ -280,8 +294,8 @@ def _compare_logic_hash() -> str:
     process lifetime: a process that outlives an edit to the comparison logic
     (an editable install being worked on under ``verify --watch``, or a
     dashboard with the cache open) would otherwise keep accepting verdicts the
-    current code would not reach.  An edit preserving both mtime_ns and size is
-    missed until the next process, as for every other stat-keyed memo here.
+    current code would not reach.  An edit preserving mtime_ns, size, and
+    inode still bumps change time and re-keys the memo.
 
     The hash covers the WHOLE ``rebrew`` package source rather than a
     hand-maintained module list: result-affecting code lives across
@@ -301,7 +315,7 @@ def _compare_logic_hash() -> str:
     h = hashlib.sha256()
     # Deterministic order; only .py source (skip vendored binaries,
     # __pycache__, .so/.pyd extensions).
-    for path_str, _mtime_ns, _size, _ino in fingerprint:
+    for path_str, _mtime_ns, _size, _ino, _ctime_ns in fingerprint:
         if path_str.endswith("\0unreadable"):
             h.update(f"\0unreadable\0{path_str}\0".encode("utf-8", errors="surrogateescape"))
             h.update(b"\x00")

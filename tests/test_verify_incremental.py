@@ -1875,6 +1875,41 @@ class TestFreshFingerprintReuse:
         monkeypatch.setattr("rebrew.sources.contained_path", refuse)
         assert fresh_entry_fingerprint(cfg, entry) is first
 
+    def test_in_place_rewrite_with_restored_mtime_recomputes(self, tmp_path: Path) -> None:
+        """Reuse must key change time, not just mtime/size/inode.
+
+        A same-size in-place rewrite that restores mtime keeps the inode.
+        Reusing the earlier fingerprint would store this run's verdict under
+        the previous body's source hash, so a later revert serves it back.
+        """
+        cfg = _make_cfg(tmp_path)
+        src = cfg.reversed_dir / "a.c"
+        src.write_text("int a(void) { return 1; }\n", encoding="utf-8")
+
+        class _Source:
+            filepath = "a.c"
+            size = 4
+            cflags = ""
+            module = ""
+            toolchain = ""
+
+        entry = _Source()
+        first = entry_fingerprint(cfg, entry)
+        assert first is not None
+        old = src.stat()
+        src.write_text("int a(void) { return 2; }\n", encoding="utf-8")
+        os.utime(src, ns=(old.st_atime_ns, old.st_mtime_ns))
+        after = src.stat()
+        assert (after.st_mtime_ns, after.st_size, after.st_ino) == (
+            old.st_mtime_ns,
+            old.st_size,
+            old.st_ino,
+        )
+        fresh = fresh_entry_fingerprint(cfg, entry)
+        assert fresh is not None
+        assert fresh is not first
+        assert fresh.source_hash != first.source_hash
+
 
 class TestEntryHeadersFp:
     def test_reached_header_edit_changes_fp(self, tmp_path: Path) -> None:
@@ -2001,7 +2036,7 @@ class TestCompareLogicHashMembership:
         # _extract_and_compare both live in compiler/compile.py), all under src/.
         assert len(names) == 5
         assert all("rebrew" in n for n in names)
-        covered = {path for path, _mtime, _size, _ino in _package_source_fingerprint()}
+        covered = {entry[0] for entry in _package_source_fingerprint()}
         missing = {str(Path(n).resolve()) for n in names} - covered
         assert not missing, sorted(missing)
         h = _compare_logic_hash()
