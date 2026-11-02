@@ -9,6 +9,7 @@ without pulling in the ``rebrew data list`` Typer app (``rebrew.data``).
 
 import logging
 import re
+import threading
 from dataclasses import dataclass, field
 from typing import Any
 lazy import json
@@ -369,6 +370,10 @@ def _store_names_the_file(
 # stat per source, so a process that visits many roots must not retain them all.
 _NAME_COVER_CACHE: dict[str, dict[str, Any]] = {}
 _NAME_COVER_CACHE_MAX = 8
+#: Guarded: one process can scan several targets at once (parallel ``match``
+#: targets, the batch catalog built for a GA pool), and the bounded insert is a
+#: multi-step next(iter)+pop on the shared dict.
+_NAME_COVER_CACHE_LOCK = threading.Lock()
 #: Bump when the cover rule or the recorded shape changes.  The store
 #: fingerprint only says the metadata did not change; a cache written by older
 #: coverage semantics must not keep a source out of the reloc-name parse.
@@ -417,7 +422,8 @@ def _begin_name_cover(metadata_dir: Path) -> dict[str, Any]:
     """Load the cover for *metadata_dir* when the store fingerprint matches."""
     key = _path_key(metadata_dir)
     stamp = _store_stamp(metadata_dir)
-    cached = _NAME_COVER_CACHE.get(key)
+    with _NAME_COVER_CACHE_LOCK:
+        cached = _NAME_COVER_CACHE.get(key)
     if cached is not None and cached["stamp"] == stamp:
         return cached
     files: dict[str, list[int]] = {}
@@ -438,9 +444,10 @@ def _begin_name_cover(metadata_dir: Path) -> dict[str, Any]:
             if isinstance(path_key, str) and parsed is not None:
                 files[path_key] = parsed
     record = {"dir": metadata_dir, "stamp": stamp, "files": files, "dirty": False}
-    if len(_NAME_COVER_CACHE) >= _NAME_COVER_CACHE_MAX and key not in _NAME_COVER_CACHE:
-        _NAME_COVER_CACHE.pop(next(iter(_NAME_COVER_CACHE)), None)
-    _NAME_COVER_CACHE[key] = record
+    with _NAME_COVER_CACHE_LOCK:
+        if len(_NAME_COVER_CACHE) >= _NAME_COVER_CACHE_MAX and key not in _NAME_COVER_CACHE:
+            _NAME_COVER_CACHE.pop(next(iter(_NAME_COVER_CACHE)), None)
+        _NAME_COVER_CACHE[key] = record
     return record
 
 
@@ -486,6 +493,8 @@ _ROLE_FACT_VERSION = 2
 # facts until the process exits.
 _ROLE_FACT_CACHE: dict[str, dict[str, Any]] = {}
 _ROLE_FACT_CACHE_MAX = 8
+#: Same bounded-insert hazard as :data:`_NAME_COVER_CACHE_LOCK`.
+_ROLE_FACT_CACHE_LOCK = threading.Lock()
 
 
 def _role_identity(cfg: ProjectConfig | None) -> str:
@@ -527,7 +536,8 @@ def _begin_role_cache(metadata_dir: Path, cfg: ProjectConfig | None) -> dict[str
     identity = _role_identity(cfg)
     key = _path_key(metadata_dir) + "\n" + identity
     stamp = _store_stamp(metadata_dir)
-    cached = _ROLE_FACT_CACHE.get(key)
+    with _ROLE_FACT_CACHE_LOCK:
+        cached = _ROLE_FACT_CACHE.get(key)
     if (
         cached is not None
         and cached["stamp"] == stamp
@@ -561,9 +571,10 @@ def _begin_role_cache(metadata_dir: Path, cfg: ProjectConfig | None) -> dict[str
         "files": files,
         "dirty": False,
     }
-    if len(_ROLE_FACT_CACHE) >= _ROLE_FACT_CACHE_MAX and key not in _ROLE_FACT_CACHE:
-        _ROLE_FACT_CACHE.pop(next(iter(_ROLE_FACT_CACHE)), None)
-    _ROLE_FACT_CACHE[key] = record
+    with _ROLE_FACT_CACHE_LOCK:
+        if len(_ROLE_FACT_CACHE) >= _ROLE_FACT_CACHE_MAX and key not in _ROLE_FACT_CACHE:
+            _ROLE_FACT_CACHE.pop(next(iter(_ROLE_FACT_CACHE)), None)
+        _ROLE_FACT_CACHE[key] = record
     return record
 
 

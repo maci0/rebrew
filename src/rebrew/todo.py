@@ -13,6 +13,7 @@ Usage::
 """
 
 import logging
+import threading
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 lazy import json
@@ -1019,6 +1020,9 @@ def _collect_library_candidates(
 # that visits many roots must not retain each project's source names until exit.
 _EXTERN_CACHE: dict[str, dict[str, Any]] = {}
 _EXTERN_CACHE_MAX = 8
+#: Guarded: the bounded insert is a multi-step next(iter)+pop on the shared
+#: dict, and batch callers can materialize stubs from more than one thread.
+_EXTERN_CACHE_LOCK = threading.Lock()
 #: Bump when the parser or the recorded name shape changes.  The per-file
 #: stat only says the source did not change; it says nothing about the code
 #: that produced the names, so a deploy must not reuse older semantics.
@@ -1079,7 +1083,8 @@ def _extern_entry(raw: object) -> dict[str, Any] | None:
 
 def _begin_extern_cache(directory: Path) -> dict[str, Any]:
     key = _extern_path_key(directory)
-    cached = _EXTERN_CACHE.get(key)
+    with _EXTERN_CACHE_LOCK:
+        cached = _EXTERN_CACHE.get(key)
     if cached is not None:
         return cached
     files: dict[str, dict[str, Any]] = {}
@@ -1096,9 +1101,10 @@ def _begin_extern_cache(directory: Path) -> dict[str, Any]:
                 if isinstance(path_key, str) and parsed is not None:
                     files[path_key] = parsed
     record: dict[str, Any] = {"dir": directory, "files": files, "dirty": False}
-    if len(_EXTERN_CACHE) >= _EXTERN_CACHE_MAX and key not in _EXTERN_CACHE:
-        _EXTERN_CACHE.pop(next(iter(_EXTERN_CACHE)), None)
-    _EXTERN_CACHE[key] = record
+    with _EXTERN_CACHE_LOCK:
+        if len(_EXTERN_CACHE) >= _EXTERN_CACHE_MAX and key not in _EXTERN_CACHE:
+            _EXTERN_CACHE.pop(next(iter(_EXTERN_CACHE)), None)
+        _EXTERN_CACHE[key] = record
     return record
 
 
