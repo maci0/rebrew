@@ -1535,6 +1535,26 @@ class TestReSessionReuse:
         finally:
             dc._clear_re_projects()
 
+    def test_marker_without_binary_fingerprint_is_stale(self, tmp_path: Path) -> None:
+        """A pre-fingerprint marker must not reuse an analysis of rebuilt bytes."""
+        import rebrew.decompiler as dc
+
+        binary = tmp_path / "target.bin"
+        binary.write_bytes(b"MZ")
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+        marker = project_dir / "rebrew_tool.sha256"
+        fingerprint = dc.binary_fingerprint(binary)
+
+        marker.write_text("rz\n\n", encoding="utf-8")
+        assert not dc._re_cached_digest_ok(str(project_dir), "rz", "", binary, fingerprint)
+
+        marker.write_text(f"rz\n\n{fingerprint}\n", encoding="utf-8")
+        assert dc._re_cached_digest_ok(str(project_dir), "rz", "", binary, fingerprint)
+
+        marker.write_text("rz\n\nstale\n", encoding="utf-8")
+        assert not dc._re_cached_digest_ok(str(project_dir), "rz", "", binary, fingerprint)
+
     def test_project_dir_cap_evicts_oldest(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1601,7 +1621,9 @@ class TestReSessionReuse:
             stale = next(iter(dc._RE_PROJECT_DIRS.values()))
             fresh = tmp_path / "fresh"
             fresh.mkdir()
-            (fresh / "rebrew_tool.sha256").write_text("rz\n\n", encoding="utf-8")
+            (fresh / "rebrew_tool.sha256").write_text(
+                f"rz\n\n{dc.binary_fingerprint(binary)}\n", encoding="utf-8"
+            )
 
             def peer_reanalyzes(cmd: list[str], **kwargs: object) -> object:
                 # A peer evicts the stale project and publishes a re-analyzed

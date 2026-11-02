@@ -244,8 +244,9 @@ def _re_cached_digest_ok(
     The marker (``rebrew_tool.sha256``) records the tool name, a hash of the
     tool binary, and the target binary's stat fingerprint; writing it without
     ever reading it back meant a tool upgrade or binary rebuild kept serving
-    the old ``aaa`` results.  A missing or single-line marker (an older format)
-    is treated as stale.
+    the old ``aaa`` results.  A marker that predates the binary fingerprint
+    is stale whenever a binary identity is required, so an upgrade cannot
+    keep serving an analysis of the pre-rebuild image from the XDG cache.
 
     ``tool_digest`` and ``bin_fp`` are computed by the caller, outside
     :data:`_RE_PROJECT_DIRS_LOCK`: hashing the tool binary is a multi-MB read,
@@ -255,11 +256,9 @@ def _re_cached_digest_ok(
         lines = Path(proj_dir, "rebrew_tool.sha256").read_text(encoding="utf-8").splitlines()
     except OSError:
         return False
-    if len(lines) < 2 or lines[0] != tool:
+    if len(lines) < 2 or lines[0] != tool or lines[1] != tool_digest:
         return False
-    if lines[1] != tool_digest:
-        return False
-    return not (len(lines) >= 3 and binary is not None and lines[2] != bin_fp)
+    return not (binary is not None and (len(lines) < 3 or lines[2] != bin_fp))
 
 
 def _re_borrow_locked(proj_dir: str) -> None:
