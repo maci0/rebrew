@@ -15,7 +15,7 @@ lazy from collections.abc import Iterator
 lazy from pathlib import Path
 lazy from typing import Any
 
-lazy from rebrew.c_parser import get_ts_parser
+lazy from rebrew.c_parser import get_ts_parser, parse_c_source
 lazy from rebrew.utils import detect_source_encoding
 
 _PTR_NOSPACE_RE = re.compile(r"([a-zA-Z0-9_])\*")
@@ -62,16 +62,17 @@ def _parse_source(filepath: Path) -> tuple[bytes, str, Any] | None:
     Returns None when tree-sitter is unavailable or the file cannot be read,
     so every extractor fails the same way instead of one silently yielding.
     """
-    result = get_ts_parser()
-    if result is None:
+    if get_ts_parser() is None:
         return None
-    parser, _ = result
     try:
         code_bytes = filepath.read_bytes()
     except OSError:
         return None
     encoding = detect_source_encoding(code_bytes)
-    return code_bytes, encoding, parser.parse(code_bytes).root_node
+    # Shared parse memo: one file feeds several extractors in a single pass
+    # (collect_context, binsync import), so one parse serves all of them.
+    tree, _ = parse_c_source(code_bytes)
+    return code_bytes, encoding, tree.root_node
 
 
 def extract_function_signatures(filepath: Path) -> Iterator[tuple[str, str]]:

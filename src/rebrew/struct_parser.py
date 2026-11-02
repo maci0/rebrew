@@ -9,7 +9,7 @@ lazy from collections.abc import Iterator
 lazy from pathlib import Path
 lazy from typing import Any
 
-lazy from rebrew.c_parser import get_ts_parser
+lazy from rebrew.c_parser import get_ts_parser, parse_c_source
 lazy from rebrew.utils import detect_source_encoding
 
 logger = logging.getLogger(__name__)
@@ -28,10 +28,8 @@ def _iter_definitions(
     typedef when ``all_type_defs``), plus bare specifier nodes with a body,
     each extended through a following ``;``.
     """
-    result = get_ts_parser()
-    if result is None:
+    if get_ts_parser() is None:
         return
-    parser, _ = result
 
     try:
         code_bytes = filepath.read_bytes()
@@ -42,7 +40,8 @@ def _iter_definitions(
         return
 
     encoding = detect_source_encoding(code_bytes)
-    tree = parser.parse(code_bytes)
+    # Shared parse memo: several extractors run over the same file in one pass.
+    tree, _ = parse_c_source(code_bytes)
     specifier_type = f"{keyword.decode('ascii')}_specifier"
 
     def balanced(text: bytes) -> bool:
