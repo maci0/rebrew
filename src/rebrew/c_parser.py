@@ -2161,7 +2161,11 @@ def find_variable_roles(
                         walk(child, shadows, file_scope)
             return
         if node.type == "function_definition":
-            line = src.count(b"\n", 0, node.start_byte) + 1
+            # ``start_point`` already carries the row, so the 1-based line is
+            # O(1) per definition. Counting newlines from the file start here
+            # would rescan the whole source once per function: O(definitions x
+            # bytes) on the data-scan and dependency-graph paths.
+            line = node.start_point[0] + 1
             if function_filter is not None and not function_filter(line):
                 return
             local = set(shadows)
