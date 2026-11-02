@@ -57,6 +57,9 @@ _COMPARE_CHUNK_BYTES = 1 << 20
 def _count_window(reference: bytes, built: bytes, start: int, end: int) -> tuple[int, int, int]:
     """Same-offset (matches, informative matches, informative bytes) over ``[start, end)``.
 
+    The range is clipped to the shorter buffer, so a window past the end of
+    either image counts only the bytes both sides actually hold.
+
     A zero reference byte counts as a match only when the build is also zero;
     informative bytes are the reference's nonzero ones, which carry content.
     """
