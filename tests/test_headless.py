@@ -134,6 +134,16 @@ class TestPickFreeDisplay:
         monkeypatch.setattr(headless, "_XVFB_SOCKET_DIR", tmp_path)
         assert _pick_free_display() == ":90"
 
+    def test_returns_none_when_the_range_is_full(self, tmp_path: Path, monkeypatch) -> None:
+        """An exhausted range is not a licence to guess a colliding display."""
+        from rebrew.compiler import headless
+
+        monkeypatch.setattr(headless, "_XVFB_SOCKET_DIR", tmp_path)
+        monkeypatch.setattr(headless, "_XVFB_DISPLAY_RANGE", range(90, 92))
+        (tmp_path / "X90").touch()
+        (tmp_path / "X91").touch()
+        assert _pick_free_display() is None
+
 
 class TestEnsureXvfb:
     def test_reuses_env_display_when_alive(self, tmp_path: Path, monkeypatch) -> None:
@@ -673,6 +683,50 @@ class TestWaitForSocket:
             is True
         )
         assert sleeps == []
+
+    def test_peer_socket_is_not_accepted_as_our_server(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A lost display race leaves the winner's socket at our display.
+
+        The child is still alive for a moment, so socket existence alone
+        would accept a server that never received our cookie.
+        """
+        from rebrew.compiler import headless
+
+        monkeypatch.setattr(headless, "_XVFB_SOCKET_DIR", tmp_path)
+        (tmp_path / "X90").touch()
+        clock, sleeps = self._clock(monkeypatch)
+        monkeypatch.setattr(headless, "_running_xvfb_displays", lambda: {":90": 9999})
+
+        class AliveProc:
+            pid = 1234
+
+            def poll(self) -> None:
+                return None
+
+        assert headless._wait_for_socket(":90", timeout=0.3, proc=AliveProc()) is False
+        assert sleeps
+        assert clock["t"] >= 0.3
+
+    def test_own_socket_is_accepted(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.compiler import headless
+
+        monkeypatch.setattr(headless, "_XVFB_SOCKET_DIR", tmp_path)
+        (tmp_path / "X90").touch()
+        clock, _sleeps = self._clock(monkeypatch)
+        monkeypatch.setattr(headless, "_running_xvfb_displays", lambda: {":90": 1234})
+
+        class AliveProc:
+            pid = 1234
+
+            def poll(self) -> None:
+                return None
+
+        assert headless._wait_for_socket(":90", timeout=0.3, proc=AliveProc()) is True
+        assert clock["t"] == 0.0
 
 
 class TestXvfbCookieFor:

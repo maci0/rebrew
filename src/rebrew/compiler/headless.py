@@ -243,12 +243,19 @@ def _running_xvfb_displays() -> dict[str, int]:
     return out
 
 
-def _pick_free_display() -> str:
-    """Lowest display in the allowed range without a live X socket."""
+def _pick_free_display() -> str | None:
+    """Lowest display in the allowed range without a live X socket.
+
+    ``None`` when every display in the range is taken.  Returning a
+    ``pid % range`` guess instead put two servers on one display under load:
+    the loser exits "Server is already active", and the socket probe could
+    then accept the winner's socket as its own.  The caller falls back to
+    ``xvfb-run``, which owns its display reservation.
+    """
     for n in _XVFB_DISPLAY_RANGE:
         if not (_XVFB_SOCKET_DIR / f"X{n}").exists():
             return f":{n}"
-    return f":{_XVFB_DISPLAY_RANGE.start + os.getpid() % (_XVFB_DISPLAY_RANGE.stop - _XVFB_DISPLAY_RANGE.start)}"
+    return None
 
 
 #: Poll interval of :func:`_wait_for_socket` against a real clock.
@@ -279,11 +286,24 @@ def _wait_for_socket(
     nap = sleep if sleep is not None else time.sleep
     sock = _XVFB_SOCKET_DIR / f"X{display.removeprefix(':')}"
     deadline = now() + timeout
+    proc_pid = getattr(proc, "pid", None)
     while now() < deadline:
-        if sock.exists():
-            return True
+        # A child that exited did not publish a server, even if another
+        # process's socket is already at this display.
         if proc is not None and proc.poll() is not None:
             return False
+        if sock.exists():
+            if not isinstance(proc_pid, int) or proc_pid <= 0:
+                return True
+            if Path("/proc").is_dir():
+                # The socket path alone cannot say which server bound it.
+                # A lost display race leaves a peer's Xvfb owning it while
+                # our child is still exiting; accepting that socket pairs
+                # our cookie with a server that will refuse it.
+                if _running_xvfb_displays().get(_server_display(display)) == proc_pid:
+                    return True
+            else:
+                return True
         nap(_SOCKET_POLL_INTERVAL_S)
     return False
 
@@ -395,58 +415,70 @@ def _ensure_xvfb_locked() -> str | None:
         log.debug("no Xvfb binary on PATH; wine will run without a virtual display")
         return None
 
-    display = _pick_free_display()
-    cookie = _new_cookie()
-    if cookie is None:
-        log.warning(
-            "could not create an Xvfb cookie file; "
-            "wine will run without a virtual display (temp dir unwritable?)"
-        )
-        return None
-    child_env = {**os.environ, "XAUTHORITY": str(cookie), _XVFB_AUTH_ENV: str(cookie)}
-    try:
-        proc = subprocess.Popen(
-            ["Xvfb", display, *_XVFB_SCREEN, "-nolisten", "tcp", "-auth", str(cookie)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            env=child_env,
-        )
-    except OSError as exc:
-        _drop_cookie(cookie)
-        log.warning(
-            "could not start Xvfb on %s (%s); wine will run without a virtual display",
-            display,
-            exc.strerror or type(exc).__name__,
-        )
-        return None
-    except BaseException:
-        # A Ctrl+C landing in the spawn window would otherwise leave the
-        # credential on disk and the child unreaped, since the atexit reaper
-        # only learns about it below.
-        _drop_cookie(cookie)
-        raise
-    # From here the pair is the reaper's responsibility: an interrupt before
-    # the socket appears must not bypass cleanup either.
-    _owned_xvfb.append((proc, cookie))
-    if not _xvfb_atexit_registered:
-        atexit.register(_release_owned_xvfb)
-        _xvfb_atexit_registered = True
-    if not _wait_for_socket(display, proc=proc):
-        # Same release path as the atexit hook: terminate AND wait, so a
-        # server that died during startup is reaped instead of lingering
-        # as a zombie for the rest of this process's lifetime.
-        exit_code = proc.poll()
-        _shutdown_xvfb(proc)
-        _drop_cookie(cookie)
-        # The fallback is silent from here on, so without this the only trace
-        # of a headless setup that never worked is a run whose wine compiles
-        # behave differently from the ones the operator configured.
-        log.warning(
-            "Xvfb on %s never came up%s; wine will run without a virtual display",
-            display,
-            "" if exit_code is None else f" (exited {exit_code})",
-        )
-        return None
-    os.environ["XAUTHORITY"] = str(cookie)
-    os.environ[XVFB_DISPLAY_ENV] = display
-    return display
+    # Display selection and binding are one cross-process critical section:
+    # the process-local lock orders this process's workers, but two rebrew
+    # processes can both see a display free and both spawn on it.  The
+    # winner's socket then appears under the loser, whose ``proc`` may still
+    # be alive long enough for the probe to accept it.  The lock is scoped to
+    # the spawn path; adopting an existing server needs no reservation.
+    from rebrew.utils import file_lock
+
+    with file_lock(Path(tempfile.gettempdir()) / "rebrew-xvfb-start.lock"):
+        display = _pick_free_display()
+        if display is None:
+            log.debug("every Xvfb display in the reserved range is in use")
+            return None
+        cookie = _new_cookie()
+        if cookie is None:
+            log.warning(
+                "could not create an Xvfb cookie file; "
+                "wine will run without a virtual display (temp dir unwritable?)"
+            )
+            return None
+        child_env = {**os.environ, "XAUTHORITY": str(cookie), _XVFB_AUTH_ENV: str(cookie)}
+        try:
+            proc = subprocess.Popen(
+                ["Xvfb", display, *_XVFB_SCREEN, "-nolisten", "tcp", "-auth", str(cookie)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env=child_env,
+            )
+        except OSError as exc:
+            _drop_cookie(cookie)
+            log.warning(
+                "could not start Xvfb on %s (%s); wine will run without a virtual display",
+                display,
+                exc.strerror or type(exc).__name__,
+            )
+            return None
+        except BaseException:
+            # A Ctrl+C landing in the spawn window would otherwise leave the
+            # credential on disk and the child unreaped, since the atexit reaper
+            # only learns about it below.
+            _drop_cookie(cookie)
+            raise
+        # From here the pair is the reaper's responsibility: an interrupt before
+        # the socket appears must not bypass cleanup either.
+        _owned_xvfb.append((proc, cookie))
+        if not _xvfb_atexit_registered:
+            atexit.register(_release_owned_xvfb)
+            _xvfb_atexit_registered = True
+        if not _wait_for_socket(display, proc=proc):
+            # Same release path as the atexit hook: terminate AND wait, so a
+            # server that died during startup is reaped instead of lingering
+            # as a zombie for the rest of this process's lifetime.
+            exit_code = proc.poll()
+            _shutdown_xvfb(proc)
+            _drop_cookie(cookie)
+            # The fallback is silent from here on, so without this the only trace
+            # of a headless setup that never worked is a run whose wine compiles
+            # behave differently from the ones the operator configured.
+            log.warning(
+                "Xvfb on %s never came up%s; wine will run without a virtual display",
+                display,
+                "" if exit_code is None else f" (exited {exit_code})",
+            )
+            return None
+        os.environ["XAUTHORITY"] = str(cookie)
+        os.environ[XVFB_DISPLAY_ENV] = display
+        return display
