@@ -1411,6 +1411,14 @@ def _stat_key(db_directory: Path) -> tuple[tuple[str, int, int, int, int], ...]:
     otherwise make a listed file disappear from the scan. A file that vanishes
     between listing and stat is skipped.
 
+    The directory-stat comparison alone is not enough: a rename-over that lands
+    in the same timestamp tick (or a coarse-timestamp filesystem) leaves the
+    directory identity unchanged while the glob generator misses the file it
+    replaced, so the scan returns an empty or partial snapshot. Compare the
+    names the glob reported with a second enumeration and retry on any
+    difference; only that reports the inconsistency regardless of clock
+    granularity.
+
     The inode is what catches a document replaced by a same-size rename-over
     inside one mtime tick (a ``cp -p`` restore, a git checkout of a restored
     file, a coarse-timestamp filesystem), which mtime and size alone cannot
@@ -1429,6 +1437,21 @@ def _stat_key(db_directory: Path) -> tuple[tuple[str, int, int, int, int], ...]:
             except OSError:
                 continue
             entries.append((path.name, st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns))
+        # A concurrent rename-over can remove a name from the glob's view while
+        # the replacement is not visible yet.  Enumerate independently: a name
+        # set that disagrees means the scan is incomplete, whatever the clock
+        # says.
+        try:
+            present = {
+                candidate.name
+                for candidate in db_directory.iterdir()
+                if candidate.name.startswith(_FILENAME_PREFIX)
+                and candidate.name.endswith(_FILENAME_SUFFIX)
+            }
+        except OSError:
+            return ()
+        if present != {entry[0] for entry in entries}:
+            continue
         try:
             after = db_directory.stat()
         except OSError:
