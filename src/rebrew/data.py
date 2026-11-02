@@ -13,6 +13,7 @@ import typer
 
 from rebrew.cli import (
     EXPECTED_DIGEST_HELP,
+    LINK_MAP_HELP,
     MIN_TABLE_LEN_HELP,
     AllTargetsOption,
     TargetOption,
@@ -786,9 +787,7 @@ def audit_literals_cmd(
     ),
 )
 def list_data(
-    link_map: Path | None = typer.Option(
-        None, "--link-map", help="MSVC link map for library data owners (default: raw_link's .map)"
-    ),
+    link_map: Path | None = typer.Option(None, "--link-map", help=LINK_MAP_HELP),
     conflicts: bool = typer.Option(
         False, "--conflicts", help="Show only globals with type conflicts"
     ),
@@ -1022,9 +1021,7 @@ def mark_literals(
     ),
 )
 def dispatch(
-    link_map: Path | None = typer.Option(
-        None, "--link-map", help="MSVC link map for library data owners (default: raw_link's .map)"
-    ),
+    link_map: Path | None = typer.Option(None, "--link-map", help=LINK_MAP_HELP),
     min_table_len: int = typer.Option(
         3,
         "--min-table-len",
@@ -1058,9 +1055,7 @@ def dispatch(
     ),
 )
 def bss(
-    link_map: Path | None = typer.Option(
-        None, "--link-map", help="MSVC link map for library data owners (default: raw_link's .map)"
-    ),
+    link_map: Path | None = typer.Option(None, "--link-map", help=LINK_MAP_HELP),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -1077,9 +1072,7 @@ def bss(
     ),
 )
 def fix_bss(
-    link_map: Path | None = typer.Option(
-        None, "--link-map", help="MSVC link map for library data owners (default: raw_link's .map)"
-    ),
+    link_map: Path | None = typer.Option(None, "--link-map", help=LINK_MAP_HELP),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,

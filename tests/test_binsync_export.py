@@ -74,6 +74,15 @@ binary = "server.dll"
 reversed_dir = "src"
 """
 
+_TOML_WITH_SERVER = """
+[project]
+default_target = "server"
+
+[targets.server]
+binary = "server.dll"
+reversed_dir = "src/server"
+"""
+
 
 def _make_project(tmp_path: Path, files: dict[str, str]) -> Path:
     """Create a minimal rebrew project with caller-supplied source files."""
@@ -687,14 +696,6 @@ class TestBinsyncCatalogSync:
     def test_catalog_only_functions_exported(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _TOML_WITH_SERVER = """
-[project]
-default_target = "server"
-
-[targets.server]
-binary = "server.dll"
-reversed_dir = "src/server"
-"""
         write_source(tmp_path / "rebrew-project.toml", _TOML_WITH_SERVER, encoding="utf-8")
         (tmp_path / "src" / "server").mkdir(parents=True)
         write_source(
@@ -740,15 +741,7 @@ reversed_dir = "src/server"
         `rebrew sync --pull` then proposed creating them as real functions
         inside code that was already EXACT/RELOC.
         """
-        toml = """
-[project]
-default_target = "server"
-
-[targets.server]
-binary = "server.dll"
-reversed_dir = "src/server"
-"""
-        write_source(tmp_path / "rebrew-project.toml", toml, encoding="utf-8")
+        write_source(tmp_path / "rebrew-project.toml", _TOML_WITH_SERVER, encoding="utf-8")
         (tmp_path / "src" / "server").mkdir(parents=True)
         write_source(
             tmp_path / "src" / "server" / "foo.c",
@@ -783,15 +776,6 @@ reversed_dir = "src/server"
     def test_catalog_clean_removes_orphans(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _TOML_WITH_SERVER = """
-[project]
-default_target = "server"
-
-[targets.server]
-binary = "server.dll"
-reversed_dir = "src/server"
-"""
-
         write_source(tmp_path / "rebrew-project.toml", _TOML_WITH_SERVER, encoding="utf-8")
         (tmp_path / "src" / "server").mkdir(parents=True)
         write_source(
@@ -836,14 +820,6 @@ reversed_dir = "src/server"
         # Catalog VAs have module="" so --module SERVER should filter them out?  Export
         # module filter applies to annotation entries; catalog entries are module-less
         # and should still export when no filter is set.
-        _TOML_WITH_SERVER = """
-[project]
-default_target = "server"
-
-[targets.server]
-binary = "server.dll"
-reversed_dir = "src/server"
-"""
         write_source(tmp_path / "rebrew-project.toml", _TOML_WITH_SERVER, encoding="utf-8")
         (tmp_path / "src" / "server").mkdir(parents=True)
         import json as _json

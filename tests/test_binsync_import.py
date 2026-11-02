@@ -27,6 +27,15 @@ binary = "server.dll"
 reversed_dir = "src"
 """
 
+_TOML_WITH_SERVER = """
+[project]
+default_target = "server"
+
+[targets.server]
+binary = "server.dll"
+reversed_dir = "src/server"
+"""
+
 
 def _make_project(tmp_path: Path, files: dict[str, str]) -> Path:
     write_source(tmp_path / "rebrew-project.toml", _TOML_CFG, encoding="utf-8")
@@ -480,15 +489,7 @@ class TestBinsyncRoundTrip:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """BinSync names for catalog-only VAs surface as proposed_missing."""
-        _TOML = """
-[project]
-default_target = "server"
-
-[targets.server]
-binary = "server.dll"
-reversed_dir = "src/server"
-"""
-        write_source(tmp_path / "rebrew-project.toml", _TOML, encoding="utf-8")
+        write_source(tmp_path / "rebrew-project.toml", _TOML_WITH_SERVER, encoding="utf-8")
         src = tmp_path / "src" / "server"
         src.mkdir(parents=True)
         write_source(
@@ -522,15 +523,7 @@ reversed_dir = "src/server"
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """--create-missing respects BinSync [header].type when present."""
-        _TOML = """
-[project]
-default_target = "server"
-
-[targets.server]
-binary = "server.dll"
-reversed_dir = "src/server"
-"""
-        write_source(tmp_path / "rebrew-project.toml", _TOML, encoding="utf-8")
+        write_source(tmp_path / "rebrew-project.toml", _TOML_WITH_SERVER, encoding="utf-8")
         src = tmp_path / "src" / "server"
         src.mkdir(parents=True)
         write_source(
@@ -594,15 +587,7 @@ reversed_dir = "src/server"
     def test_create_missing_materializes_stub(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _TOML = """
-[project]
-default_target = "server"
-
-[targets.server]
-binary = "server.dll"
-reversed_dir = "src/server"
-"""
-        write_source(tmp_path / "rebrew-project.toml", _TOML, encoding="utf-8")
+        write_source(tmp_path / "rebrew-project.toml", _TOML_WITH_SERVER, encoding="utf-8")
         src = tmp_path / "src" / "server"
         src.mkdir(parents=True)
         write_source(

@@ -135,6 +135,7 @@ WATCH_FILE_HELP = "Re-run when the source file changes (terminal only; no --json
 WATCH_TREE_HELP = "Re-run when any reversed .c file changes (terminal only; no --json)"
 MIN_STRING_LEN_HELP = "Minimum string length to report"
 MIN_TABLE_LEN_HELP = "Minimum number of entries to qualify as a dispatch table"
+LINK_MAP_HELP = "MSVC link map for library data owners (default: raw_link's .map)"
 SOURCE_TARGETS_HELP = (
     "Repeat this command for every target bound to the given source file. "
     "Unbound targets are skipped. Excludes --target and --all-targets."
@@ -1362,6 +1363,7 @@ __all__ = [
     "DIR_HELP",
     "EXPECTED_DIGEST_HELP",
     "JOBS_HELP",
+    "LINK_MAP_HELP",
     "MIN_STRING_LEN_HELP",
     "MIN_TABLE_LEN_HELP",
     "MODULE_HELP",
