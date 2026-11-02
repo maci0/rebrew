@@ -1850,22 +1850,27 @@ def _fold(text: str) -> str:
     return text.lower() if text and text.isascii() else (text or "").translate(_ASCII_FOLD)
 
 
+def _folded_match(needle: str, wanted_va: int | None, va: int, *texts: str) -> bool:
+    """Whether folded *texts* contain *needle*, or *va* equals *wanted_va*.
+
+    The term is literal: SQL wildcards are ordinary characters here.  Callers
+    pre-fold the needle and texts because the in-memory readers test every row.
+    """
+    return (wanted_va is not None and va == wanted_va) or any(needle in text for text in texts)
+
+
 def _name_match(term: str, va: int, *texts: str) -> bool:
     """Whether one row matches *term*: an exact VA, or a substring of *texts*.
 
-    The Python restatement of the WHERE clause the SQLite reader built:
-    ``(name LIKE ? ESCAPE '\\\\' OR symbol LIKE ? ESCAPE '\\\\' OR va = ?)`` with
-    the pattern ``%term%`` and the term's own wildcards escaped first.  That
-    pattern is a literal substring test, so escaping and re-unwrapping the
-    wildcards buys nothing here — what has to be reproduced is the folding
-    (:data:`_ASCII_FOLD`) and NULL, which matched nothing through LIKE and is
-    the empty string here.
+    Folds the term and each text, then applies the same predicate the in-memory
+    readers use.
     """
-    wanted = _va_query(term)
-    if wanted is not None and va == wanted:
-        return True
-    needle = term.translate(_ASCII_FOLD)
-    return any(needle in _fold(text) for text in texts)
+    return _folded_match(
+        term.translate(_ASCII_FOLD),
+        _va_query(term),
+        va,
+        *(_fold(text) for text in texts),
+    )
 
 
 # Weak references guard against reused IDs without retaining old snapshots.
@@ -2197,10 +2202,8 @@ class Dashboard:
                     continue
                 if module is not None and preset_module_key(fn.module) != module:
                     continue
-                if q and not (
-                    (wanted_va is not None and fn.va == wanted_va)
-                    or needle in folds[index][0]
-                    or needle in folds[index][1]
+                if q and not _folded_match(
+                    needle, wanted_va, fn.va, folds[index][0], folds[index][1]
                 ):
                     continue
                 rows.append(fn)
@@ -2282,9 +2285,7 @@ class Dashboard:
             for index, item in enumerate(snapshot.globals):
                 if module is not None and preset_module_key(item.module) != module:
                     continue
-                if q and not (
-                    (wanted_va is not None and item.va == wanted_va) or needle in folds[index]
-                ):
+                if q and not _folded_match(needle, wanted_va, item.va, folds[index]):
                     continue
                 rows.append(item)
         rows.sort(key=lambda item: item.va)
