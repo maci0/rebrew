@@ -91,12 +91,6 @@ lazy from rebrew.workspace.status import EARNED_STATUSES, KNOWN_STATUSES, MATCHE
 log = logging.getLogger(__name__)
 
 
-def _is_comment_line(text: str) -> bool:
-    """True when *text* is a whole-line comment in either supported style."""
-    stripped = text.lstrip()
-    return stripped.startswith(("//", "/*"))
-
-
 # Patterns for default function names (to be used with --pedantic flag).
 # Pre-compiled: W023 runs ``fullmatch`` per function in the TU.
 DEFAULT_FUNC_NAME_PATTERNS = [
@@ -1924,17 +1918,14 @@ def _check_W023_default_func_names(result: LintResult, lines: list[str], pedanti
     if not pedantic:
         return
 
-    # Join lines and remove comments/strings to avoid false positives
+    # Strip comments so a commented-out definition does not warn.
     code = "\n".join(lines)
-    # Simple comment/string removal (not perfect but good enough for this check)
-    # Remove /* ... */ comments
     while True:
         start = code.find("/*")
         end = code.find("*/", start + 2)
         if start == -1 or end == -1:
             break
         code = code[:start] + code[end + 2 :]
-    # Remove // comments
     code_lines = []
     for line in code.splitlines():
         comment_pos = line.find("//")
@@ -1942,9 +1933,6 @@ def _check_W023_default_func_names(result: LintResult, lines: list[str], pedanti
             line = line[:comment_pos]
         code_lines.append(line)
     code = "\n".join(code_lines)
-
-    # Look for function definitions with default names
-    # Pattern: return_type function_name(...) {
 
     # Matches are monotonic, so count newlines incrementally — rescanning
     # the whole prefix per match is quadratic on merged multi-function files.
@@ -1955,7 +1943,6 @@ def _check_W023_default_func_names(result: LintResult, lines: list[str], pedanti
         line_num += code.count("\n", last_pos, match.start())
         last_pos = match.start()
 
-        # Check against default patterns
         for pattern in DEFAULT_FUNC_NAME_PATTERNS:
             if pattern.fullmatch(func_name):
                 result.warning(
@@ -2235,7 +2222,7 @@ def lint_file(
     _metadata_dir = (
         None
         if preloaded_metadata is not None and preloaded_data_metadata is not None
-        else (directory)
+        else directory
     )
     _metadata_entries = (
         preloaded_metadata
