@@ -1904,21 +1904,21 @@ def llm_timeout(raw: str) -> int:
     return parsed
 
 
-def _as_bool(value: Any, default: bool, field_name: str) -> bool:
-    """Return a bool config value, warning and using *default* on bad types.
+def _as_bool(value: Any, field_name: str) -> bool:
+    """Return a bool config value, warning and using ``False`` on bad types.
 
     TOML booleans are real ``bool``s.  Reject stringy ``"false"``/``"0"`` —
     ``bool("false")`` is ``True`` in Python, which would silently enable a
     assembly-output flag like ``recompile_emit_assembly``.
     """
     if value is None:
-        return default
+        return False
     if isinstance(value, bool):
         return value
     _config_warn(
-        f"Expected boolean for {field_name}, got {value!r}; using default {default}",
+        f"Expected boolean for {field_name}, got {value!r}; using default False",
     )
-    return default
+    return False
 
 
 def _resolve(root: Path, rel: str | Path | None) -> Path | None:
@@ -2645,7 +2645,7 @@ def load_config(
         module=modules_by_target[target],
         r2_bogus_vas=_parse_int_list(tgt.get("r2_bogus_vas", []), "r2_bogus_vas"),
         check_known_bindings=_as_bool(
-            tgt.get("check_known_bindings"), False, f"targets.{target}.check_known_bindings"
+            tgt.get("check_known_bindings"), f"targets.{target}.check_known_bindings"
         ),
         # project-level defaults
         project_name=_as_str(project_raw.get("name"), "", "project.name"),
@@ -2689,7 +2689,7 @@ def load_config(
         ),
         recompile_url=recompile_url_val,
         recompile_emit_assembly=_as_bool(
-            compiler.get("recompile_emit_assembly"), False, "compiler.recompile_emit_assembly"
+            compiler.get("recompile_emit_assembly"), "compiler.recompile_emit_assembly"
         ),
         recompile_retries=_non_negative_int_bounded(
             compiler.get("recompile_retries", DEFAULT_RECOMPILE_RETRIES),

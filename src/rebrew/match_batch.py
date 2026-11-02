@@ -7,7 +7,6 @@ lists and writes the resulting STATUS and CFLAGS back to the metadata.
 from __future__ import annotations
 
 import logging
-import re
 from dataclasses import dataclass
 from pathlib import Path
 lazy import shutil
@@ -53,15 +52,6 @@ class StubInfo:
     #: must resolve it like the single-function path, or a library compiled
     #: with a different compiler is recompiled with the project default.
     toolchain: str = ""
-
-
-_FUNC_START_RE = re.compile(
-    r"^(?:BOOL|int|void|char|short|long|unsigned|signed|float|double|"
-    r"DWORD|HANDLE|LPVOID|LPCSTR|LPSTR|HRESULT|UINT|ULONG|BYTE|WORD|"
-    r"SIZE_T|WPARAM|LPARAM|LRESULT|"
-    r"static|__declspec|extern|struct|enum|union)\s",
-    re.MULTILINE,
-)
 
 
 def _parse_annotations(
@@ -497,7 +487,7 @@ def update_stub_to_matched(
             scratch.unlink(missing_ok=True)
 
     # Fail closed: if the stub's own block could not be located (no marker, or
-    # a return type _FUNC_START_RE does not recognise), do NOT write, backup,
+    # a return type the stub locator does not recognise), do NOT write, backup,
     # promote, or claim a match — the .c still holds a stub.
     if not (spliced and module is not None and va_int is not None):
         return False

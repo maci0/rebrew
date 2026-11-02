@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** Remove `binsync.state.iter_comment_metadata`, `data_annotate.set_data_kinds`, `data_annotate.set_data_notes`, `data_annotate.set_data_relation`, `document_unmatched.classify_all`, `intake.classify_all`, `formats.ne_analysis.best_match`, `formats.ne_analysis.run_sets`, `formats.ne_analysis.unit_census`, `identify_library.prepare_library_header` and `metadata.bindings.set_function_extent`; nothing in the package called them, and they have no replacement.
+
 ### Fixed
 
 - Include a file's change time in the remaining per-file cache identities (native compiler, linked-image digest, objdump output, solution source digest, fenced-source note, library headers, and the verify-cache sidecar), so an in-place rewrite that restores the old mtime cannot serve cached results for bytes the file no longer has.
