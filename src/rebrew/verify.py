@@ -2411,7 +2411,8 @@ def _inventory_count(cfg: ProjectConfig, reversed_dir: Path) -> int:
 def _library_header_rows(cfg: Any) -> dict[int, dict[str, str]]:
     """Rows the ``library_*.h`` headers of this target contribute, cached.
 
-    Keyed on the header paths and their ``(mtime_ns, size, ino, ctime_ns)``, so
+    Keyed on the target's source root, the header paths and their
+    ``(mtime_ns, size, ino, ctime_ns)``, and the metadata fingerprint, so
     an edited header re-parses and ``verify --watch`` still sees the change
     while two calls in one run (the library set and the ``--skip-libraries``
     filter) parse the tree once.  The size and inode are what catch a same-size
@@ -2433,6 +2434,11 @@ def _library_header_rows(cfg: Any) -> dict[int, dict[str, str]]:
     metadata_path = Path(metadata_dir) / METADATA_FILENAME if metadata_dir else None
     key = (
         target_module_name,
+        # The row set also depends on which stored ``library_*.h`` identities
+        # are still present under this target's source root (see
+        # ``library_inventory_bindings``); two targets can share the header
+        # list and metadata store while resolving against different roots.
+        str(cfg.reversed_dir),
         tuple((str(h), *_stat_identity(h)) for h in headers),
         metadata_store(metadata_path).fingerprint() if metadata_path else None,
     )
