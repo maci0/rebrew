@@ -288,7 +288,7 @@ def _function_containing_va(
     return None
 
 
-def _build_function_index(
+def build_function_index(
     cfg: ProjectConfig,
 ) -> tuple[set[int], list[tuple[int, int, str]]] | None:
     """Build ``(starts, spans)`` from the target's function list, or None.
@@ -2643,7 +2643,7 @@ def main(
             for path in historical_source_files(row, metadata_directory, cfg.root)
         }
     # Pre-load the function list once for the whole batch (W028).
-    function_index = _build_function_index(cfg) if cfg else None
+    function_index = build_function_index(cfg) if cfg else None
     # Section resolver for W016 autofix (DATA/GLOBAL bindings missing SECTION):
     # one binary parse per batch, mapping VA -> section name.  The load is
     # deferred to the first VA actually queried: a run without a SECTION-less

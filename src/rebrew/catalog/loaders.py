@@ -7,6 +7,7 @@ and scans reversed directories for annotated source files.
 import threading
 lazy import json
 lazy import warnings
+lazy from collections.abc import Sequence
 lazy from pathlib import Path
 lazy from typing import Any
 
@@ -360,6 +361,7 @@ def scan_reversed_dir(
     cfg: ProjectConfig | None = None,
     *,
     inventory_only: bool = False,
+    scanned: Sequence[Path] | None = None,
 ) -> list[SourceBinding]:
     """Scan source files and ``library_*.h`` headers under *reversed_dir*.
 
@@ -371,6 +373,10 @@ def scan_reversed_dir(
     metadata so that volatile fields (STATUS, CFLAGS, SIZE, BLOCKER, etc.)
     are visible to catalog tools.  When *cfg* is None, volatile metadata is
     not loaded.
+
+    *scanned* is a :func:`rebrew.sources.scan_files` result for
+    *reversed_dir*, so a caller that already walked the tree does not walk it
+    again for sources and headers.
     """
     entries: list[SourceBinding] = []
     # Hoisted: `metadata_dir` re-derives its answer with a filesystem probe
@@ -379,7 +385,7 @@ def scan_reversed_dir(
     from rebrew.metadata.functions import load_metadata
 
     metadata = load_metadata(metadata_root, deepcopy=False)
-    tree = scan_files(reversed_dir)
+    tree = list(scanned) if scanned is not None else scan_files(reversed_dir)
     sources = iter_sources(reversed_dir, cfg, scanned=tree)
     if inventory_only:
         for _cfile, parsed in iter_source_bindings(

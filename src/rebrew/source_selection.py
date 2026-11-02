@@ -1,5 +1,6 @@
 """Shared target participation for build providers and source-context audits."""
 
+lazy from collections.abc import Sequence
 lazy from pathlib import Path
 
 lazy from rebrew.config import ProjectConfig
@@ -15,12 +16,17 @@ def _read(path: Path) -> str:
 
 
 def collect_target_sources(
-    cfg: ProjectConfig, target_module_name: str
+    cfg: ProjectConfig,
+    target_module_name: str,
+    *,
+    sources: Sequence[Path] | None = None,
 ) -> tuple[list[Path], list[Path]]:
     """``(own, foreign)`` absolute source paths for *target_module_name*.
 
     *own* holds target-bound identities, target-scoped support files, and
     unbound helpers. *foreign* holds files bound only to other targets.
+    *sources* is an already-discovered source list; the walk runs only when
+    a caller has none.
     """
     from rebrew.metadata.source_provenance import load_source_files
 
@@ -49,7 +55,8 @@ def collect_target_sources(
         if not source.is_file():
             raise ValueError(f"compiled source is missing: {source}")
         library_entries.setdefault(source, []).append(bound)
-    source_files = set(iter_sources(cfg.reversed_dir, cfg)) | set(library_entries)
+    discovered = sources if sources is not None else iter_sources(cfg.reversed_dir, cfg)
+    source_files = set(discovered) | set(library_entries)
     for src in sorted(source_files):
         anns = [
             a

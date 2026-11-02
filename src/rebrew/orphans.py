@@ -12,6 +12,8 @@ invisible to verify, status, and todo, and accumulate silently.
 ``rebrew orphans drop`` removes one VA's block on demand.
 """
 
+lazy from collections.abc import Sequence
+lazy from pathlib import Path
 lazy from typing import Any
 
 import typer
@@ -45,7 +47,9 @@ app = typer.Typer(
 )
 
 
-def find_orphans(cfg: Any) -> tuple[list[tuple[str, int, str]], list[tuple[str, int, str]]]:
+def find_orphans(
+    cfg: Any, *, scanned: Sequence[Path] | None = None
+) -> tuple[list[tuple[str, int, str]], list[tuple[str, int, str]]]:
     """Return ``(function_orphans, data_orphans)`` as ``(module, va, store)`` triples.
 
     A metadata block is orphaned when no source annotation claims its
@@ -63,6 +67,9 @@ def find_orphans(cfg: Any) -> tuple[list[tuple[str, int, str]], list[tuple[str, 
     holds every target's blocks, so a scan of the second target would
     otherwise report every first-target block as an orphan — and ``--prune``
     would delete the other target's earned STATUS wholesale.
+
+    *scanned* is a :func:`rebrew.sources.scan_files` result for
+    ``cfg.reversed_dir``; the walk runs only when a caller has none.
     """
     from rebrew.catalog import scan_reversed_dir
     from rebrew.catalog.loaders import load_function_structure
@@ -71,7 +78,7 @@ def find_orphans(cfg: Any) -> tuple[list[tuple[str, int, str]], list[tuple[str, 
     from rebrew.metadata.functions import load_metadata
 
     live: set[tuple[str, int]] = set()
-    for entry in scan_reversed_dir(cfg.reversed_dir, cfg=cfg):
+    for entry in scan_reversed_dir(cfg.reversed_dir, cfg=cfg, scanned=scanned):
         module = getattr(entry, "module", "") or ""
         va = int(getattr(entry, "va", 0) or 0)
         if module and va:

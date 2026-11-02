@@ -466,6 +466,65 @@ class TestLaneIsolation:
         assert isinstance(recs, list)
 
 
+class TestHygieneBatchInputs:
+    """Every lane reads the same tree, and lint reads both stores once."""
+
+    @staticmethod
+    def _cfg(tmp_path: Any) -> SimpleNamespace:
+        return SimpleNamespace(
+            root=tmp_path,
+            reversed_dir=tmp_path,
+            metadata_dir=tmp_path,
+            source_ext=".c",
+            module="GAME",
+            target_name="GAME",
+            ignored_symbols=(),
+        )
+
+    def test_reuses_the_batch_scan(self, tmp_path: Any, monkeypatch: Any) -> None:
+        import rebrew.recommend as rec
+        import rebrew.sources as sources
+
+        (tmp_path / "caller.c").write_text("extern int foo(void);\n", encoding="utf-8")
+        tree = sources.scan_files(tmp_path)
+        walks: list[Any] = []
+
+        def counted(*args: Any, **kwargs: Any) -> list[Any]:
+            walks.append(args)
+            return []
+
+        monkeypatch.setattr(sources, "scan_files", counted)
+        recs = rec._collect_hygiene(
+            self._cfg(tmp_path), set(), {}, sources=[tmp_path / "caller.c"], scanned=tree
+        )
+        assert walks == []
+        assert any(r.kind == "missing-externs" for r in recs)
+
+    def test_lint_lane_preloads_stores_and_walks_given_sources(
+        self, tmp_path: Any, monkeypatch: Any
+    ) -> None:
+        import rebrew.lint as lint
+        import rebrew.recommend as rec
+
+        source = tmp_path / "caller.c"
+        source.write_text("extern int foo(void);\n", encoding="utf-8")
+        captured: dict[str, Any] = {}
+        index = ({0x1000}, [(0x1000, 0x1000, "f")])
+
+        def fake_lint(path: Any, cfg: Any, **kwargs: Any) -> Any:
+            captured.update(kwargs)
+            return lint.LintResult(path)
+
+        monkeypatch.setattr(lint, "lint_file", fake_lint)
+        monkeypatch.setattr(lint, "build_function_index", lambda cfg: index)
+        rec._collect_hygiene(self._cfg(tmp_path), set(), {}, sources=[source])
+        assert captured["preloaded_metadata"] == {}
+        assert captured["preloaded_data_metadata"] == {}
+        assert captured["preloaded_historical_sources"] == set()
+        assert captured["metadata_directory"] == tmp_path
+        assert captured["function_index"] is index
+
+
 class TestApplyDispatch:
     @pytest.mark.parametrize(
         ("kind", "route"),

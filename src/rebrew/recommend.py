@@ -35,7 +35,7 @@ import logging
 import re
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-lazy from collections.abc import Iterator
+lazy from collections.abc import Iterator, Sequence
 lazy from pathlib import Path
 lazy from typing import Any, Literal
 
@@ -841,21 +841,28 @@ def recommend_backfill_blockers(
 
 def load_layout(
     cfg: ProjectConfig,
+    sources: Sequence[Path] | None = None,
 ) -> tuple[
     dict[int, str], dict[int, str], dict[int, str], dict[int, tuple[str, str]], dict[int, int]
 ]:
-    """Return ``(va_to_file, va_to_name, va_to_flags, va_to_flagsets, va_to_size)``."""
+    """Return ``(va_to_file, va_to_name, va_to_flags, va_to_flagsets, va_to_size)``.
+
+    *sources* is the target's already-discovered source list; the walk runs
+    only when a caller has none.
+    """
     from rebrew.config import target_module
     from rebrew.metadata.bindings import read_source_bindings
     from rebrew.sources import iter_sources
     from rebrew.utils import rel_display_path
 
+    if sources is None:
+        sources = iter_sources(cfg.reversed_dir, cfg)
     va_to_file: dict[int, str] = {}
     names: dict[int, str] = {}
     flags: dict[int, str] = {}
     flagsets: dict[int, tuple[str, str]] = {}
     sizes: dict[int, int] = {}
-    for cfile in iter_sources(cfg.reversed_dir, cfg):
+    for cfile in sources:
         rel = rel_display_path(cfile, cfg.reversed_dir)
         for entry in read_source_bindings(
             cfile,
@@ -892,21 +899,32 @@ def _collect_hygiene(
     cfg: ProjectConfig,
     covered: set[int] | None = None,
     names: dict[int, str] | None = None,
+    *,
+    sources: Sequence[Path] | None = None,
+    scanned: Sequence[Path] | None = None,
 ) -> list[Recommendation]:
-    """Run the cheap hygiene lanes; a failing lane logs a warning and adds nothing."""
+    """Run the cheap hygiene lanes; a failing lane logs a warning and adds nothing.
+
+    *sources* is the target's already-discovered source list and *scanned* the
+    unfiltered walk it came from. Every lane reads the same tree, so the walk
+    runs once instead of once per lane.
+    """
+    from rebrew.sources import iter_sources
+
+    if sources is None:
+        sources = iter_sources(cfg.reversed_dir, cfg)
     recs: list[Recommendation] = []
     names = names or {}
 
     with _lane("link-order"):
         from rebrew.link_order import find_sources_block, normalize_listed, order_sources
-        from rebrew.sources import iter_sources, source_exts
+        from rebrew.sources import source_exts
         from rebrew.utils import rel_display_path
 
         cmake = cfg.root / "CMakeLists.txt"
         if cmake.is_file():
             text = cmake.read_text(encoding="utf-8")
-            files = list(iter_sources(cfg.reversed_dir, cfg))
-            ordered, _ = order_sources(files, target_module_name=cfg.module)
+            ordered, _ = order_sources(list(sources), target_module_name=cfg.module)
             by_key = {
                 str(p.resolve()): rel_display_path(p, cfg.root) for p in ordered if p.is_absolute()
             }
@@ -927,24 +945,48 @@ def _collect_hygiene(
     with _lane("orphans"):
         from rebrew.orphans import find_orphans, orphan_dicts, split_prunable
 
-        fn, data = find_orphans(cfg)
+        fn, data = find_orphans(cfg, scanned=scanned)
         rec = recommend_orphans(split_prunable(cfg, fn, data))
         if rec:
             recs.append(rec)
         recs.extend(recommend_matched_orphans(orphan_dicts(cfg, fn, data)))
 
     with _lane("lint"):
-        from rebrew.lint import lint_file
-        from rebrew.sources import iter_sources
+        from rebrew.lint import build_function_index, lint_file
+        from rebrew.metadata.binding_history import historical_source_files
+        from rebrew.metadata.data import load_data_metadata
+        from rebrew.metadata.functions import load_metadata
 
+        # The batch form of this lane reads both stores once. Done per file it
+        # deep-copies the whole data table and re-resolves every retirement
+        # path for each source, which is O(files × store size).
+        preloaded_metadata = load_metadata(cfg.metadata_dir, deepcopy=False)
+        preloaded_data_metadata = load_data_metadata(cfg.metadata_dir)
+        historical_sources = {
+            path
+            for row in preloaded_metadata.values()
+            if row.get("binding_history", []) != []
+            for path in historical_source_files(row, cfg.metadata_dir, cfg.root)
+        }
+        function_index = build_function_index(cfg)
         warnings: list[tuple[str, str]] = []
         lint_errors: list[tuple[str, str, str]] = []
         dup_globals: list[tuple[str, str]] = []
         stale: list[tuple[str, str]] = []
         seen_vas: dict[Any, str] = {}
         seen_globals: dict[str, tuple[str, int, bool]] = {}
-        for cfile in iter_sources(cfg.reversed_dir, cfg):
-            res = lint_file(cfile, cfg, seen_vas=seen_vas, seen_globals=seen_globals)
+        for cfile in sources:
+            res = lint_file(
+                cfile,
+                cfg,
+                seen_vas=seen_vas,
+                seen_globals=seen_globals,
+                preloaded_metadata=preloaded_metadata,
+                preloaded_data_metadata=preloaded_data_metadata,
+                preloaded_historical_sources=historical_sources,
+                metadata_directory=cfg.metadata_dir,
+                function_index=function_index,
+            )
             for _, code, msg in res.warnings:
                 warnings.append((str(cfile), code))
                 if code == "W021":
@@ -966,11 +1008,10 @@ def _collect_hygiene(
 
     with _lane("shared-twins"):
         from rebrew.c_parser import function_definition_spans
-        from rebrew.sources import iter_sources
         from rebrew.utils import read_source_text
 
         bodies: dict[str, list[str]] = {}
-        for cfile in iter_sources(cfg.reversed_dir, cfg):
+        for cfile in sources:
             try:
                 text, _ = read_source_text(cfile)
             except OSError:
@@ -1024,7 +1065,6 @@ def _collect_hygiene(
         recs.extend(recommend_verify_failures(load_verify_entries(cfg)))
 
     with _lane("stale-cache"):
-        from rebrew.sources import iter_sources
         from rebrew.verify_cache import cache_path_for
 
         cache_path = cache_path_for(cfg, for_read=True)
@@ -1033,7 +1073,7 @@ def _collect_hygiene(
         except OSError:
             cache_mtime_ns = 0
         newest_ns = 0
-        for cfile in iter_sources(cfg.reversed_dir, cfg):
+        for cfile in sources:
             try:
                 newest_ns = max(newest_ns, cfile.stat().st_mtime_ns)
             except OSError:
@@ -1044,14 +1084,13 @@ def _collect_hygiene(
 
     with _lane("missing-externs"):
         from rebrew.c_parser import find_extern_function_names
-        from rebrew.sources import iter_sources
         from rebrew.utils import read_source_text, rel_display_path
 
         refs: list[tuple[str, str]] = []
         # ``recommend_missing_externs`` expands the C name. Stripping every
         # underscore here treated ``__foo`` as ``foo``.
         known = set(names.values())
-        for cfile in iter_sources(cfg.reversed_dir, cfg):
+        for cfile in sources:
             rel = rel_display_path(cfile, cfg.reversed_dir)
             try:
                 text, _ = read_source_text(cfile)
@@ -1068,7 +1107,7 @@ def _collect_hygiene(
         from rebrew.naming import load_data
         from rebrew.todo import collect_all
 
-        ghidra_funcs, existing, covered_vas = load_data(cfg)
+        ghidra_funcs, existing, covered_vas = load_data(cfg, tree=scanned)
         if covered is None:
             covered = set(covered_vas)
         from rebrew.catalog import cached_function_list
@@ -1085,7 +1124,7 @@ def _collect_hygiene(
         backfill = recommend_backfill_blockers(bare)
         if backfill:
             recs.append(backfill)
-        items = collect_all(cfg, ghidra_funcs, existing, covered_vas)
+        items = collect_all(cfg, ghidra_funcs, existing, covered_vas, scanned=scanned)
         actionable = [i for i in items if i.command and i.category != "documented"]
         if actionable:
             top = actionable[0]
@@ -1099,7 +1138,7 @@ def _collect_hygiene(
         from rebrew.utils import rel_display_path
 
         target_module_name = target_module(cfg) or cfg.target_name
-        _own, foreign = collect_target_sources(cfg, target_module_name)
+        _own, foreign = collect_target_sources(cfg, target_module_name, sources=sources)
         rels = []
         for p in foreign:
             try:
@@ -1172,6 +1211,7 @@ def main(
     from rebrew.catalog import build_function_registry, cached_function_list
     from rebrew.cu_map import cluster_functions
     from rebrew.formats.binary_loader import load_binary
+    from rebrew.sources import iter_sources, scan_files
 
     funcs = cached_function_list(cfg)
     if not funcs:
@@ -1184,7 +1224,9 @@ def main(
     registry = build_function_registry(funcs, cfg, ghidra_path=ghidra_path, bin_path=bin_path)
     clusters = cluster_functions(registry, info, cfg)
 
-    va_to_file, names, va_flags, va_flagsets, va_sizes = load_layout(cfg)
+    tree = scan_files(cfg.reversed_dir)
+    sources = iter_sources(cfg.reversed_dir, cfg, scanned=tree)
+    va_to_file, names, va_flags, va_flagsets, va_sizes = load_layout(cfg, sources)
     recs = flag_conflicts(
         recommend_layout(clusters, va_to_file, min_confidence=min_confidence), va_flags
     )
@@ -1195,7 +1237,7 @@ def main(
     recs.extend(
         recommend_cluster_fill(clusters, va_to_file, set(registry), min_confidence=min_confidence)
     )
-    recs.extend(_collect_hygiene(cfg, set(va_to_file), names))
+    recs.extend(_collect_hygiene(cfg, set(va_to_file), names, sources=sources, scanned=tree))
     unmatched = sum(
         1
         for c in clusters

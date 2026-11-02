@@ -1999,7 +1999,7 @@ class TestAnnotationStaleness:
     current function list (moved from `rebrew doctor`; corpus-content
     checks belong to lint, environment checks to doctor)."""
 
-    # (starts, spans) as built by _build_function_index from a funcs.txt
+    # (starts, spans) as built by build_function_index from a funcs.txt
     # with func_a@0x1000 (256B) and func_b@0x2000 (128B).
     INDEX = (
         {0x1000, 0x2000},
@@ -2213,18 +2213,18 @@ class TestAnnotationStaleness:
         assert self._w028(result) == []
 
     def test_build_function_index(self, tmp_path: Path) -> None:
-        from rebrew.lint import _build_function_index
+        from rebrew.lint import build_function_index
 
         cfg = _make_cfg(reversed_dir=tmp_path, root=tmp_path)
         _write_inventory(tmp_path, (0x1000, 256, "func_a"), (0x2000, 128, "func_b"))
-        index = _build_function_index(cfg)
+        index = build_function_index(cfg)
         assert index == self.INDEX
 
     def test_build_function_index_empty_list(self, tmp_path: Path) -> None:
-        from rebrew.lint import _build_function_index
+        from rebrew.lint import build_function_index
 
         cfg = _make_cfg(reversed_dir=tmp_path / "missing", root=tmp_path)
-        assert _build_function_index(cfg) is None
+        assert build_function_index(cfg) is None
 
 
 class TestFunctionContainingVa:
@@ -2243,13 +2243,13 @@ class TestBuildFunctionIndexVaFloor:
         """DOS targets address code from segment 0: VA 0 is legitimate
         (min_valid_va_for == 0), so dropping it fired a false W028 on every
         `// FUNCTION: GAME 0x0` annotation."""
-        from rebrew.lint import _build_function_index
+        from rebrew.lint import build_function_index
 
         cfg = _make_cfg(reversed_dir=tmp_path, root=tmp_path)
         _write_inventory(tmp_path, (0x0, 8, "seg_start"), (0x100, 16, "other"))
         cfg.arch = "x86_16"
 
-        index = _build_function_index(cfg)
+        index = build_function_index(cfg)
         assert index is not None
         starts, spans = index
         assert 0 in starts
