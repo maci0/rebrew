@@ -500,31 +500,6 @@ def locals_map(entry: object) -> dict[int, dict[str, object]]:
     return out
 
 
-def iter_comment_metadata(entry: object) -> list[tuple[int, int, str]]:
-    """``(addr, func_addr, comment)`` triples from an annotation's COMMENTS metadata."""
-    raw = getattr(entry, "comments", None)
-    if not isinstance(raw, dict):
-        return []
-    func_addr = int(getattr(entry, "va", 0) or 0)
-    out: list[tuple[int, int, str]] = []
-    for key, value in raw.items():
-        if not isinstance(value, dict):
-            continue
-        try:
-            addr = int(str(key), 0)
-        except TypeError, ValueError:
-            continue
-        comment = str(value.get("comment") or "")
-        if not comment:
-            continue
-        try:
-            owner = int(value.get("func_addr", func_addr))
-        except TypeError, ValueError:
-            owner = func_addr
-        out.append((addr, owner, comment))
-    return out
-
-
 # ---------------------------------------------------------------------------
 # Canonical projections and the last successfully shared field values
 # ---------------------------------------------------------------------------

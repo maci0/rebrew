@@ -347,20 +347,6 @@ def set_data_files(
     return rows
 
 
-def set_data_relation(
-    cfg: ProjectConfig, specs: list[str], field: str, *, dry_run: bool = False
-) -> list[dict[str, Any]]:
-    """Record explicit storage relationships; attribution still needs link evidence."""
-    if field not in {"storage_kind", "backing", "link_symbol"}:
-        raise ValueError(f"unsupported data relationship {field!r}")
-    return _set_global_field(
-        cfg,
-        specs,
-        field=field,
-        dry_run=dry_run,
-    )
-
-
 #: Recorded storage kinds a compiler literal at the same VA may replace. A
 #: named object is refined to the literal the build emits there; an alias,
 #: span, or import slot describes a different relationship and is reported.
@@ -458,28 +444,6 @@ def set_data_sizes(
 ) -> list[dict[str, Any]]:
     """Correct positive byte sizes and invalidate verdicts for the old spans."""
     return _set_global_field(cfg, specs, field="size", dry_run=dry_run)
-
-
-def set_data_kinds(
-    cfg: ProjectConfig, specs: list[str], *, dry_run: bool = False
-) -> list[dict[str, Any]]:
-    """Set the data metadata kind, from ``0xVA=KIND`` specs.
-
-    A row without one reads as ``DATA``; a row ``data set`` created has none.
-    """
-    return _set_global_field(
-        cfg,
-        specs,
-        field="kind",
-        dry_run=dry_run,
-    )
-
-
-def set_data_notes(
-    cfg: ProjectConfig, specs: list[str], *, dry_run: bool = False
-) -> list[dict[str, Any]]:
-    """Set a row's free-text note from ``0xVA=TEXT`` specs; the verdict stays."""
-    return _set_global_field(cfg, specs, field="note", dry_run=dry_run)
 
 
 _DATA_SECTIONS = (".data", ".rdata", ".bss", ".text")

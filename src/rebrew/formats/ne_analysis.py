@@ -131,25 +131,6 @@ def relocation_census(ne: NeImage) -> tuple[collections.Counter[int], collection
     )
 
 
-def unit_census(path: Path, index: int) -> tuple[dict[int, int], int, int]:
-    """Address types, zero-selector internal far fixups, and internal fixup records."""
-    ne = NeImage(path)
-    records = ne.fixups(index)
-    internal = [f for f in records if f.relocation_type & 3 == 0]
-    raw = ne.seg_bytes(index)
-    zeroed = 0
-    for record in internal:
-        if record.address_type == 3:
-            if record.source_offset + 4 > len(raw):
-                raise NeParseError("far fixup source extends beyond its segment")
-            zeroed += struct.unpack_from("<H", raw, record.source_offset + 2)[0] == 0
-    return (
-        dict(sorted(collections.Counter(f.address_type for f in records).items())),
-        zeroed,
-        len(internal),
-    )
-
-
 def segment_refs(ne: NeImage) -> tuple[dict[int, set[int]], dict[int, int]]:
     """Internal segment edges and imported fixup counts (OS fixups excluded)."""
     refs: dict[int, set[int]] = {}
@@ -165,21 +146,6 @@ def segment_refs(ne: NeImage) -> tuple[dict[int, set[int]], dict[int, int]]:
         }
         imports[index] = sum(f.relocation_type & 3 in (1, 2) for f in records)
     return refs, imports
-
-
-def run_sets(ne: NeImage, block: int = 32) -> list[set[bytes]]:
-    """Build each segment's overlapping windows once."""
-    return [block_set(ne.seg_bytes(i), block) for i in range(ne.seg_count)]
-
-
-def best_match(runs: set[bytes], rebuilt_runs: list[set[bytes]]) -> tuple[int, float]:
-    """Best segment by shared distinct windows; ties retain the earlier index."""
-    best, score = -1, 0
-    for i, other in enumerate(rebuilt_runs):
-        shared = len(runs & other)
-        if shared > score:
-            best, score = i, shared
-    return best, 100.0 * score / len(runs) if runs else 0.0
 
 
 def published_method_candidates(
