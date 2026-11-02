@@ -30,6 +30,7 @@ import logging
 import threading
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
+from functools import lru_cache
 from types import MappingProxyType
 from typing import Any
 lazy import json
@@ -204,13 +205,10 @@ _VERIFY_RESULTS_COLUMNS: tuple[str, ...] = (
 #: section name with a dot or a space) has to be quoted or the document fails
 #: to parse.
 _BARE_KEY_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-")
-# Column names repeat on every row. The bare-key scan was 600k all() calls
-# per 8000-row render.  Guarded: ``write_coverage_toml`` locks per target, so a
-# dashboard can render two targets at once, and the check-then-store below is
-# not atomic on a shared dict.
-_BARE_KEY_CACHE: dict[str, str] = {}
+# Column names repeat on every row; the bare-key scan was 600k ``all()`` calls
+# per 8000-row render.  ``lru_cache`` bounds it at 4096 keys and is thread-safe,
+# which matters because a dashboard can render two targets at once.
 _BARE_KEY_CACHE_MAX = 4096
-_BARE_KEY_CACHE_LOCK = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -245,21 +243,10 @@ def _string(value: str) -> str:
     return '"' + value + '"'
 
 
+@lru_cache(maxsize=_BARE_KEY_CACHE_MAX)
 def _key(name: str) -> str:
     """Render a TOML key, bare when it can be and quoted when it cannot."""
-    with _BARE_KEY_CACHE_LOCK:
-        cached = _BARE_KEY_CACHE.get(name)
-        if cached is not None:
-            return cached
-    rendered = name if name and all(ch in _BARE_KEY_CHARS for ch in name) else _string(name)
-    with _BARE_KEY_CACHE_LOCK:
-        cached = _BARE_KEY_CACHE.get(name)
-        if cached is not None:
-            return cached
-        if len(_BARE_KEY_CACHE) >= _BARE_KEY_CACHE_MAX:
-            _BARE_KEY_CACHE.clear()
-        _BARE_KEY_CACHE[name] = rendered
-    return rendered
+    return name if name and all(ch in _BARE_KEY_CHARS for ch in name) else _string(name)
 
 
 def _value(value: Any) -> str:

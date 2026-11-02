@@ -1188,7 +1188,7 @@ class TestMemo:
         import threading
         from concurrent.futures import ThreadPoolExecutor
 
-        coverage_toml._BARE_KEY_CACHE.clear()
+        coverage_toml._key.cache_clear()
         real = coverage_toml._string
         barrier = threading.Barrier(4, timeout=5)
 
@@ -1201,7 +1201,7 @@ class TestMemo:
         with ThreadPoolExecutor(max_workers=4) as executor:
             rendered = list(executor.map(coverage_toml._key, names))
         assert rendered == [real(name) for name in names]
-        assert len(coverage_toml._BARE_KEY_CACHE) == len(names)
+        assert coverage_toml._key.cache_info().currsize == len(names)
 
     def test_scan_retries_when_replace_changes_directory(
         self,

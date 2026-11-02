@@ -35,6 +35,7 @@ Usage:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Any
 lazy import re
 lazy from bisect import bisect_right
@@ -351,19 +352,13 @@ def _parse_source(text: str, prefix: str) -> tuple[Any, _ParsedSource]:
 
 #: Whole-word patterns by name. A name is checked against every other source,
 #: so the same escaped pattern was rebuilt once per (name, other) pair.
-_WORD_PATTERN_CACHE: dict[bytes, re.Pattern[bytes]] = {}
 _WORD_PATTERN_CACHE_MAX = 1024
 
 
+@lru_cache(maxsize=_WORD_PATTERN_CACHE_MAX)
 def _word_pattern(encoded: bytes) -> re.Pattern[bytes]:
     """Bounded whole-word pattern for *encoded*."""
-    pattern = _WORD_PATTERN_CACHE.get(encoded)
-    if pattern is None:
-        if len(_WORD_PATTERN_CACHE) >= _WORD_PATTERN_CACHE_MAX:
-            _WORD_PATTERN_CACHE.clear()
-        pattern = re.compile(rb"\b" + re.escape(encoded) + rb"\b")
-        _WORD_PATTERN_CACHE[encoded] = pattern
-    return pattern
+    return re.compile(rb"\b" + re.escape(encoded) + rb"\b")
 
 
 def _code_occurrences(parsed: _ParsedSource, name: str) -> int:

@@ -10,6 +10,7 @@ import logging
 import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import TYPE_CHECKING, Any, TypeGuard, cast
 lazy import hashlib
 lazy import struct
@@ -177,11 +178,21 @@ def build_symbol_resolver(
 # Mask set per (binary identity, configured thunks).  The batch paths ask
 # for it once per function and the answer is a whole-run constant; keying on
 # the binary's stat fingerprint keeps a rebuilt binary from reading a stale
-# entry.  Bounded, and eviction is a multi-step next(iter)+pop on a shared
-# dict, so lookup and replacement share the lock.
-_iat_region_cache: dict[tuple[Any, ...], frozenset[int]] = {}
+# entry.  ``lru_cache`` bounds the process at 16 entries and is thread-safe.
 _IAT_REGION_CACHE_MAX = 16
-_iat_region_lock = threading.Lock()
+
+
+@lru_cache(maxsize=_IAT_REGION_CACHE_MAX)
+def _iat_region(binary: str, thunks: tuple[int, ...], _fingerprint: str) -> frozenset[int]:
+    """Import-related slot VAs for one binary identity and thunk set."""
+    region: set[int] = set()
+    if Path(binary).exists():
+        # Configured jmp-stub trampolines first (works even without LIEF).
+        region.update(thunks)
+        from rebrew.formats.binary_loader import iat_slot_vas
+
+        region |= iat_slot_vas(binary)
+    return frozenset(region)
 
 
 def build_iat_region(cfg: ProjectConfig) -> frozenset[int]:
@@ -215,27 +226,7 @@ def build_iat_region(cfg: ProjectConfig) -> frozenset[int]:
         for va in (getattr(cfg, "iat_thunks", None) or [])
         if isinstance(va, int) and va
     )
-    key = (str(binary), thunks, binary_fingerprint(binary))
-    with _iat_region_lock:
-        cached = _iat_region_cache.get(key)
-        if cached is not None:
-            _iat_region_cache[key] = _iat_region_cache.pop(key)
-            return cached
-    region: set[int] = set()
-    if Path(binary).exists():
-        # Configured jmp-stub trampolines first (works even without LIEF).
-        region.update(thunks)
-        # The raw import-address table (shared LIEF scan with the catalog
-        # registry — see rebrew.formats.binary_loader.iat_slot_vas).
-        from rebrew.formats.binary_loader import iat_slot_vas
-
-        region |= iat_slot_vas(binary)
-    frozen = frozenset(region)
-    with _iat_region_lock:
-        if len(_iat_region_cache) >= _IAT_REGION_CACHE_MAX:
-            _iat_region_cache.pop(next(iter(_iat_region_cache)), None)
-        _iat_region_cache[key] = frozen
-    return frozen
+    return _iat_region(str(binary), thunks, binary_fingerprint(binary))
 
 
 _ANNOTATION_FACT_FIELDS = ("va", "name", "symbol", "module", "kind", "filepath", "line")
