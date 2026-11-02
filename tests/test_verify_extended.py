@@ -1,5 +1,6 @@
 """Extended tests for rebrew verify.py — verify_entry branches, diff_reports, CLI main."""
 
+import contextlib
 import json
 import logging
 import threading
@@ -1912,6 +1913,40 @@ class TestRunVerification:
         assert len(results) == 7
         assert len(deferred) == 7
         assert {r["va"] for r in results} == {f"0x{0x1000 + i:08x}" for i in range(7)}
+
+    def test_interrupted_pool_keeps_batch_objects_for_its_workers(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An interrupted pool leaves workers running, so their .obj dirs stay.
+
+        ``interruptible_pool`` deliberately does not join in-flight workers on
+        an exception.  Cleaning the batch staging dirs in that state deletes
+        the files those workers are still compiling against.
+        """
+        from rebrew.compiler import compile as compile_mod
+        from rebrew.verify import run_verification
+
+        batch_dir = tmp_path / "batch-objs"
+        batch_dir.mkdir()
+        monkeypatch.setattr(compile_mod, "_BATCH_OBJ_DIRS", [batch_dir])
+
+        @contextlib.contextmanager
+        def _interrupted_pool(_workers: int):
+            yield SimpleNamespace()
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr("rebrew.verify.interruptible_pool", _interrupted_pool)
+        with pytest.raises(KeyboardInterrupt):
+            run_verification(
+                [],
+                _cfg(tmp_path),
+                jobs=1,
+                total=0,
+                cached_count=0,
+                json_output=True,
+                name_to_va={},
+            )
+        assert batch_dir.is_dir()
 
     def test_outcome_lists_are_independent_of_completion_order(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

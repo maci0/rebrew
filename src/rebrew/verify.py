@@ -2900,6 +2900,11 @@ def run_verification(
     # The CLI --jobs flag bypasses config's _positive_int validation — clamp
     # here so `--jobs 0` (or negative) cannot crash ThreadPoolExecutor.
     effective_jobs = max(1, min(jobs, fresh_count)) if fresh_count else 1
+    # Set only after every worker has stopped.  ``interruptible_pool`` leaves
+    # in-flight workers running on an exception, and those workers read the
+    # batch-published .obj files; the cleanup below must not delete their
+    # staging dirs while they are still compiling.
+    workers_stopped = False
 
     try:
         from rebrew.compiler.cache import get_project_cache
@@ -3075,13 +3080,17 @@ def run_verification(
                                 }
                             )
                         )
+        workers_stopped = True
     finally:
         # Batch-published .obj files are no longer needed — drop lasting temp
         # dirs so a long-lived process does not accumulate one per --no-cache run.
-        with contextlib.suppress(Exception):
-            from rebrew.compiler.compile import cleanup_batch_obj_dirs
+        # Only after the pool drained: an interrupted run leaves in-flight
+        # workers reading those .obj files, so the atexit sweep is their owner.
+        if workers_stopped:
+            with contextlib.suppress(Exception):
+                from rebrew.compiler.compile import cleanup_batch_obj_dirs
 
-            cleanup_batch_obj_dirs()
+                cleanup_batch_obj_dirs()
 
     if internal_errors > 0 and not json_output:
         console.print(
