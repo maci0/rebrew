@@ -5,9 +5,11 @@ Parses every ``.py`` file under a package root for **module-level**
 dependency graph, and runs Tarjan's strongly-connected-components algorithm to
 report any cycles.
 
-Only module-level imports count as edges: imports inside function bodies
-(lazy imports) and ``if TYPE_CHECKING:`` guards are import-time-safe by
-construction and do not create cycles that break loading.
+Only module-scope imports count as edges: imports inside function bodies and
+``if TYPE_CHECKING:`` guards are import-time-safe by construction and do not
+create cycles that break loading.  A PEP 810 ``lazy import`` at module scope
+still counts as an edge: it defers the dependency to first use, so a cycle
+through it surfaces there rather than at load, and the graph keeps it visible.
 
 Run from the repo root::
 

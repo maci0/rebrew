@@ -11,12 +11,13 @@ first rebrew import in it is a layering regression.
 
 **The composition layer is a sink.**  ``app.plugin``, ``app.builtins``,
 ``app.main`` and ``dashboard`` build the Typer app and know every command; nothing they import
-depends on them back.  A module that imports one at *module scope* drags the
-whole command graph in and makes a leaf into a peer of the app, so only the
-layer itself may do it.  Two escapes stay legal because neither runs at
-import time: a command registers itself with the umbrella inside its
-``register()`` (``init``, ``recommend``), and ``errors`` re-exports
-``ComponentError`` for type checkers under ``TYPE_CHECKING``.
+depends on them back.  A module that imports one at *module scope* joins the
+app's dependency graph and makes a leaf into a peer of the app, so only the
+layer itself may do it; a PEP 810 `lazy` import defers the load but not that
+edge.  Two escapes stay legal because neither runs at import time: a command
+registers itself with the umbrella inside its ``register()`` (``init``,
+``recommend``), and ``errors`` re-exports ``ComponentError`` for type
+checkers under ``TYPE_CHECKING``.
 
 **A subpackage reaches outward only through its declared externals.**  Every
 ``src/rebrew/<package>/AGENTS.md`` states the externals that package may
@@ -26,9 +27,9 @@ two rules kept passing.  The list below is transcribed from those nine files;
 ``tests/test_check_layering.py`` fails when a name in the tool is no longer
 documented, so the two cannot diverge quietly.  Unlike the other rules this
 one reads *every* import, not just the module-scope ones: the catalog's
-``binary_loader`` is a deliberate lazy import, and a lazy edge is still an
-edge.  A ``__getattr__`` loader that names its target as a string is not seen;
-the packages that have one list their own submodule in the entry below.
+deliberate deferred ``binary_loader`` import is still an edge.  A
+``__getattr__`` loader that names its target as a string is not seen; the
+packages that have one list their own submodule in the entry below.
 
 **A library does not import a command.**  A module that builds a Typer app or
 defines ``main_entry`` is a command, and a module that does neither is a
@@ -257,11 +258,14 @@ def _rebrew_targets(
 
 
 def _module_scope_imports(tree: ast.Module) -> Iterator[ast.Import | ast.ImportFrom]:
-    """Yield imports that run at import time.
+    """Yield module-scope imports, including PEP 810 ``lazy`` ones.
 
-    Function bodies (lazy imports and the ``__getattr__`` export loaders) and
-    ``if TYPE_CHECKING:`` guards are skipped: neither executes on import, so
-    neither can make one module depend on another at load time.
+    Function bodies (including the ``__getattr__`` export loaders) and
+    ``if TYPE_CHECKING:`` guards are skipped: a local import runs only when
+    its function is called, so neither makes one module depend on another at
+    load time.  A module-scope ``lazy import`` is deferred to first use too,
+    but it stays in the module's static dependency graph, so an edge here
+    still counts.
     """
     stack: list[list[ast.stmt]] = [list(tree.body)]
     while stack:

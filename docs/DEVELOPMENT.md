@@ -82,13 +82,19 @@ must never replace the Git dependency.
 
 ## Import patterns
 
-- Modules use **local imports inside functions** to break import cycles
-  (`from rebrew.compiler.compile import compile_and_compare` inside `verify_entry`).
+- Module-scope imports are **`lazy`** (PEP 810) unless the module reads the
+  name while loading (a decorator, base class, default value, class body, or
+  module statement) or imports only for side effects. Tests import eagerly.
+  Keep a dependency out of the static module graph with a function-local
+  import (`from rebrew.compiler.compile import compile_and_compare` inside
+  `verify_entry`); the cycle detector reads module-scope imports, so it cannot
+  see a local one.
   Monkeypatch the **source module** (`rebrew.compiler.compile.compile_and_compare`),
   not the importer: `monkeypatch.setattr("rebrew.verify.compile_and_compare",
   ...)` fails because the attribute doesn't exist on `rebrew.verify`.
-- `tools/detect_cycles.py` enforces no module-level import cycles (pre-commit
-  hook).  `if TYPE_CHECKING:` guards are skipped by the detector.
+- `tools/detect_cycles.py` enforces no module-scope import cycles (pre-commit
+  hook); a PEP 810 `lazy import` still counts.  Function bodies and
+  `if TYPE_CHECKING:` guards are skipped by the detector.
 - `tools/check_layering.py` enforces import *direction*, which the cycle
   detector cannot see: `rebrew.utils` imports no rebrew module (it is the leaf
   every module may reach for), and only the composition layer (`plugin`,
