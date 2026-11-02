@@ -24,6 +24,23 @@ def _write(path: Path, content: str) -> Path:
     return path
 
 
+def _cli_cfg(
+    tmp_path: Path, *, library_modules: list[str], crt_sources: dict[str, str]
+) -> SimpleNamespace:
+    """Stubbed project config for the crt-match CLI tests."""
+    src = tmp_path / "src" / "SERVER"
+    src.mkdir(parents=True, exist_ok=True)
+    return SimpleNamespace(
+        reversed_dir=src,
+        metadata_dir=tmp_path,
+        module="SERVER",
+        source_ext=".c",
+        root=tmp_path,
+        library_modules=library_modules,
+        crt_sources=crt_sources,
+    )
+
+
 class TestCrtIndexBuilding:
     def test_build_index_c_files(self, tmp_path: Path) -> None:
         _write(
@@ -488,15 +505,7 @@ class TestMatchAll:
         crt = tmp_path / "crt"
         crt.mkdir()
         (crt / "MALLOC.C").write_text("int malloc(int n) { return n; }\n", encoding="utf-8")
-        cfg = SimpleNamespace(
-            reversed_dir=src,
-            metadata_dir=tmp_path,
-            module="SERVER",
-            source_ext=".c",
-            root=tmp_path,
-            library_modules=["MSVCRT"],
-            crt_sources={"MSVCRT": "crt"},
-        )
+        cfg = _cli_cfg(tmp_path, library_modules=["MSVCRT"], crt_sources={"MSVCRT": "crt"})
         matches = match_all(cfg)
         # "malloc" hits the function entry (exact, 0.95) and the filename
         # entry (filename-based, 0.85) — sorted by confidence.
@@ -540,17 +549,7 @@ class TestCrtMatchCli:
     """CLI-level tests via CliRunner with a stubbed config."""
 
     def _cfg(self, tmp_path: Path, *, crt_sources: dict[str, str]) -> SimpleNamespace:
-        src = tmp_path / "src" / "SERVER"
-        src.mkdir(parents=True, exist_ok=True)
-        return SimpleNamespace(
-            reversed_dir=src,
-            metadata_dir=tmp_path,
-            module="SERVER",
-            source_ext=".c",
-            root=tmp_path,
-            library_modules=["MSVCRT"],
-            crt_sources=crt_sources,
-        )
+        return _cli_cfg(tmp_path, library_modules=["MSVCRT"], crt_sources=crt_sources)
 
     def test_no_crt_sources_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from typer.testing import CliRunner
@@ -778,15 +777,7 @@ class TestCrtMatchCliBranches:
         )
         crt = tmp_path / "crt"
         crt.mkdir()
-        cfg = SimpleNamespace(
-            reversed_dir=src,
-            metadata_dir=tmp_path,
-            module="SERVER",
-            source_ext=".c",
-            root=tmp_path,
-            library_modules=["MSVCRT"],
-            crt_sources={"MSVCRT": "crt"},
-        )
+        cfg = _cli_cfg(tmp_path, library_modules=["MSVCRT"], crt_sources={"MSVCRT": "crt"})
         monkeypatch.setattr("rebrew.crt_match.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["--json", "0x10001000"])
         assert result.exit_code != 0
@@ -811,15 +802,7 @@ class TestCrtMatchCliBranches:
             metadata_fields={"ZLIB.0x10001000": {"kind": "LIBRARY", "symbol": "_inflate"}},
             metadata_dir=tmp_path,
         )
-        cfg = SimpleNamespace(
-            reversed_dir=src,
-            metadata_dir=tmp_path,
-            module="SERVER",
-            source_ext=".c",
-            root=tmp_path,
-            library_modules=["ZLIB"],
-            crt_sources={"MSVCRT": "crt"},
-        )
+        cfg = _cli_cfg(tmp_path, library_modules=["ZLIB"], crt_sources={"MSVCRT": "crt"})
         monkeypatch.setattr("rebrew.crt_match.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["--json", "0x10001000"])
         assert result.exit_code == 0
@@ -844,15 +827,7 @@ class TestCrtMatchCliBranches:
         crt = tmp_path / "crt"
         crt.mkdir()
         (crt / "MALLOC.C").write_text("int malloc(int n) { return n; }\n", encoding="utf-8")
-        cfg = SimpleNamespace(
-            reversed_dir=src,
-            metadata_dir=tmp_path,
-            module="SERVER",
-            source_ext=".c",
-            root=tmp_path,
-            library_modules=["MSVCRT"],
-            crt_sources={"MSVCRT": "crt"},
-        )
+        cfg = _cli_cfg(tmp_path, library_modules=["MSVCRT"], crt_sources={"MSVCRT": "crt"})
         monkeypatch.setattr("rebrew.crt_match.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["--all", "--json", "0x10001000"])
         assert result.exit_code == 0
@@ -879,15 +854,7 @@ class TestCrtMatchCliBranches:
         crt = tmp_path / "crt"
         crt.mkdir()
         (crt / "MALLOC.C").write_text("int malloc(int n) { return n; }\n", encoding="utf-8")
-        cfg = SimpleNamespace(
-            reversed_dir=src,
-            metadata_dir=tmp_path,
-            module="SERVER",
-            source_ext=".c",
-            root=tmp_path,
-            library_modules=["MSVCRT"],
-            crt_sources={"MSVCRT": "crt"},
-        )
+        cfg = _cli_cfg(tmp_path, library_modules=["MSVCRT"], crt_sources={"MSVCRT": "crt"})
         monkeypatch.setattr("rebrew.crt_match.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["--fix-source", "--all"])
         assert result.exit_code == 0
@@ -1037,15 +1004,7 @@ class TestSourceAutoWritable:
         crt.mkdir()
         # No parsed qsort definition — only the QSORT.C filename entry matches.
         (crt / "QSORT.C").write_text("int not_qsort(void) { return 0; }\n", encoding="utf-8")
-        cfg = SimpleNamespace(
-            reversed_dir=src,
-            metadata_dir=tmp_path,
-            module="SERVER",
-            source_ext=".c",
-            root=tmp_path,
-            library_modules=["MSVCRT"],
-            crt_sources={"MSVCRT": "crt"},
-        )
+        cfg = _cli_cfg(tmp_path, library_modules=["MSVCRT"], crt_sources={"MSVCRT": "crt"})
         monkeypatch.setattr("rebrew.crt_match.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["--fix-source", "--all"])
         assert result.exit_code == 0
@@ -1059,17 +1018,7 @@ class TestSingleVaModuleFallback:
     match_all already uses.  Was: "No CRT index configured for module"."""
 
     def _cfg(self, tmp_path: Path, *, crt_sources: dict[str, str]) -> SimpleNamespace:
-        src = tmp_path / "src" / "SERVER"
-        src.mkdir(parents=True, exist_ok=True)
-        return SimpleNamespace(
-            reversed_dir=src,
-            metadata_dir=tmp_path,
-            module="SERVER",
-            source_ext=".c",
-            root=tmp_path,
-            library_modules=["MSVCRT"],
-            crt_sources=crt_sources,
-        )
+        return _cli_cfg(tmp_path, library_modules=["MSVCRT"], crt_sources=crt_sources)
 
     def test_marker_module_without_index_falls_back(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

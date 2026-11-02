@@ -134,6 +134,26 @@ def _patch(monkeypatch: pytest.MonkeyPatch, post: Any, get: Any = None) -> _Fake
     return client
 
 
+def _sequence_client(
+    monkeypatch: pytest.MonkeyPatch, posts: list[_Resp], gets: list[_Resp] | None = None
+) -> _FakeClient:
+    """Install a client replaying *posts* and *gets* in order."""
+    replies = gets or []
+
+    class _SeqClient(_FakeClient):
+        def post(self, url: str, json: Any = None) -> Any:
+            self.calls.append(("post", url))
+            return posts.pop(0)
+
+        def get(self, url: str) -> Any:
+            self.calls.append(("get", url))
+            return replies.pop(0)
+
+    client = _SeqClient(None)
+    monkeypatch.setattr(httpx, "Client", lambda **kwargs: client)
+    return client
+
+
 class TestCompileSource:
     def test_ok_downloads_the_artifact(self, monkeypatch: pytest.MonkeyPatch) -> None:
         body = {
@@ -206,20 +226,11 @@ class TestCompileSource:
             "artifact_url": "/api/v1/artifacts/x.obj",
             "compiler_version": "12.0",
         }
-        posts = [_Resp(503, text="busy"), _Resp(200, json_body=body)]
-        gets = [_Resp(200, content=b"OBJ")]
-
-        class _SeqClient(_FakeClient):
-            def post(self, url: str, json: Any = None) -> Any:
-                self.calls.append(("post", url))
-                return posts.pop(0)
-
-            def get(self, url: str) -> Any:
-                self.calls.append(("get", url))
-                return gets.pop(0)
-
-        client = _SeqClient(None)
-        monkeypatch.setattr(httpx, "Client", lambda **kwargs: client)
+        client = _sequence_client(
+            monkeypatch,
+            [_Resp(503, text="busy"), _Resp(200, json_body=body)],
+            [_Resp(200, content=b"OBJ")],
+        )
         sleeps: list[float] = []
         monkeypatch.setattr(
             "rebrew.compiler.recompile_client.time.sleep", lambda s: sleeps.append(s)
@@ -238,20 +249,11 @@ class TestCompileSource:
             "artifact_url": "/api/v1/artifacts/x.obj",
             "compiler_version": "12.0",
         }
-        posts = [_Resp(503, text="busy"), _Resp(200, json_body=body)]
-        gets = [_Resp(200, content=b"OBJ")]
-
-        class _SeqClient(_FakeClient):
-            def post(self, url: str, json: Any = None) -> Any:
-                self.calls.append(("post", url))
-                return posts.pop(0)
-
-            def get(self, url: str) -> Any:
-                self.calls.append(("get", url))
-                return gets.pop(0)
-
-        client = _SeqClient(None)
-        monkeypatch.setattr(httpx, "Client", lambda **kwargs: client)
+        _sequence_client(
+            monkeypatch,
+            [_Resp(503, text="busy"), _Resp(200, json_body=body)],
+            [_Resp(200, content=b"OBJ")],
+        )
         naps: list[float] = []
         res = compile_source(
             "http://svc/", "msvc-6.0", "int f(void){}", ["/c"], retries=1, sleep=naps.append
@@ -267,15 +269,8 @@ class TestCompileSource:
         The line is what tells an operator which dependency faulted, how many
         attempts are left, and how long the run is about to wait.
         """
-        posts = [_Resp(503, text="busy"), _Resp(503, text="busy"), _Resp(503, text="busy")]
-
-        class _SeqClient(_FakeClient):
-            def post(self, url: str, json: Any = None) -> Any:
-                self.calls.append(("post", url))
-                return posts.pop(0)
-
-        client = _SeqClient(None)
-        monkeypatch.setattr(httpx, "Client", lambda **kwargs: client)
+        posts = [_Resp(503, text="busy") for _ in range(3)]
+        _sequence_client(monkeypatch, posts)
         with (
             caplog.at_level(logging.WARNING, logger="rebrew.compiler.recompile_client"),
             pytest.raises(RecompileError),
