@@ -1238,31 +1238,26 @@ def _positive_int(value: Any, default: int, field_name: str) -> int:
     return parsed
 
 
-def _non_negative_int(value: Any, default: int, field_name: str) -> int:
-    """Parse a non-negative integer config value (>= 0), falling back to *default*."""
+def _non_negative_int(
+    value: Any, default: int, field_name: str, *, maximum: int | None = None
+) -> int:
+    """Parse a non-negative integer, falling back to *default*; cap at *maximum* when set.
+
+    The ceiling matters for a wall-clock budget, not a threshold the consumer
+    merely compares: ``rebrew.compiler.compile`` turns ``recompile_retries``
+    into ``retries + 1`` attempts that each wait ``retry_backoff_delay``, so
+    the count multiplies directly into minutes a build spends retrying one
+    transient error. Clamping with a warning, like :func:`llm_max_requests`,
+    shows the operator the value they wrote and what it resolved to rather
+    than watching a compile appear to hang.
+    """
     parsed = _safe_int(value, default, field_name)
     if parsed < 0:
         _config_warn(
             f"Expected non-negative integer for {field_name}, got {value!r}; using default {default}"
         )
         return default
-    return parsed
-
-
-def _non_negative_int_bounded(value: Any, default: int, field_name: str, *, maximum: int) -> int:
-    """Parse a non-negative integer capped at *maximum*, warning when it clamps.
-
-    The ceiling matters because the parsed value is a wall-clock budget, not a
-    threshold the consumer merely compares: ``rebrew.compiler.compile`` turns
-    ``recompile_retries`` into ``retries + 1`` attempts that each wait
-    ``retry_backoff_delay``, so the count multiplies directly into minutes a
-    build spends retrying one transient error. Same clamp-with-a-warning
-    treatment :func:`llm_max_requests` gives its own ceiling, so an operator
-    sees the value they wrote and what it resolved to rather than watching a
-    compile appear to hang.
-    """
-    parsed = _non_negative_int(value, default, field_name)
-    if parsed > maximum:
+    if maximum is not None and parsed > maximum:
         _config_warn(
             f"Expected at most {maximum} for {field_name}, got {value!r}; clamping to {maximum}"
         )
@@ -2691,7 +2686,7 @@ def load_config(
         recompile_emit_assembly=_as_bool(
             compiler.get("recompile_emit_assembly"), "compiler.recompile_emit_assembly"
         ),
-        recompile_retries=_non_negative_int_bounded(
+        recompile_retries=_non_negative_int(
             compiler.get("recompile_retries", DEFAULT_RECOMPILE_RETRIES),
             DEFAULT_RECOMPILE_RETRIES,
             "compiler.recompile_retries",
