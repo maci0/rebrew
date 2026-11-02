@@ -185,6 +185,7 @@ PACKAGE_EXTERNALS: dict[str, frozenset[str]] = {
             "config",
             "errors",
             "registry",
+            "rename_ops",
             "utils",
             "workspace",
         }

@@ -447,7 +447,9 @@ SOURCE_CHECKOUT: Path | None = _CHECKOUT if (_CHECKOUT / "pyproject.toml").is_fi
 # verify/test/catalog re-read the same tree multiple times per run; a bounded
 # LRU collapses those duplicate syscalls without pinning unbounded content.
 # Guarded: verify -j N reads the same sources from worker threads.
-_SOURCE_TEXT_MEMO: OrderedDict[tuple[str, int, int, int, int], tuple[str, str]] = OrderedDict()
+_SourceMemoKey = tuple[str, int, int, int, int]
+_SourceMemoValue = tuple[str, str, bytes]
+_SOURCE_TEXT_MEMO: OrderedDict[_SourceMemoKey, _SourceMemoValue] = OrderedDict()
 # A game tree is thousands of sources, and verify/status re-read each one.
 # 512 evicted the head of a 4000-file scan before the scan finished, so the
 # second pass re-read every file (78 ms vs 31 ms). 8192 small bodies is the
@@ -456,7 +458,7 @@ _SOURCE_TEXT_MEMO_MAX = 8192
 _SOURCE_TEXT_MEMO_LOCK = threading.Lock()
 # resolved path -> its live memo keys, so a write invalidates in O(1)
 # instead of scanning the whole LRU.
-_SOURCE_TEXT_MEMO_BY_PATH: dict[str, set[tuple[str, int, int, int, int]]] = {}
+_SOURCE_TEXT_MEMO_BY_PATH: dict[str, set[_SourceMemoKey]] = {}
 
 # ``(spelling, mtime_ns, size, ino)`` -> resolved path.  The stat is from
 # ``lstat``, so a content edit or a symlink retarget misses and resolves
@@ -526,14 +528,8 @@ def path_is_relative_to(path: Path, other: Path) -> bool:
     return all(fold(left) == fold(right) for left, right in zip(head, other_parts, strict=True))
 
 
-# Raw bytes from the same read as the text memo, so source_hash does not
-# open the file again. Dropped with the text entry.
-_SOURCE_RAW: dict[tuple[str, int, int, int, int], bytes] = {}
-
-
-def _memo_forget(memo_key: tuple[str, int, int, int, int]) -> None:
+def _memo_forget(memo_key: _SourceMemoKey) -> None:
     """Unlink *memo_key*'s path from the index, dropping an emptied entry."""
-    _SOURCE_RAW.pop(memo_key, None)
     keys = _SOURCE_TEXT_MEMO_BY_PATH.get(memo_key[0])
     if keys is not None:
         keys.discard(memo_key)
@@ -541,13 +537,13 @@ def _memo_forget(memo_key: tuple[str, int, int, int, int]) -> None:
             del _SOURCE_TEXT_MEMO_BY_PATH[memo_key[0]]
 
 
-def _memo_drop(memo_key: tuple[str, int, int, int, int]) -> None:
+def _memo_drop(memo_key: _SourceMemoKey) -> None:
     """Remove one entry from the source text memo and its path index."""
     _SOURCE_TEXT_MEMO.pop(memo_key, None)
     _memo_forget(memo_key)
 
 
-def _memo_store(memo_key: tuple[str, int, int, int, int], value: tuple[str, str]) -> None:
+def _memo_store(memo_key: _SourceMemoKey, value: _SourceMemoValue) -> None:
     """Insert an entry, evicting the LRU tail until there is room."""
     if memo_key in _SOURCE_TEXT_MEMO:
         _SOURCE_TEXT_MEMO.move_to_end(memo_key)
@@ -824,13 +820,12 @@ def read_source_text(filepath: Path) -> tuple[str, str]:
         if hit is not None:
             # Refresh LRU order: move-to-end so hot sources stay.
             _SOURCE_TEXT_MEMO.move_to_end(memo_key)
-            return hit
+            return hit[0], hit[1]
     data = resolved.read_bytes()
     encoding = detect_source_encoding(data)
     text = data.decode(encoding, errors="replace")
     with _SOURCE_TEXT_MEMO_LOCK:
-        _memo_store(memo_key, (text, encoding))
-        _SOURCE_RAW[memo_key] = data
+        _memo_store(memo_key, (text, encoding, data))
     return text, encoding
 
 
@@ -844,7 +839,6 @@ def clear_source_text_memo() -> None:
     with _SOURCE_TEXT_MEMO_LOCK:
         _SOURCE_TEXT_MEMO.clear()
         _SOURCE_TEXT_MEMO_BY_PATH.clear()
-        _SOURCE_RAW.clear()
 
 
 def cached_source_bytes(
@@ -855,12 +849,13 @@ def cached_source_bytes(
     Keyed by the resolved path and the same stat identity as the text memo.
     """
     resolved = resolved_path(filepath)
-    # Same lock that publishes and drops ``_SOURCE_RAW``: a free-threaded
+    # Same lock that publishes and drops ``_SOURCE_TEXT_MEMO``: a free-threaded
     # interpreter may otherwise read the dict while another worker's store or
     # eviction is mutating it.  The bytes object stays valid after the lock is
     # released, so the caller keeps the copy it received.
     with _SOURCE_TEXT_MEMO_LOCK:
-        return _SOURCE_RAW.get((str(resolved), mtime_ns, size, ino, ctime_ns))
+        hit = _SOURCE_TEXT_MEMO.get((str(resolved), mtime_ns, size, ino, ctime_ns))
+        return hit[2] if hit is not None else None
 
 
 def read_toml_text(path: Path) -> str:
