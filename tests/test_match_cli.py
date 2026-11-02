@@ -255,11 +255,10 @@ class TestResolveBuildParamsSymbol:
         )
         return f
 
-    def test_selects_matching_annotation(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def _prepare(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Path]:
+        from bin_util import make_pe
+
         from rebrew.config import load_config
-        from rebrew.match import resolve_build_params
 
         toml = tmp_path / "rebrew-project.toml"
         toml.write_text(
@@ -270,14 +269,19 @@ class TestResolveBuildParamsSymbol:
             encoding="utf-8",
         )
         cfg = load_config(tmp_path)
-
-        from bin_util import make_pe
-
         (tmp_path / "x.dll").write_bytes(
             make_pe(b"\x55\x8b\xec\x5d\xc3" * 120, image_base=0x400000)
         )
         f = self._make_multi(tmp_path)
         monkeypatch.chdir(tmp_path)
+        return cfg, f
+
+    def test_selects_matching_annotation(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.match import resolve_build_params
+
+        cfg, f = self._prepare(tmp_path, monkeypatch)
 
         params = resolve_build_params(
             cfg, str(f), None, None, None, "_second_fn", None, None, False, True
@@ -289,26 +293,9 @@ class TestResolveBuildParamsSymbol:
     def test_no_symbol_falls_back_to_first(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.config import load_config
         from rebrew.match import resolve_build_params
 
-        toml = tmp_path / "rebrew-project.toml"
-        toml.write_text(
-            '[project]\ndefault_target = "server"\n\n'
-            "[targets.server]\n"
-            'binary = "x.dll"\nformat = "pe"\narch = "x86_32"\n'
-            'reversed_dir = "src/SERVER"\nmodule = "SERVER"\n',
-            encoding="utf-8",
-        )
-        cfg = load_config(tmp_path)
-
-        from bin_util import make_pe
-
-        (tmp_path / "x.dll").write_bytes(
-            make_pe(b"\x55\x8b\xec\x5d\xc3" * 120, image_base=0x400000)
-        )
-        f = self._make_multi(tmp_path)
-        monkeypatch.chdir(tmp_path)
+        cfg, f = self._prepare(tmp_path, monkeypatch)
 
         params = resolve_build_params(cfg, str(f), None, None, None, None, None, None, False, True)
         assert params.symbol == "_first_fn"
@@ -321,26 +308,9 @@ class TestResolveBuildParamsSymbol:
         """resolve_build_params with target_va set must select THAT annotation
         in a multi-function file, not the first one (workflow: `rebrew
         diff/match/prove 0x<va>` was diffing the wrong function)."""
-        from rebrew.config import load_config
         from rebrew.match import resolve_build_params
 
-        toml = tmp_path / "rebrew-project.toml"
-        toml.write_text(
-            '[project]\ndefault_target = "server"\n\n'
-            "[targets.server]\n"
-            'binary = "x.dll"\nformat = "pe"\narch = "x86_32"\n'
-            'reversed_dir = "src/SERVER"\nmodule = "SERVER"\n',
-            encoding="utf-8",
-        )
-        cfg = load_config(tmp_path)
-
-        from bin_util import make_pe
-
-        (tmp_path / "x.dll").write_bytes(
-            make_pe(b"\x55\x8b\xec\x5d\xc3" * 120, image_base=0x400000)
-        )
-        f = self._make_multi(tmp_path)
-        monkeypatch.chdir(tmp_path)
+        cfg, f = self._prepare(tmp_path, monkeypatch)
 
         params = resolve_build_params(
             cfg, str(f), None, None, None, None, "0x401100", None, False, True
