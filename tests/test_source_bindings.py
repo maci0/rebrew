@@ -3,6 +3,7 @@
 import logging
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -362,3 +363,26 @@ class TestFallbackDefinitionPrototypes:
         prototypes._lines = ["int target(void);", "int target(void)", "", "  {", "}"]
         assert prototypes.get("target") == "int target(void)"
         assert prototypes.get("missing") == ""
+
+
+class TestBatchMetadataReuse:
+    def test_inventory_scan_does_not_reload_the_function_store_per_source(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.metadata.functions as functions
+
+        source = tmp_path / "anchor_only.c"
+        source.write_text("// ADDRESS: S 0x1000\nint f(void) { return 0; }\n")
+        original = functions.load_metadata
+        calls: list[Path] = []
+
+        def counting(directory: Any, *, deepcopy: bool = True) -> Any:
+            calls.append(directory)
+            return original(directory, deepcopy=deepcopy)
+
+        monkeypatch.setattr(functions, "load_metadata", counting)
+        results = iter_source_bindings(
+            [source], target="S", metadata_dir=tmp_path, inventory_only=True
+        )
+        assert [(ann.name, ann.va) for _, annos in results for ann in annos] == [("f", 0x1000)]
+        assert len(calls) == 1

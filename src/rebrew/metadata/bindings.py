@@ -680,6 +680,8 @@ def _annotations_from_metadata(
     text: str | None = None,
     prototypes_needed: bool = True,
     anchored_prototypes: dict[str, str] | None = None,
+    function_entries: dict[tuple[str, int], dict[str, Any]] | None = None,
+    preloaded_data_rows: list[tuple[str, int, dict[str, Any]]] | None = None,
 ) -> list[SourceBinding]:
     """Build source bindings from canonical rows for this file.
 
@@ -697,8 +699,13 @@ def _annotations_from_metadata(
         project_root=project_root,
         prototypes_needed=prototypes_needed,
         anchored_prototypes=anchored_prototypes,
+        function_entries=function_entries,
     )
-    results.extend(_data_annotations_from_metadata(filepath, target_name, base_dir, metadata_dir))
+    results.extend(
+        _data_annotations_from_metadata(
+            filepath, target_name, base_dir, metadata_dir, rows=preloaded_data_rows
+        )
+    )
     results.sort(key=lambda ann: ann.va)
     return results
 
@@ -924,12 +931,21 @@ def iter_source_bindings(
                     if annos:
                         results.append((src, annos))
                     continue
+            preloaded_data = (
+                data_index.get(
+                    os.path.relpath(src.resolve(), metadata_dir.resolve()).replace(os.sep, "/"), []
+                )
+                if inventory_only and metadata_dir is not None
+                else None
+            )
             annos = read_source_bindings(
                 src,
                 target_name=target,
                 base_dir=base_dir,
                 metadata_dir=metadata_dir,
                 project_root=project_root,
+                function_entries=function_entries if inventory_only else None,
+                preloaded_data_rows=preloaded_data,
             )
         except Exception as exc:
             # Any per-source failure (parse error, I/O, encoding) silently
@@ -1076,12 +1092,15 @@ def read_source_bindings(
     *,
     project_root: Path | None = None,
     with_prototypes: bool = True,
+    function_entries: dict[tuple[str, int], dict[str, Any]] | None = None,
+    preloaded_data_rows: list[tuple[str, int, dict[str, Any]]] | None = None,
 ) -> list[SourceBinding]:
     """Read address anchors and canonical metadata; comments carry no state.
 
     *with_prototypes* recovers calling conventions from definitions. A caller
     that only needs identity, size, and section leaves it false and skips
-    that parse.
+    that parse.  *function_entries* is a preloaded store, so a batch reader
+    does not re-read the same table once per source file.
     """
     text, _ = read_source_text(filepath)
     return source_bindings(
@@ -1092,6 +1111,8 @@ def read_source_bindings(
         metadata_dir,
         project_root=project_root,
         with_prototypes=with_prototypes,
+        function_entries=function_entries,
+        preloaded_data_rows=preloaded_data_rows,
     )
 
 
@@ -1104,6 +1125,8 @@ def source_bindings(
     *,
     project_root: Path | None = None,
     with_prototypes: bool = True,
+    function_entries: dict[tuple[str, int], dict[str, Any]] | None = None,
+    preloaded_data_rows: list[tuple[str, int, dict[str, Any]]] | None = None,
 ) -> list[SourceBinding]:
     """Join the pre-read source's address bindings with both metadata stores."""
     from rebrew.metadata.data import get_data_entry
@@ -1133,13 +1156,15 @@ def source_bindings(
         anchored_prototypes={
             anchor.name: anchor.prototype for anchor in anchors if anchor.kind == "FUNCTION"
         },
+        function_entries=function_entries,
+        preloaded_data_rows=preloaded_data_rows,
     )
     indexed = {(preset_module_key(a.module), a.va, a.is_data): a for a in rows}
     data_rows: dict[tuple[str, int], list[SourceBinding]] = {}
     for row in rows:
         if row.is_data:
             data_rows.setdefault((row.module, row.va), []).append(row)
-    functions: dict[tuple[str, int], dict[str, Any]] | None = None
+    functions: dict[tuple[str, int], dict[str, Any]] | None = function_entries
     target = preset_module_key(target_name) if target_name else ""
     for anchor in anchors:
         if target and preset_module_key(anchor.module) != target:
