@@ -195,9 +195,8 @@ def load_metadata_doc(
     ``rebrew-data.toml``) into ``{(module, va): fields}``.
 
     Shared by ``metadata.load_metadata`` and ``data_metadata.load_data_metadata``,
-    which previously each hand-rolled the load→parse→mtime-cache pattern
-    (with an inconsistent parser choice: tomlkit vs tomllib).  Reads use
-    tomllib (strict, ~10x faster than tomlkit); round-trip preservation is
+    so one load→parse→mtime-cache path and one parser choice serve both.  Reads
+    use tomllib (strict, ~10x faster than tomlkit); round-trip preservation is
     only needed for WRITES, which still use tomlkit.
 
     *path* is resolved for stable cache keys unless the caller already did

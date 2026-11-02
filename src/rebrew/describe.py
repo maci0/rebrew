@@ -385,9 +385,7 @@ def _compute_strings(
 
     *all_refs* is the dossier's already-computed ``scan_references`` result;
     when provided, string-target refs are filtered from it instead of running
-    a second full ``.text`` disassembly (the dossier previously scanned the
-    whole section twice — ``scan_references`` for callers/globals/imports and
-    again inside ``string_refs``).
+    a second full ``.text`` disassembly.
     """
     strings = _dossier_strings(info)
     if all_refs is not None:

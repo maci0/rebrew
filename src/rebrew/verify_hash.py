@@ -43,8 +43,7 @@ class EntryFingerprint:
 
     Shared by the hit check (:func:`rebrew.verify.prepare_entries`) and the
     writer (:func:`rebrew.verify_cache.save_verify_cache`) so the two cannot
-    drift — previously each recomputed resolved flags/toolchain/headers/
-    source-hash independently.
+    drift.
     """
 
     toolchain: str

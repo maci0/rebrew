@@ -826,11 +826,11 @@ _INCLUDE_CLOSURE_LOCK = threading.Lock()
 def _resolve_escaping_include(name: Path, dirs: Sequence[Path]) -> Path | None:
     """Resolve an include that carries ``..`` or is absolute.
 
-    :func:`_find_in_dirs` rejects both, so those includes used to resolve
-    nowhere and stay untracked: an edit to the header left the cache key
-    unmoved and served the stale object.  The compiler resolves them, so the
-    closure must too.  Only the named file is probed — no directory is
-    scanned — so nothing here widens what the include search reads.
+    :func:`_find_in_dirs` rejects both, so without this resolution those
+    includes resolve nowhere and stay untracked: an edit to the header leaves
+    the cache key unmoved and serves the stale object.  The compiler resolves
+    them, so the closure must too.  Only the named file is probed — no
+    directory is scanned — so nothing here widens what the include search reads.
     """
     for d in dirs:
         try:

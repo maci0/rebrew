@@ -930,7 +930,8 @@ def mut_hoist_common_tail(s: str, rng: random.Random) -> str | None:
     # Offset adjustments for the removal
     else_removed = last_else.end_byte - else_rm_start
 
-    # Remove from if branch (adjust offset for previous removal if else comes after)
+    # Remove from if branch.  It precedes the else branch in the source, so the
+    # earlier removal from else does not shift its offsets.
     if_rm_start = last_if.start_byte
     while if_rm_start > if_body.start_byte and result[if_rm_start - 1 : if_rm_start] in (
         b" ",
@@ -940,18 +941,9 @@ def mut_hoist_common_tail(s: str, rng: random.Random) -> str | None:
     ):
         if_rm_start -= 1
 
-    # If the if branch is before the else branch in source (always), no adjustment needed for if removal
-    # But we already removed from else, so if if_rm_start < else_rm_start, the if region is untouched
-    if if_rm_start < else_rm_start:
-        result = result[:if_rm_start] + result[last_if.end_byte :]
-        # The stmt end also shifts
-        adj_stmt_end = stmt.end_byte - else_removed - (last_if.end_byte - if_rm_start)
-    else:
-        # If branch is after else (unusual), offset was already shifted
-        adjusted_start = if_rm_start - else_removed
-        adjusted_end = last_if.end_byte - else_removed
-        result = result[:adjusted_start] + result[adjusted_end:]
-        adj_stmt_end = stmt.end_byte - else_removed - (adjusted_end - adjusted_start)
+    result = result[:if_rm_start] + result[last_if.end_byte :]
+    # The stmt end also shifts.
+    adj_stmt_end = stmt.end_byte - else_removed - (last_if.end_byte - if_rm_start)
 
     result = result[:adj_stmt_end] + b"\n    " + common_text + result[adj_stmt_end:]
     return decode_source(result)

@@ -372,7 +372,7 @@ def _collect_active_functions(
                 # Matched only after masking linker-filled addresses, so the
                 # bytes are not identical straight out of the toolchain.  A
                 # project at 100% byte-matched is still this far from an
-                # identical build, and todo used to report "nothing to do".
+                # identical build, so it stays actionable.
                 items.append(
                     TodoItem(
                         category=CAT_EXACT_ONLY,
@@ -978,11 +978,10 @@ def _collect_library_candidates(
         if name in ignored or size < 10:
             continue
         # FunctionEntry carries no module (only va/size/name/tool_name), so the
-        # old `hasattr(func, "module")` was always False and this lane never
-        # emitted.  The module is inferred from the name; an unclassifiable name
-        # infers "" and is skipped.  Infer before the byte probe so only this
-        # target's library modules are disassembled; ordinary game code is not
-        # scanned to be discarded one step later.
+        # module is inferred from the name; an unclassifiable name infers "" and
+        # is skipped.  Infer before the byte probe so only this target's library
+        # modules are disassembled; ordinary game code is not scanned to be
+        # discarded one step later.
         module = _inferred_module(name)
         if not module or module not in lib_modules:
             continue

@@ -258,8 +258,7 @@ def _field_specs(data: bytes) -> list[tuple[int, int, str]]:
 def read_pe_header_fields(data: bytes) -> dict[str, int] | None:
     """Parse every known header field from *data*.  None if not a PE.
 
-    Returns a plain ``{label: int}`` map (not a wrapper type).  Callers that
-    previously used ``PeHeaderFields.values[...]`` should index the dict
+    Returns a plain ``{label: int}`` map (not a wrapper type); index the dict
     directly.
     """
     lfanew = pe_lfanew(data)

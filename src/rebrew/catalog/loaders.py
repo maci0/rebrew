@@ -305,8 +305,7 @@ def cached_sorted_function_vas(cfg: ProjectConfig) -> tuple[int, ...]:
 def parse_rizin_afl(text: str) -> list[tuple[int, int, str]]:
     """Parse rizin ``afl`` output into ``(va, size, name)`` tuples.
 
-    Shared by discover and intake, which previously each hand-rolled a
-    parser with subtly different column handling.  Handles both afl column
+    Shared by discover and intake.  Handles both afl column
     layouts (``va size name`` / ``va offset size name``) and rizin versions
     that print sizes as 0x-prefixed hex; ``->``/``loc``/``sub.*`` names are
     normalized to ``fcn.<va>``.

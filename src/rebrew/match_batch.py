@@ -344,9 +344,9 @@ def find_size_mismatch(
     min_size: int = 0,
 ) -> list[StubInfo]:
     """Find all SIZE_MISMATCH functions (bytes differ in length, not just
-    content), sorted by size.  Batch GA previously could not target these —
-    ``--all`` matches STUBs, ``--improve``/``--near-miss`` NEAR_MATCHING —
-    leaving SIZE_MISMATCH functions unreachable by any batch mode."""
+    content), sorted by size.  ``--all`` matches STUBs and
+    ``--improve``/``--near-miss`` NEAR_MATCHING, so this set is what keeps
+    SIZE_MISMATCH functions reachable by a batch mode."""
     return _find_by_status(
         reversed_dir,
         {"SIZE_MISMATCH"},

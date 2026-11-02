@@ -85,10 +85,9 @@ def covered_bytes(
 
     Uses the *sizes* lookup (registry canonical sizes in the CLI, the
     disassembler inventory in `rebrew coverage export --output snapshots/`) when the VA is present,
-    falling back to the annotation's own size.  Both callers previously
-    diverged — the CLI counted 0 for registry-missing VAs while the old
-    CATALOG.md generator counted the annotation size — so the summary and
-    report disagreed.  GLOBAL/DATA bindings are excluded.
+    falling back to the annotation's own size.  Each caller passes the map its
+    own view uses, so the summary and report agree.  GLOBAL/DATA bindings are
+    excluded.
 
     The ranges are merged and clipped to *section* (``(va, size)``) rather
     than summed.  Both steps are load-bearing on real projects: summing

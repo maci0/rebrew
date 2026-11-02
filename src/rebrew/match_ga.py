@@ -631,9 +631,8 @@ class BinaryMatchingGA:
         """Disk-cache key for *src* under this run's compile configuration.
 
         Single source of truth: ``_compile_source`` reads with it and
-        ``_compute_fitness`` stores with it.  They used to disagree (the
-        scoring store keyed on the bare source digest, which nothing reads),
-        so a successful build was never reused across processes.
+        ``_compute_fitness`` stores with it, so a successful build is reused
+        across processes.
         """
         return _ga_cache_key(
             src,

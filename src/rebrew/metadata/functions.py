@@ -1487,11 +1487,9 @@ def update_statuses_batch(
 ) -> int:
     """Apply many STATUS updates in ONE TOML read-modify-write.
 
-    ``verify``'s STATUS sync and ``test --all`` previously called
-    ``update_source_status`` per entry — each a full tomlkit parse + dumps +
-    atomic write serialized under the global lock.  Measured: 260 entries ≈
-    9s, extrapolated ≈ 28 min at 3000 entries.  The
-    promotion rules are identical per entry; only the I/O is
+    The per-entry ``update_source_status`` path costs a full tomlkit parse +
+    dumps + atomic write per row under the global lock (measured: 260 entries
+    ≈ 9s).  The promotion rules are identical per entry; only the I/O is
     batched (one parse, N in-memory edits, one write).
 
     *updates*: list of dicts with keys ``module``, ``va``, ``new_status``

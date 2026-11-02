@@ -98,10 +98,9 @@ def parse_obj_symbol_and_relocs(
 ) -> tuple[bytes | None, dict[int, str] | None, list[CoffRelocRecord]]:
     """Parse an object ONCE, returning (code_bytes, reloc_offsets, typed_records).
 
-    ``compile_and_compare``/``_test_multi`` previously called
-    ``parse_obj_symbol_bytes`` then ``parse_obj_relocs_full`` — two
-    ``lief.COFF.parse`` calls on the same file.  This single-parse variant
-    returns everything both helpers produce so hot compile paths parse once.
+    ``compile_and_compare``/``_test_multi`` call this instead of
+    ``parse_obj_symbol_bytes`` then ``parse_obj_relocs_full``, so the hot
+    compile path parses the object once rather than twice.
     """
 
     # OMF objects (Open Watcom / MSVC 1.52) are converted to COFF via the

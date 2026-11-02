@@ -2625,9 +2625,9 @@ def prepare_entries(
     from rebrew.function_providers import select_source_bindings
 
     selected, duplicate_vas = select_source_bindings(cfg, entries)
-    # Identity -> declaration per file.  A file with hundreds of annotated
-    # functions used to scan its whole binding list once per entry, which is
-    # quadratic in that file's function count; the lookup below is one probe.
+    # Identity -> declaration per file.  Mapping the file's declarations once
+    # keeps each lookup to one probe; scanning the binding list per entry is
+    # quadratic in a file's function count.
     prototypes: dict[Path, dict[tuple[str, int, str], SourceBinding]] = {}
     metadata_dir = cfg.metadata_dir
     target = target_module(cfg)

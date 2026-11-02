@@ -10,8 +10,7 @@ Takes a target binary and produces a working rebrew decomp project:
 4. Enumerate functions via the discoverer plugins and
    write ``function_structure.json``.
 5. Document every function: a STUB .c + metadata blocker explaining the
-   family (the "document-unmatched" step that used to be a per-project
-   throwaway script).
+   family.
 
 The result is a lint-clean project where every function is either matched or
 blocker-documented — ready for the per-function decomp loop.
@@ -390,7 +389,7 @@ def prune_stale_stubs(
 
     # Unlink each stub before dropping its row, but rewrite the store once:
     # a per-file delete reloads and rewrites the whole TOML, so pruning N
-    # stubs used to cost N full read/write pairs.
+    # stubs would cost N full read/write pairs.
     removed = 0
     deleted: list[tuple[str, int]] = []
     for path, va in stale:

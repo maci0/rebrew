@@ -1256,20 +1256,18 @@ def _derive_function_stats(
 ) -> Mapping[str, Any]:
     """The ``function_stats`` dict, computed from the stored function rows.
 
-    This is the aggregate the removed ``build_db.function_stats`` used to run
-    over a throwaway table, with its cursor gone: the same ``FUNCTION_KINDS``
-    code-row filter, the same ``clip_span`` cut at the next function start, the
-    same ``MATCHED_STATUSES`` split between identified bytes (every function,
+    The aggregate applies the same ``FUNCTION_KINDS`` code-row filter, the
+    same ``clip_span`` cut at the next function start, and the same
+    ``MATCHED_STATUSES`` split between identified bytes (every function,
     STUB placeholders included) and matched bytes (EXACT/RELOC, plus a
     ``LIBRARY`` row whatever its status). Alignment padding is not in this
     figure; the status code account adds it.
 
     It is derived rather than stored because it is a pure function of the rows
     already in the file, and a stored copy is a second thing to keep in step on
-    every rebuild.  The database stored it because reading it back cost a query;
-    here it costs one pass over 600 rows at load.  The two count maps are
-    sorted, so a rebuild that writes the same rows in a different order cannot
-    change the value.
+    every rebuild.  A stored copy costs a query to read; here it costs one pass
+    over 600 rows at load.  The two count maps are sorted, so a rebuild that
+    writes the same rows in a different order cannot change the value.
     """
     rows = [f for f in functions if f.markerType in FUNCTION_KINDS]
     starts = sorted(f.va for f in rows)

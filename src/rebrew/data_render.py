@@ -267,8 +267,8 @@ def section_summary(scan: ScanResult, sections: dict[str, dict[str, Any]]) -> li
         sec = sections.get(sec_name)
         size = int(sec.get("size", 0)) if sec else 0
         # Coverage measures the union of the annotated spans, clipped to the
-        # section: a stale `extern char g[0x8000]` in a 16 KB .data and two
-        # names for one address both used to push the ratio past 100%. The
+        # section: a stale `extern char g[0x8000]` in a 16 KB .data, or two
+        # names for one address, would push the raw sum past 100%. The
         # byte count reported beside it is that same union, so the number, the
         # ratio and the bar are one figure rather than three; `declared_bytes`
         # keeps the raw sum of the declared type sizes.
