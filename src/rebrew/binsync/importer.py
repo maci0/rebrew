@@ -1510,37 +1510,27 @@ def _definition_files(cfg: ProjectConfig) -> list[Path]:
 
     Headers include the shared tree: a struct in ``src/shared`` is already
     defined for every target, and missing it re-imports a duplicate into
-    ``binsync_types.h``.  Sources already arrive shared-aware via
-    :func:`rebrew.sources.iter_sources`.
+    ``binsync_types.h``.  One walk feeds both halves, including the shared
+    tree when configured.
     """
     reversed_dir = Path(cfg.reversed_dir)
     try:
-        header_files = list(reversed_dir.rglob("*.h"))
+        from rebrew.sources import iter_sources_and_headers
+
+        files = iter_sources_and_headers(reversed_dir, cfg)
     except OSError as exc:
-        log.warning("cannot scan headers under %s: %s", reversed_dir, exc)
-        header_files = []
-    shared_dir = getattr(cfg, "shared_dir", None)
-    if shared_dir is not None:
-        try:
-            shared = Path(shared_dir)
-            if shared.resolve() != reversed_dir.resolve() and shared.is_dir():
-                seen = {p.resolve() for p in header_files}
-                header_files.extend(p for p in shared.rglob("*.h") if p.resolve() not in seen)
-        except OSError as exc:
-            # Dropping the shared headers re-imports their types as duplicates.
-            log.warning("cannot scan shared headers under %s: %s", shared_dir, exc)
-    try:
-        from rebrew.sources import iter_sources
-
-        source_files = list(iter_sources(reversed_dir, cfg))
-    except OSError as exc:
-        log.warning("cannot enumerate sources under %s: %s", reversed_dir, exc)
-        source_files = []
-    return header_files + source_files
+        log.warning("cannot scan headers and sources under %s: %s", reversed_dir, exc)
+        return []
+    headers = [path for path in files if path.suffix.lower() == ".h"]
+    sources = [path for path in files if path.suffix.lower() != ".h"]
+    return headers + sources
 
 
-def _local_type_names(cfg: ProjectConfig) -> set[str]:
-    """Names of type definitions already present in the local tree."""
+def _local_type_names(cfg: ProjectConfig, *, files: list[Path] | None = None) -> set[str]:
+    """Names of type definitions already present in the local tree.
+
+    *files* is an already-built :func:`_definition_files` list.
+    """
     from rebrew.struct_parser import (
         extract_enums_from_file,
         extract_structs_from_file,
@@ -1549,7 +1539,7 @@ def _local_type_names(cfg: ProjectConfig) -> set[str]:
     from rebrew.types import parse_structs
 
     names: set[str] = set()
-    for path in _definition_files(cfg):
+    for path in files if files is not None else _definition_files(cfg):
         try:
             for text in extract_structs_from_file(path):
                 names.update(parse_structs(text))
@@ -1669,7 +1659,8 @@ def import_type_definitions(
     imports as a comment instead of compile-breaking code.  Returns the
     applied count (dry-run counts without writing).
     """
-    local_names = _local_type_names(cfg)
+    files = _definition_files(cfg)
+    local_names = _local_type_names(cfg, files=files)
     rewritten = 0
     if update_names:
         from rebrew.struct_parser import replace_type_definition
@@ -1682,7 +1673,7 @@ def import_type_definitions(
                 log.warning("refusing invalid replacement type %s", name)
                 continue
             candidates: list[tuple[Path, str, str]] = []
-            for path in _definition_files(cfg):
+            for path in files:
                 try:
                     text, encoding = edits.get(path) or read_source_text(path)
                     replacement = replace_type_definition(text, name, definition)

@@ -1410,13 +1410,16 @@ def _unsafe_type_names(source: str) -> set[str]:
 
 
 def collect_struct_definitions(
-    cfg: ProjectConfig,
+    cfg: ProjectConfig, *, files: Sequence[Path] | None = None
 ) -> dict[str, tuple[str, list[dict[str, Any]], int | None]]:
     """Collect struct definitions from ``reversed_dir`` headers and sources.
 
     Returns ``{struct_name: (raw_typedef_text, fields, complete_size)}``.
     Differing definitions or layouts are omitted: BinSync cannot represent
     translation-unit-private types under the same name.
+
+    *files* is an already-built :func:`_iter_definition_files` list, so a
+    caller collecting several kinds of definition walks the tree once.
     """
     from rebrew.struct_parser import extract_structs_from_file, extract_type_definitions
     from rebrew.types import parse_structs
@@ -1425,7 +1428,7 @@ def collect_struct_definitions(
     result: dict[str, tuple[str, list[dict[str, Any]], int | None]] = {}
     duplicates: set[str] = set()
     unresolved: set[str] = set()
-    for path in _iter_definition_files(cfg):
+    for path in files if files is not None else _iter_definition_files(cfg):
         try:
             definitions = list(extract_structs_from_file(path))
             if not definitions:
@@ -1502,22 +1505,27 @@ def _iter_definition_files(cfg: ProjectConfig) -> list[Path]:
 
     Target-local headers, then the project-shared header tree, then the
     target's sources. Collectors must check name collisions across these files.
+    One walk feeds both the header and the source half, including the shared
+    tree when configured, so the three collectors over these files do not
+    each re-traverse it.
     """
     reversed_dir = getattr(cfg, "reversed_dir", None)
     if reversed_dir is None:
         return []
-    rd = Path(reversed_dir)
-    header_files = sorted(rd.rglob("*.h"))
-    shared_dir = getattr(cfg, "shared_dir", None)
-    if shared_dir is not None:
-        header_files += sorted(Path(shared_dir).rglob("*.h"))
-    try:
-        from rebrew.sources import iter_sources
+    from rebrew.sources import iter_sources_and_headers
 
-        return header_files + list(iter_sources(rd, cfg))
+    try:
+        files = iter_sources_and_headers(Path(reversed_dir), cfg)
     except OSError:
-        log.warning("cannot list sources under %s; exporting header types only", rd, exc_info=True)
-        return header_files
+        log.warning(
+            "cannot list sources under %s; exporting header types only",
+            reversed_dir,
+            exc_info=True,
+        )
+        return []
+    headers = [path for path in files if path.suffix.lower() == ".h"]
+    sources = [path for path in files if path.suffix.lower() != ".h"]
+    return headers + sources
 
 
 def _split_top_level(text: str) -> list[str]:
@@ -1580,14 +1588,19 @@ def _enum_members(definition: str) -> dict[str, int]:
     return members
 
 
-def collect_enum_definitions(cfg: ProjectConfig) -> dict[str, tuple[str, dict[str, int]]]:
-    """Collect ``{enum_name: (raw_definition, {member: value})}``."""
+def collect_enum_definitions(
+    cfg: ProjectConfig, *, files: Sequence[Path] | None = None
+) -> dict[str, tuple[str, dict[str, int]]]:
+    """Collect ``{enum_name: (raw_definition, {member: value})}``.
+
+    *files* is an already-built :func:`_iter_definition_files` list.
+    """
     from rebrew.struct_parser import extract_enums_from_file
     from rebrew.utils import read_source_text
 
     result: dict[str, tuple[str, dict[str, int]]] = {}
     ambiguous: set[str] = set()
-    for path in _iter_definition_files(cfg):
+    for path in files if files is not None else _iter_definition_files(cfg):
         try:
             source, _ = read_source_text(path)
             unsafe = _unsafe_type_names(source)
@@ -1623,17 +1636,20 @@ def _typedef_name_and_type(definition: str) -> tuple[str, str] | None:
     return name, " ".join(body[:idx].split())
 
 
-def collect_typedef_definitions(cfg: ProjectConfig) -> dict[str, tuple[str, str]]:
+def collect_typedef_definitions(
+    cfg: ProjectConfig, *, files: Sequence[Path] | None = None
+) -> dict[str, tuple[str, str]]:
     """Collect ``{name: (raw_definition, underlying_type)}`` for plain typedefs.
 
     Struct and enum typedefs are excluded (the struct/enum collectors own them).
+    *files* is an already-built :func:`_iter_definition_files` list.
     """
     from rebrew.struct_parser import extract_type_definitions
     from rebrew.utils import read_source_text
 
     result: dict[str, tuple[str, str]] = {}
     ambiguous: set[str] = set()
-    for path in _iter_definition_files(cfg):
+    for path in files if files is not None else _iter_definition_files(cfg):
         try:
             source, _ = read_source_text(path)
             unsafe = _unsafe_type_names(source)
@@ -1662,7 +1678,8 @@ def type_sync_records(cfg: ProjectConfig) -> dict[str, dict[str, Any]]:
     from rebrew.types import type_size
 
     records: dict[str, dict[str, Any]] = {}
-    definitions = collect_struct_definitions(cfg)
+    files = _iter_definition_files(cfg)
+    definitions = collect_struct_definitions(cfg, files=files)
     known = {
         name: StructDef(name, size=size)
         for name, (_text, _fields, size) in definitions.items()
@@ -1700,9 +1717,9 @@ def type_sync_records(cfg: ProjectConfig) -> dict[str, dict[str, Any]]:
                 "members": members,
             }
         }
-    for name, (_text, members_) in collect_enum_definitions(cfg).items():
+    for name, (_text, members_) in collect_enum_definitions(cfg, files=files).items():
         records[f"enum.{name}"] = {"definition": members_}
-    for name, (_text, underlying) in collect_typedef_definitions(cfg).items():
+    for name, (_text, underlying) in collect_typedef_definitions(cfg, files=files).items():
         records[f"typedef.{name}"] = {"definition": underlying}
     return records
 
@@ -1722,12 +1739,15 @@ def incoming_type_records(state_dir: Path) -> dict[str, dict[str, Any]]:
 
 
 def sync_watch_paths(cfg: ProjectConfig, state_dir: Path) -> list[Path]:
-    """All inputs that can change the integration projection, including new sources."""
-    from rebrew.metadata.storage import metadata_store
-    from rebrew.sources import iter_sources
+    """All inputs that can change the integration projection, including new sources.
 
-    paths = set(iter_sources(cfg.reversed_dir, cfg))
-    paths.update(_iter_definition_files(cfg))
+    Polled once per ``--watch`` interval, so the tree is walked once: the
+    definition-file list already holds every source and header the projection
+    reads.
+    """
+    from rebrew.metadata.storage import metadata_store
+
+    paths = set(_iter_definition_files(cfg))
     paths.update(
         Path(root) for root in (cfg.reversed_dir, getattr(cfg, "shared_dir", None)) if root
     )

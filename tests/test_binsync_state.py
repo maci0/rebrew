@@ -161,3 +161,64 @@ class TestCommentWrapping:
         wrapped = serial.new_comment(0x1001, 0x1000, note).comment
         assert "\n" in wrapped
         assert normalize_comment_text(wrapped) == normalize_comment_text(note)
+
+
+class TestDefinitionFileScan:
+    """The type-definition collectors share one tree walk, not one per collector."""
+
+    @staticmethod
+    def _cfg(tmp_path: Path) -> SimpleNamespace:
+        src = tmp_path / "src"
+        src.mkdir(exist_ok=True)
+        (src / "point.h").write_text(
+            "typedef struct { int x; int y; } Point;\n"
+            "typedef enum { RED, GREEN } Color;\n"
+            "typedef unsigned int uint_alias;\n",
+            encoding="utf-8",
+        )
+        return SimpleNamespace(
+            root=tmp_path,
+            reversed_dir=src,
+            metadata_dir=tmp_path,
+            source_ext=".c",
+            module="GAME",
+            target_name="GAME",
+        )
+
+    @staticmethod
+    def _count_walks(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
+        import rebrew.sources as sources
+
+        real = sources.scan_files
+        walks: list[Any] = []
+
+        def counted(*args: Any, **kwargs: Any) -> list[Path]:
+            walks.append(args)
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(sources, "scan_files", counted)
+        return walks
+
+    def test_type_records_walk_the_tree_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.binsync.state import type_sync_records
+
+        cfg = self._cfg(tmp_path)
+        walks = self._count_walks(monkeypatch)
+        records = type_sync_records(cfg)  # type: ignore[arg-type]
+        assert walks == [(cfg.reversed_dir,)]
+        assert "struct.Point" in records
+        assert "enum.Color" in records
+        assert "typedef.uint_alias" in records
+
+    def test_watch_paths_walk_the_tree_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.binsync.state import sync_watch_paths
+
+        cfg = self._cfg(tmp_path)
+        walks = self._count_walks(monkeypatch)
+        paths = sync_watch_paths(cfg, tmp_path / "state")  # type: ignore[arg-type]
+        assert walks == [(cfg.reversed_dir,)]
+        assert cfg.reversed_dir / "point.h" in paths
