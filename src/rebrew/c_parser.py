@@ -395,7 +395,7 @@ def _without_calling_convention(text: str) -> str:
     for convention in sorted(_CALLING_CONVENTIONS, key=len, reverse=True):
         if not text.startswith(convention):
             continue
-        rest = text[len(convention) :]
+        rest = text.removeprefix(convention)
         if rest[:1].isalnum() or rest[:1] == "_":
             continue
         return rest

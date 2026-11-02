@@ -166,9 +166,9 @@ def _row_from_comment(name: str, va: int, comment: str) -> SymbolRow:
         detail = tail.strip()
         for token in head.split():
             if token.startswith(_TYPE_PREFIX):
-                kind = token[len(_TYPE_PREFIX) :] or KIND_FUNC
+                kind = token.removeprefix(_TYPE_PREFIX) or KIND_FUNC
             elif token.startswith(_SIZE_PREFIX):
-                size = _parse_int_or_none(token[len(_SIZE_PREFIX) :])
+                size = _parse_int_or_none(token.removeprefix(_SIZE_PREFIX))
     return SymbolRow(va=va, name=name, kind=kind, size=size, detail=detail)
 
 

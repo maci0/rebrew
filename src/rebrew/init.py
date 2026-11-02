@@ -1246,7 +1246,7 @@ def main(
         # resolve_cl_command's runner stripping sees cmd_parts[0] == runner
         # (otherwise the config mixes "tools/wibo" with a "wine" command
         # and every compile fails with a bogus argv).
-        compiler_command = compiler_command[len("wine ") :]
+        compiler_command = compiler_command.removeprefix("wine ")
 
     # Auto-detect the binary's format/arch when it is already in place
     # (original/<name>) — otherwise the profile's hardcoded defaults (pe /

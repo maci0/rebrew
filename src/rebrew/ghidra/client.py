@@ -784,7 +784,7 @@ def is_idempotent_success(op: dict[str, Any] | None, error_msg: str) -> bool:
         bare = name
         for prefix in _OP_VERB_PREFIXES:
             if name.startswith(prefix):
-                bare = name[len(prefix) :]
+                bare = name.removeprefix(prefix)
                 break
         nouns = {
             name,

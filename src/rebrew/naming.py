@@ -161,9 +161,7 @@ def normalize_name(name: str) -> str:
     """
     # fold_ident (NFC + casefold), not str.lower: "straße" and "STRASSE"
     # are one symbol, and an NFD spelling matches the NFC one.
-    normalized = fold_ident(name.strip())
-    if normalized.startswith("__imp_"):
-        normalized = normalized[len("__imp_") :]
+    normalized = fold_ident(name.strip()).removeprefix("__imp_")
     if normalized.startswith("_") and not normalized.startswith("__"):
         normalized = normalized[1:]
     at_pos = normalized.rfind("@")

@@ -292,7 +292,7 @@ def _merged_msvc_version_tables() -> tuple[
             names = tuple(str(p) for p in profiles)
             if key.startswith("build:"):
                 try:
-                    build = int(key[len("build:") :])
+                    build = int(key.removeprefix("build:"))
                 except ValueError:
                     logger.warning(
                         "skipping %s provider %r: %r is not 'build:<integer>'",
@@ -305,7 +305,7 @@ def _merged_msvc_version_tables() -> tuple[
                 rich[build] = existing + names if existing else names
             elif key.startswith("linker:"):
                 try:
-                    major, minor = (int(x) for x in key[len("linker:") :].split("."))
+                    major, minor = (int(x) for x in key.removeprefix("linker:").split("."))
                 except ValueError:
                     logger.warning(
                         "skipping %s provider %r: %r is not 'linker:<M>.<m>'",

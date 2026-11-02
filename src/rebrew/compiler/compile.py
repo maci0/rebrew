@@ -693,7 +693,7 @@ def classify_compare_result(
     else:
         status = "STUB"
     if msg.startswith(UNCLASSIFIED_DIFF):
-        msg = status + msg[len(UNCLASSIFIED_DIFF) :]
+        msg = status + msg.removeprefix(UNCLASSIFIED_DIFF)
 
     return CompareResult(
         matched=False,

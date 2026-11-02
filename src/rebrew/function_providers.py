@@ -177,7 +177,7 @@ def _bind_compiled_row(
     ):
         return bind_compiled_source(cfg, entry, metadata)
     if prefix is not None and norm.startswith(prefix) and _plain_relative(norm):
-        entry.filepath = norm[len(prefix) :]
+        entry.filepath = norm.removeprefix(prefix)
     else:
         entry.filepath = rel_display_path(Path(source_text), reversed_dir)
     entry.symbol = str(metadata.get("symbol") or entry.symbol)

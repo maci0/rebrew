@@ -657,7 +657,7 @@ def _relative_posix(path: Path, base: Path) -> str:
             return "."
         prefix = root if root == "/" else root + "/"
         if text.startswith(prefix):
-            return text[len(prefix) :]
+            return text.removeprefix(prefix)
     return os.path.relpath(path, base).replace(os.sep, "/")
 
 
