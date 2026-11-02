@@ -1102,7 +1102,10 @@ def _begin_extern_cache(directory: Path) -> dict[str, Any]:
                     files[path_key] = parsed
     # One lock per record: concurrent batch callers share this object, and its
     # file map is mutated by a scan while its flush serializes it.  The outer
-    # dict lock only guards the bounded insert.
+    # dict lock only guards the bounded insert and the re-check: a caller that
+    # missed the first lookup left the lock to read the same cache file, and
+    # publishing its own record would replace the map a peer is already
+    # filling, so both scans would flush a different partial map.
     record: dict[str, Any] = {
         "dir": directory,
         "files": files,
@@ -1110,7 +1113,10 @@ def _begin_extern_cache(directory: Path) -> dict[str, Any]:
         "lock": threading.Lock(),
     }
     with _EXTERN_CACHE_LOCK:
-        if len(_EXTERN_CACHE) >= _EXTERN_CACHE_MAX and key not in _EXTERN_CACHE:
+        existing = _EXTERN_CACHE.get(key)
+        if existing is not None:
+            return existing
+        if len(_EXTERN_CACHE) >= _EXTERN_CACHE_MAX:
             _EXTERN_CACHE.pop(next(iter(_EXTERN_CACHE)), None)
         _EXTERN_CACHE[key] = record
     return record

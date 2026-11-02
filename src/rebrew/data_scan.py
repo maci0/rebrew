@@ -445,7 +445,11 @@ def _begin_name_cover(metadata_dir: Path) -> dict[str, Any]:
                 files[path_key] = parsed
     # One lock per record: concurrent scans of one metadata root share this
     # object, and its file map is mutated by a scan while its flush serializes
-    # it.  The outer dict lock only guards the bounded insert.
+    # it.  The outer dict lock only guards the bounded insert and the
+    # re-check: a caller that missed the first lookup left the lock to read the
+    # same cache file, and publishing its own record would replace the map a
+    # peer is already filling, so both scans would flush a different partial
+    # map.
     record = {
         "dir": metadata_dir,
         "stamp": stamp,
@@ -454,7 +458,10 @@ def _begin_name_cover(metadata_dir: Path) -> dict[str, Any]:
         "lock": threading.Lock(),
     }
     with _NAME_COVER_CACHE_LOCK:
-        if len(_NAME_COVER_CACHE) >= _NAME_COVER_CACHE_MAX and key not in _NAME_COVER_CACHE:
+        existing = _NAME_COVER_CACHE.get(key)
+        if existing is not None and existing["stamp"] == stamp:
+            return existing
+        if len(_NAME_COVER_CACHE) >= _NAME_COVER_CACHE_MAX:
             _NAME_COVER_CACHE.pop(next(iter(_NAME_COVER_CACHE)), None)
         _NAME_COVER_CACHE[key] = record
     return record
@@ -592,8 +599,18 @@ def _begin_role_cache(metadata_dir: Path, cfg: ProjectConfig | None) -> dict[str
         "dirty": False,
         "lock": threading.Lock(),
     }
+    # Same re-check as the name cover: share the record a racing scan already
+    # published instead of replacing the map it is filling.
     with _ROLE_FACT_CACHE_LOCK:
-        if len(_ROLE_FACT_CACHE) >= _ROLE_FACT_CACHE_MAX and key not in _ROLE_FACT_CACHE:
+        existing = _ROLE_FACT_CACHE.get(key)
+        if (
+            existing is not None
+            and existing["stamp"] == stamp
+            and existing["identity"] == identity
+            and existing["version"] == _ROLE_FACT_VERSION
+        ):
+            return existing
+        if len(_ROLE_FACT_CACHE) >= _ROLE_FACT_CACHE_MAX:
             _ROLE_FACT_CACHE.pop(next(iter(_ROLE_FACT_CACHE)), None)
         _ROLE_FACT_CACHE[key] = record
     return record

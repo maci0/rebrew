@@ -299,6 +299,43 @@ class TestCallerCounts:
         assert remembered.is_set()
         assert cache["dirty"] is True
 
+    def test_extern_cache_publishes_one_record_per_directory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Two lookups that miss together must share one record.
+
+        Each caller built its own record after reading the same cache file, and
+        the later publish replaced the earlier one, so two scans filled and
+        flushed separate partial maps.
+        """
+        import threading
+
+        import rebrew.todo as todo
+
+        cache_path = tmp_path / ".rebrew" / "extern-names.json"
+        cache_path.parent.mkdir(parents=True)
+        cache_path.write_text(
+            json.dumps({"version": todo._EXTERN_CACHE_VERSION, "files": {}}), encoding="utf-8"
+        )
+        todo._EXTERN_CACHE.clear()
+        published = {
+            "dir": tmp_path,
+            "files": {},
+            "dirty": False,
+            "lock": threading.Lock(),
+        }
+        real_loads = todo.json.loads
+
+        def _loads(text: str) -> object:
+            # Stand in for the peer that publishes while this caller is between
+            # the lookup and the publish.
+            with todo._EXTERN_CACHE_LOCK:
+                todo._EXTERN_CACHE.setdefault(todo._extern_path_key(tmp_path), published)
+            return real_loads(text)
+
+        monkeypatch.setattr(todo.json, "loads", _loads)
+        assert todo._begin_extern_cache(tmp_path) is published
+
     def test_unversioned_extern_cache_is_ignored(self, tmp_path: Path) -> None:
         """A sidecar written by older parser semantics must not answer lookups."""
         import json

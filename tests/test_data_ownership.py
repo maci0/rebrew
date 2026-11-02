@@ -301,6 +301,88 @@ def test_data_scan_caches_are_bounded(tmp_path: Path) -> None:
     assert str(roots[-1].resolve()) in data_scan._NAME_COVER_CACHE
 
 
+def test_name_cover_publishes_one_record_per_store(tmp_path: Path, monkeypatch) -> None:
+    """Two scans that miss together must share one cover record.
+
+    Each built its own record after reading the same cache file, and the later
+    publish replaced the map the earlier scan was filling.
+    """
+    import json
+    import threading
+
+    import rebrew.data_scan as data_scan
+
+    stamp = data_scan._store_stamp(tmp_path)
+    cache_path = tmp_path / ".rebrew" / "name-map-cover.json"
+    cache_path.parent.mkdir(parents=True)
+    cache_path.write_text(
+        json.dumps({"version": data_scan._NAME_COVER_VERSION, "stamp": stamp, "files": {}}),
+        encoding="utf-8",
+    )
+    data_scan._NAME_COVER_CACHE.clear()
+    published = {
+        "dir": tmp_path,
+        "stamp": stamp,
+        "files": {},
+        "dirty": False,
+        "lock": threading.Lock(),
+    }
+    real_loads = data_scan.json.loads
+
+    def _loads(text: str) -> object:
+        with data_scan._NAME_COVER_CACHE_LOCK:
+            data_scan._NAME_COVER_CACHE.setdefault(data_scan._path_key(tmp_path), published)
+        return real_loads(text)
+
+    monkeypatch.setattr(data_scan.json, "loads", _loads)
+    assert data_scan._begin_name_cover(tmp_path) is published
+
+
+def test_role_cache_publishes_one_record_per_identity(tmp_path: Path, monkeypatch) -> None:
+    """The role record has the same publish race as the name cover."""
+    import json
+    import threading
+
+    import rebrew.data_scan as data_scan
+
+    stamp = data_scan._store_stamp(tmp_path)
+    identity = data_scan._role_identity(None)
+    cache_path = tmp_path / ".rebrew" / "data-scan-roles.json"
+    cache_path.parent.mkdir(parents=True)
+    cache_path.write_text(
+        json.dumps(
+            {
+                "version": data_scan._ROLE_FACT_VERSION,
+                "stamp": stamp,
+                "identity": identity,
+                "files": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    data_scan._ROLE_FACT_CACHE.clear()
+    published = {
+        "dir": tmp_path,
+        "stamp": stamp,
+        "identity": identity,
+        "version": data_scan._ROLE_FACT_VERSION,
+        "files": {},
+        "dirty": False,
+        "lock": threading.Lock(),
+    }
+    real_loads = data_scan.json.loads
+
+    def _loads(text: str) -> object:
+        with data_scan._ROLE_FACT_CACHE_LOCK:
+            data_scan._ROLE_FACT_CACHE.setdefault(
+                data_scan._path_key(tmp_path) + "\n" + identity, published
+            )
+        return real_loads(text)
+
+    monkeypatch.setattr(data_scan.json, "loads", _loads)
+    assert data_scan._begin_role_cache(tmp_path, None) is published
+
+
 def test_name_cover_flush_serializes_a_concurrent_remember(tmp_path: Path, monkeypatch) -> None:
     """A flush must not mark a remember clean before it reaches the file.
 
