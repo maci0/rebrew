@@ -34,10 +34,7 @@ from rebrew.cli import (
 from rebrew.naming import normalize_name
 lazy from rebrew.config import ProjectConfig, inventory_path_for
 lazy from rebrew.metadata.bindings import SourceBinding, read_source_bindings, set_binding_field
-lazy from rebrew.sources import (
-    iter_library_headers,
-    iter_sources,
-)
+lazy from rebrew.sources import iter_library_headers, iter_sources, scan_files
 lazy from rebrew.utils import TerminalTable, fold_ident, preset_module_key
 
 log = logging.getLogger(__name__)
@@ -334,9 +331,10 @@ def collect_library_annotations(
     project_root = getattr(cfg, "root", None)
 
     # Library functions live in `library_*.h` headers as well as .c files;
-    # iter_sources only globs cfg.source_ext, so iterate both.
-    for source_path in iter_sources(cfg.reversed_dir, cfg) + iter_library_headers(
-        cfg.reversed_dir, cfg
+    # iter_sources only globs cfg.source_ext, so iterate both over one walk.
+    tree = scan_files(cfg.reversed_dir)
+    for source_path in iter_sources(cfg.reversed_dir, cfg, scanned=tree) + iter_library_headers(
+        cfg.reversed_dir, cfg, scanned=tree
     ):
         for ann in read_source_bindings(
             source_path,

@@ -70,7 +70,7 @@ lazy from rebrew.metadata.bindings import (
     library_bindings_for_file,
     min_valid_va_for,
 )
-lazy from rebrew.sources import iter_library_headers, iter_sources
+lazy from rebrew.sources import iter_library_headers, iter_sources, scan_files
 lazy from rebrew.status import StatusReport, collect_status
 lazy from rebrew.utils import (
     atomic_write_bytes,
@@ -539,7 +539,10 @@ def _collect_functions(cfg: ProjectConfig) -> list[dict[str, Any]]:
                 exc,
             )
             entries = {}
-    sources = iter_sources(reversed_path, cfg)
+    # One traversal feeds both halves below: the .c annotation scan and the
+    # library_*.h marker scan used to walk the same tree separately.
+    tree = scan_files(reversed_path)
+    sources = iter_sources(reversed_path, cfg, scanned=tree)
     for src, annos in iter_source_bindings(
         sources,
         target=target_module(cfg),
@@ -568,7 +571,7 @@ def _collect_functions(cfg: ProjectConfig) -> list[dict[str, Any]]:
     # by the summary cards (collect_status scans them via naming.load_data) but
     # were missing from this table: iter_sources does not glob library_*.h, and
     # their minimal marker format needs library_bindings_for_file.
-    for header in iter_library_headers(reversed_path, cfg):
+    for header in iter_library_headers(reversed_path, cfg, scanned=tree):
         for ann in library_bindings_for_file(header, metadata_dir=metadata_dir):
             if ann.va < min_valid_va_for(cfg):
                 continue

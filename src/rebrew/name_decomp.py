@@ -542,11 +542,12 @@ def main(
 
     applied: list[dict[str, Any]] = []
     if named:
-        from rebrew.sources import iter_library_headers, iter_sources
+        from rebrew.sources import iter_library_headers, iter_sources, scan_files
         from rebrew.struct_recover import existing_structs
 
-        sources = list(iter_sources(cfg.reversed_dir, cfg))
-        sources += list(iter_library_headers(cfg.reversed_dir, cfg))
+        tree = scan_files(cfg.reversed_dir)
+        sources = list(iter_sources(cfg.reversed_dir, cfg, scanned=tree))
+        sources += list(iter_library_headers(cfg.reversed_dir, cfg, scanned=tree))
         try:
             definitions = existing_structs(sources)
         except ValueError as exc:

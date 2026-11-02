@@ -777,10 +777,11 @@ def recover_project_structs(
     # Existing structs in the project, for the merge report.  Library headers
     # are included too — name_decomp.py scans them and recover_structs must
     # agree, or its "new" structs would duplicate ones already defined.
-    from rebrew.sources import iter_library_headers, iter_sources
+    from rebrew.sources import iter_library_headers, iter_sources, scan_files
 
-    sources = list(iter_sources(cfg.reversed_dir, cfg))
-    sources += list(iter_library_headers(cfg.reversed_dir, cfg))
+    tree = scan_files(cfg.reversed_dir)
+    sources = list(iter_sources(cfg.reversed_dir, cfg, scanned=tree))
+    sources += list(iter_library_headers(cfg.reversed_dir, cfg, scanned=tree))
     # ``--output`` may point outside the source tree; without scanning it,
     # a second run would re-append the same typedefs (duplicate definitions).
     if output is not None and output.exists():

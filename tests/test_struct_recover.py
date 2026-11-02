@@ -568,7 +568,9 @@ class TestRecoverProjectStructs:
         monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", _player_decompiler)
         readable = cfg.reversed_dir / "f.c"
         missing = cfg.reversed_dir / "missing.h"
-        monkeypatch.setattr("rebrew.sources.iter_sources", lambda *a: iter([readable, missing]))
+        monkeypatch.setattr(
+            "rebrew.sources.iter_sources", lambda *a, **k: iter([readable, missing])
+        )
         target = tmp_path / "structs.h"
         result = CliRunner().invoke(
             main_mod.app,
