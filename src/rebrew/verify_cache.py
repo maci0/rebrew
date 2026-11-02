@@ -394,7 +394,7 @@ def _decode_nulls(document: dict[str, Any]) -> dict[str, Any]:
 #: would retain the previous full JSON payload for the process lifetime.  Cap
 #: distinct paths so a long-lived process that touches many project roots
 #: cannot retain every decoded payload.  Guarded: eviction is a multi-step
-#: mutation on a shared dict; concurrent status/todo/build-db callers must
+#: mutation on a shared dict; concurrent status/todo/coverage export callers must
 #: not race it.
 _VERIFY_CACHE_MEMO: dict[tuple[str, int, int, int, int], dict[str, Any] | None] = {}
 _VERIFY_CACHE_MEMO_MAX = 8

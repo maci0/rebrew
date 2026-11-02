@@ -1,10 +1,11 @@
-"""Tests for rebrew coverage serve — read-only web dashboard over the coverage documents.
+"""Tests for rebrew coverage serve: read-only web dashboard over a live project view.
 
-The dashboard reads ``db/coverage-<target>.toml``, one document per target (see
-:mod:`rebrew.coverage_toml`); it no longer opens a SQLite database.  Fixtures
-therefore build documents: ``_write_config`` + the ``catalog`` fixture +
-``build_db`` for the whole writer path, and ``_write_document`` for the shapes
-the writer cannot produce (a history row with no ``old_status``, an aggregate
+The dashboard derives its default view from project inputs; portable mode reads
+``coverage-<target>.toml`` documents, one per target (see
+:mod:`rebrew.coverage_toml`).  Fixtures therefore build project metadata for the
+live path and documents for the portable reader: ``_write_config`` + the
+``catalog`` fixture for the live view, and ``_write_document`` for the shapes a
+real catalog never emits (a history row with no ``old_status``, an aggregate
 past its section size).
 """
 
@@ -85,7 +86,7 @@ def _js_list(body: str, name: str) -> list[str]:
 def _catalog_data() -> dict[str, Any]:
     """One catalog's coverage dict, in the shape ``build_catalog_data`` returns.
 
-    ``build-db`` runs that function in-process, so this dict — not a
+    ``coverage export`` renders that function in-process, so this dict — not a
     ``data_*.json`` snapshot — is what a fixture hands the writer.  A test that
     needs a row the fixture lacks edits its own copy and registers it on the
     ``catalog`` fixture, so what it asserts on is still the written document.
@@ -214,8 +215,8 @@ def catalog(monkeypatch: pytest.MonkeyPatch) -> FakeCatalog:
 def _write_config(root_dir: Path, *targets: str) -> Path:
     """A project config naming *targets*; the documents are built from it.
 
-    ``build-db`` has no snapshot to read any more, so a fixture that wants a
-    target has to declare it here and let the writer render it.
+    The live view reads this config, so a fixture that wants a target declares
+    it here and lets the writer render it.
     """
     root_dir.mkdir(parents=True, exist_ok=True)
     body = f'[project]\nname = "testbin"\ndefault_target = "{targets[0]}"\n\n'
@@ -229,10 +230,10 @@ def _write_config(root_dir: Path, *targets: str) -> Path:
 def _write_document(db_dir: Path, target: str, body: str = "") -> Path:
     """Hand-write one ``db/coverage-<target>.toml`` from literal TOML.
 
-    ``build_db`` writes the shapes a real catalog produces; a test that needs a
-    row the writer never emits (an absent ``old_status``, an aggregate past its
-    section size) writes the document itself rather than a database the reader
-    no longer opens.  ``version`` and ``target`` are the two keys every
+    ``coverage export`` writes the shapes a real catalog produces; a test that
+    needs a row the writer never emits (an absent ``old_status``, an aggregate
+    past its section size) writes the document itself rather than a database
+    the reader no longer opens.  ``version`` and ``target`` are the two keys every
     document has to carry (``rebrew.coverage_toml._snapshot``).
     """
     db_dir.mkdir(parents=True, exist_ok=True)
@@ -254,7 +255,7 @@ def empty_dashboard(tmp_path: Path) -> Dashboard:
 
     That is the state ``/api/health`` answers 500 ``database_error`` for; every
     other route still answers 200 with zero targets, because a project that has
-    not run ``build-db`` yet is not an error (see the module docstring of
+    not run ``coverage export`` yet is not an error (see the module docstring of
     ``rebrew.dashboard``).
     """
     return Dashboard(tmp_path / "db", snapshots=True)

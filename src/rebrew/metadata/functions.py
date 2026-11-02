@@ -270,8 +270,8 @@ def load_metadata(
     dir_path = resolve_metadata_dir(directory)
     # Resolve so cache keys are stable across relative/absolute call sites.
     # Memoized per directory spelling: a whole-tree scan calls load_metadata
-    # once per source file (annotation._finalize_entries) plus once per
-    # annotating command, and the resolve itself walks every path component
+    # once per source file (metadata.bindings._annotations_from_metadata) plus
+    # once per annotating command, and the resolve itself walks every path component
     # with an lstat.  A symlink re-pointed mid-process is the only way the
     # answer changes, and the doc cache re-stats the file on every read.
     path = _resolved_metadata_path(str(dir_path))
@@ -1675,8 +1675,8 @@ def apply_metadata_entry(ann: SourceBinding, entry: dict[str, Any]) -> None:
 
     Shared by :func:`merge_into_binding` (one annotation against a
     freshly loaded entry) and the parse paths in
-    :mod:`rebrew.metadata.bindings` (``_finalize_entries``,
-    ``_annotations_from_metadata``, ``library_bindings_for_file``), which load
+    :mod:`rebrew.metadata.bindings` (``_annotations_from_metadata``,
+    ``library_bindings_for_file``), which load
     the metadata once per file and apply it per function instead of
     re-loading the TOML for every annotation — the per-function hot path.
     """
@@ -1781,8 +1781,8 @@ def apply_metadata_entry(ann: SourceBinding, entry: dict[str, Any]) -> None:
 # Typed facade
 # ---------------------------------------------------------------------------
 #
-# The typed entry layer is ``metadata.model.MetadataEntry`` (used by
-# metadata/annotation.py); it is the only entry model, so status checks go through it
+# The typed entry layer is ``metadata.model.MetadataEntry``; it is the only
+# entry model, so status checks go through it
 # rather than through a second facade here.
 # ``KNOWN_STATUSES`` / ``MATCHED_STATUSES`` are owned by
 # :mod:`rebrew.workspace.status` (stdlib-light vocabulary).  Import the

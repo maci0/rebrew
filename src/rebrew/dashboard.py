@@ -1913,7 +1913,7 @@ def _readable_snapshots(dashboard: Dashboard) -> Mapping[str, CoverageSnapshot]:
 
     The one rule behind the two probes that must not answer "ok" over an empty
     page: ``rebrew coverage serve``'s startup check and ``/api/health``.  A project
-    that never ran ``build-db`` has no documents, and a directory whose every
+    with no readable target has nothing to serve, and a directory whose every
     document is corrupt reads the same way — either way there is nothing to
     serve, and the reader that skips an unreadable document says so on the log
     stream rather than here.
@@ -3114,8 +3114,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self.wfile.write(body_bytes)
             return
 
-        # Read the ETag (asset hash or DB mtime) BEFORE the query: a
-        # ``build-db`` swap between query and stat would otherwise tag the old
+        # Read the ETag (asset hash or coverage version) BEFORE the query: a
+        # coverage rebuild between query and stat would otherwise tag the old
         # body with the new ETag, and the browser would revalidate that stale
         # body as fresh until the next rebuild.  An old ETag on a new body
         # only costs one extra refetch.  A matching If-None-Match on a routed
@@ -3653,7 +3653,7 @@ app = typer.Typer(
         "  /api/sections?target= · · · Per-section cell stats\n\n"
         "  /api/globals?target= · · ·  Global data rows (module/q/limit/offset)\n\n"
         "  /api/history?target= · · ·  Status-change history (limit/offset)\n\n"
-        '[dim]Read-only: the documents are opened for reading only. Target-scoped routes need ?target= (400 if missing, 404 if unknown; a target is one readable coverage-<target>.toml; an unknown status= is 400, not an empty page). A present empty module= matches a blank module. Non-GET/HEAD on a served route → 405 with Allow: GET, HEAD; a path the server does not serve → 404 whatever the method; a directory yielding no readable document → 500 database_error on /api/health. A connection past the in-flight cap → 503 server_busy with Retry-After. Error bodies are {"error": "<message>", "code": "<code>"}; branch on code.[/dim]'
+        '[dim]Read-only: project inputs and snapshot files are only read. Target-scoped routes need ?target= (400 if missing, 404 if unknown; in portable mode a target is one readable coverage-<target>.toml; an unknown status= is 400, not an empty page). A present empty module= matches a blank module. Non-GET/HEAD on a served route → 405 with Allow: GET, HEAD; a path the server does not serve → 404 whatever the method; a source with no readable target → 500 database_error on /api/health. A connection past the in-flight cap → 503 server_busy with Retry-After. Error bodies are {"error": "<message>", "code": "<code>"}; branch on code.[/dim]'
     ),
 )
 
@@ -3671,7 +3671,7 @@ def main(
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
-    """Serve the coverage documents as a read-only web dashboard."""
+    """Serve the coverage view as a read-only web dashboard."""
     print_url = option_default(print_url, False)
     if json_output and not print_url:
         error_exit("--json requires --print-url; omit --json to start the server", json_mode=True)

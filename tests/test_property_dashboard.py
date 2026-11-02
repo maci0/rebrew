@@ -213,7 +213,7 @@ def dashboard(tmp_path_factory: pytest.TempPathFactory) -> Dashboard:
         "summary": {"total_functions": 2, "total_bytes": 128},
         "paths": {"a.c": "src/a.c"},
     }
-    # The document is rendered directly: `build-db` would scan a project tree
+    # The document is rendered directly: `coverage export` would scan a project tree
     # this fixture does not have, and the reader only ever sees the file.
     document = render_coverage_toml("server_dll", data)
     (db_dir / "coverage-server_dll.toml").write_text(document, encoding="utf-8")

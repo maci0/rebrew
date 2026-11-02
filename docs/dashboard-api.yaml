@@ -2,12 +2,13 @@ openapi: 3.1.0
 info:
   title: Rebrew dashboard API
   version: "1.0.0"
-  summary: Read-only coverage data served by `rebrew dashboard`.
+  summary: Read-only coverage data served by `rebrew coverage serve`.
   description: |
-    Every route is read-only: the server reads the `coverage-<target>.toml`
-    documents `rebrew build-db` writes, one per target, and non-`GET`/`HEAD`
-    methods answer 405 with `Allow: GET, HEAD`.  A path the
-    server does not serve answers 404 `not_found` whatever the method, so a
+    Every route is read-only: by default the server derives rows from the
+    live project coverage view; with `--snapshots` it reads the portable
+    `coverage-<target>.toml` documents `rebrew coverage export` writes, one
+    per target. Non-`GET`/`HEAD` methods answer 405 with `Allow: GET, HEAD`.
+    A path the server does not serve answers 404 `not_found` whatever the method, so a
     404 body carries `not_found` on any path and `unknown_target` on the
     target-scoped ones; branch on `code`.
 
@@ -46,7 +47,7 @@ info:
     response, of every status, carries `X-Request-Id`.
 servers:
   - url: http://127.0.0.1:8000
-    description: Default bind (`rebrew dashboard --host/--port`).
+    description: Default bind (`rebrew coverage serve --host/--port`).
 
 tags:
   - name: assets
@@ -898,7 +899,7 @@ components:
           description: >-
             Requests answered 304 by the ETag revalidation short-circuit.
             Over `requests` this is the revalidation hit rate: how much of the
-            traffic a `build-db` rebuild did not have to invalidate.
+            traffic a coverage rebuild did not have to invalidate.
         timeouts:
           type: integer
           minimum: 0
@@ -1285,10 +1286,11 @@ components:
     ETag:
       description: |
         Validator for this exact representation.  `/` and the two scripts
-        carry a strong content hash; the JSON routes carry a weak tag over
-        every coverage document's name, mtime and size *and* the request's
-        path and query, so a validator held for one route, target, or filter
-        never stands for another, and a `build-db` of any target moves it.
+        carry a strong content hash; the JSON routes carry a weak tag over the
+        live coverage input version (or, in portable mode, every coverage
+        document's name, mtime, size and inode) and the request's path and
+        query, so a validator held for one route, target, or filter never
+        stands for another, and a coverage rebuild of any target moves it.
         Absent on `/api/health`.
       schema: { type: string }
     CacheControl:

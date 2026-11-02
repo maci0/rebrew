@@ -522,7 +522,7 @@ def import_verify_rows(
         return [] if not entries else None
     # A rebuild re-measures the same verdicts from the same cache, and the cache
     # file's mtime moves on every verify run, so stamping that mtime would
-    # relabel an unchanged verdict as freshly measured on every build-db.  A row
+    # relabel an unchanged verdict as freshly measured on every coverage export.  A row
     # whose measurements are identical keeps the time it was first measured; a
     # changed or new verdict gets the new one.
     for index, row in enumerate(rows):

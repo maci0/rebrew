@@ -389,7 +389,7 @@ def require_root(root: Path | None = None, *, json_mode: bool = False) -> Path:
     An explicit *root* is checked for being an existing directory before any
     work starts.  :func:`require_config` already reports a file or a missing
     directory as ``Config not found: <root>/rebrew-project.toml``, but the
-    commands that walk or create under the tree themselves (``build-db``)
+    commands that walk or create under the tree themselves (``coverage export``)
     reached that work first and surfaced ``[Errno 20] Not a directory:
     .../rebrew-project.toml/db`` or, for a missing root, ``[Errno 13] Permission
     denied`` — an errno naming a path deep inside rebrew's own output layout

@@ -628,7 +628,7 @@ def _coverage_write_lock(root_dir: Path, target_name: str) -> Iterator[None]:
 
     Same discipline as :func:`rebrew.verify_cache._verify_cache_write_lock`: a
     thread lock plus an advisory ``flock`` sidecar, so an in-process dashboard
-    regen and a second process's ``build-db`` cannot interleave.  The sidecar
+    regen and a second process's ``coverage export`` cannot interleave.  The sidecar
     lives under ``.rebrew/`` beside the verify cache's rather than in ``db/``,
     which holds the delivered documents and nothing else.
 
@@ -810,7 +810,7 @@ def write_coverage_toml(
         # The whole read-modify-write holds one write lock per target, like the
         # other tool-owned stores.  atomic_write_text alone stops a torn file
         # but not a lost update: two builders for one target (the dashboard
-        # regenerating while a manual `build-db` runs) each read the same
+        # regenerating while a manual `coverage export` runs) each read the same
         # `previous`, each carry its own delta rows into `history`, and the
         # second replace drops the first's history and restamps
         # `verified_at` — a silent reset of every chart, invisible until the
