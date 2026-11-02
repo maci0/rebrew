@@ -44,7 +44,9 @@ A prompt this process
 already sent is answered from an in-process cache instead of the endpoint, so
 a watch rerun that leaves the function under match byte-identical costs
 nothing (only non-empty results are cached: an empty answer is a refusal, a
-truncation, or an outage, and re-asking can succeed).  A cache hit is
+truncation, or an outage, and re-asking can succeed).  Identical requests
+already in flight share one call, so a parallel batch cannot buy the same
+prompt once per worker.  A cache hit is
 re-checked against the same name-and-prototype gate a live response passes,
 because the key carries a source truncated at a fixed length and a collision
 would otherwise hand one function's seeds to another.  Rate limits / overload
@@ -219,6 +221,13 @@ _token_lock = threading.Lock()
 # rerun costs nothing.  Guarded separately from the request budget so a cache
 # lookup never waits on a slot another thread is spending.
 _seed_cache: dict[str, list[str]] = {}
+#: Identical prompts currently being requested, one event per cache key.  A
+#: parallel batch can reach the same prompt before the first answer is cached;
+#: without this every worker pays for its own copy of the same request.  A
+#: waiter blocks on the leader's event, then re-checks the cache: a leader that
+#: failed or was refused publishes nothing, and the waiter takes its turn.
+#: Entries are removed in a ``finally``, so a failure cannot wedge the key.
+_seed_inflight: dict[str, threading.Event] = {}
 _cache_lock = threading.Lock()
 # Running cost of the billed requests this thread made, surfaced to the run
 # summary: the INFO log line that records it is invisible without ``-v``, so a
@@ -1090,6 +1099,34 @@ def _cached_seeds(key: str) -> list[str] | None:
     return list(cached) if cached is not None else None
 
 
+def _claim_seed_request(key: str) -> bool:
+    """Become the one caller that asks the endpoint for *key*.
+
+    Returns True after publishing this caller's in-flight event, or False when
+    the answer landed while it waited.  A waiter re-checks the cache through
+    :func:`_cached_seeds`; when a leader produced nothing (a refusal, an
+    outage, a budget stop) the next waiter takes over instead of inheriting an
+    empty answer that was never cacheable.
+    """
+    while True:
+        with _cache_lock:
+            if key in _seed_cache:
+                return False
+            event = _seed_inflight.get(key)
+            if event is None:
+                _seed_inflight[key] = threading.Event()
+                return True
+        event.wait()
+
+
+def _finish_seed_request(key: str) -> None:
+    """Release the singleflight claim for *key* and wake its waiters."""
+    with _cache_lock:
+        event = _seed_inflight.pop(key, None)
+    if event is not None:
+        event.set()
+
+
 def _cache_seeds(key: str, seeds: list[str]) -> None:
     """Keep *seeds* for a later identical request, dropping the oldest entry.
 
@@ -1469,26 +1506,50 @@ def request_seeds(
         )
         return []
     key = _cache_key(conf, model, source, count, expect)
-    cached = _cached_seeds(key)
-    if cached is not None:
-        # Re-run the C gate: the cache holds model output, so a hit is no more
-        # trusted than the response it replaces, and a truncated key can name a
-        # different function than the one the entry was gated against.
-        seen: set[str] = set()
-        seeds: list[str] = []
-        for seed in cached:
-            if len(seeds) >= count:
-                break
-            if _accepts_seed(seed, expect, seen):
-                seeds.append(seed)
-        # Nothing left the process, so nothing was billed: no slot consumed
-        # and no cost record, which is why the run total still names only the
-        # requests the operator actually paid for.
-        logging.debug("LLM seeding: %d cached seed(s) for an identical prompt", len(seeds))
-        return seeds
+    while True:
+        cached = _cached_seeds(key)
+        if cached is not None:
+            # Re-run the C gate: the cache holds model output, so a hit is no
+            # more trusted than the response it replaces, and a truncated key
+            # can name a different function than the one the entry was gated
+            # against.
+            seen: set[str] = set()
+            seeds: list[str] = []
+            for seed in cached:
+                if len(seeds) >= count:
+                    break
+                if _accepts_seed(seed, expect, seen):
+                    seeds.append(seed)
+            # Nothing left the process, so nothing was billed: no slot consumed
+            # and no cost record, which is why the run total still names only
+            # the requests the operator actually paid for.
+            logging.debug("LLM seeding: %d cached seed(s) for an identical prompt", len(seeds))
+            return seeds
+        # Singleflight: an identical request already in flight is paid for
+        # once.  A waiter loops after the leader publishes (or fails and
+        # publishes nothing), then either reads the cache or takes its turn.
+        if _claim_seed_request(key):
+            break
+    try:
+        return _request_seed_answer(conf, model, source, count, expect, key, client)
+    finally:
+        _finish_seed_request(key)
+
+
+def _request_seed_answer(
+    conf: dict[str, Any],
+    model: str,
+    source: str,
+    count: int,
+    expect: tuple[str, str],
+    key: str,
+    client: Any | None,
+) -> list[str]:
+    """Send the one endpoint request for *key* and cache a non-empty answer."""
     # Price the request before it is sent: the call ceiling says how often the
     # endpoint may be asked, this says what the answer may cost.  A cached
-    # prompt returned above, so this runs only on a request that would bill.
+    # prompt was answered by the caller, so this runs only on a request that
+    # would bill.
     billed_ceiling = _request_token_ceiling(source, count)
     if not _reserve_token_budget(billed_ceiling):
         logging.warning(

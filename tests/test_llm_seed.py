@@ -1512,6 +1512,47 @@ class TestSeedCache:
         assert usage is not None
         assert usage.requests == 1
 
+    def test_identical_parallel_prompts_share_one_request(self) -> None:
+        """Two workers reaching one uncached prompt pay for one request.
+
+        The cache is filled only after the first answer arrives, so without a
+        singleflight both workers pass the miss and each sends the same paid
+        prompt.  The first request blocks here until the second has had time to
+        reach the gate, which is the window the bug used to occupy.
+        """
+        source = "int f(void) { return 0; }"
+        snippet = "int f(void) { int r = 0; return r; }"
+        payload = {
+            "choices": [{"message": {"content": f"```c\n{snippet}\n```"}}],
+            "usage": {"prompt_tokens": 5, "completion_tokens": 5, "total_tokens": 10},
+        }
+        entered = threading.Event()
+        release = threading.Event()
+        calls = 0
+        calls_lock = threading.Lock()
+
+        class _Blocking:
+            @contextmanager
+            def stream(self, *args: object, **kwargs: object) -> Iterator[_FakeResponse]:
+                nonlocal calls
+                with calls_lock:
+                    calls += 1
+                entered.set()
+                assert release.wait(timeout=5), "the first request never unblocked"
+                with _FakeClient(payload).stream(*args, **kwargs) as response:
+                    yield response
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(request_seeds, _cfg("https://llm/v1"), source, client=_Blocking())
+            assert entered.wait(timeout=5), "the first request never started"
+            second = pool.submit(request_seeds, _cfg("https://llm/v1"), source, client=_Blocking())
+            # Let the second worker reach the cache miss and the in-flight gate.
+            time.sleep(0.05)
+            release.set()
+            assert first.result(timeout=5) == [snippet]
+            assert second.result(timeout=5) == [snippet]
+        assert calls == 1
+
     def test_changed_source_is_resent(self) -> None:
         client = self._client("int f(void) { int r = 0; return r; }")
         request_seeds(_cfg("https://llm/v1"), "int f(void) { return 0; }", client=client)

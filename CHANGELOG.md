@@ -12,6 +12,8 @@
 
 ### Fixed
 
+- Share one LLM seed request among identical prompts already in flight, so a
+  parallel batch cannot bill the same prompt once per worker.
 - `load_ne_binary` passes the code probe's verdict into `SectionInfo`, so NE
   sections named `SEG<n>` read as code through `is_code_section` instead of
   falling back to a name no NE section carries. Without it every NE section
