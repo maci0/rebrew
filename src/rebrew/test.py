@@ -233,7 +233,7 @@ app = typer.Typer(
 )
 
 
-def _watch_loop(source_path: Path, retest: Callable[[], None], interval: float = 1.0) -> None:
+def _watch_loop(source_path: Path, retest: Callable[[], None]) -> None:
     """Poll source_path and re-run ``retest()`` on every file change.
 
     Thin wrapper over the shared :func:`rebrew.utils.watch_files` (which
@@ -242,7 +242,7 @@ def _watch_loop(source_path: Path, retest: Callable[[], None], interval: float =
     """
     from rebrew.utils import watch_files
 
-    watch_files([source_path], retest, interval=interval)
+    watch_files([source_path], retest)
 
 
 def _select_annotation_for_va(

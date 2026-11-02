@@ -48,8 +48,8 @@ class ResidueError(RebrewError, ValueError):
     """Raised when an input image is not a PE that residue can measure."""
 
 
-def _name_column(name: str, width: int = _NAME_COLUMN) -> str:
-    """*name* truncated and padded to *width* terminal columns.
+def _name_column(name: str) -> str:
+    """*name* truncated and padded to :data:`_NAME_COLUMN` terminal columns.
 
     ``f"{name:40s}"`` counts code points, but a terminal lays out CJK,
     emoji, and combining marks in two or zero columns, so a Japanese symbol
@@ -58,9 +58,9 @@ def _name_column(name: str, width: int = _NAME_COLUMN) -> str:
     name overflow the column instead of fitting it.
     """
     out = name
-    while cell_len(out) > width:
+    while cell_len(out) > _NAME_COLUMN:
         out = out[:-1]
-    return out + " " * (width - cell_len(out))
+    return out + " " * (_NAME_COLUMN - cell_len(out))
 
 
 _EPILOG = (

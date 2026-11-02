@@ -2262,19 +2262,19 @@ _KNOWN_LINT_INDENT = frozenset({"none", "spaces", "tabs"})
 KNOWN_FORMATS = {"pe", "elf", "macho", "ne", "mz"}
 
 
-def _lint_enum(value: Any, allowed: frozenset[str], field_name: str, default: str = "none") -> str:
+def _lint_enum(value: Any, allowed: frozenset[str], field_name: str) -> str:
     """Return a known lint enum value, warning and falling back on typos.
 
     A misspelled ``naming_convention = "snake-case"`` used to pass load and
     then silently disable the style rule (``!= "none"`` but matches no branch).
     """
-    text = _as_str(value, default, field_name)
+    text = _as_str(value, "none", field_name)
     if text in allowed:
         return text
     _config_warn(
-        f"{field_name} = {text!r} is not one of {sorted(allowed)}; using {default!r}",
+        f"{field_name} = {text!r} is not one of {sorted(allowed)}; using 'none'",
     )
-    return default
+    return "none"
 
 
 def _load_lint_settings(project_raw: Mapping[str, Any]) -> dict[str, Any]:

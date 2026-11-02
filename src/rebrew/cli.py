@@ -431,14 +431,14 @@ def _output_choice_from(ctx: TyperContext | None) -> str:
     return "auto"
 
 
-def _argv_format_choice(argv: list[str] | None = None) -> str | None:
+def _argv_format_choice() -> str | None:
     """Format selected before the subcommand, from argv when click has no context.
 
     ``-o`` / ``--output`` counts only before the first positional and only when
     the value is ``auto``, ``text``, or ``json``. A later ``-o`` is a path.
     ``--output text`` wins over ``--json``.
     """
-    args = list(sys.argv[1:] if argv is None else argv)
+    args = list(sys.argv[1:])
     saw_text = False
     saw_json = False
     saw_command = False

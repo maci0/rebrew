@@ -21,7 +21,6 @@ class NeFixup:
 
     address_type: int
     relocation_type: int
-    source_offset: int
     target: int
     addend: int
 
@@ -66,7 +65,7 @@ class NeImage:
         if start + 2 + count * 8 > limit:
             raise NeParseError(f"segment {index + 1} has a truncated fixup block")
         return [
-            NeFixup(*struct.unpack_from("<BBHHH", self.data, start + 2 + i * 8))
+            NeFixup(*struct.unpack_from("<BB2xHH", self.data, start + 2 + i * 8))
             for i in range(count)
         ]
 
