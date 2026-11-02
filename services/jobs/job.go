@@ -52,6 +52,7 @@ type Owner struct {
 	lock                  *os.File
 	workers               sync.WaitGroup
 	closed                bool
+	reconciling           bool
 	occupied              bool
 	listeners             map[string]map[chan struct{}]bool
 	queued                map[string]bool

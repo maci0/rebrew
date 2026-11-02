@@ -103,7 +103,7 @@ func compileResultValid(v compileOriginal) bool {
 func (o *Owner) ConfigureManagedCompile(upstream string, max int, allowed []string) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if o.closed || o.compileMediator != nil || o.docker == nil {
+	if o.closed || o.reconciling || o.compileMediator != nil || o.docker == nil {
 		return errors.New("managed compile configuration unavailable")
 	}
 	if _, err := NewCompileMediator(o.dir, upstream, "validation", strings.Repeat("0", 64), max, allowed); err != nil {
@@ -239,31 +239,52 @@ func (o *Owner) compilePending(id string) (bool, error) {
 }
 
 // ReconcileCompile requires the original caller credential and explicitly replays one uncertain compile.
+//
+// The upstream replay runs outside o.mu.  It can take the full request
+// timeout, and holding the owner lock across it froze every job status and
+// event read for that long.  One reconcile at a time is still enforced, and
+// the in-flight replay counts as owner work so Close waits for it before
+// releasing the single-owner store.
 func (o *Owner) ReconcileCompile(ctx context.Context, job, intent, credential string) error {
 	o.mu.Lock()
-	defer o.mu.Unlock()
 	if o.closed {
+		o.mu.Unlock()
 		return errors.New("owner is closed")
 	}
 	r, err := o.read(job)
 	if err != nil {
+		o.mu.Unlock()
 		return err
 	}
 	sum := sha256.Sum256([]byte(credential))
-	if !r.ManagedCompile || r.CredentialSHA256 != hex.EncodeToString(sum[:]) || o.compileConfig == nil || o.compileMediator != nil || r.State != "uncertain" {
+	if !r.ManagedCompile || r.CredentialSHA256 != hex.EncodeToString(sum[:]) || o.compileConfig == nil || o.compileMediator != nil || o.reconciling || r.State != "uncertain" {
+		o.mu.Unlock()
 		return errors.New("compile recovery unavailable")
 	}
 	data, err := os.ReadFile(filepath.Join(o.dir, job+".compile", "config.json"))
 	if err != nil {
+		o.mu.Unlock()
 		return err
 	}
 	var retained managedCompileConfig
 	if json.Unmarshal(data, &retained) != nil || !reflect.DeepEqual(retained, *o.compileConfig) {
+		o.mu.Unlock()
 		return errors.New("compile recovery configuration differs")
 	}
-	m, err := NewCompileMediator(filepath.Join(o.dir, job+".compile", "ledger"), o.compileConfig.Upstream, credential, strings.Repeat("0", 64), o.compileConfig.Max, o.compileConfig.Allowed)
+	config := *o.compileConfig
+	m, err := NewCompileMediator(filepath.Join(o.dir, job+".compile", "ledger"), config.Upstream, credential, strings.Repeat("0", 64), config.Max, config.Allowed)
 	if err != nil {
+		o.mu.Unlock()
 		return err
 	}
+	o.reconciling = true
+	o.workers.Add(1)
+	o.mu.Unlock()
+	defer func() {
+		o.mu.Lock()
+		o.reconciling = false
+		o.mu.Unlock()
+		o.workers.Done()
+	}()
 	return m.Reconcile(ctx, intent)
 }

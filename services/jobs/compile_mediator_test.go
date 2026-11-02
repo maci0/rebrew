@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestCompileMediatorUncertainOriginalAndAuthorizedArtifact(t *testing.T) {
@@ -382,5 +383,105 @@ func TestCompileMediatorRecoversOriginalBeforeIndexCommit(t *testing.T) {
 	ids, err := readCompileIndex(dir)
 	if err != nil || len(ids) != 1 || ids[0] != id {
 		t.Fatal("original index was not recovered")
+	}
+}
+
+// TestReconcileCompileReleasesOwnerLockDuringUpstreamCall pins the lock scope:
+// the owner lock guards custody, not a network round trip, so a status read
+// must not wait for the whole replay.
+func TestReconcileCompileReleasesOwnerLockDuringUpstreamCall(t *testing.T) {
+	root, dir := t.TempDir(), testJobDir(t)
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, err := Open(root, dir, executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Close()
+
+	credential := "rck_reconcile_secret"
+	job := strings.Repeat("d", 64)
+	intent := strings.Repeat("e", 64)
+	entered := make(chan struct{}, 1)
+	release := make(chan struct{})
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		entered <- struct{}{}
+		<-release
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"error"}`))
+	}))
+	defer upstream.Close()
+	defer func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	}()
+
+	base := filepath.Join(dir, job+".compile")
+	ledger := filepath.Join(base, "ledger")
+	if err = os.MkdirAll(ledger, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err = writeCompileIndex(ledger, []string{intent}); err != nil {
+		t.Fatal(err)
+	}
+	config := managedCompileConfig{Upstream: upstream.URL, Max: 1, Allowed: []string{"gcc"}}
+	data, err := json.Marshal(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(base, "config.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte(credential))
+	body := []byte(`{"compiler":"gcc","source":"int x;","flags":[],"filename":"a.c","emit_assembly":false}`)
+	bodySum := sha256.Sum256(body)
+	original := compileOriginal{Intent: intent, Key: "abcdef123456", Body: body, BodySHA256: hex.EncodeToString(bodySum[:]), CredentialSHA256: hex.EncodeToString(sum[:])}
+	if err = writeJSONAtomic(ledger, ".compile-", intent+".json", original); err != nil {
+		t.Fatal(err)
+	}
+
+	owner.mu.Lock()
+	owner.compileConfig = &config
+	err = owner.save(Receipt{ID: job, State: "uncertain", ManagedCompile: true, CredentialSHA256: hex.EncodeToString(sum[:])})
+	owner.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	reconciled := make(chan error, 1)
+	go func() { reconciled <- owner.ReconcileCompile(context.Background(), job, intent, credential) }()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("replay never reached the upstream")
+	}
+	status := make(chan error, 1)
+	start := time.Now()
+	go func() { _, err := owner.Get(job); status <- err }()
+	select {
+	case err = <-status:
+		if err != nil {
+			t.Fatal(err)
+		}
+		if elapsed := time.Since(start); elapsed > 400*time.Millisecond {
+			t.Fatalf("job status waited %s for the compile replay", elapsed)
+		}
+	case <-time.After(2 * time.Second):
+		close(release)
+		t.Fatal("job status blocked on the compile replay")
+	}
+	close(release)
+	select {
+	case err = <-reconciled:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("compile reconciliation did not finish")
 	}
 }

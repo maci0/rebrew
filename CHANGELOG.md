@@ -27,6 +27,7 @@
 - Reject an incomplete cached stock archive and publish fresh extractions atomically, so an interrupted copy cannot make library functions look like game code.
 - Speed up status, todo and report scans by reusing the batch's metadata rows for source files without stored rows, instead of reloading the stores once per file.
 - Batch the fixed-SIZE metadata writes for a multi-function test into one store rewrite, instead of one per stale annotation.
+- Run a managed compile reconciliation outside the job owner lock, so a slow upstream replay no longer stalls every job status and event read; shutdown still waits for it.
 - Speed up project lint by reusing source bindings for duplicate-global checks and resolving retired source paths once per batch; detect metadata-only duplicate globals in nested source directories.
 - Reuse fingerprinted metadata parses, declaration inventories and path resolution while preserving validation and isolated results.
 - Avoid rescanning installed plugin metadata when unrelated project outputs change.
