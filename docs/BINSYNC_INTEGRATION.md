@@ -418,7 +418,7 @@ in C, and no source representation takes precedence over metadata.
 
 An address outside a known function range can remain associated through an
 explicit valid `func_addr`; lack of source-line mapping does not create a
-source marker or another storage owner.
+source binding or another storage owner.
 
 Conflict resolution mirrors `rebrew sync push`:
 

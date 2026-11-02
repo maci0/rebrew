@@ -1,7 +1,7 @@
 """merge.py - Merge single-function C files into one multi-function file.
 
-Combines multiple annotated source files into a single compilation unit,
-deduplicating preamble lines and sorting function blocks by virtual address.
+Combines multiple source files into a single compilation unit, deduplicating
+preamble lines and sorting function definitions by virtual address.
 
 With ``--shared``, twin files (same body, different target modules — the
 per-target copies ``source import-related`` makes) collapse into one
@@ -9,9 +9,9 @@ stacked block per body (one ``/* ADDRESS: <module> <va> */`` anchor per
 target, ADR-022): the migration path from N copies to one shared file.  Bodies
 that differ between targets are refused, never averaged.
 
-A migrated file has no marker block.  The same command reads each function
-row, copies that C definition and its file-scope objects into the output,
-and retargets every row that names an input.  ``--dry-run`` writes nothing.
+The command reads each function row, copies that C definition and its
+file-scope objects into the output, and retargets every row that names an
+input.  ``--dry-run`` writes nothing.
 """
 
 import re
@@ -396,10 +396,10 @@ def _collect_input_files(
     return files
 
 
-# --- Marker-less merge -------------------------------------------------------
-# A pure-C file has no // FUNCTION: block.  The output keeps each C definition
-# and the file-scope objects defined beside it.  Rows whose file names an
-# input move to the output.  A file-level naked, struct, or callers fence is
+# --- Definition merge --------------------------------------------------------
+# The output keeps each C definition and the file-scope objects defined beside
+# it.  Rows whose file names an input move to the output.  A file-level naked,
+# struct, or callers fence is
 # dropped, because the result has a second function.
 
 _NO_VA = 2**63
@@ -662,7 +662,7 @@ def _read_layouts(
     json_output: bool,
     prior_output: str,
 ) -> tuple[list[_InputLayout], list[str], str, str]:
-    """Read every input.  The last legacy encoding wins, as on the marker path."""
+    """Read every input.  The last non-UTF-8 source encoding wins."""
     layouts: list[_InputLayout] = []
     problems: list[str] = []
     claimed: dict[tuple[str, int], str] = {}

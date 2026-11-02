@@ -30,7 +30,7 @@ What it delegates to (no second mechanism):
   pure-C stub. Identity, ``SIZE``, and ``STATUS`` land in
   ``rebrew-functions.toml`` (status is metadata-owned, never inline).
 - Library annotations: :func:`rebrew.identify_library.write_candidates` records
-  ``LIBRARY`` rows. The header is a banner, not inline markers.
+  ``LIBRARY`` rows. The header is a banner, not inline state.
 - Data annotations: the C declaration plus a ``rebrew-data.toml`` row for
   ``size`` and ``section``.
 - Layout entries: :class:`rebrew.layout_meta.SectionMeta` records, written

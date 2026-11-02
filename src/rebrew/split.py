@@ -1,13 +1,11 @@
 """split.py – Split a multi-function C file into single-function files.
 
-Reads a C translation unit containing multiple ``// FUNCTION:`` annotation
-blocks and writes one output file per function, preserving the shared preamble
-in every output file.  With ``--va``, a single function can be extracted into
-its own file while the block is removed from the original source.
-
-A migrated file has no marker block.  The same commands then resolve the
-function through ``rebrew-functions.toml``, slice that C definition, and
-retarget every row that shares it.  File-scope storage stays in the original.
+Resolves each C definition through its managed function row in
+``rebrew-functions.toml`` and writes one output file per function, preserving
+the shared preamble in every output file.  With ``--va``, a single function
+can be extracted into its own file while its definition is removed from the
+original source.  File-scope storage stays in the original; no legacy
+annotation block is read.
 """
 
 from __future__ import annotations
@@ -105,12 +103,11 @@ def _build_output_name(symbol: str, va: int, ext: str) -> str:
     return f"{stem}{ext}"
 
 
-# --- Marker-less split -------------------------------------------------------
-# A pure-C file has no // FUNCTION: block.  Extents come from the tree-sitter
-# spans of the original text, so the slice keeps the file's bytes, encoding,
-# and newlines.  Storage definitions are not copied: a non-static object the
-# extracted function uses becomes an extern, and a static or a preprocessor
-# wrapped dependency is refused.
+# --- Definition split --------------------------------------------------------
+# Extents come from the tree-sitter spans of the original text, so the slice
+# keeps the file's bytes, encoding, and newlines.  Storage definitions are not
+# copied: a non-static object the extracted function uses becomes an extern,
+# and a static or a preprocessor wrapped dependency is refused.
 
 _PREAMBLE_TYPES = frozenset(
     {
@@ -854,7 +851,7 @@ def main(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """Split a multi-function C file into one file per function block.
+    """Split a multi-function C file into one file per function definition.
 
     With --va, extract a single function into its own file (preamble included). Without --va, split ALL functions into individual files.
     """

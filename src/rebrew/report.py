@@ -1184,7 +1184,7 @@ def _render_graph(cfg: ProjectConfig) -> tuple[str, str | None, str | None]:
     Returns ``(html_page, adjacency_text_or_none, mermaid_or_none)``.  The
     third value is the full Mermaid source when it is larger than
     ``_MERMAID_INLINE_MAX`` and was left out of the HTML.  Call-graph
-    generation is best-effort: any failure (malformed annotation blocks,
+    generation is best-effort: any failure (malformed source bindings,
     unreadable sources, rendering errors) degrades to a note inside the page
     rather than aborting the whole report.
     """

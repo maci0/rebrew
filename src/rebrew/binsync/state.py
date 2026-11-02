@@ -417,11 +417,11 @@ def resolve_global_types(
 ) -> dict[int, str]:
     """Map VA → C type string for each global entry.
 
-    Uses :func:`rebrew.c_parser.find_extern_variables` on the declaration
-    line that follows each ``// GLOBAL:`` / ``// DATA:`` marker, which is
-    the authoritative source (also handles non-extern DATA declarations).
-    Falls back to :func:`rebrew.data_scan.scan_globals` name→type index when
-    the direct parse finds no extern.
+    Uses :func:`rebrew.c_parser.find_extern_variables` on the C declaration
+    bound to each data row, which is the authoritative source (also handles
+    non-extern DATA declarations).  Falls back to
+    :func:`rebrew.data_scan.scan_globals` name→type index when the direct
+    parse finds no extern.
     """
     va_to_type: dict[int, str] = {}
     if not global_entries:
@@ -448,7 +448,7 @@ def resolve_global_types(
         if found_type:
             va_to_type[va] = found_type
             continue
-        # Supplementary: if marker-based parse failed, try name-indexed map
+        # Supplementary: if the declaration lookup failed, try name-indexed map
         gname = getattr(e, "symbol", "") or getattr(e, "name", "")
         if gname and gname in name_to_type:
             va_to_type[va] = name_to_type[gname]
@@ -462,12 +462,10 @@ def resolve_global_names(
 ) -> dict[int, str]:
     """Map VA → variable name for each DATA/GLOBAL entry.
 
-    For ``// GLOBAL:`` / ``// DATA:`` blocks the annotation parser does not
-    populate ``ann.name``/``ann.symbol`` (it only does for FUNCTION blocks).
-    This helper extracts the real variable name from the declaration line that
-    follows the marker, so that ``global_vars.toml`` contains ``g_szBuffer``
-    rather than ``g_01008000``.  Falls back to ``g_<hex>`` when the decl
-    cannot be resolved.
+    A data row may carry no ``name``/``symbol``.  This helper extracts the
+    real variable name from the C declaration bound to the row, so that
+    ``global_vars.toml`` contains ``g_szBuffer`` rather than ``g_01008000``.
+    Falls back to ``g_<hex>`` when the declaration cannot be resolved.
     """
     va_to_name: dict[int, str] = {}
     for e in global_entries:

@@ -499,8 +499,8 @@ def load_existing_vas(src_dir: str | Path, cfg: ProjectConfig | None = None) -> 
     """Load VAs already covered by source files and library headers. Returns {va: rel_path}.
 
     Scans both source files (via ``iter_sources``) and ``library_*.h`` headers.
-    Supports multi-function files: a single source file may contain multiple
-    annotation blocks, each registering a separate VA.
+    Supports multi-function files: a single source file may define several
+    functions, each bound to its own metadata row.
 
     Values are relative paths from *src_dir* (e.g. ``"game/pool_free.c"``
     for nested layouts, or ``"pool_free.c"`` for flat layouts).

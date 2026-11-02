@@ -98,7 +98,7 @@ def _row_source(cfg: Any, stored: str) -> Path | None:
     """The source a row's ``file`` names (relative to the metadata root), or None if it escapes.
 
     A row path that does not exist under the metadata root is retried under
-    ``reversed_dir`` (an inline marker's scan path).
+    the source roots (a path stored relative to ``reversed_dir``).
     """
     roots = source_roots(cfg)
     first = contained_path((Path(cfg.metadata_dir), *roots), stored)

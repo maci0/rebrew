@@ -715,8 +715,8 @@ class BinaryMatchingGA:
                 _spec = TOOLCHAINS.get(self.profile)
                 if _spec is not None and _spec.image is not None:
                     raise ValueError(
-                        f"linked-exe GA ({self.profile}) needs host wine — execution is "
-                        "docker-only; use object comparison (default) instead"
+                        f"linked-exe GA ({self.profile}) needs a host-run compiler — every "
+                        "shipped profile is docker-only; use object comparison (default) instead"
                     )
             res = compile_seam.build_candidate(
                 src,

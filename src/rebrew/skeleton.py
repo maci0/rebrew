@@ -199,10 +199,10 @@ def generate_skeleton(
     """Generate the .c file content.
 
     Args:
-        cfg: Project configuration containing settings and marker rules.
+        cfg: Project configuration containing the project settings.
         va: Virtual address of the target function.
         ghidra_name: Name of the function imported from Ghidra.
-        module: Module name used for the marker line.
+        module: Module name used for the ADDRESS anchor.
         custom_name: Optional override name for the function.
         xref_context: Optional string containing fetched caller cross-references.
         decomp_code: Optional decompilation output to embed as a comment block.
@@ -649,7 +649,7 @@ def generate_diff_command(filepath: str) -> str:
     """Generate the rebrew diff command for byte-level comparison.
 
     Only the path: ``diff`` resolves symbol, VA, size, and flags from the
-    file's marker and ``rebrew-functions.toml``.
+    file's source binding and ``rebrew-functions.toml``.
     """
     return f"rebrew diff {filepath}"
 
@@ -1653,7 +1653,7 @@ def main(
 
     module_val = cfg.module
 
-    # --append mode: add marker block to an existing file
+    # --append mode: add a definition and its ADDRESS anchor to an existing file
     if append:
         _run_append_mode(
             cfg,

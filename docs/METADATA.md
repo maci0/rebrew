@@ -192,7 +192,8 @@ supplies its own tag.
   alongside whichever field they change, tagged by the writer that ran: `verify`
   from `verify --data` on a
   `VERIFIED` / `DRIFT` / `UNCHECKED` verdict, `rename` from `rebrew source rename` on a
-  renamed global, `data` from `rebrew data list`, `lint` on a migrated data marker.
+  renamed global, `data` from `rebrew data list`, `lint` when it fills a data
+  row's missing section.
   The separate `verification` table keeps the measurement's producer, input
   digest and time alive after deleting `db/` and after later label/note edits.
   The coverage document's `verify_results[]` row

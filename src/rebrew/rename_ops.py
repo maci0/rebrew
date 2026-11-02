@@ -1327,7 +1327,7 @@ def _plan_symbol_rows(
             bound.add((entry.module, entry.va))
             stored = function_rows.get((entry.module, entry.va), {})
             if not stored.get("file"):
-                continue  # an inline marker follows its rewritten source
+                continue  # a row without a file has no source to rewrite
             symbol = str(stored.get("symbol") or entry.symbol or "")
             new_fields = {"name": new}
             old_fields = {"name": str(stored.get("name") or entry.name or "")}

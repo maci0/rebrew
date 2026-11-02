@@ -702,7 +702,7 @@ def detect_source_encoding(data: bytes) -> str:
 
     A UTF-8 BOM answers ``utf-8-sig`` rather than ``utf-8``: plain UTF-8
     keeps U+FEFF as the text's first character, which hides a leading
-    ``// FUNCTION:`` marker from every line-anchored parser, while
+    ``/* ADDRESS: ... */`` anchor from the line-anchored parser, while
     ``utf-8-sig`` strips it on read and re-emits it on write-back.
     """
     if data.startswith(codecs.BOM_UTF8):

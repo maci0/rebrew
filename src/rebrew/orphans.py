@@ -1,12 +1,11 @@
 """orphans.py - Prune orphaned metadata entries and remove a VA's metadata block.
 
 An *orphan* is a ``rebrew-functions.toml`` / ``rebrew-data.toml`` block that
-no source annotation claims.  An unmigrated file claims a block with a
-``// FUNCTION:`` / ``// DATA:`` / ``// GLOBAL:`` marker.  A migrated file
-claims it when the row's ``file`` matches that source, because the parse
-synthesizes the annotation from the store.  Rows left behind when a function
-is deleted, moved without its identity, or re-discovered at a new VA are
-invisible to verify, status, and todo, and accumulate silently.
+no source binding claims.  A source claims a block when its metadata row's
+``file`` names that source, because the parse synthesizes the binding from
+the store.  Rows left behind when a function is deleted, moved without its
+identity, or re-discovered at a new VA are invisible to verify, status, and
+todo, and accumulate silently.
 
 ``rebrew orphans list`` lists them; ``rebrew orphans prune`` deletes them;
 ``rebrew orphans drop`` removes one VA's block on demand.
@@ -52,18 +51,18 @@ def find_orphans(
 ) -> tuple[list[tuple[str, int, str]], list[tuple[str, int, str]]]:
     """Return ``(function_orphans, data_orphans)`` as ``(module, va, store)`` triples.
 
-    A metadata block is orphaned when no source annotation claims its
+    A metadata block is orphaned when no source binding claims its
     ``(module, va)``.  Pure metadata + source logic — no writes.
 
     Safety rule: a block whose VA is a real function in the target's
-    function list is *not* an orphan even without a marker — the source
-    file may be mid-split, the marker may live under a different module
-    spelling, or the function may simply not be reversed yet.  Deleting
+    function list is *not* an orphan even without a source binding — the
+    source file may be mid-split, the binding may live under a different
+    module spelling, or the function may simply not be reversed yet.  Deleting
     its block would destroy earned STATUS.  Only blocks whose VA is
     absent from the function list (stale annotations, scratch VAs like
     ``0xdeadbeef``) are reported.
 
-    Blocks are also scoped to the target's own marker.  One metadata file
+    Blocks are also scoped to the target's own module.  One metadata file
     holds every target's blocks, so a scan of the second target would
     otherwise report every first-target block as an orphan, and a prune
     would delete the other target's earned STATUS wholesale.
@@ -128,7 +127,7 @@ def find_orphans(
         )
         and (module, va) not in live
         and va not in known_vas
-        # Import slots (.idata/.edata) never have source markers by design —
+        # Import slots (.idata/.edata) never have a source binding by design —
         # they are inventory, not annotations.  Pruning them would delete the
         # import inventory `rebrew data list` maintains.
         and str(data_entries[(module, va)].get("section") or "") not in (".idata", ".edata")
@@ -230,8 +229,8 @@ def manage_orphans(
         )
         return
 
-    # Earned orphans (EXACT/RELOC/PROVEN with no marker) are held back —
-    # split_prunable is the shared gate with verify --prune-orphans.
+    # Earned orphans (EXACT/RELOC/PROVEN with no source binding) are held back
+    # — split_prunable is the shared gate with verify --prune-orphans.
     doomed = split_prunable(cfg, fn_orphans, data_orphans, include_matched=include_matched)
     held_count = total - len(doomed)
     doomed_keys = {(o["module"], o["va"]) for o in doomed}
@@ -255,7 +254,7 @@ def manage_orphans(
     if held_count and not include_matched and not json_output:
         console.print(
             f"[yellow]Holding back {held_count} earned orphan(s)[/yellow] "
-            "(EXACT/RELOC/PROVEN with no marker — re-attach a marker or pass "
+            "(EXACT/RELOC/PROVEN with no source binding — restore the binding or pass "
             "[bold]--include-matched[/bold])"
         )
 

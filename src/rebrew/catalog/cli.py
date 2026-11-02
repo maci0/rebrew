@@ -242,8 +242,8 @@ def run_catalog(
                     canonical,
                     target_va=va,
                     metadata_dir=cfg.metadata_dir,
-                    # A migrated .c has no marker line to resolve the module
-                    # from, and the write target is the TOML either way.
+                    # A source without an ADDRESS anchor cannot resolve the
+                    # module, and the write target is the TOML either way.
                     module=ann.module,
                 ):
                     diff = canonical - ann.size

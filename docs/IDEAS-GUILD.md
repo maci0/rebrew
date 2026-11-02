@@ -693,7 +693,7 @@ Observed 2026-10-04: `rebrew source split src/Develop/DieGildeAddOn/game/spiel62
 
 The landed path resolves the selected module and VA through the function store, identifies the C definition, and retargets every row that shares it. File-scope storage stays in the original. A static dependency or a definition inside a preprocessor conditional is refused. `--dry-run` writes nothing, and a failed retarget restores the source. The command does not write a marker line.
 
-Evidence: guild-rebrew/.scratch/goal-random-helper/{split-server-preview.json,split-server-preview.log}. The marker path remains for unmigrated sources.
+Evidence: guild-rebrew/.scratch/goal-random-helper/{split-server-preview.json,split-server-preview.log}. No legacy marker path is read; the function store is the only identity source.
 
 ### Preserve library ancestry when marker inventories overlap C-source identities
 

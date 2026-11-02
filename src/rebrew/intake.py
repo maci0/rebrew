@@ -208,7 +208,7 @@ def classify_all(
         meta_base = project / "src"
     else:
         meta_base = project
-    # A migrated source has no marker line. Its VA is visible only through
+    # A migrated source has no ADDRESS anchor. Its VA is visible only through
     # the row whose ``file`` matches, so the duplicate check has to read the
     # store. Without that, renaming a pure-C stub looks like a delete and
     # intake writes the canonical file again.
@@ -301,7 +301,7 @@ def classify_all(
     return documented
 
 
-#: The whole generated stub, end-anchored: marker line, blank line,
+#: The whole generated stub, end-anchored: ADDRESS anchor, blank line,
 #: signature, the generated body comment, and the closing brace. A stub the
 #: user has written into (a filled-in body, extra lines, a trailing newline of
 #: their own) no longer matches, so the prune cannot delete real work.

@@ -1352,7 +1352,7 @@ def _run_test_impl(
     """Compile one function and return the ``rebrew test --json`` result object.
 
     The single-function core: resolve the symbol / VA / SIZE (CLI overrides
-    first, then the source markers and metadata), compile and compare, render
+    first, then the source binding and metadata), compile and compare, render
     the human result when *json_output* is false, and auto-promote STATUS and
     SIZE unless *no_promote*.  The object is returned for a match and for a
     mismatch alike; a compile failure raises through ``error_exit``.
@@ -1872,7 +1872,7 @@ def run_test(
     """Compile one source file and byte-compare its function to the target.
 
     The single-function pipeline ``rebrew test <source> --json`` runs, with
-    no CLI overrides: the symbol, VA and SIZE come from the source markers
+    no CLI overrides: the symbol, VA and SIZE come from the source binding
     and the project metadata, and the compile flags from the project's
     toolchain resolution.  Returns the exact object the CLI prints
     (``source``, ``symbol``, ``va``, ``size``, ``status``, ``match_count``,
