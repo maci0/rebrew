@@ -21,7 +21,7 @@
 | [CORDIS.md](CORDIS.md) | Composition concepts, runtime API, lifecycle and failure contracts, recipes, and paper mapping |
 | [XTENSA.md](XTENSA.md) | Xtensa ELF, core-aware XCC linking and native disassembly |
 | [CONFIG.md](CONFIG.md) | `rebrew-project.toml` format, config loader, arch presets, compiler profiles |
-| [ANNOTATIONS.md](ANNOTATIONS.md) | Dedicated format-2 identities (`MODULE.0xVA`), optional ADDRESS anchors, library provenance, and lint diagnostics |
+| [ANNOTATIONS.md](ANNOTATIONS.md) | Dedicated function (format 3) and data (format 2) identities (`MODULE.0xVA`), optional ADDRESS anchors, library provenance, and lint diagnostics |
 | [METADATA_FORMAT.md](METADATA_FORMAT.md) | TOML metadata files (`rebrew-functions.toml`, `rebrew-data.toml`): volatile fields, status lifecycle |
 | [METADATA.md](METADATA.md) | The full store map: canonical vs derived vs cache tiers, who owns which fact, precedence rules |
 | [MATCH_TYPES.md](MATCH_TYPES.md) | EXACT / RELOC / NEAR_MATCHING / PROVEN / SKIP: byte-level examples and relocation masking |

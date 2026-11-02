@@ -2,7 +2,7 @@
 
 All function statuses are stored in the `rebrew-functions.toml` metadata, keyed by
 `MODULE.0xVA`; a key without a module is rejected by the writer. The row's `file`
-and `kind` are the identity. All state lives in format-2 dedicated metadata.
+and `kind` are the identity. All function state lives in format-3 dedicated metadata.
 Optional ADDRESS comments bind the next C declaration. No inline state or old
 metadata formats are read. Registration is not comparison evidence.
 
@@ -20,7 +20,7 @@ row's `functions.status` as the schema default `UNKNOWN`.
 ```
 UNDOCUMENTED  →  STUB  →  NEAR_MATCHING  →  RELOC  →  EXACT
    (UNKNOWN)                 ↓
-                          PROVEN (from NEAR_MATCHING via rebrew prove)
+                          PROVEN (from NEAR_MATCHING or SIZE_MISMATCH via rebrew prove)
                           SKIP   (parallel track, intentionally unmatchable)
 ```
 
