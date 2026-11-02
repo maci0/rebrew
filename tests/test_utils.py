@@ -50,6 +50,29 @@ def test_container_runtime_defaults_to_docker(monkeypatch: pytest.MonkeyPatch) -
     assert container_runtime() == "docker"
 
 
+def test_read_source_text_follows_retargeted_symlink(tmp_path: Path) -> None:
+    """A re-pointed symlink must be read again, not served from the old target.
+
+    The resolved-path memo fronts every source read, so a spelling-only key
+    kept returning the first target's text for the rest of the process after
+    ``source move`` or a checkout replaced the link.
+    """
+    first = tmp_path / "first.c"
+    second = tmp_path / "second.c"
+    first.write_text("int first(void) { return 1; }\n", encoding="utf-8")
+    second.write_text("int second(void) { return 2; }\n", encoding="utf-8")
+    link = tmp_path / "linked.c"
+    try:
+        link.symlink_to(first)
+    except OSError:
+        pytest.skip("symlinks unavailable on this host")
+    assert "first" in read_source_text(link)[0]
+
+    link.unlink()
+    link.symlink_to(second)
+    assert "second" in read_source_text(link)[0]
+
+
 def test_load_tomllib_strips_utf8_bom(tmp_path: Path) -> None:
     """BOM-prefixed TOML must parse (Notepad / some IDEs write EF BB BF)."""
     path = tmp_path / "x.toml"

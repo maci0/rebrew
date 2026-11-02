@@ -458,36 +458,21 @@ _SOURCE_TEXT_MEMO_LOCK = threading.Lock()
 # instead of scanning the whole LRU.
 _SOURCE_TEXT_MEMO_BY_PATH: dict[str, set[tuple[str, int, int, int, int]]] = {}
 
-# ``str(path)`` -> its resolved path, for :func:`read_source_text`.  The body
-# memo is keyed by the resolved path, but producing it walks every component
-# with an ``lstat``; a whole-tree scan reads each source more than once
-# (``naming.load_data`` then ``lint.count_migratable_files``), so that walk
-# ran once per read.  Bounded and lock-guarded with the body memo it fronts.
-_RESOLVED_SOURCE_PATHS: OrderedDict[str, Path] = OrderedDict()
-_RESOLVED_SOURCE_PATHS_MAX = _SOURCE_TEXT_MEMO_MAX
-
-
 def _resolved_source_path(filepath: Path) -> Path:
-    """Return *filepath* resolved, memoized per input path spelling."""
-    key = str(filepath) if filepath.is_absolute() else f"{Path.cwd()}\0{filepath}"
-    with _SOURCE_TEXT_MEMO_LOCK:
-        hit = _RESOLVED_SOURCE_PATHS.get(key)
-        if hit is not None:
-            _RESOLVED_SOURCE_PATHS.move_to_end(key)
-            return hit
-    resolved = filepath.resolve()
-    with _SOURCE_TEXT_MEMO_LOCK:
-        _RESOLVED_SOURCE_PATHS[key] = resolved
-        _RESOLVED_SOURCE_PATHS.move_to_end(key)
-        while len(_RESOLVED_SOURCE_PATHS) > _RESOLVED_SOURCE_PATHS_MAX:
-            _RESOLVED_SOURCE_PATHS.popitem(last=False)
-    return resolved
+    """Return *filepath* resolved, memoized on its ``lstat`` identity.
+
+    Delegates to :func:`resolved_path`: a spelling-only key would keep
+    resolving a retargeted symlink (or a replaced final component) to the old
+    file for the rest of the process, so ``read_source_text`` would serve the
+    previous target's bytes to a source whose path now names another one.
+    """
+    return resolved_path(filepath)
 
 
 # ``(spelling, mtime_ns, size, ino)`` -> resolved path.  The stat is from
 # ``lstat``, so a content edit or a symlink retarget misses and resolves
-# again.  Unlike :func:`_resolved_source_path`, this key notices a changed
-# final component, which is what header and source identity need.
+# again.  That changed-final-component case is what header and source
+# identity need.
 _RESOLVED_PATHS: OrderedDict[tuple[str, int, int, int], Path] = OrderedDict()
 _RESOLVED_PATHS_MAX = 2048
 _RESOLVED_PATHS_LOCK = threading.Lock()
@@ -861,12 +846,16 @@ def read_source_text(filepath: Path) -> tuple[str, str]:
 
 
 def clear_source_text_memo() -> None:
-    """Drop every cached source body, its path index, and the resolved-path memo."""
+    """Drop every cached source body and its path index.
+
+    The resolved-path memo is keyed on ``lstat`` identity and holds paths, not
+    bodies, so it cannot serve a stale source after an edit; ``resolved_path``
+    keeps its own bound.
+    """
     with _SOURCE_TEXT_MEMO_LOCK:
         _SOURCE_TEXT_MEMO.clear()
         _SOURCE_TEXT_MEMO_BY_PATH.clear()
         _SOURCE_RAW.clear()
-        _RESOLVED_SOURCE_PATHS.clear()
 
 
 def cached_source_bytes(
