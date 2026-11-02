@@ -976,6 +976,70 @@ class TestHeaderDependencyHash:
         k2 = compile_cache_key(src, "f.c", ["/O2"], [str(inc)], "wine CL")
         assert k1 != k2
 
+    def test_replaced_subdirectory_changes_fingerprint(self, tmp_path: Path) -> None:
+        """A same-mtime directory replacement re-walks instead of reusing paths.
+
+        An atomic ``cp -a`` swap can preserve the subdirectory's mtime while
+        changing the headers it contains.  The path memo must key on directory
+        identity (change time and inode too), or a header added by the
+        replacement stays out of the fingerprint.
+        """
+        inc = tmp_path / "inc"
+        (inc / "sub").mkdir(parents=True)
+        (inc / "sub" / "a.h").write_text("#define A 1\n")
+        first = include_fingerprint(str(inc))
+        root_st = inc.stat()
+        sub_st = (inc / "sub").stat()
+
+        (inc / "sub").rename(tmp_path / "old-sub")
+        replacement = tmp_path / "replacement"
+        replacement.mkdir()
+        (replacement / "b.h").write_text("#define B 1\n")
+        os.utime(replacement, ns=(sub_st.st_atime_ns, sub_st.st_mtime_ns))
+        replacement.rename(inc / "sub")
+        os.utime(inc, ns=(root_st.st_atime_ns, root_st.st_mtime_ns))
+
+        assert include_fingerprint(str(inc)) != first
+
+    def test_earlier_shadow_header_changes_key(self, tmp_path: Path) -> None:
+        """A header created earlier in the search order shadows the memoized one.
+
+        Creating ``early/sub/a.h`` bumps only ``early/sub``'s mtime, which the
+        closure memo's key and reached-header stats do not record.  Without a
+        shadow probe the later ``late/sub/a.h`` stayed pinned and editing the
+        new, actually-compiled header served the old object.
+        """
+        early, late = tmp_path / "early", tmp_path / "late"
+        (early / "sub").mkdir(parents=True)
+        (late / "sub").mkdir(parents=True)
+        (late / "sub" / "a.h").write_text("#define A 1\n")
+        src = '#include "sub/a.h"\nint f(void){return 1;}\n'
+        include_dirs = [str(early), str(late)]
+        first = compile_cache_key(src, "f.c", ["/O2"], include_dirs, "cc")
+
+        (early / "sub" / "a.h").write_text("#define A 2\n")
+        shadowed = compile_cache_key(src, "f.c", ["/O2"], include_dirs, "cc")
+        assert shadowed != first
+
+        (early / "sub" / "a.h").write_text("#define A 333\n")
+        assert compile_cache_key(src, "f.c", ["/O2"], include_dirs, "cc") != shadowed
+
+    def test_earlier_shadow_header_for_parent_relative_include(self, tmp_path: Path) -> None:
+        """The same shadowing rule holds for a ``..`` include resolved per dir."""
+        source_dir = tmp_path / "a" / "b" / "src"
+        include_dir = tmp_path / "a" / "lib"
+        source_dir.mkdir(parents=True)
+        include_dir.mkdir(parents=True)
+        (tmp_path / "shared").mkdir()
+        (tmp_path / "shared" / "types.h").write_text("#define N 1\n")
+        src = '#include "../../shared/types.h"\nint f(void){return N;}\n'
+        dirs = [str(include_dir)]
+        first = compile_cache_key(src, "f.c", [], dirs, "cc", source_dir=str(source_dir))
+
+        (tmp_path / "a" / "shared").mkdir()
+        (tmp_path / "a" / "shared" / "types.h").write_text("#define N 2\n")
+        assert compile_cache_key(src, "f.c", [], dirs, "cc", source_dir=str(source_dir)) != first
+
     def test_unreadable_reached_header_falls_back(self, tmp_path: Path, monkeypatch: Any) -> None:
         """A reached header that cannot be read must not drop its includes.
 

@@ -49,7 +49,9 @@ memoized per process keyed by search-directory mtimes: a header *created*
 while a long GA run is in flight bumps the parent directory's mtime and is
 picked up on the next key computation (content edits to already resolved
 headers are still picked up, because each reached file is re-read
-at key time).
+at key time).  A header created *earlier in the search order* than a
+memoized winner bumps only a subdirectory the key does not stat, so the memo
+also stores the earlier dirs each include skipped and re-probes them.
 """
 
 from __future__ import annotations
@@ -449,22 +451,28 @@ def available_cache_backends() -> list[str]:
 
 
 # Path-list memo for :func:`include_fingerprint`:
-# ``dir → (((subdir, mtime_ns), ...), paths)``.  The list is reused only while
-# the mtime of the root AND every subdirectory is unchanged: a create / delete /
-# rename bumps only the immediate parent's mtime, so a header added under
-# ``sys/`` must invalidate even though the root mtime is stable.  Each call
-# still re-stats every listed header so an edit that preserves the directory
-# mtimes still changes the digest.  Bounded + locked: verify -j N and GA
-# workers share this map.
-_INCLUDE_FP_PATHS: dict[str, tuple[tuple[tuple[str, int], ...], tuple[str, ...]]] = {}
+# ``dir → (((subdir, mtime_ns, ctime_ns, ino), ...), paths)``.  The list is reused only while
+# the identity of the root AND every subdirectory is unchanged: a create /
+# delete / rename bumps only the immediate parent's mtime, so a header added
+# under ``sys/`` must invalidate even though the root mtime is stable.  Change
+# time and inode catch a subdirectory replaced by a rename-over that restores
+# the old mtime (``cp -a``), which would otherwise keep a path list missing the
+# headers the replacement added.  Each call still re-stats every listed header
+# so an edit that preserves the directory identity still changes the digest.
+# Bounded + locked: verify -j N and GA workers share this map.
+_INCLUDE_FP_PATHS: dict[str, tuple[tuple[tuple[str, int, int, int], ...], tuple[str, ...]]] = {}
 _INCLUDE_FP_PATHS_MAX = 64
 _INCLUDE_FP_LOCK = threading.Lock()
 
 
-def _dir_mtimes_match(dir_mtimes: tuple[tuple[str, int], ...]) -> bool:
-    """True when every recorded directory still exists with the same mtime."""
+def _dir_mtimes_match(dir_ids: tuple[tuple[str, int, int, int], ...]) -> bool:
+    """True when every recorded directory still has the same identity."""
     try:
-        return all(Path(d).stat().st_mtime_ns == m for d, m in dir_mtimes)
+        for path, mtime_ns, ctime_ns, ino in dir_ids:
+            st = Path(path).stat()
+            if (st.st_mtime_ns, st.st_ctime_ns, st.st_ino) != (mtime_ns, ctime_ns, ino):
+                return False
+        return True
     except OSError:
         return False
 
@@ -481,16 +489,16 @@ def include_fingerprint(include_dir: str) -> str:
     Hashes each relative path and header content under the directory. The
     bytes are read on each call, so preserved timestamps do not hide edits.
 
-    The header *path list* is memoized per directory while the mtimes of the
-    directory and all its subdirectories are stable (membership changes at any
-    depth invalidate); each call re-stats
-    and re-reads those paths so content edits are visible mid-run without a process
-    restart.  A walk whose directory mtimes change before it is published is
-    not memoized, and a publish never replaces a still-valid peer entry that
-    already lists at least as many headers: verify ``-j N`` and GA workers
-    share this map, and a slow walk that missed a header created mid-scan
-    must not clobber the snapshot that saw it.  Returns ``""`` for a path
-    that is not an existing directory.
+    The header *path list* is memoized per directory while the identity of the
+    directory and all its subdirectories is stable (membership changes at any
+    depth invalidate, and change time/inode catch a same-mtime replacement);
+    each call re-stats and re-reads those paths so content edits are visible
+    mid-run without a process restart.  A walk whose directory identity
+    changes before it is published is not memoized, and a publish never
+    replaces a still-valid peer entry that already lists at least as many
+    headers: verify ``-j N`` and GA workers share this map, and a slow walk
+    that missed a header created mid-scan must not clobber the snapshot that
+    saw it.  Returns ``""`` for a path that is not an existing directory.
     An ``OSError`` while walking an existing directory returns a distinct
     unreadable sentinel (never ``""``) so header deps are not silently
     dropped from the compile-cache key.  A listed header that cannot be
@@ -506,11 +514,13 @@ def include_fingerprint(include_dir: str) -> str:
 
     if paths is None:
         try:
-            dir_mtimes = [(str(root), root.stat().st_mtime_ns)]
+            root_st = root.stat()
+            dir_ids = [(str(root), root_st.st_mtime_ns, root_st.st_ctime_ns, root_st.st_ino)]
             path_list = []
             for p in root.rglob("*"):
                 if p.is_dir():
-                    dir_mtimes.append((str(p), p.stat().st_mtime_ns))
+                    st = p.stat()
+                    dir_ids.append((str(p), st.st_mtime_ns, st.st_ctime_ns, st.st_ino))
                 elif p.suffix.lower() in _HEADER_SUFFIXES and p.is_file():
                     path_list.append(p)
             path_list.sort()
@@ -526,7 +536,7 @@ def include_fingerprint(include_dir: str) -> str:
                 f"\0unreadable\0{include_dir}\0".encode("utf-8", errors="surrogateescape")
             ).hexdigest()
         paths = tuple(str(p) for p in path_list)
-        recorded = tuple(dir_mtimes)
+        recorded = tuple(dir_ids)
         with _INCLUDE_FP_LOCK:
             existing = _INCLUDE_FP_PATHS.get(include_dir)
             if (
@@ -548,7 +558,7 @@ def include_fingerprint(include_dir: str) -> str:
                 _INCLUDE_FP_PATHS[include_dir] = (recorded, paths)
             # else: a create/delete landed during the walk.  Hash this
             # snapshot for the caller, but do not pin it — the recorded
-            # mtimes would no longer describe the path list.
+            # identities would no longer describe the path list.
 
     h = hashlib.sha256()
     for p_str in paths:
@@ -778,9 +788,18 @@ def _find_in_dirs(name: Path, dirs: list[Path]) -> Path | None:
     return None
 
 
+# Shadow probe for the include-closure memo.  ``_find_in_dirs`` resolves one
+# include against its search dirs in order, so a later winner can be shadowed
+# by a header created in an earlier dir; that creation bumps only the earlier
+# *subdirectory's* mtime, which no key or reached-header stat records.  Each
+# probe keeps the resolver mode, the include spelling, and the directories
+# searched before the winner.  A probe that now resolves means the closure
+# must be recomputed.
+_ShadowProbe = tuple[str, str, tuple[str, ...]]
+
 # Include-closure memo for :func:`_resolve_include_paths`:
 # ``(source, source_dir, include_dirs, dir_mtimes) →
-#   (paths, fallback, header_stats, unresolved)``.
+#   (paths, fallback, header_stats, unresolved, shadow_probes, cost)``.
 # Bounded + locked: verify -j N and GA workers share this map.
 #
 # The bound is on retained source CHARACTERS, not entries: the key carries
@@ -795,6 +814,7 @@ _INCLUDE_CLOSURE_MEMO: dict[
         bool,
         tuple[tuple[int, int, int, int, str], ...],
         tuple[tuple[str, tuple[str, ...]], ...],
+        tuple[_ShadowProbe, ...],
         int,
     ],
 ] = {}
@@ -820,6 +840,33 @@ def _resolve_escaping_include(name: Path, dirs: Sequence[Path]) -> Path | None:
         except OSError:
             continue
     return None
+
+
+def _find_shadow_prefix(name: str, dirs: Sequence[Path], found: Path) -> tuple[str, ...]:
+    """Search dirs before the one that supplied *found*.
+
+    These are the directories ``_find_in_dirs`` searched and missed.  A header
+    appearing in any of them now shadows *found* (at any path depth), so the
+    closure must be resolved again.  The winner is the first dir whose own
+    case-insensitive lookup still returns *found*; a dir that merely contains
+    it (an ancestor) is not the winner and its own candidate is still missing.
+    """
+    prefix: list[str] = []
+    for directory in dirs:
+        if _find_in_dirs(Path(name), [directory]) == found:
+            return tuple(prefix)
+        prefix.append(str(directory))
+    return tuple(prefix)
+
+
+def _escape_shadow_prefix(name: str, dirs: Sequence[Path], found: Path) -> tuple[str, ...]:
+    """Search dirs before the one that supplied an escaping *found*."""
+    prefix: list[str] = []
+    for directory in dirs:
+        if _resolve_escaping_include(Path(name), [directory]) == found:
+            return tuple(prefix)
+        prefix.append(str(directory))
+    return tuple(prefix)
 
 
 def _search_dir_mtimes(source_dir: str | None, include_dirs: tuple[str, ...]) -> tuple[int, ...]:
@@ -865,6 +912,26 @@ def _unresolved_still_missing(
     return True
 
 
+def _shadow_unchanged(shadows: Sequence[_ShadowProbe]) -> bool:
+    """True while every earlier-than-the-winner search dir still misses.
+
+    A header created in an earlier dir (at any depth) shadows the one the
+    closure recorded, but only that subdirectory's mtime moves, so neither the
+    memo key nor a reached-header stat sees it.  Re-running just the earlier
+    probes is cheap: a header found in the first search dir (the common case)
+    records none.
+    """
+    for mode, name, dirs in shadows:
+        roots = [Path(d) for d in dirs]
+        if mode == "escape":
+            found = _resolve_escaping_include(Path(name), roots)
+        else:
+            found = _find_in_dirs(Path(name), roots)
+        if found is not None:
+            return False
+    return True
+
+
 def _resolve_include_paths(
     source_content: str, source_dir: str | None, include_dirs: tuple[str, ...]
 ) -> tuple[tuple[str, ...], bool]:
@@ -882,9 +949,12 @@ def _resolve_include_paths(
     still misses: a header created later in a searched dir bumps that
     directory's mtime, an in-place header edit
     (which may add or drop an ``#include``) changes that header's stat, so
-    either forces a re-resolve.  A scan that races an edit is returned for
-    this call but not published: storing the post-edit stats next to the
-    pre-edit closure would make the next lookup trust a stale include set.
+    either forces a re-resolve.  A header that appears *earlier* in the search
+    order than a recorded winner is caught by the stored shadow probes, since
+    it bumps only a subdirectory the key does not stat.  A scan that races an
+    edit is returned for this call but not published: storing the post-edit
+    stats next to the pre-edit closure would make the next lookup trust a
+    stale include set.
     A still-valid peer entry is kept instead of overwritten, so parallel
     flag-sweep workers cannot clobber a fresher closure with a slower scan.
     """
@@ -895,13 +965,25 @@ def _resolve_include_paths(
         cached is not None
         and _header_stats(cached[0]) == cached[2]
         and _unresolved_still_missing(cached[3])
+        and _shadow_unchanged(cached[4])
     ):
         return cached[0], cached[1]
     misses: list[tuple[str, tuple[str, ...]]] = []
+    shadows: list[_ShadowProbe] = []
     paths, fallback, observed, consistent = scan_include_closure(
-        source_content, source_dir, include_dirs, unresolved=misses, probes=misses
+        source_content,
+        source_dir,
+        include_dirs,
+        unresolved=misses,
+        probes=misses,
+        shadow=shadows,
     )
-    if not consistent or _header_stats(paths) != observed or not _unresolved_still_missing(misses):
+    if (
+        not consistent
+        or _header_stats(paths) != observed
+        or not _unresolved_still_missing(misses)
+        or not _shadow_unchanged(shadows)
+    ):
         return paths, True
     with _INCLUDE_CLOSURE_LOCK:
         existing = _INCLUDE_CLOSURE_MEMO.get(key)
@@ -909,23 +991,31 @@ def _resolve_include_paths(
             existing is not None
             and _header_stats(existing[0]) == existing[2]
             and _unresolved_still_missing(existing[3])
+            and _shadow_unchanged(existing[4])
         ):
             return existing[0], existing[1]
-        if _header_stats(paths) != observed or not _unresolved_still_missing(misses):
+        if (
+            _header_stats(paths) != observed
+            or not _unresolved_still_missing(misses)
+            or not _shadow_unchanged(shadows)
+        ):
             return paths, True
-        _store_include_closure_locked(key, paths, fallback, observed, tuple(misses))
+        _store_include_closure_locked(key, paths, fallback, observed, tuple(misses), tuple(shadows))
     return paths, fallback
 
 
 def _include_closure_cost(
-    key: tuple[str, str | None, tuple[str, ...], tuple[int, ...]], paths: tuple[str, ...]
+    key: tuple[str, str | None, tuple[str, ...], tuple[int, ...]],
+    paths: tuple[str, ...],
+    shadows: tuple[_ShadowProbe, ...],
 ) -> int:
-    """Retained characters one closure entry costs: its source key plus paths."""
+    """Retained characters one closure entry costs: its source key, paths, probes."""
     return (
         len(key[0])
         + (len(key[1]) if key[1] else 0)
         + sum(len(d) for d in key[2])
         + sum(len(p) for p in paths)
+        + sum(len(name) + sum(len(d) for d in dirs) for _mode, name, dirs in shadows)
     )
 
 
@@ -935,15 +1025,16 @@ def _store_include_closure_locked(
     fallback: bool,
     observed: tuple[tuple[int, int, int, int, str], ...],
     misses: tuple[tuple[str, tuple[str, ...]], ...],
+    shadows: tuple[_ShadowProbe, ...],
 ) -> None:
     """Publish one closure, evicting by bytes. Caller holds
     :data:`_INCLUDE_CLOSURE_LOCK`, so this must not take it again."""
     global _include_closure_memo_chars
-    cost = _include_closure_cost(key, paths)
+    cost = _include_closure_cost(key, paths, shadows)
     stale = _INCLUDE_CLOSURE_MEMO.pop(key, None)
     if stale is not None:
-        _include_closure_memo_chars -= stale[4]
-    _INCLUDE_CLOSURE_MEMO[key] = (paths, fallback, observed, misses, cost)
+        _include_closure_memo_chars -= stale[5]
+    _INCLUDE_CLOSURE_MEMO[key] = (paths, fallback, observed, misses, shadows, cost)
     _include_closure_memo_chars += cost
     # Keep at least the newest entry: a source larger than the budget
     # would otherwise be evicted the moment it is stored.
@@ -952,7 +1043,7 @@ def _store_include_closure_locked(
         and len(_INCLUDE_CLOSURE_MEMO) > 1
     ):
         _include_closure_memo_chars -= _INCLUDE_CLOSURE_MEMO.pop(next(iter(_INCLUDE_CLOSURE_MEMO)))[
-            4
+            5
         ]
     if not _INCLUDE_CLOSURE_MEMO:
         # A caller that emptied the map directly left the running total
@@ -1003,6 +1094,7 @@ def scan_include_closure(
     unresolved: list[tuple[str, tuple[str, ...]]] | None = None,
     probes: list[tuple[str, tuple[str, ...]]] | None = None,
     contents: dict[str, bytes] | None = None,
+    shadow: list[_ShadowProbe] | None = None,
 ) -> tuple[tuple[str, ...], bool, tuple[tuple[int, int, int, int, str], ...], bool]:
     """Uncached body of :func:`_resolve_include_paths`.
 
@@ -1014,6 +1106,8 @@ def scan_include_closure(
     *unresolved* as ``(name, directories searched)``, so the caller can
     revalidate the memo when one of those headers is created later. Optional
     *probes* also records absent candidates for include-next invalidation.
+    *shadow* records the earlier search dirs each found include skipped, so a
+    header created there re-resolves instead of leaving a stale closure.
     *contents* captures the exact bytes parsed for each reached header; callers
     needing content proof must use these bytes rather than the stat-only memo.
     """
@@ -1056,12 +1150,14 @@ def scan_include_closure(
                 -1,
             )
             for index, dirs in enumerate(searches):
+                escaped = False
                 found = _find_in_dirs(Path(name), dirs)
                 if found is None and (Path(name).is_absolute() or ".." in Path(name).parts):
                     # `#include "../../game_types.h"`: _find_in_dirs refuses the
                     # traversal, so resolve it here or the header joins nothing
                     # and its edit never invalidates the entry.
                     found = _resolve_escaping_include(Path(name), dirs)
+                    escaped = found is not None
                     if found is None:
                         # Unresolvable on the host (lives in the toolchain image,
                         # or the tree moved): nothing can pin it, so take the
@@ -1083,6 +1179,14 @@ def scan_include_closure(
                     continue
                 if kind == "next" and index > current_root:
                     next_found = True
+                if shadow is not None and kind != "next":
+                    prefix = (
+                        _escape_shadow_prefix(name, dirs, found)
+                        if escaped
+                        else _find_shadow_prefix(name, dirs, found)
+                    )
+                    if prefix:
+                        shadow.append(("escape" if escaped else "find", name, prefix))
                 found_str = str(found)
                 if found_str in reached:
                     continue
