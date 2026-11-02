@@ -39,8 +39,12 @@ def collect_target_sources(
 
     retired_sources: set[Path] = set()
     library_entries: dict[Path, list[SourceBinding]] = {}
-    for (module, va), row in load_metadata(cfg.metadata_dir, deepcopy=False).items():
-        retired_sources.update(historical_source_files(row, cfg.metadata_dir, cfg.root))
+    # ``metadata_dir`` probes the ancestors for the store on every access, and
+    # the loop below visits every source in the tree.
+    metadata_dir = cfg.metadata_dir
+    project_root = getattr(cfg, "root", None)
+    for (module, va), row in load_metadata(metadata_dir, deepcopy=False).items():
+        retired_sources.update(historical_source_files(row, metadata_dir, cfg.root))
         stored = str(row.get("file", ""))
         if (
             not va
@@ -59,18 +63,17 @@ def collect_target_sources(
     # walk stat and glob the metadata collection once per file. Loaded only
     # when a source has no annotation, so a fully bound tree pays nothing.
     support_modules: dict[str, set[str]] | None = None
-    metadata_root = cfg.metadata_dir.resolve()
+    metadata_root = metadata_dir.resolve()
     discovered = sources if sources is not None else iter_sources(cfg.reversed_dir, cfg)
     source_files = set(discovered) | set(library_entries)
     for src in sorted(source_files):
+        resolved = src.resolve()
         anns = [
             a
-            for a in read_source_bindings(
-                src, metadata_dir=cfg.metadata_dir, project_root=getattr(cfg, "root", None)
-            )
+            for a in read_source_bindings(src, metadata_dir=metadata_dir, project_root=project_root)
             if a.va
         ]
-        anns.extend(library_entries.get(src.resolve(), []))
+        anns.extend(library_entries.get(resolved, []))
         if not anns:
             # An anchor that resolved to no live row still names a module: a
             # leftover of another target's claim must not join this build as a
@@ -80,23 +83,23 @@ def collect_target_sources(
             raw = parse_address_anchors(_read(src))
             modules_named = {preset_module_key(a.module) for a in raw if a.va}
             if modules_named and preset_module_key(target_module_name) not in modules_named:
-                foreign.append(src.resolve())
+                foreign.append(resolved)
                 continue
-            relative = identity_file(src.resolve(), metadata_root)
+            relative = identity_file(resolved, metadata_root)
             if support_modules is None:
                 support_modules = {}
-                for record in load_source_files(cfg.metadata_dir):
+                for record in load_source_files(metadata_dir):
                     support_modules.setdefault(record.file, set()).add(record.module)
             modules = support_modules.get(relative, set())
-            if not modules and src.resolve() in retired_sources:
-                foreign.append(src.resolve())
+            if not modules and resolved in retired_sources:
+                foreign.append(resolved)
             elif not modules or preset_module_key(target_module_name) in modules:
-                own.append(src.resolve())
+                own.append(resolved)
             else:
-                foreign.append(src.resolve())
+                foreign.append(resolved)
             continue
         if any(preset_module_key(a.module) == preset_module_key(target_module_name) for a in anns):
-            own.append(src.resolve())
+            own.append(resolved)
         else:
-            foreign.append(src.resolve())
+            foreign.append(resolved)
     return sorted(own), sorted(foreign)

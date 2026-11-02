@@ -1219,6 +1219,10 @@ def source_bindings(
             data_rows.setdefault((row.module, row.va), []).append(row)
     functions: dict[tuple[str, int], dict[str, Any]] | None = function_entries
     target = preset_module_key(target_name) if target_name else ""
+    # Resolved lazily and once per source: a store row only needs the project
+    # root when it carries binding history, while the walk costs a stat per
+    # ancestor.  Resolving it per anchor made a 1000-anchor file pay 1000 walks.
+    binding_project_root: Path | None = project_root
     for anchor in anchors:
         if target and preset_module_key(anchor.module) != target:
             continue
@@ -1226,6 +1230,7 @@ def source_bindings(
         key = (preset_module_key(anchor.module), anchor.va, is_data)
         stored: dict[str, Any] = {}
         stored_module = anchor.module
+        history_root: Path | None = None
         if not is_data and metadata_dir is not None:
             from rebrew.metadata.binding_history import (
                 historical_source_anchor,
@@ -1242,23 +1247,26 @@ def source_bindings(
                     raise ValueError(f"{filepath}:{anchor.line}: ambiguous address anchor module")
                 if matches:
                     stored_module, stored = matches[0]
-            history_root = project_root or _binding_project_root(metadata_dir)
-            if stored.get("binding_history") and historical_source_anchor(
-                stored,
-                filepath,
-                anchor.name,
-                metadata_dir,
-                history_root,
-            ):
-                continue
-            if stored.get("binding_history") and retired_source_elsewhere(
-                stored, anchor.name, filepath, metadata_dir, history_root
-            ):
-                # The claim moved: a reorganised tree keeps the old file beside
-                # the new one, and its anchors describe history, not a conflict.
-                continue
+            if stored.get("binding_history"):
+                if binding_project_root is None:
+                    binding_project_root = _binding_project_root(metadata_dir)
+                history_root = binding_project_root
+                if historical_source_anchor(
+                    stored,
+                    filepath,
+                    anchor.name,
+                    metadata_dir,
+                    history_root,
+                ):
+                    continue
+                if retired_source_elsewhere(
+                    stored, anchor.name, filepath, metadata_dir, history_root
+                ):
+                    # The claim moved: a reorganised tree keeps the old file beside
+                    # the new one, and its anchors describe history, not a conflict.
+                    continue
             if retired_binding(stored):
-                if stored.get("binding_history") and retired_source_elsewhere(
+                if history_root is not None and retired_source_elsewhere(
                     stored, anchor.name, filepath, metadata_dir, history_root
                 ):
                     # The claim moved on; this file is its leftover. Nothing to

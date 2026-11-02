@@ -17,7 +17,7 @@ lazy from rebrew.c_parser import (
 )
 lazy from rebrew.c_rename import ParsedSource
 lazy from rebrew.c_rename import definitions as source_definitions
-lazy from rebrew.compiler.overrides import resolve_compile_overrides
+lazy from rebrew.compiler.overrides import resolve_compile_overrides_cached
 lazy from rebrew.config import ProjectConfig, load_config, target_module
 lazy from rebrew.formats.binary_loader import load_binary
 lazy from rebrew.formats.pe_headers import SECTION_ENTRY_SIZE, pe_layout
@@ -265,7 +265,7 @@ def review_organization(
                     }
                 )
                 settings.add(
-                    resolve_compile_overrides(
+                    resolve_compile_overrides_cached(
                         cfg, source.parent, ann.toolchain or None, ann.cflags or None, ann.module
                     )
                 )
@@ -279,7 +279,9 @@ def review_organization(
                 )
             if not settings:
                 settings.add(
-                    resolve_compile_overrides(cfg, source.parent, None, None, target_module(cfg))
+                    resolve_compile_overrides_cached(
+                        cfg, source.parent, None, None, target_module(cfg)
+                    )
                 )
             flags.append(
                 {
