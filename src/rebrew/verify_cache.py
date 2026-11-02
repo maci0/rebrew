@@ -663,7 +663,7 @@ def _invalidate_verify_cache_memo(cache_path: Path) -> None:
         return
 
 
-def load_verify_cache_raw(cfg: Any) -> dict[str, Any] | None:
+def load_verify_cache_raw(cfg: Any, *, isolate: bool = True) -> dict[str, Any] | None:
     """Load the selected target's verify cache as a raw dict (memoized).
 
     Returns ``None`` when the file is missing or corrupt.  Target/version
@@ -671,6 +671,10 @@ def load_verify_cache_raw(cfg: Any) -> dict[str, Any] | None:
     guards (status vs todo differ slightly).  Memoized by (path, mtime,
     size, inode, ctime), so repeated loads within one command are free and a
     same-size rename-over in one mtime tick is a miss.
+
+    *isolate* returns a deep copy so a caller may mutate the document without
+    touching the memo; read-only callers pass ``False`` to skip copying every
+    nested entry of a large cache.
     """
     cache_path = cache_path_for(cfg, for_read=True)
     try:
@@ -682,7 +686,7 @@ def load_verify_cache_raw(cfg: Any) -> dict[str, Any] | None:
     with _VERIFY_CACHE_MEMO_LOCK:
         if key in _VERIFY_CACHE_MEMO:
             cached = _VERIFY_CACHE_MEMO[key]
-            return copy.deepcopy(cached) if cached is not None else None
+            return copy.deepcopy(cached) if isolate and cached is not None else cached
     raw = _read_verify_json(cache_path, st)
     if raw is None:
         try:
@@ -699,7 +703,7 @@ def load_verify_cache_raw(cfg: Any) -> dict[str, Any] | None:
         # Another thread may have filled the same key while we decoded.
         if key in _VERIFY_CACHE_MEMO:
             cached = _VERIFY_CACHE_MEMO[key]
-            return copy.deepcopy(cached) if cached is not None else None
+            return copy.deepcopy(cached) if isolate and cached is not None else cached
         # Drop prior fingerprints for this path before storing — otherwise each
         # verify rewrite orphans a full decoded dict under the old mtime key.
         _drop_memo_for(path_key)
@@ -708,7 +712,7 @@ def load_verify_cache_raw(cfg: Any) -> dict[str, Any] | None:
             oldest = next(iter(_VERIFY_CACHE_MEMO))
             del _VERIFY_CACHE_MEMO[oldest]
         _VERIFY_CACHE_MEMO[key] = raw
-    return copy.deepcopy(raw) if raw is not None else None
+    return copy.deepcopy(raw) if isolate and raw is not None else raw
 
 
 #: Verdict fields shared by the report row and the cache row — one shape,

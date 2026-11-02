@@ -435,6 +435,25 @@ class TestLoadVerifyCacheRaw:
         assert second == {"version": 1}
         assert first is not second
 
+    def test_verify_cache_read_only_reader_shares_the_memo(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An ``isolate=False`` reader skips the copy; the default still isolates."""
+        from types import SimpleNamespace
+
+        import rebrew.verify_cache as vc_mod
+
+        monkeypatch.setattr(vc_mod, "_VERIFY_CACHE_MEMO", {})
+        cache_dir = tmp_path / ".rebrew"
+        cache_dir.mkdir()
+        (cache_dir / "verify_cache.toml").write_text("version = 1\n", encoding="utf-8")
+        cfg = SimpleNamespace(root=tmp_path)
+        shared = vc_mod.load_verify_cache_raw(cfg, isolate=False)
+        assert shared is vc_mod.load_verify_cache_raw(cfg, isolate=False)
+        isolated = vc_mod.load_verify_cache_raw(cfg)
+        assert isolated is not shared
+        assert isolated == shared == {"version": 1}
+
     def test_verify_cache_memo_drops_stale_path_keys(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

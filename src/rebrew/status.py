@@ -482,7 +482,9 @@ def _load_cache_raw(cfg: ProjectConfig) -> dict[str, Any] | None:
     """
     from rebrew.verify_cache import cache_identity_matches, load_verify_cache_raw
 
-    raw = load_verify_cache_raw(cfg)
+    # Every status reader only looks at the document, so share the memoized
+    # entries instead of deep-copying the whole cache per reader.
+    raw = load_verify_cache_raw(cfg, isolate=False)
     if not isinstance(raw, dict) or not cache_identity_matches(raw, cfg):
         return None
     return raw
