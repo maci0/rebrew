@@ -271,21 +271,23 @@ class TestVerifyEntryBranches:
         second = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
         assert "fenced naked" in (second.message or "")
 
-    def test_effective_match_note(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A NEAR_MATCHING whose ENTIRE delta is register allocation is a
-        reccmp-style effective match — the message must name it (not
-        byte-identical, but the cause is register allocation)."""
+    def _verify_with_diff(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        summary: dict[str, int],
+    ) -> Any:
         import rebrew.compiler.compile
         import rebrew.formats.binary_loader
         import rebrew.matcher
         import rebrew.verify as verify_mod
+        from rebrew.compiler.compile import CompareResult
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "f.c").write_text("int x;\n", encoding="utf-8")
         monkeypatch.setattr(
             rebrew.formats.binary_loader, "extract_raw_bytes", lambda *a, **k: b"\x90" * 8
         )
-        from rebrew.compiler.compile import CompareResult
 
         def _unmatched(*a, **k):
             return CompareResult(
@@ -302,12 +304,19 @@ class TestVerifyEntryBranches:
         monkeypatch.setattr(
             rebrew.matcher,
             "diff_functions",
-            lambda *a, **k: {
-                "summary": {"exact": 2, "reloc": 0, "reg": 2, "structural": 0, "total": 4},
-                "instructions": [],
-            },
+            lambda *a, **k: {"summary": summary, "instructions": []},
         )
-        result = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
+        return verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
+
+    def test_effective_match_note(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A NEAR_MATCHING whose ENTIRE delta is register allocation is a
+        reccmp-style effective match — the message must name it (not
+        byte-identical, but the cause is register allocation)."""
+        result = self._verify_with_diff(
+            tmp_path,
+            monkeypatch,
+            {"exact": 2, "reloc": 0, "reg": 2, "structural": 0, "total": 4},
+        )
         assert result.diff_lines == 0
         assert result.reg_delta == 2
         assert result.effective_match is True
@@ -318,39 +327,11 @@ class TestVerifyEntryBranches:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Structural deltas must NOT get the effective-match note."""
-        import rebrew.compiler.compile
-        import rebrew.formats.binary_loader
-        import rebrew.matcher
-        import rebrew.verify as verify_mod
-
-        cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "f.c").write_text("int x;\n", encoding="utf-8")
-        monkeypatch.setattr(
-            rebrew.formats.binary_loader, "extract_raw_bytes", lambda *a, **k: b"\x90" * 8
+        result = self._verify_with_diff(
+            tmp_path,
+            monkeypatch,
+            {"exact": 1, "reloc": 0, "reg": 0, "structural": 3, "total": 4},
         )
-        from rebrew.compiler.compile import CompareResult
-
-        def _unmatched(*a, **k):
-            return CompareResult(
-                matched=False,
-                status="NEAR_MATCHING",
-                match_percent=50.0,
-                delta=4,
-                obj_bytes=b"\x90" * 8,
-                reloc_offsets=[],
-                message="NEAR_MATCHING: 50.0%",
-            )
-
-        monkeypatch.setattr(rebrew.compiler.compile, "compile_and_compare", _unmatched)
-        monkeypatch.setattr(
-            rebrew.matcher,
-            "diff_functions",
-            lambda *a, **k: {
-                "summary": {"exact": 1, "reloc": 0, "reg": 0, "structural": 3, "total": 4},
-                "instructions": [],
-            },
-        )
-        result = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
         assert result.diff_lines == 3
         assert "effective match" not in (result.message or "")
 

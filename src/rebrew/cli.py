@@ -92,7 +92,6 @@ EXIT_SIGPIPE = 141
 #: Exit status after Ctrl+C (128 + SIGINT).
 EXIT_INTERRUPTED = 130
 
-# Re-usable Typer option for --target
 TargetOption: str | None = typer.Option(
     None,
     "--target",
@@ -101,7 +100,6 @@ TargetOption: str | None = typer.Option(
 )
 
 
-# Re-usable Typer option for --root
 RootOption: Path | None = typer.Option(
     None,
     "--root",
@@ -147,7 +145,6 @@ def all_items_option(noun: str) -> Any:
     return typer.Option(False, "--all", help=f"Every {noun}{ALL_ITEMS_HELP_SUFFIX}")
 
 
-# Re-usable Typer option for --all-targets
 AllTargetsOption: bool = typer.Option(
     False,
     "--all-targets",
