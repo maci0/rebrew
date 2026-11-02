@@ -458,6 +458,9 @@ _NESTED_POINTER_NAME_RE = re.compile(
     + _POINTER_QUALIFIER
     + r")\s*(?!const\b|volatile\b)[A-Za-z_]\w*\s*\Z"
 )
+# Hoisted out of the per-declarator walk: the pattern text never changes, and
+# rebuilding it for every parenthesized declarator re-entered ``re``'s cache.
+_GROUPED_CALLING_CONVENTION_RE = re.compile(r"\(\s*(" + CALLING_CONVENTION + r")\*+")
 
 
 def abstract_pointer_array_dimensions(text: str) -> tuple[int | str | None, ...] | None:
@@ -1298,10 +1301,7 @@ def _grouped_calling_convention(node: Any, source_bytes: bytes) -> str:
     it. ``const`` after the star is not this prefix. An empty string when
     the declarator has no calling convention.
     """
-    matched = re.search(
-        r"\(\s*(" + CALLING_CONVENTION + r")\*+",
-        node_text(node, source_bytes),
-    )
+    matched = _GROUPED_CALLING_CONVENTION_RE.search(node_text(node, source_bytes))
     if matched is None:
         return ""
     convention = matched.group(1).strip()

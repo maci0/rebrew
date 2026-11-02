@@ -22,6 +22,7 @@ import re
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from typing import Any
+lazy import bisect
 
 lazy from rebrew.c_parser import find_function_name_in_node, mask_msvc_syntax, parse_c_source
 
@@ -104,6 +105,17 @@ class ParsedSource:
     text: str
     data: bytes
     tree: Any
+    #: Byte offset of every line start, built once so a rename over a large
+    #: file bisects per occurrence instead of rescanning from byte zero.
+    _line_starts: list[int] = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        starts = [0]
+        pos = self.data.find(b"\n")
+        while pos >= 0:
+            starts.append(pos + 1)
+            pos = self.data.find(b"\n", pos + 1)
+        self._line_starts = starts
 
     @classmethod
     def parse(cls, text: str) -> ParsedSource:
@@ -115,9 +127,9 @@ class ParsedSource:
         return self.data[node.start_byte : node.end_byte].decode("utf-8", errors="surrogateescape")
 
     def line_col(self, offset: int) -> tuple[int, int]:
-        line_start = self.data.rfind(b"\n", 0, offset) + 1
-        line = self.data.count(b"\n", 0, offset) + 1
-        return line, len(self.data[line_start:offset].decode("utf-8", errors="replace")) + 1
+        index = bisect.bisect_right(self._line_starts, offset) - 1
+        line_start = self._line_starts[index]
+        return index + 1, len(self.data[line_start:offset].decode("utf-8", errors="replace")) + 1
 
 
 # ---------------------------------------------------------------------------
