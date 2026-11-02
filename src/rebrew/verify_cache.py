@@ -1235,6 +1235,29 @@ def load_verify_cache(cache_path: Path, cfg: ProjectConfig) -> VerifyCache | Non
     return data
 
 
+def _measurement_matches_snapshot(entry: Any, fp: Any) -> bool:
+    """True while *fp* still describes the state *entry*'s verdict measured.
+
+    ``verify_entry`` stamps ``verify_snapshot`` before compiling and the cache
+    hit path stamps it when the row is validated.  A source, header, flag,
+    toolchain, size or module edit after that point makes the fingerprint move,
+    and the measured verdict no longer belongs under the new fingerprint.  An
+    entry without a stamp (a direct writer/test caller) keeps the old
+    behaviour: store what the caller supplied.
+    """
+    snapshot = getattr(entry, "verify_snapshot", None)
+    if not isinstance(snapshot, dict):
+        return True
+    return (
+        snapshot.get("source_hash") == fp.source_hash
+        and snapshot.get("headers_hash") == fp.headers_fp
+        and snapshot.get("toolchain") == fp.toolchain
+        and snapshot.get("cflags") == fp.cflags
+        and snapshot.get("size") == (getattr(entry, "size", 0) or 0)
+        and snapshot.get("module", "") == (getattr(entry, "module", "") or "")
+    )
+
+
 def save_verify_cache(
     cache_path: Path,
     cfg: ProjectConfig,
@@ -1251,6 +1274,11 @@ def save_verify_cache(
     cache it cannot read: the preserved VAs would be wiped with no signal. An
     unfiltered run has nothing to preserve, so it replaces the file whatever
     was there.
+
+    A row measured against a source/header state that changed before this
+    write is dropped rather than blessed under the new state: the next run
+    would otherwise find a matching fingerprint and serve a verdict no
+    compile produced.
     """
     filepath_info: dict[str, tuple[int, str]] = {}
     fp_by_va: dict[str, Any] = {}
@@ -1259,8 +1287,8 @@ def save_verify_cache(
         # One shared computation of every identity input (resolved flags,
         # toolchain, defines, size, header closure, source hash) — the hit
         # check in prepare_entries compares against these same values.
-        fp = fresh_entry_fingerprint(cfg, entry)
-        if fp is None:
+        fp = fresh_entry_fingerprint(cfg, entry, require_same_stat=True)
+        if fp is None or not _measurement_matches_snapshot(entry, fp):
             continue
         relative_path = getattr(entry, "filepath", "")
         if not relative_path:

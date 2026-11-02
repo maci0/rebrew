@@ -189,7 +189,9 @@ def _recall_fingerprint(
     return row[1], row[2], row[3], row[4], row[5], row[6]
 
 
-def fresh_entry_fingerprint(cfg: ProjectConfig, entry: Any) -> EntryFingerprint | None:
+def fresh_entry_fingerprint(
+    cfg: ProjectConfig, entry: Any, *, require_same_stat: bool = False
+) -> EntryFingerprint | None:
     """Reuse *entry*'s fingerprint when its source stat is still the same.
 
     :func:`entry_fingerprint` records the value it just computed, including
@@ -202,6 +204,11 @@ def fresh_entry_fingerprint(cfg: ProjectConfig, entry: Any) -> EntryFingerprint 
     A header edit that leaves the source stat alone can be stored from the
     earlier check; the next check stats the header and misses, so the stored
     row is not served.  The hit check does not call this.
+
+    *require_same_stat* makes a changed source return ``None`` instead of
+    recomputing: the caller is about to store a verdict measured against the
+    stashed source, so a fresh fingerprint describes bytes that verdict never
+    saw.  Cache-hit rows take that path in :func:`rebrew.verify_cache.save_verify_cache`.
     """
     stashed = _recall_fingerprint(entry)
     if stashed is not None:
@@ -217,6 +224,8 @@ def fresh_entry_fingerprint(cfg: ProjectConfig, entry: Any) -> EntryFingerprint 
             ctime_ns,
         ):
             return fingerprint
+        if require_same_stat:
+            return None
     return entry_fingerprint(cfg, entry)
 
 

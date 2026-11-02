@@ -301,6 +301,39 @@ def verify_entry(
         va=entry.va,
         context_hash=context.sha256 if context is not None else "",
     )
+    # Keep the identity the comparison is about to be measured under, even
+    # when ``comparison_inputs_current`` below discovers that the source
+    # moved during the compile.  The writer uses this to refuse storing a
+    # verdict under a source/header state it never measured.  A batch object
+    # was compiled under the inputs captured before the batch, not the
+    # freshly resolved ones, so those are the identity it is measured against.
+    if _precompiled_obj is not None:
+        measured_inputs: dict[str, str] = batch_inputs or {}
+        entry.verify_snapshot = (
+            {
+                "source_hash": measured_inputs["source_hash"],
+                "headers_hash": measured_inputs["headers_hash"],
+                "toolchain": measured_inputs["toolchain"],
+                "cflags": measured_inputs["cflags"],
+                "size": entry.size,
+                "module": getattr(entry, "module", ""),
+            }
+            if measured_inputs
+            else {}
+        )
+    else:
+        entry.verify_snapshot = (
+            {
+                "source_hash": entry.comparison_inputs["source_hash"],
+                "headers_hash": entry.comparison_inputs["headers_hash"],
+                "toolchain": entry.comparison_inputs["toolchain"],
+                "cflags": entry.comparison_inputs["cflags"],
+                "size": entry.size,
+                "module": getattr(entry, "module", ""),
+            }
+            if entry.comparison_inputs is not None
+            else None
+        )
     if _precompiled_obj is not None and (
         not batch_inputs
         or not entry.comparison_inputs
@@ -2605,14 +2638,16 @@ def prepare_entries(
         # Incomplete identities still need the declaration's calling convention.
         if cfile not in prototypes:
             by_identity: dict[tuple[str, int, str], SourceBinding] = {}
-            for binding in read_source_bindings(
+            for declaration in read_source_bindings(
                 cfile,
                 target_name=target,
                 metadata_dir=metadata_dir,
                 project_root=project_root,
             ):
                 # First declaration wins, matching the former linear scan.
-                by_identity.setdefault((binding.module, binding.va, binding.name), binding)
+                by_identity.setdefault(
+                    (declaration.module, declaration.va, declaration.name), declaration
+                )
             prototypes[cfile] = by_identity
         binding = prototypes[cfile].get((entry.module, entry.va, entry.name))
         if binding is not None:
@@ -2745,6 +2780,14 @@ def prepare_entries(
         ):
             continue
 
+        entry.verify_snapshot = {
+            "source_hash": fp.source_hash,
+            "headers_hash": fp.headers_fp,
+            "toolchain": fp.toolchain,
+            "cflags": fp.cflags,
+            "size": entry.size,
+            "module": getattr(entry, "module", ""),
+        }
         results.append(cached_entry.result_row())
         if cached_entry.passed:
             passed += 1

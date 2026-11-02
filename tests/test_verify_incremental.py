@@ -25,6 +25,7 @@ from rebrew.verify_cache import (
     save_verify_cache,
 )
 from rebrew.verify_hash import (
+    DEFAULT_TOOLCHAIN,
     cflags_equivalent,
     compiler_config_hash,
     entry_fingerprint,
@@ -1905,10 +1906,59 @@ class TestFreshFingerprintReuse:
             old.st_size,
             old.st_ino,
         )
+        # A writer about to store a verdict measured against ``first`` must
+        # not bless it under the rewritten body's fingerprint.
+        assert fresh_entry_fingerprint(cfg, entry, require_same_stat=True) is None
         fresh = fresh_entry_fingerprint(cfg, entry)
         assert fresh is not None
         assert fresh is not first
         assert fresh.source_hash != first.source_hash
+
+
+class TestStaleSaveIsDropped:
+    """A save must not stamp a verdict onto a source state it never measured."""
+
+    def test_changed_source_after_measurement_is_not_stored(self, tmp_path: Path) -> None:
+        cfg = _make_cfg(tmp_path)
+        entries, results = _func_b_row(cfg)
+        entry = entries[0]
+        entry.verify_snapshot = {
+            "source_hash": "measured-source",
+            "headers_hash": entry_headers_fp(cfg, cfg.reversed_dir / "func_b.c", ""),
+            "toolchain": DEFAULT_TOOLCHAIN,
+            "cflags": "",
+            "size": entry.size,
+            "module": "",
+        }
+        (cfg.reversed_dir / "func_b.c").write_text(
+            "int func_b(void) { return 3; }\n", encoding="utf-8"
+        )
+        save_verify_cache(cfg.root / ".rebrew" / "verify_cache.toml", cfg, results, entries)
+        loaded = load_verify_cache(cfg.root / ".rebrew" / "verify_cache.toml", cfg)
+        assert loaded is not None
+        assert "0x00002000" not in loaded.entries
+
+    def test_changed_source_after_hit_validation_is_not_stored(self, tmp_path: Path) -> None:
+        cfg = _make_cfg(tmp_path)
+        entries, results = _func_b_row(cfg)
+        entry = entries[0]
+        measured = entry_fingerprint(cfg, entry)
+        assert measured is not None
+        entry.verify_snapshot = {
+            "source_hash": measured.source_hash,
+            "headers_hash": measured.headers_fp,
+            "toolchain": measured.toolchain,
+            "cflags": measured.cflags,
+            "size": entry.size,
+            "module": "",
+        }
+        (cfg.reversed_dir / "func_b.c").write_text(
+            "int func_b(void) { return 4; }\n", encoding="utf-8"
+        )
+        save_verify_cache(cfg.root / ".rebrew" / "verify_cache.toml", cfg, results, entries)
+        loaded = load_verify_cache(cfg.root / ".rebrew" / "verify_cache.toml", cfg)
+        assert loaded is not None
+        assert "0x00002000" not in loaded.entries
 
 
 class TestEntryHeadersFp:

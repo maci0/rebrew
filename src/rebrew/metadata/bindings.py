@@ -205,6 +205,11 @@ class SourceBinding:
     origins: dict[str, Any] = field(default_factory=dict)
     verification: dict[str, Any] = field(default_factory=dict)
     comparison_inputs: dict[str, str] | None = field(default=None, repr=False)
+    #: Identity the last comparison was measured under, stamped by verify
+    #: before compiling.  The cache writer refuses to store a verdict when the
+    #: current source/header state no longer matches it.  Not part of identity
+    #: equality; it describes how the row was produced, not what the row is.
+    verify_snapshot: dict[str, Any] | None = field(default=None, repr=False, compare=False)
 
     # -- Dict-like access and field aliases --
 
