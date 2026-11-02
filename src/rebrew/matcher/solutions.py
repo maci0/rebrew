@@ -8,7 +8,7 @@ Storage: ``.rebrew/ga_runs.jsonl`` — one log line per GA
 outcome, appended on the fly.  A win record carries the full solution
 fingerprint (cflags, size, source, mutations); ``load_solutions`` derives
 the winning entry per ``(target, symbol)`` (newest win) from the log.
-Losses stay for ``--skip-recent`` / ``--ga-history``, capped at
+Losses stay for ``--skip-recent`` / ``match history``, capped at
 ``_LOSS_RECORD_RETENTION`` so the log does not grow without bound; wins are
 never pruned.
 """
@@ -452,7 +452,7 @@ def _normalize_cflags(cflags: str) -> str:
 #
 # Replaying a stub (same seed, same source, same outcome) writes the same
 # record again, so a repeat already in the log is dropped rather than
-# appended: every consumer counts records (`--skip-recent`, `--ga-history`),
+# appended: every consumer counts records (`--skip-recent`, `match history`),
 # and a duplicate says "ran twice" where the truth is "ran once, re-entered".
 # The check spans the whole tail window, not just the final line, because a
 # batch (`match --all`) appends one record per stub and a replayed batch only
@@ -557,7 +557,7 @@ def record_ga_run(
     A record identical to one already in the log's tail window apart from
     *ts* / *solved_at* is a replay of a run already recorded, so it is
     dropped: re-running a seed, alone or as a batch, must not inflate the
-    count ``--skip-recent`` and ``--ga-history`` read.
+    count ``--skip-recent`` and ``match history`` read.
 
     The record is on disk before this returns (see :func:`_append_durable`):
     the log is the only copy of a run that cost hours to produce.
@@ -645,7 +645,7 @@ def _prune_loss_records(path: Path) -> None:
     Wins are never pruned: each carries a solution fingerprint
     ``load_solutions`` reads back, and losing one would strand a solved
     function.  Losses are the bulk of the log and no consumer needs the
-    whole of them (``--skip-recent`` and ``--ga-history`` read a recent
+    whole of them (``--skip-recent`` and ``match history`` read a recent
     window), so an unpruned log grows forever.  A log under the size floor
     is left alone, so the cost of the check is a ``stat`` on the hot append
     path.  A line that does not parse is kept: pruning is housekeeping, not
@@ -705,7 +705,7 @@ def load_ga_runs(
     Uses a bounded deque (maxlen=limit): the log is append-only and
     chronological, so only the newest ``limit`` records can be returned —
     keeping the whole (unbounded) history in memory per call was wasted
-    work once the log grows past thousands of runs (``--ga-history`` and
+    work once the log grows past thousands of runs (``match history`` and
     batch ``--skip-recent`` read it every run).  A consumer that needs the
     whole log (an aggregate, not a tail) iterates :func:`iter_ga_runs`.
     """

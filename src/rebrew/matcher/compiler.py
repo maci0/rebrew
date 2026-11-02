@@ -642,8 +642,9 @@ def build_candidate_obj_only(
                 # source's parent dir must reach the container for relative
                 # #include resolution (rebrew diff / flag sweep).
                 extra_include_dirs=candidate_includes,
-                # A --flag-sweep-toolchains run swaps the compiler per iteration —
-                # the profile must drive the image, not the project default.
+                # A `rebrew match toolchains` run swaps the compiler per
+                # iteration — the profile must drive the image, not the project
+                # default.
                 toolchain=profile,
             )
             if obj_file is None:
@@ -955,7 +956,7 @@ def flag_sweep(
     log.info("Sweeping %d flag combinations (tier=%s)...", len(combos), tier)
 
     # The CLI -j flag bypasses config's _positive_int validation, so `match
-    # --flag-sweep-only -j 0` reaches the pool verbatim and
+    # flags -j 0` reaches the pool verbatim and
     # ThreadPoolExecutor(max_workers=0) raises ValueError.  Clamp to a single
     # worker instead of aborting the sweep; 1 worker is the same serial result.
     n_jobs = max(1, n_jobs)
@@ -1044,12 +1045,12 @@ def flag_sweep(
                     if score < float("inf"):
                         results.append((score, flags))
                 # Cooperative deadline: stop feeding the pool once the budget is
-                # spent, and let the in-flight compiles drain.  Without this
-                # `--timeout-min` was silently ignored on the --flag-sweep-only
-                # path -- it was only applied around the GA run -- so a sweep of
-                # a thorough tier (258k combos, sampled to the cap) ran unbounded.  Measured on
-                # guild-rebrew: `--timeout-min 6` was still going after 13
-                # minutes and had to be killed.
+                # spent, and let the in-flight compiles drain.  Without this the
+                # single-function sweep ignored its budget -- it was only applied
+                # around the GA run -- so a thorough tier (258k combos, sampled
+                # to the cap) ran unbounded.  Measured on guild-rebrew: a
+                # configured 6-minute budget was still going after 13 minutes and
+                # had to be killed.
                 if deadline is not None and now() >= deadline:
                     combo_iter = iter(())
                 with contextlib.suppress(StopIteration):

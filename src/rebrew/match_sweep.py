@@ -515,8 +515,9 @@ def run_flag_sweep(
     )
 
     # NOTE: no redirect_stdout here — mutating process-global stdout is not
-    # thread-safe under --flag-sweep-then-ga batch (-j N) and silently loses later
-    # prints (incl. the --json report).  flag_sweep logs via logging, not stdout.
+    # thread-safe under a `--algorithm flags-then-ga` batch (-j N) and silently
+    # loses later prints (incl. the --json report).  flag_sweep logs via
+    # logging, not stdout.
     try:
         results = flag_sweep(
             source,
@@ -733,7 +734,7 @@ def run_single_toolchain_flag_sweep(
     Answers "which MSVC version AND which flags built this function" in one
     run — the two-dimension question a decompiler faces when the configured
     profile does not byte-match (``match toolchains`` without ``--flags`` only tries the
-    project's cflags; ``--flag-sweep`` alone only tries the project's
+    project's cflags; ``match flags`` alone only tries the project's
     compiler).
     """
     toolchains = _vendored_msvc_toolchains(p.cfg, only, exclude)

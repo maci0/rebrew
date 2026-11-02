@@ -499,9 +499,9 @@ def execute_search(
         return
 
     # `--toolchains` / `--exclude-toolchains` name the profiles to
-    # sweep and to skip, so naming one IS the opt-in: each selects the sweep
-    # exactly as `--flag-sweep-toolchains` does, just filtered.  Both were
-    # checked only alongside that unrelated flag, so
+    # sweep and to skip, so naming one IS the opt-in: each selects the
+    # profile sweep `rebrew match toolchains` runs, just filtered.  Both were
+    # checked only alongside an unrelated switch, so
     # `rebrew match toolchains f.c --toolchains msvc-6.0` parsed, filtered nothing and ran
     # the plain GA — a silently ignored filter, on the long spelling every
     # other command uses to pin a compiler.

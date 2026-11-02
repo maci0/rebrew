@@ -40,7 +40,7 @@ must never replace the Git dependency.
    typer's wrapper **leaks `typer.models.OptionInfo` as the value of omitted
    params** on direct Python calls: an `OptionInfo` is truthy and not a
    `Path`, so `if x is not None:` and `Path(x)` misbehave.  This caused two
-   real bugs (a truthy `--flag-sweep-toolchains` leaking into `match`'s watch
+   real bugs (a truthy profile-sweep option leaking into `match`'s watch
    re-test; `rebrew init` crashing on a leaked `--link-tools-from`).
    **Convention:**
    - Callbacks that unit tests invoke directly must guard every new option
@@ -78,7 +78,7 @@ must never replace the Git dependency.
   `.c` using relative includes (`#include "../../Units/..."`) fails to
   compile from a temp dir unless `extra_include_dirs=[source.parent]` is
   passed.  The GA path does this; `flag_sweep` had to learn it too
-  (single-function `--flag-sweep-only` silently returned 0 results).
+  (a single-function `rebrew match flags` run silently returned 0 results).
 
 ## Import patterns
 

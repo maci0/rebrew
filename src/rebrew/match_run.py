@@ -71,7 +71,7 @@ def _utc_now_iso(now: Callable[[], datetime] | None = None) -> str:
     """The current UTC instant, as the ``ts`` every other writer emits.
 
     One rule for one field: the run log is read back by ``--skip-recent`` and
-    ``--ga-history``, which both parse it as an aware instant, so the writer
+    ``match history``, which both parse it as an aware instant, so the writer
     has to produce one (an offset and a fixed ``+00:00`` suffix, not ``Z``,
     which :func:`datetime.fromisoformat` rejects on Python 3.10).  The wall
     clock itself lives in :func:`rebrew.matcher.solutions.utc_now_iso`, the
@@ -505,8 +505,9 @@ def _run_one_stub_ga(
     when *rng_seed* is None; None when no GA ran), so the batch driver records the truth in
     ``ga_runs.jsonl``.
 
-    *cflags_override* replaces ``stub.cflags`` (used by ``--flag-sweep-then-ga``
-    to seed the GA with the flag-sweep's best variant).  *resume_from* is a
+    *cflags_override* replaces ``stub.cflags`` (used by
+    ``match batch --algorithm flags-then-ga`` to seed the GA with the
+    flag-sweep's best variant).  *resume_from* is a
     validated :class:`GACheckpoint` (batch ``--resume``).  *solutions_out*
     collects SolutionEntry for the batch driver's single end-of-batch flush
     (see ``_save_solution``); when None the entry is written immediately.
@@ -703,9 +704,9 @@ def _run_one_stub_ga(
                                 "return type or no marker) — the .c still holds a stub",
                                 stub.symbol,
                             )
-                        # Under --flag-sweep-then-ga the GA ran with swept flags that
-                        # differ from stub.cflags — persist them or the next
-                        # test/verify (which compiles with metadata CFLAGS)
+                        # Under `--algorithm flags-then-ga` the GA ran with swept
+                        # flags that differ from stub.cflags — persist them or the
+                        # next test/verify (which compiles with metadata CFLAGS)
                         # demotes the match immediately.
                         if spliced_ok and cflags_override is not None:
                             update_cflags_annotation(
@@ -768,9 +769,9 @@ def _run_one_stub_ga(
 
         # GA exhausted without a match: if the champion's residual delta is
         # register-only (effective match), document the ceiling so later
-        # --improve/--flag-sweep runs skip this function and `rebrew prove`
-        # is the sanctioned next step.  Runs before ga.close() so the warm
-        # build cache can serve the champion compile.
+        # `--improve` / `--algorithm flags` runs skip this function and
+        # `rebrew prove` is the sanctioned next step.  Runs before ga.close()
+        # so the warm build cache can serve the champion compile.
         if not matched and best_src is not None:
             ceiling = _maybe_document_ga_ceiling(
                 cfg,
@@ -804,8 +805,8 @@ def _run_one_stub_ga(
 #: instructions re-encoded, so byte identity needs the original compiler's
 #: encodings).  Ceiling entries keep their NEAR_MATCHING/SIZE_MISMATCH status
 #: (so `rebrew prove --all` still targets them) but are excluded from further
-#: GA batch runs (--improve / --flag-sweep / --near-miss / --size-mismatch),
-#: see `_parse_annotations`.
+#: GA batch runs (``--improve`` / ``--algorithm flags`` / ``--near-miss`` /
+#: ``--size-mismatch``), see `_parse_annotations`.
 def _classify_ga_ceiling(
     ga: BinaryMatchingGA,
     best_src: str,
@@ -963,7 +964,7 @@ def _as_utc_instant(value: object) -> datetime | None:
 def _display_instant(value: object) -> str:
     """Render a stored UTC instant as the reader's local wall time.
 
-    The log keeps instants, but ``--ga-history`` prints them for a person
+    The log keeps instants, but ``match history`` prints them for a person
     reading over the shoulder of the person who ran the batch, so the raw
     ``+00:00`` string shows UTC to whoever is not on UTC.  A CLI has no
     per-viewer zone, so the host's local zone is the reader's.  A zone-less
@@ -1513,7 +1514,7 @@ def run_all(
 
     # Persist the outcomes for cross-run progress tracking (append-only log).
     # Stub order, never completion order: the log is the replay record, and
-    # --skip-recent / --ga-history read it back.
+    # --skip-recent / match history read it back.
     for outcome_stub, _matched, _summary, record, stub_solutions in outcomes:
         if record is not None:
             try:
@@ -1654,11 +1655,11 @@ def _run_batch_flag_sweep(
         validation_ran = bool(is_exact and fix_cflags and best_flags and name_to_va)
         if is_exact and not validation_ran:
             # No authoritative predicate is available (typically a
-            # --flag-sweep-only run without --fix-cflags): the JSON row
-            # reports `exact: true`, so the batch count and exit code must
-            # agree instead of reporting `exact: 0` and exiting 1 (a false red
-            # for CI).  When validation DID run, only a confirmed match counts
-            # (the sweep score alone masks reloc targets).
+            # `match batch --algorithm flags` run without --fix-cflags): the
+            # JSON row reports `exact: true`, so the batch count and exit code
+            # must agree instead of reporting `exact: 0` and exiting 1 (a false
+            # red for CI).  When validation DID run, only a confirmed match
+            # counts (the sweep score alone masks reloc targets).
             exact_count += 1
         result_entry: dict[str, Any] = {
             "file": str(stub.filepath),

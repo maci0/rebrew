@@ -1036,7 +1036,7 @@ Deterministic project advice across lanes (read-only by default):
 | Next | `stub-sort`, `verify-failures`, `missing-externs`, `default-names`, `backfill-blockers`, `next-action`, `merge-sweep` | Unannotated inventory functions, COMPILE/EXTRACT/MISSING_SIZE cache failures, undefined extern callees, decompiler default names, bare STUBs, highest-impact `todo` item pointer, `rebrew match partitions --dry-run` when partitions unproven |
 
 `--apply` executes only safe mechanical lanes (`lint --fix`,
-`rebrew build link-order --apply`, `orphans --prune`, `rebrew source merge --shared` twins); TU
+`rebrew build link-order --apply`, `orphans prune`, `rebrew source merge --shared` twins); TU
 merge/split/move stay advisory. A child is recorded only when it exits 0
 with no exception. Failures are reported (`failed` under `--json`) and the
 command exits with the highest child status. A missing status, or an

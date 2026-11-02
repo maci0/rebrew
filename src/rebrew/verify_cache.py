@@ -1338,12 +1338,12 @@ def save_verify_cache(
             "context_hash": result.get("context_hash"),
         }
 
-    # A filtered run (--nolib) drops its excluded VAs from `results`, but this
-    # function rewrites the whole cache file from `results` — without carrying
-    # the excluded entries over, one `--nolib` run erases the measured truth
-    # for every library function (`status`/`todo` then fall back to metadata
-    # and the next plain run recompiles them all).  Copy them from the file
-    # being replaced; a VA this run did produce always wins.
+    # A filtered run (--skip-libraries) drops its excluded VAs from `results`,
+    # but this function rewrites the whole cache file from `results` — without
+    # carrying the excluded entries over, one `--skip-libraries` run erases the
+    # measured truth for every library function (`status`/`todo` then fall back
+    # to metadata and the next plain run recompiles them all).  Copy them from
+    # the file being replaced; a VA this run did produce always wins.
     #
     # If the prior cache exists but cannot be read (corrupt JSON, I/O error,
     # wrong shape), refuse to overwrite: falling back to `previous = {}` and
