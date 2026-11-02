@@ -1,4 +1,8 @@
-## [Unreleased]
+## [6.14.2] - 2026-11-02
+
+### Changed
+
+- Refresh Python dependency locks and declared licenses; update Python to 3.15.2, uv to 0.13.6 and setup-uv to v10.3.3. Remove local branding provenance and review prompts from tracked source.
 
 ### Changed
 
