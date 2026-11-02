@@ -474,7 +474,7 @@ def _argv_format_choice() -> str | None:
     return None
 
 
-def _json_mode_active(*, explicit: bool = False) -> bool:
+def _json_mode_active() -> bool:
     """True when this invocation asked for JSON.
 
     ``--output text`` wins over ``--json``. ``auto`` stays text, including
@@ -483,7 +483,7 @@ def _json_mode_active(*, explicit: bool = False) -> bool:
     """
     choice = "auto"
     found_format = False
-    flagged = explicit
+    flagged = False
     ctx = click.get_current_context(silent=True)
     while ctx is not None:
         params = ctx.params or {}

@@ -707,7 +707,6 @@ def export_state(
     if not dry_run:
         manifest_hash = _write_manifest(
             outdir,
-            None,
             target=getattr(cfg, "target_name", "") or "",
             binary_hash=binary_hash,
             input_hash=health["input_hash"],
@@ -765,18 +764,15 @@ def _write_binary_hash(outdir: Path, cfg: ProjectConfig) -> str:
 
 def _write_manifest(
     outdir: Path,
-    commit_hash: str | None,
     *,
     target: str = "",
     binary_hash: str = "",
     input_hash: str = "",
 ) -> str:
-    """Write ``manifest.toml`` (timestamp, content hash, commit) and return the hash.
+    """Write ``manifest.toml`` (timestamp, content hash) and return the hash.
 
     Idempotent: when ``content_hash`` / ``target`` / ``binary_hash`` match the
-    existing manifest, the file is left untouched (``exported_at`` preserved)
-    unless only the ``commit`` field needs updating — then ``exported_at`` is
-    still preserved so a re-export cannot create timestamp-only git churn.
+    existing manifest, the file is left untouched (``exported_at`` preserved).
 
     Raises:
         OSError: An artifact under *outdir* cannot be read.  The manifest is
@@ -805,23 +801,7 @@ def _write_manifest(
         same_input = not input_hash or existing.get("input_hash") == input_hash
         same_schema = existing.get("metadata_schema") == FORMAT_VERSION
         if same_target and same_binary and same_input and same_schema:
-            existing_commit = existing.get("commit")
-            if commit_hash is None or commit_hash == existing_commit:
-                # Fully unchanged — no rewrite, no timestamp bump.
-                return content_hash
-            # Content same; only the commit field needs a touch.
-            doc = tomlkit.document()
-            doc["exported_at"] = existing.get("exported_at") or datetime.now(UTC).isoformat()
-            doc["content_hash"] = content_hash
-            doc["metadata_schema"] = FORMAT_VERSION
-            if input_hash:
-                doc["input_hash"] = input_hash
-            if target or existing.get("target"):
-                doc["target"] = target or existing.get("target")
-            if binary_hash or existing.get("binary_hash"):
-                doc["binary_hash"] = binary_hash or existing.get("binary_hash")
-            doc["commit"] = commit_hash
-            serial.write_state_text(manifest_path, tomlkit.dumps(doc))
+            # Fully unchanged — no rewrite, no timestamp bump.
             return content_hash
     doc = tomlkit.document()
     doc["exported_at"] = datetime.now(UTC).isoformat()
@@ -833,8 +813,6 @@ def _write_manifest(
         doc["target"] = target
     if binary_hash:
         doc["binary_hash"] = binary_hash
-    if commit_hash:
-        doc["commit"] = commit_hash
     serial.write_state_text(manifest_path, tomlkit.dumps(doc))
     return content_hash
 

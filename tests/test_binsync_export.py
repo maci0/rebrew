@@ -935,12 +935,12 @@ class TestManifest:
         (outdir / "functions").mkdir()
         # Seed a non-manifest toml so content_hash is non-empty and stable.
         (outdir / "functions" / "1000.toml").write_text('name = "foo"\n', encoding="utf-8")
-        first_hash = _write_manifest(outdir, None, target="server")
+        first_hash = _write_manifest(outdir, target="server")
         manifest = outdir / "manifest.toml"
         body = manifest.read_bytes()
         os.chmod(manifest, 0o644)
         manifest.write_bytes(b"\xef\xbb\xbf" + body)
-        second_hash = _write_manifest(outdir, None, target="server")
+        second_hash = _write_manifest(outdir, target="server")
         assert first_hash == second_hash
         # Idempotent path left the on-disk bytes alone (still BOM-prefixed).
         assert manifest.read_bytes().startswith(b"\xef\xbb\xbf")
@@ -952,7 +952,7 @@ class TestManifest:
         outdir = tmp_path / "state"
         (outdir / "functions").mkdir(parents=True)
         (outdir / "functions" / "1000.toml").write_text('name = "foo"\n', encoding="utf-8")
-        first = _write_manifest(outdir, None, target="server")
+        first = _write_manifest(outdir, target="server")
         manifest = outdir / "manifest.toml"
         before = manifest.read_bytes()
         (outdir / "functions" / "2000.toml").write_text('name = "bar"\n', encoding="utf-8")
@@ -967,7 +967,7 @@ class TestManifest:
         monkeypatch.setattr(Path, "read_bytes", _boom)
         try:
             with pytest.raises(OSError, match="2000.toml"):
-                _write_manifest(outdir, None, target="server")
+                _write_manifest(outdir, target="server")
         finally:
             monkeypatch.undo()
         assert manifest.read_bytes() == before
