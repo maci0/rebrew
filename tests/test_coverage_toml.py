@@ -1161,6 +1161,32 @@ class TestMemo:
         assert all(result is results[0] for result in results)
         assert all(result[TARGET] is results[0][TARGET] for result in results)
 
+    def test_bare_key_cache_serves_concurrent_renders(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Renderers that miss together all get the same, correct key spelling.
+
+        ``write_coverage_toml`` locks per target, so a dashboard can render two
+        targets at once and both reach the shared bare-key memo.
+        """
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+
+        coverage_toml._BARE_KEY_CACHE.clear()
+        real = coverage_toml._string
+        barrier = threading.Barrier(4, timeout=5)
+
+        def slow(value: str) -> str:
+            barrier.wait()
+            return real(value)
+
+        monkeypatch.setattr(coverage_toml, "_string", slow)
+        names = [".text", "a.b", "has space", 'quote"name']
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            rendered = list(executor.map(coverage_toml._key, names))
+        assert rendered == [real(name) for name in names]
+        assert len(coverage_toml._BARE_KEY_CACHE) == len(names)
+
     def test_scan_retries_when_replace_changes_directory(
         self,
         write: Callable[[dict[str, Any]], list[Path]],

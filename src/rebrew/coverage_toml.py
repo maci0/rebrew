@@ -217,9 +217,12 @@ _VERIFY_RESULTS_COLUMNS: tuple[str, ...] = (
 #: to parse.
 _BARE_KEY_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-")
 # Column names repeat on every row. The bare-key scan was 600k all() calls
-# per 8000-row render.
+# per 8000-row render.  Guarded: ``write_coverage_toml`` locks per target, so a
+# dashboard can render two targets at once, and the check-then-store below is
+# not atomic on a shared dict.
 _BARE_KEY_CACHE: dict[str, str] = {}
 _BARE_KEY_CACHE_MAX = 4096
+_BARE_KEY_CACHE_LOCK = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -256,11 +259,17 @@ def _string(value: str) -> str:
 
 def _key(name: str) -> str:
     """Render a TOML key, bare when it can be and quoted when it cannot."""
-    cached = _BARE_KEY_CACHE.get(name)
-    if cached is not None:
-        return cached
+    with _BARE_KEY_CACHE_LOCK:
+        cached = _BARE_KEY_CACHE.get(name)
+        if cached is not None:
+            return cached
     rendered = name if name and all(ch in _BARE_KEY_CHARS for ch in name) else _string(name)
-    if len(_BARE_KEY_CACHE) < _BARE_KEY_CACHE_MAX:
+    with _BARE_KEY_CACHE_LOCK:
+        cached = _BARE_KEY_CACHE.get(name)
+        if cached is not None:
+            return cached
+        if len(_BARE_KEY_CACHE) >= _BARE_KEY_CACHE_MAX:
+            _BARE_KEY_CACHE.clear()
         _BARE_KEY_CACHE[name] = rendered
     return rendered
 
