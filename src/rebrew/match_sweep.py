@@ -34,11 +34,12 @@ from rebrew.matcher import (
 from rebrew.matcher.core import EXACT_SCORE_THRESHOLD
 from rebrew.metadata.bindings import (
     SourceBinding,
+    find_source_binding_by_symbol,
     min_valid_va_for,
     read_function_fields,
     read_source_bindings,
 )
-from rebrew.utils import fold_ident, read_compile_source
+from rebrew.utils import read_compile_source
 lazy from rebrew.utils import TerminalTable
 
 if TYPE_CHECKING:
@@ -124,22 +125,7 @@ def select_annotation(annos: list[SourceBinding], symbol: str | None) -> SourceB
     """
     if not symbol:
         return None
-    from rebrew.rename_ops import c_name_from_symbol
-
-    # The C name and the symbol both count. ``hook@@12`` answers ``hook``.
-    # ``__foo`` answers ``_foo``, not ``foo``.
-    want = fold_ident(symbol.strip())
-    for a in annos:
-        candidates: list[str] = []
-        if a.name:
-            candidates.append(fold_ident(a.name.strip()))
-        if a.symbol and a.symbol.strip():
-            raw = a.symbol.strip()
-            candidates.append(fold_ident(raw))
-            candidates.append(fold_ident(c_name_from_symbol(raw)))
-        if want in candidates:
-            return a
-    return None
+    return find_source_binding_by_symbol(annos, symbol)
 
 
 def resolve_build_params(

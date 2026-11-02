@@ -61,7 +61,11 @@ from rebrew.utils import (
     untrusted_literal,
     untrusted_text,
 )
-lazy from rebrew.metadata.bindings import SourceBinding, read_source_bindings
+lazy from rebrew.metadata.bindings import (
+    SourceBinding,
+    find_source_binding_by_symbol,
+    read_source_bindings,
+)
 lazy from rebrew.sources import iter_sources
 
 console.push_theme(Theme(RICH_STYLES))
@@ -1339,22 +1343,9 @@ def select_annotation(
             error_exit(f"No function annotation at 0x{want:x} in {path}", json_mode=json_mode)
         return path, selected, want
     if not source_arg.strip().lower().startswith("0x") and not Path(source_arg).exists():
-        from rebrew.rename_ops import c_name_from_symbol
-        from rebrew.utils import fold_ident
-
-        # The C name and the symbol both count. ``hook@@12`` answers
-        # ``hook``. ``__foo`` answers ``_foo``, not ``foo``.
-        want_sym = fold_ident(source_arg.strip())
-        for a in annos:
-            candidates = []
-            if a.name:
-                candidates.append(fold_ident(a.name.strip()))
-            if a.symbol:
-                symbol = a.symbol.strip()
-                candidates.append(fold_ident(symbol))
-                candidates.append(fold_ident(c_name_from_symbol(symbol)))
-            if want_sym in candidates:
-                return path, a, a.va
+        matched = find_source_binding_by_symbol(annos, source_arg)
+        if matched is not None:
+            return path, matched, matched.va
     return path, annos[0], annos[0].va
 
 

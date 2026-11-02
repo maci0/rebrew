@@ -10,12 +10,12 @@ from typing import Any, ClassVar, Final
 lazy import bisect
 lazy import copy
 lazy import os
-lazy from collections.abc import Callable
+lazy from collections.abc import Callable, Iterable
 lazy from pathlib import Path
 
 lazy from rebrew.c_parser import extract_function_name_from_line
 lazy from rebrew.metadata.anchors import metadata_comments, parse_address_anchors
-lazy from rebrew.utils import preset_module_key, read_source_text, rel_display_path
+lazy from rebrew.utils import fold_ident, preset_module_key, read_source_text, rel_display_path
 lazy from rebrew.workspace.status import MATCHED_STATUSES
 
 logger = logging.getLogger(__name__)
@@ -116,6 +116,30 @@ def resolve_symbol(entry: SourceBinding, filepath: Path) -> str:
     if entry.name and entry.name != "?":
         return derive_c_symbol(entry.name, entry.prototype)
     return "_" + filepath.stem
+
+
+def find_source_binding_by_symbol(
+    bindings: Iterable[SourceBinding], symbol: str
+) -> SourceBinding | None:
+    """Pick the binding named by *symbol* through its C name or compiled symbol.
+
+    A decorated symbol (``hook@@12``) also answers ``hook``, and ``__foo``
+    answers ``_foo`` rather than ``foo``.
+    """
+    from rebrew.rename_ops import c_name_from_symbol
+
+    want = fold_ident(symbol.strip())
+    for binding in bindings:
+        candidates: list[str] = []
+        if binding.name:
+            candidates.append(fold_ident(binding.name.strip()))
+        if binding.symbol and binding.symbol.strip():
+            raw = binding.symbol.strip()
+            candidates.append(fold_ident(raw))
+            candidates.append(fold_ident(c_name_from_symbol(raw)))
+        if want in candidates:
+            return binding
+    return None
 
 
 _FIELD_ALIASES: Final[dict[str, str]] = {"globals": "globals_list"}
@@ -1491,6 +1515,7 @@ __all__ = [
     "address_pairs",
     "derive_c_symbol",
     "file_backed_by_metadata",
+    "find_source_binding_by_symbol",
     "function_rows_for_file",
     "grow_function_extent",
     "set_function_extent",

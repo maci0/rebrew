@@ -378,11 +378,9 @@ def build_graph(
             }
             _register_spellings(name_lookup, label, key)
 
-    # Build edges from the callee lists collected above
     for caller_key, callees in file_callers:
         for callee in callees:
             callee_key = name_lookup.get(fold_ident(callee), callee)
-            # Add unknown callee as an unreversed node
             if callee_key not in nodes:
                 nodes[callee_key] = {
                     "status": "UNKNOWN",
@@ -394,14 +392,12 @@ def build_graph(
             if caller_key != callee_key:  # no self-edges
                 edges.append((caller_key, callee_key))
 
-    # Build VA -> display-name reverse lookup for dispatch resolution
     va_lookup: dict[int, str] = {info["va"]: name for name, info in nodes.items() if info["va"]}
 
     dispatch_edges: list[tuple[str, str]] = []
     if dispatch_tables:
         for tbl in dispatch_tables:
             dispatch_node = f"dispatch_0x{tbl.va:08x}"
-            # Register the virtual dispatch node
             nodes[dispatch_node] = {
                 "status": "DISPATCH",
                 "va": tbl.va,
@@ -410,12 +406,10 @@ def build_graph(
                 "symbol": dispatch_node,
             }
             for entry in tbl.entries:
-                # Resolve target VA to a known function name if possible
                 target_name = va_lookup.get(entry.target_va)
                 if target_name is None:
                     # Fall back to entry's resolved name or a VA-based placeholder
                     target_name = entry.name or f"fn_0x{entry.target_va:08x}"
-                # Ensure target node exists
                 if target_name not in nodes:
                     nodes[target_name] = {
                         "status": entry.status or "UNKNOWN",
@@ -490,7 +484,6 @@ def _focus_graph(
         adj.setdefault(a, set()).add(b)
         adj.setdefault(b, set()).add(a)
 
-    # BFS to find neighbours within depth
     visited = {focus_name}
     frontier = {focus_name}
     for _ in range(depth):

@@ -66,7 +66,11 @@ lazy from rebrew.compiler.compile import compile_to_obj
 lazy from rebrew.config import ProjectConfig, target_module
 lazy from rebrew.formats.binary_loader import extract_raw_bytes
 lazy from rebrew.matcher.parsers import parse_obj_relocs_full, parse_obj_symbol_bytes
-lazy from rebrew.metadata.bindings import read_source_bindings, resolve_symbol
+lazy from rebrew.metadata.bindings import (
+    find_source_binding_by_symbol,
+    read_source_bindings,
+    resolve_symbol,
+)
 lazy from rebrew.prove_simprocs import get_win32_simprocs
 lazy from rebrew.sources import iter_sources
 lazy from rebrew.utils import safe_shlex_split, untrusted_ident
@@ -1341,23 +1345,7 @@ def main(
                     json_mode=json_output,
                 )
     if ann is None and not was_va_arg and not Path(source).exists():
-        from rebrew.rename_ops import c_name_from_symbol
-        from rebrew.utils import fold_ident
-
-        # The C name and the symbol both count. ``hook@@12`` answers
-        # ``hook``. ``__foo`` answers ``_foo``, not ``foo``.
-        want_sym = fold_ident(source.strip())
-        for a in annotations:
-            candidates: list[str] = []
-            if a.name:
-                candidates.append(fold_ident(a.name.strip()))
-            if a.symbol and a.symbol.strip():
-                raw = a.symbol.strip()
-                candidates.append(fold_ident(raw))
-                candidates.append(fold_ident(c_name_from_symbol(raw)))
-            if want_sym in candidates:
-                ann = a
-                break
+        ann = find_source_binding_by_symbol(annotations, source)
     if ann is None:
         for a in annotations:
             if a.status == "NEAR_MATCHING":

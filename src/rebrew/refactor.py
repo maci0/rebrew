@@ -1,14 +1,9 @@
-"""refactor.py — Provide refactoring recommendations for the rebrew codebase.
+"""Report size and style signals for the rebrew source tree.
 
-This tool scans the source tree and emits high-level suggestions such as:
-* extracting duplicated code into utilities,
-* splitting overly large modules,
-* adding missing type hints,
-* converting repetitive loops to comprehensions or parallel execution,
-* and noting places where a new sub-command or skill could be introduced.
-
-It is intentionally lightweight — its purpose is to give maintainers a quick
-starting point for refactoring efforts, not to enforce strict rules.
+For each ``.py`` file under ``src/`` and ``tests/`` the command counts lines,
+TODO markers, loop statements, and missing ``from __future__ import
+annotations`` imports, then prints files above the requested line threshold.
+These are prompts for a human, not refactoring rules.
 """
 
 from __future__ import annotations

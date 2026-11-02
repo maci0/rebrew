@@ -29,6 +29,7 @@ from rebrew.cli import (
     require_config,
 )
 lazy from rebrew.analysis import DEFAULT_CS_ARCH, DEFAULT_CS_MODE
+lazy from rebrew.metadata.bindings import find_source_binding_by_symbol
 lazy from rebrew.near_analysis import analyze, blocker_text, catalog_markdown
 lazy from rebrew.utils import TerminalTable, untrusted_ident
 lazy from rebrew.workspace.status import NEAR_MATCH_CANDIDATE_STATUSES
@@ -426,23 +427,9 @@ def main(
         # The positional argument itself was a hex VA.
         va_int = parse_va(raw_source, json_mode=json_output)
     if va_int is None and not Path(raw_source).exists():
-        from rebrew.rename_ops import c_name_from_symbol
-        from rebrew.utils import fold_ident
-
-        # The C name and the symbol both count. ``hook@@12`` answers
-        # ``hook``. ``__foo`` answers ``_foo``, not ``foo``.
-        want_sym = fold_ident(raw_source.strip())
-        for a in annos:
-            candidates: list[str] = []
-            if a.name:
-                candidates.append(fold_ident(a.name.strip()))
-            if a.symbol and a.symbol.strip():
-                raw = a.symbol.strip()
-                candidates.append(fold_ident(raw))
-                candidates.append(fold_ident(c_name_from_symbol(raw)))
-            if want_sym in candidates:
-                va_int = a.va
-                break
+        matched = find_source_binding_by_symbol(annos, raw_source)
+        if matched is not None:
+            va_int = matched.va
     if va_int is None:
         va_int = annos[0].va
     # In a multi-function file, pick the annotation matching the requested VA
