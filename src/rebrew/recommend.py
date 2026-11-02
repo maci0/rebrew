@@ -956,6 +956,7 @@ def _collect_hygiene(
         from rebrew.metadata.binding_history import historical_source_files
         from rebrew.metadata.data import load_data_metadata
         from rebrew.metadata.functions import load_metadata
+        from rebrew.metadata.source_provenance import load_source_files
 
         # The batch form of this lane reads both stores once. Done per file it
         # deep-copies the whole data table and re-resolves every retirement
@@ -969,6 +970,7 @@ def _collect_hygiene(
             for path in historical_source_files(row, cfg.metadata_dir, cfg.root)
         }
         function_index = build_function_index(cfg)
+        source_files = frozenset(record.file for record in load_source_files(cfg.metadata_dir))
         warnings: list[tuple[str, str]] = []
         lint_errors: list[tuple[str, str, str]] = []
         dup_globals: list[tuple[str, str]] = []
@@ -984,6 +986,7 @@ def _collect_hygiene(
                 preloaded_metadata=preloaded_metadata,
                 preloaded_data_metadata=preloaded_data_metadata,
                 preloaded_historical_sources=historical_sources,
+                preloaded_source_files=source_files,
                 metadata_directory=cfg.metadata_dir,
                 function_index=function_index,
             )

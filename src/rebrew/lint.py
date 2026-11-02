@@ -2095,6 +2095,7 @@ def lint_file(
     preloaded_metadata: dict[tuple[str, int], dict[str, Any]] | None = None,
     preloaded_data_metadata: dict[tuple[str, int], dict[str, Any]] | None = None,
     preloaded_historical_sources: set[Path] | None = None,
+    preloaded_source_files: frozenset[str] | None = None,
     metadata_directory: Path | None = None,
     function_index: tuple[set[int], list[tuple[int, int, str]]] | None = None,
     pedantic: bool = False,
@@ -2116,6 +2117,9 @@ def lint_file(
         preloaded_metadata: Pre-loaded metadata dict (avoids per-file I/O in batch).
         preloaded_data_metadata: Pre-loaded data metadata dict (avoids per-file I/O in batch).
         preloaded_historical_sources: Resolved retired paths shared by a batch.
+        preloaded_source_files: Metadata-root-relative names that hold a
+                        source-purpose row, shared by a batch. Without this,
+                        every linted file re-reads and stat-walks the store.
         metadata_directory: Metadata location already resolved by the batch.
         function_index: ``(starts, spans)`` from the target function list
                         (built once per batch); enables the W028
@@ -2155,8 +2159,11 @@ def lint_file(
 
     directory = metadata_directory or (cfg.metadata_dir if cfg else filepath.parent)
     relative = rel_display_path(resolved_path(filepath), resolved_path(directory))
-    support = [record for record in load_source_files(directory) if record.file == relative]
-    if support:
+    if preloaded_source_files is not None:
+        supported = relative in preloaded_source_files
+    else:
+        supported = any(record.file == relative for record in load_source_files(directory))
+    if supported:
         result._kind_counts["SUPPORT"] += 1
         _check_body_rules(result, lines, True)
         return result
@@ -2632,8 +2639,10 @@ def main(
         _preloaded_metadata = load_metadata(metadata_directory, deepcopy=False)
         _preloaded_data_metadata = load_data_metadata(metadata_directory)
     historical_sources: set[Path] | None = None
+    source_files: frozenset[str] | None = None
     if cfg is not None:
         from rebrew.metadata.binding_history import historical_source_files
+        from rebrew.metadata.source_provenance import load_source_files
 
         assert metadata_directory is not None
         historical_sources = {
@@ -2642,6 +2651,10 @@ def main(
             if row.get("binding_history", []) != []
             for path in historical_source_files(row, metadata_directory, cfg.root)
         }
+        # One store read for the batch. Loading it per file made lint stat and
+        # glob the whole metadata collection once per source (`--fix` and the
+        # plain check share this path).
+        source_files = frozenset(record.file for record in load_source_files(metadata_directory))
     # Pre-load the function list once for the whole batch (W028).
     function_index = build_function_index(cfg) if cfg else None
     # Section resolver for W016 autofix (DATA/GLOBAL bindings missing SECTION):
@@ -2703,6 +2716,7 @@ def main(
             preloaded_metadata=_preloaded_metadata,
             preloaded_data_metadata=_preloaded_data_metadata,
             preloaded_historical_sources=historical_sources,
+            preloaded_source_files=source_files,
             metadata_directory=metadata_directory,
             function_index=function_index,
             pedantic=pedantic,

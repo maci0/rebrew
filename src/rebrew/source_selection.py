@@ -55,6 +55,11 @@ def collect_target_sources(
         if not source.is_file():
             raise ValueError(f"compiled source is missing: {source}")
         library_entries.setdefault(source, []).append(bound)
+    # One store read for the whole tree: probing it per unbound source made the
+    # walk stat and glob the metadata collection once per file. Loaded only
+    # when a source has no annotation, so a fully bound tree pays nothing.
+    support_modules: dict[str, set[str]] | None = None
+    metadata_root = cfg.metadata_dir.resolve()
     discovered = sources if sources is not None else iter_sources(cfg.reversed_dir, cfg)
     source_files = set(discovered) | set(library_entries)
     for src in sorted(source_files):
@@ -77,12 +82,12 @@ def collect_target_sources(
             if modules_named and preset_module_key(target_module_name) not in modules_named:
                 foreign.append(src.resolve())
                 continue
-            relative = identity_file(src.resolve(), cfg.metadata_dir.resolve())
-            modules = {
-                record.module
-                for record in load_source_files(cfg.metadata_dir)
-                if record.file == relative
-            }
+            relative = identity_file(src.resolve(), metadata_root)
+            if support_modules is None:
+                support_modules = {}
+                for record in load_source_files(cfg.metadata_dir):
+                    support_modules.setdefault(record.file, set()).add(record.module)
+            modules = support_modules.get(relative, set())
             if not modules and src.resolve() in retired_sources:
                 foreign.append(src.resolve())
             elif not modules or preset_module_key(target_module_name) in modules:
