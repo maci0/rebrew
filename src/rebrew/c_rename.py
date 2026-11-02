@@ -21,6 +21,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Any
 lazy import bisect
 
@@ -79,10 +80,18 @@ _DECLARATION_OWNERS = frozenset(
 _MEMBER_ACCESS_RE = re.compile(rb"(?:->|\.)\s*$")
 _NAMED_MEMBER_ACCESS_RE = re.compile(rb"([A-Za-z_][A-Za-z0-9_]*)\s*(?:->|\.)\s*$")
 _WORD_BYTES = rb"A-Za-z0-9_$\x80-\xff"
+#: Bounded so a long-lived process that renames many names cannot grow the
+#: pattern cache without limit; a miss only recompiles one pattern.
+_NAME_REGEX_CACHE_MAX = 1024
 
 
+@lru_cache(maxsize=_NAME_REGEX_CACHE_MAX)
 def name_regex(name: str) -> re.Pattern[bytes]:
-    """Whole-word byte pattern for *name*; ``$`` and non-ASCII bytes are word bytes."""
+    """Whole-word byte pattern for *name*; ``$`` and non-ASCII bytes are word bytes.
+
+    Cached: a rename scans every source once per name, and the earlier
+    per-call compile repeated the same escaped pattern for each file.
+    """
     escaped = re.escape(name.encode("utf-8", errors="surrogateescape"))
     return re.compile(rb"(?<![" + _WORD_BYTES + rb"])" + escaped + rb"(?![" + _WORD_BYTES + rb"])")
 

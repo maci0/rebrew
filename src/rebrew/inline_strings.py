@@ -313,6 +313,9 @@ class _ParsedSource:
 
     data: bytes
     non_code: list[tuple[int, int]] = field(default_factory=list)
+    #: ``non_code`` starts, so each occurrence bisects a plain list of ints
+    #: instead of calling a Python key function for every probe.
+    non_code_starts: list[int] = field(default_factory=list)
     identifiers: dict[str, list[Any]] = field(default_factory=dict)
     occurrence_queries: int = 0
     code_counts: dict[bytes, int] | None = None
@@ -342,7 +345,25 @@ def _parse_source(text: str, prefix: str) -> tuple[Any, _ParsedSource]:
                 parsed.identifiers.setdefault(name, []).append(node)
         stack.extend(node.children)
     parsed.non_code.sort()
+    parsed.non_code_starts = [span[0] for span in parsed.non_code]
     return tree, parsed
+
+
+#: Whole-word patterns by name. A name is checked against every other source,
+#: so the same escaped pattern was rebuilt once per (name, other) pair.
+_WORD_PATTERN_CACHE: dict[bytes, re.Pattern[bytes]] = {}
+_WORD_PATTERN_CACHE_MAX = 1024
+
+
+def _word_pattern(encoded: bytes) -> re.Pattern[bytes]:
+    """Bounded whole-word pattern for *encoded*."""
+    pattern = _WORD_PATTERN_CACHE.get(encoded)
+    if pattern is None:
+        if len(_WORD_PATTERN_CACHE) >= _WORD_PATTERN_CACHE_MAX:
+            _WORD_PATTERN_CACHE.clear()
+        pattern = re.compile(rb"\b" + re.escape(encoded) + rb"\b")
+        _WORD_PATTERN_CACHE[encoded] = pattern
+    return pattern
 
 
 def _code_occurrences(parsed: _ParsedSource, name: str) -> int:
@@ -353,7 +374,7 @@ def _code_occurrences(parsed: _ParsedSource, name: str) -> int:
         if parsed.code_counts is None and parsed.occurrence_queries >= 3:
             counts: dict[bytes, int] = {}
             for match in re.finditer(rb"\b\w+\b", parsed.data):
-                i = bisect_right(parsed.non_code, match.start(), key=lambda span: span[0]) - 1
+                i = bisect_right(parsed.non_code_starts, match.start()) - 1
                 if i < 0 or match.start() >= parsed.non_code[i][1]:
                     token = match.group()
                     counts[token] = counts.get(token, 0) + 1
@@ -361,9 +382,9 @@ def _code_occurrences(parsed: _ParsedSource, name: str) -> int:
         if parsed.code_counts is not None:
             return parsed.code_counts.get(encoded, 0)
     count = 0
-    word = re.compile(rb"\b" + re.escape(encoded) + rb"\b")
+    word = _word_pattern(encoded)
     for m in word.finditer(parsed.data):
-        i = bisect_right(parsed.non_code, m.start(), key=lambda span: span[0]) - 1
+        i = bisect_right(parsed.non_code_starts, m.start()) - 1
         if i < 0 or m.start() >= parsed.non_code[i][1]:
             count += 1
     return count
