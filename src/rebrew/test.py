@@ -107,7 +107,7 @@ _NEAR_MATCHING_BOLD_THRESHOLD = 0.97
 # reuses the other files' facts. `build_name_to_va` itself stays uncached: a
 # failed scan must not become a stored empty map, and a read-only caller must
 # not grow a file in the project.
-_NAME_MAP_CACHE_VERSION = 2
+_NAME_MAP_CACHE_VERSION = 3
 _NAME_MAP_CACHE_MAX = 4
 _NAME_MAP_CACHE_FILENAME = "name_to_va_cache.json"
 _name_map_cache: dict[str, dict[str, int]] = {}
@@ -979,10 +979,12 @@ def _name_map_identity(cfg: ProjectConfig) -> str:
 
 
 def _source_token_map(cfg: ProjectConfig) -> dict[str, list[int] | None]:
-    """Resolved source and header path to ``[mtime_ns, size, ino]``.
+    """Resolved source and header path to ``[mtime_ns, size, ino, ctime_ns]``.
 
     ``None`` means the path could not be stat'ed. That path stays in the
-    cache key and its parse facts are not reused.
+    cache key and its parse facts are not reused. Change time catches an
+    in-place rewrite that restores the old mtime, which the other three
+    fields cannot see.
     """
     from rebrew.sources import iter_sources_and_headers
 
@@ -997,7 +999,7 @@ def _source_token_map(cfg: ProjectConfig) -> dict[str, list[int] | None]:
         except OSError:
             tokens[key] = None
         else:
-            tokens[key] = [st.st_mtime_ns, st.st_size, st.st_ino]
+            tokens[key] = [st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns]
     return tokens
 
 
@@ -1033,7 +1035,7 @@ def _cached_name_map(key: str) -> dict[str, int] | None:
 
 
 def _read_name_map_payload(path: Path) -> dict[str, Any] | None:
-    """Version-2 cache document, or ``None`` when the file is missing or older."""
+    """Current-version cache document, or ``None`` when the file is missing or older."""
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except OSError, UnicodeError, json.JSONDecodeError:

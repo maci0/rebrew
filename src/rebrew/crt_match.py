@@ -356,13 +356,14 @@ def _build_indexes(cfg: ProjectConfig) -> dict[str, list[CrtSourceEntry]]:
     return indexes
 
 
-# Inventory fingerprint → {va: size}.  Keyed by (path, mtime_ns, size, inode),
-# not ``id(cfg)``: a rewritten function_structure.json must not keep serving
-# sizes from the first snapshot (same-ns rewrites and same-size rename-overs
-# included), and a long-lived process that constructs many ProjectConfig
-# objects must not retain one dict per id forever.  Guarded: verify -j N /
-# parallel crt-match callers share this map.
-_canonical_sizes: dict[tuple[str, int, int, int], dict[int, int]] = {}
+# Inventory fingerprint → {va: size}.  Keyed by (path, mtime_ns, size, inode,
+# ctime_ns), not ``id(cfg)``: a rewritten function_structure.json must not keep
+# serving sizes from the first snapshot (same-ns rewrites, same-size
+# rename-overs, and a rewrite that restores the old mtime included), and a
+# long-lived process that constructs many ProjectConfig objects must not retain
+# one dict per id forever.  Guarded: verify -j N / parallel crt-match callers
+# share this map.
+_canonical_sizes: dict[tuple[str, int, int, int, int], dict[int, int]] = {}
 _CANONICAL_SIZES_MAX = 32
 _canonical_sizes_lock = threading.Lock()
 
@@ -381,13 +382,15 @@ def _canonical_size(cfg: ProjectConfig, va: int) -> int:
     mtime_ns = 0
     fsize = 0
     ino = 0
+    ctime_ns = 0
     if path:
         with contextlib.suppress(OSError):
             st = Path(path).stat()
             mtime_ns = st.st_mtime_ns
             fsize = st.st_size
             ino = st.st_ino
-    cache_key = (path, mtime_ns, fsize, ino)
+            ctime_ns = st.st_ctime_ns
+    cache_key = (path, mtime_ns, fsize, ino, ctime_ns)
     with _canonical_sizes_lock:
         sizes = _canonical_sizes.get(cache_key)
     if sizes is None:

@@ -1022,7 +1022,7 @@ _EXTERN_CACHE_MAX = 8
 #: Bump when the parser or the recorded name shape changes.  The per-file
 #: stat only says the source did not change; it says nothing about the code
 #: that produced the names, so a deploy must not reuse older semantics.
-_EXTERN_CACHE_VERSION = 1
+_EXTERN_CACHE_VERSION = 2
 
 
 def _extern_path_key(path: Path) -> str:
@@ -1053,7 +1053,7 @@ def _extern_source_stamp(path: Path) -> list[int] | None:
         stat = path.stat()
     except OSError:
         return None
-    return [stat.st_mtime_ns, stat.st_size, stat.st_ino]
+    return [stat.st_mtime_ns, stat.st_size, stat.st_ino, stat.st_ctime_ns]
 
 
 def _extern_cache_dir(cfg: ProjectConfig) -> Path:
@@ -1068,7 +1068,7 @@ def _extern_entry(raw: object) -> dict[str, Any] | None:
     names = raw.get("names")
     if (
         not isinstance(stamp, list)
-        or len(stamp) != 3
+        or len(stamp) != 4
         or any(type(part) is not int for part in stamp)
         or not isinstance(names, list)
         or any(not isinstance(name, str) for name in names)

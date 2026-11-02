@@ -1741,22 +1741,23 @@ def watch_files(
     def _current_paths() -> list[Path]:
         return path_provider() if path_provider is not None else paths
 
-    def _stat_keys() -> dict[Path, tuple[int, int, int]]:
-        """``(mtime_ns, size, ino)`` per watched path.
+    def _stat_keys() -> dict[Path, tuple[int, int, int, int]]:
+        """``(mtime_ns, size, ino, ctime_ns)`` per watched path.
 
         mtime alone misses an edit that preserves it: ``cp -p``, a
-        ``git checkout`` of a restored file, and a coarse-timestamp
-        filesystem all leave mtime_ns and size equal while the content
-        changes, and the run then never re-tests.  Same triple every
-        stat-keyed memo in the tree carries.
+        ``git checkout`` of a restored file, a coarse-timestamp filesystem,
+        and a rewrite that restores the old mtime all leave mtime_ns, size,
+        and ino equal while the content changes, and the run then never
+        re-tests.  Change time catches the last case; the other three
+        fields catch the rest.
         """
-        out: dict[Path, tuple[int, int, int]] = {}
+        out: dict[Path, tuple[int, int, int, int]] = {}
         for p in _current_paths():
             try:
                 st = p.stat()
             except OSError:
                 continue
-            out[p] = (st.st_mtime_ns, st.st_size, st.st_ino)
+            out[p] = (st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns)
         return out
 
     last = _stat_keys()

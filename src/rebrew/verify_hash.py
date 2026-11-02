@@ -438,7 +438,7 @@ def headers_hash(cfg: ProjectConfig) -> str:
     # with equal-size, equal-mtime header trees hash to the same tuple: the
     # resolved source directory is part of the key or the second root is
     # served the first root's digest.
-    stat_fp: tuple[tuple[str, int, int, int] | str, ...] = (
+    stat_fp: tuple[tuple[str, int, int, int, int] | str, ...] = (
         str(resolved_path(src_dir)),
         *_headers_stat_fingerprint(src_dir),
         ext_digest,
@@ -488,12 +488,12 @@ def headers_hash(cfg: ProjectConfig) -> str:
     return digest
 
 
-# Stat fingerprint of the header tree: (path, mtime_ns, size) per header,
-# plus the external-includes digest as the final element.
+# Stat fingerprint of the header tree: (path, mtime_ns, size, ino, ctime_ns) per
+# header, plus the external-includes digest as the final element.
 # Key for the memoized headers_hash — avoids re-reading every .h when the
 # tree is unchanged across the two calls per verify run.
 # Guarded by :data:`_HEADERS_HASH_CACHE_LOCK` (clear-then-store eviction).
-_HEADERS_HASH_CACHE: dict[tuple[tuple[str, int, int, int] | str, ...], str] = {}
+_HEADERS_HASH_CACHE: dict[tuple[tuple[str, int, int, int, int] | str, ...], str] = {}
 _HEADERS_HASH_CACHE_MAX = 8  # one entry per distinct header-tree state
 
 
@@ -533,28 +533,29 @@ def expected_text_functions(cfg: ProjectConfig) -> dict[str, int]:
     return {name: va for name, (va, _size) in expected_text_function_extents(cfg).items()}
 
 
-def _headers_stat_fingerprint(src_dir: Path) -> tuple[tuple[str, int, int, int], ...]:
-    """Return sorted (rel_path, mtime_ns, size, ino) tuples for all .h files.
+def _headers_stat_fingerprint(src_dir: Path) -> tuple[tuple[str, int, int, int, int], ...]:
+    """Return sorted (rel_path, mtime_ns, size, ino, ctime_ns) tuples for all .h files.
 
     Not memoized: headers can change within a process lifetime (``verify
     --watch`` re-runs in-process; tests mutate headers between calls), and a
     stale fingerprint would serve a stale ``headers_hash``.  The inode is what
     catches a header replaced by a same-size rename-over inside one mtime tick
     (an editor's atomic save, a ``cp -p`` restore, a coarse-timestamp
-    filesystem), which mtime and size alone cannot see.
+    filesystem), which mtime and size alone cannot see; change time catches an
+    in-place rewrite that restores the old mtime.
     """
-    entries: list[tuple[str, int, int, int]] = []
+    entries: list[tuple[str, int, int, int, int]] = []
     for hfile in src_dir.rglob("*.h"):
         try:
             st = hfile.stat()
             rel = hfile.relative_to(src_dir).as_posix()
-            entries.append((rel, st.st_mtime_ns, st.st_size, st.st_ino))
+            entries.append((rel, st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns))
         except OSError:
             # A header that cannot be stat'ed must still change the key, or
             # the memo serves a digest taken while it was unreadable.  -1 is
-            # not a reachable mtime_ns, size, or inode, so the marker cannot
-            # collide with a real entry.
-            entries.append((hfile.as_posix(), -1, -1, -1))
+            # not a reachable mtime_ns, size, inode, or change time, so the
+            # marker cannot collide with a real entry.
+            entries.append((hfile.as_posix(), -1, -1, -1, -1))
     return tuple(sorted(entries))
 
 

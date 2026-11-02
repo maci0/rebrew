@@ -62,16 +62,16 @@ _COLLECT_PAIRS_LOCK = threading.Lock()
 #: grows by one per stub, so a batch over many projects (or a long-lived
 #: process) would otherwise retain all of them until exit.  Eviction is FIFO
 #: on insertion order, matching the other per-path memos in the tree.
-#: The stat fingerprint is ``(mtime_ns, size, inode)``, matching every other
-#: per-path memo in the tree: the inode is what catches a corpus replaced by
-#: rename-over at the same size inside one mtime tick, which mtime and size
-#: alone cannot see.
-_PAIR_KEYS_MEMO: dict[str, tuple[int, int, int, frozenset[str]]] = {}
+#: The stat fingerprint is ``(mtime_ns, size, inode, ctime_ns)``: the inode is
+#: what catches a corpus replaced by rename-over at the same size inside one
+#: mtime tick, and change time catches an in-place rewrite that restores the
+#: old mtime.
+_PAIR_KEYS_MEMO: dict[str, tuple[int, int, int, int, frozenset[str]]] = {}
 _PAIR_KEYS_MEMO_MAX = 8
 _PAIR_KEYS_MEMO_LOCK = threading.Lock()
 
 
-def _memo_pair_keys(key: str, entry: tuple[int, int, int, frozenset[str]]) -> None:
+def _memo_pair_keys(key: str, entry: tuple[int, int, int, int, frozenset[str]]) -> None:
     """Store one corpus-key memo, evicting the oldest path when full."""
     with _PAIR_KEYS_MEMO_LOCK:
         if key not in _PAIR_KEYS_MEMO and len(_PAIR_KEYS_MEMO) >= _PAIR_KEYS_MEMO_MAX:
@@ -845,10 +845,14 @@ class BinaryMatchingGA:
             and memo[0] == st.st_mtime_ns
             and memo[1] == st.st_size
             and memo[2] == st.st_ino
+            and memo[3] == st.st_ctime_ns
         ):
-            return set(memo[3])
+            return set(memo[4])
         keys = _scan_pair_keys(path)
-        _memo_pair_keys(str(path), (st.st_mtime_ns, st.st_size, st.st_ino, frozenset(keys)))
+        _memo_pair_keys(
+            str(path),
+            (st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns, frozenset(keys)),
+        )
         return keys
 
     def _write_pair(self, src: str, obj_bytes: bytes, score: float) -> None:
@@ -920,6 +924,7 @@ class BinaryMatchingGA:
                     st.st_mtime_ns,
                     st.st_size,
                     st.st_ino,
+                    st.st_ctime_ns,
                     frozenset(keys | _scan_pair_keys(path)),
                 ),
             )

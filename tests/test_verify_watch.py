@@ -30,6 +30,27 @@ class TestWatchFiles:
         watch_files([a, b], lambda: calls.append("retest"))
         assert calls == ["retest"]
 
+    def test_retests_on_rewrite_with_restored_mtime(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.utils import watch_files
+
+        a = tmp_path / "a.c"
+        a.write_text("1", encoding="utf-8")
+        old = a.stat()
+        calls: list[str] = []
+
+        def fake_sleep(_seconds: float) -> None:
+            if not calls:
+                a.write_text("2", encoding="utf-8")
+                os.utime(a, ns=(old.st_atime_ns, old.st_mtime_ns))
+            else:
+                raise KeyboardInterrupt
+
+        monkeypatch.setattr("rebrew.utils.time.sleep", fake_sleep)
+        watch_files([a], lambda: calls.append("retest"))
+        assert calls == ["retest"]
+
     def test_no_change_no_retest(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.utils import watch_files
 

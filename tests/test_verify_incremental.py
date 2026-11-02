@@ -1578,6 +1578,25 @@ class TestHeadersHash:
 
         assert hash_v1 != hash_v2
 
+    def test_changes_when_header_rewrite_restores_mtime(self, tmp_path: Path) -> None:
+        """A same-size in-place rewrite that restores mtime still moves the hash."""
+        cfg = _make_cfg(tmp_path)
+        header = cfg.reversed_dir / "types.h"
+        header.write_text("typedef int BOOL;\n", encoding="utf-8")
+        hash_v1 = headers_hash(cfg)
+
+        old = header.stat()
+        header.write_text("typedef int BLOB;\n", encoding="utf-8")
+        os.utime(header, ns=(old.st_atime_ns, old.st_mtime_ns))
+        after = header.stat()
+        assert (after.st_mtime_ns, after.st_size, after.st_ino) == (
+            old.st_mtime_ns,
+            old.st_size,
+            old.st_ino,
+        )
+
+        assert headers_hash(cfg) != hash_v1
+
     def test_stable_across_calls(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
         (cfg.reversed_dir / "types.h").write_text("typedef int BOOL;\n", encoding="utf-8")
@@ -1645,7 +1664,7 @@ class TestHeadersHash:
 
         monkeypatch.setattr(Path, "stat", lambda self: (_ for _ in ()).throw(OSError("boom")))
         during = vh._headers_stat_fingerprint(cfg.reversed_dir)
-        assert during == ((str(cfg.reversed_dir / "types.h"), -1, -1, -1),)
+        assert during == ((str(cfg.reversed_dir / "types.h"), -1, -1, -1, -1),)
 
 
 class TestHeadersHashCacheInvalidation:

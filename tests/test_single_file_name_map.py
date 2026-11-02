@@ -256,6 +256,35 @@ class TestSingleFileNameMap:
         second = _preamble(tmp_path, "caller.c")
         assert second["_helper"] == first["_helper"] == _HELPER_VA
 
+    def test_source_token_map_tracks_restored_mtime_rewrite(self, tmp_path: Path) -> None:
+        """A same-size rewrite that restores mtime is still a new parse input."""
+        from rebrew.config import load_config
+        from rebrew.test import _source_token_map
+
+        _project(tmp_path)
+        cfg = load_config(tmp_path)
+        helper = tmp_path / "src" / "helper.c"
+        key = str(helper.resolve())
+        before = _source_token_map(cfg)[key]
+        assert before is not None
+        old = helper.stat()
+
+        helper.write_text(
+            helper.read_text(encoding="utf-8").replace("helper", "helpeR"), encoding="utf-8"
+        )
+        os.utime(helper, ns=(old.st_atime_ns, old.st_mtime_ns))
+        after = helper.stat()
+        assert (after.st_mtime_ns, after.st_size, after.st_ino) == (
+            old.st_mtime_ns,
+            old.st_size,
+            old.st_ino,
+        )
+
+        rebuilt = _source_token_map(cfg)[key]
+
+        assert rebuilt is not None
+        assert rebuilt != before
+
     def test_metadata_change_rebuilds(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

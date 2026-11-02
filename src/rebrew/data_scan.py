@@ -372,7 +372,7 @@ _NAME_COVER_CACHE_MAX = 8
 #: Bump when the cover rule or the recorded shape changes.  The store
 #: fingerprint only says the metadata did not change; a cache written by older
 #: coverage semantics must not keep a source out of the reloc-name parse.
-_NAME_COVER_VERSION = 1
+_NAME_COVER_VERSION = 2
 
 
 def _path_key(path: Path) -> str:
@@ -387,13 +387,13 @@ def _source_stamp(path: Path) -> list[int] | None:
         stat = path.stat()
     except OSError:
         return None
-    return [stat.st_mtime_ns, stat.st_size, stat.st_ino]
+    return [stat.st_mtime_ns, stat.st_size, stat.st_ino, stat.st_ctime_ns]
 
 
 def _stamp_list(value: object) -> list[int] | None:
     if (
         not isinstance(value, list)
-        or len(value) != 3
+        or len(value) != 4
         or any(type(part) is not int for part in value)
     ):
         return None
@@ -480,7 +480,7 @@ def _flush_name_cover(cover: dict[str, Any]) -> None:
 
 
 # Bump when the recorded fact shape or the parser inputs change.
-_ROLE_FACT_VERSION = 1
+_ROLE_FACT_VERSION = 2
 # Bounded: one entry holds per-file parse facts for every source under one
 # target identity, so `data list --all-targets` must not retain every target's
 # facts until the process exits.
