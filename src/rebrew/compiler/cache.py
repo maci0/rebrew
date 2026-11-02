@@ -18,7 +18,8 @@ Cache location
 Cache key
 ~~~~~~~~~
 SHA-256 of ``(schema_version, source_content, source_filename, source_ext,
-cflags, include_dirs, header_dependencies, toolchain_id)``.  Flags are
+cflags, include_dirs, header_dependencies, toolchain_id, source_dir,
+source_date_epoch)``.  Flags are
 canonicalized first (see :func:`canonicalize_cflags`): order-insensitive
 flag classes and repeats within one option group collapse to one key, while order-sensitive
 input (``/I`` search order, ``/D`` redefinitions, last-wins flag values)
@@ -1243,7 +1244,9 @@ def _header_key_entries(
     stable across runs of one project.  Paths unreachable from any anchor
     fall back to their basename.  Entries are stat'ed fresh (an edit to an
     already-resolved header is picked up within a process); a file that
-    vanished mid-run is skipped, which changes the key and forces a miss.
+    vanished mid-run gets a ``-1`` size/mtime/inode sentinel, so its key
+    differs from both a present and a never-existing file and the compile
+    misses.
     """
     anchors: list[Path] = []
     if source_dir:
@@ -1518,6 +1521,9 @@ def compile_cache_key(
     - **source_ext** — file extension (``.c``, ``.cpp``)
     - **source_dir** — directory of the real source file (quote-include
       search anchor; may be ``None`` when compiling a bare source string)
+    - **source_date_epoch**: read from the environment here, because the
+      validated build epoch is passed into the compiler environment and can
+      change the bytes it emits.
 
     Returns a 64-char hex digest string.
 

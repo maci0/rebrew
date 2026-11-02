@@ -136,9 +136,9 @@ def _inject_from_errors(source: str, errors: str) -> tuple[str, list[str]]:
 
     if not injections:
         return source, []
-    # Prepend the injections after the header comments (keeps the file
-    # readable); a simple prepend at the top is safe for C89.  All pending
-    # injections are emitted.
+    # Prepend the injections at the top of the file; a widened typedef and an
+    # implicit-int prototype are both valid C89 declarations there.  All
+    # pending injections are emitted.
     return "\n".join(injections) + "\n\n" + source, injections
 
 

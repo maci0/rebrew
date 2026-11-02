@@ -194,9 +194,8 @@ class CompareResult:
         delta: Absolute byte difference (mismatch count + size delta).
         obj_bytes: Compiled bytes extracted from the ``.obj`` file, or ``None``
             on compile/extract failure.
-        reloc_offsets: Relocation start offsets (each entry starts a span
-            of the target's pointer width, ``arch_pointer_size`` bytes),
-            or ``None`` on failure.
+        reloc_offsets: Relocation start offsets; the comparison masks the four
+            bytes starting at each offset, or ``None`` on failure.
         inv_reloc_offsets: Invalid/mismatched relocation offsets found during
             comparison (empty list by default).
         full_obj_size: Full compiled ``.obj`` size when ``obj_bytes`` was
@@ -1035,11 +1034,12 @@ def _merged_include_tokens(flags: list[str]) -> Iterator[str]:
     """Yield *flags* with the two-token include form merged.
 
     ``("/I", "../Units")`` becomes ``"/I../Units"``; every other flag passes
-    through unchanged.  A lone trailing ``/I`` stays a separate token.  A bare
-    ``/I`` always consumes the following token: the old ``len(nxt) <= 4``
-    heuristic read ``/opt``, ``/usr``, ``/tmp`` as flags, so a header reached
-    only through ``/I /opt`` was never fingerprinted (a stale cache hit after
-    editing it).
+    through unchanged.  A lone trailing ``/I`` stays a separate token, and a
+    following token starting with ``-`` is another flag rather than a path, so
+    a bare ``/I`` consumes only a path token.  That differs from the old
+    ``len(nxt) <= 4`` heuristic, which read ``/opt``, ``/usr`` and ``/tmp`` as
+    flags, so a header reached only through ``/I /opt`` was never fingerprinted
+    (a stale cache hit after editing it).
     """
     i = 0
     while i < len(flags):

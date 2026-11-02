@@ -368,10 +368,9 @@ def scan_reversed_dir(
     With *inventory_only*, metadata-backed files need no source parsing;
     declaration consumers retain prototype and anchor validation by default.
 
-    When *cfg* is provided, merges each directory's ``rebrew-functions.toml``
-    metadata so that volatile fields (STATUS, CFLAGS, SIZE, BLOCKER, etc.)
-    are visible to catalog tools.  When *cfg* is None, volatile metadata is
-    not loaded.
+    Loads the dedicated function store once: ``cfg.metadata_dir`` when *cfg*
+    is provided, otherwise *reversed_dir* itself.  Its volatile fields (STATUS,
+    CFLAGS, SIZE, BLOCKER, etc.) are then visible to catalog tools.
 
     *scanned* is a :func:`rebrew.sources.scan_files` result for
     *reversed_dir*, so a caller that already walked the tree does not walk it

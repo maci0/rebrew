@@ -9,8 +9,9 @@ hands-rolls a second copy.  The write transaction that serializes a
 read-modify-write over these documents lives in :mod:`rebrew.metadata.locking`,
 behind the storage API in :mod:`rebrew.metadata.storage`.
 
-The pure source schema and :mod:`rebrew.utils` are its only dependencies, so
-both stores and their readers can depend on it without a cycle.
+Its dependencies are the pure source schema, :mod:`rebrew.utils`, and the
+backend selector in :mod:`rebrew.metadata.storage`; storage does not import
+this module, so both stores and their readers can depend on it without a cycle.
 """
 
 import logging
@@ -203,7 +204,8 @@ def load_metadata_doc(
     (``resolved=True``; a whole-tree scan calls this once per source file).
     *cache* is the caller's
     stat-fingerprinted in-memory cache (invalidated by write helpers).  Returns an
-    empty dict only when the file is missing. Invalid or unreadable stores raise.  Pass *known_fields*
+    empty dict for a missing file or a valid store with no entries. Invalid or
+    unreadable stores raise.  Pass *known_fields*
     (the store's closed field set, upper case) to have a hand-edited key that
     no reader understands reported instead of dropped.
 

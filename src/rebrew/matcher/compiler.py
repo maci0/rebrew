@@ -578,10 +578,11 @@ def build_candidate_obj_only(
 ) -> BuildResult:
     """Compile source to .obj and extract symbol bytes (no linking).
 
-    When *cache* is provided, the raw ``.obj`` bytes are cached on disk
-    keyed by ``(source_content, source_filename, cflags, include_dirs,
-    toolchain_id, source_ext)``.  On cache hit only the fast LIEF symbol
-    extraction runs, skipping the docker/compiler startup entirely.
+    When *cache* is provided, the raw ``.obj`` bytes are cached on disk under
+    :func:`rebrew.compiler.cache.compile_cache_key`'s inputs (source,
+    filename, canonicalized flags, include dirs, toolchain identity,
+    extension, source directory and build epoch).  On cache hit only the fast
+    LIEF symbol extraction runs, skipping the docker/compiler startup entirely.
 
     Every image-backed profile (all shipped toolchains, including mingw/
     gcc/clang) routes through the shared ``compile_to_obj`` runner

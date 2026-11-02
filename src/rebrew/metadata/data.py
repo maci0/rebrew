@@ -1015,7 +1015,11 @@ def data_definition_hash(
 def save_data_metadata(
     directory: Path, rows: dict[tuple[str, int], dict[str, Any]], *, expected_hash: str | None
 ) -> None:
-    """Write reviewed complete data rows, preserving their existing verdict evidence."""
+    """Write reviewed complete data rows, replacing the store's row set.
+
+    *rows* must carry every field a row should keep; the existing store is read
+    only to preserve key spellings, so an omitted row or field is dropped.
+    """
 
     from rebrew.metadata.document import build_metadata_doc
 

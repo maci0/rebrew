@@ -389,9 +389,10 @@ METADATA_FIELD_TYPES: dict[str, type | tuple[type, ...]] = {
 }
 """Lower-case TOML key → accepted value type(s) for :func:`update_field`.
 
-Fields absent here accept any value (no single unambiguous type).
-``size`` is strictly int (coerced from hex/decimal strings); ``skip`` accepts
-the truthy spellings the readers understand.
+A key absent here is rejected by :func:`update_field`; the identity fields
+(``file``, ``symbol``, ``name``, ``kind``) are the exception, owned by the
+identity writers instead.  ``size`` is strictly int (coerced from hex/decimal
+strings); ``skip`` accepts the truthy spellings the readers understand.
 """
 
 
