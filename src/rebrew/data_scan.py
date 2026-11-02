@@ -1261,11 +1261,13 @@ def build_source_known_functions(cfg: ProjectConfig, src_dir: Path) -> dict[int,
     from rebrew.utils import rel_display_path
 
     known_functions: dict[int, dict[str, str]] = {}
-    metadata_dir = cfg.metadata_dir
+    metadata_dir = getattr(cfg, "metadata_dir", None)
     target = target_module(cfg)
     project_root = getattr(cfg, "root", None)
     # One read-only load for the walk, as in the other whole-tree scans here.
-    function_entries = load_metadata(metadata_dir, deepcopy=False)
+    function_entries = (
+        load_metadata(metadata_dir, deepcopy=False) if metadata_dir is not None else None
+    )
     for cfile in iter_sources(src_dir, cfg):
         for entry in read_source_bindings(
             cfile,

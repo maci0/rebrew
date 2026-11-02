@@ -327,7 +327,10 @@ def collect_library_annotations(
 
     # One store read for the whole walk: read_source_bindings otherwise
     # re-resolves and re-fingerprints it once per source.
-    function_entries = load_metadata(cfg.metadata_dir, deepcopy=False)
+    metadata_dir = getattr(cfg, "metadata_dir", None)
+    function_entries = (
+        load_metadata(metadata_dir, deepcopy=False) if metadata_dir is not None else None
+    )
     project_root = getattr(cfg, "root", None)
 
     # Library functions live in `library_*.h` headers as well as .c files;
@@ -338,7 +341,7 @@ def collect_library_annotations(
         for ann in read_source_bindings(
             source_path,
             target_name=None,
-            metadata_dir=cfg.metadata_dir,
+            metadata_dir=metadata_dir,
             project_root=project_root,
             function_entries=function_entries,
         ):
@@ -354,10 +357,14 @@ def collect_library_annotations(
 
 def _build_indexes(cfg: ProjectConfig) -> dict[str, list[CrtSourceEntry]]:
     indexes: dict[str, list[CrtSourceEntry]] = {}
-    for module_name, rel_path in cfg.crt_sources.items():
+    crt_sources = getattr(cfg, "crt_sources", None) or {}
+    for module_name, rel_path in crt_sources.items():
         source_dir = Path(rel_path)
         if not source_dir.is_absolute():
-            source_dir = cfg.root / source_dir
+            root = getattr(cfg, "root", None)
+            if root is None:
+                continue
+            source_dir = root / source_dir
         key = preset_module_key(module_name)
         indexes[key] = build_crt_index(source_dir, key)
     return indexes

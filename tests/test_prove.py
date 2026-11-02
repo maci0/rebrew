@@ -1532,7 +1532,7 @@ class TestProveBatchEmptySchema:
             metadata_fields={"GAME.0x00001000": {"kind": "FUNCTION"}},
         )
         shutil.copy(FIXTURES / "mini_pe.exe", tmp_path / "game.exe")
-        write_store_fixture(tmp_path / "rebrew-functions.toml", "")
+        write_store_fixture(tmp_path / "rebrew-functions.toml", "format = 3\n")
         monkeypatch.chdir(tmp_path)
         result = CliRunner().invoke(
             app, ["--all", "--json", "--target", "GAME"], catch_exceptions=False
