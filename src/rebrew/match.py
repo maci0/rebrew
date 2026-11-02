@@ -1068,11 +1068,6 @@ def history(
     execute_search(json_output=json_output, target=target, ga_history=True)
 
 
-# ---------------------------------------------------------------------------
-# Build parameter resolution
-# ---------------------------------------------------------------------------
-
-
 def main_entry() -> None:
     """Run the Typer CLI application."""
     from rebrew.cli import run_cli

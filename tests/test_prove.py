@@ -656,13 +656,11 @@ class TestApplyArgConstraints:
                 "arg10": {"type": "null"},
             },
         )
-        # Smoke test: verifies no crash on edge case input
         assert state.solver.satisfiable()
 
     def test_empty_constraints_noop(self, angr_project: Any) -> None:
         state, args = _fresh_state_args(angr_project)
         _apply_arg_constraints(state, args, {})
-        # Smoke test: verifies no crash on edge case input
         assert state.solver.satisfiable()
 
     def test_unknown_type_ignored(self, angr_project: Any) -> None:
@@ -674,7 +672,6 @@ class TestApplyArgConstraints:
                 "arg0": {"type": "bogus_type"},
             },
         )
-        # Smoke test: verifies no crash on edge case input
         assert state.solver.satisfiable()
 
     def test_pointer_with_handle_field(self, angr_project: Any) -> None:

@@ -1576,8 +1576,6 @@ class TestNegateCondition:
 # MSVC6-targeted structural mutations (2026-03 batch)
 # -------------------------------------------------------------------------
 
-# (imports moved to top of file)
-
 
 class TestWhileToGotoLoop:
     def test_basic(self) -> None:
@@ -1919,9 +1917,6 @@ class TestSwitchBreakToReturn:
         assert mut_switch_break_to_return(no_break, _rng()) is None
 
 
-# (imports moved to top of file)
-
-
 class TestSplitAndCondition:
     def test_basic(self) -> None:
         src = "if (a && b) {\n    x = 1;\n}"
@@ -1970,9 +1965,6 @@ class TestLoopConditionExtraction:
         assert res is not None
         assert "while (1) {" in res
         assert "if (!(a < b)) break;" in res
-
-
-# (imports moved to top of file)
 
 
 class TestExtractArgsToTemps:
