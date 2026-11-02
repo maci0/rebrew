@@ -154,7 +154,6 @@ def mut_inject_dummy_var(s: str, rng: random.Random) -> str | None:
     if dummy_name in b_source:
         return None
 
-    # Insert after opening brace
     insert_pos = body_node.start_byte + 1
     decl = b"\n    int " + dummy_name + b";"
     result = b_source[:insert_pos] + decl + b_source[insert_pos:]
@@ -754,7 +753,6 @@ def mut_split_switch(s: str, rng: random.Random) -> str | None:
     if pivot_val is None:
         return None
 
-    # Build two switches
     left_body = b"\n    ".join(b_source[c.start_byte : c.end_byte] for c in left_cases)
     right_body = b"\n    ".join(b_source[c.start_byte : c.end_byte] for c in right_cases)
 

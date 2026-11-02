@@ -590,7 +590,6 @@ def mut_extract_complex_args(s: str, rng: random.Random) -> str | None:
         caps = _first_caps(m[1])
         call_node = caps["stmt"]
         arg_node = caps["arg"]
-        # Only extract if not trivially simple
         arg_text = b_source[arg_node.start_byte : arg_node.end_byte]
         if len(arg_text) > 6:  # skip trivial like "a + 1"
             candidates.append((call_node, arg_node, arg_text))
@@ -604,8 +603,8 @@ def mut_extract_complex_args(s: str, rng: random.Random) -> str | None:
     # inserted BEFORE the enclosing statement — splicing at the call start
     # turns `return g(a, h(b, c));` into `return _t = h(b, c); g(a, _t);`,
     # changing the return value and killing the outer call.  Only expression
-    # and return statements are handled (same shapes the older
-    # the older extract-args mutator supported); everything else is skipped.
+    # and return statements are handled (same shapes the older extract-args
+    # mutator supported); everything else is skipped.
     stmt = call_node
     while stmt.parent is not None:
         parent = stmt.parent
@@ -631,9 +630,7 @@ def mut_extract_complex_args(s: str, rng: random.Random) -> str | None:
     hoisted_decl = b"\n    int " + var_name + b";"
     inline_assign = var_name + b" = " + extract_text + b";\n    "
 
-    # Insert hoisted decl at function body top
     out = b_source[:insert_pos] + hoisted_decl + b_source[insert_pos:]
-    # Adjust offsets by the hoisted decl length
     offset = len(hoisted_decl)
     s_start = stmt.start_byte + offset
     s_end = stmt.end_byte + offset
@@ -694,7 +691,6 @@ def mut_hoist_repeated_deref(s: str, rng: random.Random) -> str | None:
     new_body = body_bytes
     for m in reversed(ms):
         new_body = new_body[: m.start()] + local_name.encode() + new_body[m.end() :]
-    # Insert the declaration right after the opening '{'.
     insert_at = new_body.find(b"{") + 1
     if insert_at <= 0:
         return None

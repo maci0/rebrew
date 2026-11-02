@@ -229,11 +229,9 @@ def mut_extract_condition_to_var(s: str, rng: random.Random) -> str | None:
     hoisted_decl = b"\n    int " + var_name + b";"
     inline_assign = var_name + b" = (" + cond_str + b");\n    "
 
-    # Insert hoisted declaration
     out = b_source[:insert_pos] + hoisted_decl + b_source[insert_pos:]
     offset = len(hoisted_decl)
 
-    # Adjust byte positions for the insertion
     stmt_start = stmt.start_byte + offset
     stmt_end = stmt.end_byte + offset
     bin_start = bin_node.start_byte + offset
@@ -440,7 +438,6 @@ def mut_memcpy_to_loop(s: str, rng: random.Random) -> str | None:
         + b"];"
     )
 
-    # Insert hoisted decl
     out = b_source[:insert_pos] + hoisted_decl + b_source[insert_pos:]
     offset = len(hoisted_decl)
 
@@ -704,7 +701,6 @@ def mut_add_loop_break(s: str, rng: random.Random) -> str | None:
     if children and children[-1].type == "break_statement":
         return None
 
-    # Insert before the closing brace
     close_brace = body.end_byte - 1
     indent = b"\n    "
     result = b_source[:close_brace] + indent + b"break;" + indent[:-4] + b_source[close_brace:]
@@ -957,7 +953,6 @@ def mut_hoist_common_tail(s: str, rng: random.Random) -> str | None:
         result = result[:adjusted_start] + result[adjusted_end:]
         adj_stmt_end = stmt.end_byte - else_removed - (adjusted_end - adjusted_start)
 
-    # Insert the common statement after the if/else
     result = result[:adj_stmt_end] + b"\n    " + common_text + result[adj_stmt_end:]
     return decode_source(result)
 
