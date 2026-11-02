@@ -208,7 +208,7 @@ def resolve_archive(library: str, target: str | None, *, json_mode: bool) -> Pat
     cached under ``.scratch/``, extracted from the toolchain image when absent.
     """
     from rebrew.compiler.toolchain import ToolchainError
-    from rebrew.lib_match import ensure_stock_lib
+    from rebrew.lib_match import ensure_stock_lib, stock_lib_valid
 
     given = Path(library)
     if given.is_file():
@@ -236,13 +236,14 @@ def resolve_archive(library: str, target: str | None, *, json_mode: bool) -> Pat
         return path
     for name in (spec, spec.upper()):
         cached = stock_lib_cache(cfg.root, name, cfg.compiler_profile)
-        if cached.is_file():
+        if stock_lib_valid(cached):
             return cached
     cached = stock_lib_cache(cfg.root, spec, cfg.compiler_profile)
     try:
         if not ensure_stock_lib(cached, profile=cfg.compiler_profile, name=spec):
             error_exit(
-                f"{spec} is not cached and {container_runtime()} is not available to extract it",
+                f"{spec} is not cached intact and {container_runtime()} "
+                "is not available to extract it",
                 json_mode=json_mode,
             )
     except ToolchainError as exc:

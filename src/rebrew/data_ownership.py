@@ -161,7 +161,7 @@ def ownership_inputs(cfg: ProjectConfig) -> set[Path]:
 
 def cached_data_archives(cfg: ProjectConfig) -> dict[str, Path]:
     """Configured archives already on disk; never extract or pull during a scan."""
-    from rebrew.formats.archives import stock_lib_cache
+    from rebrew.formats.archives import stock_lib_cache, stock_lib_valid
 
     archives: dict[str, Path] = {}
     ambiguous: set[str] = set()
@@ -172,12 +172,15 @@ def cached_data_archives(cfg: ProjectConfig) -> dict[str, Path]:
             path = Path(spec.replace("\\", "/"))
             if not path.is_absolute():
                 path = cfg.root / path
+            valid = path.is_file()
         else:
             path = stock_lib_cache(cfg.root, spec, cfg.compiler_profile)
-            if not path.is_file():
+            valid = stock_lib_valid(path)
+            if not valid:
                 # Stock-lib CLI calls commonly use .LIB while config uses .lib.
                 path = stock_lib_cache(cfg.root, spec.upper(), cfg.compiler_profile)
-        if path.is_file():
+                valid = stock_lib_valid(path)
+        if valid:
             key = _library_key(spec)
             if key in ambiguous:
                 continue

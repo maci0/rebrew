@@ -64,10 +64,55 @@ def stock_lib_cache(root: Path, name: str, profile: str) -> Path:
     The profile is part of the path because the archive's bytes come out of
     that toolchain's image, and nothing downstream can tell one image's
     ``LIBCMT.LIB`` from another's: a path keyed on the name alone kept the
-    first profile's extraction forever (``ensure_stock_lib`` accepts any
-    existing file), so a later profile read the wrong archive — ``todo``
-    filtered its work list against another toolchain's library code, and
-    ``assert_library_is_stock`` compared the image's copy against a file from
-    a different image.
+    first profile's extraction forever, so a later profile read the wrong
+    archive — ``todo`` filtered its work list against another toolchain's
+    library code, and ``assert_library_is_stock`` compared the image's copy
+    against a file from a different image.
     """
     return root / ".scratch" / f"{profile}_{Path(name).stem.lower()}_stock{Path(name).suffix}"
+
+
+def stock_lib_valid(path: Path) -> bool:
+    """True when *path* is a structurally complete ``ar`` archive.
+
+    A cached extraction is reused by every later run, so a copy interrupted
+    mid-transfer, a truncated file, or a hand-edited archive must not be
+    treated as the toolchain's library: indexing a short archive drops the
+    members that identify library code, and those functions are then
+    recommended as game code.  Walk the member headers without reading the
+    members and reject a file that ends inside one.
+    """
+    try:
+        file_size = path.stat().st_size
+        with path.open("rb") as stream:
+            if stream.read(8) != b"!<arch>\n":
+                return False
+            position = 8
+            members = 0
+            while position < file_size:
+                if position % 2:
+                    position += 1
+                if position >= file_size:
+                    # The final member had odd length; ar pads it with one
+                    # byte, which is alignment rather than another header.
+                    break
+                if position + 60 > file_size:
+                    return False
+                stream.seek(position)
+                header = stream.read(60)
+                if len(header) != 60:
+                    return False
+                try:
+                    member_size = int(header[48:58].strip())
+                except ValueError:
+                    return False
+                if member_size < 0:
+                    return False
+                position += 60
+                if position + member_size > file_size:
+                    return False
+                position += member_size
+                members += 1
+            return members > 0 or file_size == 8
+    except OSError:
+        return False

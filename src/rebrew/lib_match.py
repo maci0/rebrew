@@ -68,6 +68,7 @@ from rebrew.cli import (
 )
 lazy from rebrew.config import target_module
 lazy from rebrew.formats.archives import stock_lib_cache as stock_lib_cache
+lazy from rebrew.formats.archives import stock_lib_valid as stock_lib_valid
 lazy from rebrew.formats.binary_loader import extract_raw_bytes
 lazy from rebrew.formats.coff import load_coff
 lazy from rebrew.gen_flirt_pat import parse_archive, parse_coff_aliases, parse_coff_obj
@@ -526,6 +527,13 @@ def stock_lib_dir(profile: str, name: str) -> tuple[str, str]:
 def ensure_stock_lib(dest: Path, *, profile: str, name: str) -> bool:
     """Extract *name* from the profile's image into *dest* when it is absent.
 
+    An existing file is reused only when :func:`stock_lib_valid` can walk it
+    as a complete archive: a copy interrupted mid-transfer used to leave a
+    partial file that every later run accepted, indexing a short library and
+    recommending its functions as game code.  A fresh extraction is staged
+    beside *dest* and renamed over it, so a killed copy never becomes the
+    cached archive in the first place.
+
     Returns False when the container runtime is unavailable, which is how a
     machine without it skips the check instead of failing the gate.  A copy
     that fails with the runtime present is an error rather than a skip: it
@@ -533,7 +541,7 @@ def ensure_stock_lib(dest: Path, *, profile: str, name: str) -> bool:
     """
     from rebrew.compiler.toolchain import ToolchainError, bind_mount, runtime_on_path
 
-    if dest.is_file():
+    if stock_lib_valid(dest):
         return True
     runtime = container_runtime()
     if not runtime_on_path():
@@ -543,6 +551,7 @@ def ensure_stock_lib(dest: Path, *, profile: str, name: str) -> bool:
     from rebrew.compiler.toolchain import kill_container
 
     container = f"rebrew-libext-{uuid.uuid4().hex[:12]}"
+    staging = dest.parent / f".{dest.name}.{uuid.uuid4().hex}.part"
     try:
         result = subprocess.run(
             [
@@ -563,7 +572,7 @@ def ensure_stock_lib(dest: Path, *, profile: str, name: str) -> bool:
                 "sh",
                 lib_dir,
                 name,
-                dest.name,
+                staging.name,
             ],
             capture_output=True,
             text=True,
@@ -573,15 +582,24 @@ def ensure_stock_lib(dest: Path, *, profile: str, name: str) -> bool:
         )
     except subprocess.TimeoutExpired as exc:
         kill_container(container)
+        staging.unlink(missing_ok=True)
         raise ToolchainError(f"extracting {name} from {image} timed out") from exc
     except BaseException:
         # Ctrl+C kills the docker CLI but leaves the container running.
         kill_container(container)
+        staging.unlink(missing_ok=True)
         raise
-    if result.returncode != 0 or not dest.is_file():
+    if result.returncode != 0 or not stock_lib_valid(staging):
+        staging.unlink(missing_ok=True)
         raise ToolchainError(
-            f"cannot extract {name} from {image}: {result.stderr.strip() or 'no copy was written'}"
+            f"cannot extract {name} from {image}: "
+            f"{result.stderr.strip() or 'no complete archive was written'}"
         )
+    try:
+        staging.replace(dest)
+    except OSError as exc:
+        staging.unlink(missing_ok=True)
+        raise ToolchainError(f"cannot publish {name} to {dest}: {exc}") from exc
     return True
 
 

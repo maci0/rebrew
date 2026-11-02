@@ -910,7 +910,7 @@ class TestCollectors:
         """Linked library code no header attributes yet is not skipped silently
         (status counts it as unstarted): it becomes an identify-library action."""
         cached = tmp_path / "libcmt.lib"
-        cached.write_bytes(b"")
+        cached.write_bytes(b"!<arch>\n")
         monkeypatch.setattr("rebrew.lib_match.stock_lib_cache", lambda root, name, profile: cached)
         monkeypatch.setattr("rebrew.lib_match.index_library", lambda path: {})
         candidates = [("_strncnt", "strncnt.obj")]

@@ -688,7 +688,9 @@ class TestStockLib:
 
         def fake_run(argv: list[str], **kwargs: object) -> SimpleNamespace:
             seen.append(list(argv))
-            dest.write_bytes(b"STOCK")
+            # The container copies to a staging name beside the destination;
+            # the host renames it into place only after a complete archive.
+            (dest.parent / argv[-1]).write_bytes(b"!<arch>\n")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         monkeypatch.setattr(lm.subprocess, "run", fake_run)
@@ -702,6 +704,48 @@ class TestStockLib:
         # still names one absolute host path (docker reads a relative -v source
         # against the daemon's cwd, not rebrew's).
         assert f"{dest.parent.resolve()}:/out" in argv
+
+    def test_ensure_stock_lib_replaces_a_partial_cached_archive(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A copy killed mid-transfer must not be reused as the toolchain library."""
+        import rebrew.lib_match as lm
+
+        self._runtime(monkeypatch)
+        dest = tmp_path / ".scratch" / "libcmt_stock.LIB"
+        dest.parent.mkdir()
+        dest.write_bytes(b"!<arch>\npartial")
+        complete = b"!<arch>\n"
+
+        def fake_run(argv: list[str], **kwargs: object) -> SimpleNamespace:
+            (dest.parent / argv[-1]).write_bytes(complete)
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr(lm.subprocess, "run", fake_run)
+        assert lm.ensure_stock_lib(dest, profile="msvc-6.0-sp6", name="LIBCMT.LIB") is True
+        assert dest.read_bytes() == complete
+        assert lm.stock_lib_valid(dest) is True
+
+    def test_ensure_stock_lib_rejects_a_truncated_extraction(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A member that ends past EOF is not published as the cached archive."""
+        import rebrew.lib_match as lm
+        from rebrew.compiler.toolchain import ToolchainError
+
+        self._runtime(monkeypatch)
+        dest = tmp_path / ".scratch" / "libcmt_stock.LIB"
+
+        def fake_run(argv: list[str], **kwargs: object) -> SimpleNamespace:
+            header = b"member/".ljust(16) + b"0".ljust(12) + b"0".ljust(6) + b"0".ljust(6)
+            header += b"644".ljust(8) + b"100".ljust(10) + b"`\n"
+            (dest.parent / argv[-1]).write_bytes(b"!<arch>\n" + header)
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr(lm.subprocess, "run", fake_run)
+        with pytest.raises(ToolchainError, match="complete archive"):
+            lm.ensure_stock_lib(dest, profile="msvc-6.0-sp6", name="LIBCMT.LIB")
+        assert not dest.exists()
 
     def test_assert_library_is_stock_runs_offline_read_only(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

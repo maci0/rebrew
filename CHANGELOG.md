@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Reject an incomplete cached stock archive and publish fresh extractions atomically, so an interrupted copy cannot make library functions look like game code.
 - Speed up status, todo and report scans by reusing the batch's metadata rows for source files without stored rows, instead of reloading the stores once per file.
 - Speed up project lint by reusing source bindings for duplicate-global checks and resolving retired source paths once per batch; detect metadata-only duplicate globals in nested source directories.
 - Reuse fingerprinted metadata parses, declaration inventories and path resolution while preserving validation and isolated results.

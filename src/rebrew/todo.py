@@ -826,14 +826,14 @@ def _collect_new_functions(
     # were LIBCMT (`_ftell`, `_strncnt`, `___ld12mul`).  Reuse lib_match's own
     # index so `todo` and `lib-match` cannot disagree.
     _lib_index = None
-    from rebrew.lib_match import index_library, stock_lib_cache
+    from rebrew.lib_match import index_library, stock_lib_cache, stock_lib_valid
 
     # Only this project's profile: the archive is another toolchain's code, so
     # indexing one extracted for a different profile would filter this list
     # against library bodies the build never links.
     _profile = str(getattr(cfg, "compiler_profile", "") or "")
     _cached = stock_lib_cache(cfg.root, "LIBCMT.LIB", _profile) if _profile else None
-    if _cached is not None and _cached.exists():
+    if _cached is not None and stock_lib_valid(_cached):
         try:
             _lib_index = index_library(_cached)
         except Exception as exc:  # any archive parse failure; the filter is advisory
@@ -841,6 +841,11 @@ def _collect_new_functions(
                 f"[yellow]WARNING: cannot index {_cached} ({exc}); "
                 "library functions are not filtered from the list[/yellow]"
             )
+    elif _cached is not None and _cached.exists():
+        console.print(
+            f"[yellow]WARNING: ignoring incomplete stock archive {_cached}; "
+            "run `rebrew library match --stock-lib LIBCMT.LIB` to refresh it[/yellow]"
+        )
 
     _lib_probe_warned = False
 
