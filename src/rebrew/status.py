@@ -10,6 +10,7 @@ Usage::
     rebrew status --target client_exe     Status for a specific target
 """
 
+import functools
 import logging
 from dataclasses import dataclass, field
 lazy import bisect
@@ -1249,6 +1250,37 @@ def data_byte_coverage(
     return merged_span_bytes(clipped), total
 
 
+@functools.lru_cache(maxsize=8)
+def _pe_directory_entries(
+    resolved: str,
+    inode: int,
+    size: int,
+    mtime_ns: int,
+    ctime_ns: int,
+) -> tuple[tuple[str, int, int], ...]:
+    """``(kind, rva, size)`` for every PE data directory, parsed once per image.
+
+    One ``status`` run asks for the IAT and the import directory from two
+    helpers; a fresh ``lief.PE.parse`` per lookup re-reads and re-decodes the
+    same headers four times.  The identity key mirrors ``load_binary``: a
+    rebuilt image changes size, mtime, ctime, or inode and reparses.
+    """
+    entries: list[tuple[str, int, int]] = []
+    try:
+        import lief
+
+        pe = lief.PE.parse(resolved)
+        if pe is None:
+            return ()
+        for directory in as_list(pe, "data_directories"):
+            rva = int(getattr(directory, "rva", 0) or 0)
+            size = int(getattr(directory, "size", 0) or 0)
+            entries.append((str(getattr(directory, "type", "")), rva, size))
+    except OSError, ValueError, RuntimeError:
+        return ()
+    return tuple(entries)
+
+
 def _pe_data_directory(path: Path, name: str, image_base: int) -> tuple[int, int]:
     """``(va, size)`` of the PE data directory *name*, or ``(0, 0)``.
 
@@ -1258,19 +1290,15 @@ def _pe_data_directory(path: Path, name: str, image_base: int) -> tuple[int, int
     address to cut, and ``(0, 0)`` is the only value that says "absent".
     """
     try:
-        import lief
-
-        pe = lief.PE.parse(str(path))
-        if pe is None:
-            return 0, 0
-        for directory in as_list(pe, "data_directories"):
-            if not str(getattr(directory, "type", "")).endswith(name):
-                continue
-            rva = int(getattr(directory, "rva", 0) or 0)
-            size = int(getattr(directory, "size", 0) or 0)
-            return (image_base + rva, size) if rva and size else (0, 0)
-    except OSError, ValueError, RuntimeError:
+        stat = path.stat()
+    except OSError:
         return 0, 0
+    for kind, rva, size in _pe_directory_entries(
+        str(path.resolve()), stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns
+    ):
+        if not kind.endswith(name):
+            continue
+        return (image_base + rva, size) if rva and size else (0, 0)
     return 0, 0
 
 

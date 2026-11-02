@@ -1213,12 +1213,19 @@ def _caller_counts(
     return counts
 
 
-def _collect_data_drift(cfg: ProjectConfig) -> list[TodoItem]:
+def _collect_data_drift(
+    cfg: ProjectConfig,
+    data_entries: dict[tuple[str, int], dict[str, Any]] | None = None,
+) -> list[TodoItem]:
     """Collect data symbols whose built bytes drift from the reference.
 
     Reads rebrew-data.toml STATUS verdicts written by ``verify --data``.
     Data VAs live in a separate address space from function VAs in practice
     (.data/.rdata vs .text), so no dedup against function items is needed.
+
+    *data_entries* is the shared read-only table from
+    :func:`rebrew.metadata.data.load_data_metadata`; the caller that also
+    collects start-data loads it once for both lanes.
     """
     from rebrew.data_layout import data_symbol_size
     from rebrew.metadata.data import load_data_metadata, module_visible_to_target
@@ -1226,7 +1233,9 @@ def _collect_data_drift(cfg: ProjectConfig) -> list[TodoItem]:
 
     items: list[TodoItem] = []
     copied = postlink_copied_ranges(cfg)
-    for (module, va), fields in load_data_metadata(cfg.metadata_dir).items():
+    if data_entries is None:
+        data_entries = load_data_metadata(cfg.metadata_dir, deepcopy=False)
+    for (module, va), fields in data_entries.items():
         if not module_visible_to_target(module, cfg):
             continue
         verdict = str(fields.get("status") or "").upper()
@@ -1302,7 +1311,10 @@ def _zero_fill_tail_checker(cfg: ProjectConfig) -> Callable[[dict[str, Any]], bo
     return in_tail
 
 
-def _collect_start_data(cfg: ProjectConfig) -> list[TodoItem]:
+def _collect_start_data(
+    cfg: ProjectConfig,
+    data_entries: dict[tuple[str, int], dict[str, Any]] | None = None,
+) -> list[TodoItem]:
     """Collect data symbols never verified (STATUS UNCHECKED or absent).
 
     The data-side "undone work" lane: same file already read for drift, so
@@ -1338,7 +1350,9 @@ def _collect_start_data(cfg: ProjectConfig) -> list[TodoItem]:
 
     in_zero_fill_tail = _zero_fill_tail_checker(cfg)
     items: list[TodoItem] = []
-    for (module, va), fields in load_data_metadata(cfg.metadata_dir).items():
+    if data_entries is None:
+        data_entries = load_data_metadata(cfg.metadata_dir, deepcopy=False)
+    for (module, va), fields in data_entries.items():
         # One metadata file serves every target in a unified tree, so a row's
         # module decides whether THIS target still owes work.  Without the
         # filter the server's todo listed 20 GOLDTL data symbols (0x6624a0,
@@ -1599,8 +1613,12 @@ def collect_all(
     )
     items.extend(_collect_library_candidates(ghidra_funcs, existing, cfg))
     items.extend(_collect_postlink_rewritten(cfg, existing, size_by_va))
-    items.extend(_collect_data_drift(cfg))
-    items.extend(_collect_start_data(cfg))
+    # Both data lanes read the same store; one read-only load serves them.
+    from rebrew.metadata.data import load_data_metadata
+
+    data_entries = load_data_metadata(cfg.metadata_dir, deepcopy=False)
+    items.extend(_collect_data_drift(cfg, data_entries))
+    items.extend(_collect_start_data(cfg, data_entries))
 
     # Library rows are never actions (see the docstring): drop them before
     # ranking so they cannot displace real work.

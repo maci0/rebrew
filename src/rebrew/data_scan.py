@@ -1005,7 +1005,9 @@ def scan_globals(
     metadata_dir = getattr(cfg, "metadata_dir", None) or src_dir
     from rebrew.metadata.data import load_data_metadata
 
-    data_entries = load_data_metadata(metadata_dir)
+    # Read-only for the whole walk: the scan merges rows into its own result,
+    # so cloning the complete store once per call is wasted work.
+    data_entries = load_data_metadata(metadata_dir, deepcopy=False)
     function_entries = load_metadata(metadata_dir, deepcopy=False) if metadata_dir else {}
     from rebrew.metadata.binding_history import historical_source_files
     from rebrew.workspace.config import walk_up_to_root

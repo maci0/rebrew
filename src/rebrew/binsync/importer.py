@@ -268,16 +268,21 @@ def rename_global(cfg: Any, module: str, va: int, old_name: str, new_name: str) 
     return None
 
 
-def _apply_global_fields(
+def _global_fields_update(
     metadata_dir: Path,
     va: int,
     module: str,
     fields: dict[str, Any],
     *,
     origin: dict[str, str] | None = None,
-) -> None:
-    """Write accepted BinSync global *fields* (and their origins) into rebrew-data.toml."""
-    from rebrew.metadata.data import get_data_entry, set_data_fields_batch
+) -> dict[str, Any] | None:
+    """Accepted BinSync global *fields* (and origins) as one batched store update.
+
+    Returns ``None`` when the store already holds every accepted value.  The
+    caller collects the updates so one pull performs one read-modify-write of
+    ``rebrew-data.toml`` instead of one per global.
+    """
+    from rebrew.metadata.data import get_data_entry
 
     entry = get_data_entry(metadata_dir, va, module)
     writes = {k: v for k, v in fields.items() if entry.get(k) != v}
@@ -287,11 +292,9 @@ def _apply_global_fields(
             origins[field] = {**origin, "value_hash": sync_value_hash(field, value, kind="global")}
         if origins != entry.get("origins"):
             writes["origins"] = origins
-    if writes:
-        set_data_fields_batch(
-            metadata_dir,
-            [{"module": module, "va": va, "fields": writes, "updated_by": "binsync-import"}],
-        )
+    if not writes:
+        return None
+    return {"module": module, "va": va, "fields": writes, "updated_by": "binsync-import"}
 
 
 def strip_cdecl_prefix(name: str) -> str:
@@ -662,6 +665,7 @@ def import_state(
         peer=peer,
     )
     function_fields: dict[tuple[str, int], dict[str, Any]] = {}
+    global_updates: list[dict[str, Any]] = []
     origin = sync_origin(state_dir)
     aliases = type_aliases(cfg)
     settled_prototypes: set[int] = set()
@@ -1112,7 +1116,9 @@ def import_state(
                 )
                 continue
         try:
-            _apply_global_fields(cfg.metadata_dir, va, mod, changes, origin=origin)
+            global_update = _global_fields_update(cfg.metadata_dir, va, mod, changes, origin=origin)
+            if global_update is not None:
+                global_updates.append(global_update)
             applied_globals += 1
             touched_vas.append(va)
         except Exception:
@@ -1314,8 +1320,10 @@ def import_state(
                 skipped += 1
 
     if not dry_run:
+        from rebrew.metadata.data import set_data_fields_batch
         from rebrew.metadata.functions import set_fields_batch
 
+        set_data_fields_batch(cfg.metadata_dir, global_updates)
         set_fields_batch(
             cfg.metadata_dir,
             [
