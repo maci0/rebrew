@@ -457,8 +457,8 @@ Three changes account for the targeted reductions:
 - Data anchors use indexed single-entry lookups instead of copying every
   unrelated data row for every source file.
 - Source-purpose and assembly views share an immutable, bounded cache keyed by
-  resolved path, modification nanoseconds, size and inode. Comment validation
-  prunes function bodies whose comments it already ignores.
+  resolved path, modification and change times, size and inode. Comment
+  validation prunes function bodies whose comments it already ignores.
 
 CPU time excludes descheduling and blocked I/O, **not** CPU-frequency changes,
 shared-cache pressure, memory bandwidth or thermal effects. In a controlled

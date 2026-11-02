@@ -449,8 +449,9 @@ _LOAD_BINARY_CACHE_MAX = 16
 _load_binary_lock = threading.Lock()
 
 # Bounded memo for :func:`iat_slot_vas` (IAT slot VAs).  Keyed on
-# ``resolved:mtime_ns:size:ino`` so a rebuilt binary at the same path is
-# re-scanned, including a same-size rename-over in one mtime tick.
+# ``resolved:mtime_ns:ctime_ns:size:ino`` so a rebuilt binary at the same path
+# is re-scanned, including a same-size rename-over in one mtime tick and an
+# in-place rewrite that restores the old mtime.
 # Same lock/bounded-dict discipline as ``_load_binary_cache``
 # so tests can clear it when they rewrite a fixture.
 _iat_slot_cache: dict[str, frozenset[int]] = {}
@@ -494,9 +495,9 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
 
     Note:
         The returned ``BinaryInfo`` is shared: a cache hit (same resolved
-        path, format, mtime, size, and inode) hands back the identical
-        object, so a change one caller makes in place is visible to every
-        other holder.  A rebuilt binary re-parses on its own.
+        path, format, mtime, change time, size, and inode) hands back the
+        identical object, so a change one caller makes in place is visible to
+        every other holder.  A rebuilt binary re-parses on its own.
 
     """
     path = Path(path)
@@ -508,9 +509,10 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
         raise FileNotFoundError(f"Binary not found: {path}")
 
     # Bounded cache keyed on resolved path + format to avoid re-parsing.
-    # mtime, size, and inode invalidate a rebuilt binary.  Size catches a
-    # same-ns rewrite that grew or shrank; inode catches a same-size
-    # rename-over that lands in the same mtime tick.
+    # mtime, change time, size, and inode invalidate a rebuilt binary.  Size
+    # catches a same-ns rewrite that grew or shrank; inode catches a same-size
+    # rename-over that lands in the same mtime tick; change time catches an
+    # in-place rewrite that restores the old mtime.
     resolved = str(path.resolve())
     cache_key = (resolved, fmt)
     try:
@@ -588,7 +590,7 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
     # the cache tagging below (mypy cannot see through the bare `raise`).
     assert result is not None
 
-    # Tag with mtime, size, and inode for the stale-check on next lookup.
+    # Tag with mtime, change time, size, and inode for the stale-check on next lookup.
     result._cache_mtime_ns = mtime_ns
     result._cache_ctime_ns = ctime_ns
     result._cache_fsize = fsize
@@ -1042,11 +1044,12 @@ def iat_slot_vas(binary_path: Path | str) -> frozenset[int]:
     The memo hands back its stored ``frozenset`` unshared, so the per-call
     cost of a hit is one dict lookup plus an LRU reorder.
 
-    Memoized per ``(resolved path, mtime_ns, size)`` (bounded dict + lock,
-    mirroring ``_load_binary_cache``): ``compile_and_compare`` calls this
-    once per function (via :func:`rebrew.coff_reloc.build_iat_region`) even on compile-cache
-    hits, so a full verify/test batch re-parsed the *same PE* N times
-    (0.05-0.3s each).  A rebuild at the same path invalidates via mtime/size.
+    Memoized per ``(resolved path, mtime_ns, change time, size, inode)``
+    (bounded dict + lock, mirroring ``_load_binary_cache``):
+    ``compile_and_compare`` calls this once per function (via
+    :func:`rebrew.coff_reloc.build_iat_region`) even on compile-cache hits, so
+    a full verify/test batch re-parsed the *same PE* N times (0.05-0.3s each).
+    A rebuild at the same path invalidates via any changed stat field.
     """
     path = Path(binary_path)
     if not path.exists():

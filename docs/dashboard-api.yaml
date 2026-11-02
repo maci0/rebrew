@@ -1288,7 +1288,8 @@ components:
         Validator for this exact representation.  `/` and the two scripts
         carry a strong content hash; the JSON routes carry a weak tag over the
         live coverage input version (or, in portable mode, every coverage
-        document's name, mtime, size and inode) and the request's path and
+        document's name, mtime, change time, size and inode) and the request's
+        path and
         query, so a validator held for one route, target, or filter never
         stands for another, and a coverage rebuild of any target moves it.
         Absent on `/api/health`.

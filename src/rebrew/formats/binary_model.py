@@ -105,6 +105,8 @@ class BinaryInfo:
     # a same-size rename-over (``atomic_write_bytes``, ``cp -p`` + ``mv``)
     # in one mtime tick changes the inode and not the size, and mtime+size
     # alone would keep serving the previous image's section map and bytes.
+    # Change time catches an in-place rewrite that restores the old mtime and
+    # keeps the inode.
     _cache_mtime_ns: int = field(default=0, repr=False)
     _cache_ctime_ns: int = field(default=0, repr=False)
     _cache_fsize: int = field(default=0, repr=False)

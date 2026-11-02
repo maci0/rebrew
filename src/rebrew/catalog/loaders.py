@@ -193,7 +193,7 @@ _sorted_vas_cache: dict[str, tuple[str, tuple[int, ...]]] = {}
 
 
 def _inventory_fingerprint(path: str) -> str:
-    """``mtime_ns:size:ino`` for *path*, or ``""`` when unreadable / unset."""
+    """``mtime_ns:ctime_ns:size:ino`` for *path*, or ``""`` when unreadable / unset."""
     if not path:
         return ""
     try:

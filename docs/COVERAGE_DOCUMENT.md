@@ -492,8 +492,8 @@ Clients read the applied values back from the envelope.
 > A successful 200 carries an `ETag`: the content hash for `/` and the two
 > hashed assets (`/app.js`, `/favicon.svg`),
 > and the live coverage input version (or, in portable mode, every document's
-> mtime, size and inode, hashed together so one target's rebuild invalidates
-> the tag for all of them) plus a hash of the request's path and
+> mtime, change time, size and inode, hashed together so one target's rebuild
+> invalidates the tag for all of them) plus a hash of the request's path and
 > query for the JSON routes, so one validator never stands for two different
 > routes, targets, or filters. `Cache-Control` is `private, no-cache`
 > (revalidate, never serve stale after a coverage rebuild) except on `/api/health`

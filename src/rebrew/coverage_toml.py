@@ -1418,11 +1418,13 @@ def _stat_key(db_directory: Path) -> tuple[tuple[str, int, int, int, int], ...]:
     difference; only that reports the inconsistency regardless of clock
     granularity.
 
-    The inode is what catches a document replaced by a same-size rename-over
+    The inode and change time are what catch a document replaced or rewritten
+    without a visible mtime/size change: inode catches a same-size rename-over
     inside one mtime tick (a ``cp -p`` restore, a git checkout of a restored
-    file, a coarse-timestamp filesystem), which mtime and size alone cannot
-    see; this matches every other per-file memo in the tree
-    (``verify_hash._SOURCE_MEMO``, ``metadata.document``, ``utils.read_source_text``).
+    file, a coarse-timestamp filesystem), and change time catches an in-place
+    rewrite that restores the old mtime.  This matches every other per-file
+    memo in the tree (``verify_hash._SOURCE_MEMO``, ``metadata.document``,
+    ``utils.read_source_text``).
     """
     for _ in range(3):
         try:

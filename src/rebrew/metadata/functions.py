@@ -1968,8 +1968,9 @@ def all_library_presets() -> dict[str, dict[str, str]]:
 
 
 #: Process-level memo for :func:`parse_library_metadata`, keyed by file path.
-#: Entries hold ``((mtime_ns, size, inode), parsed_dict)`` so a repeated resolution
-#: skips the read+parse while any rewrite (new mtime/size) re-parses.  Cleared
+#: Entries hold ``(MetadataDocFingerprint, parsed_dict)`` so a repeated
+#: resolution skips the read+parse while any input stat changes (mtime,
+#: change time, size, or inode).  Cleared
 #: wholesale when full — library files per project are few.
 #: Guarded: ``rebrew verify --jobs N`` resolves overrides from worker threads and
 #: the clear-then-store eviction is a multi-step mutation on a shared dict.
@@ -2033,10 +2034,10 @@ def parse_library_metadata(path: Path) -> dict[str, Any]:
     warn (:func:`validate_library_document`) and are otherwise ignored, the
     same rule ``rebrew-project.toml`` applies to unknown keys.
 
-    Memoized per process behind an ``mtime_ns``+``size``+inode stat guard:
-    override resolution runs once per function (verify's cache-hit check,
-    per-entry save, and every compile site re-resolve), so a batch over a
-    library directory re-read and re-parsed the same small TOML thousands
+    Memoized per process behind a stat fingerprint (mtime, change time, size,
+    inode): override resolution runs once per function (verify's cache-hit
+    check, per-entry save, and every compile site re-resolve), so a batch over
+    a library directory re-read and re-parsed the same small TOML thousands
     of times per run.  The stat guard keeps edits visible — a rewritten
     file has a new fingerprint and is parsed fresh (the resolution-confluence
     property tests rely on this).
@@ -2270,7 +2271,7 @@ def find_library_override(
     directory between *start_dir* and the hit to honor nearest-wins (a closer
     library file created mid-process must take over), which is the walk
     itself.  Field values go through :func:`parse_library_metadata`, whose
-    mtime/size memo skips re-parsing unchanged files."""
+    stat-fingerprint memo skips re-parsing unchanged files."""
     found = nearest_library_metadata_path(start_dir, root)
 
     if found is None:

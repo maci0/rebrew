@@ -444,13 +444,15 @@ def headers_hash(cfg: ProjectConfig) -> str:
     independently via ``compiler.cache.include_fingerprint``; this hash guards
     the verify cache, which also covers include dirs outside ``reversed_dir``.)
 
-    Memoized behind a cheap stat fingerprint (path + mtime_ns + size): when no
-    header changed since the last call, the full content reads are skipped.
-    The fingerprint is authoritative for the common cases (edit, create,
-    delete); an edit that preserves BOTH mtime_ns and size is not detected
-    within one process (the memo returns the cached digest).  Content hashing
-    still runs on the first call per fingerprint, and each fresh process
-    recomputes from content, so cross-run correctness is preserved.
+    Memoized behind a cheap per-header stat fingerprint (mtime, size, inode,
+    change time, plus the resolved source dir and external-includes digest):
+    when no header changed since the last call, the full content reads are
+    skipped.  The fingerprint is authoritative for the common cases (edit,
+    create, delete); inode catches a same-size rename-over inside one mtime
+    tick, and change time catches an in-place rewrite that restores mtime and
+    size.  Content hashing still runs on the first call per fingerprint, and
+    each fresh process recomputes from content, so cross-run correctness is
+    preserved.
     """
     src_dir = Path(cfg.reversed_dir)
     if not src_dir.exists():
@@ -605,13 +607,13 @@ def _headers_stat_fingerprint(src_dir: Path) -> tuple[tuple[str, int, int, int, 
     )
 
 
-#: Retained source bodies, keyed by (resolved path, mtime_ns, size, inode), in
-#: LRU order.  The value is ``(bytes, sha256)``: one read serves the digest
-#: and the header-dependency fingerprint, and the digest is memoized beside
-#: the bytes it was taken from instead of in a second cache keyed on those
-#: same bytes — such a key pins a file body for as long as its digest entry
-#: lives, so the bodies outlive their own read cache and every revision of
-#: every source a watch session touched stays resident.
+#: Retained source bodies, keyed by (resolved path, mtime_ns, size, inode,
+#: ctime_ns), in LRU order.  The value is ``(bytes, sha256)``: one read serves
+#: the digest and the header-dependency fingerprint, and the digest is memoized
+#: beside the bytes it was taken from instead of in a second cache keyed on
+#: those same bytes — such a key pins a file body for as long as its digest
+#: entry lives, so the bodies outlive their own read cache and every revision
+#: of every source a watch session touched stays resident.
 #: The bound is on retained bytes, not entries: an edit re-keys (see below),
 #: so ``verify --watch`` adds a fresh body per save and an entry count would
 #: let the total grow with the length of the session.
@@ -640,7 +642,8 @@ def _source_body(
     catches same-ns rewrites and ``cp -p`` / restored-mtime copies that
     ``read_source_text`` already guards against; mtime alone does not.
     *ino* catches a same-size rename-over (editor save, ``atomic_write_text``)
-    landing in the same mtime tick.
+    landing in the same mtime tick, and *ctime_ns* catches an in-place rewrite
+    that restores the old mtime and size.
     """
     global _SOURCE_MEMO_BYTES
     key = (path_str, mtime_ns, size, ino, ctime_ns)

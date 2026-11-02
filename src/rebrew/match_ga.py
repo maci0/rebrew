@@ -897,8 +897,8 @@ class BinaryMatchingGA:
         Snapshotting per appended record copies every key written so far,
         which is quadratic over a run.  The memo is only read to skip a
         corpus re-parse for the next stub, and it is revalidated against
-        the file's mtime/size, so one refresh per run carries the same
-        information.
+        the file's full stat fingerprint (mtime, size, inode, change time),
+        so one refresh per run carries the same information.
 
         The stat, the re-scan and the publish sit inside
         ``_COLLECT_PAIRS_LOCK``, the same section that appends, so the

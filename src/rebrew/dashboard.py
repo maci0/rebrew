@@ -1963,12 +1963,14 @@ def _coverage_etag(source: Path) -> str:
     project grows.  An absent or unreadable directory hashes to the same value
     every time, which never matches a tag from a readable one.
 
-    The inode is part of the tag because the documents are written by
-    rename-over: a rebuild that lands inside one timestamp tick and preserves
-    the byte length (a status swapped for another of equal width) leaves mtime
-    and size untouched, the ETag does not move, and a browser revalidating
-    against it is answered 304 with the pre-rebuild rows.  Every other
-    stat-keyed memo in the tree already carries the inode for this reason
+    The inode and change time are part of the tag because the documents are
+    written by rename-over or in-place rewrite: a rebuild that lands inside one
+    timestamp tick and preserves the byte length (a status swapped for another
+    of equal width) leaves mtime and size untouched.  The inode catches the
+    rename-over and change time catches a rewrite that restores the old mtime,
+    so the ETag still moves; without them a browser revalidating against the
+    stale tag would be answered 304 with the pre-rebuild rows.  Every other
+    stat-keyed memo in the tree already carries the same fields
     (``coverage_toml._ALL_CACHE``, ``verify_cache.binary_id``,
     ``catalog.loaders._inventory_fingerprint``).
     """

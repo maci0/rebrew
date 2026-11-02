@@ -77,7 +77,8 @@ _DOC_CACHE_VERSION = 1
 
 #: Path and ``(mtime_ns, ctime_ns, size, ino)`` for every metadata input.  mtime alone misses
 #: another process's rewrite inside one timestamp tick (coarse filesystems,
-#: ``cp -p``); the atomic-rename writers always produce a new inode.
+#: ``cp -p``); the atomic-rename writers always produce a new inode, and change
+#: time catches an in-place rewrite that restores the old mtime.
 MetadataDocFingerprint = tuple[tuple[str, int, int, int, int], ...]
 MetadataDocCache = dict[Path, tuple[MetadataDocFingerprint, dict[tuple[str, int], dict[str, Any]]]]
 

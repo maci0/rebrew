@@ -861,7 +861,9 @@ class VerifyCache:
     target: str
     entries: dict[str, VerifyCacheEntry]
     headers_hash: str = ""  # informational only — per-entry headers_fp is authoritative
-    binary_id: str = ""  # SHA256 of target binary (mtime_ns + size + inode); "" = legacy cache
+    binary_id: str = (
+        ""  # SHA256 of binary stat identity (mtime, ctime, size, inode); "" = legacy cache
+    )
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> VerifyCache:
