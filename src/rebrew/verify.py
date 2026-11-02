@@ -2583,7 +2583,10 @@ def prepare_entries(
     from rebrew.function_providers import select_source_bindings
 
     selected, duplicate_vas = select_source_bindings(cfg, entries)
-    prototypes: dict[Path, list[SourceBinding]] = {}
+    # Identity -> declaration per file.  A file with hundreds of annotated
+    # functions used to scan its whole binding list once per entry, which is
+    # quadratic in that file's function count; the lookup below is one probe.
+    prototypes: dict[Path, dict[tuple[str, int, str], SourceBinding]] = {}
     metadata_dir = cfg.metadata_dir
     target = target_module(cfg)
     project_root = getattr(cfg, "root", None)
@@ -2595,16 +2598,19 @@ def prepare_entries(
             continue
         # Incomplete identities still need the declaration's calling convention.
         if cfile not in prototypes:
-            prototypes[cfile] = read_source_bindings(
+            by_identity: dict[tuple[str, int, str], SourceBinding] = {}
+            for binding in read_source_bindings(
                 cfile,
                 target_name=target,
                 metadata_dir=metadata_dir,
                 project_root=project_root,
-            )
-        for binding in prototypes[cfile]:
-            if (binding.module, binding.va, binding.name) == (entry.module, entry.va, entry.name):
-                entry.prototype = binding.prototype
-                break
+            ):
+                # First declaration wins, matching the former linear scan.
+                by_identity.setdefault((binding.module, binding.va, binding.name), binding)
+            prototypes[cfile] = by_identity
+        binding = prototypes[cfile].get((entry.module, entry.va, entry.name))
+        if binding is not None:
+            entry.prototype = binding.prototype
     for entry in selected:
         if entry.is_data:
             data_count += 1
