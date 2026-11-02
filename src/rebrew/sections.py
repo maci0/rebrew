@@ -128,6 +128,9 @@ def get_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> dict[int, di
         from rebrew.data_ownership import enrich_library_owners
 
         enrich_library_owners(scan, cfg)
+    # One ancestor probe for the whole global list; ``get_data_entry`` is
+    # called once per annotated global.
+    metadata_dir = cfg.metadata_dir if cfg else src_dir
     globals_dict: dict[int, dict[str, Any]] = {}
     entries = sorted(
         scan.globals.values(),
@@ -138,17 +141,12 @@ def get_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> dict[int, di
             entry.name == "unknown",
         ),
     )
-    metadata_dir = cfg.metadata_dir if cfg else src_dir
     for entry in entries:
         if not entry.annotated:
             continue
         from rebrew.metadata.data import get_data_entry
 
-        meta = (
-            get_data_entry(metadata_dir, entry.va, module=entry.module)
-            if entry.module
-            else {}
-        )
+        meta = get_data_entry(metadata_dir, entry.va, module=entry.module) if entry.module else {}
         row = globals_dict.setdefault(
             entry.va,
             {

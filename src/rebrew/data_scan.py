@@ -1194,17 +1194,19 @@ def scan_data_annotations(src_dir: Path, cfg: ProjectConfig | None = None) -> li
     entries: list[dict[str, Any]] = []
     if not src_dir.exists():
         return entries
-    # The store root does not move while the scan runs, and the property walks
-    # the ancestors on every access.  Resolve it once per scan, not per source.
+    # The store root does not move while the scan runs. ``metadata_dir``
+    # probes the ancestors for the store on every access, and this loop
+    # visits every source and header twice.
     metadata_dir = cfg.metadata_dir if cfg else src_dir
-
+    target = target_module(cfg)
+    project_root = getattr(cfg, "root", None)
     for cfile in iter_sources_and_headers(src_dir, cfg):
         rel_name = rel_display_path(cfile, src_dir)
         for ann in read_source_bindings(
             cfile,
-            target_name=target_module(cfg),
+            target_name=target,
             metadata_dir=metadata_dir,
-            project_root=getattr(cfg, "root", None),
+            project_root=project_root,
             # The data list records identity, size, and section. Calling
             # conventions are a function-verify concern.
             with_prototypes=False,
@@ -1250,13 +1252,16 @@ def build_source_known_functions(cfg: ProjectConfig, src_dir: Path) -> dict[int,
     from rebrew.utils import rel_display_path
 
     known_functions: dict[int, dict[str, str]] = {}
+    # One ancestor probe for the whole walk, not one per source.
     metadata_dir = cfg.metadata_dir
+    target = target_module(cfg)
+    project_root = getattr(cfg, "root", None)
     for cfile in iter_sources(src_dir, cfg):
         for entry in read_source_bindings(
             cfile,
-            target_name=target_module(cfg),
+            target_name=target,
             metadata_dir=metadata_dir,
-            project_root=getattr(cfg, "root", None),
+            project_root=project_root,
         ):
             if entry.va:
                 known_functions[entry.va] = {

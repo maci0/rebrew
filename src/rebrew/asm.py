@@ -175,14 +175,17 @@ def build_function_lookup(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
 
     src_dir = Path(cfg.reversed_dir)
     if src_dir.is_dir():
+        # One ancestor probe and target lookup for the whole walk.
         metadata_dir = cfg.metadata_dir
+        target = target_module(cfg)
+        project_root = getattr(cfg, "root", None)
         for cfile in iter_sources(src_dir, cfg):
             try:
                 entries = read_source_bindings(
                     cfile,
-                    target_name=target_module(cfg),
+                    target_name=target,
                     metadata_dir=metadata_dir,
-                    project_root=getattr(cfg, "root", None),
+                    project_root=project_root,
                 )
                 for entry in entries:
                     # The C name wins. A missing name uses the symbol:

@@ -286,7 +286,9 @@ def build_graph(
     # Both loops below visit a whole tree; resolve the store root and module
     # once instead of per source and per library header.
     metadata_dir = cfg.metadata_dir if cfg else None
-    module_name = target_module(cfg)
+    # One ancestor probe and target lookup for the whole walk, headers included.
+    target = target_module(cfg)
+    project_root = getattr(cfg, "root", None)
 
     for cfile in iter_sources(reversed_dir, cfg):
         rel_name = rel_display_path(cfile, reversed_dir)
@@ -309,9 +311,9 @@ def build_graph(
         find_variable_roles(text, function_uses=function_uses, global_uses=global_uses)
         for entry in read_source_bindings(
             cfile,
-            target_name=module_name,
+            target_name=target,
             metadata_dir=metadata_dir,
-            project_root=getattr(cfg, "root", None),
+            project_root=project_root,
         ):
             if entry.is_data:
                 continue

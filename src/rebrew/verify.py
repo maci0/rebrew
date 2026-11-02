@@ -2584,8 +2584,10 @@ def prepare_entries(
 
     selected, duplicate_vas = select_source_bindings(cfg, entries)
     prototypes: dict[Path, list[SourceBinding]] = {}
+    # One ancestor probe and target lookup for the whole selection.
     metadata_dir = cfg.metadata_dir
-    module_name = target_module(cfg)
+    target = target_module(cfg)
+    project_root = getattr(cfg, "root", None)
     for entry in selected:
         if entry.is_data or entry.symbol or entry.prototype:
             continue
@@ -2596,9 +2598,9 @@ def prepare_entries(
         if cfile not in prototypes:
             prototypes[cfile] = read_source_bindings(
                 cfile,
-                target_name=module_name,
+                target_name=target,
                 metadata_dir=metadata_dir,
-                project_root=getattr(cfg, "root", None),
+                project_root=project_root,
             )
         for binding in prototypes[cfile]:
             if (binding.module, binding.va, binding.name) == (entry.module, entry.va, entry.name):

@@ -681,15 +681,17 @@ def _collect_functions(
         return out
 
     target_module_name = target_module(cfg)
-    metadata_dir = cfg.metadata_dir
     seen: set[int] = set()
     out = []
+    # One ancestor probe for the whole walk.
+    metadata_dir = cfg.metadata_dir
+    project_root = getattr(cfg, "root", None)
     for src in iter_sources(cfg.reversed_dir, cfg):
         annos = read_source_bindings(
             src,
             target_name=target_module_name,
             metadata_dir=metadata_dir,
-            project_root=getattr(cfg, "root", None),
+            project_root=project_root,
         )
         for a in annos:
             if a.kind not in ("FUNCTION", "STUB", "LIBRARY"):

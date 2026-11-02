@@ -37,8 +37,10 @@ def plan_registration(
     """Validate every address before constructing any metadata write."""
     function_rows: list[dict[str, Any]] = []
     data_rows: list[dict[str, Any]] = []
-    functions = load_metadata(cfg.metadata_dir)
-    data = load_data_metadata(cfg.metadata_dir)
+    # One ancestor probe for every anchor in every selected file.
+    metadata_dir = cfg.metadata_dir
+    functions = load_metadata(metadata_dir)
+    data = load_data_metadata(metadata_dir)
     seen: dict[tuple[str, int, bool], tuple[Path, str]] = {}
     allowed = {
         preset_module_key(m)
@@ -82,7 +84,7 @@ def plan_registration(
             relative = (
                 path.resolve().relative_to(cfg.root.resolve()).as_posix()
                 if kind == "LIBRARY"
-                else identity_file(path, cfg.metadata_dir)
+                else identity_file(path, metadata_dir)
             )
             if entry.get("file") and not stored_file_matches(str(entry["file"]), relative):
                 raise ValueError(

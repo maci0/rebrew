@@ -1977,18 +1977,20 @@ def _run_all_batch(
 
     sources = list(iter_sources(cfg.reversed_dir, cfg))
     tm = target_module(cfg)
-    metadata_dir = cfg.metadata_dir
 
     # Collect all eligible annotations
     candidates: list[tuple[Path, Any]] = []
     all_annos: list[Any] = []
+    # One ancestor probe for the whole batch.
+    metadata_dir = cfg.metadata_dir
+    project_root = getattr(cfg, "root", None)
     for src in sources:
         try:
             annos = read_source_bindings(
                 src,
                 target_name=tm,
                 metadata_dir=metadata_dir,
-                project_root=getattr(cfg, "root", None),
+                project_root=project_root,
             )
         except Exception as exc:
             # Dropping the file quietly makes a batch run indistinguishable

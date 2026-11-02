@@ -1113,6 +1113,7 @@ def _existing_annotations(cfg: Any) -> dict[int, tuple[str, str]]:
     existing: dict[int, tuple[str, str]] = {}
     sources = list(iter_sources(cfg.reversed_dir, cfg))
     target_module_name = target_module(cfg)
+    # One ancestor probe for the sources and the library headers.
     metadata_dir = cfg.metadata_dir
     for path, annos in iter_source_bindings(
         sources,
@@ -1587,6 +1588,7 @@ def _write_functions(cfg: Any, plan: ImportPlan, planned: list[SourceBinding]) -
     identity_rows: list[dict[str, Any]] = []
     field_updates: list[dict[str, Any]] = []
     status_updates: list[dict[str, Any]] = []
+    # One ancestor probe for every planned skeleton.
     metadata_dir = cfg.metadata_dir
     for ann in planned:
         target_path = cfg.reversed_dir / ann.path
@@ -1640,6 +1642,7 @@ def _write_data(cfg: Any, plan: ImportPlan, planned: list[SourceBinding]) -> lis
     written: list[str] = []
     updates: list[dict[str, Any]] = []
     identity_rows: list[dict[str, Any]] = []
+    # One ancestor probe for every planned declaration.
     metadata_dir = cfg.metadata_dir
     for ann in planned:
         target_path = cfg.reversed_dir / ann.path

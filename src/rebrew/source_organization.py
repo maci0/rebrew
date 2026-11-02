@@ -71,6 +71,7 @@ def review_organization(
     inputs: dict[Path, bytes] = {path: path.read_bytes() for path in paths}
     absent_inputs: set[Path] = set()
     for cfg in cfgs:
+        # One ancestor probe per target, not one per metadata filename.
         metadata_dir = cfg.metadata_dir
         candidates = {
             cfg.root / "rebrew-project.toml",
@@ -170,7 +171,10 @@ def review_organization(
     targets = []
     all_ids = set(definitions)
     for cfg in cfgs:
-        sources, _foreign = collect_target_sources(cfg, target_module(cfg))
+        # One ancestor probe and target lookup per target, not per source.
+        metadata_dir = cfg.metadata_dir
+        target = target_module(cfg)
+        sources, _foreign = collect_target_sources(cfg, target)
         active = set(sources) & set(paths)
         participating = bool(active)
         compiled = {identifier for path in active for identifier in by_file[path]}
@@ -229,11 +233,10 @@ def review_organization(
         native_order = []
         flags: list[dict[str, Any]] = []
         metadata_dir = cfg.metadata_dir
-        module_name = target_module(cfg)
         for source in sorted(active):
             annotations = read_source_bindings(
                 source,
-                target_name=module_name,
+                target_name=target,
                 metadata_dir=metadata_dir,
                 project_root=cfg.root,
             )
@@ -316,7 +319,7 @@ def review_organization(
                 continue
             graph[after].add(before)
             edges.append({"target": cfg.target_name, "before": before, "after": after})
-        for path in metadata_store_paths(cfg.metadata_dir):
+        for path in metadata_store_paths(metadata_dir):
             inputs.setdefault(path, snapshot_input(path))
         if (cfg.root / "rebrew-project.toml").is_file():
             inputs.setdefault(
