@@ -219,6 +219,7 @@ def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool, dry_run: bool
 
     sources = list(iter_sources(cfg.reversed_dir, cfg))
     tm = target_module(cfg)
+    metadata_dir = cfg.metadata_dir
     candidates: list[tuple[Path, Any]] = []
     all_annos: list[Any] = []
     skipped_files: list[str] = []
@@ -227,7 +228,7 @@ def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool, dry_run: bool
             annos = read_source_bindings(
                 src,
                 target_name=tm,
-                metadata_dir=cfg.metadata_dir,
+                metadata_dir=metadata_dir,
                 project_root=getattr(cfg, "root", None),
             )
         except Exception as exc:  # one bad file must not kill the batch

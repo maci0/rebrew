@@ -681,13 +681,14 @@ def _collect_functions(
         return out
 
     target_module_name = target_module(cfg)
+    metadata_dir = cfg.metadata_dir
     seen: set[int] = set()
     out = []
     for src in iter_sources(cfg.reversed_dir, cfg):
         annos = read_source_bindings(
             src,
             target_name=target_module_name,
-            metadata_dir=cfg.metadata_dir,
+            metadata_dir=metadata_dir,
             project_root=getattr(cfg, "root", None),
         )
         for a in annos:

@@ -151,7 +151,9 @@ def contract_contexts(
     cfg: ProjectConfig, *, selected_sources: set[Path] | None = None
 ) -> tuple[dict[Path, set[Path]], list[dict[str, Any]]]:
     """Read actual target providers and their include closure, reporting uncertainty."""
-    sources, _foreign = collect_target_sources(cfg, target_module(cfg))
+    module_name = target_module(cfg)
+    metadata_dir = cfg.metadata_dir
+    sources, _foreign = collect_target_sources(cfg, module_name)
     if selected_sources is not None:
         sources = [source for source in sources if source.resolve() in selected_sources]
     contexts: dict[Path, set[Path]] = {}
@@ -162,8 +164,8 @@ def contract_contexts(
         text, _encoding = read_source_text(source)
         annotations = read_source_bindings(
             source,
-            target_name=target_module(cfg),
-            metadata_dir=cfg.metadata_dir,
+            target_name=module_name,
+            metadata_dir=metadata_dir,
             project_root=cfg.root,
         )
         flags = {
@@ -176,7 +178,7 @@ def contract_contexts(
         if not flags:
             flags = {
                 resolve_compile_overrides_cached(
-                    cfg, source.parent, None, None, target_module(cfg)
+                    cfg, source.parent, None, None, module_name
                 )[1]
             }
         headers: set[Path] = set()

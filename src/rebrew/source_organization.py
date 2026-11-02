@@ -71,10 +71,11 @@ def review_organization(
     inputs: dict[Path, bytes] = {path: path.read_bytes() for path in paths}
     absent_inputs: set[Path] = set()
     for cfg in cfgs:
+        metadata_dir = cfg.metadata_dir
         candidates = {
             cfg.root / "rebrew-project.toml",
             *(
-                cfg.metadata_dir / name
+                metadata_dir / name
                 for name in (
                     "rebrew-functions.toml",
                     "rebrew-data.toml",
@@ -82,7 +83,7 @@ def review_organization(
                 )
             ),
         }
-        candidates.update(metadata_store_paths(cfg.metadata_dir))
+        candidates.update(metadata_store_paths(metadata_dir))
         for source in paths:
             for parent in (source.parent, *source.parents):
                 if parent == cfg.root.resolve().parent:
@@ -227,11 +228,13 @@ def review_organization(
                             )
         native_order = []
         flags: list[dict[str, Any]] = []
+        metadata_dir = cfg.metadata_dir
+        module_name = target_module(cfg)
         for source in sorted(active):
             annotations = read_source_bindings(
                 source,
-                target_name=target_module(cfg),
-                metadata_dir=cfg.metadata_dir,
+                target_name=module_name,
+                metadata_dir=metadata_dir,
                 project_root=cfg.root,
             )
             settings = set()

@@ -578,7 +578,8 @@ def gen_globals_header(
     from rebrew.sources import iter_sources
 
     target_module_name = target_module(cfg)
-    metadata = load_data_metadata(cfg.metadata_dir)
+    metadata_dir = cfg.metadata_dir
+    metadata = load_data_metadata(metadata_dir)
 
     # Sources are authoritative for the emitted name and type: a
     # VA-anchored declaration in the tree beats the metadata guess.
@@ -603,7 +604,7 @@ def gen_globals_header(
             annotations = read_source_bindings(
                 src,
                 target_name=target_module_name,
-                metadata_dir=cfg.metadata_dir,
+                metadata_dir=metadata_dir,
                 project_root=getattr(cfg, "root", None),
             )
         except Exception:  # one bad file must not abort the scan

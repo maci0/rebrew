@@ -520,12 +520,14 @@ def load_existing_vas(src_dir: str | Path, cfg: ProjectConfig | None = None) -> 
     """
     src_path = Path(src_dir)
     existing: dict[int, str] = {}
+    metadata_dir = cfg.metadata_dir if cfg else None
+    module_name = target_module(cfg)
     for cfile in iter_sources(src_path, cfg):
         rel_name = rel_display_path(cfile, src_path)
         entries = read_source_bindings(
             cfile,
-            target_name=target_module(cfg),
-            metadata_dir=cfg.metadata_dir if cfg else None,
+            target_name=module_name,
+            metadata_dir=metadata_dir,
             project_root=getattr(cfg, "root", None),
         )
         for entry in entries:
@@ -538,9 +540,7 @@ def load_existing_vas(src_dir: str | Path, cfg: ProjectConfig | None = None) -> 
     # Scan library_*.h files for identified CRT/zlib functions (plus the
     # project's shared root when cfg says this directory is the target tree).
     for hfile in iter_library_headers(src_path, cfg):
-        lib_entries = library_bindings_for_file(
-            hfile, metadata_dir=cfg.metadata_dir if cfg else None
-        )
+        lib_entries = library_bindings_for_file(hfile, metadata_dir=metadata_dir)
         for entry in lib_entries:
             if entry.va < min_valid_va_for(cfg):
                 continue

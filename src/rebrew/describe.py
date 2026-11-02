@@ -95,13 +95,15 @@ _JSON_KEYS = (
 def _collect_annotations(cfg: ProjectConfig) -> list[SourceBinding]:
     """Parse every function annotation under ``cfg.reversed_dir``."""
     annos: list[SourceBinding] = []
+    metadata_dir = cfg.metadata_dir
+    module_name = target_module(cfg)
     for cfile in iter_sources(cfg.reversed_dir, cfg):
         try:
             annos.extend(
                 read_source_bindings(
                     cfile,
-                    target_name=target_module(cfg),
-                    metadata_dir=cfg.metadata_dir,
+                    target_name=module_name,
+                    metadata_dir=metadata_dir,
                     project_root=getattr(cfg, "root", None),
                 )
             )

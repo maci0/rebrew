@@ -588,6 +588,30 @@ class TestImportsMark:
             assert entry["symbol"] == symbol
             assert entry["name"] == name, symbol
 
+    def test_mark_writes_the_store_once_for_all_stubs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """One identity edit for the whole stub set, not one per stub."""
+        from rebrew import imports as imports_module
+        from rebrew.metadata import functions as functions_module
+        from rebrew.metadata.functions import get_entry
+
+        cfg = self._cfg(tmp_path)
+        cfg.reversed_dir.mkdir(parents=True)
+        calls: list[int] = []
+        original = functions_module.record_function_rows
+
+        def counted(metadata_dir: Any, rows: list[dict[str, Any]], **kwargs: Any) -> None:
+            calls.append(len(rows))
+            original(metadata_dir, rows, **kwargs)
+
+        monkeypatch.setattr(functions_module, "record_function_rows", counted)
+        stubs = {0x401000: "A", 0x401010: "B", 0x401020: "C"}
+        assert imports_module.mark_import_stubs(cfg, stubs, dry_run=False) == 3
+        assert calls == [3]
+        for va, symbol in stubs.items():
+            assert get_entry(cfg.metadata_dir, va, "SERVER")["symbol"] == symbol
+
     """``imports_payload()`` is the importable form of ``rebrew imports --json``."""
 
     def test_matches_cli_json(self, pe_path: Path) -> None:

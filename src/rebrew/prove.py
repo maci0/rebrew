@@ -1977,6 +1977,7 @@ def _run_all_batch(
 
     sources = list(iter_sources(cfg.reversed_dir, cfg))
     tm = target_module(cfg)
+    metadata_dir = cfg.metadata_dir
 
     # Collect all eligible annotations
     candidates: list[tuple[Path, Any]] = []
@@ -1986,7 +1987,7 @@ def _run_all_batch(
             annos = read_source_bindings(
                 src,
                 target_name=tm,
-                metadata_dir=cfg.metadata_dir,
+                metadata_dir=metadata_dir,
                 project_root=getattr(cfg, "root", None),
             )
         except Exception as exc:

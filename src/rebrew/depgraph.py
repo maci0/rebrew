@@ -283,6 +283,10 @@ def build_graph(
 
     # Cache file text so _extract_callees doesn't re-read from disk
     _file_text_cache: dict[Path, str] = {}
+    # Both loops below visit a whole tree; resolve the store root and module
+    # once instead of per source and per library header.
+    metadata_dir = cfg.metadata_dir if cfg else None
+    module_name = target_module(cfg)
 
     for cfile in iter_sources(reversed_dir, cfg):
         rel_name = rel_display_path(cfile, reversed_dir)
@@ -305,8 +309,8 @@ def build_graph(
         find_variable_roles(text, function_uses=function_uses, global_uses=global_uses)
         for entry in read_source_bindings(
             cfile,
-            target_name=target_module(cfg),
-            metadata_dir=cfg.metadata_dir if cfg else None,
+            target_name=module_name,
+            metadata_dir=metadata_dir,
             project_root=getattr(cfg, "root", None),
         ):
             if entry.is_data:
@@ -345,9 +349,7 @@ def build_graph(
 
     for header in iter_library_headers(reversed_dir, cfg):
         header_rel = rel_display_path(header, reversed_dir)
-        for entry in library_bindings_for_file(
-            header, metadata_dir=cfg.metadata_dir if cfg else None
-        ):
+        for entry in library_bindings_for_file(header, metadata_dir=metadata_dir):
             if entry.va < min_valid_va_for(cfg):
                 continue
             key = _func_key(entry, header.stem)
@@ -361,8 +363,8 @@ def build_graph(
             }
             _register_spellings(name_lookup, label, key)
 
-    if cfg is not None and getattr(cfg, "metadata_dir", None) is not None:
-        for entry in library_inventory_bindings(cfg.metadata_dir, reversed_dir):
+    if metadata_dir is not None:
+        for entry in library_inventory_bindings(metadata_dir, reversed_dir):
             if entry.va < min_valid_va_for(cfg):
                 continue
             key = _func_key(entry, Path(entry.filepath).stem or "library")

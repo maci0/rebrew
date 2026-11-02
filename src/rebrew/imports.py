@@ -107,26 +107,27 @@ def mark_import_stubs(
         METADATA_FILENAME,
         identity_file,
         load_metadata,
-        record_function_identity,
+        record_function_rows,
     )
     from rebrew.metadata.storage import metadata_store, metadata_write_lock
     from rebrew.naming import load_existing_vas
     from rebrew.utils import atomic_write_text, preset_module_key
 
     target_module_name = target_module(cfg)
+    metadata_dir = cfg.metadata_dir
     out_file = Path(cfg.reversed_dir) / "library_imports.h"
     existing, encoding = read_source_text(out_file) if out_file.exists() else ("", "utf-8")
 
     # A decompiled .c and a store row both count. A legacy marker still in
     # the header counts too, and a dry run must not migrate it away.
-    store = metadata_store(Path(cfg.metadata_dir) / METADATA_FILENAME)
+    store = metadata_store(Path(metadata_dir) / METADATA_FILENAME)
     digest = store.digest()
     annotated = set(load_existing_vas(cfg.reversed_dir, cfg))
     # Config may spell the module in any case; match stored owners by preset key.
     module_key = preset_module_key(target_module_name)
     retired_owners = {
         va: owner
-        for (owner, va), entry in load_metadata(cfg.metadata_dir, deepcopy=False).items()
+        for (owner, va), entry in load_metadata(metadata_dir, deepcopy=False).items()
         if preset_module_key(owner) == module_key and retired_binding(entry)
     }
     retired = [va for va in sorted(stubs) if va in retired_owners]
@@ -156,34 +157,43 @@ def mark_import_stubs(
                 console.print(f"  [dim]0x{va:08X} {pe_name_token(stubs[va])}[/]")
         return len(new_vas) + len(retired)
 
-    with metadata_write_lock(Path(cfg.metadata_dir), METADATA_FILENAME):
+    with metadata_write_lock(Path(metadata_dir), METADATA_FILENAME):
         # The scan above ran unlocked; a concurrent writer invalidates it.
         if store.digest() != digest:
             raise ValueError("import source bindings changed; rerun imports mark")
         if not existing.strip():
             atomic_write_text(out_file, _IMPORTS_BANNER, encoding=encoding or "utf-8")
 
-        file_rel = identity_file(out_file, cfg.metadata_dir)
+        file_rel = identity_file(out_file, metadata_dir)
+        # One identity edit for the whole set: the per-stub writer loads and
+        # rewrites the store for every VA, so a binary with hundreds of imports
+        # paid a full TOML read/write per stub.
+        identity_rows = []
         for va in new_vas:
             # The stub name comes from the target's hint/name table, so it is
             # attacker-controlled whenever the binary is.
             token = pe_name_token(stubs[va])
-            record_function_identity(
-                cfg.metadata_dir,
-                module=target_module_name,
-                va=va,
-                file=file_rel,
-                kind="LIBRARY",
-                # ``hook@@12`` is ``hook`` and ``__foo`` is ``_foo``.
-                name=c_name_from_symbol(token),
-                symbol=token,
+            identity_rows.append(
+                {
+                    "module": target_module_name,
+                    "va": va,
+                    "identity": {
+                        "file": file_rel,
+                        "kind": "LIBRARY",
+                        # ``hook@@12`` is ``hook`` and ``__foo`` is ``_foo``.
+                        "name": c_name_from_symbol(token),
+                        "symbol": token,
+                    },
+                    "fields": {},
+                }
             )
+        record_function_rows(metadata_dir, identity_rows)
         if retired:
             # LIBRARY identities resolve against the project root, not the
             # metadata root, because that is where the header lives.
             root_file_rel = identity_file(out_file, cfg.root)
             change_source_bindings_batch(
-                cfg.metadata_dir,
+                metadata_dir,
                 [
                     {
                         "module": retired_owners[va],

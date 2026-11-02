@@ -1483,8 +1483,11 @@ def _check_E023_naked_asm(
 def _check_W031_source_provenance(cfg: ProjectConfig) -> list[LintResult]:
     """Surface invalid or stale source evidence rather than silently trusting it."""
     result = LintResult(Path(SOURCE_PROVENANCE_FILENAME))
+    # The store root does not move while the check runs; the property walks the
+    # ancestors, and one file can carry many provenance records.
+    metadata_dir = cfg.metadata_dir
     try:
-        records = load_source_provenance(cfg.metadata_dir)
+        records = load_source_provenance(metadata_dir)
     except (OSError, ValueError) as exc:
         result.warning(1, "W031", f"invalid source provenance store: {exc}")
         return [result]
@@ -1494,6 +1497,7 @@ def _check_W031_source_provenance(cfg: ProjectConfig) -> list[LintResult]:
         if module
     }
     hashes: dict[str, dict[str, str]] = {}
+    metadata_root: Path | None = None
     for record in records:
         label = f"{record.module}:{record.file}:{record.symbol}"
         if known and record.module not in known:
@@ -1503,8 +1507,10 @@ def _check_W031_source_provenance(cfg: ProjectConfig) -> list[LintResult]:
             continue
         try:
             if record.file not in hashes:
-                path = (cfg.metadata_dir / record.file).resolve()
-                path.relative_to(cfg.metadata_dir.resolve())
+                if metadata_root is None:
+                    metadata_root = metadata_dir.resolve()
+                path = (metadata_dir / record.file).resolve()
+                path.relative_to(metadata_root)
                 source, _ = read_source_text(path)
                 hashes[record.file] = function_definition_hashes(source)
             current = hashes[record.file].get(record.symbol)

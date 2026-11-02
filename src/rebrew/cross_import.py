@@ -149,12 +149,14 @@ def annotations_by_va(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
     from rebrew.metadata.bindings import read_source_bindings
 
     out: dict[int, tuple[str, str]] = {}
+    metadata_dir = cfg.metadata_dir
+    module_name = target_module(cfg)
     for path in iter_sources(cfg.reversed_dir, cfg):
         for ann in read_source_bindings(
             path,
-            target_name=target_module(cfg),
+            target_name=module_name,
             base_dir=cfg.reversed_dir,
-            metadata_dir=cfg.metadata_dir,
+            metadata_dir=metadata_dir,
             project_root=getattr(cfg, "root", None),
         ):
             out[ann.va] = (getattr(ann, "status", "") or "", getattr(ann, "filepath", "") or "")

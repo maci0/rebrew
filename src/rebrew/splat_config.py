@@ -1113,17 +1113,18 @@ def _existing_annotations(cfg: Any) -> dict[int, tuple[str, str]]:
     existing: dict[int, tuple[str, str]] = {}
     sources = list(iter_sources(cfg.reversed_dir, cfg))
     target_module_name = target_module(cfg)
+    metadata_dir = cfg.metadata_dir
     for path, annos in iter_source_bindings(
         sources,
         target=target_module_name,
-        metadata_dir=cfg.metadata_dir,
+        metadata_dir=metadata_dir,
         project_root=getattr(cfg, "root", None),
     ):
         for ann in annos:
             name = ann.symbol or ann.name or ""
             existing.setdefault(ann.va, (f"{ann.kind} {name}".strip(), path.name))
     for header in sorted(cfg.reversed_dir.glob("library_*.h")):
-        for ann in library_bindings_for_file(header, metadata_dir=cfg.metadata_dir):
+        for ann in library_bindings_for_file(header, metadata_dir=metadata_dir):
             name = ann.symbol or ann.name or ""
             existing.setdefault(ann.va, (f"LIBRARY {name}".strip(), header.name))
     return existing
@@ -1586,6 +1587,7 @@ def _write_functions(cfg: Any, plan: ImportPlan, planned: list[SourceBinding]) -
     identity_rows: list[dict[str, Any]] = []
     field_updates: list[dict[str, Any]] = []
     status_updates: list[dict[str, Any]] = []
+    metadata_dir = cfg.metadata_dir
     for ann in planned:
         target_path = cfg.reversed_dir / ann.path
         body = generate_skeleton(
@@ -1603,7 +1605,7 @@ def _write_functions(cfg: Any, plan: ImportPlan, planned: list[SourceBinding]) -
                 "module": plan.module,
                 "va": ann.va,
                 "identity": {
-                    "file": identity_file(target_path, cfg.metadata_dir),
+                    "file": identity_file(target_path, metadata_dir),
                     "symbol": derive_c_symbol(ann.name, ""),
                     "name": ann.name,
                     "kind": "FUNCTION",
@@ -1624,9 +1626,9 @@ def _write_functions(cfg: Any, plan: ImportPlan, planned: list[SourceBinding]) -
                 "updated_by": "import-splat",
             }
         )
-    record_function_rows(cfg.metadata_dir, identity_rows)
-    set_fields_batch(cfg.metadata_dir, field_updates)
-    update_statuses_batch(cfg.metadata_dir, status_updates)
+    record_function_rows(metadata_dir, identity_rows)
+    set_fields_batch(metadata_dir, field_updates)
+    update_statuses_batch(metadata_dir, status_updates)
     return written
 
 
@@ -1638,6 +1640,7 @@ def _write_data(cfg: Any, plan: ImportPlan, planned: list[SourceBinding]) -> lis
     written: list[str] = []
     updates: list[dict[str, Any]] = []
     identity_rows: list[dict[str, Any]] = []
+    metadata_dir = cfg.metadata_dir
     for ann in planned:
         target_path = cfg.reversed_dir / ann.path
         target_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1651,7 +1654,7 @@ def _write_data(cfg: Any, plan: ImportPlan, planned: list[SourceBinding]) -> lis
                 "module": plan.module,
                 "va": ann.va,
                 "identity": {
-                    "file": identity_file(target_path, cfg.metadata_dir),
+                    "file": identity_file(target_path, metadata_dir),
                     "kind": "DATA",
                     "name": ann.name,
                 },
@@ -1664,9 +1667,9 @@ def _write_data(cfg: Any, plan: ImportPlan, planned: list[SourceBinding]) -> lis
         updates.append(
             {"module": plan.module, "va": ann.va, "fields": fields, "updated_by": "intake"}
         )
-    record_data_rows(cfg.metadata_dir, identity_rows)
+    record_data_rows(metadata_dir, identity_rows)
     # One rebrew-data.toml rewrite for the whole import, not three per symbol.
-    set_data_fields_batch(cfg.metadata_dir, updates)
+    set_data_fields_batch(metadata_dir, updates)
     return written
 
 

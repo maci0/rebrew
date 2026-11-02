@@ -2584,6 +2584,8 @@ def prepare_entries(
 
     selected, duplicate_vas = select_source_bindings(cfg, entries)
     prototypes: dict[Path, list[SourceBinding]] = {}
+    metadata_dir = cfg.metadata_dir
+    module_name = target_module(cfg)
     for entry in selected:
         if entry.is_data or entry.symbol or entry.prototype:
             continue
@@ -2594,8 +2596,8 @@ def prepare_entries(
         if cfile not in prototypes:
             prototypes[cfile] = read_source_bindings(
                 cfile,
-                target_name=target_module(cfg),
-                metadata_dir=cfg.metadata_dir,
+                target_name=module_name,
+                metadata_dir=metadata_dir,
                 project_root=getattr(cfg, "root", None),
             )
         for binding in prototypes[cfile]:

@@ -1194,13 +1194,16 @@ def scan_data_annotations(src_dir: Path, cfg: ProjectConfig | None = None) -> li
     entries: list[dict[str, Any]] = []
     if not src_dir.exists():
         return entries
+    # The store root does not move while the scan runs, and the property walks
+    # the ancestors on every access.  Resolve it once per scan, not per source.
+    metadata_dir = cfg.metadata_dir if cfg else src_dir
 
     for cfile in iter_sources_and_headers(src_dir, cfg):
         rel_name = rel_display_path(cfile, src_dir)
         for ann in read_source_bindings(
             cfile,
             target_name=target_module(cfg),
-            metadata_dir=cfg.metadata_dir if cfg else src_dir,
+            metadata_dir=metadata_dir,
             project_root=getattr(cfg, "root", None),
             # The data list records identity, size, and section. Calling
             # conventions are a function-verify concern.
@@ -1209,7 +1212,7 @@ def scan_data_annotations(src_dir: Path, cfg: ProjectConfig | None = None) -> li
             if ann.is_data:
                 # Metadata root is cfg.metadata_dir; cfile.parent would
                 # silently no-op the overlay when the two dirs differ.
-                merge_into_data_binding(ann, cfg.metadata_dir if cfg else src_dir)
+                merge_into_data_binding(ann, metadata_dir)
                 entries.append(
                     {
                         "va": f"0x{ann.va:08x}",
@@ -1247,11 +1250,12 @@ def build_source_known_functions(cfg: ProjectConfig, src_dir: Path) -> dict[int,
     from rebrew.utils import rel_display_path
 
     known_functions: dict[int, dict[str, str]] = {}
+    metadata_dir = cfg.metadata_dir
     for cfile in iter_sources(src_dir, cfg):
         for entry in read_source_bindings(
             cfile,
             target_name=target_module(cfg),
-            metadata_dir=cfg.metadata_dir,
+            metadata_dir=metadata_dir,
             project_root=getattr(cfg, "root", None),
         ):
             if entry.va:

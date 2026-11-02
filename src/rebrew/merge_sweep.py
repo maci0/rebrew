@@ -647,13 +647,14 @@ def _initial_partition_for_annotated(
 def _parse_annotations_fallback(cfg: ProjectConfig) -> dict[int, Any]:
     """VA to annotation via direct per-file parse (no metadata overlay)."""
     target_module_name = target_module(cfg)
+    metadata_dir = cfg.metadata_dir
     out: dict[int, Any] = {}
     for src in iter_sources(cfg.reversed_dir, cfg):
         try:
             anns = read_source_bindings(
                 src,
                 target_name=target_module_name,
-                metadata_dir=cfg.metadata_dir,
+                metadata_dir=metadata_dir,
                 project_root=getattr(cfg, "root", None),
             )
         except (OSError, ValueError) as exc:

@@ -175,12 +175,13 @@ def build_function_lookup(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
 
     src_dir = Path(cfg.reversed_dir)
     if src_dir.is_dir():
+        metadata_dir = cfg.metadata_dir
         for cfile in iter_sources(src_dir, cfg):
             try:
                 entries = read_source_bindings(
                     cfile,
                     target_name=target_module(cfg),
-                    metadata_dir=cfg.metadata_dir,
+                    metadata_dir=metadata_dir,
                     project_root=getattr(cfg, "root", None),
                 )
                 for entry in entries:
