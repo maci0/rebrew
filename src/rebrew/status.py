@@ -829,26 +829,49 @@ def _compute_text_size(cfg: ProjectConfig) -> int:
         return 0
 
 
+def _merge_claimed(claimed: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Sort half-open intervals and union the ones that overlap or touch.
+
+    Subtraction needs only the union, and a merged list is disjoint, so
+    :func:`_unclaimed` can bisect to the first overlapping claim instead of
+    walking every earlier function in the section.
+    """
+    merged: list[tuple[int, int]] = []
+    for lo, hi in sorted(claimed):
+        if hi <= lo:
+            continue
+        if merged and lo <= merged[-1][1]:
+            if hi > merged[-1][1]:
+                merged[-1] = (merged[-1][0], hi)
+        else:
+            merged.append((lo, hi))
+    return merged
+
+
 def _unclaimed(lo: int, hi: int, claimed: list[tuple[int, int]]) -> list[tuple[int, int]]:
-    """Subtract sorted claimed half-open intervals from a proposed span."""
-    pieces = [(lo, hi)]
-    for claim_lo, claim_hi in claimed:
+    """Subtract *claimed* (sorted and disjoint) half-open intervals from a span."""
+    if hi <= lo:
+        return []
+    index = bisect.bisect_left(claimed, (lo, lo))
+    if index and claimed[index - 1][1] > lo:
+        index -= 1
+    pieces: list[tuple[int, int]] = []
+    cursor = lo
+    count = len(claimed)
+    while index < count:
+        claim_lo, claim_hi = claimed[index]
+        index += 1
         if claim_lo >= hi:
             break
-        if claim_hi <= lo:
+        if claim_hi <= cursor:
             continue
-        nxt: list[tuple[int, int]] = []
-        for piece_lo, piece_hi in pieces:
-            if claim_hi <= piece_lo or claim_lo >= piece_hi:
-                nxt.append((piece_lo, piece_hi))
-                continue
-            if piece_lo < claim_lo:
-                nxt.append((piece_lo, claim_lo))
-            if claim_hi < piece_hi:
-                nxt.append((claim_hi, piece_hi))
-        pieces = nxt
-        if not pieces:
+        if claim_lo > cursor:
+            pieces.append((cursor, claim_lo))
+        cursor = claim_hi
+        if cursor >= hi:
             break
+    if cursor < hi:
+        pieces.append((cursor, hi))
     return pieces
 
 
@@ -1053,7 +1076,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         unmatched_bytes += size
         report.status_bytes["NO_SOURCE"] = report.status_bytes.get("NO_SOURCE", 0) + size
         spans.append((span_va, size))
-    claimed = sorted((va, va + size) for va, size in spans if size > 0)
+    claimed = _merge_claimed([(va, va + size) for va, size in spans if size > 0])
     tail_bytes = 0
     tail_ranges: list[tuple[int, int]] = []
     for va, size in native_tails:
@@ -1082,7 +1105,9 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         text_lo = text_section.va
         text_hi = text_section.va + text_section.size
         known_starts = sorted(set(starts) | {min(va, text_hi) for va in derived_starts} | {text_hi})
-        claimed = sorted((span_va, span_va + size) for span_va, size in spans if size > 0)
+        claimed = _merge_claimed(
+            [(span_va, span_va + size) for span_va, size in spans if size > 0]
+        )
 
         derived = 0
         for va in sorted(set(derived_starts)):

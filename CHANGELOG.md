@@ -7,6 +7,7 @@
 - Reuse fingerprinted metadata parses, declaration inventories and path resolution while preserving validation and isolated results.
 - Avoid rescanning installed plugin metadata when unrelated project outputs change.
 - Bound the in-process extern-name, name-cover and role-fact caches, and version parsed metadata-row sidecars so an upgrade never reads rows from older semantics.
+- Speed up status byte accounting on large binaries by subtracting merged function extents from native tails with a bisect instead of rescanning every earlier span.
 
 ## [6.14.3] - 2026-11-02
 
