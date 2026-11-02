@@ -1127,6 +1127,40 @@ class TestMemo:
         assert first[TARGET] is second[TARGET]
         assert load_coverage_from(tmp_path / "db", TARGET).target == TARGET
 
+    def test_concurrent_misses_share_one_published_object(
+        self,
+        write: Callable[[dict[str, Any]], list[Path]],
+        data: dict[str, Any],
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Two request threads that miss together must not key caches on
+        different equal-valued dicts: the first publisher is the object every
+        caller gets, as it is on the warm path."""
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+
+        write(data)
+        coverage_toml._ALL_CACHE = None
+        real = coverage_toml._read_document
+        barrier = threading.Barrier(4, timeout=5)
+
+        def slow(path: Path, target: str) -> CoverageSnapshot:
+            barrier.wait()
+            return real(path, target)
+
+        monkeypatch.setattr(coverage_toml, "_read_document", slow)
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            results = list(
+                executor.map(
+                    lambda _: load_all_coverage_from(tmp_path / "db"),
+                    range(4),
+                )
+            )
+        assert results[0]
+        assert all(result is results[0] for result in results)
+        assert all(result[TARGET] is results[0][TARGET] for result in results)
+
     def test_scan_retries_when_replace_changes_directory(
         self,
         write: Callable[[dict[str, Any]], list[Path]],
