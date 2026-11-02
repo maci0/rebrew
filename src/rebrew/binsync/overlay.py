@@ -332,7 +332,7 @@ def overlay_state(
     (documented ``--json`` keys plus a ``rows`` list for the non-JSON table).
     Writes happen only when *dry_run* is False.
     """
-    from rebrew.metadata.functions import get_entry, update_field
+    from rebrew.metadata.functions import get_entry, set_fields, set_fields_batch
 
     wanted_module = preset_module_key(module) if module else None
     module_selected = module_predicate(wanted_module)
@@ -352,6 +352,24 @@ def overlay_state(
     conflicts: list[dict[str, str]] = []
     proposed: list[dict[str, str]] = []
     rows: list[dict[str, Any]] = []
+    # Plain metadata fields are collected and written once at the end.  An
+    # update_field per field re-read and rewrote the whole store, so an
+    # overlay over N matched functions paid N full TOML rewrites per field.
+    deferred: list[dict[str, Any]] = []
+    deferred_effects: list[tuple[dict[str, Any], int, str, int]] = []
+
+    def _apply_effect(effect: tuple[dict[str, Any], int, str, int]) -> None:
+        """Record one successfully written deferred field in the report."""
+        nonlocal applied_notes, applied_locals, applied_comments
+        row, va, field, count = effect
+        touched.add(va)
+        row["fields"] = f"{row['fields']},{field}" if row["fields"] else field
+        if field == "note":
+            applied_notes += count
+        elif field == "locals":
+            applied_locals += count
+        elif field == "comments":
+            applied_comments += count
 
     # Per-instruction comments (provenance comments are skipped here: note and
     # ghidra travel through the function entry instead).
@@ -391,6 +409,12 @@ def overlay_state(
             log.warning("refusing file outside the source roots: %r", filepath)
             continue
         applied: list[str] = []
+        row: dict[str, Any] = {
+            "dst_va": _hex(dst_va),
+            "src_va": _hex(src_va),
+            "score": score,
+            "fields": "",
+        }
 
         if "name" in fields:
             bs_name = remote.get("name", "")
@@ -433,24 +457,15 @@ def overlay_state(
                             skipped += 1
                 elif accept_local:
                     if not dry_run:
-                        try:
-                            update_field(
-                                cfg.metadata_dir,
-                                dst_va,
-                                "ghidra",
-                                bs_name,
-                                local_module,
-                                updated_by="binsync-import",
-                            )
-                            touched.add(dst_va)
-                            applied.append("ghidra")
-                        except Exception:
-                            log.warning(
-                                "GHIDRA provenance write failed for VA %s",
-                                _hex(dst_va),
-                                exc_info=True,
-                            )
-                            skipped += 1
+                        deferred.append(
+                            {
+                                "module": local_module,
+                                "va": dst_va,
+                                "fields": {"ghidra": bs_name},
+                                "updated_by": "binsync-import",
+                            }
+                        )
+                        deferred_effects.append((row, dst_va, "ghidra", 1))
                     proposed.append(
                         _proposal(
                             dst_va,
@@ -523,23 +538,15 @@ def overlay_state(
                         applied_notes += 1
                         applied.append("note")
                     else:
-                        try:
-                            update_field(
-                                cfg.metadata_dir,
-                                dst_va,
-                                "note",
-                                bs_note,
-                                local_module,
-                                updated_by="binsync-import",
-                            )
-                            applied_notes += 1
-                            touched.add(dst_va)
-                            applied.append("note")
-                        except Exception:
-                            log.warning(
-                                "note overlay failed for VA %s", _hex(dst_va), exc_info=True
-                            )
-                            skipped += 1
+                        deferred.append(
+                            {
+                                "module": local_module,
+                                "va": dst_va,
+                                "fields": {"note": bs_note},
+                                "updated_by": "binsync-import",
+                            }
+                        )
+                        deferred_effects.append((row, dst_va, "note", 1))
 
         # LOCALS: frame offsets are address-independent, so a matched pair
         # keeps the source's stack variables unchanged.
@@ -549,21 +556,15 @@ def overlay_state(
                 applied_locals += 1
                 applied.append("locals")
             else:
-                try:
-                    update_field(
-                        cfg.metadata_dir,
-                        dst_va,
-                        "locals",
-                        normalized,
-                        local_module,
-                        updated_by="binsync-import",
-                    )
-                    applied_locals += 1
-                    touched.add(dst_va)
-                    applied.append("locals")
-                except Exception:
-                    log.warning("locals overlay failed for VA %s", _hex(dst_va), exc_info=True)
-                    skipped += 1
+                deferred.append(
+                    {
+                        "module": local_module,
+                        "va": dst_va,
+                        "fields": {"locals": normalized},
+                        "updated_by": "binsync-import",
+                    }
+                )
+                deferred_effects.append((row, dst_va, "locals", 1))
 
         # COMMENTS: shift each comment addr by (dst_va - src_va), only for
         # addrs inside the source function's range.
@@ -584,31 +585,47 @@ def overlay_state(
                     applied_comments += len(shifted)
                     applied.append("comments")
                 else:
-                    try:
-                        update_field(
-                            cfg.metadata_dir,
-                            dst_va,
-                            "comments",
-                            shifted,
-                            local_module,
-                            updated_by="binsync-import",
-                        )
-                        applied_comments += len(shifted)
-                        touched.add(dst_va)
-                        applied.append("comments")
-                    except Exception:
-                        log.warning(
-                            "comments overlay failed for VA %s", _hex(dst_va), exc_info=True
-                        )
-                        skipped += 1
-        rows.append(
-            {
-                "dst_va": _hex(dst_va),
-                "src_va": _hex(src_va),
-                "score": score,
-                "fields": ",".join(applied),
-            }
-        )
+                    deferred.append(
+                        {
+                            "module": local_module,
+                            "va": dst_va,
+                            "fields": {"comments": shifted},
+                            "updated_by": "binsync-import",
+                        }
+                    )
+                    deferred_effects.append((row, dst_va, "comments", len(shifted)))
+        row["fields"] = ",".join(applied)
+        rows.append(row)
+
+    if deferred:
+        try:
+            set_fields_batch(cfg.metadata_dir, deferred)
+        except Exception:
+            # One malformed received value must not lose the fields that
+            # would have written, so fall back to the per-field path and
+            # report exactly the failures it hits.
+            log.warning("batched overlay write failed; writing each field", exc_info=True)
+            for update, effect in zip(deferred, deferred_effects, strict=True):
+                try:
+                    set_fields(
+                        cfg.metadata_dir,
+                        int(update["va"]),
+                        update["fields"],
+                        str(update["module"]),
+                        updated_by="binsync-import",
+                    )
+                except Exception:
+                    log.warning(
+                        "overlay field write failed for VA %s",
+                        _hex(int(update["va"])),
+                        exc_info=True,
+                    )
+                    skipped += 1
+                    continue
+                _apply_effect(effect)
+        else:
+            for effect in deferred_effects:
+                _apply_effect(effect)
 
     applied_globals = 0
     if "global" in fields and globals_by_va:

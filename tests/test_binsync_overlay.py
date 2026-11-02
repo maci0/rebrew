@@ -368,6 +368,42 @@ class TestPrototypeAndNote:
         assert get_entry(tmp_path / "src", B_F1, "B").get("note") == "needs RE"
 
 
+class TestBatchedFieldWrites:
+    def test_note_lands_in_one_store_write(self, tmp_path: Path, monkeypatch) -> None:
+        """All accepted function fields share one read-modify-write."""
+        from rebrew.metadata import functions as store
+
+        _make_project(tmp_path)
+        _write_dest(tmp_path, local_name="func_401040")
+        state = _make_state(tmp_path, note="needs RE")
+        monkeypatch.chdir(tmp_path)
+
+        batches: list[list[dict[str, Any]]] = []
+        real_batch = store.set_fields_batch
+
+        def counting_batch(metadata_dir: Any, updates: list[dict[str, Any]], **kwargs: Any) -> int:
+            batches.append(updates)
+            return real_batch(metadata_dir, updates, **kwargs)
+
+        def no_per_field_write(*args: Any, **kwargs: Any) -> None:
+            raise AssertionError("accepted fields must not fall back to per-field writes")
+
+        monkeypatch.setattr(store, "set_fields_batch", counting_batch)
+        monkeypatch.setattr(store, "set_fields", no_per_field_write)
+
+        result = _invoke(tmp_path, state, "--fields", "note", "--json")
+        assert result.exit_code == 0, result.output
+        assert len(batches) == 1
+        assert batches[0] == [
+            {
+                "module": "B",
+                "va": B_F1,
+                "fields": {"note": "needs RE"},
+                "updated_by": "binsync-import",
+            }
+        ]
+
+
 class TestJsonShape:
     def test_json_keys_documented(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
