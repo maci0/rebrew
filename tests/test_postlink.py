@@ -337,7 +337,7 @@ class TestDataFixer:
     def test_built_overshoot_past_reference_vsize_is_zeroed(self, tmp_path: Path) -> None:
         """Code emitted past the reference's .text VirtualSize must not ship.
 
-        Regression (round 200): the tail trim starts at the reference's RAW
+        Regression: the tail trim starts at the reference's RAW
         size, so anything the link emitted between the reference's VirtualSize
         and its raw size survived.  guild-rebrew shipped 638 real bytes there
         -- a stub DllMain plus ~100 `ff 25` IAT thunks -- because its link

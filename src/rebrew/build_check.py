@@ -10,13 +10,13 @@ That matters because ``build/`` is load-bearing for the reconstruction:
 * ``rebrew build postlink`` rewrites the image they link into.
 
 All three therefore treat ``build.make`` as ground truth.  That trust is only
-sound while ``build.make`` still says what CMake wrote.  A round that hand-edits
-it -- to sweep a per-file flag, a toolchain pin, an ``/O`` option, anything --
-changes what every later measurement MEANS while the source tree stays clean and
-every other check keeps passing.  Measured on guild-rebrew (round 1051): a
-toolchain-pin sweep left the tree reporting 58% residue and a 290,816-byte
-deliverable against the correct 286,720 / 8628, with ``cmake --build`` still
-nominally succeeding.
+sound while ``build.make`` still says what CMake wrote.  A hand edit -- a
+per-file flag sweep, a toolchain pin, an ``/O`` option, anything -- changes
+what every later measurement MEANS while the source tree stays clean and
+every other check keeps passing.  Measured on guild-rebrew: a toolchain-pin
+sweep left the tree reporting 58% residue and a 290,816-byte deliverable
+against the correct 286,720 / 8628, with ``cmake --build`` still nominally
+succeeding.
 
 The test is self-contained.  CMake regenerates ``flags.make`` alongside
 ``build.make``, and records each object's custom flags there as
@@ -35,7 +35,7 @@ before comparing the remaining per-file tokens.
 the source and its cross-references but not the gitignored ``build/``, so
 ``build.make`` keeps naming the old ``.obj``.  Every flag still agrees, because
 the stale objects are simply never looked at: the loop skips any object without a
-``Custom`` comment.  Measured on guild-rebrew (round 1080): a rename left
+``Custom`` comment.  Measured on guild-rebrew: a rename left
 ``split_link.sh`` dying at exit 157 while this check reported clean.  So the
 check also verifies that every source ``build.make`` compiles still exists, which
 is what a rename or delete breaks.  ``build/`` is generator output and cannot be

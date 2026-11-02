@@ -2442,7 +2442,7 @@ def _fake_ga(champion: str) -> type:
 class TestRunOneStubGaPersistsFlags:
     """_run_one_stub_ga must persist the RAW swept flags (not the
     base-prefixed compile string) and only claim a match when the splice
-    actually landed (round-4 regressions)."""
+    actually landed."""
 
     def _cfg(self, tmp_path: Path) -> SimpleNamespace:
         return SimpleNamespace(

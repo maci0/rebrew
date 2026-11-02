@@ -663,7 +663,7 @@ timeout = 60
     ) -> None:
         """A declared size larger than the walked extent is padding, not code.
 
-        Regression for guild-rebrew round 1084: a function-list size is a gap to
+        Regression on guild-rebrew: a function-list size is a gap to
         the NEXT entry, so it can overrun into inter-function padding.  Decoding
         that padding is not harmless when it is 0x09, which disassembles as
         ``or dword ptr [ecx], ecx`` -- it inflated

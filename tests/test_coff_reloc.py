@@ -295,7 +295,7 @@ def test_function_catalog_scan_is_marker_scoped(
     A shared file carries one ``// FUNCTION:`` marker per target and the same
     symbol name sits at a different VA in each binary.  Unfiltered, the last
     marker parsed won the name, so a correct call in the other target's compare
-    false-failed REL32 validation (guild-rebrew round 1290: `gm_RandomFloat01`
+    false-failed REL32 validation (guild-rebrew: `gm_RandomFloat01`
     resolved to the SERVER VA inside a GOLDTL compare → NEAR_MATCHING on bytes
     that only differed by a relocation).
     """

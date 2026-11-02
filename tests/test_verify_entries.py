@@ -853,7 +853,7 @@ class TestPrepareEntriesCache:
 
 class TestBinaryIdCacheGuard:
     """A rebuilt binary of the same target name must invalidate the verify
-    cache (round-4: the cache previously checked only the target NAME)."""
+    cache (the cache previously checked only the target NAME)."""
 
     def test_profile_change_invalidates_cache(self, tmp_path: Path) -> None:
         """`[compiler] profile` selects the toolchain, so it is part of the

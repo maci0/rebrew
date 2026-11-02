@@ -1810,8 +1810,8 @@ def main(
         # Library rows are NOT work: their bytes come from the linked archive,
         # so "improve-match / needs implementation" is a false action item.
         # The server's `library_msvc.h` alone contributed 11 of the top 20
-        # items before this filter (round 1380: `_ftell`, `__ftell_lk`,
-        # `_realloc`, … all correctly attributed, all unrunnable).
+        # items before this filter (`_ftell`, `__ftell_lk`, `_realloc`, …
+        # all correctly attributed, all unrunnable).
         existing = {va: info for va, info in existing.items() if va not in library_vas}
     except (OSError, json.JSONDecodeError, KeyError) as exc:
         error_exit(f"Failed to load project data: {exc}", json_mode=json_output)

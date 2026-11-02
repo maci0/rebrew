@@ -884,7 +884,7 @@ def _check_W036_stray_metadata_store(cfg: ProjectConfig) -> list[LintResult]:
     somewhere else in the tree is not a backup -- it is a file that answers for
     a directory if a tool is pointed at it, and is invisible otherwise.
 
-    Measured on guild-rebrew (round 162): a stray ``./rebrew-data.toml`` at the
+    Measured on guild-rebrew: a stray ``./rebrew-data.toml`` at the
     project root held **1** entry while the store in ``src/`` held **1170**,
     and `rebrew lint` reported 0 warnings.  Loaded against the root, the store
     resolves and returns the 1 entry with no complaint.

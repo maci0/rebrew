@@ -1575,9 +1575,9 @@ class TestFixHeaders:
 
 
 class TestPeHeaderFieldWidths:
-    """Header fields are 1, 2, or 4 bytes wide — reads and writes must use
-    the declared width (numeric-review: a 4-byte pack clobbered adjacent
-    narrow fields; a 4-byte unpack crashed near EOF)."""
+    """Header fields are 1, 2, or 4 bytes wide; reads and writes must use
+    the declared width.  A 4-byte pack would clobber adjacent narrow fields,
+    and a 4-byte unpack would crash near EOF."""
 
     def test_patch_narrow_field_writes_exact_width(self) -> None:
         """Patching linker_version_major (1 byte at +0x1A) must not touch

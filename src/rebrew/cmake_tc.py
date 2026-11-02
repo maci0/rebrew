@@ -524,8 +524,8 @@ def driver_main(
     # lever it has -- so accept the toolchain as a pseudo-flag and strip it
     # before the real command line is built.  Without this a per-function
     # toolchain pin could only ever affect `rebrew test`, never the linked
-    # bytes (guild-rebrew round 224 measured a real +11 byte gain that was
-    # unreachable for exactly this reason).
+    # bytes (guild-rebrew measured a real +11 byte gain that was unreachable
+    # for exactly this reason).
     argv = []
     pinned: str | None = None
     # The generated default comes first; a later per-file pin overrides it.

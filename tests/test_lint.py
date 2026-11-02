@@ -1966,7 +1966,7 @@ class TestW021W022:
 
 class TestDuplicateVAMultiBlock:
     """E013 must flag a duplicate VA in a LATER block of a multi-function file
-    (round-4: the old i == 0 guard only checked the first block)."""
+    (the old i == 0 guard only checked the first block)."""
 
     def test_duplicate_in_later_block_flagged(self, tmp_path: Path) -> None:
         f = tmp_path / "multi.c"

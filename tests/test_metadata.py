@@ -1217,7 +1217,7 @@ class TestUpdateStatusesBatchPromotionPolicy:
 
 
 # ---------------------------------------------------------------------------
-# Case-insensitive promotion policy + canonical merge (design-review)
+# Case-insensitive promotion policy + canonical merge
 # ---------------------------------------------------------------------------
 
 

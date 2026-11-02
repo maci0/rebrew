@@ -1236,7 +1236,7 @@ class TestBssFixMessage:
 
 class TestFindDispatchTablesSparse:
     """Sparse dispatch tables: entries separated by non-pointer slots within
-    the stride must form ONE table (round-5 regression)."""
+    the stride must form ONE table."""
 
     _TEXT_VA = 0x10001000
     _TEXT_SIZE = 0x1000

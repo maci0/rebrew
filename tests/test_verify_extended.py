@@ -2250,8 +2250,8 @@ class TestCompareBaseline:
         }
         monkeypatch.setattr("rebrew.verify_cache.load_baseline", lambda _cfg: (previous, None))
         # NOTE: save_verify_cache is intentionally NOT mocked — a failed
-        # gate run must not write the compile cache either (F9: a CI failure
-        # records no new state).
+        # gate run must not write the compile cache either, so a CI failure
+        # records no new state.
         monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
 

@@ -78,11 +78,10 @@ def _generate_bss_fix(
     Idempotent on re-run: the generated file's OWN ``char gap_`` arrays
     close the gaps they fill, so a second run's gap scan reports fewer gaps —
     regenerating from scratch would DELETE the arrays written by the first
-    run while the data metadata still claims coverage (idempotency-review
-    F4).  The existing auto-generated declarations are merged with the new
-    gaps instead, and the file is written BEFORE its metadata so a crash
-    between the two can never leave metadata claiming coverage the source
-    does not declare.
+    run while the data metadata still claims coverage.  The existing
+    auto-generated declarations are merged with the new gaps instead, and the
+    file is written BEFORE its metadata so a crash between the two can never
+    leave metadata claiming coverage the source does not declare.
     """
     from rebrew.metadata.data import record_data_rows, set_data_fields_batch
     from rebrew.metadata.functions import identity_file

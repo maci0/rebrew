@@ -438,7 +438,7 @@ def test_toolchain_pin_is_reported_because_the_build_cannot_honour_it(
     CMake build's compiler is fixed by the toolchain file, so a pin let the
     metadata claim one compiler while the deliverable was built by another —
     the same divergence class this module's docstring describes for CFLAGS,
-    and the reason a round-188 service-pack sweep could not be acted on.
+    and the reason a service-pack sweep could not be acted on.
     """
     cfg = _project(
         tmp_path,

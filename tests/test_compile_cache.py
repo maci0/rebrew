@@ -1754,7 +1754,7 @@ class TestCacheDegradation:
 
     The cache is an accelerator for the GA hot loop and verify batch: an
     unhandled diskcache/sqlite error there kills hours-long runs with an
-    obscure traceback (error-handling review).
+    obscure traceback.
     """
 
     @pytest.fixture(autouse=True)

@@ -108,8 +108,8 @@ class TestCatalogCli:
 
     def test_export_ghidra_json_refused(self, tmp_path: Path, monkeypatch) -> None:
         """--export-ghidra prints instructions and emits no JSON document —
-        combining it with --json would break the JSON contract (cli-review
-        F9), so the combination is refused up front."""
+        combining it with --json would break the JSON contract, so the
+        combination is refused up front."""
         _patch(monkeypatch, tmp_path)
         r = runner.invoke(catalog_cli.app, ["--export-ghidra", "--json"])
         assert r.exit_code != 0

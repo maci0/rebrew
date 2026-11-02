@@ -1994,9 +1994,8 @@ class TestExtractArgsToTemps:
 
 
 class TestWrongCodeRegression:
-    """Regression tests for the R7 review pass — these operators used to emit
-    semantically wrong or uncompilable code; each is now verified to either
-    produce correct output or refuse the unsafe case."""
+    """These operators used to emit semantically wrong or uncompilable code;
+    each now either produces correct output or refuses the unsafe case."""
 
     def test_split_cmp_chain_skips_if_with_else(self) -> None:
         src = "void f() { if (a && b) { x = 1; } else { y = 2; } }"
@@ -2059,7 +2058,7 @@ class TestWrongCodeRegression:
 
 
 class TestRound2Regression:
-    """Regression tests for round-2 review findings."""
+    """Regression tests for nested-if merging and else-chain inversion."""
 
     def test_merge_cmp_chain_skips_outer_sibling_statements(self) -> None:
         # Merging would drop `x = 1;` — must refuse.
@@ -2114,7 +2113,7 @@ class TestReturnToGotoLabelPlacement:
 
 class TestReorderElseIf:
     """Swapping else-if branches must guard the second branch with !(first)
-    and preserve any trailing else (round-6 swarm finding)."""
+    and preserve any trailing else."""
 
     def test_preserves_trailing_else_and_semantics(self) -> None:
         src = "int f(int a, int b) {\n    if (a) { return 1; } else if (b) { return 2; } else { return 3; }\n}"

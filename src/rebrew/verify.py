@@ -1910,7 +1910,7 @@ def _save_report(
             report["size_divergences"] = size_divergences
             report["missing_sizes"] = missing_sizes
 
-    # F9: a failed --compare gate must not record state — the baseline is
+    # A failed --compare gate must not record state: the baseline is
     # preserved below, and the verify cache write below is skipped too so a CI
     # failure leaves no new entries behind.
     diff_result: dict[str, Any] | None = None
@@ -3271,9 +3271,10 @@ def _looks_like_inventory_merge(binary: bytes, start_off: int, ann_size: int, sp
     a `ret` and the next one opens with a stack-frame prologue -- so it needs no
     disassembler, only the bytes.
 
-    Round 190 measured `cm_ExTransferCurrencyNoKill` at 144 annotated against a
-    2,208-byte inventory entry and found `c3 90 90` then `81 ec 28 02 00 00` at
-    +144: the annotation was right and the inventory was two functions.
+    `cm_ExTransferCurrencyNoKill` was annotated at 144 against a 2,208-byte
+    inventory entry, and the bytes at +144 were `c3 90 90` then
+    `81 ec 28 02 00 00`: the annotation was right and the inventory was two
+    functions.
     """
     # The annotation is rounded up to the next 16-byte function boundary, so the
     # function's own `ret` can sit up to that much BEFORE the annotation's size --
@@ -3281,11 +3282,10 @@ def _looks_like_inventory_merge(binary: bytes, start_off: int, ann_size: int, sp
     # the scan below the annotation size or every merge is missed.
     lo, hi = start_off + max(0, ann_size - 16), start_off + span
     # ONE source of truth for what opens a function.  This detector used to carry
-    # its own four shapes while `discover._function_start` grew to eight across
-    # rounds 196-197 and 245 -- so the two disagreed about the same bytes, and this
-    # one missed cm_DispatchProduction's neighbour (`8b 44 24 04`, a first-argument
-    # load) until round 247.  `openers` is kept as a fallback only for callers
-    # without a loader handle.
+    # its own four shapes while `discover._function_start` grew to eight, so the
+    # two disagreed about the same bytes, and this one missed cm_DispatchProduction's
+    # neighbour (`8b 44 24 04`, a first-argument load).  `openers` is kept as a
+    # fallback only for callers without a loader handle.
     openers = (
         b"\x55\x8b\xec",  # push ebp; mov ebp, esp
         b"\x81\xec",  # sub esp, imm32
@@ -3311,7 +3311,7 @@ def _looks_like_inventory_merge(binary: bytes, start_off: int, ann_size: int, sp
     # the code's `ret`, so at cm_DispatchProduction the `ret` is at +113 while the
     # annotation ends at +144 (116 bytes of code, a 28-byte table of .text
     # addresses) -- 31 bytes earlier than the 16-byte back-scan looks, and the
-    # next function starts exactly at +144 (`8b 44 24 04`, round 246).  Testing
+    # next function starts exactly at +144 (`8b 44 24 04`).  Testing
     # the boundary directly costs one comparison and needs no window at all.
     end = start_off + ann_size
     if end + 4 <= len(binary):

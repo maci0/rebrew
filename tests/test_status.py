@@ -1848,7 +1848,7 @@ class TestRenderTerminal:
 
 class TestCollectStatusSizeFallback:
     """matched_bytes must not collapse to 0 when function_structure.json is
-    missing but annotation-metadata SIZE exists (round-4)."""
+    missing but annotation-metadata SIZE exists."""
 
     def test_size_fallback_without_ghidra_sizes(self, tmp_path: Path) -> None:
         from rebrew.status import collect_status

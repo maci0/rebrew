@@ -344,8 +344,8 @@ def _fix_imports(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo) -> 
         if prefix_hi - prefix_lo != len(meta.prefix):
             # Report the measurement, not only a hypothesis.  The previous
             # message named just the /debug cause, which sent the reader after a
-            # debug directory that is usually absent: measured on guild-rebrew
-            # (round 1053) the built .rdata was 0x40 bytes LONGER than the
+            # debug directory that is usually absent: measured on guild-rebrew,
+            # the built .rdata was 0x40 bytes LONGER than the
             # reference with DataDirectory[6] == 0 in BOTH images, and the
             # message still said "check the debug directory".
             raise ValueError(

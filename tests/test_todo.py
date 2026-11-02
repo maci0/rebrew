@@ -2622,7 +2622,7 @@ class TestPlaceholderLaneVerifyState:
 class TestLibraryAndCrossTargetScoping:
     """Library rows and other targets' rows are never THIS target's work.
 
-    Two measured leaks (guild-rebrew round 1380): `library_msvc.h`'s
+    Two measured leaks on guild-rebrew: `library_msvc.h`'s
     annotation-only `// LIBRARY: SERVER 0x…` rows filled 11 of the server's top
     20 todo slots with unrunnable "improve this match" items, and the
     start-data lane listed 20 GOLDTL data symbols (0x6624a0, 0x773d80, …) in

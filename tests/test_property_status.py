@@ -1,10 +1,8 @@
 """Property-based tests for shared status helpers.
 
 ``count_statuses`` (catalog/grid.py) and ``should_promote_status``
-(cli.py) are the two canonical status-decision helpers added when the
-swarm review found status-counting and promotion logic triplicated across
-modules.  These hypothesis tests pin the invariants that must hold for
-arbitrary annotation mixes:
+(cli.py) are the two canonical status-decision helpers.  These hypothesis
+tests pin the invariants that must hold for arbitrary annotation mixes:
 
 - count_statuses never loses a function VA (sum == number of function VAs)
 - statuses outside the five buckets do not create phantom counts

@@ -1119,7 +1119,7 @@ class TestUpdateStubToMatched:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The splice must not drop functions that FOLLOW the stub's block
-        (round-3: header + best_src truncated everything after the stub)."""
+        (header + best_src truncated everything after the stub)."""
         from rebrew.match_batch import update_stub_to_matched
 
         f = tmp_path / "multi.c"

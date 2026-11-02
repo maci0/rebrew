@@ -839,7 +839,7 @@ def function_extent_from_disasm(
 
     *max_size* must cover the function, or the walk runs out of buffer and
     returns ``None`` — which callers read as "no evidence", so they fall back
-    to the declared size.  The default was 512 until round 1084, and on
+    to the declared size.  The default was 512, and on
     guild-rebrew ``CrashDumpUnhandledExceptionFilter`` is 2115 bytes: the walk
     gave up, the caller trusted the function-list size, and that size runs 116
     bytes past the code into ``0x09`` padding, which disassembles as

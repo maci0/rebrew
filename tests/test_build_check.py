@@ -275,7 +275,7 @@ def test_recorded_tokens_are_not_drift(tmp_path, token):
 def test_missing_source_is_drift(tmp_path):
     """A rename leaves build.make naming an object that no longer exists.
 
-    Regression for guild-rebrew round 1080: `rebrew source rename` rewrote the source
+    Regression on guild-rebrew: `rebrew source rename` rewrote the source
     but not the gitignored build/, so split_link.sh died at exit 157 while this
     check reported clean.  Flags on the stale object all still agreed, and the
     object was skipped rather than flagged, because the flag loop only inspects

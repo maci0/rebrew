@@ -273,10 +273,10 @@ def import_size(dst_size: int, src_code: bytes | None) -> int:
     """The size an imported binding claims.
 
     The destination's registry size is whatever the tree last recorded, and a
-    skeleton from an earlier round can leave it stale.  Verifying only that
+    skeleton from an earlier run can leave it stale.  Verifying only that
     prefix reports a false ``EXACT MATCH``: the import succeeds, and the next
-    ``rebrew verify --no-cache`` flags ``SIZE_MISMATCH`` (guild-rebrew round 1412 —
-    GOLD 0x00449d80 claimed 23 bytes while the body is 25, carried over from
+    ``rebrew verify --no-cache`` flags ``SIZE_MISMATCH`` (guild-rebrew: GOLD
+    0x00449d80 claimed 23 bytes while the body is 25, carried over from
     the superseded stub).  Never claim less than the body the matcher matched;
     a destination that really is shorter then fails verification and the stack
     is rolled back, which is the honest outcome.
@@ -385,7 +385,7 @@ def _library_vas(cfg: ProjectConfig) -> set[int]:
     MSS32, …).  Cross-import must never create a game-source annotation for one:
     the code is linker-supplied, byte-identical across the clients by
     construction, and importing it turns a library band into dozens of
-    unmatchable "game" functions — guild-rebrew round 1293 matched ~50 D3DX8
+    unmatchable "game" functions; guild-rebrew matched ~50 D3DX8
     bodies in GOLDTL's ``0x5e0000-0x64ffff`` band against GOLD's copies before
     this filter existed.
     """
@@ -841,7 +841,7 @@ def import_shared_function(
     cflags = src_flags.strip()
     # Record flags only when they differ from what the destination would use
     # anyway: an inherited value written per function is lint W029 noise and
-    # one more thing to keep in sync (guild-rebrew round 1293 imported 25
+    # one more thing to keep in sync (guild-rebrew imported 25
     # functions and 25 W029 rows appeared).
     inherited = str(getattr(cfg_dst, "cflags", "") or "").strip()
     # The verify filepath resolves against the destination's reversed_dir —
@@ -1421,8 +1421,8 @@ def main(
     # A source file is ONE function body: importing it at several destination
     # VAs records several rows on that one body, which only works when the
     # destinations really are byte-identical copies.  When they are not, the
-    # extra rows are guaranteed mismatches on a shared body (guild-rebrew
-    # round 1293: one GOLD function was recorded at GOLDTL 0x659fbf and
+    # extra rows are guaranteed mismatches on a shared body (guild-rebrew:
+    # one GOLD function was recorded at GOLDTL 0x659fbf and
     # 0x6508a3 with 9- and 11-byte spans).  Import the best-scoring match per
     # source file; further destination VAs need a deliberate twin.
     imported_src_files: dict[str, str] = {}

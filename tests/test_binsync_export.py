@@ -260,9 +260,9 @@ class TestBinsyncExportComments:
     def test_status_and_cflags_not_exported(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """STATUS/CFLAGS have no BinSync counterpart — the old write-only
-        ``[rebrew] STATUS=… CFLAGS=…`` comment was removed (metadata-review
-        R2): the function TOML carries only BinSync-native fields."""
+        """STATUS/CFLAGS have no BinSync counterpart.  The write-only
+        ``[rebrew] STATUS=… CFLAGS=…`` comment is not exported, so the
+        function TOML carries only BinSync-native fields."""
         _make_project(
             tmp_path,
             {

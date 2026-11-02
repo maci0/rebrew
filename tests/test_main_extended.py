@@ -124,10 +124,9 @@ class TestMainEntryExitPaths:
 
 
 class TestJsonRequested:
-    """_json_requested must match the EXACT --json token — the old argv
-    substring scan matched any argument containing the literal (cli-review
-    F11: a file named x--json.c or --cflags "--json" wrongly switched the
-    error envelope to JSON mode)."""
+    """_json_requested must match the EXACT --json token.  A substring scan
+    matches any argument containing the literal, so a file named x--json.c or
+    --cflags "--json" would wrongly switch the error envelope to JSON mode."""
 
     def test_exact_json_matches(self) -> None:
         from rebrew.cli import _json_requested

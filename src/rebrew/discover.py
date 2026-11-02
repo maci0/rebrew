@@ -552,7 +552,7 @@ def _is_padding(info: Any, va: int, end: int) -> bool:
     try:
         raw = extract_bytes(info, va, end - va)
     except Exception as exc:
-        # Same hazard as `_function_start` (round 219): "could not read" and
+        # Same hazard as `_function_start`: "could not read" and
         # "not padding" are different facts and this returns False for both, so a
         # systematic read failure is indistinguishable from "no padding found".
         # Reported once per run rather than at DEBUG.
@@ -614,7 +614,7 @@ def _function_start(info: Any, va: int) -> int | None:
                 "could not read 16 bytes at 0x%x for a prologue test (%s); "
                 "every such failure is treated as 'not a prologue', so a "
                 "systematic read problem looks exactly like 'no boundaries "
-                "found' -- which is how round 193 shipped a fix that did nothing",
+                "found' -- which is how a fix that did nothing once shipped",
                 va,
                 exc,
             )
@@ -708,7 +708,7 @@ def _validate_and_refine(
         # first ret and, past it, the first ret that a real prologue follows.
         # Only the second ends a function; treating the first as the end truncates
         # every function with an early return, and treating the gap as the end
-        # swallows the next function (round 193).  `_looks_like_inventory_merge`
+        # swallows the next function.  `_looks_like_inventory_merge`
         # in verify.py scans the same way, so the two agree on what a merge is.
         ret_end = None
         boundary_end = None
