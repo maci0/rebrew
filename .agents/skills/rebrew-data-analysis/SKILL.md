@@ -125,12 +125,12 @@ also replaces the default header without prompting: preserve and reconcile any
 existing split first.
 
 `data layout audit` reports SPAN/ORDER and unowned symbols. `data layout fix-ownership`
-re-partitions definitions; `--own` materializes stub-file storage. Neither a
+re-partitions definitions; `data layout own` materializes stub-file storage. Neither a
 reference count nor physical adjacency establishes a library or subsystem owner.
 `data layout fill` and `data fix-bss` emit padding; use only for proven uncovered storage,
 not aliases or bytes already emitted by stock libraries. Preview every mutation
-with `--dry-run`. `--converge` adjusts leading pads against the current build;
-it does not build or prove the resulting data: rebuild, then verify.
+with `--dry-run`. `rebrew data layout converge` adjusts leading pads against the
+current build; it does not build or prove the resulting data: rebuild, then verify.
 
 JSON response shapes and failure-mode table: `references/json-and-failures.md`.
 

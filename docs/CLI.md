@@ -503,13 +503,15 @@ Output prefixes for unambiguous parsing:
 | `--watch` | flag | `False` | Re-verify all sources whenever any .c file changes (terminal only; no --json) |
 | `--skip-libraries` | flag | `False` | Exclude library-origin functions from verification. Game code only: source-built and statically linked library rows are left out of the compile and the count |
 | `--prune-orphans` | flag | `False` | Prune orphaned metadata rows (earned results are preserved) before verifying — same scan as `rebrew orphans prune` |
-| `--data` | flag | `False` | Byte-compare built .data/.rdata against the reference, per metadata symbol |
+| `--data` | flag | `False` | Byte-compare built .data/.rdata against the reference, per metadata symbol; image-only unless --functions, --text, or a source/scope selection is given |
+| `--functions` | flag | `False` | Also compile and verify functions with --data or --whole-binary (the default when neither image-only check is selected) |
 | `--built` | path | — | Built image (default: build/<target>) |
 | `--raw-link` | flag | `False` | Confirm --built is an unmodified raw link. Required for --data DRIFT writes and --text linked EXACT promotion unless --built matches configured raw_link. Postlink byte copies cannot establish these verdicts |
 | `--link-map` | path | — | MSVC link map of --built for --data and --text placement (default: the built image's .map beside it). Data symbols the map puts at their reference VA become EXACT, others DISPLACED; --text promotes only functions the map places at their VA |
 | `--text` | flag | `False` | Check .text function placement against metadata addresses (position-alignment gate). With an acknowledged raw link, a RELOC function placed at its VA whose linked bytes equal the reference becomes EXACT (linked EXACT) |
-| `--whole-binary` | flag | `False` | Compare built binary against the reference: sections, exports, imports, resources, headers |
+| `--whole-binary` | flag | `False` | Compare built binary against the reference: sections, exports, imports, resources, headers; image-only unless --functions, --text, or a source/scope selection is given |
 | `--context` | path | — | C declarations to compile with every source (e.g. 'rebrew export context' output); each result records the context hash it was earned under |
+| `--experimental-unshare` | flag | `False` | Opt this run into the experimental rootless MSVC/Wine backend (no Docker fallback) |
 | `--output` / `-o` | path | — | Write the JSON report to a file (explicit export; the --compare baseline lives in .rebrew/ and needs no flag) |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
@@ -517,6 +519,12 @@ Output prefixes for unambiguous parsing:
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
 | `--all-targets` | flag | `False` | Repeat this command for every configured target. Does not change which items each target selects. Excludes --target. |
 | `--source-targets` | flag | `False` | Repeat this command for every target bound to the given source file. Unbound targets are skipped. Excludes --target and --all-targets. |
+
+`--data` and `--whole-binary` run image-only checks and do not compile
+functions. Add `--functions` to run the function pipeline too; bare `verify`,
+`--text`, or a source/scope selection already does. The JSON report records
+`functions_checked`.
+
 With `--source-targets`, FILE uses an explicit current-directory-relative or
 absolute path, including with `--root`. Eligibility, skips and failure isolation
 follow `test --source-targets`. This excludes target/all-target selection, watch,
@@ -5852,7 +5860,7 @@ rebrew cfg target add CLIENT --binary original/client.dll --dry-run
 | --- | --- | --- | --- |
 | `NAME` | str | required | Target name (e.g. 'mygame') |
 | `--binary` / `-b` | path | required | Path to the original binary |
-| `--arch` / `-a` | str | — | Architecture: x86_16, x86_32, x86_64, arm32, arm64, mips32, mips64, ppc32, ppc64, sh2 (auto-detected if omitted) |
+| `--arch` / `-a` | str | — | Architecture: xtensa, x86_16, x86_32, x86_64, arm32, arm64, mips32, mips64, ppc32, ppc64, sh2 (auto-detected if omitted) |
 | `--format` / `-f` | pe / elf / macho / ne / mz | — | Binary format: pe, elf, macho, ne, mz (auto-detected if omitted) |
 | `--modules` | str | — | Comma-separated module list (inherits from project or defaults to GAME) |
 | `--source-ext` | str | — | Source file extension (e.g. .c, .cpp). Auto-detected from binary if omitted |
@@ -6682,7 +6690,7 @@ rebrew source binding retire 0x401000 --reason proof --dry-run --json
 
 ### `rebrew source binding rebind`
 
-`rebrew source binding rebind VA SOURCE --reason TEXT [--name NAME] [--symbol SYMBOL]`
+`rebrew source binding rebind VA SOURCE --reason TEXT [--name NAME] [--symbol SYMBOL] [--expected-digest HASH]`
 
 Bind one unambiguous definition in the configured source universe. Names default
 to the current or last retired claim; the symbol defaults to the definition's
@@ -6698,7 +6706,7 @@ rebrew source binding rebind 0x401000 src/f.c --reason proof --dry-run
 
 ### `rebrew binary repair-extents`
 
-`rebrew binary repair-extents 0xVA=SIZE... --reason TEXT [--add-missing] [--dry-run]`
+`rebrew binary repair-extents 0xVA=SIZE... --reason TEXT [--merge 0xHEAD=0xTAIL] [--retire 0xVA] [--add-missing] [--sync-rows] [--expected-digest HASH] [--dry-run]`
 
 Repair selected sizes in the configured native inventory, preserving unrelated
 rows and their extra fields. Every selected span must fit file-backed executable
@@ -6719,6 +6727,15 @@ cannot overlap any retained inventory extent; shrink an overextended predecessor
 in the same reviewed operation when the native evidence requires it. Existing
 rows retain their fields and relative order. Admission records `old_size: null`
 in the extent history and does not change source identity, ownership or STATUS.
+
+`--merge 0xHEAD=0xTAIL` absorbs an immediately following inventory row into the
+head row, the inverse of a split: the head extent grows to the tail's end and the
+tail row is removed, with its own extent history preserved on the head.
+`--retire 0xVA` removes a reviewed erroneous inventory row and requires a
+preview's `--expected-digest` before it can apply. A merge head cannot also be
+resized, and a retired row cannot also be resized or merged. Neither option
+touches source bindings or earned verdicts; retire those through their own
+reviewed writers.
 
 Preview with `--dry-run --json`, then repeat the same operation with
 `--expected-digest HASH` to guard its updates, reason, admission policy and complete

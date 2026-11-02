@@ -21,7 +21,7 @@ default_target = "target_name"           # Default target when --target is not p
 [targets.target_name]
 binary = "original/target.dll"          # Target binary (relative to project root)
 format = "pe"                            # Binary format: pe, elf, macho, ne, mz
-arch = "x86_32"                          # Architecture: x86_16, x86_32, x86_64, arm32, arm64, mips32, mips64, ppc32, ppc64, sh2
+arch = "x86_32"                          # Architecture: x86_16, x86_32, x86_64, arm32, arm64, mips32, mips64, ppc32, ppc64, sh2, xtensa
 # module = "TARGET_NAME"                 # Defaults to target key uppercased, non-[A-Za-z0-9_] stripped
 reversed_dir = "src/target_name"         # Where reversed .c files live
 # inventory_file = "db/inventory-target.json"  # Function-inventory override
@@ -112,6 +112,7 @@ backup and preview contracts.
 
 | Arch | Capstone | Pointer Size | Padding |
 |------|----------|-------------|---------|
+| `xtensa` | `CS_ARCH_XTENSA, CS_MODE_LITTLE_ENDIAN` | 4 | `0x00` |
 | `x86_16` | `CS_ARCH_X86, CS_MODE_16` | 2 | `0x90, 0x00` |
 | `x86_32` | `CS_ARCH_X86, CS_MODE_32` | 4 | `0xCC, 0x90` |
 | `x86_64` | `CS_ARCH_X86, CS_MODE_64` | 8 | `0xCC, 0x90` |
@@ -129,7 +130,8 @@ MSVC 16-bit) or plain DOS MZ; `rebrew intake` sets `format = "ne"` (or `"mz"`) +
 
 MIPS, PPC, and SH2 disassembly is big-endian unless the target image header
 says otherwise (a little-endian ELF identity byte, for PlayStation MIPS).
-ARM stays little-endian unless that header is big-endian.  x86 never sets
+ARM stays little-endian unless that header is big-endian. Xtensa stays
+little-endian and rejects big-endian objects. x86 never sets
 `CS_MODE_BIG_ENDIAN`: capstone rejects it.
 
 ## Known operand bindings
