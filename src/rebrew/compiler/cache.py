@@ -1289,14 +1289,16 @@ _HEADER_DIGEST_LOCK = threading.Lock()
 _HEADER_DIGESTS: OrderedDict[tuple[object, ...], str] = OrderedDict()
 
 
-def _path_stat_id(path: str, *, follow: bool) -> tuple[int, int, int, int]:
+def _path_stat_id(path: str) -> tuple[int, int, int, int]:
     """Return mtime, size, inode and change time, or a missing marker.
 
     ``os.stat`` rather than ``Path.stat``: this re-check runs once per
     translation unit, and building a ``Path`` for it was the digest's cost.
+    Symlinks are not followed: a retargeted include directory must miss the
+    digest even when the old directory it named is untouched.
     """
     try:
-        st = os.stat(path, follow_symlinks=follow)  # noqa: PTH116
+        st = os.stat(path, follow_symlinks=False)  # noqa: PTH116
     except OSError:
         return (-1, -1, -1, -1)
     return (st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns)
@@ -1315,8 +1317,8 @@ def _header_digest_ident(
         paths,
         source_dir,
         include_dirs,
-        None if source_dir is None else _path_stat_id(source_dir, follow=False),
-        tuple(_path_stat_id(directory, follow=False) for directory in include_dirs),
+        None if source_dir is None else _path_stat_id(source_dir),
+        tuple(_path_stat_id(directory) for directory in include_dirs),
         _header_stats(paths),
     )
 

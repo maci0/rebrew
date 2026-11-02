@@ -35,8 +35,6 @@ class NeImage:
         self.header, header = read_ne_header(self.data)
         self.align = header.sector_size
         self.seg_count = header.segment_count
-        self.modrefs = header.module_reference_count
-        self.flags = header.flags
         exports = parse_exports(self.data, self.header, header)
         self.module = next((e.name for e in exports if e.ordinal == 0), "")
         self.segment_records = parse_segments(self.data, self.header, header)

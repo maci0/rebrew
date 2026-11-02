@@ -40,11 +40,8 @@ SEG_ITERATED = 0x0008
 class NeHeader:
     """Parsed NE header fields."""
 
-    linker_version: int
     entry_table_offset: int
     entry_table_length: int
-    flags: int
-    autodata_segment: int
     segment_count: int
     module_reference_count: int
     segment_table_offset: int
@@ -390,11 +387,8 @@ def parse_ne_header(data: bytes, ne_offset: int) -> NeHeader:
     h = ne_offset
     try:
         return NeHeader(
-            linker_version=data[h + 0x02],
             entry_table_offset=_u16(data, h + 0x04),
             entry_table_length=_u16(data, h + 0x06),
-            flags=_u16(data, h + 0x0C),
-            autodata_segment=_u16(data, h + 0x0E),
             segment_count=_u16(data, h + 0x1C),
             module_reference_count=_u16(data, h + 0x1E),
             segment_table_offset=_u16(data, h + 0x22),

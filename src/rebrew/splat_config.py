@@ -872,7 +872,6 @@ class SourceBinding:
     path: str
     declaration: str
     state: str  # "create" | "unchanged" | "conflict"
-    overridable: bool = False  # a conflict --force may replace
 
     def display_path(self, reversed_dir: str) -> str:
         """The project-relative path this annotation lands in."""
@@ -1246,7 +1245,6 @@ def _plan_annotations(
                 path=rel,
                 declaration=_source_declaration(module, row.va, declaration),
                 state=state,
-                overridable=overridable,
             )
         )
 
@@ -1379,7 +1377,6 @@ def _plan_library_annotations(
                 path=rel,
                 declaration=_source_declaration(module, row.va, ""),
                 state=state,
-                overridable=overridable,
             )
         )
     return planned

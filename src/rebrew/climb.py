@@ -550,7 +550,6 @@ class _AlignedMatcher(SequenceMatcher[str]):
     """
 
     last_visits: int = 0
-    element_visits: int = 0
     a: Sequence[str]
     b: Sequence[str]
     isjunk: Callable[[str], bool] | None
@@ -616,7 +615,6 @@ class _AlignedMatcher(SequenceMatcher[str]):
             collapsed.append(Match(current_i, current_j, current_size))
         collapsed.append(Match(len(left), len(right), 0))
         self.matching_blocks = collapsed
-        self.element_visits = visits
         type(self).last_visits = visits
         return collapsed
 

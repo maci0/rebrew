@@ -250,7 +250,7 @@ def parse_elf_obj(
             else:
                 # 4 bytes is the instruction word on every target reached here,
                 # and is the right fallback when the width is unknown.
-                width = _elf_fixup_width(reloc, default=4)
+                width = _elf_fixup_width(reloc)
                 for k in range(width):
                     if func_rel + k < len(code):
                         reloc_offsets.add(func_rel + k)
@@ -318,14 +318,14 @@ _RISCV_FIXUP_WIDTHS: dict[str, int] = {
 }
 
 
-def _elf_fixup_width(reloc: Any, *, default: int) -> int:
+def _elf_fixup_width(reloc: Any) -> int:
     """Fixup width in bytes for an ELF relocation.
 
     LIEF's ``size`` field is authoritative when it is sane, which it is on the
     architectures that were validated (x86-64, AArch64, ARM, MIPS).  Where LIEF
     reports no usable size — every RISC-V relocation, and every AVR one — the
     width comes from the relocation *type*, and failing that from the target's
-    instruction word (``default``).
+    4-byte instruction word.
     """
     size_bits = int(getattr(reloc, "size", 0))
     if 0 < size_bits <= 8 * 64:
@@ -334,7 +334,7 @@ def _elf_fixup_width(reloc: Any, *, default: int) -> int:
     width = _RISCV_FIXUP_WIDTHS.get(name)
     if width is not None:
         return width
-    return default
+    return 4
 
 
 def _reloc_fixup_width(reloc: Any) -> int:
