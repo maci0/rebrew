@@ -17,7 +17,6 @@ from pathlib import Path
 from typing import Any
 lazy import copy
 lazy import json
-lazy import os
 lazy import unicodedata
 lazy from collections.abc import Sequence
 
@@ -26,6 +25,7 @@ lazy from tomlkit import TOMLDocument
 
 lazy from rebrew.metadata.source_schema import validate_source_metadata
 lazy from rebrew.metadata.storage import metadata_store
+lazy from rebrew.utils import atomic_write_text
 
 FORMAT_KEY = "format"
 FORMAT_VERSION = 2
@@ -157,10 +157,7 @@ def _write_doc_cache(
         "rows": [[module, va, fields] for (module, va), fields in result.items()],
     }
     try:
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = cache_path.with_suffix(".json.tmp")
-        temporary.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
-        os.replace(temporary, cache_path)
+        atomic_write_text(cache_path, json.dumps(payload, separators=(",", ":")), encoding="utf-8")
     except OSError:
         return
 

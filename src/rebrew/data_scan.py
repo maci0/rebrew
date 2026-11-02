@@ -12,7 +12,6 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 lazy import json
-lazy import os
 lazy import struct
 lazy import unicodedata
 lazy import warnings
@@ -28,7 +27,13 @@ lazy from rebrew.config import (
     inventory_path_for,
 )
 lazy from rebrew.metadata.data import module_visible_to_target
-lazy from rebrew.utils import floor_pct, merged_span_bytes, read_source_text, rel_display_path
+lazy from rebrew.utils import (
+    atomic_write_text,
+    floor_pct,
+    merged_span_bytes,
+    read_source_text,
+    rel_display_path,
+)
 
 log = logging.getLogger(__name__)
 
@@ -453,10 +458,7 @@ def _flush_name_cover(cover: dict[str, Any]) -> None:
     cache_path = Path(cover["dir"]) / ".rebrew" / "name-map-cover.json"
     payload = {"stamp": cover["stamp"], "files": cover["files"]}
     try:
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = cache_path.with_suffix(".json.tmp")
-        temporary.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
-        os.replace(temporary, cache_path)
+        atomic_write_text(cache_path, json.dumps(payload, separators=(",", ":")), encoding="utf-8")
     except OSError:
         return
     cover["dirty"] = False
@@ -597,10 +599,7 @@ def _flush_role_cache(cache: dict[str, Any]) -> None:
         "files": cache["files"],
     }
     try:
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = cache_path.with_suffix(".json.tmp")
-        temporary.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
-        os.replace(temporary, cache_path)
+        atomic_write_text(cache_path, json.dumps(payload, separators=(",", ":")), encoding="utf-8")
     except OSError:
         return
     cache["dirty"] = False

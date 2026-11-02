@@ -1869,31 +1869,40 @@ def _name_match(term: str, va: int, *texts: str) -> bool:
 
 
 # Weak references guard against reused IDs without retaining old snapshots.
+_FOLD_CACHE_LOCK = threading.Lock()
 _FOLDED: dict[int, tuple[weakref.ReferenceType[CoverageSnapshot], tuple[tuple[str, str], ...]]] = {}
 _FOLDED_GLOBALS: dict[int, tuple[weakref.ReferenceType[CoverageSnapshot], tuple[str, ...]]] = {}
 
 
 def _folded_functions(snapshot: CoverageSnapshot) -> tuple[tuple[str, str], ...]:
     """Folded ``(name, symbol)`` per function, built once per snapshot object."""
-    hit = _FOLDED.get(id(snapshot))
-    if hit is not None and hit[0]() is snapshot:
-        return hit[1]
-    if len(_FOLDED) > 8:
-        _FOLDED.clear()
+    key = id(snapshot)
+    with _FOLD_CACHE_LOCK:
+        hit = _FOLDED.get(key)
+        if hit is not None and hit[0]() is snapshot:
+            return hit[1]
     folded = tuple((_fold(fn.name), _fold(fn.symbol)) for fn in snapshot.functions)
-    _FOLDED[id(snapshot)] = (weakref.ref(snapshot), folded)
+    reference = weakref.ref(snapshot)
+    with _FOLD_CACHE_LOCK:
+        if len(_FOLDED) > 8:
+            _FOLDED.clear()
+        _FOLDED[key] = (reference, folded)
     return folded
 
 
 def _folded_globals(snapshot: CoverageSnapshot) -> tuple[str, ...]:
     """Folded global names, built once per snapshot object."""
-    hit = _FOLDED_GLOBALS.get(id(snapshot))
-    if hit is not None and hit[0]() is snapshot:
-        return hit[1]
-    if len(_FOLDED_GLOBALS) > 8:
-        _FOLDED_GLOBALS.clear()
+    key = id(snapshot)
+    with _FOLD_CACHE_LOCK:
+        hit = _FOLDED_GLOBALS.get(key)
+        if hit is not None and hit[0]() is snapshot:
+            return hit[1]
     folded = tuple(_fold(item.name) for item in snapshot.globals)
-    _FOLDED_GLOBALS[id(snapshot)] = (weakref.ref(snapshot), folded)
+    reference = weakref.ref(snapshot)
+    with _FOLD_CACHE_LOCK:
+        if len(_FOLDED_GLOBALS) > 8:
+            _FOLDED_GLOBALS.clear()
+        _FOLDED_GLOBALS[key] = (reference, folded)
     return folded
 
 

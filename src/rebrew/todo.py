@@ -16,7 +16,6 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 lazy import json
-lazy import os
 lazy import shlex
 lazy from collections.abc import Callable, Sequence
 lazy from pathlib import Path
@@ -54,7 +53,7 @@ lazy from rebrew.naming import (
 )
 lazy from rebrew.present import ratio_bar
 lazy from rebrew.status import effective_status
-lazy from rebrew.utils import TerminalTable, floor_pct
+lazy from rebrew.utils import TerminalTable, atomic_write_text, floor_pct
 lazy from rebrew.workspace.status import (
     EARNED_STATUSES,
     FUZZY_STATUSES,
@@ -1091,10 +1090,11 @@ def _flush_extern_cache(cache: dict[str, Any]) -> None:
         return
     cache_path = Path(cache["dir"]) / ".rebrew" / "extern-names.json"
     try:
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = cache_path.with_suffix(".json.tmp")
-        temporary.write_text(json.dumps(cache["files"], separators=(",", ":")), encoding="utf-8")
-        os.replace(temporary, cache_path)
+        atomic_write_text(
+            cache_path,
+            json.dumps(cache["files"], separators=(",", ":")),
+            encoding="utf-8",
+        )
     except OSError:
         return
     cache["dirty"] = False

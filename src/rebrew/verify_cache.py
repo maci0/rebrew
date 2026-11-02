@@ -623,9 +623,7 @@ def _write_verify_json(cache_path: Path, st: os.stat_result, document: dict[str,
         "document": document,
     }
     try:
-        temporary = path.with_suffix(".json.tmp")
-        temporary.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
-        os.replace(temporary, path)
+        atomic_write_text(path, json.dumps(payload, separators=(",", ":")), encoding="utf-8")
     except OSError, TypeError, ValueError:
         return
 
