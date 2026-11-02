@@ -26,6 +26,8 @@ class DfmError(RebrewError, ValueError):
 
 @dataclass
 class Component:
+    """One ``object Name: Class`` block with ordered properties and children."""
+
     cls: str
     name: str
     props: list[tuple[str, Value]] = field(default_factory=list)
@@ -64,6 +66,8 @@ class Value:
 
 
 class Int8(Value):
+    """Signed 8-bit integer property value."""
+
     type_byte = _TYPE_INT8
 
     def __init__(self, value: int) -> None:
@@ -77,6 +81,8 @@ class Int8(Value):
 
 
 class Int16(Value):
+    """Signed 16-bit integer property value."""
+
     type_byte = _TYPE_INT16
 
     def __init__(self, value: int) -> None:
@@ -88,6 +94,8 @@ class Int16(Value):
 
 
 class Int32(Value):
+    """Signed 32-bit integer property value."""
+
     type_byte = _TYPE_INT32
 
     def __init__(self, value: int) -> None:
@@ -99,6 +107,8 @@ class Int32(Value):
 
 
 class Str(Value):
+    """Delphi short-string property value (Latin-1, one length byte)."""
+
     type_byte = _TYPE_STR
 
     def __init__(self, value: str) -> None:
@@ -116,6 +126,8 @@ class Identifier(Str):
 
 
 class Bool(Value):
+    """A boolean property; its wire type byte distinguishes False from True."""
+
     def __init__(self, value: bool, type_byte: int) -> None:
         self.value = value
         self.type_byte = type_byte
@@ -139,6 +151,8 @@ class Binary(Value):
 
 
 class SetOfIdentifiers(Value):
+    """A Delphi set literal: ordered identifiers terminated by a zero byte."""
+
     type_byte = _TYPE_SET
 
     def __init__(self, items: list[str]) -> None:
@@ -164,6 +178,7 @@ def encode(comp: Component) -> bytes:
 
 
 def quote(text: str) -> str:
+    """Delphi single-quoted string literal; an embedded quote is doubled."""
     return "'" + text.replace("'", "''") + "'"
 
 
@@ -189,6 +204,7 @@ def render_value(value: Value, pad: str) -> str:
 
 
 def render(comp: Component, depth: int = 0) -> str:
+    """Delphi text form: ``object``/``end`` blocks nested by *depth*."""
     pad = _INDENT * depth
     lines = [f"{pad}object {comp.name}: {comp.cls}"]
     for prop, value in comp.props:

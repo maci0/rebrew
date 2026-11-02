@@ -1070,6 +1070,11 @@ def parse_va(va_str: str, *, json_mode: bool = False) -> int:
 
 
 def stdin_is_tty() -> bool:
+    """True when stdin is an interactive terminal.
+
+    Closed or replaced stdin counts as non-interactive, so a caller that
+    prompts can refuse instead of blocking on a pipe.
+    """
     try:
         return sys.stdin.isatty()
     except AttributeError, ValueError, OSError:  # stdin closed or replaced

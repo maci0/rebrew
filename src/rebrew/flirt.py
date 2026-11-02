@@ -251,9 +251,10 @@ def _arch_index(dirs: list[Path]) -> dict[str, str]:
     """``name -> arch`` from a ``sigs/index.json`` shipped with the signatures.
 
     recondb publishes the architecture of every file it could
-    classify (``tools/index_sigs.py``); files missing from the index — or
-    marked with an empty arch — are unknown and always load.  A checkout
-    without an index simply does not filter.
+    classify (its own ``tools/index_sigs.py``, in that checkout rather than
+    this one); files missing from the index — or marked with an empty arch —
+    are unknown and always load.  A checkout without an index simply does not
+    filter.
     """
     index: dict[str, str] = {}
     for d in dirs:
