@@ -114,6 +114,42 @@ class TestSmallSectionGuard:
         assert size == 0  # min(4096, 0) = 0
 
 
+def _patch_flirt(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    *,
+    matcher: object | None = None,
+    raw_size: int = 64,
+) -> None:
+    from types import SimpleNamespace
+
+    import rebrew.flirt as flirt_mod
+
+    monkeypatch.setattr(
+        flirt_mod,
+        "require_config",
+        lambda target=None, json_mode=False: SimpleNamespace(
+            root=tmp_path, target_binary=tmp_path / "x.dll"
+        ),
+    )
+    monkeypatch.setattr(flirt_mod, "load_signatures_for", lambda dirs, arch: [object()])
+    if matcher is None:
+        matcher = SimpleNamespace(match=lambda data: [])
+    monkeypatch.setattr(
+        flirt_mod,
+        "flirt",
+        SimpleNamespace(compile=lambda s: matcher, parse_sig=lambda b: [], parse_pat=lambda b: []),
+    )
+    monkeypatch.setattr(
+        flirt_mod,
+        "load_binary",
+        lambda p: SimpleNamespace(
+            sections={".text": SimpleNamespace(va=0x1000, file_offset=0, raw_size=raw_size)},
+            data=b"\xcc" * raw_size,
+        ),
+    )
+
+
 class TestCliSurface:
     def test_help_lists_va_flag(self) -> None:
         """--va (single-function check) is part of the CLI contract."""
@@ -128,37 +164,11 @@ class TestCliSurface:
     def test_va_out_of_section_errors(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from types import SimpleNamespace
-
         from typer.testing import CliRunner
 
         import rebrew.flirt as flirt_mod
 
-        monkeypatch.setattr(
-            flirt_mod,
-            "require_config",
-            lambda target=None, json_mode=False: SimpleNamespace(
-                root=tmp_path, target_binary=tmp_path / "x.dll"
-            ),
-        )
-        monkeypatch.setattr(flirt_mod, "load_signatures_for", lambda dirs, arch: [object()])
-        monkeypatch.setattr(
-            flirt_mod,
-            "flirt",
-            SimpleNamespace(
-                compile=lambda s: SimpleNamespace(match=lambda data: []),
-                parse_sig=lambda b: [],
-                parse_pat=lambda b: [],
-            ),
-        )
-        monkeypatch.setattr(
-            flirt_mod,
-            "load_binary",
-            lambda p: SimpleNamespace(
-                sections={".text": SimpleNamespace(va=0x1000, file_offset=0, raw_size=64)},
-                data=b"\xcc" * 64,
-            ),
-        )
+        _patch_flirt(monkeypatch, tmp_path)
         result = CliRunner().invoke(flirt_mod.app, ["--va", "0x2000"])
         assert result.exit_code != 0
         assert "is in no code section" in result.output
@@ -166,35 +176,6 @@ class TestCliSurface:
 
 class TestAmbiguousReporting:
     """--show-ambiguous keeps multi-candidate matches instead of dropping them."""
-
-    def _setup(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, matcher: object) -> None:
-        from types import SimpleNamespace
-
-        import rebrew.flirt as flirt_mod
-
-        monkeypatch.setattr(
-            flirt_mod,
-            "require_config",
-            lambda target=None, json_mode=False: SimpleNamespace(
-                root=tmp_path, target_binary=tmp_path / "x.dll"
-            ),
-        )
-        monkeypatch.setattr(flirt_mod, "load_signatures_for", lambda dirs, arch: [object()])
-        monkeypatch.setattr(
-            flirt_mod,
-            "flirt",
-            SimpleNamespace(
-                compile=lambda s: matcher, parse_sig=lambda b: [], parse_pat=lambda b: []
-            ),
-        )
-        monkeypatch.setattr(
-            flirt_mod,
-            "load_binary",
-            lambda p: SimpleNamespace(
-                sections={".text": SimpleNamespace(va=0x1000, file_offset=0, raw_size=64)},
-                data=b"\xcc" * 64,
-            ),
-        )
 
     def test_ambiguous_kept_with_flag(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -216,7 +197,7 @@ class TestAmbiguousReporting:
             def match(self, buf: bytes) -> list[object]:
                 return [FakeMatch()]
 
-        self._setup(tmp_path, monkeypatch, FakeMatcher())
+        _patch_flirt(monkeypatch, tmp_path, matcher=FakeMatcher())
         result = CliRunner().invoke(flirt_mod.app, ["--show-ambiguous", "--json"])
         assert result.exit_code == 0
         data = cli_payload(result)
@@ -247,7 +228,7 @@ class TestAmbiguousReporting:
             def match(self, buf: bytes) -> list[object]:
                 return [FakeMatch()]
 
-        self._setup(tmp_path, monkeypatch, FakeMatcher())
+        _patch_flirt(monkeypatch, tmp_path, matcher=FakeMatcher())
         result = CliRunner().invoke(flirt_mod.app, ["--json"])
         assert result.exit_code == 0
         data = cli_payload(result)
@@ -269,7 +250,7 @@ class TestAmbiguousReporting:
             def match(self, buf: bytes) -> list[object]:
                 return [FakeMatch()]
 
-        self._setup(tmp_path, monkeypatch, FakeMatcher())
+        _patch_flirt(monkeypatch, tmp_path, matcher=FakeMatcher())
         result = CliRunner().invoke(flirt_mod.app, ["--show-ambiguous", "--json"])
         data = cli_payload(result)
         first = data["ambiguous_matches"][0]
@@ -281,44 +262,13 @@ class TestSmallTextSectionSchema:
     """A tiny .text section must still emit the full JSON schema (the old
     early return used different keys and skipped the --va check entirely)."""
 
-    def _setup(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, raw_size: int) -> None:
-        from types import SimpleNamespace
-
-        import rebrew.flirt as flirt_mod
-
-        monkeypatch.setattr(
-            flirt_mod,
-            "require_config",
-            lambda target=None, json_mode=False: SimpleNamespace(
-                root=tmp_path, target_binary=tmp_path / "x.dll"
-            ),
-        )
-        monkeypatch.setattr(flirt_mod, "load_signatures_for", lambda dirs, arch: [object()])
-        monkeypatch.setattr(
-            flirt_mod,
-            "flirt",
-            SimpleNamespace(
-                compile=lambda s: SimpleNamespace(match=lambda data: []),
-                parse_sig=lambda b: [],
-                parse_pat=lambda b: [],
-            ),
-        )
-        monkeypatch.setattr(
-            flirt_mod,
-            "load_binary",
-            lambda p: SimpleNamespace(
-                sections={".text": SimpleNamespace(va=0x1000, file_offset=0, raw_size=raw_size)},
-                data=b"\xcc" * raw_size,
-            ),
-        )
-
     def test_small_text_full_schema(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
         from typer.testing import CliRunner
 
         import rebrew.flirt as flirt_mod
 
-        self._setup(tmp_path, monkeypatch, raw_size=16)
+        _patch_flirt(monkeypatch, tmp_path, raw_size=16)
         result = CliRunner().invoke(flirt_mod.app, ["--json"])
         assert result.exit_code == 0
         data = cli_payload(result)
@@ -346,7 +296,7 @@ class TestSmallTextSectionSchema:
 
         import rebrew.flirt as flirt_mod
 
-        self._setup(tmp_path, monkeypatch, raw_size=16)
+        _patch_flirt(monkeypatch, tmp_path, raw_size=16)
         # VA 0x1005 is inside the 16-byte .text (0x1000..0x1010) → check runs
         # (no match expected: find_func_size of cc bytes → 16 ≥ min_size, but
         # the fake matcher returns no matches).
@@ -362,7 +312,7 @@ class TestSmallTextSectionSchema:
 
         import rebrew.flirt as flirt_mod
 
-        self._setup(tmp_path, monkeypatch, raw_size=16)
+        _patch_flirt(monkeypatch, tmp_path, raw_size=16)
         result = CliRunner().invoke(flirt_mod.app, ["--va", "0x2000"])
         assert result.exit_code != 0
         assert "is in no code section" in result.output

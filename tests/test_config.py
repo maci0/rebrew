@@ -2459,56 +2459,38 @@ profile = "msvc-6.0"
         d_raw = cfg.as_dict(redact_secrets=False)
         assert d_raw["llm_api_key"] == "super-secret-key-123"
 
-    def test_project_config_validate_method(self, tmp_path: Path) -> None:
-        root = _make_project(tmp_path, self.BASE_TOML)
-        cfg = load_config(root)
-        assert cfg.validate() is None  # valid passes without raising
-        cfg.recompile_url = "ftp://invalid"
-        with pytest.raises(ConfigError, match=r"compiler\.recompile_url must be an http\(s\) URL"):
-            cfg.validate()
-        cfg.recompile_url = ""
+    def test_project_config_validate_accepts_valid_config(self, tmp_path: Path) -> None:
+        cfg = load_config(_make_project(tmp_path, self.BASE_TOML))
+        assert cfg.validate() is None
 
-        # Test format validation
-        cfg.binary_format = "invalid_format"
-        with pytest.raises(ConfigError, match=r"unknown format 'invalid_format'"):
+    @pytest.mark.parametrize(
+        ("field", "value", "message"),
+        [
+            ("recompile_url", "ftp://invalid", r"compiler\.recompile_url must be an http\(s\) URL"),
+            ("binary_format", "invalid_format", r"unknown format 'invalid_format'"),
+            ("ghidra_backend", "invalid_backend", r"unknown ghidra_backend 'invalid_backend'"),
+            (
+                "cache_backend",
+                "invalid_cache",
+                r"cache_backend 'invalid_cache' is not a registered backend",
+            ),
+            ("default_jobs", 0, r"project\.jobs \(0\) must be >= 1"),
+            ("compile_timeout", 0, r"compiler\.timeout \(0\) must be >= 1"),
+            ("lint_max_line_length", -1, r"lint_max_line_length \(-1\) must be >= 0"),
+        ],
+    )
+    def test_project_config_validate_rejects_bad_field(
+        self, tmp_path: Path, field: str, value: Any, message: str
+    ) -> None:
+        cfg = load_config(_make_project(tmp_path, self.BASE_TOML))
+        setattr(cfg, field, value)
+        with pytest.raises(ConfigError, match=message):
             cfg.validate()
-        cfg.binary_format = "pe"
 
-        # Test ghidra_backend validation
-        cfg.ghidra_backend = "invalid_backend"
-        with pytest.raises(ConfigError, match=r"unknown ghidra_backend 'invalid_backend'"):
-            cfg.validate()
-        cfg.ghidra_backend = "reva"
-
-        # Test cache_backend validation
-        cfg.cache_backend = "invalid_cache"
-        with pytest.raises(
-            ConfigError, match=r"cache_backend 'invalid_cache' is not a registered backend"
-        ):
-            cfg.validate()
-        cfg.cache_backend = "diskcache"
-
-        # Test default_jobs validation
-        cfg.default_jobs = 0
-        with pytest.raises(ConfigError, match=r"project\.jobs \(0\) must be >= 1"):
-            cfg.validate()
-        cfg.default_jobs = 4
-
-        # Test compile_timeout validation
-        cfg.compile_timeout = 0
-        with pytest.raises(ConfigError, match=r"compiler\.timeout \(0\) must be >= 1"):
-            cfg.validate()
-        cfg.compile_timeout = 60
-
-        # Test lint_max_line_length validation
-        cfg.lint_max_line_length = -1
-        with pytest.raises(ConfigError, match=r"lint_max_line_length \(-1\) must be >= 0"):
-            cfg.validate()
-        cfg.lint_max_line_length = 200
-
-        # Test link stack reserve/commit validation
+    def test_project_config_validate_rejects_bad_link_stack(self, tmp_path: Path) -> None:
         from rebrew.config import LinkConfig
 
+        cfg = load_config(_make_project(tmp_path, self.BASE_TOML))
         cfg.link = LinkConfig(stack_reserve=0x1000, stack_commit=0x2000)
         with pytest.raises(
             ConfigError, match=r"link\.stack_commit \(8192\) exceeds link\.stack_reserve \(4096\)"
