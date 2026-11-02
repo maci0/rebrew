@@ -152,6 +152,35 @@ class TestScanGlobalsBranches:
         assert any(row["name"] == "g_data" and row["va"] == "0x00002000" for row in entries)
         assert calls["n"] == 0
 
+    def test_data_annotation_overlays_row_from_another_file(self, tmp_path: Path) -> None:
+        """The batch load still applies a keyed row whose ``file`` is elsewhere."""
+        from rebrew.metadata.data import set_data_field
+
+        cfg = _cfg(tmp_path)
+        write_source(
+            cfg.reversed_dir / "g.c",
+            "/* ADDRESS: SERVER 0x2000 */\nint g_data;\n",
+            encoding="utf-8",
+        )
+        set_data_field(cfg.metadata_dir, 0x2000, "file", "src/other.c", "SERVER")
+        set_data_field(cfg.metadata_dir, 0x2000, "name", "g_data", "SERVER")
+        set_data_field(cfg.metadata_dir, 0x2000, "size", 16, "SERVER")
+        set_data_field(cfg.metadata_dir, 0x2000, "section", ".data", "SERVER")
+        set_data_field(cfg.metadata_dir, 0x2000, "note", "overlaid", "SERVER")
+
+        entries = scan_data_annotations(cfg.reversed_dir, cfg)
+
+        assert entries == [
+            {
+                "va": "0x00002000",
+                "name": "g_data",
+                "size": 16,
+                "section": ".data",
+                "note": "overlaid",
+                "filepath": "g.c",
+            }
+        ]
+
 
 class TestEmitExternDecl:
     def test_no_type_is_omitted(self) -> None:

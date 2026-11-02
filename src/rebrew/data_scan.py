@@ -1187,7 +1187,7 @@ def scan_data_annotations(src_dir: Path, cfg: ProjectConfig | None = None) -> li
     """
     from rebrew.config import target_module
     from rebrew.metadata.bindings import read_source_bindings
-    from rebrew.metadata.data import merge_into_data_binding
+    from rebrew.metadata.data import load_data_metadata, merge_into_data_binding
     from rebrew.sources import iter_sources_and_headers
     from rebrew.utils import rel_display_path
 
@@ -1200,6 +1200,9 @@ def scan_data_annotations(src_dir: Path, cfg: ProjectConfig | None = None) -> li
     metadata_dir = cfg.metadata_dir if cfg else src_dir
     target = target_module(cfg)
     project_root = getattr(cfg, "root", None)
+    # One read-only load for the whole walk: the per-annotation lookup below
+    # otherwise re-stats and deep-copies the row for every DATA marker.
+    data_entries = load_data_metadata(metadata_dir, deepcopy=False)
     for cfile in iter_sources_and_headers(src_dir, cfg):
         rel_name = rel_display_path(cfile, src_dir)
         for ann in read_source_bindings(
@@ -1214,7 +1217,7 @@ def scan_data_annotations(src_dir: Path, cfg: ProjectConfig | None = None) -> li
             if ann.is_data:
                 # Metadata root is cfg.metadata_dir; cfile.parent would
                 # silently no-op the overlay when the two dirs differ.
-                merge_into_data_binding(ann, metadata_dir)
+                merge_into_data_binding(ann, metadata_dir, entries=data_entries)
                 entries.append(
                     {
                         "va": f"0x{ann.va:08x}",

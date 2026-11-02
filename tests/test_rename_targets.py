@@ -218,6 +218,23 @@ def _response(root: Path, target: str, text: str) -> Path:
     return path
 
 
+class TestRenameAnnotations:
+    def test_one_file_carries_every_target_identity(self, tmp_path: Path) -> None:
+        """A shared source is parsed once, not once per module."""
+        from rebrew.config import load_config
+        from rebrew.rename_ops import _rename_annotations
+
+        root = _project(tmp_path)
+        cfg = load_config(root)
+        annotations = _rename_annotations(cfg, root / "src" / "game" / "spiel.c")
+        assert {(a.module, a.va) for a in annotations} == {
+            ("SERVER", 0x10001000),
+            ("GOLDTL", 0x00401000),
+            ("GOLDTL", 0x00401100),
+            ("GOLD", 0x00501000),
+        }
+
+
 class TestLinkerReferences:
     def test_shared_rename_updates_each_bound_target(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

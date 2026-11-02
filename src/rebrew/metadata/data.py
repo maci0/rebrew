@@ -921,7 +921,12 @@ def record_data_rows(metadata_dir: Path | str | Any, rows: list[dict[str, Any]])
 # ---------------------------------------------------------------------------
 
 
-def merge_into_data_binding(ann: SourceBinding, directory: Path | str | Any) -> SourceBinding:
+def merge_into_data_binding(
+    ann: SourceBinding,
+    directory: Path | str | Any,
+    *,
+    entries: dict[tuple[str, int], dict[str, Any]] | None = None,
+) -> SourceBinding:
     """Overlay data metadata values onto *ann*, returning the same object mutated.
 
     The metadata wins for every field it defines (SIZE, SECTION, NOTE).
@@ -932,6 +937,8 @@ def merge_into_data_binding(ann: SourceBinding, directory: Path | str | Any) -> 
         ann: The ``SourceBinding`` object to mutate (must have ``kind``
             of ``DATA`` or ``GLOBAL``).
         directory: The metadata root directory (``cfg.metadata_dir``), path string, or config.
+        entries: An already-loaded store for a batch caller. Read-only; the
+            caller must pass ``load_data_metadata(..., deepcopy=False)``.
 
     Returns:
         The mutated *ann* (same object, for chaining convenience).
@@ -940,7 +947,11 @@ def merge_into_data_binding(ann: SourceBinding, directory: Path | str | Any) -> 
     module: str = getattr(ann, "module", None) or ""
     if not module:
         return ann
-    entry = get_data_entry(directory, ann.va, module=module)
+    entry = (
+        entries.get((unicodedata.normalize("NFC", module), ann.va), {})
+        if entries is not None
+        else get_data_entry(directory, ann.va, module=module)
+    )
     if not entry:
         return ann
 

@@ -430,22 +430,14 @@ class _Project:
 
 def _rename_annotations(cfg: ProjectConfig, path: Path) -> list[SourceBinding]:
     """Read every target's identities, including mixed migrated/inline files."""
-    from rebrew.metadata.functions import load_metadata
-
     metadata_dir = getattr(cfg, "metadata_dir", path.parent)
+    # No target filter: one parse already returns the rows of every module
+    # bound to the file. Re-reading once per module made a rename pay one
+    # full annotation parse per module for every source it scanned.
     parsed = read_source_bindings(
         path, metadata_dir=metadata_dir, project_root=getattr(cfg, "root", None)
     )
-    by_identity = {(e.module, e.va, e.kind): e for e in parsed}
-    for module in {m for m, _va in load_metadata(metadata_dir, deepcopy=False)}:
-        for e in read_source_bindings(
-            path,
-            target_name=module,
-            metadata_dir=metadata_dir,
-            project_root=getattr(cfg, "root", None),
-        ):
-            by_identity[(e.module, e.va, e.kind)] = e
-    return list(by_identity.values())
+    return list({(e.module, e.va, e.kind): e for e in parsed}.values())
 
 
 def _file_change(
