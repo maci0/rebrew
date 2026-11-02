@@ -2379,10 +2379,13 @@ def precompile_batch(
             rev = Path(cfg.reversed_dir)
             rev_resolved = rev.resolve()
 
-            def tree_snapshot() -> dict[Path, tuple[int, int, int]]:
+            def tree_snapshot() -> dict[Path, tuple[int, int, int, int]]:
+                # Change time catches an in-place rewrite that restores the
+                # old mtime and keeps the inode, so a tree edited between
+                # staging and compile is not compiled or published.
                 paths = [rev, *rev.rglob("*")]
                 return {
-                    path: (st.st_mtime_ns, st.st_size, st.st_ino)
+                    path: (st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns)
                     for path in paths
                     for st in (path.lstat(),)
                 }

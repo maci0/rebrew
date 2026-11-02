@@ -9,6 +9,7 @@
 - Extend change-time identity to the header fingerprint, watch loop, name-map, extern-name, role-fact, canonical-size and collect-pairs memos, so an in-place rewrite that restores the old mtime invalidates them.
 - Include a file's change time in the remaining per-file cache identities (native compiler, linked-image digest, objdump output, solution source digest, fenced-source note, library headers, and the verify-cache sidecar), so an in-place rewrite that restores the old mtime cannot serve cached results for bytes the file no longer has.
 - Include a file's change time in target-binary and import-table cache identities, so an in-place rebuild that restores the old mtime cannot serve analysis or verification results for bytes the image no longer has.
+- Detect a source tree edited during batch staging by its change time, so a same-size rewrite that restored the old mtime cannot compile or publish an object for the previous tree.
 - Reject a decompiler project marker written before target-binary fingerprints existed, so upgrading rebrew cannot reuse a rizin database analyzed from the previous image.
 - Reject an incomplete cached stock archive and publish fresh extractions atomically, so an interrupted copy cannot make library functions look like game code.
 - Speed up status, todo and report scans by reusing the batch's metadata rows for source files without stored rows, instead of reloading the stores once per file.
