@@ -1951,6 +1951,17 @@ def rel_display_path(filepath: Path, base_dir: Path | None = None) -> str:
     backslashes on Windows and break matching against POSIX-stored paths).
     """
     if base_dir is not None:
+        # Common case: both spellings are absolute POSIX paths from the same
+        # tree walk, so the relative spelling is a prefix slice.  Same answer
+        # as ``relative_to`` for a normalized in-tree path; anything unusual
+        # (relative, outside, Windows drive) falls through below.
+        text = os.fspath(filepath)
+        root = os.fspath(base_dir)
+        if text.startswith("/") and root.startswith("/"):
+            root = root.rstrip("/") or "/"
+            prefix = root if root == "/" else root + "/"
+            if text.startswith(prefix):
+                return text[len(prefix) :]
         try:
             return filepath.relative_to(base_dir).as_posix()
         except ValueError:
