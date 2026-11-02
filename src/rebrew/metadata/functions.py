@@ -60,7 +60,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # In-memory cache for load_metadata() — avoids re-parsing the same TOML file
 # hundreds of times during batch operations (verify, status, merge).
-# Keyed by resolved Path; invalidated by mtime_ns change or explicit clear.
+# Keyed by resolved Path; invalidated by a stat-fingerprint change or explicit clear.
 # ---------------------------------------------------------------------------
 
 _metadata_cache: MetadataDocCache = {}

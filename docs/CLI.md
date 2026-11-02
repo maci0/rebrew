@@ -494,7 +494,7 @@ Output prefixes for unambiguous parsing:
 | `FILE` | path | — | Restrict to one source file (e.g. src/x/foo.c) for per-file CI gating |
 | `--jobs` / `-j` | int | — | Parallel jobs (default: project.jobs, or 4) |
 | `--summary` / `-s` | flag | `False` | Show summary table with STATUS breakdown and match percentages |
-| `--compare` | flag | `False` | Compare against last saved report and detect regressions |
+| `--compare` | flag | `False` | Compare against the saved baseline and detect regressions |
 | `--no-cache` | flag | `False` | Recompile every selected function. The default reuses unchanged cached results. |
 | `--fix-sizes` | flag | `False` | Correct stored SIZE from the binary-derived size: stale sizes (false SIZE_MISMATCH) and missing sizes (MISSING_SIZE stubs, which rebrew test refuses) are both backfilled into metadata |
 | `--dir` | path | — | Restrict to this subdirectory of reversed_dir |
@@ -6468,7 +6468,7 @@ rebrew match batch --dry-run # List candidates only
 
 # Verification & status
 rebrew verify                                      # Verify all reversed functions
-rebrew verify --compare                            # Compare against last report, detect regressions
+rebrew verify --compare                            # Compare against the saved baseline, detect regressions
 rebrew verify --json                               # Structured JSON report
 rebrew verify --output /tmp/verify_report.json           # Write report to file (explicit export path)
 rebrew lint --fix && rebrew lint                   # Fix then re-lint

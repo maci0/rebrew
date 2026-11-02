@@ -139,8 +139,9 @@ def _json_safe(value: Any) -> Any:
 class RebrewError(Exception):
     """Base of every error rebrew raises across its public modules.
 
-    Subclasses keep their original base (``RuntimeError`` / ``ValueError``)
-    so pre-existing ``except`` clauses are unaffected; this adds the umbrella
+    Subclasses that had one keep their original base (``RuntimeError``,
+    ``ValueError``, ``FileNotFoundError``, ``KeyError``) so pre-existing
+    ``except`` clauses are unaffected; this adds the umbrella
     a consumer needs to catch "rebrew failed" without enumerating types.
     """
 

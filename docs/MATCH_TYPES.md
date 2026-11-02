@@ -27,10 +27,10 @@ UNDOCUMENTED  →  STUB  →  NEAR_MATCHING  →  RELOC  →  EXACT
 | Status | Byte match | Set by | Counts in coverage |
 |--------|-----------|--------|-------------------|
 | *(undocumented)* | n/a | Automatic (no `.c` file); the coverage document records `UNKNOWN` | No |
-| `STUB` | <60% | `rebrew test` (demotion) | No |
-| `NEAR_MATCHING` | ≥60% | `rebrew test` | No matched-function credit |
-| `RELOC` | 100% (masked) | `rebrew test` | Yes |
-| `EXACT` | 100% (raw object, or raw linked image) | `rebrew test`; `rebrew verify --text --raw-link` (linked) | Yes |
+| `STUB` | <60% | `rebrew test` / `rebrew verify` (demotion) | No |
+| `NEAR_MATCHING` | ≥60% | `rebrew test` / `rebrew verify` | No matched-function credit |
+| `RELOC` | 100% (masked) | `rebrew test` / `rebrew verify` | Yes |
+| `EXACT` | 100% (raw object, or raw linked image) | `rebrew test` / `rebrew verify`; linked EXACT via `rebrew verify --text --raw-link` | Yes |
 | `PROVEN` | Semantic (bytes differ) | `rebrew prove` | No (shown separately) |
 | `SKIP` | N/A | Metadata API (parked) | No byte-match credit |
 

@@ -82,7 +82,8 @@ reads it back as the same exception class, so `result.error.retryable` and
 gains the same `to_dict()` / `from_dict()` pair for any other error you store.
 
 Every rebrew error type inherits `RebrewError` alongside its original
-`RuntimeError`/`ValueError` base, so a new error type in a later release lands
+built-in base (`RuntimeError`, `ValueError`, `FileNotFoundError`, `KeyError`),
+so a new error type in a later release lands
 in that handler instead of escaping it. The structured fields `kind`, `name`,
 `status_code` and `group` are declared on that base too, so one `except
 RebrewError` can read them without `getattr`; a field the arriving error does

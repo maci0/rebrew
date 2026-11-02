@@ -474,7 +474,7 @@ app = typer.Typer(
         "  rebrew verify --output report.json  # Export the JSON report to a file\n\n"
         "  rebrew verify --jobs 8  # Use 8 parallel compile jobs\n\n"
         "  rebrew verify --target mygame  # Verify a specific target\n\n"
-        "  rebrew verify --compare  # Compare against last run, detect regressions\n\n"
+        "  rebrew verify --compare  # Compare against the saved baseline, detect regressions\n\n"
         "  rebrew verify --no-cache --jobs 8  # Recheck every selected function\n\n"
         "  rebrew verify --summary  # Show detailed STATUS breakdown table\n\n"
         "  # Promote RELOC to EXACT where the raw link is byte-identical\n"
@@ -757,7 +757,7 @@ def main(
     diff_mode: bool = typer.Option(
         False,
         "--compare",
-        help="Compare against last saved report and detect regressions",
+        help="Compare against the saved baseline and detect regressions",
     ),
     full: bool = typer.Option(
         False,

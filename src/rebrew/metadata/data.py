@@ -56,7 +56,7 @@ logger = logging.getLogger(__name__)
 # rebrew-functions.toml.  Without it, batch paths that read data metadata per
 # file (lint) or per function (smart_reloc_compare's global-name resolution)
 # re-parse the TOML on every call.  Keyed by resolved Path; invalidated by
-# mtime_ns change or by the write helpers below.
+# stat-fingerprint change or by the write helpers below.
 # ---------------------------------------------------------------------------
 
 _data_metadata_cache: MetadataDocCache = {}

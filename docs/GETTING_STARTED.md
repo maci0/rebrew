@@ -196,7 +196,7 @@ rebrew match run src/<target>/fcn_00401000.c # GA engine searches C variants
 
 ```bash
 rebrew verify            # bulk: every function, STATUS auto-updated
-rebrew verify --compare  # CI mode: fail on regressions vs last report
+rebrew verify --compare  # CI mode: fail on regressions vs the saved baseline
 ```
 
 `verify --no-cache` recompiles every selected function. Plain `verify`
