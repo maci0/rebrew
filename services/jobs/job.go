@@ -161,8 +161,9 @@ func (o *Owner) Close() error {
 	o.mu.Unlock()
 	o.workers.Wait()
 	o.mu.Lock()
-	o.stopManagedCompile()
+	mediator := o.stopManagedCompile()
 	o.mu.Unlock()
+	waitManagedCompileIdle(mediator)
 	return o.lock.Close()
 }
 func (o *Owner) path(id string) string { return filepath.Join(o.dir, id+".json") }
@@ -475,8 +476,9 @@ func (o *Owner) runDocker(saved Receipt, workspace string) error {
 		defer func() {
 			if managedRunning {
 				o.mu.Lock()
-				o.stopManagedCompile()
+				mediator := o.stopManagedCompile()
 				o.mu.Unlock()
+				waitManagedCompileIdle(mediator)
 			}
 		}()
 	}
@@ -505,11 +507,13 @@ func (o *Owner) runDocker(saved Receipt, workspace string) error {
 			return err
 		}
 		o.notify(saved.ID)
+		var mediator *CompileMediator
 		if managedRunning {
-			o.stopManagedCompile()
+			mediator = o.stopManagedCompile()
 			managedRunning = false
 		}
 		o.mu.Unlock()
+		waitManagedCompileIdle(mediator)
 		inspectCtx, inspectCancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer inspectCancel()
 		_, err = o.ReconcileDocker(inspectCtx, saved.ID)
@@ -536,9 +540,13 @@ func (o *Owner) runDocker(saved Receipt, workspace string) error {
 	stop, stopErr := provider.InspectStop(inspectCtx, id, saved.ID, filepath.Join(o.dir, saved.ID+".original"), workspace, saved.Seed)
 	inspectCancel()
 	o.mu.Lock()
-	defer o.mu.Unlock()
+	var idle *CompileMediator
+	defer func() {
+		o.mu.Unlock()
+		waitManagedCompileIdle(idle)
+	}()
 	if managedRunning {
-		o.stopManagedCompile()
+		idle = o.stopManagedCompile()
 		managedRunning = false
 		pending, pendingErr := o.compilePending(saved.ID)
 		if pending || pendingErr != nil {
@@ -630,7 +638,11 @@ func (o *Owner) ReconcileDocker(ctx context.Context, id string) (Receipt, error)
 // Cancel records a request; it does not claim a child or its descendants stopped.
 func (o *Owner) Cancel(id string) (Receipt, error) {
 	o.mu.Lock()
-	defer o.mu.Unlock()
+	var idle *CompileMediator
+	defer func() {
+		o.mu.Unlock()
+		waitManagedCompileIdle(idle)
+	}()
 	if o.closed {
 		return Receipt{}, errors.New("owner is closed")
 	}
@@ -643,7 +655,7 @@ func (o *Owner) Cancel(id string) (Receipt, error) {
 		r.State = "cancelled"
 		delete(o.queued, id)
 		if r.ManagedCompile {
-			o.stopManagedCompile()
+			idle = o.stopManagedCompile()
 		}
 	}
 	if err := o.save(r); err != nil {

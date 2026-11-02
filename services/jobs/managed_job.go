@@ -177,7 +177,14 @@ func (o *Owner) startManagedCompile(id, credential string) (string, error) {
 	keep = true
 	return socket, nil
 }
-func (o *Owner) stopManagedCompile() {
+
+// stopManagedCompile closes the mediator's server and detaches it from the owner.
+//
+// It does not wait for an in-flight compile request: that request can hold
+// m.mu for the full upstream timeout, so waiting here (with o.mu held) froze
+// every status, cancel and admission for that long.  The caller passes the
+// returned mediator to waitManagedCompileIdle after releasing o.mu.
+func (o *Owner) stopManagedCompile() *CompileMediator {
 	m := o.compileMediator
 	if o.compileServer != nil {
 		_ = o.compileServer.Close()
@@ -185,15 +192,24 @@ func (o *Owner) stopManagedCompile() {
 	if o.compileListener != nil {
 		_ = o.compileListener.Close()
 	}
-	if m != nil {
-		m.mu.Lock()
-		m.mu.Unlock()
-	}
 	if o.compileSocket != "" {
 		_ = os.RemoveAll(o.compileSocket)
 		o.compileSocket = ""
 	}
 	o.compileMediator, o.compileServer, o.compileListener = nil, nil, nil
+	return m
+}
+
+// waitManagedCompileIdle waits for the mediator's active request to finish.
+//
+// Call it without o.mu.  The m.mu barrier is what proves no handler still
+// writes the compile ledger after the owner released custody.
+func waitManagedCompileIdle(m *CompileMediator) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	m.mu.Unlock()
 }
 func (o *Owner) compilePending(id string) (bool, error) {
 	receipt, err := o.read(id)
