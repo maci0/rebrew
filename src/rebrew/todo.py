@@ -1950,7 +1950,6 @@ def main(
         )
 
     if stats or not display_items:
-        # Show coverage stats header
         toolchain = (
             f"  [dim]· [green]{exact}[/green] identical straight from the toolchain[/dim]"
             if reloc
@@ -2012,7 +2011,6 @@ def main(
             item.description,
         )
 
-    # Category summary subtitle
     cat_parts: dict[str, int] = {}
     for item in all_items:
         cat_parts[item.category] = cat_parts.get(item.category, 0) + 1

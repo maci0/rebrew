@@ -492,7 +492,7 @@ def _make_piece(
     )
 
 
-def _append_function(
+def _append_definition(
     span: SourceSpan,
     raw: bytes,
     spans: list[SourceSpan],
@@ -502,37 +502,24 @@ def _append_function(
     filename: str,
     pieces: list[_Piece],
     problems: list[str],
+    *,
+    function: bool,
 ) -> None:
-    """Copy one function.  A non-static definition needs a row; a static helper does not."""
-    problem = _definition_problem(span, filename, function=True)
+    """Copy one definition, with its row when the store has one.
+
+    A non-static function needs a row; a static helper does not. A file-scope
+    object takes a matching data row, which moves with it.
+    """
+    problem = _definition_problem(span, filename, function=function)
     if problem is not None:
         problems.append(problem)
         return
-    rows, claim_problems = _take_rows(span.name, candidates, claimed, seen, noun="Row")
+    rows, claim_problems = _take_rows(
+        span.name, candidates, claimed, seen, noun="Row" if function else "Data row"
+    )
     problems.extend(claim_problems)
-    if not span.static and not rows:
+    if function and not span.static and not rows:
         problems.append(f"{span.name} in {filename} has no function row")
-    pieces.append(_make_piece(span, raw, spans, rows))
-
-
-def _append_storage(
-    span: SourceSpan,
-    raw: bytes,
-    spans: list[SourceSpan],
-    candidates: list[tuple[str, int, dict[str, Any]]],
-    claimed: dict[tuple[str, int], str],
-    seen: set[tuple[str, int]],
-    filename: str,
-    pieces: list[_Piece],
-    problems: list[str],
-) -> None:
-    """Copy one file-scope object.  A matching data row moves with it."""
-    problem = _definition_problem(span, filename, function=False)
-    if problem is not None:
-        problems.append(problem)
-        return
-    rows, claim_problems = _take_rows(span.name, candidates, claimed, seen, noun="Data row")
-    problems.extend(claim_problems)
     pieces.append(_make_piece(span, raw, spans, rows))
 
 
@@ -612,14 +599,23 @@ def _layout_one(
     func_pieces: list[_Piece] = []
     seen_funcs: set[tuple[str, int]] = set()
     for span in functions:
-        _append_function(
-            span, raw, spans, file_rows, claimed, seen_funcs, file_path.name, func_pieces, problems
+        _append_definition(
+            span,
+            raw,
+            spans,
+            file_rows,
+            claimed,
+            seen_funcs,
+            file_path.name,
+            func_pieces,
+            problems,
+            function=True,
         )
     problems.extend(_missing_rows(file_rows, seen_funcs, file_path.name, rel, data=False))
     store_pieces: list[_Piece] = []
     seen_data: set[tuple[str, int]] = set()
     for span in stores:
-        _append_storage(
+        _append_definition(
             span,
             raw,
             spans,
@@ -629,6 +625,7 @@ def _layout_one(
             file_path.name,
             store_pieces,
             problems,
+            function=False,
         )
     carried = [
         (module, va, str(entry.get("file") or rel))

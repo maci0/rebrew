@@ -5,6 +5,7 @@ import json
 import logging
 import threading
 import tomllib
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -79,6 +80,29 @@ def _ok_result() -> object:
         delta=0,
         obj_bytes=b"\x90" * 8,
         reloc_offsets=[],
+    )
+
+
+def _near_matching_result(
+    *_args: Any,
+    match_percent: float = 50.0,
+    delta: int = 4,
+    obj_bytes: bytes | None = None,
+    reloc_offsets: list[int] | None = None,
+    message: str = "NEAR_MATCHING: 50.0%",
+    **_kwargs: Any,
+) -> object:
+    """Stand-in for ``compile_and_compare`` that returns a NEAR_MATCHING result."""
+    from rebrew.compiler.compile import CompareResult
+
+    return CompareResult(
+        matched=False,
+        status="NEAR_MATCHING",
+        match_percent=match_percent,
+        delta=delta,
+        obj_bytes=obj_bytes,
+        reloc_offsets=reloc_offsets,
+        message=message,
     )
 
 
@@ -182,20 +206,7 @@ class TestVerifyEntryBranches:
         monkeypatch.setattr(
             rebrew.formats.binary_loader, "extract_raw_bytes", lambda *a, **k: b"\x90" * 8
         )
-        from rebrew.compiler.compile import CompareResult
-
-        def _unmatched(*a, **k):
-            return CompareResult(
-                matched=False,
-                status="NEAR_MATCHING",
-                match_percent=50.0,
-                delta=4,
-                obj_bytes=None,
-                reloc_offsets=None,
-                message="NEAR_MATCHING: 50.0%",
-            )
-
-        monkeypatch.setattr(rebrew.compiler.compile, "compile_and_compare", _unmatched)
+        monkeypatch.setattr(rebrew.compiler.compile, "compile_and_compare", _near_matching_result)
         result = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
         assert result.status == "NEAR_MATCHING"
         assert "fenced naked" in (result.message or "")
@@ -212,20 +223,7 @@ class TestVerifyEntryBranches:
         monkeypatch.setattr(
             rebrew.formats.binary_loader, "extract_raw_bytes", lambda *a, **k: b"\x90" * 8
         )
-        from rebrew.compiler.compile import CompareResult
-
-        def _unmatched(*a, **k):
-            return CompareResult(
-                matched=False,
-                status="NEAR_MATCHING",
-                match_percent=50.0,
-                delta=4,
-                obj_bytes=None,
-                reloc_offsets=None,
-                message="NEAR_MATCHING: 50.0%",
-            )
-
-        monkeypatch.setattr(rebrew.compiler.compile, "compile_and_compare", _unmatched)
+        monkeypatch.setattr(rebrew.compiler.compile, "compile_and_compare", _near_matching_result)
         result = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
         assert "fenced naked" not in (result.message or "")
 
@@ -243,20 +241,7 @@ class TestVerifyEntryBranches:
         monkeypatch.setattr(
             rebrew.formats.binary_loader, "extract_raw_bytes", lambda *a, **k: b"\x90" * 8
         )
-        from rebrew.compiler.compile import CompareResult
-
-        def _unmatched(*a, **k):
-            return CompareResult(
-                matched=False,
-                status="NEAR_MATCHING",
-                match_percent=50.0,
-                delta=4,
-                obj_bytes=None,
-                reloc_offsets=None,
-                message="NEAR_MATCHING: 50.0%",
-            )
-
-        monkeypatch.setattr(rebrew.compiler.compile, "compile_and_compare", _unmatched)
+        monkeypatch.setattr(rebrew.compiler.compile, "compile_and_compare", _near_matching_result)
         first = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
         assert "fenced naked" not in (first.message or "")
 
@@ -281,26 +266,17 @@ class TestVerifyEntryBranches:
         import rebrew.formats.binary_loader
         import rebrew.matcher
         import rebrew.verify as verify_mod
-        from rebrew.compiler.compile import CompareResult
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "f.c").write_text("int x;\n", encoding="utf-8")
         monkeypatch.setattr(
             rebrew.formats.binary_loader, "extract_raw_bytes", lambda *a, **k: b"\x90" * 8
         )
-
-        def _unmatched(*a, **k):
-            return CompareResult(
-                matched=False,
-                status="NEAR_MATCHING",
-                match_percent=50.0,
-                delta=4,
-                obj_bytes=b"\x90" * 8,
-                reloc_offsets=[],
-                message="NEAR_MATCHING: 50.0%",
-            )
-
-        monkeypatch.setattr(rebrew.compiler.compile, "compile_and_compare", _unmatched)
+        monkeypatch.setattr(
+            rebrew.compiler.compile,
+            "compile_and_compare",
+            partial(_near_matching_result, obj_bytes=b"\x90" * 8, reloc_offsets=[]),
+        )
         monkeypatch.setattr(
             rebrew.matcher,
             "diff_functions",
@@ -371,23 +347,22 @@ class TestVerifyEntryBranches:
             rebrew.formats.binary_loader, "extract_raw_bytes", lambda *a, **k: b"\x90" * 8
         )
 
-        def _unmatched(cfg, cfile, symbol, target_bytes, cflags, **kw):
-            from rebrew.compiler.compile import CompareResult
-
-            return CompareResult(
-                matched=False,
-                status="NEAR_MATCHING",
+        monkeypatch.setattr(
+            rebrew.compiler.compile,
+            "compile_and_compare",
+            partial(
+                _near_matching_result,
                 match_percent=60.0,
                 delta=2,
                 obj_bytes=b"\x90\x91" + b"\x90" * 6,
                 reloc_offsets=[],
                 message="NEAR_MATCHING: 2 byte diffs",
-            )
+            ),
+        )
 
         def _fake_diff(target, cand, relocs, as_dict=True, **kw):
             return {"summary": {"structural": 2, "reg": 0}}
 
-        monkeypatch.setattr(rebrew.compiler.compile, "compile_and_compare", _unmatched)
         monkeypatch.setattr(rebrew.matcher, "diff_functions", _fake_diff)
         result = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
         assert result.diff_lines == 2
@@ -463,20 +438,18 @@ class TestVerifyEntryBranches:
             rebrew.formats.binary_loader, "extract_raw_bytes", lambda *a, **k: b"\x90" * 8
         )
 
-        def _unmatched(cfg, cfile, symbol, target_bytes, cflags, **kw):
-            from rebrew.compiler.compile import CompareResult
-
-            return CompareResult(
-                matched=False,
-                status="NEAR_MATCHING",
+        monkeypatch.setattr(
+            rebrew.compiler.compile,
+            "compile_and_compare",
+            partial(
+                _near_matching_result,
                 match_percent=60.0,
                 delta=2,
                 obj_bytes=b"\x90\x91" + b"\x90" * 6,
                 reloc_offsets=[],
                 message="NEAR_MATCHING: 2 byte diffs",
-            )
-
-        monkeypatch.setattr(rebrew.compiler.compile, "compile_and_compare", _unmatched)
+            ),
+        )
         result = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
         # target is all-NOPs; candidate is mostly-NOPs. They differ in bytes but
         # share identical structure in normalized assembly, so the score is high.

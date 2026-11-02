@@ -1409,7 +1409,6 @@ def _run_single_va_mode(
             overwrite_name=bool(name),
         )
 
-    # Compute test commands
     symbol_val = "_" + sanitize_name(name if name else ghidra_name)
     test_cmd = generate_test_command(str(rel_path_val), symbol_val, va_int, size)
     diff_cmd = generate_diff_command(str(rel_path_val))
@@ -1652,7 +1651,7 @@ def main(
             console.print("Use [cyan]--force[/] to overwrite.")
         raise typer.Exit(code=EXIT_OK)
 
-    module_val = cfg.module  # Use the project module as module name
+    module_val = cfg.module
 
     # --append mode: add marker block to an existing file
     if append:
