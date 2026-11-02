@@ -2035,6 +2035,46 @@ def _merge_cflags_presets(
     return merged
 
 
+#: Prefix of a PE read to answer the header facts without LIEF.  A DOS stub,
+#: optional header and section table fit inside it; a table past the window
+#: clips to fewer sections, which sends the caller to the loader.
+_PE_HEADER_READ = 64 * 1024
+
+
+def _pe_header_layout(bin_path: Path, fmt: str) -> dict[str, int] | None:
+    """``image_base``/``.text`` facts from the PE header alone, or ``None``.
+
+    Importing LIEF to read three header fields costs ~0.11 s on every
+    command, and a PE32 with a real ``.text`` section (the MSVC image this
+    tool mostly sees) answers from the existing ``pe_headers`` parser.  Any
+    other shape (PE32+, no ``.text``, non-PE) returns ``None`` so the loader
+    keeps its alias and error paths in one place.
+    """
+    if fmt not in ("auto", "pe"):
+        return None
+    try:
+        with bin_path.open("rb") as handle:
+            data = handle.read(_PE_HEADER_READ)
+    except OSError:
+        return None
+    from rebrew.formats.pe_headers import PE32_MAGIC, pe_image_base, pe_layout
+
+    layout = pe_layout(data)
+    if layout is None or layout.magic != PE32_MAGIC:
+        return None
+    text = next((section for section in layout.sections if section.name == ".text"), None)
+    if text is None:
+        return None
+    image_base = pe_image_base(data)
+    if image_base is None:
+        return None
+    return {
+        "image_base": image_base,
+        "text_va": image_base + text.virtual_address,
+        "text_raw_offset": text.pointer_to_raw_data,
+    }
+
+
 def _detect_binary_layout(
     bin_path: Path, fmt: str = "auto", root: Path | None = None, target: str = ""
 ) -> dict[str, int]:
@@ -2043,8 +2083,9 @@ def _detect_binary_layout(
     Layout-package first: when ``layout/<target>/rebrew-layout.toml`` is
     present and fresher than *bin_path*, its committed facts answer the
     question (~1 ms) instead of importing LIEF (~0.11 s) — every command
-    pays this at ``load_config``.  Falls back to ``binary_loader`` (PE,
-    ELF, Mach-O) when there is no usable package.
+    pays this at ``load_config``.  A plain PE32 then answers from the PE
+    header, and everything else falls back to ``binary_loader`` (PE, ELF,
+    Mach-O).
     """
     if root is not None and target:
         from rebrew.layout_meta import read_layout_header
@@ -2056,6 +2097,9 @@ def _detect_binary_layout(
                 "text_va": hdr["text_va"],
                 "text_raw_offset": hdr["text_raw_offset"],
             }
+    fast = _pe_header_layout(bin_path, fmt)
+    if fast is not None:
+        return fast
     try:
         from rebrew.formats.binary_loader import load_binary
 

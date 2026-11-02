@@ -843,6 +843,35 @@ class TestPEDetection:
             result = _detect_binary_layout(fake)
         assert result["image_base"] == 0
 
+    def test_pe32_header_answers_without_loading_lief(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from bin_util import make_pe
+
+        from rebrew.formats import binary_loader
+
+        binary = tmp_path / "program.exe"
+        binary.write_bytes(make_pe(b"\x90"))
+        monkeypatch.setattr(
+            binary_loader,
+            "load_binary",
+            lambda *a, **k: (_ for _ in ()).throw(AssertionError("LIEF path must not run")),
+        )
+        assert _detect_binary_layout(binary) == {
+            "image_base": 0x400000,
+            "text_va": 0x401000,
+            "text_raw_offset": 0x200,
+        }
+
+    def test_pe32_plus_is_left_to_the_loader(self, tmp_path: Path) -> None:
+        from bin_util import make_pe
+
+        from rebrew.config import _pe_header_layout
+
+        binary = tmp_path / "program64.exe"
+        binary.write_bytes(make_pe(b"\x90", pe32_plus=True))
+        assert _pe_header_layout(binary, "auto") is None
+
 
 # ---------------------------------------------------------------------------
 # Tool smoke tests (import + help)
