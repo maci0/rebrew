@@ -12,11 +12,12 @@ from rebrew.matcher.core import EXACT_SCORE_THRESHOLD, Score, StructuralSimilari
 from rebrew.matcher.scoring import (
     _REG_MASK_PLAN_MAX_BYTES,
     _apply_register_mask,
-    _normalize_reloc_x86_32,
     _register_mask_plan,
     _register_mask_plans_lock,
+    _zero_reloc_fields,
     clear_register_mask_plans,
     diff_functions,
+    get_cs,
     precompute_target,
     score_candidate,
     structural_similarity,
@@ -27,6 +28,15 @@ def _mask_registers_x86_32(code: bytes) -> bytes:
     """Mask register encodings the way the scorer does, returning a copy."""
     out = bytearray(code)
     _apply_register_mask(code, out)
+    return bytes(out)
+
+
+def _normalize_reloc_x86_32(code: bytes) -> bytes:
+    """Detail-walk normalization the combined scorer path must reproduce."""
+    md = get_cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32, detail=True)
+    out = bytearray(code)
+    for insn in md.disasm(code, 0):
+        _zero_reloc_fields(insn, out)
     return bytes(out)
 
 

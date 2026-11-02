@@ -260,19 +260,6 @@ def _zero_reloc_fields(insn: capstone.CsInsn, out: bytearray) -> None:
                     _zero_u32_at(out, addr, insn.disp_offset)
 
 
-def _normalize_reloc_x86_32(
-    code: bytes,
-    cs_arch: int = _DEFAULT_CS_ARCH,
-    cs_mode: int = _DEFAULT_CS_MODE,
-) -> bytes:
-    """Zero out relocatable fields in x86-32 machine code."""
-    md = get_cs(cs_arch, cs_mode, detail=True)
-    out = bytearray(code)
-    for insn in md.disasm(code, 0):
-        _zero_reloc_fields(insn, out)
-    return bytes(out)
-
-
 def _normalize_and_mnems_x86_32(
     code: bytes,
     cs_arch: int = _DEFAULT_CS_ARCH,

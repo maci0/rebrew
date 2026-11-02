@@ -4640,9 +4640,9 @@ class TestConnectionCap:
                 conn.close()
                 # The handler thread ends once the peer closes, not at once.
                 deadline = time.monotonic() + 5.0
-                while server._active and time.monotonic() < deadline:
+                while dashboard_module.active_connections() and time.monotonic() < deadline:
                     time.sleep(0.02)
-                assert server._active == 0
+                assert dashboard_module.active_connections() == 0
         finally:
             server.shutdown()
             server.server_close()
@@ -4681,7 +4681,7 @@ class TestConnectionCap:
                 deadline = time.monotonic() + 5.0
                 while not shut and time.monotonic() < deadline:
                     time.sleep(0.02)
-                assert server._active == 0, "the refused slot must come back"
+                assert dashboard_module.active_connections() == 0, "the refused slot must come back"
                 assert len(shut) == 1, "the accepted socket must be closed, not leaked"
                 conn.settimeout(2.0)
                 assert conn.recv(4096) == b"", "the peer must see the close"

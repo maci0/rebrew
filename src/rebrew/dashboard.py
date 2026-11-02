@@ -3545,18 +3545,6 @@ class _DashboardServer(ThreadingHTTPServer):
     #: ``_MAX_ACTIVE_CONNECTIONS``.  Instance-level so a test can lower it.
     _max_active_connections: int = _MAX_ACTIVE_CONNECTIONS
 
-    @property
-    def _active(self) -> int:
-        """Connections currently holding a handler slot.
-
-        The count is the module's, not this instance's (see
-        :data:`_ACTIVE_CONNECTIONS`), so ``/api/health`` reports the same number
-        admission decides on.  Read-only: a slot is taken and given back by
-        :func:`_reserve_connection_slot` and :func:`_release_connection_slot`,
-        never by assigning to it.
-        """
-        return active_connections()
-
     @override
     def process_request(
         self, request: socket.socket | tuple[bytes, socket.socket], client_address: Any
