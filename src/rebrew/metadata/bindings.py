@@ -903,15 +903,27 @@ def iter_source_bindings(
         if function_entries is None:
             function_entries = load_metadata(metadata_dir, deepcopy=False)
         data_index = data_file_index(metadata_dir)
+    # The store root does not move while the batch runs, so resolve it once.
+    # A walked source path is already under that root; spelling it relative is
+    # pure string work, while ``relpath`` would realpath both sides per file.
+    metadata_root = metadata_dir.resolve() if inventory_only and metadata_dir is not None else None
     results: list[tuple[Path, list[SourceBinding]]] = []
     for src in sources:
         try:
+            if metadata_root is not None and src.is_absolute() and ".." not in src.parts:
+                try:
+                    store_rel = src.relative_to(metadata_root).as_posix()
+                except ValueError:
+                    store_rel = os.path.relpath(src.resolve(), metadata_root).replace(os.sep, "/")
+            elif metadata_root is not None:
+                store_rel = os.path.relpath(src.resolve(), metadata_root).replace(os.sep, "/")
+            else:
+                store_rel = ""
             if inventory_only and metadata_dir is not None and function_entries is not None:
                 rows = function_rows_for_file(
                     src, metadata_dir, function_entries, project_root=project_root
                 )
-                rel = os.path.relpath(src.resolve(), metadata_dir.resolve()).replace(os.sep, "/")
-                data_rows = data_index.get(rel, [])
+                data_rows = data_index.get(store_rel, [])
                 if rows or data_rows:
                     annos = _function_annotations_from_metadata(
                         src,
@@ -931,13 +943,7 @@ def iter_source_bindings(
                     if annos:
                         results.append((src, annos))
                     continue
-            preloaded_data = (
-                data_index.get(
-                    os.path.relpath(src.resolve(), metadata_dir.resolve()).replace(os.sep, "/"), []
-                )
-                if inventory_only and metadata_dir is not None
-                else None
-            )
+            preloaded_data = data_index.get(store_rel, []) if metadata_root is not None else None
             annos = read_source_bindings(
                 src,
                 target_name=target,
