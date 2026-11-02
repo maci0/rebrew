@@ -874,7 +874,12 @@ def cached_source_bytes(
     Keyed by the resolved path and the same stat identity as the text memo.
     """
     resolved = _resolved_source_path(filepath)
-    return _SOURCE_RAW.get((str(resolved), mtime_ns, size, ino, ctime_ns))
+    # Same lock that publishes and drops ``_SOURCE_RAW``: a free-threaded
+    # interpreter may otherwise read the dict while another worker's store or
+    # eviction is mutating it.  The bytes object stays valid after the lock is
+    # released, so the caller keeps the copy it received.
+    with _SOURCE_TEXT_MEMO_LOCK:
+        return _SOURCE_RAW.get((str(resolved), mtime_ns, size, ino, ctime_ns))
 
 
 def read_toml_text(path: Path) -> str:

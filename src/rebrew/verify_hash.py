@@ -133,7 +133,12 @@ def entry_fingerprint(cfg: ProjectConfig, entry: Any) -> EntryFingerprint | None
 _FRESH_FINGERPRINTS: dict[
     int, tuple[weakref.ReferenceType[Any], EntryFingerprint, int, int, int, str]
 ] = {}
-_FRESH_FINGERPRINT_LOCK = threading.Lock()
+#: Reentrant because the weakref callback :func:`_drop` runs synchronously on
+#: the thread that triggers collection, including inside the ``with`` block
+#: below: allocating the row can cross the GC threshold and collect an older
+#: entry while this thread still holds the lock.  A plain Lock self-deadlocks
+#: that interleaving.
+_FRESH_FINGERPRINT_LOCK = threading.RLock()
 
 
 def _remember_fingerprint(
