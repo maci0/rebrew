@@ -284,7 +284,7 @@ class TestNativeToolchainId:
         os.utime(gcc, (1767226000, 1767226000))
         id_new = _native_toolchain_id(self._spec("mingw-16.2.0"))
         assert id_old != id_new
-        assert _native_binary_cache["mingw-16.2.0"][4] == id_new
+        assert _native_binary_cache["mingw-16.2.0"][5] == id_new
 
     def test_same_stat_different_bytes_changes_id(self, tmp_path: Path, monkeypatch) -> None:
         """A swapped compiler that preserves (mtime, size) still invalidates
@@ -335,6 +335,37 @@ class TestNativeToolchainId:
         st = gcc.stat()
         assert st.st_size == 4
         assert st.st_mtime_ns == mtime * 1_000_000_000
+        id_new = _native_toolchain_id(self._spec("mingw-16.2.0"))
+        assert id_old != id_new
+
+    def test_in_place_rewrite_with_restored_mtime_changes_id(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """An in-place compiler rewrite that restores mtime must rehash.
+
+        Size and inode stay put and the old mtime is restored, so only the
+        change time distinguishes the new bytes from the memoized ones.
+        """
+        import os
+
+        from rebrew.compiler.compile import _native_toolchain_id
+
+        gcc = tmp_path / "gcc"
+        gcc.write_bytes(b"AAAA")
+        gcc.chmod(0o755)
+        mtime = 1767225600
+        os.utime(gcc, (mtime, mtime))
+        monkeypatch.setattr("rebrew.compiler.compile.shutil.which", lambda name: str(gcc))
+        id_old = _native_toolchain_id(self._spec("mingw-16.2.0"))
+        old = gcc.stat()
+        gcc.write_bytes(b"BBBB")
+        os.utime(gcc, ns=(old.st_atime_ns, old.st_mtime_ns))
+        after = gcc.stat()
+        assert (after.st_mtime_ns, after.st_size, after.st_ino) == (
+            old.st_mtime_ns,
+            old.st_size,
+            old.st_ino,
+        )
         id_new = _native_toolchain_id(self._spec("mingw-16.2.0"))
         assert id_old != id_new
 

@@ -357,3 +357,23 @@ class TestImageHashMemo:
         keys = {key[0] for key in linked_exact._hash_memo}
         assert str(paths[0].resolve()) not in keys
         assert str(paths[-1].resolve()) in keys
+
+    def test_in_place_rewrite_with_restored_mtime_rehashes(self, tmp_path: Path) -> None:
+        """Same size, inode and restored mtime still means new bytes."""
+        import rebrew.linked_exact as linked_exact
+
+        path = tmp_path / "image.bin"
+        path.write_bytes(b"AAAA")
+        mtime = 1767225600
+        os.utime(path, (mtime, mtime))
+        old = path.stat()
+        digest_old = linked_exact.image_sha256(path)
+        path.write_bytes(b"BBBB")
+        os.utime(path, ns=(old.st_atime_ns, old.st_mtime_ns))
+        after = path.stat()
+        assert (after.st_mtime_ns, after.st_size, after.st_ino) == (
+            old.st_mtime_ns,
+            old.st_size,
+            old.st_ino,
+        )
+        assert linked_exact.image_sha256(path) != digest_old

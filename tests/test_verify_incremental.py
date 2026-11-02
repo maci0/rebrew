@@ -490,7 +490,37 @@ class TestLoadVerifyCache:
 
         assert raw is not None
         assert raw["entries"] == {}
-        assert json.loads(sidecar.read_text(encoding="utf-8"))["version"] == 1
+        assert json.loads(sidecar.read_text(encoding="utf-8"))["version"] == 2
+
+    def test_in_place_rewrite_with_restored_mtime_reloads(self, tmp_path: Path) -> None:
+        """A same-size in-place rewrite that restores mtime is still a new file."""
+        import os
+
+        cfg = _make_cfg(tmp_path)
+        cache_path = _write_cache(
+            cfg,
+            entries={"0x1000": {"status": "EXACT", "va": "0x1000", "name": "f"}},
+        )
+        first = load_verify_cache_raw(cfg)
+        assert first is not None
+        assert first["entries"]["0x1000"]["status"] == "EXACT"
+
+        old = cache_path.stat()
+        text = cache_path.read_text(encoding="utf-8")
+        assert "EXACT" in text
+        cache_path.write_text(text.replace("EXACT", "STALE"), encoding="utf-8")
+        os.utime(cache_path, ns=(old.st_atime_ns, old.st_mtime_ns))
+        after = cache_path.stat()
+        assert (after.st_mtime_ns, after.st_size, after.st_ino) == (
+            old.st_mtime_ns,
+            old.st_size,
+            old.st_ino,
+        )
+
+        second = load_verify_cache_raw(cfg)
+
+        assert second is not None
+        assert second["entries"]["0x1000"]["status"] == "STALE"
 
 
 class TestCacheIdentityAgreesAcrossReaders:

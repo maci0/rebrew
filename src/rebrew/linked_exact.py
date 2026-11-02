@@ -60,17 +60,17 @@ _HASH_CHUNK = 1 << 20
 _HASH_MEMO_MAX = 32
 
 _hash_lock = threading.Lock()
-_hash_memo: dict[tuple[str, int, int, int], str] = {}
+_hash_memo: dict[tuple[str, int, int, int, int], str] = {}
 
 
 def image_sha256(path: Path) -> str:
-    """SHA-256 of *path*, memoized per (path, mtime_ns, size, inode).
+    """SHA-256 of *path*, memoized per (path, mtime_ns, size, inode, ctime_ns).
 
     Raises :class:`OSError` when the file cannot be read.
     """
     resolved = path.resolve()
     st = resolved.stat()
-    key = (str(resolved), st.st_mtime_ns, st.st_size, st.st_ino)
+    key = (str(resolved), st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns)
     with _hash_lock:
         cached = _hash_memo.get(key)
     if cached is not None:

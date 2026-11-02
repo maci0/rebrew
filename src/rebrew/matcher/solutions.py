@@ -248,7 +248,7 @@ def load_solutions_file(path: Path) -> list[SolutionEntry]:
     return _wins_from_records(path)
 
 
-#: Bounded ``(path, mtime_ns, size, ino) -> sha256`` memo for
+#: Bounded ``(path, mtime_ns, size, ino, ctime_ns) -> sha256`` memo for
 #: :func:`_source_sha`.  Batch seeding calls :func:`find_similar` once per
 #: stub with the same preloaded entry list, so without this the same handful
 #: of sources would be re-hashed once per stub.
@@ -257,22 +257,22 @@ _SOURCE_SHA_CACHE_MAX = 128
 #: Bounded cache for :func:`_normalize_cflags`; one entry per distinct
 #: cflags string in the solution DB plus the caller's own.
 _NORMALIZED_CFLAGS_CACHE = 256
-_SOURCE_SHA_CACHE: OrderedDict[tuple[str, int, int, int], str] = OrderedDict()
+_SOURCE_SHA_CACHE: OrderedDict[tuple[str, int, int, int, int], str] = OrderedDict()
 _SOURCE_SHA_LOCK = threading.Lock()
 
 
 def _source_sha(path: Path) -> str:
     """SHA-256 of *path*, or "" when it cannot be read.
 
-    Keyed on the file's inode metadata, so an in-place edit that changes size
-    or mtime re-hashes; a missing or unreadable file returns "",
+    Keyed on the file's inode metadata, so an in-place edit that changes size,
+    mtime, or change time re-hashes; a missing or unreadable file returns "",
     which :func:`_is_stale` treats as "unverifiable, keep".
     """
     try:
         st = path.stat()
     except OSError:
         return ""
-    key = (str(path), st.st_mtime_ns, st.st_size, st.st_ino)
+    key = (str(path), st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns)
     with _SOURCE_SHA_LOCK:
         hit = _SOURCE_SHA_CACHE.get(key)
         if hit is not None:

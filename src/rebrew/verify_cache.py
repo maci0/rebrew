@@ -48,8 +48,10 @@ CACHE_VERSION = 2
 #: Version of the derived JSON sidecar that caches the parsed TOML document.
 #: The sidecar is keyed by the TOML stat, which says nothing about the parser
 #: that produced it: bump this when the decode or document shape changes so a
-#: deploy cannot serve a document decoded by older semantics.
-_VERIFY_JSON_VERSION = 1
+#: deploy cannot serve a document decoded by older semantics.  Version 2 also
+#: fingerprints change time, so an in-place rewrite that restores the old mtime
+#: cannot keep serving the previous document.
+_VERIFY_JSON_VERSION = 2
 
 #: The verify cache, beside the coverage documents.  One clear-text TOML file
 #: like every other rebrew store: `.rebrew/verify_cache.toml`.
@@ -388,13 +390,13 @@ def _decode_nulls(document: dict[str, Any]) -> dict[str, Any]:
 #: Stat-keyed memo of the raw verify-cache document: status and todo both
 #: decode ``.rebrew/verify_cache.toml`` every run — sometimes twice per command —
 #: and the decode is linear in cache size.  At most one entry per path: a
-#: rewrite changes mtime, size, or inode, and keeping the old key would
-#: retain the previous full JSON payload for the process lifetime.  Cap
+#: rewrite changes mtime, size, inode, or change time, and keeping the old key
+#: would retain the previous full JSON payload for the process lifetime.  Cap
 #: distinct paths so a long-lived process that touches many project roots
 #: cannot retain every decoded payload.  Guarded: eviction is a multi-step
 #: mutation on a shared dict; concurrent status/todo/build-db callers must
 #: not race it.
-_VERIFY_CACHE_MEMO: dict[tuple[str, int, int, int], dict[str, Any] | None] = {}
+_VERIFY_CACHE_MEMO: dict[tuple[str, int, int, int, int], dict[str, Any] | None] = {}
 _VERIFY_CACHE_MEMO_MAX = 8
 _VERIFY_CACHE_MEMO_LOCK = threading.Lock()
 
@@ -608,7 +610,7 @@ def _verify_json_path(cache_path: Path) -> Path:
 
 def _read_verify_json(cache_path: Path, st: os.stat_result) -> dict[str, Any] | None:
     """Decoded document when the sidecar matches *st*, else None."""
-    token = [st.st_mtime_ns, st.st_size, st.st_ino]
+    token = [st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns]
     try:
         payload = json.loads(_verify_json_path(cache_path).read_text(encoding="utf-8"))
     except OSError, UnicodeError, json.JSONDecodeError, TypeError:
@@ -630,7 +632,7 @@ def _write_verify_json(cache_path: Path, st: os.stat_result, document: dict[str,
     path = _verify_json_path(cache_path)
     payload = {
         "version": _VERIFY_JSON_VERSION,
-        "fingerprint": [st.st_mtime_ns, st.st_size, st.st_ino],
+        "fingerprint": [st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns],
         "document": document,
     }
     try:
@@ -642,13 +644,15 @@ def _write_verify_json(cache_path: Path, st: os.stat_result, document: dict[str,
 def _invalidate_verify_cache_memo(cache_path: Path) -> None:
     """Drop every memo entry for *cache_path* after a write.
 
-    ``load_verify_cache_raw`` keys on ``(path, mtime_ns, size, inode)``.  A
+    ``load_verify_cache_raw`` keys on
+    ``(path, mtime_ns, size, inode, ctime_ns)``.  A
     rewrite that lands in the same mtime slot with the same byte length
     (coarse filesystems, same-second agent edits, truncated status strings
     of equal width) would otherwise keep serving the pre-write JSON for the
     rest of the process — status/todo then disagree with the file
     ``rebrew test`` / ``rebrew verify`` just patched.  The inode distinguishes
-    that rename-over even before this drop runs.  Mirror ``atomic_write_text``'s
+    that rename-over even before this drop runs, and change time catches an
+    in-place rewrite that restores the old mtime.  Mirror ``atomic_write_text``'s
     source-text memo drop.
     """
     with _VERIFY_CACHE_MEMO_LOCK:
@@ -665,7 +669,7 @@ def load_verify_cache_raw(cfg: Any) -> dict[str, Any] | None:
     Returns ``None`` when the file is missing or corrupt.  Target/version
     validation is the caller's responsibility — readers apply their own
     guards (status vs todo differ slightly).  Memoized by (path, mtime,
-    size, inode), so repeated loads within one command are free and a
+    size, inode, ctime), so repeated loads within one command are free and a
     same-size rename-over in one mtime tick is a miss.
     """
     cache_path = cache_path_for(cfg, for_read=True)
@@ -674,7 +678,7 @@ def load_verify_cache_raw(cfg: Any) -> dict[str, Any] | None:
     except OSError:
         return None
     path_key = _memo_path_key(cache_path)
-    key = (path_key, st.st_mtime_ns, st.st_size, st.st_ino)
+    key = (path_key, st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns)
     with _VERIFY_CACHE_MEMO_LOCK:
         if key in _VERIFY_CACHE_MEMO:
             cached = _VERIFY_CACHE_MEMO[key]

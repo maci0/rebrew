@@ -1170,15 +1170,16 @@ def _docker_include_rewrite(
     return out, mounts
 
 
-# name → (resolved_path, mtime_ns, size, inode, toolchain_id).  Re-stat on
-# each call so a mid-process compiler upgrade (same PATH name, new bytes)
-# does not keep serving objects keyed under the old content digest.  Content
-# is re-hashed when path, mtime, size, or inode changes.  Inode catches a
-# same-size rename-over of the compiler binary in one mtime tick.
+# name → (resolved_path, mtime_ns, size, inode, ctime_ns, toolchain_id).
+# Re-stat on each call so a mid-process compiler upgrade (same PATH name, new
+# bytes) does not keep serving objects keyed under the old content digest.
+# Content is re-hashed when path, mtime, size, inode, or change time changes.
+# Inode catches a same-size rename-over of the compiler binary in one mtime
+# tick; change time catches an in-place rewrite that restores the old mtime.
 # Guarded: verify -j N / GA workers call ``_native_toolchain_id`` concurrently
 # while building cache keys; the eviction path is a multi-step mutation.
 # A missing or unreadable binary is not stored: that is not an identity.
-_native_binary_cache: dict[str, tuple[str, int, int, int, str]] = {}
+_native_binary_cache: dict[str, tuple[str, int, int, int, int, str]] = {}
 _NATIVE_BINARY_CACHE_MAX = 32
 _NATIVE_BINARY_CACHE_LOCK = threading.Lock()
 _SHA256_HEX_LEN = 64
@@ -1194,8 +1195,8 @@ def _native_toolchain_id(spec: ToolchainSpec) -> str | None:
     the compiler changes the bytes, and objects cached from the old binary
     are never served under the new one.  ``None`` when the binary is missing
     or unreadable: the compile may still run, and the cache is skipped.
-    Memoized per ``(path, mtime, size, inode)`` so an in-process upgrade
-    invalidates without a full restart.
+    Memoized per ``(path, mtime, size, inode, ctime)`` so an in-process
+    upgrade invalidates without a full restart.
     """
     name = spec.binary
     # Resolve the binary the runner will actually execute, in the same
@@ -1212,14 +1213,14 @@ def _native_toolchain_id(spec: ToolchainSpec) -> str | None:
     return native_binary_id(name, resolved)
 
 
-def _native_cache_hit(name: str, key: tuple[str, int, int, int]) -> str | None:
+def _native_cache_hit(name: str, key: tuple[str, int, int, int, int]) -> str | None:
     """The memoized id for *name* if its entry still matches *key*; else None.
 
     Caller holds :data:`_NATIVE_BINARY_CACHE_LOCK`.
     """
     cached = _native_binary_cache.get(name)
-    if cached is not None and cached[:4] == key:
-        return cached[4]
+    if cached is not None and cached[:5] == key:
+        return cached[5]
     return None
 
 
@@ -1235,7 +1236,8 @@ def native_binary_id(name: str, resolved: Path | None) -> str | None:
 
     None when *resolved* is missing, unreadable, or the digest is not 64
     lowercase hex.  A missing identity is not memoized.  Successful ids are
-    memoized per ``(path, mtime, size, inode)`` in :data:`_native_binary_cache`.
+    memoized per ``(path, mtime, size, inode, ctime)`` in
+    :data:`_native_binary_cache`.
     """
     if resolved is None:
         return None
@@ -1246,7 +1248,7 @@ def native_binary_id(name: str, resolved: Path | None) -> str | None:
     except OSError:
         return None
 
-    key = (resolved_path, st.st_mtime_ns, st.st_size, st.st_ino)
+    key = (resolved_path, st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns)
     with _NATIVE_BINARY_CACHE_LOCK:
         hit = _native_cache_hit(name, key)
         if hit is not None and not _valid_native_id(hit, name):

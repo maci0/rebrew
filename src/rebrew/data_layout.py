@@ -141,17 +141,18 @@ _UNREADABLE_REPORT_LIMIT = 10
 
 _logger = logging.getLogger(__name__)
 
-#: Bounded ``(path, mtime_ns, size, ino, flag) -> stdout`` memo.  Every
-#: accessor over a linked object spawns objdump, and callers
+#: Bounded ``(path, mtime_ns, size, ino, ctime_ns, flag) -> stdout`` memo.
+#: Every accessor over a linked object spawns objdump, and callers
 #: (``text_audit``, ``verify_placement``) walk the whole link order, so a
 #: 200-TU project pays hundreds of processes per run.  Keyed by stat
-#: fingerprint so a rebuilt object is never served stale.
+#: fingerprint so a rebuilt object is never served stale; change time catches
+#: an in-place rewrite that restores the old mtime.
 #:
 #: The bound is on retained stdout CHARACTERS, not entries: one ``objdump -t``
 #: over a large object runs to megabytes, so an entry cap made the real limit
 #: the heap.  Same discipline as ``verify_hash._SOURCE_MEMO``.
 _OBJDUMP_CACHE_MAX_CHARS = 32 * 1024 * 1024
-_OBJDUMP_CACHE: OrderedDict[tuple[str, int, int, int, str], str] = OrderedDict()
+_OBJDUMP_CACHE: OrderedDict[tuple[str, int, int, int, int, str], str] = OrderedDict()
 _OBJDUMP_CACHE_CHARS = 0
 _OBJDUMP_CACHE_LOCK = Lock()
 
@@ -163,10 +164,10 @@ def _run_objdump(obj: Path, flag: str) -> str:
     times out — an unchecked run would silently yield zero sizes and an
     empty symbol set, turning every downstream audit row into garbage.
     """
-    key: tuple[str, int, int, int, str] | None = None
+    key: tuple[str, int, int, int, int, str] | None = None
     try:
         st = obj.stat()
-        key = (str(obj), st.st_mtime_ns, st.st_size, st.st_ino, flag)
+        key = (str(obj), st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns, flag)
     except OSError:
         key = None
     if key is not None:

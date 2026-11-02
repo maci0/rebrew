@@ -123,12 +123,15 @@ def _failed_result(status: CompareStatus, message: str = "") -> CompareResult:
 
 
 @functools.lru_cache(maxsize=256)
-def _fenced_naked_note_cached(path_key: str, _mtime_ns: int, _size: int, _ino: int) -> str:
-    """Fence probe keyed by (path, mtime, size, inode) for multi-function TUs.
+def _fenced_naked_note_cached(
+    path_key: str, _mtime_ns: int, _size: int, _ino: int, _ctime_ns: int
+) -> str:
+    """Fence probe keyed by (path, mtime, size, inode, ctime) for multi-function TUs.
 
     Path alone would keep a stale "fenced" / "unfenced" answer after an
     in-process edit (verify --watch, test→verify loops).  The stat key matches
-    :func:`rebrew.utils.read_source_text`'s memo so the note tracks the file.
+    :func:`rebrew.utils.read_source_text`'s memo so the note tracks the file,
+    including an in-place rewrite that restores the old mtime.
     """
     try:
         from rebrew.utils import read_source_text
@@ -166,7 +169,9 @@ def _fenced_naked_note(cfile: Path) -> str:
         path_key = str(cfile.resolve())
     except OSError:
         path_key = str(cfile)
-    return _fenced_naked_note_cached(path_key, st.st_mtime_ns, st.st_size, st.st_ino)
+    return _fenced_naked_note_cached(
+        path_key, st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns
+    )
 
 
 def _entry_symbol(entry: Any) -> str:
@@ -2406,13 +2411,13 @@ def _inventory_count(cfg: ProjectConfig, reversed_dir: Path) -> int:
 def _library_header_rows(cfg: Any) -> dict[int, dict[str, str]]:
     """Rows the ``library_*.h`` headers of this target contribute, cached.
 
-    Keyed on the header paths and their ``(mtime_ns, size, ino)``, so an edited
-    header re-parses and ``verify --watch`` still sees the change while two
-    calls in one run (the library set and the ``--skip-libraries`` filter) parse the
-    tree once.  The size and inode are what catch a same-size rename-over
-    inside one mtime tick (an editor's atomic save, a ``cp -p`` restore, a
-    coarse-timestamp filesystem), which mtime alone cannot see; same triple
-    every other per-file memo in the tree carries.
+    Keyed on the header paths and their ``(mtime_ns, size, ino, ctime_ns)``, so
+    an edited header re-parses and ``verify --watch`` still sees the change
+    while two calls in one run (the library set and the ``--skip-libraries``
+    filter) parse the tree once.  The size and inode are what catch a same-size
+    rename-over inside one mtime tick (an editor's atomic save, a ``cp -p``
+    restore, a coarse-timestamp filesystem), which mtime alone cannot see;
+    change time catches an in-place rewrite that restores the old mtime.
 
     The parse runs outside the lock and the publish inside it, so two
     workers racing on the same key both parse but only one entry survives.
@@ -2485,13 +2490,13 @@ _LIBRARY_HEADER_CACHE_MAX = 8
 _LIBRARY_HEADER_CACHE_LOCK = threading.Lock()
 
 
-def _stat_identity(path: Path) -> tuple[int, int, int]:
-    """``(mtime_ns, size, ino)`` for *path*, all 0 when it is unreadable."""
+def _stat_identity(path: Path) -> tuple[int, int, int, int]:
+    """``(mtime_ns, size, ino, ctime_ns)`` for *path*, all 0 when unreadable."""
     try:
         st = path.stat()
     except OSError:
-        return (0, 0, 0)
-    return (st.st_mtime_ns, st.st_size, st.st_ino)
+        return (0, 0, 0, 0)
+    return (st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns)
 
 
 def _library_vas(cfg: Any, entries: list[SourceBinding]) -> set[int]:
