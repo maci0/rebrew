@@ -2184,7 +2184,7 @@ def _discard_temp_dir(path: Path) -> None:
         cleanup_batch_obj_dirs()
 
 
-def cleanup_batch_obj_dirs() -> None:
+def cleanup_batch_obj_dirs(only: list[Path] | None = None) -> None:
     """Remove the lasting temp dirs this process still holds.
 
     That is the batch-published ``.obj`` dirs left by
@@ -2193,6 +2193,12 @@ def cleanup_batch_obj_dirs() -> None:
     after extracting symbol bytes so long-lived processes do not accumulate
     one dir per ``--no-cache`` run; an atexit registration is the crash
     backstop.
+
+    *only* restricts the sweep to the dirs one run created (reported through
+    :func:`precompile_batch`'s ``lasting`` list).  Without it, a verify pass
+    in a long-lived process would delete the batch dirs of an earlier pass
+    whose interrupted workers are still compiling and reading them; the
+    atexit hook stays the owner of those until the process exits.
 
     A path is dropped from the tracking list only after a successful remove
     (or when it is already gone).  A busy mount that raises leaves the entry
@@ -2204,8 +2210,13 @@ def cleanup_batch_obj_dirs() -> None:
     from rebrew.compiler.temp_dirs import remove_temp_dir
 
     with _BATCH_OBJ_DIRS_LOCK:
-        pending = list(_BATCH_OBJ_DIRS)
-        _BATCH_OBJ_DIRS.clear()
+        if only is None:
+            pending = list(_BATCH_OBJ_DIRS)
+            _BATCH_OBJ_DIRS.clear()
+        else:
+            selected = set(only)
+            pending = [path for path in _BATCH_OBJ_DIRS if path in selected]
+            _BATCH_OBJ_DIRS[:] = [path for path in _BATCH_OBJ_DIRS if path not in selected]
     remaining: list[Path] = []
     for path in pending:
         try:
@@ -2239,6 +2250,7 @@ def precompile_batch(
     *,
     cache: CacheBackend | None = None,
     context: CompileContext | None = None,
+    lasting: list[Path] | None = None,
 ) -> dict[int, str]:
     """Compile many entries' sources with one container run per flag group.
 
@@ -2251,9 +2263,11 @@ def precompile_batch(
     optimization): failures return what succeeded, the rest fall back.
 
     Published ``.obj`` paths live under a lasting temp dir (not the staged
-    source tree).  Call :func:`cleanup_batch_obj_dirs` after extracting
-    symbol bytes so the lasting dir does not accumulate across verify runs
-    in a long-lived process; an atexit hook is the backstop.
+    source tree).  A caller that passes *lasting* gets that dir appended, so
+    :func:`cleanup_batch_obj_dirs` can sweep only the dirs its own run
+    created instead of another run's in-flight ones.  Call it after
+    extracting symbol bytes so the lasting dir does not accumulate across
+    verify runs in a long-lived process; an atexit hook is the backstop.
     """
     from rebrew.compiler.overrides import resolve_compile_overrides
 
@@ -2642,6 +2656,8 @@ def precompile_batch(
         return out
     with _BATCH_OBJ_DIRS_LOCK:
         _BATCH_OBJ_DIRS.append(lasting_root)
+    if lasting is not None:
+        lasting.append(lasting_root)
     _register_batch_obj_atexit()
     batch_jobs = max(1, min(getattr(cfg, "default_jobs", 4) or 4, len(batchable)))
     with interruptible_pool(batch_jobs) as pool:

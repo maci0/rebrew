@@ -2461,7 +2461,8 @@ class TestPrecompileBatchCleanup:
             compile_timeout=60,
             default_jobs=1,
         )
-        out = precompile_batch(cfg, entries)
+        reported: list[Path] = []
+        out = precompile_batch(cfg, entries, lasting=reported)
         assert len(out) == 2
         assert id(entries[2]) not in out
         assert workdirs, "expected at least one staged group workdir"
@@ -2469,9 +2470,36 @@ class TestPrecompileBatchCleanup:
             assert not wd.exists(), f"staged workdir leaked: {wd}"
         for path in out.values():
             assert Path(path).is_file()
-        cleanup_batch_obj_dirs()
+        assert reported == lasting_dirs, "the caller must learn which dirs it owns"
+        cleanup_batch_obj_dirs(only=reported)
         for ld in lasting_dirs:
             assert not ld.exists(), f"lasting obj dir leaked: {ld}"
+
+    def test_scoped_cleanup_leaves_another_runs_dirs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A pass may only sweep the dirs its own precompile created.
+
+        An interrupted pass leaves workers reading its published .obj files;
+        the next pass's cleanup must not delete those dirs.  The atexit sweep
+        remains their owner.
+        """
+        import rebrew.compiler.compile as compile_mod
+
+        own = tmp_path / "own_objs"
+        other = tmp_path / "other_objs"
+        own.mkdir()
+        other.mkdir()
+        monkeypatch.setattr(compile_mod, "_BATCH_OBJ_DIRS", [own, other])
+
+        compile_mod.cleanup_batch_obj_dirs(only=[own])
+        assert not own.exists()
+        assert other.is_dir(), "another run's in-flight batch dir was deleted"
+        assert [other] == compile_mod._BATCH_OBJ_DIRS
+
+        compile_mod.cleanup_batch_obj_dirs()
+        assert not other.exists()
+        assert compile_mod._BATCH_OBJ_DIRS == []
 
     def test_cleanup_retains_busy_dirs_for_retry(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

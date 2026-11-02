@@ -2945,8 +2945,11 @@ def run_verification(
     # of one per function.  Entries that can't batch (context-merged units,
     # recompile backend, exotic arg styles) compile individually inside
     # verify_entry as before — _batch_objs only carries what the batch
-    # produced.
+    # produced.  *batch_dirs* names the lasting dirs this pass created, so a
+    # later pass's cleanup cannot delete them out from under interrupted
+    # workers.
     _batch_objs: dict[int, str] = {}
+    batch_dirs: list[Path] = []
     try:
         from rebrew.compiler.compile import precompile_batch
         from rebrew.compiler.overrides import resolve_compile_overrides_cached
@@ -2970,8 +2973,18 @@ def run_verification(
                 context_hash=context.sha256 if context is not None else "",
             )
 
-        _batch_objs = precompile_batch(cfg, entries_to_verify, cache=compile_cache, context=context)
+        _batch_objs = precompile_batch(
+            cfg,
+            entries_to_verify,
+            cache=compile_cache,
+            context=context,
+            lasting=batch_dirs,
+        )
     except Exception as exc:  # batch is an optimization; never fail the run
+        # An abort can leave this pass's group workers (and their lasting
+        # dirs) running; leave those dirs to the atexit sweep rather than
+        # deleting them under a worker that still reads them.
+        batch_dirs.clear()
         log.debug("batch pre-compile skipped: %s", exc)
 
     try:
@@ -3082,15 +3095,17 @@ def run_verification(
                         )
         workers_stopped = True
     finally:
-        # Batch-published .obj files are no longer needed — drop lasting temp
-        # dirs so a long-lived process does not accumulate one per --no-cache run.
-        # Only after the pool drained: an interrupted run leaves in-flight
-        # workers reading those .obj files, so the atexit sweep is their owner.
+        # Batch-published .obj files are no longer needed — drop this pass's
+        # lasting temp dirs so a long-lived process does not accumulate one
+        # per --no-cache run.  Only after the pool drained: an interrupted
+        # run leaves in-flight workers reading those .obj files, so the
+        # atexit sweep is their owner.  Sweep exactly *batch_dirs*: another
+        # pass's dirs may still have interrupted workers reading them.
         if workers_stopped:
             with contextlib.suppress(Exception):
                 from rebrew.compiler.compile import cleanup_batch_obj_dirs
 
-                cleanup_batch_obj_dirs()
+                cleanup_batch_obj_dirs(only=batch_dirs)
 
     if internal_errors > 0 and not json_output:
         console.print(
