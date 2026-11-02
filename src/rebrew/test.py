@@ -1917,6 +1917,10 @@ def _test_multi(
     try:
         objs: dict[tuple[str | None, str], Any] = {}
         cache_patches: list[dict[str, object]] = []
+        # Fixed SIZE values batch into one metadata write after this file's
+        # annotations; one TOML read-modify-write per stale size used to
+        # rewrite the same store once per function.
+        size_updates: list[dict[str, Any]] = []
         from rebrew.verify_hash import comparison_inputs, comparison_inputs_current
 
         group_inputs: dict[tuple[str | None, str], dict[str, str] | None] = {}
@@ -2135,18 +2139,9 @@ def _test_multi(
             ):
                 new_size = len(obj_bytes)
                 if not dry_run and not no_promote:
-                    try:
-                        set_fields_batch(
-                            cfg.metadata_dir,
-                            [{"module": ann.module, "va": ann.va, "fields": {"size": new_size}}],
-                        )
-                    except Exception as exc:  # metadata write is best-effort
-                        logging.warning(
-                            "Could not persist fixed SIZE 0x%x: %s (the .c still claims "
-                            "the stale size)",
-                            ann.va,
-                            exc,
-                        )
+                    size_updates.append(
+                        {"module": ann.module, "va": ann.va, "fields": {"size": new_size}}
+                    )
                 elif not json_output:
                     console.print(
                         f"[dim]  would fix SIZE {ann.size} → {new_size} for "
@@ -2395,6 +2390,17 @@ def _test_multi(
                         )
                     if written and not json_output:
                         console.print(f"[dim]  STATUS → {untrusted_ident(new_status)}[/dim]")
+
+        if size_updates:
+            try:
+                set_fields_batch(cfg.metadata_dir, size_updates)
+            except Exception as exc:  # metadata write is best-effort
+                logging.warning(
+                    "Could not persist %d fixed SIZE value(s): %s (the .c still claims "
+                    "the stale size)",
+                    len(size_updates),
+                    exc,
+                )
 
         if cache_patches:
             from rebrew.verify_cache import patch_verify_cache_entries

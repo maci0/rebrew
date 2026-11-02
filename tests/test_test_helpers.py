@@ -1,5 +1,6 @@
 """Tests for test.py result-dict builders and reloc helpers."""
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -999,6 +1000,7 @@ class TestMultiFixSize:
         (tmp_path / "x.bin").write_bytes(b"\x8b\x44\x24\x04\xa3\x20\xda\x03\x01\xc2\x04\x00")
 
         writes: list[tuple[str, int, int]] = []
+        batches: list[int] = []
 
         def _fake_compile(cfg_, src, cflags, workdir, obj_name=None, toolchain=None, context=None):
             return str(tmp_path / "f.obj"), ""
@@ -1017,6 +1019,7 @@ class TestMultiFixSize:
             return True, 9, 9, [5], []
 
         def _fake_set_fields(metadata_dir, updates):
+            batches.append(len(updates))
             for u in updates:
                 writes.append((u["module"], u["va"], u["fields"]["size"]))
             return len(updates)
@@ -1040,11 +1043,13 @@ class TestMultiFixSize:
         testmod._test_multi(
             cfg,
             str(tmp_path / "f.c"),
-            [self._ann()],
+            [self._ann(), replace(self._ann(), symbol="_g")],
             None,
             fix_sizes=True,
         )
-        assert writes == [("X", 0x1000, 12)]
+        # Two stale sizes, one metadata write for the whole file.
+        assert batches == [2]
+        assert writes == [("X", 0x1000, 12), ("X", 0x1000, 12)]
 
     def test_no_fix_without_flag(self, tmp_path: Path, monkeypatch: Any) -> None:
         from types import SimpleNamespace as NS
