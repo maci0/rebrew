@@ -5,9 +5,17 @@ import (
 	"encoding/hex"
 	"os"
 	"sync"
+	"time"
 )
 
 const outputLimit = 4 * 1024 * 1024
+
+// outputSaveInterval bounds how often a running job's receipt is rewritten.
+// A chatty child delivers many pipe chunks, and each receipt write is a temp
+// file plus two directory/file syncs; doing that per chunk stalls the child on
+// disk. The output file itself is written per chunk and readable through the
+// page cache, and finish persists the final counters.
+const outputSaveInterval = 250 * time.Millisecond
 
 type outputWriter struct {
 	mu        sync.Mutex
@@ -16,6 +24,9 @@ type outputWriter struct {
 	file      *os.File
 	size      int
 	truncated bool
+	lastSave  time.Time
+	// saveInterval overrides outputSaveInterval when positive.
+	saveInterval time.Duration
 }
 
 func (w *outputWriter) Write(p []byte) (int, error) {
@@ -32,27 +43,49 @@ func (w *outputWriter) Write(p []byte) (int, error) {
 			return 0, err
 		}
 		w.size += keep
-		if err := w.file.Sync(); err != nil {
+	}
+	interval := w.saveInterval
+	if interval <= 0 {
+		interval = outputSaveInterval
+	}
+	if now := time.Now(); now.Sub(w.lastSave) >= interval {
+		if err := w.persistLocked(); err != nil {
 			return 0, err
 		}
+		w.lastSave = now
 	}
+	return n, nil
+}
+
+// persistLocked rewrites the receipt's output counters. Callers hold w.mu.
+func (w *outputWriter) persistLocked() error {
 	w.owner.mu.Lock()
 	defer w.owner.mu.Unlock()
 	r, err := w.owner.read(w.id)
 	if err != nil {
-		return 0, err
+		return err
+	}
+	if r.OutputBytes == w.size && r.OutputTruncated == w.truncated {
+		return nil
 	}
 	r.OutputBytes = w.size
 	r.OutputTruncated = w.truncated
 	if err = w.owner.save(r); err != nil {
-		return 0, err
+		return err
 	}
+	// An event is a state change; notify once the receipt carries the new
+	// counters instead of waking every watcher for each pipe chunk.
 	w.owner.notify(w.id)
-	return n, nil
+	return nil
 }
+
 func (w *outputWriter) finish() (string, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if err := w.persistLocked(); err != nil {
+		_ = w.file.Close()
+		return "", err
+	}
 	if err := w.file.Sync(); err != nil {
 		_ = w.file.Close()
 		return "", err
