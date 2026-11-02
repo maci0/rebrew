@@ -57,6 +57,33 @@ class TestTypeMetadata:
             (tmp_path / "a.exe").write_bytes(b"different native")
         assert "stale" in check_types(cfg)[0]["issue"]
 
+    def test_target_binary_is_read_once_for_all_records(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.type_metadata import bind_type, check_types
+
+        cfg = _project(tmp_path)
+        (tmp_path / "types.h").write_text(
+            "typedef struct ITEM { int value; } ITEM;\n"
+            "typedef struct PAIR { int a; int b; } PAIR;\n"
+        )
+        monkeypatch.setattr("rebrew.type_metadata.compile_type", lambda *args: None)
+        bind_type(cfg, "engine.item", Path("types.h"), "ITEM", 4, 4, "allocation", "native", {})
+        bind_type(cfg, "engine.pair", Path("types.h"), "PAIR", 8, 8, "allocation", "native", {})
+
+        reads = 0
+        original = Path.read_bytes
+
+        def counting(path: Path) -> bytes:
+            nonlocal reads
+            if path == cfg.target_binary:
+                reads += 1
+            return original(path)
+
+        monkeypatch.setattr(Path, "read_bytes", counting)
+        assert check_types(cfg) == []
+        assert reads == 1
+
     @pytest.mark.parametrize(
         "field,value",
         [

@@ -159,7 +159,14 @@ def load_types(directory: Path) -> list[dict[str, Any]]:
     return validate_type_document(store.read("type metadata", validate=validate_type_document))
 
 
-def _inputs(cfg: ProjectConfig, file: Path, symbol: str, cflags: str) -> dict[str, str]:
+def _inputs(
+    cfg: ProjectConfig,
+    file: Path,
+    symbol: str,
+    cflags: str,
+    *,
+    binary_hash: str | None = None,
+) -> dict[str, str]:
     source, _ = read_source_text(file)
     if symbol not in struct_definition_names(source):
         raise ValueError(f"{symbol!r} has no unique parseable struct definition in {file}")
@@ -181,7 +188,7 @@ def _inputs(cfg: ProjectConfig, file: Path, symbol: str, cflags: str) -> dict[st
         "source_hash": hashlib.sha256(file.read_bytes()).hexdigest(),
         "headers_hash": entry_headers_fp(cfg, file, cflags),
         "context_hash": hashlib.sha256(json.dumps(context, sort_keys=True).encode()).hexdigest(),
-        "binary_hash": hashlib.sha256(cfg.target_binary.read_bytes()).hexdigest(),
+        "binary_hash": binary_hash or hashlib.sha256(cfg.target_binary.read_bytes()).hexdigest(),
     }
 
 
@@ -323,6 +330,9 @@ def check_types(cfg: ProjectConfig, *, compile_layouts: bool = False) -> list[di
     except (ValueError, OSError) as exc:
         return [{"id": "", "module": cfg.module, "issue": f"invalid type store: {exc}"}]
     known = {preset_module_key(m) for m in (getattr(cfg, "target_modules", None) or [cfg.module])}
+    # Every record measures the same target binary. Hash it on the first
+    # usable record instead of re-reading the image once per record.
+    binary_hash: str | None = None
     for record in records:
         issue = ""
         if record["module"] not in known:
@@ -333,7 +343,11 @@ def check_types(cfg: ProjectConfig, *, compile_layouts: bool = False) -> list[di
             try:
                 file = (cfg.metadata_dir / record["file"]).resolve()
                 file.relative_to(cfg.metadata_dir.resolve())
-                inputs = _inputs(cfg, file, record["symbol"], record["cflags"])
+                if binary_hash is None:
+                    binary_hash = hashlib.sha256(cfg.target_binary.read_bytes()).hexdigest()
+                inputs = _inputs(
+                    cfg, file, record["symbol"], record["cflags"], binary_hash=binary_hash
+                )
                 if any(record[key] != value for key, value in inputs.items()):
                     issue = "stale type evidence: source, headers, compiler context or native binary changed; review and rebind"
                 elif compile_layouts:
