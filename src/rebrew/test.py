@@ -9,12 +9,13 @@ persisted CFLAGS is what every other tool resolves for that function.
 A repeated single-file run reuses that target's name-to-VA map from
 `.rebrew/name_to_va_cache.json` when the sources, metadata, and target binary
 are unchanged. One changed source reuses the other files' parsed facts.
-`rebrew test --all` still recompiles every selected file.
+`rebrew test --all` rechecks every selected file without saved verdicts;
+compiler objects may still come from the compile cache.
 
 Usage:
     rebrew test <source.c> [--symbol NAME] [--va 0xHEX --size N] [--cflags ...]
     rebrew test <source.c> --no-promote   # skip STATUS update
-    rebrew test --all                     # batch: verify's engine, always recompiles
+    rebrew test --all                     # batch: verify's engine, no saved verdicts
     rebrew test --all --module GAME       # batch mode, filter by module
     rebrew test --all --dir src/game_dll/ # batch mode, restrict to subdir
 """
@@ -222,7 +223,7 @@ _EPILOG = (
     "  rebrew test --all --dir src/game/\n\n"
     "[dim]Compiles and compares function bytes with the reference. Resolves identity, SIZE, and CFLAGS from the C definition and dedicated metadata/configuration. By default, records the byte verdict in STATUS and clears auto-generated BLOCKER on EXACT/RELOC. --no-promote measures without metadata writes; files outside the project are not promoted.[/dim]\n\n"
     "[bold]Batch verification:[/bold]\n\n"
-    "  test --all always recompiles. verify reuses unchanged cached results.\n\n"
+    "  test --all rechecks every selected file without saved verdicts; verify reuses unchanged verdicts unless --no-cache.\n\n"
     "Exit codes: 0 byte match; 1 byte mismatch; 2 usage/config/build error; 130 interrupted; 141 output pipe closed.\n\n"
 )
 
@@ -366,7 +367,7 @@ def main(
         cflags: Optional compiler flags string overriding annotation/config defaults.
         toolchain: Vendored compiler profile overriding the project default.
         all_sources: Batch mode over every .c file in ``reversed_dir``
-            (verify's engine; always recompiles).
+            (verify's engine; rechecks every entry, ignoring saved verdicts).
         batch_dir: Optional subdirectory to restrict batch mode.
         origin: Optional module filter for batch mode.
         dry_run: List batch candidates without running tests.
@@ -2535,7 +2536,7 @@ def emit_test_batch(
         console.print("\n[bold]Batch testing…[/bold]\n")
     batch = run_batch(
         cfg,
-        full=True,  # test --all always recompiles (no incremental)
+        full=True,  # test --all has no incremental verification cache
         json_output=json_output,
         jobs=jobs,
         dry_run=False,

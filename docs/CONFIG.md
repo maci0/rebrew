@@ -547,17 +547,19 @@ rebrew receives.
 - `REBREW_XVFB_DISPLAY`: display (e.g. `:99`) of the virtual X server
   headless wine uses.  Set by rebrew itself on first use; override to pin
   a specific display, which must be a local `:N` (or `:N.S`) one that hosts
-  a live Xvfb this process holds the MIT-MAGICK cookie for. An
-  unauthenticated server is never reused, and a value the resolver cannot
+  a live Xvfb with a readable `-auth` file or a readable `XAUTHORITY`.
+  A server with neither is never reused, and a value the resolver cannot
   match is reported by `rebrew cfg effective`.
-  The Xvfb rebrew starts carries a fresh cookie file exported as
-  `XAUTHORITY`, which travels to the wine children with the display.
-- `REBREW_XVFB_AUTH`: path of the MIT-MAGICK cookie file the Xvfb started by
-  rebrew was launched with.  Set by rebrew alongside
-  `REBREW_XVFB_DISPLAY` so a later process can authenticate to an orphaned
-  server instead of trusting any Xvfb it finds on that display.  An
-  unreadable or missing value is ignored (the server is not reused); do not
-  set it yourself.
+  The Xvfb rebrew starts is handed an `-auth` file exported as
+  `XAUTHORITY`, which travels to the wine children with the display.  That
+  file holds a bare hex token rather than an xauth record, so it does not
+  enforce client authentication; see `docs/THREAT_MODEL.md`.
+- `REBREW_XVFB_AUTH`: path of the `-auth` file the Xvfb started by rebrew
+  was launched with.  rebrew writes it into the spawned server's own
+  environment, not its own; a later process reads it from the server's
+  `/proc/<pid>/environ` to find the same file for an orphaned server instead
+  of trusting any Xvfb it finds on that display.  An unreadable or missing
+  value is ignored (the server is not reused); do not set it yourself.
 - `REBREW_WINEPREFIX`: Wine prefix for cmake toolchain bridge scripts.
   Must be an absolute path (`~` expands); a relative value is an error.
   Default: `$XDG_CACHE_HOME/rebrew-<toolchain>-wineprefix`.

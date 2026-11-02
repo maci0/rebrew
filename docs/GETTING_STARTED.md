@@ -199,8 +199,9 @@ rebrew verify            # bulk: every function, STATUS auto-updated
 rebrew verify --compare  # CI mode: fail on regressions vs the saved baseline
 ```
 
-`verify --no-cache` recompiles every selected function. Plain `verify`
-already covers every function and recompiles only the ones whose inputs changed.
+`verify --no-cache` rechecks every selected function, ignoring saved verdicts;
+compiler objects may still be reused. Plain `verify` already covers every
+function and rechecks only the ones whose inputs changed.
 
 ## The core loop (your daily driver)
 

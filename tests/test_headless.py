@@ -159,11 +159,11 @@ class TestEnsureXvfb:
         assert os.environ["XAUTHORITY"] == str(tmp_path / "cookie")
 
     def test_ignores_unauthenticated_live_xvfb(self, tmp_path: Path, monkeypatch) -> None:
-        """A live Xvfb nobody can authenticate to is never adopted.
+        """A live Xvfb with no readable cookie file is never adopted.
 
         Its socket is world-reachable, so reusing it hands the compile to a
         server another local user can read and inject into; rebrew starts
-        its own cookie-authenticated one instead.
+        its own server instead.
         """
         from rebrew.compiler import headless
 
@@ -214,10 +214,10 @@ class TestEnsureXvfb:
         assert ensure_xvfb() is None
 
     def test_env_display_without_a_cookie_is_not_reused(self, monkeypatch) -> None:
-        """A pinned display whose live Xvfb rebrew cannot authenticate to is
+        """A pinned display whose live Xvfb has no readable cookie is
         not adopted.
 
-        The other unauthenticated test clears REBREW_XVFB_DISPLAY first, so it
+        The other no-cookie test clears REBREW_XVFB_DISPLAY first, so it
         reaches the orphan scan instead of the pinned-display branch. Liveness
         alone is not enough: dropping the ``_adopt`` call would hand every
         compile to a world-reachable server.

@@ -55,11 +55,11 @@ rebrew verify            Bulk-verify all reversed functions
 
 ## test vs verify vs match
 
-| Command | Scope | Caching | Use when |
+| Command | Scope | Verification cache | Use when |
 |---------|-------|---------|----------|
 | `rebrew test <file>` | Single function | No | Iterating on one function |
-| `rebrew test --all` | Batch (all files) | No | Verify's engine, always recompiles |
-| `rebrew verify` | Batch (incremental) | Yes | CI / bulk status check (`--compare` regression baseline; `rebrew match batch` finds matches, `rebrew verify --no-cache` recompiles the selected functions, `--no-promote` measures without writing) |
+| `rebrew test --all` | Batch (all files) | No | Verify's engine, rechecks every file |
+| `rebrew verify` | Batch (incremental) | Yes | CI / bulk status check (`--compare` regression baseline; `rebrew match batch` finds matches, `rebrew verify --no-cache` rechecks the selected functions without saved verdicts, `--no-promote` measures without writing) |
 | `rebrew match run <file>` | Single function | No | GA engine to find byte-perfect match |
 
 ## Selection flags
@@ -72,7 +72,7 @@ These flags name different axes.
 | `--target NAME` | One configured target. |
 | `--all-targets` | Every configured target. Each target keeps that command's own item selection. |
 | `--source-targets` | Every target bound to one source file. Excludes `--target` and `--all-targets`. |
-| `--no-cache` | On `verify` only: recompile the functions already selected. `verify` already covers every function. `test --all` always recompiles. |
+| `--no-cache` | On `verify` only: recheck the functions already selected, ignoring saved verdicts; compiler objects may still be reused. `verify` already covers every function. `test --all` has no verification cache. |
 
 `source rename --all-modules` renames every module's rows of one definition.
 
@@ -354,7 +354,7 @@ MSVC/Wine backend. For a project default, set `[compiler] execution_backend =
 
 ```mermaid
 graph TD
-    Start[rebrew verify] --> Collect[collect bound sources<br/>--no-cache to recompile]
+    Start[rebrew verify] --> Collect[collect bound sources<br/>--no-cache to recheck]
     Collect --> Compile[compile each .c with its CFLAGS<br/>parallel --jobs N]
     Compile --> Compare[byte-compare vs target<br/>reloc-aware · padding-tolerant]
     Compare --> Classify{result}
@@ -495,7 +495,7 @@ Output prefixes for unambiguous parsing:
 | `--jobs` / `-j` | int | — | Parallel jobs (default: project.jobs, or 4) |
 | `--summary` / `-s` | flag | `False` | Show summary table with STATUS breakdown and match percentages |
 | `--compare` | flag | `False` | Compare against the saved baseline and detect regressions |
-| `--no-cache` | flag | `False` | Recompile every selected function. The default reuses unchanged cached results. |
+| `--no-cache` | flag | `False` | Recheck every selected function, ignoring saved verdicts; compiler objects may still be reused. The default reuses unchanged verdicts. |
 | `--fix-sizes` | flag | `False` | Correct stored SIZE from the binary-derived size: stale sizes (false SIZE_MISMATCH) and missing sizes (MISSING_SIZE stubs, which rebrew test refuses) are both backfilled into metadata |
 | `--dir` | path | — | Restrict to this subdirectory of reversed_dir |
 | `--module` | str | — | Restrict to one module (e.g. GAME) |

@@ -16,13 +16,15 @@ child processes and later calls agree on the same server.  A SIGKILLed
 rebrew leaves an orphan Xvfb behind; the next run finds it via the
 ``/proc`` scan and reuses it instead of spawning another.
 
-Authentication: the server rebrew starts carries a fresh MIT-MAGICK cookie
-(``-auth``, cookie file mode 0600) exported as ``XAUTHORITY`` for the wine
-children, and an existing Xvfb is adopted only when this process holds a
-cookie that authenticates to it.  An X server without access control accepts
-any local client that can reach its world-writable ``/tmp/.X11-unix``
-socket, which would let another user on the box read the windows wine draws
-and inject events into them.
+Authentication: the server rebrew starts is handed an ``-auth`` file (mode
+0600) exported as ``XAUTHORITY`` for the wine children, and an existing Xvfb
+is adopted only when this process can read the server's recorded ``-auth``
+file or its own ``XAUTHORITY``.  The started file holds a bare hex token
+rather than an xauth record, so it does not enforce the access-control gate a
+real MIT-MAGIC-COOKIE-1 entry would (see ``docs/THREAT_MODEL.md``).  An X
+server without access control accepts any local client that can reach its
+world-writable ``/tmp/.X11-unix`` socket, which would let another user on the
+box read the windows wine draws and inject events into them.
 """
 
 from __future__ import annotations
@@ -59,12 +61,14 @@ XVFB_RUN_SERVER_ARGS = " ".join(_XVFB_SCREEN)
 #: operator-pinned value against the same string this module writes.
 XVFB_DISPLAY_ENV = _XVFB_DISPLAY_ENV
 
-#: Env var the spawned Xvfb carries, naming the MIT-MAGICK cookie file it was
-#: started with, so a later rebrew process can authenticate to an orphan
-#: server instead of trusting whatever Xvfb it finds.
+#: Env var the spawned Xvfb carries, naming the ``-auth`` file it was started
+#: with, so a later rebrew process can find the same file for an orphan server
+#: instead of trusting whatever Xvfb it discovers.
 _XVFB_AUTH_ENV = "REBREW_XVFB_AUTH"
 
-#: Bytes of MIT-MAGICK cookie per server (the xvfb-run default).
+#: Bytes of random token written to the Xvfb ``-auth`` file (the xvfb-run
+#: default).  The file is not an xauth record, so it does not enforce access
+#: control; see the module note.
 _XVFB_COOKIE_BYTES = 16
 
 #: Display range rebrew is allowed to use.  Real desktops live on :0/:1, so
@@ -126,8 +130,9 @@ def _server_cookie(pid: int) -> Path | None:
     An X server started without ``-auth`` accepts every client that can reach
     its socket, and that socket lives in the world-writable ``/tmp/.X11-unix``:
     another local user could read every window wine draws (compiler output,
-    the source under test) and inject events into it.  A server is only
-    adoptable when this process holds the cookie that authenticates to it.
+    the source under test) and inject events into it.  This probe returns only
+    a readable cookie file recorded for the server; :func:`_adopt` falls back
+    to the process's own ``XAUTHORITY`` when it returns ``None``.
     """
     raw = _proc_environ(pid).get(_XVFB_AUTH_ENV, "")
     return _readable_cookie(Path(raw)) if raw else None
@@ -137,7 +142,7 @@ def _local_cookie() -> Path | None:
     """``XAUTHORITY`` from our own environment.
 
     ``xvfb-run`` and a prior rebrew run both set it, so an operator-supplied
-    authenticated server stays reusable.
+    ``XAUTHORITY`` stays reusable.
 
     ``~`` is expanded: a quoted ``XAUTHORITY='~/.Xauthority'`` reaches the
     process as a literal, and without expansion the cookie is unreadable, so
@@ -148,7 +153,12 @@ def _local_cookie() -> Path | None:
 
 
 def _new_cookie() -> Path | None:
-    """Owner-only cookie file holding a fresh MIT-MAGICK cookie."""
+    """Owner-only file holding a fresh token for Xvfb's ``-auth``.
+
+    The token is bare hex, not an xauth record, so this file does not enforce
+    client authentication; it is still passed as ``-auth`` and exported for
+    the wine children (see ``docs/THREAT_MODEL.md``).
+    """
     try:
         fd, name = tempfile.mkstemp(prefix="rebrew-xvfb-", suffix=".cookie")
     except OSError:
@@ -170,7 +180,7 @@ def _drop_cookie(cookie: Path) -> None:
 
 
 def _adopt(display: str, pid: int) -> bool:
-    """Take over live Xvfb *display* when this process can authenticate to it.
+    """Take over live Xvfb *display* when this process can read a cookie for it.
 
     Records the display and the cookie in the environment so the wine children
     :func:`rebrew.compiler.compile.maybe_headless_wine` builds inherit ``XAUTHORITY``.
@@ -193,8 +203,8 @@ def xvfb_cookie_for(display: str) -> str:
     compile worker reads them from :func:`rebrew.compiler.compile.maybe_headless_wine`
     with no init lock held.  Reading the pair under ``_XVFB_INIT_LOCK`` is what
     keeps a worker from picking up the new display alongside the previous
-    server's cookie, which would hand wine a cookie it cannot authenticate with
-    against the display it was told to draw into.
+    server's cookie, which would hand wine a cookie recorded for another
+    display.
     """
     with _XVFB_INIT_LOCK:
         if os.environ.get(XVFB_DISPLAY_ENV) != display:
@@ -370,16 +380,16 @@ def ensure_xvfb_session() -> tuple[str, str] | None:
 def ensure_xvfb() -> str | None:
     """Return a display string for a live Xvfb, starting one if necessary.
 
-    Resolution order (a live server is adopted only when this process holds
-    the cookie that authenticates to it; an unauthenticated Xvfb found on the
-    machine is left alone and a private one is started instead):
+    Resolution order (a live server is adopted only when a readable cookie
+    file is available for it; a server with none is left alone and a private
+    one is started instead):
     1. ``REBREW_XVFB_DISPLAY`` — set by a previous call in this process (or
        inherited from a parent), if its server is still alive.
     2. The current ``DISPLAY``, when it is owned by an Xvfb process (we are
        already running headless — no point spawning another server).
     3. Any other live Xvfb found via ``/proc`` (an orphan from a prior
        rebrew run), so separate processes share one server.
-    4. Spawn our own cookie-authenticated ``Xvfb`` on a free display and
+    4. Spawn our own ``Xvfb`` with an ``-auth`` file on a free display and
        register an atexit shutdown; remember it in ``REBREW_XVFB_DISPLAY``.
 
     Returns None when no Xvfb binary is available, or when starting one
@@ -413,8 +423,8 @@ def _ensure_xvfb_locked() -> str | None:
     # socket check alone can resurrect a stale REBREW_XVFB_DISPLAY whose
     # server died (or whose socket was reused by a non-Xvfb X server),
     # sending every compile into a dead display.  Liveness is not enough to
-    # adopt it: :func:`_adopt` also requires the cookie that authenticates to
-    # the server, so an unauthenticated Xvfb is never reused.
+    # adopt it: :func:`_adopt` also requires a readable cookie file for the
+    # server, so a server with none is never reused.
     env_server = _server_display(env_display)
     if (
         env_server

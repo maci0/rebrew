@@ -228,7 +228,7 @@ See [proof scope](MATCH_TYPES.md#proven).
 ### 10. Verify STATUS is current
 
 ```bash
-rebrew verify  # recompiles all tracked functions; auto-updates any drifted STATUS
+rebrew verify  # rechecks tracked functions, reusing unchanged verdicts; auto-updates drifted STATUS
 ```
 
 `verify` promotes and corrects drifted statuses, PROVEN included (see
