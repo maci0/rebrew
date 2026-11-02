@@ -56,7 +56,7 @@ from rebrew.status_style import (
     DISPLAY_STATUSES,
     STATUS_HEX,
     status_legend_rows,
-    status_mark_groups,
+    status_text_css,
 )
 lazy from rebrew.analysis import StringEntry, Xref, iter_strings, string_refs
 lazy from rebrew.compression import precompress
@@ -120,21 +120,6 @@ _OWNED_REPORT_FILE = re.compile(
 _STATUS_CLASSES: dict[str, str] = {
     status: f"st status-{status}" for status in STATUS_HEX if status != "DISPATCH"
 }
-
-
-def _status_text_css() -> str:
-    """Status text rules from ``STATUS_HEX``. DISPATCH is a graph fill only.
-
-    One rule per mark, not per status (the six machine verdicts share the
-    error red).  UNKNOWN stays at regular weight; the match statuses are
-    semibold.
-    """
-    lines: list[str] = []
-    for statuses, color in status_mark_groups():
-        selectors = ", ".join(f".status-{name}" for name in statuses)
-        weight = "" if statuses == ("UNKNOWN",) else " font-weight: 600;"
-        lines.append(f"{selectors} {{ color: {color};{weight} }}")
-    return "\n".join(lines)
 
 
 def _status_forced_selectors() -> str:
@@ -243,7 +228,7 @@ pre.mermaid { background: var(--rb-surface); border: 1px solid var(--rb-line);
 /* Skip layout/paint for off-screen rows on large result pages. */
 tbody tr { content-visibility: auto; contain-intrinsic-size: auto 2.2rem; }
 """
-_CSS = _CSS.replace("__STATUS_TEXT_CSS__", _status_text_css()).replace(
+_CSS = _CSS.replace("__STATUS_TEXT_CSS__", status_text_css()).replace(
     "__STATUS_FORCED__", _status_forced_selectors()
 )
 _CSS = theme.inline(_CSS)

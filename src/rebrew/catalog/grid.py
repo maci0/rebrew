@@ -535,23 +535,13 @@ def build_coverage_data(
                     boundary_starts.append(reg_off)
         boundary_starts = sorted(set(boundary_starts))
 
-        # Iteratively absorb jump tables and out-of-line code into parent functions
+        # Iteratively absorb jump tables and out-of-line code into parent functions.
+        # Each round only absorbs bytes strictly between a function end and the
+        # next start, so ends never move past starts and the loop terminates
+        # once every gap is settled.
         if sec_name == ".text" and text_data is not None:
-            _MAX_ABSORB_ROUNDS = 50  # safety guard against runaway absorption
             absorbed_any = True
-            _absorb_round = 0
             while absorbed_any:
-                # Unreachable for static inputs: each round only absorbs bytes
-                # strictly between a function end and the next start, so ends
-                # never move past starts; the loop terminates in ≤2 rounds.
-                if _absorb_round >= _MAX_ABSORB_ROUNDS:  # pragma: no cover
-                    log.warning(
-                        "Absorption loop hit %d iterations for section %s — breaking",
-                        _MAX_ABSORB_ROUNDS,
-                        sec_name,
-                    )
-                    break
-                _absorb_round += 1
                 absorbed_any = False
                 # Rebuild func_end_to_name and reverse lookup after each round
                 func_end_to_name.clear()

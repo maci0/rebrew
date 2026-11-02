@@ -318,11 +318,8 @@ def _scalar_type(param: Any) -> str:
     return "string"
 
 
-class _Omit:
-    pass
-
-
-_OMIT = _Omit()
+#: Identity sentinel telling :func:`_json_default`'s callers to omit a field.
+_OMIT = object()
 
 
 def _json_default(value: Any) -> Any:

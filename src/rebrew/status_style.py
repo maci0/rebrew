@@ -136,6 +136,24 @@ def status_mark_groups() -> list[tuple[tuple[str, ...], str]]:
     return [(tuple(v), k) for k, v in groups.items()]
 
 
+def status_text_css(indent: str = "") -> str:
+    """CSS rules colouring every status mark, grouped by mark.
+
+    One rule per mark, not per status, so the six machine verdicts on the
+    error red cost one rule instead of six.  UNKNOWN stays at regular weight;
+    every other mark is semibold.  The report and dashboard stylesheets share
+    this generator and differ only in their indentation.  Each emits the
+    result after its equally specific ``.label`` rule, so one rule colours
+    summary cards and table cells alike.
+    """
+    lines: list[str] = []
+    for statuses, color in status_mark_groups():
+        selectors = ", ".join(f".status-{name}" for name in statuses)
+        weight = "" if statuses == ("UNKNOWN",) else " font-weight: 600;"
+        lines.append(f"{indent}{selectors} {{ color: {color};{weight} }}")
+    return "\n".join(lines)
+
+
 __all__ = [
     "DISPLAY_STATUSES",
     "STATUS_COLORS",
@@ -144,4 +162,5 @@ __all__ = [
     "STATUS_SUMMARIES",
     "status_legend_rows",
     "status_mark_groups",
+    "status_text_css",
 ]

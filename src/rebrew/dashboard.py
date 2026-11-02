@@ -93,7 +93,7 @@ lazy from rebrew.coverage_toml import (
 )
 lazy from rebrew.metadata.bindings import FUNCTION_KINDS
 lazy from rebrew.metadata.functions import canonical_status
-lazy from rebrew.status_style import status_mark_groups
+lazy from rebrew.status_style import status_text_css
 lazy from rebrew.utils import floor_pct, preset_module_key, strip_bidi_format
 lazy from rebrew.workspace import VA_MAX
 lazy from rebrew.workspace.status import COVERAGE_DB_STATUSES
@@ -1607,19 +1607,12 @@ _FAVICON_URL = f"{_FAVICON_PATH}?v={_FAVICON_VERSION}"
 
 
 def _dashboard_status_css() -> str:
-    """Status text rules from ``STATUS_HEX``. DISPATCH is a graph fill only.
+    """Status text rules indented for the dashboard shell.
 
-    One rule per mark, not per status: the shell ships inside a fixed
-    cold-load byte budget, and the six machine verdicts share the error red.
+    The shell ships inside a fixed cold-load byte budget, so the shared
+    generator keeps the six machine verdicts on one error-red rule.
     """
-    lines: list[str] = []
-    for statuses, color in status_mark_groups():
-        weight = "" if statuses == ("UNKNOWN",) else " font-weight: 600;"
-        # .label is equally specific and comes first, so this rule colors
-        # the summary cards and the table cells alike.
-        selectors = ", ".join(f".status-{name}" for name in statuses)
-        lines.append(f"  {selectors} {{ color: {color};{weight} }}")
-    return "\n".join(lines)
+    return status_text_css("  ")
 
 
 def _dashboard_status_forced() -> str:
