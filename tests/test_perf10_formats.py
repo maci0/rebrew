@@ -6,6 +6,8 @@ import random
 import struct
 from pathlib import Path
 
+import pytest
+
 from rebrew.formats.archives import parse_archive
 from rebrew.formats.omf16 import Omf16Module, parse_obj_omf16, parse_omf16
 from tools import bench_perf10_formats as bench
@@ -130,3 +132,71 @@ class TestOmf16Threads:
         with ThreadPoolExecutor(max_workers=8) as pool:
             got = list(pool.map(lambda n: parse_obj_omf16(obj, n), names))
         assert got == [expected[n] for n in names]
+
+
+class TestOmf16ObjectMemo:
+    def test_repeated_lookups_decode_the_object_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.formats import omf16 as omf16_mod
+
+        rng = random.Random(bench._SEED)
+        funcs = [bench._function(rng) for _ in range(40)]
+        data, expected = bench._build_optimized(funcs)
+        obj = tmp_path / "o.obj"
+        obj.write_bytes(data)
+        calls = 0
+        real = omf16_mod.parse_omf16
+
+        def counting(raw: bytes) -> Omf16Module:
+            nonlocal calls
+            calls += 1
+            return real(raw)
+
+        monkeypatch.setattr(omf16_mod, "parse_omf16", counting)
+        for name, want in expected.items():
+            assert parse_obj_omf16(obj, name) == want
+        assert calls == 1
+
+    def test_rewritten_object_never_serves_stale_code(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.formats import omf16 as omf16_mod
+
+        rng = random.Random(bench._SEED)
+        first, first_expected = bench._build_optimized([bench._function(rng)])
+        second, second_expected = bench._build_optimized([bench._function(rng)])
+        obj = tmp_path / "o.obj"
+        name = next(iter(first_expected))
+        obj.write_bytes(first)
+        assert parse_obj_omf16(obj, name) == first_expected[name]
+        obj.write_bytes(second)
+        # Same memo key, different bytes: the module must be decoded again.
+        calls = 0
+        real = omf16_mod.parse_omf16
+
+        def counting(raw: bytes) -> Omf16Module:
+            nonlocal calls
+            calls += 1
+            return real(raw)
+
+        monkeypatch.setattr(omf16_mod, "parse_omf16", counting)
+        assert parse_obj_omf16(obj, name) == second_expected[name]
+        assert calls == 1
+
+    def test_caller_bytes_skip_the_read(self, tmp_path: Path) -> None:
+        rng = random.Random(bench._SEED)
+        data, expected = bench._build_optimized([bench._function(rng)])
+        missing = tmp_path / "absent.obj"
+        name = next(iter(expected))
+        assert parse_obj_omf16(missing, name, data=data) == expected[name]
+
+    def test_each_lookup_gets_its_own_reloc_table(self, tmp_path: Path) -> None:
+        rng = random.Random(bench._SEED)
+        data, expected = bench._build_optimized([bench._function(rng)])
+        obj = tmp_path / "o.obj"
+        obj.write_bytes(data)
+        name = next(iter(expected))
+        _code, relocs = parse_obj_omf16(obj, name)
+        relocs.clear()
+        assert parse_obj_omf16(obj, name)[1] == expected[name][1]

@@ -108,13 +108,16 @@ def parse_obj_symbol_and_relocs(
     # is needed to decide, so read 4 bytes here; LIEF re-reads the file
     # itself, and a full read_bytes() per parse doubled the object I/O on
     # every call (``_test_multi`` parses once per function of the file).
+    # The OMF branch needs the whole object anyway, and finishes that read on
+    # the handle already open rather than reopening the path.
     try:
         with open(obj_path, "rb") as handle:
             magic = handle.read(4)
+            fmt = _detect_obj_format_data(magic)
+            data = magic + handle.read() if fmt == "omf" else None
     except OSError as exc:
         log.debug("cannot read object %s: %s", obj_path, exc)
         return None, None, []
-    fmt = _detect_obj_format_data(magic)
     if fmt == "elf":
         import lief
 
@@ -129,9 +132,9 @@ def parse_obj_symbol_and_relocs(
     if fmt == "omf":
         from rebrew.formats.omf16 import is_omf16, parse_obj_omf16
 
-        data = Path(obj_path).read_bytes()
+        assert data is not None
         if is_omf16(data):
-            code, reloc_dict = parse_obj_omf16(obj_path, symbol)
+            code, reloc_dict = parse_obj_omf16(obj_path, symbol, data=data)
             if code is not None:
                 return code, reloc_dict, []
             # 16-bit MSVC dialect the minimal parser cannot decode (the

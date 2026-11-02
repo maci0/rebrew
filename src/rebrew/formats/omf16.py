@@ -266,13 +266,52 @@ def _match_symbol(mod: Omf16Module, symbol: str) -> tuple[bytes | None, dict[int
     return None, {}
 
 
-def parse_obj_omf16(obj_path: str | Path, symbol: str) -> tuple[bytes | None, dict[int, str]]:
+#: Parsed objects kept for repeated symbol lookups, keyed by path.  A compile
+#: writes one object per translation unit and comparison asks for every
+#: function in it, so without this each function re-walks the whole object.
+#: Entries are validated by comparing the bytes read now with the bytes that
+#: produced the cached module, so a rewritten object never serves stale code.
+_OBJECT_MEMO_MAX = 8
+_OBJECT_MEMO: dict[str, tuple[bytes, Omf16Module]] = {}
+_OBJECT_MEMO_LOCK = threading.Lock()
+
+
+def _parse_object_memoized(path: Path, data: bytes) -> Omf16Module:
+    """Decode *data* once per unchanged object; evict the oldest path past the cap."""
+    key = str(path)
+    with _OBJECT_MEMO_LOCK:
+        hit = _OBJECT_MEMO.get(key)
+        if hit is not None and hit[0] == data:
+            return hit[1]
+    mod = parse_omf16(data)
+    with _OBJECT_MEMO_LOCK:
+        _OBJECT_MEMO.pop(key, None)
+        _OBJECT_MEMO[key] = (data, mod)
+        while len(_OBJECT_MEMO) > _OBJECT_MEMO_MAX:
+            _OBJECT_MEMO.pop(next(iter(_OBJECT_MEMO)))
+    return mod
+
+
+def parse_obj_omf16(
+    obj_path: str | Path,
+    symbol: str,
+    *,
+    data: bytes | None = None,
+) -> tuple[bytes | None, dict[int, str]]:
     """Extract ``(code_bytes, reloc_offsets)`` for *symbol* from a 16-bit OMF.
 
     The symbol is matched across compiler conventions (``_name``/``name_``/
-    ``name``); reloc slots are the ``e8``/``e9`` displacement positions."""
-    data = Path(obj_path).read_bytes()
-    mod = parse_omf16(data)
+    ``name``); reloc slots are the ``e8``/``e9`` displacement positions.
+
+    *data* is the object's bytes when the caller already read them (the
+    matcher reads the magic prefix to dispatch formats); passing it avoids a
+    second read.  Either way the decoded module is reused while the bytes are
+    unchanged, and both return values are freshly built per call.
+    """
+    path = Path(obj_path)
+    if data is None:
+        data = path.read_bytes()
+    mod = _parse_object_memoized(path, data)
     return _match_symbol(mod, symbol)
 
 
