@@ -19,6 +19,58 @@ lazy from rebrew.c_parser import (
 _ADDRESS_RE = re.compile(r"ADDRESS:\s+(\S+)\s+(0x[0-9a-fA-F]+)\s*\Z")
 _COMMENT_MASK = bytes(byte if byte in (10, 13) else 32 for byte in range(256))
 
+#: Metadata tags that may not appear as ``KEY: value`` comments.  Module scope
+#: keeps the ~40-entry set out of every per-file call; ``metadata_comments``
+#: runs once per source in anchor discovery.
+_RESERVED_METADATA_KEYS = frozenset(
+    {
+        "ORIGIN",
+        "NAME",
+        "TYPE",
+        "KIND",
+        "FILE",
+        "MODULE",
+        "VA",
+        "STORAGE_KIND",
+        "BACKING",
+        "LINK_SYMBOL",
+        "FUNCTION",
+        "STUB",
+        "LIBRARY",
+        "GLOBAL",
+        "DATA",
+        "VTABLE",
+        "STRING",
+        "SUPPORT",
+        "STATUS",
+        "STATUS_HISTORY",
+        "BINDING_HISTORY",
+        "SIZE",
+        "CFLAGS",
+        "TOOLCHAIN",
+        "BLOCKER",
+        "BLOCKER_DELTA",
+        "SOURCE",
+        "NOTE",
+        "GHIDRA",
+        "ANALYSIS",
+        "SKIP",
+        "GLOBALS",
+        "LOCALS",
+        "COMMENTS",
+        "PROVE_CONSTRAINTS",
+        "ORIGINS",
+        "VERIFICATION",
+        "UPDATED_BY",
+        "UPDATED_AT",
+        "STRUCT",
+        "CALLERS",
+        "SECTION",
+        "SYMBOL",
+        "PROTOTYPE",
+    }
+)
+
 
 @dataclass(frozen=True)
 class AddressAnchor:
@@ -163,66 +215,22 @@ def metadata_comments(source: str) -> list[tuple[int, str]]:
     """Find forbidden metadata tags in actual comments, without reading values."""
     if ":" not in source:
         return []
-    reserved = {
-        "ORIGIN",
-        "NAME",
-        "TYPE",
-        "KIND",
-        "FILE",
-        "MODULE",
-        "VA",
-        "STORAGE_KIND",
-        "BACKING",
-        "LINK_SYMBOL",
-        "FUNCTION",
-        "STUB",
-        "LIBRARY",
-        "GLOBAL",
-        "DATA",
-        "VTABLE",
-        "STRING",
-        "SUPPORT",
-        "STATUS",
-        "STATUS_HISTORY",
-        "BINDING_HISTORY",
-        "SIZE",
-        "CFLAGS",
-        "TOOLCHAIN",
-        "BLOCKER",
-        "BLOCKER_DELTA",
-        "SOURCE",
-        "NOTE",
-        "GHIDRA",
-        "ANALYSIS",
-        "SKIP",
-        "GLOBALS",
-        "LOCALS",
-        "COMMENTS",
-        "PROVE_CONSTRAINTS",
-        "ORIGINS",
-        "VERIFICATION",
-        "UPDATED_BY",
-        "UPDATED_AT",
-        "STRUCT",
-        "CALLERS",
-        "SECTION",
-        "SYMBOL",
-        "PROTOTYPE",
-    }
     tree, src = parse_c_source(source)
     found: list[tuple[int, str]] = []
     for node in comment_nodes(tree):
         parent = node.parent
-        while parent is not None and parent.type not in {
+        # A tuple constant, not a set literal: this predicate runs once per
+        # ancestor of every comment, and a fresh set per step is pure overhead.
+        while parent is not None and parent.type not in (
             "function_definition",
             "compound_statement",
-        }:
+        ):
             parent = parent.parent
         if parent is not None:
             continue
         text = src[node.start_byte : node.end_byte].decode("utf-8")
         body = text[2:-2].strip() if text.startswith("/*") else text[2:].strip()
         key, separator, _value = body.partition(":")
-        if separator and key in reserved:
+        if separator and key in _RESERVED_METADATA_KEYS:
             found.append((node.start_point[0] + 1, key))
     return found
