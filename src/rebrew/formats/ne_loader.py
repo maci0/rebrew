@@ -4,7 +4,10 @@ Borland Delphi 1.0 / Turbo Pascal Windows applications ship as NE
 executables (MZ stub + "NE" header) — e.g. ``holiday.exe``.  rebrew's
 flat-VA model (PE/ELF/Mach-O) does not apply directly: NE uses segmented
 addressing, so this module maps each segment to a synthetic flat VA of
-``(segment_index << 16) | offset`` (segment 1 → 0x10000..0x1FFFF, …).
+``((segment_index - 1) << 16) | offset`` (segment 1 → 0x00000..0x0FFFF, …).
+The VAs are the project's zero-based inventory space, where rows below
+0x10000 must stay addressable; NE's own segment numbers remain one-based
+and are what section names ``SEGn`` carry.
 
 Parses the NE header, segment table, resident name table (named exports),
 module reference table + imported names table (Win16 imports).  Exposes
@@ -75,14 +78,26 @@ class NeSegment:
 
     @property
     def base_va(self) -> int:
-        """Synthetic flat VA for segment:offset addressing (segment 1 → 0x10000)."""
-        return self.index << 16
+        """Synthetic flat VA for segment:offset addressing (segment 1 → 0x00000).
+
+        ``index`` is NE's one-based segment number; the VA space is the
+        project's zero-based inventory space, so the first segment starts
+        at 0 and inventory rows below 0x10000 exist.
+        """
+        return (self.index - 1) << 16
 
 
 #: x86-16 opcodes that mark a likely code start in a Borland segment.
 #: Delphi 1.0 prologs are ``enter`` (0xC8) or ``push bp`` (0x55); the
 #: startup segment begins with a chain of far calls (0x9A).
 _CODE_ANCHORS = frozenset({0x55, 0xC8, 0x9A, 0xE8, 0xEB, 0xE9})
+
+#: Deep-pass bounds, used only after the near-window pass has missed:
+#: how many anchor candidates to try and how far one candidate must decode.
+#: Every candidate costs at most PROBE_DECODE_INSTRUCTIONS instructions, so
+#: a whole-segment search stays cheap on load.
+PROBE_MAX_CANDIDATES = 512
+PROBE_DECODE_INSTRUCTIONS = 24
 
 #: Bytes of x86-16 a single code segment may feed to the disassembler during
 #: the linear sweep.  Each prolog candidate is decoded from its own offset to
@@ -113,7 +128,9 @@ def probe_is_code(data: bytes, file_offset: int, length: int, index: int = 0) ->
     the raw segment start.  This finds the first *code anchor* (ENTER / PUSH
     BP / call / jmp) after any name string and verifies it with a clean
     capstone x86-16 decode: code when ≥ 8 instructions decode with control
-    flow before hitting invalid bytes.
+    flow before hitting invalid bytes. When that near window misses, a
+    bounded deep pass walks the whole segment for anchor bytes and accepts a
+    candidate that decodes into a function with a ret or retf in it.
     """
     import capstone
 
@@ -129,25 +146,58 @@ def probe_is_code(data: bytes, file_offset: int, length: int, index: int = 0) ->
 
     # Skip a leading name string (length-prefixed printable ASCII).
     pos = 0
-    while _looks_like_name_string(window, pos):
+    while pos < len(window) and _looks_like_name_string(window, pos):
         pos += 1 + window[pos]
-        if pos + 1 >= len(window):
-            return False
-
-    # Find the first code anchor within the remaining window.
-    anchor = None
-    for i in range(pos, min(pos + 128, len(window))):
-        if window[i] in _CODE_ANCHORS:
-            anchor = i
-            break
-    if anchor is None:
-        return False
 
     md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_16)
-    decoded = list(md.disasm(window[anchor:], 0))
-    if len(decoded) < 5:
-        return False
-    return any(i.mnemonic in ("call", "jmp", "ret", "retf", "loop", "jcxz", "int") for i in decoded)
+
+    # Near pass: the first code anchor within 128 bytes after the name, the
+    # rule every existing verdict rests on. A miss here falls through to the
+    # deep pass instead of deciding the segment is data.
+    for i in range(pos, min(pos + 128, len(window))):
+        if window[i] in _CODE_ANCHORS:
+            decoded = list(md.disasm(window[i:], 0))
+            if len(decoded) >= 5 and any(
+                j.mnemonic in ("call", "jmp", "ret", "retf", "loop", "jcxz", "int") for j in decoded
+            ):
+                return True
+            break
+
+    # Near pass missed: walk the rest of the segment for a function
+    # *prologue*, not for any anchor. Code that starts after a literal pool
+    # or a relocation header never shows a prologue in the first 128 bytes
+    # (offset 0x0997 in one real segment, past 0x1700 in another), and a bare
+    # anchor byte is far too common in data for a whole-segment search: a
+    # candidate has to open with `enter` or with `push bp; mov bp, sp`, decode
+    # for at most PROBE_DECODE_INSTRUCTIONS instructions, and reach a
+    # `ret`/`retf`.
+    segment = data[content : content + max(length - (content - file_offset), 0)]
+    tried = 0
+    for offset, byte in enumerate(segment):
+        if offset < pos:
+            continue
+        if byte == 0x55:
+            if segment[offset : offset + 3] != b"\x55\x8b\xec":
+                continue  # push bp alone is no prologue
+        elif byte == 0xC8:
+            pass  # enter: confirmed by the decode below
+        else:
+            continue
+        if tried >= PROBE_MAX_CANDIDATES:
+            break
+        tried += 1
+        instructions = list(md.disasm(segment[offset:], 0))[:PROBE_DECODE_INSTRUCTIONS]
+        if len(instructions) < 8:
+            continue
+        if byte == 0xC8 and instructions[0].mnemonic != "enter":
+            continue
+        if byte == 0x55 and instructions[1].mnemonic != "mov":
+            continue
+        if byte == 0x55 and instructions[1].op_str != "bp, sp":
+            continue
+        if any(i.mnemonic in ("ret", "retf") for i in instructions):
+            return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -159,7 +209,7 @@ def probe_is_code(data: bytes, file_offset: int, length: int, index: int = 0) ->
 class NeFunction:
     """A function discovered by :func:`enumerate_ne_functions`."""
 
-    va: int  # synthetic flat VA (segment << 16 | offset)
+    va: int  # synthetic flat VA ((segment - 1) << 16 | offset)
     segment: int  # 1-based segment index
     offset: int  # offset within the segment
     size: int
@@ -234,7 +284,7 @@ def enumerate_ne_functions(info: BinaryInfo) -> list[NeFunction]:
     segments (code from offset 0, with the segment entry forced as a
     function start).  Functions whose body fails to decode or whose size is
     implausible (< 3 bytes) are dropped.  Returns a list sorted by VA with
-    synthetic flat VAs (``segment << 16 | offset``).
+    synthetic flat VAs (``((segment - 1) << 16) | offset``).
     """
     import capstone
 
@@ -593,8 +643,8 @@ def load_ne_binary(path: Path) -> BinaryInfo:
     """Parse a 16-bit NE executable into a rebrew ``BinaryInfo``.
 
     Segments become sections named ``SEG1``..``SEGn`` with synthetic flat VAs
-    of ``(index << 16)`` so segment:offset addressing maps onto rebrew's
-    flat-VA tools (asm, strings, analyze).  Iterated-data segments (flag
+    of ``((index - 1) << 16)`` so segment:offset addressing maps onto rebrew's
+    flat-VA tools (asm, strings, analyze) in the zero-based inventory space.  Iterated-data segments (flag
     SEG_ITERATED) have no on-disk raw form; their raw_size is reported as 0.
     """
     path = Path(path)
@@ -619,6 +669,12 @@ def load_ne_binary(path: Path) -> BinaryInfo:
             size=max(seg.length, seg.min_allocation),
             file_offset=seg.file_offset,
             raw_size=raw_size,
+            # The probe above is the only code verdict NE has, and it has to
+            # reach the model: `is_code_section` resolves a None flag by name,
+            # `SEG<n>` matches no code name, and every NE section then reads as
+            # data, which is what made `catalog.inventory.complete_span` refuse
+            # every repair-extents request.
+            is_code=seg.is_code,
         )
         if seg.is_code:
             # Aggregate code segments so tools (catalog coverage, report)

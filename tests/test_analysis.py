@@ -142,13 +142,15 @@ class TestScanReferences:
         info = load_binary(p)
         refs = scan_references(info)
         by_from = {r.from_va: r for r in refs}
-        # Code starts at 0x10002 (after the 2-byte Borland marker):
-        # push bp(0x10002); mov bp,sp(0x10003); call 0x10008(0x10005)
-        assert by_from[0x10005].kind == "call"
-        assert by_from[0x10005].to_va == 0x10008
-        # les di, [0x1234] at 0x10008 → autodata seg 2 << 16 | 0x1234
-        assert by_from[0x10008].kind == "les_mem"
-        assert by_from[0x10008].to_va == (2 << 16) | 0x1234
+        # Code starts at 0x00002 (after the 2-byte Borland marker); the
+        # zero-based VA space puts segment 1 at 0x00000:
+        # push bp(0x00002); mov bp,sp(0x00003); call 0x00008(0x00005)
+        assert by_from[0x00005].kind == "call"
+        assert by_from[0x00005].to_va == 0x00008
+        # les di, [0x1234] at 0x00008 → autodata segment 2, whose zero-based
+        # base is (2 - 1) << 16
+        assert by_from[0x00008].kind == "les_mem"
+        assert by_from[0x00008].to_va == info.ne_segments[1].base_va | 0x1234
 
     def test_target_filter(self, tmp_path: Path) -> None:
         path, syms = make_xref_probe(tmp_path)

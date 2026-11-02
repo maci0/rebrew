@@ -709,9 +709,7 @@ class TestWaitForSocket:
         assert sleeps
         assert clock["t"] >= 0.3
 
-    def test_own_socket_is_accepted(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_own_socket_is_accepted(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.compiler import headless
 
         monkeypatch.setattr(headless, "_XVFB_SOCKET_DIR", tmp_path)

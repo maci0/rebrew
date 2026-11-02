@@ -574,9 +574,7 @@ def _memo_store(memo_key: _SourceMemoKey, value: _SourceMemoValue) -> None:
     cost = _memo_cost(value)
     while len(_SOURCE_TEXT_MEMO) >= _SOURCE_TEXT_MEMO_MAX and _SOURCE_TEXT_MEMO:
         _memo_evict_oldest()
-    while (
-        _SOURCE_TEXT_MEMO_BYTES + cost > _SOURCE_TEXT_MEMO_MAX_BYTES and _SOURCE_TEXT_MEMO
-    ):
+    while _SOURCE_TEXT_MEMO_BYTES + cost > _SOURCE_TEXT_MEMO_MAX_BYTES and _SOURCE_TEXT_MEMO:
         _memo_evict_oldest()
     _SOURCE_TEXT_MEMO[memo_key] = value
     _SOURCE_TEXT_MEMO_BYTES += cost

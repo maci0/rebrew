@@ -1109,9 +1109,7 @@ def collect_status(
         text_lo = text_section.va
         text_hi = text_section.va + text_section.size
         known_starts = sorted(set(starts) | {min(va, text_hi) for va in derived_starts} | {text_hi})
-        claimed = _merge_claimed(
-            [(span_va, span_va + size) for span_va, size in spans if size > 0]
-        )
+        claimed = _merge_claimed([(span_va, span_va + size) for span_va, size in spans if size > 0])
 
         derived = 0
         for va in sorted(set(derived_starts)):

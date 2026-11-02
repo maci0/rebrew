@@ -177,9 +177,7 @@ def contract_contexts(
         }
         if not flags:
             flags = {
-                resolve_compile_overrides_cached(
-                    cfg, source.parent, None, None, module_name
-                )[1]
+                resolve_compile_overrides_cached(cfg, source.parent, None, None, module_name)[1]
             }
         headers: set[Path] = set()
         for cflags in flags:

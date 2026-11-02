@@ -3,9 +3,18 @@
 ### Changed
 
 - **Breaking:** Remove `binsync.state.iter_comment_metadata`, `data_annotate.set_data_kinds`, `data_annotate.set_data_notes`, `data_annotate.set_data_relation`, `document_unmatched.classify_all`, `intake.classify_all`, `formats.ne_analysis.best_match`, `formats.ne_analysis.run_sets`, `formats.ne_analysis.unit_census`, `identify_library.prepare_library_header` and `metadata.bindings.set_function_extent`; nothing in the package called them, and they have no replacement.
+- **Breaking:** Remove the unused `cmake_flags.resolve_compile_overrides`, `source_contracts.resolve_compile_overrides`, and `source_organization.resolve_compile_overrides` re-exports; import `compiler.overrides.resolve_compile_overrides` directly. Import the removed `match_sweep.fold_ident` re-export from `utils.fold_ident`.
+- **Breaking:** Remove `compiler.compile.ensure_xvfb` and `compiler.compile.xvfb_cookie_for` re-exports; use their owning `compiler.headless` module, or `compiler.headless.ensure_xvfb_session` to read the display and cookie together under one lock.
+- **Breaking:** Remove the unused `compiler.toolchain_spec.ToolchainSource.vc98_wrap` field and the always-constant `splat_config.SourceBinding.overridable` field; callers must stop passing these constructor arguments.
+- **Breaking:** Remove unused theme aliases from `status_colors.RICH_STYLES` and its `cli.RICH_STYLES` re-export; use the remaining canonical color/style names.
 
 ### Fixed
 
+- `load_ne_binary` passes the code probe's verdict into `SectionInfo`, so NE
+  sections named `SEG<n>` read as code through `is_code_section` instead of
+  falling back to a name no NE section carries. Without it every NE section
+  read as data and `catalog.inventory.complete_span` refused every
+  repair-extents request with "not a complete file-backed executable span".
 - Extend change-time identity to the header fingerprint, watch loop, name-map, extern-name, role-fact, canonical-size and collect-pairs memos, so an in-place rewrite that restores the old mtime invalidates them.
 - Include a file's change time in the remaining per-file cache identities (native compiler, linked-image digest, objdump output, solution source digest, fenced-source note, library headers, and the verify-cache sidecar), so an in-place rewrite that restores the old mtime cannot serve cached results for bytes the file no longer has.
 - Include a file's change time in target-binary and import-table cache identities, so an in-place rebuild that restores the old mtime cannot serve analysis or verification results for bytes the image no longer has.
