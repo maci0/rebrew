@@ -139,7 +139,7 @@ class TestCompileCache:
         One CompileCache is shared by every GA and sweep worker for the length
         of a run, and the LRU eviction in get_compile_cache closes the oldest
         backend once _CACHES_MAX project roots are open. With one root per
-        target (``match --all-targets``) that eviction lands inside another
+        target (``match batch --all-targets``) that eviction lands inside another
         target's lookup. Without the store lock the worker reads a closed
         connection, and a failed lookup degrades to a miss by design, so the
         hit is silently lost.

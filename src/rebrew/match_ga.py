@@ -48,14 +48,14 @@ lazy from rebrew.cli import console
 log = logging.getLogger(__name__)
 
 #: Serializes in-process appends to ``--collect-pairs`` JSONL.  Parallel
-#: ``match --all -j N`` stubs share one pairs file; each record embeds the
+#: ``match batch -j N`` stubs share one pairs file; each record embeds the
 #: full source plus hex obj bytes and routinely exceeds PIPE_BUF, so bare
 #: O_APPEND can interleave lines into corrupt JSON.  Concurrent processes
 #: are serialized by a ``flock`` on a ``.lock`` sidecar (see ``_write_pair``).
 _COLLECT_PAIRS_LOCK = threading.Lock()
 
-#: Parsed ``--collect-pairs`` fingerprints per path, so a ``match --all``
-#: batch pays the corpus parse once per process instead of once per stub.
+#: Parsed ``--collect-pairs`` fingerprints per path, so a ``match batch``
+#: run pays the corpus parse once per process instead of once per stub.
 #: One entry per path: a collect run appends continuously, so keeping every
 #: stat generation of the same corpus would grow with the stub count.
 #: Bounded across paths — each entry holds every fingerprint of a corpus that

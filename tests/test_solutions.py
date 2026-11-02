@@ -545,7 +545,7 @@ class TestGaRunHistory:
 
     def test_replaying_a_run_does_not_grow_the_log(self, project_root: Path) -> None:
         # One seed replays a run, so re-running it records the same outcome.
-        # --skip-recent and --ga-history count records: a replay must not
+        # --skip-recent and `match history` count records: a replay must not
         # look like a second run.
         for _ in range(3):
             record_ga_run(
@@ -576,7 +576,7 @@ class TestGaRunHistory:
         # The repeat is not the last line: a batch appends one record per
         # stub, so a replayed batch repeats its first record against the
         # previous batch's last.  Comparing only the tail line doubled the
-        # whole log on every re-run of `match --all`.
+        # whole log on every re-run of `match batch`.
         record_ga_run(project_root, target="SERVER", va=0x1000, symbol="_a", matched=True)
         record_ga_run(project_root, target="SERVER", va=0x2000, symbol="_b", matched=False)
         record_ga_run(project_root, target="SERVER", va=0x1000, symbol="_a", matched=True)

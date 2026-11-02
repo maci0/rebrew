@@ -1576,7 +1576,7 @@ class TestActiveFunctionsEdges:
     def test_fix_delta_uses_flag_sweep_cmd(self) -> None:
         from rebrew.todo import _collect_active_functions
 
-        # delta 12 (>4, <=20) → --flag-sweep-only command.
+        # delta 12 (>4, <=20) → `match flags` command.
         existing = {
             0x1000: {
                 "status": "NEAR_MATCHING",
@@ -2574,7 +2574,7 @@ class TestPlaceholderLaneVerifyState:
     state is routed: the dedicated lanes below already handle it."""
 
     def test_structural_placeholder_is_not_a_fix_delta_quick_win(self) -> None:
-        """The placeholder lane used to set CAT_FIX_DELTA + --flag-sweep-only
+        """The placeholder lane used to set CAT_FIX_DELTA + `match flags`
         even for a STRUCTURAL blocker, which that branch exists to prevent."""
         from types import SimpleNamespace
 

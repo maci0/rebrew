@@ -473,7 +473,7 @@ class TestDataMetadataCache:
 
 class TestMetadataFieldsAndScalarEntries:
     def test_type_is_a_known_field(self) -> None:
-        """`type` is written by `data --set-type` and binsync import/overlay,
+        """`type` is written by `data set --type` and binsync import/overlay,
         and listed in _CANONICAL_ORDER; the field set must include it."""
         from rebrew.metadata.data import DATA_METADATA_FIELDS
 

@@ -75,7 +75,7 @@ def has_skip_annotation(
 
     Checks ``rebrew-functions.toml`` metadata for a truthy ``skip`` field **or**
     ``status = "SKIP"`` on THIS file's own (module, va) entries only — a skip
-    anywhere else in the project must not empty ``match --all``'s stub
+    anywhere else in the project must not empty ``match batch``'s stub
     collection.  Both parking signals mean the same thing; matching only the
     ``skip`` field left ``status=SKIP`` entries in the GA/match batch.
     Returns ``False`` immediately when *metadata_dir* is ``None``.

@@ -615,7 +615,7 @@ def _run_one_stub_ga(
         if matched and best_src is not None:
             # Validate this stub's own champion, not the shared ``best.c``:
             # every stub of one .c file shares *out_dir*, so under
-            # ``match --all -j N`` a sibling GA may have overwritten
+            # ``match batch -j N`` a sibling GA may have overwritten
             # ``best.c`` with its champion (this stub's body still unmatched).
             best_c = out_dir / f"{filename_component(stub.symbol)}.best.c"
             atomic_write_text(best_c, best_src, encoding="utf-8", errors="surrogateescape")
@@ -678,7 +678,7 @@ def _run_one_stub_ga(
             if confirmed and best_c.exists():
                 try:
                     # Hold the metadata lock across splice + STATUS + CFLAGS so
-                    # two stubs in the same .c (parallel ``match --all -j``)
+                    # two stubs in the same .c (parallel ``match batch -j``)
                     # cannot interleave read-modify-writes of the source file.
                     # Do NOT nest the verify-cache lock here: that lock is also
                     # taken by concurrent verify/test patches, and metadata→

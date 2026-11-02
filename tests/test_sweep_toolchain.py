@@ -144,7 +144,7 @@ def test_toolchain_sweep_orders_best_first(monkeypatch, capsys) -> None:
 
 
 def test_toolchain_flag_sweep_reports_per_toolchain(monkeypatch, capsys) -> None:
-    """--flag-sweep-toolchains --flag-sweep-only combines both dimensions: each
+    """`match toolchains --flags` combines both dimensions: each
     toolchain gets its own flag sweep and the best flags are reported."""
     import json
 

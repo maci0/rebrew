@@ -21,7 +21,7 @@ class _LazyQuery:
     This GA-only module defines ~98 queries; compiling them at import cost
     ~50ms of EVERY CLI invocation (status/todo/cfg/--help never use them).
 
-    Module-level instances are shared across ``match --all -j N`` stub
+    Module-level instances are shared across ``match batch -j N`` stub
     workers; first-use compilation is guarded so two threads cannot both
     observe ``_query is None`` and race the assignment (tree-sitter's
     ``Query`` constructor can release the GIL).

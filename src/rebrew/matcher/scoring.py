@@ -404,7 +404,7 @@ _OPCODE_MASK = 0xF8
 #: The bound is on retained BYTES, not entries: each entry holds the function
 #: body as its key plus a four-int tuple per instruction, so a cap of N
 #: entries made the real limit the heap — 64 plan entries over large
-#: functions is tens of megabytes, and a ``match --all`` over a project of
+#: functions is tens of megabytes, and a ``match batch`` over a project of
 #: big functions pinned all of it until exit.  Same discipline as
 #: ``data_layout._OBJDUMP_CACHE`` and ``verify_hash._SOURCE_MEMO``.
 _REG_MASK_PLAN_MAX_BYTES = 8 * BYTES_PER_MIB

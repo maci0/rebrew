@@ -254,7 +254,7 @@ _mutator_loaded = False
 
 #: Serializes :func:`_load_mutator_exports` and :func:`__getattr__`'s cache
 #: stores.  The fill publishes a batch of ``globals()`` entries before flipping
-#: ``_mutator_loaded``, and the GA pool plus ``match --all-targets`` reach this
+#: ``_mutator_loaded``, and the GA pool plus ``match batch --all-targets`` reach this
 #: from several threads at once, so the flag and the batch it guards have to
 #: become visible together.  Reentrant: the fill imports ``.mutator``, which
 #: loads ``rebrew.mutations`` plugins, and a plugin that asks this package for

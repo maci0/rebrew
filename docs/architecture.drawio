@@ -481,7 +481,7 @@
         </mxCell>
 
         <!-- T0 canonical -->
-        <mxCell id="t0" value="Tier 0  Canonical (user-owned). Identity in .c; volatile fields in locked TOML. Hand-edit only rebrew-project.toml and (via CLI) the three metadata TOMLs." style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=12;spacingTop=6;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+        <mxCell id="t0" value="Tier 0  Canonical (user-owned). Identity in .c; volatile fields in locked TOML. Hand-edit only rebrew-project.toml and (via CLI) the four metadata TOMLs." style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=12;spacingTop=6;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;fontStyle=1;fontSize=12;" vertex="1" parent="1">
           <mxGeometry x="40" y="80" width="1680" height="430" as="geometry"/>
         </mxCell>
 
@@ -639,7 +639,7 @@
         <mxCell id="i4" value="&lt;b&gt;type conflicts&lt;/b&gt;&lt;br&gt;same VA, different C types&lt;br&gt;across translation units" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fee2e2;strokeColor=#ef4444;fontColor=#7f1d1d;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="960" y="120" width="210" height="80" as="geometry"/>
         </mxCell>
-        <mxCell id="i5" value="&lt;b&gt;sync --pull-data&lt;/b&gt;&lt;br&gt;Ghidra labels → data.toml&lt;br&gt;MCP structural path" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="i5" value="&lt;b&gt;sync pull-data&lt;/b&gt;&lt;br&gt;Ghidra labels → data.toml&lt;br&gt;MCP structural path" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1200" y="120" width="220" height="80" as="geometry"/>
         </mxCell>
         <mxCell id="i6" value="&lt;b&gt;inline-strings&lt;/b&gt;&lt;br&gt;materialize string literals&lt;br&gt;from the original binary" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">

@@ -39,7 +39,7 @@ _REBREW_DIR = ".rebrew"
 _GA_RUNS_FILE = "ga_runs.jsonl"
 
 #: Serializes in-process appends to ``ga_runs.jsonl``.  Parallel
-#: ``match --all -j N`` stubs all call :func:`record_ga_run`; O_APPEND is
+#: ``match batch -j N`` stubs all call :func:`record_ga_run`; O_APPEND is
 #: only atomic for writes ≤ PIPE_BUF, and a buffered text write of a large
 #: win record can interleave with a sibling stub's line.
 _GA_RUNS_APPEND_LOCK = threading.Lock()
@@ -457,7 +457,7 @@ def _normalize_cflags(cflags: str) -> str:
 # appended: every consumer counts records (`--skip-recent`, `match history`),
 # and a duplicate says "ran twice" where the truth is "ran once, re-entered".
 # The check spans the whole tail window, not just the final line, because a
-# batch (`match --all`) appends one record per stub and a replayed batch only
+# batch (`match batch`) appends one record per stub and a replayed batch only
 # ever matches its own last record, never the first one it repeats.
 
 #: Fields that differ between two otherwise identical runs.
@@ -567,7 +567,7 @@ def record_ga_run(
     *ts* / *solved_at* are the UTC instant the run itself finished, supplied
     by a batch worker that still holds it.  Stamping them here instead would
     date every record in a batch to the moment the batch ended, so a 30-hour
-    ``match --all`` files 500 runs under one hour-30 timestamp and
+    ``match batch`` files 500 runs under one hour-30 timestamp and
     ``--skip-recent`` then re-runs the ones that finished 30 hours ago.
     """
     finished = ts or utc_now_iso()

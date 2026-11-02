@@ -987,10 +987,10 @@ class TestVerifyCli:
         result = CliRunner().invoke(app, ["--json"])
         assert result.exit_code == EXIT_MISMATCH
 
-    def test_nolib_excludes_library_entries(
+    def test_skip_libraries_excludes_library_entries(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """--nolib (the reccmp --nolib equivalent) must drop LIBRARY-marked
+        """--skip-libraries (the reccmp --nolib equivalent) must drop LIBRARY-marked
         functions from the work list, the cached results, and the exit gate —
         gate on game code only."""
         from rebrew.verify import app
@@ -1033,12 +1033,12 @@ class TestVerifyCli:
         # The LIBRARY row must not appear in the report results at all.
         assert all(r["va"] != "0x00001000" for r in data["results"])
 
-    def test_nolib_preserves_library_cache_entries(
+    def test_skip_libraries_preserves_library_cache_entries(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """--nolib drops library rows from the run, but `verify_cache.toml` is
+        """--skip-libraries drops library rows from the run, but `verify_cache.toml` is
         rewritten from `results` alone — without carrying the excluded keys over
-        one --nolib run erased the measured truth for every library function."""
+        one --skip-libraries run erased the measured truth for every library function."""
         from rebrew.verify import app
 
         cfg = _cfg(tmp_path)
@@ -1085,10 +1085,10 @@ class TestVerifyCli:
         assert result.exit_code == 0, result.output
         assert captured["preserve_keys"] == {"0x00001000"}
 
-    def test_nolib_failed_library_does_not_trip_gate(
+    def test_skip_libraries_failed_library_does_not_trip_gate(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A failing LIBRARY function must not fail the run under --nolib
+        """A failing LIBRARY function must not fail the run under --skip-libraries
         (without the flag it would exit EXIT_MISMATCH)."""
         from rebrew.verify import app
 
@@ -1126,7 +1126,7 @@ class TestVerifyCli:
         assert data["summary"]["library_excluded"] == 1
         assert data["summary"]["failed"] == 0
 
-        # Without --nolib the same failure trips the gate.
+        # Without --skip-libraries the same failure trips the gate.
         result = CliRunner().invoke(app, ["--json"])
         assert result.exit_code == EXIT_MISMATCH
 

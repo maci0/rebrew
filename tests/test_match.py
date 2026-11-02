@@ -910,7 +910,7 @@ class TestRunAllBatch:
         monkeypatch.setattr("rebrew.matcher.record_ga_run", _fake_record)
         matched, failed = self._run(self._cfg(tmp_path), json_output=True)
         assert (matched, failed) == (1, 0)
-        # The score and executed generations must ride along, or --ga-history
+        # The score and executed generations must ride along, or `match history`
         # reports avg/best score null for every batch run; the seed makes the
         # stub replayable with --seed.
         assert calls == [(str(tmp_path), "T", "0x10001000", "a.c", True, 0.0, 3, 1234)]
@@ -2339,9 +2339,9 @@ class TestFlagSweepDeadline:
     """`--timeout-min` must bound the sweep, not only the GA that may follow it."""
 
     def test_flag_sweep_stops_submitting_past_the_deadline(self) -> None:
-        """Regression: --flag-sweep-only ignored --timeout-min entirely.
+        """Regression: `match flags` ignored --timeout-min entirely.
 
-        The deadline was computed in the GA path only, so `--flag-sweep-only`
+        The deadline was computed in the GA path only, so `match flags`
         returned before ever reaching it and a `targeted` tier ran to
         completion regardless.  On guild-rebrew a `--timeout-min 2` run was
         still going after 7 minutes with no output; with the deadline wired it

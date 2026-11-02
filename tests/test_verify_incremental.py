@@ -1065,7 +1065,7 @@ class TestPatchVerifyCacheEntries:
         assert loaded.entries["0x00002000"].status == "EXACT"
 
     def test_filtered_save_refuses_overwrite_when_prior_unreadable(self, tmp_path: Path) -> None:
-        """A --nolib save must not wipe preserved VAs when the prior cache is corrupt."""
+        """A --skip-libraries save must not wipe preserved VAs when the prior cache is corrupt."""
         cfg = _make_cfg(tmp_path)
         cache_path = tmp_path / ".rebrew" / "verify_cache.toml"
         cache_path.parent.mkdir(parents=True, exist_ok=True)

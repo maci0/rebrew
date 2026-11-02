@@ -192,7 +192,7 @@ class CompileCache:
         # SQLite handle and nulls ``self._cache`` while a worker on another
         # target may be mid-``get()`` on the same instance.  The LRU eviction in
         # ``get_compile_cache`` reaches it once _CACHES_MAX project roots are
-        # open, which ``match --all-targets`` does: each target compiles under
+        # open, which ``match batch --all-targets`` does: each target compiles under
         # its own pool thread and calls get_compile_cache per compile, so one
         # target's eviction lands inside another's lookup.  Serialize store use
         # against close so the handle is never used after it is torn down.

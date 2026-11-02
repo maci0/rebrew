@@ -1173,7 +1173,7 @@ class TestFlagSweepIncludeDirs:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The CLI -j flag skips config's _positive_int check, so `match
-        --flag-sweep-only -j 0` reached ThreadPoolExecutor(max_workers=0)
+        flags -j 0` reached ThreadPoolExecutor(max_workers=0)
         and aborted the sweep with ValueError. n_jobs<1 must run serially."""
         from rebrew.matcher.compiler import flag_sweep
 
@@ -1371,7 +1371,7 @@ class TestFlagSweepIncludeDirs:
 
 
 class TestSweepThenGa:
-    """--flag-sweep-then-ga: flag-sweep each stub, then GA with the best flags."""
+    """match batch --algorithm flags-then-ga: flag-sweep each stub, then GA with the best flags."""
 
     @pytest.mark.parametrize(
         ("sweep_outcome", "expected_override"),
@@ -1847,7 +1847,7 @@ class TestSeedLlmRejection:
 
 
 class TestGaHistory:
-    """match --ga-history summarizes .rebrew/ga_runs.jsonl."""
+    """match history summarizes .rebrew/ga_runs.jsonl."""
 
     def _setup(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from types import SimpleNamespace
@@ -3034,7 +3034,7 @@ class TestPairKeysMemo:
     def test_refresh_does_not_publish_a_stale_key_set(self, tmp_path: Path) -> None:
         """A run must not pin its own key set to a fingerprint a sibling grew.
 
-        Two stubs share one corpus under ``match --all-targets -j N``.  When
+        Two stubs share one corpus under ``match batch --all-targets -j N``.  When
         the second stub's append lands between the first's ``stat()`` and its
         memo publish, the fingerprint describes a file holding both stubs'
         keys while the published set holds one, so the next stub skips the

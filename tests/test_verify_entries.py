@@ -1051,8 +1051,8 @@ def test_fix_sizes_never_rewrites_a_byte_matched_size() -> None:
     assert _partition_size_fixes(plain) == (plain, [])
 
 
-def test_scope_entries_nolib_drops_header_attributed_functions(tmp_path: Path) -> None:
-    """--nolib uses `rebrew status`'s library rule: a compiled FUNCTION whose VA
+def test_scope_entries_skip_libraries_drops_header_attributed_functions(tmp_path: Path) -> None:
+    """--skip-libraries uses `rebrew status`'s library rule: a compiled FUNCTION whose VA
     a library_*.h header of this target attributes is library code; another
     target's header attributes nothing here."""
     from rebrew.verify import scope_entries

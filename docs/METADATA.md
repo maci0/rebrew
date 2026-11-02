@@ -300,7 +300,8 @@ whenever the reference binary changes: the layout files carry
 
 A store **rebrew owns** is clear-text TOML, one format for all of them:
 `rebrew-project.toml`, `rebrew-functions.toml`, `rebrew-data.toml`,
-`rebrew-libraries.toml`, `snapshots/coverage-<target>.toml`, and the verify cache and
+`rebrew-types.toml`, `rebrew-libraries.toml`,
+`snapshots/coverage-<target>.toml`, and the verify cache and
 `--compare` baseline (`.rebrew/verify_cache.toml` / `.rebrew/verify_baseline.toml`,
 or the same filenames under `.rebrew/targets/<sha256-of-exact-target-name>/` once
 the project keeps per-target verification state). Normal dashboards read canonical project
@@ -342,9 +343,9 @@ until that program changes with it.
    keys limited to `DATA_METADATA_FIELDS`, STATUS to the three data
    verdicts, so a function-only field such as BLOCKER raises), `rebrew library set`
    (library overrides).  **Do not hand-edit `rebrew-functions.toml`,
-   `rebrew-data.toml`, or `rebrew-libraries.toml`**: every write goes
-   through `metadata_write_lock`, and the two function/data stores use
-   `atomic_write_locked` on top (see `rebrew/metadata/functions.py`,
+   `rebrew-data.toml`, `rebrew-types.toml`, or `rebrew-libraries.toml`**:
+   every write goes through `metadata_write_lock`, and the two function/data
+   stores use `atomic_write_locked` on top (see `rebrew/metadata/functions.py`,
    `rebrew/metadata/data.py`, `rebrew/library.py`).
    `rebrew-project.toml` is a store too: every writer (`lint --fix` dropping a
    `cflags_presets` key, a splat import patching `[targets.<name>].arch`, the
