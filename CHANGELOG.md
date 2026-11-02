@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.15.0] - 2026-11-02
+
 ### Changed
 
 - Walk each source once for struct, typedef and enum blocks in `rebrew export context`, instead of parsing and traversing the same tree three times.
