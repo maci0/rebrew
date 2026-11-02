@@ -77,8 +77,7 @@ app = typer.Typer(
 # Constants
 # ---------------------------------------------------------------------------
 
-#: CodeView record magics (the first four bytes of the debug record).
-_RSDS = b"RSDS"
+#: NB10 record magic (the first four bytes of the debug record).
 _NB10 = b"NB10"
 #: NB10 layout: magic, offset, signature, age, then the PDB path.
 _NB10_HEADER = struct.Struct("<4sIII")

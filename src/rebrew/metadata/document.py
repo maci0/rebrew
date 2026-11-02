@@ -355,11 +355,6 @@ def resolve_metadata_key(
     return canonical
 
 
-#: Entry keys reported per file in the unknown-key warning.  A file with
-#: hundreds of typo'd keys is one mistake, not hundreds of lines of output.
-_UNKNOWN_KEY_REPORT_MAX = 5
-
-
 def parse_metadata_doc(
     doc: dict[str, Any],
     *,

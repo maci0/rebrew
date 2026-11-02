@@ -932,15 +932,6 @@ def _status_skip_for_source(cfg: ProjectConfig, source: str, no_promote: bool) -
     return no_promote, ""
 
 
-def _stat_token(path: Path) -> tuple[str, int, int, int]:
-    """``(path, mtime_ns, size, ino)``, or ``-1`` when *path* cannot be stat'ed."""
-    try:
-        st = path.stat()
-    except OSError:
-        return (str(path), -1, -1, -1)
-    return (str(path), st.st_mtime_ns, st.st_size, st.st_ino)
-
-
 def _feed(hasher: Any, text: str) -> None:
     hasher.update(text.encode("utf-8", "surrogateescape"))
     hasher.update(b"\n")

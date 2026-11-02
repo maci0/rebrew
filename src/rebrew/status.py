@@ -747,21 +747,6 @@ def classify_unattributed_ranges(
     return padding, ranges
 
 
-def _text_gaps(cfg: ProjectConfig, spans: list[tuple[int, int]]) -> tuple[int, int] | None:
-    """:func:`classify_text_gaps` over the target's ``.text``; None if unreadable."""
-    if not cfg.target_binary.is_file():
-        return None
-    try:
-        from rebrew.formats.binary_loader import load_binary
-
-        info = load_binary(cfg.target_binary)
-        sec = info.sections[".text"]
-    except OSError, KeyError, ValueError:
-        return None
-    text = info.data[sec.file_offset : sec.file_offset + min(sec.size, sec.raw_size)]
-    return classify_text_gaps(text, sec.va, spans)
-
-
 def _text_gap_ranges(
     cfg: ProjectConfig, spans: list[tuple[int, int]]
 ) -> tuple[int, list[tuple[int, int]]] | None:

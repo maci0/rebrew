@@ -148,22 +148,6 @@ def _func_label(entry: Any, fallback: str) -> str:
     return getattr(entry, "symbol", "") or fallback
 
 
-def _block_va(block: str) -> int | None:
-    """Address of the first declaration-bound anchor, if present."""
-    from rebrew.metadata.anchors import parse_address_anchors
-
-    anchors = parse_address_anchors(block)
-    return anchors[0].va if anchors else None
-
-
-def _split_entry_blocks(text: str) -> list[str]:
-    """Split at complete address groups, keeping shared targets together."""
-    from rebrew.metadata.bindings import split_address_sections
-
-    _preamble, blocks = split_address_sections(text)
-    return blocks or [text]
-
-
 def _register_spellings(name_lookup: dict[str, str], label: str, key: str) -> None:
     """Record *label* under every spelling a call site may use for it.
 

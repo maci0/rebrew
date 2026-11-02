@@ -517,14 +517,6 @@ def _check_W018_cflags(
         )
 
 
-# Unknown keys that are safe for `--fix` to strip outright: retired
-# annotations whose value is now derived from the C source itself, so the
-# inline line carries no information (SYMBOL from the function definition,
-# PROTOTYPE from the definition line).  Any other unknown key is only
-# warned about — it may be a typo of a real key or a prose note, and
-# deleting it would destroy information.
-_FIXABLE_UNKNOWN_KEYS = frozenset({"SYMBOL", "PROTOTYPE"})
-
 # Statuses that carry no claim about a function's body, so they cannot
 # contradict what a check found. A file claiming only these does not gain
 # a "but STATUS claims ..." suffix.
@@ -2919,8 +2911,6 @@ def main(
 
         if not json_output:
             parts: list[str] = []
-            # Merge the two strip streams: W010 unknown keys and redundant /
-            # already-migrated inline copies are all pure source-line removals.
             if dry_run:
                 if w029_fn_count:
                     parts.append(f"{w029_fn_count} redundant per-function cflags would be dropped")
