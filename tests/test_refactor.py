@@ -22,7 +22,7 @@ from rebrew.refactor import _analyse_file, _collect_python_files, _make_suggesti
 
 _TOO_LONG = "Consider splitting this module into smaller, focused files."
 _TYPING = "Add `from __future__ import annotations` and complete type hints."
-_CLEAN = "No obvious refactoring triggers detected by this simple heuristic."
+_CLEAN = "No obvious refactoring triggers detected."
 
 
 def test_clean_source_gets_the_no_triggers_fallback() -> None:

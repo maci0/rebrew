@@ -51,7 +51,7 @@ def _collect_python_files(root: Path) -> list[Path]:
 
 
 def _analyse_file(path: Path, root: Path) -> dict[str, Any]:
-    """Very simple heuristics — replace with real ast/lint tools if desired."""
+    """Per-file line and loop counts for the suggestions."""
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
@@ -59,11 +59,9 @@ def _analyse_file(path: Path, root: Path) -> dict[str, Any]:
 
     lines = text.splitlines()
     num_lines = len(lines)
-    # Heuristic thresholds
     too_long = num_lines > 500
     many_todos = sum(1 for line in lines if "TODO" in line.upper())
     missing_typing = "from __future__ import annotations" not in text and ": [" not in text
-    # Look for repeated patterns (very naive)
     for_loop_count = sum(1 for line in lines if line.strip().startswith("for "))
     while_loop_count = sum(1 for line in lines if line.strip().startswith("while "))
 
@@ -106,7 +104,7 @@ def _make_suggestions(
             "Multiple while loops – ensure they have clear exit conditions; consider using functions with early returns."
         )
     if not suggestions:
-        suggestions.append("No obvious refactoring triggers detected by this simple heuristic.")
+        suggestions.append("No obvious refactoring triggers detected.")
     return suggestions
 
 

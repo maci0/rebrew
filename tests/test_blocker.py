@@ -28,6 +28,17 @@ def _mock_cfg(tmp_path: Path, monkeypatch) -> None:
     return cfg
 
 
+def _write_annotated_source(cfg, name: str = "a") -> None:
+    """Seed one annotated function at 0x401000 in the fake reversed dir."""
+    cfg.reversed_dir.mkdir()
+    write_source(
+        cfg.reversed_dir / f"{name}.c",
+        f"/* ADDRESS: SERVER 0x401000 */\nint {name}(){{return 0;}}\n",
+        encoding="utf-8",
+        metadata_fields={"SERVER.0x401000": {"kind": "FUNCTION"}},
+    )
+
+
 class TestBlockerSet:
     def test_set_by_file_writes_toml(self, tmp_path: Path, monkeypatch) -> None:
         import rebrew.metadata.functions as meta
@@ -53,13 +64,7 @@ class TestBlockerSet:
         import rebrew.metadata.functions as meta
 
         cfg = _mock_cfg(tmp_path, monkeypatch)
-        (cfg.reversed_dir).mkdir()
-        write_source(
-            cfg.reversed_dir / "foo.c",
-            "/* ADDRESS: SERVER 0x401000 */\nint foo(){return 0;}\n",
-            encoding="utf-8",
-            metadata_fields={"SERVER.0x401000": {"kind": "FUNCTION"}},
-        )
+        _write_annotated_source(cfg, name="foo")
         from rebrew.blocker import app
 
         res = CliRunner().invoke(app, ["set", "0x401000", "SEH helper"])
@@ -70,13 +75,7 @@ class TestBlockerSet:
         import rebrew.metadata.functions as meta
 
         cfg = _mock_cfg(tmp_path, monkeypatch)
-        (cfg.reversed_dir).mkdir()
-        write_source(
-            cfg.reversed_dir / "a.c",
-            "/* ADDRESS: SERVER 0x401000 */\nint a(){return 0;}\n",
-            encoding="utf-8",
-            metadata_fields={"SERVER.0x401000": {"kind": "FUNCTION"}},
-        )
+        _write_annotated_source(cfg)
         from rebrew.blocker import app
 
         res = CliRunner().invoke(app, ["set", "0x401000", "x", "--delta", "16"])
@@ -88,13 +87,7 @@ class TestBlockerSet:
         import rebrew.metadata.functions as meta
 
         cfg = _mock_cfg(tmp_path, monkeypatch)
-        (cfg.reversed_dir).mkdir()
-        write_source(
-            cfg.reversed_dir / "a.c",
-            "/* ADDRESS: SERVER 0x401000 */\nint a(){return 0;}\n",
-            encoding="utf-8",
-            metadata_fields={"SERVER.0x401000": {"kind": "FUNCTION"}},
-        )
+        _write_annotated_source(cfg)
         from rebrew.blocker import app
 
         res = CliRunner().invoke(app, ["set", "0x401000", "x", "--delta", "0x10"])
@@ -105,13 +98,7 @@ class TestBlockerSet:
         import rebrew.metadata.functions as meta
 
         cfg = _mock_cfg(tmp_path, monkeypatch)
-        (cfg.reversed_dir).mkdir()
-        write_source(
-            cfg.reversed_dir / "a.c",
-            "/* ADDRESS: SERVER 0x401000 */\nint a(){return 0;}\n",
-            encoding="utf-8",
-            metadata_fields={"SERVER.0x401000": {"kind": "FUNCTION"}},
-        )
+        _write_annotated_source(cfg)
         from rebrew.blocker import app
 
         res = CliRunner().invoke(app, ["set", "0x401000", "should not persist", "--dry-run"])
@@ -124,13 +111,7 @@ class TestBlockerClear:
         import rebrew.metadata.functions as meta
 
         cfg = _mock_cfg(tmp_path, monkeypatch)
-        (cfg.reversed_dir).mkdir()
-        write_source(
-            cfg.reversed_dir / "a.c",
-            "/* ADDRESS: SERVER 0x401000 */\nint a(){return 0;}\n",
-            encoding="utf-8",
-            metadata_fields={"SERVER.0x401000": {"kind": "FUNCTION"}},
-        )
+        _write_annotated_source(cfg)
         from rebrew.blocker import app
 
         CliRunner().invoke(app, ["set", "0x401000", "to clear", "--delta", "3"])
@@ -144,13 +125,7 @@ class TestBlockerClear:
         import rebrew.metadata.functions as meta
 
         cfg = _mock_cfg(tmp_path, monkeypatch)
-        (cfg.reversed_dir).mkdir()
-        write_source(
-            cfg.reversed_dir / "a.c",
-            "/* ADDRESS: SERVER 0x401000 */\nint a(){return 0;}\n",
-            encoding="utf-8",
-            metadata_fields={"SERVER.0x401000": {"kind": "FUNCTION"}},
-        )
+        _write_annotated_source(cfg)
         from rebrew.blocker import app
 
         CliRunner().invoke(app, ["set", "0x401000", "keep"])
@@ -163,13 +138,7 @@ class TestBlockerShow:
     def test_show_json(self, tmp_path: Path, monkeypatch) -> None:
 
         cfg = _mock_cfg(tmp_path, monkeypatch)
-        (cfg.reversed_dir).mkdir()
-        write_source(
-            cfg.reversed_dir / "a.c",
-            "/* ADDRESS: SERVER 0x401000 */\nint a(){return 0;}\n",
-            encoding="utf-8",
-            metadata_fields={"SERVER.0x401000": {"kind": "FUNCTION"}},
-        )
+        _write_annotated_source(cfg)
         from rebrew.blocker import app
 
         CliRunner().invoke(app, ["set", "0x401000", "hello", "--delta", "7"])
@@ -184,13 +153,7 @@ class TestBlockerJson:
     def test_set_json(self, tmp_path: Path, monkeypatch) -> None:
 
         cfg = _mock_cfg(tmp_path, monkeypatch)
-        (cfg.reversed_dir).mkdir()
-        write_source(
-            cfg.reversed_dir / "a.c",
-            "/* ADDRESS: SERVER 0x401000 */\nint a(){return 0;}\n",
-            encoding="utf-8",
-            metadata_fields={"SERVER.0x401000": {"kind": "FUNCTION"}},
-        )
+        _write_annotated_source(cfg)
         from rebrew.blocker import app
 
         res = CliRunner().invoke(app, ["set", "0x401000", "j", "--json"])
