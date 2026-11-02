@@ -457,13 +457,18 @@ def headers_hash(cfg: ProjectConfig) -> str:
         return ""
 
     ext_digest = _external_includes_hash(cfg)
+    # One walk and one stat per header serves both the cache key and the
+    # content digest; the two passes only differed in what they did with the
+    # result.  The entries are sorted by relative name for stable hashing
+    # across runs / platforms, which is also the fingerprint's order.
+    entries = _header_entries(src_dir)
     # The fingerprint holds paths RELATIVE to src_dir, so two project roots
     # with equal-size, equal-mtime header trees hash to the same tuple: the
     # resolved source directory is part of the key or the second root is
     # served the first root's digest.
     stat_fp: tuple[tuple[str, int, int, int, int] | str, ...] = (
         str(resolved_path(src_dir)),
-        *_headers_stat_fingerprint(src_dir),
+        *((fingerprint_name, *stat) for _path, _rel, fingerprint_name, stat in entries),
         ext_digest,
     )
     with _HEADERS_HASH_CACHE_LOCK:
@@ -472,15 +477,7 @@ def headers_hash(cfg: ProjectConfig) -> str:
             return cached
 
     h = hashlib.sha256()
-    # Sorted for stable hashing across runs / platforms.
-    for hfile in sorted(src_dir.rglob("*.h")):
-        try:
-            rel = hfile.relative_to(src_dir).as_posix()
-        except ValueError:
-            # rglob only yields paths under src_dir, so this is unreachable
-            # in practice; fall through to the sentinel rather than dropping
-            # the header, which would alias this tree onto a smaller one.
-            rel = hfile.as_posix()
+    for hfile, rel, _fingerprint_name, _stat in entries:
         try:
             # surrogateescape: a header filename is not required to be valid
             # UTF-8 (a cp1252 name is legal on Linux), and it arrives here as
@@ -556,6 +553,41 @@ def expected_text_functions(cfg: ProjectConfig) -> dict[str, int]:
     return {name: va for name, (va, _size) in expected_text_function_extents(cfg).items()}
 
 
+#: One header-tree entry: ``(path, rel_path, fingerprint_name, stat identity)``.
+_HeaderEntry = tuple[Path, str, str, tuple[int, int, int, int]]
+
+
+def _header_entries(src_dir: Path) -> list[_HeaderEntry]:
+    """Walk the header tree once, sorted by relative path.
+
+    The stat fingerprint and the content digest need the same headers, so the
+    walk and the ``stat`` are shared.  ``fingerprint_name`` is the relative
+    path, or the absolute one for a header that cannot be stat'ed: a header
+    that changes the key must not hash as if the tree never contained it.
+    """
+    entries: list[_HeaderEntry] = []
+    for hfile in src_dir.rglob("*.h"):
+        try:
+            rel = hfile.relative_to(src_dir).as_posix()
+        except ValueError:
+            # rglob only yields paths under src_dir, so this is unreachable
+            # in practice; the absolute name still keeps the header in the
+            # key rather than hashing this tree as a smaller one.
+            rel = hfile.as_posix()
+        try:
+            st = hfile.stat()
+        except OSError:
+            # A header that cannot be stat'ed must still change the key, or
+            # the memo serves a digest taken while it was unreadable.  -1 is
+            # not a reachable mtime_ns, size, inode, or change time, so the
+            # marker cannot collide with a real entry.
+            entries.append((hfile, rel, hfile.as_posix(), (-1, -1, -1, -1)))
+            continue
+        entries.append((hfile, rel, rel, (st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns)))
+    entries.sort(key=lambda entry: entry[2])
+    return entries
+
+
 def _headers_stat_fingerprint(src_dir: Path) -> tuple[tuple[str, int, int, int, int], ...]:
     """Return sorted (rel_path, mtime_ns, size, ino, ctime_ns) tuples for all .h files.
 
@@ -567,19 +599,10 @@ def _headers_stat_fingerprint(src_dir: Path) -> tuple[tuple[str, int, int, int, 
     filesystem), which mtime and size alone cannot see; change time catches an
     in-place rewrite that restores the old mtime.
     """
-    entries: list[tuple[str, int, int, int, int]] = []
-    for hfile in src_dir.rglob("*.h"):
-        try:
-            st = hfile.stat()
-            rel = hfile.relative_to(src_dir).as_posix()
-            entries.append((rel, st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns))
-        except OSError:
-            # A header that cannot be stat'ed must still change the key, or
-            # the memo serves a digest taken while it was unreadable.  -1 is
-            # not a reachable mtime_ns, size, inode, or change time, so the
-            # marker cannot collide with a real entry.
-            entries.append((hfile.as_posix(), -1, -1, -1, -1))
-    return tuple(sorted(entries))
+    return tuple(
+        (fingerprint_name, *stat)
+        for _path, _rel, fingerprint_name, stat in _header_entries(src_dir)
+    )
 
 
 #: Retained source bodies, keyed by (resolved path, mtime_ns, size, inode), in
