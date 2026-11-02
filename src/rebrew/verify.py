@@ -2020,7 +2020,7 @@ def _save_report(
         except OSError:
             _bin = b""
         if _bin:
-            _base, _secs = _pe_sections_for_merge_check(_bin)
+            _, _secs = _pe_sections_for_merge_check(_bin)
             if _secs:
                 for d in under:
                     try:
@@ -2031,8 +2031,6 @@ def _save_report(
                         if _sva <= _va < _sva + _sraw:
                             if _looks_like_inventory_merge(
                                 _bin,
-                                _va,
-                                _base,
                                 _soff + (_va - _sva),
                                 d["annotation_size"],
                                 d["binary_size"],
@@ -3256,10 +3254,8 @@ def _pe_sections_for_merge_check(data: bytes) -> tuple[int, list[tuple[int, int,
     return base, out
 
 
-def _looks_like_inventory_merge(
-    binary: bytes, va: int, image_base: int, start_off: int, ann_size: int, span: int
-) -> bool:
-    """Whether ``[va+ann_size, va+span)`` opens with a new function.
+def _looks_like_inventory_merge(binary: bytes, start_off: int, ann_size: int, span: int) -> bool:
+    """Whether ``[start_off+ann_size, start_off+span)`` opens with a new function.
 
     An under-count has two causes and they need opposite responses: a TRUNCATED
     annotation is work to reverse, while an INVENTORY MERGE is a discovery defect

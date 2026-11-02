@@ -869,7 +869,6 @@ def _merge_payload(
     *,
     output_path: Path,
     func_out: list[_Piece],
-    store_out: list[_Piece],
     input_files: list[Path],
     cfg: Any,
     dry_run: bool,
@@ -1128,7 +1127,6 @@ def _merge_definitions(
     payload = _merge_payload(
         output_path=output_path,
         func_out=func_out,
-        store_out=store_out,
         input_files=input_files,
         cfg=cfg,
         dry_run=dry_run,

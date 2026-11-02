@@ -371,12 +371,11 @@ def collect_candidates(cfg: Any, default_module: str | None = None) -> list[LibC
 _LIBRARY_BANNER = "/* Library function identities live in rebrew-functions.toml. */\n"
 
 
-def prepare_library_header(cfg: Any, header: Path) -> bool:
+def prepare_library_header(header: Path) -> None:
     """Create an inventory placeholder; library identities live only in metadata."""
     if not header.is_file():
         header.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_text(header, _LIBRARY_BANNER, encoding="utf-8")
-    return True
 
 
 def _record_library_candidate(cfg: Any, header: Path, cand: LibCandidate, source: str) -> None:
@@ -423,8 +422,7 @@ def write_candidates(cfg: Any, candidates: list[LibCandidate], existing: set[int
         # writing its header outside the reversed dir, and gives every writer
         # the same file for one module.
         header = cfg.reversed_dir / library_header_name(module)
-        if not prepare_library_header(cfg, header):
-            continue
+        prepare_library_header(header)
         for cand in cands:
             source = ""
             if (

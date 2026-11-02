@@ -331,10 +331,7 @@ def _set_global_field(
     cfg: ProjectConfig,
     specs: list[str],
     *,
-    option: str,
-    placeholder: str,
     field: str,
-    allowed: tuple[str, ...] | None = None,
     dry_run: bool = False,
 ) -> list[dict[str, Any]]:
     """Apply a single-field request through the same complete patch planner."""
@@ -359,12 +356,7 @@ def set_data_relation(
     return _set_global_field(
         cfg,
         specs,
-        option="--set-" + field.replace("_", "-"),
-        placeholder="VALUE",
         field=field,
-        allowed=("object", "alias", "literal", "span", "import")
-        if field == "storage_kind"
-        else None,
         dry_run=dry_run,
     )
 
@@ -451,27 +443,21 @@ def set_data_types(
     compiler sees, and `--gen-header` reads it from the metadata, so a wrong
     one has to be correctable through the tool rather than by editing the TOML.
     """
-    return _set_global_field(
-        cfg, specs, option="--type", placeholder="TYPE", field="type", dry_run=dry_run
-    )
+    return _set_global_field(cfg, specs, field="type", dry_run=dry_run)
 
 
 def set_data_names(
     cfg: ProjectConfig, specs: list[str], *, dry_run: bool = False
 ) -> list[dict[str, Any]]:
     """Name annotated globals so data verification can attribute their spans."""
-    return _set_global_field(
-        cfg, specs, option="--name", placeholder="NAME", field="name", dry_run=dry_run
-    )
+    return _set_global_field(cfg, specs, field="name", dry_run=dry_run)
 
 
 def set_data_sizes(
     cfg: ProjectConfig, specs: list[str], *, dry_run: bool = False
 ) -> list[dict[str, Any]]:
     """Correct positive byte sizes and invalidate verdicts for the old spans."""
-    return _set_global_field(
-        cfg, specs, option="--size", placeholder="BYTES", field="size", dry_run=dry_run
-    )
+    return _set_global_field(cfg, specs, field="size", dry_run=dry_run)
 
 
 def set_data_kinds(
@@ -481,15 +467,10 @@ def set_data_kinds(
 
     A row without one reads as ``DATA``; a row ``data set`` created has none.
     """
-    from rebrew.metadata.bindings import DATA_KINDS
-
     return _set_global_field(
         cfg,
         specs,
-        option="--kind",
-        placeholder="KIND",
         field="kind",
-        allowed=tuple(sorted(DATA_KINDS)),
         dry_run=dry_run,
     )
 
@@ -498,9 +479,7 @@ def set_data_notes(
     cfg: ProjectConfig, specs: list[str], *, dry_run: bool = False
 ) -> list[dict[str, Any]]:
     """Set a row's free-text note from ``0xVA=TEXT`` specs; the verdict stays."""
-    return _set_global_field(
-        cfg, specs, option="--note", placeholder="TEXT", field="note", dry_run=dry_run
-    )
+    return _set_global_field(cfg, specs, field="note", dry_run=dry_run)
 
 
 _DATA_SECTIONS = (".data", ".rdata", ".bss", ".text")
@@ -518,10 +497,7 @@ def set_data_sections(
     return _set_global_field(
         cfg,
         specs,
-        option="--section",
-        placeholder="SECTION",
         field="section",
-        allowed=_DATA_SECTIONS,
         dry_run=dry_run,
     )
 

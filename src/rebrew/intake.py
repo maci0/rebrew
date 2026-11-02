@@ -182,14 +182,13 @@ def classify_all(
     family: str,
     hint: str,
     metadata_dir: Path | None = None,
-    profile: str = "",
 ) -> int:
     """Write a STUB .c + blocker for every function (document-unmatched step).
 
     Shared by ``rebrew intake`` (fresh onboarding) and ``rebrew
     document-unmatched`` (existing projects).  *metadata_dir* defaults to
     ``project/src`` (the standard layout); pass ``cfg.metadata_dir`` to
-    honor a custom layout. Existing annotations for *marker* anywhere under
+    honor a custom layout. Existing address annotations anywhere under
     *src_dir* prevent duplicate stubs after a source is renamed or moved.
     """
     from rebrew.metadata.functions import (
@@ -712,9 +711,7 @@ def main(
     )
 
     # 5. document unmatched functions
-    documented = classify_all(
-        project, src_dir, target_module_name, funcs, family, hint, profile=profile
-    )
+    documented = classify_all(project, src_dir, target_module_name, funcs, family, hint)
     # 6. prune auto-stubs orphaned by a changed function list (re-discovery
     #    only — a fresh onboarding has nothing stale).
     if project_existed:

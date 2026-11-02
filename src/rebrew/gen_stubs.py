@@ -726,16 +726,19 @@ def _split_type_name(part: str) -> tuple[str, str | None]:
     return (" ".join(tokens[:-1]) + stars).strip(), last
 
 
-def simplify_params_for_stub(params_str: str) -> str:
-    """Simplify each parameter type. Names and ``...`` stay put."""
+def _param_inner(params_str: str) -> str:
+    """The parameter list with its outer whitespace and parentheses removed."""
     inner = params_str.strip()
     if inner.startswith("("):
         inner = inner[1:]
     if inner.endswith(")"):
         inner = inner[:-1]
-    inner = inner.strip()
-    if not inner or inner == "void":
-        return "(void)"
+    return inner.strip()
+
+
+def _split_params(params_str: str) -> list[str]:
+    """Split a parameter list on top-level commas."""
+    inner = _param_inner(params_str)
     parts: list[str] = []
     depth = 0
     current = ""
@@ -753,6 +756,15 @@ def simplify_params_for_stub(params_str: str) -> str:
             current += ch
     if current.strip():
         parts.append(current.strip())
+    return parts
+
+
+def simplify_params_for_stub(params_str: str) -> str:
+    """Simplify each parameter type. Names and ``...`` stay put."""
+    inner = _param_inner(params_str)
+    if not inner or inner == "void":
+        return "(void)"
+    parts = _split_params(params_str)
     simplified: list[str] = []
     for part in parts:
         if part == "..." or (part == "void" and len(parts) == 1):
@@ -770,33 +782,10 @@ def ensure_param_names(params_str: str) -> str:
     ``(int, char*, void*)`` -> ``(int a, char* b, void* c)``; leaves
     already-named params and ``(void)`` untouched.
     """
-    inner = params_str.strip()
-    if inner.startswith("("):
-        inner = inner[1:]
-    if inner.endswith(")"):
-        inner = inner[:-1]
-    inner = inner.strip()
-
+    inner = _param_inner(params_str)
     if not inner or inner in ("void", "..."):
         return params_str
-
-    parts: list[str] = []
-    depth = 0
-    current = ""
-    for ch in inner:
-        if ch == "(":
-            depth += 1
-            current += ch
-        elif ch == ")":
-            depth -= 1
-            current += ch
-        elif ch == "," and depth == 0:
-            parts.append(current.strip())
-            current = ""
-        else:
-            current += ch
-    if current.strip():
-        parts.append(current.strip())
+    parts = _split_params(params_str)
 
     used_names = set(re.findall(r"\b[A-Za-z_]\w*\b", params_str))
     param_names = "abcdefghijklmnop"

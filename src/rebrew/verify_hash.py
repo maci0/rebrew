@@ -495,8 +495,7 @@ _HEADERS_HASH_CACHE_MAX = 8  # one entry per distinct header-tree state
 def expected_text_function_extents(cfg: ProjectConfig) -> dict[str, tuple[int, int]]:
     """``{symbol: (marker VA, reference size)}`` for every annotated function.
 
-    Same binding walk as :func:`expected_text_functions`; the size comes from the
-    annotation and is 0 when the source carries none.
+    The size comes from the annotation and is 0 when the source carries none.
     """
     from rebrew.config import target_module
     from rebrew.metadata.bindings import iter_source_bindings
@@ -526,25 +525,7 @@ def expected_text_functions(cfg: ProjectConfig) -> dict[str, int]:
     Marker symbols use the per-target ``// FUNCTION:`` name. The key is
     the C name, so ``__foo`` stays ``_foo`` and ``hook@@12`` is ``hook``.
     """
-    from rebrew.config import target_module
-    from rebrew.metadata.bindings import iter_source_bindings
-    from rebrew.rename_ops import c_name_from_symbol
-    from rebrew.sources import iter_sources
-
-    target_module_name = target_module(cfg)
-    out: dict[str, int] = {}
-    for path, annos in iter_source_bindings(
-        iter_sources(cfg.reversed_dir, cfg),
-        target=target_module_name,
-        metadata_dir=cfg.metadata_dir,
-        project_root=getattr(cfg, "root", None),
-    ):
-        for ann in annos:
-            if not ann.is_function:
-                continue
-            sym = ann.symbol if ann.symbol and ann.symbol != "?" else "_" + path.stem
-            out.setdefault(c_name_from_symbol(sym), ann.va)
-    return out
+    return {name: va for name, (va, _size) in expected_text_function_extents(cfg).items()}
 
 
 def _headers_stat_fingerprint(src_dir: Path) -> tuple[tuple[str, int, int, int], ...]:

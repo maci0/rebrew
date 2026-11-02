@@ -688,7 +688,7 @@ def adopt_cmd(
     if expected_digest is not None and digest != expected_digest:
         error_exit("library adopt inputs changed; review a new preview", json_mode=json_output)
     if not dry_run:
-        prepare_library_header(cfg, header)
+        prepare_library_header(header)
     try:
         # An address-only row's verdict goes to binding_history like a claim's.
         if row:

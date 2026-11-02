@@ -492,7 +492,7 @@ def _plan_function(
             )
         if not matches:
             return _plan_source_level(
-                cfg, entries, target_ident, new_name, all_modules, comments, dry_run, json_output
+                cfg, target_ident, new_name, all_modules, comments, dry_run, json_output
             )
         match = matches[0]
         old_name = getattr(match, "name", "") or ""
@@ -544,7 +544,6 @@ def _plan_function(
 
 def _plan_source_level(
     cfg: Any,
-    entries: list[Any],
     old_name: str,
     new_name: str,
     all_modules: bool,

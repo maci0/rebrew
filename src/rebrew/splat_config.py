@@ -1244,7 +1244,7 @@ def _plan_annotations(
                 section=section,
                 detail=row.detail or (f"from {source}" if source else ""),
                 path=rel,
-                declaration=_source_declaration(kind, module, row.va, declaration),
+                declaration=_source_declaration(module, row.va, declaration),
                 state=state,
                 overridable=overridable,
             )
@@ -1377,7 +1377,7 @@ def _plan_library_annotations(
                 section="",
                 detail=f"undefined in {cfg_splat.path.name}",
                 path=rel,
-                declaration=_source_declaration("LIBRARY", module, row.va, ""),
+                declaration=_source_declaration(module, row.va, ""),
                 state=state,
                 overridable=overridable,
             )
@@ -1415,7 +1415,7 @@ def _locate(cfg_splat: SplatConfig, va: int) -> tuple[str, str] | None:
     return None
 
 
-def _source_declaration(kind: str, module: str, va: int, declaration: str) -> str:
+def _source_declaration(module: str, va: int, declaration: str) -> str:
     """Emit a declaration-bound address, or no text for an inventory-only identity."""
     from rebrew.c_parser import find_c_function_definitions, find_extern_variables
     from rebrew.metadata.anchors import add_address_anchor

@@ -230,7 +230,6 @@ def _source_visible_to_target(
 def _bind_stored_data_rows(
     *,
     cfg: ProjectConfig | None,
-    cfile: Path,
     bindings: list[Any],
     data_entries: dict[tuple[str, int], dict[str, Any]],
     fname: str,
@@ -242,7 +241,7 @@ def _bind_stored_data_rows(
     type_by_name: dict[str, dict[str, list[str]]],
     mark: Any,
 ) -> None:
-    """Attach ``rebrew-data.toml`` rows whose ``file`` matches *cfile*.
+    """Attach ``rebrew-data.toml`` rows for the bindings scanned from this file.
 
     Called only when the source has no address-bound data declaration.  Names are added
     to *annotated_names* before the extern pass so a ``(name, 0)`` entry is
@@ -788,7 +787,6 @@ def _apply_scan_file_facts(
     facts: dict[str, Any],
     *,
     cfg: ProjectConfig | None,
-    cfile: Path,
     data_entries: dict[tuple[str, int], dict[str, Any]],
     by_key: dict[tuple[str, int], GlobalEntry],
     by_name: dict[str, GlobalEntry],
@@ -825,7 +823,6 @@ def _apply_scan_file_facts(
     annotated_names: set[str] = set()
     _bind_stored_data_rows(
         cfg=cfg,
-        cfile=cfile,
         bindings=bindings,
         data_entries=data_entries,
         fname=fname,
@@ -1016,7 +1013,6 @@ def scan_globals(
         _apply_scan_file_facts(
             facts,
             cfg=cfg,
-            cfile=cfile,
             data_entries=data_entries,
             by_key=by_key,
             by_name=by_name,
