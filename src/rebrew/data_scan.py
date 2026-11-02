@@ -443,7 +443,16 @@ def _begin_name_cover(metadata_dir: Path) -> dict[str, Any]:
             parsed = _stamp_list(raw)
             if isinstance(path_key, str) and parsed is not None:
                 files[path_key] = parsed
-    record = {"dir": metadata_dir, "stamp": stamp, "files": files, "dirty": False}
+    # One lock per record: concurrent scans of one metadata root share this
+    # object, and its file map is mutated by a scan while its flush serializes
+    # it.  The outer dict lock only guards the bounded insert.
+    record = {
+        "dir": metadata_dir,
+        "stamp": stamp,
+        "files": files,
+        "dirty": False,
+        "lock": threading.Lock(),
+    }
     with _NAME_COVER_CACHE_LOCK:
         if len(_NAME_COVER_CACHE) >= _NAME_COVER_CACHE_MAX and key not in _NAME_COVER_CACHE:
             _NAME_COVER_CACHE.pop(next(iter(_NAME_COVER_CACHE)), None)
@@ -455,7 +464,8 @@ def _name_cover_hit(cover: dict[str, Any], cfile: Path) -> bool:
     stamp = _source_stamp(cfile)
     if stamp is None:
         return False
-    return bool(cover["files"].get(_path_key(cfile)) == stamp)
+    with cover["lock"]:
+        return bool(cover["files"].get(_path_key(cfile)) == stamp)
 
 
 def _name_cover_remember(cover: dict[str, Any], cfile: Path) -> None:
@@ -463,27 +473,37 @@ def _name_cover_remember(cover: dict[str, Any], cfile: Path) -> None:
     if stamp is None:
         return
     key = _path_key(cfile)
-    if cover["files"].get(key) == stamp:
-        return
-    cover["files"][key] = stamp
-    cover["dirty"] = True
+    with cover["lock"]:
+        if cover["files"].get(key) == stamp:
+            return
+        cover["files"][key] = stamp
+        cover["dirty"] = True
 
 
 def _flush_name_cover(cover: dict[str, Any]) -> None:
-    """Write the cover for the next process. A failure leaves the scan result."""
-    if not cover.get("dirty"):
-        return
-    cache_path = Path(cover["dir"]) / ".rebrew" / "name-map-cover.json"
-    payload = {
-        "version": _NAME_COVER_VERSION,
-        "stamp": cover["stamp"],
-        "files": cover["files"],
-    }
-    try:
-        atomic_write_text(cache_path, json.dumps(payload, separators=(",", ":")), encoding="utf-8")
-    except OSError:
-        return
-    cover["dirty"] = False
+    """Write the cover for the next process. A failure leaves the scan result.
+
+    The whole snapshot-and-write runs under the record lock: a remember that
+    lands between the payload build and ``dirty = False`` would otherwise be
+    dropped from the file and marked clean, so the next process re-parses a
+    file this one already did.
+    """
+    with cover["lock"]:
+        if not cover.get("dirty"):
+            return
+        cache_path = Path(cover["dir"]) / ".rebrew" / "name-map-cover.json"
+        payload = {
+            "version": _NAME_COVER_VERSION,
+            "stamp": cover["stamp"],
+            "files": cover["files"],
+        }
+        try:
+            atomic_write_text(
+                cache_path, json.dumps(payload, separators=(",", ":")), encoding="utf-8"
+            )
+        except OSError:
+            return
+        cover["dirty"] = False
 
 
 # Bump when the recorded fact shape or the parser inputs change.
@@ -570,6 +590,7 @@ def _begin_role_cache(metadata_dir: Path, cfg: ProjectConfig | None) -> dict[str
         "version": _ROLE_FACT_VERSION,
         "files": files,
         "dirty": False,
+        "lock": threading.Lock(),
     }
     with _ROLE_FACT_CACHE_LOCK:
         if len(_ROLE_FACT_CACHE) >= _ROLE_FACT_CACHE_MAX and key not in _ROLE_FACT_CACHE:
@@ -582,11 +603,12 @@ def _role_cache_facts(cache: dict[str, Any], cfile: Path) -> dict[str, Any] | No
     stamp = _source_stamp(cfile)
     if stamp is None:
         return None
-    record = cache["files"].get(_path_key(cfile))
-    if not isinstance(record, dict) or record.get("stamp") != stamp:
-        return None
-    facts = record.get("facts")
-    return facts if isinstance(facts, dict) else None
+    with cache["lock"]:
+        record = cache["files"].get(_path_key(cfile))
+        if not isinstance(record, dict) or record.get("stamp") != stamp:
+            return None
+        facts = record.get("facts")
+        return facts if isinstance(facts, dict) else None
 
 
 def _restore_roles(
@@ -608,33 +630,41 @@ def _role_cache_remember(cache: dict[str, Any], cfile: Path, facts: dict[str, An
     if stamp is None or not _usable_role_facts(facts):
         return
     key = _path_key(cfile)
-    current = cache["files"].get(key)
-    if (
-        isinstance(current, dict)
-        and current.get("stamp") == stamp
-        and current.get("facts") == facts
-    ):
-        return
-    cache["files"][key] = {"stamp": stamp, "facts": facts}
-    cache["dirty"] = True
+    with cache["lock"]:
+        current = cache["files"].get(key)
+        if (
+            isinstance(current, dict)
+            and current.get("stamp") == stamp
+            and current.get("facts") == facts
+        ):
+            return
+        cache["files"][key] = {"stamp": stamp, "facts": facts}
+        cache["dirty"] = True
 
 
 def _flush_role_cache(cache: dict[str, Any]) -> None:
-    """Write role facts for the next process. A failure leaves this scan's result."""
-    if not cache.get("dirty"):
-        return
-    cache_path = Path(cache["dir"]) / ".rebrew" / "data-scan-roles.json"
-    payload = {
-        "version": cache["version"],
-        "stamp": cache["stamp"],
-        "identity": cache["identity"],
-        "files": cache["files"],
-    }
-    try:
-        atomic_write_text(cache_path, json.dumps(payload, separators=(",", ":")), encoding="utf-8")
-    except OSError:
-        return
-    cache["dirty"] = False
+    """Write role facts for the next process. A failure leaves this scan's result.
+
+    Snapshot and write share the record lock so a remember that lands during
+    the write cannot be marked clean without reaching the file.
+    """
+    with cache["lock"]:
+        if not cache.get("dirty"):
+            return
+        cache_path = Path(cache["dir"]) / ".rebrew" / "data-scan-roles.json"
+        payload = {
+            "version": cache["version"],
+            "stamp": cache["stamp"],
+            "identity": cache["identity"],
+            "files": cache["files"],
+        }
+        try:
+            atomic_write_text(
+                cache_path, json.dumps(payload, separators=(",", ":")), encoding="utf-8"
+            )
+        except OSError:
+            return
+        cache["dirty"] = False
 
 
 def _collect_scan_file_facts(

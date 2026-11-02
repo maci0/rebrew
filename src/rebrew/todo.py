@@ -1100,7 +1100,15 @@ def _begin_extern_cache(directory: Path) -> dict[str, Any]:
                 parsed = _extern_entry(raw)
                 if isinstance(path_key, str) and parsed is not None:
                     files[path_key] = parsed
-    record: dict[str, Any] = {"dir": directory, "files": files, "dirty": False}
+    # One lock per record: concurrent batch callers share this object, and its
+    # file map is mutated by a scan while its flush serializes it.  The outer
+    # dict lock only guards the bounded insert.
+    record: dict[str, Any] = {
+        "dir": directory,
+        "files": files,
+        "dirty": False,
+        "lock": threading.Lock(),
+    }
     with _EXTERN_CACHE_LOCK:
         if len(_EXTERN_CACHE) >= _EXTERN_CACHE_MAX and key not in _EXTERN_CACHE:
             _EXTERN_CACHE.pop(next(iter(_EXTERN_CACHE)), None)
@@ -1108,23 +1116,38 @@ def _begin_extern_cache(directory: Path) -> dict[str, Any]:
     return record
 
 
+def _extern_cache_remember(
+    cache: dict[str, Any], path: Path, stamp: list[int], names: list[str]
+) -> None:
+    """Record one source's extern names under the record lock."""
+    key = _extern_path_key(path)
+    with cache["lock"]:
+        cache["files"][key] = {"stamp": stamp, "names": names}
+        cache["dirty"] = True
+
+
 def _flush_extern_cache(cache: dict[str, Any]) -> None:
-    """Write extern names for the next process. A failure leaves the counts."""
-    if not cache.get("dirty"):
-        return
-    cache_path = Path(cache["dir"]) / ".rebrew" / "extern-names.json"
-    try:
-        atomic_write_text(
-            cache_path,
-            json.dumps(
-                {"version": _EXTERN_CACHE_VERSION, "files": cache["files"]},
-                separators=(",", ":"),
-            ),
-            encoding="utf-8",
-        )
-    except OSError:
-        return
-    cache["dirty"] = False
+    """Write extern names for the next process. A failure leaves the counts.
+
+    Snapshot and write share the record lock so a remember that lands during
+    the write cannot be marked clean without reaching the file.
+    """
+    with cache["lock"]:
+        if not cache.get("dirty"):
+            return
+        cache_path = Path(cache["dir"]) / ".rebrew" / "extern-names.json"
+        try:
+            atomic_write_text(
+                cache_path,
+                json.dumps(
+                    {"version": _EXTERN_CACHE_VERSION, "files": cache["files"]},
+                    separators=(",", ":"),
+                ),
+                encoding="utf-8",
+            )
+        except OSError:
+            return
+        cache["dirty"] = False
 
 
 def _caller_counts(
@@ -1162,7 +1185,8 @@ def _caller_counts(
     for path in files:
         key = _extern_path_key(path)
         stamp = _extern_source_stamp(path)
-        entry = cache["files"].get(key)
+        with cache["lock"]:
+            entry = cache["files"].get(key)
         if stamp is not None and entry is not None and entry["stamp"] == stamp:
             names = entry["names"]
         else:
@@ -1175,8 +1199,7 @@ def _caller_counts(
                 continue
             names = [] if "extern" not in text else find_extern_function_names(text)
             if stamp is not None:
-                cache["files"][key] = {"stamp": stamp, "names": names}
-                cache["dirty"] = True
+                _extern_cache_remember(cache, path, stamp, names)
         if matched_files and _display_path(path, base, base_text) in matched_files:
             continue
         for callee in names:

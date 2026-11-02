@@ -250,6 +250,55 @@ class TestCallerCounts:
         assert str(directories[0]) not in todo._EXTERN_CACHE
         assert str(directories[-1]) in todo._EXTERN_CACHE
 
+    def test_extern_cache_flush_serializes_a_concurrent_remember(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """A flush must not mark a remember clean before it reaches the file."""
+        import threading
+
+        from thread_util import join_all
+
+        import rebrew.todo as todo
+
+        first = tmp_path / "a.c"
+        first.write_text("extern int f(void);\n")
+        second = tmp_path / "b.c"
+        second.write_text("extern int g(void);\n")
+        todo._EXTERN_CACHE.clear()
+        cache = todo._begin_extern_cache(tmp_path)
+        first_stamp = todo._extern_source_stamp(first)
+        second_stamp = todo._extern_source_stamp(second)
+        assert first_stamp is not None and second_stamp is not None
+        todo._extern_cache_remember(cache, first, first_stamp, ["f"])
+
+        writing = threading.Event()
+        release = threading.Event()
+        real_write = todo.atomic_write_text
+
+        def _blocking_write(path, text, **kwargs):
+            writing.set()
+            assert release.wait(10.0), "test never released the extern write"
+            return real_write(path, text, **kwargs)
+
+        monkeypatch.setattr(todo, "atomic_write_text", _blocking_write)
+        flush = threading.Thread(target=todo._flush_extern_cache, args=(cache,))
+        flush.start()
+        assert writing.wait(10.0), "flush never reached the write"
+
+        remembered = threading.Event()
+
+        def _remember() -> None:
+            todo._extern_cache_remember(cache, second, second_stamp, ["g"])
+            remembered.set()
+
+        remember = threading.Thread(target=_remember)
+        remember.start()
+        assert not remembered.wait(0.2), "remember ran inside the flush window"
+        release.set()
+        join_all([flush, remember])
+        assert remembered.is_set()
+        assert cache["dirty"] is True
+
     def test_unversioned_extern_cache_is_ignored(self, tmp_path: Path) -> None:
         """A sidecar written by older parser semantics must not answer lookups."""
         import json

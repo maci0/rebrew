@@ -301,6 +301,59 @@ def test_data_scan_caches_are_bounded(tmp_path: Path) -> None:
     assert str(roots[-1].resolve()) in data_scan._NAME_COVER_CACHE
 
 
+def test_name_cover_flush_serializes_a_concurrent_remember(tmp_path: Path, monkeypatch) -> None:
+    """A flush must not mark a remember clean before it reaches the file.
+
+    Concurrent scans of one metadata root share the record, and the flush used
+    to build its payload and clear ``dirty`` outside any per-record section: a
+    remember landing in that window was dropped from the file and never
+    written, so the next process re-parsed the file this one had already done.
+    """
+    import threading
+
+    from thread_util import join_all
+
+    import rebrew.data_scan as data_scan
+
+    first = tmp_path / "a.c"
+    first.write_text("int first;\n")
+    second = tmp_path / "b.c"
+    second.write_text("int second;\n")
+    data_scan._NAME_COVER_CACHE.clear()
+    cover = data_scan._begin_name_cover(tmp_path)
+    data_scan._name_cover_remember(cover, first)
+
+    writing = threading.Event()
+    release = threading.Event()
+    real_write = data_scan.atomic_write_text
+
+    def _blocking_write(path, text, **kwargs):
+        writing.set()
+        assert release.wait(10.0), "test never released the cover write"
+        return real_write(path, text, **kwargs)
+
+    monkeypatch.setattr(data_scan, "atomic_write_text", _blocking_write)
+    flush = threading.Thread(target=data_scan._flush_name_cover, args=(cover,))
+    flush.start()
+    assert writing.wait(10.0), "flush never reached the write"
+
+    remembered = threading.Event()
+
+    def _remember() -> None:
+        data_scan._name_cover_remember(cover, second)
+        remembered.set()
+
+    remember = threading.Thread(target=_remember)
+    remember.start()
+    # The record lock makes the remember wait for the flush.  Without it the
+    # remember lands mid-write and the flush then clears dirty over it.
+    assert not remembered.wait(0.2), "remember ran inside the flush window"
+    release.set()
+    join_all([flush, remember])
+    assert remembered.is_set()
+    assert cover["dirty"] is True
+
+
 def test_unversioned_name_cover_is_ignored(tmp_path: Path) -> None:
     """A cover written by older coverage semantics must not skip a source."""
     import json
