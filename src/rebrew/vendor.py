@@ -37,6 +37,12 @@ class Manifest:
 
 
 def load_manifest(root: Path, path: Path) -> Manifest:
+    """Load and validate a vendored-tree manifest under *root*.
+
+    Every referenced path is resolved through ``_inside``, so a manifest entry
+    cannot escape *root*; the file list must be non-empty and free of
+    duplicates.  Raises :class:`VendorError` on any violation.
+    """
     path = _inside(root, path)
     with path.open("rb") as handle:
         data = tomllib.load(handle)
@@ -164,6 +170,7 @@ def stage(manifest: Manifest, stage_root: Path) -> Path:
 
 
 def output_files(manifest: Manifest) -> set[str]:
+    """Relative files currently present under the manifest's output tree."""
     if manifest.output.exists() and not manifest.output.is_dir():
         raise VendorError(f"{manifest.output}: output must be a directory")
     if not manifest.output.is_dir():
@@ -176,6 +183,11 @@ def output_files(manifest: Manifest) -> set[str]:
 
 
 def check(manifest: Manifest, staged: Path) -> None:
+    """Raise :class:`VendorError` unless the output tree equals *staged*.
+
+    *staged* is a directory holding the pristine files with every patch
+    applied; missing, extra, and differing output files are reported together.
+    """
     present = output_files(manifest)
     errors = [
         f"{manifest.output.name}/{name}: missing" for name in manifest.files if name not in present
@@ -196,6 +208,11 @@ def check(manifest: Manifest, staged: Path) -> None:
 
 
 def sync(manifest: Manifest, staged: Path) -> None:
+    """Make the output tree exactly the files in *staged*.
+
+    Files no longer listed are removed, empty directories are pruned, and every
+    expected file is written atomically from *staged*.
+    """
     for name in sorted(output_files(manifest) - set(manifest.files)):
         (manifest.output / name).unlink()
     for directory in sorted(manifest.output.rglob("*"), reverse=True):

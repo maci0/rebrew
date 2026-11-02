@@ -84,8 +84,9 @@ rebrew export decompme <file>.c                # uploads the function + context 
 third-party site. Run it only when the user asks for a decomp.me scratch, and
 `--dry-run` first if they have not said where the source may go.
 
-`rebrew verify --compare` uses `.rebrew/verify_baseline.toml` (exit 1 on
-regression). First run warns and skips the diff.
+`rebrew verify --compare` uses the selected baseline (`.rebrew/verify_baseline.toml`,
+or the per-target file under `.rebrew/targets/`; exit 1 on regression). First run
+warns and skips the diff.
 
 Local dashboards read canonical project metadata, inventory and binaries directly.
 Run `rebrew coverage serve` or `recoverage serve` inside the project; there is no

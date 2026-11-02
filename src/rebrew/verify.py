@@ -11,8 +11,9 @@ PROVEN function gets the byte verdict like any other: PROVEN is not a
 byte match and is not protected from demotion.
 
 With ``--compare`` it compares the current run against the last good
-baseline (``.rebrew/verify_baseline.toml``) and exits with code 1 on any
-regression (suitable for CI / pre-commit hooks).
+baseline (``.rebrew/verify_baseline.toml``, or the per-target file under
+``.rebrew/targets/``) and exits with code 1 on any regression (suitable for
+CI / pre-commit hooks).
 """
 
 import functools

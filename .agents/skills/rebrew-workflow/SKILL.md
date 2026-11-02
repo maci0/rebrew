@@ -223,7 +223,7 @@ For splitting/merging and call graphs, read `references/file-organization.md`.
 ## 6. Verify and Track Progress
 
 `rebrew doctor` for health, `rebrew verify --compare` as the CI regression gate
-against `.rebrew/verify_baseline.toml`, `rebrew lint --json` (with `--fix` to
+against `.rebrew/verify_baseline.toml` (or its per-target copy), `rebrew lint --json` (with `--fix` to
 reject forbidden inline metadata). Full flag set, `rebrew orphans`, `rebrew types`,
 and `rebrew build check-text-placement`, live coverage, optional snapshot export,
 and decomp.me: `references/verify-and-progress.md`.

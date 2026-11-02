@@ -66,6 +66,17 @@ def struct_definition_names(source: str) -> set[str]:
 
 
 def validate_type_document(doc: Any) -> list[dict[str, Any]]:
+    """Validate a parsed ``rebrew-types.toml`` document and flatten its rows.
+
+    *doc* must be exactly ``{"format": 1, "types": {...}}``.  Module names must
+    already be in ``preset_module_key`` form, every row carries the complete
+    field set (a contained ``.c``/``.h`` file, a C-identifier symbol, positive
+    ``size`` within ``native_size``, an ``allocation``/``stride`` extent,
+    non-empty evidence, offsets inside the C view, and SHA-256 hashes), and one
+    ``(module, file, symbol)`` binding cannot belong to two type identities.
+    Returns one row per type/module pair with the identity under ``"id"``, or
+    raises ``ValueError`` for the first violation.
+    """
     if (
         set(doc) != {"format", "types"}
         or not isinstance(doc["format"], int)

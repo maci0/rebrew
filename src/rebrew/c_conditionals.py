@@ -27,6 +27,12 @@ class _Frame:
 
 @dataclass
 class ConditionalFragment:
+    """A conditional region whose branches end at the same brace depth.
+
+    ``start``/``end`` span the whole region; ``branches`` and ``directives``
+    hold half-open ``(start, end)`` byte ranges in the original source.
+    """
+
     start: int
     end: int
     branches: list[tuple[int, int]]

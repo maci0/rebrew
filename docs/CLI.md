@@ -361,7 +361,7 @@ graph TD
     Classify -->|EXACT / RELOC| Pass[pass · STATUS promoted]
     Classify -->|NEAR_MATCHING| NM[near-match · STATUS kept]
     Classify -->|MISMATCH / COMPILE_ERROR| Fail[fail · STATUS demoted]
-    Pass --> Report[aggregate report<br/>--json · --output file (baseline: .rebrew/verify_baseline.toml)]
+    Pass --> Report[aggregate report<br/>--json · --output file (baseline beside the selected verify cache)]
     NM --> Report
     Fail --> Report
     Report -->|--data| Data[byte-compare built<br/>.data/.rdata per symbol]

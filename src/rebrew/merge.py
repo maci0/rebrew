@@ -4,7 +4,7 @@ Combines multiple annotated source files into a single compilation unit,
 deduplicating preamble lines and sorting function blocks by virtual address.
 
 With ``--shared``, twin files (same body, different target modules — the
-per-target copies ``source import-related`` used to make) collapse into one
+per-target copies ``source import-related`` makes) collapse into one
 stacked block per body (one ``/* ADDRESS: <module> <va> */`` anchor per
 target, ADR-022): the migration path from N copies to one shared file.  Bodies
 that differ between targets are refused, never averaged.

@@ -53,8 +53,9 @@ CACHE_VERSION = 2
 #: cannot keep serving the previous document.
 _VERIFY_JSON_VERSION = 2
 
-#: The verify cache, beside the coverage documents.  One clear-text TOML file
-#: like every other rebrew store: `.rebrew/verify_cache.toml`.
+#: The verify cache's canonical filename.  It sits beside the coverage
+#: documents, either root-scoped (`.rebrew/verify_cache.toml`) or under
+#: `.rebrew/targets/<sha256>/` once the project keeps per-target state.
 CACHE_FILENAME = "verify_cache.toml"
 
 
@@ -388,7 +389,7 @@ def _decode_nulls(document: dict[str, Any]) -> dict[str, Any]:
 
 
 #: Stat-keyed memo of the raw verify-cache document: status and todo both
-#: decode ``.rebrew/verify_cache.toml`` every run — sometimes twice per command —
+#: decode the selected verify cache every run — sometimes twice per command —
 #: and the decode is linear in cache size.  At most one entry per path: a
 #: rewrite changes mtime, size, inode, or change time, and keeping the old key
 #: would retain the previous full JSON payload for the process lifetime.  Cap
@@ -748,10 +749,11 @@ def order_result_row(row: dict[str, Any]) -> dict[str, Any]:
     One key order for a report row however it was produced.  A fresh compile
     builds its row with whatever literal order the verify loop reads
     naturally, while a cache hit rebuilds it from the entry's field order; the
-    two orders differ, so the same verdict serialized to
-    ``.rebrew/verify_baseline.toml`` (and to ``verify --output``) changed bytes
-    on the first cache-served run even though nothing about the result had.
-    Ordering both paths here keeps a second run byte-identical to the first.
+    two orders differ, so the same verdict serialized to the selected baseline
+    (``.rebrew/verify_baseline.toml``, or its per-target file) and to
+    ``verify --output`` changed bytes on the first cache-served run even though
+    nothing about the result had.  Ordering both paths here keeps a second run
+    byte-identical to the first.
     """
     return {
         k: row[k]

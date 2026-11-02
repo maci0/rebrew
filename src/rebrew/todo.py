@@ -1713,7 +1713,8 @@ _EPILOG = (
     "  start-data · · · · · ·  Data symbol never verified. Run `rebrew verify --data`\n\n"
     "  exact-only · · · · · ·  RELOC matches: identical only with relocations masked, not straight out of the toolchain\n\n"
     "  postlink-mangled · · ·  Functions whose shipped bytes a postlink fixer rewrote (needs `raw_link` configured)\n\n"
-    "[dim]Reads from function_structure.json, source files, and .rebrew/verify_cache.toml.[/dim]"
+    "[dim]Reads from function_structure.json, source files, and the selected verify cache "
+    "(.rebrew/verify_cache.toml, or its per-target file under .rebrew/targets/).[/dim]"
 )
 
 #: Title letters. These five stay visible at zero; every other status is

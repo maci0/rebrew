@@ -177,8 +177,11 @@ document never holds a function no reader can key.
 | `reg_delta` | integer or `""` | Register-encoding-only differing instructions; `""` when the cache has no value. |
 | `effective_match` | `0` / `1` or `""` | `1` when the whole byte delta is register allocation. |
 
-The rows come from `.rebrew/verify_cache.toml`, imported by `rebrew coverage export --output snapshots/`;
-`rebrew verify` writes no document.  A cache that says nothing about the target
+The rows come from the selected verify cache (`.rebrew/verify_cache.toml`, or
+`.rebrew/targets/<sha256-of-exact-target-name>/verify_cache.toml` once the
+project keeps per-target verification state), imported by `rebrew coverage export --output snapshots/`;
+`rebrew verify` writes no coverage document (only its `--output` JSON report).
+A cache that says nothing about the target
 keeps the document's previous rows, and a row whose measurements did not move
 keeps its earlier `verified_at`: a rebuild re-measures the same verdicts, and
 the cache file's own mtime is not when a verdict was first measured.
