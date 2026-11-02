@@ -3369,29 +3369,47 @@ def _looks_like_inventory_merge(binary: bytes, start_off: int, ann_size: int, sp
     # cm_ExTransferCurrencyNoKill's ret is at +141 against an annotated 144.  Start
     # the scan below the annotation size or every merge is missed.
     lo, hi = start_off + max(0, ann_size - 16), start_off + span
-    # ONE source of truth for what opens a function.  This detector used to carry
-    # its own four shapes while `discover._function_start` grew to eight, so the
-    # two disagreed about the same bytes, and this one missed cm_DispatchProduction's
-    # neighbour (`8b 44 24 04`, a first-argument load).  `openers` is kept as a
-    # fallback only for callers without a loader handle.
+    # The prologue shapes `discover._function_start` accepts, repeated here
+    # because this detector scans raw bytes and has no loader handle to call it.
+    # Keep the two lists in step: they are tested against the same bytes, and a
+    # shape missing here reads an inventory merge as a truncated annotation, so
+    # the work it flags is reversed instead of repaired.
     openers = (
         b"\x55\x8b\xec",  # push ebp; mov ebp, esp
         b"\x81\xec",  # sub esp, imm32
         b"\x83\xec",  # sub esp, imm8
         b"\x6a\xff\x68",  # push -1; push <seh>
+        b"\x64\xa1\x00\x00\x00\x00",  # mov eax, fs:[0]
         b"\xa1",  # mov eax, [<global>]
         b"\x8b\x44\x24\x04",  # mov eax, [esp+4]
         b"\x8b\x4c\x24\x04",  # mov ecx, [esp+4]
     )
+
+    def opens_at(j: int) -> bool:
+        """Whether *j* starts one of the openers above or its generated form."""
+        if any(binary.startswith(op, j) for op in openers):
+            return True
+        if binary.startswith(b"\xb8", j) and j + 5 < len(binary) and binary[j + 5] == 0xC3:
+            return True
+        # `push <reg>` then the same register loaded from `[esp+disp]`; the
+        # register varies, so this form is generated rather than listed.
+        return (
+            j + 4 <= len(binary)
+            and 0x50 <= binary[j] <= 0x57  # push eax..edi
+            and binary[j + 1] == 0x8B  # mov r32, r/m32
+            and binary[j + 3] == 0x24  # SIB: [esp+disp8]
+            and (binary[j + 2] & 0xC0) == 0x40  # mod=01 -> [esp+disp8]
+            and (binary[j + 2] & 0x07) == 0x04  # rm=100 -> SIB follows
+            and ((binary[j + 2] >> 3) & 7) == (binary[j] - 0x50)  # same register
+        )
+
     for i in range(lo, min(hi, len(binary)) - 8):
         if binary[i] != 0xC3:  # ret
             continue
         for j in range(i + 1, min(i + 13, len(binary) - 4)):
             if binary[j] == 0x90:  # skip the alignment nops
                 continue
-            if any(binary.startswith(op, j) for op in openers) or (
-                binary.startswith(b"\xb8", j) and j + 5 < len(binary) and binary[j + 5] == 0xC3
-            ):
+            if opens_at(j):
                 return True
             break
     # And the simplest case of all, which the loop above cannot reach: the
@@ -3406,9 +3424,7 @@ def _looks_like_inventory_merge(binary: bytes, start_off: int, ann_size: int, sp
         j = end
         while j < len(binary) and binary[j] in (0x90, 0xCC):
             j += 1
-        if any(binary.startswith(op, j) for op in openers) or (
-            binary.startswith(b"\xb8", j) and j + 5 < len(binary) and binary[j + 5] == 0xC3
-        ):
+        if opens_at(j):
             return True
     return False
 

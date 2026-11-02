@@ -2722,3 +2722,23 @@ class TestLibraryAttributedPasses:
         )
         assert report["summary"]["library_passed"] == 22
         assert report["summary"]["library_total"] == 22
+
+
+class TestInventoryMergeOpeners:
+    """Every prologue shape discover knows about also ends a merge scan."""
+
+    @staticmethod
+    def _after_ret(opener: bytes) -> bytes:
+        return b"\xc3" + b"\x90" * 3 + opener + b"\x00" * 16
+
+    def test_seh_fs0_opener(self) -> None:
+        from rebrew.verify import _looks_like_inventory_merge
+
+        probe = self._after_ret(b"\x64\xa1\x00\x00\x00\x00")
+        assert _looks_like_inventory_merge(probe, 0, 1, len(probe))
+
+    def test_register_save_opener(self) -> None:
+        from rebrew.verify import _looks_like_inventory_merge
+
+        probe = self._after_ret(b"\x57\x8b\x7c\x24\x08")  # push edi; mov edi,[esp+8]
+        assert _looks_like_inventory_merge(probe, 0, 1, len(probe))

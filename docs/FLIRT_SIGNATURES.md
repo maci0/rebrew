@@ -10,8 +10,10 @@ known library functions inside a binary by matching byte patterns. When you matc
 a function to a FLIRT signature you get a **free win**: the function can be
 attributed to a specific library (CRT, zlib, Lua, etc.) without manual RE.
 
-Rebrew uses the [`python-flirt`](https://pypi.org/project/python-flirt/) library
-to load and match `.sig` / `.pat` files entirely offline.
+Rebrew uses the maintained [`python-flirt` binding](https://github.com/maci0/lancelot/releases/tag/python-flirt-v0.10.2-relumea.1)
+to load and match `.sig` / `.pat` files entirely offline. That binding is a
+direct source dependency of Rebrew, not the PyPI package of the same name;
+the import name is still `flirt`.
 
 ## Supported Formats
 
@@ -278,6 +280,6 @@ your-project/
 |---------|-------|-----|
 | No matches found | Wrong compiler version or optimization flags | Generate sigs from the exact library version linked into the binary |
 | Too many ambiguous matches | Overly broad signature database | Use `--min-size 32` to skip tiny functions, or use more targeted `.pat` files |
-| `flirt` module not found | Missing dependency | Run `uv sync` to install `python-flirt` |
+| `flirt` module not found | Dependency missing from the environment | Reinstall Rebrew, or run `make setup` in a checkout; the maintained binding comes from its pinned release archive, not PyPI |
 | `.sig` file won't load | Incompatible format or corrupt file | Try the `.pat` equivalent; `python-flirt` supports both but older `.sig` versions may fail |
-| Functions not detected at expected VAs | Binary may not be 16-byte aligned | The scanner uses 16-byte stride by default; some functions may start at odd alignments |
+| Functions not detected at expected VAs | Probes advance by 16 bytes on x86 or an unknown arch, 2 on SH2, and 4 on the other listed RISC arches | An x86 function that starts off that stride is skipped; recheck the function start before regenerating signatures |

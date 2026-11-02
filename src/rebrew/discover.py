@@ -625,8 +625,9 @@ def _function_start(info: Any, va: int) -> int | None:
     while i < len(window) and window[i] in (0x90, 0xCC):
         i += 1
     body = window[i:]
-    # One source of truth for what opens a function; `verify._looks_like_inventory_merge`
-    # mirrors this list, so the two agree about the same bytes.
+    # Prologue shapes a function can open with. `verify._looks_like_inventory_merge`
+    # repeats this list for raw bytes with no loader handle; keep the two in step
+    # so they agree about the same bytes.
     if body.startswith(
         (
             b"\x55\x8b\xec",  # push ebp; mov ebp, esp
@@ -708,8 +709,9 @@ def _validate_and_refine(
         # first ret and, past it, the first ret that a real prologue follows.
         # Only the second ends a function; treating the first as the end truncates
         # every function with an early return, and treating the gap as the end
-        # swallows the next function.  `_looks_like_inventory_merge`
-        # in verify.py scans the same way, so the two agree on what a merge is.
+        # swallows the next function.  `_looks_like_inventory_merge` in
+        # verify.py scans for the same openers, so the two agree on what a
+        # merge is.
         ret_end = None
         boundary_end = None
         boundary_start = None
