@@ -57,6 +57,7 @@ lazy from rebrew.split import (
     span_extent,
 )
 lazy from rebrew.utils import (
+    atomic_write_bytes,
     atomic_write_text,
     preset_module_key,
     read_source_text,
@@ -928,7 +929,9 @@ def _rollback_output(output_path: Path, previous: bytes | None) -> None:
     if previous is None:
         output_path.unlink(missing_ok=True)
     else:
-        output_path.write_bytes(previous)
+        # Restore atomically so a concurrent reader never sees a half-written
+        # merge output and a crash cannot truncate the previous file.
+        atomic_write_bytes(output_path, previous)
 
 
 def _retarget_rows(

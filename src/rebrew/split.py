@@ -54,6 +54,7 @@ lazy from rebrew.sources import (
     source_exts,
 )
 lazy from rebrew.utils import (
+    atomic_write_bytes,
     atomic_write_text,
     preset_module_key,
     read_source_text,
@@ -777,7 +778,9 @@ def _split_definitions(
         except Exception as exc:
             if bak_created:
                 bak_path.unlink(missing_ok=True)
-            source_path.write_bytes(source_bytes)
+            # Restore atomically: the source is read by other commands while
+            # this runs, and a crash mid-restore must not leave it truncated.
+            atomic_write_bytes(source_path, source_bytes)
             for path in created:
                 path.unlink(missing_ok=True)
             error_exit(

@@ -287,7 +287,12 @@ def symbolize_file(
     text, declared = declare_externs(text, declare) if declare else (text, [])
     changed = sum(row["count"] for row in rewrites)
     if not dry_run and (changed or declared):
-        source.write_text(text, encoding="utf-8", errors="surrogateescape")
+        # Publish atomically: a concurrent `verify --watch` (or any source
+        # scan) reading this file mid-rewrite would otherwise see a truncated
+        # body and cache verdicts for bytes that never matched.
+        from rebrew.utils import atomic_write_text
+
+        atomic_write_text(source, text, encoding="utf-8", errors="surrogateescape")
     return {
         "file": rel_display_path(source, cfg.root),
         "dry_run": dry_run,
