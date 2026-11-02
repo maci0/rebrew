@@ -528,10 +528,8 @@ def _collect_active_functions(
             desc = f"{calc_delta}B diff — try flag sweep, GA, or padding adjustments"
             score = calculate_roi(size, v_match, calc_delta)
             # A near-diag STRUCTURAL verdict means the diff is control-flow
-            # layout, not a flag/padding quick-win — demote it so the item is
-            # not offered as one (regression: smygb's 0x00404a90 stayed a
-            # "20B diff — try flag sweep" item after the sweep already ran
-            # and near-diag classified it STRUCTURAL).
+            # layout, not a flag/padding quick-win, so demote it rather than
+            # offering it as one.
             if "STRUCTURAL" in blocker:
                 category = CAT_IMPROVE_MATCH
                 desc = f"Needs implementation/fixing — Blocked: {blocker[:70]}"

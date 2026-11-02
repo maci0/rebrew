@@ -141,8 +141,7 @@ def parse_obj_symbol_and_relocs(
             # sections (requires the fixed objconv; the stock build errors
             # and the parse yields None, surfacing as a failed match).
         # Convert via objconv into a TemporaryDirectory so the .coff is
-        # cleaned up (the old NamedTemporaryFile(delete=False) leaked one
-        # /tmp file per OMF compile — every flag-sweep iteration).
+        # cleaned up after each OMF compile.
         import tempfile
 
         with tempfile.TemporaryDirectory(prefix="omfcoff-") as td:

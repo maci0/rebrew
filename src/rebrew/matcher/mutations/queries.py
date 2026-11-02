@@ -483,8 +483,8 @@ _QUERY_CMP_BOUNDARY = _LazyQuery(
 )
 
 # ``mut_return_to_goto`` rewrites the matched statement to ``goto ret_false;``
-# and the label's tail to ``return 0;``, so a non-zero ``0x…`` literal matched
-# by the old unanchored ``^0`` silently changed the returned value.
+# and the label's tail to ``return 0;``, so only the exact zero literal can
+# match: a non-zero ``0x…`` would silently change the returned value.
 _QUERY_RETURN_FALSE = _LazyQuery(
     C_LANGUAGE,
     f"""

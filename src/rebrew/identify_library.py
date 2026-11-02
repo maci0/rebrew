@@ -585,10 +585,7 @@ def main(
 
     fresh = [c for c in candidates if c.va not in existing]
 
-    # `--json` changes only the output ENCODING — it must still write.  The old
-    # `if dry_run or json_output: ... return` skipped write_candidates, so
-    # `identify-library --json` advertised N writes and performed none while
-    # the sibling `crt-match --fix-source --all --json` does write.
+    # `--json` changes only the output ENCODING: it must still write.
     written = 0
     if not dry_run:
         written = write_candidates(cfg, candidates, existing)
