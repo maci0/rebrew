@@ -52,6 +52,12 @@ def _text_pe(body: bytes, raw_ptr: int = 0x200, raw_size: int | None = None) -> 
     )
 
 
+def _text_image(body: bytes) -> bytes:
+    """A minimal PE whose .text raw bytes are *body*."""
+    image = _text_pe(body)
+    return image[:0x200] + body + image[0x200 + len(body) :]
+
+
 def _mutate(blob: bytes, noise: bytes) -> bytes:
     data = bytearray(blob)
     for index, value in enumerate(noise):
@@ -165,6 +171,51 @@ def test_residue_report_stops_at_the_raw_size_not_the_virtual_size() -> None:
     assert report["text_size"] == 0x10
     assert report["text_differing"] == 0
     assert report["text_percent"] == 0.0
+
+
+def test_residue_report_attributes_each_diff_to_one_function() -> None:
+    """Residue rows cover the whole .text once, in address order.
+
+    The extents run to the next function, so a diff past a body's size still
+    belongs to it; a diff past the last function is reported as outside.
+    *bad* arrives in metadata order, not address order.
+    """
+    body = b"\xaa" * 0x40
+    changed = bytearray(body)
+    for offset in (0x05, 0x15, 0x25, 0x35):
+        changed[offset] = 0x55
+    reference = _text_image(body)
+    built = _text_image(bytes(changed))
+    bad = [(0x20, 0x10, "c"), (0x00, 0x10, "a"), (0x10, 0x10, "b")]
+
+    report = residue_report(built, reference, bad, 0)
+
+    assert report["text_differing"] == 4
+    assert report["inside_nonmatching"] == 3
+    assert report["outside"] == 1
+    rows = {row["name"]: row for row in report["functions"]}
+    assert rows["a"]["bytes"] == 1
+    assert rows["b"]["bytes"] == 1
+    assert rows["c"]["bytes"] == 1
+    assert rows["a"]["first_diff_va"] == hex(0x1005)
+    assert rows["<outside the non-matching functions>"]["first_diff_va"] == hex(0x1035)
+    assert sum(row["bytes"] for row in report["functions"]) == report["text_differing"]
+
+
+def test_residue_report_extends_an_extent_past_its_size() -> None:
+    """A body's jump table sits past its size but before the next function."""
+    body = b"\xaa" * 0x20
+    changed = bytearray(body)
+    changed[0x0C] = 0x55
+    bad = [(0x00, 0x08, "a"), (0x10, 0x10, "b")]
+
+    report = residue_report(_text_image(bytes(changed)), _text_image(body), bad, 0)
+
+    assert report["inside_nonmatching"] == 1
+    assert report["outside"] == 0
+    assert report["functions"] == [
+        {"name": "a", "bytes": 1, "first_diff_va": hex(0x100C)},
+    ]
 
 
 def test_layout_map_gate_reports_unmeasured_for_an_empty_map() -> None:

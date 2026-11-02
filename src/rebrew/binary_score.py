@@ -45,6 +45,14 @@ app = typer.Typer(
 
 _COMPARED = (".text", ".rdata", ".data", ".data1", ".rsrc")
 
+#: Windows at least this wide compare with NumPy; smaller ones stay on the
+#: plain loop, since importing NumPy costs more than it saves below ~1 MiB.
+_VECTOR_COMPARE_MIN_BYTES = 1 << 20
+
+#: One vectorized span. Keeps the two boolean temporaries bounded per worker
+#: while a whole-image pass still amortizes the array setup.
+_COMPARE_CHUNK_BYTES = 1 << 20
+
 
 def _count_window(reference: bytes, built: bytes, start: int, end: int) -> tuple[int, int, int]:
     """Same-offset (matches, informative matches, informative bytes) over ``[start, end)``.
@@ -52,17 +60,40 @@ def _count_window(reference: bytes, built: bytes, start: int, end: int) -> tuple
     A zero reference byte counts as a match only when the build is also zero;
     informative bytes are the reference's nonzero ones, which carry content.
     """
+    stop = min(end, len(reference), len(built))
+    if stop <= start:
+        return 0, 0, 0
+    if stop - start < _VECTOR_COMPARE_MIN_BYTES:
+        same = 0
+        informative_same = 0
+        informative_compared = 0
+        for i in range(start, stop):
+            if reference[i]:
+                informative_compared += 1
+                if reference[i] == built[i]:
+                    informative_same += 1
+                    same += 1
+            elif built[i] == 0:
+                same += 1
+        return same, informative_same, informative_compared
+
+    import numpy as np  # deferred: only the score command pays this import
+
     same = 0
     informative_same = 0
     informative_compared = 0
-    for i in range(start, end):
-        if reference[i]:
-            informative_compared += 1
-            if reference[i] == built[i]:
-                informative_same += 1
-                same += 1
-        elif built[i] == 0:
-            same += 1
+    for base in range(start, stop, _COMPARE_CHUNK_BYTES):
+        chunk_end = min(base + _COMPARE_CHUNK_BYTES, stop)
+        width = chunk_end - base
+        ref = np.frombuffer(reference, dtype=np.uint8, count=width, offset=base)
+        bul = np.frombuffer(built, dtype=np.uint8, count=width, offset=base)
+        # An equal pair is a match whether the reference byte is nonzero or
+        # both sides are zero, so `same` is just the equal-byte count.
+        equal = ref == bul
+        informative = ref != 0
+        same += int(np.count_nonzero(equal))
+        informative_same += int(np.count_nonzero(equal & informative))
+        informative_compared += int(np.count_nonzero(informative))
     return same, informative_same, informative_compared
 
 
@@ -79,7 +110,7 @@ def score(reference: bytes, built: bytes, reference_sections: dict[str, Any]) ->
             continue
         start = section.file_offset
         end = start + section.raw_size
-        window = min(end, len(built))
+        window = min(end, len(built), len(reference))
         same, informative_same, informative_compared = _count_window(
             reference, built, start, window
         )

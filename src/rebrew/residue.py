@@ -21,6 +21,7 @@ project config — no hardcoded ``build/split_poc.dll`` or ``0x10000000``.
 
 from __future__ import annotations
 
+lazy import bisect
 lazy import contextlib
 lazy from pathlib import Path
 lazy from typing import Any
@@ -144,26 +145,38 @@ def residue_report(
 
     # Attribute trailing tables to their owner: extend each extent to the
     # next function start (a body's jump table lives past its size).
-    starts = sorted(lo for lo, _size, _name in bad)
-    extents = []
-    for lo, size, name in bad:
-        nxt = next((s for s in starts if s > lo), None)
-        end = lo + size if nxt is None else nxt
+    ordered = sorted(bad, key=lambda row: row[0])
+    starts = [lo for lo, _size, _name in ordered]
+    extents: list[tuple[int, int, str]] = []
+    for lo, size, name in ordered:
+        if extents and lo == extents[-1][0]:
+            continue  # duplicate rows share a start; the first one owns it
+        nxt = bisect.bisect_right(starts, lo)
+        end = ordered[nxt][0] if nxt < len(starts) else lo + size
         extents.append((lo, end, name))
 
-    def owner(off: int) -> str | None:
-        for lo, end, name in extents:
-            if lo <= off < end:
-                return name
-        return None
-
+    # ``diffs`` is ascending, so each extent's share is two bisections.  The
+    # previous version scanned every extent for every differing byte, which is
+    # quadratic: a 512 KB .text with 1.5k functions and a half-byte mismatch
+    # took ~6 s just to attribute.
     counts: dict[str, int] = {}
     first: dict[str, int] = {}
-    for i in diffs:
-        key = owner(i) or "<outside the non-matching functions>"
-        counts[key] = counts.get(key, 0) + 1
-        first.setdefault(key, i)
-    outside = counts.get("<outside the non-matching functions>", 0)
+    for lo, end, name in extents:
+        left = bisect.bisect_left(diffs, lo)
+        right = bisect.bisect_left(diffs, end)
+        if right > left:
+            counts[name] = counts.get(name, 0) + (right - left)
+            first.setdefault(name, diffs[left])
+    outside = len(diffs) - sum(counts.values())
+    if outside:
+        # Extents tile [first start, last end), so residue outside them is
+        # either before the first function or after the last one.
+        if extents and bisect.bisect_left(diffs, extents[0][0]) == 0:
+            first_outside = diffs[bisect.bisect_left(diffs, extents[-1][1])]
+        else:
+            first_outside = diffs[0]
+        counts["<outside the non-matching functions>"] = outside
+        first["<outside the non-matching functions>"] = first_outside
     funcs = [
         {"name": name, "bytes": count, "first_diff_va": hex(first[name] + t_rva + image_base)}
         for name, count in sorted(counts.items(), key=lambda kv: -kv[1])

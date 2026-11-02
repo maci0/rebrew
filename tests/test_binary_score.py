@@ -64,3 +64,36 @@ def test_missing_built_image_fails_loudly(tmp_path: Path, monkeypatch: pytest.Mo
     monkeypatch.chdir(tmp_path)
     result = CliRunner().invoke(app, ["--built", "nope.exe", "--json"])
     assert result.exit_code != 0
+
+
+def test_count_window_mixed_bytes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Equal zero pairs count as matches; informative counts track nonzero reference bytes."""
+    import rebrew.binary_score as bs
+
+    monkeypatch.setattr(bs, "_VECTOR_COMPARE_MIN_BYTES", 1 << 30)
+    reference = b"\x00\x00\x01\x02"
+    built = b"\x00\x01\x01\x03"
+    assert bs._count_window(reference, built, 0, 4) == (2, 1, 2)
+    assert bs._count_window(reference, built, 2, 4) == (1, 1, 2)
+    assert bs._count_window(reference, built, 3, 2) == (0, 0, 0)
+
+
+def test_count_window_vector_path_matches_scalar(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The NumPy and plain-loop paths return identical counts on the same bytes."""
+    import rebrew.binary_score as bs
+
+    reference = bytes((i * 37 + 11) & 0xFF for i in range(4096))
+    built = bytearray(reference)
+    for i in range(0, len(built), 3):
+        built[i] ^= 0x5A
+    scalar = bs._count_window(reference, bytes(built), 0, len(built))
+    monkeypatch.setattr(bs, "_VECTOR_COMPARE_MIN_BYTES", 1)
+    assert bs._count_window(reference, bytes(built), 0, len(built)) == scalar
+
+
+def test_count_window_clips_a_window_past_the_images(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A section window reaching past either buffer stops at the common end."""
+    import rebrew.binary_score as bs
+
+    monkeypatch.setattr(bs, "_VECTOR_COMPARE_MIN_BYTES", 1 << 30)
+    assert bs._count_window(b"\x01\x02", b"\x01\x02", 0, 0x100) == (2, 2, 2)
