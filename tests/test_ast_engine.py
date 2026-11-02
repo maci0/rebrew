@@ -7,7 +7,6 @@ from tree_sitter import Node, Tree
 
 from rebrew.matcher import ast_engine
 from rebrew.matcher.ast_engine import (
-    decode_source,
     encode_source,
     parse_c_ast,
     replace_node,
@@ -89,8 +88,8 @@ class TestLegacyEncodedSource:
     def test_encode_source_restores_the_raw_byte(self) -> None:
         assert b'"Caf\xe9"' in encode_source(self.SRC)
 
-    def test_encode_decode_roundtrip_is_lossless(self) -> None:
-        assert decode_source(encode_source(self.SRC)) == self.SRC
+    def test_encode_source_roundtrips_losslessly(self) -> None:
+        assert encode_source(self.SRC).decode("utf-8", "surrogateescape") == self.SRC
 
 
 class TestParseTreeMemo:
