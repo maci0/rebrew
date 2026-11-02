@@ -15,18 +15,16 @@ lazy from rebrew.utils import detect_source_encoding
 logger = logging.getLogger(__name__)
 
 
-def _iter_definitions(
-    filepath: Path,
-    *,
-    keyword: bytes = b"struct",
-    all_type_defs: bool = False,
-    strict: bool = False,
-) -> Iterator[str]:
-    """Yield definitions of one specifier kind (``struct``/``enum``) from *filepath*.
+def _definition_blocks(
+    filepath: Path, *, strict: bool = False
+) -> Iterator[tuple[frozenset[str], str]]:
+    """Yield ``(kinds, text)`` for every type block in *filepath* in AST order.
 
-    Yields ``type_definition`` nodes whose body contains *keyword* (or every
-    typedef when ``all_type_defs``), plus bare specifier nodes with a body,
-    each extended through a following ``;``.
+    *kinds* names the extractors a block belongs to: ``struct`` for
+    :func:`extract_structs_from_file`, ``typedef`` for
+    :func:`extract_type_definitions`, and ``enum`` for
+    :func:`extract_enums_from_file`.  One walk classifies every block, so a
+    caller that needs all three views does not traverse the tree three times.
     """
     if get_ts_parser() is None:
         return
@@ -42,7 +40,6 @@ def _iter_definitions(
     encoding = detect_source_encoding(code_bytes)
     # Shared parse memo: several extractors run over the same file in one pass.
     tree, _ = parse_c_source(code_bytes)
-    specifier_type = f"{keyword.decode('ascii')}_specifier"
 
     def balanced(text: bytes) -> bool:
         """True when every ``{`` in *text* is closed.
@@ -62,20 +59,25 @@ def _iter_definitions(
         """
         return b"\x00" not in text
 
-    def walk(node: Any) -> Iterator[str]:
+    def walk(node: Any) -> Iterator[tuple[frozenset[str], str]]:
         if node.type == "type_definition":
             if node.has_error:
                 return
             text = code_bytes[node.start_byte : node.end_byte]
             if not usable(text):
                 return
-            if all_type_defs or (keyword in text and b"{" in text):
-                if b"{" in text and not balanced(text):
-                    return
-                # Match read_source_text: undefined CP1252 bytes → U+FFFD,
-                # not UnicodeDecodeError that skips the rest of the file.
-                yield text.decode(encoding, errors="replace")
-        elif node.type == specifier_type:
+            has_body = b"{" in text
+            if has_body and not balanced(text):
+                return
+            kinds = {"typedef"}
+            if has_body and b"struct" in text:
+                kinds.add("struct")
+            if has_body and b"enum" in text:
+                kinds.add("enum")
+            # Match read_source_text: undefined CP1252 bytes → U+FFFD,
+            # not UnicodeDecodeError that skips the rest of the file.
+            yield frozenset(kinds), text.decode(encoding, errors="replace")
+        elif node.type in ("struct_specifier", "enum_specifier"):
             if node.has_error:
                 return
             if node.parent and node.parent.type != "type_definition":
@@ -88,12 +90,55 @@ def _iter_definitions(
                     span = code_bytes[node.start_byte : end_byte]
                     if not balanced(span) or not usable(span):
                         return
-                    yield span.decode(encoding, errors="replace")
+                    kinds = {"struct", "typedef"} if node.type == "struct_specifier" else {"enum"}
+                    yield frozenset(kinds), span.decode(encoding, errors="replace")
         else:
             for child in node.children:
                 yield from walk(child)
 
     yield from walk(tree.root_node)
+
+
+def _iter_definitions(
+    filepath: Path,
+    *,
+    keyword: bytes = b"struct",
+    all_type_defs: bool = False,
+    strict: bool = False,
+) -> Iterator[str]:
+    """Yield definitions of one specifier kind (``struct``/``enum``) from *filepath*.
+
+    Yields ``type_definition`` nodes whose body contains *keyword* (or every
+    typedef when ``all_type_defs``), plus bare specifier nodes with a body,
+    each extended through a following ``;``.
+    """
+    wanted = "typedef" if all_type_defs else keyword.decode("ascii")
+    for kinds, text in _definition_blocks(filepath, strict=strict):
+        if wanted in kinds:
+            yield text
+
+
+def extract_type_blocks(
+    filepath: Path, *, strict: bool = False
+) -> tuple[list[str], list[str], list[str]]:
+    """Struct, typedef and enum blocks from one walk over *filepath*.
+
+    Returns ``(structs, typedefs, enums)``.  Each list matches what
+    :func:`extract_structs_from_file`, :func:`extract_type_definitions` and
+    :func:`extract_enums_from_file` yield individually, so concatenating them
+    in that order gives the same blocks as three separate passes.
+    """
+    structs: list[str] = []
+    typedefs: list[str] = []
+    enums: list[str] = []
+    for kinds, text in _definition_blocks(filepath, strict=strict):
+        if "struct" in kinds:
+            structs.append(text)
+        if "typedef" in kinds:
+            typedefs.append(text)
+        if "enum" in kinds:
+            enums.append(text)
+    return structs, typedefs, enums
 
 
 def extract_structs_from_file(filepath: Path, *, strict: bool = False) -> Iterator[str]:

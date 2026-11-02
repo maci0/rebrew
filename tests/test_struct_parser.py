@@ -2,9 +2,12 @@
 
 from pathlib import Path
 
+import pytest
+
 from rebrew.struct_parser import (
     extract_enums_from_file,
     extract_structs_from_file,
+    extract_type_blocks,
     extract_type_definitions,
 )
 
@@ -135,3 +138,32 @@ class TestExtractTypeDefinitions:
         assert len(out) == 1
         assert "S" in out[0]
         assert "caf\x81 e" in out[0]
+
+
+class TestExtractTypeBlocks:
+    """One walk returns the three extractor views in their original order."""
+
+    def test_matches_the_individual_extractors(self, tmp_path: Path) -> None:
+        f = tmp_path / "mixed.c"
+        f.write_text(
+            "typedef unsigned int uint32_t;\n"
+            "typedef struct { int x; } Point;\n"
+            "struct Bare { int y; };\n"
+            "typedef union { int i; float f; } Value;\n"
+            "typedef enum { UP, DOWN } Direction;\n"
+            "enum Plain { A, B };\n"
+            "struct Forward;\n"
+            "int add(int a, int b) { return a + b; }\n",
+            encoding="utf-8",
+        )
+        structs, typedefs, enums = extract_type_blocks(f)
+        assert structs == list(extract_structs_from_file(f))
+        assert typedefs == list(extract_type_definitions(f))
+        assert enums == list(extract_enums_from_file(f))
+
+    def test_missing_file_returns_three_empty_lists(self, tmp_path: Path) -> None:
+        assert extract_type_blocks(tmp_path / "missing.c") == ([], [], [])
+
+    def test_unreadable_file_raises_with_strict(self, tmp_path: Path) -> None:
+        with pytest.raises(OSError):
+            extract_type_blocks(tmp_path / "missing.c", strict=True)

@@ -29,11 +29,7 @@ from rebrew.cli import TargetOption, console, require_config
 from rebrew.compiler.context import CONTEXT_UNIT_NAME
 lazy from rebrew.signature_parser import extract_function_prototypes, extract_function_signatures
 lazy from rebrew.sources import iter_library_headers, iter_sources
-lazy from rebrew.struct_parser import (
-    extract_enums_from_file,
-    extract_structs_from_file,
-    extract_type_definitions,
-)
+lazy from rebrew.struct_parser import extract_type_blocks
 lazy from rebrew.utils import atomic_write_text
 
 logger = logging.getLogger(__name__)
@@ -99,10 +95,11 @@ def collect_context(cfg: Any, include_headers: bool = True) -> tuple[list[str], 
     blocks: list[str] = []
     for path in files:
         try:
+            structs, typedefs, enums = extract_type_blocks(path)
             candidates = (
-                list(extract_structs_from_file(path))
-                + list(extract_type_definitions(path))
-                + list(extract_enums_from_file(path))
+                structs
+                + typedefs
+                + enums
                 + [f"{sig};" for _name, sig in extract_function_signatures(path)]
                 + [f"{sig};" for sig in extract_function_prototypes(path)]
             )
