@@ -693,6 +693,19 @@ def native_tail_span(
     return end, native_end - end
 
 
+def _span_intervals(
+    text: bytes, text_va: int, spans: list[tuple[int, int]]
+) -> list[tuple[int, int]]:
+    """Clamp each ``(va, size)`` span to a half-open interval in *text*."""
+    intervals: list[tuple[int, int]] = []
+    for va, size in spans:
+        lo = max(0, va - text_va)
+        hi = min(len(text), va - text_va + size)
+        if hi > lo:
+            intervals.append((lo, hi))
+    return intervals
+
+
 def classify_text_gaps(text: bytes, text_va: int, spans: list[tuple[int, int]]) -> tuple[int, int]:
     """``(padding, unattributed)``: bytes of *text* in none of *spans*.
 
@@ -704,12 +717,7 @@ def classify_text_gaps(text: bytes, text_va: int, spans: list[tuple[int, int]]) 
     merged into an interval list and the gaps between them are counted in
     place, so the cost tracks the gap bytes rather than the section size.
     """
-    intervals: list[tuple[int, int]] = []
-    for va, size in spans:
-        lo = max(0, va - text_va)
-        hi = min(len(text), va - text_va + size)
-        if hi > lo:
-            intervals.append((lo, hi))
+    intervals = _span_intervals(text, text_va, spans)
     padding = unattributed = 0
     cursor = 0
     for lo, hi in sorted(intervals):
@@ -730,12 +738,7 @@ def classify_unattributed_ranges(
     as an absolute ``(va, size)`` range so a caller can tell what the
     unattributed bytes are instead of only how many.
     """
-    intervals: list[tuple[int, int]] = []
-    for va, size in spans:
-        lo = max(0, va - text_va)
-        hi = min(len(text), va - text_va + size)
-        if hi > lo:
-            intervals.append((lo, hi))
+    intervals = _span_intervals(text, text_va, spans)
     padding = 0
     ranges: list[tuple[int, int]] = []
     cursor = 0

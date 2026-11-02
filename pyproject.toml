@@ -151,67 +151,22 @@ line-length = 100
 extend-exclude = [".hypothesis", ".scratch"]
 
 [tool.ruff.lint]
-# RUF100 keeps suppression hygiene: a `noqa` for a rule that does not fire
-# (wrong code, stale after a fix) fails lint instead of silently rotting.
-# C4/DTZ/RSE/EXE/Q/NPY/ICN/G/PGH/YTT are correctness-leaning groups the tree
-# already passes (enabled after fixing their 9 findings; see CHANGELOG).
-# ASYNC/FA/SLOT/PLE join them: zero findings on the current tree (ratchet
-# only; PLE after the mutator `__all__` extend() fix).
-# Individual RUF codes below are the stable (non-preview) subset of the RUF
-# family the tree already passes; debt codes
-# (RUF001/002/003/005/012/021/022/043/059) stay off until
-# clean — no repo-wide ignore for them.  Preview-only RUF/FURB codes are
-# omitted (selecting them is a no-op without preview=true).
-# Bandit/tryceratops/refurb/pie/ret/flake8-builtins/logging/unused-arg codes
-# listed below are the zero-finding stable subset of those families; debt
-# siblings (S101/S108/S311/S603/…, TRY003/…, ARG001/…) stay off until clean.
-# INT001–INT003 (a gettext plural argument evaluated before the call) and
-# FURB192 (`min` over `sorted`) join that subset: zero findings on the tree.
-# S105 (a credential-shaped string literal) joined with its findings renamed
-# rather than suppressed: doctor's `_PASS` status label (now `_OK`, same
-# "pass" value), the redaction tests' `secret` locals, and the clone-helper
-# test's `token`. A decomp.me fixture token keeps a scoped, reasoned noqa.
-# pylint (PLW/PLC/PLR), flake8-type-checking (TC), flake8-errmsg (EM),
-# flake8-pytest-style (PT), and ISC003 are the same ratchet: only codes the
-# tree already passes.  ISC001/ISC002 stay off (formatter conflict); TID252
-# (relative imports) is on as the layering rule's teeth, and TID251/253/254/255
-# stay off until a banned-api list exists (an empty list would be a no-op).
-# T100/T203 (debugger/pprint) and the zero-finding PTH subset join as
-# ratchets; B904 is enforced after exception-chain fixes (do not re-add
-# it to ignore).  S112 (a `continue` that swallows the exception), PTH118
-# (`os.path.join` over `Path`), PIE810 (two `startswith` calls over one tuple)
-# and A002 (a parameter shadowing a builtin) join after their 10 findings were
-# fixed; the two sites that could not be renamed (declib's `id` attribute name
-# in the flag-set stand-in, link_order's `normpath`) carry a scoped `noqa`
-# with the reason.  PTH debt (PTH101/105/108/110/120/123/201/202) stays
-# off until clean.  Do not list remapped aliases (PLR1701→SIM101,
-# RUF011→B035, RUF035→S704, TRY200→B904): those families/codes are already
-# selected.  S602/S608/PLR0124/PIE790/ANN205/ANN206 join as zero-finding
-# ratchets (shell=True subprocess, an SQL string built by interpolation,
-# self-compare, useless pass, typed
-# class/static method returns).  D100/D104/D106 enforce the module-docstring
-# rule (AGENTS.md); the D2xx/D4xx, COM818, pep8-naming (N), flake8-pyi (PYI), TD,
-# TID252 and FIX001/003/004 (FIXME/XXX/HACK markers) codes below are the
-# zero-finding subset.  RUF007 (zip over `itertools.pairwise`), RET505 (else
-# after return) and PYI056 (`__all__` += instead of .extend) joined after
-# their 3/5/1 findings were fixed.  Still off: RET504 (the named intermediate
-# reads better than an inlined comprehension), D101-D103/D205/D209/D401
-# (thousands of findings), N802/N806/N814 (Win32 API names), PYI034/
-# PYI036, D203/D206/D213/D300 (formatter or D211/D212 conflicts), and
-# D415 (5 findings: docstring summary lines ending without punctuation).
-# TRY400 (logging.error inside an except, which drops the traceback), PLC0206
-# (dict key looked up instead of the value the loop ignores), PERF402/403,
-# FURB136/FURB171, PLR1711/PLR1714/PLR5501 and the rest of this batch joined
-# after their 19 findings were fixed.  Note PERF403, C416 and C402 disagree on
-# `{k: v for k, v in it}`: index the parsed rows instead (layout_meta).
-# S320/S410 (xmle/lxml import) and PLR1706 were removed or remapped upstream
-# and cannot be selected; COM819 (a trailing comma with no object to trail)
-# and D206 (a docstring indented with tabs) are the last zero-finding codes in
-# the unselected families, added so a rule category can no longer stay
-# unselected by omission.  Every other stable code there either fires or is a
-# documented exclusion: D203/D213 conflict with D211, D300 with the formatter,
-# ISC001/ISC002 with `ruff format`, PT004/PT005 are deprecated upstream, and
-# PLR1701/TRY200 are remapped aliases of SIM101/B904.
+# The selection is a ratchet: a code joins `select` only once the tree passes
+# it, so a new finding is a regression rather than pre-existing debt. RUF100
+# keeps a `noqa` honest: a stale or wrong-code suppression fails lint. Family
+# entries below are the zero-finding subset; codes that still fire stay off.
+# Preview-only codes are omitted (selecting them is a no-op without
+# preview=true); remapped aliases are selected through their current code
+# (PLR1701->SIM101, RUF011->B035, RUF035->S704, TRY200->B904).
+#
+# D100/D104/D106 enforce the module-docstring rule; TID252 gives the layering
+# rule teeth. B904 is enforced, not ignored.
+#
+# Deliberately off: D203/D213 (conflict with D211), D300 (formatter),
+# ISC001/ISC002 (ruff format), PT004/PT005 (deprecated upstream), and RET504
+# (a named intermediate reads better than an inlined comprehension).
+# PERF403, C416 and C402 disagree on `{k: v for k, v in it}`: index the parsed
+# rows instead (layout_meta).
 select = [
     "E", "F", "W", "I", "UP", "B", "SIM", "C4", "DTZ", "RSE", "EXE", "Q",
     "NPY", "ICN", "G", "PGH", "YTT", "ASYNC", "FA", "SLOT", "PLE",
