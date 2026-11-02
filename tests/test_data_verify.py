@@ -322,6 +322,9 @@ class TestSectionFilter:
 
 
 class TestSectionSymbolBytesBounds:
+    """Reads clamp to the owning section's mapped extent; an oversized
+    SIZE is an error, not a silent cross-section read."""
+
     def test_alias_read_keeps_the_largest_extent(self, tmp_path: Path, monkeypatch) -> None:
         from rebrew.data_verify import section_symbol_bytes
 
@@ -334,9 +337,6 @@ class TestSectionSymbolBytesBounds:
         by_va, sizes = section_symbol_bytes(metadata_path=meta, binary_path=tmp_path / "ref.dll")
         assert sizes[0x1000] == 8
         assert by_va[0x1000] == b"abcdefgh"
-
-    """Reads clamp to the owning section's mapped extent; an oversized
-    SIZE is an error, not a silent cross-section read."""
 
     def _meta(self, tmp_path: Path, size: int, va: int = 0x1000) -> Path:
         meta = tmp_path / "rebrew-data.toml"

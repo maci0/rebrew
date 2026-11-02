@@ -612,9 +612,8 @@ class TestImportsMark:
         for va, symbol in stubs.items():
             assert get_entry(cfg.metadata_dir, va, "SERVER")["symbol"] == symbol
 
-    """``imports_payload()`` is the importable form of ``rebrew imports --json``."""
-
     def test_matches_cli_json(self, pe_path: Path) -> None:
+        """``imports_payload()`` is the importable form of ``rebrew imports --json``."""
         from rebrew.imports import app
 
         payload = imports_payload(pe_path)

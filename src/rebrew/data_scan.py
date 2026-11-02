@@ -1362,7 +1362,6 @@ def find_dispatch_tables(
         ]
         data_sections = [(n, sections[n]) for n in data_names if n in sections]
     else:
-        is_ne = False
         text_sec = sections.get(".text")
         if not text_sec:
             return []

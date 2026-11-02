@@ -1181,6 +1181,9 @@ class TestMultiFixSize:
 
 
 class TestFixSizeEvidence:
+    """--fix-sizes's evidence gate must refuse a fix when the region beyond
+    the common prefix hides a mismatch — the false-fix hazard."""
+
     @pytest.mark.parametrize("native_address,expected", [(0x1000, True), (0x2000, False)])
     def test_known_binding_checks_cover_the_extended_reference(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, native_address: int, expected: bool
@@ -1209,9 +1212,6 @@ class TestFixSizeEvidence:
             )
             is expected
         )
-
-    """--fix-sizes's evidence gate must refuse a fix when the region beyond
-    the common prefix hides a mismatch — the false-fix hazard."""
 
     @staticmethod
     def _cfg(tmp_path: Path) -> Any:

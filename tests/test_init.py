@@ -1541,6 +1541,10 @@ class TestRegistryDerivedProfiles:
 
 
 class TestRefreshAgents:
+    """The generated AGENTS.md follows the packaged template and the project's
+    own profile, so a renamed toolchain or a template change reaches projects
+    already on disk without hand-editing a generated file."""
+
     @pytest.mark.parametrize("json_output", [False, True])
     @pytest.mark.parametrize("state", ["fresh", "stale"])
     def test_dry_run_preserves_entire_scaffold(
@@ -1591,10 +1595,6 @@ class TestRefreshAgents:
         assert "`other.exe` (ne, x86_16)" in text
         assert "delphi-1.0" in text
         assert "src/other/" in text
-
-    """The generated AGENTS.md follows the packaged template and the project's
-    own profile, so a renamed toolchain or a template change reaches projects
-    already on disk without hand-editing a generated file."""
 
     def _project(self, tmp_path: Path, profile: str) -> Path:
         root = tmp_path / "proj"

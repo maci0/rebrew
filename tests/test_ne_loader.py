@@ -151,18 +151,16 @@ class TestLoadNeBinary:
         assert extract_bytes_at_va(info, info.sections["SEG1"].va, 1) == b""
 
     def test_code_after_a_data_prelude_reads_as_code(self, tmp_path: Path) -> None:
-        from rebrew.formats.binary_loader import load_binary
-
         """A segment whose first function starts past the near window is code.
 
         Borland layout: ``[index\x00]`` marker, then content. The old probe
         looked for an anchor only in the first 128 bytes after the marker and
-        only decoded a window of 512, so700 bytes of data before the first
+        only decoded a window of 512, so 700 bytes of data before the first
         `enter` made the whole segment read as data, however many functions
         it held (the real cases: code at offset 0x0997, and a segment whose
         functions start past 0x1700).
         """
-        from bin_util import make_ne
+        from rebrew.formats.binary_loader import load_binary
 
         marker = b"\x01\x00"  # Borland segment index marker for SEG1
         prelude = b"\x00" * 700

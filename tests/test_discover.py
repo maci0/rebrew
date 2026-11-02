@@ -154,6 +154,8 @@ class TestDiscoverFunctions:
 
 
 class TestDiscovererPlugins:
+    """Third-party discoverers join every branch via rebrew.discoverers."""
+
     def test_one_discovery_retains_its_provider_generation(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -178,8 +180,6 @@ class TestDiscovererPlugins:
         monkeypatch.setattr(binary_loader, "is_ne", lambda binary: True)
         result = disc.discover_functions(tmp_path / "test.ne", min_size=0)
         assert result.functions == [(0x1000, 10, "old-first"), (0x2000, 10, "old-plugin")]
-
-    """Third-party discoverers join every branch via rebrew.discoverers."""
 
     def test_plugin_results_merge(self, monkeypatch) -> None:
         import rebrew.discover as disc

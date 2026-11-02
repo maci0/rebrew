@@ -179,21 +179,13 @@ def probe_is_code(data: bytes, file_offset: int, length: int, index: int = 0) ->
         if byte == 0x55:
             if segment[offset : offset + 3] != b"\x55\x8b\xec":
                 continue  # push bp alone is no prologue
-        elif byte == 0xC8:
-            pass  # enter: confirmed by the decode below
-        else:
+        elif byte != 0xC8:
             continue
         if tried >= PROBE_MAX_CANDIDATES:
             break
         tried += 1
         instructions = list(md.disasm(segment[offset:], 0))[:PROBE_DECODE_INSTRUCTIONS]
         if len(instructions) < 8:
-            continue
-        if byte == 0xC8 and instructions[0].mnemonic != "enter":
-            continue
-        if byte == 0x55 and instructions[1].mnemonic != "mov":
-            continue
-        if byte == 0x55 and instructions[1].op_str != "bp, sp":
             continue
         if any(i.mnemonic in ("ret", "retf") for i in instructions):
             return True
