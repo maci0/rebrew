@@ -242,7 +242,7 @@ def _write_blocker(
     ``len(obj_bytes)`` for callers that never clipped.
     """
     from rebrew.metadata.bindings import read_source_bindings
-    from rebrew.metadata.functions import remove_field, update_field
+    from rebrew.metadata.functions import remove_field, set_fields
 
     if obj_size is None:
         obj_size = len(obj_bytes)
@@ -273,13 +273,12 @@ def _write_blocker(
             if not json_output:
                 console.print(f"  Would update BLOCKER: {blocker_text} ({delta}B delta)")
         else:
-            update_field(
-                metadata_dir, va, "blocker", blocker_text, module=module, updated_by="diff"
-            )
+            fields: dict[str, Any] = {"blocker": blocker_text}
             if delta > 0:
-                update_field(
-                    metadata_dir, va, "blocker_delta", delta, module=module, updated_by="diff"
-                )
+                fields["blocker_delta"] = delta
+            # One store write for the pair: two update_field calls parsed and
+            # rewrote the whole metadata store twice.
+            set_fields(metadata_dir, va, fields, module=module, updated_by="diff")
             outcome["written"] = True
             if not json_output:
                 console.print(f"  Updated BLOCKER: {blocker_text} ({delta}B delta)")

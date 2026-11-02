@@ -48,11 +48,17 @@ def _diagnose_one(
     fix_blocker: bool,
     dry_run: bool = False,
     name_to_va: dict[str, int] | None = None,
+    pending: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Compile and classify ONE function; returns the analysis result.
 
     *name_to_va* is the ``build_name_to_va`` map; batch mode builds it once
     and passes it in, since building it rescans every source.
+
+    When *pending* is given, a BLOCKER verdict appends one STATUS update
+    carrying the blocker field instead of writing the store; the caller
+    flushes them in one read-modify-write, so a batch pass does not pay two
+    full store rewrites per function.
 
     The result dict gains a ``blocker_written`` key (bool).  Raises
     :class:`_DiagnoseError` when the target bytes cannot be extracted or the
@@ -156,6 +162,21 @@ def _diagnose_one(
             result["blocker_skipped_ceiling"] = True
         elif dry_run:
             blocker_written = True  # would write, but --dry-run skips it
+        elif pending is not None:
+            # One update carries both the BLOCKER field and the implied
+            # NEAR_MATCHING status, so the batch flush costs one store write
+            # rather than one per field.
+            pending.append(
+                {
+                    "module": ann.module,
+                    "va": va_int,
+                    "new_status": "NEAR_MATCHING",
+                    "clear_blockers": False,
+                    "updated_by": "near-diag",
+                    "fields": {"blocker": blocker_text(result)},
+                }
+            )
+            blocker_written = True
         else:
             update_field(
                 cfg.metadata_dir,
@@ -274,6 +295,7 @@ def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool, dry_run: bool
     classified = 0
     failed = 0
     results: list[dict[str, Any]] = []
+    pending: list[dict[str, Any]] = []
     for i, (src, ann) in enumerate(candidates, 1):
         symbol = ann.symbol or src.name
         if not json_output:
@@ -292,7 +314,15 @@ def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool, dry_run: bool
         }
         try:
             result = _diagnose_one(
-                cfg, src, ann, ann.va, ann.size, fix_blocker, dry_run, name_to_va=name_to_va
+                cfg,
+                src,
+                ann,
+                ann.va,
+                ann.size,
+                fix_blocker,
+                dry_run,
+                name_to_va=name_to_va,
+                pending=pending,
             )
         except _DiagnoseError as e:
             failed += 1
@@ -321,6 +351,14 @@ def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool, dry_run: bool
             }
         )
         results.append(entry)
+
+    if pending:
+        # Every BLOCKER + implied STATUS lands in one read-modify-write; the
+        # per-function path above would parse and rewrite the full store twice
+        # per candidate.
+        from rebrew.metadata.functions import update_statuses_batch
+
+        update_statuses_batch(metadata_dir, pending)
 
     if json_output:
         json_print(

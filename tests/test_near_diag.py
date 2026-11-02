@@ -698,6 +698,7 @@ class TestAllBatch:
         args: list[str],
         annos,
         compile_fn=None,
+        capture_batch: bool = True,
     ) -> Any:
         from types import SimpleNamespace as NS
 
@@ -740,10 +741,16 @@ class TestAllBatch:
                 "categories": {"register": {"bytes": 7, "percent": 90.0}},
             },
         )
-        calls: list[object] = []
-        monkeypatch.setattr(
-            "rebrew.metadata.functions.update_field", lambda *a, **k: calls.append((a, k))
-        )
+        # The batch path collects every BLOCKER + STATUS pair and flushes them
+        # in one store write; record each flush, not each row.
+        calls: list[list[dict[str, object]]] = []
+
+        def fake_batch(*a, **k):
+            calls.append(list(a[1]))
+            return len(a[1])
+
+        if capture_batch:
+            monkeypatch.setattr("rebrew.metadata.functions.update_statuses_batch", fake_batch)
         result = CliRunner().invoke(app, args)
         return result, calls
 
@@ -816,9 +823,11 @@ class TestAllBatch:
             monkeypatch, tmp_path, ["--all", "--fix-blocker", "--json"], annos
         )
         assert result.exit_code == 0, result.output
-        assert len(calls) == 2
-        assert calls[0][0][1] == 0x1000
-        assert calls[1][0][1] == 0x2000
+        assert len(calls) == 1  # every blocker lands in one store write
+        updates = calls[0]
+        assert [u["va"] for u in updates] == [0x1000, 0x2000]
+        assert updates[0]["new_status"] == "NEAR_MATCHING"
+        assert "blocker" in updates[0]["fields"]
 
         payload = cli_payload(result)
         assert payload["total"] == 2
@@ -851,11 +860,39 @@ class TestAllBatch:
             monkeypatch, tmp_path, ["--all", "--fix-blocker", "--json"], annos
         )
         assert result.exit_code == 0, result.output
-        assert len(calls) == 2
+        assert len(calls) == 1
+        assert [u["va"] for u in calls[0]] == [0x1000, 0x2000]
         payload = cli_payload(result)
         assert payload["total"] == 2
         assert payload["classified"] == 2
         assert payload["results"][1]["blocker_written"] is True
+
+    def test_batch_writes_blocker_and_status_to_store(self, monkeypatch, tmp_path: Path) -> None:
+        """The one batched write lands both the BLOCKER field and NEAR_MATCHING."""
+        from rebrew.metadata.functions import clear_metadata_cache, load_metadata
+
+        annos = [
+            SourceBinding(
+                kind="FUNCTION",
+                va=0x1000,
+                size=8,
+                symbol="_f",
+                module="S",
+                status="SIZE_MISMATCH",
+            )
+        ]
+        result, _ = self._invoke(
+            monkeypatch,
+            tmp_path,
+            ["--all", "--fix-blocker", "--json"],
+            annos,
+            capture_batch=False,
+        )
+        assert result.exit_code == 0, result.output
+        clear_metadata_cache()
+        entry = load_metadata(tmp_path, deepcopy=False)[("S", 0x1000)]
+        assert entry["status"] == "NEAR_MATCHING"
+        assert entry["blocker"].startswith("NEAR_MATCHING — REGISTER")
 
     def test_batch_no_candidates(self, monkeypatch, tmp_path: Path) -> None:
         # Only a STUB annotation — nothing NEAR_MATCHING to diagnose.
@@ -915,7 +952,7 @@ class TestAllBatch:
         )
         assert result.exit_code == 0, result.output
         assert len(calls) == 1  # only the second function got its blocker
-        assert calls[0][0][1] == 0x2000
+        assert [u["va"] for u in calls[0]] == [0x2000]
 
         payload = cli_payload(result)
         assert payload["total"] == 2

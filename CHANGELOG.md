@@ -1,5 +1,10 @@
 ## [Unreleased]
 
+### Fixed
+
+- Batch `rebrew diagnose near --all --fix-blocker` BLOCKER and STATUS writes into one metadata store rewrite, instead of two full read-modify-writes per diagnosed function.
+- Write `rebrew diff --fix-blocker`'s BLOCKER and BLOCKER_DELTA fields in one store write, instead of parsing and rewriting the metadata store twice.
+
 ## [6.15.0] - 2026-11-02
 
 ### Changed
