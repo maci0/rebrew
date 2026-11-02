@@ -1489,7 +1489,6 @@ def mut_extract_else_body(s: str, rng: random.Random) -> str | None:
     if_body = b_source[caps["if_body"].start_byte + 1 : caps["if_body"].end_byte - 1]
     else_body = b_source[caps["else_body"].start_byte + 1 : caps["else_body"].end_byte - 1]
 
-    # Negate condition
     cond_stripped = cond.strip()
     if cond_stripped.startswith(b"!") and not cond_stripped.startswith(b"!="):
         neg_cond = cond_stripped[1:].strip()
@@ -1538,7 +1537,6 @@ def mut_for_to_while(s: str, rng: random.Random) -> str | None:
     if not cond:
         return None
 
-    # Build while loop
     parts = []
     if init:
         init_text = init.strip()
@@ -1567,7 +1565,6 @@ def mut_while_to_for(s: str, rng: random.Random) -> str | None:
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         cond = _cap_bytes(b_source, captures, "cond")
         body = _cap_bytes(b_source, captures, "body")
-        # Strip parens from condition
         cond_inner = cond
         if cond_inner.startswith(b"(") and cond_inner.endswith(b")"):
             cond_inner = cond_inner[1:-1]
@@ -1590,7 +1587,6 @@ def mut_if_to_ternary(s: str, rng: random.Random) -> str | None:
     if not matches:
         return None
 
-    # Filter: both assignments must target the same variable
     valid = []
     for match in matches:
         caps = _first_caps(match[1])
@@ -1736,7 +1732,6 @@ def mut_sink_return(s: str, rng: random.Random) -> str | None:
     replacement = b"return " + expr + b";"
     result = b_source[: m.start()] + replacement + b_source[m.end() :]
 
-    # Remove end label if no more gotos
     if b"goto end;" not in result:
         result = _RE_END_LABEL_RETURN.sub(b"\n", result)
 
@@ -1761,10 +1756,8 @@ def mut_swap_adjacent_stmts(s: str, rng: random.Random) -> str | None:
         s2 = caps["s2"]
         s1_text = b_source[s1.start_byte : s1.end_byte]
         s2_text = b_source[s2.start_byte : s2.end_byte]
-        # Both must be assignments
         if b"=" not in s1_text or b"=" not in s2_text:
             continue
-        # Quick dependency check
         lhs1 = s1_text.split(b"=")[0].strip()
         lhs2 = s2_text.split(b"=")[0].strip()
         if lhs1 in s2_text or lhs2 in s1_text:
@@ -1882,7 +1875,6 @@ def mut_compound_assign_toggle(s: str, rng: random.Random) -> str | None:
     rhs = b_source[caps["rhs"].start_byte : caps["rhs"].end_byte]
 
     if direction == "expand":
-        # x += n -> x = x + n
         base_op = op.rstrip(b"=").strip()
         if not base_op:
             base_op = b"+"
@@ -1891,7 +1883,6 @@ def mut_compound_assign_toggle(s: str, rng: random.Random) -> str | None:
             return None
         replacement = var + b" = " + var + b" " + base_op + b" " + rhs + b";"
     else:
-        # x = x + n -> x += n
         base_op = b_source[caps["op"].start_byte : caps["op"].end_byte]
         if base_op == b"-" and (b"+" in rhs or b"-" in rhs):
             return None
@@ -2010,7 +2001,6 @@ def mut_negate_condition(s: str, rng: random.Random) -> str | None:
     cond_node = caps["cond"]
     cond = b_source[cond_node.start_byte + 1 : cond_node.end_byte - 1].strip()
 
-    # Toggle negation
     if cond.startswith(b"!(") and cond.endswith(b")"):
         new_cond = cond[2:-1]
     elif cond.startswith(b"!") and not cond.startswith(b"!="):
