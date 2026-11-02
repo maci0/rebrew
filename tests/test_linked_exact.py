@@ -339,3 +339,21 @@ class TestLinkMapPlacement:
         (kept,) = report["text"]["linked"]["kept_reloc"]
         assert kept["reason"] == "not placed at its reference VA"
         assert _stored(tmp_path)["status"] == "RELOC"
+
+
+class TestImageHashMemo:
+    def test_hash_memo_is_bounded(self, tmp_path: Path) -> None:
+        """Rebuilt images must not retain one digest per revision forever."""
+        import rebrew.linked_exact as linked_exact
+
+        linked_exact._hash_memo.clear()
+        paths = []
+        for index in range(linked_exact._HASH_MEMO_MAX + 2):
+            path = tmp_path / f"image-{index}.bin"
+            path.write_bytes(b"linked image")
+            paths.append(path)
+            linked_exact.image_sha256(path)
+        assert len(linked_exact._hash_memo) == linked_exact._HASH_MEMO_MAX
+        keys = {key[0] for key in linked_exact._hash_memo}
+        assert str(paths[0].resolve()) not in keys
+        assert str(paths[-1].resolve()) in keys

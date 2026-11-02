@@ -250,6 +250,28 @@ class TestCallerCounts:
         assert str(directories[0]) not in todo._EXTERN_CACHE
         assert str(directories[-1]) in todo._EXTERN_CACHE
 
+    def test_unversioned_extern_cache_is_ignored(self, tmp_path: Path) -> None:
+        """A sidecar written by older parser semantics must not answer lookups."""
+        import json
+
+        import rebrew.todo as todo
+
+        directory = tmp_path / "project"
+        cache_path = directory / ".rebrew" / "extern-names.json"
+        cache_path.parent.mkdir(parents=True)
+        source = tmp_path / "a.c"
+        source.write_text("extern int f(void);\n")
+        entry = {"stamp": [1, 2, 3], "names": ["f"]}
+        cache_path.write_text(json.dumps({str(source): entry}), encoding="utf-8")
+        todo._EXTERN_CACHE.clear()
+        assert todo._begin_extern_cache(directory)["files"] == {}
+        cache_path.write_text(
+            json.dumps({"version": todo._EXTERN_CACHE_VERSION, "files": {str(source): entry}}),
+            encoding="utf-8",
+        )
+        todo._EXTERN_CACHE.clear()
+        assert todo._begin_extern_cache(directory)["files"] == {str(source): entry}
+
 
 class TestCollectors:
     @pytest.mark.parametrize(

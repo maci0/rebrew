@@ -370,6 +370,10 @@ def _store_names_the_file(
 # stat per source, so a process that visits many roots must not retain them all.
 _NAME_COVER_CACHE: dict[str, dict[str, Any]] = {}
 _NAME_COVER_CACHE_MAX = 8
+#: Bump when the cover rule or the recorded shape changes.  The store
+#: fingerprint only says the metadata did not change; a cache written by older
+#: coverage semantics must not keep a source out of the reloc-name parse.
+_NAME_COVER_VERSION = 1
 
 
 def _path_key(path: Path) -> str:
@@ -424,7 +428,11 @@ def _begin_name_cover(metadata_dir: Path) -> dict[str, Any]:
     except OSError, UnicodeError, json.JSONDecodeError, TypeError:
         payload = None
     stored_files = payload.get("files") if isinstance(payload, dict) else None
-    stamp_matches = isinstance(payload, dict) and payload.get("stamp") == stamp
+    stamp_matches = (
+        isinstance(payload, dict)
+        and payload.get("version") == _NAME_COVER_VERSION
+        and payload.get("stamp") == stamp
+    )
     if stamp_matches and isinstance(stored_files, dict):
         for path_key, raw in stored_files.items():
             parsed = _stamp_list(raw)
@@ -460,7 +468,11 @@ def _flush_name_cover(cover: dict[str, Any]) -> None:
     if not cover.get("dirty"):
         return
     cache_path = Path(cover["dir"]) / ".rebrew" / "name-map-cover.json"
-    payload = {"stamp": cover["stamp"], "files": cover["files"]}
+    payload = {
+        "version": _NAME_COVER_VERSION,
+        "stamp": cover["stamp"],
+        "files": cover["files"],
+    }
     try:
         atomic_write_text(cache_path, json.dumps(payload, separators=(",", ":")), encoding="utf-8")
     except OSError:

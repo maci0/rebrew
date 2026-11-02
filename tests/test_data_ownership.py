@@ -299,3 +299,26 @@ def test_data_scan_caches_are_bounded(tmp_path: Path) -> None:
     assert len(data_scan._ROLE_FACT_CACHE) == data_scan._ROLE_FACT_CACHE_MAX
     assert str(roots[0].resolve()) not in data_scan._NAME_COVER_CACHE
     assert str(roots[-1].resolve()) in data_scan._NAME_COVER_CACHE
+
+
+def test_unversioned_name_cover_is_ignored(tmp_path: Path) -> None:
+    """A cover written by older coverage semantics must not skip a source."""
+    import json
+
+    import rebrew.data_scan as data_scan
+
+    source = tmp_path / "a.c"
+    source.write_text("int first;\n")
+    stamp = data_scan._source_stamp(source)
+    assert stamp is not None
+    files = {str(source.resolve()): stamp}
+    payload = {"stamp": data_scan._store_stamp(tmp_path), "files": files}
+    cache_path = tmp_path / ".rebrew" / "name-map-cover.json"
+    cache_path.parent.mkdir(parents=True)
+    cache_path.write_text(json.dumps(payload), encoding="utf-8")
+    data_scan._NAME_COVER_CACHE.clear()
+    assert data_scan._begin_name_cover(tmp_path)["files"] == {}
+    payload["version"] = data_scan._NAME_COVER_VERSION
+    cache_path.write_text(json.dumps(payload), encoding="utf-8")
+    data_scan._NAME_COVER_CACHE.clear()
+    assert data_scan._begin_name_cover(tmp_path)["files"] == files

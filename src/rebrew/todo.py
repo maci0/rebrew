@@ -1012,6 +1012,10 @@ def _collect_library_candidates(
 # that visits many roots must not retain each project's source names until exit.
 _EXTERN_CACHE: dict[str, dict[str, Any]] = {}
 _EXTERN_CACHE_MAX = 8
+#: Bump when the parser or the recorded name shape changes.  The per-file
+#: stat only says the source did not change; it says nothing about the code
+#: that produced the names, so a deploy must not reuse older semantics.
+_EXTERN_CACHE_VERSION = 1
 
 
 def _extern_path_key(path: Path) -> str:
@@ -1077,11 +1081,13 @@ def _begin_extern_cache(directory: Path) -> dict[str, Any]:
         payload = json.loads(cache_path.read_text(encoding="utf-8"))
     except OSError, UnicodeError, json.JSONDecodeError, TypeError:
         payload = None
-    if isinstance(payload, dict):
-        for path_key, raw in payload.items():
-            parsed = _extern_entry(raw)
-            if isinstance(path_key, str) and parsed is not None:
-                files[path_key] = parsed
+    if isinstance(payload, dict) and payload.get("version") == _EXTERN_CACHE_VERSION:
+        stored_files = payload.get("files")
+        if isinstance(stored_files, dict):
+            for path_key, raw in stored_files.items():
+                parsed = _extern_entry(raw)
+                if isinstance(path_key, str) and parsed is not None:
+                    files[path_key] = parsed
     record: dict[str, Any] = {"dir": directory, "files": files, "dirty": False}
     if len(_EXTERN_CACHE) >= _EXTERN_CACHE_MAX and key not in _EXTERN_CACHE:
         _EXTERN_CACHE.pop(next(iter(_EXTERN_CACHE)), None)
@@ -1097,7 +1103,10 @@ def _flush_extern_cache(cache: dict[str, Any]) -> None:
     try:
         atomic_write_text(
             cache_path,
-            json.dumps(cache["files"], separators=(",", ":")),
+            json.dumps(
+                {"version": _EXTERN_CACHE_VERSION, "files": cache["files"]},
+                separators=(",", ":"),
+            ),
             encoding="utf-8",
         )
     except OSError:

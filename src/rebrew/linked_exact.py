@@ -53,6 +53,12 @@ _COMPILE_FIELDS = (
 
 _HASH_CHUNK = 1 << 20
 
+#: Bounded: a long-lived process (verify --watch, the dashboard) checks one
+#: image per linked-evidence row, and a rebuilt image adds a key instead of
+#: replacing it.  The cap is per image revision, so 32 covers a project with
+#: many linked targets without retaining every historical build.
+_HASH_MEMO_MAX = 32
+
 _hash_lock = threading.Lock()
 _hash_memo: dict[tuple[str, int, int, int], str] = {}
 
@@ -75,6 +81,8 @@ def image_sha256(path: Path) -> str:
             digest.update(chunk)
     value = digest.hexdigest()
     with _hash_lock:
+        if key not in _hash_memo and len(_hash_memo) >= _HASH_MEMO_MAX:
+            _hash_memo.pop(next(iter(_hash_memo)))
         _hash_memo[key] = value
     return value
 
