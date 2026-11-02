@@ -344,7 +344,7 @@ def prune_stale_stubs(
     An :class:`_UnreadableInventory` there means the guard has no baseline to
     compare, and the prune is skipped for the same reason.
     """
-    from rebrew.metadata.functions import delete_metadata_entry, get_entry
+    from rebrew.metadata.functions import delete_entries_batch, get_entry
 
     previous = _read_prior_inventory(src_dir) if prior_inventory is None else prior_inventory
     if isinstance(previous, _UnreadableInventory):
@@ -369,7 +369,7 @@ def prune_stale_stubs(
 
     valid_vas = {va for va, _size, _name in funcs}
     meta_base = metadata_dir if metadata_dir is not None else project / "src"
-    removed = 0
+    stale: list[tuple[Path, int]] = []
     for path in sorted(src_dir.glob("fcn_*.c")):
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
@@ -386,13 +386,23 @@ def prune_stale_stubs(
         entry = get_entry(meta_base, va, target_module_name)
         if va in valid_vas or entry.get("status_history") or entry.get("binding_history"):
             continue
+        stale.append((path, va))
+
+    # Unlink each stub before dropping its row, but rewrite the store once:
+    # a per-file delete reloads and rewrites the whole TOML, so pruning N
+    # stubs used to cost N full read/write pairs.
+    removed = 0
+    deleted: list[tuple[str, int]] = []
+    for path, va in stale:
         try:
             path.unlink()
         except OSError as exc:
             logger.warning("could not remove stale stub %s: %s", path, exc)
             continue
-        delete_metadata_entry(meta_base, va, target_module_name)
+        deleted.append((target_module_name, va))
         removed += 1
+    if deleted:
+        delete_entries_batch(meta_base, deleted)
     return removed
 
 

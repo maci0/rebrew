@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import logging
 import re
+lazy import copy
+lazy import unicodedata
 lazy import warnings
 lazy from collections.abc import Callable, Sequence
 lazy from pathlib import Path
@@ -594,8 +596,8 @@ def local_sync_records(
 ) -> dict[str, dict[str, Any]]:
     """Project native field values from the same annotations all sync paths use."""
     from rebrew.config import target_module
-    from rebrew.metadata.data import get_data_entry
-    from rebrew.metadata.functions import SYNC_FIELD_RULES, get_entry
+    from rebrew.metadata.data import load_data_metadata
+    from rebrew.metadata.functions import SYNC_FIELD_RULES, load_metadata
 
     if entries is None:
         indexed, _ = index_local_and_catalog(cfg)
@@ -603,6 +605,11 @@ def local_sync_records(
     globals_ = [e for e in entries if getattr(e, "is_data", False)]
     names = resolve_global_names(cfg, globals_)
     types = resolve_global_types(cfg, globals_)
+    # One locked-table read each: a per-entry get_entry/get_data_entry call
+    # stats every store file again, so a project-sized sync paid one fingerprint
+    # per function and global.  Entries stay isolated through the per-entry copy.
+    data_rows = load_data_metadata(cfg.metadata_dir, deepcopy=False)
+    function_rows = load_metadata(cfg.metadata_dir, deepcopy=False)
     records: dict[str, dict[str, Any]] = {}
     for entry in entries:
         va = int(getattr(entry, "va", 0) or 0)
@@ -610,12 +617,13 @@ def local_sync_records(
             continue
         kind = "global" if getattr(entry, "is_data", False) else "function"
         module = getattr(entry, "module", "") or target_module(cfg)
+        key = (unicodedata.normalize("NFC", module), va)
         fields = {
             field: getattr(entry, attr, "")
             for field, (attr, _direction) in SYNC_FIELD_RULES[kind].items()
         }
         if kind == "global":
-            metadata = get_data_entry(cfg.metadata_dir, va, module)
+            metadata = copy.deepcopy(data_rows.get(key) or {})
             fields.update({k: metadata[k] for k in fields if k in metadata})
             fields["name"] = fields.get("name") or names.get(va) or f"g_{va:08x}"
             fields["type"] = fields.get("type") or types.get(va) or "char"
@@ -639,7 +647,7 @@ def local_sync_records(
                 "name", fields["name"]
             ):
                 fields["ghidra"] = ""
-            metadata = get_entry(cfg.metadata_dir, va, module)
+            metadata = copy.deepcopy(function_rows.get(key) or {})
             fields["stack_vars"] = metadata.get("locals") or fields.get("stack_vars") or {}
             fields["comments"] = metadata.get("comments") or fields.get("comments") or {}
         records[sync_key(kind, module, va)] = fields

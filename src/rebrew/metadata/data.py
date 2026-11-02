@@ -405,7 +405,9 @@ def load_data_document(path: Path) -> dict[str, Any]:
     }
 
 
-def load_data_metadata(directory: Path | str | Any) -> dict[tuple[str, int], dict[str, Any]]:
+def load_data_metadata(
+    directory: Path | str | Any, *, deepcopy: bool = True
+) -> dict[tuple[str, int], dict[str, Any]]:
     """Load ``rebrew-data.toml`` and its ``.d/*.toml`` fragments from *directory*.
 
     *directory* must be the metadata root (``cfg.metadata_dir``), path string, or config.  There is
@@ -416,6 +418,8 @@ def load_data_metadata(directory: Path | str | Any) -> dict[tuple[str, int], dic
 
     Args:
         directory: The metadata root directory (``cfg.metadata_dir``), path string, or config.
+        deepcopy: Isolate the returned mapping from the process cache.  Pass
+            ``False`` only for read-only consumers that must not mutate it.
 
     """
     dir_path = resolve_metadata_dir(directory)
@@ -424,7 +428,7 @@ def load_data_metadata(directory: Path | str | Any) -> dict[tuple[str, int], dic
         path,
         _data_metadata_cache,
         "data metadata",
-        deepcopy=True,
+        deepcopy=deepcopy,
         known_fields=DATA_METADATA_FIELDS,
         resolved=True,
     )

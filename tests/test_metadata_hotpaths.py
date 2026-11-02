@@ -1,6 +1,7 @@
 """Deterministic work budgets for repeated metadata-backed source scans."""
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -175,3 +176,50 @@ def test_relative_metadata_root_cache_follows_working_directory(
     assert load_metadata(Path(relative))[("GAME", 0x1000)]["size"] == 1
     monkeypatch.chdir(roots[1])
     assert load_metadata(Path(relative))[("GAME", 0x1000)]["size"] == 2
+
+
+class TestLocalSyncWork:
+    def test_project_sized_sync_loads_each_store_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """One fingerprint per store, not one per function and global."""
+        from rebrew.binsync import state
+        from rebrew.metadata import data as data_module
+        from rebrew.metadata import functions as functions_module
+
+        entries = [
+            SimpleNamespace(
+                va=0x1000 + i * 16,
+                module="GAME",
+                is_data=bool(i % 2),
+                symbol=f"f{i}",
+                prototype="",
+                size=16,
+                note="",
+                ghidra="",
+                locals={},
+                comments={},
+                name=f"f{i}",
+            )
+            for i in range(200)
+        ]
+        loads: list[str] = []
+
+        def load_data(*_args: Any, **_kwargs: Any) -> dict[Any, Any]:
+            loads.append("data")
+            return {}
+
+        def load_functions(*_args: Any, **_kwargs: Any) -> dict[Any, Any]:
+            loads.append("functions")
+            return {}
+
+        monkeypatch.setattr(data_module, "load_data_metadata", load_data)
+        monkeypatch.setattr(functions_module, "load_metadata", load_functions)
+        monkeypatch.setattr(state, "resolve_global_names", lambda *_args, **_kwargs: {})
+        monkeypatch.setattr(state, "resolve_global_types", lambda *_args, **_kwargs: {})
+        monkeypatch.setattr(state, "type_sync_records", lambda *_args, **_kwargs: {})
+        records = state.local_sync_records(
+            SimpleNamespace(metadata_dir=tmp_path, module="GAME"), entries
+        )
+        assert len(records) == len(entries)
+        assert loads == ["data", "functions"]
