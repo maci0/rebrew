@@ -111,7 +111,8 @@ class TestCheckTuData:
         monkeypatch.setenv("COLUMNS", "200")
         result = _invoke()
         assert result.exit_code == 1
-        assert "TU boundary before _g_next at 0x10003018" in result.output
+        output = " ".join(result.output.replace("│", " ").split())
+        assert "TU boundary before _g_next at 0x10003018" in output
         assert "1 trailing named string(s)" in result.output
         assert "checked 4 object section(s), 3 flagged" in result.output
 
