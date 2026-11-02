@@ -1,7 +1,8 @@
 """binary_similarity.py — whole-binary structural similarity between two binaries.
 
 The binary-level analog of the per-function diff metrics: instead of scoring
-ONE function against the target (``rebrew similarity function``, ``near-diag``, ``diff``),
+ONE function against the target (``rebrew similarity function``,
+``rebrew diagnose near``, ``rebrew diff``),
 this aggregates the per-function structural signatures across EVERY function
 of two binaries — the current project target vs another binary (a different
 game version, or a DLL+EXE pair sharing code).

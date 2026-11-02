@@ -1,4 +1,4 @@
-"""lib-match — byte-compare reversed functions against linked static libraries.
+"""lib_match.py — the ``rebrew library match`` command.
 
 Statically linked library code sits in the target's .text looking exactly like
 game code, and a decompiler names it ``fcn_XXXX`` like anything else. Reversing

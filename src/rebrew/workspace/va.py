@@ -5,7 +5,7 @@ from __future__ import annotations
 lazy import contextlib
 
 #: Upper bound for client-supplied VA integers: the signed 64-bit range the
-#: removed SQLite writer enforced and ``build_db._SQLITE_INT_MAX`` still
+#: retired SQLite writer enforced and ``coverage_db._SQLITE_INT_MAX`` still
 #: clamps to.  No stored va can exceed it, so rejecting above it can never hide
 #: a real match.
 VA_MAX = (1 << 63) - 1

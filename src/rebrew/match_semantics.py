@@ -9,7 +9,7 @@ classifier both call: one rule, one note string, no drift.
 
 from __future__ import annotations
 
-#: Shared explanation appended to verify messages / near-diag suggestions.
+#: Shared explanation appended to verify messages and diagnose-near suggestions.
 EFFECTIVE_MATCH_NOTE = (
     "effective match: differs only in register allocation — not "
     "byte-identical; reccmp counts this as 100% (run 'rebrew prove' for "

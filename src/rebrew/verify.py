@@ -425,7 +425,7 @@ def verify_entry(
                 # cause is compiler register allocation, not source logic —
                 # name it so the user does not chase a phantom source bug.
                 # Exposed to recovery via the result row (effective_match).
-                # Classification is shared with near-diag (match_semantics).
+                # Classification is shared with diagnose near (match_semantics).
                 if is_effective_match(
                     structural=int(d["summary"]["structural"]), register=int(d["summary"]["reg"])
                 ):

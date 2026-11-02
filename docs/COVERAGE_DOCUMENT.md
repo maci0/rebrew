@@ -226,10 +226,10 @@ One `cells` row:
 | `parent_function` | string | Name of the cell's parent function; `""` when none. |
 
 `section` repeats the table's own name in every row because the row is
-`build_db`'s `cells` row less its `target` column; the reader takes the section
-from the table the row is in.  Cells sharing a `start` collapse to the last one
-with a warning: a text file's row order is the key order a primary key would have
-given it.
+the retired SQLite writer's `cells` row less its `target` column; the reader
+takes the section from the table the row is in.  Cells sharing a `start` collapse
+to the last one with a warning: a text file's row order is the key order a
+primary key would have given it.
 
 #### Cell States
 

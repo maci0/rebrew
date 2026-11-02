@@ -254,7 +254,7 @@ def _select_annotation_for_va(
     multi-function file must target the function AT that VA, not the file's
     first annotation (which silently tested the wrong function before this
     helper — e.g. ``rebrew test multi.c --va 0x2000`` tested the first
-    function's symbol at 0x2000).  Mirrors diff/prove/near-diag.
+    function's symbol at 0x2000).  Mirrors diff, prove, and diagnose near.
     """
     want_va = parse_va(va, json_mode=json_output)
     return next((a for a in lint_annos if a.va == want_va), None)
@@ -343,13 +343,50 @@ def main(
 ) -> None:
     """Compile a source file and compare one function against target bytes.
 
-    With --all, batch-tests every .c file found in the reversed directory (iterating via iter_sources).  Optional --dir and --module flags restrict the batch.  Without --all, a single source file must be provided.
+    With --all, batch-tests every .c file found in the reversed directory
+    (iterating via ``iter_sources``).  Optional --dir and --module flags
+    restrict the batch.  Without --all, a single source file must be provided.
 
-    In single-function mode it resolves symbol, va, and size from CLI arguments first, then falls back to dedicated metadata and optional address anchors. In multi-function mode (when no explicit symbol/va/size is provided), it compiles once and evaluates each annotated function independently.
+    In single-function mode it resolves symbol, va, and size from CLI arguments
+    first, then falls back to dedicated metadata and optional address anchors.
+    In multi-function mode (when no explicit symbol/va/size is provided), it
+    compiles once and evaluates each annotated function independently.
 
-    Comparison is relocation-aware: COFF relocation records are used to mask relocation-dependent byte spans before scoring exactness. Output status is reported as EXACT, RELOC, NEAR_MATCHING, SIZE_MISMATCH, STUB, or an error state.
+    Comparison is relocation-aware: COFF relocation records are used to mask
+    relocation-dependent byte spans before scoring exactness.  Output status is
+    reported as EXACT, RELOC, NEAR_MATCHING, SIZE_MISMATCH, STUB, or an error
+    state.
 
-    Args: source: Path to the C source file to compile. symbol: Optional COFF symbol name to extract from the produced object. target_bin: Optional path to a raw target byte blob for direct compare. va: Optional hex VA used with size to extract target bytes. size: Optional byte count for the target function. cflags: Optional compiler flags string overriding annotation/config defaults. toolchain: Vendored compiler profile overriding the project default. all_sources: Batch mode — verify's engine over every .c file in reversed_dir (always recompiles). batch_dir: Optional subdirectory to restrict batch mode. origin: Optional module filter for batch mode. dry_run: List batch candidates without running tests. jobs: Parallel compile jobs for --all (defaults to the project [project].jobs). no_promote: Measure only — write no STATUS, CFLAGS, TOOLCHAIN, or SIZE. force_status: Write STATUS where the promotion policy refuses it (unpark a SKIP, replace a STUB with SIZE_MISMATCH); single-function only. fix_sizes: Rewrite a stale SIZE when all common bytes match. linked: Linked compare (shell + real DLL link, no reloc masking); single-function only and needs a VA. watch: Re-test the source file on every change (single-file mode only). context: Extra declarations to compile with the source; the result records the context hash the match was earned under. json_output: Emit machine-readable JSON responses. target: Optional target profile name from rebrew-project.toml. all_targets: Repeat the run across every configured target; refused with --va, --target-bin, and --watch.
+    Args:
+        source: Path to the C source file to compile.
+        symbol: Optional COFF symbol name to extract from the produced object.
+        target_bin: Optional path to a raw target byte blob for direct compare.
+        va: Optional hex VA used with size to extract target bytes.
+        size: Optional byte count for the target function.
+        cflags: Optional compiler flags string overriding annotation/config defaults.
+        toolchain: Vendored compiler profile overriding the project default.
+        all_sources: Batch mode over every .c file in ``reversed_dir``
+            (verify's engine; always recompiles).
+        batch_dir: Optional subdirectory to restrict batch mode.
+        origin: Optional module filter for batch mode.
+        dry_run: List batch candidates without running tests.
+        jobs: Parallel compile jobs for --all (defaults to the project ``[project].jobs``).
+        no_promote: Measure only; write no STATUS, CFLAGS, TOOLCHAIN, or SIZE.
+        force_status: Write STATUS where the promotion policy refuses it (unpark
+            a SKIP, replace a STUB with SIZE_MISMATCH); single-function only.
+        fix_sizes: Rewrite a stale SIZE when all common bytes match.
+        linked: Linked compare (shell plus a real DLL link, no reloc masking);
+            single-function only and needs a VA.
+        watch: Re-test the source file on every change (single-file mode only).
+        context: Extra declarations to compile with the source; the result
+            records the context hash the match was earned under.
+        json_output: Emit machine-readable JSON responses.
+        target: Optional target profile name from ``rebrew-project.toml``.
+        all_targets: Repeat the run across every configured target; refused with
+            --va, --target-bin, and --watch.
+        source_targets: Repeat the run for each target bound to the source file;
+            excludes --all/--dir/--module, the --va/--symbol/--size/--target-bin
+            overrides, --watch, --linked, --target, and --all-targets.
     """
     if option_default(watch, False) and option_default(json_output, False):
         error_exit("--watch is terminal-only; omit --json", json_mode=True)
@@ -1327,11 +1364,11 @@ def _run_test_impl(
     if va is not None:
         # An explicit --va targets ONE function in (possibly) a
         # multi-function file: derive the symbol (and fallback size) from
-        # the annotation whose VA matches.  Same rule as diff/prove/
-        # near-diag: a requested VA picks its own function.  When NO
+        # the annotation whose VA matches.  Same rule as diff, prove, and
+        # diagnose near: a requested VA picks its own function.  When NO
         # annotation matches, the explicit --va is a user override of a
         # stale/absent annotation VA — fall back to the first annotation's
-        # symbol/size (the near-diag va_from_flag semantics).
+        # symbol/size (the diagnose-near va_from_flag semantics).
         sel_ann = _select_annotation_for_va(lint_annos, va, json_output)
         if sel_ann is None:
             sel_ann = lint_annos[0] if lint_annos else None
@@ -1633,7 +1670,7 @@ def _run_test_impl(
 
             anno_module = _module_for_va(Path(source), va_int_for_promote)
         # Persist the resolved SIZE alongside STATUS so downstream tools
-        # (diff, near-diag) can resolve it from metadata like STATUS — a
+        # (diff, diagnose near) can resolve it from metadata like STATUS — a
         # hand-written fresh function would otherwise stay at SIZE=0 forever
         # and `rebrew diff` fails with "Invalid SIZE: 0".
         if (

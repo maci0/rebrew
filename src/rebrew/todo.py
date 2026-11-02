@@ -825,7 +825,7 @@ def _collect_new_functions(
     # Recommending it as new work is therefore actively harmful, and it was
     # happening: all three surviving start-function actions on guild-rebrew
     # were LIBCMT (`_ftell`, `_strncnt`, `___ld12mul`).  Reuse lib_match's own
-    # index so `todo` and `lib-match` cannot disagree.
+    # index so `todo` and `library match` cannot disagree.
     _lib_index = None
     from rebrew.lib_match import index_library, stock_lib_cache, stock_lib_valid
 

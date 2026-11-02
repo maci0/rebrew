@@ -108,8 +108,8 @@ def main(
         error_exit(f"Catalog scan failed: {exc}", json_mode=json_output)
     ref_raw = extract_raw_bytes(cfg.target_binary, va_int, size_val)
 
-    # Same fallback chain as test/verify/near-diag so module presets and
-    # library overrides cannot make probe disagree with those tools.
+    # Same fallback chain as test, verify, and diagnose near so module presets
+    # and library overrides cannot make probe disagree with those tools.
     toolchain_name, cflags_str = resolve_compile_overrides(
         cfg,
         path.resolve().parent,

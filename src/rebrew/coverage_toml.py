@@ -7,7 +7,7 @@ the document and the catalog snapshot cannot report different facts about the
 same in-process catalog dict: a second implementation of the cell clamp or the
 status sanitizer is exactly the drift this file exists to remove.
 
-Only facts are stored.  The removed ``build_db`` materialized per-section
+Only facts are stored.  The retired SQLite writer materialized per-section
 buckets, the per-section cell JSON and the ``summary`` blob because a SQL reader
 wanted them cheaply; a TOML reader re-derives every one of them from ``sections``
 + ``cells``, and a stored copy is a second place for the two writers to disagree.
@@ -86,12 +86,12 @@ __all__ = [
 #: carrying anything else is not migrated: its history and verify rows are read
 #: by these key names, and a foreign layout would be guessed at rather than
 #: understood.  An unreadable or absent file is the same case (empty history),
-#: which is what replaces ``build_db``'s version-check / unlink / ``--force``
+#: which is what replaces the retired writer's version-check / unlink / ``--force``
 #: dance — there is no sidecar to reset and no partial state to recover.
 _TOML_VERSION = 1
 
 #: Pointer-size fallback for a global whose JSON carries a non-int or missing
-#: ``size``.  The removed SQLite writer used the same literal, so a document
+#: ``size``.  The retired SQLite writer used the same literal, so a document
 #: built before the move keeps the size it already reported.
 _GLOBAL_DEFAULT_SIZE = 4
 
@@ -127,14 +127,14 @@ _CELL_COLUMNS: tuple[str, ...] = (
     "parent_function",
 )
 
-#: The removed SQLite writer's ``cells`` column list, less ``target``: the
+#: The retired SQLite writer's ``cells`` column list, less ``target``: the
 #: file's row shape is the shape that writer produced, so an old document and
 #: a new one diff against each other instead of being trusted.
 _SECTION_COLUMNS: tuple[str, ...] = ("va", "size", "fileOffset", "unitBytes", "columns")
 
-#: ``build_db``'s ``functions`` INSERT column list, less ``target``, in the
-#: INSERT's order.  The list is the parity contract: a column added to the
-#: database and not here shows up as a missing key, not as a silent omission.
+#: The retired SQLite schema's ``functions`` columns, less ``target``, in
+#: INSERT order.  The list is the parity contract: a column the old database
+#: wrote and this file omits shows up as a missing key, not as a silent omission.
 _FUNCTION_COLUMNS: tuple[str, ...] = (
     "va",
     "name",
@@ -163,7 +163,7 @@ _FUNCTION_COLUMNS: tuple[str, ...] = (
     "updated_at",
 )
 
-#: ``build_db``'s ``globals`` INSERT column list, less ``target``.
+#: The retired SQLite schema's ``globals`` columns, less ``target``.
 _GLOBAL_COLUMNS: tuple[str, ...] = (
     "va",
     "name",
@@ -179,8 +179,8 @@ _GLOBAL_COLUMNS: tuple[str, ...] = (
     "backing",
 )
 
-#: Columns ``build_db`` stores as a JSON *string* and this file stores as the
-#: real TOML value.  They are decoded, not re-derived from ``data``: the
+#: Columns the retired writer stored as a JSON *string* and this file stores as
+#: the real TOML value.  They are decoded, not re-derived from ``data``: the
 #: normalizer already decided what the field holds (a non-list ``functions``
 #: becomes ``[]``, a missing ``size_by_tool`` becomes ``{}``), so decoding the
 #: stored spelling is what keeps the two writers from disagreeing.
@@ -188,9 +188,10 @@ _JSON_COLUMNS: frozenset[str] = frozenset(
     {"functions", "files", "detected_by", "size_by_tool", "owners", "referenced_in", "declared_in"}
 )
 
-#: ``build_db``'s ``verify_results`` columns, less ``target``, in the INSERT's
-#: order — which is also the order :func:`rebrew.coverage_db.import_verify_rows`
-#: returns its rows in, so the two are one list read from both ends.
+#: The retired SQLite schema's ``verify_results`` columns, less ``target``, in
+#: INSERT order — which is also the order
+#: :func:`rebrew.coverage_db.import_verify_rows` returns its rows in, so the two
+#: are one list read from both ends.
 _VERIFY_RESULTS_COLUMNS: tuple[str, ...] = (
     "va",
     "verified_at",
@@ -296,8 +297,9 @@ def _kv_block(key: str, rows: Sequence[Any]) -> list[str]:
 def _rows_from(columns: tuple[str, ...], row: tuple[Any, ...]) -> dict[str, Any]:
     """Name a positional row's values after *columns*, decoding JSON columns.
 
-    ``row`` is one entry of the list ``build_db`` hands ``executemany``; its
-    first element (``target``) is dropped because the file is per-target.
+    ``row`` is one entry of the list the retired SQLite writer handed
+    ``executemany``; its first element (``target``) is dropped because the file
+    is per-target.
     """
     out = dict(zip(columns, row[1:], strict=True))
     for name in _JSON_COLUMNS:
@@ -319,7 +321,7 @@ def _row_va(row: tuple[Any, ...]) -> Any:
 def _function_rows(target_name: str, data: dict[str, Any]) -> list[tuple[Any, ...]]:
     """Build the ``functions`` rows, skipping rows with no parseable VA.
 
-    Field-for-field the row the removed SQLite writer inserted, so a document
+    Field-for-field the row the retired SQLite writer inserted, so a document
     written before the move reads the same as one written after it.  The clamps
     exist because that writer's CHECK constraints rejected a whole rebuild on
     one stray negative or bool; a text file has no CHECKs, so they are kept to
@@ -412,7 +414,7 @@ def _function_rows(target_name: str, data: dict[str, Any]) -> list[tuple[Any, ..
 def _global_rows(target_name: str, data: dict[str, Any]) -> list[tuple[Any, ...]]:
     """Build the ``globals`` rows, skipping rows with no parseable VA.
 
-    Field-for-field the row the removed SQLite writer inserted; see
+    Field-for-field the row the retired SQLite writer inserted; see
     :func:`_function_rows` for why the clamps stay.
     """
     rows: list[tuple[Any, ...]] = []
@@ -564,7 +566,7 @@ def _measurement(value: Any) -> Any:
 def previous_measurements(previous: dict[str, Any]) -> dict[int, tuple[Any, ...]]:
     """The previous document's ``verify_results`` as :func:`import_verify_rows` wants them.
 
-    The removed SQLite writer read the same mapping from its own query over
+    The retired SQLite writer read the same mapping from its own query over
     ``verify_results`` — each VA's five measurement fields beside the stamp it
     was measured at — because a row whose measurements did not move keeps its
     earlier ``verified_at``.  A TOML file holds both facts in its
@@ -665,8 +667,8 @@ def coverage_document(
     :func:`_read_previous`); its ``functions`` statuses are this build's
     history baseline and its ``history`` array is carried forward.  A document
     that is missing, unreadable or of another :data:`_TOML_VERSION` contributes
-    no history — the replacement for ``build_db``'s version-check / unlink /
-    ``--force`` dance, and the reason there is no sidecar here to reset.
+    no history — the replacement for the retired writer's version-check / unlink
+    / ``--force`` dance, and the reason there is no sidecar here to reset.
 
     *verify_rows* is :func:`rebrew.coverage_db.import_verify_rows`'s answer, and it
     keeps that function's three states: ``None`` (the verify cache says nothing
@@ -777,8 +779,8 @@ def write_coverage_toml(
 
     The catalog inputs and every normalization come from
     :func:`rebrew.coverage_db.load_coverage_datasets` and its helpers, so this
-    writer and ``build_db`` answer the same questions the same way. The catalog
-    analysis always runs in this process, and each document is replaced whole.
+    writer has one implementation for each value.  The catalog analysis always
+    runs in this process, and each document is replaced whole.
 
     *now* fixes every instant this build stamps: the history rows it appends
     and the fallback date for a verify row whose cache mtime cannot be read.
@@ -891,9 +893,10 @@ _FILENAME_SUFFIX = ".toml"
 class Cell:
     """One ``cells`` row.
 
-    ``label`` and ``parent_function`` are the two optional columns build_db
-    allows NULL; TOML spells NULL ``""``, so the reader hands back the empty
-    string it stores rather than inventing a distinction the file cannot carry.
+    ``label`` and ``parent_function`` are the two optional columns the retired
+    schema allowed NULL; TOML spells NULL ``""``, so the reader hands back the
+    empty string it stores rather than inventing a distinction the file cannot
+    carry.
     """
 
     start: int
@@ -1025,12 +1028,12 @@ class Function:
     _FUNCTION_COLUMNS`` is asserted by the tests, which makes a column added,
     dropped or renamed in the writer a reader failure instead of a silent
     omission.  A Python-style rename would be a third spelling of the schema to
-    keep in step with the writer's and build_db's.
+    keep in step with the writer's and the retired schema's.
 
-    ``None`` marks a column build_db allows NULL where NULL means something the
-    empty string cannot say: an unknown size is not size 0.  Text columns keep
-    ``""``, which is what the writer stores and what every consumer of those
-    fields already treats as absent.
+    ``None`` marks a column the retired schema allowed NULL where NULL means
+    something the empty string cannot say: an unknown size is not size 0.  Text
+    columns keep ``""``, which is what the writer stores and what every consumer
+    of those fields already treats as absent.
     """
 
     va: int
@@ -1040,9 +1043,9 @@ class Function:
     fileOffset: int | None
     status: str
     module: str
-    #: ``build_db`` stores this column without normalizing it, so a catalog may
-    #: hand it a string or a list; the reader passes through whatever was
-    #: written (frozen) rather than picking one of the two shapes.
+    #: The retired writer stored this column without normalizing it, so a
+    #: catalog may hand it a string or a list; the reader passes through
+    #: whatever was written (frozen) rather than picking one of the two shapes.
     cflags: Any
     symbol: str
     markerType: str

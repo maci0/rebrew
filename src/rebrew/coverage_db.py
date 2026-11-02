@@ -84,7 +84,7 @@ def _coerce_int(value: Any) -> int | None:
     a delta.  Non-integral floats (``12.9``, ``-1.5``) are rejected too:
     ``int()`` truncates toward zero and would store a wrong byte_delta (``12``
     for ``12.9``, or ``0`` after clamping a truncated ``-1``).  A value outside
-    the signed 64-bit range the removed SQLite writer enforced (see
+    the signed 64-bit range the retired SQLite writer enforced (see
     :data:`_SQLITE_INT_MAX`) is out of range for every field it feeds.
     """
     if value is None or isinstance(value, bool):

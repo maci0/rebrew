@@ -1331,7 +1331,7 @@ def main(
         # function — the first-NEAR_MATCHING fallback would prove a different
         # function's bytes (workflow bug fixed for diff/match).  A VA the
         # resolved file does not annotate errors instead of silently proving
-        # the wrong function (same rule as diff/match/near-diag).
+        # the wrong function (same rule as diff, match, and diagnose near).
         try:
             want_va = parse_va(source, json_mode=json_output)
         except typer.Exit:

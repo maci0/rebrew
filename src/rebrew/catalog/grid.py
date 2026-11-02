@@ -384,8 +384,9 @@ def build_coverage_data(
 
         # Fallback if not found in any section.  A VA outside every section has
         # no meaningful file offsets: emitting negative values would violate
-        # build_db's CHECK constraints (aborting the whole rebuild) and slicing
-        # the binary from a negative index reads from the file END.  Skip it.
+        # the retired SQLite schema's CHECK constraints (aborting the whole
+        # rebuild) and slicing the binary from a negative index reads from the
+        # file END.  Skip it.
         if not found_in_section:
             if not image_base:
                 layout_omitted += 1
@@ -502,8 +503,8 @@ def build_coverage_data(
                         "size": size,
                         # rebrew-data.toml verdict (DRIFT/VERIFIED/UNCHECKED).
                         # Absent status is UNCHECKED — never EXACT: that made
-                        # never-verified globals count as exactMatches in
-                        # build_db's per-section stats.
+                        # never-verified globals count as exactMatches in the
+                        # retired writer's per-section stats.
                         "status": str(gdata.get("status") or DATA_STATUS_UNCHECKED),
                         "name": gdata["name"],
                     }  # Estimated from the declaration type (pointer-sized default)
