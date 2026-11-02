@@ -63,15 +63,14 @@ must never replace the Git dependency.
   `tbl[key] = my_list` is invisible to the document.  Re-assign after
   mutation (this caused a real `cfg add-module` persistence bug).
 - **STATUS writes/deletes are gated.**  `update_field`/`remove_field` refuse
-  STATUS; use `update_source_status`.  Inline-STATUS stripping from a `.c`
-  file must go through `remove_inline_annotation_key` (file-only): routing
-  it through `remove_annotation_key` raises.
+  STATUS; use `update_source_status`.  Inline state in a `.c` file is not a
+  source: lint reports the tag (E024), and every writer goes to the store.
 - VA formatting is `0x%08x` (8 digits) everywhere in output; test
   expectations must match.
-- **`update_annotation_key`/metadata writes default `metadata_dir` to
+- **`set_binding_field` / `remove_binding_field` default `metadata_dir` to
   `filepath.parent`**: for library headers that lives next to the .c/.h,
   NOT the real metadata root (`cfg.metadata_dir`).  Always pass
-  `metadata_dir=cfg.metadata_dir` explicitly (this bit `crt-match
+  `metadata_dir=cfg.metadata_dir` explicitly (this bit `library crt-match
   --fix-source`, which created a stray rebrew-functions.toml next to the
   header).  Same trap in `match_batch._parse_annotations`: pass cfg.metadata_dir
   through.

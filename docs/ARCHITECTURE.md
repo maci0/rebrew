@@ -87,6 +87,8 @@ flowchart LR
 | `rebrew/compiler/` | Compile execution and the compile cache: `compile.py`, `cache.py`, `toolchain.py` + spec/data/paths, `overrides.py`, `context.py`, `recompile_client.py`, the 16-bit DOSBox drivers |
 | `rebrew/formats/` | Executable, object and archive parsers (`binary_loader.py`, `binary_model.py`, PE/NE/OMF/LZEXE, `import_table.py`, `relocations.py`, `archives.py`); imports only `errors`, `registry`, `utils` |
 | `rebrew/metadata/` | Source annotations and the locked stores: `functions.py` (`rebrew-functions.toml`), `data.py` (`rebrew-data.toml`), `document.py`, `model.py`, `anchors.py`, `bindings.py`, `source_provenance.py` |
+| `rebrew/metadata/storage.py` | Backend-neutral store access: the `MetadataStore` protocol, TOML/SQLite selection, input discovery and review snapshots ([ADR 034](adr/034-metadata-storage-backends.md)); `files.py` is the default TOML backend, `sqlite.py` the experimental one |
+| `rebrew/metadata/locking.py` | Reentrant thread and cross-process transactions (`file_transaction`, `metadata_write_lock`) that serialize every metadata read-modify-write |
 | `rebrew/matcher/` | GA engine: `scoring.py` (numpy + capstone), `mutator.py` (`ALL_MUTATIONS`: the 128 tree-sitter mutations from `mutations/*.py` plus plugin entry points), `compiler.py` (flag sweep), `solutions.py` (cross-function seeding + run history) |
 | `rebrew/catalog/` | Function registry and the coverage grid (`grid.py`) the portable `coverage-<target>.toml` export is rendered from |
 | `rebrew/ghidra/` | BinSync-primary field sync + ReVa MCP structural ops (function create/delete and similar) |

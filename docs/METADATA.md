@@ -330,8 +330,9 @@ until that program changes with it.
    should be buildable from one command, never hand-edited.
 2. One parser per file format.  Shared parsers live in
    `catalog/loaders.py` (discovery inventory, rizin `afl`) and
-   `rebrew/metadata/document.py` (`load_metadata_doc`, `parse_metadata_doc`,
-   `metadata_write_lock`): do not hand-roll a third copy.
+   `rebrew/metadata/document.py` (`load_metadata_doc`, `parse_metadata_doc`);
+   the collection transaction is `metadata.storage.metadata_write_lock`.
+   Do not hand-roll another copy.
 3. Writes to canonical stores go through the gated APIs:
    `update_source_status` / `update_statuses_batch` (STATUS),
    `update_field` / `remove_field` (function metadata, incl. `rebrew blocker`

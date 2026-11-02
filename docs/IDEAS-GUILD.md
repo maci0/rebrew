@@ -208,10 +208,10 @@ workflow failures without an additional authority or storage system.
   reference HIGHLOW count per window, show `matched / matched-reloc /
   ceiling` side by side; flag windows at ceiling as done. Evidence:
   measure-traps §3 (`cm_ExProdObjekt` 980/980, PCQ 624/624 at ceiling).
-- [ ] **Gap-curve view built in (`gaptrace` in-tree).**
+- [x] **Gap-curve view built in (`diagnose gap`).**
   Pain: residue number ≠ error size; only curve shape discriminates cascade
-  vs frame-value vs distributed. Feature: promote `scripts/gaptrace.py` to
-  `rebrew gaptrace <VA>` with no size argument (derives window itself).
+  vs frame-value vs distributed. Shipped as `rebrew diagnose gap <VA>`, which
+  derives the window itself when `--size` is omitted.
   Evidence: measure-traps §4.
 - [ ] **Two-ruler readout (`--ruler probe|test`).**
   Pain: probe reports padded COMDAT span, test reports real body; same object,
@@ -539,14 +539,16 @@ workflow failures without an additional authority or storage system.
   report (not delete) any entry whose marker form the detector did not recognize.
   Evidence: guild-rebrew `src/Develop/Units/vfs/vfs4.c` line 17 range marker.
 
-- **`rebrew data list` needs a `--set-size` (data extent correction).**
-  Pain: a stale `size` on a data symbol cannot be corrected by any CLI; `--set-type` writes only
-  `type` (and preserves existing `size`), `annotation.py` only ever grows size, and `--fix-bss`
-  writes sizes only for new gaps. When a range marker overstates an extent (`0x1002944c..0x100294a0`
-  = 84 parsed onto a 4-byte `char s_rb[4]`), the extent gate fails and the only fix is calling
-  `rebrew.data_metadata.set_data_field(dir, va, "size", n, module)` by hand.
-  Feature: `rebrew data set --size 0xVA=N` (mirror `--set-type`) so extent corrections go through
-  the sanctioned atomic writer.
+- [x] **Data extent correction (`rebrew data set --size`).**
+  Pain: a stale `size` on a data symbol could not be corrected by any CLI;
+  `--set-type` wrote only `type` (and preserved existing `size`), the
+  annotation importer only ever grew size, and `--fix-bss` wrote sizes only
+  for new gaps. A range marker that overstated an extent
+  (`0x1002944c..0x100294a0` = 84 parsed onto a 4-byte `char s_rb[4]`) then
+  failed the extent gate, and the only fix was calling
+  `rebrew.metadata.data.set_data_field(dir, va, "size", n, module)` by hand.
+  `rebrew data set --size 0xVA=BYTES` now does it through the sanctioned
+  atomic writer.
   Evidence: guild-rebrew `src/rebrew-data.toml` s_rb_1002944c size 84 vs binary 4 (round 1282).
 
 ## Optimization level

@@ -164,8 +164,10 @@ added, over a `_Reply` that also carries `headers` and `raise_for_status()`.
 `close()` is optional on both reply protocols, so a stand-in holding no
 connection to release is still a valid answer.
 
-The CLI commands, flags, and the `rebrew-project.toml` schema are frozen for
-the 2.x line. The Python import surface and the dashboard `/api/*` JSON are
+Rebrew is 6.x. The CLI command names and flags and the
+`rebrew-project.toml` schema are frozen from 1.0.0: removing or renaming one,
+or changing a config key's meaning, takes a major version bump. The Python
+import surface and the dashboard `/api/*` JSON are
 not: a removal, move, or signature change there ships in a minor release with
 a `**Breaking:**` entry in the changelog, and there is no deprecation window,
 so pin the minor version if you import rebrew as a library. See

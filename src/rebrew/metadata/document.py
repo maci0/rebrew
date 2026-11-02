@@ -2,10 +2,12 @@
 
 ``rebrew-functions.toml`` and ``rebrew-data.toml`` are keyed by *qualified
 module+VA string* (``SERVER.0x01006364``).  The key spelling, the parse to
-``{(module, va): fields}``, the stat-fingerprinted read cache and the
-write lock around a read-modify-write are one concern shared by
-:mod:`rebrew.metadata.functions` (function store) and :mod:`rebrew.metadata.data` (data
-store); they live here so neither store hands-rolls a second copy.
+``{(module, va): fields}`` and the stat-fingerprinted read cache are one
+concern shared by :mod:`rebrew.metadata.functions` (function store) and
+:mod:`rebrew.metadata.data` (data store); they live here so neither store
+hands-rolls a second copy.  The write transaction that serializes a
+read-modify-write over these documents lives in :mod:`rebrew.metadata.locking`,
+behind the storage API in :mod:`rebrew.metadata.storage`.
 
 The pure source schema and :mod:`rebrew.utils` are its only dependencies, so
 both stores and their readers can depend on it without a cycle.

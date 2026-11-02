@@ -254,7 +254,7 @@ def iter_library_headers(
     :func:`iter_sources` applies to sources, and what
     :func:`rebrew.catalog.scan_reversed_dir` already did for headers.  Without
     it, shared ``library_*.h`` markers are invisible to coverage (`status`,
-    `todo`), `crt-match`, the call graph, and ``rebrew export context``.
+    `todo`), `library crt-match`, the call graph, and ``rebrew export context``.
 
     *scanned* is a :func:`scan_files` result for the same directory.
     """

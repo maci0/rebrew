@@ -2,7 +2,7 @@
 
 All fields belong in rebrew-functions.toml at cfg.metadata_dir. Source accepts
 only optional declaration-bound addresses. Granular writes validate the current
-schema under the document lock; comparison writers alone earn STATUS. Full
+schema under the metadata write lock; comparison writers alone earn STATUS. Full
 replacement is explicit and preserves the supplied canonical evidence.
 """
 

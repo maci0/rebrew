@@ -488,7 +488,7 @@
         <mxCell id="proj" value="&lt;b&gt;rebrew-project.toml&lt;/b&gt;  (project root; config.py)&lt;br&gt;Hand-edit + rebrew cfg / init / build cmake-toolchain / build layout" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;fontStyle=0;" vertex="1" parent="1">
           <mxGeometry x="60" y="120" width="800" height="370" as="geometry"/>
         </mxCell>
-        <mxCell id="p-proj" value="&lt;b&gt;[project]&lt;/b&gt;&lt;br&gt;default_target · name · jobs&lt;br&gt;db_dir · output_dir · shared_dir" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefce8;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=8;fontSize=10;" vertex="1" parent="1">
+        <mxCell id="p-proj" value="&lt;b&gt;[project]&lt;/b&gt;&lt;br&gt;default_target · name · jobs&lt;br&gt;output_dir · shared_dir" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefce8;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=8;fontSize=10;" vertex="1" parent="1">
           <mxGeometry x="80" y="168" width="240" height="70" as="geometry"/>
         </mxCell>
         <mxCell id="p-tgt" value="&lt;b&gt;[targets.&amp;lt;name&amp;gt;]&lt;/b&gt;&lt;br&gt;binary · format · arch · marker&lt;br&gt;reversed_dir · function_list · bin_dir&lt;br&gt;source_ext · library_modules · origins&lt;br&gt;crt_sources · ghidra_program_path" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefce8;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=8;fontSize=10;" vertex="1" parent="1">

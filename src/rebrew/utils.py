@@ -4,7 +4,7 @@ This module has no rebrew binary imports list, so anything here may be called fr
 anywhere without a cycle.  That freedom is also its cost: the name says
 nothing about what it owns, so the map below is the index.  Helpers are
 grouped by concern and stay in that group; a new helper joins the group
-it belongs to rather than starting a sixth.
+it belongs to rather than starting another.
 
 - **Text and identifiers**: ``strip_bidi_format``, ``strip_body``,
   ``strip_comment_blocks``, ``strip_generated_timestamp``, ``filename_component``,
@@ -42,8 +42,9 @@ it belongs to rather than starting a sixth.
 ``utils`` is not a place for domain logic.  A helper that knows about a
 toolchain, a metadata field, or a rebrew-project layout belongs in the
 module that owns that concept (``toolchain``, ``metadata``, ``workspace``,
-``config``), not here.  The metadata TOML key algebra, document parse/build
-and write lock moved out to :mod:`rebrew.metadata.document`; the scratch-directory
+``config``), not here.  The metadata TOML key algebra and document parse/build
+moved out to :mod:`rebrew.metadata.document`, its write transaction to
+:mod:`rebrew.metadata.locking`; the scratch-directory
 placement policy moved out to :mod:`rebrew.compiler.temp_dirs`; ``preset_module_key``
 stays here because it is identifier text normalization that outlives any one
 store.

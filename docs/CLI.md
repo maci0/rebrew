@@ -5278,8 +5278,8 @@ Remove a rebrew-libraries.toml (revert to project defaults).
 
 Byte-compare reversed functions against the static library archives the target
 links. Flags code whose bytes are already supplied by a library, so it is not
-worth reversing. Unlike `flirt` (short signatures) and `crt-match` (reference
-source), it compares whole function bodies against the `.lib`/`.a` itself with
+worth reversing. Unlike `scan-signatures` (short signatures) and `crt-match`
+(reference source), it compares whole function bodies against the `.lib`/`.a` itself with
 each object's relocation slots masked; the archive index covers COFF static
 symbols too (MSVC marks helpers like `_initterm` static). Exit 0 = clean,
 1 = a reversed function matches a library, 2 = config/library error.

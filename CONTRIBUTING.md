@@ -57,7 +57,7 @@ make doctor                   # report every missing prerequisite, with the fix 
 make clone-resembl            # clones sibling resembl pin (tag v3.10.2) into ../resembl
 make setup                    # uv sync --locked --all-extras --group similarity + pre-commit/pre-push hooks
 make vnu                      # optional: the W3C HTML gate skips without it, CI runs it
-make test-one T=tests/test_annotation.py   # smoke the edit-test loop
+make test-one T=tests/test_annotation_roundtrip.py   # smoke the edit-test loop
 ```
 
 `make doctor` is read-only and runs every preflight the other targets use (uv
@@ -126,8 +126,8 @@ make vnu                      # install the pinned W3C HTML validator and print 
 make setup                    # locked sync (extras + similarity) + pre-commit install (checks uv + ../resembl first)
 make add-dep ADD_DEP_SPEC=<spec>  # add a dependency (wraps `uv add`; prints the license-table step)
 make clean                    # remove build/dist artifacts and caches
-make test-one T=tests/test_annotation.py  # single file / nodeid (fast edit-test loop; defaults to test_annotation.py)
-make test-one T=tests/test_annotation.py FLAGS="-k stdcall"  # narrow further with any pytest flag
+make test-one T=tests/test_annotation_roundtrip.py  # single file / nodeid (fast edit-test loop; defaults to test_annotation_roundtrip.py)
+make test-one T=tests/test_annotation_roundtrip.py FLAGS="-k roundtrip"  # narrow further with any pytest flag
 make test-one T=tests/test_dashboard.py::TestSummaryRequests   # one class
 make test                     # full suite (a few minutes; needs nasm + bun + the setup extras, warns without vnu)
 make coverage                 # full suite under slipcover; fails below COV_FLOOR (CI test job, 3.15)

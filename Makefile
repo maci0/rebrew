@@ -58,10 +58,10 @@ RESEMBL_DIR := $(abspath $(CURDIR)/../resembl)
 UV_VERSION ?= 0.13.6
 
 # Single-file / nodeid override for the edit-test loop:
-#   make test-one T=tests/test_annotation.py
-#   make test-one T=tests/test_annotation.py::TestAnnotationDataclass
-#   make test-one T=tests/test_annotation.py FLAGS="-k test_stdcall"
-T ?= tests/test_annotation.py
+#   make test-one T=tests/test_annotation_roundtrip.py
+#   make test-one T=tests/test_annotation_roundtrip.py::test_roundtrip_multi_target
+#   make test-one T=tests/test_annotation_roundtrip.py FLAGS="-k roundtrip"
+T ?= tests/test_annotation_roundtrip.py
 FLAGS ?=
 
 # `make coverage` fail-under percentage; keep in step with [tool.slipcover]
@@ -190,7 +190,7 @@ help:
 		'  2. Clone sibling resembl at $(RESEMBL_REF) into ../resembl' \
 		'     git clone --depth 1 --branch $(RESEMBL_REF) https://github.com/maci0/resembl.git ../resembl' \
 		'     setup fails unless that checkout HEAD is $(RESEMBL_SHA) (CI resembl-sha)' \
-		'  3. make setup && make test-one T=tests/test_annotation.py' \
+		'  3. make setup && make test-one T=tests/test_annotation_roundtrip.py' \
 		'  Before a PR: make all && make check && make build (or make pr-check)'
 
 # Every recipe below shells out to ``uv run``; without this preflight a
@@ -530,7 +530,7 @@ doctor:
 	  echo '  make setup            # locked sync (extras + similarity) + pre-commit hooks'; \
 	  echo 'Then re-run make doctor, which then reports the host tools alone.'; \
 	else \
-	  echo 'environment ready: run make setup, then make test-one T=tests/test_annotation.py'; \
+	  echo 'environment ready: run make setup, then make test-one T=tests/test_annotation_roundtrip.py'; \
 	fi
 
 # Run tests.  Match CI: a TTY / FORCE_COLOR / GITHUB_ACTIONS makes Rich/typer

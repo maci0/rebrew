@@ -92,7 +92,7 @@ function source counts do not measure matched bytes.
 > `library match` compares fixed bytes; resolve wrappers via [native callees](references/tool-selection.md). Record
 > `LIBRARY` as origin. A project `.c` is built from source and verified; a
 > unique member of a configured archive stays statically linked. With neither,
-> the provider stays unresolved. `crt-match` errors with "No crt_sources
+> the provider stays unresolved. `library crt-match` errors with "No crt_sources
 > configured" until they are registered: run `rebrew cfg detect-crt apply`
 > once, then retry. `--stock-lib` extracts the archive from the
 > profile's docker image (a pull when it is not cached), so `rebrew toolchain
