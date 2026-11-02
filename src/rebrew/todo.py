@@ -738,8 +738,9 @@ def load_verify_entries(cfg: ProjectConfig) -> dict[str, VerifyCacheEntry]:
     if not cache_identity_matches(raw, cfg):
         return {}
     # Re-key canonically: the cache is a JSON file, so a VA may be spelled
-    # "0x1000" instead of "0x00001000" (the union at `:317` already normalizes
-    # with `canonical_va_key`, and every consumer looks entries up with
+    # "0x1000" instead of "0x00001000" (the union in
+    # `_collect_active_functions` already normalizes with `canonical_va_key`,
+    # and every consumer looks entries up with
     # `f"0x{va:08x}"` — an unnormalized key was seen by the coverage header but
     # missed by the category/delta selection and the prove queue).
     from rebrew.metadata.document import canonical_va_key
