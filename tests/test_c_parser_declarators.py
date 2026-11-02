@@ -3,7 +3,7 @@
 from rebrew.c_parser import (
     _count_pointer_depth,
     _extract_array_suffix,
-    _find_declarator_name,
+    find_declarator_name,
     find_function_name_in_node,
 )
 
@@ -50,19 +50,19 @@ class TestFindDeclaratorName:
             "init_declarator",
             children=[_ident("x"), Node("="), Node("number_literal")],
         )
-        assert _find_declarator_name(node, b"x=5") == "x"
+        assert find_declarator_name(node, b"x=5") == "x"
 
     def test_pointer_recursion(self) -> None:
         node = Node("pointer_declarator", children=[Node("*"), _ident("p", offset=1)])
-        assert _find_declarator_name(node, b"*p") == "p"
+        assert find_declarator_name(node, b"*p") == "p"
 
     def test_function_declarator_returns_none(self) -> None:
         node = Node("function_declarator", children=[_ident("f")])
-        assert _find_declarator_name(node, b"f") is None
+        assert find_declarator_name(node, b"f") is None
 
     def test_fallthrough_recursion(self) -> None:
         node = Node("field_declaration", children=[_ident("field")])
-        assert _find_declarator_name(node, b"field") == "field"
+        assert find_declarator_name(node, b"field") == "field"
 
 
 class TestPointerDepthAndArraySuffix:

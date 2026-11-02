@@ -151,7 +151,6 @@ def main(
         text = map_path.read_bytes().decode("utf-8", errors="surrogateescape")
     except OSError as exc:
         error_exit(f"cannot read link map {map_path}: {exc}", json_mode=json_output)
-        return
     rows = tu_data_shapes(parse_link_map(text))
     flagged = [row for row in rows if row["issues"]]
     if json_output:

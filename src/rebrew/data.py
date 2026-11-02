@@ -993,17 +993,14 @@ def mark_literals(
         raw = getattr(cfg, "raw_link", None)
         if raw is None:
             error_exit("no link map: pass --link-map or configure raw_link", json_mode=json_output)
-            return
         link_map = Path(raw).with_suffix(".map")
     try:
         text = link_map.read_bytes().decode("utf-8", errors="surrogateescape")
         report = mark_literal_rows(cfg, parse_link_map(text), dry_run=dry_run)
     except OSError as exc:
         error_exit(f"cannot read link map: {exc}", json_mode=json_output)
-        return
     except ValueError as exc:
         error_exit(str(exc), json_mode=json_output)
-        return
     if json_output:
         json_print({"dry_run": dry_run, "link_map": str(link_map), **report})
         return

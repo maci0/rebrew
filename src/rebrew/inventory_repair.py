@@ -97,7 +97,7 @@ def main(
         module = str(getattr(cfg, "module", "") or "")
         synced = 0
         for va, size in sorted(updates.items()):
-            if set_function_extent(cfg.metadata_dir, va, size, module=module, reason=reason):
+            if set_function_extent(cfg.metadata_dir, va, size, module=module):
                 synced += 1
         report["rows_synced"] = synced
     if json_output:

@@ -1352,13 +1352,12 @@ def set_function_extent(
     new_size: int,
     *,
     module: str,
-    reason: str = "",
 ) -> bool:
     """Set a stored function SIZE to a reviewed native extent, in either direction.
 
     ``grow_function_extent`` only widens a row, so a repaired smaller inventory
     extent could never reach the metadata. This writer is for reviewed repairs:
-    it accepts a shrink as well as a grow and records the reason in the history.
+    it accepts a shrink as well as a grow.
     """
     from rebrew.metadata.functions import get_entry, update_field
 

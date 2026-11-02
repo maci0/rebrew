@@ -246,7 +246,6 @@ def _shift_report(
     shifts = require_non_negative(option_default(shifts, 4), "--shifts", json_mode=json_output)
     if step < 1 or shifts < 1:
         error_exit("--shift-step and --shifts must be positive", json_mode=json_output)
-        return None
     cut_va = parse_va(cut, json_mode=json_output)
     ref = load_binary(Path(cfg.target_binary))
     built = load_binary(dll)
@@ -254,7 +253,6 @@ def _shift_report(
     built_data = built.sections.get(".data")
     if ref_data is None or built_data is None:
         error_exit("reference or build has no .data section", json_mode=json_output)
-        return None
     if not ref_data.va <= cut_va < ref_data.va + ref_data.raw_size:
         error_exit(f"--cut {cut} is outside the reference .data section", json_mode=json_output)
     ref_off = ref_data.file_offset + (cut_va - ref_data.va)

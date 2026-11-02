@@ -131,7 +131,6 @@ class DoctorReport:
 # outside it at load.  A private copy here could only ever agree or disagree
 # with the loader, and a newly added arch or format would leave this check
 # reporting a value the loader accepts.
-_KNOWN_FORMATS = KNOWN_FORMATS
 _KNOWN_ARCHES = set(ARCH_PRESETS)
 
 
@@ -219,9 +218,9 @@ def check_arch_format(cfg: ProjectConfig) -> CheckResult:
     issues: list[str] = []
     if cfg.arch not in _KNOWN_ARCHES:
         issues.append(f"Unknown arch '{cfg.arch}' (known: {', '.join(sorted(_KNOWN_ARCHES))})")
-    if cfg.binary_format not in _KNOWN_FORMATS:
+    if cfg.binary_format not in KNOWN_FORMATS:
         issues.append(
-            f"Unknown format '{cfg.binary_format}' (known: {', '.join(sorted(_KNOWN_FORMATS))})"
+            f"Unknown format '{cfg.binary_format}' (known: {', '.join(sorted(KNOWN_FORMATS))})"
         )
 
     if issues:

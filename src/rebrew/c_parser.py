@@ -1194,10 +1194,6 @@ def find_declarator_name(declarator: Any, source_bytes: bytes) -> str | None:
     return None
 
 
-# Preserve the original internal spelling for existing callers.
-_find_declarator_name = find_declarator_name
-
-
 def _has_function_declarator(node: Any) -> bool:
     """Return True if *node* or any descendant is a function_declarator."""
     if node.type == "function_declarator":
