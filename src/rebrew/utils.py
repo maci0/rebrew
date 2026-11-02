@@ -1201,10 +1201,11 @@ def atomic_write_bytes(
 ) -> None:
     """Byte counterpart of :func:`atomic_write_text`.
 
-    Writes to a sibling ``.<pid>.<tid>.<monotonic>.tmp`` then ``os.replace()``s, so a
-    crash or disk-full mid-write never leaves a truncated binary at the
-    target path (e.g. a postlinked or reassembled PE).  The temp file is
-    cleaned up on any failure; the original exception is always re-raised.
+    Writes to a sibling ``<name>.<pid>.<tid>.<monotonic>.tmp`` then
+    ``os.replace()``s, so a crash or disk-full mid-write never leaves a
+    truncated binary at the target path (e.g. a postlinked or reassembled PE).
+    The temp file is cleaned up on any failure; the original exception is
+    always re-raised.
 
     When the on-disk bytes already match *data*, the replace is skipped so a
     no-op re-run (a second ``postlink`` of an already-converged binary, a
