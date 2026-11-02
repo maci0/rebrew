@@ -1,5 +1,7 @@
 """Tests for c_parser.py — tree-sitter C parsing helpers."""
 
+from typing import Any
+
 import pytest
 
 from rebrew.c_parser import (
@@ -761,3 +763,31 @@ class TestReplaceFunctionPrototype:
         assert replace_function_prototype(
             source, "target", "int __cdecl target(void* value)"
         ) == source.replace("target(int value)", "target(void* value)")
+
+
+def test_variable_inventory_reuses_walk_but_isolates_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import rebrew.c_parser as parser
+
+    source = "int cache_inventory_global = 42;\nextern int cache_inventory_external;\n"
+    parser._tls.extern_variable_memo = None
+    original = parser._variable_tree
+    calls = []
+
+    def counted(text: str) -> tuple[Any, bytes]:
+        calls.append(text)
+        return original(text)
+
+    monkeypatch.setattr(parser, "_variable_tree", counted)
+    first = find_extern_variables(source, include_definitions=True)
+    first[0].name = "mutated"
+    first.clear()
+    assert [v.name for v in find_extern_variables(source, include_definitions=True)] == [
+        "cache_inventory_global",
+        "cache_inventory_external",
+    ]
+    assert calls == [source]
+    assert [v.name for v in find_extern_variables(source)] == ["cache_inventory_external"]
+    changed = source.replace("cache_inventory_global", "changed_global")
+    assert find_extern_variables(changed, include_definitions=True)[0].name == "changed_global"

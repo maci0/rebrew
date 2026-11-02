@@ -51,7 +51,8 @@ class TestParsedDocumentCache:
         )
         clear_metadata_cache()
         assert load_metadata(tmp_path, deepcopy=False)[("GAME", 0x1000)]["name"] == "g"
-        assert parses == 3
+        # A corrupt disk cache can reuse the separately fingerprinted raw input.
+        assert parses == 2
 
 
 class TestQualifiedKey:

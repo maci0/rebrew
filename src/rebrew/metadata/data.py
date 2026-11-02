@@ -44,6 +44,7 @@ lazy from rebrew.metadata.document import (
     stamp_format,
 )
 lazy from rebrew.metadata.storage import metadata_store, metadata_write_lock
+lazy from rebrew.utils import resolved_path
 
 if TYPE_CHECKING:
     from rebrew.metadata.bindings import SourceBinding
@@ -87,7 +88,7 @@ def data_file_index(
     do not mutate them.  An empty store returns an empty index.
     """
     dir_path = resolve_metadata_dir(directory)
-    path = (dir_path / DATA_METADATA_FILENAME).resolve()
+    path = resolved_path(dir_path / DATA_METADATA_FILENAME)
     cached = load_metadata_doc(
         path,
         _data_metadata_cache,
@@ -128,7 +129,7 @@ def data_rows_for_path(
     """
     dir_path = resolve_metadata_dir(directory)
     try:
-        rel = filepath.resolve().relative_to(dir_path.resolve()).as_posix()
+        rel = resolved_path(filepath).relative_to(resolved_path(dir_path)).as_posix()
     except ValueError:
         rel = Path(os.path.relpath(filepath, dir_path)).as_posix()
     seen: set[tuple[str, int]] = set()
@@ -418,7 +419,7 @@ def load_data_metadata(directory: Path | str | Any) -> dict[tuple[str, int], dic
 
     """
     dir_path = resolve_metadata_dir(directory)
-    path = (dir_path / DATA_METADATA_FILENAME).resolve()
+    path = resolved_path(dir_path / DATA_METADATA_FILENAME)
     return load_metadata_doc(
         path,
         _data_metadata_cache,

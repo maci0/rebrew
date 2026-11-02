@@ -2334,3 +2334,32 @@ class TestConcurrentEntryPoints:
             assert registry._entry_points_snapshot is not None
         finally:
             registry._entry_points_snapshot = old
+
+
+def test_project_outputs_do_not_rescan_installed_distributions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import rebrew.registry as registry
+
+    calls = []
+
+    def installed() -> Any:
+        calls.append(1)
+        return _fake_entry_points()()
+
+    monkeypatch.setattr(registry, "entry_points", installed)
+    monkeypatch.setattr(sys, "path", [str(tmp_path)])
+    entry_point_registrations("rebrew.commands")
+    (tmp_path / "report.json").write_text("{}")
+    entry_point_registrations("rebrew.commands")
+    assert len(calls) == 1
+    metadata = tmp_path / "plugin-1.0.dist-info"
+    metadata.mkdir()
+    entry_point_registrations("rebrew.commands")
+    assert len(calls) == 2
+    metadata.rename(tmp_path / "plugin-1.1.dist-info")
+    entry_point_registrations("rebrew.commands")
+    assert len(calls) == 3
+    (tmp_path / "plugin-1.1.dist-info").rmdir()
+    entry_point_registrations("rebrew.commands")
+    assert len(calls) == 4

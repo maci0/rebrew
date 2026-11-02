@@ -1873,6 +1873,11 @@ def find_extern_variables(
     """
     if not source or not source.strip():
         return []
+    cacheable = function_filter is None and len(source) <= _PARSE_MEMO_MAX_BYTES
+    key = (source, include_definitions)
+    cached = getattr(_tls, "extern_variable_memo", None)
+    if cacheable and cached is not None and cached[0] == key:
+        return [ExternVar(*fields) for fields in cached[1]]
     try:
         tree, src_bytes = _variable_tree(source)
     except ImportError:
@@ -2089,21 +2094,37 @@ def find_extern_variables(
         _structure_trees(tree, src_bytes)
     ):
         walk(variant_tree.root_node)
-    if not _variant_index:
-        return results
-    unique: dict[tuple[str, str, int, int, str], ExternVar] = {}
-    for variable in results:
-        unique.setdefault(
-            (
-                variable.name,
-                variable.type_str,
-                variable.line,
-                variable.end_line,
-                variable.declaration,
+    if _variant_index:
+        unique: dict[tuple[str, str, int, int, str], ExternVar] = {}
+        for variable in results:
+            unique.setdefault(
+                (
+                    variable.name,
+                    variable.type_str,
+                    variable.line,
+                    variable.end_line,
+                    variable.declaration,
+                ),
+                variable,
+            )
+        results = sorted(unique.values(), key=lambda variable: variable.line)
+    if cacheable:
+        _tls.extern_variable_memo = (
+            key,
+            tuple(
+                (
+                    variable.name,
+                    variable.type_str,
+                    variable.array_suffix,
+                    variable.declaration,
+                    variable.line,
+                    variable.end_line,
+                    variable.is_definition,
+                )
+                for variable in results
             ),
-            variable,
         )
-    return sorted(unique.values(), key=lambda variable: variable.line)
+    return results
 
 
 def find_variable_roles(

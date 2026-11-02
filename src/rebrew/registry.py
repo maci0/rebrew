@@ -42,6 +42,8 @@ import threading
 from dataclasses import dataclass
 lazy import importlib
 lazy import logging
+lazy import os
+lazy import stat
 lazy import sys
 lazy from collections.abc import Callable, Iterator
 lazy from importlib.metadata import entry_points
@@ -99,20 +101,50 @@ _entry_points_snapshot: tuple[tuple[Any, ...], Any] | None = None
 _entry_points_lock = threading.Lock()
 
 
-def _sys_path_fingerprint() -> tuple[tuple[str, int | None], ...]:
-    """``(abspath, st_mtime_ns)`` per ``sys.path`` entry (``None`` if unstat-able).
+_IMPORT_DIRECTORY_CONTENTS: dict[Path, tuple[tuple[int, int, int], tuple[Any, ...]]] = {}
+_IMPORT_DIRECTORY_LOCK = threading.Lock()
 
-    Installing, upgrading, or removing a distribution adds or removes a
-    ``*.dist-info`` entry in its site directory, which bumps that directory's
-    mtime.
+
+def _sys_path_fingerprint() -> tuple[tuple[Any, ...], ...]:
+    """Track distribution entries, ignoring unrelated project-output churn.
+
+    Stat each import path, listing it only when its directory changes. Adding,
+    removing or replacing distribution metadata invalidates discovery; creating
+    a report or a cache file beside it does not re-read every installed package.
     """
-    out: list[tuple[str, int | None]] = []
+    out: list[tuple[Any, ...]] = []
     for entry in sys.path:
         path = Path(entry).absolute()
         try:
-            out.append((str(path), path.stat().st_mtime_ns))
+            info = path.stat()
         except OSError:
             out.append((str(path), None))
+            continue
+        stamp = (info.st_mtime_ns, info.st_ctime_ns, info.st_ino)
+        if not stat.S_ISDIR(info.st_mode):
+            out.append((str(path), stamp))
+            continue
+        with _IMPORT_DIRECTORY_LOCK:
+            cached = _IMPORT_DIRECTORY_CONTENTS.get(path)
+            if cached is not None and cached[0] == stamp:
+                members = cached[1]
+            else:
+                try:
+                    with os.scandir(path) as entries:
+                        members = tuple(
+                            sorted(
+                                (item.name, item.stat().st_mtime_ns, item.inode())
+                                for item in entries
+                                if item.name.lower().endswith((".dist-info", ".egg-info"))
+                                or item.name.lower() == "egg-info"
+                            )
+                        )
+                except OSError:
+                    members = (stamp,)
+                if len(_IMPORT_DIRECTORY_CONTENTS) >= 128:
+                    _IMPORT_DIRECTORY_CONTENTS.clear()
+                _IMPORT_DIRECTORY_CONTENTS[path] = (stamp, members)
+        out.append((str(path), members))
     return tuple(out)
 
 

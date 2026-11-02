@@ -4272,3 +4272,81 @@ def test_unbound_sources_check_only_nonempty_history(
     rows[("SERVER", 1)]["binding_history"] = None
     with pytest.raises(ValueError, match="binding_history must be an array"):
         lint_file(other, preloaded_metadata=rows, preloaded_data_metadata={})
+
+
+def test_duplicate_globals_reuse_project_bindings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from rebrew.metadata import bindings
+    from rebrew.metadata.data import record_data_rows
+
+    source_dir = tmp_path / "src"
+    source_dir.mkdir()
+    files = [source_dir / name for name in ("one.c", "two.c")]
+    for file in files:
+        file.write_text("int counter = 1;\n")
+    record_data_rows(
+        tmp_path,
+        [
+            {
+                "module": "SERVER",
+                "va": va,
+                "identity": {"file": f"src/{file.name}", "name": "counter", "kind": "DATA"},
+            }
+            for file, va in zip(files, (0x10001000, 0x10002000), strict=True)
+        ],
+    )
+    calls = []
+    original = bindings.source_bindings
+
+    def counted(*args: Any, **kwargs: Any) -> Any:
+        calls.append(args[1])
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(bindings, "source_bindings", counted)
+    seen: dict[str, tuple[str, int, bool]] = {}
+    results = [lint_file(file, cfg=_make_cfg(root=tmp_path), seen_globals=seen) for file in files]
+    assert calls == files
+    assert not any(code == "W021" for _, code, _ in results[0].warnings)
+    assert any(code == "W021" for _, code, _ in results[1].warnings)
+
+
+def test_batch_retired_paths_avoid_revalidating_each_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from rebrew.metadata import binding_history
+
+    def unexpected(*args: Any) -> set[Path]:
+        pytest.fail("the batch already resolved the retired source paths")
+
+    monkeypatch.setattr(binding_history, "historical_source_files", unexpected)
+    old = tmp_path / "old.c"
+    old.write_text("int old(void) { return 0; }\n")
+    result = lint_file(
+        old,
+        preloaded_metadata={("SERVER", 1): {"binding_history": [{}]}},
+        preloaded_data_metadata={},
+        preloaded_historical_sources={old.resolve()},
+    )
+    assert result._kind_counts["INACTIVE"] == 1
+
+
+def test_file_lint_reuses_batch_metadata_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "batch_directory.c"
+    source.write_text("int batch_directory(void) { return 0; }\n")
+    cfg = _make_cfg(root=tmp_path)
+
+    def unexpected(self: ProjectConfig) -> Path:
+        pytest.fail("the batch already resolved the metadata directory")
+
+    monkeypatch.setattr(ProjectConfig, "metadata_dir", property(unexpected))
+    result = lint_file(
+        source,
+        cfg=cfg,
+        metadata_directory=tmp_path,
+        preloaded_metadata={},
+        preloaded_data_metadata={},
+    )
+    assert any(code == "E001" for _, code, _ in result.errors)

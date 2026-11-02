@@ -1,6 +1,8 @@
 """Discovery and ownership-preserving edits for metadata TOML drop-in directories."""
 
 import contextlib
+import threading
+from collections import OrderedDict
 lazy import copy
 lazy import hashlib
 lazy import os
@@ -138,6 +140,26 @@ def _delete_record(doc: Any, keys: tuple[str, ...]) -> None:
             del parent[keys[size - 1]]
 
 
+_PARSED_MEMBERS: OrderedDict[tuple[Path, tuple[int, int, int, int]], dict[str, Any]] = OrderedDict()
+_PARSED_MEMBERS_LOCK = threading.Lock()
+
+
+def _parsed_member(path: Path, fingerprint: tuple[int, int, int, int]) -> dict[str, Any]:
+    """Reuse parsed input; callers receive copies and still run every validator."""
+    key = (path, fingerprint)
+    with _PARSED_MEMBERS_LOCK:
+        if key in _PARSED_MEMBERS:
+            _PARSED_MEMBERS.move_to_end(key)
+            return _PARSED_MEMBERS[key]
+    document = load_tomllib(path)
+    with _PARSED_MEMBERS_LOCK:
+        _PARSED_MEMBERS[key] = document
+        _PARSED_MEMBERS.move_to_end(key)
+        while len(_PARSED_MEMBERS) > 8:
+            _PARSED_MEMBERS.popitem(last=False)
+    return document
+
+
 def load_metadata_collection(
     path: Path,
     description: str,
@@ -149,9 +171,11 @@ def load_metadata_collection(
     paths = metadata_paths(path)
 
     def load(member: Path) -> dict[str, Any]:
-        return (
-            load_toml_for_write_strict(member, description) if roundtrip else load_tomllib(member)
-        )
+        if roundtrip:
+            return load_toml_for_write_strict(member, description)
+        stat = member.stat()
+        fingerprint = (stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size, stat.st_ino)
+        return copy.deepcopy(_parsed_member(member, fingerprint))
 
     if len(paths) == 1:
         doc = load(paths[0])

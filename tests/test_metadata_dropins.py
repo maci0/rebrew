@@ -427,3 +427,39 @@ class TestDropinIntegration:
         update_field(tmp_path, 1, "note", "reviewed", "S")
         assert calls["loads"] == 6
         assert calls["dumps"] == 2
+
+
+def test_raw_reads_reuse_parsing_without_sharing_mutations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from rebrew.metadata import files
+
+    path = tmp_path / "rebrew-functions.toml"
+    path.write_text('format = 3\n["GAME.0x1000"]\nname = "before"\n')
+    calls = []
+    original = files.load_tomllib
+
+    def counted(member: Path) -> dict[str, Any]:
+        calls.append(member)
+        return original(member)
+
+    monkeypatch.setattr(files, "load_tomllib", counted)
+    store = files.TomlStore(path, tmp_path)
+    first = store.read("test")
+    first["GAME.0x1000"]["name"] = "mutated"
+    validated = []
+    second = store.read("test", validate=lambda doc: validated.append(doc))
+    assert second["GAME.0x1000"]["name"] == "before"
+    assert calls == [path]
+    assert validated == [second]
+
+    replacement = tmp_path / "replacement"
+    replacement.write_text('format = 3\n["GAME.0x1000"]\nname = "after!"\n')
+    stat = path.stat()
+    os.utime(replacement, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    replacement.replace(path)
+    assert store.read("test")["GAME.0x1000"]["name"] == "after!"
+    assert calls == [path, path]
+    path.write_text("not valid TOML [")
+    with pytest.raises(ValueError):
+        store.read("test")

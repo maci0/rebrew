@@ -44,6 +44,7 @@ from rebrew.metadata.bindings import (
     DATA_KINDS,
     MIN_VALID_VA,
     SYMBOL_KINDS,
+    SourceBinding,
     file_backed_by_metadata,
     function_rows_for_file,
     min_valid_va_for,
@@ -82,6 +83,7 @@ lazy from rebrew.utils import (
     preset_module_key,
     read_source_text,
     rel_display_path,
+    resolved_path,
     untrusted_ident,
 )
 lazy from rebrew.workspace.status import EARNED_STATUSES, KNOWN_STATUSES, MATCHED_STATUSES
@@ -943,7 +945,7 @@ def _type_spelling(text: str) -> str:
 
 
 def _check_W037_data_definition(
-    result: LintResult, text: str, filepath: Path, cfg: ProjectConfig
+    result: LintResult, text: str, filepath: Path, cfg: ProjectConfig, directory: Path
 ) -> None:
     """W037: a data row's ``type`` / ``size`` disagree with its owning source.
 
@@ -987,7 +989,7 @@ def _check_W037_data_definition(
     from rebrew.metadata.data import data_rows_for_path, module_visible_to_target
 
     try:
-        rows = data_rows_for_path(cfg.metadata_dir, filepath)
+        rows = data_rows_for_path(directory, filepath)
     except OSError, ValueError:
         return  # W031 reports an unreadable store.
     rows = [
@@ -1304,7 +1306,7 @@ def _documented_assembly_symbols(
     if not folded:
         return set()
     try:
-        relative = filepath.resolve().relative_to(metadata_dir.resolve()).as_posix()
+        relative = resolved_path(filepath).relative_to(resolved_path(metadata_dir)).as_posix()
         records = [
             record
             for record in load_source_provenance(metadata_dir)
@@ -1601,7 +1603,7 @@ def _check_W020_asm_dump(
     documented: set[str] = set()
     if target_module_name:
         try:
-            relative = filepath.resolve().relative_to(metadata_dir.resolve()).as_posix()
+            relative = resolved_path(filepath).relative_to(resolved_path(metadata_dir)).as_posix()
             records = [
                 record
                 for record in load_source_provenance(metadata_dir)
@@ -1677,6 +1679,8 @@ def _check_W021_duplicate_globals(
     lines: list[str],
     filepath: Path,
     seen_globals: dict[str, tuple[str, int, bool]] | None,
+    bindings: list[SourceBinding],
+    text: str,
 ) -> None:
     """Warn when a global's annotated address or initialized ownership conflicts.
 
@@ -1693,16 +1697,10 @@ def _check_W021_duplicate_globals(
     collision. Conflicting addresses or two initialized definitions under the
     same module still warn, including a DATA binding beside a GLOBAL binding.
     """
-    if seen_globals is None:
+    if seen_globals is None or not any(binding.kind in DATA_KINDS for binding in bindings):
         return
-    text = "\n".join(lines)
     variables = {v.name: v for v in find_extern_variables(text, include_definitions=True)}
-    from rebrew.metadata.bindings import source_bindings
-    from rebrew.metadata.functions import resolve_metadata_dir
-
-    for binding in source_bindings(
-        text, filepath, None, None, resolve_metadata_dir(filepath.parent)
-    ):
+    for binding in bindings:
         if binding.kind not in DATA_KINDS or binding.name not in variables:
             continue
         variable = variables[binding.name]
@@ -2117,6 +2115,8 @@ def lint_file(
     seen_globals: dict[str, tuple[str, int, bool]] | None = None,
     preloaded_metadata: dict[tuple[str, int], dict[str, Any]] | None = None,
     preloaded_data_metadata: dict[tuple[str, int], dict[str, Any]] | None = None,
+    preloaded_historical_sources: set[Path] | None = None,
+    metadata_directory: Path | None = None,
     function_index: tuple[set[int], list[tuple[int, int, str]]] | None = None,
     pedantic: bool = False,
     section_for_va: Any = None,
@@ -2136,6 +2136,8 @@ def lint_file(
                       and initialized ownership for W021. Will be mutated.
         preloaded_metadata: Pre-loaded metadata dict (avoids per-file I/O in batch).
         preloaded_data_metadata: Pre-loaded data metadata dict (avoids per-file I/O in batch).
+        preloaded_historical_sources: Resolved retired paths shared by a batch.
+        metadata_directory: Metadata location already resolved by the batch.
         function_index: ``(starts, spans)`` from the target function list
                         (built once per batch); enables the W028
                         annotation-staleness cross-check.
@@ -2172,8 +2174,8 @@ def lint_file(
         )
     from rebrew.metadata.source_provenance import load_source_files
 
-    directory = cfg.metadata_dir if cfg else filepath.parent
-    relative = rel_display_path(filepath.resolve(), directory.resolve())
+    directory = metadata_directory or (cfg.metadata_dir if cfg else filepath.parent)
+    relative = rel_display_path(resolved_path(filepath), resolved_path(directory))
     support = [record for record in load_source_files(directory) if record.file == relative]
     if support:
         result._kind_counts["SUPPORT"] += 1
@@ -2187,7 +2189,7 @@ def lint_file(
             filepath,
             None,
             None,
-            cfg.metadata_dir if cfg else filepath.parent,
+            directory,
             project_root=getattr(cfg, "root", None),
         )
         definition_lines: dict[str, int] = {}
@@ -2217,7 +2219,7 @@ def lint_file(
             from rebrew.metadata.functions import resolve_metadata_dir
             from rebrew.workspace.config import walk_up_to_root
 
-            directory = resolve_metadata_dir(cfg.metadata_dir if cfg else filepath.parent)
+            directory = resolve_metadata_dir(directory)
             project_root = cfg.root if cfg else walk_up_to_root(directory) or directory
             if _retired_leftover(filepath, entries, directory, project_root):
                 result._kind_counts["INACTIVE"] += 1
@@ -2233,7 +2235,7 @@ def lint_file(
     _metadata_dir = (
         None
         if preloaded_metadata is not None and preloaded_data_metadata is not None
-        else (cfg.metadata_dir if cfg else filepath.parent)
+        else (directory)
     )
     _metadata_entries = (
         preloaded_metadata
@@ -2250,13 +2252,17 @@ def lint_file(
         from rebrew.metadata.functions import resolve_metadata_dir
         from rebrew.workspace.config import walk_up_to_root
 
-        directory = resolve_metadata_dir(cfg.metadata_dir if cfg else filepath.parent)
+        directory = resolve_metadata_dir(directory)
         project_root = cfg.root if cfg else walk_up_to_root(directory) or directory
-        resolved = filepath.resolve() if _metadata_entries else None
-        if any(
-            resolved in historical_source_files(row, directory, project_root)
-            for row in _metadata_entries.values()
-            if row.get("binding_history", []) != []
+        resolved = resolved_path(filepath) if _metadata_entries else None
+        if (
+            resolved in preloaded_historical_sources
+            if preloaded_historical_sources is not None
+            else any(
+                resolved in historical_source_files(row, directory, project_root)
+                for row in _metadata_entries.values()
+                if row.get("binding_history", []) != []
+            )
         ):
             # Explicitly retired TUs remain reviewable source, outside compilation.
             result._kind_counts["INACTIVE"] += 1
@@ -2272,7 +2278,7 @@ def lint_file(
     if not all_headers:
         metadata_backed = file_backed_by_metadata(
             filepath,
-            cfg.metadata_dir if cfg is not None else filepath.parent,
+            directory,
             project_root=getattr(cfg, "root", None),
             function_entries=_metadata_entries,
             data_entries=_data_metadata_entries,
@@ -2301,7 +2307,7 @@ def lint_file(
         # the store rows that name it, for this target only.
         for _row_module, _row_va, _row in function_rows_for_file(
             filepath,
-            cfg.metadata_dir if cfg is not None else filepath.parent,
+            directory,
             _metadata_entries,
             project_root=getattr(cfg, "root", None),
         ):
@@ -2465,9 +2471,7 @@ def lint_file(
     code_lines = _strip_all(lines)  # one strip pass shared by E023/W020/W022
     if not _file_modules and _own_module:
         _file_modules.add(_own_module)
-    _documented_assembly = _documented_assembly_symbols(
-        text, filepath, _file_modules, cfg.metadata_dir if cfg else filepath.parent
-    )
+    _documented_assembly = _documented_assembly_symbols(text, filepath, _file_modules, directory)
     _check_E023_naked_asm(result, lines, code_lines, _file_statuses, _documented_assembly)
     _check_W020_asm_dump(
         result,
@@ -2475,19 +2479,19 @@ def lint_file(
         text,
         function_rows_for_file(
             filepath,
-            cfg.metadata_dir if cfg else filepath.parent,
+            directory,
             _metadata_entries,
             project_root=getattr(cfg, "root", None),
         ),
         all_headers,
         _own_module,
         filepath,
-        cfg.metadata_dir if cfg else filepath.parent,
+        directory,
     )
-    _check_W021_duplicate_globals(result, lines, filepath, seen_globals)
+    _check_W021_duplicate_globals(result, lines, filepath, seen_globals, bindings, text)
     _check_W022_zero_init_bss(result, code_lines, _data_section_names)
     if cfg is not None:
-        _check_W037_data_definition(result, text, filepath, cfg)
+        _check_W037_data_definition(result, text, filepath, cfg, directory)
     _check_body_rules(
         result,
         lines,
@@ -2641,12 +2645,24 @@ def main(
     seen_va_defines: dict[Any, bool] = {}
     seen_globals: dict[str, tuple[str, int, bool]] = {}
 
+    metadata_directory = cfg.metadata_dir if cfg is not None else None
     # Pre-load metadata once for the whole batch (avoids per-file I/O).
     _preloaded_metadata: dict[tuple[str, int], dict[str, Any]] | None = None
     _preloaded_data_metadata: dict[tuple[str, int], dict[str, Any]] | None = None
     if cfg:
-        _preloaded_metadata = load_metadata(cfg.metadata_dir, deepcopy=False)
-        _preloaded_data_metadata = load_data_metadata(cfg.metadata_dir)
+        _preloaded_metadata = load_metadata(metadata_directory, deepcopy=False)
+        _preloaded_data_metadata = load_data_metadata(metadata_directory)
+    historical_sources: set[Path] | None = None
+    if cfg is not None:
+        from rebrew.metadata.binding_history import historical_source_files
+
+        assert metadata_directory is not None
+        historical_sources = {
+            path
+            for row in (_preloaded_metadata or {}).values()
+            if row.get("binding_history", []) != []
+            for path in historical_source_files(row, metadata_directory, cfg.root)
+        }
     # Pre-load the function list once for the whole batch (W028).
     function_index = _build_function_index(cfg) if cfg else None
     # Section resolver for W016 autofix (DATA/GLOBAL bindings missing SECTION):
@@ -2707,6 +2723,8 @@ def main(
             seen_globals=seen_globals,
             preloaded_metadata=_preloaded_metadata,
             preloaded_data_metadata=_preloaded_data_metadata,
+            preloaded_historical_sources=historical_sources,
+            metadata_directory=metadata_directory,
             function_index=function_index,
             pedantic=pedantic,
             section_for_va=section_for_va,
@@ -2863,7 +2881,7 @@ def main(
                 w029_fn_count = len(fn_redundant)
             else:
                 w029_fn_count = remove_fields_batch(
-                    cfg.metadata_dir,
+                    metadata_directory,
                     [
                         {"module": fn_hit.module, "va": fn_hit.va, "keys": ["cflags"]}
                         for fn_hit in fn_redundant
@@ -2898,7 +2916,9 @@ def main(
                     hit_key = (section_hit.module, section_hit.va)
                     if hit_key in section_updates:
                         continue
-                    existing = get_data_entry(cfg.metadata_dir, section_hit.va, section_hit.module)
+                    existing = get_data_entry(
+                        metadata_directory, section_hit.va, section_hit.module
+                    )
                     if "section" in {k.lower() for k in existing}:
                         continue
                     section_updates[hit_key] = {
@@ -2907,7 +2927,7 @@ def main(
                         "fields": {"section": section_hit.section},
                         "updated_by": "lint",
                     }
-                set_data_fields_batch(cfg.metadata_dir, list(section_updates.values()))
+                set_data_fields_batch(metadata_directory, list(section_updates.values()))
                 section_count = len(section_updates)
 
         if not json_output:
