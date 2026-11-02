@@ -527,12 +527,9 @@ def stock_lib_dir(profile: str, name: str) -> tuple[str, str]:
 def ensure_stock_lib(dest: Path, *, profile: str, name: str) -> bool:
     """Extract *name* from the profile's image into *dest* when it is absent.
 
-    An existing file is reused only when :func:`stock_lib_valid` can walk it
-    as a complete archive: a copy interrupted mid-transfer used to leave a
-    partial file that every later run accepted, indexing a short library and
-    recommending its functions as game code.  A fresh extraction is staged
-    beside *dest* and renamed over it, so a killed copy never becomes the
-    cached archive in the first place.
+    An existing file is reused only when :func:`stock_lib_valid` accepts it.
+    A fresh extraction is staged beside *dest* and renamed over it, so a
+    killed copy never becomes the cached archive in the first place.
 
     Returns False when the container runtime is unavailable, which is how a
     machine without it skips the check instead of failing the gate.  A copy

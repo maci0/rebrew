@@ -186,6 +186,15 @@ class TestRefactorCommand:
         assert "big.py" in result.output
         assert "small.py" not in result.output
 
+    def test_unreadable_file_is_reported_without_crashing(self, tmp_path: Path) -> None:
+        root = self._tree(tmp_path)
+        (root / "src" / "broken.py").mkdir()
+        result = self._run(root, "--min-lines", "0", "--json")
+        assert result.exit_code == 0
+        files = cli_payload(result)["files"]
+        broken = next(f for f in files if f["file"] == "src/broken.py")
+        assert "cannot read" in broken["error"]
+
 
 def test_missing_repository_is_reported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A missing Python checkout fails before scanning, without project config."""

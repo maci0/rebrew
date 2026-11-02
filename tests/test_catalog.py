@@ -20,6 +20,28 @@ from rebrew.metadata.bindings import SourceBinding
 # -------------------------------------------------------------------------
 
 
+def _laid_out(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """Fake a binary layout covering 0x10000000 so annotations emit."""
+    from types import SimpleNamespace
+
+    bin_path = tmp_path / "t.dll"
+    bin_path.write_bytes(b"\x00" * 0x3000)
+    info = SimpleNamespace(
+        image_base=0x10000000,
+        text_raw_offset=0,
+        arch="x86_32",
+        endian="little",
+        data=b"\x00" * 0x3000,
+        sections={
+            ".text": SimpleNamespace(va=0x10000000, size=0x3000, file_offset=0, raw_size=0x3000),
+        },
+    )
+    monkeypatch.setattr("rebrew.formats.binary_loader.load_binary", lambda p: info)
+    monkeypatch.setattr("rebrew.catalog.grid.load_ghidra_data_labels", lambda src: {})
+    monkeypatch.setattr("rebrew.catalog.grid.get_globals", lambda src, cfg=None: {})
+    return bin_path
+
+
 # -------------------------------------------------------------------------
 # build_function_registry
 # -------------------------------------------------------------------------
@@ -141,30 +163,6 @@ class TestCountDetectionSources:
 
 
 class TestGenerateDataJson:
-    @staticmethod
-    def _laid_out(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
-        """Fake a binary layout covering 0x10000000 so annotations emit."""
-        from types import SimpleNamespace
-
-        bin_path = tmp_path / "t.dll"
-        bin_path.write_bytes(b"\x00" * 0x3000)
-        info = SimpleNamespace(
-            image_base=0x10000000,
-            text_raw_offset=0,
-            arch="x86_32",
-            endian="little",
-            data=b"\x00" * 0x3000,
-            sections={
-                ".text": SimpleNamespace(
-                    va=0x10000000, size=0x3000, file_offset=0, raw_size=0x3000
-                ),
-            },
-        )
-        monkeypatch.setattr("rebrew.formats.binary_loader.load_binary", lambda p: info)
-        monkeypatch.setattr("rebrew.catalog.grid.load_ghidra_data_labels", lambda src: {})
-        monkeypatch.setattr("rebrew.catalog.grid.get_globals", lambda src, cfg=None: {})
-        return bin_path
-
     def test_basic(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         entries = [
             SourceBinding(
@@ -179,7 +177,7 @@ class TestGenerateDataJson:
             ),
         ]
         funcs = [{"va": 0x10001000, "size": 64, "name": "_func_a"}]
-        bin_path = self._laid_out(monkeypatch, tmp_path)
+        bin_path = _laid_out(monkeypatch, tmp_path)
         data = build_coverage_data(entries, funcs, text_size=0x3000, bin_path=bin_path)
         assert isinstance(data, dict)
         assert "sections" in data
@@ -214,7 +212,7 @@ class TestGenerateDataJson:
             ),
         ]
         funcs = [{"va": 0x10001000, "size": 64, "name": "_func_a"}]
-        bin_path = self._laid_out(monkeypatch, tmp_path)
+        bin_path = _laid_out(monkeypatch, tmp_path)
         data = build_coverage_data(entries, funcs, text_size=0x3000, bin_path=bin_path)
 
         assert data["summary"]["nearMatchCount"] == 1
@@ -236,7 +234,7 @@ class TestGenerateDataJson:
             ),
         ]
         funcs = [{"va": 0x10001000, "size": 64, "name": "_func_a"}]
-        bin_path = self._laid_out(monkeypatch, tmp_path)
+        bin_path = _laid_out(monkeypatch, tmp_path)
         data = build_coverage_data(entries, funcs, text_size=0x3000, bin_path=bin_path)
         s = data["summary"]
 
@@ -282,8 +280,6 @@ class TestGenerateDataJson:
         functions as matched (regression: headline coverage stat overstated
         whenever a source failed to compile).
         """
-        from types import SimpleNamespace
-
         entries = [
             SourceBinding(
                 va=0x10001000,
@@ -314,23 +310,7 @@ class TestGenerateDataJson:
             ),
         ]
         funcs = [{"va": 0x10001000, "size": 64, "name": "_ok_fn"}]
-        bin_path = tmp_path / "t.dll"
-        bin_path.write_bytes(b"\x00" * 0x3000)
-        info = SimpleNamespace(
-            image_base=0x10000000,
-            text_raw_offset=0,
-            arch="x86_32",
-            endian="little",
-            data=b"\x00" * 0x3000,
-            sections={
-                ".text": SimpleNamespace(
-                    va=0x10000000, size=0x3000, file_offset=0, raw_size=0x3000
-                ),
-            },
-        )
-        monkeypatch.setattr("rebrew.formats.binary_loader.load_binary", lambda p: info)
-        monkeypatch.setattr("rebrew.catalog.grid.load_ghidra_data_labels", lambda src: {})
-        monkeypatch.setattr("rebrew.catalog.grid.get_globals", lambda src, cfg=None: {})
+        bin_path = _laid_out(monkeypatch, tmp_path)
         data = build_coverage_data(entries, funcs, text_size=0x3000, bin_path=bin_path)
 
         s = data["summary"]

@@ -52,10 +52,11 @@ def _collect_python_files(root: Path) -> list[Path]:
 
 def _analyse_file(path: Path, root: Path) -> dict[str, Any]:
     """Per-file line and loop counts for the suggestions."""
+    relative = path.relative_to(root).as_posix()
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
-        return {"file": str(path), "error": f"cannot read: {exc}"}
+        return {"file": relative, "error": f"cannot read: {exc}"}
 
     lines = text.splitlines()
     num_lines = len(lines)
@@ -66,7 +67,7 @@ def _analyse_file(path: Path, root: Path) -> dict[str, Any]:
     while_loop_count = sum(1 for line in lines if line.strip().startswith("while "))
 
     return {
-        "file": path.relative_to(root).as_posix(),
+        "file": relative,
         "lines": num_lines,
         "too_long": too_long,
         "todos": many_todos,
@@ -136,14 +137,13 @@ def main(
     results: list[dict[str, Any]] = []
     for f in files:
         info = _analyse_file(f, root)
-        if info["lines"] >= min_lines:
+        if "error" in info or info["lines"] >= min_lines:
             results.append(info)
 
     if json_output:
         json_print({"files": results})
         return
 
-    # Pretty print a table
     table = TerminalTable(show_header=True, header_style="bold magenta")
     table.add_column("File", style="dim", width=40)
     table.add_column("Lines", justify="right")
@@ -151,8 +151,8 @@ def main(
     for r in results:
         table.add_row(
             r["file"],
-            str(r["lines"]),
-            "\n".join(r["suggestions"]),
+            str(r.get("lines", "-")),
+            "\n".join(r["suggestions"]) if "suggestions" in r else r["error"],
         )
     console.print(table)
 

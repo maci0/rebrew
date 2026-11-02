@@ -61,6 +61,22 @@ timeout = 60
     return root
 
 
+def _patch_load_data(
+    monkeypatch: pytest.MonkeyPatch, annotations: dict[int, dict[str, object]]
+) -> None:
+    """Serve a two-function inventory and *annotations* from rebrew.naming.load_data."""
+
+    class _F:
+        def __init__(self, va: int, size: int) -> None:
+            self.va = va
+            self.size = size
+
+    def _fake_load_data(cfg, **kw):
+        return ([_F(0x401000, 100), _F(0x401020, 30)], annotations, {})
+
+    monkeypatch.setattr("rebrew.naming.load_data", _fake_load_data)
+
+
 class TestCollectFunctions:
     def test_ghidra_functions_preferred(self, tmp_path: Path, monkeypatch) -> None:
         """A Ghidra export takes precedence for functions.total."""
@@ -72,19 +88,7 @@ class TestCollectFunctions:
         )
         (tmp_path / "src").mkdir(exist_ok=True)
 
-        def _fake_load_data(cfg, **kw):
-            class _F:
-                def __init__(self, va: int, size: int) -> None:
-                    self.va = va
-                    self.size = size
-
-            return (
-                [_F(0x401000, 100), _F(0x401020, 30)],
-                {0x401000: {"filename": "a.c"}, 0x401020: {}},
-                {},
-            )
-
-        monkeypatch.setattr("rebrew.naming.load_data", _fake_load_data)
+        _patch_load_data(monkeypatch, {0x401000: {"filename": "a.c"}, 0x401020: {}})
         out = _collect_functions(cfg)
         # The Ghidra list drives total and total_bytes; the inventory fallback
         # is what the sibling test pins.
@@ -104,19 +108,7 @@ class TestCollectFunctions:
         )
         (tmp_path / "src").mkdir(exist_ok=True)
 
-        def _fake_load_data(cfg, **kw):
-            class _F:
-                def __init__(self, va: int, size: int) -> None:
-                    self.va = va
-                    self.size = size
-
-            return (
-                [_F(0x401000, 100), _F(0x401020, 30)],
-                {0x401000: {}, 0x401020: {}, 0x409000: {}},
-                {},
-            )
-
-        monkeypatch.setattr("rebrew.naming.load_data", _fake_load_data)
+        _patch_load_data(monkeypatch, {0x401000: {}, 0x401020: {}, 0x409000: {}})
         out = _collect_functions(cfg)
         assert out["covered"] == 2
         assert out["covered"] <= out["total"]
