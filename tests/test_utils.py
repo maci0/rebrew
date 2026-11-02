@@ -164,6 +164,23 @@ def test_atomic_write_bytes_survives_a_refused_fsync(
     assert target.read_bytes() == b"MZ payload"
 
 
+def test_atomic_write_bytes_non_durable_skips_fsync(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A derived cache trades crash durability for a cheap replace."""
+    calls: list[int] = []
+    real_fsync = os.fsync
+
+    def record(fd: int) -> None:
+        calls.append(fd)
+        real_fsync(fd)
+
+    monkeypatch.setattr(os, "fsync", record)
+    atomic_write_bytes(tmp_path / "cache.json", b'{"rows": []}', durable=False)
+    assert calls == []
+    assert (tmp_path / "cache.json").read_bytes() == b'{"rows": []}'
+
+
 def test_filename_component_is_one_safe_component() -> None:
     assert filename_component("sub/dir/evil") == "sub_dir_evil"
     assert filename_component("/etc/passwd") == "_etc_passwd"
@@ -235,6 +252,10 @@ def test_atomic_write_bytes_identical_is_noop(tmp_path: Path) -> None:
     atomic_write_bytes(f, b"stable")
     assert f.read_bytes() == b"stable"
     assert f.stat().st_mtime_ns == 1_000_000_000
+    # Same length, different bytes: the size guard must still compare content.
+    atomic_write_bytes(f, b"staple")
+    assert f.read_bytes() == b"staple"
+    assert f.stat().st_mtime_ns != 1_000_000_000
     atomic_write_bytes(f, b"changed")
     assert f.read_bytes() == b"changed"
     assert f.stat().st_mtime_ns != 1_000_000_000

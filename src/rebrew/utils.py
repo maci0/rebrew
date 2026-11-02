@@ -1001,20 +1001,25 @@ def _fsync_path(path: Path) -> None:
 
 
 @contextlib.contextmanager
-def _atomic_replace(filepath: Path) -> Iterator[Path]:
+def _atomic_replace(filepath: Path, *, durable: bool = True) -> Iterator[Path]:
     """Yield a sibling temp path that is published onto *filepath* on a clean exit.
 
     On any failure the temp file is removed and the original exception is
     re-raised, so a crash or a full disk never leaves a partial write (or a
     stray ``.tmp`` sibling) at the target.  A read-only destination directory
     is reported with the target path instead of a bare errno 13.
+
+    *durable* controls the fsyncs, not the atomic replace: ``False`` is for a
+    derived cache that a miss can rebuild, so power loss may drop the new
+    entry but can never expose a partial one.
     """
     tmp_path = filepath.with_name(
         f"{filepath.name}.{os.getpid()}.{threading.get_ident()}.{time.monotonic_ns()}.tmp"
     )
     try:
         yield tmp_path
-        _fsync_path(tmp_path)
+        if durable:
+            _fsync_path(tmp_path)
         try:
             os.replace(tmp_path, filepath)
         except PermissionError as exc:
@@ -1026,7 +1031,8 @@ def _atomic_replace(filepath: Path) -> Iterator[Path]:
         with contextlib.suppress(OSError):
             tmp_path.unlink()
         raise
-    _fsync_path(filepath.parent)
+    if durable:
+        _fsync_path(filepath.parent)
 
 
 def strip_generated_timestamp(text: str) -> str:
@@ -1113,6 +1119,8 @@ def atomic_write_text(
     errors: str = "strict",
     mode: int = _DEFAULT_FILE_MODE,
     lenient: bool = False,
+    *,
+    durable: bool = True,
 ) -> None:
     """Write text to a file atomically to prevent corruption on crash.
 
@@ -1147,9 +1155,13 @@ def atomic_write_text(
     duration of the write, and world-readable for good if the process dies
     between the two calls.  Creating it restrictive also tightens a file a
     previous run left at the default, since the replacement inode carries *mode*.
+
+    *durable* is forwarded to :func:`atomic_write_bytes`; use ``False`` only
+    for a derived cache, where skipping the fsyncs trades crash durability
+    for lower latency and a miss rebuilds the file.
     """
     data = encode_source_text(text, encoding) if lenient else text.encode(encoding, errors=errors)
-    atomic_write_bytes(filepath, data, mode=mode)
+    atomic_write_bytes(filepath, data, mode=mode, durable=durable)
     # Drop any stale path+mtime entries so a same-ns rewrite cannot serve
     # pre-write content to a later reader in this process.
     try:
@@ -1180,7 +1192,13 @@ def encode_source_text(text: str, encoding: str) -> bytes:
         return text.encode(encoding, errors="replace")
 
 
-def atomic_write_bytes(filepath: Path, data: bytes, mode: int = _DEFAULT_FILE_MODE) -> None:
+def atomic_write_bytes(
+    filepath: Path,
+    data: bytes,
+    mode: int = _DEFAULT_FILE_MODE,
+    *,
+    durable: bool = True,
+) -> None:
     """Byte counterpart of :func:`atomic_write_text`.
 
     Writes to a sibling ``.<pid>.<tid>.<monotonic>.tmp`` then ``os.replace()``s, so a
@@ -1196,16 +1214,24 @@ def atomic_write_bytes(filepath: Path, data: bytes, mode: int = _DEFAULT_FILE_MO
     *mode* is as in :func:`atomic_write_text`; on the short-circuit path the
     existing file is chmod-ed to it, so a file a previous run left wider is
     tightened even when this run's bytes are unchanged.
+
+    *durable* keeps the fsync of the temp file and its directory, which is what
+    survives power loss.  Pass ``False`` only for a derived cache rebuilt on a
+    miss: the replace is still atomic, but a crash may cost the new entry.
     """
     filepath.parent.mkdir(parents=True, exist_ok=True)
     if filepath.is_file():
         try:
-            if filepath.read_bytes() == data:
+            # A length mismatch already proves the bytes differ, so a changed
+            # write never reads the destination back.  Report and cache blobs
+            # change length as a rule, and each rewrite paid a full old-file
+            # read just to discover that.
+            if filepath.stat().st_size == len(data) and filepath.read_bytes() == data:
                 _set_mode_quietly(filepath, mode)
                 return
         except OSError:
             pass
-    with _atomic_replace(filepath) as tmp_path:
+    with _atomic_replace(filepath, durable=durable) as tmp_path:
         # O_EXCL: a name planted in the target directory as a symlink must not
         # be followed, or the write lands on the link's target.
         fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)

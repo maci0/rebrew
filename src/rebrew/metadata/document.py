@@ -160,7 +160,11 @@ def _write_doc_cache(
     known_fields: frozenset[str] | None,
     result: dict[tuple[str, int], dict[str, Any]],
 ) -> None:
-    """Store *result* for the next process. A failure leaves the TOML path working."""
+    """Store *result* for the next process. A failure leaves the TOML path working.
+
+    Not fsynced: the sidecar is derived from the TOML, so a crash costs one
+    reparse rather than data, and a cold load waited on two fsyncs per store.
+    """
     cache_path = _doc_cache_file(path)
     payload = {
         "version": _DOC_CACHE_VERSION,
@@ -168,7 +172,12 @@ def _write_doc_cache(
         "rows": [[module, va, fields] for (module, va), fields in result.items()],
     }
     try:
-        atomic_write_text(cache_path, json.dumps(payload, separators=(",", ":")), encoding="utf-8")
+        atomic_write_text(
+            cache_path,
+            json.dumps(payload, separators=(",", ":")),
+            encoding="utf-8",
+            durable=False,
+        )
     except OSError:
         return
 
