@@ -378,24 +378,29 @@ def prepare_library_header(header: Path) -> None:
         atomic_write_text(header, _LIBRARY_BANNER, encoding="utf-8")
 
 
-def _record_library_candidate(cfg: Any, header: Path, cand: LibCandidate, source: str) -> None:
-    """Record one LIBRARY row. The header file is the row's ``file``."""
-    from rebrew.metadata.functions import identity_file, record_function_identity
+def _library_candidate_row(
+    cfg: Any, header: Path, cand: LibCandidate, source: str
+) -> dict[str, Any]:
+    """Build one LIBRARY row. The header file is the row's ``file``."""
+    from rebrew.metadata.functions import identity_file
 
     # The module and the name are raw target-binary text. pe_name_token drops
     # a newline so neither can break out of a later comment or a TOML string.
     token = pe_name_token(cand.name)
-    record_function_identity(
-        cfg.metadata_dir,
-        module=pe_name_token(cand.module),
-        va=cand.va,
-        file=identity_file(header, cfg.metadata_dir),
-        kind="LIBRARY",
-        # ``hook@@12`` is ``hook`` and ``__foo`` is ``_foo``.
-        name=c_name_from_symbol(token),
-        symbol=token,
-        source=source,
-    )
+    row: dict[str, Any] = {
+        "module": pe_name_token(cand.module),
+        "va": cand.va,
+        "identity": {
+            "file": identity_file(header, cfg.metadata_dir),
+            "kind": "LIBRARY",
+            # ``hook@@12`` is ``hook`` and ``__foo`` is ``_foo``.
+            "name": c_name_from_symbol(token),
+            "symbol": token,
+        },
+    }
+    if source:
+        row["fields"] = {"source": source}
+    return row
 
 
 def write_candidates(cfg: Any, candidates: list[LibCandidate], existing: set[int]) -> int:
@@ -416,6 +421,7 @@ def write_candidates(cfg: Any, candidates: list[LibCandidate], existing: set[int
             continue
         by_module.setdefault(cand.module, []).append(cand)
 
+    rows: list[dict[str, Any]] = []
     for module, cands in sorted(by_module.items()):
         # The module comes from the target's import table (or a .pat stem), so
         # it is untrusted text: library_header_name keeps a "../" DLL name from
@@ -434,9 +440,16 @@ def write_candidates(cfg: Any, candidates: list[LibCandidate], existing: set[int
                 and "\r" not in cand.source_ref
             ):
                 source = cand.source_ref
-            _record_library_candidate(cfg, header, cand, source)
+            rows.append(_library_candidate_row(cfg, header, cand, source))
             existing.add(cand.va)
             written += 1
+    if rows:
+        # One store edit for the whole pass: a per-row write re-read and
+        # re-serialized an ever-growing rebrew-functions.toml once per
+        # candidate.
+        from rebrew.metadata.functions import record_function_rows
+
+        record_function_rows(cfg.metadata_dir, rows)
     return written
 
 

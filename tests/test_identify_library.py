@@ -126,6 +126,35 @@ class TestWriteCandidates:
         assert entry["file"] == "src/library_zlib.h"
         assert not (cfg.reversed_dir / "library_msvcrt.h").exists()
 
+    def test_candidates_share_one_store_write(self, tmp_path: Path, monkeypatch) -> None:
+        """A whole pass rewrites the metadata store once, not once per row."""
+        cfg = _cfg(tmp_path)
+        cfg.reversed_dir.mkdir()
+        cands = [
+            LibCandidate(
+                va=0x1000 + i * 0x10,
+                name=f"fn_{i}",
+                module="MSVCRT",
+                kind="import",
+                confidence=0.3,
+            )
+            for i in range(64)
+        ]
+        from rebrew.metadata import functions
+
+        calls: list[int] = []
+        real = functions.record_function_rows
+
+        def counted(directory: Any, rows: list[dict[str, Any]], **kwargs: Any) -> None:
+            calls.append(len(rows))
+            real(directory, rows, **kwargs)
+
+        monkeypatch.setattr(functions, "record_function_rows", counted)
+        assert write_candidates(cfg, cands, existing=set()) == 64
+        assert calls == [64]
+        assert get_entry(cfg.metadata_dir, 0x1000, "MSVCRT")["symbol"] == "fn_0"
+        assert get_entry(cfg.metadata_dir, 0x1000 + 63 * 0x10, "MSVCRT")["symbol"] == "fn_63"
+
     def test_decorated_candidate_name_is_the_c_name(self, tmp_path: Path) -> None:
         """A decorated library candidate is named as C, and the symbol stays.
 
