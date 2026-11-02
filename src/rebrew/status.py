@@ -875,7 +875,17 @@ def _unclaimed(lo: int, hi: int, claimed: list[tuple[int, int]]) -> list[tuple[i
     return pieces
 
 
-def collect_status(cfg: ProjectConfig) -> StatusReport:
+#: ``load_data`` return value: inventory functions, resolved rows, and the
+#: VA-to-file navigation map.
+SourceData = tuple[list[Any], dict[int, dict[str, str]], dict[int, str]]
+
+
+def collect_status(
+    cfg: ProjectConfig,
+    *,
+    tree: list[Path] | None = None,
+    data: SourceData | None = None,
+) -> StatusReport:
     """Collect all project health data into a StatusReport.
 
     This is the single testable entry point for status data collection.
@@ -884,6 +894,11 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     When a verify cache exists, verify results override source statuses
     so that functions which fail verification (NEAR_MATCHING, COMPILE_ERROR) are
     not counted as byte-matched.
+
+    *tree* and *data* are a :func:`rebrew.sources.scan_files` result and the
+    matching :func:`rebrew.naming.load_data` result for this config.  A caller
+    that already loaded them (``todo`` does) passes both so the scan and
+    source-binding pass are not repeated.
     """
     from rebrew.naming import load_data
     from rebrew.sources import iter_sources, scan_files
@@ -898,10 +913,13 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     # (`load_data`'s source and library-header passes, the file count, and the
     # inline-metadata census).  Each of those is a whole-tree walk on its own,
     # and a project's tree holds one directory read per subdirectory per walk.
-    tree = scan_files(cfg.reversed_dir)
+    if tree is None:
+        tree = scan_files(cfg.reversed_dir)
 
     try:
-        ghidra_funcs, existing, _covered_vas = load_data(cfg, tree=tree)
+        ghidra_funcs, existing, _covered_vas = (
+            data if data is not None else load_data(cfg, tree=tree)
+        )
         from rebrew.naming import external_vas, inside_annotated_vas, scope_to_target
 
         # Before scoping: external .lib rows carry library modules

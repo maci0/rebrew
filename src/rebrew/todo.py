@@ -1752,7 +1752,8 @@ def main(
 
     tree = scan_files(cfg.reversed_dir)
     try:
-        ghidra_funcs, existing, covered_vas = load_data(cfg, tree=tree)
+        loaded = load_data(cfg, tree=tree)
+        ghidra_funcs, existing, covered_vas = loaded
         from rebrew.naming import external_vas, scope_to_target
 
         # Before scoping: external .lib rows carry library modules
@@ -1831,7 +1832,7 @@ def main(
         try:
             from rebrew.status import collect_status
 
-            progress = collect_status(cfg)
+            progress = collect_status(cfg, tree=tree, data=loaded)
         except OSError, ValueError, KeyError:
             progress = None
         else:

@@ -230,6 +230,46 @@ class TestCollectStatus:
         assert report.status_counts.get("NEAR_MATCHING") == 1
         assert report.source_files == 2
 
+    def test_reuses_provided_scan_and_source_data(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A caller that already loaded the tree and rows pays for neither twice."""
+        cfg = _make_cfg(tmp_path)
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "function_structure.json").write_text(
+            json.dumps([{"va": 0x1000, "size": 100, "ghidra_name": "func_a"}]),
+            encoding="utf-8",
+        )
+        write_source(
+            src / "func_a.c",
+            "/* ADDRESS: TEST 0x1000 */\nvoid func_a(void) {}\n",
+            encoding="utf-8",
+            metadata_fields={"TEST.0x1000": {"kind": "FUNCTION"}},
+        )
+        write_store_fixture(
+            tmp_path / "rebrew-functions.toml",
+            'format = 3\n["TEST.0x1000"]\nstatus = "EXACT"\n',
+            encoding="utf-8",
+        )
+
+        from rebrew.naming import load_data
+        from rebrew.sources import scan_files
+
+        tree = scan_files(src)
+        loaded = load_data(cfg)  # type: ignore[arg-type]
+
+        def repeated_work(*_args: Any, **_kwargs: Any) -> None:
+            raise AssertionError("collect_status repeated the source scan")
+
+        monkeypatch.setattr("rebrew.sources.scan_files", repeated_work)
+        monkeypatch.setattr("rebrew.naming.load_data", repeated_work)
+
+        report = collect_status(cfg, tree=tree, data=loaded)  # type: ignore[arg-type]
+        assert report.source_files == 1
+        assert report.covered_functions == 1
+        assert report.status_counts.get("EXACT") == 1
+
     def test_naked_reconstruction_bucketed(self, tmp_path: Path) -> None:
         """A `// SOURCE: naked` EXACT function is byte-coverage but NOT
         decompiled: naked_matched counts it, decompiled_pct excludes it, and

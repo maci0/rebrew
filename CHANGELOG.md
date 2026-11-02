@@ -9,6 +9,7 @@
 - Bound the in-process extern-name, name-cover and role-fact caches, version the parsed metadata-row, extern-name and name-cover sidecars so an upgrade never reads rows from older semantics, and bound the linked-image hash memo.
 - Version the derived verify-cache JSON sidecar so an upgrade never serves a document decoded by older parser semantics.
 - Speed up status byte accounting on large binaries by subtracting merged function extents from native tails with a bisect instead of rescanning every earlier span.
+- Stop `todo` from walking the source tree and reloading every source binding twice for its coverage header; it passes the scan and rows it already loaded to the status collector.
 - Wait for an asynchronous Docker cancellation stop when the job owner closes, and reject mutating calls after close so a released store cannot be reused.
 
 ## [6.14.3] - 2026-11-02
