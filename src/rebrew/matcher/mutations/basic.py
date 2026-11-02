@@ -278,7 +278,6 @@ def mut_goto_to_return(s: str, rng: random.Random) -> str | None:
 
     result = decode_source(res)
 
-    # Remove the label if no more gotos reference it
     if "goto ret_false" not in result:
         result = _RE_RET_FALSE_LABEL_NL.sub("", result)
         result = _RE_RET_FALSE_LABEL.sub("", result)
@@ -302,7 +301,6 @@ def mut_swap_if_else(s: str, rng: random.Random) -> str | None:
         # Strip outer parens from cond if present to negate safely
         cond_inner = cond[1:-1] if cond.startswith(b"(") and cond.endswith(b")") else cond
 
-        # Simple negation - in real scenarios, prefer mut_flip_lt_ge and others
         negated_cond = b"!(" + cond_inner + b")"
 
         # Brace both arms: a bare `else if` without its own trailing else
@@ -370,14 +368,10 @@ def mut_toggle_volatile(s: str, rng: random.Random) -> str | None:
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         decl = _cap_bytes(b_source, captures, "expr")
 
-        # Try removing volatile first
         if b"volatile " in decl and rng.random() < 0.5:
             return decl.replace(b"volatile ", b"")
 
-        # Try adding volatile
         if b"volatile" not in decl:
-            # simple trick: inject after the type
-            # but we can just prepend it
             return b"volatile " + decl
 
         return decl
@@ -541,25 +535,20 @@ def mut_introduce_temp_for_call(s: str, rng: random.Random) -> str | None:
     var = _cap_bytes(b_source, single_captures, "var")
     call = _cap_bytes(b_source, single_captures, "call")
 
-    # Inline replacement: tmp = call(); var = tmp;
     inline_repl = b"tmp = " + call + b";\n    " + var + b" = tmp;"
 
     if _RE_HAS_TMP.search(b_source):
-        # 'tmp' already declared somewhere — just use it, no hoisting needed
         res = replace_node(b_source, target_node, inline_repl)
         return decode_source(res) if res else None
 
-    # C89: hoist 'BOOL tmp;' to function body top
     insert_pos = _find_function_body_insert_pos(b_source, target_node.start_byte)
     if insert_pos is None:
-        # Fallback: can't find function body, skip
         return None
 
     hoisted_decl = b"\n    BOOL tmp;"
     out = b_source[:insert_pos] + hoisted_decl + b_source[insert_pos:]
     offset = len(hoisted_decl)
 
-    # Apply inline replacement at the shifted position
     new_start = target_node.start_byte + offset
     new_end = target_node.end_byte + offset
     result = out[:new_start] + inline_repl + out[new_end:]

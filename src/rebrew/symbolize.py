@@ -263,7 +263,7 @@ def symbolize_file(
 ) -> dict[str, Any]:
     """Rewrite *source*'s raw relocated addresses; returns the report row."""
     from rebrew.c_parser import find_c_function_definitions
-    from rebrew.utils import is_safe_c_ident, rel_display_path
+    from rebrew.utils import atomic_write_text, is_safe_c_ident, rel_display_path
 
     raw_link = getattr(cfg, "raw_link", None)
     if raw_link is None:
@@ -290,8 +290,6 @@ def symbolize_file(
         # Publish atomically: a concurrent `verify --watch` (or any source
         # scan) reading this file mid-rewrite would otherwise see a truncated
         # body and cache verdicts for bytes that never matched.
-        from rebrew.utils import atomic_write_text
-
         atomic_write_text(source, text, encoding="utf-8", errors="surrogateescape")
     return {
         "file": rel_display_path(source, cfg.root),
