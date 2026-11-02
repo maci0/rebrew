@@ -1188,6 +1188,7 @@ def scan_data_annotations(src_dir: Path, cfg: ProjectConfig | None = None) -> li
     from rebrew.config import target_module
     from rebrew.metadata.bindings import read_source_bindings
     from rebrew.metadata.data import load_data_metadata, merge_into_data_binding
+    from rebrew.metadata.functions import load_metadata
     from rebrew.sources import iter_sources_and_headers
     from rebrew.utils import rel_display_path
 
@@ -1203,6 +1204,9 @@ def scan_data_annotations(src_dir: Path, cfg: ProjectConfig | None = None) -> li
     # One read-only load for the whole walk: the per-annotation lookup below
     # otherwise re-stats and deep-copies the row for every DATA marker.
     data_entries = load_data_metadata(metadata_dir, deepcopy=False)
+    # Same for the function store: read_source_bindings re-reads and
+    # re-fingerprints it once per file unless the batch hands it over.
+    function_entries = load_metadata(metadata_dir, deepcopy=False)
     for cfile in iter_sources_and_headers(src_dir, cfg):
         rel_name = rel_display_path(cfile, src_dir)
         for ann in read_source_bindings(
@@ -1213,6 +1217,7 @@ def scan_data_annotations(src_dir: Path, cfg: ProjectConfig | None = None) -> li
             # The data list records identity, size, and section. Calling
             # conventions are a function-verify concern.
             with_prototypes=False,
+            function_entries=function_entries,
         ):
             if ann.is_data:
                 # Metadata root is cfg.metadata_dir; cfile.parent would

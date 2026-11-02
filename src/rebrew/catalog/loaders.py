@@ -407,6 +407,9 @@ def scan_reversed_dir(
                     base_dir=reversed_dir,
                     metadata_dir=metadata_root,
                     project_root=cfg.root if cfg else None,
+                    # The batch already loaded the store: hand it to each
+                    # source instead of re-reading and re-fingerprinting it.
+                    function_entries=metadata,
                 )
             )
 

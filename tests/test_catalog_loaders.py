@@ -301,6 +301,49 @@ class TestScanReversedDirLibraryHeaders:
         assert lib.blocker == "1B diff"
 
 
+class TestScanReversedDirStoreReads:
+    def test_store_is_loaded_once_for_the_whole_scan(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Every source used to re-read the store; the scan loads it as a batch."""
+        from types import SimpleNamespace
+
+        from rebrew.catalog.loaders import scan_reversed_dir
+        from rebrew.metadata import functions
+
+        src = tmp_path / "src"
+        src.mkdir()
+        for i in range(3):
+            va = 0x10001000 + i * 0x100
+            write_source(
+                src / f"f{i}.c",
+                f"/* ADDRESS: SERVER 0x{va:x} */\nvoid f{i}(void) {{}}\n",
+                encoding="utf-8",
+                metadata_fields={
+                    f"SERVER.0x{va:x}": {"kind": "FUNCTION", "size": 16, "symbol": f"_f{i}"}
+                },
+                metadata_dir=tmp_path,
+            )
+        cfg = SimpleNamespace(
+            metadata_dir=tmp_path,
+            module="SERVER",
+            source_ext=".c",
+            reversed_dir=src,
+            root=tmp_path,
+        )
+        calls: list[Path] = []
+        original = functions.load_metadata
+
+        def counting(directory: Any, **kwargs: Any) -> dict[Any, Any]:
+            calls.append(Path(str(directory)))
+            return original(directory, **kwargs)
+
+        monkeypatch.setattr(functions, "load_metadata", counting)
+        entries = scan_reversed_dir(src, cfg=cfg)
+        assert len(entries) == 3
+        assert len(calls) == 1
+
+
 class TestParseRizinAfl:
     """Shared rizin ``afl`` parser (discover + intake used to hand-roll
     two subtly different copies of this)."""
