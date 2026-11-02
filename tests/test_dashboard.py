@@ -1910,36 +1910,56 @@ class TestLiteralSearch:
 
     The term ran through SQL ``LIKE '%term%' ESCAPE '\\'`` with its own ``%``,
     ``_`` and ``\\`` escaped first, so a wildcard in a term never was one.  The
-    comparison is now a Python substring test (``rebrew.dashboard._name_match``)
-    with SQLite's own ASCII-only folding, so there is no pattern to unwind and
-    no spelling that means anything but the literal text — this pins that the
-    answer did not change with the mechanism.
+    comparison is now a folded substring test over the in-memory rows, so
+    there is no pattern to unwind and no spelling that means anything but the
+    literal text.  These names carry every character the old escaper handled.
     """
 
-    def test_wildcards_match_literally(self) -> None:
-        from rebrew.dashboard import _name_match
+    @pytest.fixture
+    def literal_dashboard(self, tmp_path: Path) -> Dashboard:
+        db_dir = tmp_path / "db"
+        rows = (
+            ("func_a", "_func_a"),
+            ("funcXa", ""),
+            ("100%_done", ""),
+            ("a\\b", ""),
+            ("no_symbol", ""),
+            ("ss", ""),
+            ("my_FUNC_thing", ""),
+            ("ÄBC", ""),
+        )
+        body = "".join(
+            f"[[functions]]\nva = {4096 + index * 4}\nname = {json.dumps(name)}\n"
+            + (f"symbol = {json.dumps(symbol)}\n" if symbol else "")
+            + 'status = "EXACT"\nmarkerType = "FUNCTION"\nsize = 4\n\n'
+            for index, (name, symbol) in enumerate(rows)
+        )
+        _write_document(db_dir, "t", body)
+        return Dashboard(db_dir, snapshots=True)
 
-        assert _name_match("func_a", 0x1000, "func_a", "_func_a")
+    def test_wildcards_match_literally(self, literal_dashboard: Dashboard) -> None:
+        dashboard = literal_dashboard
+        assert dashboard.functions("t", q="func_a")["total"] == 1
         # ``_`` and ``%`` are characters, not patterns.
-        assert _name_match("func_", 0x1000, "func_a")
-        assert not _name_match("func_", 0x1000, "funcXa")
-        assert _name_match("100%", 0x1000, "100%_done")
-        assert not _name_match("f%a", 0x1000, "func_a")
-        assert _name_match(r"a\b", 0x1000, r"a\b")
-        # An absent column folds as the empty string, which no non-empty term
-        # hits -- the answer ``COALESCE(col, '')`` gave a nullable ``symbol``.
-        assert not _name_match("x", 0x1000, "")
+        assert dashboard.functions("t", q="func_")["total"] == 2
+        assert dashboard.functions("t", q="funcX")["total"] == 1
+        assert dashboard.functions("t", q="f%a")["total"] == 0
+        assert dashboard.functions("t", q="100%")["total"] == 1
+        assert dashboard.functions("t", q=r"a\b")["total"] == 1
+        # An absent symbol folds as the empty string, which no non-empty term
+        # hits -- the answer ``COALESCE(symbol, '')`` gave a nullable column.
+        assert dashboard.functions("t", q="_no_symbol")["total"] == 0
 
-    def test_search_folds_ascii_only(self) -> None:
+    def test_search_folds_ascii_only(self, literal_dashboard: Dashboard) -> None:
         """The fold is SQLite's ASCII one, so ``ß`` is not ``ss``."""
-        from rebrew.dashboard import _name_match
-
-        assert _name_match("FUNC_A", 0x1000, "func_a", "")
+        dashboard = literal_dashboard
+        assert dashboard.functions("t", q="FUNC_A")["total"] == 1
         # ``str.casefold`` would match this; the ASCII fold must not.
-        assert not _name_match("ß", 0x1000, "ss")
-        assert _name_match("FUNC", 0x1000, "", "my_FUNC_thing")
-        assert _name_match("Äbc", 0x1000, "ÄBC")
-        assert not _name_match("äbc", 0x1000, "ÄBC")
+        assert dashboard.functions("t", q="ß")["total"] == 0
+        assert dashboard.functions("t", q="FUNC")["total"] == 3
+        assert dashboard.functions("t", q="my_FUNC_thing")["total"] == 1
+        assert dashboard.functions("t", q="Äbc")["total"] == 1
+        assert dashboard.functions("t", q="äbc")["total"] == 0
 
     def test_fold_cache_rejects_identity_collision(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from types import SimpleNamespace

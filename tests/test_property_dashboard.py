@@ -6,7 +6,7 @@ supplies the request path, the query string, and the ``Host``,
 ``Accept-Encoding`` and ``If-None-Match`` headers.  Every value that reaches
 a response header, a log line, or a row filter from those bytes is parsed by a
 hand-written helper here — ``_int_param``, ``_offset_param``, ``_opt_query``,
-``_module_query``, ``_va_query``, ``_name_match``, ``_parse_accept_encoding``,
+``_module_query``, ``_va_query``, ``_fold``, ``_parse_accept_encoding``,
 ``_if_none_match``, ``_host_allowed`` and ``_query_scope`` — and none of them
 had a property test.
 
@@ -51,11 +51,11 @@ from rebrew.dashboard import (
     Dashboard,
     _encoding_q,
     _files_display,
+    _fold,
     _host_allowed,
     _if_none_match,
     _int_param,
     _maybe_compress,
-    _name_match,
     _negotiate_encoding,
     _offset_param,
     _parse_accept_encoding,
@@ -285,21 +285,21 @@ class TestSearchTerm:
 
     The comparison used to be a SQL LIKE pattern, so this class pinned the
     escaper and the parameterized SQL builder.  Both are gone: the rows are
-    in memory now and ``_name_match`` is a folded substring test, so the
-    property that matters is that the term stays a literal — SQL's wildcards
-    are ordinary characters, and there is no SQL left for the term to reach.
+    in memory now and the term is folded once and compared as a substring, so
+    the property that matters is that folding keeps SQL's wildcards ordinary
+    characters, and there is no SQL left for the term to reach.
     """
 
     @given(name=st.text(alphabet=_CHARS, max_size=40))
     @settings(max_examples=200)
-    def test_name_match_treats_wildcards_literally(self, name: str) -> None:
+    def test_fold_treats_wildcards_literally(self, name: str) -> None:
         """``%`` and ``_`` are matched as characters, never as patterns."""
         for term in ("%", "_", "\\", "%_%"):
             # The VA arm is not reached here: none of these is a hex address.
             assert _va_query(term) is None
             # Folding is ASCII-only, and no term here carries a letter, so the
             # plain containment test is the answer the folded one must give.
-            assert _name_match(term, 0x1000, name) == (term in name)
+            assert (_fold(term) in _fold(name)) == (term in name)
 
     @given(term=_REQUEST_TEXT)
     @settings(max_examples=300)

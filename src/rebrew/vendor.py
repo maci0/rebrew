@@ -55,7 +55,7 @@ def load_manifest(root: Path, path: Path) -> Manifest:
             raise VendorError(f"{path}: {key} contains duplicate paths")
     if not data["files"]:
         raise VendorError(f"{path}: files must be nonempty")
-    manifest = Manifest(
+    return Manifest(
         path=path,
         root=root,
         name=data["name"],
@@ -65,7 +65,6 @@ def load_manifest(root: Path, path: Path) -> Manifest:
         files=tuple(data["files"]),
         patches=tuple(_inside(root, path.parent / value) for value in data["patches"]),
     )
-    return manifest
 
 
 def _relative(value: str) -> Path:

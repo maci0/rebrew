@@ -460,8 +460,7 @@ def shared_preamble(raw: bytes, spans: list[SourceSpan], extents: list[tuple[int
         if _overlaps(span.start, end, extents):
             continue
         pieces.append(_decode(raw, span.start, end))
-    text = "".join(pieces)
-    return text
+    return "".join(pieces)
 
 
 def _matching_rows(
