@@ -151,7 +151,11 @@ def _remember_parse_tree(
 
 
 def parse_c_source(source: str | bytes) -> tuple[Any, bytes]:
-    """Parse C source and return (tree, source_bytes) as a tuple."""
+    """Parse C source and return (tree, source_bytes) as a tuple.
+
+    Parses are memoized per thread, so extractors that read the same bytes once
+    per pass (the context extractors, BinSync import) share one tree.
+    """
     parser, _ = _get_parser()
     if isinstance(source, str):
         # surrogateescape keeps compile-path lossless round-trips intact;

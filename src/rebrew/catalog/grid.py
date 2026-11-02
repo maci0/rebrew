@@ -127,7 +127,6 @@ def _build_section_index(
         s = sdata["va"]
         starts.append(s)
         info.append((sname, s, s + sdata["size"], sdata["fileOffset"]))
-    # Sort by VA start
     paired = sorted(zip(starts, info, strict=True))
     return [p[0] for p in paired], [p[1] for p in paired]
 
@@ -316,7 +315,6 @@ def build_coverage_data(
     ghidra_data_labels = load_ghidra_data_labels(src_dir)
     label_index = _build_label_index(ghidra_data_labels) if ghidra_data_labels else None
 
-    # Build thunk offset set from registry
     thunk_offsets: dict[int, str] = {}
     if registry:
         for va, reg_entry in registry.items():

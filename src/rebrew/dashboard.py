@@ -1859,20 +1859,6 @@ def _folded_match(needle: str, wanted_va: int | None, va: int, *texts: str) -> b
     return (wanted_va is not None and va == wanted_va) or any(needle in text for text in texts)
 
 
-def _name_match(term: str, va: int, *texts: str) -> bool:
-    """Whether one row matches *term*: an exact VA, or a substring of *texts*.
-
-    Folds the term and each text, then applies the same predicate the in-memory
-    readers use.
-    """
-    return _folded_match(
-        term.translate(_ASCII_FOLD),
-        _va_query(term),
-        va,
-        *(_fold(text) for text in texts),
-    )
-
-
 # Weak references guard against reused IDs without retaining old snapshots.
 _FOLD_CACHE_LOCK = threading.Lock()
 _FOLDED: dict[int, tuple[weakref.ReferenceType[CoverageSnapshot], tuple[tuple[str, str], ...]]] = {}

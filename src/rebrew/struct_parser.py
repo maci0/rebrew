@@ -38,7 +38,6 @@ def _definition_blocks(
         return
 
     encoding = detect_source_encoding(code_bytes)
-    # Shared parse memo: several extractors run over the same file in one pass.
     tree, _ = parse_c_source(code_bytes)
 
     def balanced(text: bytes) -> bool:

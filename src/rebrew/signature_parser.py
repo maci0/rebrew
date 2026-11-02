@@ -69,8 +69,6 @@ def _parse_source(filepath: Path) -> tuple[bytes, str, Any] | None:
     except OSError:
         return None
     encoding = detect_source_encoding(code_bytes)
-    # Shared parse memo: one file feeds several extractors in a single pass
-    # (collect_context, binsync import), so one parse serves all of them.
     tree, _ = parse_c_source(code_bytes)
     return code_bytes, encoding, tree.root_node
 
