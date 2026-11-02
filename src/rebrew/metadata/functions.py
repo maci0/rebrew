@@ -73,8 +73,6 @@ def clear_metadata_cache() -> None:
     or after writing metadata to ensure subsequent reads see fresh data.
     """
     clear_metadata_doc_cache(_metadata_cache)
-    with _RESOLVED_METADATA_PATHS_LOCK:
-        _RESOLVED_METADATA_PATHS.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -224,34 +222,19 @@ def metadata_path(directory: Path | str | Any) -> Path:
     return resolve_metadata_dir(directory) / METADATA_FILENAME
 
 
-#: Metadata roots seen this process, so :func:`load_metadata` resolves each
-#: one once instead of once per call.  ``load_metadata`` is on the whole-tree
-#: scan path (once per source file), and the resolve costs an ``lstat`` per
-#: path component.  Bounded so a long-lived process walking many project roots
-#: cannot grow it without limit; entries are pure derivations of the input
-#: string, so eviction only costs a re-resolve.
-_RESOLVED_METADATA_PATHS: OrderedDict[str, Path] = OrderedDict()
-_RESOLVED_METADATA_PATHS_MAX = 64
-_RESOLVED_METADATA_PATHS_LOCK = threading.Lock()
-
-
 def _resolved_metadata_path(directory: str) -> Path:
-    """``<directory>/rebrew-functions.toml`` resolved, memoized per directory."""
-    # Relative roots change meaning after chdir; absolute avoids repeating
-    # the expensive symlink resolution while keeping projects independent.
-    directory = str(Path(directory).absolute())
-    with _RESOLVED_METADATA_PATHS_LOCK:
-        hit = _RESOLVED_METADATA_PATHS.get(directory)
-        if hit is not None:
-            _RESOLVED_METADATA_PATHS.move_to_end(directory)
-            return hit
-    path = (Path(directory) / METADATA_FILENAME).resolve()
-    with _RESOLVED_METADATA_PATHS_LOCK:
-        _RESOLVED_METADATA_PATHS[directory] = path
-        _RESOLVED_METADATA_PATHS.move_to_end(directory)
-        while len(_RESOLVED_METADATA_PATHS) > _RESOLVED_METADATA_PATHS_MAX:
-            _RESOLVED_METADATA_PATHS.popitem(last=False)
-    return path
+    """``<directory>/rebrew-functions.toml`` under the caller's spelling.
+
+    The path is absolute but not symlink-resolved: reads follow the current
+    link target, so a project symlink retargeted during a long-lived process
+    reaches the new store, and a relative spelling after a ``chdir`` cannot
+    keep the previous working directory.  Resolving eagerly would cache the
+    first target for the process, and would also re-resolve whenever a store
+    write bumps the directory mtime.
+    """
+    # abspath normalizes dot segments without following symlinks; resolve()
+    # would pin the current target, which is what this function avoids.
+    return Path(os.path.abspath(directory)) / METADATA_FILENAME  # noqa: PTH100
 
 
 # ---------------------------------------------------------------------------
@@ -272,7 +255,7 @@ def load_metadata(
     Returns a mapping of ``{(module, va_int): {field_name: value}}``.
     Returns an empty dict when the store is absent; malformed or unreadable files raise.
 
-    Results are cached in-memory keyed by resolved path and file mtime.
+    Results are cached in-memory keyed by absolute path and store fingerprint.
     Call :func:`clear_metadata_cache` to force a re-read.
 
     When *deepcopy* is True (default), callers receive an isolated copy.

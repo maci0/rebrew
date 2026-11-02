@@ -88,6 +88,26 @@ class TestBindingWork:
         assert len(reads) == 2  # File index plus one shared address lookup map.
 
 
+def test_load_metadata_follows_retargeted_project_symlink(tmp_path: Path) -> None:
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    save_metadata(first, {("CLIENT", 0x1000): {"size": 4}})
+    save_metadata(second, {("SERVER", 0x2000): {"size": 8}})
+    link = tmp_path / "project"
+    try:
+        link.symlink_to(first, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks unavailable on this host")
+    from rebrew.metadata.functions import load_metadata
+
+    assert set(load_metadata(link)) == {("CLIENT", 0x1000)}
+    link.unlink()
+    link.symlink_to(second, target_is_directory=True)
+    assert set(load_metadata(link)) == {("SERVER", 0x2000)}
+
+
 class TestSourcePurposeWork:
     def test_both_views_share_one_parse_until_an_atomic_edit(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

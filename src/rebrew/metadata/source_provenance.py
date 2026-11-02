@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 lazy import hashlib
+lazy import os
 lazy from collections.abc import Sequence
 lazy from contextlib import nullcontext
 lazy from copy import deepcopy
@@ -95,14 +96,18 @@ def _read(
     return validate_source_metadata(source), validate_source_files(source["files"])
 
 
-@lru_cache(maxsize=64)
 def _resolved_store_path(directory: Path) -> Path:
-    """Store path resolved once per directory spelling.
+    """Store path under the directory's current spelling.
 
-    Both provenance views are read repeatedly per scan; the symlink walk is
-    process-constant for a project directory.
+    The path is absolute but not symlink-resolved: reads follow the current
+    link target, so a project symlink retargeted during a long-lived process
+    reaches the new store, and a relative spelling after a ``chdir`` cannot
+    keep the previous working directory.  Resolving eagerly cached the first
+    target for the process.
     """
-    return (directory / SOURCE_PROVENANCE_FILENAME).resolve()
+    # abspath normalizes dot segments without following symlinks; resolve()
+    # would pin the current target, which is what this function avoids.
+    return Path(os.path.abspath(directory)) / SOURCE_PROVENANCE_FILENAME  # noqa: PTH100
 
 
 def load_source_provenance(directory: Path) -> tuple[AssemblyProvenance, ...]:

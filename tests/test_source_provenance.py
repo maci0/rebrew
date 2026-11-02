@@ -130,6 +130,29 @@ class TestSourceProvenance:
                 future.result()
         assert {r.module for r in load_source_provenance(tmp_path)} == {"CLIENT", "SERVER"}
 
+    def test_symlinked_store_follows_retargeted_directory(self, tmp_path: Path) -> None:
+        stores: list[Path] = []
+        for index, module in enumerate(("CLIENT", "SERVER")):
+            root = tmp_path / f"project{index}"
+            root.mkdir()
+            document_assembly(
+                root,
+                _source(root),
+                "fill0",
+                module,
+                f"evidence for {module}",
+            )
+            stores.append(root)
+        link = tmp_path / "linked-project"
+        try:
+            link.symlink_to(stores[0], target_is_directory=True)
+        except OSError:
+            pytest.skip("symlinks unavailable on this host")
+        assert [r.module for r in load_source_provenance(link)] == ["CLIENT"]
+        link.unlink()
+        link.symlink_to(stores[1], target_is_directory=True)
+        assert [r.module for r in load_source_provenance(link)] == ["SERVER"]
+
     def test_symlink_escape_is_rejected(self, tmp_path: Path) -> None:
         file = _source(tmp_path)
         child = tmp_path / "child"
