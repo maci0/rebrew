@@ -131,8 +131,7 @@ class TestLoadNeBinary:
         assert info.sections["SEG1"].size == 0x10000
         assert info.text_size == 0x10000
         # zero-based space: segment 1 ends at 0xFFFF, not 0x1FFFF
-        assert extract_bytes_at_va(
-            info, info.sections["SEG1"].va + 0xFFFF, 1) == b"\xc3"
+        assert extract_bytes_at_va(info, info.sections["SEG1"].va + 0xFFFF, 1) == b"\xc3"
 
     @pytest.mark.parametrize("allocation, expected_size", [(0, 0x10000), (32, 32)])
     def test_zero_filled_segment_size(
@@ -277,8 +276,7 @@ class TestEnumerateFunctions:
         info = load_binary(p)
         funcs = enumerate_ne_functions(info)
         # re-anchored on base_va: the VA number itself is not the claim
-        assert any(f.va == info.ne_segments[0].base_va for f in funcs), \
-            [hex(f.va) for f in funcs]
+        assert any(f.va == info.ne_segments[0].base_va for f in funcs), [hex(f.va) for f in funcs]
 
     def test_segment_past_eof_clamps_raw_size(self, tmp_path: Path) -> None:
         """Regression: a corrupt segment-table entry pointing past EOF made

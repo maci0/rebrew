@@ -160,8 +160,7 @@ def probe_is_code(data: bytes, file_offset: int, length: int, index: int = 0) ->
         if window[i] in _CODE_ANCHORS:
             decoded = list(md.disasm(window[i:], 0))
             if len(decoded) >= 5 and any(
-                j.mnemonic in ("call", "jmp", "ret", "retf", "loop", "jcxz", "int")
-                for j in decoded
+                j.mnemonic in ("call", "jmp", "ret", "retf", "loop", "jcxz", "int") for j in decoded
             ):
                 return True
             break
@@ -181,9 +180,9 @@ def probe_is_code(data: bytes, file_offset: int, length: int, index: int = 0) ->
             continue
         if byte == 0x55:
             if segment[offset : offset + 3] != b"\x55\x8b\xec":
-                continue                      # push bp alone is no prologue
+                continue  # push bp alone is no prologue
         elif byte == 0xC8:
-            pass                              # enter: confirmed by the decode below
+            pass  # enter: confirmed by the decode below
         else:
             continue
         if tried >= PROBE_MAX_CANDIDATES:
