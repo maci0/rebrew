@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+lazy import bisect
 lazy import os
 lazy import shutil
 lazy import unicodedata
@@ -350,10 +351,20 @@ def source_layout(text: str) -> tuple[bytes, list[SourceSpan]]:
     spans: list[SourceSpan] = []
     for child in tree.root_node.named_children:
         _collect_spans(child, raw, inside_pp=False, acc=spans)
+    # Furthest end over regions sorted by start: a span lies in some region
+    # when the prefix maximum of regions starting at or before it reaches past
+    # its start. The per-span ``any`` over every region was quadratic on a
+    # file with many ``#if`` regions.
+    region_starts: list[int] = []
+    region_max_end: list[int] = []
+    for start, end in sorted(conditional_regions):
+        region_starts.append(start)
+        region_max_end.append(max(region_max_end[-1] if region_max_end else 0, end))
     for span in spans:
-        if span.kind in {"function", "storage"} and any(
-            start <= span.start < end for start, end in conditional_regions
-        ):
+        if span.kind not in {"function", "storage"}:
+            continue
+        index = bisect.bisect_right(region_starts, span.start) - 1
+        if index >= 0 and region_max_end[index] > span.start:
             span.inside_pp = True
     spans.sort(key=lambda span: span.start)
     for index, span in enumerate(spans):
@@ -361,7 +372,10 @@ def source_layout(text: str) -> tuple[bytes, list[SourceSpan]]:
             continue
         owner: SourceSpan | None = None
         cursor = span.end
-        for nxt in spans[index + 1 :]:
+        # Index rather than ``spans[index + 1:]``: the slice copied the whole
+        # remaining list once per comment.
+        for next_index in range(index + 1, len(spans)):
+            nxt = spans[next_index]
             if not _gap_is_blank(raw, cursor, nxt.start):
                 break
             if nxt.kind == "comment":
@@ -431,10 +445,14 @@ def shared_preamble(raw: bytes, spans: list[SourceSpan], extents: list[tuple[int
         for index, span in enumerate(spans)
         if span.kind == "preamble" or (span.kind == "comment" and index not in attached)
     ]
+    # Next span start at or after a position, in O(log n); the per-piece
+    # generator scan over every span was quadratic on comment-heavy files.
+    starts = sorted(span.start for span in spans)
     pieces: list[str] = []
     for index, span in enumerate(copyable):
         end = span.end
-        following = next((item.start for item in spans if item.start >= span.end), len(raw))
+        following_index = bisect.bisect_left(starts, span.end)
+        following = starts[following_index] if following_index < len(starts) else len(raw)
         nxt = copyable[index + 1].start if index + 1 < len(copyable) else following
         boundary = min(nxt, following)
         if _gap_is_blank(raw, end, boundary):

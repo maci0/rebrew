@@ -46,7 +46,7 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
-lazy from rebrew.compiler.overrides import resolve_compile_overrides
+lazy from rebrew.compiler.overrides import resolve_compile_overrides_cached
 lazy from rebrew.config import ProjectConfig
 lazy from rebrew.lint_cflags import codegen_cflags_key
 lazy from rebrew.metadata.bindings import read_source_bindings
@@ -129,7 +129,7 @@ def collect(
             continue
         seen: list[tuple[str, str]] = []
         for entry in entries:
-            tc, flags = resolve_compile_overrides(
+            tc, flags = resolve_compile_overrides_cached(
                 cfg, src.parent, entry.toolchain or None, entry.cflags or None, entry.module
             )
             # A per-function `toolchain` pin is honoured by `rebrew test`/`verify`
@@ -243,7 +243,7 @@ def main(
             emit[rel] = files[path]
         else:
             # Un-annotated build inputs still need their resolved defaults.
-            _tc, flags = resolve_compile_overrides(cfg, path.parent, None, None, "")
+            _tc, flags = resolve_compile_overrides_cached(cfg, path.parent, None, None, "")
             emit[rel] = flags
     for path, flags in files.items():
         if selected is not None and path in selected:
