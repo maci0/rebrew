@@ -347,6 +347,16 @@ def _mask_for_parse(raw: bytes) -> bytes:
 
 
 def source_layout(text: str) -> tuple[bytes, list[SourceSpan]]:
+    """Top-level spans of *text* with conditional-region and comment ownership.
+
+    Returns the UTF-8 bytes actually parsed and every top-level span in file
+    order: function definitions, storage declarations, preprocessor/preamble
+    nodes and comments.  Offsets are byte offsets into the returned bytes, so
+    callers slice that value rather than ``text``.  A function or storage span
+    that starts inside an ``#if``/``#ifdef`` region carries ``inside_pp``, and
+    lists the comments directly above it (blank lines allowed) in ``attached``,
+    by index into the returned list.
+    """
     raw = text.encode("utf-8", errors="surrogateescape")
     tree, _, conditional_regions = parse_c_structure(_mask_for_parse(raw))
     spans: list[SourceSpan] = []
@@ -391,6 +401,7 @@ def source_layout(text: str) -> tuple[bytes, list[SourceSpan]]:
 
 
 def span_extent(raw: bytes, span: SourceSpan, spans: list[SourceSpan]) -> tuple[int, int]:
+    """Byte range of *span* including attached leading comments and a trailing newline."""
     start = span.start
     for index in span.attached:
         start = min(start, spans[index].start)

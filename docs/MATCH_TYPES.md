@@ -249,8 +249,8 @@ flowchart TD
 
 ## Relocation Masking Details
 
-The normalizer (`_normalize_reloc_x86_32`) walks the x86 instruction stream and zeros
-out bytes that are expected to differ between compilations:
+The normalizer (`_zero_reloc_fields`, driven by `_normalize_and_mnems_x86_32`) walks the x86
+instruction stream and zeros out bytes that are expected to differ between compilations:
 
 | Pattern | Opcode | Bytes zeroed | Why |
 |---------|--------|-------------|-----|

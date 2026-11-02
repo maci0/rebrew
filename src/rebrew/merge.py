@@ -788,7 +788,7 @@ def _require_merged_functions(
 
 
 def _target_va(layout: _InputLayout, target_module_name: str) -> int:
-    """Lowest function VA of *layout* under module *marker*, else under any module."""
+    """Lowest function VA of *layout* under *target_module_name*, else under any module."""
     own = [
         va
         for piece in layout.functions

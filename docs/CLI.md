@@ -839,7 +839,7 @@ extra or missing built bytes remain unmatched. File agreement also measures
 layout/header differences that function matching does not.
 
 Reported statuses use the effective verify-cache overlay; see
-[Effective Status](ANNOTATIONS.md#effective-status-verify-cache-vs-metadata). JSON `verify_cache` includes
+[STATUS display precedence](METADATA.md#precedence-rules-who-wins-on-conflict). JSON `verify_cache` includes
 `overrides`, `missing_size`, and `effective_matches` (register-only residue).
 `last_verify.library_passed` / `library_total` keep library checks visible outside
 reversing progress. `last_verify.stale` flags source/function metadata newer than

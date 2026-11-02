@@ -220,9 +220,8 @@ def _zero_reloc_common(
 def _zero_reloc_fields(insn: capstone.CsInsn, out: bytearray) -> None:
     """Zero the relocatable fields of one detail-disassembled x86-32 insn.
 
-    Shared by :func:`_normalize_reloc_x86_32` and
-    :func:`_normalize_and_mnems_x86_32` (the GA hot path merges normalization
-    and mnemonic extraction into ONE candidate disassembly).
+    Called by :func:`_normalize_and_mnems_x86_32`, which merges normalization
+    and mnemonic extraction into one candidate disassembly for the GA hot path.
 
     Hot-path notes (the GA scores thousands of candidates): every relocatable
     field is a 32-bit immediate/displacement, so an instruction shorter than
@@ -523,7 +522,8 @@ def score_candidate(
     """Score a candidate against the target bytes.
 
     Optional keyword-only args for hot-path callers (GA engine):
-        _pre_norm_target: Pre-computed ``_normalize_reloc_x86_32(target_bytes)``.
+        _pre_norm_target: Pre-computed ``_normalize_and_mnems_x86_32(target_bytes)``
+            normalized bytes, as returned by :func:`precompute_target`.
         _pre_target_mnems: Pre-computed mnemonic list from target disassembly.
     """
     len_diff = abs(len(target_bytes) - len(candidate_bytes))

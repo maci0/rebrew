@@ -882,11 +882,13 @@ def collect_status(
     """Collect all project health data into a StatusReport.
 
     This is the single testable entry point for status data collection.
-    It reads source markers, metadata, and function structure (no compilation).
+    It reads source bindings, metadata, and function structure (no compilation).
 
-    When a verify cache exists, verify results override source statuses
-    so that functions which fail verification (NEAR_MATCHING, COMPILE_ERROR) are
-    not counted as byte-matched.
+    When a verify cache exists, its byte verdicts override metadata statuses so
+    that functions which fail verification (NEAR_MATCHING, COMPILE_ERROR) are
+    not counted as byte-matched.  Metadata PROVEN/SKIP always win, and a
+    metadata STUB wins over the cache's STUB/SIZE_MISMATCH/MISSING_SIZE
+    placeholders (see :func:`effective_status`).
 
     *tree* and *data* are a :func:`rebrew.sources.scan_files` result and the
     matching :func:`rebrew.naming.load_data` result for this config.  A caller
@@ -952,9 +954,11 @@ def collect_status(
     sources = iter_sources(src_dir, cfg, scanned=tree)
     report.source_files = len(sources)
 
-    # Load verify cache to override source statuses.
+    # Load the verify cache for the effective-status overlay.
     # Metadata statuses may be optimistic (e.g. STATUS: RELOC) while
-    # the actual verify result is STUB.  Verify results are authoritative.
+    # the actual verify result is STUB.  A cached byte verdict wins except
+    # against metadata PROVEN/SKIP, and a metadata STUB wins over the cache's
+    # STUB/SIZE_MISMATCH/MISSING_SIZE placeholders (effective_status).
     # One validated read serves both the per-VA details below and the
     # summary: each load deep-copies the whole document.
     cache_raw = _load_cache_raw(cfg)

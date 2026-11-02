@@ -1,8 +1,8 @@
 """catalog/pipeline.py — Build catalog scan/registry/coverage data.
 
-Domain orchestration shared by ``rebrew coverage catalog`` and ``rebrew coverage export --output snapshots/
---regen``.  Lives outside ``cli.py`` so library callers do not import the
-Typer entry module.
+Domain orchestration shared by ``rebrew coverage catalog`` and
+``rebrew coverage export --output snapshots/``.  Lives outside ``cli.py`` so
+library callers do not import the Typer entry module.
 """
 
 from __future__ import annotations
