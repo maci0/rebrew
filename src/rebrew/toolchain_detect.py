@@ -62,7 +62,6 @@ from pathlib import Path
 from typing import Any, cast
 
 from rebrew.formats.binary_loader import REAL_MODE_ADDRESS_MASK, load_binary
-from rebrew.formats.pe_headers import pe_lfanew
 from rebrew.utils import SOURCE_CHECKOUT
 
 logger = logging.getLogger(__name__)
@@ -673,12 +672,8 @@ def detect_with_die(path: Path, diec: Path | None = None) -> ToolchainInfo | Non
 # ---------------------------------------------------------------------------
 
 
-def _scan_strings(path: Path, limit: int = 256) -> list[str]:
-    """Return printable ASCII strings from the file (best effort, capped)."""
-    try:
-        data = path.read_bytes()
-    except OSError:
-        return []
+def _scan_strings(data: bytes, limit: int = 256) -> list[str]:
+    """Return printable ASCII strings from the bytes (best effort, capped)."""
     out: list[str] = []
     for m in re.finditer(rb"[\x20-\x7e]{6,}", data):
         out.append(m.group().decode("ascii", errors="replace"))
@@ -1343,19 +1338,22 @@ def _detect_toolchain_core(
                 info.confidence = pe_info.confidence
 
     # --- Backend 3: structural heuristics (always available) ---
+    # Read the file once: the capped string list and the full-file marker
+    # scan below both need the same bytes, and reading it twice copied a
+    # large binary twice.
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        raw = b""
     # String signals run FIRST — they decide the family for formats
     # load_binary cannot parse (e.g. 16-bit NE Delphi), where the
     # section/import/codegen signals below are unavailable.
-    strings = _scan_strings(path)
+    strings = _scan_strings(raw)
     delphi_hits = [s for s in strings if s in _DELPHI_MARKERS]
     if not delphi_hits:
         # The capped string list can miss markers beyond the first 256
         # strings (16-bit NE files carry long header/name tables first).
-        # A full-file byte scan catches them regardless of position.
-        try:
-            raw = path.read_bytes()
-        except OSError:
-            raw = b""
+        # The full bytes caught above find them regardless of position.
         if b"Borland Delphi" in raw:
             delphi_hits = ["Borland Delphi"]
         else:
@@ -2168,17 +2166,24 @@ def _is_16bit_target(info: ToolchainInfo, binary: Path | None) -> bool:
     if isinstance(binary, str):
         binary = Path(binary)
     try:
-        data = binary.read_bytes()
+        with binary.open("rb") as handle:
+            head = handle.read(0x40)
+            if len(head) < 2 or head[:2] != b"MZ":
+                return False
+            if len(head) < 0x40:
+                # Too short for e_lfanew: a truncated DOS image, not a PE.
+                return True
+            e_lfanew = int.from_bytes(head[0x3C:0x40], "little")
+            handle.seek(e_lfanew)
+            signature = handle.read(4)
     except OSError as exc:
         # Reporting an unreadable binary as "not 16-bit" recommends a 32-bit
         # profile for a 16-bit target and init --guess-compiler writes it.
         logger.warning("cannot read %s, 16-bit detection skipped: %s", binary, exc)
         return False
-    if len(data) < 2 or data[:2] != b"MZ":
-        return False
     # A PE carries the "PE\0\0" signature at e_lfanew — it is NOT
     # 16-bit.  Only NE (16-bit Windows) and plain DOS MZ executables are.
-    return pe_lfanew(data) is None
+    return signature != b"PE\x00\x00"
 
 
 def suggest_profile(info: ToolchainInfo, binary: Path | None = None) -> str | None:

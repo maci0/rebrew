@@ -240,6 +240,22 @@ class TestIs16bitTarget:
         info = ToolchainInfo(family="msvc", arch="x86_16")
         assert _is_16bit_target(info, self._write(tmp_path, b"not-mz")) is True
 
+    def test_reads_only_the_header(self, tmp_path: Path, monkeypatch) -> None:
+        # The check needs the DOS header and the PE signature, not the image:
+        # a full read copied a whole binary on every profile suggestion.
+        mz = bytearray(b"MZ" + b"\x00" * 0x3A)
+        mz += (0x40).to_bytes(4, "little")
+        mz += b"\x00" * (0x40 - len(mz))
+        mz += b"PE\x00\x00"
+        path = self._write(tmp_path, bytes(mz))
+        info = ToolchainInfo(family="msvc", arch="x86_32")
+
+        def fail(_path: Path) -> bytes:
+            raise AssertionError("_is_16bit_target read the whole binary")
+
+        monkeypatch.setattr(Path, "read_bytes", fail)
+        assert _is_16bit_target(info, path) is False
+
 
 class TestCodeGeneratorFamily:
     """The VC6 code generator (Processor Pack vs plain), read from game code.
