@@ -9,8 +9,8 @@ reuses the module that owns the check, never reimplements it):
   (:mod:`rebrew.link_order`).
 * **orphans**: metadata blocks with no source binding
   (:mod:`rebrew.orphans`, prunable subset only).
-* **lint-fixable**: ``rebrew lint --fix`` would change files (W019 inline
-  metadata, W029 redundant cflags, W016 backfillable SECTION).
+* **lint-fixable**: ``rebrew lint --fix`` would change files (W029 redundant
+  cflags, W016 backfillable SECTION).
 * **shared-twins**: per-target twin copies collapsible via
   ``rebrew source merge --shared`` (:mod:`rebrew.merge` normalization).
 * **next-action**: highest-impact item from :mod:`rebrew.todo` (pointer only,
@@ -292,10 +292,10 @@ def recommend_orphans(
     )
 
 
-#: Lint codes ``rebrew lint --fix`` resolves mechanically (inline metadata
-#: migration, redundant cflags, backfillable SECTION).  Everything else needs
-#: a human edit, so it stays out of this lane.
-FIXABLE_LINT = frozenset({"W019", "W029", "W016"})
+#: Lint codes ``rebrew lint --fix`` resolves mechanically (redundant cflags,
+#: backfillable SECTION).  Everything else needs a human edit, so it stays out
+#: of this lane.
+FIXABLE_LINT = frozenset({"W029", "W016"})
 
 
 def recommend_lint_fixable(

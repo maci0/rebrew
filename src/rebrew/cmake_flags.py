@@ -1,8 +1,8 @@
 """Emit the per-file CFLAGS a CMake build must compile with.
 
 The flags a translation unit compiles with are ``rebrew-functions.toml``'s
-business: that is the store every tool resolves from, and rebrew's own lint
-tells users to migrate inline ``// CFLAGS:`` into it.  A CMake build that reads
+business: that is the store every tool resolves from, and lint rejects an
+inline ``// CFLAGS:`` comment (E024).  A CMake build that reads
 the ``.c`` annotation instead therefore compiles something the tools never
 measured — guild-rebrew's ``gm_AllocSpieler`` ran that way, 363 linked bytes
 behind the numbers recorded in its own notes (its annotation said

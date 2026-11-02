@@ -568,12 +568,11 @@ def _check_E004_status_value(result: LintResult, status: str) -> None:
 
 
 def _check_E008_size_value(result: LintResult, metadata_size: str | None) -> None:
-    """A metadata SIZE that is not an integer misleads byte extraction.
+    """A store SIZE that is not an integer misleads byte extraction.
 
-    Validates the ``rebrew-functions.toml`` value only: ``// SIZE:`` inline is
-    the reccmp-native contract (see W019) and is not part of this rule, matching
-    the reserved E008 scope.  A non-numeric *metadata* SIZE would make a
-    consumer slice the wrong byte count or silently fall back.
+    Validates the size on the binding's owning store (``rebrew-functions.toml``
+    for a function, ``rebrew-data.toml`` for data).  A non-numeric SIZE would
+    make a consumer slice the wrong byte count or silently fall back.
     """
     if not metadata_size:
         return
@@ -2338,9 +2337,9 @@ def lint_file(
                     found_keys[_found_key] = store_val
                     _metadata_sourced_keys.add(_found_key)
             except (ValueError, KeyError) as exc:
-                # A malformed inline block drops the key from the drift
+                # A malformed metadata key drops the field from the drift
                 # comparison, so a disagreeing SIZE would go unreported.
-                log.debug("unreadable inline metadata at %s: %s", result.binding_line, exc)
+                log.debug("unreadable metadata at %s: %s", result.binding_line, exc)
 
         ctx = f"[{mod} {va_str}] " if mod and va_str else ""
 
@@ -2386,9 +2385,8 @@ def lint_file(
                     mod,
                     cfg,
                     function_index,
-                    # Store-wins overlay (above): an EXACT/RELOC in
-                    # rebrew-functions.toml suppresses W028 even when a stale
-                    # inline // STATUS: STUB remains.
+                    # The status is the store's (overlaid above), so an
+                    # EXACT/RELOC row suppresses W028 for a stale annotation.
                     status=canonical_status(str(found_keys.get("STATUS", ""))),
                     metadata=_metadata_entries,
                 )
@@ -2411,12 +2409,10 @@ def lint_file(
             # SIZE follows the same store-wins rule as SECTION and NOTE.
             elif va_int is not None and mod:
                 _ds_override = _data_metadata_entries.get((mod, va_int), {})
-                # A data symbol's SIZE lives in rebrew-data.toml, so W019 must
-                # compare the inline copy against THAT store. Left at the
-                # function-store value it saw, a DATA/GLOBAL block reported a
-                # disagreement against a size it never read, and the
-                # already-migrated hint from `_w019_key_backed` suppressed
-                # the very warning that would have shown it.
+                # A data symbol's SIZE lives in rebrew-data.toml, so read it
+                # from that store rather than the function store.  A DATA/GLOBAL
+                # block resolved from the function store would report a size it
+                # never read.
                 if "size" in _ds_override:
                     _metadata_size = str(_ds_override["size"]).strip() or None
                 _DS_TO_FOUND = {"size": "SIZE", "section": "SECTION", "note": "NOTE"}
@@ -2428,8 +2424,8 @@ def lint_file(
                     _metadata_sourced_keys.add(_ds_found_key)
 
             module = found_keys.get("MODULE", "")
-            # Canonicalize so hand-edited `status = "exact"` / `// STATUS: stub`
-            # feed E015/E017/MATCHED_STATUSES the same way update_source_status does.
+            # Canonicalize so a hand-edited `status = "exact"` feeds
+            # E015/E017/MATCHED_STATUSES the same way update_source_status does.
             status = canonical_status(found_keys.get("STATUS", ""))
 
             # Collect summary data during the lint pass (used by _print_summary).

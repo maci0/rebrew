@@ -146,11 +146,11 @@ class TestHygieneLanes:
 
     def test_lint_only_fixable_codes_fire(self) -> None:
         assert recommend_lint_fixable([("a.c", "W024")]) is None
-        rec = recommend_lint_fixable([("a.c", "W019"), ("b.c", "W024")])
+        rec = recommend_lint_fixable([("a.c", "W029"), ("b.c", "W024")])
         assert rec is not None
         assert rec.command == "rebrew lint --fix"
         assert rec.files == ["a.c"]
-        assert {"W019", "W029", "W016"} == FIXABLE_LINT
+        assert {"W029", "W016"} == FIXABLE_LINT
 
     def test_shared_twins_one_rec_per_group(self) -> None:
         recs = recommend_shared_twins([["b.c", "a.c"]])

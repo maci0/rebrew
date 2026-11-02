@@ -1167,10 +1167,9 @@ def import_function(
     # and, because the destination tree does not carry the source's headers,
     # the source's own directory on the include path: MSVC resolves
     # `#include "../../Units/Error/error.h"` against it.  Without this the copy
-    # fails with C1083 and keeps the source's inline `// CFLAGS:` line without
-    # its metadata counterpart (lint W019).  The absolute path is a known
-    # portability wart (breaks on clone/move) — the shared path avoids it
-    # because the file itself moves with its headers.
+    # fails with C1083 and is recorded without the source's effective CFLAGS.
+    # The absolute path is a known portability wart (breaks on clone/move) —
+    # the shared path avoids it because the file itself moves with its headers.
     src_flags = _source_flags(cfg_src, src_path, src_va)
     include = "-I" if cfg_dst.posix_style else "/I"
     cflags = f"{src_flags} {include}{src_path.parent}".strip()
@@ -1243,7 +1242,7 @@ def _symbol_for_va(text: str, module: str, va: int, fallback: str) -> tuple[str,
 
 
 def _source_flags(cfg_src: ProjectConfig, src_path: Path, src_va: int) -> str:
-    """The source entry's effective flags: inline CFLAGS, else preset, else default.
+    """The source entry's effective flags: stored CFLAGS, else preset, else default.
 
     The copy must compile with the flags its source build used — a MSVCRT
     source built at ``/O1`` would not compare under the destination's ``/O2``.

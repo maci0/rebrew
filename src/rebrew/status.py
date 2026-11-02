@@ -164,9 +164,6 @@ class StatusReport:
     # (effective_match in the verify cache) — the prove queue.
     effective_matches: int = 0
 
-    # W019 quick-lint result: number of .c files with inline metadata comments.
-    # 0 means no issues found (or scan not yet run).
-
     # Data verification verdicts from rebrew-data.toml STATUS (written by
     # `verify --data`): symbol counts per verdict, and the same counts per
     # section. This target's module and library modules only. EXACT also counts
@@ -1208,9 +1205,6 @@ def collect_status(
 
     # Verify info
     report.verify_info = _load_verify_info(cfg, library_vas, cache_raw, sources=sources)
-
-    # Quick W019 scan: files ``rebrew lint --fix`` can migrate — counted by
-    # lint's own rule (shared header parser, no full lint run).
 
     _attach_file_similarity(report, cfg)
 
