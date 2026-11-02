@@ -18,7 +18,7 @@ pinned docker image).
 ## Bootstrap (clean clone)
 
 Needs **uv** (CI pins `uv-version` in `.github/actions/uv-env/action.yml`,
-currently `0.13.5`), **Python 3.15+** (see `.python-version`), **nasm** on `PATH`
+currently `0.13.6`), **Python 3.15+** (see `.python-version`), **nasm** on `PATH`
 (CI installs nasm for asm round-trip tests), and **bun** on `PATH` (the
 `tests/dashboard_*.mjs` interaction tests skip without it, so a host with no
 bun cannot run the dashboard JS exercised by CI; `make test` fails on a
@@ -40,7 +40,7 @@ CI job uses) into `~/.cache/rebrew/vnu` and prints the `export PATH=` line to
 eval.  `uv sync` also
 needs the sibling
 [`resembl`](https://github.com/maci0/resembl) checkout at `../resembl`: the
-path pin in `pyproject.toml` / `uv.lock` (tag `v3.10.1`, same as CI's
+path pin in `pyproject.toml` / `uv.lock` (tag `v3.10.2`, same as CI's
 `resembl-ref`).  Without it, sync fails with a cryptic “Distribution not found”
 path error; `make setup` fails closed if `uv` is missing, if `../resembl`'s
 `version` does not match `RESEMBL_REF`, or if that checkout's `HEAD` is not
@@ -54,7 +54,7 @@ commit cannot be checked.
 git clone https://github.com/maci0/rebrew.git
 cd rebrew
 make doctor                   # report every missing prerequisite, with the fix for each
-make clone-resembl            # clones sibling resembl pin (tag v3.10.1) into ../resembl
+make clone-resembl            # clones sibling resembl pin (tag v3.10.2) into ../resembl
 make setup                    # uv sync --locked --all-extras --group similarity + pre-commit/pre-push hooks
 make vnu                      # optional: the W3C HTML gate skips without it, CI runs it
 make test-one T=tests/test_annotation.py   # smoke the edit-test loop

@@ -28,6 +28,10 @@ __pycache__/
 .scratch/
 .scratch_*.txt
 
+# Local branding provenance and review prompts
+/brand-source.json
+/repo-review.md
+
 # Local performance experiments (reports, profiles, candidate patches)
 /docs/benchmarks/
 

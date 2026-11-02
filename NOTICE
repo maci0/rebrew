@@ -69,13 +69,12 @@ artifact does not state. ``rebrew[binsync]`` installs this tree.
 binsync extra — python-discovery and pyxdia
 -------------------------------------------
 
-Two distributions in this tree publish their licence as a multi-line free-text
-``License`` header instead of a PEP 639 expression, so no single-line grant is
-declared for a scanner to read.  ``python-discovery`` 1.6.4 additionally
-carries the trove classifier ``OSI Approved :: MIT License``, which is the
-string the SBOM records for it.  ``pyxdia`` 0.1.1 has neither, so its SBOM
-component reads ``NOASSERTION`` rather than a grant guessed from the text. Both
-are installed unmodified from their own wheels, which carry the licence file.
+``python-discovery`` 1.9.0 declares ``License-Expression: MIT``, which the
+SBOM records verbatim. ``pyxdia`` 0.1.1 publishes its licence as a multi-line
+free-text ``License`` header with no single-line grant or trove classifier,
+so its SBOM component reads ``NOASSERTION`` rather than a grant guessed from
+the text. Both are installed unmodified from their own wheels, which carry
+the licence file.
 
 binsync extra — tqdm
 --------------------
@@ -90,7 +89,7 @@ Every resolve: certifi and hypothesis
 ------------------------------------
 
 certifi 2026.10.23 declares ``License: MPL-2.0`` (free-text field, no PEP 639
-expression) and hypothesis 6.170.9 declares ``License-Expression: MPL-2.0``.
+expression) and hypothesis 6.170.14 declares ``License-Expression: MPL-2.0``.
 MPL-2.0 is file-level reciprocal: it obliges a distributor of a *modified*
 file to publish that file's source under MPL-2.0. Rebrew vendors neither
 package's files nor any modification of them; both are installed unmodified
@@ -101,7 +100,7 @@ back to its origin. ``tests/test_packaging.py`` fails when the resolved
 environment holds a copyleft package missing from
 ``tools/generate_sbom._COPYLEFT_EXPRESSIONS``.
 
-tzdata 2026.5
+tzdata 2026.6
 -------------
 The locked tzdata wheel declares Apache-2.0 (License field).
 The timezone data distribution is maintained by the Python Software Foundation;
@@ -130,8 +129,8 @@ The SBOM records the declared classifier and immutable source artifact.
 prove extra — python-dateutil (via angr)
 ----------------------------------------
 
-python-dateutil 3.0.0 declares ``License: Dual License``. Its bundled LICENSE
+python-dateutil 4.0.0 declares ``License-Expression: BSD-3-Clause``. Its bundled LICENSE
 credits Paul Ganssle and the dateutil contributors for contributions since
 2017 and retains the terms and credits for earlier contributions. Rebrew
 installs the upstream distribution unmodified with that LICENSE; the SBOM
-records ``Dual License`` rather than substituting an SPDX expression.
+records the declared ``BSD-3-Clause`` expression.
