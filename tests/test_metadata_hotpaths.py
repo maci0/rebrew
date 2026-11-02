@@ -87,6 +87,34 @@ class TestBindingWork:
         assert len(bindings.read_source_bindings(file, metadata_dir=tmp_path)) == 100
         assert len(reads) == 2  # File index plus one shared address lookup map.
 
+    def test_unbound_data_anchors_load_the_data_map_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.metadata.data import load_data_metadata
+
+        file = tmp_path / "many_data.c"
+        text = "".join(
+            f"/* ADDRESS: S 0x{0x8000 + i * 4:x} */\nint g{i} = {i};\n" for i in range(100)
+        )
+        file.write_text(text)
+        save_data_metadata(
+            tmp_path,
+            {
+                ("S", 0x8000 + i * 4): {"name": f"g{i}", "file": "pool.c", "size": 4}
+                for i in range(100)
+            },
+            expected_hash=None,
+        )
+        reads = []
+
+        def read(*args: Any, **kwargs: Any) -> Any:
+            reads.append(1)
+            return load_data_metadata(*args, **kwargs)
+
+        monkeypatch.setattr("rebrew.metadata.data.load_data_metadata", read)
+        assert len(bindings.read_source_bindings(file, metadata_dir=tmp_path)) == 100
+        assert len(reads) == 1
+
 
 def test_load_metadata_follows_retargeted_project_symlink(tmp_path: Path) -> None:
     first = tmp_path / "first"

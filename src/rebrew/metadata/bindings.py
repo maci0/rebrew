@@ -10,6 +10,7 @@ from typing import Any, ClassVar, Final
 lazy import bisect
 lazy import copy
 lazy import os
+lazy import unicodedata
 lazy from collections.abc import Callable, Iterable
 lazy from pathlib import Path
 
@@ -1186,7 +1187,7 @@ def source_bindings(
     preloaded_data_rows: list[tuple[str, int, dict[str, Any]]] | None = None,
 ) -> list[SourceBinding]:
     """Join the pre-read source's address bindings with both metadata stores."""
-    from rebrew.metadata.data import get_data_entry
+    from rebrew.metadata.data import load_data_metadata
     from rebrew.metadata.functions import apply_metadata_entry, load_metadata, resolve_metadata_dir
 
     if metadata_dir is not None:
@@ -1227,6 +1228,11 @@ def source_bindings(
     # root when it carries binding history, while the walk costs a stat per
     # ancestor.  Resolving it per anchor made a 1000-anchor file pay 1000 walks.
     binding_project_root: Path | None = project_root
+    # The whole data table, loaded once per source.  A data anchor used to
+    # re-resolve the store and deep-copy its row twice (the identity lookup
+    # and merge_into_data_binding), so a file with many globals paid that per
+    # declaration.
+    data_entries: dict[tuple[str, int], dict[str, Any]] | None = None
     for anchor in anchors:
         if target and preset_module_key(anchor.module) != target:
             continue
@@ -1328,12 +1334,14 @@ def source_bindings(
         if metadata_dir is None:
             stored = {}
         elif is_data:
-            stored = get_data_entry(metadata_dir, anchor.va, anchor.module)
+            if data_entries is None:
+                data_entries = load_data_metadata(metadata_dir, deepcopy=False)
+            stored = data_entries.get((unicodedata.normalize("NFC", anchor.module), anchor.va), {})
         if is_data:
             from rebrew.metadata.data import merge_into_data_binding
 
             if metadata_dir is not None:
-                merge_into_data_binding(ann, metadata_dir)
+                merge_into_data_binding(ann, metadata_dir, entries=data_entries)
             if not stored.get("name") or stored.get("name") == anchor.name:
                 ann.kind = str(stored.get("kind", "DATA"))
         else:
