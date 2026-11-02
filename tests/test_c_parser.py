@@ -48,6 +48,27 @@ class TestParseMemo:
         assert first == 600
         assert calls == 600
 
+    def test_byte_budget_evicts_oldest_tree(self, monkeypatch: Any) -> None:
+        """The count cap alone let 8192 large trees retain the whole heap."""
+        import rebrew.c_parser as c_parser
+
+        monkeypatch.setattr(c_parser, "_PARSE_MEMO_MAX_TOTAL_BYTES", 64)
+        c_parser._tls.parse_memo = None
+        c_parser._tls.parse_memo_bytes = 0
+        sources = [f"int f{i}(void) {{ return {i}; }}\n" for i in range(5)]
+        try:
+            for source in sources:
+                c_parser.parse_c_source(source)
+            memo = c_parser._tls.parse_memo
+            assert memo is not None
+            assert c_parser._tls.parse_memo_bytes <= 64
+            assert len(memo) < len(sources)
+            assert sum(len(key) for key in memo) == c_parser._tls.parse_memo_bytes
+            assert sources[-1].encode() in memo
+        finally:
+            c_parser._tls.parse_memo = None
+            c_parser._tls.parse_memo_bytes = 0
+
 
 class TestVariableTreeSkip:
     def test_plain_source_does_not_walk_tokens(self) -> None:

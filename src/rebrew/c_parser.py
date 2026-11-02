@@ -21,7 +21,7 @@ lazy from itertools import pairwise
 lazy from typing import Any
 
 lazy from rebrew import c_conditionals
-lazy from rebrew.utils import parse_c_integer_literal, strip_body
+lazy from rebrew.utils import BYTES_PER_MIB, parse_c_integer_literal, strip_body
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +116,38 @@ def get_ts_parser() -> tuple[Any, Any] | None:
 # shows up in a profile.
 _PARSE_MEMO_MAX = 8192
 _PARSE_MEMO_MAX_BYTES = 256 * 1024
+# A parse tree costs several times the source it came from, so an entry-count
+# bound alone makes the heap the real limit: a full-tree scan parks a tree per
+# file, and a long-lived process retains every one until the count cap.  Bound
+# the retained source the same way ``matcher.ast_engine`` bounds its tree memo;
+# a miss only re-parses, never serves a stale tree.
+_PARSE_MEMO_MAX_TOTAL_BYTES = 16 * BYTES_PER_MIB
+
+
+def _remember_parse_tree(
+    memo: OrderedDict[Any, tuple[Any, bytes]],
+    key: Any,
+    parsed: tuple[Any, bytes],
+    byte_attr: str,
+) -> None:
+    """Store one tree, evicting the oldest until the count and byte caps hold.
+
+    *key* is the parsed source (bytes for :func:`parse_c_source`, str for the
+    variable-tree memo); its length is the retained-size estimate the caller's
+    ``byte_attr`` counter tracks.  The newest entry survives even when it alone
+    exceeds the budget, so one oversized source is still reusable.
+    """
+    total = getattr(_tls, byte_attr, 0)
+    stale = memo.pop(key, None)
+    if stale is not None:
+        total -= len(key)
+    memo[key] = parsed
+    total += len(key)
+    memo.move_to_end(key)
+    while len(memo) > 1 and (len(memo) > _PARSE_MEMO_MAX or total > _PARSE_MEMO_MAX_TOTAL_BYTES):
+        oldest, _ = memo.popitem(last=False)
+        total -= len(oldest)
+    setattr(_tls, byte_attr, total)
 
 
 def parse_c_source(source: str | bytes) -> tuple[Any, bytes]:
@@ -136,6 +168,9 @@ def parse_c_source(source: str | bytes) -> tuple[Any, bytes]:
         if memo is None:
             memo = OrderedDict()
             _tls.parse_memo = memo
+            _tls.parse_memo_bytes = 0
+        elif not hasattr(_tls, "parse_memo_bytes"):
+            _tls.parse_memo_bytes = sum(len(entry) for entry in memo)
         key = source
         hit = memo.get(key)
         if hit is not None:
@@ -143,10 +178,7 @@ def parse_c_source(source: str | bytes) -> tuple[Any, bytes]:
             return hit
     parsed = (parser.parse(source), source)
     if key is not None and memo is not None:
-        memo[key] = parsed
-        memo.move_to_end(key)
-        while len(memo) > _PARSE_MEMO_MAX:
-            memo.popitem(last=False)
+        _remember_parse_tree(memo, key, parsed, "parse_memo_bytes")
     return parsed
 
 
@@ -1681,10 +1713,10 @@ def _store_variable_tree(source: str, parsed: tuple[Any, bytes]) -> None:
     if memo is None:
         memo = OrderedDict()
         _tls.variable_tree_memo = memo
-    memo[source] = parsed
-    memo.move_to_end(source)
-    while len(memo) > _PARSE_MEMO_MAX:
-        memo.popitem(last=False)
+        _tls.variable_tree_memo_bytes = 0
+    elif not hasattr(_tls, "variable_tree_memo_bytes"):
+        _tls.variable_tree_memo_bytes = sum(len(entry) for entry in memo)
+    _remember_parse_tree(memo, source, parsed, "variable_tree_memo_bytes")
 
 
 def _variable_tree(source: str) -> tuple[Any, bytes]:
