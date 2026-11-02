@@ -29,9 +29,9 @@ load on first attribute access, keeping ``import rebrew.errors`` free of the
 compile stack.  ``__all__`` names every one of them, so a star-import or a
 docs generator sees the same set this module documents.
 
-``retryable`` is the one field the base carries, because "may I try this
-again?" is the question every caller asks and the answer must not depend on
-which subclass arrived.  It defaults to ``False`` (not retryable); the
+``retryable`` is the one field the base sets to a non-``None`` default, because
+"may I try this again?" is the question every caller asks and the answer must
+not depend on which subclass arrived.  It defaults to ``False`` (not retryable); the
 subclasses that can tell transient from permanent (``ToolchainError``,
 ``RecompileError``, ``McpError``) set it per instance.  The domain fields
 (``kind``, ``name``, ``status_code``, ``group``) default to ``None`` here and

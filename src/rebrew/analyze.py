@@ -1,7 +1,7 @@
 """analyze.py — one-shot intelligence dossier for a target binary.
 
 Combines the per-tool recon pieces into a single report: binary metadata
-and sections, toolchain detection (DIE -> PDB -> heuristics), string census
+and sections, toolchain detection (diec -> PDB -> PE metadata -> heuristics), string census
 with cross-references, import table + IAT stubs, a code-reference profile,
 reversed-function coverage, dispatch-table detection, and (when the project
 has FLIRT signatures) library identification.

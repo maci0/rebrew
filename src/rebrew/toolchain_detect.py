@@ -38,7 +38,7 @@ Families:
   (bcc32, 32-bit) both produce Borland-flavored objects rebrew can match.
 - ``watcom`` — Watcom C/C++ (watcom-win32 9.x–11.0, Open Watcom).  Evidence:
   underscore-prefixed ``_TEXT``/``_DATA``/``_BSS`` sections and Watcom runtime
-  strings.  Byte-matching: ``watcom`` (wcc386) and ``watcom-2.0-win16`` (wcc, 16-bit
+  strings.  Byte-matching: ``watcom-2.0-win32`` (wcc386) and ``watcom-2.0-win16`` (wcc, 16-bit
   DOS) profiles exist; ``rebrew doctor`` no longer flags these as blockers.
 
 Usage::
@@ -353,7 +353,7 @@ class ToolchainInfo:
     confidence: str = "low"  # low | medium | high
     evidence: list[str] = field(default_factory=list)
     flags: list[str] = field(default_factory=list)  # compiler flags (PDB-derived)
-    detected_by: str = ""  # which backend found the family: die | pdb | heuristics
+    detected_by: str = ""  # backend: die | pdb | pe-meta | heuristics | plugin-<name>
     arch: str = ""  # "x86_16" for NE binaries, "" when unknown (PE/ELF assumed 32/64)
     crt: str = ""  # CRT linkage name: "msvcrt.dll"/"crtdll.dll" (dynamic), "LIBCMT" (static)
     crt_linkage: str = ""  # "dynamic" | "static" | "" (unknown)

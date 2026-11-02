@@ -214,7 +214,7 @@
         <mxCell id="tcrepo" value="&lt;b&gt;Configured toolchain build source&lt;/b&gt;&lt;br&gt;REBREW_TOOLCHAINS_DIR&lt;br&gt;See TOOLCHAIN.md for requirements&lt;br&gt;Image availability and licensing are separate." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="60" y="116" width="340" height="200" as="geometry"/>
         </mxCell>
-        <mxCell id="tccli" value="&lt;b&gt;rebrew toolchain&lt;/b&gt;&lt;br&gt;build / vendor  read that checkout&lt;br&gt;pull / smoke    operate on images&lt;br&gt;detect          diec → PDB → heuristics&lt;br&gt;status / list   registry + docker presence" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bfdbfe;strokeColor=#1d4ed8;fontColor=#1e3a5f;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="tccli" value="&lt;b&gt;rebrew toolchain&lt;/b&gt;&lt;br&gt;build / vendor  read that checkout&lt;br&gt;pull / smoke    operate on images&lt;br&gt;detect          diec → PDB → PE meta → heuristics&lt;br&gt;status / list   registry + docker presence" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bfdbfe;strokeColor=#1d4ed8;fontColor=#1e3a5f;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="60" y="336" width="340" height="140" as="geometry"/>
         </mxCell>
 
@@ -269,7 +269,7 @@
         <mxCell id="detect-lane" value="How a project picks a profile" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#581c87;fontStyle=1;fontSize=12;" vertex="1" parent="1">
           <mxGeometry x="40" y="520" width="1600" height="200" as="geometry"/>
         </mxCell>
-        <mxCell id="d1" value="&lt;b&gt;1. Detect&lt;/b&gt;&lt;br&gt;toolchain_detect.py&lt;br&gt;diec → PDB S_COMPILE3&lt;br&gt;→ codegen heuristics&lt;br&gt;(.buildid, 0f 1f nops, chkstk_ms)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="d1" value="&lt;b&gt;1. Detect&lt;/b&gt;&lt;br&gt;toolchain_detect.py&lt;br&gt;diec → PDB S_COMPILE3&lt;br&gt;→ PE meta → codegen heuristics&lt;br&gt;(.buildid, 0f 1f nops, chkstk_ms)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="60" y="556" width="280" height="140" as="geometry"/>
         </mxCell>
         <mxCell id="d2" value="&lt;b&gt;2. Init / cfg set&lt;/b&gt;&lt;br&gt;rebrew init --toolchain msvc-6.0|mingw-16.2.0|…&lt;br&gt;writes [compiler] in project toml&lt;br&gt;seeds CRT / opt from detect" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">

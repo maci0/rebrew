@@ -2,7 +2,7 @@
 
 Takes a target binary and produces a working rebrew decomp project:
 
-1. Detect the compiler family (DIE -> PDB -> heuristics) and pick a matching
+1. Detect the compiler family (diec -> PDB -> PE metadata -> heuristics) and pick a matching
    ``[compiler] profile``.
 2. ``rebrew init`` with that profile.
 3. Copy the binary into ``original/`` and symlink the vendored toolchain

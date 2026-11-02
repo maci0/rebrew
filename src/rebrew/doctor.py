@@ -542,7 +542,7 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
 def check_toolchain_alignment(cfg: ProjectConfig) -> CheckResult:
     """Check that the configured compiler profile aligns with the binary.
 
-    Uses the layered toolchain detector (DIE -> PDB -> heuristics) to guess
+    Uses the layered toolchain detector (diec -> PDB -> PE metadata -> heuristics) to guess
     what actually built the target and compares it against the configured
     ``[compiler] profile``.  A mismatch means byte-matching is impossible —
     the user should switch profiles or document blockers.
