@@ -72,9 +72,8 @@ def _parse_annotations(
     are found.
 
     *min_size* is the caller's explicit size floor (``--min-size``); when it
-    is 0 the default :data:`_MIN_STUB_SIZE_FLOOR` applies.  The floor used to
-    be a hardcoded 10, so ``--min-size 5`` could never reach a genuine 5-9
-    byte function.
+    is 0 the default :data:`_MIN_STUB_SIZE_FLOOR` (10) applies.  A smaller
+    explicit floor therefore selects a genuine 5-9 byte function.
     """
     from rebrew.metadata.functions import GA_CEILING_PREFIX
 

@@ -80,12 +80,7 @@ class PdbInfo:
 
 
 def _find_pdb(binary: Path) -> Path | None:
-    """Locate a sibling .pdb: next to the binary, then original/<stem>.pdb.
-
-    (The second candidate used to be the same expression as the first —
-    `with_suffix(".pdb")` and `parent / f"{stem}.pdb"` are identical, so the
-    documented `original/` fallback never existed.)
-    """
+    """Locate a sibling .pdb: next to the binary, then original/<stem>.pdb."""
     candidates = [
         binary.with_suffix(".pdb"),
         binary.parent / "original" / f"{binary.stem}.pdb",

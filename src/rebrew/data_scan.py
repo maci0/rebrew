@@ -1353,8 +1353,8 @@ def find_dispatch_tables(
             be considered part of the same table.  Defaults to ``ptr_size`` (contiguous).
         info: Optional BinaryInfo; enables NE-aware section selection, sets the
             pointer width, and decodes pointers in the image's byte order
-            (``info.endian``), falling back to *arch*'s default when the
-            header does not say.
+            (``info.endian``), falling back to the architecture's default when
+            the header does not say.
 
     """
     if ptr_size is None:

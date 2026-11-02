@@ -119,14 +119,14 @@ tables from one refresh must take them from the same generation:
 `from rebrew.compiler.toolchain import TOOLCHAINS` at module level pins one generation
 for the life of the importer, and a function-local import pins it for the call.
 That is fine for a single-registry read and wrong when the result is paired with
-another table: `cmake-toolchain` used to read the linker-era and Rich-build
-tables separately, so a refresh landing between them wrote `12.00` for a profile
-whose build number was in the generation it did not read.  A registry module
-that publishes more than one table from one refresh owns a snapshot accessor;
-adding a second bare global reopens the same bug.  Refresh functions must also
-build every value **before** rebinding, then publish under the module's lock:
-never mutate a published map in place, or a concurrent reader straddles two
-generations.
+another table: `cmake-toolchain` must read the linker-era and Rich-build tables
+from one generation, because a refresh landing between them would write `12.00`
+for a profile whose build number was in the generation it did not read.  A
+registry module that publishes more than one table from one refresh owns a
+snapshot accessor; adding a second bare global reopens the same bug.  Refresh
+functions must also build every value **before** rebinding, then publish under
+the module's lock: never mutate a published map in place, or a concurrent
+reader straddles two generations.
 
 Refresh builds from packaged definitions, never from the previous merged table:
 removing a plugin must remove its contributions and restore any overridden

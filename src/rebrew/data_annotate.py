@@ -194,9 +194,9 @@ _ABSTRACT_POINTER_ARRAY_RE = re.compile(
 def _name_in_abstract_pointer_array(type_str: str, name: str) -> str | None:
     """Insert *name* into ``(*[N])`` or ``(**[N])``.
 
-    ``int (*[4])`` is four pointers. The name used to follow the whole
-    type (``extern int (*[4]) g``), which is not C. Brackets outside the
-    parentheses are a pointer to an array and are not this form.
+    ``int (*[4])`` is four pointers. The name belongs inside the parentheses
+    (``extern int (*[4]) g`` is not C). Brackets outside the parentheses are a
+    pointer to an array and are not this form.
     """
     depth = 0
     start = -1

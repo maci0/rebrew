@@ -355,8 +355,8 @@ def find_func_size(code_data: bytes, offset: int, arch: str = "x86_32", endian: 
     opcode operand or ModRM (not a real ``ret``) never ends the function
     early; ``int3`` padding and unknown bytes end the scan without
     contributing.  RISC terminators are architecture-specific (``jr $ra`` with
-    its delay slot, ``bx lr``, ``blr``, ``rts``).  Falls back to the old byte
-    window when capstone is unavailable.
+    its delay slot, ``bx lr``, ``blr``, ``rts``).  Falls back to the byte-window
+    heuristic when capstone is unavailable.
 
     *arch* is a rebrew arch string (``x86_32``, ``mips32``, ``arm32``, …), not
     the signature family — mis-decoding MIPS as x86 silently returns the whole

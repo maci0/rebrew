@@ -404,7 +404,7 @@ deltas.
 
 | Mutation | Transform | MSVC6 Rationale |
 |----------|-----------|-----------------|
-| `mut_tweak_integer_literal` | `+ 0x70` → `+ 0x6c` (small ±deltas) | The GA could previously never FIX a wrong constant: structural mutations leave an off-by-N offset stuck at the seed score forever (a broken field offset plateaued at 5000 for 960 evals).  Small-biased deltas (±1/±2/±4/±8/±0x10) cover the off-by-N mistakes decompilation actually makes; hex vs decimal radix is preserved.  With it, the same search converges to `exact: True`. |
+| `mut_tweak_integer_literal` | `+ 0x70` → `+ 0x6c` (small ±deltas) | Without this mutation the GA can never FIX a wrong constant: structural mutations leave an off-by-N offset stuck at the seed score forever (a broken field offset plateaued at 5000 for 960 evals).  Small-biased deltas (±1/±2/±4/±8/±0x10) cover the off-by-N mistakes decompilation actually makes; hex vs decimal radix is preserved.  With it, the same search converges to `exact: True`. |
 | `mut_materialize_constant` | `x + 0x1000` → `int _mk_N = 0x1000;` + `x + _mk_N` | A literal folds into an immediate; a named local must be materialized into a register first.  The local's *width* is the lever (at most 0xff `unsigned char`, at most 0xffff `unsigned short`, else `int`), matching a byte-wide comparison against `0xff` that an immediate `cmp byte ptr [mem], 0xff` cannot express.  The declaration is hoisted to the function body top (C89); literals where C requires a constant expression (case labels, enum values, array bounds, bitfield widths, `static` initializers) are skipped. |
 
 ---

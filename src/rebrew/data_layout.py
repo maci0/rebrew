@@ -54,7 +54,7 @@ def scan_files(src_dir: Path, shared_dir: Path | None = None) -> list[Path]:
 
     DATA bindings in ``src/shared`` belong to every target; a ``reversed_dir``
     -only scan misses them (data layout fill never pads them, data layout own
-    never owns them).  *shared_dir* ``None`` or missing keeps the old behavior.
+    never owns them).  A ``None`` or missing *shared_dir* scans only *src_dir*.
     """
     files = files_with_ext(src_dir, {".c"})
     if shared_dir is not None:
@@ -585,15 +585,16 @@ def _replace_matching_line(
 def _name_line_re(name: str, *, is_array: bool, extern: bool) -> re.Pattern[str]:
     """Line matcher for a declaration of *name*; cached per symbol name.
 
-    ``insert_definition`` runs once per data symbol, and each call used to
-    compile a fresh pattern (``re.escape(name)`` defeats the module-level
-    pattern cache), so a fill pass recompiled every regex per symbol.
+    ``insert_definition`` runs once per data symbol and ``re.escape(name)``
+    defeats the module-level pattern cache, so without this cache every symbol
+    recompiles its regex.
     """
-    # One or more brackets, including one nested pair. ``extern T g[0x10];``
-    # and ``extern T g[sizeof(wchar_t[3])];`` used to miss, and the insert
-    # appended a second definition. ``(*name)[N]``, ``(*name[N])``,
-    # ``(name[N])``, and ``*name[N]`` put the name next to a star or inside
-    # parentheses; a bare word left those lines in place.
+    # One or more brackets, including one nested pair. Without this, a
+    # declaration such as ``extern T g[0x10];`` or
+    # ``extern T g[sizeof(wchar_t[3])];`` does not match and the insert appends
+    # a second definition. ``(*name)[N]``, ``(*name[N])``, ``(name[N])``, and
+    # ``*name[N]`` put the name next to a star or inside parentheses; the
+    # matcher accepts each of those shapes.
     # ``(*name[N])[M]`` has another bracket run after the closing parenthesis.
     brackets = r"(?:\[(?:[^\[\]]|\[[^\]]*\])*\])"
     suffix = (
@@ -612,8 +613,8 @@ def _declared_base_re(name: str) -> re.Pattern[str]:
     """Declaration matcher for *name*; cached per symbol.
 
     ``insert_definition`` runs once per data symbol and ``re.escape(name)``
-    defeats the module-level pattern cache, so an uncached build compiled the
-    same pattern again on every ownership pass.
+    defeats the module-level pattern cache, so without this cache every
+    ownership pass recompiles the same pattern.
     """
     return re.compile(
         r"^[ \t]*(?:extern[ \t]+|static[ \t]+)?([A-Za-z_][\w \t]*?)[ \t]*\**\s*\b"
@@ -626,11 +627,9 @@ def _declared_base_re(name: str) -> re.Pattern[str]:
 def _declared_base_types(text: str, name: str) -> set[str]:
     """Base C types used for *name* in declarations this TU already holds.
 
-    ``own`` used to materialize every stub placeholder with the stub's own type
-    even when the owner TU already declared the symbol as a struct array; the
-    two definitions then collided (C2371) in the rebuilt TU. The caller skips a
-    symbol whose existing declarations disagree instead of emitting a second
-    type for it.
+    The caller skips a symbol whose existing declarations disagree instead of
+    emitting a second type for it: two definitions of one name with different
+    types collide (C2371) in the rebuilt TU.
     """
     found: set[str] = set()
     pattern = _declared_base_re(name)
@@ -806,9 +805,9 @@ _PAD_DECL_RE = re.compile(r"unsigned char (_dpad_[0-9a-f]+)\s*\[")
 def _existing_pad_names(files: Sequence[Path]) -> set[str]:
     """Names of pads this tree already declares, in any owner TU.
 
-    `fill` used to re-emit a pad whenever the most-referencing TU changed between
-    runs, so one address ended up as two declarations of different sizes in two
-    files. A pad is identified by its address, not by its current owner.
+    A pad is identified by its address, not by its current owner: when the
+    most-referencing TU changes between runs, re-emitting the pad would declare
+    one address twice with different sizes in two files.
     """
     names: set[str] = set()
     for path in files:
@@ -1126,14 +1125,14 @@ def data_symbol_size(fields: dict[str, Any], *, arch: str = "x86_32") -> int:
     type_str = fields.get("type")
     if not isinstance(type_str, str) or not type_str:
         return 0
-    # ``T (*)[N]`` is one pointer. Parentheses used to make the extent
-    # unknown, and reading ``[N]`` as a dimension would make it N pointers.
+    # ``T (*)[N]`` is one pointer. Parentheses must not hide the extent, and
+    # reading ``[N]`` as a dimension would make it N pointers.
     # A ``(*)`` inside the bound, as in ``int[sizeof(char (*)[4])]``, is not
     # this symbol's declarator.
     if is_pointer_to_array(type_str):
         return 4
-    # ``T (*[N])`` is N pointers. Parentheses hid the brackets, so the
-    # extent stayed unknown instead of N * 4.
+    # ``T (*[N])`` is N pointers. The brackets sit inside the parentheses, so
+    # the plain array shape would report the extent as unknown instead of N * 4.
     abstract = abstract_pointer_array_dimensions(type_str)
     if abstract is not None:
         width = 4
@@ -1193,7 +1192,7 @@ def estimate_type_size(type_str: str) -> int:
     if is_pointer_to_array(text):
         return 4
     # ``T (*[N])`` and ``T (*[N])(params)`` are N pointers. The brackets
-    # sit inside the parentheses, so this used to report one pointer.
+    # sit inside the parentheses, so reading only the pointer would report one.
     abstract = abstract_pointer_array_dimensions(text)
     if abstract:
         count = 1

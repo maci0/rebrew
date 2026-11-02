@@ -93,6 +93,7 @@ def _inside(root: Path, path: Path) -> Path:
 
 
 def sha256(path: Path) -> str:
+    """Lowercase SHA-256 hex digest of *path*'s bytes."""
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 

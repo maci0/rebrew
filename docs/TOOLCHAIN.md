@@ -845,8 +845,8 @@ Notes:
   (decomp.me `msvc6.4` Bin, sha-verified byte-identical to the SP4 CD).
 - **VC 2008 SP1 compiler closed**: `msvc-9.0-sp1` carries cl.exe 15.00.30729.01
   (Professional-edition build; the SP1 patch also ships Standard/Team
-  variants) extracted from the official VS2008 SP1 DVD; this was previously
-  "the only real gap" (`archaic-msvc` publishes only base `msvc-9.0`).
+  variants) extracted from the official VS2008 SP1 DVD (`archaic-msvc` publishes
+  only base `msvc-9.0`).
 - **VC 11.0**: `msvc-11.0` (VS 2012, cl.exe 17.00.50522) is the newest
   compiler the `archaic-msvc` org carries.
 - **Retired names**: the old `msvc6.3` / `msvc6.6` aliases are gone; the
