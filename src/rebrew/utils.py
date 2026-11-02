@@ -454,8 +454,13 @@ _SOURCE_TEXT_MEMO: OrderedDict[_SourceMemoKey, _SourceMemoValue] = OrderedDict()
 # A game tree is thousands of sources, and verify/status re-read each one.
 # 512 evicted the head of a 4000-file scan before the scan finished, so the
 # second pass re-read every file (78 ms vs 31 ms). 8192 small bodies is the
-# ceiling; raise it when a scan larger than that shows up in a profile.
+# count ceiling; raise it when a scan larger than that shows up in a profile.
+# The byte budget below is what actually bounds the heap: one generated source
+# can be larger than the whole working set, and the memo retains both its text
+# and its raw bytes.
 _SOURCE_TEXT_MEMO_MAX = 8192
+_SOURCE_TEXT_MEMO_MAX_BYTES = 64 * BYTES_PER_MIB
+_SOURCE_TEXT_MEMO_BYTES = 0
 _SOURCE_TEXT_MEMO_LOCK = threading.Lock()
 # resolved path -> its live memo keys, so a write invalidates in O(1)
 # instead of scanning the whole LRU.
@@ -538,21 +543,43 @@ def _memo_forget(memo_key: _SourceMemoKey) -> None:
             del _SOURCE_TEXT_MEMO_BY_PATH[memo_key[0]]
 
 
+def _memo_cost(value: _SourceMemoValue) -> int:
+    """Retained characters for one entry: text plus the raw bytes beside it."""
+    return len(value[0]) + len(value[2])
+
+
+def _memo_evict_oldest() -> None:
+    """Drop the LRU tail, keeping the retained-byte count accurate."""
+    global _SOURCE_TEXT_MEMO_BYTES
+    oldest, value = _SOURCE_TEXT_MEMO.popitem(last=False)
+    _SOURCE_TEXT_MEMO_BYTES -= _memo_cost(value)
+    _memo_forget(oldest)
+
+
 def _memo_drop(memo_key: _SourceMemoKey) -> None:
     """Remove one entry from the source text memo and its path index."""
-    _SOURCE_TEXT_MEMO.pop(memo_key, None)
+    global _SOURCE_TEXT_MEMO_BYTES
+    dropped = _SOURCE_TEXT_MEMO.pop(memo_key, None)
+    if dropped is not None:
+        _SOURCE_TEXT_MEMO_BYTES -= _memo_cost(dropped)
     _memo_forget(memo_key)
 
 
 def _memo_store(memo_key: _SourceMemoKey, value: _SourceMemoValue) -> None:
-    """Insert an entry, evicting the LRU tail until there is room."""
+    """Insert an entry, evicting the LRU tail until count and bytes fit."""
+    global _SOURCE_TEXT_MEMO_BYTES
     if memo_key in _SOURCE_TEXT_MEMO:
         _SOURCE_TEXT_MEMO.move_to_end(memo_key)
         return
-    while len(_SOURCE_TEXT_MEMO) >= _SOURCE_TEXT_MEMO_MAX:
-        oldest, _value = _SOURCE_TEXT_MEMO.popitem(last=False)
-        _memo_forget(oldest)
+    cost = _memo_cost(value)
+    while len(_SOURCE_TEXT_MEMO) >= _SOURCE_TEXT_MEMO_MAX and _SOURCE_TEXT_MEMO:
+        _memo_evict_oldest()
+    while (
+        _SOURCE_TEXT_MEMO_BYTES + cost > _SOURCE_TEXT_MEMO_MAX_BYTES and _SOURCE_TEXT_MEMO
+    ):
+        _memo_evict_oldest()
     _SOURCE_TEXT_MEMO[memo_key] = value
+    _SOURCE_TEXT_MEMO_BYTES += cost
     _SOURCE_TEXT_MEMO_BY_PATH.setdefault(memo_key[0], set()).add(memo_key)
 
 
@@ -837,8 +864,10 @@ def clear_source_text_memo() -> None:
     bodies, so it cannot serve a stale source after an edit; ``resolved_path``
     keeps its own bound.
     """
+    global _SOURCE_TEXT_MEMO_BYTES
     with _SOURCE_TEXT_MEMO_LOCK:
         _SOURCE_TEXT_MEMO.clear()
+        _SOURCE_TEXT_MEMO_BYTES = 0
         _SOURCE_TEXT_MEMO_BY_PATH.clear()
 
 

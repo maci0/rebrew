@@ -766,6 +766,41 @@ class TestSourceTextMemo:
         clear_source_text_memo()
         assert read_source_text(f)[0] == "// body\n"
 
+    def test_byte_budget_evicts_the_oldest_body(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """One oversized source must not pin the heap alongside every other read."""
+        import rebrew.utils as utils
+
+        monkeypatch.setattr(utils, "_SOURCE_TEXT_MEMO_MAX_BYTES", 64)
+        utils.clear_source_text_memo()
+        old = tmp_path / "old.c"
+        new = tmp_path / "new.c"
+        old.write_text("a" * 40, encoding="utf-8")
+        new.write_text("b" * 40, encoding="utf-8")
+        read_source_text(old)
+        old_stat = old.stat()
+        assert (
+            utils.cached_source_bytes(
+                old, old_stat.st_mtime_ns, old_stat.st_size, old_stat.st_ino, old_stat.st_ctime_ns
+            )
+            is not None
+        )
+        read_source_text(new)
+        new_stat = new.stat()
+        assert (
+            utils.cached_source_bytes(
+                new, new_stat.st_mtime_ns, new_stat.st_size, new_stat.st_ino, new_stat.st_ctime_ns
+            )
+            is not None
+        )
+        assert (
+            utils.cached_source_bytes(
+                old, old_stat.st_mtime_ns, old_stat.st_size, old_stat.st_ino, old_stat.st_ctime_ns
+            )
+            is None
+        )
+
     def test_second_pass_does_not_reread(self, tmp_path: Path) -> None:
         """A tree larger than the old 512 cap must stay cached for the rescan."""
         import rebrew.utils as utils
