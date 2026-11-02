@@ -612,6 +612,25 @@ def _metadata_file_index(
     return index
 
 
+def _relative_posix(path: Path, base: Path) -> str:
+    """``os.path.relpath`` with a slice for the common in-tree case.
+
+    Both sides are already normalized ``Path`` spellings in the whole-tree
+    binding pass, so an absolute *path* under an absolute *base* has the same
+    relative spelling as ``os.path.relpath`` without the component walk.
+    """
+    text = os.fspath(path)
+    root = os.fspath(base)
+    if text.startswith("/") and root.startswith("/"):
+        root = root.rstrip("/") or "/"
+        if text == root:
+            return "."
+        prefix = root if root == "/" else root + "/"
+        if text.startswith(prefix):
+            return text[len(prefix) :]
+    return os.path.relpath(path, base).replace(os.sep, "/")
+
+
 def function_rows_for_file(
     filepath: Path,
     metadata_dir: Path,
@@ -624,8 +643,8 @@ def function_rows_for_file(
 
     metadata_dir = resolve_metadata_dir(metadata_dir)
     project_root = project_root or _binding_project_root(metadata_dir)
-    rel = os.path.relpath(filepath, metadata_dir).replace(os.sep, "/")
-    project_rel = os.path.relpath(filepath, project_root).replace(os.sep, "/")
+    rel = _relative_posix(filepath, metadata_dir)
+    project_rel = _relative_posix(filepath, project_root)
     index = _metadata_file_index(function_entries)
     return [row for row in index.get(rel, ()) if row[2].get("kind") != "LIBRARY"] + [
         row for row in index.get(project_rel, ()) if row[2].get("kind") == "LIBRARY"
@@ -911,9 +930,13 @@ def iter_source_bindings(
     for src in sources:
         try:
             if metadata_root is not None and src.is_absolute() and ".." not in src.parts:
-                try:
-                    store_rel = src.relative_to(metadata_root).as_posix()
-                except ValueError:
+                text = str(src)
+                root_text = str(metadata_root).rstrip("/") or "/"
+                if text == root_text or text.startswith(
+                    "/" if root_text == "/" else root_text + "/"
+                ):
+                    store_rel = _relative_posix(src, metadata_root)
+                else:
                     store_rel = os.path.relpath(src.resolve(), metadata_root).replace(os.sep, "/")
             elif metadata_root is not None:
                 store_rel = os.path.relpath(src.resolve(), metadata_root).replace(os.sep, "/")

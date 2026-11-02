@@ -977,6 +977,15 @@ def _collect_library_candidates(
         name = func.name or f"FUN_{va:08x}"
         if name in ignored or size < 10:
             continue
+        # FunctionEntry carries no module (only va/size/name/tool_name), so the
+        # old `hasattr(func, "module")` was always False and this lane never
+        # emitted.  The module is inferred from the name; an unclassifiable name
+        # infers "" and is skipped.  Infer before the byte probe so only this
+        # target's library modules are disassembled; ordinary game code is not
+        # scanned to be discarded one step later.
+        module = _inferred_module(name)
+        if not module or module not in lib_modules:
+            continue
         # A probe failure must not read as "matchable work": the function is
         # then recommended as a candidate, which is exactly the wrong answer
         # for a thunk or library stub the probe could not classify.
@@ -988,13 +997,6 @@ def _collect_library_candidates(
             )
             continue
         if unmatchable:
-            continue
-        # FunctionEntry carries no module (only va/size/name/tool_name), so the
-        # old `hasattr(func, "module")` was always False and this lane never
-        # emitted.  The module is inferred from the name; an unclassifiable name
-        # infers "" and is skipped.
-        module = _inferred_module(name)
-        if not module or module not in lib_modules:
             continue
 
         items.append(
