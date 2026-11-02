@@ -694,13 +694,6 @@ def vendor_cmd(
                                 f"refusing unsafe InstallShield payload entry: {sub!r}"
                             )
                         shutil.move(src_sub, extract_dir / sub)
-                elif src.layout == "zip-strip1":
-                    # A zip with a single top-level wrapper dir (e.g. TC/) —
-                    # strip the wrapper so BIN/INCLUDE/LIB sit at the top of
-                    # the host tree like the other toolchains.
-                    zip_dir = td_path / "zip"
-                    _safe_extract_zip(archive, zip_dir)
-                    _flatten_wrapper_dir(zip_dir, extract_dir)
                 elif src.layout == "7z-strip1":
                     # A .7z with the same single top-level wrapper dir
                     # (mingw-builds archives carry mingw32/).
@@ -734,23 +727,11 @@ def vendor_cmd(
             raise
         _abort_incomplete_vendor(extract_dir, f"vendor {name} failed: {exc}", json_mode=json_output)
 
-    # MSVC 6.0's classic master layout wraps the tree in VC98/ (the decomp.me
-    # tarball is flat) — canonical config paths and every legacy
-    # tools/MSVC600/VC98/... reference expect the wrapper.
-    #
     # The restructures below move children one at a time, so an OSError part
     # way through leaves the tree split between two layouts.  The completeness
     # probe only looks for the compiler, so the next run would report
     # "Already present" over a tree the image cannot build.  Abort instead.
     try:
-        if src.vc98_wrap and not (extract_dir / "VC98").exists():
-            vc98 = extract_dir / "VC98"
-            vc98.mkdir()
-            for child in list(extract_dir.iterdir()):
-                if child == vc98 or any(child.match(m) for m in _TRACKED_META_PATTERNS):
-                    continue
-                child.rename(vc98 / child.name)
-
         # The delphi10 tarball keeps the RTL/VCL units in ``delphi-lib/`` while the
         # image's recipe renames them to DELPHI/LIB — the path DCC.CFG's /u option
         # and the Docker wrapper both use.  Do the same rename, so a vendored

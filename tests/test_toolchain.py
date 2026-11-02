@@ -1246,25 +1246,8 @@ class TestDockerOnlyGuard:
             run_toolchain(spec, ["-zq", "f.c"], workdir=tmp_path)
 
 
-class TestVc98Wrap:
-    """MSVC 6.0's classic master layout is the VC98/ tree (every legacy
-    tools/MSVC600/VC98/... reference expects it).  The old decomp.me
-    tarball was flat, so vendor wrapped it via vc98_wrap; the current
-    archaic-msvc source (msvc600) already carries VC98/ at the top."""
-
-    def test_msvc_6_0_source_needs_no_wrap(self) -> None:
-        from rebrew.compiler.toolchain_data import SOURCES
-
-        # archaic-msvc/msvc600 ships VC98/ at the top level already, so no
-        # wrap step is needed (the old decomp.me tarball was flat).
-        assert SOURCES["msvc-6.0"].vc98_wrap is False
-
-    def test_other_sources_do_not_wrap(self) -> None:
-        from rebrew.compiler.toolchain_data import SOURCES
-
-        for name, src in SOURCES.items():
-            if name != "msvc-6.0":
-                assert src.vc98_wrap is False, name
+class TestToolchainSources:
+    """Packaged toolchain sources stay pinned to a reproducible archive."""
 
     def test_old_msvc_sources_pinned(self) -> None:
         """msvc-4.0/msvc-4.2/msvc-5.0 must have pinned, sha256-verified sources:
@@ -1734,9 +1717,9 @@ class TestPullToolchainHint:
 
 
 class TestVendorFlatten:
-    """Archive layouts whose payload sits under one top-level wrapper dir
-    (zip-strip1, 7z-strip1 — the mingw-builds assets carry ``mingw32/``)
-    flatten it so the vendored host tree matches every other toolchain."""
+    """A 7z archive whose payload sits under one top-level wrapper dir
+    (7z-strip1 — the mingw-builds assets carry ``mingw32/``) is flattened
+    so the vendored host tree matches every other toolchain."""
 
     def test_unwraps_the_single_top_level_dir(self, tmp_path: Path) -> None:
         from rebrew.toolchain_cli import _flatten_wrapper_dir
