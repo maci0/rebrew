@@ -988,10 +988,9 @@ def record_function_rows(
 
 
 def identity_file(filepath: Path | str, metadata_dir: Path | str) -> str:
-    """Path stored in a row's ``file`` field.
+    """Path stored in a row's ``file`` field, relative to *metadata_dir*.
 
-    The same relative path the marker-less reader computes, including a
-    ``..`` prefix when the source sits outside the metadata root.
+    A source outside the metadata root keeps its ``..`` prefix.
     """
     return Path(os.path.relpath(filepath, metadata_dir)).as_posix()
 

@@ -699,9 +699,9 @@ def _run_one_stub_ga(
                             # match that could not be spliced would otherwise
                             # vanish from the report as a bare "No match".
                             log.warning(
-                                "GA match for %s not spliced: the stub's function "
-                                "definition could not be located (unrecognized "
-                                "return type or no marker) — the .c still holds a stub",
+                                "GA match for %s not spliced: the stub's VA does not "
+                                "bind to exactly one C definition (unrecognized "
+                                "return type or no source row); the .c still holds a stub",
                                 stub.symbol,
                             )
                         # Under `--algorithm flags-then-ga` the GA ran with swept

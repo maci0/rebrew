@@ -1,7 +1,8 @@
 """match_batch.py — batch stub/near-miss discovery and source updates.
 
-Parses source annotations into the STUB / NEAR_MATCHING / SIZE_MISMATCH work
-lists and writes the resulting STATUS and CFLAGS back to the metadata.
+Parses function rows and source bindings into the STUB / NEAR_MATCHING /
+SIZE_MISMATCH work lists and writes the resulting STATUS and CFLAGS back to
+the metadata.
 """
 
 from __future__ import annotations
@@ -30,15 +31,15 @@ lazy from rebrew.utils import atomic_write_text, read_source_text
 
 log = logging.getLogger(__name__)
 
-#: A smaller annotation is usually a size-0/unknown marker whose "function"
-#: would be a handful of placeholder bytes.  ``--min-size`` overrides it in
-#: either direction, so a genuine 5-9 byte function is reachable.
+#: A smaller binding is usually a size-0/unknown row whose "function" would be
+#: a handful of placeholder bytes.  ``--min-size`` overrides it in either
+#: direction, so a genuine 5-9 byte function is reachable.
 _MIN_STUB_SIZE_FLOOR = 10
 
 
 @dataclass
 class StubInfo:
-    """Parsed annotation fields for a STUB or near-miss NEAR_MATCHING function."""
+    """Parsed binding fields for a STUB or near-miss NEAR_MATCHING function."""
 
     filepath: Path
     va: str
@@ -432,8 +433,8 @@ def update_stub_to_matched(
     overwrite the original stub backup with already-matched content.
 
     Returns True when the splice landed, the file was rewritten, and STATUS
-    was promoted; False when the stub's own block could not be located (the
-    file is left untouched).
+    was promoted; False when the stub's VA does not bind to exactly one C
+    definition in the file (the file is left untouched).
     """
     bak_path = filepath.with_suffix(".c.bak")
 
@@ -486,9 +487,10 @@ def update_stub_to_matched(
             # next run; one per promoted function would accumulate there.
             scratch.unlink(missing_ok=True)
 
-    # Fail closed: if the stub's own block could not be located (no marker, or
-    # a return type the stub locator does not recognise), do NOT write, backup,
-    # promote, or claim a match — the .c still holds a stub.
+    # Fail closed: if the stub's VA does not bind to exactly one C definition
+    # (no source row, or a definition the binding parser does not recognise),
+    # do NOT write, backup, promote, or claim a match — the .c still holds a
+    # stub.
     if not (spliced and module is not None and va_int is not None):
         return False
 

@@ -113,7 +113,7 @@ _OWNED_REPORT_FILE = re.compile(
 
 
 #: Status token -> the mark classes the stylesheet colours.  A status the
-#: vocabulary does not know (a stale marker, a hand-edited TOML) gets the
+#: vocabulary does not know (a stale status token, a hand-edited TOML) gets the
 #: bare ``st`` class rather than a class name built from the token, which
 #: would otherwise add selectors of its own.  DISPATCH is a graph fill and
 #: never body text.
@@ -539,8 +539,8 @@ def _collect_functions(cfg: ProjectConfig) -> list[dict[str, Any]]:
                 exc,
             )
             entries = {}
-    # One traversal feeds both halves below: the .c annotation scan and the
-    # library_*.h marker scan used to walk the same tree separately.
+    # One traversal feeds both halves below: the source scan and the library
+    # header scan used to walk the same tree separately.
     tree = scan_files(reversed_path)
     sources = iter_sources(reversed_path, cfg, scanned=tree)
     for src, annos in iter_source_bindings(
@@ -570,7 +570,7 @@ def _collect_functions(cfg: ProjectConfig) -> list[dict[str, Any]]:
     # library_*.h entries (identify-library / crt-match --fix-source) are counted
     # by the summary cards (collect_status scans them via naming.load_data) but
     # were missing from this table: iter_sources does not glob library_*.h, and
-    # their minimal marker format needs library_bindings_for_file.
+    # their rows need library_bindings_for_file.
     for header in iter_library_headers(reversed_path, cfg, scanned=tree):
         for ann in library_bindings_for_file(header, metadata_dir=metadata_dir):
             if ann.va < min_valid_va_for(cfg):
@@ -585,8 +585,7 @@ def _collect_functions(cfg: ProjectConfig) -> list[dict[str, Any]]:
                     "module": ann.module,
                     "file": rel_display_path(header, reversed_path),
                     # rebrew-functions.toml is the authoritative blocker store;
-                    # the minimal header marker is the fallback for entries that
-                    # have not been migrated yet.
+                    # the binding carries the copy this pass already loaded.
                     "blocker": str(
                         entries.get((ann.module, ann.va), {}).get("blocker") or ann.blocker or ""
                     ),

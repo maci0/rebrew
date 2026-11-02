@@ -365,7 +365,7 @@ def module_visible_to_target(module: str, cfg: Any) -> bool:
     target's module does not belong on this target's ``status``, ``data``,
     ``todo``, or ``verify --data`` output. The active module does. A module
     that is not any target's module (``MSVCRT``, ``ZLIB``) does too: that
-    data is linked into this binary. With no config, or no marker, every
+    data is linked into this binary. With no config, or no module, every
     module belongs.
     """
     if cfg is None:

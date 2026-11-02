@@ -790,7 +790,7 @@ def plan_symbol_rename(
     modules other than *selected*'s unless *all_modules* is set.
     """
     if not old_name:
-        raise ValueError("cannot rename: the old name is empty (no marker, name or symbol)")
+        raise ValueError("cannot rename: the old name is empty (no name or symbol)")
     if not is_valid_new_name(new_name):
         raise ValueError(f"target name {new_name!r} is not a valid C identifier")
     if (reference_owners or preserved_references or pending_owners) and (
@@ -1842,7 +1842,7 @@ def rename_function_everywhere(
     actual_old_name = rename_source_name(old_name, old_sym)
     if not actual_old_name:
         raise ValueError(
-            f"cannot rename {filepath}: old name is empty (missing FUNCTION binding or symbol)"
+            f"cannot rename {filepath}: old name is empty (missing function row or symbol)"
         )
     plan = plan_symbol_rename(
         cfg,

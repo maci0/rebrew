@@ -603,7 +603,7 @@ class TestCrtMatchCli:
         monkeypatch.setattr("rebrew.crt_match.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["--json", "0x10001000"])
         assert result.exit_code != 0
-        assert "No library marker found" in result.output
+        assert "No library binding found" in result.output
 
     def test_single_va_match_json(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 

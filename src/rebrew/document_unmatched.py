@@ -67,7 +67,7 @@ def _documented_vas(src_dir: Path, cfg: Any) -> set[int]:
     ):
         for ann in anns:
             documented.add(ann["va"])
-    # Intake's stub convention — also covers files the annotation parser
+    # Intake's stub convention also covers files the source binding parser
     # could not read (e.g. a stale/corrupt source) so we never double-write.
     # A tree that names its files per target (``GOLDTL.fcn_0040e920.c``) must
     # count too, so match the trailing ``fcn_<8 hex>`` in either shape.

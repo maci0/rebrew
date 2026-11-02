@@ -534,10 +534,10 @@ class TestCollectors:
         assert "prove" in items[0].command
 
     def test_active_functions_naked_matched_stays_actionable(self) -> None:
-        """A matched function whose source is `// SOURCE: naked` is byte-exact
-        via a generated skeleton — reproduced, not decompiled (ct-recomp's
-        NAKED vs PURE_C_EXACT distinction): it must stay on the list as
-        naked-reconstruction work instead of vanishing as finished."""
+        """A matched function whose metadata ``source`` is ``"naked"`` is
+        byte-exact via a generated skeleton, reproduced rather than decompiled
+        (ct-recomp's NAKED vs PURE_C_EXACT distinction): it must stay on the
+        list as naked-reconstruction work instead of vanishing as finished."""
         existing = {
             0x1000: {"status": "EXACT", "source": "naked", "symbol": "func_a", "filename": "a.c"},
             0x2000: {"status": "EXACT", "source": "", "symbol": "func_b", "filename": "b.c"},

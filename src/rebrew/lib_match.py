@@ -383,7 +383,7 @@ def _findings(
         va = int(getattr(entry, "va", 0) or 0)
         if not module or not va or va in allow:
             continue
-        # A marker of GLOBAL/DATA is not a reversed function body.
+        # A GLOBAL/DATA row is not a reversed function body.
         if getattr(entry, "kind", "FUNCTION") not in ("FUNCTION", "STUB"):
             continue
         try:

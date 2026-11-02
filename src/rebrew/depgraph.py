@@ -344,9 +344,9 @@ def build_graph(
 
     # library_*.h entries (identify-library / crt-match --fix-source) are
     # counted by the summary and now listed in the function table, so the graph
-    # must show them too.  The minimal marker format needs library_bindings_for_file
-    # (read_source_bindings does not read it) and headers carry no bodies, so only
-    # nodes are added.
+    # must show them too.  Library rows need library_bindings_for_file with no
+    # target filter (the source binding reader scopes rows to the active
+    # target's module), and headers carry no bodies, so only nodes are added.
     from rebrew.metadata.bindings import (
         library_bindings_for_file,
         library_inventory_bindings,

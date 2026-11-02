@@ -1292,7 +1292,7 @@ def fold_ident(value: str) -> str:
     ``str.lower`` and ``str.upper`` disagree on sharp s
     (``"straße".lower()`` is ``"straße"``, ``"STRASSE".lower()`` is
     ``"strasse"``, and both ``.upper()`` to ``"STRASSE"``). Neither
-    unifies NFC ``é`` with NFD ``e\\u0301``. Module markers and symbol
+    unifies NFC ``é`` with NFD ``e\\u0301``. Module names and symbol
     names use this fold so those spellings compare as one name.
     """
     return unicodedata.normalize("NFC", value).casefold()

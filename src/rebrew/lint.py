@@ -313,8 +313,8 @@ def build_function_index(
             continue
         va = int(raw_va)
         # 16-bit DOS targets address code from segment 0, so VA 0 is legitimate
-        # there (min_valid_va_for returns 0) — dropping it fired a false W028 on
-        # every `// FUNCTION: GAME 0x0` annotation.
+        # there (min_valid_va_for returns 0); dropping it fired a false W028 on
+        # a legitimate function at VA 0.
         if va < min_valid_va_for(cfg):
             continue
         starts.add(va)

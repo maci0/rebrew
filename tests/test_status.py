@@ -271,9 +271,9 @@ class TestCollectStatus:
         assert report.status_counts.get("EXACT") == 1
 
     def test_naked_reconstruction_bucketed(self, tmp_path: Path) -> None:
-        """A `// SOURCE: naked` EXACT function is byte-coverage but NOT
-        decompiled: naked_matched counts it, decompiled_pct excludes it, and
-        matched_pct still reflects byte-matching."""
+        """A metadata ``source = "naked"`` EXACT function is byte-coverage but
+        NOT decompiled: naked_matched counts it, decompiled_pct excludes it,
+        and matched_pct still reflects byte-matching."""
         cfg = _make_cfg(tmp_path)
         src = tmp_path / "src"
         src.mkdir()

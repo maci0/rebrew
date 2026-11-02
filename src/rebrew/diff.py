@@ -193,8 +193,8 @@ def _missing_global_hints(instructions: list[dict[str, Any]]) -> list[dict[str, 
     ``[0]`` in the candidate disasm) — that is normal and masked by the
     reloc-aware comparison (``~~`` rows).  A ``[0]`` operand on a
     NON-reloc row means the address genuinely didn't resolve (missing
-    definition), which source mutation cannot fix — the user must add a
-    ``// GLOBAL:`` annotation (or extern) for the target address.
+    definition), which source mutation cannot fix: the user must declare the
+    global (an extern plus its ``rebrew-data.toml`` row) at the target address.
     """
     hints: list[dict[str, str]] = []
     for row in instructions:
@@ -247,9 +247,8 @@ def _write_blocker(
     if obj_size is None:
         obj_size = len(obj_bytes)
     seed_path = Path(p.seed_c)
-    # A marker-less (ADR 023) source has its annotations only in
-    # rebrew-functions.toml; without metadata_dir the module is empty and the
-    # write is rejected.
+    # ADR 023: identity lives only in rebrew-functions.toml, so without
+    # metadata_dir the module is empty and the write is rejected.
     annos = read_source_bindings(
         seed_path, metadata_dir=p.cfg.metadata_dir, project_root=getattr(p.cfg, "root", None)
     )

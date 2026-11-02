@@ -331,17 +331,17 @@ def _import_candidates(cfg: Any, default_module: str) -> list[LibCandidate]:
 
 
 def _existing_vas(cfg: Any) -> set[int]:
-    """VAs that already have a FUNCTION/LIBRARY annotation anywhere.
+    """VAs that already have a FUNCTION/LIBRARY row anywhere.
 
-    ``crt_match.collect_library_annotations`` deliberately drops FUNCTION
-    markers outside ``library_modules``, so using it here let a LIBRARY binding
+    ``crt_match.collect_library_annotations`` deliberately drops function
+    rows outside ``library_modules``, so using it here let a LIBRARY binding
     be appended over an already-decompiled function.  ``naming.load_existing_vas``
     keeps every FUNCTION/LIBRARY binding (only GLOBAL/DATA are skipped) and
     scans the same trees.
 
     Fail closed: a scan error must propagate.  Swallowing it as ``set()`` made
     every candidate look uncovered, so ``write_candidates`` appended LIBRARY
-    markers over already-decompiled functions.
+    rows over already-decompiled functions.
     """
     from rebrew.naming import load_existing_vas
 

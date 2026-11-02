@@ -125,7 +125,7 @@ class ScanResult:
     """Aggregated global scan results."""
 
     globals: dict[str, GlobalEntry] = field(default_factory=dict)
-    data_annotations: list[dict[str, Any]] = field(default_factory=list)  # // DATA: entries
+    data_annotations: list[dict[str, Any]] = field(default_factory=list)  # data bindings
     type_conflicts: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -727,7 +727,7 @@ def _collect_scan_file_facts(
         text, _ = read_source_text(cfile)
     except OSError as exc:
         # The scan still returns an inventory, just one missing every
-        # marker in this file, so say which file and why rather than
+        # binding in this file, so say which file and why rather than
         # reporting a short list as the whole tree.
         log.warning("skipping unreadable source %s: %s", cfile, exc)
         return None
@@ -895,10 +895,10 @@ def _apply_scan_file_facts(
     )
     for ev_name, ev in extern_vars.items():
         if ev_name in annotated_names:
-            # The marker already named it. Keep that spelling when it
+            # The binding already named it. Keep that spelling when it
             # parsed a type: a second form in the same file (`[88]` and
-            # `[0x58]`) is one object. Fill the type only when no source
-            # marker spelled one, so a header's `T[]` cannot become the
+            # `[0x58]`) is one object. Fill the type only when no bound
+            # declaration spelled one, so a header's `T[]` cannot become the
             # size.
             if not is_header and ev.type_str:
                 known = type_by_name[ev_name]
@@ -971,9 +971,9 @@ def scan_globals(
     result = ScanResult()
     # Track all type declarations per name for conflict detection
     type_by_name: dict[str, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
-    # Globals key by (name, va): the same name annotated at two VAs in two
+    # Globals key by (name, va): the same name bound at two VAs in two
     # files is two globals (a TU-local collision), not one entry whose
-    # second annotation is skipped.
+    # second binding is skipped.
     by_key: dict[tuple[str, int], GlobalEntry] = {}
     # Name → one entry with that name (same as former linear scan over values).
     by_name: dict[str, GlobalEntry] = {}
@@ -992,9 +992,9 @@ def scan_globals(
 
     # Types spelled on a .c data binding's own declaration line, in file
     # order.  These are the reference descriptions of the global, and the first
-    # is the one the size ruler uses.  An unmarked spelling of the same name
-    # (a link stand-in, or a header's incomplete redeclaration) is not compared
-    # against them: it is not a second description of the object.
+    # is the one the size ruler uses.  A spelling from a declaration with no
+    # binding (a link stand-in, or a header's incomplete redeclaration) is not
+    # compared against them: it is not a second description of the object.
     marked_types: dict[str, list[str]] = {}
 
     def _mark(name: str, type_str: str) -> None:
@@ -1143,10 +1143,11 @@ def scan_globals(
     for name, types in type_by_name.items():
         # A header is a redeclaration. It must not invent a conflict against
         # the .c definition, and it must not replace that definition's type.
-        # The same goes for an unmarked definition: the marker is the
-        # reference description, the other file is often a link stand-in with
-        # a different bound.  Two .c markers that disagree are a real
-        # conflict, and the first one in file order is the reported type.
+        # The same goes for an unbound definition: the ADDRESS-bound
+        # declaration is the reference description, the other file is often a
+        # link stand-in with a different bound.  Two .c bindings that disagree
+        # are a real conflict, and the first one in file order is the reported
+        # type.
         marked = marked_types.get(name)
         if marked:
             for entry in entries_by_name.get(name, ()):
@@ -1188,9 +1189,9 @@ def scan_data_annotations(
     *,
     scanned: Sequence[Path] | None = None,
 ) -> list[dict[str, Any]]:
-    """Scan for ``// DATA: MODULE 0xVA`` annotations in source files.
+    """Scan for data bindings (ADDRESS anchors + ``rebrew-data.toml`` rows).
 
-    These mark standalone global data objects for tracking in the catalog.
+    These describe standalone global data objects for tracking in the catalog.
     SIZE/SECTION/NOTE are overlaid from ``rebrew-data.toml`` metadata if present.
     Returns a list of dicts with: va, name, size, section, note, filepath.
     """
@@ -1211,7 +1212,7 @@ def scan_data_annotations(
     target = target_module(cfg)
     project_root = getattr(cfg, "root", None)
     # One read-only load for the whole walk: the per-annotation lookup below
-    # otherwise re-stats and deep-copies the row for every DATA marker.
+    # otherwise re-stats and deep-copies the row for every data binding.
     data_entries = load_data_metadata(metadata_dir, deepcopy=False)
     # Same for the function store: read_source_bindings re-reads and
     # re-fingerprints it once per file unless the batch hands it over.

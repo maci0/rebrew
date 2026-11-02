@@ -248,9 +248,9 @@ def classify_all(
         # reason is replaced on re-documentation).
         #
         # The guard also covers the file: a source the user deleted after
-        # matching it must not come back as a STUB whose marker disagrees
-        # with the store's EXACT row.  So the write happens only for a
-        # function the store still calls a stub, never to undo a delete.
+        # matching it must not come back as a STUB whose ADDRESS anchor
+        # disagrees with the store's EXACT row.  So the write happens only for
+        # a function the store still calls a stub, never to undo a delete.
         if prev_status != "STUB":
             continue
         if va not in existing_vas and not out.exists():
@@ -326,7 +326,8 @@ def prune_stale_stubs(
     Re-running intake after a discovery change (new plugin, NE fix, …) can
     leave orphaned ``fcn_<va>.c`` stubs behind — they inflate ``rebrew
     status`` totals and clutter the source tree.  This prunes only files
-    whose content still matches the exact auto-stub pattern for *marker*;
+    whose content still matches the exact auto-stub pattern (one ADDRESS
+    anchor, the generated signature and body comment, and the closing brace);
     any file the user has edited or renamed is untouched.  A metadata entry
     is removed only together with its stub file, so progressed functions
     (renamed/edited sources) are never dropped.  Returns the number of

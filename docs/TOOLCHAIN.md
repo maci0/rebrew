@@ -650,8 +650,9 @@ The check fails when the detected family has no compatible profile
 (Delphi: document blockers) and passes with a warning for families that may
 only match structurally (Zig under `mingw-16.2.0`).  The check is **arch-aware**:
 a 16-bit NE/DOS binary (e.g. Windows 3.x games) only accepts 16-bit-capable
-profiles (the `bits = 16` registry entries: `msvc-1.52`, `msvc-1.5`, `msvc-1.0`, `borland-3.1`, `borland-2.0`, `watcom-2.0-win16`, `delphi-1.0`;
-`watcom-2.0-win32`'s wcc386 is a 32-bit compiler); configuring `msvc-6.0` on an NE
+profiles whose registry entry has `bits = 16` (e.g. `msvc-1.52`,
+`borland-3.1`, `delphi-1.0`, while `watcom-2.0-win32`'s wcc386 is a 32-bit
+compiler); configuring `msvc-6.0` on an NE
 project passes the family check but would silently produce
 `COMPILE_ERROR` for every function, so the arch check catches it with a
 concrete fix hint ("switch to msvc-1.52 / borland-3.1 / borland-2.0 or document as

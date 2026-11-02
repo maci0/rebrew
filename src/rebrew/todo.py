@@ -475,7 +475,7 @@ def _collect_active_functions(
             cmd = f"rebrew skeleton 0x{va:08x}"
 
         elif v_status == "MISSING_SIZE":
-            # No SIZE anywhere (marker + metadata): rebrew test refuses the
+            # No SIZE anywhere (binding + metadata): rebrew test refuses the
             # entry and byte extraction is vacuous.  The self-heal path is
             # verify --fix-sizes backfilling the binary-derived size.
             category = CAT_MISSING_ANNOTATION
@@ -1355,7 +1355,7 @@ def _collect_start_data(
         # One metadata file serves every target in a unified tree, so a row's
         # module decides whether THIS target still owes work.  Without the
         # filter the server's todo listed 20 GOLDTL data symbols (0x6624a0,
-        # 0x773d80, …): VAs no server marker can ever clear. Library modules
+        # 0x773d80, …): VAs no server row can ever clear. Library modules
         # stay; they are linked into this binary.
         if not module_visible_to_target(module, cfg):
             continue
@@ -1571,7 +1571,7 @@ def collect_all(
     """Collect and rank actions by affected bytes, using effort to break ties.
 
     *exclude_vas* holds VA rows that are linked library code (``external_vas``:
-    ``LIBRARY`` markers plus configured external modules).  They are not work:
+    ``LIBRARY`` rows plus configured external modules).  They are not work:
     the bytes come from the archive, so neither "improve this match" nor
     "start this function" is a runnable action — the server's ``library_msvc.h``
     rows alone filled 11 of the top 20 slots before this filter.

@@ -18,10 +18,10 @@ Three output formats controlled by ``--format``:
 ``--inline-c`` wraps the NASM output as an exact-bytes naked C skeleton
 (``__asm _emit`` on MSVC / ``__asm__(".byte ...")`` on GCC — raw bytes, no
 assembler-encoding risk) behind the ``REBREW_ALLOW_NAKED`` fence, with a
-plain-C fallback for the comparison build and a ``// SIZE`` annotation so
-the file is self-contained for ``rebrew test`` (iterate with
-``--cflags /DREBREW_ALLOW_NAKED``; round-trip uses the naked branch via
-``rebrew build round-trip --allow-naked``).
+plain-C fallback for the comparison build. The command records the file's
+identity and size in the function store, so ``rebrew test`` can compare it
+(iterate with ``--cflags /DREBREW_ALLOW_NAKED``; round-trip uses the naked
+branch via ``rebrew build round-trip --allow-naked``).
 
 Usage:
     rebrew binary asm show 0x10003ca0 --size 77

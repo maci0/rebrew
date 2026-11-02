@@ -1662,9 +1662,9 @@ def _run_test_impl(
         promote_ann = sel_ann if sel_ann is not None else (lint_annos[0] if lint_annos else None)
         anno_module = promote_ann.module if promote_ann else ""
         if not anno_module:
-            # The marker filter can exclude every annotation (e.g. a fresh
-            # file whose module differs from the target module) — fall back
-            # to the file's own marker for the requested VA so the SIZE /
+            # The target filter can exclude every binding (e.g. a fresh file
+            # whose module differs from the target module); fall back to the
+            # file's own ADDRESS anchor for the requested VA so the SIZE /
             # STATUS writes land under the real (module, VA) key instead of
             # raising on an empty module (or worse, writing an unreadable one).
             from rebrew.metadata.bindings import module_for_va as _module_for_va

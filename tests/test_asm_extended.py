@@ -219,8 +219,9 @@ class TestGenerateInlineC:
     def test_batch_inline_c_writes_naked_skeletons(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """--all --inline-c writes a `// SOURCE: naked` skeleton per annotated
-        function — the whole-binary byte-coverage baseline."""
+        """--all --inline-c writes a naked skeleton per annotated function and
+        records ``source = "naked"`` in the function store, the whole-binary
+        byte-coverage baseline."""
         from rebrew.asm import batch_extract_nasm
 
         cfg = _cfg(tmp_path)

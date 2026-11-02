@@ -146,7 +146,7 @@ def _library_headers_under(
 
     The exclusion set matches :func:`files_with_ext` — without it the header
     scan descended into ``build/``, ``.venv/``, and a copied dependency tree,
-    counting their headers as the project's own library markers.
+    counting their headers as the project's own library headers.
     """
     return _files_matching(
         directory,
@@ -253,7 +253,7 @@ def iter_library_headers(
     when *directory* IS the target's ``reversed_dir`` — the same rule
     :func:`iter_sources` applies to sources, and what
     :func:`rebrew.catalog.scan_reversed_dir` already did for headers.  Without
-    it, shared ``library_*.h`` markers are invisible to coverage (`status`,
+    it, shared ``library_*.h`` headers are invisible to coverage (`status`,
     `todo`), `library crt-match`, the call graph, and ``rebrew export context``.
 
     *scanned* is a :func:`scan_files` result for the same directory.

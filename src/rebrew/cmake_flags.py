@@ -2,13 +2,13 @@
 
 The flags a translation unit compiles with are ``rebrew-functions.toml``'s
 business: that is the store every tool resolves from, and lint rejects an
-inline ``// CFLAGS:`` comment (E024).  A CMake build that reads
-the ``.c`` annotation instead therefore compiles something the tools never
-measured — guild-rebrew's ``gm_AllocSpieler`` ran that way, 363 linked bytes
-behind the numbers recorded in its own notes (its annotation said
-``/O2 /Gd /Oa``, its metadata ``/Oa /Ow``, and the notes described the second).
+inline ``// CFLAGS:`` comment (E024).  A CMake build that reads that inline
+comment instead therefore compiles something the tools never measured:
+guild-rebrew's ``gm_AllocSpieler`` ran that way, 363 linked bytes behind the
+numbers recorded in its own notes (its inline comment said ``/O2 /Gd /Oa``,
+its metadata ``/Oa /Ow``, and the notes described the second).
 
-``rebrew build cmake-flags`` closes that gap: it resolves each annotated source file's
+``rebrew build cmake-flags`` closes that gap: it resolves each bound source file's
 effective flags through the same chain the tools use (per-function metadata →
 nearest ``rebrew-libraries.toml`` → module preset → ``[compiler].cflags``) and
 writes a CMake include that sets ``COMPILE_FLAGS`` for those files.

@@ -619,7 +619,7 @@ def main(
         va_int = parse_va(va, json_mode=json_output)
         pair = annotation_map.get(va_int)
         if pair is None:
-            error_exit(f"No library marker found for VA 0x{va_int:08x}", json_mode=json_output)
+            error_exit(f"No library binding found for VA 0x{va_int:08x}", json_mode=json_output)
 
         _, ann = pair
         # Same name preference as match_all: the annotated name (LIBRARY
@@ -630,9 +630,9 @@ def main(
             error_exit(f"Entry at 0x{va_int:08x} has no symbol/name", json_mode=json_output)
 
         module_key = preset_module_key(ann.module or "")
-        # Same fallback as match_all: the marker module (e.g. "SERVER") may
-        # not own an index — the library identity is decided by the name
-        # match, not the marker module.  Try every configured library index.
+        # Same fallback as match_all: the binding's module (e.g. "SERVER") may
+        # not own an index; the library identity is decided by the name
+        # match, not that module.  Try every configured library index.
         if module_key in indexes:
             index_candidates: list[tuple[str, list[CrtSourceEntry]]] = [
                 (ann.module or "", indexes[module_key])

@@ -167,7 +167,7 @@ _EMPTY_CONTAINER_TYPES: tuple[type, ...] = (list, dict)
 
 @dataclass
 class SourceBinding:
-    """Parsed function annotation from a decomp .c file.
+    """A function or data identity with its source location and stored fields.
 
     Supports dict-like access (``ann["va"]``, ``ann["status"] = "EXACT"``)
     for interoperability with generic dict-processing code.
@@ -931,18 +931,18 @@ def iter_source_bindings(
     inventory_only: bool = False,
     function_entries: dict[tuple[str, int], dict[str, Any]] | None = None,
 ) -> list[tuple[Path, list[SourceBinding]]]:
-    """Parse annotations from each source in *sources*, skipping failures.
+    """Load bindings from each source in *sources*, skipping failures.
 
-    Returns ``(path, annotations)`` pairs, only for sources that yielded at
-    least one annotation.  The shared batch-mode loader over
+    Returns ``(path, bindings)`` pairs, only for sources that yielded at
+    least one binding.  The shared batch-mode loader over
     :func:`read_source_bindings`.
 
     :param sources: List of paths returned by :func:`rebrew.sources.iter_sources`.
     :param target:  Optional module string passed through to
         ``read_source_bindings`` (use :func:`rebrew.config.target_module` to obtain it).
     :param metadata_dir: Parent of ``reversed_dir`` where ``rebrew-functions.toml``
-        lives.  When ``None``, metadata is not merged (only source annotations
-        are parsed).
+        lives.  When ``None``, metadata is not merged: only ADDRESS anchors are
+        parsed, and the resulting binding carries no stored fields.
     :param inventory_only: Read stored identities without source prototypes or
         anchor validation. Only files absent from both stores are parsed.
     """

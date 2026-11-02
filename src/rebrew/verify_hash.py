@@ -519,9 +519,11 @@ _HEADERS_HASH_CACHE_MAX = 8  # one entry per distinct header-tree state
 
 
 def expected_text_function_extents(cfg: ProjectConfig) -> dict[str, tuple[int, int]]:
-    """``{symbol: (marker VA, reference size)}`` for every annotated function.
+    """``{C name: (VA, reference size)}`` for every function row with a source.
 
-    The size comes from the annotation and is 0 when the source carries none.
+    Identities come from the function store bound through ADDRESS anchors; a
+    row with no symbol falls back to the source file stem.  The size comes from
+    the row and is 0 when it records none.
     """
     from rebrew.config import target_module
     from rebrew.metadata.bindings import iter_source_bindings
@@ -545,11 +547,11 @@ def expected_text_function_extents(cfg: ProjectConfig) -> dict[str, tuple[int, i
 
 
 def expected_text_functions(cfg: ProjectConfig) -> dict[str, int]:
-    """``{symbol: marker VA}`` for every annotated function.
+    """``{C name: VA}`` for every function row with a source.
 
-    Shared by verify and ``build check-text-placement`` so both classify the same binary.
-    Marker symbols use the per-target ``// FUNCTION:`` name. The key is
-    the C name, so ``__foo`` stays ``_foo`` and ``hook@@12`` is ``hook``.
+    Shared by verify and ``build check-text-placement`` so both classify the
+    same binary.  The key is the C name, so ``__foo`` stays ``_foo`` and
+    ``hook@@12`` is ``hook``.
     """
     return {name: va for name, (va, _size) in expected_text_function_extents(cfg).items()}
 

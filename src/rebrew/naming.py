@@ -317,9 +317,10 @@ def load_data(
             covered_vas[entry.va] = rel_name
 
     # Scan library_*.h files for identified CRT/zlib functions.  A shared tree
-    # holds every target's headers, so a marker counts only when its module is
-    # this target's module or one of its external_libs; another target's
-    # LIBRARY binding at the same VA must not replace this target's function.
+    # holds every target's headers, so a library row counts only when its
+    # module is this target's module or one of its external_libs; another
+    # target's LIBRARY binding at the same VA must not replace this target's
+    # function.
     target_module_name = module_name
     own_modules = {preset_module_key(m) for m in (getattr(cfg, "external_libs", None) or ())}
     if target_module_name:
@@ -443,12 +444,12 @@ def scope_to_target(
     """Restrict progress rows to the active target's own module.
 
     In a shared tree every target scans every file, so ``existing`` holds
-    other targets' rows (another module's FUNCTION blocks are filtered at
-    parse, but library headers carry no target affinity and land in every
+    other targets' rows (another module's function rows are filtered at
+    parse, but library rows carry no target affinity and land in every
     target's map).  Counting those as progress credits one binary with
     another's work — e.g. a client target reporting thousands of EXACT
     library attributions.  Keep rows whose module matches the target
-    marker, LIBRARY rows of the target's own external_libs, and module-less
+    module, LIBRARY rows of the target's own external_libs, and module-less
     rows (legacy callers that cannot attribute); navigation maps
     (``covered_vas``) stay unfiltered.
     """
@@ -473,7 +474,7 @@ def external_vas(
 ) -> set[int]:
     """VAs whose row is external ``.lib`` code — "not our work".
 
-    External = ``LIBRARY`` marker rows (``library match`` attributions) or rows
+    External = ``LIBRARY`` rows (``library match`` attributions) or rows
     attributed to a configured external module (``targets.<name>.
     external_libs`` keys — e.g. ``D3DX8``, ``LIBCMT``).  These leave the
     progress accounting entirely: identified external code is neither
@@ -590,7 +591,7 @@ def find_neighbor_file(
         return None
 
     def _is_appendable(name: str) -> bool:
-        """A `.c` source, not a `library_*.h` marker file."""
+        """A `.c` source, not a `library_*.h` header file."""
         return Path(name).suffix.lower() not in (".h", ".hpp")
 
     covered = _sorted_keys if _sorted_keys is not None else sorted(existing_vas)

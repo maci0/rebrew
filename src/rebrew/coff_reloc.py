@@ -300,11 +300,11 @@ def build_name_to_va(
         from rebrew.data_scan import scan_globals
 
         # Every source of pairs below is scoped to the ACTIVE target's module.
-        # A shared file carries one `// DATA:`/`// GLOBAL:` marker per target
-        # and the same symbol sits at a different VA in each binary; unscoped,
-        # the last entry wins and the other target's compare validates its
-        # absolute references against the wrong binary (guild-rebrew round
-        # 1292: GOLDTL's log tables resolved to the SERVER VAs 0x10027078...).
+        # A shared file can carry one ADDRESS anchor per target, and the same
+        # symbol sits at a different VA in each binary; unscoped, the last
+        # entry wins and the other target's compare validates its absolute
+        # references against the wrong binary (guild-rebrew round 1292:
+        # GOLDTL's log tables resolved to the SERVER VAs 0x10027078...).
         active_module = target_module(cfg)
 
         scan = scan_globals(

@@ -634,8 +634,8 @@ def execute_data(
             _generate_bss_fix(
                 bss_report,
                 src_dir,
-                # Match data annotate's marker fallback: an empty origin would
-                # emit `// DATA:  0x...` which the annotation parser rejects.
+                # An empty origin would emit an ADDRESS anchor with no module
+                # token, which the anchor parser rejects.
                 target_module(cfg),
                 metadata_dir=cfg.metadata_dir,
                 dry_run=dry_run,
