@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import threading
-lazy from typing import Any, override
+lazy from typing import Any, Never, override
 
 _WIN32_SIMPROCS: dict[str, type] | None = None  # lazily populated
 _SIMPROCS_LOCK = threading.Lock()
@@ -57,7 +57,7 @@ def _copy_length_or_none(solver: Any, n: Any) -> int | None:
     return min(hi, _MEMCPY_MAX_LEN)
 
 
-def _raise_unbounded_copy() -> None:
+def _raise_unbounded_copy() -> Never:
     """Abort the state on a copy length the model cannot cover (fail closed).
 
     Raises so angr marks the state errored and excludes it from the terminal
@@ -143,7 +143,6 @@ def _build_win32_simprocs() -> dict[str, type]:
             length = _copy_length_or_none(self.state.solver, n)
             if length is None:
                 _raise_unbounded_copy()
-                return dst  # unreachable; keeps mypy's flow analysis honest
             if length > 0:
                 data = self.state.memory.load(src, length)  # type: ignore[no-untyped-call]
                 self.state.memory.store(dst, data)  # type: ignore[no-untyped-call]
@@ -160,7 +159,6 @@ def _build_win32_simprocs() -> dict[str, type]:
             length = _copy_length_or_none(self.state.solver, n)
             if length is None:
                 _raise_unbounded_copy()
-                return dst  # unreachable; keeps mypy's flow analysis honest
             if length > 0:
                 byte_val = claripy.Extract(7, 0, val)
                 for i in range(length):

@@ -2145,7 +2145,6 @@ def detect_crt_sources(root: Path) -> dict[str, str]:
         # Case-insensitive search: walk each component
         candidate = tools_dir
         for component in pattern.split("/"):
-            # Find a case-insensitive match in the current directory
             matched_child = None
             if candidate.is_dir():
                 component_norm = unicodedata.normalize("NFC", component).casefold()

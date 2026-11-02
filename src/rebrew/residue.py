@@ -155,10 +155,7 @@ def residue_report(
         end = ordered[nxt][0] if nxt < len(starts) else lo + size
         extents.append((lo, end, name))
 
-    # ``diffs`` is ascending, so each extent's share is two bisections.  The
-    # previous version scanned every extent for every differing byte, which is
-    # quadratic: a 512 KB .text with 1.5k functions and a half-byte mismatch
-    # took ~6 s just to attribute.
+    # ``diffs`` is ascending, so each extent's share is two bisections.
     counts: dict[str, int] = {}
     first: dict[str, int] = {}
     for lo, end, name in extents:
