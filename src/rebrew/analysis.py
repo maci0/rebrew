@@ -586,7 +586,9 @@ def _classify_insn(
                 if 0 <= disp <= 0xFFFF:
                     autodata = getattr(info, "ne_header", None)
                     data_seg = autodata.autodata_segment if autodata is not None else 1
-                    return ((mnemonic, from_va, data_seg << 16 | disp),)
+                    # autodata_segment is NE's one-based segment number; the
+                    # flat VA space is zero-based
+                    return ((mnemonic, from_va, (data_seg - 1) << 16 | disp),)
         # Absolute [imm16] operands: a1/a3 (mov), and generic [abs] memory ops
         for op in ops:
             if (
@@ -599,7 +601,8 @@ def _classify_insn(
                 if 0 <= disp <= 0xFFFF:
                     autodata = getattr(info, "ne_header", None)
                     data_seg = autodata.autodata_segment if autodata is not None else 1
-                    to_va = (data_seg << 16) | disp
+                    # one-based segment number into the zero-based VA space
+                    to_va = ((data_seg - 1) << 16) | disp
                     kind = "mov_mem" if mnemonic == "mov" else f"{mnemonic}_mem"
                     return ((kind, from_va, to_va),)
         return ()

@@ -274,7 +274,8 @@ class TestNeDispatchTables:
         assert len(tables) == 1
         assert tables[0].num_entries == 4
         targets = {e.target_va for e in tables[0].entries}
-        assert 0x10002 in targets and 0x10010 in targets and 0x1001E in targets
+        # zero-based VA space: far pointers decode to (seg - 1) << 16 | off
+        assert 0x0002 in targets and 0x0010 in targets and 0x001E in targets
 
     def test_ne_vmt_detected_markerless(self, tmp_path: Path) -> None:
         """Regression: an MSVC-style NE data segment (no [index\x00]
@@ -311,4 +312,5 @@ class TestNeDispatchTables:
         tables = find_dispatch_tables(info.data, sec_dict, {}, min_entries=3, info=info)
         assert len(tables) == 1, tables
         targets = {e.target_va for e in tables[0].entries}
-        assert 0x10002 in targets and 0x10010 in targets and 0x1001E in targets
+        # zero-based VA space: far pointers decode to (seg - 1) << 16 | off
+        assert 0x0002 in targets and 0x0010 in targets and 0x001E in targets

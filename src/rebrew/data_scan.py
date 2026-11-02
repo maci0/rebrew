@@ -1256,10 +1256,10 @@ def find_dispatch_tables(
     For 16-bit NE binaries (*info* provided, ``format == "ne"``), the code
     sections are the code segments (probe-classified) and the data sections
     the rest; a far pointer ``seg:off`` stored little-endian as 4 bytes
-    decodes to the synthetic flat VA ``(seg << 16) | off`` — exactly the
-    format the NE loader assigns, so the pointer-into-code check works
-    unchanged.  This finds Borland Delphi VMTs (arrays of far pointers to
-    methods).
+    decodes to the synthetic flat VA ``((seg - 1) << 16) | off``, which is
+    the format the NE loader assigns in the zero-based VA space, so the
+    pointer-into-code check works unchanged.  This finds Borland Delphi VMTs
+    (arrays of far pointers to methods).
 
     Args:
         binary_data: Raw binary file bytes.
@@ -1281,7 +1281,8 @@ def find_dispatch_tables(
         ptr_size = _target_pointer_size(info)
     stride = max_stride if max_stride is not None else ptr_size
 
-    if info is not None and info.format == "ne":
+    is_ne = info is not None and info.format == "ne"
+    if is_ne:
         ne_segs = info.ne_segments
         code_names = [f"SEG{s.index}" for s in ne_segs if s.is_code]
         data_names = [f"SEG{s.index}" for s in ne_segs if not s.is_code]
@@ -1292,6 +1293,7 @@ def find_dispatch_tables(
         ]
         data_sections = [(n, sections[n]) for n in data_names if n in sections]
     else:
+        is_ne = False
         text_sec = sections.get(".text")
         if not text_sec:
             return []
@@ -1356,6 +1358,14 @@ def find_dispatch_tables(
         while i + ptr_size <= len(sec_bytes):
             val = struct.unpack_from(fmt, sec_bytes, i)[0]
             entry_va = sec_va + i
+            if is_ne:
+                # the stored word is a far pointer with NE's one-based
+                # segment number; rebase it into the loader's zero-based
+                # flat space, and reject a zero segment word (zero tails
+                # in data segments are not pointers)
+                far_segment = val >> 16
+                rebased = ((far_segment - 1) << 16) | (val & 0xFFFF)
+                val = rebased if far_segment else -1
 
             if any(lo <= val < hi for lo, hi in code_ranges):
                 # This looks like a function pointer into a code section

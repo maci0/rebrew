@@ -83,7 +83,8 @@ class TestCompileNe:
         assert calls[0]["args"] == ["-B", "-$S-", "-GS", "HELLO.DPR"]
         assert (result.exe_path.parent / "HELLO.DPR").read_bytes() == source.read_bytes()
         assert result.map_path is not None and result.map_path.read_text() == "fresh map\n"
-        assert result.funcs[0].va == 0x10002
+        # zero-based VA space: segment 1 starts at 0x00000
+        assert result.funcs[0].va == 0x0002
         assert "compiled fresh" in result.log
 
     def test_stages_units_resources_and_custom_library(
