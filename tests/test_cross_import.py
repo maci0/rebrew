@@ -71,6 +71,36 @@ def _dst_cfg(tmp_path: Path, rev: Path) -> Any:
     )
 
 
+def _exact_verify_entry(*_args: Any, **_kwargs: Any) -> Any:
+    """A ``verify_entry`` stand-in reporting a byte-exact match."""
+    from rebrew.compiler.compile import CompareResult
+
+    return CompareResult(
+        matched=True,
+        status="EXACT",
+        match_percent=100.0,
+        delta=0,
+        obj_bytes=b"x",
+        reloc_offsets=[],
+        message="EXACT MATCH",
+    )
+
+
+def _near_verify_entry(*_args: Any, **_kwargs: Any) -> Any:
+    """A ``verify_entry`` stand-in reporting a near miss."""
+    from rebrew.compiler.compile import CompareResult
+
+    return CompareResult(
+        matched=False,
+        status="NEAR_MATCHING",
+        match_percent=50.0,
+        delta=5,
+        obj_bytes=b"x",
+        reloc_offsets=[],
+        message="NEAR",
+    )
+
+
 class TestCrossMatch:
     """The pure matching core — no cfg, hand-crafted signatures."""
 
@@ -693,20 +723,7 @@ class TestImportMechanics:
             metadata_fields={"DST.0x401040": {"kind": "FUNCTION"}},
         )
 
-        from rebrew.compiler.compile import CompareResult
-
-        monkeypatch.setattr(
-            "rebrew.verify.verify_entry",
-            lambda *a, **k: CompareResult(
-                matched=True,
-                status="EXACT",
-                match_percent=100.0,
-                delta=0,
-                obj_bytes=b"x",
-                reloc_offsets=[],
-                message="EXACT MATCH",
-            ),
-        )
+        monkeypatch.setattr("rebrew.verify.verify_entry", _exact_verify_entry)
         monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
 
         res = ci.import_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11, dst_file="f1.c")
@@ -772,7 +789,6 @@ class TestImportMechanics:
         body = "int f1(void){ return 1; }\n"
         src_path = cfg_src.reversed_dir / "f1.c"
         write_source(src_path, body, encoding="utf-8")
-        from rebrew.compiler.compile import CompareResult
         from rebrew.metadata.functions import get_entry, identity_file, record_function_identity
 
         record_function_identity(
@@ -785,18 +801,7 @@ class TestImportMechanics:
             symbol="_f1",
             size=11,
         )
-        monkeypatch.setattr(
-            "rebrew.verify.verify_entry",
-            lambda *a, **k: CompareResult(
-                matched=True,
-                status="EXACT",
-                match_percent=100.0,
-                delta=0,
-                obj_bytes=b"x",
-                reloc_offsets=[],
-                message="EXACT MATCH",
-            ),
-        )
+        monkeypatch.setattr("rebrew.verify.verify_entry", _exact_verify_entry)
         monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
         res = ci.import_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 13)
         assert res["action"] == "imported"
@@ -1300,20 +1305,7 @@ class TestSharedImport:
         dst_rev.mkdir(parents=True)
         cfg_dst = _dst_cfg(tmp_path, dst_rev)
 
-        from rebrew.compiler.compile import CompareResult
-
-        monkeypatch.setattr(
-            "rebrew.verify.verify_entry",
-            lambda *a, **k: CompareResult(
-                matched=True,
-                status="EXACT",
-                match_percent=100.0,
-                delta=0,
-                obj_bytes=b"x",
-                reloc_offsets=[],
-                message="EXACT MATCH",
-            ),
-        )
+        monkeypatch.setattr("rebrew.verify.verify_entry", _exact_verify_entry)
         monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "")
 
@@ -1474,20 +1466,8 @@ class TestPromoteToShared:
         dst_rev = tmp_path / "src_DST"
         dst_rev.mkdir(parents=True)
         cfg_dst = _dst_cfg(tmp_path, dst_rev)
-        from rebrew.compiler.compile import CompareResult
 
-        monkeypatch.setattr(
-            "rebrew.verify.verify_entry",
-            lambda *a, **k: CompareResult(
-                matched=True,
-                status="EXACT",
-                match_percent=100.0,
-                delta=0,
-                obj_bytes=b"x",
-                reloc_offsets=[],
-                message="EXACT MATCH",
-            ),
-        )
+        monkeypatch.setattr("rebrew.verify.verify_entry", _exact_verify_entry)
         monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "")
 
@@ -1583,20 +1563,8 @@ class TestSharedSupersede:
         return cfg_src, cfg_dst
 
     def _ok_verify(self, monkeypatch) -> None:
-        from rebrew.compiler.compile import CompareResult
 
-        monkeypatch.setattr(
-            "rebrew.verify.verify_entry",
-            lambda *a, **k: CompareResult(
-                matched=True,
-                status="EXACT",
-                match_percent=100.0,
-                delta=0,
-                obj_bytes=b"x",
-                reloc_offsets=[],
-                message="EXACT MATCH",
-            ),
-        )
+        monkeypatch.setattr("rebrew.verify.verify_entry", _exact_verify_entry)
         monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "")
 
@@ -1619,7 +1587,6 @@ class TestSharedSupersede:
         assert not (cfg_dst.reversed_dir / "stub.c").exists()
 
     def test_unverified_shared_import_keeps_stub(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.compiler.compile import CompareResult
 
         cfg_src, cfg_dst = self._cfgs(tmp_path)
         write_source(
@@ -1632,18 +1599,7 @@ class TestSharedSupersede:
             "/* ADDRESS: DST 0x401040 */\n\nint f1(void){ return 0; }\n",
             metadata_fields={"DST.0x401040": {"kind": "FUNCTION", "size": 0}},
         )
-        monkeypatch.setattr(
-            "rebrew.verify.verify_entry",
-            lambda *a, **k: CompareResult(
-                matched=False,
-                status="NEAR_MATCHING",
-                match_percent=50.0,
-                delta=5,
-                obj_bytes=b"x",
-                reloc_offsets=[],
-                message="NEAR",
-            ),
-        )
+        monkeypatch.setattr("rebrew.verify.verify_entry", _near_verify_entry)
         applied: list[Any] = []
         monkeypatch.setattr(
             "rebrew.verify.apply_status_updates",
@@ -1839,7 +1795,6 @@ class TestSharedSupersede:
         """The rollback covers the pre-verify metadata writes: a withdrawn
         claim restores the destination's own cflags override and leaves the
         stub's earned STATUS untouched."""
-        from rebrew.compiler.compile import CompareResult
         from rebrew.metadata.functions import (
             get_entry,
             load_metadata,
@@ -1860,18 +1815,7 @@ class TestSharedSupersede:
         )
         update_field(tmp_path, 0x401040, "cflags", "/G5", "DST")
         update_source_status(tmp_path, "EXACT", "DST", 0x401040)
-        monkeypatch.setattr(
-            "rebrew.verify.verify_entry",
-            lambda *a, **k: CompareResult(
-                matched=False,
-                status="NEAR_MATCHING",
-                match_percent=50.0,
-                delta=5,
-                obj_bytes=b"x",
-                reloc_offsets=[],
-                message="NEAR",
-            ),
-        )
+        monkeypatch.setattr("rebrew.verify.verify_entry", _near_verify_entry)
         # Real apply_status_updates: the rollback must make it a no-op.
         monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "/O2")
         res = ci.import_shared_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11, dst_file="stub.c")
@@ -1887,7 +1831,6 @@ class TestSharedSupersede:
         self, tmp_path: Path, monkeypatch
     ) -> None:
         """A rejected claim writes no flags or empty metadata table."""
-        from rebrew.compiler.compile import CompareResult
         from rebrew.metadata.functions import get_entry
 
         cfg_src, cfg_dst = self._cfgs(tmp_path)
@@ -1901,18 +1844,7 @@ class TestSharedSupersede:
             "/* ADDRESS: DST 0x401040 */\n\nint f1(void){ return 0; }\n",
             metadata_fields={"DST.0x401040": {"kind": "FUNCTION", "size": 0}},
         )
-        monkeypatch.setattr(
-            "rebrew.verify.verify_entry",
-            lambda *a, **k: CompareResult(
-                matched=False,
-                status="NEAR_MATCHING",
-                match_percent=50.0,
-                delta=5,
-                obj_bytes=b"x",
-                reloc_offsets=[],
-                message="NEAR",
-            ),
-        )
+        monkeypatch.setattr("rebrew.verify.verify_entry", _near_verify_entry)
         monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "/O2")
         res = ci.import_shared_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11, dst_file="stub.c")
@@ -1931,7 +1863,6 @@ class TestSharedSupersede:
         A failed re-verify still applies STATUS and does not roll the cflags
         write back. The file text is not rewritten.
         """
-        from rebrew.compiler.compile import CompareResult
         from rebrew.metadata.functions import get_entry, update_field
 
         cfg_src, cfg_dst = self._cfgs(tmp_path)
@@ -1953,18 +1884,7 @@ class TestSharedSupersede:
         )
         update_field(tmp_path, B_F1, "cflags", "/G5", "DST")
         applied: list[Any] = []
-        monkeypatch.setattr(
-            "rebrew.verify.verify_entry",
-            lambda *a, **k: CompareResult(
-                matched=False,
-                status="NEAR_MATCHING",
-                match_percent=50.0,
-                delta=5,
-                obj_bytes=b"x",
-                reloc_offsets=[],
-                message="NEAR",
-            ),
-        )
+        monkeypatch.setattr("rebrew.verify.verify_entry", _near_verify_entry)
         monkeypatch.setattr(
             "rebrew.verify.apply_status_updates",
             lambda fixes, cfg: applied.append(fixes),
@@ -1986,7 +1906,6 @@ class TestSharedSupersede:
         is already in the store, so a failed re-verify still applies STATUS
         and does not roll cflags back.
         """
-        from rebrew.compiler.compile import CompareResult
         from rebrew.metadata.functions import (
             get_entry,
             identity_file,
@@ -2018,18 +1937,7 @@ class TestSharedSupersede:
         )
         update_field(tmp_path, B_F1, "cflags", "/G5", "DST")
         applied: list[Any] = []
-        monkeypatch.setattr(
-            "rebrew.verify.verify_entry",
-            lambda *a, **k: CompareResult(
-                matched=False,
-                status="NEAR_MATCHING",
-                match_percent=50.0,
-                delta=5,
-                obj_bytes=b"x",
-                reloc_offsets=[],
-                message="NEAR",
-            ),
-        )
+        monkeypatch.setattr("rebrew.verify.verify_entry", _near_verify_entry)
         monkeypatch.setattr(
             "rebrew.verify.apply_status_updates",
             lambda fixes, cfg: applied.append(fixes),
@@ -2094,20 +2002,8 @@ class TestSharedCflagsPortable:
             posix_style=False,
         )
         cfg_dst = _dst_cfg(tmp_path, dst_rev)
-        from rebrew.compiler.compile import CompareResult
 
-        monkeypatch.setattr(
-            "rebrew.verify.verify_entry",
-            lambda *a, **k: CompareResult(
-                matched=True,
-                status="EXACT",
-                match_percent=100.0,
-                delta=0,
-                obj_bytes=b"x",
-                reloc_offsets=[],
-                message="EXACT MATCH",
-            ),
-        )
+        monkeypatch.setattr("rebrew.verify.verify_entry", _exact_verify_entry)
         monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
 
         res = ci.import_shared_function(cfg_dst, cfg_src, B_F1, A_F1, "Units/vfs/f1.c", 11)
@@ -2227,7 +2123,6 @@ class TestUnifiedTreeMarkerMove:
         assert res["message"] == ("source f1.c has no definition for 0x409999")
 
     def test_shared_import_records_retarget_on_same_file(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.compiler.compile import CompareResult
 
         src, dst = self._cfgs(tmp_path)
         path = src.reversed_dir / "f1.c"
@@ -2240,18 +2135,7 @@ class TestUnifiedTreeMarkerMove:
                 "DST.0x401040": {"kind": "FUNCTION", "size": 3},
             },
         )
-        monkeypatch.setattr(
-            "rebrew.verify.verify_entry",
-            lambda *a, **k: CompareResult(
-                matched=True,
-                status="EXACT",
-                match_percent=100.0,
-                delta=0,
-                obj_bytes=b"x",
-                reloc_offsets=[],
-                message="EXACT MATCH",
-            ),
-        )
+        monkeypatch.setattr("rebrew.verify.verify_entry", _exact_verify_entry)
         monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "")
 
@@ -2288,7 +2172,6 @@ class TestUnifiedTreeMarkerMove:
         assert (tmp_path / "rebrew-functions.toml").is_file()
 
     def test_failed_move_is_reverted(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.compiler.compile import CompareResult
 
         src, dst = self._cfgs(tmp_path)
         path = src.reversed_dir / "f1.c"
@@ -2308,18 +2191,7 @@ class TestUnifiedTreeMarkerMove:
                 "DST.0x401040": {"kind": "FUNCTION", "size": 3},
             },
         )
-        monkeypatch.setattr(
-            "rebrew.verify.verify_entry",
-            lambda *a, **k: CompareResult(
-                matched=False,
-                status="NEAR_MATCHING",
-                match_percent=50.0,
-                delta=5,
-                obj_bytes=b"x",
-                reloc_offsets=[],
-                message="NEAR",
-            ),
-        )
+        monkeypatch.setattr("rebrew.verify.verify_entry", _near_verify_entry)
         applied: list[Any] = []
         monkeypatch.setattr(
             "rebrew.verify.apply_status_updates",
