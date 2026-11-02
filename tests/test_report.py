@@ -3,6 +3,7 @@
 import json
 import struct
 from pathlib import Path
+from typing import Any
 
 import pytest
 from bin_util import make_pe
@@ -57,6 +58,45 @@ def _write_project(tmp_path: Path, pe_bytes: bytes | None = None) -> None:
     src.mkdir()
     write_source(src / "func_a.c", _FUNC_A, encoding="utf-8")
     write_source(src / "func_b.c", _FUNC_B, encoding="utf-8")
+
+
+def _write_library_header_project(tmp_path: Path) -> Any:
+    """A game function plus a library_*.h row, as identify-library writes them."""
+    from types import SimpleNamespace
+
+    src = tmp_path / "src"
+    src.mkdir()
+    write_source(
+        src / "game.c",
+        "/* ADDRESS: SERVER 0x1000 */\nint a(void) { return 0; }\n",
+        encoding="utf-8",
+        metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
+        metadata_dir=tmp_path,
+    )
+    write_source(
+        src / "library_msvcrt.h",
+        "\n// _malloc\n\n",
+        encoding="utf-8",
+        metadata_fields={
+            "SERVER.0x2000": {
+                "kind": "LIBRARY",
+                "size": 64,
+                "name": "malloc",
+                "symbol": "_malloc",
+            }
+        },
+        metadata_dir=tmp_path,
+    )
+    return SimpleNamespace(
+        root=tmp_path,
+        reversed_dir=src,
+        metadata_dir=tmp_path,
+        module="SERVER",
+        target_name="T",
+        target_binary=tmp_path / "x.dll",
+        source_ext=".c",
+        arch="x86_32",
+    )
 
 
 class TestReportCli:
@@ -460,42 +500,9 @@ class TestLibraryHeaderRows:
         """`identify-library` writes library_*.h entries that the summary cards
         count (collect_status scans the headers), but the function table only
         scanned iter_sources, so they were missing from it."""
-        from types import SimpleNamespace
-
         from rebrew.report import _collect_functions
 
-        src = tmp_path / "src"
-        src.mkdir()
-        write_source(
-            src / "game.c",
-            "/* ADDRESS: SERVER 0x1000 */\nint a(void) { return 0; }\n",
-            encoding="utf-8",
-            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
-            metadata_dir=tmp_path,
-        )
-        write_source(
-            src / "library_msvcrt.h",
-            "\n// _malloc\n\n",
-            encoding="utf-8",
-            metadata_fields={
-                "SERVER.0x2000": {
-                    "kind": "LIBRARY",
-                    "size": 64,
-                    "name": "malloc",
-                    "symbol": "_malloc",
-                }
-            },
-            metadata_dir=tmp_path,
-        )
-        cfg = SimpleNamespace(
-            root=tmp_path,
-            reversed_dir=src,
-            metadata_dir=tmp_path,
-            module="SERVER",
-            target_name="T",
-            source_ext=".c",
-            arch="x86_32",
-        )
+        cfg = _write_library_header_project(tmp_path)
         rows = _collect_functions(cfg)
         lib_rows = [r for r in rows if r["va"] == 0x2000]
         assert len(lib_rows) == 1
@@ -505,43 +512,10 @@ class TestLibraryHeaderRows:
     def test_library_header_entries_are_graph_nodes(self, tmp_path: Path) -> None:
         """The call graph must show library-header functions too (the summary
         and the table do); graph.html previously omitted them entirely."""
-        from types import SimpleNamespace
-
         from rebrew.depgraph import build_graph
 
-        src = tmp_path / "src"
-        src.mkdir()
-        write_source(
-            src / "game.c",
-            "/* ADDRESS: SERVER 0x1000 */\nint a(void) { return 0; }\n",
-            encoding="utf-8",
-            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
-            metadata_dir=tmp_path,
-        )
-        write_source(
-            src / "library_msvcrt.h",
-            "\n// _malloc\n\n",
-            encoding="utf-8",
-            metadata_fields={
-                "SERVER.0x2000": {
-                    "kind": "LIBRARY",
-                    "size": 64,
-                    "name": "malloc",
-                    "symbol": "_malloc",
-                }
-            },
-            metadata_dir=tmp_path,
-        )
-        cfg = SimpleNamespace(
-            root=tmp_path,
-            reversed_dir=src,
-            metadata_dir=tmp_path,
-            module="SERVER",
-            target_name="T",
-            source_ext=".c",
-            arch="x86_32",
-        )
-        nodes, _edges, _dispatch = build_graph(src, cfg=cfg)
+        cfg = _write_library_header_project(tmp_path)
+        nodes, _edges, _dispatch = build_graph(cfg.reversed_dir, cfg=cfg)
         assert "va:0x00002000" in nodes
         assert nodes["va:0x00002000"]["file"] == "library_msvcrt.h"
 

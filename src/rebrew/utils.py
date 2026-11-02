@@ -458,17 +458,6 @@ _SOURCE_TEXT_MEMO_LOCK = threading.Lock()
 # instead of scanning the whole LRU.
 _SOURCE_TEXT_MEMO_BY_PATH: dict[str, set[tuple[str, int, int, int, int]]] = {}
 
-def _resolved_source_path(filepath: Path) -> Path:
-    """Return *filepath* resolved, memoized on its ``lstat`` identity.
-
-    Delegates to :func:`resolved_path`: a spelling-only key would keep
-    resolving a retargeted symlink (or a replaced final component) to the old
-    file for the rest of the process, so ``read_source_text`` would serve the
-    previous target's bytes to a source whose path now names another one.
-    """
-    return resolved_path(filepath)
-
-
 # ``(spelling, mtime_ns, size, ino)`` -> resolved path.  The stat is from
 # ``lstat``, so a content edit or a symlink retarget misses and resolves
 # again.  That changed-final-component case is what header and source
@@ -820,7 +809,7 @@ def read_source_text(filepath: Path) -> tuple[str, str]:
     scan_globals).  A content-digest parse memo still re-reads every file;
     this layer skips the syscall+decode when the inode metadata is unchanged.
     """
-    resolved = _resolved_source_path(filepath)
+    resolved = resolved_path(filepath)
     try:
         st = resolved.stat()
     except OSError:
@@ -865,7 +854,7 @@ def cached_source_bytes(
 
     Keyed by the resolved path and the same stat identity as the text memo.
     """
-    resolved = _resolved_source_path(filepath)
+    resolved = resolved_path(filepath)
     # Same lock that publishes and drops ``_SOURCE_RAW``: a free-threaded
     # interpreter may otherwise read the dict while another worker's store or
     # eviction is mutating it.  The bytes object stays valid after the lock is

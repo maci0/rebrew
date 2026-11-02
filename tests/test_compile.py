@@ -1,6 +1,7 @@
 """Tests for rebrew.compiler.compile — resolve_cl_command and compile_and_compare helpers."""
 
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -1906,6 +1907,18 @@ _ID_A = "sha256:" + "aa" * 32
 _ID_B = "sha256:" + "bb" * 32
 
 
+class _RejectingCache:
+    """A batch cache that fails the test if a changed tree publishes an object."""
+
+    def get(self, key: str) -> bytes | None:
+        del key
+        return None
+
+    def put(self, key: str, data: bytes) -> None:
+        del key, data
+        pytest.fail("a changed source tree must not publish an object")
+
+
 class TestPinnedImageExecution:
     def _cfg(self, tmp_path: Path) -> Any:
         return SimpleNamespace(
@@ -1927,6 +1940,68 @@ class TestPinnedImageExecution:
         source = src_dir / "f.c"
         source.write_text("int f(void){return 1;}\n", encoding="utf-8")
         return source
+
+    def _batch_staging_case(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        edit_header: Callable[[Path], None],
+    ) -> tuple[Path, Any, list[Any]]:
+        """Two sources that share h.h, with *edit_header* run during the copy.
+
+        The compile and cache writes fail the test, so only a discarded batch
+        can return.
+        """
+        import shutil
+
+        rev = tmp_path / "reversed"
+        rev.mkdir()
+        for name in ("a.c", "b.c"):
+            (rev / name).write_text('#include "h.h"\n')
+        header = rev / "h.h"
+        header.write_text("old\n")
+        copyfile = shutil.copyfile
+
+        def copy_then_edit(source: Any, target: Any) -> Any:
+            result = copyfile(source, target)
+            if Path(source) == header:
+                edit_header(header)
+            return result
+
+        monkeypatch.setattr("rebrew.compiler.compile.shutil.copyfile", copy_then_edit)
+        monkeypatch.setattr("rebrew.compiler.compile.cached_image_digest", lambda *_: _ID_A)
+        monkeypatch.setattr("rebrew.compiler.compile.recompile_url", lambda _: None)
+        monkeypatch.setattr(
+            "rebrew.compiler.compile.compile_batch_objs",
+            lambda *a, **k: pytest.fail("a changed source tree must not be compiled"),
+        )
+        monkeypatch.setattr(
+            "rebrew.compiler.compile.toolchain_registry",
+            SimpleNamespace(
+                TOOLCHAINS={
+                    "test": SimpleNamespace(
+                        name="test", image="test", effective_arg_style="posix", flags_style="posix"
+                    )
+                }
+            ),
+        )
+        monkeypatch.setattr(
+            "rebrew.compiler.overrides.resolve_compile_overrides", lambda *a, **k: ("test", "")
+        )
+        entries = [
+            SimpleNamespace(filepath=name, toolchain="", cflags="", module="")
+            for name in ("a.c", "b.c")
+        ]
+        cfg = SimpleNamespace(
+            reversed_dir=rev,
+            root=tmp_path,
+            compiler_profile="test",
+            compiler_includes="",
+            base_cflags="",
+            compile_timeout=60,
+            default_jobs=1,
+        )
+        return header, cfg, entries
 
     def test_tag_swap_publishes_the_id_that_ran(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -2114,65 +2189,13 @@ class TestPinnedImageExecution:
     def test_batch_discards_tree_changed_during_staging(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import shutil
-
         from rebrew.compiler.compile import precompile_batch
 
-        rev = tmp_path / "reversed"
-        rev.mkdir()
-        for name in ("a.c", "b.c"):
-            (rev / name).write_text('#include "h.h"\n')
-        header = rev / "h.h"
-        header.write_text("old\n")
-        copyfile = shutil.copyfile
+        def edit(header: Path) -> None:
+            header.write_text("new header\n")
 
-        def copy_then_edit(source: Any, target: Any) -> Any:
-            result = copyfile(source, target)
-            if Path(source) == header:
-                header.write_text("new header\n")
-            return result
-
-        class Cache:
-            def get(self, key: str) -> None:
-                return None
-
-            def put(self, key: str, data: bytes) -> None:
-                pytest.fail("a changed source tree must not publish an object")
-
-        monkeypatch.setattr("rebrew.compiler.compile.shutil.copyfile", copy_then_edit)
-        monkeypatch.setattr("rebrew.compiler.compile.cached_image_digest", lambda *_: _ID_A)
-        monkeypatch.setattr("rebrew.compiler.compile.recompile_url", lambda _: None)
-        monkeypatch.setattr(
-            "rebrew.compiler.compile.compile_batch_objs",
-            lambda *a, **k: pytest.fail("a changed source tree must not be compiled"),
-        )
-        monkeypatch.setattr(
-            "rebrew.compiler.compile.toolchain_registry",
-            SimpleNamespace(
-                TOOLCHAINS={
-                    "test": SimpleNamespace(
-                        name="test", image="test", effective_arg_style="posix", flags_style="posix"
-                    )
-                }
-            ),
-        )
-        monkeypatch.setattr(
-            "rebrew.compiler.overrides.resolve_compile_overrides", lambda *a, **k: ("test", "")
-        )
-        entries = [
-            SimpleNamespace(filepath=name, toolchain="", cflags="", module="")
-            for name in ("a.c", "b.c")
-        ]
-        cfg = SimpleNamespace(
-            reversed_dir=rev,
-            root=tmp_path,
-            compiler_profile="test",
-            compiler_includes="",
-            base_cflags="",
-            compile_timeout=60,
-            default_jobs=1,
-        )
-        assert precompile_batch(cfg, entries, cache=Cache()) == {}
+        header, cfg, entries = self._batch_staging_case(tmp_path, monkeypatch, edit)
+        assert precompile_batch(cfg, entries, cache=_RejectingCache()) == {}
         assert header.read_text() == "new header\n"
 
     def test_batch_discards_ctime_only_change_during_staging(
@@ -2180,74 +2203,23 @@ class TestPinnedImageExecution:
     ) -> None:
         """A same-size rewrite that restores mtime is still a changed tree."""
         import os
-        import shutil
 
         from rebrew.compiler.compile import precompile_batch
 
-        rev = tmp_path / "reversed"
-        rev.mkdir()
-        for name in ("a.c", "b.c"):
-            (rev / name).write_text('#include "h.h"\n')
-        header = rev / "h.h"
-        header.write_text("old\n")
-        before = header.stat()
-        copyfile = shutil.copyfile
+        def edit(header: Path) -> None:
+            before = header.stat()
+            header.write_text("new\n")
+            os.utime(header, ns=(before.st_atime_ns, before.st_mtime_ns))
+            after = header.stat()
+            assert (after.st_mtime_ns, after.st_size, after.st_ino) == (
+                before.st_mtime_ns,
+                before.st_size,
+                before.st_ino,
+            )
+            assert after.st_ctime_ns != before.st_ctime_ns
 
-        def copy_then_edit(source: Any, target: Any) -> Any:
-            result = copyfile(source, target)
-            if Path(source) == header:
-                header.write_text("new\n")
-                os.utime(header, ns=(before.st_atime_ns, before.st_mtime_ns))
-                after = header.stat()
-                assert (after.st_mtime_ns, after.st_size, after.st_ino) == (
-                    before.st_mtime_ns,
-                    before.st_size,
-                    before.st_ino,
-                )
-                assert after.st_ctime_ns != before.st_ctime_ns
-            return result
-
-        class Cache:
-            def get(self, key: str) -> None:
-                return None
-
-            def put(self, key: str, data: bytes) -> None:
-                pytest.fail("a changed source tree must not publish an object")
-
-        monkeypatch.setattr("rebrew.compiler.compile.shutil.copyfile", copy_then_edit)
-        monkeypatch.setattr("rebrew.compiler.compile.cached_image_digest", lambda *_: _ID_A)
-        monkeypatch.setattr("rebrew.compiler.compile.recompile_url", lambda _: None)
-        monkeypatch.setattr(
-            "rebrew.compiler.compile.compile_batch_objs",
-            lambda *a, **k: pytest.fail("a changed source tree must not be compiled"),
-        )
-        monkeypatch.setattr(
-            "rebrew.compiler.compile.toolchain_registry",
-            SimpleNamespace(
-                TOOLCHAINS={
-                    "test": SimpleNamespace(
-                        name="test", image="test", effective_arg_style="posix", flags_style="posix"
-                    )
-                }
-            ),
-        )
-        monkeypatch.setattr(
-            "rebrew.compiler.overrides.resolve_compile_overrides", lambda *a, **k: ("test", "")
-        )
-        entries = [
-            SimpleNamespace(filepath=name, toolchain="", cflags="", module="")
-            for name in ("a.c", "b.c")
-        ]
-        cfg = SimpleNamespace(
-            reversed_dir=rev,
-            root=tmp_path,
-            compiler_profile="test",
-            compiler_includes="",
-            base_cflags="",
-            compile_timeout=60,
-            default_jobs=1,
-        )
-        assert precompile_batch(cfg, entries, cache=Cache()) == {}
+        header, cfg, entries = self._batch_staging_case(tmp_path, monkeypatch, edit)
+        assert precompile_batch(cfg, entries, cache=_RejectingCache()) == {}
         assert header.read_text() == "new\n"
 
     def test_missing_pinned_image_is_not_pulled_or_cached(
