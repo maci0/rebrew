@@ -1,6 +1,7 @@
 """Tests for incremental verification logic in rebrew.verify."""
 
 import hashlib
+import json
 import os
 import time
 import tomllib
@@ -20,6 +21,7 @@ from rebrew.verify import app
 from rebrew.verify_cache import (
     binary_id,
     load_verify_cache,
+    load_verify_cache_raw,
     save_verify_cache,
 )
 from rebrew.verify_hash import (
@@ -445,6 +447,31 @@ class TestLoadVerifyCache:
         cache_path = _write_cache(cfg, compiler_hash="deadbeef")
 
         assert load_verify_cache(cache_path, cfg) is None
+
+    def test_ignore_sidecar_from_older_parser(self, tmp_path: Path) -> None:
+        """A sidecar without a parser version must not bypass the TOML parse."""
+        cfg = _make_cfg(tmp_path)
+        cache_path = _write_cache(cfg)
+        st = cache_path.stat()
+        sidecar = cache_path.with_suffix(".json")
+        sidecar.write_text(
+            json.dumps(
+                {
+                    "fingerprint": [st.st_mtime_ns, st.st_size, st.st_ino],
+                    "document": {
+                        "version": 2,
+                        "entries": {"0xdead": {"status": "EXACT"}},
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        raw = load_verify_cache_raw(cfg)
+
+        assert raw is not None
+        assert raw["entries"] == {}
+        assert json.loads(sidecar.read_text(encoding="utf-8"))["version"] == 1
 
 
 class TestCacheIdentityAgreesAcrossReaders:

@@ -45,6 +45,12 @@ if TYPE_CHECKING:
 #: stays: a document's *shape* is what it guards.
 CACHE_VERSION = 2
 
+#: Version of the derived JSON sidecar that caches the parsed TOML document.
+#: The sidecar is keyed by the TOML stat, which says nothing about the parser
+#: that produced it: bump this when the decode or document shape changes so a
+#: deploy cannot serve a document decoded by older semantics.
+_VERIFY_JSON_VERSION = 1
+
 #: The verify cache, beside the coverage documents.  One clear-text TOML file
 #: like every other rebrew store: `.rebrew/verify_cache.toml`.
 CACHE_FILENAME = "verify_cache.toml"
@@ -607,7 +613,11 @@ def _read_verify_json(cache_path: Path, st: os.stat_result) -> dict[str, Any] | 
         payload = json.loads(_verify_json_path(cache_path).read_text(encoding="utf-8"))
     except OSError, UnicodeError, json.JSONDecodeError, TypeError:
         return None
-    if not isinstance(payload, dict) or payload.get("fingerprint") != token:
+    if (
+        not isinstance(payload, dict)
+        or payload.get("version") != _VERIFY_JSON_VERSION
+        or payload.get("fingerprint") != token
+    ):
         return None
     document = payload.get("document")
     if not isinstance(document, dict):
@@ -619,6 +629,7 @@ def _write_verify_json(cache_path: Path, st: os.stat_result, document: dict[str,
     """Store *document* for the next process. A failure leaves the TOML path working."""
     path = _verify_json_path(cache_path)
     payload = {
+        "version": _VERIFY_JSON_VERSION,
         "fingerprint": [st.st_mtime_ns, st.st_size, st.st_ino],
         "document": document,
     }

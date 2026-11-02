@@ -7,6 +7,7 @@
 - Reuse fingerprinted metadata parses, declaration inventories and path resolution while preserving validation and isolated results.
 - Avoid rescanning installed plugin metadata when unrelated project outputs change.
 - Bound the in-process extern-name, name-cover and role-fact caches, version the parsed metadata-row, extern-name and name-cover sidecars so an upgrade never reads rows from older semantics, and bound the linked-image hash memo.
+- Version the derived verify-cache JSON sidecar so an upgrade never serves a document decoded by older parser semantics.
 - Speed up status byte accounting on large binaries by subtracting merged function extents from native tails with a bisect instead of rescanning every earlier span.
 - Wait for an asynchronous Docker cancellation stop when the job owner closes, and reject mutating calls after close so a released store cannot be reused.
 
