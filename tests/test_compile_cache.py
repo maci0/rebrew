@@ -24,6 +24,22 @@ from rebrew.compiler.cache import (
 from rebrew.config import ProjectConfig
 
 
+def _compile_cfg(tmp_path: Path) -> Any:
+    """Minimal ProjectConfig stand-in shared by the compile_to_obj cache tests."""
+    return SimpleNamespace(
+        compiler_includes=tmp_path,
+        base_cflags="/nologo /c",
+        compile_timeout=3,
+        msvc_env=lambda: {},
+        compiler_command="CL.EXE",
+        compiler_libs=tmp_path,
+        compiler_runner="",
+        root=tmp_path,
+        compiler_profile="msvc-6.0",
+        posix_style=False,
+    )
+
+
 class TestIncludeScanWork:
     def test_only_lines_with_markers_need_comment_scanning(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1466,18 +1482,7 @@ class TestCompileToObjCacheIntegration:
             "rebrew.compiler.compile.cached_image_digest", lambda _image: "sha256:" + "ab" * 32
         )
 
-        cfg: Any = SimpleNamespace(
-            compiler_includes=tmp_path,
-            base_cflags="/nologo /c",
-            compile_timeout=3,
-            msvc_env=lambda: {},
-            compiler_command="CL.EXE",
-            compiler_libs=tmp_path,
-            compiler_runner="",
-            root=tmp_path,
-            compiler_profile="msvc-6.0",
-            posix_style=False,
-        )
+        cfg: Any = _compile_cfg(tmp_path)
         src_dir = tmp_path / "src"
         src_dir.mkdir()
         source = src_dir / "f.c"
@@ -1534,18 +1539,7 @@ class TestCompileToObjCacheIntegration:
             "rebrew.compiler.compile.cached_image_digest", lambda _image: "sha256:" + "ab" * 32
         )
 
-        cfg: Any = SimpleNamespace(
-            compiler_includes=tmp_path,
-            base_cflags="/nologo /c",
-            compile_timeout=3,
-            msvc_env=lambda: {},
-            compiler_command="CL.EXE",
-            compiler_libs=tmp_path,
-            compiler_runner="",
-            root=tmp_path,
-            compiler_profile="msvc-6.0",
-            posix_style=False,
-        )
+        cfg: Any = _compile_cfg(tmp_path)
         src_dir = tmp_path / "src"
         src_dir.mkdir()
         source = src_dir / "f.c"
@@ -1578,18 +1572,7 @@ class TestCompileToObjCacheIntegration:
             "rebrew.compiler.compile.cached_image_digest", lambda _image: "sha256:" + "ab" * 32
         )
 
-        cfg: Any = SimpleNamespace(
-            compiler_includes=tmp_path,
-            base_cflags="/nologo /c",
-            compile_timeout=3,
-            msvc_env=lambda: {},
-            compiler_command="CL.EXE",
-            compiler_libs=tmp_path,
-            compiler_runner="",
-            root=tmp_path,
-            compiler_profile="msvc-6.0",
-            posix_style=False,
-        )
+        cfg: Any = _compile_cfg(tmp_path)
         src_dir = tmp_path / "src"
         src_dir.mkdir()
         source = src_dir / "f.c"
@@ -1620,18 +1603,7 @@ class TestCompileToObjCacheIntegration:
         raised OSError out of the ~14 direct callers instead."""
         from rebrew.compiler.compile import compile_to_obj
 
-        cfg: Any = SimpleNamespace(
-            compiler_includes=tmp_path,
-            base_cflags="/nologo /c",
-            compile_timeout=3,
-            msvc_env=lambda: {},
-            compiler_command="CL.EXE",
-            compiler_libs=tmp_path,
-            compiler_runner="",
-            root=tmp_path,
-            compiler_profile="msvc-6.0",
-            posix_style=False,
-        )
+        cfg: Any = _compile_cfg(tmp_path)
         workdir = tmp_path / "w"
         workdir.mkdir()
         obj, err = compile_to_obj(
@@ -1658,18 +1630,7 @@ class TestCompileToObjCacheIntegration:
             "rebrew.compiler.compile.cached_image_digest", lambda _image: "sha256:" + "ab" * 32
         )
 
-        cfg: Any = SimpleNamespace(
-            compiler_includes=tmp_path,
-            base_cflags="/nologo /c",
-            compile_timeout=3,
-            msvc_env=lambda: {},
-            compiler_command="CL.EXE",
-            compiler_libs=tmp_path,
-            compiler_runner="",
-            root=tmp_path,
-            compiler_profile="msvc-6.0",
-            posix_style=False,
-        )
+        cfg: Any = _compile_cfg(tmp_path)
         src_dir = tmp_path / "src"
         src_dir.mkdir()
         source = src_dir / "f.c"

@@ -1513,8 +1513,7 @@ class TestCalculateRoiEdges:
     def test_size_500_to_1000_penalty(self) -> None:
         from rebrew.todo import calculate_roi
 
-        # 400 gets +5 (size < 500 → 300-500 band... actually <300 → +5 at 299 max).
-        # 600 gets -5; 400 gets +5 → 600 must score lower.
+        # 600 sits in the >500 band (-5); 400 gets no size modifier.
         assert calculate_roi(600, 0.0, None) < calculate_roi(400, 0.0, None)
 
     def test_size_over_1000_penalty(self) -> None:

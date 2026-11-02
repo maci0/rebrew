@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,39 @@ class _FakeProc:
         self.returncode = rc
         self.stdout = out
         self.stderr = err
+
+
+class _DownloadResponse:
+    """httpx.stream() stand-in for the pinned-download retry tests."""
+
+    headers: dict[str, str] = {}
+    status_code = 200
+
+    def __init__(
+        self,
+        *chunks: bytes,
+        status_code: int = 200,
+        location: str | None = None,
+        error: Exception | None = None,
+    ) -> None:
+        self.status_code = status_code
+        self.headers = {"location": location} if location else {}
+        self._chunks = chunks or (b"payload",)
+        self._error = error
+
+    def __enter__(self) -> _DownloadResponse:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def iter_bytes(self) -> Iterator[bytes]:
+        yield from self._chunks
+        if self._error is not None:
+            raise self._error
 
 
 def _git_tracked_files(repo: Path) -> set[str] | None:
@@ -1888,28 +1922,13 @@ class TestTrustedToolchainDownload:
         from rebrew.compiler.toolchain import ToolchainError
         from rebrew.toolchain_cli import _download_pinned_url
 
-        class _Resp:
-            def __init__(self, status: int, location: str | None = None) -> None:
-                self.status_code = status
-                self.headers = {"location": location} if location else {}
-
-            def __enter__(self) -> _Resp:
-                return self
-
-            def __exit__(self, *args: object) -> None:
-                return None
-
-            def raise_for_status(self) -> None:
-                return None
-
-            def iter_bytes(self):  # type: ignore[no-untyped-def]
-                yield b"unused"
-
-        def _stream(method: str, url: str, **kwargs: object) -> _Resp:
+        def _stream(method: str, url: str, **kwargs: object) -> _DownloadResponse:
             assert method == "GET"
             if "github.com" in url:
-                return _Resp(302, "http://169.254.169.254/latest/meta-data")
-            return _Resp(200)
+                return _DownloadResponse(
+                    status_code=302, location="http://169.254.169.254/latest/meta-data"
+                )
+            return _DownloadResponse()
 
         monkeypatch.setattr(httpx, "stream", _stream)
         dest = tmp_path / "out.bin"
@@ -1931,24 +1950,8 @@ class TestTrustedToolchainDownload:
         from rebrew.compiler.toolchain import ToolchainError
         from rebrew.toolchain_cli import _download_pinned_url
 
-        class _Resp:
-            status_code = 200
-            headers: dict[str, str] = {}
-
-            def __enter__(self) -> _Resp:
-                return self
-
-            def __exit__(self, *args: object) -> None:
-                return None
-
-            def raise_for_status(self) -> None:
-                return None
-
-            def iter_bytes(self):  # type: ignore[no-untyped-def]
-                yield b"partial"
-                raise httpx.ReadError("connection reset")
-
-        monkeypatch.setattr(httpx, "stream", lambda *a, **kw: _Resp())
+        response = _DownloadResponse(b"partial", error=httpx.ReadError("connection reset"))
+        monkeypatch.setattr(httpx, "stream", lambda *a, **kw: response)
         monkeypatch.setattr("rebrew.toolchain_cli.time.sleep", lambda _s: None)
         dest = tmp_path / "out.bin"
         with pytest.raises(ToolchainError, match="toolchain download failed"):
@@ -1962,30 +1965,14 @@ class TestTrustedToolchainDownload:
 
         from rebrew.toolchain_cli import _download_pinned_url
 
-        class _Resp:
-            status_code = 200
-            headers: dict[str, str] = {}
-
-            def __enter__(self) -> _Resp:
-                return self
-
-            def __exit__(self, *args: object) -> None:
-                return None
-
-            def raise_for_status(self) -> None:
-                return None
-
-            def iter_bytes(self):  # type: ignore[no-untyped-def]
-                return iter([b"payload"])
-
         calls = 0
 
-        def _stream(*args: object, **kwargs: object) -> _Resp:
+        def _stream(*args: object, **kwargs: object) -> _DownloadResponse:
             nonlocal calls
             calls += 1
             if calls == 1:
                 raise httpx.ConnectError("connection refused")
-            return _Resp()
+            return _DownloadResponse()
 
         monkeypatch.setattr(httpx, "stream", _stream)
         monkeypatch.setattr("rebrew.toolchain_cli.time.sleep", lambda _s: None)
@@ -2002,30 +1989,14 @@ class TestTrustedToolchainDownload:
 
         from rebrew.toolchain_cli import _HTTP_RETRY_BACKOFF_S, _download_pinned_url
 
-        class _Resp:
-            status_code = 200
-            headers: dict[str, str] = {}
-
-            def __enter__(self) -> _Resp:
-                return self
-
-            def __exit__(self, *args: object) -> None:
-                return None
-
-            def raise_for_status(self) -> None:
-                return None
-
-            def iter_bytes(self):  # type: ignore[no-untyped-def]
-                return iter([b"payload"])
-
         calls = 0
 
-        def _stream(*args: object, **kwargs: object) -> _Resp:
+        def _stream(*args: object, **kwargs: object) -> _DownloadResponse:
             nonlocal calls
             calls += 1
             if calls == 1:
                 raise httpx.ConnectError("connection refused")
-            return _Resp()
+            return _DownloadResponse()
 
         monkeypatch.setattr(httpx, "stream", _stream)
         naps: list[float] = []
