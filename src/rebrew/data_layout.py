@@ -607,6 +607,22 @@ def _name_line_re(name: str, *, is_array: bool, extern: bool) -> re.Pattern[str]
     )
 
 
+@functools.lru_cache(maxsize=512)
+def _declared_base_re(name: str) -> re.Pattern[str]:
+    """Declaration matcher for *name*; cached per symbol.
+
+    ``insert_definition`` runs once per data symbol and ``re.escape(name)``
+    defeats the module-level pattern cache, so an uncached build compiled the
+    same pattern again on every ownership pass.
+    """
+    return re.compile(
+        r"^[ \t]*(?:extern[ \t]+|static[ \t]+)?([A-Za-z_][\w \t]*?)[ \t]*\**\s*\b"
+        + re.escape(name)
+        + r"\b\s*(?:\[[^\]]*\])*\s*(?:=[^;]*)?;",
+        re.MULTILINE,
+    )
+
+
 def _declared_base_types(text: str, name: str) -> set[str]:
     """Base C types used for *name* in declarations this TU already holds.
 
@@ -617,12 +633,7 @@ def _declared_base_types(text: str, name: str) -> set[str]:
     type for it.
     """
     found: set[str] = set()
-    pattern = re.compile(
-        r"^[ \t]*(?:extern[ \t]+|static[ \t]+)?([A-Za-z_][\w \t]*?)[ \t]*\**\s*\b"
-        + re.escape(name)
-        + r"\b\s*(?:\[[^\]]*\])*\s*(?:=[^;]*)?;",
-        re.MULTILINE,
-    )
+    pattern = _declared_base_re(name)
     for match in pattern.finditer(text):
         base = re.sub(r"\s+", " ", match.group(1)).strip()
         base = base.replace("extern", "").replace("static", "").strip()
