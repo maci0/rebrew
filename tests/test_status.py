@@ -1151,6 +1151,34 @@ class TestVerifyCacheHelpers:
         info = _load_verify_info(cfg, sources=[])
         assert info is not None and info.stale
 
+    def test_source_rewrite_with_restored_mtime_marks_summary_stale(
+        self, tmp_path: Path
+    ) -> None:
+        """Change time, not only mtime, decides whether the summary is current."""
+        import os
+
+        from rebrew.status import _load_verify_info
+
+        src = tmp_path / "func.c"
+        src.write_text("int f(void) { return 0; }\n", encoding="utf-8")
+        before = src.stat()
+        self._write_cache(
+            tmp_path,
+            {"version": 2, "target": "T", "entries": {"0x1": {"status": "EXACT", "passed": True}}},
+        )
+        cache_path = tmp_path / ".rebrew" / "verify_cache.toml"
+        # The cache was written after the source; move its mtime behind the
+        # rewrite so only ctime can reveal that the source changed.
+        cache_mtime = cache_path.stat().st_mtime_ns - 1_000_000_000
+        os.utime(cache_path, ns=(cache_mtime, cache_mtime))
+        src.write_text("int f(void) { return 1; }\n", encoding="utf-8")
+        os.utime(src, ns=(before.st_atime_ns, before.st_mtime_ns))
+        after = src.stat()
+        assert after.st_mtime_ns == before.st_mtime_ns
+        assert after.st_ctime_ns > cache_mtime
+        info = _load_verify_info(self._cfg(tmp_path), sources=[src])
+        assert info is not None and info.stale
+
     def _cfg(self, tmp_path: Path) -> object:
         from types import SimpleNamespace
 

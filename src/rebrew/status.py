@@ -40,7 +40,13 @@ lazy from rebrew.present import BAR_WIDTH as _BAR_WIDTH
 lazy from rebrew.present import filled_cells as _filled
 lazy from rebrew.present import ratio_bar as _bar
 lazy from rebrew.sources import iter_sources
-lazy from rebrew.utils import TerminalTable, clip_span, floor_pct, merged_span_bytes
+lazy from rebrew.utils import (
+    TerminalTable,
+    clip_span,
+    floor_pct,
+    last_change_ns,
+    merged_span_bytes,
+)
 lazy from rebrew.workspace.status import MATCHED_STATUSES, STUB_PLACEHOLDER_STATUSES
 
 log = logging.getLogger(__name__)
@@ -548,17 +554,18 @@ def _load_verify_info(
     except OSError:
         timestamp = ""
         cache_mtime_ns = None
-    # Freshness: a source or function metadata newer than the cache makes
+    # Freshness: a source or function metadata changed after the cache makes
     # the summary stale; SIZE/CFLAGS/TOOLCHAIN edits need no source rewrite.
-    # stat inside the loop races vs a write that races vs another writer:
-    # read once, compare against that snapshot.  An unreadable cache mtime
-    # leaves freshness unknown, which reports stale rather than current.
+    # ``last_change_ns`` includes ctime, so a same-size rewrite that restored
+    # the old mtime still reads as newer.  Stat once per path and compare
+    # against the cache snapshot.  An unreadable cache mtime leaves freshness
+    # unknown, which reports stale rather than current.
     stale = cache_mtime_ns is None
     if cache_mtime_ns:
         paths = iter_sources(cfg.reversed_dir, cfg) if sources is None else sources
         for src in [*paths, metadata_path(cfg)]:
             try:
-                if src.stat().st_mtime_ns > cache_mtime_ns:
+                if last_change_ns(src.stat()) > cache_mtime_ns:
                     stale = True
                     break
             except OSError:

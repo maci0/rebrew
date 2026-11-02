@@ -76,7 +76,7 @@ lazy from collections.abc import Callable
 lazy from pathlib import Path
 
 lazy from rebrew.formats.pe_headers import pe_header, sections_at
-lazy from rebrew.utils import atomic_write_text
+lazy from rebrew.utils import atomic_write_text, last_change_ns
 
 #: Cap on import name-table / descriptor slots read from one PE.  A missing
 #: null terminator would otherwise walk past EOF into ``struct.error``.
@@ -210,7 +210,7 @@ def read_layout_header(root: Path, target: str, bin_path: Path) -> dict[str, Any
 
     txt = Path(root) / "layout" / target / "rebrew-layout.toml"
     try:
-        if txt.stat().st_mtime_ns < bin_path.stat().st_mtime_ns:
+        if last_change_ns(bin_path.stat()) > txt.stat().st_mtime_ns:
             return None  # binary rebuilt after gen-layout — parse it instead
         lay = tomllib.loads(txt.read_text(encoding="utf-8-sig"))["layout"]
         base = int(lay.get("image_base", 0) or 0)

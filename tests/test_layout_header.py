@@ -55,6 +55,23 @@ class TestReadLayoutHeader:
         os.utime(toml, (1, 1))
         assert read_layout_header(tmp_path, "main", binp) is None
 
+    def test_binary_rewrite_with_restored_mtime_falls_back(self, tmp_path: Path) -> None:
+        """A binary rewritten after gen-layout is stale even with its old mtime."""
+        import os
+
+        toml = _write_layout(tmp_path)
+        binp = tmp_path / "program.exe"
+        binp.write_bytes(b"MZ")
+        old_mtime = 1_000_000_000
+        # The layout's mtime is still newer than the binary's, so only the
+        # binary's change time shows the rewrite that happened after it.
+        os.utime(toml, ns=(old_mtime + 1, old_mtime + 1))
+        os.utime(binp, ns=(old_mtime, old_mtime))
+        binp.write_bytes(b"MZ")
+        os.utime(binp, ns=(old_mtime, old_mtime))
+        assert binp.stat().st_mtime_ns == old_mtime
+        assert read_layout_header(tmp_path, "main", binp) is None
+
     def test_missing_layout_returns_none(self, tmp_path: Path) -> None:
         binp = tmp_path / "program.exe"
         binp.write_bytes(b"MZ")

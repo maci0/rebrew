@@ -51,7 +51,7 @@ from rebrew.cli import (
 )
 lazy from rebrew.config import ProjectConfig, inventory_path_for
 lazy from rebrew.rename_ops import c_name_from_symbol
-lazy from rebrew.utils import TerminalTable, untrusted_ident
+lazy from rebrew.utils import TerminalTable, last_change_ns, untrusted_ident
 lazy from rebrew.workspace.status import EARNED_STATUSES
 
 log = logging.getLogger(__name__)
@@ -1078,7 +1078,7 @@ def _collect_hygiene(
         newest_ns = 0
         for cfile in sources:
             try:
-                newest_ns = max(newest_ns, cfile.stat().st_mtime_ns)
+                newest_ns = max(newest_ns, last_change_ns(cfile.stat()))
             except OSError:
                 continue
         rec = recommend_stale_cache(cache_mtime_ns, newest_ns)

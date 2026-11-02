@@ -80,6 +80,7 @@ lazy from rebrew.sources import (
 )
 lazy from rebrew.utils import (
     TerminalTable,
+    last_change_ns,
     preset_module_key,
     read_source_text,
     rel_display_path,
@@ -342,10 +343,11 @@ def _staleness_fix(cfg: ProjectConfig | None) -> str:
         rev_dir = getattr(cfg, "reversed_dir", None)
         inv_path = inventory_path_for(rev_dir, cfg) if rev_dir else None
         if inv_path is not None and bin_path.is_file() and inv_path.is_file():
-            # Nanosecond mtimes: second-granularity floats tie when a rebuild
-            # and inventory refresh land in the same wall-clock second (common
-            # on scripts / coarse Docker volume clocks), flipping the hint.
-            binary_newer = bin_path.stat().st_mtime_ns > inv_path.stat().st_mtime_ns
+            # Nanosecond change times: second-granularity mtimes tie when a
+            # rebuild and inventory refresh land in the same wall-clock second
+            # (common on scripts / coarse Docker volume clocks), and ctime
+            # catches a rebuild that restored the old mtime.
+            binary_newer = last_change_ns(bin_path.stat()) > inv_path.stat().st_mtime_ns
     except OSError:
         binary_newer = None
 

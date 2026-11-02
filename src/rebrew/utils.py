@@ -16,6 +16,7 @@ it belongs to rather than starting a sixth.
 - **Source and config reading**: ``read_source_text`` / ``read_compile_source``
   (with the LRU memo and its ``clear_source_text_memo`` reset),
   ``resolved_path`` (a stat-keyed ``Path.resolve`` memo),
+  ``last_change_ns`` (the later of a file's mtime and ctime),
   ``path_is_relative_to`` (``Path.is_relative_to`` without a ``parents`` walk),
   ``split_source_lines`` / ``join_source_lines``,
   ``detect_source_encoding``, ``read_toml_text``, ``load_tomllib``,
@@ -786,6 +787,17 @@ def binary_fingerprint(binary: str | Path) -> str:
     except OSError:
         return ""
     return f"{st.st_mtime_ns}:{st.st_size}:{st.st_ino}:{st.st_ctime_ns}"
+
+
+def last_change_ns(st: os.stat_result) -> int:
+    """Latest change instant in *st*: the later of ``mtime_ns`` and ``ctime_ns``.
+
+    A freshness check that compares only mtimes misses an in-place rewrite
+    whose mtime was restored (``cp -p``, ``git checkout`` of a restored file,
+    a build that preserves timestamps) even though its bytes changed.  On
+    Windows ``ctime`` is the creation instant, so the maximum stays mtime.
+    """
+    return max(st.st_mtime_ns, st.st_ctime_ns)
 
 
 def read_compile_source(filepath: Path) -> str:
