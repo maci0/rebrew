@@ -1131,11 +1131,28 @@ class TestMaybeHeadlessWine:
         assert env["DISPLAY"] == ":99"
         assert "XAUTHORITY" not in env
 
-    def test_caller_supplied_cookie_is_kept(self, monkeypatch) -> None:
-        """An explicit env XAUTHORITY is the caller's assertion, not ambient."""
+    def test_selected_cookie_replaces_a_stale_env_copy(self, monkeypatch) -> None:
+        """A cookie copied before a peer republished the display must not win.
+
+        ``msvc_env_from_config`` copies ``os.environ`` into the compile env
+        before this call.  If another worker restarts Xvfb in between, that
+        copy holds the previous server's cookie; sending it with the new
+        DISPLAY makes wine fail to authenticate.
+        """
         monkeypatch.setattr(
             "rebrew.compiler.compile.ensure_xvfb_session",
             lambda: (":99", "/run/selected-cookie"),
+        )
+        _, env = maybe_headless_wine(["wine", "CL.EXE"], {"XAUTHORITY": "/run/stale-cookie"})
+        assert env is not None
+        assert env["DISPLAY"] == ":99"
+        assert env["XAUTHORITY"] == "/run/selected-cookie"
+
+    def test_caller_cookie_is_kept_when_the_session_has_none(self, monkeypatch) -> None:
+        """With no recorded cookie the caller's value is the only evidence."""
+        monkeypatch.setattr(
+            "rebrew.compiler.compile.ensure_xvfb_session",
+            lambda: (":99", ""),
         )
         _, env = maybe_headless_wine(["wine", "CL.EXE"], {"XAUTHORITY": "/run/caller-cookie"})
         assert env is not None

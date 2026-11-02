@@ -832,13 +832,17 @@ def maybe_headless_wine(
         caller_cookie = env is not None and bool(env.get("XAUTHORITY"))
         env = dict(env) if env is not None else {**os.environ}
         env["DISPLAY"] = display
-        if not caller_cookie:
-            if cookie:
-                env["XAUTHORITY"] = cookie
-            else:
-                # The ambient XAUTHORITY belonged to whatever display was
-                # published when it was copied, which may be a peer's.
-                env.pop("XAUTHORITY", None)
+        if cookie:
+            # The selected server's cookie outranks one already in *env*: that
+            # value may be a copy of ``os.environ`` taken before a peer
+            # republished the display, and an XAUTHORITY authenticates one
+            # server.  A caller-provided cookie for the old server is equally
+            # unusable against the display selected here.
+            env["XAUTHORITY"] = cookie
+        elif not caller_cookie:
+            # The ambient XAUTHORITY belonged to whatever display was
+            # published when it was copied, which may be a peer's.
+            env.pop("XAUTHORITY", None)
         return cmd, env
     if shutil.which("xvfb-run") is not None:
         return ["xvfb-run", "-a", "-s", XVFB_RUN_SERVER_ARGS, *cmd], env
