@@ -2542,7 +2542,7 @@ app = typer.Typer(
         "  W005: STUB without BLOCKER; W016: data without SECTION metadata.\n\n"
         "  E024: unsupported inline state; W028: bound VA absent from function inventory.\n\n"
         "  W029: redundant flags; W031: metadata schema/provenance problem.\n\n"
-        "  W032-W035: coverage, scaffold, file identity, or module drift.\n\n"
+        "  W033-W035: scaffold, file identity, or module drift.\n\n"
     ),
 )
 
@@ -2812,9 +2812,9 @@ def main(
                     syn2.display(quiet=False)
                 warning_count += len(syn2.warnings)
 
-    # W031 / W032: the same batch-level shape as W029 — no .c file owns the
-    # metadata store or the coverage directory, so each finding lands on the
-    # artifact it describes and the per-file loop stays untouched.
+    # W031, W033-W038: the same batch-level shape as W029 — no .c file owns the
+    # metadata store or the scaffold, so each finding lands on the artifact it
+    # describes and the per-file loop stays untouched.
     if cfg is not None:
         for artifact_result in (
             *_check_W031_metadata_store(cfg),

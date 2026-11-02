@@ -101,6 +101,19 @@ def test_every_lint_code_documented() -> None:
         f"lint code(s) {missing} emitted by lint.py but not documented in "
         "docs/ANNOTATIONS.md — add them to the linter reference tables"
     )
+    documented = set(re.findall(r"^\| ([EW]\d{3}) \|", doc, re.M))
+    extra = sorted(documented - codes)
+    assert not extra, (
+        f"lint code(s) {extra} documented in docs/ANNOTATIONS.md but no longer "
+        "emitted by lint.py — delete the rows or restore the checks"
+    )
+    errors = sum(1 for code in codes if code.startswith("E"))
+    warnings = len(codes) - errors
+    cli = (ROOT / "docs" / "CLI.md").read_text(encoding="utf-8")
+    assert f"{errors} E-codes, {warnings} W-codes" in cli, (
+        "docs/CLI.md lint section should quote the emitted code counts: "
+        f"{errors} E-codes, {warnings} W-codes"
+    )
 
 
 def test_every_builtin_component_has_valid_panel() -> None:

@@ -583,7 +583,7 @@ Project-specific linting rules can be configured in `rebrew-project.toml` under 
 - `indent_style`: "spaces", "tabs", or "none" (default)
 - `max_line_length`: integer (default: 200)
 
-See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (10 E-codes, 28 W-codes; unassigned numbers in the ranges are reserved, not emitted).
+See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (11 E-codes, 24 W-codes; unassigned numbers in the ranges are reserved, not emitted).
 
 `rebrew lint` is the source-corpus checker: checks optional ADDRESS anchors and dedicated metadata. It cross-references
 every FUNCTION/STUB binding (a qualified `MODULE.0xVA` row) against
