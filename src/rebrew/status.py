@@ -534,7 +534,6 @@ def _load_verify_info(
         else:
             failed += 1
 
-    # Try to get a last-modified timestamp from the file.
     # ISO-8601 with an explicit offset, like every other instant the package
     # emits: a trailing " UTC" would make the field unreadable by
     # ``datetime.fromisoformat``, and minute truncation reports the same

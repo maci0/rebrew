@@ -215,19 +215,17 @@ def status_cmd(
         json_print(data)
         return
     console.print(f"[bold]{spec.name}[/bold]: {spec.description}")
-    console.print(
-        f"  image:  {spec.image or 'host-only'}  {'✅ pulled' if image_ok else ('⬜ not pulled' if image_ok is False else '')}"
-    )
+    image_state = "pulled" if image_ok else ("not pulled" if image_ok is False else "")
+    console.print(f"  image:  {spec.image or 'host-only'}  {image_state}")
     if resolved_cmd:
-        console.print(f"  host:   {resolved_cmd}  ✅ present (resolved mirror)")
+        console.print(f"  host:   {resolved_cmd}  present (resolved mirror)")
     elif host_probe_error is not None:
         console.print(
-            f"  host:   {spec.host_path or spec.binary}  ⚠️ probe failed: {host_probe_error}"
+            f"  host:   {spec.host_path or spec.binary}  probe failed: {host_probe_error}"
         )
     else:
-        console.print(
-            f"  host:   {spec.host_path or spec.binary}  {'✅ present' if host_ok else '⬜ absent'}"
-        )
+        host_state = "present" if host_ok else "absent"
+        console.print(f"  host:   {spec.host_path or spec.binary}  {host_state}")
 
 
 def external_ranges(cfg: Any) -> list[tuple[int, int]]:

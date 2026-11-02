@@ -186,37 +186,7 @@ func (o *Owner) read(id string) (Receipt, error) {
 	return r, nil
 }
 func (o *Owner) save(r Receipt) error {
-	b, err := json.Marshal(r)
-	if err != nil {
-		return err
-	}
-	f, err := os.CreateTemp(o.dir, ".job-")
-	if err != nil {
-		return err
-	}
-	name := f.Name()
-	defer os.Remove(name)
-	if err = f.Chmod(0600); err == nil {
-		_, err = f.Write(b)
-	}
-	if err == nil {
-		err = f.Sync()
-	}
-	if e := f.Close(); err == nil {
-		err = e
-	}
-	if err != nil {
-		return err
-	}
-	if err = os.Rename(name, o.path(r.ID)); err != nil {
-		return err
-	}
-	d, err := os.Open(o.dir)
-	if err != nil {
-		return err
-	}
-	defer d.Close()
-	return d.Sync()
+	return writeJSONAtomic(o.dir, ".job-", r.ID+".json", r)
 }
 func (o *Owner) Get(id string) (Receipt, error) { o.mu.Lock(); defer o.mu.Unlock(); return o.read(id) }
 

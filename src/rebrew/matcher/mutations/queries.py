@@ -482,7 +482,6 @@ _QUERY_CMP_BOUNDARY = _LazyQuery(
 """,
 )
 
-# Note: Tree-sitter might see some macros or types differently.
 # ``mut_return_to_goto`` rewrites the matched statement to ``goto ret_false;``
 # and the label's tail to ``return 0;``, so a non-zero ``0x…`` literal matched
 # by the old unanchored ``^0`` silently changed the returned value.
@@ -493,7 +492,7 @@ _QUERY_RETURN_FALSE = _LazyQuery(
         (number_literal) @val
         (#match? @val "{_RE_C_ZERO_LITERAL}")) @expr
 """,
-)  # But for typical C code generated/decompiled, these work well.
+)
 
 
 # ---------------------------------------------------------------------------

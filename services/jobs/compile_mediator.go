@@ -104,37 +104,7 @@ func readCompileIndex(dir string) ([]string, error) {
 }
 
 func writeCompileIndex(dir string, ids []string) error {
-	b, err := json.Marshal(ids)
-	if err != nil {
-		return err
-	}
-	f, err := os.CreateTemp(dir, ".index-")
-	if err != nil {
-		return err
-	}
-	name := f.Name()
-	defer os.Remove(name)
-	if err = f.Chmod(0600); err == nil {
-		_, err = f.Write(b)
-	}
-	if err == nil {
-		err = f.Sync()
-	}
-	if e := f.Close(); err == nil {
-		err = e
-	}
-	if err != nil {
-		return err
-	}
-	if err = os.Rename(name, filepath.Join(dir, "index.json")); err != nil {
-		return err
-	}
-	d, err := os.Open(dir)
-	if err != nil {
-		return err
-	}
-	defer d.Close()
-	return d.Sync()
+	return writeJSONAtomic(dir, ".index-", "index.json", ids)
 }
 
 // NewCompileMediator opens private per-job custody with a pinned action budget.
@@ -159,37 +129,7 @@ func NewCompileMediator(dir, upstream, credential, capability string, max int, a
 }
 
 func (m *CompileMediator) writeOriginal(v compileOriginal) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	f, err := os.CreateTemp(m.dir, ".compile-")
-	if err != nil {
-		return err
-	}
-	name := f.Name()
-	defer os.Remove(name)
-	if err = f.Chmod(0600); err == nil {
-		_, err = f.Write(b)
-	}
-	if err == nil {
-		err = f.Sync()
-	}
-	if e := f.Close(); err == nil {
-		err = e
-	}
-	if err != nil {
-		return err
-	}
-	if err = os.Rename(name, filepath.Join(m.dir, v.Intent+".json")); err != nil {
-		return err
-	}
-	d, err := os.Open(m.dir)
-	if err != nil {
-		return err
-	}
-	defer d.Close()
-	return d.Sync()
+	return writeJSONAtomic(m.dir, ".compile-", v.Intent+".json", v)
 }
 func (m *CompileMediator) readOriginal(id string) (compileOriginal, error) {
 	var v compileOriginal
