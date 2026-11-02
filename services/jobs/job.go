@@ -607,6 +607,9 @@ func (o *Owner) runDocker(saved Receipt, workspace string) error {
 func (o *Owner) ReconcileDocker(ctx context.Context, id string) (Receipt, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+	if o.closed {
+		return Receipt{}, errors.New("owner is closed")
+	}
 	r, err := o.read(id)
 	if err != nil {
 		return r, err
@@ -657,6 +660,9 @@ func (o *Owner) ReconcileDocker(ctx context.Context, id string) (Receipt, error)
 func (o *Owner) Cancel(id string) (Receipt, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+	if o.closed {
+		return Receipt{}, errors.New("owner is closed")
+	}
 	r, err := o.read(id)
 	if err != nil {
 		return r, err
@@ -678,7 +684,12 @@ func (o *Owner) Cancel(id string) (Receipt, error) {
 	o.notify(id)
 	if r.State == "running" && r.Provider == "docker" && r.ContainerID != "" && o.docker != nil {
 		provider, containerID := *o.docker, r.ContainerID
+		// Count the stop as in-flight work so Close waits for it.  Cancel
+		// holds the owner lock and rejects a closed owner, so this Add
+		// always precedes Close's Wait.
+		o.workers.Add(1)
 		go func() {
+			defer o.workers.Done()
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
 			_ = provider.Stop(ctx, containerID)

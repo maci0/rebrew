@@ -242,6 +242,9 @@ func (o *Owner) compilePending(id string) (bool, error) {
 func (o *Owner) ReconcileCompile(ctx context.Context, job, intent, credential string) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+	if o.closed {
+		return errors.New("owner is closed")
+	}
 	r, err := o.read(job)
 	if err != nil {
 		return err
