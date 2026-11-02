@@ -1084,55 +1084,80 @@ class TestMaybeHeadlessWine:
 
     def test_wine_gets_display_env(self, monkeypatch) -> None:
         """wine → command unchanged, env gains DISPLAY pointing at an Xvfb."""
-        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb", lambda: ":99")
+        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb_session", lambda: (":99", ""))
         cmd, env = maybe_headless_wine(["wine", "/opt/CL.EXE"], {"WINEDEBUG": "-all"})
         assert cmd == ["wine", "/opt/CL.EXE"]
         assert env == {"WINEDEBUG": "-all", "DISPLAY": ":99"}
 
     def test_absolute_wine_path_gets_display(self, monkeypatch) -> None:
         """A path to wine (e.g. /usr/bin/wine) is matched by basename."""
-        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb", lambda: ":99")
+        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb_session", lambda: (":99", ""))
         cmd, env = maybe_headless_wine(["/usr/bin/wine", "/opt/CL.EXE"], None)
         assert cmd == ["/usr/bin/wine", "/opt/CL.EXE"]
         assert env["DISPLAY"] == ":99"
 
     def test_xauthority_travels_with_the_selected_display(self, monkeypatch) -> None:
-        """The cookie for the Xvfb ensure_xvfb picked reaches wine.
+        """The cookie selected with the display reaches wine.
 
         An unauthenticated X server lets any local client read the windows
         wine draws, so the child's XAUTHORITY must be the one that
         authenticates to *this* display — never an unrelated value already in
         the environment.
         """
-        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb", lambda: ":99")
-        monkeypatch.setenv(XVFB_DISPLAY_ENV, ":99")
-        monkeypatch.setenv("XAUTHORITY", "/run/user/1000/rebrew-xvfb-cookie")
+        monkeypatch.setattr(
+            "rebrew.compiler.compile.ensure_xvfb_session",
+            lambda: (":99", "/run/selected-cookie"),
+        )
+        monkeypatch.setenv(XVFB_DISPLAY_ENV, ":77")
+        monkeypatch.setenv("XAUTHORITY", "/run/cookie-77")
         _, env = maybe_headless_wine(["wine", "CL.EXE"], {"WINEDEBUG": "-all"})
         assert env is not None
-        assert env["XAUTHORITY"] == "/run/user/1000/rebrew-xvfb-cookie"
+        assert env["DISPLAY"] == ":99"
+        assert env["XAUTHORITY"] == "/run/selected-cookie"
 
-        monkeypatch.setenv(XVFB_DISPLAY_ENV, ":77")  # cookie is for another server
-        _, env = maybe_headless_wine(["wine", "CL.EXE"], {"WINEDEBUG": "-all"})
+    def test_ambient_cookie_for_another_display_is_dropped(self, monkeypatch) -> None:
+        """A peer's published cookie must not ride along with this display.
+
+        The session is selected with no recorded cookie and the env copy is
+        taken afterwards, so the ambient XAUTHORITY can belong to whatever
+        display a peer published meanwhile.  Forwarding it would hand wine a
+        credential that cannot authenticate to DISPLAY.
+        """
+        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb_session", lambda: (":99", ""))
+        monkeypatch.setenv(XVFB_DISPLAY_ENV, ":77")
+        monkeypatch.setenv("XAUTHORITY", "/run/cookie-77")
+        _, env = maybe_headless_wine(["wine", "CL.EXE"], None)
         assert env is not None
+        assert env["DISPLAY"] == ":99"
         assert "XAUTHORITY" not in env
+
+    def test_caller_supplied_cookie_is_kept(self, monkeypatch) -> None:
+        """An explicit env XAUTHORITY is the caller's assertion, not ambient."""
+        monkeypatch.setattr(
+            "rebrew.compiler.compile.ensure_xvfb_session",
+            lambda: (":99", "/run/selected-cookie"),
+        )
+        _, env = maybe_headless_wine(["wine", "CL.EXE"], {"XAUTHORITY": "/run/caller-cookie"})
+        assert env is not None
+        assert env["XAUTHORITY"] == "/run/caller-cookie"
 
     def test_wibo_not_touched(self, monkeypatch) -> None:
         """wibo is already headless — left untouched."""
-        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb", lambda: ":99")
+        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb_session", lambda: (":99", ""))
         cmd, env = maybe_headless_wine(["wibo", "/opt/CL.EXE"], None)
         assert cmd == ["wibo", "/opt/CL.EXE"]
         assert env is None
 
     def test_gcc_not_touched(self, monkeypatch) -> None:
         """Non-wine commands are never touched."""
-        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb", lambda: ":99")
+        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb_session", lambda: (":99", ""))
         cmd, env = maybe_headless_wine(["gcc", "-c", "t.c"], None)
         assert cmd == ["gcc", "-c", "t.c"]
         assert env is None
 
     def test_no_xvfb_falls_back_to_xvfb_run(self, monkeypatch) -> None:
         """No Xvfb binary but xvfb-run present → slow wrapper fallback."""
-        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb", lambda: None)
+        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb_session", lambda: None)
         monkeypatch.setattr(
             "rebrew.compiler.compile.shutil.which",
             lambda name: "/usr/bin/xvfb-run" if name == "xvfb-run" else None,
@@ -1144,7 +1169,7 @@ class TestMaybeHeadlessWine:
 
     def test_no_xvfb_no_wrapper_bare_wine(self, monkeypatch) -> None:
         """Neither Xvfb nor xvfb-run → bare wine as-is."""
-        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb", lambda: None)
+        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb_session", lambda: None)
         monkeypatch.setattr("rebrew.compiler.compile.shutil.which", lambda name: None)
         cmd, env = maybe_headless_wine(["wine", "/opt/CL.EXE"], None)
         assert cmd == ["wine", "/opt/CL.EXE"]
@@ -1152,13 +1177,13 @@ class TestMaybeHeadlessWine:
 
     def test_headless_opt_out_env(self, monkeypatch) -> None:
         """REBREW_WINE_HEADLESS=0 forces bare wine even with Xvfb available."""
-        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb", lambda: ":99")
+        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb_session", lambda: (":99", ""))
         cmd, _env = maybe_headless_wine(["wine", "/opt/CL.EXE"], {"REBREW_WINE_HEADLESS": "0"})
         assert cmd == ["wine", "/opt/CL.EXE"]
 
     def test_headless_opt_out_inherited_env(self, monkeypatch) -> None:
         """env=None inherits os.environ, so the opt-out is read from there."""
-        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb", lambda: ":99")
+        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb_session", lambda: (":99", ""))
         monkeypatch.setenv("REBREW_WINE_HEADLESS", "0")
         cmd, env = maybe_headless_wine(["wine", "/opt/CL.EXE"], None)
         assert cmd == ["wine", "/opt/CL.EXE"]
@@ -1167,24 +1192,24 @@ class TestMaybeHeadlessWine:
     @pytest.mark.parametrize("value", ["false", " OFF ", "no"])
     def test_headless_opt_out_word_spellings(self, monkeypatch, value: str) -> None:
         """Common false spellings disable headless too, not only ``0``."""
-        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb", lambda: ":99")
+        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb_session", lambda: (":99", ""))
         cmd, env = maybe_headless_wine(["wine", "/opt/CL.EXE"], {"REBREW_WINE_HEADLESS": value})
         assert cmd == ["wine", "/opt/CL.EXE"]
         assert env == {"REBREW_WINE_HEADLESS": value}
 
     def test_headless_explicit_on(self, monkeypatch) -> None:
-        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb", lambda: ":99")
+        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb_session", lambda: (":99", ""))
         _cmd, env = maybe_headless_wine(["wine", "/opt/CL.EXE"], {"REBREW_WINE_HEADLESS": "1"})
         assert env is not None and env["DISPLAY"] == ":99"
 
     def test_headless_malformed_value_raises(self, monkeypatch) -> None:
         """A typo must not silently leave headless on."""
-        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb", lambda: ":99")
+        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb_session", lambda: (":99", ""))
         with pytest.raises(ConfigError, match="REBREW_WINE_HEADLESS"):
             maybe_headless_wine(["wine", "/opt/CL.EXE"], {"REBREW_WINE_HEADLESS": "nope"})
 
     def test_empty_command_untouched(self, monkeypatch) -> None:
-        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb", lambda: ":99")
+        monkeypatch.setattr("rebrew.compiler.compile.ensure_xvfb_session", lambda: (":99", ""))
         cmd, env = maybe_headless_wine([], {"WINEDEBUG": "-all"})
         assert cmd == []
         assert env == {"WINEDEBUG": "-all"}

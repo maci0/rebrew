@@ -347,6 +347,26 @@ def _release_owned_xvfb() -> None:
         _drop_cookie(cookie)
 
 
+def ensure_xvfb_session() -> tuple[str, str] | None:
+    """Return ``(display, XAUTHORITY)`` for a live Xvfb as one locked read.
+
+    :func:`ensure_xvfb` and :func:`xvfb_cookie_for` are two separate
+    acquisitions, so a peer can republish a different display between them
+    (or between the selection and a copy of ``os.environ``).  A caller that
+    hands both values to a child needs the pair from the same generation:
+    selecting the cookie after the fact can return "" for the display it was
+    given and leave the child with a peer's cookie for another server.  The
+    cookie is "" when the selected display has none recorded.
+    """
+    with _XVFB_INIT_LOCK:
+        display = _ensure_xvfb_locked()
+        if display is None:
+            return None
+        if os.environ.get(XVFB_DISPLAY_ENV) != display:
+            return display, ""
+        return display, os.environ.get("XAUTHORITY", "")
+
+
 def ensure_xvfb() -> str | None:
     """Return a display string for a live Xvfb, starting one if necessary.
 
@@ -370,9 +390,12 @@ def ensure_xvfb() -> str | None:
     Thread-safe: the whole resolution runs under one process-wide lock so
     concurrent compile workers cannot double-spawn a server on the same
     display (check-then-act on the socket, ``/proc`` scan, and env var).
+    A caller that also needs the cookie must use
+    :func:`ensure_xvfb_session`, not a second call to
+    :func:`xvfb_cookie_for`.
     """
-    with _XVFB_INIT_LOCK:
-        return _ensure_xvfb_locked()
+    session = ensure_xvfb_session()
+    return None if session is None else session[0]
 
 
 def _ensure_xvfb_locked() -> str | None:

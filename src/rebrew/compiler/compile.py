@@ -89,7 +89,7 @@ lazy from rebrew.compiler.cache import (
     get_project_cache,
 )
 lazy from rebrew.compiler.context import CONTEXT_UNIT_NAME, CompileContext
-lazy from rebrew.compiler.headless import XVFB_RUN_SERVER_ARGS, ensure_xvfb, xvfb_cookie_for
+lazy from rebrew.compiler.headless import XVFB_RUN_SERVER_ARGS, ensure_xvfb_session
 lazy from rebrew.compiler.msvc_env import msvc_env_from_config, resolve_runner_path
 lazy from rebrew.compiler.toolchain import (
     ToolchainError,
@@ -822,18 +822,23 @@ def maybe_headless_wine(
     raw = (os.environ if env is None else env).get("REBREW_WINE_HEADLESS", "")
     if not parse_env_bool("REBREW_WINE_HEADLESS", raw, default=True):
         return cmd, env
-    display = ensure_xvfb()
-    if display is not None:
+    session = ensure_xvfb_session()
+    if session is not None:
+        display, cookie = session
+        # The pair comes from one locked read, so a peer republishing Xvfb
+        # between selection and use cannot hand this child a cookie for
+        # another server.  The env copy is taken after the pair for the same
+        # reason: a copy made first could carry a peer's XAUTHORITY.
+        caller_cookie = env is not None and bool(env.get("XAUTHORITY"))
         env = dict(env) if env is not None else {**os.environ}
         env["DISPLAY"] = display
-        # ensure_xvfb authenticates to the server it picked with a cookie;
-        # wine needs it too, and a caller-supplied env does not inherit this
-        # process's environment the way the os.environ copy above does.  The
-        # cookie travels only with the display ensure_xvfb recorded it for, so
-        # an unrelated XAUTHORITY in the ambient environment is not forwarded.
-        cookie = xvfb_cookie_for(display)
-        if cookie and not env.get("XAUTHORITY"):
-            env["XAUTHORITY"] = cookie
+        if not caller_cookie:
+            if cookie:
+                env["XAUTHORITY"] = cookie
+            else:
+                # The ambient XAUTHORITY belonged to whatever display was
+                # published when it was copied, which may be a peer's.
+                env.pop("XAUTHORITY", None)
         return cmd, env
     if shutil.which("xvfb-run") is not None:
         return ["xvfb-run", "-a", "-s", XVFB_RUN_SERVER_ARGS, *cmd], env

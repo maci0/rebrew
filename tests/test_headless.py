@@ -782,3 +782,46 @@ class TestXvfbCookieFor:
             writer.join(timeout=5.0)
         assert not writer.is_alive()
         assert observed == ["/run/cookie-99"]
+
+    def test_session_reads_selection_and_cookie_under_one_lock(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The pair a child gets is selected and read in one section.
+
+        ``ensure_xvfb`` plus a later ``xvfb_cookie_for`` are two acquisitions;
+        a peer can republish a display between them.  The session accessor
+        must hold the lock across both reads, so the cookie belongs to the
+        display returned.
+        """
+        from rebrew.compiler import headless
+
+        monkeypatch.setenv(headless.XVFB_DISPLAY_ENV, ":77")
+        monkeypatch.setenv("XAUTHORITY", "/run/cookie-77")
+        held: list[bool] = []
+
+        def select() -> str:
+            held.append(headless._XVFB_INIT_LOCK.locked())
+            return ":77"
+
+        monkeypatch.setattr(headless, "_ensure_xvfb_locked", select)
+        assert headless.ensure_xvfb_session() == (":77", "/run/cookie-77")
+        assert held == [True]
+
+    def test_session_cookie_is_empty_when_no_display_was_recorded(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A selected display that is not the recorded one carries no cookie."""
+        from rebrew.compiler import headless
+
+        monkeypatch.setenv(headless.XVFB_DISPLAY_ENV, ":77")
+        monkeypatch.setenv("XAUTHORITY", "/run/cookie-77")
+        monkeypatch.setattr(headless, "_ensure_xvfb_locked", lambda: ":99")
+        assert headless.ensure_xvfb_session() == (":99", "")
+
+    def test_session_none_when_no_display_is_available(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.compiler import headless
+
+        monkeypatch.setattr(headless, "_ensure_xvfb_locked", lambda: None)
+        assert headless.ensure_xvfb_session() is None
