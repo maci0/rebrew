@@ -175,14 +175,20 @@ __all__ = [
 
 def resolve_metadata_dir(directory: Path | str | Any) -> Path:
     """Resolve *directory* to a :class:`pathlib.Path`, extracting ``cfg.metadata_dir`` if given config."""
-    if hasattr(directory, "metadata_dir"):
+    if isinstance(directory, Path):
+        # Every source scan hands an already-resolved path here, once per file
+        # and then once per store read.  Probing two attributes and rebuilding
+        # the Path cost more than the rest of the function.
+        p = directory
+    elif hasattr(directory, "metadata_dir"):
         return Path(directory.metadata_dir)
-    if hasattr(directory, "reversed_dir"):
+    elif hasattr(directory, "reversed_dir"):
         if hasattr(directory, "root") and directory.root is not None:
             return Path(directory.root)
         rev = Path(directory.reversed_dir)
         return rev.parent.parent if rev.parent.name == "src" else rev.parent
-    p = Path(directory)
+    else:
+        p = Path(directory)
     if (
         p.name == "src"
         and not metadata_store(p / METADATA_FILENAME).exists()
