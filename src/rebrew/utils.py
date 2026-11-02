@@ -49,6 +49,7 @@ store.
 """
 
 import contextlib
+import functools
 import logging
 lazy import bisect
 lazy import codecs
@@ -1252,6 +1253,11 @@ def ascii_slug(value: str) -> str:
     return decomposed.encode("ascii", "ignore").decode("ascii")
 
 
+#: Bounded memo over :func:`preset_module_key`.  Whole-tree passes compare
+#: every metadata row and source binding against the same target name, so a
+#: 5,000-row pass normalized that constant 5,001 times.  The fold is pure and
+#: takes short module names, so 256 entries cover any project's module set.
+@functools.lru_cache(maxsize=256)
 def preset_module_key(name: str) -> str:
     """Key spelling for ``cflags_presets`` and origin lists.
 

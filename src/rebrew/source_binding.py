@@ -132,6 +132,7 @@ def _change(
     expected_digest: str | None,
 ) -> dict[str, Any]:
     module = target_module(cfg) or ""
+    module_key = preset_module_key(module)
     current = get_entry(cfg.metadata_dir, va, module)
     history = validate_binding_history(current.get("binding_history", []))
     identity = None
@@ -179,7 +180,7 @@ def _change(
             for (other_module, other_va), other in load_metadata(
                 cfg.metadata_dir, deepcopy=False
             ).items():
-                if other_va == va or preset_module_key(other_module) != preset_module_key(module):
+                if other_va == va or preset_module_key(other_module) != module_key:
                     continue
                 if not other.get("file") or other.get("symbol") != identity["symbol"]:
                     continue

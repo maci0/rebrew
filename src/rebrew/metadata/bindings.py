@@ -789,8 +789,11 @@ def _function_annotations_from_metadata(
     rel = rel_display_path(filepath, base_dir)
     results: list[SourceBinding] = []
     prototypes: _DefinitionPrototypes | None = None
+    # The target spelling is fixed for this file; folding it once keeps a
+    # whole-tree pass from normalizing the same name per metadata row.
+    target_key = preset_module_key(target_name) if target_name else ""
     for module, va, entry in rows:
-        if target_name and module and preset_module_key(module) != preset_module_key(target_name):
+        if target_key and module and preset_module_key(module) != target_key:
             continue
         ann = SourceBinding(
             va=va,
@@ -874,8 +877,10 @@ def _data_annotations_from_metadata(
         rows = data_rows_for_path(metadata_dir, filepath)
     rel = rel_display_path(filepath, base_dir)
     results: list[SourceBinding] = []
+    # Same fixed target spelling as the function rows above.
+    target_key = preset_module_key(target_name) if target_name else ""
     for module, va, entry in rows:
-        if target_name and module and preset_module_key(module) != preset_module_key(target_name):
+        if target_key and module and preset_module_key(module) != target_key:
             continue
         raw_kind = entry.get("kind")
         if raw_kind:

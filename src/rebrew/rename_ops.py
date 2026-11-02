@@ -570,10 +570,11 @@ def _linker_reference_changes(
     pattern = re.compile(r'(?<!\S)/(INCLUDE|ALTERNATENAME|EXPORT):("[^"\r\n]*"|[^\s"]+)', re.I)
     changes = []
     for target in targets:
+        target_key = preset_module_key(target.module)
         mapping = {
             old: new
             for module, names in symbols.items()
-            if preset_module_key(module) == preset_module_key(target.module)
+            if preset_module_key(module) == target_key
             for old, new in names.items()
         }
         if not mapping:
@@ -939,11 +940,11 @@ def plan_symbol_rename(
         raise ValueError("additional data identities require a data rename")
     additional_rows = []
     for selection in extra_data_rows or []:
+        selection_key = preset_module_key(selection.module)
         matches = [
             (key, row)
             for key, row in project.data_rows().items()
-            if preset_module_key(key[0]) == preset_module_key(selection.module)
-            and key[1] == selection.va
+            if preset_module_key(key[0]) == selection_key and key[1] == selection.va
         ]
         if (
             selection.store != KIND_DATA

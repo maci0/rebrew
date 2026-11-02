@@ -66,6 +66,8 @@ def collect_target_sources(
     metadata_root = metadata_dir.resolve()
     discovered = sources if sources is not None else iter_sources(cfg.reversed_dir, cfg)
     source_files = set(discovered) | set(library_entries)
+    # One fold for the walk: the selected target does not change per source.
+    target_key = preset_module_key(target_module_name)
     for src in sorted(source_files):
         resolved = src.resolve()
         anns = [
@@ -82,7 +84,7 @@ def collect_target_sources(
 
             raw = parse_address_anchors(_read(src))
             modules_named = {preset_module_key(a.module) for a in raw if a.va}
-            if modules_named and preset_module_key(target_module_name) not in modules_named:
+            if modules_named and target_key not in modules_named:
                 foreign.append(resolved)
                 continue
             relative = identity_file(resolved, metadata_root)
@@ -93,12 +95,12 @@ def collect_target_sources(
             modules = support_modules.get(relative, set())
             if not modules and resolved in retired_sources:
                 foreign.append(resolved)
-            elif not modules or preset_module_key(target_module_name) in modules:
+            elif not modules or target_key in modules:
                 own.append(resolved)
             else:
                 foreign.append(resolved)
             continue
-        if any(preset_module_key(a.module) == preset_module_key(target_module_name) for a in anns):
+        if any(preset_module_key(a.module) == target_key for a in anns):
             own.append(resolved)
         else:
             foreign.append(resolved)

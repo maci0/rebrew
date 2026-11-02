@@ -213,7 +213,17 @@ def _make_todo_inputs(rng: random.Random) -> tuple[Any, ...]:
 
 
 def bench_todo_rank() -> dict[str, Any]:
+    from rebrew import prove
     from rebrew.todo import _collect_active_functions, _rank_by_impact
+
+    # The pinned categories include the GA-ceiling prover lane, which only
+    # exists when the optional [prove] extra is installed. Pin the probe so a
+    # default contributor environment measures the same kernel instead of
+    # failing the digest with those rows under improve-match.
+    def prover_available() -> bool:
+        return True
+
+    prove.angr_available = prover_available
 
     rng = random.Random(SEED)
     existing, size_by_va, name_by_va, verify, callees = _make_todo_inputs(rng)

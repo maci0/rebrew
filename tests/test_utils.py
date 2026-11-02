@@ -31,6 +31,7 @@ from rebrew.utils import (
     load_tomllib,
     merged_span_bytes,
     path_is_relative_to,
+    preset_module_key,
     read_compile_source,
     read_source_text,
     read_toml_text,
@@ -1993,3 +1994,22 @@ class TestSourceMemoPreservedMtime:
         os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
         assert "return 2" in read_source_text(path)[0]
         assert source_hash(path) != first_hash
+
+
+class TestPresetModuleKeyMemo:
+    """The bounded fold keeps its exact result and serves a repeat from the memo."""
+
+    def test_matches_uncached_fold_and_hits_on_repeat(self) -> None:
+        preset_module_key.cache_clear()
+        uncached = preset_module_key.__wrapped__("Straße")
+        assert (uncached, preset_module_key("Straße"), preset_module_key("Straße")) == (
+            "STRASSE",
+            "STRASSE",
+            "STRASSE",
+        )
+        info = preset_module_key.cache_info()
+        assert (info.misses, info.hits) == (1, 1)
+
+    def test_empty_and_ascii_arguments(self) -> None:
+        assert preset_module_key("") == ""
+        assert preset_module_key("server") == "SERVER"
