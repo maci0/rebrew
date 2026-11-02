@@ -435,7 +435,7 @@ class TestNeImports:
 
 
 class TestImportsMark:
-    """imports --mark writes LIBRARY annotations for detected stubs."""
+    """binary imports mark writes LIBRARY annotations for detected stubs."""
 
     def _cfg(self, tmp_path: Path) -> SimpleNamespace:
         return SimpleNamespace(

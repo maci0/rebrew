@@ -299,9 +299,9 @@ def resolve_build_params(
         if anno and anno.size > 0:
             target_size = anno.size
         elif "SIZE" in meta and (anno is None or not annos or anno is annos[0]):
-            # ``meta["SIZE"]`` is the FIRST annotation only.  A VA/--symbol-
-            # selected sibling with size 0 must not borrow that span (wrong
-            # byte extract → false EXACT/NEAR_MATCHING).
+            # ``meta["SIZE"]`` is the FIRST annotation only.  A VA- or
+            # ``--symbol``-selected sibling with size 0 must not borrow that
+            # span (wrong byte extract → false EXACT/NEAR_MATCHING).
             try:
                 target_size = int(meta["SIZE"])
             except ValueError:
@@ -562,7 +562,7 @@ def _sweep_filter_matches(name: str, verarch: str, filters: list[str]) -> bool:
     of the profile id ("msvc-2" -> msvc-2.0), or a substring of the version-arch
     ("6.0" -> every 6.0 line incl. SPs; "win16" -> all 16-bit DOSBox
     toolchains).  This is what lets a Y2K binary exclude the pre-5.0 line
-    with --sweep-exclude-toolchains 2.0,4.0."""
+    with --exclude-toolchains 2.0,4.0."""
     n = name.lower()
     va = verarch.lower()
     for f in filters:
@@ -587,7 +587,7 @@ def _vendored_msvc_toolchains(
     through that profile's image.  *only* / *exclude* are comma-separated
     profile-name or version-prefix filters (see :func:`_sweep_filter_matches`);
     the configured profile's own compiler is prepended as the baseline and is
-    subject to the same filters ("--sweep-toolchains 4.0" means ONLY 4.0).
+    subject to the same filters ("--toolchains 4.0" means ONLY 4.0).
     """
 
     only_f = [f for f in (only or "").split(",") if f.strip()]
@@ -606,7 +606,7 @@ def _vendored_msvc_toolchains(
                 continue
             out.append((name, "", ""))
     # The configured profile's own compiler joins the sweep as the baseline
-    # under the same filters: "--sweep-toolchains msvc4.0" means ONLY that
+    # under the same filters: "--toolchains msvc4.0" means ONLY that
     # toolchain, so the configured msvc-6.0 must not be silently swept anyway.
     # Drop any loop entry for it first, then prepend: the baseline stays
     # first without being listed twice.

@@ -53,8 +53,8 @@ def scan_files(src_dir: Path, shared_dir: Path | None = None) -> list[Path]:
     """``*.c`` files under *src_dir* plus the shared tree (deduplicated).
 
     DATA bindings in ``src/shared`` belong to every target; a ``reversed_dir``
-    -only scan misses them (fill-data never pads them, --own never owns
-    them).  *shared_dir* ``None`` or missing keeps the old behavior.
+    -only scan misses them (data layout fill never pads them, data layout own
+    never owns them).  *shared_dir* ``None`` or missing keeps the old behavior.
     """
     files = files_with_ext(src_dir, {".c"})
     if shared_dir is not None:
@@ -411,7 +411,7 @@ def layout_geometry(project_toml: Path, target: str | None = None) -> tuple[int,
     ``layout/*/`` package present.  *project_toml* locates the project
     root (its parent dir).  The old code read ``[targets.*.layout]`` from
     the TOML itself and always took the FIRST target, so a multi-target
-    project sized ``data --converge``'s pads against another binary's
+    project sized ``data layout converge``'s pads against another binary's
     geometry.
     """
     from rebrew.layout_meta import read_layout_geometry
@@ -928,7 +928,7 @@ def fill_data(
 
 
 # ---------------------------------------------------------------------------
-# data --own: materialize stub-file globals as real definitions
+# data layout own: materialize stub-file globals as real definitions
 # ---------------------------------------------------------------------------
 
 # One nested pair inside a bound. Stopping at the first ``]`` dropped
@@ -1385,7 +1385,7 @@ def own_data_globals(
 
 
 # ---------------------------------------------------------------------------
-# data --fix-ownership: repartition global definitions across TUs
+# data layout fix-ownership: repartition global definitions across TUs
 # ---------------------------------------------------------------------------
 
 
@@ -1782,7 +1782,7 @@ def fix_ownership(
 
 
 # ---------------------------------------------------------------------------
-# data --converge: fixed-point .data placement via leading _dlead_ pads
+# data layout converge: fixed-point .data placement via leading _dlead_ pads
 # ---------------------------------------------------------------------------
 
 

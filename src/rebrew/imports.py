@@ -252,7 +252,7 @@ def inspect_imports(
 
     if mark:
         if json_output:
-            # --mark writes annotations; --json promises machine output that
+            # mark=True writes annotations; --json promises machine output that
             # mark_import_stubs does not produce.  Refuse the combination
             # instead of silently dropping --json.
             error_exit(
@@ -269,7 +269,9 @@ def inspect_imports(
         return
 
     if dry_run:
-        console.print("[dim]--dry-run only applies with --mark; nothing to preview.[/dim]")
+        console.print(
+            "[dim]--dry-run only applies to binary imports mark; nothing to preview.[/dim]"
+        )
 
     if not imports:
         console.print(f"[yellow]No import table found in {binary}.[/]")

@@ -426,7 +426,7 @@ def set_data_types(
     """Set declared global types in rebrew-data.toml from ``0xVA=TYPE`` specs.
 
     The declared type decides which of two conflicting declarations the
-    compiler sees, and `--gen-header` reads it from the metadata, so a wrong
+    compiler sees, and `rebrew data header` reads it from the metadata, so a wrong
     one has to be correctable through the tool rather than by editing the TOML.
     """
     return _set_global_field(cfg, specs, field="type", dry_run=dry_run)

@@ -124,7 +124,7 @@ class TestOrphansPrune:
         assert get_entry(tmp_path, 0x2000, "SERVER").get("status") == "STUB"
 
     def test_prune_json_deletes(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Regression: --prune --json used to short-circuit on the listing path
+        """Regression: `orphans prune --json` used to short-circuit on the listing path
         and report pruned: 0 without deleting anything."""
 
         from rebrew.metadata.functions import get_entry
@@ -142,7 +142,7 @@ class TestOrphansPrune:
     def test_prune_include_matched_json(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """--prune --include-matched --json reports held_back 0 and prunes matched."""
+        """`orphans prune --include-matched --json` reports held_back 0 and prunes matched."""
 
         from rebrew.metadata.functions import get_entry
         from rebrew.orphans import app
@@ -428,7 +428,7 @@ class TestCorruptInventoryFailClosed:
     """A corrupt function_structure.json must not classify orphans.
 
     Treating corruption as an empty inventory would mark every unreversed
-    metadata block as an orphan — ``--prune`` would then delete earned STATUS.
+    metadata block as an orphan — ``orphans prune`` would then delete earned STATUS.
     """
 
     def test_corrupt_structure_refuses_to_list(

@@ -103,7 +103,7 @@ Do not use it as a calculator, a disassembler, or a writer.
 ## 3. Where it actually fits
 
 Rebrew CLI is already typed JSON. `todo`, `diagnose near`, `test`,
-`library match`, `residue` are deterministic. Jev is useful only when the
+`library match`, `build residue` are deterministic. Jev is useful only when the
 next branch is **not** a number: unstructured evidence (blocker prose,
 disasm notes, a 167-entry shape catalog) that a closed enum can still
 name.
@@ -254,7 +254,7 @@ cookbooks + 4 patterns + smart-home demo + agent skill):
 | [SDE cascade](https://docs.typesafe.ai/cookbooks/sde_cascade.md) | cheap LLM extract → Jev verify → escalate | `--seed-llm` / Ghidra decomp → Noul "fabricated?" → keep or retry |
 | [LLM guardrails](https://docs.typesafe.ai/cookbooks/llm_guardrails.md) | Noul hazards + harm Score | C89 / no-asm / no-`src/`-scratch / no-library |
 | [Citation check](https://docs.typesafe.ai/cookbooks/citation_check.md) | Choice: quote supports claim? | agent brief vs shapes / allocator (inverted-`volatile` trap) |
-| [Entity alignment](https://docs.typesafe.ai/cookbooks/entity_alignment.md) | Score merge / leave / curator | `cross-import`, same-function-two-targets, Ghidra↔local names |
+| [Entity alignment](https://docs.typesafe.ai/cookbooks/entity_alignment.md) | Score merge / leave / curator | `source import-related`, same-function-two-targets, Ghidra↔local names |
 | [Pre-parsed extraction](https://docs.typesafe.ai/cookbooks/pre_parsed_value_extraction_cookbook.md) | regex candidates → Choice pick | strings / immediates / helper names: never invent a VA |
 | [Date / structure recovery](https://docs.typesafe.ai/cookbooks/autoformat.md) | Noul stitch + Choice classify | Ghidra dump → C block kind (decl / stmt / label): rendering stays in code |
 | [Autoresearch features](https://docs.typesafe.ai/cookbooks/autoresearch_feature_discovery.md) | LLM proposes questions, Jev answers, CatBoost trains | labeled NEAR_MATCHING → learn which questions predict a STATUS lift |
@@ -278,7 +278,7 @@ deterministic (`--guess-compiler`, FLIRT, CRT).
   Unsure → report the parent (`GAME` vs `library`) rather than a
   wrong leaf. Hierarchical classification's codebase tree is the same
   shape as `rebrew source graph --cu-map`.
-- **FLIRT / `identify-library` leftovers.** Byte match already
+- **FLIRT / `library identify` leftovers.** Byte match already
   claimed the easy ones. Re-rank a shortlist of remaining names
   against the function's strings + callers (`rebrew binary function --json`).
   Entity-alignment Score: merge with a known lib symbol / leave
@@ -338,7 +338,7 @@ writer. Words stay from the input.
 
 ### 5.4 Test / diff / diagnose near (the loop)
 
-`rebrew test` / `diff` / `diagnose near` / `diagnose gap` / `residue` are
+`rebrew test` / `diff` / `diagnose near` / `diagnose gap` / `build residue` are
 the source of truth. Do not re-predict `matched` from prose.
 
 Jev after those JSON blobs, only when the byte class is ambiguous
@@ -358,7 +358,7 @@ Jev after those JSON blobs, only when the byte class is ambiguous
 - **RAG-passage classifier** on whatever context an LLM is about
   to see: keep the finding, flag a contradiction, drop a
   prompt-injection-shaped "ignore the catalog". `rebrew similarity function`
-  / `describe` chunks are the corpus; BM25/`similar` is the
+  / `binary function` chunks are the corpus; BM25/`similarity function` is the
   shortlist; Jev re-ranks (their legal re-rank: top-1 5% → 18%).
 - **Consistency**. If origin / blocker / family labels flip across
   repeats, treat as low confidence and fall back to `todo`. Pin
@@ -383,7 +383,7 @@ Optional prior, not a replacement:
 
 ### 5.6 Data / BSS / types / Ghidra
 
-`rebrew data list`, `calibrate-bss`, `recover-structs` are layout math.
+`rebrew data list`, `build calibrate-bss`, `types recover` are layout math.
 Jev does not invent offsets.
 
 Leftovers:
@@ -391,7 +391,7 @@ Leftovers:
 - **Dispatch / vtable vs data** when the byte classifier is unsure
   (Choice over `rebrew data dispatch` candidates).
 - **Entity alignment** for Ghidra name vs local name vs
-  `cross-import` from `server.dll` onto `Europa1400Gold_TL.exe`:
+  `source import-related` from `server.dll` onto `Europa1400Gold_TL.exe`:
   merge / leave / curator. Merge is the expensive mistake: three
   Score levels, no fitted threshold, companion Nouls naming the
   disagreeing field.
@@ -404,7 +404,7 @@ chosen name with `rebrew source rename`, never by editing strings. See
 
 ### 5.7 Verify / lint / round-trip / link
 
-`rebrew verify`, `lint`, `round-trip`, `residue`, postlink are
+`rebrew verify`, `lint`, `build round-trip`, `build residue`, `build postlink` are
 gates. They already fail closed. Jev adding a second opinion on
 "is this EXACT" is duplicate cost.
 
@@ -438,7 +438,7 @@ than 13 calls, answers unchanged.
   *propose* identifiers; Jev only *picks* among a closed candidate
   list: [§5.10](#510-naming-and-folders-llm-proposes-jev-picks).
 - Any stage whose output is already a number from the compiler
-  (`test`, `residue`, `diagnose near` category, FLIRT hit, ROI).
+  (`test`, `build residue`, `diagnose near` category, FLIRT hit, ROI).
 - Autoresearch-style "let an LLM invent new questions, train
   CatBoost on Jev answers": interesting once there is a labeled
   NEAR_MATCHING slice, not before. YAGNI until §6 has data.
@@ -553,7 +553,7 @@ the way the legal re-rank cookbook re-ranks BM25.
 
 | Question | Options / type | Action |
 | -------- | -------------- | ------ |
-| `same_family` | Score: `clone` / `cousin` / `unrelated` | `clone` → copy the solved `.c` and retarget VAs; `cousin` → skeleton + steal helpers; `unrelated` → ignore `similar` |
+| `same_family` | Score: `clone` / `cousin` / `unrelated` | `clone` → copy the solved `.c` and retarget VAs; `cousin` → skeleton + steal helpers; `unrelated` → ignore `similarity function` |
 | `seed_from` | Choice of those 10 + `none` | `--seed-file` / `--seed-solved` for GA; do not copy if `none` |
 
 State = solved source header + STUB `describe --json` (callers,
@@ -706,7 +706,7 @@ treat as `human_only`.
 #### Cross-target import
 
 `server.dll` vs `Europa1400Gold_TL.exe` share game logic. ADR 009
-`cross-import` already copies a matched body to a new VA.
+`source import-related` already copies a matched body to a new VA.
 
 | Question | Options / type | Action |
 | -------- | -------------- | ------ |
@@ -718,7 +718,7 @@ mistake.
 
 #### Switch / calling-convention leftovers
 
-Only when `rebrew binary switches` / `stack-cmp` did not already label it.
+Only when `rebrew binary switches` / `diagnose stack` did not already label it.
 
 | Question | Options / type | Action |
 | -------- | -------------- | ------ |
@@ -778,7 +778,7 @@ Failure: HTTP 429 → empty answers, follow `todo` (same as
 `llm_seed.py` on 429). Never block the compile loop on Jev
 being down.
 
-High-stakes actions (`rename`, `cross-import` merge, `ceiling`
+High-stakes actions (`source rename`, `source import-related` merge, `ceiling`
 blocker, lift a shared type): optional second call with a fresh
 `uid` (consistency cookbook). Mean σ on TypeSafe Nouls was
 ~0.01; if the two calls disagree on the *choice*, treat as
@@ -847,7 +847,7 @@ cookbook exists to collapse.
 `reagent` already has `skip` / `ga_only` / `llm_then_ga` /
 `llm_only` / `flag_sweep_first`. Jev Choice *is* that enum.
 Do not stand up CrewAI. Knowledge-graph RAG (PRD 03) is the
-filter that keeps state small (jaggedness 5): Cypher/`describe`
+filter that keeps state small (jaggedness 5): Cypher/`binary function`
 first, Jev second.
 
 #### Structured criteria (advanced primitive)
@@ -916,7 +916,7 @@ bytes.
 
 - Jev as a second `diagnose near`. Bytes already classified.
 - Jev as a residue oracle. Counting.
-- Jev as a calling-convention reader from a listing. `stack-cmp`
+- Jev as a calling-convention reader from a listing. `diagnose stack`
   first; leftover Choice only on an English "callee pops N bytes"
   card the LLM wrote.
 - Jev as Ghidra. Generation.

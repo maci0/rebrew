@@ -137,10 +137,10 @@ exit is 120, and click's is 1; `run_cli` overrides both.
 
 ## Entry Points
 
-The 34 root entries lead to the daily workflow and focused domain scopes.
-Counts include each entry's landing page and all of its nested operations;
-the root adds one surface to the 225 listed here. Each operation below has a
-reference section with its current arguments, options, and defaults.
+The 35 root entries lead to the daily workflow and focused domain scopes.
+Counts include each entry's landing page and all of its nested operations.
+Each operation below has a reference section with its current arguments,
+options, and defaults.
 
 | Entry | Surfaces | Purpose |
 | --- | ---: | --- |
@@ -160,20 +160,20 @@ reference section with its current arguments, options, and defaults.
 | [`rebrew recommend`](#rebrew-recommend) | 1 | Deterministic project advice: TU layout, hygiene, next steps. |
 | [`rebrew sync`](#rebrew-sync) | 8 | Exchange metadata with Ghidra through BinSync and perform structural operations. |
 | [`rebrew data`](#rebrew-data) | 17 | Inspect global data, edit metadata, and generate declarations and layout repairs. |
-| [`rebrew metadata`](#rebrew-metadata) | 1 | Preview and apply a managed-metadata backend transfer. |
+| [`rebrew metadata`](#rebrew-metadata) | 2 | Preview and apply a managed-metadata backend transfer. |
 | [`rebrew blocker`](#rebrew-blocker) | 4 | Record, inspect, and clear function blockers in dedicated metadata. |
 | [`rebrew orphans`](#rebrew-orphans) | 4 | List or prune metadata rows without a live source binding. |
 | [`rebrew types`](#rebrew-types) | 7 | Manage type identities; check layouts; apply types to C signatures. |
 | [`rebrew cfg`](#rebrew-cfg) | 18 | Read and edit rebrew-project.toml programmatically. |
 | [`rebrew cache`](#rebrew-cache) | 3 | Manage the compile result cache (.rebrew/compile_cache/). |
 | [`rebrew skills`](#rebrew-skills) | 3 | Discover and display agent skills bundled with rebrew. |
-| [`rebrew library`](#rebrew-library) | 15 | Identify libraries, compare code, and manage source providers and compiler settings. |
+| [`rebrew library`](#rebrew-library) | 17 | Identify libraries, compare code, and manage source providers and compiler settings. |
 | [`rebrew toolchain`](#rebrew-toolchain) | 11 | Manage compiler profiles and Docker images for shipped toolchains. |
 | [`rebrew binsync`](#rebrew-binsync) | 9 | Synchronize Git-backed state or exchange raw BinSync artifacts. |
-| [`rebrew source`](#rebrew-source) | 23 | Organize, import, and inspect C sources. |
+| [`rebrew source`](#rebrew-source) | 25 | Organize, import, and inspect C sources. |
 | [`rebrew build`](#rebrew-build) | 24 | Generate build inputs and inspect linked artifacts. |
 | [`rebrew diagnose`](#rebrew-diagnose) | 7 | Explain compiler configuration and locate byte mismatches. |
-| [`rebrew binary`](#rebrew-binary) | 31 | Inspect binaries and extract functions or resources. |
+| [`rebrew binary`](#rebrew-binary) | 32 | Inspect binaries and extract functions or resources. |
 | [`rebrew coverage`](#rebrew-coverage) | 6 | Inspect live coverage, manage portable exports/history, and serve reports. |
 | [`rebrew match`](#rebrew-match) | 10 | Search source mutations, compiler flags, and toolchains for byte matches. |
 | [`rebrew similarity`](#rebrew-similarity) | 3 | Compare function structure within or between binaries. |
@@ -416,7 +416,7 @@ not missing functions, and reads as such in the human line.
 `--skip-libraries` also adds `library_excluded` to the summary, `--prune-orphans` adds
 `orphans_pruned`. `--data` adds a `data` block (`matched` count,
 `mismatched`/`missing` lists with first-diff offsets); `--text` adds a `text`
-block (same shape as `text-audit`: `functions`/`found`/`correct`/`misplaced`/
+block (same shape as `build check-text-placement`: `functions`/`found`/`correct`/`misplaced`/
 `missing` counts plus the `misplaced_list` rows, exit 1 on any misplaced
 function, and a `linked` block: `image`, `image_hash`, `candidates` (RELOC rows),
 `identical`, `promoted`, `kept_reloc` rows with the reason each stayed RELOC, and
@@ -460,7 +460,7 @@ a relocation is RELOC there. The raw link resolves them. `rebrew verify --text`
 with an acknowledged raw link (`--raw-link`, or the configured `raw_link`)
 promotes a RELOC function to EXACT when the built image places it at its
 reference VA (the link map's function row, from `--link-map` or the `.map` beside
-the image; without a map, the `text-audit` object walk) and its linked bytes `[va, va+size)` equal the reference bytes,
+the image; without a map, the `build check-text-placement` object walk) and its linked bytes `[va, va+size)` equal the reference bytes,
 with no masking. A linked EXACT means the linked bytes are identical; it is a
 byte match, not an inference. Functions whose source is newer than the built
 image stay RELOC (rebuild first). `--dry-run` and `--no-promote` write nothing.
@@ -623,7 +623,7 @@ health is `rebrew doctor`'s job, not lint's.
 `rebrew decompile [OPTIONS] ADDRESS`
 
 Decompile one function and print the pseudo-C (raw `print()`, pipeable to a
-file).  Backend-pluggable, same backends as `recover-structs` (needs `kuna`
+file).  Backend-pluggable, same backends as `types recover` (needs `kuna`
 on PATH or the rizin/MCP backend).
 
 `--named` applies the **known-struct naming pass** (`rebrew.name_decomp`):
@@ -641,7 +641,7 @@ Matching is conservative: the variable is typed only when at least one
 accessed offset is an exact (non-padding) field of the smallest covering
 struct, and every access falls within its span; misaligned reads into
 `gap_*` padding are left as written.  This is the "feed the recovered
-structs back in" loop: `recover-structs` recovers the layout as an
+structs back in" loop: `types recover` recovers the layout as an
 anonymous candidate, you name the type (e.g. `command_s`) in a header, and
 `--named` picks it up.  `--json` returns `{va, backend, named, applied, code}`
 where `applied` lists `{var, struct, offsets}`.
@@ -2773,7 +2773,7 @@ body (>2 insns) is a `tail call` (forwarding function); only 1-2 insn
 jmp sequences are pure `tail-call thunk`s.
 
 When the function-list size is stale (the code continues past the declared
-size, e.g. a discovery entry that truncates mid-instruction), `asm`
+size, e.g. a discovery entry that truncates mid-instruction), `rebrew binary asm show`
 warns and extends the dump to the disassembly extent; an explicit `--size`
 is honored as-is (warn only).  The JSON report carries `stale_size` and the
 pre-extension `requested_size`.
@@ -2950,7 +2950,7 @@ rebrew binary imports mark --dry-run --json
 `rebrew binary extract [OPTIONS] COMMAND [ARGS]…`
 
 A group: `list`, `show VA`, and `batch N` are subcommands, not a positional on
-`extract` itself.
+`binary extract` itself.
 
 
 | Operation | Purpose |
@@ -6550,7 +6550,7 @@ rebrew sync pull-data # Fetch data labels into rebrew_globals.h (MCP)
 | Module | Purpose |
 |--------|---------|
 | `cu_map.py` | Compilation unit boundary inference (contiguity clustering + call-graph refinement) |
-| `data_scan.py` | Global data scanner library shared by `data`, `analyze`, `graph`, `report`, and binsync export: `scan_globals`, dispatch-table detection, BSS layout verification (also used by `coff_reloc` reloc validation) |
+| `data_scan.py` | Global data scanner library shared by `data.py`, `analyze.py`, `depgraph.py`, `report.py`, and binsync export: `scan_globals`, dispatch-table detection, BSS layout verification (also used by `coff_reloc` reloc validation) |
 
 ### Library Identification
 

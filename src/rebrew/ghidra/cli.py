@@ -244,7 +244,7 @@ def execute_sync(
 
     # ``ghidra_backend = "cli"`` executes the structural ops through the
     # ghidra-cli subprocess, so probing MCP first would refuse the run the
-    # config asks to make without MCP.  ``--pull-data`` is MCP-only either way.
+    # config asks to make without MCP.  ``sync pull-data`` is MCP-only either way.
     cli_backend = getattr(cfg, "ghidra_backend", "reva") == "cli"
     needs_mcp = pull_data or not cli_backend
 

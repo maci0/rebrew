@@ -168,8 +168,9 @@ splits matching the original build. Five commands close that loop:
 5. `rebrew verify --text`: the gate form of (3): exit 1 on any misplaced
    function, with a `text` block in the `--json` report.
 
-Pipeline order: layout-map (measure) → link-order (order) → text-audit
-(check) → merge-sweep (search TU splits) → postlink (normalize stamps).
+Pipeline order: `build layout-map` (measure) → `build link-order` (order) →
+`build check-text-placement` (check) → `match partitions` (search TU splits) →
+`build postlink` (normalize stamps).
 
 ## See also
 

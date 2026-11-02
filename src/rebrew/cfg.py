@@ -18,8 +18,9 @@ Usage::
     rebrew cfg target remove old_target
     rebrew cfg module add ZLIB --target mygame
     rebrew cfg module remove ZLIB --target mygame
-    rebrew cfg module set-cflags ZLIB"/O3" --target mygame
-    rebrew cfg detect-crt show [--write]
+    rebrew cfg module set-cflags ZLIB "/O3" --target mygame
+    rebrew cfg detect-crt show
+    rebrew cfg detect-crt apply [--dry-run]
 """
 
 lazy import contextlib
@@ -1529,8 +1530,8 @@ def detect_crt(
     root = _find_root(json_mode=json_output)
     detected = detect_crt_sources(root)
 
-    # --json emits the same data the text path prints, plus what --write
-    # persisted, so AI agents can script CRT detection end-to-end.
+    # --json emits the same data the text path prints, plus what detect-crt
+    # apply persisted, so AI agents can script CRT detection end-to-end.
     if json_output:
         result: dict[str, Any] = {
             "crt_sources": [

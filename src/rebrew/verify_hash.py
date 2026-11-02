@@ -548,7 +548,7 @@ def expected_text_function_extents(cfg: ProjectConfig) -> dict[str, tuple[int, i
 def expected_text_functions(cfg: ProjectConfig) -> dict[str, int]:
     """``{symbol: marker VA}`` for every annotated function.
 
-    Shared by verify and ``text-audit`` so both classify the same binary.
+    Shared by verify and ``build check-text-placement`` so both classify the same binary.
     Marker symbols use the per-target ``// FUNCTION:`` name. The key is
     the C name, so ``__foo`` stays ``_foo`` and ``hook@@12`` is ``hook``.
     """

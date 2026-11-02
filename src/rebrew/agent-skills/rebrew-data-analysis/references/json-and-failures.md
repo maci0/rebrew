@@ -49,7 +49,7 @@ Check `summary.conflicts > 0` to decide whether `--conflicts` needs attention.
 Record a data row (`rebrew data annotate`) so they resolve to a section. Do not
 add inline metadata state.
 
-## `--bss --json`
+## `data bss --json`
 
 `{"bss_va", "bss_size", "known_entries": [{"name", "va", "size_hint", "source_file"}],
  "gaps": [{"offset", "size", "between": [before, after]}], "coverage_pct",
@@ -58,7 +58,7 @@ add inline metadata state.
 A gap is uncovered inventory, not proof of missing storage. Check complete extents,
 alignment, interior views, and linked library storage before using `data fix-bss`.
 
-## `--dispatch --json`
+## `data dispatch --json`
 
 A list of tables:
 `[{"va", "section", "num_entries", "resolved", "coverage", "entries": [{"target_va",
@@ -79,8 +79,8 @@ writes them into canonical verification evidence. Incomplete reference bytes rem
 | Symptom | Cause | Fix |
 |---|---|---|
 | `rebrew-project.toml not found` / config error | Running outside a project | `cd` into the project (config discovery walks up to `rebrew-project.toml`) |
-| `target binary not found` / `could not be parsed (needed for --dispatch)` | Binary missing or unparseable | Fix `target_binary` in `rebrew-project.toml`; only `--dispatch` hard-requires the binary (plain scans degrade gracefully) |
+| `target binary not found` / `could not be parsed (needed for data dispatch)` | Binary missing or unparseable | Fix `target_binary` in `rebrew-project.toml`; only `data dispatch` hard-requires the binary (plain scans degrade gracefully) |
 | `already exists. Use --force to overwrite.` | `data header` clobber guard | Pass `--force`, or `--output` to a new path |
-| `No annotated BSS globals: nothing to verify` | No data row or `extern` with a `.bss` VA | Record the row, then re-run `--bss` |
+| `No annotated BSS globals — nothing to verify` | No data row or `extern` with a `.bss` VA | Record the row, then re-run `data bss` |
 | Gap size looks wrong | `size_hint` is estimated from the C type (int=4, char=1, …) | Verify the declared types of the globals on either side of the gap |
 | Small gaps not reported | Gaps < 4 bytes are alignment padding and intentionally ignored | Ignore; only ≥ 4-byte gaps are flagged |

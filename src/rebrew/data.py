@@ -358,7 +358,7 @@ def execute_data(
             console.print(f"Input digest: {report['input_digest']}")
         return
 
-    # --gen-header: generate rebrew_globals.h from annotations (no Ghidra)
+    # data header: generate rebrew_globals.h from annotations (no Ghidra)
     if gen_header:
         from rebrew.data_annotate import gen_globals_header
 
@@ -385,7 +385,7 @@ def execute_data(
                 console.print(f"  {untrusted_ident(sec)}: {count}")
         return
 
-    # --layout-audit / --fill-data / --own / --fix-ownership / --converge:
+    # data layout audit / fill / own / fix-ownership / converge:
     # .data placement machinery
     if layout_audit or fill_data or own or fix_ownership or converge:
         from rebrew.data_layout import audit_layout, own_data_globals
@@ -539,7 +539,7 @@ def execute_data(
             )
         return
 
-    # --annotate: bind data rows that lack a file to the declaration's source.
+    # data annotate: bind data rows that lack a file to the declaration's source.
     if annotate:
         from rebrew.data_annotate import annotate_globals
 
@@ -565,7 +565,7 @@ def execute_data(
     scan = scan_globals(src_dir, cfg=cfg)
 
     sections: dict[str, dict[str, Any]] = {}
-    bin_info: Any = None  # single lazy binary parse, shared with --dispatch
+    bin_info: Any = None  # single lazy binary parse, shared with data dispatch
     if bin_path.exists():
         try:
             from rebrew.formats.binary_loader import load_binary
@@ -629,7 +629,7 @@ def execute_data(
             _generate_bss_fix(
                 bss_report,
                 src_dir,
-                # Match --annotate's marker fallback: an empty origin would
+                # Match data annotate's marker fallback: an empty origin would
                 # emit `// DATA:  0x...` which the annotation parser rejects.
                 target_module(cfg),
                 metadata_dir=cfg.metadata_dir,
@@ -647,11 +647,11 @@ def execute_data(
 
     if dispatch:
         if not bin_path.exists():
-            error_exit("target binary not found (needed for --dispatch)", json_mode=json_output)
+            error_exit("target binary not found (needed for data dispatch)", json_mode=json_output)
 
         if bin_info is None:
             error_exit(
-                "target binary could not be parsed (needed for --dispatch)",
+                "target binary could not be parsed (needed for data dispatch)",
                 json_mode=json_output,
             )
         binary_data = bin_info.data

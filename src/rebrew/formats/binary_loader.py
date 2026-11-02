@@ -673,7 +673,7 @@ def _parse_regular(path: Path, fmt: str) -> BinaryInfo:
 def section_dict(info: BinaryInfo) -> dict[str, dict[str, int]]:
     """Map section name → {va, size, file_offset, raw_size} for *info*.
 
-    Shared by depgraph and data --dispatch, which previously duplicated this
+    Shared by depgraph and data dispatch, which previously duplicated this
     dict comprehension.
     """
     return {

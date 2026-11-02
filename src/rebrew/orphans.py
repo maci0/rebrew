@@ -25,7 +25,7 @@ lazy from rebrew.metadata.data import DATA_STATUS_VERIFIED
 lazy from rebrew.utils import preset_module_key
 lazy from rebrew.workspace.status import EARNED_STATUSES
 
-#: ``--prune`` holds back :data:`EARNED_STATUSES` blocks (a byte match or a
+#: Pruning holds back :data:`EARNED_STATUSES` blocks (a byte match or a
 #: PROVEN result), including VERIFIED data, unless ``--include-matched``.
 
 
@@ -65,7 +65,7 @@ def find_orphans(
 
     Blocks are also scoped to the target's own marker.  One metadata file
     holds every target's blocks, so a scan of the second target would
-    otherwise report every first-target block as an orphan — and ``--prune``
+    otherwise report every first-target block as an orphan, and a prune
     would delete the other target's earned STATUS wholesale.
 
     *scanned* is a :func:`rebrew.sources.scan_files` result for
@@ -86,7 +86,7 @@ def find_orphans(
     # known_vas is the safety net that keeps unreversed-but-real functions
     # from looking like orphans.  An unreadable inventory must fail closed —
     # treating it as empty would make every metadata-only block look prunable
-    # and ``--prune`` / ``verify --prune-orphans`` would delete earned STATUS.
+    # and ``orphans prune`` / ``verify --prune-orphans`` would delete earned STATUS.
     known_vas: set[int] = set()
     structure_path = inventory_path_for(cfg.reversed_dir, cfg)
     if structure_path.is_file():
@@ -206,7 +206,7 @@ def manage_orphans(
     json_output: bool = False,
     target: str | None = None,
 ) -> None:
-    """List orphaned metadata blocks (VA with no source binding); --prune deletes them."""
+    """List orphaned metadata blocks (VA with no source binding); prune=True deletes them."""
     cfg = require_config(target=target, json_mode=json_output)
     try:
         fn_orphans, data_orphans = find_orphans(cfg)
@@ -226,7 +226,7 @@ def manage_orphans(
             flag = f" [red]{o['status']}[/red]" if o["status"] in EARNED_STATUSES else ""
             console.print(f"  [yellow]orphan[/yellow] {o['module']} {o['va']} ({o['store']}){flag}")
         console.print(
-            f"\n{total} orphaned block(s) — re-run with [bold]--prune[/bold] to delete them"
+            f"\n{total} orphaned block(s) — re-run with [bold]rebrew orphans prune[/bold] to delete them"
         )
         return
 

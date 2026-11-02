@@ -638,7 +638,7 @@ def pull_data(
 
     # Idempotency: regeneration only bumps the "Generated:" timestamp —
     # skip the write when the body is otherwise identical to avoid needless
-    # git churn (and mtime-driven rebuilds) on every --pull-data.
+    # git churn (and mtime-driven rebuilds) on every sync pull-data.
     if out_file.exists():
         try:
             existing = out_file.read_text(encoding="utf-8")

@@ -8,7 +8,7 @@ most authoritative offline source of the *exact* build configuration:
   (``none``, or ``sdl | pgo | ltcg``) — it is a CodeView bitmask
   (``CompileSym3Flags``), not a command line; only tokens that look like
   compiler options (``/O1``, ``-MT``) count as CFLAGS candidates, and
-  ``--write-cflags`` refuses to write a symbolic switch list into the config.
+  ``rebrew binary pdb import-cflags`` refuses to write a symbolic switch list into the config.
 - ``S_GPROC32``/``S_LPROC32`` records — function names (and best-effort
   addresses/sizes) for the discovery inventory.
 - module list — a ``.zig-cache`` path identifies a Zig build.
