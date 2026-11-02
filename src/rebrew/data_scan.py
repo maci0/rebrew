@@ -1255,7 +1255,6 @@ def build_source_known_functions(cfg: ProjectConfig, src_dir: Path) -> dict[int,
     from rebrew.utils import rel_display_path
 
     known_functions: dict[int, dict[str, str]] = {}
-    # One ancestor probe for the whole walk, not one per source.
     metadata_dir = cfg.metadata_dir
     target = target_module(cfg)
     project_root = getattr(cfg, "root", None)

@@ -520,7 +520,6 @@ def load_existing_vas(src_dir: str | Path, cfg: ProjectConfig | None = None) -> 
     """
     src_path = Path(src_dir)
     existing: dict[int, str] = {}
-    # One ancestor probe and target lookup for the whole walk, headers included.
     metadata_dir = cfg.metadata_dir if cfg else None
     target = target_module(cfg)
     for cfile in iter_sources(src_path, cfg):

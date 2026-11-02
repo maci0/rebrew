@@ -286,7 +286,6 @@ def build_graph(
     # Both loops below visit a whole tree; resolve the store root and module
     # once instead of per source and per library header.
     metadata_dir = cfg.metadata_dir if cfg else None
-    # One ancestor probe and target lookup for the whole walk, headers included.
     target = target_module(cfg)
     project_root = getattr(cfg, "root", None)
 

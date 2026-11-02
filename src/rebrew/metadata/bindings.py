@@ -877,7 +877,6 @@ def _data_annotations_from_metadata(
         rows = data_rows_for_path(metadata_dir, filepath)
     rel = rel_display_path(filepath, base_dir)
     results: list[SourceBinding] = []
-    # Same fixed target spelling as the function rows above.
     target_key = preset_module_key(target_name) if target_name else ""
     for module, va, entry in rows:
         if target_key and module and preset_module_key(module) != target_key:

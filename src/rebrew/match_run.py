@@ -629,8 +629,8 @@ def _run_one_stub_ga(
             # a candidate differing ONLY in a call/mov displacement scores
             # 0.0 without checking the reloc TARGET against the catalog, so
             # a wrong-callee source would be spliced and promoted RELOC that
-            # the next test/verify immediately demotes (functionality-review
-            # F3).  Confirm with the same predicate test/verify use.
+            # the next test/verify immediately demotes.  Confirm with the
+            # same predicate test/verify use.
             confirmed = False
             try:
                 from rebrew.coff_reloc import build_name_to_va

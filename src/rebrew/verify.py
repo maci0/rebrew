@@ -2584,7 +2584,6 @@ def prepare_entries(
 
     selected, duplicate_vas = select_source_bindings(cfg, entries)
     prototypes: dict[Path, list[SourceBinding]] = {}
-    # One ancestor probe and target lookup for the whole selection.
     metadata_dir = cfg.metadata_dir
     target = target_module(cfg)
     project_root = getattr(cfg, "root", None)

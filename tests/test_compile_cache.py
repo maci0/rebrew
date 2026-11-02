@@ -1517,8 +1517,7 @@ class TestCompileToObjCacheIntegration:
         assert subprocess_called["count"] == 1  # no second subprocess call
         assert Path(obj2).read_bytes() == b"\x00COFF_OBJ"
 
-        # The workdir source copy is only needed for the compiler subprocess
-        # (perf-review: cache hit skips the copy + read-back entirely).
+        # The workdir source copy is only needed for the compiler subprocess.
         assert (workdir1 / "f.c").exists()  # miss path copied the source
         assert not (workdir2 / "f.c").exists()  # hit path must not copy
 

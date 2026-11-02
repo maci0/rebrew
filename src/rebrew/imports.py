@@ -114,7 +114,6 @@ def mark_import_stubs(
     from rebrew.utils import atomic_write_text, preset_module_key
 
     target_module_name = target_module(cfg)
-    # One ancestor probe for the whole command, including the batched write.
     metadata_dir = Path(cfg.metadata_dir)
     out_file = Path(cfg.reversed_dir) / "library_imports.h"
     existing, encoding = read_source_text(out_file) if out_file.exists() else ("", "utf-8")

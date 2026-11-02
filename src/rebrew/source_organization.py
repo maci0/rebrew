@@ -71,7 +71,6 @@ def review_organization(
     inputs: dict[Path, bytes] = {path: path.read_bytes() for path in paths}
     absent_inputs: set[Path] = set()
     for cfg in cfgs:
-        # One ancestor probe per target, not one per metadata filename.
         metadata_dir = cfg.metadata_dir
         candidates = {
             cfg.root / "rebrew-project.toml",
@@ -171,7 +170,6 @@ def review_organization(
     targets = []
     all_ids = set(definitions)
     for cfg in cfgs:
-        # One ancestor probe and target lookup per target, not per source.
         metadata_dir = cfg.metadata_dir
         target = target_module(cfg)
         sources, _foreign = collect_target_sources(cfg, target)

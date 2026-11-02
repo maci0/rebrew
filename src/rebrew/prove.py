@@ -1981,7 +1981,6 @@ def _run_all_batch(
     # Collect all eligible annotations
     candidates: list[tuple[Path, Any]] = []
     all_annos: list[Any] = []
-    # One ancestor probe for the whole batch.
     metadata_dir = cfg.metadata_dir
     project_root = getattr(cfg, "root", None)
     for src in sources:

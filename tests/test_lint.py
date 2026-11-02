@@ -457,8 +457,8 @@ class TestNoConfig:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """--fix outside a project must explain that nothing can migrate
-        (functionality-review: previously a silent no-op — the user saw zero
-        effect with no message)."""
+        (previously a silent no-op: the user saw zero effect with no
+        message)."""
         from typer.testing import CliRunner
 
         from rebrew.lint import app

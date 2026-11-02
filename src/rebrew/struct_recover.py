@@ -683,7 +683,6 @@ def _collect_functions(
     target_module_name = target_module(cfg)
     seen: set[int] = set()
     out = []
-    # One ancestor probe for the whole walk.
     metadata_dir = cfg.metadata_dir
     project_root = getattr(cfg, "root", None)
     for src in iter_sources(cfg.reversed_dir, cfg):

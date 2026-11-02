@@ -152,7 +152,6 @@ def contract_contexts(
 ) -> tuple[dict[Path, set[Path]], list[dict[str, Any]]]:
     """Read actual target providers and their include closure, reporting uncertainty."""
     module_name = target_module(cfg)
-    # One ancestor probe and target lookup for the whole walk.
     metadata_dir = cfg.metadata_dir
     sources, _foreign = collect_target_sources(cfg, module_name)
     if selected_sources is not None:

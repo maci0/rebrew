@@ -66,7 +66,6 @@ def collect_target_sources(
     metadata_root = metadata_dir.resolve()
     discovered = sources if sources is not None else iter_sources(cfg.reversed_dir, cfg)
     source_files = set(discovered) | set(library_entries)
-    # One fold for the walk: the selected target does not change per source.
     target_key = preset_module_key(target_module_name)
     for src in sorted(source_files):
         resolved = src.resolve()

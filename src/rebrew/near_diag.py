@@ -219,7 +219,6 @@ def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool, dry_run: bool
 
     sources = list(iter_sources(cfg.reversed_dir, cfg))
     tm = target_module(cfg)
-    # One ancestor probe for the whole batch.
     metadata_dir = cfg.metadata_dir
     project_root = getattr(cfg, "root", None)
     candidates: list[tuple[Path, Any]] = []

@@ -95,7 +95,6 @@ _JSON_KEYS = (
 def _collect_annotations(cfg: ProjectConfig) -> list[SourceBinding]:
     """Parse every function annotation under ``cfg.reversed_dir``."""
     annos: list[SourceBinding] = []
-    # One ancestor probe and one target lookup for the whole walk.
     metadata_dir = cfg.metadata_dir
     target = target_module(cfg)
     project_root = getattr(cfg, "root", None)

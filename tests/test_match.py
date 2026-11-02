@@ -341,9 +341,9 @@ class TestComputeFitness:
     def test_fresh_pickle_result_skips_rescore_via_memo(self, tmp_path: Path) -> None:
         """A BuildResult freshly unpickled from the disk cache carries
         fitness=None (the field is populated after put), so the warm path
-        must consult the process-local memo — the disk-backed BuildCache
-        alone could never trigger the old getattr fast path (perf-review
-        F6: elites persist across generations, so this is the real win)."""
+        must consult the process-local memo; the disk-backed BuildCache alone
+        could not trigger the getattr fast path, and elites persist across
+        generations."""
         from rebrew.matcher import BuildResult
 
         ga = _make_ga(tmp_path)

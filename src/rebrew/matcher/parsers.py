@@ -263,8 +263,7 @@ def _detect_obj_format_data(magic: bytes) -> str:
 
     Data-based sibling of :func:`_detect_obj_format` so hot paths that
     already hold the file bytes (e.g. the OMF branch of
-    ``parse_obj_symbol_and_relocs``) do not re-open the file to re-detect
-    (perf-review: one open + read per compiled candidate is pure overhead).
+    ``parse_obj_symbol_and_relocs``) do not re-open the file to re-detect.
     """
     if magic == b"\x7fELF":
         return "elf"

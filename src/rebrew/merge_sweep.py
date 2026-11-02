@@ -648,7 +648,6 @@ def _parse_annotations_fallback(cfg: ProjectConfig) -> dict[int, Any]:
     """VA to annotation via direct per-file parse (no metadata overlay)."""
     target_module_name = target_module(cfg)
     out: dict[int, Any] = {}
-    # One ancestor probe for the whole walk.
     metadata_dir = cfg.metadata_dir
     project_root = getattr(cfg, "root", None)
     for src in iter_sources(cfg.reversed_dir, cfg):

@@ -619,7 +619,7 @@ def _validate_dir32(
     # Wrong absolute symbol with the same addend?  The membership test is
     # algebraic: actual == (other + addend) & mask  ⟺  other == (actual -
     # addend) & mask.  O(1) instead of scanning the catalog per failing
-    # DIR32 (perf-review: ~500x on the failing-reloc path).
+    # DIR32.
     other = (actual - addend) & 0xFFFFFFFF
     return other not in catalog_va_set or other == target_va
 

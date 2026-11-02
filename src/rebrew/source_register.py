@@ -37,7 +37,6 @@ def plan_registration(
     """Validate every address before constructing any metadata write."""
     function_rows: list[dict[str, Any]] = []
     data_rows: list[dict[str, Any]] = []
-    # One ancestor probe for every anchor in every selected file.
     metadata_dir = cfg.metadata_dir
     functions = load_metadata(metadata_dir)
     data = load_data_metadata(metadata_dir)

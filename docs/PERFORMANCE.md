@@ -132,8 +132,8 @@ paired wrappers that differ only in the freeze call:
 | `status --json`, 5,000-function synthetic project | 0.863 s | 0.733 s | ~0.65 s |
 | `--version` | 0.430 s | 0.349 s | 0.291 s |
 
-The 5,000-row command is the synthetic project from
-`.scratch/perf-review/`; no guild command was measurable on this checkout.
+The 5,000-row command is a synthetic project; no real project command was
+measurable on this checkout.
 `gc.get_freeze_count()` is the gate:
 `test_startup_freeze_does_not_run_a_preliminary_collection` checks that no collect
 is requested and freeze runs exactly once. `test_startup_freeze_is_one_shot`

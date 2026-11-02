@@ -1544,11 +1544,6 @@ def contextualized_source(
     An empty context returns *source_text* unchanged: a context that carries
     no declarations must not alter the compile unit (or, through it, the
     compile-cache key).
-
-    The parameter is named *compile_context*, not *context*: `context` is a
-    reserved alias for the Cordis coeffect context in dsh-cordis-review's
-    checker, and a `context.text` read here raised a false `inject` finding
-    on every review round.
     """
     if compile_context is None or not compile_context.text:
         return source_text

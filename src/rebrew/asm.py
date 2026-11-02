@@ -175,7 +175,6 @@ def build_function_lookup(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
 
     src_dir = Path(cfg.reversed_dir)
     if src_dir.is_dir():
-        # One ancestor probe and target lookup for the whole walk.
         metadata_dir = cfg.metadata_dir
         target = target_module(cfg)
         project_root = getattr(cfg, "root", None)
