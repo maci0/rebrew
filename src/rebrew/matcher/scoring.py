@@ -522,17 +522,6 @@ def _apply_register_mask(
                     break
 
 
-def _mask_registers_x86_32(
-    code: bytes,
-    cs_arch: int = _DEFAULT_CS_ARCH,
-    cs_mode: int = _DEFAULT_CS_MODE,
-) -> bytes:
-    """Mask out register encodings in ModR/M and opcode bytes for register-aware diff."""
-    out = bytearray(code)
-    _apply_register_mask(code, out, cs_arch, cs_mode)
-    return bytes(out)
-
-
 def score_candidate(
     target_bytes: bytes,
     candidate_bytes: bytes,

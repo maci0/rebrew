@@ -261,16 +261,6 @@ def _name_from_index(va: int, names: dict[int, str], index: _FunctionRangeIndex)
     return f"fcn_{va:08x}"
 
 
-def _containing_name(va: int, names: dict[int, str], ranges: list[tuple[int, int, str]]) -> str:
-    """Resolve *va* to a function name, falling back to ``fcn_%08x``.
-
-    An exact function-start match wins; otherwise the smallest known function
-    range containing *va* is used so a call site inside a function body reports
-    its enclosing function. Equal lengths keep the earlier range.
-    """
-    return _name_from_index(va, names, _scan_function_ranges(ranges))
-
-
 # ---------------------------------------------------------------------------
 # Dossier sections
 # ---------------------------------------------------------------------------

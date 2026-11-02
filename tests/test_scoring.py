@@ -11,7 +11,7 @@ from rebrew.matcher import scoring
 from rebrew.matcher.core import EXACT_SCORE_THRESHOLD, Score, StructuralSimilarity
 from rebrew.matcher.scoring import (
     _REG_MASK_PLAN_MAX_BYTES,
-    _mask_registers_x86_32,
+    _apply_register_mask,
     _normalize_reloc_x86_32,
     _register_mask_plan,
     _register_mask_plans_lock,
@@ -21,6 +21,14 @@ from rebrew.matcher.scoring import (
     score_candidate,
     structural_similarity,
 )
+
+
+def _mask_registers_x86_32(code: bytes) -> bytes:
+    """Mask register encodings the way the scorer does, returning a copy."""
+    out = bytearray(code)
+    _apply_register_mask(code, out)
+    return bytes(out)
+
 
 # -------------------------------------------------------------------------
 # _mask_registers_x86_32

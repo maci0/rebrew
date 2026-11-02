@@ -463,21 +463,24 @@ class TestContainingNameSmallestRange:
     def test_overlapping_ranges_pick_the_smallest(self) -> None:
         """An oversized outer SIZE overlaps the next function; the resolver
         promises the SMALLEST containing range, not the earliest-starting one."""
-        from rebrew.describe import _containing_name
+        from rebrew.describe import _name_from_index, _scan_function_ranges
+
+        def resolve(va: int, names: dict[int, str], ranges: list[tuple[int, int, str]]) -> str:
+            return _name_from_index(va, names, _scan_function_ranges(ranges))
 
         ranges = [(0x1000, 0x1200, "outer"), (0x1040, 0x1080, "inner")]
-        assert _containing_name(0x1050, {}, ranges) == "inner"
-        assert _containing_name(0x1150, {}, ranges) == "outer"
+        assert resolve(0x1050, {}, ranges) == "inner"
+        assert resolve(0x1150, {}, ranges) == "outer"
         # The shorter range is still the one that contains the site when it
         # is listed first, and equal lengths keep the earlier entry.
         listed_first = [(0x1040, 0x1080, "inner"), (0x1000, 0x1200, "outer")]
-        assert _containing_name(0x1050, {}, listed_first) == "inner"
-        assert _containing_name(0x1150, {}, listed_first) == "outer"
+        assert resolve(0x1050, {}, listed_first) == "inner"
+        assert resolve(0x1150, {}, listed_first) == "outer"
         same_length = [(0x1000, 0x1100, "first"), (0x1040, 0x1140, "second")]
-        assert _containing_name(0x1080, {}, same_length) == "first"
-        assert _containing_name(0x1120, {}, same_length) == "second"
-        assert _containing_name(0x1000, {0x1000: "exact"}, ranges) == "exact"
-        assert _containing_name(0x0900, {}, ranges) == "fcn_00000900"
+        assert resolve(0x1080, {}, same_length) == "first"
+        assert resolve(0x1120, {}, same_length) == "second"
+        assert resolve(0x1000, {0x1000: "exact"}, ranges) == "exact"
+        assert resolve(0x0900, {}, ranges) == "fcn_00000900"
 
 
 class TestDossierRangeScan:
