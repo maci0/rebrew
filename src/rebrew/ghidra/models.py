@@ -14,7 +14,6 @@ class JsonRpcError:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any] | str | Any) -> JsonRpcError:
-        """Reconstruct from dictionary."""
         if isinstance(d, str):
             return cls(code=-1, message=d, data=None)
         if not isinstance(d, dict):
@@ -41,7 +40,6 @@ class JsonRpcResponse:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> JsonRpcResponse:
-        """Reconstruct from dictionary."""
         err = d.get("error")
         request_id = d.get("id")
         result = d.get("result")
@@ -62,7 +60,6 @@ class McpToolContent:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> McpToolContent:
-        """Reconstruct from dictionary."""
         return cls(type=str(d.get("type", "")), text=str(d.get("text", "")))
 
 
@@ -75,7 +72,6 @@ class McpToolResult:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> McpToolResult:
-        """Reconstruct from dictionary."""
         return cls(
             content=[
                 McpToolContent.from_dict(c) for c in d.get("content", []) if isinstance(c, dict)

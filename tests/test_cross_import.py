@@ -2245,9 +2245,8 @@ class TestCandidatesOnly:
             lambda cfg: {A_F1: ("EXACT", "Units/vfs/f1.c")},
         )
 
-    def test_json_lists_findings_and_names_the_source_file(
-        self, tmp_path: Path, monkeypatch
-    ) -> None:
+    def _run_import(self, tmp_path: Path, monkeypatch, *extra: str) -> dict[str, Any]:
+        """Run ``source import-related`` against the shared stub inventory."""
         import json as json_mod
 
         from typer.testing import CliRunner
@@ -2269,22 +2268,18 @@ class TestCandidatesOnly:
                 "message": "",
             },
         )
-
-        runner = CliRunner()
-        result = runner.invoke(
+        result = CliRunner().invoke(
             umbrella,
-            [
-                "source",
-                "import-related",
-                "--from",
-                "SRC",
-                "--json",
-                "--dry-run",
-                "--candidates-only",
-            ],
+            ["source", "import-related", "--from", "SRC", "--json", "--dry-run", *extra],
         )
         assert result.exit_code == 0, result.output
-        payload = json_mod.loads(result.output)
+        payload: dict[str, Any] = json_mod.loads(result.output)
+        return payload
+
+    def test_json_lists_findings_and_names_the_source_file(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        payload = self._run_import(tmp_path, monkeypatch, "--candidates-only")
         rows = {r["dst_va"]: r for r in payload["results"]}
         assert set(rows) == {"0x401040"}  # the matchless destination is hidden
         assert payload["skipped_count"] == 1
@@ -2294,34 +2289,7 @@ class TestCandidatesOnly:
     def test_without_the_flag_every_destination_is_listed(
         self, tmp_path: Path, monkeypatch
     ) -> None:
-        import json as json_mod
-
-        from typer.testing import CliRunner
-
-        from rebrew.app.main import app as umbrella
-
-        self._project(tmp_path)
-        monkeypatch.chdir(tmp_path)
-        self._patch(monkeypatch)
-        monkeypatch.setattr(
-            "rebrew.cross_import.import_function",
-            lambda *a, **k: {
-                "dst_va": "0x401040",
-                "src_va": "0x401000",
-                "score": 100.0,
-                "action": "would-import",
-                "status": "",
-                "filepath": "Units/vfs/f1.c",
-                "message": "",
-            },
-        )
-
-        runner = CliRunner()
-        result = runner.invoke(
-            umbrella, ["source", "import-related", "--from", "SRC", "--json", "--dry-run"]
-        )
-        assert result.exit_code == 0, result.output
-        payload = json_mod.loads(result.output)
+        payload = self._run_import(tmp_path, monkeypatch)
         assert len(payload["results"]) == 2
         assert "skipped_count" not in payload
 

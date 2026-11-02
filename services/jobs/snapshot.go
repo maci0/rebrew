@@ -43,12 +43,7 @@ func snapshot(root, dir string) (string, string, error) {
 	keep := false
 	defer func() {
 		if !keep {
-			_ = filepath.WalkDir(stage, func(path string, entry fs.DirEntry, err error) error {
-				if err == nil && entry.IsDir() {
-					return os.Chmod(path, 0700)
-				}
-				return err
-			})
+			makeTreeRemovable(stage)
 			_ = os.RemoveAll(stage)
 		}
 	}()
@@ -165,6 +160,17 @@ func sealSnapshot(root string) error {
 	})
 }
 
+// makeTreeRemovable restores owner write access under a sealed tree so it can
+// be deleted; file modes do not stop removal, directory modes do.
+func makeTreeRemovable(root string) {
+	_ = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err == nil && entry.IsDir() {
+			return os.Chmod(path, 0700)
+		}
+		return err
+	})
+}
+
 // retainResultWorkspace seals the complete post-stop tree before capacity release.
 func retainResultWorkspace(workspace, dir, id string) (string, error) {
 	if !validHex(id, 64) {
@@ -193,12 +199,7 @@ func retainResultWorkspace(workspace, dir, id string) (string, error) {
 	keep := false
 	defer func() {
 		if !keep {
-			_ = filepath.WalkDir(stage, func(path string, entry fs.DirEntry, err error) error {
-				if err == nil && entry.IsDir() {
-					return os.Chmod(path, 0700)
-				}
-				return err
-			})
+			makeTreeRemovable(stage)
 			_ = os.RemoveAll(stage)
 		}
 	}()

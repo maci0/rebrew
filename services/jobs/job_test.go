@@ -26,14 +26,7 @@ func testJobDir(t *testing.T) string {
 	if err := os.Chmod(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		_ = filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
-			if err == nil && entry.IsDir() {
-				return os.Chmod(path, 0700)
-			}
-			return err
-		})
-	})
+	t.Cleanup(func() { makeTreeRemovable(dir) })
 	return dir
 }
 
