@@ -895,20 +895,23 @@ class VerifyCache:
 
 
 def binary_id(cfg: ProjectConfig) -> str:
-    """Stable id for the target binary (mtime_ns + size + inode), "" when unreadable.
+    """Stable id for the target binary (mtime_ns + size + inode + ctime), "" when unreadable.
 
     Guards the verify cache: a rebuilt binary of the same target name must
     invalidate cached results, which the target-name check alone misses.
     Inode covers a same-size rename-over in one mtime tick
     (``atomic_write_bytes``, ``cp --pop-size`` then ``mv``): mtime and size stay
     put, and verdicts earned against the previous image would otherwise
-    be served for the new one.
+    be served for the new one.  Change time covers the other in-place case:
+    a same-size rewrite that restores the old mtime keeps the inode, but not
+    the bytes, so the cached verdicts no longer describe the image.
     """
     try:
         st = Path(cfg.target_binary).stat()
     except OSError, TypeError, AttributeError:
         return ""
-    return hashlib.sha256(f"{st.st_mtime_ns}:{st.st_size}:{st.st_ino}".encode()).hexdigest()
+    token = f"{st.st_mtime_ns}:{st.st_size}:{st.st_ino}:{st.st_ctime_ns}"
+    return hashlib.sha256(token.encode()).hexdigest()
 
 
 _VERIFY_CACHE_LOCK = threading.Lock()

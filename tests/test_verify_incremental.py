@@ -412,6 +412,25 @@ class TestBinaryId:
         assert binary_id(cfg) != id_a
         assert binary_id(cfg) != ""
 
+    def test_in_place_rewrite_with_restored_mtime_changes_id(self, tmp_path: Path) -> None:
+        """A same-size rewrite that restores mtime keeps the inode but not the bytes."""
+        from rebrew.verify_cache import binary_id
+
+        cfg = _make_cfg(tmp_path)
+        path = Path(cfg.target_binary)
+        path.write_bytes(b"MZAA")
+        id_a = binary_id(cfg)
+        old = path.stat()
+        path.write_bytes(b"MZBB")
+        os.utime(path, ns=(old.st_atime_ns, old.st_mtime_ns))
+        after = path.stat()
+        assert (after.st_mtime_ns, after.st_size, after.st_ino) == (
+            old.st_mtime_ns,
+            old.st_size,
+            old.st_ino,
+        )
+        assert binary_id(cfg) != id_a
+
 
 class TestLoadVerifyCache:
     def test_load_valid_cache(self, tmp_path: Path) -> None:

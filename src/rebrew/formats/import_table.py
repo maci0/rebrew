@@ -46,13 +46,14 @@ def parse_imports(binary_path: Path) -> list[dict[str, Any]]:
     IAT slot or the hint value. It is None for ordinal imports and non-PE
     records. Physical hint/name order does not establish linker load order.
 
-    Memoized per ``(resolved path, mtime_ns, size, ino)`` (bounded dict +
-    lock, mirroring ``rebrew.formats.binary_loader.iat_slot_vas``): one run parses the
-    target from the report, pe_symbols, the binary gate, the decompiler
-    dossier and the toolchain detector, and each miss re-ran a full LIEF parse
-    of the same multi-megabyte image.  A rebuild at the same path invalidates
-    via mtime/size/inode.  The caller gets fresh dicts, so a consumer that
-    annotates a record cannot poison the cache.
+    Memoized per ``(resolved path, mtime_ns, size, ino, ctime_ns)`` (bounded
+    dict + lock, mirroring ``rebrew.formats.binary_loader.iat_slot_vas``): one
+    run parses the target from the report, pe_symbols, the binary gate, the
+    decompiler dossier and the toolchain detector, and each miss re-ran a full
+    LIEF parse of the same multi-megabyte image.  A rebuild at the same path
+    invalidates via mtime/size/inode, and change time catches an in-place
+    rewrite whose mtime was restored.  The caller gets fresh dicts, so a
+    consumer that annotates a record cannot poison the cache.
     """
     key = _cache_key(binary_path)
     if key is not None:
@@ -71,12 +72,17 @@ def parse_imports(binary_path: Path) -> list[dict[str, Any]]:
 
 
 def _cache_key(binary_path: Path) -> str | None:
-    """Identity of *binary_path* for the import memo, or None if unstattable."""
+    """Identity of *binary_path* for the import memo, or None if unstattable.
+
+    Change time is part of the identity: an in-place rewrite that restores
+    the old mtime keeps the inode and size, and the cached import table would
+    then describe bytes the image no longer has.
+    """
     try:
         st = binary_path.stat()
     except OSError:
         return None
-    return f"{binary_path.resolve()}:{st.st_mtime_ns}:{st.st_size}:{st.st_ino}"
+    return f"{binary_path.resolve()}:{st.st_mtime_ns}:{st.st_size}:{st.st_ino}:{st.st_ctime_ns}"
 
 
 def _parse_imports(binary_path: Path) -> list[dict[str, Any]] | None:

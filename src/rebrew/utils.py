@@ -776,17 +776,20 @@ def join_source_lines(original: str, lines: list[str]) -> str:
 
 
 def binary_fingerprint(binary: str | Path) -> str:
-    """``mtime_ns:size:ino`` for *binary*, or ``""`` when unreadable.
+    """``mtime_ns:size:ino:ctime_ns`` for *binary*, or ``""`` when unreadable.
 
     The one cheap change detector the analysis caches key on: a recompile
     that rewrites the file changes mtime or inode even when the bytes are
-    identical, and a copy of the same bytes gets its own inode.
+    identical, and a copy of the same bytes gets its own inode.  Change time
+    catches an in-place rewrite whose mtime was restored (``touch -r``, a
+    build that preserves timestamps): mtime, size and inode stay put, but
+    the bytes are not the ones the cached analysis describes.
     """
     try:
         st = Path(binary).stat()
     except OSError:
         return ""
-    return f"{st.st_mtime_ns}:{st.st_size}:{st.st_ino}"
+    return f"{st.st_mtime_ns}:{st.st_size}:{st.st_ino}:{st.st_ctime_ns}"
 
 
 def read_compile_source(filepath: Path) -> str:

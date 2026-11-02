@@ -700,6 +700,34 @@ class TestParseFailureIsNotMemoized:
         assert import_table.parse_imports(target) == [record]
         assert calls["n"] == 1
 
+    def test_in_place_rewrite_with_restored_mtime_reparses(self, tmp_path, monkeypatch) -> None:
+        import os
+
+        from rebrew.formats import import_table
+
+        target = tmp_path / "app.exe"
+        target.write_bytes(b"MZ" + b"\x00" * 64)
+        calls = {"n": 0}
+        record = {"dll": "KERNEL32.dll", "name": "Sleep", "iat_va": 0x1000, "ordinal": None}
+
+        def _ok(_path: Path):
+            calls["n"] += 1
+            return [record]
+
+        monkeypatch.setattr(import_table, "_parse_imports", _ok)
+        assert import_table.parse_imports(target) == [record]
+        old = target.stat()
+        target.write_bytes(b"MZ" + b"\x01" * 64)
+        os.utime(target, ns=(old.st_atime_ns, old.st_mtime_ns))
+        after = target.stat()
+        assert (after.st_mtime_ns, after.st_size, after.st_ino) == (
+            old.st_mtime_ns,
+            old.st_size,
+            old.st_ino,
+        )
+        assert import_table.parse_imports(target) == [record]
+        assert calls["n"] == 2
+
 
 @settings(max_examples=100, deadline=None)
 @given(st.binary(min_size=1, max_size=64), st.integers(min_value=1, max_value=8))

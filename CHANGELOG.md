@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Include a file's change time in target-binary and import-table cache identities, so an in-place rebuild that restores the old mtime cannot serve analysis or verification results for bytes the image no longer has.
 - Reject a decompiler project marker written before target-binary fingerprints existed, so upgrading rebrew cannot reuse a rizin database analyzed from the previous image.
 - Reject an incomplete cached stock archive and publish fresh extractions atomically, so an interrupted copy cannot make library functions look like game code.
 - Speed up status, todo and report scans by reusing the batch's metadata rows for source files without stored rows, instead of reloading the stores once per file.

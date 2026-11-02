@@ -1880,19 +1880,34 @@ class TestRetryLogDetail:
 class TestBinaryFingerprint:
     """The change detector the analysis caches and the IAT-region cache key on."""
 
-    def test_tracks_mtime_size_and_inode(self, tmp_path: Path) -> None:
+    def test_tracks_mtime_size_inode_and_ctime(self, tmp_path: Path) -> None:
         binary = tmp_path / "app.exe"
         binary.write_bytes(b"MZ")
         fp = binary_fingerprint(binary)
         assert fp == binary_fingerprint(str(binary))
         st = binary.stat()
-        assert fp == f"{st.st_mtime_ns}:{st.st_size}:{st.st_ino}"
+        assert fp == f"{st.st_mtime_ns}:{st.st_size}:{st.st_ino}:{st.st_ctime_ns}"
 
     def test_changes_when_the_file_is_rewritten(self, tmp_path: Path) -> None:
         binary = tmp_path / "app.exe"
         binary.write_bytes(b"MZ")
         before = binary_fingerprint(binary)
         os.utime(binary, ns=(0, 0))
+        assert binary_fingerprint(binary) != before
+
+    def test_changes_when_an_in_place_rewrite_restores_mtime(self, tmp_path: Path) -> None:
+        binary = tmp_path / "app.exe"
+        binary.write_bytes(b"MZAA")
+        before = binary_fingerprint(binary)
+        old = binary.stat()
+        binary.write_bytes(b"MZBB")
+        os.utime(binary, ns=(old.st_atime_ns, old.st_mtime_ns))
+        after = binary.stat()
+        assert (after.st_mtime_ns, after.st_size, after.st_ino) == (
+            old.st_mtime_ns,
+            old.st_size,
+            old.st_ino,
+        )
         assert binary_fingerprint(binary) != before
 
     def test_missing_file_is_empty(self, tmp_path: Path) -> None:
