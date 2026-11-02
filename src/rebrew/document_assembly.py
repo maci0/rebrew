@@ -14,7 +14,6 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew source document-assembly f.c --symbol fill --evidence macro\n\n"
         "  rebrew source document-assembly f.c --symbol fill --evidence macro\n"
     ),
 )
