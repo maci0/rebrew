@@ -132,10 +132,8 @@ def load_ghidra_data_labels(src_dir: Path | None) -> dict[int, GhidraDataLabel]:
     if src_dir is None:
         return {}
 
-    # Try new format first
     path = src_dir / "ghidra_data_labels.json"
     if not path.exists():
-        # Fall back to legacy format
         path = src_dir / "ghidra_switchdata.json"
     if not path.exists():
         return {}

@@ -90,9 +90,6 @@ lazy from tomlkit.exceptions import InternalParserError, ParseError
 
 logger = logging.getLogger(__name__)
 
-# The rebrew package's own vendored toolchains (toolchain/msvc/5.0-win32, toolchain/watcom/2.0-win32,
-# ...).  Projects resolve compiler paths project-relative first, then fall
-# back here so a freshly-inited project works without a local tools/ symlink.
 #: A C89 identifier: ASCII only.  ``str.isidentifier()`` follows Python's
 #: Unicode rules and accepts ``café`` or ``名前``, which MSVC6-era compilers
 #: reject.  Names from linker output, BinSync, or the CLI are external text.

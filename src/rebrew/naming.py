@@ -195,12 +195,10 @@ def parse_byte_delta(blocker: str) -> int | None:
     if not blocker:
         return None
 
-    # Try explicit "XB diff" pattern first
     m = _DELTA_PATTERN_DIFF.search(blocker)
     if m:
         return int(m.group(1))
 
-    # Try "XB vs YB" pattern
     m = _DELTA_PATTERN_VS.search(blocker)
     if m:
         return abs(int(m.group(1)) - int(m.group(2)))
