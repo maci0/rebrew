@@ -431,7 +431,7 @@ def mutation_suggestions(dominant_category: str) -> list[str]:
 
 
 def catalog_markdown() -> str:
-    """Render the near-diag symptom index (Kuna-style) as Markdown.
+    """Render the diagnose near symptom index (Kuna-style) as Markdown.
 
     Maps each delta category — the *symptom* a user/agent sees in the
     verdict — to the actionable suggestion and the GA mutation operators
@@ -451,7 +451,7 @@ def catalog_markdown() -> str:
     )
     rows.append("| `match` | Bytes are identical — nothing to fix | — |")
     return (
-        "# near-diag symptom index\n\n"
+        "# diagnose near symptom index\n\n"
         "Generated from the verdict registry (`rebrew diagnose near --catalog`).  "
         "When a function is NEAR_MATCHING, the verdict names the dominant "
         "delta category; the row below gives the actionable suggestion and "
@@ -468,7 +468,7 @@ def blocker_text(result: dict[str, Any]) -> str:
     operators inserted between them when present: the mutations are the
     actionable next step, so they outrank the prose tail of the suggestion
     when the 200-char budget runs out (the full suggestion stays visible in
-    near-diag's live output).
+    the diagnose near live output).
     """
     verdict = result.get("verdict", "")
     suggestion = result.get("suggestion", "")
@@ -584,7 +584,7 @@ def _frame_comparison(
     cs_arch: str | int,
     cs_mode: str | int,
 ) -> dict[str, Any] | None:
-    """Stack-frame comparison (stack-cmp) for the pair — best-effort.
+    """Stack-frame comparison (``rebrew diagnose stack``) for the pair — best-effort.
 
     Derived from disassembly on both sides (no PDB).  A frame delta is a
     per-function flag symptom (/Oy, /O1 vs /O2, /Gs, calling convention) and

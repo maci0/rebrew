@@ -110,7 +110,7 @@ class TestExtractLayoutMissingSection:
         pe = _make_pe([b".text\x00\x00\x00"])
         with pytest.raises(ValueError):
             extract_layout(pe)
-        # the guard: ValueError (handled by gen-layout's error_exit) not the
+        # the guard: ValueError (handled by rebrew build layout's error_exit) not the
         # bare StopIteration that used to escape as a traceback
         assert not issubclass(ValueError, StopIteration)
 

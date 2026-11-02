@@ -518,7 +518,7 @@ def _collect_active_functions(
                 category = CAT_IMPROVE_MATCH
                 desc = (
                     "GA ceiling (register-only delta) — angr unavailable, "
-                    "no prover to run; try match variants or near-diag"
+                    "no prover to run; try match variants or diagnose near"
                 )
                 score = calculate_roi(size, v_match, calc_delta)
                 cmd = f"rebrew diagnose near 0x{va:08x}"
@@ -560,10 +560,10 @@ def _collect_active_functions(
 
             if blocker:
                 desc += f" — Blocked: {blocker[:50]}"
-                # near-diag --fix-blocker writes the suggested GA operators
+                # rebrew diagnose near --fix-blocker writes the suggested GA operators
                 # after "— try: "; expose them as structured data (and a
                 # short terminal hint) so todo consumers can act without
-                # re-running near-diag.
+                # re-running diagnose near.
                 try_marker = "— try: "
                 if try_marker in blocker:
                     tail = blocker.split(try_marker, 1)[1]

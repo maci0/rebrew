@@ -1,4 +1,4 @@
-"""link-sweep — find which LINK options reproduce the reference PE header.
+"""rebrew build sweep-link-flags — find which LINK options reproduce the reference PE header.
 
 Most PE header fields map 1:1 onto MSVC6 LINK options (``/BASE``, ``/ALIGN``,
 ``/SUBSYSTEM``, ``/STACK``, ``/HEAP`` — see :func:`rebrew.formats.pe_image.derive_link_options`).

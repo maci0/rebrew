@@ -511,7 +511,7 @@ def _collect_functions(cfg: ProjectConfig) -> list[dict[str, Any]]:
     Mirrors the aggregation done by :func:`rebrew.status.collect_status` so
     the table stays consistent with the summary cards: same annotation source,
     same GLOBAL/DATA skip, same ``MIN_VALID_VA`` floor.  The blocker text
-    (written by ``near-diag --fix-blocker`` / ``diff --fix-blocker``) comes
+    (written by ``rebrew diagnose near --fix-blocker`` / ``diff --fix-blocker``) comes
     from ``rebrew-functions.toml`` metadata.
     """
     from rebrew.metadata.functions import load_metadata

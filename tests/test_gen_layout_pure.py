@@ -559,7 +559,7 @@ def test_parse_pe_shaped_bytes_hold_invariants(blob: bytes) -> None:
 class TestImpSuffix:
     def test_picks_the_lowest_sorted_decoration_when_a_lib_has_several(self) -> None:
         """A lib carrying two decorated variants of one name must resolve the
-        same way in every process, so a re-run of ``gen-layout`` rewrites the
+        same way in every process, so a re-run of ``rebrew build layout`` rewrites the
         same ``/include`` line rather than a hash-order dependent one.
 
         The filler symbols matter: with only the two variants in the set, the

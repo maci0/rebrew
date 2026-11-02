@@ -2,7 +2,7 @@
 
 Edit the source, re-run, compare: the fast read-only measurement a source
 or flag probe needs.  For *why* two functions differ, use ``rebrew
-near-diag``; for *where length drifts*, ``rebrew diagnose gap``.
+diagnose near``; for *where length drifts*, ``rebrew diagnose gap``.
 
 Unlike ``rebrew test`` this never writes STATUS metadata — it is the
 no-side-effect ruler.  Reports the strict masked match, the generous

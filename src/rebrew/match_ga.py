@@ -189,11 +189,11 @@ _DRAWN_SEED_BITS = 63
 def mutation_focus_weights(
     focus: str | None, blocker: str | None = None
 ) -> dict[str, float] | None:
-    """GA mutation selection weights biased toward a near-diag category.
+    """GA mutation selection weights biased toward a diagnose near category.
 
-    *focus* is a near-diag category (``register``/``equivalent``/``structural``)
+    *focus* is a diagnose near category (``register``/``equivalent``/``structural``)
     or ``"auto"``, which derives the category from *blocker* — the function's
-    BLOCKER metadata written by ``near-diag --fix-blocker`` (verdict text like
+    BLOCKER metadata written by ``rebrew diagnose near --fix-blocker`` (verdict text like
     ``NEAR_MATCHING — REGISTER (57% of delta) — try: ...``).  The category's
     suggested operators (``rebrew.near_analysis.MUTATION_SUGGESTIONS``) get
     ``MUTATION_FOCUS_WEIGHT``; unlisted operators keep weight 1.0.
@@ -218,10 +218,10 @@ def mutation_focus_weights(
 
 
 def live_mutation_weights(params: BuildParams) -> dict[str, float] | None:
-    """Near-diag category of the CURRENT implementation, for auto focus.
+    """Diagnose near category of the CURRENT implementation, for auto focus.
 
     ``--mutation-focus auto`` normally derives its category from a verdict
-    BLOCKER (written by ``near-diag --fix-blocker``); when none exists, this
+    BLOCKER (written by ``rebrew diagnose near --fix-blocker``); when none exists, this
     compiles the seed once and classifies it against the target live, so the
     GA's first generations already sample the category's operators.  Returns
     None (uniform sampling) when the seed does not compile or the delta is

@@ -232,7 +232,7 @@ def _write_blocker(
     """Write or clear BLOCKER metadata per the diff verdict.
 
     Shared by the ``--json`` path (which embeds the returned outcome in the
-    payload, mirroring ``near-diag``'s ``blocker_written`` contract) and the
+    payload, mirroring ``rebrew diagnose near``'s ``blocker_written`` contract) and the
     terminal path (which prints the same outcome).  Returns the outcome dict
     regardless of mode so the caller can report it.
 
@@ -467,7 +467,7 @@ def run_diff(
                 summary["missing_globals"] = missing_globals
             if fix_blocker:
                 # Write FIRST so the emitted payload can report the outcome
-                # (near-diag's blocker_written contract — a script driving
+                # (diagnose near's blocker_written contract — a script driving
                 # --fix-blocker --json must learn whether the blocker landed).
                 summary["blocker"] = _write_blocker(
                     p, blockers, obj_bytes, dry_run, json_output=True, obj_size=full_obj_size

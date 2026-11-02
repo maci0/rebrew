@@ -74,8 +74,8 @@ This design allows:
 
 | Layer | File | Key fields |
 |-------|------|------------|
-| Coverage document | `db/coverage-<target>.toml` | `ghidra_name`, `list_name`, `detected_by`, `size_by_tool` |
-| Coverage document | `db/coverage-<target>.toml` → `functions` array | Same columns, one file per target |
+| Coverage document | `coverage-<target>.toml` (portable export) | `ghidra_name`, `list_name`, `detected_by`, `size_by_tool` |
+| Coverage document | `coverage-<target>.toml` → `functions` array | Same columns, one file per target |
 | REST API | `GET /api/functions?target=` (`rebrew coverage serve`) | Compact arrays under `cols`: `va`, `name`, `symbol`, `size`, `status`, `module`, `files`. Provenance columns (`ghidra_name`, `list_name`) stay in the document only: the dashboard omits them from the wire (same reason it omits `markerType`). `GET /api/globals` and `GET /api/history` use the same array+`cols` shape (`va`/`name`/`decl`/`size`/`module` and `va`/`name`/`old_status`/`new_status`/`changed_at`, with `name` joined from `functions` and `''` once the VA has no function row). There is no per-VA `/api/targets/<t>/functions/<va>` route on this server; the sibling `recovery` API is separate. |
 
 ---

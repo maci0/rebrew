@@ -1,7 +1,7 @@
-"""Tests for ``rebrew coverage build`` — the typer front over the TOML writer.
+"""Tests for ``rebrew coverage export`` — the typer front over the TOML writer.
 
-``rebrew coverage build`` runs the catalog analysis in-process and writes one
-document per target, ``db/coverage-<target>.toml``. The writer itself is
+``rebrew coverage export`` runs the catalog analysis in-process and writes one
+document per target, ``<output>/coverage-<target>.toml``. The writer itself is
 :func:`rebrew.coverage_toml.write_coverage_toml` and is tested in
 ``test_coverage_toml.py``; what this file pins is the COMMAND: which files it
 writes, target selection, JSON reporting, removed options, and malformed inputs.

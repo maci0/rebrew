@@ -674,7 +674,7 @@ prints a matching hint.
 
 With `--fix-blocker --json`, the payload also embeds a `blocker` outcome
 dict (`written` / `cleared` / `text` / `delta` / `dry_run`) so script
-consumers can learn whether the blocker landed (mirrors `near-diag`'s
+consumers can learn whether the blocker landed (mirrors `rebrew diagnose near`'s
 `blocker_written` contract).
 
 | Argument or option | Type | Default | Meaning |
@@ -1784,7 +1784,7 @@ rebrew match run src/game/f.c --seed 7 --json
 | `--seed` | int | — | RNG seed for reproducible GA runs |
 | `--seed-file` | path (repeatable) | — | Extra .c file(s) to seed GA population from solved functions. Ignored if --no-seeds is also passed |
 | `--no-seeds` | flag | `False` | Disable cross-function solution seeding (takes precedence over --seed-file) |
-| `--mutation-focus` | auto / register / equivalent / structural | — | Bias GA mutation selection toward a near-diag category: register &#124; equivalent &#124; structural, or auto (read the function's BLOCKER metadata). Suggested operators get 6x selection weight |
+| `--mutation-focus` | auto / register / equivalent / structural | — | Bias GA mutation selection toward a diagnose near category: register &#124; equivalent &#124; structural, or auto (read the function's BLOCKER metadata). Suggested operators get 6x selection weight |
 | `--generations` / `-g` | int | `100` | Number of GA generations |
 | `--pop-size` / `-p` | int | `64` | Population size per generation |
 | `--seed-llm` | flag | `False` | Seed one function from the configured LLM endpoint; required with --dry-run |
@@ -3091,8 +3091,8 @@ library modules that are not themselves targets (`MSVCRT`, `ZLIB`). Rows bound
 only to another target are excluded; optional ADDRESS anchors resolve C
 declarations, while dedicated metadata supplies identity and state.  `rebrew status`,
 `rebrew todo`, `rebrew recommend`, and `rebrew verify --data`
-count the same rows, and so does the `db/coverage-<target>.toml` the coverage
-document stores them in.
+count the same rows, and so does the portable `coverage-<target>.toml` the
+coverage export writes.
 
 The inventory separates source storage owners (`defined_in`), syntactic symbol
 users (`referenced_in`), and all declaration sites (`declared_in`). The table's
@@ -4258,7 +4258,7 @@ rows, the Rich-header toolchain guess, and the linker version plus key
 header flags. `--output DIR` (conventionally
 `layout/<target>/text-map/`) additionally writes the committed text-map
 files (`sections.txt`, `gaps.txt`, `iat.txt`, `exports.txt`), mirroring the
-`gen-layout` package style. `--json` (the default shape) emits the full
+`rebrew build layout` package style. `--json` (the default shape) emits the full
 manifest including per-gap rows.
 
 | Argument or option | Type | Default | Meaning |
@@ -4330,7 +4330,7 @@ Use `rebrew coverage <operation> --help` for exact arguments and examples.
 Generate a static self-contained HTML documentation site (`index.html`,
 `strings.html`, `imports.html`, `graph.html`). The function index table
 includes a `File` column naming the source each function came from and a
-`Blocker` column carrying near-diag/diff blocker guidance.
+`Blocker` column carrying `rebrew diagnose near`/`rebrew diff` blocker guidance.
 A closed `Status reference` disclosure under the index cards gives one line
 per status the page names, so a bare `NEAR_MATCHING` is not the reader's
 only clue. When no reversed function is found, the note names the

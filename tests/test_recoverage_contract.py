@@ -1,7 +1,7 @@
 """Coverage document contract test.
 
 Recoverage (the sibling dashboard) is a pure consumer of
-``db/coverage-<target>.toml`` written by ``rebrew coverage build``, which scans the
+``db/coverage-<target>.toml`` written by ``rebrew coverage export``, which scans the
 project in-process.  This test runs the real pipeline on the
 checked-in fixture binary and asserts the document still carries every fact the
 dashboard reads, through the same reader (``rebrew.coverage_toml``) the
@@ -101,7 +101,7 @@ def _build_fixture_project(tmp_path: Path, monkeypatch) -> Path:
 
 
 def _run_pipeline(tmp_path: Path, monkeypatch) -> Path:
-    """``rebrew coverage build`` over a fixture project; returns the root."""
+    """``rebrew coverage export`` over a fixture project; returns the root."""
     root = _build_fixture_project(tmp_path, monkeypatch)
     result = CliRunner().invoke(app, ["coverage", "export", "--output", str(root / "db")])
     assert result.exit_code == 0, result.output
@@ -116,7 +116,7 @@ def _document(root: Path, target: str = "SERVER") -> dict[str, Any]:
     on the way in would hide a document that no other tool can read.
     """
     path = root / "db" / f"coverage-{target}.toml"
-    assert path.is_file(), f"build-db did not write {path}"
+    assert path.is_file(), f"coverage export did not write {path}"
     return tomllib.loads(path.read_text(encoding="utf-8"))
 
 
@@ -269,7 +269,7 @@ class TestRecoverageContract:
         assert doc["functions"]
 
     def test_rebuild_over_own_output_is_idempotent(self, tmp_path, monkeypatch) -> None:
-        """Re-running build-db on its own output must work and change nothing.
+        """Re-running coverage export on its own output must work and change nothing.
 
         This is the ordinary case of rebuilding coverage, and it is where the
         writer reads the previous document: the history baseline comes from the

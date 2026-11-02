@@ -68,7 +68,7 @@ assert.equal(booted, 1);
 assert.equal(elements.get("no-targets").hidden, false);
 assert.equal(document.getElementById("controls").hidden, true);
 
-// Following that instruction (rebrew coverage build, then Reload) must clear the
+// Following that instruction (fix the project inputs, then Reload) must clear the
 // "no targets" message.  Left up, it contradicts the rows now on screen.
 boot = 1;
 await elements.get("reload").onclick();
@@ -77,8 +77,8 @@ assert.equal(elements.get("no-targets").hidden, true);
 assert.equal(elements.get("controls").hidden, false);
 assert.match(elements.get("rows").innerHTML, /first/);
 
-// The database moved on (rebrew coverage build in another terminal): Reload re-reads
-// it without a browser reload, so the rows on screen follow.
+// The project inputs moved on (the source files changed in another terminal): Reload re-reads
+// them without a browser reload, so the rows on screen follow.
 boot = 2;
 const pending = elements.get("reload").onclick();
 assert.equal(elements.get("reload").textContent, "Reloading…");

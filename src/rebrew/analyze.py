@@ -293,7 +293,7 @@ def _collect_functions(cfg: Any) -> dict[str, Any] | None:
 def _collect_near_match(cfg: Any) -> list[dict[str, Any]] | None:
     """NEAR_MATCHING functions with their blocker guidance.
 
-    The blocker text (written by ``near-diag --fix-blocker`` / ``diff
+    The blocker text (written by ``rebrew diagnose near --fix-blocker`` / ``diff
     --fix-blocker``) carries the dominant verdict + the GA mutation
     operators to try — the actionable next step per function.
     """

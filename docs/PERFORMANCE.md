@@ -587,8 +587,8 @@ compiles), not `score_candidate`.
 
 ## Dashboard first paint (`bootstrap` / `/api/functions`)
 
-*(Superseded: the dashboard reads `db/coverage-<target>.toml` and serves a
-frozen in-memory snapshot, so the per-request connections and per-row
+*(Superseded: the dashboard reads the live project coverage view and serves an
+immutable in-memory snapshot, so the per-request connections and per-row
 `json.loads` this section measured no longer exist. The numbers below are kept
 as the record of why the reader is snapshot-based.)*
 
@@ -788,7 +788,7 @@ Every offline `--json` command is deterministic across runs: enforced by
 step; see `docs/CI.md`.
 
 The same tool runs each of its 23 mutating commands (`source register`,
-`source document-unmatched`, `build link-stubs`, both `skeleton` forms, `coverage build`, `export symbols`,
+`source document-unmatched`, `build link-stubs`, both `skeleton` forms, `coverage export`, `export symbols`,
 `build cmake-toolchain`, `source fix`, `export context`, both `blocker set` forms, both
 `library set` forms, `coverage report`, the three `data` forms: `header`,
 `set --type`, `set --section`, and the five `cfg` forms that write

@@ -1658,7 +1658,7 @@ def _run_test_impl(
                 console.print(f"[dim]SIZE persisted → {int(size_val)}[/dim]")
             except Exception as exc:  # metadata write is best-effort
                 logging.warning(
-                    "Could not persist SIZE for 0x%x: %s (downstream diff/near-diag "
+                    "Could not persist SIZE for 0x%x: %s (downstream diff/diagnose near "
                     "may report an invalid size)",
                     va_int_for_promote,
                     exc,

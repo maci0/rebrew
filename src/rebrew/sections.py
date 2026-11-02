@@ -37,7 +37,7 @@ def trim_trailing_padding(data: bytes, padding: tuple[int, ...] | None = None) -
     0
     """
     # rstrip is the same end-strip. The Python loop was 16 ms for 8000
-    # tails and 50 ms for a 1 MB run of padding; coverage build calls this
+    # tails and 50 ms for a 1 MB run of padding; coverage export calls this
     # once per function and once per gap.
     pad = _default_padding() if padding is None else bytes(padding)
     return len(data.rstrip(pad))

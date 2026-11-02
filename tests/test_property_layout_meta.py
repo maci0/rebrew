@@ -131,7 +131,7 @@ def _surviving_images(draw: st.DrawFn) -> bytes:
 def test_extract_layout_fails_only_with_valueerror(data: bytes) -> None:
     """A forged image is rejected, never crashed on.
 
-    ``gen-layout`` catches ``ValueError`` and turns it into ``error_exit``;
+    ``rebrew build layout`` catches ``ValueError`` and turns it into ``error_exit``;
     any other exception is a traceback on the user's terminal.
     """
     try:

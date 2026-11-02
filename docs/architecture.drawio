@@ -432,7 +432,7 @@
         <mxCell id="llm" value="&lt;b&gt;Seeds besides mutate&lt;/b&gt;&lt;br&gt;--kuna-seed decompiler backend&lt;br&gt;--llm-seed llm_seed.py" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="800" y="600" width="340" height="90" as="geometry"/>
         </mxCell>
-        <mxCell id="cfgged" value="&lt;b&gt;cfg_ged.py&lt;/b&gt;&lt;br&gt;basic-block graph edit distance&lt;br&gt;feeds near-diag (structural vs flag-fixable)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="cfgged" value="&lt;b&gt;cfg_ged.py&lt;/b&gt;&lt;br&gt;basic-block graph edit distance&lt;br&gt;feeds diagnose near (structural vs flag-fixable)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1170" y="600" width="460" height="90" as="geometry"/>
         </mxCell>
 
@@ -453,7 +453,7 @@
         <mxCell id="r1" value="&lt;b&gt;resembl.scoring&lt;/b&gt;&lt;br&gt;uv sync --group similarity&lt;br&gt;path-pin ../resembl&lt;br&gt;&lt;br&gt;tokenize asm: REG / IMM / MEM_SIZE&lt;br&gt;weighted shingles, MinHash&lt;br&gt;hybrid Jaccard + rapidfuzz ratio&lt;br&gt;&lt;br&gt;code_similarity() → 0–100 float&lt;br&gt;used by verify.py for every function&lt;br&gt;None if group missing (not a fake 0)&lt;br&gt;resembl's own LSH DB is not used" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="60" y="786" width="420" height="160" as="geometry"/>
         </mxCell>
-        <mxCell id="r2" value="&lt;b&gt;matcher.scoring (always on)&lt;/b&gt;&lt;br&gt;GA fitness, no resembl required&lt;br&gt;&lt;br&gt;byte_score (reloc-zeroed, prologue-weighted)&lt;br&gt;reloc_score · mnemonic_score · prologue_bonus&lt;br&gt;structural_similarity() for near-diag&lt;br&gt;capstone + numpy only&lt;br&gt;&lt;br&gt;similar.py is a separate clone finder&lt;br&gt;(mnemonic-histogram, not resembl)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="r2" value="&lt;b&gt;matcher.scoring (always on)&lt;/b&gt;&lt;br&gt;GA fitness, no resembl required&lt;br&gt;&lt;br&gt;byte_score (reloc-zeroed, prologue-weighted)&lt;br&gt;reloc_score · mnemonic_score · prologue_bonus&lt;br&gt;structural_similarity() for diagnose near&lt;br&gt;capstone + numpy only&lt;br&gt;&lt;br&gt;similar.py is a separate clone finder&lt;br&gt;(mnemonic-histogram, not resembl)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="520" y="786" width="420" height="160" as="geometry"/>
         </mxCell>
         <mxCell id="r3" value="&lt;b&gt;prove.py (optional angr)&lt;/b&gt;&lt;br&gt;symbolic equivalence&lt;br&gt;&lt;br&gt;when register allocation / scheduling&lt;br&gt;will never byte-match&lt;br&gt;NEAR_MATCHING → PROVEN&lt;br&gt;honored only over legitimate byte states;&lt;br&gt;stale PROVEN is demoted on verify&lt;br&gt;&lt;br&gt;[prove] extra; missing angr is a hard skip" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
@@ -485,7 +485,7 @@
           <mxGeometry x="40" y="80" width="1680" height="430" as="geometry"/>
         </mxCell>
 
-        <mxCell id="proj" value="&lt;b&gt;rebrew-project.toml&lt;/b&gt;  (project root; config.py)&lt;br&gt;Hand-edit + rebrew cfg / init / cmake-toolchain / gen-layout" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;fontStyle=0;" vertex="1" parent="1">
+        <mxCell id="proj" value="&lt;b&gt;rebrew-project.toml&lt;/b&gt;  (project root; config.py)&lt;br&gt;Hand-edit + rebrew cfg / init / build cmake-toolchain / build layout" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;fontStyle=0;" vertex="1" parent="1">
           <mxGeometry x="60" y="120" width="800" height="370" as="geometry"/>
         </mxCell>
         <mxCell id="p-proj" value="&lt;b&gt;[project]&lt;/b&gt;&lt;br&gt;default_target · name · jobs&lt;br&gt;db_dir · output_dir · shared_dir" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefce8;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=8;fontSize=10;" vertex="1" parent="1">
@@ -506,7 +506,7 @@
         <mxCell id="p-llm" value="&lt;b&gt;[llm]&lt;/b&gt;&lt;br&gt;llm_endpoint · llm_api_key&lt;br&gt;prefer env over committing the key" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefce8;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=8;fontSize=10;" vertex="1" parent="1">
           <mxGeometry x="610" y="270" width="230" height="70" as="geometry"/>
         </mxCell>
-        <mxCell id="p-link" value="&lt;b&gt;[link] + [targets.&amp;lt;t&amp;gt;.layout]&lt;/b&gt;&lt;br&gt;file_align · stack_* · tsaware · timestamp&lt;br&gt;layout copy for UI + bss calibration&lt;br&gt;written by gen-layout / calibrate-bss" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefce8;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=8;fontSize=10;" vertex="1" parent="1">
+        <mxCell id="p-link" value="&lt;b&gt;[link] + [targets.&amp;lt;t&amp;gt;.layout]&lt;/b&gt;&lt;br&gt;file_align · stack_* · tsaware · timestamp&lt;br&gt;layout copy for UI + bss calibration&lt;br&gt;written by build layout / build calibrate-bss" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefce8;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=8;fontSize=10;" vertex="1" parent="1">
           <mxGeometry x="80" y="356" width="370" height="80" as="geometry"/>
         </mxCell>
         <mxCell id="p-note" value="Fail-fast: missing [targets], empty binary, unknown format/arch/profile/ghidra_backend. Unknown keys warn. --target selects among [targets.*]. command/runner keys are retired (ignored)." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff7ed;strokeColor=#ea580c;fontColor=#7c2d12;align=left;spacingLeft=8;fontSize=10;" vertex="1" parent="1">
@@ -725,7 +725,7 @@
         <mxCell id="m1" value="smart_reloc_compare&lt;br&gt;zeros reloc bytes;&lt;br&gt;RELOC if only those differ" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="320" y="808" width="220" height="70" as="geometry"/>
         </mxCell>
-        <mxCell id="m2" value="wrong global VA / BSS gap&lt;br&gt;→ leftover ~~ after mask&lt;br&gt;near-diag: reloc bucket" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fee2e2;strokeColor=#ef4444;fontColor=#7f1d1d;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="m2" value="wrong global VA / BSS gap&lt;br&gt;→ leftover ~~ after mask&lt;br&gt;diagnose near: reloc bucket" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fee2e2;strokeColor=#ef4444;fontColor=#7f1d1d;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="580" y="808" width="240" height="70" as="geometry"/>
         </mxCell>
         <mxCell id="m3" value="fix data.toml / padding /&lt;br&gt;externs / fill-data" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde68a;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">

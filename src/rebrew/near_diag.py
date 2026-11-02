@@ -341,7 +341,7 @@ def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool, dry_run: bool
         )
         for skip in skipped_files[:5]:
             console.print(f"    {untrusted_ident(skip)}")
-    console.print("[bold]━━━ near-diag Summary ━━━[/bold]")
+    console.print("[bold]━━━ diagnose near Summary ━━━[/bold]")
     console.print(f"  [bold]{classified}[/bold] classified")
     if failed:
         console.print(f"  [yellow bold]{failed}[/yellow bold] failed")

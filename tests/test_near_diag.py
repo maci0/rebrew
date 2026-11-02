@@ -320,7 +320,7 @@ class TestAnalyzeVerdict:
         assert result["compiled_insns"] == 2
 
     def test_frame_field_present(self) -> None:
-        """analyze() must carry the stack-frame comparison (stack-cmp) as a
+        """analyze() must carry the stack-frame comparison (rebrew diagnose stack) as a
         best-effort frame dict — no stack ops → frames match."""
         result = nd.analyze(MOV_EAX_EBX + RET, MOV_EAX_ECX + RET, None, 0x1000)
         frame = result["frame"]
@@ -608,7 +608,7 @@ def _invoke_fix_blocker(
 
 
 class TestFixBlocker:
-    """near-diag --fix-blocker writes the verdict as BLOCKER metadata."""
+    """rebrew diagnose near --fix-blocker writes the verdict as BLOCKER metadata."""
 
     def testblocker_text_non_match(self) -> None:
         from rebrew.near_analysis import blocker_text
@@ -668,7 +668,7 @@ class TestFixBlocker:
 
 
 class TestAllBatch:
-    """near-diag --all classifies every NEAR_MATCHING function."""
+    """rebrew diagnose near --all classifies every NEAR_MATCHING function."""
 
     def _invoke(
         self,
@@ -1000,7 +1000,7 @@ class TestValidatedRelocMasking:
 
 
 class TestFixBlockerDryRun:
-    """near-diag --fix-blocker --dry-run previews the write without touching
+    """rebrew diagnose near --fix-blocker --dry-run previews the write without touching
     metadata (project convention: every file-modifying CLI honors --dry-run)."""
 
     def test_dry_run_skips_write(self, tmp_path: Path, monkeypatch) -> None:
@@ -1023,7 +1023,7 @@ class TestFixBlockerDryRun:
 
 
 class TestFixBlockerStatus:
-    """`near-diag --fix-blocker` must also promote STATUS to NEAR_MATCHING —
+    """`rebrew diagnose near --fix-blocker` must also promote STATUS to NEAR_MATCHING —
     a blocker note implies the classification, and leaving the status
     missing/STUB made status reports count documented functions as stubs."""
 
@@ -1085,7 +1085,7 @@ class TestFixBlockerStatus:
 
 
 class TestFixBlockerPreservesGaCeiling:
-    """near-diag --fix-blocker must NOT overwrite a GA_CEILING marker — the
+    """rebrew diagnose near --fix-blocker must NOT overwrite a GA_CEILING marker — the
     terminal register-only classification that excludes the function from the
     GA loop (a plain verdict would silently reopen it)."""
 

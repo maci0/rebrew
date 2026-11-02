@@ -385,7 +385,7 @@ def execute_search(
 
     # --mutation-focus: bias GA mutation selection toward a near-diag category.
     # "auto" reads the function's BLOCKER metadata (written by
-    # near-diag --fix-blocker) to derive the category; with no verdict blocker
+    # rebrew diagnose near --fix-blocker) to derive the category; with no verdict blocker
     # it falls back to classifying the CURRENT implementation live (see
     # live_mutation_weights).
     mutation_weights: dict[str, float] | None = None
@@ -630,7 +630,7 @@ def run(
         None,
         "--mutation-focus",
         help=(
-            "Bias GA mutation selection toward a near-diag category: register | equivalent | structural, or auto (read the function's BLOCKER metadata). Suggested operators get 6x selection weight"
+            "Bias GA mutation selection toward a diagnose near category: register | equivalent | structural, or auto (read the function's BLOCKER metadata). Suggested operators get 6x selection weight"
         ),
         rich_help_panel="GA Tuning",
         metavar="FOCUS",

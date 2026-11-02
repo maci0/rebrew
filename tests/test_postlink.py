@@ -624,7 +624,7 @@ def test_fixer_order_constant() -> None:
 
 
 def _write_pkg(tmp_path: Path, ref: bytes, name: str = "pkg") -> Path:
-    """Write a text-only layout package for *ref* (the gen-layout emission path)."""
+    """Write a text-only layout package for *ref* (the rebrew build layout emission path)."""
     import tomlkit
 
     from rebrew.layout_meta import extract_layout, write_package

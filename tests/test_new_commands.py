@@ -1,4 +1,4 @@
-"""Tests for probe, qual-sweep, gap-trace, residue (pure helpers + CLI wiring)."""
+"""Tests for diagnose probe, match qualifiers, diagnose gap, and build residue."""
 
 from pathlib import Path
 

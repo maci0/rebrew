@@ -1,7 +1,7 @@
 """layout_map.py — reference-side binary measurement dump.
 
-The byte-identity build reads the reference binary through ``gen-layout``
-(scaffolding) and ``postlink`` (fixers), but nothing dumps the reference's
+The byte-identity build reads the reference binary through ``rebrew build
+layout`` (scaffolding) and ``rebrew build postlink`` (fixers), but nothing dumps the reference's
 own measurable layout in one place.  This command emits that manifest:
 section-table geometry, the ``.text`` function-start alignment histogram,
 inter-function gap classes, ``.reloc`` HIGHLOW density per 4K page, IAT slot
@@ -11,7 +11,7 @@ plus key header flags.
 Output is JSON (default) or a human summary.  ``--output DIR`` additionally
 writes the committed text-map files (``sections.txt``, ``gaps.txt``,
 ``iat.txt``, ``exports.txt``) under ``DIR`` — conventionally
-``layout/<target>/text-map/`` — mirroring the ``gen-layout`` package style
+``layout/<target>/text-map/`` — mirroring the ``rebrew build layout`` package style
 (``#`` comment headers, hex values, never hand-edited).
 
 Usage::

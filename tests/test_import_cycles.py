@@ -30,7 +30,7 @@ def test_no_module_level_import_cycles() -> None:
 def test_shared_libraries_do_not_import_command_modules() -> None:
     """PE parsing, pseudo-C rewrite, and the decompiler backends load on their own.
 
-    ``link-sweep`` and Kuna seeding call the first two as libraries.  The
+    ``rebrew build sweep-link-flags`` and Kuna seeding call the first two as libraries.  The
     decompiler backends fetch text; the ``rebrew source fix`` command is a caller
     of the rewrite, and importing a backend must leave that command unloaded.
     """

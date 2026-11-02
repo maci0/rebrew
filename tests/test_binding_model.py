@@ -37,8 +37,8 @@ class TestAnnotationDataclass:
     def test_deepcopy_isolates_nested_container_values(self) -> None:
         """SourceBinding.__deepcopy__ shares scalars but never mutable values.
 
-        The specialised copy is what keeps _finalize_entries fast on
-        every source scan; this pins the isolation contract it must
+        The specialised copy is what keeps whole-tree source scans fast
+        on every source; this pins the isolation contract it must
         preserve (mutating a twin, even deeply, never reaches the memoised
         original that parse results are cached under).
         """

@@ -361,7 +361,7 @@ DEFAULT_COMMANDS = [
     "cfg show --json",
     "library scan-signatures flirt_sigs --binary original/mini_pe.exe --json",
     # Reports the catalog and writes nothing: the coverage document is
-    # ``build-db``'s (the write sweep).
+    # ``coverage export``'s (the write sweep).
     "coverage catalog --json",
 ]
 
@@ -450,7 +450,7 @@ WRITE_COMMANDS = [
     "cfg module set-cflags -t SERVER -- GAME -O2",
     "cfg target add CLIENT --binary original/mini_pe.exe",
     # ``inline-strings`` is deliberately absent: it reads the layout package
-    # that ``gen-layout`` writes, and that needs a reference binary the
+    # that ``rebrew build layout`` writes, and that needs a reference binary the
     # read-only fixture does not ship.  It exited 2 on every run, which the
     # comparisons below could not tell from a pass.
 ]

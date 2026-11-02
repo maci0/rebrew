@@ -177,7 +177,7 @@ frozen: removing or renaming a command/flag, or changing a config key's
 meaning, takes a major version bump and a `**Breaking:**` changelog entry.
 On-disk format bumps (`coverage-<target>.toml` `version`, compile-cache schema)
 and a raised minimum Python are also `**Breaking:**`; they may ship in a minor,
-because the migration is a wholesale document rewrite (`build-db` replaces each
+because the migration is a wholesale document rewrite (`coverage export` replaces each
 file whole) or a cold cache (as with the compile-cache schema `5` -> `6` bump in
 2.7.0 and the Python 3.13 floor in 2.3.0).
 The Python import surface (module paths, functions, classes, `__all__`) and

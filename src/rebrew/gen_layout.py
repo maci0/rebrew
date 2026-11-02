@@ -1,4 +1,4 @@
-"""gen-layout — generate linker-script scaffolding from a target binary.
+"""rebrew build layout — generate linker-script scaffolding from a target binary.
 
 Onboarding a new binary leaves the byte-identity build machinery (object
 order, .def exports, IAT forcing, .data restore, PE-normalization params)
@@ -220,7 +220,7 @@ def _import_lib_symbols_from_image(dll_stem: str) -> set[str]:
         return set()
     lib_dir = str(Path(spec.tool_root).parent / "Lib")
     # Unique name: a fixed ``rebrew-libgrep-{dll}`` collided when two
-    # gen-layout runs hit the same DLL, and a timed-out orphan blocked the
+    # rebrew build layout runs hit the same DLL, and a timed-out orphan blocked the
     # next attempt until manual ``docker rm``.
     # The stem comes from the target's import table, so it stays out of the
     # container name (docker rejects most punctuation) and out of the script
@@ -279,7 +279,7 @@ def _imp_suffix(name: str, lib_symbols: set[str], ordinal_map: dict[str, int]) -
 
     ``sorted`` because a lib can carry more than one decorated variant of the
     same name.  Iterating the set directly makes the winner a function of
-    ``PYTHONHASHSEED``, so two runs of ``gen-layout`` in different processes
+    ``PYTHONHASHSEED``, so two runs of ``rebrew build layout`` in different processes
     can emit different ``/include`` decorations for the same input.
 
     The thunk is ``__imp_`` plus the decorated symbol.  Stdcall ``_Sleep@4``

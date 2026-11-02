@@ -62,8 +62,8 @@ everything else reconstructed from structured metadata:
 
 All files are plain text (``#`` comment lines allowed in the hex dumps);
 ``extract_layout`` derives the package from a binary, ``write_package`` /
-``load_package`` serialize it.  ``gen-layout`` emits it during intake;
-``postlink --layout <dir>`` consumes it, so the original DLL never needs
+``load_package`` serialize it.  ``rebrew build layout`` emits it during intake;
+``rebrew build postlink --layout <dir>`` consumes it, so the original DLL never needs
 to be present at build time.
 """
 
@@ -211,7 +211,7 @@ def read_layout_header(root: Path, target: str, bin_path: Path) -> dict[str, Any
     txt = Path(root) / "layout" / target / "rebrew-layout.toml"
     try:
         if last_change_ns(bin_path.stat()) > txt.stat().st_mtime_ns:
-            return None  # binary rebuilt after gen-layout — parse it instead
+            return None  # binary rebuilt after rebrew build layout — parse it instead
         lay = tomllib.loads(txt.read_text(encoding="utf-8-sig"))["layout"]
         base = int(lay.get("image_base", 0) or 0)
         sections: list[tuple[str, int, int, int, int]] = []
@@ -252,7 +252,7 @@ def _data_dir(data: bytes, opt: int, index: int) -> tuple[int, int]:
 
     Index 12 (IAT) is the deepest directory ``extract_layout`` reads.  A PE32
     whose optional header is present but shorter than that directory used to
-    raise ``struct.error``, which ``gen-layout`` does not catch.
+    raise ``struct.error``, which ``rebrew build layout`` does not catch.
     """
     off = opt + 96 + 8 * index
     if off + 8 > len(data):

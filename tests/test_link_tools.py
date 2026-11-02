@@ -1,5 +1,5 @@
 """Tests for the byte-identity link tools: order-sources, calibrate-bss,
-gen-link-stubs, verify-placement, and gen-layout --data-gap."""
+build link-stubs, build check-data-placement, and build layout --data-gap."""
 
 from __future__ import annotations
 
@@ -194,7 +194,7 @@ def test_gen_link_stubs_dedups_repeated_names(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# gen-layout --data-gap
+# rebrew build layout --data-gap
 # ---------------------------------------------------------------------------
 
 

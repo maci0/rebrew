@@ -243,8 +243,8 @@ def main(
 
     from rebrew.compiler.overrides import resolve_compile_overrides
 
-    # Same fallback chain as test/verify/near-diag so module presets and
-    # library overrides cannot make gap-trace disagree with those tools.
+    # Same fallback chain as test/verify/diagnose near so module presets and
+    # library overrides cannot make diagnose gap disagree with those tools.
     toolchain_name, cflags_str = resolve_compile_overrides(
         cfg,
         path.resolve().parent,

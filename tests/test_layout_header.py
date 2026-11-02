@@ -56,7 +56,7 @@ class TestReadLayoutHeader:
         assert read_layout_header(tmp_path, "main", binp) is None
 
     def test_binary_rewrite_with_restored_mtime_falls_back(self, tmp_path: Path) -> None:
-        """A binary rewritten after gen-layout is stale even with its old mtime."""
+        """A binary rewritten after rebrew build layout is stale even with its old mtime."""
         import os
 
         toml = _write_layout(tmp_path)

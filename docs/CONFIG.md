@@ -622,7 +622,7 @@ The config loader fail-fasts on missing/invalid structure:
 - No `[targets]`, missing `default_target`, unknown target name, or missing/empty `binary`.
 - A `[targets]` key that is not a plain file name: empty, `.`, `..`, carrying
   `/`, `\`, a control character, or padded with whitespace. The key becomes
-  `src/<target>/`, `bin/<target>/`, `db/coverage-<target>.toml`, and
+  `src/<target>/`, `bin/<target>/`, `coverage-<target>.toml`, and
   `layout/<target>/`, so a separator in it would place files outside the
   project.
 - Non-string or empty `project.default_target`.

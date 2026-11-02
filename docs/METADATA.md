@@ -162,7 +162,8 @@ supplies its own tag.
   rather than letting "who wrote this" be answerable only by grepping the
   writers.
 - **Each store carries a format stamp.**  The top-level `format`
-  (`rebrew.metadata.functions.FORMAT_VERSION`, currently `2`) is mandatory.
+  (`rebrew.metadata.document.FUNCTION_FORMAT_VERSION`, currently `3`, for the
+  function store; `FORMAT_VERSION`, currently `2`, for data) is mandatory.
   Readers and writers reject missing or foreign versions; they never silently
   upgrade a store. W031 also reports malformed metadata.
 - **The pair means "last changed", not "last checked".**  A writer that sets a
@@ -289,8 +290,8 @@ for inspection. Sync health reports stale measurement evidence independently.
 
 `rebrew build layout` derives `layout/<target>/` (text-only: `rebrew-layout.toml` +
 `*.hex` byte files) and the `[link]` config block
-from the reference binary.  The package is committed to git; `rebrew
-postlink --layout <dir>` consumes it to normalize a built binary onto the
+from the reference binary.  The package is committed to git;
+`rebrew build postlink --layout <dir>` consumes it to normalize a built binary onto the
 reference **without the original DLL present**.  Regenerate the package
 whenever the reference binary changes: the layout files carry
 "do not hand-edit" headers.

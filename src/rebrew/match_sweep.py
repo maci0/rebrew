@@ -170,7 +170,7 @@ def resolve_build_params(
             # silently fall back to the first annotation — that compiles the
             # WRONG function's symbol and diffs it against the requested
             # address (the `rebrew diff 0x<va>` false-match regression class,
-            # same rule as test/prove/near-diag).  An explicit --symbol is a
+            # same rule as test/prove/diagnose near).  An explicit --symbol is a
             # deliberate override and still allowed.
             error_exit(
                 f"No annotation for VA {target_va} in {seed_c} — the resolved "

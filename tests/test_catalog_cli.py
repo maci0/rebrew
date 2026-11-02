@@ -61,7 +61,7 @@ class TestCatalogCli:
     def test_catalog_writes_no_coverage_document(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The document is `rebrew coverage build`'s to write; catalog only reports."""
+        """The document is `rebrew coverage export`'s to write; catalog only reports."""
         cfg = _patch(monkeypatch, tmp_path)
         r = runner.invoke(catalog_cli.app, [])
         assert r.exit_code == 0
@@ -424,7 +424,7 @@ class TestRunCatalog:
     def test_defaults_write_nothing_and_still_report(self, tmp_path: Path) -> None:
         """run_catalog() with every flag left false summarizes and returns the
         payload the CLI prints under --json, writing no artifact: the coverage
-        document is build-db's, and it builds the dict in-process."""
+        document is coverage export's, and it builds the dict in-process."""
         root = _write_project(tmp_path)
         cfg = load_config(root=root)
 

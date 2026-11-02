@@ -173,7 +173,7 @@ You will get one of three answers:
   rebrew diff src/<target>/fcn_00401000.c        # side-by-side disassembly
   rebrew diagnose near src/<target>/fcn_00401000.c   # classifies the delta
   ```
-  `near-diag` tells you the *kind* of gap (register allocation, an
+  `rebrew diagnose near` tells you the *kind* of gap (register allocation, an
   equivalent instruction the compiler prefers, a flag variant) and
   suggests GA mutations. Fix the C, `rebrew test` again. This edit→test
   cycle is the core loop; each round takes seconds.
