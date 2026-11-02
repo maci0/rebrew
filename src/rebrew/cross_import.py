@@ -394,16 +394,24 @@ def _library_vas(cfg: ProjectConfig) -> set[int]:
     this filter existed.
     """
     from rebrew.metadata.bindings import library_inventory_bindings, read_source_bindings
+    from rebrew.metadata.functions import load_metadata
     from rebrew.sources import iter_library_headers
 
     reversed_dir = getattr(cfg, "reversed_dir", None)
     if reversed_dir is None:
         return set()
     modules = {preset_module_key(str(m)) for m in (getattr(cfg, "external_libs", None) or ())}
+    # One store read for the whole header walk: read_source_bindings otherwise
+    # re-resolves and re-fingerprints it once per header.
+    function_entries = load_metadata(cfg.metadata_dir, deepcopy=False)
+    project_root = getattr(cfg, "root", None)
     out: set[int] = set()
     for path in iter_library_headers(reversed_dir, cfg):
         for ann in read_source_bindings(
-            path, metadata_dir=cfg.metadata_dir, project_root=getattr(cfg, "root", None)
+            path,
+            metadata_dir=cfg.metadata_dir,
+            project_root=project_root,
+            function_entries=function_entries,
         ):
             kind = str(getattr(ann, "kind", "") or "").upper()
             module = preset_module_key(str(getattr(ann, "module", "") or ""))

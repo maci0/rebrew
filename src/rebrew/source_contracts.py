@@ -158,6 +158,11 @@ def contract_contexts(
         sources = [source for source in sources if source.resolve() in selected_sources]
     contexts: dict[Path, set[Path]] = {}
     unknown = []
+    from rebrew.metadata.functions import load_metadata
+
+    # One store read for the whole closure: read_source_bindings otherwise
+    # re-resolves and re-fingerprints it once per source.
+    function_entries = load_metadata(metadata_dir, deepcopy=False)
     for source in sources:
         # read_source_text feeds the batch memo read_source_bindings uses, so
         # the source is read once instead of once here and once there.
@@ -167,6 +172,7 @@ def contract_contexts(
             target_name=module_name,
             metadata_dir=metadata_dir,
             project_root=cfg.root,
+            function_entries=function_entries,
         )
         flags = {
             resolve_compile_overrides_cached(

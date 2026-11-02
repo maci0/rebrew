@@ -862,13 +862,21 @@ def load_layout(
     flags: dict[int, str] = {}
     flagsets: dict[int, tuple[str, str]] = {}
     sizes: dict[int, int] = {}
+    from rebrew.metadata.functions import load_metadata
+
+    # One store read for the whole walk: read_source_bindings otherwise
+    # re-resolves and re-fingerprints it once per source.
+    function_entries = load_metadata(cfg.metadata_dir, deepcopy=False)
+    target = target_module(cfg)
+    project_root = getattr(cfg, "root", None)
     for cfile in sources:
         rel = rel_display_path(cfile, cfg.reversed_dir)
         for entry in read_source_bindings(
             cfile,
-            target_name=target_module(cfg),
+            target_name=target,
             metadata_dir=cfg.metadata_dir,
-            project_root=getattr(cfg, "root", None),
+            project_root=project_root,
+            function_entries=function_entries,
         ):
             if entry.is_data or not entry.va:
                 continue

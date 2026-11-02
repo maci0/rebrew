@@ -1983,6 +1983,11 @@ def _run_all_batch(
     all_annos: list[Any] = []
     metadata_dir = cfg.metadata_dir
     project_root = getattr(cfg, "root", None)
+    from rebrew.metadata.functions import load_metadata
+
+    # One store read for the whole walk: read_source_bindings otherwise
+    # re-resolves and re-fingerprints it once per source.
+    function_entries = load_metadata(metadata_dir, deepcopy=False)
     for src in sources:
         try:
             annos = read_source_bindings(
@@ -1990,6 +1995,7 @@ def _run_all_batch(
                 target_name=tm,
                 metadata_dir=metadata_dir,
                 project_root=project_root,
+                function_entries=function_entries,
             )
         except Exception as exc:
             # Dropping the file quietly makes a batch run indistinguishable

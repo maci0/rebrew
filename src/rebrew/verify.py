@@ -2629,6 +2629,11 @@ def prepare_entries(
     metadata_dir = cfg.metadata_dir
     target = target_module(cfg)
     project_root = getattr(cfg, "root", None)
+    # One store read for the whole selection: each source below otherwise
+    # re-resolves and re-fingerprints it.
+    from rebrew.metadata.functions import load_metadata
+
+    function_entries = load_metadata(metadata_dir, deepcopy=False)
     for entry in selected:
         if entry.is_data or entry.symbol or entry.prototype:
             continue
@@ -2643,6 +2648,7 @@ def prepare_entries(
                 target_name=target,
                 metadata_dir=metadata_dir,
                 project_root=project_root,
+                function_entries=function_entries,
             ):
                 # First declaration wins, matching the former linear scan.
                 by_identity.setdefault(

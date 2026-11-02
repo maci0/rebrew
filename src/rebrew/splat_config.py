@@ -1159,6 +1159,9 @@ def _plan_annotations(
     skipped: list[tuple[str, str]] = []
     source = str(cfg_splat.path.name)
     seen_names: dict[str, int] = {}
+    # Several symbols usually land in one planned file; parse each existing
+    # file once instead of once per symbol.
+    annotated_vas: dict[Path, set[int]] = {}
 
     for row in symbols.defined:
         if row.va is None:
@@ -1225,7 +1228,9 @@ def _plan_annotations(
             rel = f"data_{name}{_first_ext(cfg)}"
             path = cfg.reversed_dir / rel
 
-        state, message, overridable = _annotation_state(existing, path, rel, row.va, name)
+        state, message, overridable = _annotation_state(
+            existing, path, rel, row.va, name, annotated_vas
+        )
         if state == "conflict":
             conflicts.append(
                 f"{message}, splat says {name}" if overridable else f"{message} (splat: {name})"
@@ -1267,7 +1272,12 @@ def _plan_annotations(
 
 
 def _annotation_state(
-    existing: dict[int, tuple[str, str]], path: Path | None, rel: str, va: int, name: str
+    existing: dict[int, tuple[str, str]],
+    path: Path | None,
+    rel: str,
+    va: int,
+    name: str,
+    annotated_vas: dict[Path, set[int]] | None = None,
 ) -> tuple[str, str, bool]:
     """``(state, message, overridable)`` for one planned annotation.
 
@@ -1295,19 +1305,26 @@ def _annotation_state(
             f"{claimed_rel}; remove or rename that annotation first",
             False,
         )
-    if path is not None and path.exists() and not _file_annotates(path, va):
+    if path is not None and path.exists() and va not in _file_annotated_vas(path, annotated_vas):
         return ("conflict", f"{rel} already exists and does not annotate 0x{va:08X}", True)
     return "create", "", False
 
 
-def _file_annotates(path: Path, va: int) -> bool:
-    """True when *path* holds an annotation block for *va*."""
+def _file_annotated_vas(path: Path, cache: dict[Path, set[int]] | None = None) -> set[int]:
+    """VAs *path* carries, parsed once per planning run."""
+    if cache is not None:
+        cached = cache.get(path)
+        if cached is not None:
+            return cached
     from rebrew.metadata.bindings import read_source_bindings
 
     try:
-        return any(a.va == va for a in read_source_bindings(path))
-    except OSError, ValueError:
-        return False
+        found = {a.va for a in read_source_bindings(path)}
+    except (OSError, ValueError):
+        found = set()
+    if cache is not None:
+        cache[path] = found
+    return found
 
 
 def _plan_library_annotations(

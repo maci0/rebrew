@@ -21,6 +21,7 @@ from dataclasses import dataclass
 lazy import difflib
 lazy import os
 lazy from pathlib import Path
+lazy from typing import Any
 
 import typer
 
@@ -48,18 +49,25 @@ _CMAKE_LISTS = "CMakeLists.txt"
 
 
 def file_va(
-    path: Path, target_module_name: str | None = None, *, metadata_dir: Path | None = None
+    path: Path,
+    target_module_name: str | None = None,
+    *,
+    metadata_dir: Path | None = None,
+    function_entries: dict[tuple[str, int], dict[str, Any]] | None = None,
 ) -> int | None:
     """Lowest FUNCTION/LIBRARY/STUB VA in *path* (None when none).
 
     Read dedicated metadata bindings. *target_module_name* scopes shared files
     to one target's address space; another target cannot supply the order.
+    *function_entries* is a preloaded store for callers that walk many files.
     """
     if not path.is_file():
         return None
     matches = [
         (ann.module, ann.va)
-        for ann in read_source_bindings(path, metadata_dir=metadata_dir)
+        for ann in read_source_bindings(
+            path, metadata_dir=metadata_dir, function_entries=function_entries
+        )
         if ann.kind in FUNCTION_KINDS
     ]
     if target_module_name is None:
@@ -101,6 +109,11 @@ def order_sources(
     """
     first_by_base = {_base_key(k): v for k, v in (first_va or {}).items()}
     exclude_bases = {_base_key(e) for e in (exclude or set())}
+    function_entries: dict[tuple[str, int], dict[str, Any]] | None = None
+    if metadata_dir is not None:
+        from rebrew.metadata.functions import load_metadata
+
+        function_entries = load_metadata(metadata_dir, deepcopy=False)
     known: list[tuple[int, Path]] = []
     unknown: list[Path] = []
     excluded: list[str] = []
@@ -114,7 +127,12 @@ def order_sources(
         va = (
             first_by_base[base]
             if base in first_by_base
-            else file_va(f, target_module_name, metadata_dir=metadata_dir)
+            else file_va(
+                f,
+                target_module_name,
+                metadata_dir=metadata_dir,
+                function_entries=function_entries,
+            )
         )
         if va is None:
             unknown.append(f)

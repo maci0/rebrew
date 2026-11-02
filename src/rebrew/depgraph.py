@@ -288,6 +288,11 @@ def build_graph(
     metadata_dir = cfg.metadata_dir if cfg else None
     target = target_module(cfg)
     project_root = getattr(cfg, "root", None)
+    function_entries: dict[tuple[str, int], dict[str, Any]] | None = None
+    if metadata_dir is not None:
+        from rebrew.metadata.functions import load_metadata
+
+        function_entries = load_metadata(metadata_dir, deepcopy=False)
 
     for cfile in iter_sources(reversed_dir, cfg):
         rel_name = rel_display_path(cfile, reversed_dir)
@@ -313,6 +318,7 @@ def build_graph(
             target_name=target,
             metadata_dir=metadata_dir,
             project_root=project_root,
+            function_entries=function_entries,
         ):
             if entry.is_data:
                 continue

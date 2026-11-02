@@ -231,12 +231,18 @@ def review_organization(
         native_order = []
         flags: list[dict[str, Any]] = []
         metadata_dir = cfg.metadata_dir
+        from rebrew.metadata.functions import load_metadata
+
+        # One store read for the whole tree: read_source_bindings otherwise
+        # re-resolves and re-fingerprints it once per source.
+        function_entries = load_metadata(metadata_dir, deepcopy=False)
         for source in sorted(active):
             annotations = read_source_bindings(
                 source,
                 target_name=target,
                 metadata_dir=metadata_dir,
                 project_root=cfg.root,
+                function_entries=function_entries,
             )
             settings = set()
             bound_names = set()

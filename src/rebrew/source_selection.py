@@ -43,7 +43,10 @@ def collect_target_sources(
     # the loop below visits every source in the tree.
     metadata_dir = cfg.metadata_dir
     project_root = getattr(cfg, "root", None)
-    for (module, va), row in load_metadata(metadata_dir, deepcopy=False).items():
+    # One read for the whole tree: read_source_bindings otherwise re-resolves
+    # and re-fingerprints the store once per source below.
+    function_entries = load_metadata(metadata_dir, deepcopy=False)
+    for (module, va), row in function_entries.items():
         retired_sources.update(historical_source_files(row, metadata_dir, cfg.root))
         stored = str(row.get("file", ""))
         if (
@@ -71,7 +74,12 @@ def collect_target_sources(
         resolved = src.resolve()
         anns = [
             a
-            for a in read_source_bindings(src, metadata_dir=metadata_dir, project_root=project_root)
+            for a in read_source_bindings(
+                src,
+                metadata_dir=metadata_dir,
+                project_root=project_root,
+                function_entries=function_entries,
+            )
             if a.va
         ]
         anns.extend(library_entries.get(resolved, []))

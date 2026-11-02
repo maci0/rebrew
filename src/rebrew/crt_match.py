@@ -323,6 +323,12 @@ def collect_library_annotations(
     """
     annotations: list[tuple[Path, SourceBinding]] = []
     library_modules = {preset_module_key(m) for m in getattr(cfg, "library_modules", [])}
+    from rebrew.metadata.functions import load_metadata
+
+    # One store read for the whole walk: read_source_bindings otherwise
+    # re-resolves and re-fingerprints it once per source.
+    function_entries = load_metadata(cfg.metadata_dir, deepcopy=False)
+    project_root = getattr(cfg, "root", None)
 
     # Library functions live in `library_*.h` headers as well as .c files;
     # iter_sources only globs cfg.source_ext, so iterate both.
@@ -333,7 +339,8 @@ def collect_library_annotations(
             source_path,
             target_name=None,
             metadata_dir=cfg.metadata_dir,
-            project_root=getattr(cfg, "root", None),
+            project_root=project_root,
+            function_entries=function_entries,
         ):
             module_key = preset_module_key(ann.module or "")
             if ann.kind not in ("FUNCTION", "LIBRARY"):

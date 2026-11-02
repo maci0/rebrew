@@ -215,12 +215,16 @@ def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool, dry_run: bool
     """
     from rebrew.config import target_module
     from rebrew.metadata.bindings import read_source_bindings
+    from rebrew.metadata.functions import load_metadata
     from rebrew.sources import iter_sources
 
     sources = list(iter_sources(cfg.reversed_dir, cfg))
     tm = target_module(cfg)
     metadata_dir = cfg.metadata_dir
     project_root = getattr(cfg, "root", None)
+    # One store read for the whole walk: read_source_bindings otherwise
+    # re-resolves and re-fingerprints it once per source.
+    function_entries = load_metadata(metadata_dir, deepcopy=False)
     candidates: list[tuple[Path, Any]] = []
     all_annos: list[Any] = []
     skipped_files: list[str] = []
@@ -231,6 +235,7 @@ def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool, dry_run: bool
                 target_name=tm,
                 metadata_dir=metadata_dir,
                 project_root=project_root,
+                function_entries=function_entries,
             )
         except Exception as exc:  # one bad file must not kill the batch
             skipped_files.append(f"{src.name}: {exc}")

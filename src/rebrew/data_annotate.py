@@ -575,11 +575,15 @@ def gen_globals_header(
     """
     from rebrew.metadata.bindings import read_source_bindings
     from rebrew.metadata.data import load_data_metadata
+    from rebrew.metadata.functions import load_metadata
     from rebrew.sources import iter_sources
 
     target_module_name = target_module(cfg)
     metadata_dir = cfg.metadata_dir
     metadata = load_data_metadata(metadata_dir)
+    # One store read for the whole walk: read_source_bindings otherwise
+    # re-resolves and re-fingerprints it once per source.
+    function_entries = load_metadata(metadata_dir, deepcopy=False)
 
     # Sources are authoritative for the emitted name and type: a
     # VA-anchored declaration in the tree beats the metadata guess.
@@ -606,6 +610,7 @@ def gen_globals_header(
                 target_name=target_module_name,
                 metadata_dir=metadata_dir,
                 project_root=getattr(cfg, "root", None),
+                function_entries=function_entries,
             )
         except Exception:  # one bad file must not abort the scan
             logging.warning("Skipping %s: annotation parse failed", src, exc_info=True)
