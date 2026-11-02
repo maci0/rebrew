@@ -4783,7 +4783,8 @@ Overlay a related target's BinSync names/prototypes/notes onto structurally
 matched functions of this target (same code at different VAs). The source
 target is `--from`, or the state `manifest.toml` `target` key when omitted;
 the destination is `--target` (the project default when omitted). Matching
-reuses the `cross-import` structural matcher, so no compilation is needed.
+reuses the `rebrew source import-related` structural matcher, so no
+compilation is needed.
 
 
 `--fields global` maps globals by exact content: the source global's bytes are
@@ -6324,8 +6325,9 @@ required import would make these modes fail on a plain install.
 
 The binary-level analog of the per-function diff metrics: aggregates the
 per-function structural signatures (the same ones `rebrew similarity function` /
-`cross-import` use) across **every** function of the current target vs
-another binary; a different game version, or a DLL+EXE pair sharing code.
+`rebrew source import-related` use) across **every** function of the current
+target vs another binary; a different game version, or a DLL+EXE pair sharing
+code.
 Each function of the target best-matches one function in the other binary
 (one-to-many, vectorized numpy; two ~2000-function binaries compare in
 seconds), and the report gives:

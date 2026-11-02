@@ -111,8 +111,9 @@ def main(
     built = option_default(built, None)
     if built is None:
         # The ACTIVE target's build output — one project serves several
-        # binaries and each keeps its own build/<target> file.  text-audit
-        # resolves the same default the same way.
+        # binaries and each keeps its own build/<target> file.
+        # `build check-text-placement` resolves the same default the same
+        # way.
         built = Path("build") / cfg.target_name
     dll = built if built.is_absolute() else root / built
     if not dll.exists():

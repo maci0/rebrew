@@ -138,7 +138,7 @@ class StatusReport:
     # Per-module status breakdown: {module: {status: count}}
     module_status: dict[str, dict[str, int]] = field(default_factory=dict)
 
-    # Library attributions (lib-match identifications) excluded from the
+    # Library attributions (library match identifications) excluded from the
     # progress table — counted here so the number stays visible.
     library_identified: int = 0
     #: LIBRARY bytes attributed by derived span: an identified row without a
@@ -1007,7 +1007,7 @@ def collect_status(
     library_identified = 0
     derived_starts: list[int] = []
     for va, info in existing.items():
-        # External .lib attributions (lib-match identifications + modules
+        # External .lib attributions (library match identifications + modules
         # flagged in external_libs) are not reversing progress: count them
         # separately so the progress table answers "how much of this
         # binary's code is reversed".  They DO count toward .text byte

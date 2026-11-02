@@ -13,8 +13,8 @@ naming pass rewrites the decompilation to use it::
     *(unsigned int *)&v2[0xA] (same offset)    ->  v2->field_14
     y = p[1] / z = &p[1]      (short *p)       ->  y = p->field / z = &p->field
 
-This is the "feed the recovered structs back in" loop: ``rebrew
-recover-structs`` recovers the layout as an anonymous candidate, the user
+This is the "feed the recovered structs back in" loop: ``rebrew types
+recover`` recovers the layout as an anonymous candidate, the user
 names the type (e.g. ``command_s``) in a header, and ``rebrew decompile
 --named`` picks it up.  Matching is conservative: a variable is typed when
 at least one of its accessed offsets is an exact (non-padding) field of a

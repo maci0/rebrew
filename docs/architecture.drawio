@@ -536,7 +536,7 @@
         <mxCell id="d3" value="&lt;b&gt;Link scaffolding&lt;/b&gt;&lt;br&gt;src/link_stubs.c  (calibrate-bss)&lt;br&gt;src/&amp;lt;t&amp;gt;/bss_padding.c&lt;br&gt;src/&amp;lt;t&amp;gt;/rebrew_globals.h&lt;br&gt;crt_region/*.c · build symbol-stubs" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="600" y="568" width="260" height="110" as="geometry"/>
         </mxCell>
-        <mxCell id="d4" value="&lt;b&gt;Signatures / cmake&lt;/b&gt;&lt;br&gt;flirt_sigs/*.pat (project overlay)&lt;br&gt;cmake/toolchain-*.cmake&lt;br&gt;rebrew build cmake-toolchain&lt;br&gt;gen-flirt-pat from .lib" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="d4" value="&lt;b&gt;Signatures / cmake&lt;/b&gt;&lt;br&gt;flirt_sigs/*.pat (project overlay)&lt;br&gt;cmake/toolchain-*.cmake&lt;br&gt;rebrew build cmake-toolchain&lt;br&gt;rebrew library signatures from .lib" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="880" y="568" width="260" height="110" as="geometry"/>
         </mxCell>
         <mxCell id="d5" value="&lt;b&gt;History (not a cache)&lt;/b&gt;&lt;br&gt;.rebrew/ga_runs.jsonl&lt;br&gt;re-running GA does not&lt;br&gt;reproduce these" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff7ed;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
@@ -737,7 +737,7 @@
         <mxCell id="m5" value="coverage document globals&lt;br&gt;section coverage for .data/.bss&lt;br&gt;separate from .text coverage" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1410" y="808" width="280" height="70" as="geometry"/>
         </mxCell>
-        <mxCell id="m-note" value="rebrew-data-analysis skill: scan → annotate → dispatch → BSS check → fix-bss / externs → gen-header → lint. Do not use it for function bodies (workflow/matching) or Ghidra field sync (ghidra-sync). recover-structs is a sibling path: typedefs from decompiler offset evidence, not from section bytes." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ea580c;fontColor=#7c2d12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="m-note" value="rebrew-data-analysis skill: scan → annotate → dispatch → BSS check → fix-bss / externs → gen-header → lint. Do not use it for function bodies (workflow/matching) or Ghidra field sync (ghidra-sync). types recover is a sibling path: typedefs from decompiler offset evidence, not from section bytes." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ea580c;fontColor=#7c2d12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="60" y="894" width="1630" height="48" as="geometry"/>
         </mxCell>
         <mxCell id="e-m0" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ea580c;endArrow=block;" edge="1" parent="1" source="m0" target="m1"><mxGeometry relative="1" as="geometry"/></mxCell>

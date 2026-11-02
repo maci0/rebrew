@@ -479,7 +479,7 @@ def external_vas(
 ) -> set[int]:
     """VAs whose row is external ``.lib`` code — "not our work".
 
-    External = ``LIBRARY`` marker rows (lib-match attributions) or rows
+    External = ``LIBRARY`` marker rows (``library match`` attributions) or rows
     attributed to a configured external module (``targets.<name>.
     external_libs`` keys — e.g. ``D3DX8``, ``LIBCMT``).  These leave the
     progress accounting entirely: identified external code is neither

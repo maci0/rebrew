@@ -757,7 +757,7 @@ questions = pack_for(mode) // always many, one request
 ```
 if answer.confidence < T_act: follow rebrew todo / human
 elif noul > T_yes or choice in AUTO:
-    run mapped CLI (rename, blocker set, decompile, cross-import, …)
+    run mapped CLI (source rename, blocker set, decompile, source import-related, …)
 elif choice == skip/ceiling/human or noul in (T_no, T_yes):
     record and stop
 ```

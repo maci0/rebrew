@@ -29,9 +29,9 @@ lazy from rebrew.utils import preset_module_key, read_json_text
 
 
 # Decoded structure-JSON payloads, keyed by path.  The file is multi-MB on a
-# real target and several commands (cross-import, binsync overlay, similarity)
-# build a registry more than once per run, so the read + ``json.loads`` is
-# repeated for identical bytes.  Value is ``(mtime_size_fp, cost, data)``; a
+# real target and several commands (source import-related, binsync overlay,
+# similarity) build a registry more than once per run, so the read + ``json.loads``
+# is repeated for identical bytes.  Value is ``(mtime_size_fp, cost, data)``; a
 # rewrite replaces the same slot instead of orphaning a key per edit.  Callers
 # get fresh ``FunctionEntry`` objects, so nothing here is mutable-shared.
 #

@@ -968,7 +968,8 @@ def check_shared_sources(cfg: ProjectConfig) -> CheckResult:
     Single-target projects need nothing.  Multi-target projects sharing one
     codebase (same game logic in several binaries) want ``src/shared`` with
     one ``/* ADDRESS: <module> <va> */`` anchor per target (ADR-010) plus
-    ``cross-import --shared`` instead of per-target copies that drift apart.
+    ``source import-related --shared`` instead of per-target copies that drift
+    apart.
     Warns when the project has several targets but no shared dir, or when the
     configured shared dir does not exist.
     """

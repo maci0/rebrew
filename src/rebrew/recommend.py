@@ -367,7 +367,7 @@ def recommend_next_action(
 def recommend_merge_sweep_hint(
     unmatched_clusters: int,
 ) -> Recommendation | None:
-    """Point at ``merge-sweep --dry-run`` when TU partitions are unproven."""
+    """Point at ``match partitions --dry-run`` when TU partitions are unproven."""
     if unmatched_clusters <= 1:
         return None
     return Recommendation(

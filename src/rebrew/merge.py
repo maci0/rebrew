@@ -4,9 +4,9 @@ Combines multiple annotated source files into a single compilation unit,
 deduplicating preamble lines and sorting function blocks by virtual address.
 
 With ``--shared``, twin files (same body, different target modules — the
-per-target copies ``cross-import`` used to make) collapse into one stacked
-block per body (one ``/* ADDRESS: <module> <va> */`` anchor per target,
-ADR-022): the migration path from N copies to one shared file.  Bodies
+per-target copies ``source import-related`` used to make) collapse into one
+stacked block per body (one ``/* ADDRESS: <module> <va> */`` anchor per
+target, ADR-022): the migration path from N copies to one shared file.  Bodies
 that differ between targets are refused, never averaged.
 
 A migrated file has no marker block.  The same command reads each function

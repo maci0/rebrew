@@ -76,8 +76,9 @@ not data relocations, an entire call graph or the actual linked provider.
 
 ## Known operand bindings and shared definitions
 
-Enable `check_known_bindings = true` per target for test/verify/cross-import when
-resolved native DIR32 operands must agree. Read `relocation_bindings` conflicts
+Enable `check_known_bindings = true` per target for test/verify and
+`rebrew source import-related` when resolved native DIR32 operands must agree.
+Read `relocation_bindings` conflicts
 and unresolved entries; the policy preserves unresolved/IAT handling and does
 not turn masked agreement into complete proof. Fix-sizes rechecks the extended
 native window before changing the managed extent.

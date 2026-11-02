@@ -51,7 +51,7 @@ def disasm_signature(
     The length is part of the signature so :func:`similarity_score` can
     penalise a size difference on its own: without it a 40-byte function
     whose opcode mix sits inside a 400-byte function scored in the high 90s
-    against it (cross-import then offered that one source for dozens of
+    against it (the source importer then offered that one source for dozens of
     unrelated destinations).  Returns ``None`` when nothing disassembles
     (empty or undecodable input).
     """
@@ -121,8 +121,8 @@ def similarity_score(
     no size to hand.
 
     The score keeps six decimals: callers gate on it (``--min-score``,
-    cross-import's 95.0 default), and rounding to one decimal let a 94.96
-    through as 95.0.  Display rounds it, not this value.
+    ``rebrew source import-related``'s 95.0 default), and rounding to one
+    decimal let a 94.96 through as 95.0.  Display rounds it, not this value.
     """
     if sig_a is None or sig_b is None:
         return 0.0

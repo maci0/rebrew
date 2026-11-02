@@ -341,7 +341,8 @@ watch loops or publish to external services only when requested.
 ## Operand evidence and project bindings
 
 Set `check_known_bindings = true` in the selected `[targets.<name>]` table to
-reject contradictory resolved DIR32 bindings in test/verify/cross-import.
+reject contradictory resolved DIR32 bindings in test/verify and
+`rebrew source import-related`.
 Inspect `relocation_bindings`: unresolved names remain unresolved, and explicit
 IAT policy stays separate. This is stronger than tolerant masked agreement and
 does not prove every operand or the selected raw-link provider. Stored verify

@@ -8,8 +8,9 @@ of two binaries — the current project target vs another binary (a different
 game version, or a DLL+EXE pair sharing code).
 
 For each function in binary A, the best-matching function in binary B is
-found by the same structural signature ``rebrew similarity function``/``cross-import``
-use (mnemonic-histogram cosine + call/branch agreement, 0-100), then the
+found by the same structural signature ``rebrew similarity function`` and
+``rebrew source import-related`` use (mnemonic-histogram cosine + call/branch
+agreement, 0-100), then the
 per-function scores are aggregated:
 
 - ``overall`` — byte-weighted mean of the best-match scores (what fraction of
