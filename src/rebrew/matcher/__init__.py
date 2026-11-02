@@ -256,8 +256,13 @@ _mutator_loaded = False
 #: stores.  The fill publishes a batch of ``globals()`` entries before flipping
 #: ``_mutator_loaded``, and the GA pool plus ``match --all-targets`` reach this
 #: from several threads at once, so the flag and the batch it guards have to
-#: become visible together.
-_LAZY_EXPORT_LOCK = threading.Lock()
+#: become visible together.  Reentrant: the fill imports ``.mutator``, which
+#: loads ``rebrew.mutations`` plugins, and a plugin that asks this package for
+#: an export (``from rebrew.matcher import mutate_code`` or a packaged
+#: ``mut_*`` op) calls back into :func:`__getattr__` on the same thread.  A
+#: plain Lock would self-deadlock there; the import runs while the lock is
+#: held because the publication must be one section.
+_LAZY_EXPORT_LOCK = threading.RLock()
 
 
 def _load_mutator_exports() -> None:

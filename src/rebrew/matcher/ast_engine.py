@@ -99,9 +99,10 @@ def encode_source(source: str) -> bytes:
 def decode_source(source: bytes) -> str:
     """Decode mutated source bytes back to GA text, inverse of encode_source.
 
-    A plain ``"utf-8"`` decode raises on the same legacy bytes, and
-    ``errors="replace"`` would rewrite them to U+FFFD and change the string
-    literals MSVC emits.
+    Keeps the byte identity the compile round-trip depends on: a plain
+    ``"utf-8"`` decode raises on the same legacy bytes, and
+    ``errors="replace"`` would silently rewrite them to U+FFFD and change
+    the string literals MSVC emits.
     """
     return source.decode("utf-8", errors="surrogateescape")
 
