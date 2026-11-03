@@ -178,6 +178,53 @@ class TestGapTraceHelpers:
         branch = next(iter(_BRANCHES))
         assert _masked_key(b"\x74\x05", False, branch) == b"\x74\x00"
 
+    def test_obj_text_prefers_the_function_section(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import lief
+
+        from rebrew import gap_trace
+
+        class FakeSection:
+            def __init__(self, name: str, content: bytes) -> None:
+                self.name = name
+                self.content = content
+                self.relocations: list[object] = []
+
+        class FakeSymbol:
+            def __init__(self, section_idx: int, is_function: bool) -> None:
+                self.section_idx = section_idx
+                self.is_function = is_function
+
+        class FakeBinary:
+            sections = [FakeSection(".text", b"\x90" * 8), FakeSection(".text", b"\x55\x8b\xec")]
+            symbols = [FakeSymbol(1, False), FakeSymbol(2, True)]
+
+        monkeypatch.setattr(lief, "parse", lambda _path: FakeBinary())
+        body, _rels = gap_trace._obj_text(str(tmp_path / "fake.obj"))
+        assert body == b"\x55\x8b\xec"
+
+    def test_obj_text_falls_back_to_first_text(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import lief
+
+        from rebrew import gap_trace
+
+        class FakeSection:
+            def __init__(self, name: str, content: bytes) -> None:
+                self.name = name
+                self.content = content
+                self.relocations: list[object] = []
+
+        class FakeBinary:
+            sections = [FakeSection(".text", b"\x90" * 4), FakeSection(".rdata", b"\x01")]
+            symbols: list[object] = []
+
+        monkeypatch.setattr(lief, "parse", lambda _path: FakeBinary())
+        body, _rels = gap_trace._obj_text(str(tmp_path / "fake.obj"))
+        assert body == b"\x90" * 4
+
     def test_first_fault_skips_equal_prefix(self) -> None:
         from rebrew.gap_trace import first_fault
 

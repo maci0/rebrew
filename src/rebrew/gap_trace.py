@@ -195,25 +195,48 @@ def _real_end(seq: list[tuple[int, bytes, str, str]]) -> str:
 
 
 def _obj_text(obj_path: str) -> tuple[bytes, set[int]]:
-    """(``.text`` body, reloc-offset set) of the first ``.text*`` section, via lief.
+    """(``.text`` body, reloc-offset set) of the section that defines code.
 
-    Multi-function TUs are not scoped per symbol yet; the comparison is a
-    single annotated function, so only the leading section is decoded.
+    A translation unit can emit several ``.text*`` sections: a lead pad or
+    other filler becomes its own section ahead of the function, so taking the
+    first one traces padding instead of the body. Prefer the section that
+    defines function symbols, and fall back to the first text section when no
+    section does.
     """
     import lief
 
     binary = lief.parse(obj_path)
     if binary is None:
         return b"", set()
-    for section in binary.sections:
+
+    texts = []
+    for number, section in enumerate(binary.sections, start=1):
         name = decode_binary_name(section.name)
-        if not name.startswith(".text"):
+        if name.startswith(".text"):
+            texts.append((number, section))
+
+    functions: dict[int, int] = {number: 0 for number, _ in texts}
+    for symbol in binary.symbols:
+        section_idx = getattr(symbol, "section_idx", None)
+        if section_idx is None or not getattr(symbol, "is_function", False):
             continue
-        rels: set[int] = set()
-        for r in getattr(section, "relocations", ()):
-            rels.update(range(r.address, r.address + 4))
-        return bytes(section.content), rels
-    return b"", set()
+        if section_idx in functions:
+            functions[section_idx] += 1
+
+    chosen = texts[0][1] if texts else None
+    if functions and any(functions.values()):
+        most = max(functions.values())
+        for number, section in texts:
+            if functions[number] == most:
+                chosen = section
+                break
+    if chosen is None:
+        return b"", set()
+
+    rels: set[int] = set()
+    for r in getattr(chosen, "relocations", ()):
+        rels.update(range(r.address, r.address + 4))
+    return bytes(chosen.content), rels
 
 
 @app.callback(invoke_without_command=True)
