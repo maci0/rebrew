@@ -103,9 +103,10 @@ _CALL_RE = re.compile(r"\b([A-Za-z_]\w*)\s*\(")
 
 #: Assignment, compound assignment and increment on an identifier. A member
 #: write (``.field =``) is captured; ``p->field = x`` writes the pointee and
-#: does not match.
+#: does not match. The leading ``*`` marks a unary dereference, so the caller
+#: can tell ``*p = x`` (pointee store) from ``p = x`` (object store).
 _OBJECT_WRITE_RE = re.compile(
-    r"(?<![A-Za-z0-9_])(?P<name>[A-Za-z_]\w*)\s*"
+    r"(?<![A-Za-z0-9_])(?P<deref>\*\s*)?(?P<name>[A-Za-z_]\w*)\s*"
     r"(?P<index>\[[^\]\n]*\])?\s*"
     r"(?P<member>\.\w+)?\s*"
     r"(?P<op>\+\+|--|(?<![=!<>+\-*/%&|^])=(?!=)|\+=|-=|\*=|/=|%=|&=|\|=|\^=|<<=|>>=)"
@@ -612,10 +613,10 @@ def collect_written_symbols(
 
     A writable object cannot be emitted ``const``: the definition would land
     in ``.rdata`` and a caller's store would fault. A pointer dereference
-    (``p[i] = x``, ``p->field = x``) writes the pointee, not the pointer
-    object, and an array's element store writes its own storage. A store
-    reached only through ``&symbol`` or a buffer passed to a callee cannot be
-    seen here.
+    (``*p = x``, ``p[i] = x``, ``p->field = x``) writes the pointee, not the
+    pointer object, and an array's element store writes its own storage. A
+    store reached only through ``&symbol`` or a buffer passed to a callee
+    cannot be seen here.
     """
     info_by_name = extern_info or {}
     written: set[str] = set()
@@ -625,12 +626,10 @@ def collect_written_symbols(
             info = info_by_name.get(name)
             if info and info.get("is_func"):
                 continue
-            if (
-                m.group("index")
-                and not (info and info.get("is_array"))
-                and info
-                and "*" in str(info.get("type", ""))
-            ):
+            pointee_store = bool(m.group("deref") or m.group("index")) and not (
+                info and info.get("is_array")
+            )
+            if pointee_store and info and "*" in str(info.get("type", "")):
                 continue
             written.add(name)
     return written

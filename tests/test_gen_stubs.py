@@ -526,6 +526,20 @@ class TestReadOnlyDataRows:
         )
         assert "const float flt_3[3] = {0};" in content
 
+    def test_rdata_pointer_array_qualifies_each_pointer(self) -> None:
+        """An ``.rdata`` array of pointers is const per element, not per pointee.
+
+        MSVC6 places ``int * const table[8]`` in ``.rdata``; ``const int *``
+        would qualify the pointees and leave the array itself writable.
+        """
+        content = generate_stubs(
+            ["_table"],
+            {"table": self._global("table", "int *", is_array=True, array_size="8")},
+            const_symbols={"table"},
+        )
+        assert "int * const table[8] = {0};" in content
+        assert "const int * table" not in content
+
     def test_declared_const_object_is_read_only_without_a_row(self) -> None:
         externs = {"flt_pi": self._global("flt_pi", "const float")}
         assert declares_const_object("const float")
@@ -538,6 +552,18 @@ class TestReadOnlyDataRows:
         _write_src(tmp_path, "extern int *g_ptr;\nvoid f(void)\n{\n\tg_ptr[0] = 1;\n}\n")
         info = collect_extern_info(tmp_path / "src")
         assert collect_written_symbols(tmp_path / "src", info) == set()
+
+    def test_unary_deref_store_is_not_an_object_write(self, tmp_path: Path) -> None:
+        """``*p = x`` writes the pointee, so a read-only pointer stays const."""
+        _write_src(tmp_path, "extern int *g_ptr;\nvoid f(void)\n{\n\t*g_ptr = 1;\n}\n")
+        info = collect_extern_info(tmp_path / "src")
+        assert collect_written_symbols(tmp_path / "src", info) == set()
+
+    def test_deref_store_through_an_array_writes_the_array(self, tmp_path: Path) -> None:
+        """``*table = x`` stores at element 0, so the array object is writable."""
+        _write_src(tmp_path, "extern int *table[2];\nvoid f(void)\n{\n\t*table = 0;\n}\n")
+        info = collect_extern_info(tmp_path / "src")
+        assert "table" in collect_written_symbols(tmp_path / "src", info)
 
     def test_direct_store_keeps_the_object_writable(self, tmp_path: Path) -> None:
         _write_src(tmp_path, "extern int g_counter;\nvoid f(void)\n{\n\tg_counter = 1;\n}\n")

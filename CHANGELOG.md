@@ -2,8 +2,8 @@
 
 ### Fixed
 
-- `rebrew build symbol-stubs` emits a `const` definition for a global whose managed data row lives in the reference `.rdata`, so the object lands in `.rdata` instead of `.data`. Rows in `.data`/`.bss`, and any symbol a source store writes, stay writable; `--module` scopes the row check to one target when the same name has different sections per target.
-- `rebrew diagnose gap` reports its trace when the aligner reaches a branch instruction whose bytes capstone exposes as a `bytearray`. The masked key is now `bytes` before it is used as a dict key, instead of raising `TypeError: cannot use 'bytearray' as a dict key`.
+- `rebrew build symbol-stubs` emits a `const` definition for a global whose managed data row lives in `.rdata`, or whose extern declaration qualifies the object `const`, so the object lands in `.rdata` instead of `.data`. Pointer constness stays on the pointer object (`int* const`, not `const int*`), including an array of pointers. Rows in `.data`/`.bss`, and any symbol a source store writes, stay writable; a pointee store (`*p = x`, `p[i] = x`, `p->field = x`) writes the pointee, not the pointer object. `--module` scopes the row check to one target when the same name has different sections per target, and `--reference` classifies each row by its VA in the reference image instead of the stored section.
+- `rebrew diagnose gap` reports its trace when the aligner reaches a branch instruction whose bytes capstone exposes as a `bytearray`. The masked key is now `bytes` before it is used as a dict key, instead of raising `TypeError: cannot use 'bytearray' as a dict key (unhashable type: 'bytearray')`.
 
 ## [6.16.0] - 2026-11-03
 
