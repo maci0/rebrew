@@ -3969,10 +3969,13 @@ Generate a stub TU for the linker's unresolved external symbols
 log (`--log`), or stdin (pipe the build output), derives each symbol's type
 from `extern` declarations in the reversed sources, and emits zero-init
 globals, `s_*` string globals and stub functions with simplified C89 types.
-CRT library symbols are filtered with `--library-csv` (functions CSV tagged
-`library`).  Project policy: special forwarding stubs, big non-tentative
-BSS arrays, the `g_bss_tail` pad and a footer (e.g. a `_fltused` marker):
-comes from `--specials <toml>` / `--footer <file>`:
+A global whose managed data row lives in `.rdata`, or whose declaration makes
+the object `const`, gets a `const` definition so it lands in `.rdata`; a
+source store to the object keeps it writable. CRT library symbols are filtered
+with `--library-csv` (functions CSV tagged `library`).  Project policy: special
+forwarding stubs, big non-tentative BSS arrays, the `g_bss_tail` pad and a
+footer (e.g. a `_fltused` marker): comes from `--specials <toml>` /
+`--footer <file>`:
 
 ```toml
 [specials.thread_proc]
@@ -4010,6 +4013,8 @@ restoring, the next run puts back that file and the `.off` TU before building.
 | `--log` | path | — | Read linker output from this file instead of building/stdin |
 | `--specials` | path | — | TOML with forwarding stubs, BSS arrays, pad size, and exceptions |
 | `--footer` | path | — | Text file appended verbatim (e.g. a _fltused marker) |
+| `--module` | str | — | Target module whose data rows decide read-only placement (default: every module; a name writable in any stays writable) |
+| `--reference` | path | — | Reference image whose sections classify each data row VA (default: the row's stored section) |
 | `--output` / `-o` | path | `src/symbol_stubs.c` | Output TU path |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
