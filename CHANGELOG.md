@@ -3,6 +3,7 @@
 ### Fixed
 
 - `rebrew build symbol-stubs` emits a `const` definition for a global whose managed data row lives in the reference `.rdata`, so the object lands in `.rdata` instead of `.data`. Rows in `.data`/`.bss`, and any symbol a source store writes, stay writable; `--module` scopes the row check to one target when the same name has different sections per target.
+- `rebrew diagnose gap` reports its trace when the aligner reaches a branch instruction whose bytes capstone exposes as a `bytearray`. The masked key is now `bytes` before it is used as a dict key, instead of raising `TypeError: cannot use 'bytearray' as a dict key`.
 
 ## [6.16.0] - 2026-11-03
 

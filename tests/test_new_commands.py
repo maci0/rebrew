@@ -199,6 +199,65 @@ class TestGapTraceHelpers:
 
         assert _masked_key(b"\x89\xd8", False, "mov") == b"\x89\xd8"
 
+    def test_diagnose_gap_keeps_bytearray_stream_hashable(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Equal branch runs keyed by capstone's bytearray must not crash.
+
+        ``diagnose gap`` masks instruction bytes before aligning the two
+        streams. Capstone hands the object side a ``bytearray``; slicing one
+        left the masked branch key unhashable, so the aligner raised
+        ``TypeError`` instead of reporting a gap.
+        """
+        from types import SimpleNamespace
+        from typing import cast
+
+        from typer.testing import CliRunner
+
+        import rebrew.gap_trace as gap_trace
+        from rebrew.analysis import Insn
+        from rebrew.app.main import app
+
+        src = tmp_path / "f.c"
+        src.write_text("int f(void) { return 0; }\n", encoding="utf-8")
+        cfg = SimpleNamespace(root=tmp_path, target_binary=tmp_path / "t.bin")
+        sel = SimpleNamespace(toolchain=None, cflags=None, module=None)
+        monkeypatch.setattr(gap_trace, "require_config", lambda **_kw: cfg)
+        monkeypatch.setattr(gap_trace, "select_annotation", lambda *_a, **_kw: (src, sel, 0x1000))
+        monkeypatch.setattr(gap_trace, "reference_window", lambda *_a: 3)
+        monkeypatch.setattr(gap_trace, "load_binary", lambda *_a: SimpleNamespace())
+
+        ref = [
+            Insn(0x1000, 1, "nop", "", cast(bytes, bytearray(b"\x90"))),
+            Insn(0x1001, 2, "je", "0x1005", cast(bytes, bytearray(b"\x74\x03"))),
+        ]
+        obj = [
+            SimpleNamespace(address=0x1000, bytes=bytearray(b"\x90"), mnemonic="nop", op_str=""),
+            SimpleNamespace(
+                address=0x1001, bytes=bytearray(b"\x74\x03"), mnemonic="je", op_str="0x1005"
+            ),
+        ]
+        monkeypatch.setattr(gap_trace, "iter_instructions", lambda *_a: ref)
+        monkeypatch.setattr(
+            "rebrew.compiler.overrides.resolve_compile_overrides", lambda *_a, **_kw: (None, "/O2")
+        )
+        monkeypatch.setattr(
+            gap_trace, "compile_to_obj", lambda *_a, **_kw: (tmp_path / "f.obj", None)
+        )
+        monkeypatch.setattr(gap_trace, "_obj_text", lambda *_a: (b"", set()))
+        monkeypatch.setattr(
+            "rebrew.analysis.capstone_for",
+            lambda *_a: SimpleNamespace(disasm=lambda *_a: iter(obj)),
+        )
+
+        result = CliRunner().invoke(app, ["diagnose", "gap", "f.c", "--va", "0x1000", "--json"])
+        assert result.exit_code == 0, result.output
+        payload = cli_payload(result)
+        assert payload["va"] == "0x1000"
+        assert payload["reference_insns"] == 2
+        assert payload["object_insns"] == 2
+        assert payload["fault"] is None
+
 
 class TestResidueHelpers:
     def test_residue_report_identical(self) -> None:

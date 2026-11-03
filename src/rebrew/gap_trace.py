@@ -94,11 +94,16 @@ def reference_window(cfg: Any, va: int) -> int | None:
 
 
 def _masked_key(raw: bytes, reloc: bool, mnemonic: str) -> bytes:
-    """Instruction bytes with reloc slots and branch operands blanked."""
+    """Instruction bytes with reloc slots and branch operands blanked.
+
+    Always returns ``bytes``: capstone hands the disassembly stream a
+    ``bytearray``, and slicing one returns another bytearray, which the
+    sequence aligner cannot use as a dict key.
+    """
     if reloc:
         return b"\x00" * len(raw)
     if mnemonic in _BRANCHES:
-        return raw[:1] + b"\x00" * (len(raw) - 1)
+        return bytes(raw[:1]) + b"\x00" * (len(raw) - 1)
     return bytes(raw)
 
 
