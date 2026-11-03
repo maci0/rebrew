@@ -4398,20 +4398,25 @@ Replay: `rebrew diagnose gap 0x005d1790 --json` reports `object_code_end` 0x140 
 function whose real adjustment is `sub esp,0x470`; objdump of the same trace object shows the
 bound symbol in a later section.
 
-## Stack diagnostic should read the same section the gap trace now does
+## Frame diagnostic reports peak stack depth, which is not the compiled frame
 
-Problem: `rebrew diagnose gap` was just fixed to decode the text section that defines
-the function, but `rebrew diagnose stack` still disagrees with both the object's own
-prologue and the gap trace on at least one row in guild-rebrew. On row 0x00595330 the
-stack diagnostic reports a target frame of 0x15c against a compiled 0x164, while objdump
-of the object and the gap trace both show `sub esp,0xf0` on each side, so the frame it
-compares is not the frame that is compiled.
+Problem: `rebrew diagnose stack` reports a frame that readers take as the function's
+compiled frame, but `analyze_frame` returns peak esp depth. When a stream contains calls
+whose arguments are not credited back (the model does not credit `add esp` after a call and
+assumes stdcall callees pop through `ret N`), the depth keeps sinking and the number drifts
+away from the prologue adjustment. On guild-rebrew row 0x00595330 the diagnostic reports a
+target of 0x15c against a compiled 0x164 while both prologues are `sub esp,0xf0`, the peak
+being 0x100 including the four saved registers on each side; the eight-byte difference is
+code divergence in the stream amplified by the argument-push model, not a wrong section or a
+different frame.
 
-Proposed capability: have the stack comparison obtain its compiled bytes from the same
-section-selection helper the gap trace uses, and report which section was used. The two
-diagnostics disagreeing about the same object is worse than either being wrong alone,
-because a session that checks one after the other cannot tell which to trust.
+Proposed capability: make the reported name and the calculated value agree. Either rename
+what it reports (peak depth including outgoing arguments) and document the model, or credit
+argument pushes at each call so the reported number is the local frame, which is what a
+reader comparing against a prologue expects. The second changes existing expectations in
+`tests/test_stack_cmp.py` and touches the near-analysis caller, so it needs its own change
+with updated tests.
 
-Replay: `rebrew diagnose stack 0x00595330 --json` in the guild-rebrew project, against
-`objdump -d` of the compiled object in `.rebrew/gaptrace/`, on a row whose source packs
-several functions into one translation unit.
+Replay: `rebrew diagnose stack 0x00595330 --json` in guild-rebrew against
+`objdump -d` of the compiled object in `.rebrew/gaptrace/`; both prologues are
+`sub esp,0xf0` and the reported compiled value is 0x164.
