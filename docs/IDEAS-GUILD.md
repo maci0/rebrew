@@ -4337,3 +4337,81 @@ Replay: `rebrew data layout converge --dry-run --json` returns
 `{"rounds":1,"adjustments":[]}`. `rebrew data layout converge --help` states
 that "The built binary is not re-linked between them, so an extra round
 re-measures the same build; rebuild and re-run for a new fixed point".
+
+## Scope `orphans prune` to a store, module or VA
+
+Problem: a mistaken `rebrew test <file> --va <VA> --force-status` for a VA the
+target does not define creates a metadata row bound to that file, and the only
+removal path is `orphans prune`, which acts on every orphan in every store at
+once. In guild-rebrew that is 1340 rows, and most are legitimate identity-only
+data rows whose definitions live in generated stub files outside `src/`, so
+pruning everything would destroy them. There is no way to remove the one bogus
+function row through the locked writer, and `rebrew --help` exposes no other
+removal command.
+
+Proposed capability: accept repeatable `--store`, `--module` and `--va` filters
+on `orphans list` and `orphans prune`, with the same digest-guarded
+`--expected-digest` apply that other destructive writers use, and print the
+count per filter before writing. A filter that matches nothing should be an
+error rather than a silent no-op.
+
+Replay: `rebrew orphans prune --help` lists only `--include-matched` and the
+dry-run flag, and `rebrew orphans list --json` on the project returns
+`{"pruned":0}` with 1340 entries, one of them
+`{"module":"GOLDTL","va":"0x4f2720","store":"rebrew-functions.toml","status":"STUB"}`.
+
+## Keep target tail padding in the compared slice, or report it separately
+
+Problem: `rebrew test` right-strips object padding while the target slice keeps it, so a
+function whose reference extent ends in alignment nops can never reach the stored size, and
+its size verdict can never clear even when the code is byte-identical. In guild-rebrew the
+row 0x004a9b20 has an exact 30-byte decomposition of its shortfall: 4 bytes from a known
+conversion fold, 2 from a known switch preamble, 13 from a tail-merge of the return-zero
+epilogue, 1 alignment nop, and 10 bytes of padding inside the 1440-byte slice. The last 11
+cannot be emitted from C at all, so no source shape reaches 1440.
+
+Proposed capability: compare over the stored extent and treat trailing object padding
+separately, either by reporting a size verdict that distinguishes "code shorter" from
+"trailing padding absent", or by padding the object slice to the extent before comparison and
+saying so in the result. The same applies to functions whose extent ends in fill: a row that
+is code-complete should be able to report that, rather than a permanent size mismatch.
+
+Replay: `rebrew test src/Develop/DieGildeAddOn/game/GOLDTL.fcn_004a9b20.c --va 0x004a9b20 --json`
+returns `obj_size` 1410 against `total` 1440 with the source unchanged, and the row has been at
+SIZE_MISMATCH through every attempt because the last 11 bytes are padding.
+
+## Gap diagnostic should disassemble the bound function, not a lead scaffold section
+
+Problem: a source file can contain a padding or lead definition before the real body, and the
+object then holds two text sections. `rebrew diagnose gap` disassembled the 320-byte `0x90`
+scaffold section and reported an object end of 0x140 with a `nop` fault against the real
+function's `sub esp,0x470`, before and after edits, so every window it reported was
+unusable. Two rows in guild-rebrew hit this: 0x005d1790, whose source carries a
+`_tlead_GOLDTL_fcn_005d1790` scaffold, and 0x0044e1e0, whose lead filler also made the
+diagnostic read 112 NOP instructions as the body.
+
+Proposed capability: resolve the disassembled section from the function symbol bound to the
+row, and report which section was used. When more than one text contribution exists, say so
+in the result instead of silently tracing the first.
+
+Replay: `rebrew diagnose gap 0x005d1790 --json` reports `object_code_end` 0x140 for a
+function whose real adjustment is `sub esp,0x470`; objdump of the same trace object shows the
+bound symbol in a later section.
+
+## Stack diagnostic should read the same section the gap trace now does
+
+Problem: `rebrew diagnose gap` was just fixed to decode the text section that defines
+the function, but `rebrew diagnose stack` still disagrees with both the object's own
+prologue and the gap trace on at least one row in guild-rebrew. On row 0x00595330 the
+stack diagnostic reports a target frame of 0x15c against a compiled 0x164, while objdump
+of the object and the gap trace both show `sub esp,0xf0` on each side, so the frame it
+compares is not the frame that is compiled.
+
+Proposed capability: have the stack comparison obtain its compiled bytes from the same
+section-selection helper the gap trace uses, and report which section was used. The two
+diagnostics disagreeing about the same object is worse than either being wrong alone,
+because a session that checks one after the other cannot tell which to trust.
+
+Replay: `rebrew diagnose stack 0x00595330 --json` in the guild-rebrew project, against
+`objdump -d` of the compiled object in `.rebrew/gaptrace/`, on a row whose source packs
+several functions into one translation unit.
