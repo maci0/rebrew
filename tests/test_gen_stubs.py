@@ -10,10 +10,15 @@ from typer.testing import CliRunner
 from rebrew import gen_stubs
 from rebrew.gen_stubs import (
     collect_extern_info,
+    collect_rdata_symbols,
+    collect_written_symbols,
+    const_object_type,
+    declares_const_object,
     demangle_cdecl,
     ensure_param_names,
     generate_stubs,
     load_library_symbols,
+    native_section,
     parse_extern_decl,
     parse_unresolved_symbols,
     simplify_type_for_stub,
@@ -464,6 +469,134 @@ class TestGenerate:
         assert "short bar = 0;" in content
 
 
+class TestReadOnlyDataRows:
+    """A reference ``.rdata`` row must not land in ``.data``.
+
+    The generator used to emit every global as a writable zero-initialized
+    definition, so a symbol whose native storage is read-only shortened the
+    linked image's ``.rdata``.
+    """
+
+    def _global(
+        self,
+        name: str,
+        type_text: str,
+        *,
+        is_array: bool = False,
+        array_size: str | None = None,
+    ) -> dict:
+        return {
+            "name": name,
+            "type": type_text,
+            "is_func": False,
+            "calling_conv": None,
+            "params": None,
+            "full_decl": f"extern {type_text} {name};",
+            "is_array": is_array,
+            "array_size": array_size,
+        }
+
+    def test_rdata_row_emits_const(self) -> None:
+        content = generate_stubs(
+            ["_flt_0_3"],
+            {"flt_0_3": self._global("flt_0_3", "float")},
+            const_symbols={"flt_0_3"},
+        )
+        assert "const float flt_0_3 = 0;" in content
+
+    def test_data_row_keeps_its_writable_definition(self) -> None:
+        content = generate_stubs(["_g_counter"], {"g_counter": self._global("g_counter", "int")})
+        assert "int g_counter = 0;" in content
+        assert "const int g_counter" not in content
+
+    def test_const_qualifies_the_pointer_object_not_the_pointee(self) -> None:
+        content = generate_stubs(
+            ["_g_ptr"],
+            {"g_ptr": self._global("g_ptr", "int *")},
+            const_symbols={"g_ptr"},
+        )
+        assert "int * const g_ptr = 0;" in content
+        assert "const int * g_ptr" not in content
+
+    def test_const_array_keeps_its_initializer(self) -> None:
+        content = generate_stubs(
+            ["_flt_3"],
+            {"flt_3": self._global("flt_3", "float", is_array=True, array_size="3")},
+            const_symbols={"flt_3"},
+        )
+        assert "const float flt_3[3] = {0};" in content
+
+    def test_declared_const_object_is_read_only_without_a_row(self) -> None:
+        externs = {"flt_pi": self._global("flt_pi", "const float")}
+        assert declares_const_object("const float")
+        assert not declares_const_object("const char*")
+        assert const_object_type("int*") == "int* const"
+        content = generate_stubs(["_flt_pi"], externs)
+        assert "const float flt_pi = 0;" in content
+
+    def test_pointer_element_store_is_not_an_object_write(self, tmp_path: Path) -> None:
+        _write_src(tmp_path, "extern int *g_ptr;\nvoid f(void)\n{\n\tg_ptr[0] = 1;\n}\n")
+        info = collect_extern_info(tmp_path / "src")
+        assert collect_written_symbols(tmp_path / "src", info) == set()
+
+    def test_direct_store_keeps_the_object_writable(self, tmp_path: Path) -> None:
+        _write_src(tmp_path, "extern int g_counter;\nvoid f(void)\n{\n\tg_counter = 1;\n}\n")
+        info = collect_extern_info(tmp_path / "src")
+        assert "g_counter" in collect_written_symbols(tmp_path / "src", info)
+
+    def test_module_scope_resolves_conflicting_target_rows(self, tmp_path: Path) -> None:
+        from rebrew.metadata.data import record_data_rows
+
+        record_data_rows(
+            tmp_path,
+            [
+                {
+                    "module": "GOLDTL",
+                    "va": 0x662000,
+                    "identity": {"name": "g_shared", "kind": "GLOBAL"},
+                    "fill": {"section": ".rdata", "size": 4, "type": "int"},
+                },
+                {
+                    "module": "GOLD",
+                    "va": 0x5EB000,
+                    "identity": {"name": "g_shared", "kind": "GLOBAL"},
+                    "fill": {"section": ".data", "size": 4, "type": "int"},
+                },
+            ],
+        )
+        assert collect_rdata_symbols(tmp_path) == set()
+        assert collect_rdata_symbols(tmp_path, "GOLDTL") == {"g_shared"}
+
+    def test_reference_ranges_decide_the_native_section(self, tmp_path: Path) -> None:
+        """The row VA, not its stored section, decides read-only placement.
+
+        A row declared ``.data`` whose VA lies in the reference ``.rdata`` is
+        the bug this fixes, and the reverse must stay writable.
+        """
+        from rebrew.metadata.data import record_data_rows
+
+        record_data_rows(
+            tmp_path,
+            [
+                {
+                    "module": "GOLDTL",
+                    "va": 0x662000,
+                    "identity": {"name": "g_ro", "kind": "GLOBAL"},
+                    "fill": {"section": ".data", "size": 4, "type": "int"},
+                },
+                {
+                    "module": "GOLDTL",
+                    "va": 0x6B6000,
+                    "identity": {"name": "g_rw", "kind": "GLOBAL"},
+                    "fill": {"section": ".rdata", "size": 4, "type": "int"},
+                },
+            ],
+        )
+        ranges = [(0x6B6000, 0x6B7000, ".data"), (0x662000, 0x663000, ".rdata")]
+        assert native_section(0x662000, ranges) == ".rdata"
+        assert collect_rdata_symbols(tmp_path, "GOLDTL", ranges) == {"g_ro"}
+
+
 class TestLibraryFilter:
     def test_skips_library_symbols(self, tmp_path: Path) -> None:
         csv = tmp_path / "funcs.csv"
@@ -534,6 +667,63 @@ class TestCli:
         assert result.exit_code == 0
         assert "int g_counter = 0;" in out.read_text(encoding="utf-8")
         assert "int __cdecl write_log(char* a)" in out.read_text(encoding="utf-8")
+
+    def test_rdata_row_regenerates_a_const_stub(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A row in reference ``.rdata`` must generate a read-only definition.
+
+        Before the fix every global got ``int name = 0;``, which MSVC6 placed
+        in ``.data`` and which shortened the linked image's ``.rdata``. A
+        caller store keeps the object writable.
+        """
+        from rebrew.gen_stubs import app
+        from rebrew.metadata.data import record_data_rows
+
+        monkeypatch.chdir(tmp_path)
+        _write_src(
+            tmp_path,
+            "extern int g_ro;\nextern int g_rw;\nextern int g_written;\n"
+            "void touch(void)\n{\n\tg_written = 1;\n}\n",
+        )
+        record_data_rows(
+            tmp_path,
+            [
+                {
+                    "module": "GOLDTL",
+                    "va": 0x662000,
+                    "identity": {"name": "g_ro", "kind": "GLOBAL"},
+                    "fill": {"section": ".rdata", "size": 4, "type": "int"},
+                },
+                {
+                    "module": "GOLDTL",
+                    "va": 0x6B6000,
+                    "identity": {"name": "g_rw", "kind": "GLOBAL"},
+                    "fill": {"section": ".data", "size": 4, "type": "int"},
+                },
+                {
+                    "module": "GOLDTL",
+                    "va": 0x662004,
+                    "identity": {"name": "g_written", "kind": "GLOBAL"},
+                    "fill": {"section": ".rdata", "size": 4, "type": "int"},
+                },
+            ],
+        )
+        result = CliRunner().invoke(
+            app,
+            ["--json"],
+            input=(
+                "a.obj : error LNK2001: unresolved external symbol _g_ro\n"
+                "a.obj : error LNK2001: unresolved external symbol _g_rw\n"
+                "a.obj : error LNK2001: unresolved external symbol _g_written\n"
+            ),
+        )
+        assert result.exit_code == 0, result.output
+        text = (tmp_path / "src" / "symbol_stubs.c").read_text(encoding="utf-8")
+        assert "const int g_ro = 0;" in text
+        assert "int g_rw = 0;" in text
+        assert "const int g_written" not in text
+        assert "int g_written = 0;" in text
 
     def test_json_still_writes_output(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

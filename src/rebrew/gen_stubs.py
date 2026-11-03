@@ -101,6 +101,16 @@ _STDCALL_CONVENTIONS = frozenset({"__stdcall", "WINAPI", "CALLBACK", "APIENTRY"}
 #: fallback; one compile per run, so it lives beside the other module patterns.
 _CALL_RE = re.compile(r"\b([A-Za-z_]\w*)\s*\(")
 
+#: Assignment, compound assignment and increment on an identifier. A member
+#: write (``.field =``) is captured; ``p->field = x`` writes the pointee and
+#: does not match.
+_OBJECT_WRITE_RE = re.compile(
+    r"(?<![A-Za-z0-9_])(?P<name>[A-Za-z_]\w*)\s*"
+    r"(?P<index>\[[^\]\n]*\])?\s*"
+    r"(?P<member>\.\w+)?\s*"
+    r"(?P<op>\+\+|--|(?<![=!<>+\-*/%&|^])=(?!=)|\+=|-=|\*=|/=|%=|&=|\|=|\^=|<<=|>>=)"
+)
+
 
 def is_import_symbol(symbol: str) -> bool:
     """True for a DLL import slot the import library must provide."""
@@ -595,6 +605,94 @@ def collect_called_symbols(src_dir: Path) -> set[str]:
     return called
 
 
+def collect_written_symbols(
+    src_dir: Path, extern_info: dict[str, dict[str, typing.Any]] | None = None
+) -> set[str]:
+    """Identifiers the sources assign to, increment or write through a member.
+
+    A writable object cannot be emitted ``const``: the definition would land
+    in ``.rdata`` and a caller's store would fault. A pointer dereference
+    (``p[i] = x``, ``p->field = x``) writes the pointee, not the pointer
+    object, and an array's element store writes its own storage. A store
+    reached only through ``&symbol`` or a buffer passed to a callee cannot be
+    seen here.
+    """
+    info_by_name = extern_info or {}
+    written: set[str] = set()
+    for _src_file, text in _stripped_sources(src_dir):
+        for m in _OBJECT_WRITE_RE.finditer(text):
+            name = m.group("name")
+            info = info_by_name.get(name)
+            if info and info.get("is_func"):
+                continue
+            if (
+                m.group("index")
+                and not (info and info.get("is_array"))
+                and info
+                and "*" in str(info.get("type", ""))
+            ):
+                continue
+            written.add(name)
+    return written
+
+
+def section_ranges(reference: Path) -> list[tuple[int, int, str]]:
+    """Loaded section ``(start, end, name)`` intervals of a local image."""
+    from rebrew.formats.binary_loader import load_binary
+
+    info = load_binary(reference)
+    return sorted(
+        ((s.va, s.va + s.size, s.name) for s in info.sections.values()),
+        key=lambda item: item[0],
+    )
+
+
+def native_section(va: int, ranges: list[tuple[int, int, str]]) -> str:
+    """Name of the loaded section that contains *va*, or ``""``."""
+    for start, end, name in ranges:
+        if start <= va < end:
+            return name
+    return ""
+
+
+def collect_rdata_symbols(
+    metadata_dir: Path,
+    module: str | None = None,
+    ranges: list[tuple[int, int, str]] | None = None,
+) -> set[str]:
+    """C names whose managed data row lives in the reference ``.rdata``.
+
+    With *ranges* from a reference image, the row VA decides the native
+    section; without it the row's stored section does. A name qualified
+    ``.data``/``.bss`` anywhere in scope stays writable: one stub TU cannot
+    be read-only for one target and writable for another. *module* limits the
+    rows to one target's metadata, which is the only unambiguous scope when
+    the same name has different sections per target. Import slots belong to
+    the linker and never get a stub.
+    """
+    from rebrew.metadata.data import load_data_metadata
+
+    sections: dict[str, set[str]] = {}
+    for (row_module, va), row in load_data_metadata(metadata_dir, deepcopy=False).items():
+        if module is not None and row_module != module:
+            continue
+        if row.get("storage_kind") == "import":
+            continue
+        name = row.get("name")
+        section: str | None
+        if ranges is not None:
+            section = native_section(va, ranges)
+        else:
+            stored = row.get("section")
+            if not isinstance(stored, str):
+                continue
+            section = stored
+        if isinstance(name, str) and section and is_safe_c_ident(name):
+            sections.setdefault(name, set()).add(section)
+    writable = {".data", ".data1", ".bss"}
+    return {name for name, found in sections.items() if ".rdata" in found and not found & writable}
+
+
 def collect_conditional_callable_aliases(src_dir: Path) -> set[str]:
     """Names that conditional object-like macros may map from called symbols."""
     from rebrew.c_parser import parse_c_source
@@ -703,6 +801,34 @@ def simplify_type_for_stub(type_str: str) -> str:
     if any(word not in _TYPE_WORDS for word in words):
         return "void*" if "*" in type_str else "int"
     return type_str
+
+
+def declares_const_object(type_text: str) -> bool:
+    """True when *type_text* makes the declared object itself const.
+
+    ``const char*`` points at const characters; the pointer object stays
+    writable, so that stub belongs in ``.data``. ``char* const`` does not.
+    """
+    const_at = type_text.rfind("const")
+    if const_at < 0:
+        return False
+    return const_at > type_text.rfind("*")
+
+
+def const_object_type(type_text: str) -> str:
+    """Qualify the declared object const without changing its initializer.
+
+    ``int`` becomes ``const int``; ``int*`` becomes ``int* const``, so a
+    pointer stub lands in ``.rdata`` while its pointee stays writable.
+    """
+    if declares_const_object(type_text):
+        return type_text
+    star_at = type_text.rfind("*")
+    if star_at < 0:
+        return f"const {type_text}".strip()
+    before = type_text[: star_at + 1].rstrip()
+    after = type_text[star_at + 1 :].strip()
+    return " ".join(part for part in (before, "const", after) if part)
 
 
 def _split_type_name(part: str) -> tuple[str, str | None]:
@@ -861,11 +987,13 @@ def generate_stubs(
     footer: str = "",
     called: Iterable[str] | None = None,
     conditional_callable_aliases: Iterable[str] | None = None,
+    const_symbols: Iterable[str] | None = None,
 ) -> str:
     """The complete stub TU text for *unresolved* symbol names."""
     specials = specials or {}
     called_set: set[str] = set(called) if called is not None else set()
     alias_set = set(conditional_callable_aliases or ())
+    const_set: set[str] = set(const_symbols or ())
     special_entries: dict[str, dict[str, typing.Any]] = specials.get("specials", {})
     bss_arrays: list[list[typing.Any]] = specials.get("bss_arrays", [])
     bss_tail: int = int(specials.get("bss_tail_size", 0) or 0)
@@ -969,10 +1097,17 @@ def generate_stubs(
     ]
     # All stubs are zero-initialized (non-tentative) so MSVC6 emits them into
     # the object's .bss -> PE .data VirtualSize with raw=0, deterministically.
+    # A row whose managed reference section is .rdata, or whose declaration
+    # qualifies the object const, must be `const` instead: it is read-only in
+    # the reference, and a writable definition lands in .data and shortens
+    # .rdata. The initializer stays the same.
     for name in sorted(globals_list):
         info = _lookup(extern_info, name)
+        read_only = name in const_set or bool(info and declares_const_object(info["type"]))
         if info:
             var_type = simplify_type_for_stub(info["type"])
+            if read_only:
+                var_type = const_object_type(var_type)
             if info["is_array"]:
                 try:
                     size = parse_c_integer_literal(info["array_size"] or "1")
@@ -983,7 +1118,7 @@ def generate_stubs(
             else:
                 lines.append(f"{var_type} {name} = 0;")
         else:
-            lines.append(f"int {name} = 0;")
+            lines.append(f"{'const ' if read_only else ''}int {name} = 0;")
     lines.append("")
 
     if bss_arrays:
@@ -1004,7 +1139,9 @@ def generate_stubs(
         for name in sorted(string_globals):
             info = _lookup(extern_info, name)
             decl_size = info["array_size"] if info and info["is_array"] else "1"
-            lines.append(f'char {name}[{decl_size}] = "";')
+            read_only = name in const_set or bool(info and declares_const_object(info["type"]))
+            qualifier = "const " if read_only else ""
+            lines.append(f'{qualifier}char {name}[{decl_size}] = "";')
         lines.append("")
 
     if special_list:
@@ -1326,6 +1463,18 @@ def main(
     source_dir: Path | None = typer.Option(
         None, "--source-dir", help="Directory of reversed sources (extern decl scan)"
     ),
+    module: str | None = typer.Option(
+        None,
+        "--module",
+        help="Target module whose data rows decide read-only placement "
+        "(default: every module; a name writable in any stays writable)",
+    ),
+    reference: Path | None = typer.Option(
+        None,
+        "--reference",
+        help="Reference image whose sections classify each data row VA "
+        "(default: the row's stored section)",
+    ),
     library_csv: Path | None = typer.Option(
         None, "--library-csv", help="Functions CSV to filter CRT library symbols"
     ),
@@ -1380,6 +1529,8 @@ def main(
             or footer
             or exclude_file
             or cmake_stub_var
+            or module
+            or reference
         ):
             error_exit(
                 "selected updates require --specials and exclude build inputs",
@@ -1465,6 +1616,14 @@ def main(
     called = collect_called_symbols(src)
     conditional_aliases = collect_conditional_callable_aliases(src)
 
+    # The reference section decides storage, and a caller store rules out
+    # read-only storage. Writes reached only through &symbol or a callee are
+    # not visible in the source scan.
+    ranges = section_ranges(root / reference) if reference is not None else None
+    rdata_symbols = collect_rdata_symbols(root, module, ranges)
+    written_symbols = collect_written_symbols(src, extern_info)
+    const_symbols = rdata_symbols - written_symbols
+
     # 4. Generate.
     footer_text = read_source_text(footer)[0] if footer is not None else ""
     try:
@@ -1475,6 +1634,7 @@ def main(
             footer_text,
             called=called,
             conditional_callable_aliases=conditional_aliases,
+            const_symbols=const_symbols,
         )
     except ValueError as exc:
         error_exit(str(exc), json_mode=json_output)

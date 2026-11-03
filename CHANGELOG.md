@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- `rebrew build symbol-stubs` emits a `const` definition for a global whose managed data row lives in the reference `.rdata`, so the object lands in `.rdata` instead of `.data`. Rows in `.data`/`.bss`, and any symbol a source store writes, stay writable; `--module` scopes the row check to one target when the same name has different sections per target.
+
 ## [6.16.0] - 2026-11-03
 
 ### Changed
