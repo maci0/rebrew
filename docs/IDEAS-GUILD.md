@@ -4255,3 +4255,85 @@ Add target-aware preprocessing or a conservative conditional evaluation mode
 that records the exact macro/include context and leaves unresolvable branches
 explicit. This would distinguish real per-target contract conflicts from
 mutually exclusive declarations without discarding unknowns.
+
+## check-data-placement cannot name the object that provides a row (2026-11-03)
+
+`rebrew build check-data-placement --built build/Europa1400Gold_TL.exe --json`
+returns `{"symbols":0,"matched":0,"correct":0,"misplaced":0,"misplaced_list":[],"per_object":[],"shift":null}`.
+The TL image sits in `build/`, whose `CMakeFiles` tree belongs to the server
+link: it holds `bss_late.dir` and `server_dll.dir`, and no `link.txt` names
+`Europa1400Gold_TL.exe`. The command takes the first rsp directory,
+`bss_late.dir`, and inventories an object with no `.data` symbols. The same
+image in its own build tree reports symbols:
+`rebrew build check-data-placement --built build-goldtl-audit/Europa1400Gold_TL.exe --json`
+gives `symbols: 2085` and `toml-matched: 49`.
+
+The pairing stays invisible and incomplete. The store holds 452 GOLDTL rows,
+of which 220 declare `.data` and 173 declare `.bss`, and the check inventories
+only `.data` object symbols. Scaffold definitions that COFF records in `.rdata` or `.bss` are
+never paired; the `.bss` ones occupy the `.data` section's virtual tail.
+`g_6628c8` is `const float` at `stubs/goldtl/symbol_stubs.c:870`, sits in
+`.bss` in `symbol_stubs.c.obj`, and links at `0003:0020224c`. Rows also name a
+game file while the map names the scaffold object: row `g_869480` records
+`file = src/Develop/Unassigned/GOLDTL.fcn_0050f950.c` and links from
+`symbol_stubs.c.obj`. Nothing in the output says which route paired a row, so a
+zero cannot be told from a clean build.
+
+Proposed capability: resolve the object list from the image's own link, choose
+the rsp directory whose `link.txt` names its output, and fail (exit 2) when none
+matches instead of taking the first. Pair each row to the object that defines
+its link symbol: allow a row to name its actual provider, and match by
+VA-in-section proximity when the row's `file` does not define the symbol.
+Inventory `.rdata` and `.bss` symbols with `.data`. Report the route used for
+each row and the object that provided it.
+
+Replay: the first command returns `symbols 0` and `toml-matched 0`; the TL
+build tree returns `symbols 2085` and `toml-matched 49` against 452 rows.
+
+## data layout audit reads objects that are not on the target's link line (2026-11-03)
+
+`rebrew data layout audit --section .data --json` returns one row,
+`src/bss_layout/bss_late.c.obj`, with `dsize 0` and `bsize 24316304`, plus the
+`g_*` names that object carries. `src/bss_layout/bss_late.c` is not on the TL
+link line. The audit resolves objects through `build/CMakeFiles/*/objects*.rsp`
+and, when no `link.txt` names the selected target's output, takes the first rsp
+directory by name. `build/CMakeFiles` holds `bss_late.dir` and
+`server_dll.dir`, so the TL target is audited against the server scaffold
+translation unit. The TL link lives in `build-goldtl-audit`; its 5,215 objects
+are never read.
+
+Proposed capability: resolve the object set from the selected target's own
+link, either by matching the image's `/out:` name in `link.txt` or by using the
+target's configured CMake binary directory. Report the resolved directory, the
+object count and whether the objects are on the selected target's link line.
+Fail when no object set belongs to the selected target instead of auditing an
+unrelated object.
+
+Replay: the command returns `violations: 0` with one row. That row has an empty
+`dsyms`, a populated `bsyms`, `min_addr` 0, `max_addr` 0 and empty `flags`.
+`unowned` is populated and `duplicate_owned` is empty.
+
+## data layout converge measures an image it did not link (2026-11-03)
+
+`rebrew data layout converge --dry-run --json` returns
+`{"rounds":1,"adjustments":[]}`. The command accepts no image path and no build
+command. It reads `build/<target>`, here `build/Europa1400Gold_TL.exe`, a
+leftover TL image in the server build tree, while the TL link output is
+`build-goldtl-audit/Europa1400Gold_TL.exe`. It also resolves its objects from
+`build/`, so it measures `bss_late.c.obj` again. `--rounds` reuses the same
+image: the flag help states the built binary is not re-linked between rounds,
+so an extra round re-measures the same build. Pad sizes come from the reference
+PE (`data_raw_from_binary`) and from the selected target's layout geometry, so
+an adjustment computed from a stale or foreign image cannot reach a fixed
+point.
+
+Proposed capability: accept the round's build command or image path, relink
+before each measurement, and refuse to converge when the image does not match
+the objects that produced it or is older than the pads and sources it should
+reflect. Report the measured `.data` start VA and first expected VA for each
+object, the computed delta, and the pad each adjustment came from.
+
+Replay: `rebrew data layout converge --dry-run --json` returns
+`{"rounds":1,"adjustments":[]}`. `rebrew data layout converge --help` states
+that "The built binary is not re-linked between them, so an extra round
+re-measures the same build; rebuild and re-run for a new fixed point".
