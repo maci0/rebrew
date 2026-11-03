@@ -1,9 +1,23 @@
 ## [Unreleased]
 
+## [6.16.0] - 2026-11-03
+
+### Changed
+
+- Walk the reversed tree and source directories once per scan in `rebrew data` and source discovery, instead of traversing the filesystem multiple times for sources and headers.
+- Cache decoded OMF objects across symbol lookups in format inspection.
+- Read each binary once during toolchain detection and fast-path resolved paths in metadata directory lookups.
+- Vectorize byte similarity scoring and bisect residue extents.
+- Allow derived caches to skip `fsync` on write for improved filesystem throughput.
+
 ### Fixed
 
+- Emit JSON for `rebrew diagnose --catalog --json`.
+- Recognize SEH and register-save prologues during verification merge scans.
+- Batch candidate rows in `identify_library` and overlay field writes in BinSync into single store transactions.
 - Batch `rebrew diagnose near --all --fix-blocker` BLOCKER and STATUS writes into one metadata store rewrite, instead of two full read-modify-writes per diagnosed function.
 - Write `rebrew diff --fix-blocker`'s BLOCKER and BLOCKER_DELTA fields in one store write, instead of parsing and rewriting the metadata store twice.
+- Drop repeated metadata reloads and PE header reparses across commands.
 
 ## [6.15.0] - 2026-11-02
 
