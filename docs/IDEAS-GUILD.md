@@ -4420,3 +4420,22 @@ with updated tests.
 Replay: `rebrew diagnose stack 0x00595330 --json` in guild-rebrew against
 `objdump -d` of the compiled object in `.rebrew/gaptrace/`; both prologues are
 `sub esp,0xf0` and the reported compiled value is 0x164.
+
+## The gap diagnostic should default to the reviewed extent, not the next symbol
+
+Problem: `rebrew diagnose gap` derives its default window from the distance to the next
+symbol in the image, so on a row whose stored extent was trimmed by a reviewed
+boundary repair it reports a larger size than the store and the inventory hold. One
+guild-rebrew row prints a size of 2144 while the store and inventory both say 2131 after
+a reviewed tail trim, and the extra bytes are alignment fill decoded as code, which adds
+an insertion event that looks like a code defect.
+
+Proposed capability: default the window to the row's stored size when one exists, and
+expose the next-symbol distance only as an explicit option or as a note when it differs.
+The tool already prints the derived window, so the change is in which source of truth it
+prefers: reviewed metadata should win over symbol spacing, because the reviewed extent is
+the one the comparison and the acceptance criteria use.
+
+Replay: `rebrew diagnose gap 0x0048cdb0 --json` in guild-rebrew, against the store row
+`GOLDTL.0x0048cdb0` whose size is 2131 and whose inventory extent history ends with a
+reviewed trim.
