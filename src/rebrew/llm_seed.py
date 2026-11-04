@@ -207,6 +207,14 @@ _request_lock = threading.Lock()
 _resolved_max_requests: int | None = None
 _resolved_max_tokens: int | None = None
 _resolved_timeout: float | None = None
+#: Guards the resolved triple above: :func:`_publish_budget` writes three
+#: globals and the helpers read one each, so without a lock a second
+#: ``llm_config`` racing a batch hands one worker another project's
+#: ``max_requests`` with a third's ``timeout``.  Read from inside
+#: ``_request_lock`` / ``_token_lock`` sections (``_consume_request_slot`` /
+#: ``_reserve_token_budget`` resolve their limit first), so this lock is
+#: always the innermost and cannot invert an existing order.
+_budget_lock = threading.Lock()
 # Tokens this process has billed.  The call ceiling above bounds how often the
 # endpoint is asked, not what the answers cost: one request bills a prompt plus
 # a capped completion, and raising REBREW_LLM_MAX_REQUESTS multiplies both.  A
@@ -620,25 +628,30 @@ def _publish_budget(cfg: Any) -> None:
     reqs = getattr(cfg, "llm_max_requests", None)
     tokens = getattr(cfg, "llm_max_tokens", None)
     tmo = getattr(cfg, "llm_timeout", None)
-    if isinstance(reqs, int):
-        _resolved_max_requests = reqs
-    if isinstance(tokens, int):
-        _resolved_max_tokens = tokens
-    if isinstance(tmo, int):
-        _resolved_timeout = float(tmo)
+    with _budget_lock:
+        if isinstance(reqs, int):
+            _resolved_max_requests = reqs
+        if isinstance(tokens, int):
+            _resolved_max_tokens = tokens
+        if isinstance(tmo, int):
+            _resolved_timeout = float(tmo)
 
 
 def _max_requests() -> int:
     """Process-wide LLM call ceiling (resolved config, else env, clamped at 10_000)."""
-    if _resolved_max_requests is not None:
-        return _resolved_max_requests
+    with _budget_lock:
+        resolved = _resolved_max_requests
+    if resolved is not None:
+        return resolved
     return llm_max_requests(os.environ.get("REBREW_LLM_MAX_REQUESTS", ""))
 
 
 def _max_tokens() -> int:
     """Process-wide LLM token ceiling (resolved config, else env; ``0`` lifts it)."""
-    if _resolved_max_tokens is not None:
-        return _resolved_max_tokens
+    with _budget_lock:
+        resolved = _resolved_max_tokens
+    if resolved is not None:
+        return resolved
     return llm_max_tokens(os.environ.get("REBREW_LLM_MAX_TOKENS", ""))
 
 
@@ -738,8 +751,10 @@ def _request_timeout() -> float:
     same resolved value ``load_config`` computed (see :func:`_publish_budget`),
     so a project that pinned ``[llm] timeout`` is honoured.
     """
-    if _resolved_timeout is not None:
-        return _resolved_timeout
+    with _budget_lock:
+        resolved = _resolved_timeout
+    if resolved is not None:
+        return resolved
     return float(llm_timeout(os.environ.get("REBREW_LLM_TIMEOUT", "")))
 
 
