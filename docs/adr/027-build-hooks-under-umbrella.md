@@ -1,6 +1,6 @@
 # ADR-027: Build hooks under the umbrella CLI
 
-- **Status**: Amended by 028
+- **Status**: Amended by [ADR-028](028-cli-domains-and-explicit-operations.md)
 - **Date**: 2026-10
 
 ## Context

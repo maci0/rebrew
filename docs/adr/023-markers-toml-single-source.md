@@ -1,6 +1,6 @@
 # ADR-023: Markers: TOML single source (pure-C sources)
 
-- **Status**: Superseded by 030. Amends [ADR-012](012-metadata-store-tiers.md) (canonical tier: `.c`
+- **Status**: Superseded by [ADR-030](030-address-only-source.md). Amends [ADR-012](012-metadata-store-tiers.md) (canonical tier: `.c`
   marker lines are no longer the identity source).
 - **Date**: 2026-09
 

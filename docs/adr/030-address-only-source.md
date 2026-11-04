@@ -1,6 +1,6 @@
-# 030: Address-only source bindings and dedicated metadata
+# ADR-030: Address-only source bindings and dedicated metadata
 
-- **Status**: Amended by 033
+- **Status**: Amended by [ADR-033](033-consolidated-source-evidence.md)
 - **Date**: 2026-10
 
 ## Context

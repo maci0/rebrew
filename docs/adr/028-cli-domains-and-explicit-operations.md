@@ -1,6 +1,6 @@
 # ADR-028: CLI domains and explicit operations
 
-- **Status**: Accepted
+- **Status**: Accepted. Amends [ADR-027](027-build-hooks-under-umbrella.md) (command paths `cmake-driver`/`objdiff-build` become `build driver`/`build objdiff-driver`; single-executable decision retained).
 - **Date**: 2026-10
 
 ## Context

@@ -1,7 +1,7 @@
 # ADR-032: Explicit local execution and experimental rootless namespaces
 
 - **Status**: Accepted
-- **Date**: 2026-10-16
+- **Date**: 2026-10
 
 ## Context
 

@@ -1,6 +1,6 @@
 # ADR-026: One installed CLI for routine commands
 
-- **Status**: Amended by 027
+- **Status**: Amended by [ADR-027](027-build-hooks-under-umbrella.md)
 - **Date**: 2026-10
 
 ## Context

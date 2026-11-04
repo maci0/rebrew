@@ -1,6 +1,6 @@
 # ADR-033: Source evidence shares the function metadata store
 
-- **Status**: Accepted
+- **Status**: Accepted. Amends [ADR-030](030-address-only-source.md) (separate source store, function format version and migration policy).
 - **Date**: 2026-10
 
 ## Context

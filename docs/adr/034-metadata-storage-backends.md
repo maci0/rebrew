@@ -1,7 +1,7 @@
 # ADR-034: Managed metadata storage backends
 
 - **Status**: Accepted
-- **Date**: 2026-10-19
+- **Date**: 2026-10
 
 ## Context
 

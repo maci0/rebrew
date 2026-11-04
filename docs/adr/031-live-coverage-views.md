@@ -1,4 +1,4 @@
-# 031: Live coverage views and explicit portable exports
+# ADR-031: Live coverage views and explicit portable exports
 
 - **Status**: Accepted
 - **Date**: 2026-10
