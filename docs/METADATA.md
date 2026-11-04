@@ -53,7 +53,8 @@ managed metadata stores (`rebrew-functions.toml`, `rebrew-data.toml`,
 `rebrew-types.toml`, `rebrew-libraries.toml`, including their `.d/`
 drop-ins) in the TOML backend, or `rebrew-metadata.sqlite3` in the
 SQLite backend, plus `.rebrew/ga_runs.jsonl` (GA win fingerprints;
-fsynced per record, never pruned for wins). Everything else is
+fsynced per record, never pruned for wins) and the BinSync
+baselines (`.rebrew/sync/*.toml`). Everything else is
 regenerable: verify/compile caches, coverage snapshots, `output/`,
 `bin/`, and toolchain images (re-pull via `rebrew toolchain pull`).
 The target binary under `original/` is the other input; it is not
@@ -375,7 +376,7 @@ rebrew's to rename:
 | `objdiff.json` | objdiff's project file |
 | `sigs/index.json` (FLIRT pack) | the signature pack that ships it |
 | `src/<target>/function_structure.json`, `ghidra_data_labels.json`, `ghidra_switchdata.json` | the Ghidra scripts that export and re-import them |
-| `.rebrew/ga_runs.jsonl` | rebrew's own append-only GA log: one line per event, so a TOML document would have to be rewritten per event.  Derived in that nothing reads it as authoritative, but *not* regenerable: a win record is the fingerprint (cflags, size, source hash, mutations) of a run that took hours, and re-running does not reproduce it.  Winning lines are kept for good; non-winning ones are capped at the newest `_LOSS_RECORD_RETENTION` so the log stays bounded.  It lives under the gitignored run directory, so copy it out of the project (or commit it) if the solved history is worth keeping.  `rebrew match solutions --backup <dir>` makes the off-tree copy and verifies it byte-for-byte; `--restore <file>` installs it back, preserving the current log as `.before-restore` |
+| `.rebrew/ga_runs.jsonl` (+ `.rebrew/sync/*.toml` BinSync baselines) | rebrew's own append-only GA log: one line per event, so a TOML document would have to be rewritten per event.  Derived in that nothing reads it as authoritative, but *not* regenerable: a win record is the fingerprint (cflags, size, source hash, mutations) of a run that took hours, and re-running does not reproduce it.  Winning lines are kept for good; non-winning ones are capped at the newest `_LOSS_RECORD_RETENTION` so the log stays bounded.  It lives under the gitignored run directory, so copy it out of the project (or commit it) if the solved history is worth keeping.  `rebrew match solutions --backup <dir>` makes the off-tree copy and verifies it byte-for-byte; `--restore <file>` installs it back, preserving the current log as `.before-restore`; `rebrew metadata backup --dir <dir>` also carries the GA log and the BinSync baselines inside its bundle (TOML: in `rebrew-metadata.backup.toml/`; SQLite: beside `rebrew-metadata.backup.sqlite3`) and `rebrew metadata restore --file` installs them back |
 | declib BinSync state files | declib |
 
 "One source of truth" is about rebrew-owned state: one store per fact, no cache

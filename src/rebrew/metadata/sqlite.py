@@ -288,6 +288,42 @@ TOML_BACKUP_DIRNAME = METADATA_TOML_BACKUP_DIRNAME
 #: ``metadata_dir`` would strand the restored stores.
 _PROJECT_CONFIG_NAME = "rebrew-project.toml"
 
+#: Durable state under ``.rebrew/`` that git never sees (``.rebrew/`` is
+#: gitignored) and that no regenerating command reproduces.  The GA log
+#: holds win fingerprints a re-run cannot reproduce, and the BinSync
+#: baselines hold the three-way reconciliation sidecars.  The metadata
+#: backup bundle carries both so one off-tree backup covers the whole
+#: project; the GA log also keeps its own ``rebrew match solutions
+#: --backup`` spelling.
+_GA_RUNS_REL = Path(".rebrew") / "ga_runs.jsonl"
+_SYNC_DIR_REL = Path(".rebrew") / "sync"
+
+
+def _extra_durable_sources(root: Path) -> list[Path]:
+    """GA log plus BinSync baseline sidecars, when present.
+
+    Both live under the gitignored ``.rebrew/`` directory, so a backup
+    that only walks the TOML store trees silently drops them both: the
+    GA wins have no regenerating command, and losing the baselines
+    loses the three-way decisions a later push/pull relied on.  Peer
+    worktrees under ``.rebrew/sync/peers/`` are transient snapshots and
+    stay out.
+    """
+    sources = []
+    ga_runs = root / _GA_RUNS_REL
+    if ga_runs.is_file():
+        sources.append(ga_runs)
+    sync_dir = root / _SYNC_DIR_REL
+    if sync_dir.is_dir():
+        sources.extend(
+            sorted(
+                p
+                for p in sync_dir.iterdir()
+                if p.suffix == ".toml" and p.is_file()
+            )
+        )
+    return sources
+
 
 def _toml_store_tree(root: Path, name: str) -> list[Path]:
     """Main TOML plus its ``.d/*.toml`` drop-ins, when present."""
@@ -388,7 +424,8 @@ def backup_metadata_toml(root: Path, backup_dir: Path) -> Path:
 
     trees = _toml_store_trees(root)
     config = _project_config(root)
-    if not trees and config is None:
+    extras = _extra_durable_sources(root)
+    if not trees and config is None and not extras:
         raise FileNotFoundError(f"no metadata stores at {root}")
     bundle = backup_dir / TOML_BACKUP_DIRNAME
     sources: list[Path] = []
@@ -396,6 +433,7 @@ def backup_metadata_toml(root: Path, backup_dir: Path) -> Path:
         sources.extend(tree)
     if config is not None:
         sources.append(config)
+    sources.extend(extras)
     for source in sources:
         dest = bundle / source.relative_to(root)
         payload = source.read_bytes()
@@ -435,6 +473,39 @@ def restore_metadata_toml(bundle: Path, root: Path) -> tuple[Path, ...]:
             except (ValueError, OSError) as exc:
                 raise MetadataStorageError(f"{source}: corrupt backup: {exc}") from exc
             planned.append(source.relative_to(bundle))
+    extras = _extra_durable_sources(bundle)
+    for source in extras:
+        rel = source.relative_to(bundle)
+        if source.suffix == ".toml":
+            try:
+                load_tomllib(source)
+            except (ValueError, OSError) as exc:
+                raise MetadataStorageError(f"{source}: corrupt backup: {exc}") from exc
+        else:
+            # The GA log is JSONL; validate every non-blank line parses
+            # as a JSON object so a corrupt log cannot be installed.
+            import json as _json
+
+            try:
+                raw = source.read_bytes()
+            except OSError as exc:
+                raise MetadataStorageError(f"{source}: corrupt backup: {exc}") from exc
+            for lineno, line in enumerate(
+                raw.decode("utf-8", errors="replace").splitlines(), 1
+            ):
+                if not line.strip():
+                    continue
+                try:
+                    parsed = _json.loads(line)
+                except _json.JSONDecodeError as exc:
+                    raise MetadataStorageError(
+                        f"{source}: corrupt backup line {lineno}"
+                    ) from exc
+                if not isinstance(parsed, dict):
+                    raise MetadataStorageError(
+                        f"{source}: corrupt backup line {lineno}"
+                    )
+        planned.append(rel)
     if not planned:
         raise FileNotFoundError(f"no metadata stores in backup bundle at {bundle}")
     if not any(rel.name in _TOML_STORE_NAMES for rel in planned):
@@ -482,6 +553,10 @@ def backup_metadata_database(root: Path, backup_dir: Path) -> Path:
     then opened read-only and its schema version and row count checked,
     so a backup that cannot be restored raises here rather than at
     restore time.  A missing database raises ``FileNotFoundError``.
+
+    The GA log (``.rebrew/ga_runs.jsonl``) and the BinSync baselines
+    (``.rebrew/sync/*.toml``) ride alongside the database when present:
+    neither survives under git and neither is regenerable.
     """
     from rebrew.metadata.locking import file_transaction
 
@@ -523,6 +598,14 @@ def backup_metadata_database(root: Path, backup_dir: Path) -> Path:
             src.close()
         if src_count:
             raise MetadataStorageError(f"{dest}: backup is empty but source holds {src_count} rows")
+    from rebrew.utils import atomic_write_bytes
+
+    for extra in _extra_durable_sources(root):
+        payload = extra.read_bytes()
+        copied = backup_dir / extra.relative_to(root)
+        atomic_write_bytes(copied, payload, mode=0o444)
+        if copied.read_bytes() != payload:
+            raise MetadataStorageError(f"{copied}: backup verification failed")
     return dest
 
 
@@ -536,6 +619,11 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
     restored bytes are built in a sibling temp file and published with
     ``os.replace`` plus fsyncs, so a crash cannot leave a torn database
     at the live path.
+
+    The GA log and the BinSync baselines saved alongside the backup
+    (``.rebrew/ga_runs.jsonl``, ``.rebrew/sync/*.toml``) are installed
+    the same way, each preserved as ``.before-restore`` first; a corrupt
+    one raises and leaves everything alone.
     """
     from rebrew.metadata.locking import file_transaction
 
@@ -557,6 +645,53 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
         check.close()
     if integrity != "ok":
         raise MetadataStorageError(f"{backup}: integrity check failed: {integrity}")
+    import json as _json
+
+    _ga_rel = _GA_RUNS_REL
+    _sync_rel = _SYNC_DIR_REL
+    _siblings: list[tuple[Path, Path]] = []
+    _backup_root = backup.parent
+    for _rel, _kind in ((_ga_rel, "ga"), (_sync_rel, "sync")):
+        _src_dir = _backup_root / _rel
+        if _kind == "ga":
+            _candidates = [_src_dir] if _src_dir.is_file() else []
+        else:
+            _candidates = (
+                sorted(
+                    x for x in _src_dir.iterdir() if x.suffix == ".toml" and x.is_file()
+                )
+                if _src_dir.is_dir()
+                else []
+            )
+        for _src in _candidates:
+            _raw = _src.read_bytes()
+            _dest = root / _src.relative_to(_backup_root)
+            if _kind == "ga":
+                for _lineno, _line in enumerate(
+                    _raw.decode("utf-8", errors="replace").splitlines(), 1
+                ):
+                    if not _line.strip():
+                        continue
+                    try:
+                        _parsed = _json.loads(_line)
+                    except _json.JSONDecodeError as _exc:
+                        raise MetadataStorageError(
+                            f"{_src}: corrupt backup line {_lineno}"
+                        ) from _exc
+                    if not isinstance(_parsed, dict):
+                        raise MetadataStorageError(
+                            f"{_src}: corrupt backup line {_lineno}"
+                        )
+            else:
+                try:
+                    from rebrew.utils import load_tomllib as _lt
+
+                    _lt(_src)
+                except (ValueError, OSError) as _exc:
+                    raise MetadataStorageError(
+                        f"{_src}: corrupt backup: {_exc}"
+                    ) from _exc
+            _siblings.append((_src, _dest))
     location = root / DATABASE_FILENAME
     location.parent.mkdir(parents=True, exist_ok=True)
     with file_transaction(location.parent, location.name):
@@ -576,6 +711,20 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
                 source.close()
             os.chmod(preserved, 0o444)
         import time
+
+        from rebrew.utils import atomic_write_bytes as _awb
+
+        for _src, _dest in _siblings:
+            _raw = _src.read_bytes()
+            if _dest.is_file():
+                _awb(
+                    _dest.with_name(_dest.name + ".before-restore"),
+                    _dest.read_bytes(),
+                    mode=0o444,
+                )
+            _awb(_dest, _raw, mode=0o444)
+            if _dest.read_bytes() != _raw:
+                raise MetadataStorageError(f"{_dest}: restored copy verification failed")
 
         tmp = location.with_name(f"{location.name}.{os.getpid()}.{time.monotonic_ns()}.tmp")
         try:

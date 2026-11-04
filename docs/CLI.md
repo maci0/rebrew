@@ -1086,11 +1086,16 @@ changes to either side since preview. Previews create no files. Existing domain
 commands and their STATUS/provenance rules work with either backend. See
 [metadata storage](METADATA.md#storage-api-and-backend-selection).
 
-`rebrew metadata backup --dir DIR` copies the experimental SQLite metadata
-database to `DIR/rebrew-metadata.backup.sqlite3` and verifies the copy; it
-raises when no database exists. `rebrew metadata restore --file FILE` validates
-a backup, preserves the live database as `rebrew-metadata.sqlite3.before-restore`,
-and installs the backup. Both support `--json` and `--target`.
+`rebrew metadata backup --dir DIR` backs up the active backend: TOML copies
+the managed TOML store trees, the project config, the GA log
+(`.rebrew/ga_runs.jsonl`) and the BinSync baselines (`.rebrew/sync/*.toml`)
+into `DIR/rebrew-metadata.backup.toml/`, verifying every copy; SQLite makes
+the database copy through its online backup API at
+`DIR/rebrew-metadata.backup.sqlite3` with the same `.rebrew/` sidecars beside
+it. It raises when there is nothing to back up. `rebrew metadata restore --file
+FILE` validates a backup (TOML bundle directory or SQLite file), preserves the
+live stores as `.before-restore` sidecars, and installs the backup, GA log,
+and baselines. Both support `--json` and `--target`.
 
 ## Source
 
@@ -3105,9 +3110,13 @@ without writing; `--json` emits the report as JSON.
 
 `rebrew metadata backup [OPTIONS]`
 
-Copy the experimental SQLite metadata database into a directory. The backup is
-made with SQLite's online backup API, written read-only, and verified (schema
-version, row count) before success is reported.
+Copy the active metadata backend into a directory. TOML copies the store
+trees, project config, the GA log (`.rebrew/ga_runs.jsonl`) and the BinSync
+baselines (`.rebrew/sync/*.toml`) into `DIR/rebrew-metadata.backup.toml/`,
+verifying every copy. SQLite copies via the online backup API to
+`DIR/rebrew-metadata.backup.sqlite3` with the same `.rebrew/` sidecars beside
+it. Every copy is verified (schema version, row count) before success is
+reported.
 
 | Option | Value | Default | Description |
 | --- | --- | --- | --- |
@@ -3119,9 +3128,9 @@ version, row count) before success is reported.
 
 `rebrew metadata restore [OPTIONS]`
 
-Install a metadata database backup. The backup is validated (schema version,
-integrity) before anything is written; the current database, if any, is
-preserved as `rebrew-metadata.sqlite3.before-restore`.
+Install a metadata backup. The backup is validated (schema version,
+integrity) before anything is written; the current stores, GA log, and
+baselines, if any, are preserved as `.before-restore` sidecars.
 
 | Option | Value | Default | Description |
 | --- | --- | --- | --- |

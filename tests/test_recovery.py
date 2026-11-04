@@ -179,6 +179,17 @@ class TestTransferSnapshot:
         assert "size = 4" not in content
 
 
+def _write_extra_durable(root: Path) -> None:
+    """GA log + a BinSync baseline, the gitignored durable state."""
+    (root / ".rebrew" / "sync").mkdir(parents=True, exist_ok=True)
+    (root / ".rebrew" / "ga_runs.jsonl").write_text(
+        '{"ts":"r","matched":true}\n', encoding="utf-8"
+    )
+    (root / ".rebrew" / "sync" / "baseline.toml").write_text(
+        "format = 1\nrecords = {}\n", encoding="utf-8"
+    )
+
+
 class TestTomlBackup:
     def test_round_trip_covers_all_stores_and_dropins(self, tmp_path: Path) -> None:
         (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")
@@ -203,6 +214,45 @@ class TestTomlBackup:
     def test_missing_stores_raise_not_empty_bundle(self, tmp_path: Path) -> None:
         with pytest.raises(FileNotFoundError):
             backup_metadata_toml(tmp_path, tmp_path / "off-tree")
+
+    def test_backup_carries_ga_log_and_sync_baselines(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")
+        _write_extra_durable(tmp_path)
+        bundle = backup_metadata_toml(tmp_path, tmp_path / "off-tree")
+        assert (bundle / ".rebrew" / "ga_runs.jsonl").read_text() == (
+            '{"ts":"r","matched":true}\n'
+        )
+        assert (bundle / ".rebrew" / "sync" / "baseline.toml").is_file()
+
+    def test_restore_roundtrips_ga_log_and_baselines(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")
+        _write_extra_durable(tmp_path)
+        bundle = backup_metadata_toml(tmp_path, tmp_path / "off-tree")
+        (tmp_path / ".rebrew" / "ga_runs.jsonl").unlink()
+        (tmp_path / ".rebrew" / "sync" / "baseline.toml").unlink()
+        installed = restore_metadata_toml(bundle, tmp_path)
+        assert tmp_path / ".rebrew" / "ga_runs.jsonl" in installed
+        assert (tmp_path / ".rebrew" / "ga_runs.jsonl").read_text() == (
+            '{"ts":"r","matched":true}\n'
+        )
+        assert (tmp_path / ".rebrew" / "sync" / "baseline.toml").read_text() == (
+            "format = 1\nrecords = {}\n"
+        )
+
+    def test_restore_rejects_corrupt_ga_log_and_leaves_stores_alone(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")
+        _write_extra_durable(tmp_path)
+        bundle = backup_metadata_toml(tmp_path, tmp_path / "off-tree")
+        ga = bundle / ".rebrew" / "ga_runs.jsonl"
+        ga.chmod(0o644)
+        ga.write_text("not json\n", encoding="utf-8")
+        with pytest.raises(MetadataStorageError, match="corrupt backup line 1"):
+            restore_metadata_toml(bundle, tmp_path)
+        assert (tmp_path / ".rebrew" / "ga_runs.jsonl").read_text() == (
+            '{"ts":"r","matched":true}\n'
+        )
 
     def test_corrupt_bundle_leaves_stores_alone(self, tmp_path: Path) -> None:
         (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")

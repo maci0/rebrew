@@ -65,12 +65,12 @@ def backup_cmd(
     dest_dir: Path = typer.Option(
         ...,
         "--dir",
-        help="Directory to copy the active metadata backend's stores into",
+        help="Directory to copy the active metadata backend's stores (with GA log and BinSync baselines) into",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """Copy the active metadata backend's stores to an off-tree directory."""
+    """Copy the active metadata backend's stores, GA log and BinSync baselines to an off-tree directory."""
     from rebrew.metadata.sqlite import backup_metadata_database, backup_metadata_toml
 
     cfg = require_config(target=target, json_mode=json_output)
@@ -96,7 +96,7 @@ def restore_cmd(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """Install a metadata backup (current stores preserved as .before-restore)."""
+    """Install a metadata backup; current stores preserved as .before-restore."""
     from rebrew.metadata.sqlite import restore_metadata_database, restore_metadata_toml
 
     cfg = require_config(target=target, json_mode=json_output)
