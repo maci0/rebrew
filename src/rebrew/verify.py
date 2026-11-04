@@ -3113,10 +3113,14 @@ def run_verification(
         # atexit sweep is their owner.  Sweep exactly *batch_dirs*: another
         # pass's dirs may still have interrupted workers reading them.
         if workers_stopped:
-            with contextlib.suppress(Exception):
+            try:
                 from rebrew.compiler.compile import cleanup_batch_obj_dirs
 
                 cleanup_batch_obj_dirs(only=batch_dirs)
+            except Exception as exc:
+                logging.getLogger(__name__).debug(
+                    "verify cleanup of batch obj dirs %s failed: %s", batch_dirs, exc
+                )
 
     if internal_errors > 0 and not json_output:
         console.print(

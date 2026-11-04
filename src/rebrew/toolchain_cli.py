@@ -192,15 +192,24 @@ def status_cmd(
         host_ok = shutil.which(spec.binary) is not None
     image_ok: bool | None = None
     if spec.image is not None and docker_available():
-        r = subprocess.run(
-            [container_runtime(), "image", "inspect", spec.image],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=30,
-        )
-        image_ok = r.returncode == 0
+        try:
+            r = subprocess.run(
+                [container_runtime(), "image", "inspect", spec.image],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=30,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            # A hung daemon / missing docker must not crash a status probe
+            # (and must not be reported as "image not pulled").
+            logging.getLogger(__name__).warning(
+                "docker image inspect for %s failed: %s", spec.image, exc
+            )
+            image_ok = None
+        else:
+            image_ok = r.returncode == 0
     data: dict[str, Any] = {
         "name": spec.name,
         "image": spec.image,
@@ -3908,9 +3917,16 @@ def update_cmd(
             build_cmd(name, json_output=False)
         except Exception:
             # Rollback the pin (file + Dockerfile) to the pre-update values.
-            with contextlib.suppress(ToolchainError):
+            # A rollback failure must not mask the original error.
+            try:
                 _rewrite_source_pin(name, src.sha256, src.commit)
                 _rewrite_dockerfile_sha(name, src.sha256)
+            except Exception as rb_exc:
+                logging.getLogger(__name__).warning(
+                    "update %s: pin rollback failed (%s); original error still raised",
+                    name,
+                    rb_exc,
+                )
             raise
         # 4. regenerate the smoke golden (stable across two compiles) + write it.
         from rebrew.compiler.temp_dirs import remove_temp_dir, writable_temp_dir
