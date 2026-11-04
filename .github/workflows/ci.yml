@@ -428,6 +428,15 @@ jobs:
           subject-path: |
             dist/*.whl
             dist/*.tar.gz
+      # SBOM attestation: same SLSA/Sigstore record for the CycloneDX
+      # inventory, so consumers can verify the BOM names what shipped.
+      # Subject added here (not on the step above) so the wheel/sdist
+      # subjects stay exactly the two package globs.
+      - name: Attest SBOM provenance
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
+        with:
+          subject-path: |
+            dist/rebrew.cdx.json
 
   # Contract smoke: CLI surfaces for the high-value gates documented in docs/CI.md.
   # These do not require a target binary: only that the options exist and help text

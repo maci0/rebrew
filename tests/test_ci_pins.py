@@ -434,6 +434,7 @@ class TestCiPins:
             step
             for step in package["steps"]
             if str(step.get("uses", "")).startswith("actions/attest-build-provenance@")
+            and "dist/*.whl" in str(step.get("with", {}).get("subject-path", ""))
         )
         # Commit-SHA pinned like every other third-party action here: a tag
         # can be retargeted, and Dependabot's github-actions group refreshes
@@ -442,6 +443,19 @@ class TestCiPins:
         assert re.fullmatch(r"[0-9a-f]{40}", ref), attest["uses"]
         assert "dist/*.whl" in attest["with"]["subject-path"]
         assert "dist/*.tar.gz" in attest["with"]["subject-path"]
+        attestations = [
+            step
+            for step in package["steps"]
+            if str(step.get("uses", "")).startswith("actions/attest-build-provenance@")
+        ]
+        assert len(attestations) == 2, attestations
+        sbom_attest = next(
+            step
+            for step in attestations
+            if "dist/rebrew.cdx.json" in str(step.get("with", {}).get("subject-path", ""))
+        )
+        assert re.fullmatch(r"[0-9a-f]{40}", sbom_attest["uses"].split("@", 1)[1])
+        assert sbom_attest["with"]["subject-path"].strip() == "dist/rebrew.cdx.json"
         # No other job in either workflow may carry a write grant.
         for name, job in ci["jobs"].items():
             if name == "package":
