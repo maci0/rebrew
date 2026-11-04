@@ -192,6 +192,10 @@ def _entry_from_record(item: dict[str, Any]) -> SolutionEntry | None:
         or not isinstance(entry.target, str)
         or not isinstance(entry.size, int)
         or isinstance(entry.size, bool)
+        or not isinstance(entry.generations, int)
+        or isinstance(entry.generations, bool)
+        or not isinstance(entry.solved_at, str)
+        or not isinstance(entry.source_sha, str)
     ):
         return None
     # A null score is a win whose GA fitness was not finite; the fingerprint
@@ -200,6 +204,10 @@ def _entry_from_record(item: dict[str, Any]) -> SolutionEntry | None:
     if entry.score is None:
         entry = dataclasses.replace(entry, score=0.0)
     elif not isinstance(entry.score, (int, float)) or isinstance(entry.score, bool):
+        return None
+    elif not math.isfinite(entry.score):
+        return None
+    if not all(isinstance(m, str) for m in entry.mutations):
         return None
     return entry
 
