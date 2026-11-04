@@ -1057,16 +1057,24 @@ def run_cli(app: Callable[[], Any]) -> None:
             # ("I/O operation on closed file") instead of BrokenPipeError;
             # surface both as BrokenPipeError so the outer handler below
             # exits 141 rather than MASKING the flush error as EXIT_ERROR.
-            try:
-                sys.stdout.flush()
-            except ValueError as exc:
-                raise BrokenPipeError from exc
+            # Rich renders text through the shared stderr console, so flush
+            # stderr too: otherwise a closed stderr pipe surfaces only at
+            # interpreter shutdown as exit 120, not the declared 141.
+            for stream in (sys.stdout, sys.stderr):
+                try:
+                    stream.flush()
+                except ValueError as exc:
+                    raise BrokenPipeError from exc
     except BrokenPipeError:
-        devnull_fd = os.open(os.devnull, os.O_WRONLY)
-        try:
-            os.dup2(devnull_fd, sys.stdout.fileno())
-        finally:
-            os.close(devnull_fd)
+        for stream in (sys.stdout, sys.stderr):
+            try:
+                devnull_fd = os.open(os.devnull, os.O_WRONLY)
+                try:
+                    os.dup2(devnull_fd, stream.fileno())
+                finally:
+                    os.close(devnull_fd)
+            except OSError, ValueError:
+                pass
         raise SystemExit(EXIT_SIGPIPE) from None
     except typer.Exit as e:
         # error_exit() outside click's handler: the message is already out.
