@@ -137,7 +137,7 @@ needs a JDK and Apache Ant on PATH to build JPype 1.7.1 on Python 3.15
 
 Clean clone needs **uv**, **Python 3.15+** (`.python-version`), **nasm** and
 **bun** on `PATH`, a sibling [`resembl`](https://github.com/maci0/resembl) checkout at
-`../resembl` (tag `v3.10.2`, matching CI `RESEMBL_REF` / `uv.lock`; `make setup`
+`../resembl` (tag `v3.12.0`, matching CI `RESEMBL_REF` / `uv.lock`; `make setup`
 also requires `HEAD` to be the `RESEMBL_SHA` commit CI's `resembl-sha` pins),
 **bash** for the `make clone-resembl` step below, and **cc**, **pkg-config**
 and **json-c** development files for the native unshare runner tests
@@ -157,7 +157,7 @@ make doctor                # report every missing prerequisite (uv, ../resembl, 
                            # bun, cc/pkg-config/json-c, shellcheck, yamllint, vnu, venv extras)
                            # with the fix for each; read-only, and exits non-zero only for a
                            # host tool the two steps below cannot install
-make clone-resembl         # clone sibling resembl pin (tag v3.10.2) into ../resembl
+make clone-resembl         # clone sibling resembl pin (tag v3.12.0) into ../resembl
 make setup                 # uv sync --locked --all-extras --group similarity + pre-commit hooks
 make add-dep ADD_DEP_SPEC=<spec>  # add a dependency (wraps `uv add`; prints the license-table step)
 make test-one T=tests/test_annotation_roundtrip.py   # single-file edit-test loop
