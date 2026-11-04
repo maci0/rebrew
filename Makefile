@@ -1069,8 +1069,9 @@ smoke-wheel: require-dist ensure-uv
 jobs-check: ensure-go
 	cd services/jobs; \
 	test -z "$$(gofmt -l .)"; \
-	go vet ./...; \
-	go test -race ./...
+	CGO_ENABLED=0 go vet ./...; \
+	CGO_ENABLED=0 go build -trimpath -ldflags=-buildid= ./...; \
+	CGO_ENABLED=0 go test -race ./...
 
 # Run all non-mutating verification gates (mirrors CI lint + test +
 # cli-contract + jobs-service jobs: ruff, mypy, uv audit, pytest under the
