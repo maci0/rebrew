@@ -758,9 +758,20 @@ def entry_headers_fp(
 
     try:
         if source_bytes is None:
-            content = filepath.read_bytes().decode("utf-8", errors="surrogateescape")
-        else:
-            content = source_bytes.decode("utf-8", errors="surrogateescape")
+            # Reuse the memoized source body: source_hash() just read it, so a
+            # second open+read per entry is pure waste on a 500-source batch.
+            try:
+                st = filepath.stat()
+                source_bytes, _ = _source_body(
+                    str(resolved_path(filepath)),
+                    st.st_mtime_ns,
+                    st.st_size,
+                    st.st_ino,
+                    st.st_ctime_ns,
+                )
+            except OSError:
+                source_bytes = filepath.read_bytes()
+        content = source_bytes.decode("utf-8", errors="surrogateescape")
     except OSError:
         return ""
     return header_dependency_hash(content, str(source_dir), include_dirs)
