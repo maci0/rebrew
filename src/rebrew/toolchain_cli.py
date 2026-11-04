@@ -525,7 +525,7 @@ def _download_pinned_url(
     import httpx
 
     current = _trusted_toolchain_download_url(url)
-    last: httpx.HTTPError | None = None
+    last: Exception | None = None
     nap = sleep if sleep is not None else time.sleep
     for _hop in range(_DOWNLOAD_REDIRECT_LIMIT):
         redirected = False
@@ -557,7 +557,10 @@ def _download_pinned_url(
             except ToolchainError:
                 dest.unlink(missing_ok=True)
                 raise
-            except httpx.HTTPError as exc:
+            except (httpx.HTTPError, OSError) as exc:
+                # A disk-full / permission failure on the write must surface
+                # as a ToolchainError with the cause, not escape as an
+                # unhandled OSError leaving a partial archive at *dest*.
                 last = exc
                 dest.unlink(missing_ok=True)
                 if attempt + 1 >= max(1, attempts):
