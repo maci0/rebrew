@@ -605,7 +605,8 @@ def recommend_build_check(
     if not drift:
         return None
     first = ", ".join(
-        f"{d.get('obj', '').rsplit('/', 1)[-1]}:{d.get('flag', '')}" for d in drift[:3]
+        f"{Path(d.get('obj', '').replace(chr(92), '/')).name}:{d.get('flag', '')}"
+        for d in drift[:3]
     )
     return Recommendation(
         kind="build-check",

@@ -323,7 +323,9 @@ def check(
         }
 
     if drift:
-        first = ", ".join(f"{d['obj'].rsplit('/', 1)[-1]}:{d['flag']}" for d in drift[:4])
+        first = ", ".join(
+            f"{Path(d['obj'].replace(chr(92), '/')).name}:{d['flag']}" for d in drift[:4]
+        )
         return {
             "status": "drift",
             "checked": checked,
