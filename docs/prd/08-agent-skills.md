@@ -11,7 +11,8 @@ tool" each turn.
 
 ## Problem It Solves
 
-Rebrew exposes 101 top-level commands and dozens of options. An agent that has
+Rebrew exposes 36 top-level commands (202 leaf commands in the clispec schema)
+and dozens of options. An agent that has
 to discover the workflow on the fly:
 
 - Burns context tokens reading help output.
