@@ -25,27 +25,41 @@ _RICH_TAG = re.compile(
 # is not declared safe.
 _READ_ONLY_LEAVES = frozenset(
     {
+        "analyze",
         "check",
+        "compare",
+        "crypto",
         "describe",
         "diff",
         "doctor",
         "dump",
         "explain",
         "findings",
+        "fingerprints",
+        "forms",
+        "function",
+        "functions",
         "info",
         "inspect",
         "lint",
         "list",
         "lookup",
+        "ne-compare",
+        "pe",
         "preview",
         "query",
+        "relocs",
         "review",
         "schema",
+        "score",
         "search",
         "show",
         "stats",
         "status",
+        "strings",
+        "switches",
         "todo",
+        "xrefs",
     }
 )
 
@@ -53,15 +67,27 @@ _READ_ONLY_LEAVES = frozenset(
 # ``changed`` in JSON. Do not add a command here without that field.
 _IDEMPOTENT = frozenset({"cfg target remove", "cfg module remove"})
 
+# Full paths that are read-only even though their leaf is not in
+# _READ_ONLY_LEAVES: coverage serve only serves read-only metadata.
+_READ_ONLY_PATHS = frozenset({"coverage serve"})
+
 # Full paths that write. Leaf classification called them read_only.
 # ``lint --fix`` and ``diff --fix-blocker`` edit metadata or source.
 # ``binary extract show`` writes a .bin file. ``binary asm show`` writes
 # when invoked as nasm --inline-c --output (the file, and the metadata
 # identity). ``binsync diff`` stays read_only: only the path ``diff`` writes.
+# ``binary analyze``, ``binary functions``, ``binary resource extract``
+# and ``binary unpack-lzexe`` write only when --output is given; the
+# default is stdout text/JSON. ``coverage serve`` only serves read-only
+# metadata, so it stays read_only despite its server name.
 _WRITING_PATHS = frozenset(
     {
+        "binary analyze",
         "binary asm show",
         "binary extract show",
+        "binary functions",
+        "binary resource extract",
+        "binary unpack-lzexe",
         "diff",
         "lint",
     }
@@ -215,6 +241,8 @@ def _effects(path: str) -> str:
         return "idempotent"
     if path in _WRITING_PATHS:
         return "non_idempotent"
+    if path in _READ_ONLY_PATHS:
+        return "read_only"
     leaf = path.rsplit(maxsplit=1)[-1]
     if leaf in _READ_ONLY_LEAVES:
         return "read_only"

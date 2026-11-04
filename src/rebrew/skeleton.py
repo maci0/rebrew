@@ -1488,7 +1488,7 @@ def main(
         False,
         "--skip-fragments",
         help="(batch) Exclude entries whose first bytes look like data/fragments "
-        "(no common function-start prefix) — don't waste skeleton slots on non-code",
+        "(no common function-start prefix); don't waste skeleton slots on non-code",
     ),
     min_size: int = typer.Option(10, "--min-size", help="Minimum function size"),
     max_size: int = typer.Option(NO_MAX_SIZE, "--max-size", help="Maximum function size"),
