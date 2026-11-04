@@ -591,6 +591,8 @@ def parse_request[T](cls: type[T], raw: Any, where: str = "request") -> T:
     values: dict[str, Any] = {}
     for name, spec in known.items():
         if name in raw:
+            if cls is AnalyseRequest and name == "project_id" and raw[name] == "":
+                raise _invalid(f"{where}.project_id must not be empty")
             values[name] = _decode(raw[name], hints[name], f"{where}.{name}")
         elif spec.default is MISSING and spec.default_factory is MISSING:
             raise _invalid(f"{where} is missing {name}")
@@ -1374,11 +1376,11 @@ def analyse(config: WorkerConfig, req: AnalyseRequest) -> dict[str, Any]:
 
     A second run re-discovers into the same project.  ``intake`` is the onboarding report.
     """
-    project_id = req.project_id or "default"
+    project_id = req.project_id
     if len(project_id.encode("utf-8")) > 256 or "\x00" in project_id:
         raise _invalid("project_id must be at most 256 UTF-8 bytes without NUL")
     workspace = config.require_workspace()
-    if project_id == "default":
+    if not project_id:
         relative = f"projects/{_sha256(req.sha256)}"
     else:
         scope = hashlib.sha256(project_id.encode("utf-8")).hexdigest()

@@ -890,7 +890,23 @@ class TestReconstructionOps:
         assert not (second / "isolation-marker").exists()
         assert analyse("tenant-b") == second
         assert (first / "isolation-marker").read_text() == "tenant-a"
-        assert analyse("default") == workspace.resolve() / "projects" / SHA256
+        default = analyse("default")
+        assert (
+            default
+            == workspace.resolve()
+            / "projects"
+            / "scopes"
+            / hashlib.sha256(b"default").hexdigest()
+            / SHA256
+        )
+        assert default not in (first, second)
+        status, body = dispatch(config, "rebrew.analyse", json.dumps(_analyse_request()).encode())
+        assert status == 200, body
+        assert Path(json.loads(body)["project"]) == workspace.resolve() / "projects" / SHA256
+        status, _ = dispatch(
+            config, "rebrew.analyse", json.dumps({**_analyse_request(), "project_id": ""}).encode()
+        )
+        assert status == 400
 
     def test_analyse_rejects_scope_symlink_to_another_project(self, tmp_path: Path) -> None:
         filestore, workspace = _worker_dirs(tmp_path)
