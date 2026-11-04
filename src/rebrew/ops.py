@@ -20,7 +20,7 @@ filestore directory) or a presigned HTTPS ``url`` downloaded into
 ``<workspace>/.scratch``; exactly one of the two is set, and the bytes must
 hash to the request's ``sha256``.  An analysed binary is the ``project_dir`` of
 its rebrew project; a request ``sha256`` selects the target whose binary has
-that hash.  ``analyse`` creates ``<workspace>/projects/<sha256>`` and
+that hash.  ``analyse`` creates a project-scoped directory under ``<workspace>/projects`` and
 ``report`` writes its relative ``output_dir`` under ``--workspace``.
 
 Project paths (``project_dir``, ``snapshots``) must be absolute.  With a
@@ -332,6 +332,7 @@ class AnalyseRequest:
     name: str
     file_key: str = ""
     url: str = ""
+    project_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -1369,13 +1370,26 @@ def _command_refusal(stderr: str) -> str:
 
 
 def analyse(config: WorkerConfig, req: AnalyseRequest) -> dict[str, Any]:
-    """Onboard a stored binary into ``<workspace>/projects/<sha256>`` and report its coverage.
+    """Onboard a stored binary into its project-scoped workspace and report its coverage.
 
     A second run re-discovers into the same project.  ``intake`` is the onboarding report.
     """
+    project_id = req.project_id or "default"
+    if len(project_id.encode("utf-8")) > 256 or "\x00" in project_id:
+        raise _invalid("project_id must be at most 256 UTF-8 bytes without NUL")
+    workspace = config.require_workspace()
+    if project_id == "default":
+        relative = f"projects/{_sha256(req.sha256)}"
+    else:
+        scope = hashlib.sha256(project_id.encode("utf-8")).hexdigest()
+        relative = f"projects/scopes/{scope}/{_sha256(req.sha256)}"
+    project = workspace / relative
+    if _inside(workspace, relative, "analysis project") != project:
+        raise _invalid("analysis project must not traverse symlinks")
     with binary_file(config, req.file_key, req.url, req.sha256, "file_key") as binary:
-        project = config.require_workspace() / "projects" / req.sha256
         project.mkdir(parents=True, exist_ok=True)
+        if _inside(workspace, relative, "analysis project") != project:
+            raise _invalid("analysis project must not traverse symlinks")
         intake = _run_intake(binary, project, target_name(req.name))
     return {**project_report(project, None), "intake": intake}
 
@@ -1389,11 +1403,16 @@ def import_project(config: WorkerConfig, req: ImportRequest) -> dict[str, Any]:
     ``snapshots``.
     """
     root = project_root(config, req.project_dir)
+    scoped_projects = config.workspace / "projects" / "scopes" if config.workspace else None
+    if scoped_projects is not None and root.is_relative_to(scoped_projects):
+        raise _invalid("scoped analysis projects cannot be imported by path")
     if req.snapshots and req.build_db:
         raise _invalid("snapshots and build_db exclude each other")
     snapshots = None
     if req.snapshots:
         snapshots = confined_dir(config, req.snapshots, "snapshots")
+        if scoped_projects is not None and snapshots.is_relative_to(scoped_projects):
+            raise _invalid("scoped analysis snapshots cannot be imported by path")
         if not snapshots.is_dir():
             raise _invalid("snapshots must be a directory")
     return project_report(root, snapshots)

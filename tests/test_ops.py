@@ -873,6 +873,54 @@ def _with_project_header(project: Path) -> str:
 
 
 class TestReconstructionOps:
+    def test_analyse_same_binary_has_isolated_project_workspaces(self, tmp_path: Path) -> None:
+        filestore, workspace = _worker_dirs(tmp_path)
+        config = WorkerConfig(filestore.resolve(), workspace.resolve())
+
+        def analyse(project_id: str) -> Path:
+            request = {**_analyse_request(), "project_id": project_id}
+            status, body = dispatch(config, "rebrew.analyse", json.dumps(request).encode())
+            assert status == 200, body
+            return Path(json.loads(body)["project"])
+
+        first = analyse("tenant-a")
+        second = analyse("tenant-b")
+        assert first != second
+        (first / "isolation-marker").write_text("tenant-a")
+        assert not (second / "isolation-marker").exists()
+        assert analyse("tenant-b") == second
+        assert (first / "isolation-marker").read_text() == "tenant-a"
+        assert analyse("default") == workspace.resolve() / "projects" / SHA256
+
+    def test_analyse_rejects_scope_symlink_to_another_project(self, tmp_path: Path) -> None:
+        filestore, workspace = _worker_dirs(tmp_path)
+        target = workspace / "other"
+        target.mkdir()
+        scope = hashlib.sha256(b"project-a").hexdigest()
+        parent = workspace / "projects" / "scopes"
+        parent.mkdir(parents=True)
+        (parent / scope).symlink_to(target, target_is_directory=True)
+        request = {**_analyse_request(), "project_id": "project-a"}
+        status, _body = dispatch(
+            WorkerConfig(filestore.resolve(), workspace.resolve()),
+            "rebrew.analyse",
+            json.dumps(request).encode(),
+        )
+        assert status == 400
+        assert not list(target.iterdir())
+
+    def test_import_refuses_scoped_analysis_path(self, tmp_path: Path) -> None:
+        filestore, workspace = _worker_dirs(tmp_path)
+        project = workspace / "projects" / "scopes" / "scope-a" / SHA256
+        project.mkdir(parents=True)
+        (project / "rebrew-project.toml").write_text("")
+        status, _ = dispatch(
+            WorkerConfig(filestore.resolve(), workspace.resolve()),
+            "rebrew.import-project",
+            json.dumps({"project_dir": str(project)}).encode(),
+        )
+        assert status == 400
+
     def test_analysed_elf_reports_defined_symbol_names_and_sizes(self, tmp_path: Path) -> None:
         import lief
 
