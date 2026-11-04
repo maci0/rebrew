@@ -39,7 +39,7 @@ Requirements: STATUS NEAR_MATCHING or SIZE_MISMATCH and the `[prove]` extra (ang
 fails to import angr, the extra must be installed in the environment running
 Rebrew. Install it when dependency setup is authorized; otherwise report this
 requirement and continue work that does not need proving:
-`uv tool install --reinstall 'rebrew[prove] @ git+https://github.com/maci0/rebrew.git'`
+`uv tool install --reinstall 'rebrew[prove]'`
 From a checkout, install the extra into that same tool environment:
 `uv tool install --reinstall --editable '/path/to/rebrew[prove]'`.
 
