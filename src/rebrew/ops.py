@@ -553,7 +553,7 @@ def _decode(value: Any, hint: Any, where: str) -> Any:
             raise _invalid(f"{where} must be a base64 string")
         try:
             return base64.b64decode(value, validate=True)
-        except binascii.Error:
+        except binascii.Error, ValueError:
             raise _invalid(f"{where} is not valid base64") from None
     if origin is list:
         if type(value) is not list:
