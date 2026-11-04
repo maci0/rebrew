@@ -34,6 +34,8 @@ def parse_archive(lib_path: str) -> Iterator[tuple[str, bytes]]:
             size = int(header[48:58].strip())
         except ValueError:
             break
+        if size < 0:
+            break
 
         pos += 60
         member_data = data[pos : pos + size]
