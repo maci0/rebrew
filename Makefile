@@ -1,5 +1,5 @@
 .PHONY: help doctor setup clean test test-one lint format format-check check build sbom all pr-check \
-	gen-fixtures gen-fixtures-check gen-skills gen-skills-check gen-flags gen-flags-check \
+	gen-fixtures gen-fixtures-check gen-skills gen-skills-check gen-flags gen-flags-check jobs-check \
 	cycles-check idempotency-check mypy audit \
 	cli-contract release-check coverage ensure-uv ensure-resembl ensure-nasm warn-nasm ensure-bun warn-bun warn-shellcheck \
 	warn-yamllint \
@@ -167,7 +167,8 @@ help:
 		'  make build-repro        # rebuild HEAD under .scratch/ at another path/mode/TZ/locale and diff the hashes (clean tree)' \
 		'  make verify-dist        # re-check dist/rebrew.buildinfo against the artifacts actually in dist/' \
 		'  make smoke-wheel        # install dist/*.whl into .venv-pkg and smoke-import it (CI package job)' \
-		'  make all                # local mirror of CI lint+test(+coverage floor)+cli-contract gates' \
+		'  make jobs-check         # Go jobs service: gofmt -l, go vet ./..., go test -race ./... (CI jobs-service job)' \
+		'  make all                # local mirror of CI lint+test(+coverage floor)+cli-contract+jobs-service gates' \
 		'  make pr-check           # full local CI verification (all + check + build + sdist-check + smoke-wheel + build-repro + verify-dist + sbom)' \
 		'  make gen-fixtures       # regenerate tests/fixtures/ from tools/gen_fixtures.py' \
 		'  make gen-fixtures-check # tools/gen_fixtures.py --check' \
@@ -1004,14 +1005,29 @@ smoke-wheel: require-dist ensure-uv
 	.venv-pkg/bin/python tools/smoke_wheel_install.py; \
 	.venv-pkg/bin/rebrew --help >/dev/null
 
+# Go jobs service (CI jobs-service job): gofmt, vet, race tests.  Needs Go
+# 1.27.3 on PATH (services/jobs/go.mod toolchain pin); not the pinned
+# tarball CI installs, so a newer/older Go still runs the same checks.
+jobs-check:
+	@set -eu; \
+	if ! command -v go >/dev/null 2>&1; then \
+	  echo "ERROR: go not on PATH (required for make jobs-check, same as CI jobs-service)."; \
+	  echo "Install Go 1.27.3 (services/jobs/go.mod toolchain), then re-run: make jobs-check"; \
+	  exit 1; \
+	fi; \
+	cd services/jobs; \
+	test -z "$$(gofmt -l .)"; \
+	go vet ./...; \
+	go test -race ./...
+
 # Run all non-mutating verification gates (mirrors CI lint + test +
-# cli-contract jobs: ruff, mypy, uv audit, pytest under the COV_FLOOR gate
-# (CI runs `make coverage` on Python 3.15.2),
-# fixture
-# freshness, idempotency sweep, CLI help greps, plus the import-cycle and
-# import-layering hooks that the CI pre-commit job also runs).  For full hook
-# parity (hygiene + skills validate) also run `make check` before a PR.
-all: format-check lint mypy audit coverage gen-fixtures-check cycles-check layering-check idempotency-check cli-contract
+# cli-contract + jobs-service jobs: ruff, mypy, uv audit, pytest under the
+# COV_FLOOR gate (CI runs `make coverage` on Python 3.15.2), fixture
+# freshness, idempotency sweep, CLI help greps, Go jobs service, plus the
+# import-cycle and import-layering hooks that the CI pre-commit job also
+# runs).  For full hook parity (hygiene + skills validate) also run
+# `make check` before a PR.
+all: format-check lint mypy audit coverage gen-fixtures-check cycles-check layering-check idempotency-check cli-contract jobs-check
 
 # Full local verification: single runnable step mirroring every CI gate
 # (all non-mutating gates + pre-commit hook parity + reproducible build +

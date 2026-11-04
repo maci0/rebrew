@@ -212,8 +212,9 @@ make check                            # 18 of 19 pre-commit hooks; only pytest
                                         # why the make target is the documented one.
 NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
   uv run --frozen pre-commit run --all-files   # same 18 hooks, ANSI-safe by hand
-make all                                # local gates: format-check, lint, mypy, audit, coverage, gen-fixtures-check, cycles-check, layering-check, idempotency-check, cli-contract
+make all                                # local gates: format-check, lint, mypy, audit, coverage, gen-fixtures-check, cycles-check, layering-check, idempotency-check, cli-contract, jobs-check
 make cli-contract                       # high-value --help greps (CI cli-contract job)
+make jobs-check                         # Go jobs service: gofmt -l, go vet ./..., go test -race ./... (CI jobs-service job)
 make gen-fixtures                       # regenerate tests/fixtures/ (then commit)
 make build                              # sdist+wheel (CI package job; run before a PR)
 make coverage                           # full suite under slipcover, fails below COV_FLOOR

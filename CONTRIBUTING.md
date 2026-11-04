@@ -140,7 +140,8 @@ make check                    # pre-commit hook parity (CI pre-commit job)
 make build                    # reproducible sdist+wheel + dist/rebrew.buildinfo (CI package job)
 make sbom                     # CycloneDX 1.5 JSON from uv.lock (offline)
 make cli-contract             # high-value --help greps (CI cli-contract job)
-make all                      # local mirror of CI lint+test+cli-contract gates
+make jobs-check               # Go jobs service: gofmt -l, go vet ./..., go test -race ./... (CI jobs-service job)
+make all                      # local mirror of CI lint+test+cli-contract+jobs-service gates
 make pr-check                 # full local CI verification (all + check + build + sdist-check + smoke-wheel + build-repro + verify-dist + sbom)
 make sdist-check              # build a wheel from the sdist, diff it against dist/*.whl
 make build-repro              # rebuild HEAD under .scratch/ at another path/mode/TZ/locale, diff the hashes (clean tree)
