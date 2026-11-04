@@ -300,7 +300,12 @@ def parse_form(data: bytes, offset: int = 0) -> tuple[Component, int]:
 
 def form_offsets(data: bytes) -> list[int]:
     """TPF0 candidates outside NE segment bytes, or in a standalone stream/container."""
-    ranges = segment_file_ranges(data) if data[:2] == b"MZ" else []
+    ranges: list[tuple[int, int]] = []
+    if data[:2] == b"MZ":
+        try:
+            ranges = segment_file_ranges(data)
+        except ValueError:
+            ranges = []
     offsets = []
     start = 0
     while (offset := data.find(b"TPF0", start)) >= 0:
