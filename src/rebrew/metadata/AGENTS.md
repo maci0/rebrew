@@ -16,6 +16,9 @@ Source annotations and the locked metadata stores: every read and write of `rebr
 | `model.py` | `MetadataEntry`: typed view and validation of a function entry |
 | `anchors.py` | Optional ADDRESS comments bound to the next C declaration through the AST |
 | `bindings.py` | `SourceBinding`, joining current addresses with canonical metadata |
+| `binding_history.py` | Reviewed source-identity changes without discarding native comparison evidence |
+| `native_identity.py` | Locked publication of reviewed native names, separate from source providers |
+| `source_schema.py` | Strict schemas for addressless definitions and support files in the function store |
 | `source_provenance.py` | Original-assembly evidence and target-scoped support file purposes |
 
 Externals (the only packages this one may import): `c_parser`, `compiler.toolchain`, `config`, `errors`, `registry`, `rename_ops`, `utils`, `workspace`. `compiler.toolchain` is a lazy read of the toolchain table for `TOOLCHAIN` validation. `tools/check_layering.py` enforces `PACKAGE_EXTERNALS`; this line follows it.

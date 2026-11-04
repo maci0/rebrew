@@ -11,6 +11,7 @@ Merges function sources (discovery inventory, Ghidra JSON, binary exports) into 
 | `registry.py` | `build_function_registry` + canonical size resolution |
 | `grid.py` | `build_coverage_data` (coverage grid) |
 | `pipeline.py` | `build_catalog_data` (scan/registry/grid dict; no disk writes) |
+| `inventory.py` | `repair_inventory_extents` (guarded native inventory extent repairs) |
 | `cli.py` | `run_catalog` + Typer entry |
 
 Externals (the only packages this one may import): `cli`, `config`, `function_providers`, `metadata.bindings`, `metadata.document`, `metadata.data`, `metadata.functions`, `present`, `sections`, `sources`, `status`, `utils`, `workspace`, `formats.binary_loader` (lazy, inside functions), and `formats.binary_model` (`BinaryInfo`). PE section helpers live in `rebrew.sections`; `preset_module_key` / `atomic_write_text` in `rebrew.utils`.
