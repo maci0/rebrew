@@ -1054,6 +1054,10 @@ class TestReconstructionOps:
         bad = {**request, "files": [*entries, entries[0]]}
         status, _ = dispatch(config, "rebrew.build", json.dumps(bad).encode())
         assert status == 400
+        alias = {**entries[1], "path": "src/../src/add.c"}
+        bad = {**request, "files": [*entries, alias]}
+        status, _ = dispatch(config, "rebrew.build", json.dumps(bad).encode())
+        assert status == 400
         status, _ = dispatch(config, "rebrew.verify_target", json.dumps(request).encode())
         assert status == 400
 

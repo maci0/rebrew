@@ -1654,7 +1654,14 @@ def verify_candidate(config: WorkerConfig, req: VerifyRequest) -> dict[str, Any]
     if not req.files or len(req.files) > 1024 or sum(f.size for f in req.files) > 32 * 1024 * 1024:
         raise _invalid("invalid retained source manifest size")
     paths = [f.path for f in req.files]
-    if len(set(paths)) != len(paths) or req.source not in paths:
+    if (
+        len(set(paths)) != len(paths)
+        or req.source not in paths
+        or any(
+            "\\" in path or any(part in {"", ".", ".."} for part in path.split("/"))
+            for path in paths
+        )
+    ):
         raise _invalid("invalid retained source manifest paths")
     scratch = config.require_workspace() / SCRATCH_DIR
     scratch.mkdir(exist_ok=True)
@@ -1749,7 +1756,9 @@ def retained_target_snapshot(
         or sum(f.size for f in files) > 32 * 1024 * 1024
     ):
         raise _invalid("invalid retained source manifest")
-    if len({f.path for f in files}) != len(files):
+    if len({f.path for f in files}) != len(files) or any(
+        "\\" in f.path or any(part in {"", ".", ".."} for part in f.path.split("/")) for f in files
+    ):
         raise _invalid("duplicate retained source path")
     scratch = config.require_workspace() / SCRATCH_DIR
     scratch.mkdir(exist_ok=True)
