@@ -191,7 +191,7 @@ class SqliteStore:
                                 f"{self.location}: not a Rebrew metadata database"
                             )
                         connection.execute(
-                            "CREATE TABLE metadata_documents(path TEXT PRIMARY KEY, revision INTEGER NOT NULL, content TEXT NOT NULL)"
+                            "CREATE TABLE metadata_documents(path TEXT NOT NULL PRIMARY KEY, revision INTEGER NOT NULL CHECK (revision > 0), content TEXT NOT NULL)"
                         )
                         connection.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
                     self._check_schema(connection)
