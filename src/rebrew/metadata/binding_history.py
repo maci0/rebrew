@@ -11,7 +11,7 @@ from rebrew.metadata.functions import (
     FUNCTION_IDENTITY_FIELDS,
     METADATA_FIELDS,
     METADATA_FILENAME,
-    _stamp,
+    stamp,
     identity_file,
     resolve_metadata_dir,
     stamp_provenance,
@@ -271,7 +271,7 @@ def _apply_change(
     event = {
         "action": "retire" if identity is None else "rebind",
         "reason": reason.strip(),
-        "changed_at": _stamp(now),
+        "changed_at": stamp(now),
         "previous": previous,
         "replacement": identity or {},
         "counterpart_va": counterpart_va or 0,

@@ -467,7 +467,7 @@ def record_verification(
     evidence.pop("measured_at", None)
     if comparable == evidence:
         return False
-    evidence["measured_at"] = _stamp(now, timespec="seconds")
+    evidence["measured_at"] = stamp(now, timespec="seconds")
     entry["verification"] = evidence
     return True
 
@@ -627,7 +627,7 @@ PROVENANCE_TAGS: frozenset[str] = frozenset(
 )
 
 
-def _stamp(now: datetime | None, *, timespec: str = "auto") -> str:
+def stamp(now: datetime | None, *, timespec: str = "auto") -> str:
     """Render *now* (default: the wall clock) as an aware UTC ISO stamp.
 
     A zone-less *now* is read as UTC, the same rule readers of these fields
@@ -655,7 +655,7 @@ def stamp_provenance(
     if updated_by not in PROVENANCE_TAGS:
         raise ValueError(f"Unknown provenance tag {updated_by!r}")
     entry["updated_by"] = updated_by
-    entry["updated_at"] = _stamp(now, timespec="seconds")
+    entry["updated_at"] = stamp(now, timespec="seconds")
 
 
 def set_fields(
@@ -1608,7 +1608,7 @@ def update_statuses_batch(
                         {
                             "old_status": current_status,
                             "new_status": new_status,
-                            "changed_at": _stamp(now),
+                            "changed_at": stamp(now),
                             "updated_by": str(u.get("updated_by") or ""),
                         }
                     )
