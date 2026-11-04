@@ -90,6 +90,8 @@ class Int16(Value):
 
     @override
     def encode(self) -> bytes:
+        if not -32768 <= self.value <= 32767:
+            raise DfmError("Int16 value is outside its signed 16-bit range")
         return struct.pack("<h", self.value)
 
 
@@ -103,6 +105,8 @@ class Int32(Value):
 
     @override
     def encode(self) -> bytes:
+        if not -2147483648 <= self.value <= 2147483647:
+            raise DfmError("Int32 value is outside its signed 32-bit range")
         return struct.pack("<i", self.value)
 
 
