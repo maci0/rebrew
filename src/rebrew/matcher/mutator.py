@@ -454,7 +454,7 @@ def mutate_code(
     # The GA's target range is full-source byte offsets (the preamble is
     # measured in bytes too, not characters), but mutations query
     # the preamble-stripped body: convert once here so every mutation's
-    # _cursor sees body coordinates (converting inside _cursor is impossible —
+    # cursor sees body coordinates (converting inside cursor is impossible —
     # it never sees the source text).  Saved and restored around the loop;
     # leaving a narrowed range set would silently scope later mutations of
     # other sources (e.g. crossover, which never passes through here).

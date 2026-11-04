@@ -454,7 +454,7 @@ QUERY_NO_CALL_CONV = LazyQuery(
 """,
 )
 # NOTE: the type node is captured as ``@expr``, not ``@stmt``.
-# ``_apply_query_once`` splices over ``stmt``/``expr``, so naming the whole
+# ``apply_query_once`` splices over ``stmt``/``expr``, so naming the whole
 # ``function_definition`` here replaced the entire body with `int __cdecl`
 # (the insertion branch of ``mut_toggle_calling_convention`` produced garbage).
 

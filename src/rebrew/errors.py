@@ -47,7 +47,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import PurePath
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, override
 
 # Same names ``__getattr__`` loads at runtime.  Present here so a type
 # checker sees ``from rebrew.errors import ConfigError`` as that class.
@@ -65,9 +65,6 @@ if TYPE_CHECKING:
     from rebrew.compiler.toolchain import ToolchainError as ToolchainError
     from rebrew.compiler.toolchain import ToolchainErrorKind as ToolchainErrorKind
     from rebrew.compiler.unshare import UnshareError as UnshareError
-    from rebrew.config import ConfigError as ConfigError
-    from rebrew.config import ConfigKeyError as ConfigKeyError
-    from rebrew.config import ConfigNotFoundError as ConfigNotFoundError
     from rebrew.coverage_project import ProjectCoverageError as ProjectCoverageError
     from rebrew.coverage_toml import CoverageTomlError as CoverageTomlError
     from rebrew.decompme import DecompmeError as DecompmeError
@@ -228,16 +225,42 @@ class RebrewError(Exception):
         return exc
 
 
+class ConfigError(RebrewError, ValueError):
+    """``rebrew-project.toml`` is unparsable or holds an invalid value.
+
+    Base of every error :func:`rebrew.config.load_config` /
+    :func:`rebrew.config.find_root` raise, so ``except ConfigError`` (or
+    ``except RebrewError``) catches them all.  Defined here, not in
+    ``rebrew.config``, so leaf modules (``rebrew.utils``) can raise it
+    without importing the config layer.
+    """
+
+    @override
+    def __str__(self) -> str:
+        # KeyError.__str__ would repr-quote the message for ConfigKeyError.
+        return Exception.__str__(self)
+
+
+class ConfigNotFoundError(ConfigError, FileNotFoundError):
+    """No ``rebrew-project.toml`` at the given root or above the cwd."""
+
+
+class ConfigKeyError(ConfigError, KeyError):
+    """A required key or the requested target is missing from the config."""
+
+
 #: Every public error class in the package, keyed by the name a consumer
 #: imports from ``rebrew.errors``.  A new ``RebrewError`` subclass must be added
 #: here in the same change (``test_errors.py`` scans the package for strays).
+#: ``ConfigError`` and its subclasses are not lazy: they are defined in this
+#: module so leaf modules can raise them.
 _LAZY_ERRORS: dict[str, tuple[str, str]] = {
+    "ConfigError": ("rebrew.errors", "ConfigError"),
+    "ConfigKeyError": ("rebrew.errors", "ConfigKeyError"),
+    "ConfigNotFoundError": ("rebrew.errors", "ConfigNotFoundError"),
     "CatalogScanError": ("rebrew.coff_reloc", "CatalogScanError"),
     "ComponentError": ("rebrew.app.plugin", "ComponentError"),
     "CompareResultError": ("rebrew.compiler.compile", "CompareResultError"),
-    "ConfigError": ("rebrew.config", "ConfigError"),
-    "ConfigKeyError": ("rebrew.config", "ConfigKeyError"),
-    "ConfigNotFoundError": ("rebrew.config", "ConfigNotFoundError"),
     "OpsError": ("rebrew.ops", "OpsError"),
     "DecompmeError": ("rebrew.decompme", "DecompmeError"),
     "Delphi16Error": ("rebrew.compiler.delphi16", "Delphi16Error"),

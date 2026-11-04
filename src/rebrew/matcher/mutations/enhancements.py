@@ -25,14 +25,14 @@ from rebrew.matcher.mutations.queries import (
     LazyQuery,
 )
 lazy from rebrew.matcher.mutations.runtime import (
-    _assign_zero_targets,
-    _capture,
-    _commute_operands,
-    _cursor,
-    _find_function_body_insert_pos,
-    _first_caps,
-    _statement_region_start,
+    assign_zero_targets,
     brace_block,
+    capture,
+    commute_operands,
+    find_function_body_insert_pos,
+    first_caps,
+    query_cursor,
+    statement_region_start,
 )
 
 # --- Queries for Phase 5 mutations ---
@@ -108,17 +108,17 @@ def mut_commute_bit_or(s: str, rng: random.Random) -> str | None:
     MSVC6 evaluates sub-expressions left-to-right, so swapping
     ``|`` operands changes temporary register allocation order.
     """
-    return _commute_operands(s, rng, _QUERY_COMMUTE_BIT_OR, b"|")
+    return commute_operands(s, rng, _QUERY_COMMUTE_BIT_OR, b"|")
 
 
 def mut_commute_bit_and(s: str, rng: random.Random) -> str | None:
     """Swap operands of bitwise AND: ``a & b`` → ``b & a``."""
-    return _commute_operands(s, rng, _QUERY_COMMUTE_BIT_AND, b"&")
+    return commute_operands(s, rng, _QUERY_COMMUTE_BIT_AND, b"&")
 
 
 def mut_commute_bit_xor(s: str, rng: random.Random) -> str | None:
     """Swap operands of bitwise XOR: ``a ^ b`` → ``b ^ a``."""
-    return _commute_operands(s, rng, _QUERY_COMMUTE_BIT_XOR, b"^")
+    return commute_operands(s, rng, _QUERY_COMMUTE_BIT_XOR, b"^")
 
 
 def mut_commute_add_general(s: str, rng: random.Random) -> str | None:
@@ -127,12 +127,12 @@ def mut_commute_add_general(s: str, rng: random.Random) -> str | None:
     Unlike the identifier-only commutes, this handles
     complex AST nodes like ``(w >> 8) + (w << 8)``.
     """
-    return _commute_operands(s, rng, _QUERY_COMMUTE_ADD_GENERAL, b"+")
+    return commute_operands(s, rng, _QUERY_COMMUTE_ADD_GENERAL, b"+")
 
 
 def mut_commute_mul_general(s: str, rng: random.Random) -> str | None:
     """Swap operands of multiplication with arbitrary sub-expressions."""
-    return _commute_operands(s, rng, _QUERY_COMMUTE_MUL_GENERAL, b"*")
+    return commute_operands(s, rng, _QUERY_COMMUTE_MUL_GENERAL, b"*")
 
 
 # --- Enhancement 2: C89 Block-Scoped Register Injection ---
@@ -163,19 +163,19 @@ def mut_inject_block_register(s: str, rng: random.Random) -> str | None:
     tree = parse_c_ast(b_source)
 
     # Strategy 1: wrap a loop body in a register block
-    cursor = _cursor(_QUERY_LOOP_BODY_BLOCK)
+    cursor = query_cursor(_QUERY_LOOP_BODY_BLOCK)
     loop_matches = cursor.matches(tree.root_node)
 
     # Strategy 2: wrap 2-4 adjacent expression_statements in a block
-    cursor2 = _cursor(QUERY_ADJACENT_EXPR_STMTS)
+    cursor2 = query_cursor(QUERY_ADJACENT_EXPR_STMTS)
     adj_matches = cursor2.matches(tree.root_node)
 
     candidates: list[tuple[str, dict[str, ts.Node]]] = []
     for m in loop_matches:
-        caps = _first_caps(m[1])
+        caps = first_caps(m[1])
         candidates.append(("loop", caps))
     for m in adj_matches:
-        caps = _first_caps(m[1])
+        caps = first_caps(m[1])
         candidates.append(("adj", caps))
 
     if not candidates:
@@ -237,14 +237,14 @@ def mut_retype_local_equiv(s: str, rng: random.Random) -> str | None:
     Also: unsigned int ↔ ULONG
     """
     b_source = encode_source(s)
-    cursor = _cursor(QUERY_LOCAL_DECL)
+    cursor = query_cursor(QUERY_LOCAL_DECL)
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
 
     valid: list[tuple[ts.Node, bytes]] = []
     for match in matches:
         caps = match[1]
-        type_node = _capture(caps, "type")
+        type_node = capture(caps, "type")
         if isinstance(type_node, list):
             type_node = type_node[0]
         if not type_node:
@@ -302,13 +302,13 @@ def mut_zero_to_bitand(s: str, rng: random.Random) -> str | None:
     candidates: list[tuple[dict[str, ts.Node], bytes, str]] = []
 
     # Forward: var = 0 → var &= 0
-    for caps, var in _assign_zero_targets(b_source, tree):
+    for caps, var in assign_zero_targets(b_source, tree):
         candidates.append((caps, var + b" &= 0;", "expr"))
 
     # Reverse: var &= 0 → var = 0
-    bitand_cursor = _cursor(_QUERY_BITAND_ZERO)
+    bitand_cursor = query_cursor(_QUERY_BITAND_ZERO)
     for m in bitand_cursor.matches(tree.root_node):
-        caps = _first_caps(m[1])
+        caps = first_caps(m[1])
         var = b_source[caps["var"].start_byte : caps["var"].end_byte]
         candidates.append((caps, var + b" = 0;", "expr"))
 
@@ -409,14 +409,14 @@ def mut_invert_if_else(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
     tree = parse_c_ast(b_source)
 
-    cursor = _cursor(_QUERY_IF_ELSE_FULL)
+    cursor = query_cursor(_QUERY_IF_ELSE_FULL)
     matches = cursor.matches(tree.root_node)
 
     if not matches:
         return None
 
     match = rng.choice(matches)
-    caps = _first_caps(match[1])
+    caps = first_caps(match[1])
 
     op_node = caps["op"]
     op_text = b_source[op_node.start_byte : op_node.end_byte]
@@ -471,14 +471,14 @@ def mut_dummy_stack_vars(s: str, rng: random.Random) -> str | None:
     tree = parse_c_ast(b_source)
 
     q = _QUERY_DUMMY_STACK_VARS
-    cursor = _cursor(q)
+    cursor = query_cursor(q)
     matches = cursor.matches(tree.root_node)
 
     if not matches:
         return None
 
     match = rng.choice(matches)
-    caps = _first_caps(match[1])
+    caps = first_caps(match[1])
     body_node = caps["body"]
 
     pad_id = rng.randint(0, 99)
@@ -501,7 +501,7 @@ def mut_dummy_stack_vars(s: str, rng: random.Random) -> str | None:
     # so the earlier insertion does not shift it.
     array_decl = b"\n    volatile char " + pad_name + f"[{size}]".encode() + b";"
     write = b"\n    " + pad_name + b"[0] = 0;"
-    write_pos = _statement_region_start(body_node)
+    write_pos = statement_region_start(body_node)
     result = b_source[:write_pos] + write + b_source[write_pos:]
     result = result[:insert_pos] + array_decl + result[insert_pos:]
     return decode_source(result)
@@ -527,14 +527,14 @@ def mut_inject_dummy_registers(s: str, rng: random.Random) -> str | None:
     tree = parse_c_ast(b_source)
 
     q = _QUERY_INJECT_DUMMY_REGISTERS
-    cursor = _cursor(q)
+    cursor = query_cursor(q)
     matches = cursor.matches(tree.root_node)
 
     if not matches:
         return None
 
     match = rng.choice(matches)
-    caps = _first_caps(match[1])
+    caps = first_caps(match[1])
     body_node = caps["body"]
 
     count = rng.randint(1, 3)
@@ -576,18 +576,18 @@ def mut_extract_complex_args(s: str, rng: random.Random) -> str | None:
     candidates: list[tuple[ts.Node, ts.Node, bytes]] = []
 
     # Strategy 1: nested function calls in arguments
-    nc_cursor = _cursor(_QUERY_NESTED_CALL_ARG)
+    nc_cursor = query_cursor(_QUERY_NESTED_CALL_ARG)
     for m in nc_cursor.matches(tree.root_node):
-        caps = _first_caps(m[1])
+        caps = first_caps(m[1])
         call_node = caps["stmt"]  # the OUTER call expression
         inner_call_node = caps["inner_call"]
         inner_text = b_source[inner_call_node.start_byte : inner_call_node.end_byte]
         candidates.append((call_node, inner_call_node, inner_text))
 
     # Strategy 2: binary expressions as arguments (ptr arithmetic, shifts, etc.)
-    ca_cursor = _cursor(_QUERY_COMPLEX_ARG)
+    ca_cursor = query_cursor(_QUERY_COMPLEX_ARG)
     for m in ca_cursor.matches(tree.root_node):
-        caps = _first_caps(m[1])
+        caps = first_caps(m[1])
         call_node = caps["stmt"]
         arg_node = caps["arg"]
         arg_text = b_source[arg_node.start_byte : arg_node.end_byte]
@@ -623,7 +623,7 @@ def mut_extract_complex_args(s: str, rng: random.Random) -> str | None:
         return None
 
     # C89: hoist declaration to function body top
-    insert_pos = _find_function_body_insert_pos(b_source, stmt.start_byte)
+    insert_pos = find_function_body_insert_pos(b_source, stmt.start_byte)
     if insert_pos is None:
         return None
 
@@ -657,12 +657,12 @@ def mut_hoist_repeated_deref(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
     tree = parse_c_ast(b_source)
     q = _QUERY_HOIST_REPEATED_DEREF
-    cursor = _cursor(q)
+    cursor = query_cursor(q)
     matches = list(cursor.matches(tree.root_node))
     if not matches:
         return None
     match = rng.choice(matches)
-    caps = _first_caps(match[1])
+    caps = first_caps(match[1])
     body_node = caps["body"]
     body_start, body_end = body_node.start_byte, body_node.end_byte
     # AST offsets are UTF-8 byte positions: slice the BYTES, not the str.  The

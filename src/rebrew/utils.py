@@ -88,6 +88,8 @@ lazy from rich.text import Text
 lazy from tomlkit import TOMLDocument
 lazy from tomlkit.exceptions import InternalParserError, ParseError
 
+from rebrew.errors import ConfigError
+
 logger = logging.getLogger(__name__)
 
 #: A C89 identifier: ASCII only.  ``str.isidentifier()`` follows Python's
@@ -641,12 +643,11 @@ def container_runtime(runtime: str | None = None) -> str:
     the process environment; ``rebrew.config.env_knob_errors`` uses that to
     report a mistyped variable through ``rebrew cfg effective``.
 
-    Raises :class:`rebrew.config.ConfigError`, which is also a ``ValueError``:
+    Raises :class:`rebrew.errors.ConfigError`, which is also a ``ValueError``:
     the compile call sites do not guard this call, so a bare ``ValueError``
     escaped as a traceback from the middle of a build instead of the CLI's
     error message.
     """
-    from rebrew.config import ConfigError
 
     if runtime is None:
         runtime = os.environ.get("REBREW_CONTAINER_RUNTIME", DEFAULT_CONTAINER_RUNTIME)

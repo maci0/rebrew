@@ -27,10 +27,10 @@ from rebrew.matcher.mutations.queries import (
     LazyQuery,
 )
 lazy from rebrew.matcher.mutations.runtime import (
-    _capture,
-    _cursor,
-    _find_function_body_insert_pos,
-    _first_caps,
+    capture,
+    find_function_body_insert_pos,
+    first_caps,
+    query_cursor,
 )
 
 # --- Phase 3: Advanced Logical & Evaluation Mutations ---
@@ -43,12 +43,12 @@ def _bin_cond_if_ops(b_source: bytes, op: bytes) -> list[tuple[Any, Any, Any, An
     apply the same capture/else rules; only the operator filter differs.
     """
     tree = parse_c_ast(b_source)
-    cursor = _cursor(QUERY_BIN_COND_IF)
+    cursor = query_cursor(QUERY_BIN_COND_IF)
     matches = cursor.matches(tree.root_node)
 
     valid_ifs: list[tuple[Any, Any, Any, Any]] = []
     for match in matches:
-        stmt = _capture(match, "stmt")
+        stmt = capture(match, "stmt")
         if isinstance(stmt, list):
             stmt = stmt[0]
         if not stmt:
@@ -57,10 +57,10 @@ def _bin_cond_if_ops(b_source: bytes, op: bytes) -> list[tuple[Any, Any, Any, An
         if stmt.child_by_field_name("alternative"):
             continue
 
-        left = _capture(match, "left")
+        left = capture(match, "left")
         if isinstance(left, list):
             left = left[0]
-        right = _capture(match, "right")
+        right = capture(match, "right")
         if isinstance(right, list):
             right = right[0]
 
@@ -70,7 +70,7 @@ def _bin_cond_if_ops(b_source: bytes, op: bytes) -> list[tuple[Any, Any, Any, An
         if op_text != op:
             continue
 
-        body = _capture(match, "body")
+        body = capture(match, "body")
         if isinstance(body, list):
             body = body[-1]
 
@@ -121,12 +121,12 @@ def mut_merge_nested_ifs(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     tree = parse_c_ast(b_source)
-    cursor = _cursor(QUERY_NESTED_IF_P3)
+    cursor = query_cursor(QUERY_NESTED_IF_P3)
     matches = cursor.matches(tree.root_node)
 
     valid_ifs = []
     for match in matches:
-        stmt = _capture(match, "stmt")
+        stmt = capture(match, "stmt")
         if isinstance(stmt, list):
             stmt = stmt[0]
         if not stmt:
@@ -135,24 +135,24 @@ def mut_merge_nested_ifs(s: str, rng: random.Random) -> str | None:
         if stmt.child_by_field_name("alternative"):
             continue
 
-        inner_if = _capture(match, "inner_if")
+        inner_if = capture(match, "inner_if")
         if isinstance(inner_if, list):
             inner_if = inner_if[-1]
         if inner_if.child_by_field_name("alternative"):
             continue
 
-        cond1 = _capture(match, "cond1")
+        cond1 = capture(match, "cond1")
         if isinstance(cond1, list):
             cond1 = cond1[0]
-        cond2 = _capture(match, "cond2")
+        cond2 = capture(match, "cond2")
         if isinstance(cond2, list):
             cond2 = cond2[0]
 
-        body = _capture(match, "body")
+        body = capture(match, "body")
         if isinstance(body, list):
             body = body[-1]
 
-        outer_body = _capture(match, "outer_body")
+        outer_body = capture(match, "outer_body")
         if isinstance(outer_body, list):
             outer_body = outer_body[0]
 
@@ -182,25 +182,25 @@ def mut_extract_condition_to_var(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     tree = parse_c_ast(b_source)
-    cursor = _cursor(QUERY_BIN_COND_IF)
+    cursor = query_cursor(QUERY_BIN_COND_IF)
     matches = cursor.matches(tree.root_node)
 
     valid_ifs = []
     for match in matches:
-        stmt = _capture(match, "stmt")
+        stmt = capture(match, "stmt")
         if isinstance(stmt, list):
             stmt = stmt[0]
         if not stmt:
             continue
 
-        bin_node = _capture(match, "bin")
+        bin_node = capture(match, "bin")
         if isinstance(bin_node, list):
             bin_node = bin_node[0]
 
-        left = _capture(match, "left")
+        left = capture(match, "left")
         if isinstance(left, list):
             left = left[0]
-        right = _capture(match, "right")
+        right = capture(match, "right")
         if isinstance(right, list):
             right = right[0]
 
@@ -222,7 +222,7 @@ def mut_extract_condition_to_var(s: str, rng: random.Random) -> str | None:
     var_name = f"_cond_{var_id}".encode()
 
     # C89: hoist declaration to function body top, keep assignment inline
-    insert_pos = _find_function_body_insert_pos(b_source, stmt.start_byte)
+    insert_pos = find_function_body_insert_pos(b_source, stmt.start_byte)
     if insert_pos is None:
         return None
 
@@ -248,22 +248,22 @@ def mut_loop_condition_extraction(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     tree = parse_c_ast(b_source)
-    cursor = _cursor(QUERY_WHILE_LOOP)
+    cursor = query_cursor(QUERY_WHILE_LOOP)
     matches = cursor.matches(tree.root_node)
 
     valid_loops = []
     for match in matches:
-        stmt = _capture(match, "stmt")
+        stmt = capture(match, "stmt")
         if isinstance(stmt, list):
             stmt = stmt[0]
         if not stmt:
             continue
 
-        cond = _capture(match, "cond")
+        cond = capture(match, "cond")
         if isinstance(cond, list):
             cond = cond[0]
 
-        body = _capture(match, "body")
+        body = capture(match, "body")
         if isinstance(body, list):
             body = body[-1]
 
@@ -320,14 +320,14 @@ def mut_widen_local_type(s: str, rng: random.Random) -> str | None:
     depending on the declared type width.
     """
     b_source = encode_source(s)
-    cursor = _cursor(QUERY_LOCAL_DECL)
+    cursor = query_cursor(QUERY_LOCAL_DECL)
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
 
     valid = []
     for match in matches:
         caps = match[1]
-        type_node = _capture(caps, "type")
+        type_node = capture(caps, "type")
         if isinstance(type_node, list):
             type_node = type_node[0]
         if not type_node:
@@ -413,7 +413,7 @@ def mut_memcpy_to_loop(s: str, rng: random.Random) -> str | None:
     var = f"_ci_{idx}".encode()
 
     # C89-safe: we need the loop var declared at function top
-    insert_pos = _find_function_body_insert_pos(b_source, m.start())
+    insert_pos = find_function_body_insert_pos(b_source, m.start())
     if insert_pos is None:
         return None
 
@@ -498,14 +498,14 @@ def mut_commute_float_operands(s: str, rng: random.Random) -> str | None:
     look like they involve floating-point variables.
     """
     b_source = encode_source(s)
-    cursor = _cursor(_QUERY_FLOAT_BINOP)
+    cursor = query_cursor(_QUERY_FLOAT_BINOP)
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
 
     valid = []
     for match in matches:
         caps = match[1]
-        op_node = _capture(caps, "op")
+        op_node = capture(caps, "op")
         if isinstance(op_node, list):
             op_node = op_node[0]
         if not op_node:
@@ -514,8 +514,8 @@ def mut_commute_float_operands(s: str, rng: random.Random) -> str | None:
         if op_text not in (b"*", b"+"):
             continue
 
-        left = _capture(caps, "left")
-        right = _capture(caps, "right")
+        left = capture(caps, "left")
+        right = capture(caps, "right")
         if isinstance(left, list):
             left = left[0]
         if isinstance(right, list):
@@ -579,13 +579,13 @@ def mut_register_param(s: str, rng: random.Random) -> str | None:
     """
     b_source = encode_source(s)
     tree = parse_c_ast(b_source)
-    cursor = _cursor(_QUERY_FUNC_PARAM)
+    cursor = query_cursor(_QUERY_FUNC_PARAM)
     matches = cursor.matches(tree.root_node)
 
     # Collect params that don't already have 'register'
     valid = []
     for match in matches:
-        caps = _first_caps(match[1])
+        caps = first_caps(match[1])
         param = caps["param"]
         text = b_source[param.start_byte : param.end_byte]
         if b"register" not in text and b"..." not in text:
@@ -604,12 +604,12 @@ def mut_unregister_param(s: str, rng: random.Random) -> str | None:
     """Remove 'register' keyword from a function parameter declaration."""
     b_source = encode_source(s)
     tree = parse_c_ast(b_source)
-    cursor = _cursor(_QUERY_FUNC_PARAM)
+    cursor = query_cursor(_QUERY_FUNC_PARAM)
     matches = cursor.matches(tree.root_node)
 
     valid = []
     for match in matches:
-        caps = _first_caps(match[1])
+        caps = first_caps(match[1])
         param = caps["param"]
         text = b_source[param.start_byte : param.end_byte]
         if b"register " in text:
@@ -659,14 +659,14 @@ def mut_remove_loop_break(s: str, rng: random.Random) -> str | None:
     """
     b_source = encode_source(s)
     tree = parse_c_ast(b_source)
-    cursor = _cursor(_QUERY_BREAK_IN_LOOP)
+    cursor = query_cursor(_QUERY_BREAK_IN_LOOP)
     matches = cursor.matches(tree.root_node)
 
     if not matches:
         return None
 
     match = rng.choice(matches)
-    caps = _first_caps(match[1])
+    caps = first_caps(match[1])
     brk = caps["brk"]
 
     # Remove the break statement and any trailing whitespace/newline
@@ -686,14 +686,14 @@ def mut_add_loop_break(s: str, rng: random.Random) -> str | None:
     """
     b_source = encode_source(s)
     tree = parse_c_ast(b_source)
-    cursor = _cursor(_QUERY_LOOP_BODY)
+    cursor = query_cursor(_QUERY_LOOP_BODY)
     matches = cursor.matches(tree.root_node)
 
     if not matches:
         return None
 
     match = rng.choice(matches)
-    caps = _first_caps(match[1])
+    caps = first_caps(match[1])
     body = caps["body"]
 
     # Don't add if there's already a break as the last statement
@@ -738,12 +738,12 @@ def mut_if_else_call_to_ternary_arg(s: str, rng: random.Random) -> str | None:
     """
     b_source = encode_source(s)
     tree = parse_c_ast(b_source)
-    cursor = _cursor(_QUERY_IF_ELSE_CALL)
+    cursor = query_cursor(_QUERY_IF_ELSE_CALL)
     matches = cursor.matches(tree.root_node)
 
     valid = []
     for match in matches:
-        caps = _first_caps(match[1])
+        caps = first_caps(match[1])
         fn1 = b_source[caps["fn1"].start_byte : caps["fn1"].end_byte]
         fn2 = b_source[caps["fn2"].start_byte : caps["fn2"].end_byte]
         if fn1 != fn2:
@@ -801,14 +801,14 @@ def mut_ternary_arg_to_if_else_call(s: str, rng: random.Random) -> str | None:
 
     # Find call expressions that have a conditional_expression in their argument list
     q = QUERY_TERNARY_ARG_TO_IF_ELSE_CALL
-    cursor = _cursor(q)
+    cursor = query_cursor(q)
     matches = cursor.matches(tree.root_node)
 
     if not matches:
         return None
 
     match = rng.choice(matches)
-    caps = _first_caps(match[1])
+    caps = first_caps(match[1])
 
     fn = b_source[caps["fn"].start_byte : caps["fn"].end_byte]
     cond = b_source[caps["cond"].start_byte : caps["cond"].end_byte]
@@ -879,12 +879,12 @@ def mut_hoist_common_tail(s: str, rng: random.Random) -> str | None:
     """
     b_source = encode_source(s)
     tree = parse_c_ast(b_source)
-    cursor = _cursor(_QUERY_IF_ELSE_COMPOUND)
+    cursor = query_cursor(_QUERY_IF_ELSE_COMPOUND)
     matches = cursor.matches(tree.root_node)
 
     valid = []
     for match in matches:
-        caps = _first_caps(match[1])
+        caps = first_caps(match[1])
         if_body = caps["if_body"]
         else_body = caps["else_body"]
 
@@ -960,14 +960,14 @@ def mut_sink_common_tail(s: str, rng: random.Random) -> str | None:
 
     # Find if/else followed by a sibling statement
     q = QUERY_SINK_COMMON_TAIL
-    cursor = _cursor(q)
+    cursor = query_cursor(q)
     matches = cursor.matches(tree.root_node)
 
     if not matches:
         return None
 
     match = rng.choice(matches)
-    caps = _first_caps(match[1])
+    caps = first_caps(match[1])
     if_body = caps["if_body"]
     else_body = caps["else_body"]
     next_stmt = caps["next_stmt"]

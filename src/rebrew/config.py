@@ -28,7 +28,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, TypedDict, override
+from typing import Any, TypedDict
 lazy import ipaddress
 lazy import math
 lazy import os
@@ -39,7 +39,7 @@ lazy from collections.abc import Callable, Iterator, Mapping
 lazy from functools import partial
 lazy from urllib.parse import urlparse
 
-from rebrew.errors import RebrewError
+from rebrew.errors import ConfigError, ConfigKeyError, ConfigNotFoundError
 lazy from rebrew.compiler.toolchain_spec import FlagsStyle
 lazy from rebrew.metadata.storage import metadata_store, metadata_write_lock
 lazy from rebrew.utils import (
@@ -53,26 +53,9 @@ lazy from rebrew.utils import (
 lazy from rebrew.workspace import walk_up_to_root
 lazy from rebrew.workspace.config import CONFIG_NAME, config_path
 
-
-class ConfigError(RebrewError, ValueError):
-    """``rebrew-project.toml`` is unparsable or holds an invalid value.
-
-    Base of every error :func:`load_config` / :func:`find_root` raise, so
-    ``except ConfigError`` (or ``except RebrewError``) catches them all.
-    """
-
-    @override
-    def __str__(self) -> str:
-        # KeyError.__str__ would repr-quote the message for ConfigKeyError.
-        return Exception.__str__(self)
-
-
-class ConfigNotFoundError(ConfigError, FileNotFoundError):
-    """No ``rebrew-project.toml`` at the given root or above the cwd."""
-
-
-class ConfigKeyError(ConfigError, KeyError):
-    """A required key or the requested target is missing from the config."""
+# ConfigError / ConfigNotFoundError / ConfigKeyError are defined in
+# rebrew.errors (leaf-safe, so rebrew.utils can raise them) and re-exported
+# here so existing `from rebrew.config import ConfigError` sites keep working.
 
 
 class ConfigWarning(UserWarning):

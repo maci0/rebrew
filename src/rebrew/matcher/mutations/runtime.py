@@ -23,8 +23,33 @@ lazy from rebrew.matcher.ast_engine import (
 )
 lazy from rebrew.matcher.mutations.queries import QUERY_ASSIGN_ZERO, LazyQuery
 
+__all__ = [
+    "MUTATION_ATTEMPTS",
+    "POSTFIX_PARENTS",
+    "POSTFIX_SAFE",
+    "RE_FUNC_PRAGMA",
+    "RE_GUARD_CLAUSE",
+    "RE_RET_FALSE_LABEL",
+    "RE_RET_FALSE_LABEL_NL",
+    "RE_SINK_RETURN",
+    "apply_query_once",
+    "assign_zero_targets",
+    "brace_block",
+    "cap_bytes",
+    "capture",
+    "commute_operands",
+    "find_function_body_insert_pos",
+    "first_caps",
+    "get_target_range",
+    "operand_bytes",
+    "query_cursor",
+    "set_target_range",
+    "statement_region_start",
+    "under_postfix",
+]
 
-def _capture(match_or_captures: Any, name: str) -> Any:
+
+def capture(match_or_captures: Any, name: str) -> Any:
     """Return a named tree-sitter capture, preserving the runtime value.
 
     Accepts either a tree-sitter ``Match`` tuple (``(node, captures)``) or a
@@ -44,30 +69,30 @@ MUTATION_ATTEMPTS = 10
 # Pre-compiled regex for ret_false label removal (used in GA hot path).
 # ``\r?`` so CRLF sources strip the label line the same as LF (bare ``\n``
 # left the CR behind and failed to match the label+newline form entirely).
-_RE_RET_FALSE_LABEL_NL = re.compile(r"^[ \t]*ret_false:[ \t]*\r?\n", flags=re.MULTILINE)
-_RE_RET_FALSE_LABEL = re.compile(r"^[ \t]*ret_false:[ \t]*", flags=re.MULTILINE)
+RE_RET_FALSE_LABEL_NL = re.compile(r"^[ \t]*ret_false:[ \t]*\r?\n", flags=re.MULTILINE)
+RE_RET_FALSE_LABEL = re.compile(r"^[ \t]*ret_false:[ \t]*", flags=re.MULTILINE)
 
 # Function-level pragma line, kept with the function body by split_preamble_body.
-_RE_FUNC_PRAGMA = re.compile(
+RE_FUNC_PRAGMA = re.compile(
     r"^[ \t]*#pragma[ \t]+(?:optimize|intrinsic|function|check_stack|auto_inline)\b",
     re.MULTILINE,
 )
 
 # Pre-compiled regex for mut_sink_return (GA hot path).
-_RE_SINK_RETURN = re.compile(rb"(\w+)\s*=\s*([^;]+);\s*\n\s*goto\s+end\s*;")
+RE_SINK_RETURN = re.compile(rb"(\w+)\s*=\s*([^;]+);\s*\n\s*goto\s+end\s*;")
 
 # Pre-compiled regex for mut_guard_clause (GA hot path).
-_RE_GUARD_CLAUSE = re.compile(
+RE_GUARD_CLAUSE = re.compile(
     rb"([ \t]*)if\s*\(([^)]+)\)\s*\{([^}]+)return\s+([^;]+);\s*\}\s*\n\s*\1return\s+([^;]+);"
 )
 
 
-def _first_caps(capture_dict: dict[str, list[ts.Node]]) -> dict[str, ts.Node]:
+def first_caps(capture_dict: dict[str, list[ts.Node]]) -> dict[str, ts.Node]:
     """Extract the first node from each capture group in a tree-sitter match."""
     return {k: v[0] for k, v in capture_dict.items()}
 
 
-def _cap_bytes(source: bytes, captures: dict[str, ts.Node], name: str) -> bytes:
+def cap_bytes(source: bytes, captures: dict[str, ts.Node], name: str) -> bytes:
     """Return the *source* bytes spanned by capture *name*."""
     node = captures[name]
     return source[node.start_byte : node.end_byte]
@@ -75,7 +100,7 @@ def _cap_bytes(source: bytes, captures: dict[str, ts.Node], name: str) -> bytes:
 
 #: Expressions that bind at least as tightly as a postfix operator, so they
 #: can stand as the operand of ``[]``, ``.``, ``->``, ``+`` or ``*`` as-is.
-_POSTFIX_SAFE = frozenset(
+POSTFIX_SAFE = frozenset(
     {
         "identifier",
         "number_literal",
@@ -89,24 +114,24 @@ _POSTFIX_SAFE = frozenset(
 )
 
 #: Parents that apply a postfix operator to their first operand.
-_POSTFIX_PARENTS = frozenset(
+POSTFIX_PARENTS = frozenset(
     {"field_expression", "subscript_expression", "call_expression", "update_expression"}
 )
 
 
-def _operand_bytes(source: bytes, captures: dict[str, ts.Node], name: str) -> bytes:
+def operand_bytes(source: bytes, captures: dict[str, ts.Node], name: str) -> bytes:
     """Capture *name*'s bytes, parenthesized unless already postfix-safe.
 
     Splicing a subexpression into a tighter context (a cast or ``i + 1`` as
     a subscript base) without grouping silently changes what it computes.
     """
-    text = _cap_bytes(source, captures, name)
-    return text if captures[name].type in _POSTFIX_SAFE else b"(" + text + b")"
+    text = cap_bytes(source, captures, name)
+    return text if captures[name].type in POSTFIX_SAFE else b"(" + text + b")"
 
 
-def _under_postfix(node: ts.Node) -> bool:
+def under_postfix(node: ts.Node) -> bool:
     """True when *node*'s parent applies a postfix operator to it."""
-    return node.parent is not None and node.parent.type in _POSTFIX_PARENTS
+    return node.parent is not None and node.parent.type in POSTFIX_PARENTS
 
 
 def brace_block(body: bytes) -> bytes:
@@ -134,7 +159,7 @@ def set_target_range(start: int | None, end: int | None) -> None:
     """Restrict mutation queries to bytes [start, end) of the queried text (None clears).
 
     ``mutate_code`` converts the GA's full-source range to body coordinates
-    before querying; direct ``_cursor`` users pass coordinates of whatever
+    before querying; direct ``cursor`` users pass coordinates of whatever
     text they parse.
     """
     _target_range.range = (start, end) if start is not None and end is not None else None
@@ -151,7 +176,7 @@ def get_target_range() -> tuple[int, int] | None:
     return rng
 
 
-def _cursor(query: ts.Query | LazyQuery) -> ts.QueryCursor:
+def query_cursor(query: ts.Query | LazyQuery) -> ts.QueryCursor:
     """QueryCursor over a (possibly lazy) query — unwraps LazyQuery."""
     if isinstance(query, LazyQuery):
         query = query._get()
@@ -163,7 +188,7 @@ def _cursor(query: ts.Query | LazyQuery) -> ts.QueryCursor:
     return cursor
 
 
-def _assign_zero_targets(b_source: bytes, tree: ts.Tree) -> list[tuple[dict[str, ts.Node], bytes]]:
+def assign_zero_targets(b_source: bytes, tree: ts.Tree) -> list[tuple[dict[str, ts.Node], bytes]]:
     """``var = 0`` matches paired with their ``var`` text, ready to rewrite.
 
     Skips an assignment that is a for-loop initializer, and any ``var`` that
@@ -171,19 +196,19 @@ def _assign_zero_targets(b_source: bytes, tree: ts.Tree) -> list[tuple[dict[str,
     plain identifiers are returned.
     """
     targets: list[tuple[dict[str, ts.Node], bytes]] = []
-    for m in _cursor(QUERY_ASSIGN_ZERO).matches(tree.root_node):
-        caps = _first_caps(m[1])
+    for m in query_cursor(QUERY_ASSIGN_ZERO).matches(tree.root_node):
+        caps = first_caps(m[1])
         parent = caps["expr"].parent
         if parent and parent.type == "for_statement":
             continue
-        var = _cap_bytes(b_source, caps, "var")
+        var = cap_bytes(b_source, caps, "var")
         if b"." in var or b"->" in var or b"[" in var:
             continue
         targets.append((caps, var))
     return targets
 
 
-def _find_function_body_insert_pos(source: bytes, ref_byte: int) -> int | None:
+def find_function_body_insert_pos(source: bytes, ref_byte: int) -> int | None:
     """Find the insert position for a declaration at the top of the enclosing function body.
 
     Walks up the tree-sitter AST from *ref_byte* to find the enclosing
@@ -205,14 +230,14 @@ def _find_function_body_insert_pos(source: bytes, ref_byte: int) -> int | None:
     return None
 
 
-def _statement_region_start(block: ts.Node) -> int:
+def statement_region_start(block: ts.Node) -> int:
     """Byte offset where a statement may be inserted into *block*.
 
     C89 puts block declarations before the first statement, so a statement
     belongs after the last leading declaration; a declaration appended here
     would be ``error C2143`` for MSVC6.  Returns the offset just after ``{``
     when the block declares nothing, which is also where a *declaration*
-    belongs (:func:`_find_function_body_insert_pos`).
+    belongs (:func:`find_function_body_insert_pos`).
     """
     offset = int(block.start_byte) + 1
     for node in block.children:
@@ -221,7 +246,7 @@ def _statement_region_start(block: ts.Node) -> int:
     return offset
 
 
-def _apply_query_once(
+def apply_query_once(
     source: bytes,
     query: ts.Query | LazyQuery,
     repl: Callable[[dict[str, ts.Node]], bytes],
@@ -229,16 +254,16 @@ def _apply_query_once(
 ) -> bytes | None:
     """Apply an AST query and replace one matched occurrence."""
     tree = parse_c_ast(source)
-    cursor = _cursor(query)
+    cursor = query_cursor(query)
     matches = cursor.matches(tree.root_node)
 
     if not matches:
         return None
 
     _, captures = rng.choice(matches)
-    single_captures = _first_caps(captures)
+    single_captures = first_caps(captures)
 
-    target_node = _capture(single_captures, "stmt") or _capture(single_captures, "expr")
+    target_node = capture(single_captures, "stmt") or capture(single_captures, "expr")
     if not target_node:
         return None
 
@@ -247,20 +272,20 @@ def _apply_query_once(
     return replace_node(source, target_node, replacement)
 
 
-def _commute_operands(
+def commute_operands(
     s: str, rng: random.Random, query: ts.Query | LazyQuery, op_str: bytes
 ) -> str | None:
     """Generic commutative operand swap for the given binary operator query."""
     b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
-        left = _cap_bytes(b_source, captures, "left")
-        right = _cap_bytes(b_source, captures, "right")
+        left = cap_bytes(b_source, captures, "left")
+        right = cap_bytes(b_source, captures, "right")
         if left == right:
-            return _cap_bytes(b_source, captures, "expr")
+            return cap_bytes(b_source, captures, "expr")
         return right + b" " + op_str + b" " + left
 
-    res = _apply_query_once(b_source, query, _repl, rng)
+    res = apply_query_once(b_source, query, _repl, rng)
     if not res:
         return None
     res_str = decode_source(res)

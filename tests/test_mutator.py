@@ -442,19 +442,19 @@ class TestTargetRangeBodyCoordinates:
 
             from rebrew.matcher.mutations import runtime as runtime_mod
 
-            orig_cursor = runtime_mod._cursor
+            orig_cursor = runtime_mod.query_cursor
 
             def _spying_cursor(query: object) -> object:
                 seen.append(getattr(runtime_mod._target_range, "range", None))
                 return orig_cursor(query)  # type: ignore[arg-type]
 
-            # Each operator module binds _cursor at import, so patch every one.
+            # Each operator module binds query_cursor at import, so patch every one.
             patched: list[tuple[object, object]] = []
             for name in ("basic", "structural", "advanced", "enhancements", "pragmas"):
                 mod = importlib.import_module(f"rebrew.matcher.mutations.{name}")
-                if hasattr(mod, "_cursor"):
-                    patched.append((mod, mod._cursor))
-                    mod._cursor = _spying_cursor  # type: ignore[attr-defined]
+                if hasattr(mod, "query_cursor"):
+                    patched.append((mod, mod.query_cursor))
+                    mod.query_cursor = _spying_cursor  # type: ignore[attr-defined]
             try:
                 for seed in range(30):
                     mutate_code(src, random.Random(seed))
@@ -462,7 +462,7 @@ class TestTargetRangeBodyCoordinates:
                         break
             finally:
                 for mod, original in patched:
-                    mod._cursor = original  # type: ignore[attr-defined]
+                    mod.query_cursor = original  # type: ignore[attr-defined]
             assert seen, "no mutation query ran"
             assert seen[0] == expected
         finally:

@@ -411,7 +411,7 @@ int __fastcall keeps(int a) { return a; }
         """set_target_range must restrict mutation queries to the byte window."""
         from rebrew.matcher import ast_engine
         from rebrew.matcher.mutations.queries import LazyQuery
-        from rebrew.matcher.mutations.runtime import _cursor, set_target_range
+        from rebrew.matcher.mutations.runtime import query_cursor, set_target_range
 
         src = b"int a(void) { return 1; } int b(void) { return 2; }"
         set_target_range(0, len(b"int a(void) { return 1; } "))  # only function a
@@ -421,7 +421,7 @@ int __fastcall keeps(int a) { return a; }
                 "(function_definition declarator: (function_declarator declarator: (identifier) @name)) @fn",
             )
             tree = ast_engine.parse_c_ast(src)
-            cursor = _cursor(q)
+            cursor = query_cursor(q)
             names = []
             for m in cursor.matches(tree.root_node):
                 captures = m[1] if isinstance(m, tuple) else m.captures

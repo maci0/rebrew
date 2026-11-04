@@ -71,8 +71,11 @@ COMPOSITION_LAYER = frozenset(
     {"rebrew.app.plugin", "rebrew.app.builtins", "rebrew.app.main", "rebrew.dashboard"}
 )
 
-#: Modules allowed to import no other rebrew module at all.
+#: Modules allowed to import no other rebrew module beyond the error
+#: hierarchy: ``rebrew.errors`` defines ``RebrewError`` and its subclasses
+#: without importing anything from the package, so it sits below every leaf.
 LEAF_MODULES = frozenset({"rebrew.utils"})
+LEAF_ALLOWED_IMPORTS = frozenset({"rebrew.errors"})
 
 #: What each subpackage may import outside itself, transcribed from the
 #: "Externals" line of its ``AGENTS.md``.  Names are relative to ``rebrew``
@@ -446,7 +449,7 @@ def check_layering(root: str) -> list[Violation]:
             for target in _rebrew_targets(module, is_package, node, known):
                 if target == module:
                     continue
-                if is_leaf:
+                if is_leaf and target not in LEAF_ALLOWED_IMPORTS:
                     violations.append(Violation(module, "leaf module", target, node.lineno))
                 elif target in COMPOSITION_LAYER and module not in COMPOSITION_LAYER:
                     violations.append(
