@@ -724,7 +724,7 @@ build: warn-uv-version
 		uv build --sdist --out-dir dist --build-constraints build-constraints.txt --require-hashes
 	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 \
 		uv build --wheel --out-dir dist --build-constraints build-constraints.txt --require-hashes
-	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) $(UV_RUN_TOOLS) python tools/normalize_sdist.py dist/*.tar.gz dist/*.whl
+	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 $(UV_RUN_TOOLS) python tools/normalize_sdist.py dist/*.tar.gz dist/*.whl
 	@rm -rf build rebrew.egg-info src/rebrew.egg-info
 	@umask 022; set -eu; \
 	st=$$(sed -n 's/^requires = \["setuptools==\([0-9.][0-9.]*\)"\]/\1/p' pyproject.toml | head -n 1); \
@@ -967,7 +967,7 @@ verify-dist: require-dist ensure-uv
 # than left to the caller's umask (Path.write_text applies it).
 sbom: warn-uv-version
 	@umask 022 && mkdir -p dist
-	umask 022 && $(UV_RUN_TOOLS) python tools/generate_sbom.py -o dist/rebrew.cdx.json
+	umask 022 && TZ=UTC LC_ALL=C PYTHONHASHSEED=0 $(UV_RUN_TOOLS) python tools/generate_sbom.py -o dist/rebrew.cdx.json
 
 # Prove the sdist carries every runtime file the wheel ships.  The wheel is
 # smoke-installed; nothing else exercises the sdist, and its file list comes
@@ -1068,10 +1068,10 @@ smoke-wheel: require-dist ensure-uv
 # same checks.
 jobs-check: ensure-go
 	cd services/jobs; \
-	test -z "$$(gofmt -l .)"; \
-	CGO_ENABLED=0 go vet ./...; \
-	CGO_ENABLED=0 go build -trimpath -ldflags=-buildid= ./...; \
-	CGO_ENABLED=0 go test -race ./...
+	GOTOOLCHAIN=local test -z "$$(gofmt -l .)"; \
+	GOTOOLCHAIN=local CGO_ENABLED=0 go vet ./...; \
+	GOTOOLCHAIN=local CGO_ENABLED=0 go build -trimpath -ldflags=-buildid= ./...; \
+	GOTOOLCHAIN=local CGO_ENABLED=0 go test -race ./...
 
 # Run all non-mutating verification gates (mirrors CI lint + test +
 # cli-contract + jobs-service jobs: ruff, mypy, uv audit, pytest under the

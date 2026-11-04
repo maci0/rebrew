@@ -39,10 +39,12 @@ from rebrew.flags import Checkbox, FlagSet
 REPO_URL = "https://github.com/decompme/decomp.me.git"
 FLAGS_PATH = "backend/coreapp/flags.py"
 
-# The generated header's one moving part: the day the sync ran.  A check run
-# on another day would otherwise report drift on an unchanged upstream, so the
-# comparison masks this line and nothing else.
+# The generated header's two moving parts: the day the sync ran and the
+# upstream commit it resolved.  A check run on another day (or against a
+# branch that moved) would otherwise report drift on an unchanged input, so
+# the comparison masks both lines and nothing else.
 _SYNCED_LINE_RE = re.compile(r"(?m)^Synced: \d{4}-\d{2}-\d{2}$")
+_COMMIT_LINE_RE = re.compile(r"(?m)^Commit: [0-9a-f]{7,40}$")
 
 # Flag IDs that only exist in MSVC 7.x+ (not available in MSVC 6.0)
 MSVC7_ONLY_IDS = {"msvc_fp", "msvc_disable_buffer_security_checks"}
@@ -210,14 +212,17 @@ def count_combos(flag_list: list[Any], tier_ids: Sequence[str] | None = None) ->
     return total
 
 
-def generate_flag_data_py(msvc_flags: list[Any], msvc6_flags: list[Any], timestamp: str) -> str:
+def generate_flag_data_py(
+    msvc_flags: list[Any], msvc6_flags: list[Any], timestamp: str, commit: str = ""
+) -> str:
     """Generate the flag_data.py source code."""
+    commit_line = f"\nCommit: {commit}" if commit else ""
     header = f'''\
 """Auto-generated compiler flag axes from decomp.me.
 
 Source: {REPO_URL}
   File: {FLAGS_PATH}
-Synced: {timestamp}
+Synced: {timestamp}{commit_line}
 
 Do not edit manually — re-run tools/sync_decomp_flags.py to update.
 """
@@ -284,8 +289,8 @@ def drifted_lines(committed: str, generated: str) -> list[str]:
     """
     return list(
         difflib.unified_diff(
-            _SYNCED_LINE_RE.sub("Synced: <date>", committed).splitlines(),
-            _SYNCED_LINE_RE.sub("Synced: <date>", generated).splitlines(),
+            _COMMIT_LINE_RE.sub("Commit: <sha>", _SYNCED_LINE_RE.sub("Synced: <date>", committed)).splitlines(),
+            _COMMIT_LINE_RE.sub("Commit: <sha>", _SYNCED_LINE_RE.sub("Synced: <date>", generated)).splitlines(),
             fromfile="committed",
             tofile="regenerated",
             lineterm="",
@@ -347,7 +352,7 @@ def main() -> None:
             print(f"  → {tier_name}: {n_axes} axes, {total:,} combos")
 
         timestamp = sync_date()
-        source = generate_flag_data_py(msvc_flags, msvc6_flags, timestamp)
+        source = generate_flag_data_py(msvc_flags, msvc6_flags, timestamp, resolved_commit(repo_dir))
         # Preserve the hand-maintained flag families (Watcom/Borland/MSVC152/
         # GCC …): everything from the marker comment to EOF survives a sync.
         source = splice_preserved_tail(source, output_path)

@@ -1345,7 +1345,7 @@ class TestCiPins:
         sbom = text.split("\nsbom: warn-uv-version\n", 1)[1].split("\n\n", 1)[0]
         assert "\t@umask 022 && mkdir -p dist" in sbom
         assert (
-            "\tumask 022 && $(UV_RUN_TOOLS) python tools/generate_sbom.py -o dist/rebrew.cdx.json"
+            "\tumask 022 && TZ=UTC LC_ALL=C PYTHONHASHSEED=0 $(UV_RUN_TOOLS) python tools/generate_sbom.py -o dist/rebrew.cdx.json"
             in sbom
         )
 
