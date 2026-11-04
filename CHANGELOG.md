@@ -3,6 +3,8 @@
 ### Added
 
 - `rebrew.ops.flag_search` and `rebrew.ops.call_references`: bounded flag/compiler-profile sweep and call/jump/import-slot scan dispatch ops. The contract now holds 39 ops, not 37.
+- `rebrew metadata backup --dir DIR` and `rebrew metadata restore --file FILE`: copy the active metadata backend's stores to an off-tree directory and install a backup back (preserved as `.before-restore`). The TOML spellings `rebrew.metadata.sqlite.backup_metadata_toml` / `restore_metadata_toml` (and `metadata_paths`) cover the default TOML stores, including nested `metadata_dir` trees and the project config; the SQLite spelling covers the experimental backend.
+- Ops server `GET /health` and `GET /metrics` aggregates (`rebrew.ops.OpsServer.metrics_snapshot`, `record_request`) with correlated request logging (`X-Request-Id` on every access and error line).
 
 ### Changed
 
@@ -16,6 +18,8 @@
 - **Breaking:** `rebrew.theme.TOKENS` (re-exported through `rebrew.depgraph.TOKENS` and `rebrew.status_style.TOKENS`) now spells `sans` as the mono stack instead of the system sans stack. Consumers that read `TOKENS["sans"]` for body text get the mono stack.
 - **Breaking:** `rebrew.workspace.va.parse_va_candidates` rejects spellings containing `_` and `rebrew.disassemble_bytes` raises `ValueError` on an unsupported `arch` instead of returning empty results; both previously silently accepted or dropped the input.
 - **Breaking:** `rebrew.config.RebrewError` is restored as a re-export of `rebrew.errors.RebrewError` (ConfigError and friends moved to `rebrew.errors`); import `RebrewError` from `rebrew.errors`.
+- **Breaking:** `rebrew.formats.dfm.Int16.encode` and `Int32.encode` now raise `DfmError` (a `RebrewError` and `ValueError`) on an out-of-range value instead of `struct.error`; catch `DfmError` alongside the existing `Int8` range check.
+- **Breaking:** `rebrew.metadata.sqlite.SqliteStore` now rejects a database whose stored `CREATE TABLE` for `metadata_documents` no longer matches the expected DDL (raised as `MetadataStorageError` "unsupported metadata schema") instead of trusting `user_version` alone. Rebuild a drifted store with `rebrew metadata migrate` or restore a backup.
 
 ### Fixed
 
