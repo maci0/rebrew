@@ -1644,9 +1644,26 @@ def _run_batch_flag_sweep(
         _sweep_kw: dict[str, Any] = {"deadline": sweep_deadline} if sweep_deadline else {}
         if clock is not None:
             _sweep_kw["clock"] = clock
-        best_score, best_flags, all_results = run_flag_sweep(
-            stub, cfg, tier=tier, jobs=jobs, **_sweep_kw
-        )
+        try:
+            best_score, best_flags, all_results = run_flag_sweep(
+                stub, cfg, tier=tier, jobs=jobs, **_sweep_kw
+            )
+        except Exception as exc:  # one bad sweep must not abort the batch
+            log.warning("Flag sweep failed for %s: %s", stub.symbol, exc, exc_info=True)
+            sweep_results.append(
+                {
+                    "file": str(stub.filepath),
+                    "va": stub.va,
+                    "size": stub.size,
+                    "symbol": stub.symbol,
+                    "best_score": None,
+                    "best_flags": None,
+                    "exact": False,
+                    "promoted": False,
+                    "error": f"{exc.__class__.__name__}: {exc}",
+                }
+            )
+            continue
 
         is_exact = best_score < EXACT_SCORE_THRESHOLD
         # Whether the authoritative re-verify below can run at all.  It needs
@@ -1743,13 +1760,17 @@ def _run_batch_flag_sweep(
             # best_flags would drop the stub's own non-axis cflags (/GX, /Zp)
             # and the next test/verify would compile different flags and
             # demote the match.
-            cflags_updated = update_cflags_annotation(
-                stub.filepath,
-                f"{resolved} {best_flags}".strip(),
-                metadata_dir=cfg.metadata_dir,
-                module=stub.module,
-                va=int(stub.va, 16),
-            )
+            try:
+                cflags_updated = update_cflags_annotation(
+                    stub.filepath,
+                    f"{resolved} {best_flags}".strip(),
+                    metadata_dir=cfg.metadata_dir,
+                    module=stub.module,
+                    va=int(stub.va, 16),
+                )
+            except Exception as exc:  # metadata write failure must not abort batch
+                log.warning("CFLAGS write failed for %s: %s", stub.symbol, exc, exc_info=True)
+                cflags_updated = False
             result_entry["cflags_updated"] = cflags_updated
             try:
                 recorded = update_source_status(
@@ -1839,8 +1860,13 @@ def _run_batch_flag_sweep(
         sweep_results.append(result_entry)
 
     # Flush all solved entries in one read-modify-write (see solved_entries).
+    # save_solutions is append-only to ga_runs.jsonl (metadata-only); a
+    # failure is logged but must not abort the batch sweep.
     if solved_entries:
-        save_solutions(cfg.root, solved_entries)
+        try:
+            save_solutions(cfg.root, solved_entries)
+        except Exception:
+            log.warning("Batch solution save failed (metadata-only)", exc_info=True)
 
     if json_output:
         json_print(

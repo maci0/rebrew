@@ -2443,7 +2443,14 @@ def _test_multi(
         if cache_patches:
             from rebrew.verify_cache import patch_verify_cache_entries
 
-            patch_verify_cache_entries(cfg, cache_patches)
+            try:
+                patch_verify_cache_entries(cfg, cache_patches)
+            except Exception as exc:  # cache is best-effort; STATUS already persisted
+                logging.warning(
+                    "Verify-cache patch failed for %d entries (status may be stale): %s",
+                    len(cache_patches),
+                    exc,
+                )
 
         if json_output:
             json_print({"source": source, "results": results_list})
