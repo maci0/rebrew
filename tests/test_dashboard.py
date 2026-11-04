@@ -741,9 +741,7 @@ class TestReload:
     def test_empty_state_reload_is_reachable(self) -> None:
         _run_script("dashboard_no_targets.mjs")
 
-
-class TestNoTargets:
-    def test_empty_state_offers_reload(self) -> None:
+    def test_no_targets_offers_reload(self) -> None:
         _run_script("dashboard_no_targets.mjs")
 
 
