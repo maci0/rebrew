@@ -230,7 +230,11 @@ plugin cache backends or remove the open upstream diskcache advisory.
   `src/rebrew/compiler/compile.py`, which cannot use a proxy), so
   `HTTPS_PROXY`, `SSL_CERT_FILE`, and `REQUESTS_CA_BUNDLE` apply to the wibo
   asset and metadata fetches, the toolchain media download, and the
-  `GH_TOKEN`-bearing GitHub commit lookup, none of which is size-capped.
+  `GH_TOKEN`-bearing GitHub commit lookup. The wibo asset is capped at
+  64 MiB (`_MAX_WIBO_DOWNLOAD_BYTES` in `src/rebrew/wibo.py`) and the
+  toolchain media at 2 GiB (`_MAX_PINNED_DOWNLOAD_BYTES` in
+  `src/rebrew/toolchain_cli.py`); the release-metadata JSON and the commit
+  lookup reply are not capped.
 - No claim that `rebrew source import-splat` constrains the files a foreign config
   names to the foreign project. `splat_config._rel` (`splat_config.py:516-521`)
   resolves every `splat.yaml` path against the operator's base with no
