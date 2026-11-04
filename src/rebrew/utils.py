@@ -370,7 +370,11 @@ def truncate_text(text: str, max_chars: int) -> str:
             or "\ufe00" <= nxt <= "\ufe0f"
             or "\U0001f3fb" <= nxt <= "\U0001f3ff"
             or "\U000e0020" <= nxt <= "\U000e007f"
-            or ("\U0001f1e6" <= nxt <= "\U0001f1ff" and "\U0001f1e6" <= prev <= "\U0001f1ff" and _ri_run(cut) % 2 == 1)
+            or (
+                "\U0001f1e6" <= nxt <= "\U0001f1ff"
+                and "\U0001f1e6" <= prev <= "\U0001f1ff"
+                and _ri_run(cut) % 2 == 1
+            )
         ) or prev == "\u200d":
             cut = cut[:-1]
         else:

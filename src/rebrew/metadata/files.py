@@ -42,7 +42,7 @@ def metadata_paths(path: Path) -> tuple[Path, ...]:
         paths = [path]
     try:
         members = list(path.with_suffix(".d").iterdir())
-    except (FileNotFoundError, NotADirectoryError):
+    except FileNotFoundError, NotADirectoryError:
         members = []
     paths.extend(sorted(p for p in members if p.suffix == ".toml" and p.is_file()))
     return tuple(paths)
@@ -76,7 +76,7 @@ def metadata_fingerprint(path: Path) -> tuple[tuple[str, int, int, int, int], ..
                 result.append(
                     (entry.path, stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size, stat.st_ino)
                 )
-    except (FileNotFoundError, NotADirectoryError):
+    except FileNotFoundError, NotADirectoryError:
         pass
     return tuple(result)
 
@@ -90,9 +90,10 @@ def metadata_bytes(path: Path) -> bytes | None:
         return path.read_bytes()
     chunks = [b"rebrew metadata collection\0"]
     for member in paths:
-        name, content = member.relative_to(path.parent).as_posix().encode(
-            "utf-8", errors="surrogateescape"
-        ), member.read_bytes()
+        name, content = (
+            member.relative_to(path.parent).as_posix().encode("utf-8", errors="surrogateescape"),
+            member.read_bytes(),
+        )
         for part in (name, content):
             chunks.extend((str(len(part)).encode(), b":", part))
     return b"".join(chunks)

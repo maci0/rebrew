@@ -342,7 +342,7 @@ def metadata_paths(path: Path) -> tuple[Path, ...]:
         paths = [path]
     try:
         members = list(path.with_suffix(".d").iterdir())
-    except (FileNotFoundError, NotADirectoryError):
+    except FileNotFoundError, NotADirectoryError:
         members = []
     paths.extend(sorted(p for p in members if p.suffix == ".toml" and p.is_file()))
     return tuple(paths)

@@ -110,6 +110,7 @@ def test_count_window_clips_a_negative_start(
     assert bs._count_window(b"abcd", b"abce", -3, 2) == (2, 2, 2)
     assert bs._count_window(b"abcd", b"abce", -10, 2) == (2, 2, 2)
 
+
 def test_score_compared_excludes_bytes_before_image_start() -> None:
     """score()'s 'compared' denominator must match _count_window's clipped window."""
     from types import SimpleNamespace

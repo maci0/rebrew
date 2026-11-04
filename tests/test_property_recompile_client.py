@@ -200,9 +200,7 @@ class _Client:
             raise self._post
         return self._next(self._post)
 
-    def get(
-        self, url: str, headers: Any = None, follow_redirects: bool = False
-    ) -> Any:
+    def get(self, url: str, headers: Any = None, follow_redirects: bool = False) -> Any:
         self.calls.append("get")
         if isinstance(self._get, Exception):
             raise self._get

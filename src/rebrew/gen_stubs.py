@@ -296,9 +296,7 @@ _DECL_CC_RE = re.compile(
     re.DOTALL,
 )
 _DECL_GENERIC_RE = re.compile(r"(.*?)\b(\w+)\s*(\(.*)", re.DOTALL)
-_DECL_ARRAY_RE = re.compile(
-    r"(.*?)\b(\w+)\s*((?:\[(?:[^\[\]]|\[[^\]]*\])*\])+)", re.DOTALL
-)
+_DECL_ARRAY_RE = re.compile(r"(.*?)\b(\w+)\s*((?:\[(?:[^\[\]]|\[[^\]]*\])*\])+)", re.DOTALL)
 _DECL_SCALAR_RE = re.compile(r"(.*?)\b(\w+)\s*$", re.DOTALL)
 
 

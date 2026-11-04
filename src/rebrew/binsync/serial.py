@@ -199,7 +199,7 @@ def write_state_text(path: Path, text: str) -> None:
             if not path.stat().st_mode & stat.S_IWUSR:
                 os.chmod(path, STATE_FILE_MODE)
             return
-    except (FileNotFoundError, UnicodeDecodeError):
+    except FileNotFoundError, UnicodeDecodeError:
         # Missing file or undecodable bytes: fall through to the write.
         # A corrupt existing artifact must be overwritten, not abort the
         # export with a raw UnicodeDecodeError.

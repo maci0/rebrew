@@ -2128,7 +2128,9 @@ class OpsServer(ThreadingHTTPServer):
                 "client_error_count": self._client_error_count,
                 "latency_ms_total": self._latency_ms_total,
                 "latency_ms_max": self._latency_ms_max,
-                "latency_ms_avg": (self._latency_ms_total / self._request_count) if self._request_count else 0.0,
+                "latency_ms_avg": (self._latency_ms_total / self._request_count)
+                if self._request_count
+                else 0.0,
                 "uptime_seconds": time.time() - self._started_at,
             }
 
