@@ -58,6 +58,17 @@ jobs:
           mkdir -p "$RUNNER_TEMP/jobs-go"
           tar -xzf "$RUNNER_TEMP/go.tar.gz" -C "$RUNNER_TEMP/jobs-go"
           echo "$RUNNER_TEMP/jobs-go/go/bin" >> "$GITHUB_PATH"
+      - name: Cache Go build cache
+        # The Go release install above is pinned by digest, but the build
+        # cache under ~/.cache/go-build is not: a cold runner recompiles the
+        # stdlib and test binaries on every run.  Keyed on go.mod so a module
+        # change busts it; restore-keys keeps a warm prefix across changes.
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/go-build
+          key: go-build-${{ runner.os }}-${{ hashFiles('services/jobs/go.mod') }}
+          restore-keys: |
+            go-build-${{ runner.os }}-
       - name: Check the jobs service
         working-directory: services/jobs
         run: |

@@ -2,14 +2,19 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	jobs "github.com/relumea/rebrew/services/jobs"
 	"log"
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
+	"time"
+
+	jobs "github.com/relumea/rebrew/services/jobs"
 )
 
 func main() {
@@ -48,9 +53,27 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	ln, err := net.Listen("tcp", "127.0.0.1:8089")
+	addr := os.Getenv("REBREW_JOBS_ADDR")
+	if addr == "" {
+		addr = "127.0.0.1:8089"
+	}
+	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Fatal(http.Serve(ln, h))
+	// Bounded timeouts (mirroring the compile mediator's socket server) keep
+	// a slow or idle loopback client from holding a connection forever; the
+	// streaming /events handler sets its own write deadline per frame.
+	server := &http.Server{Handler: h, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 180 * time.Second}
+	// Graceful shutdown on SIGTERM/SIGINT so Close() drains queued work
+	// instead of the process being killed mid-receipt.
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
+	go func() {
+		<-sig
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = server.Shutdown(ctx)
+	}()
+	log.Fatal(server.Serve(ln))
 }
