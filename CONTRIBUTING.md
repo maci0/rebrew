@@ -19,13 +19,19 @@ pinned docker image).
 
 Needs **uv** (CI pins `uv-version` in `.github/actions/uv-env/action.yml`,
 currently `0.13.6`), **Python 3.15+** (see `.python-version`), **nasm** on `PATH`
-(CI installs nasm for asm round-trip tests), and **bun** on `PATH` (the
+(CI installs nasm for asm round-trip tests), and **bun** `1.4.4` on `PATH` (CI
+pins `bun-version` in `.github/workflows/ci.yml`; `BUN_VERSION` in the
+`Makefile` mirrors it and warns on drift; the
 `tests/dashboard_*.mjs` interaction tests skip without it, so a host with no
 bun cannot run the dashboard JS exercised by CI; `make test` fails on a
 missing bun, while `make test-one` only warns). Native runner tests also need
 **cc**, **pkg-config** and **json-c development files**; on Debian/Ubuntu install
 `build-essential pkg-config libjson-c-dev`. `make test`, `make coverage` and
-`make doctor` check these before running the suite. The `binsync` extra
+`make doctor` check these before running the suite; `ensure-unshare-build` also
+probes `unshare --user --map-root-user true` (the same probe CI runs after
+relaxing AppArmor's `kernel.apparmor_restrict_unprivileged_userns`) and warns
+when namespaces are denied, instead of letting the native tests skip silently.
+The `binsync` extra
 (`declib` → `pyghidra` → `jpype1`, sdist-only in `uv.lock`) also needs a **JDK
 and Apache Ant** on `PATH` (plus `cc`/`make`) so CPython 3.15 can build JPype
 1.7.1 from source; CI installs `ant default-jdk build-essential` before

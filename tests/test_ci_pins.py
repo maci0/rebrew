@@ -1665,6 +1665,16 @@ class TestCiPins:
             if block.splitlines()[0].strip().rstrip(":") == "test"
         )
         assert "oven-sh/setup-bun@" in test_job
+        # The pin lives in the workflow and the Makefile mirrors it, like
+        # UV_VERSION / GO_VERSION; a bun bump that only lands in one place
+        # silently drifts the dashboard gate.
+        m = re.search(r"(?m)^BUN_VERSION\s*\?=\s*(\S+)\s*$", text)
+        assert m is not None, "BUN_VERSION missing from Makefile"
+        ci_bun = re.search(r"(?m)^\s+bun-version:\s*(\S+)\s*$", CI_YML.read_text(encoding="utf-8"))
+        assert ci_bun is not None, "bun-version missing from CI test job"
+        assert m.group(1) == ci_bun.group(1), (
+            f"Makefile BUN_VERSION={m.group(1)} != CI bun-version={ci_bun.group(1)}"
+        )
 
     def test_native_runner_prerequisites_cover_every_python_matrix_entry(self) -> None:
         import yaml
@@ -1693,6 +1703,22 @@ class TestCiPins:
         assert result.returncode != 0
         assert "native runner tests need" in result.stdout
         assert "apt install build-essential pkg-config libjson-c-dev" in result.stdout
+
+    def test_native_runner_preflight_probes_user_namespaces(self) -> None:
+        """Local preflight mirrors the CI userns probe instead of silently skipping.
+
+        CI relaxes AppArmor and probes `unshare --user --map-root-user true`
+        before the suite; locally the same denial only became a skip inside
+        test_unshare.py, so a green run hid that the namespace tests never
+        exercised the helper. The local probe warns (never hard-fails, so
+        Alpine/offline hosts without unshare stay runnable) and names the
+        sysctl fix docs/TOOLCHAIN.md documents.
+        """
+        text = MAKEFILE.read_text(encoding="utf-8")
+        recipe = text.split("ensure-unshare-build:\n", 1)[1].split("\nensure-jpype-build:", 1)[0]
+        assert "unshare --user --map-root-user true" in recipe
+        assert "kernel.apparmor_restrict_unprivileged_userns" in recipe
+        assert "WARNING: unshare" in recipe
 
     @pytest.mark.parametrize(
         ("key_exists", "set_exit", "probe_exit", "expected"),

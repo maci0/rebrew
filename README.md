@@ -142,7 +142,7 @@ needs a JDK and Apache Ant on PATH to build JPype 1.7.1 on Python 3.15
 (qualified with OpenJDK 27 and Ant 1.10.18).
 
 Clean clone needs **uv**, **Python 3.15+** (`.python-version`), **nasm** and
-**bun** on `PATH`, a **Rust toolchain** (**cargo** + **rustc**, qualified with
+**bun** `1.4.4` (CI `bun-version`; `BUN_VERSION` in the `Makefile`) on `PATH`, a **Rust toolchain** (**cargo** + **rustc**, qualified with
 Rust 1.99.1 — `make setup` builds `python-flirt` from its sdist), a sibling [`resembl`](https://github.com/maci0/resembl) checkout at
 `../resembl` (tag `v3.12.0`, matching CI `RESEMBL_REF` / `uv.lock`; `make setup`
 also requires `HEAD` to be the `RESEMBL_SHA` commit CI's `resembl-sha` pins),
@@ -150,8 +150,10 @@ also requires `HEAD` to be the `RESEMBL_SHA` commit CI's `resembl-sha` pins),
 and **json-c** development files for the native unshare runner tests
 (`build-essential pkg-config libjson-c-dev` on Debian/Ubuntu).  **bun** drives the
 `tests/dashboard_*.mjs` interaction tests, which skip without it, so `make test`
-fails on a missing bun while `make test-one` only warns; the native runner
-preflight likewise fails `make test` and passes `make test-one`.  **shellcheck** is optional
+fails on a missing bun while `make test-one` only warns (both warn on a version
+other than the CI pin); the native runner
+preflight likewise fails `make test` and passes `make test-one`, and probes
+`unshare --user` namespaces with a warning naming the AppArmor sysctl fix.  **shellcheck** is optional
 locally but not in CI: the pre-commit shell hook skips itself without it, so
 `make check` warns rather than fails, and CI's pre-commit job installs it.  See
 [`CONTRIBUTING.md`](https://github.com/maci0/rebrew/blob/main/CONTRIBUTING.md); `make help` lists targets.

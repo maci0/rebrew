@@ -60,6 +60,9 @@ UV_VERSION ?= 0.13.6
 # services/jobs/go.mod toolchain. `make jobs-check` runs on any newer Go,
 # but contributors should install this exact release to track CI.
 GO_VERSION ?= 1.27.3
+# Match the CI bun pin (.github/workflows/ci.yml bun-version). Presence is
+# hard for `make test`, version drift only warns, like uv above.
+BUN_VERSION ?= 1.4.4
 
 # Single-file / nodeid override for the edit-test loop:
 #   make test-one T=tests/test_annotation_roundtrip.py
@@ -279,12 +282,24 @@ warn-nasm:
 	fi
 
 # The native unshare tests compile the runner before checking its mount policy.
+# CI also relaxes Ubuntu's AppArmor userns restriction and probes
+# `unshare --user --map-root-user true` before the suite; locally that denial
+# only surfaces as a skip inside test_unshare.py, so a contributor reads
+# green without knowing the namespace tests never ran. Probe here (warn, not
+# hard: Alpine/offline hosts may lack the binary) and name the fix.
 ensure-unshare-build:
 	@set -eu; \
 	if ! command -v cc >/dev/null 2>&1 || ! command -v pkg-config >/dev/null 2>&1 || ! pkg-config --exists json-c; then \
 	  echo "ERROR: native runner tests need cc, pkg-config and json-c development files."; \
 	  echo "Install them, then re-run: apt install build-essential pkg-config libjson-c-dev"; \
 	  exit 1; \
+	fi; \
+	if command -v unshare >/dev/null 2>&1; then \
+	  if ! unshare --user --map-root-user true >/dev/null 2>&1; then \
+	    echo "WARNING: unshare --user --map-root-user failed (native namespace tests will skip)."; \
+	    echo "On Ubuntu 24.04+, check: sysctl kernel.apparmor_restrict_unprivileged_userns"; \
+	    echo "CI relaxes it with: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 (disposable runner only; see docs/TOOLCHAIN.md)."; \
+	  fi; \
 	fi
 
 # The binsync extra (declib -> pyghidra -> jpype1) ships sdist-only in uv.lock
@@ -360,16 +375,25 @@ ensure-bun:
 	@set -eu; \
 	if ! command -v bun >/dev/null 2>&1; then \
 	  echo "ERROR: bun not on PATH (required by the dashboard interaction tests, same as CI)."; \
-	  echo "Install it, then re-run: e.g. pacman -S bun, or curl -fsSL https://bun.sh/install | bash"; \
+	  echo "Install bun $(BUN_VERSION) (CI bun-version), then re-run: e.g. pacman -S bun, or curl -fsSL https://bun.sh/install | bash"; \
 	  echo "Or iterate without it: make test-one T=tests/test_foo.py (dashboard_*.mjs tests skip)."; \
 	  exit 1; \
+	fi; \
+	bun_ver=$$(bun --version); \
+	if [ "$$bun_ver" != "$(BUN_VERSION)" ]; then \
+	  echo "WARNING: bun $$bun_ver differs from CI pin BUN_VERSION=$(BUN_VERSION). Dashboard tests usually still pass; upgrade when you can."; \
 	fi
 
 warn-bun:
 	@set -eu; \
 	if ! command -v bun >/dev/null 2>&1; then \
 	  echo "WARNING: bun not on PATH (required by the dashboard interaction tests, same as CI; they skip in make test-one)."; \
-	  echo "Install it before running the full suite: e.g. pacman -S bun, or curl -fsSL https://bun.sh/install | bash"; \
+	  echo "Install bun $(BUN_VERSION) (CI bun-version) before running the full suite: e.g. pacman -S bun, or curl -fsSL https://bun.sh/install | bash"; \
+	else \
+	  bun_ver=$$(bun --version); \
+	  if [ "$$bun_ver" != "$(BUN_VERSION)" ]; then \
+	    echo "WARNING: bun $$bun_ver differs from CI pin BUN_VERSION=$(BUN_VERSION). Dashboard tests usually still pass; upgrade when you can."; \
+	  fi; \
 	fi
 
 # The shellcheck hook exits 0 when the binary is absent, so a contributor
@@ -553,7 +577,7 @@ doctor:
 	    ensure-resembl) label="sibling resembl at $(RESEMBL_DIR)" ;; \
 	    ensure-bash) label='bash on PATH (make clone-resembl)' ;; \
 	    ensure-nasm) label='nasm on PATH (make test; optional for test-one)' ;; \
-	    ensure-bun) label='bun on PATH (dashboard interaction tests; optional for test-one)' ;; \
+	    ensure-bun) label="bun $(BUN_VERSION) on PATH (CI pin; dashboard interaction tests; optional for test-one)" ;; \
 	    ensure-unshare-build) label='cc, pkg-config and json-c (native runner tests)' ;; \
 	    ensure-jpype-build) label='JDK, Ant and cc/make (JPype sdist build for binsync extra)' ;; \
 	    ensure-go) label='go on PATH (Go $(GO_VERSION) for jobs-check)' ;; \
