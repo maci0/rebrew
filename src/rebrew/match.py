@@ -55,6 +55,7 @@ lazy from rebrew.match_run import (
     show_ga_history,
 )
 lazy from rebrew.match_sweep import (
+    resolve_arg_params,
     resolve_build_params,
     run_single_flag_sweep,
     run_single_toolchain_flag_sweep,
@@ -363,24 +364,17 @@ def execute_search(
             code=EXIT_ERROR,
         )
 
-    # Accept a hex VA or symbol name in addition to a .c path, like
-    # `rebrew diff`/`rebrew prove` (resolve_source_arg returns the argument
-    # unchanged when nothing matches, so the original error path is kept).
-    va_arg = seed_c.strip().lower().startswith("0x")
-    seed_c_orig = seed_c
-    seed_c = str(resolve_source_arg(cfg, seed_c))
-
-    # A bare-VA positional must target THAT annotation in a multi-function
-    # file — thread it through so resolve_build_params does not fall back to
-    # the first annotation (wrong function).
-    if va_arg and target_va is None:
-        target_va = seed_c_orig
-
-    if not va_arg and symbol is None and not Path(seed_c_orig).exists():
-        symbol = seed_c_orig
-
-    params = resolve_build_params(
-        cfg, seed_c, cl, inc, cflags, symbol, target_va, target_size, ignore_lint, json_output
+    params = resolve_arg_params(
+        cfg,
+        seed_c,
+        cl=cl,
+        inc=inc,
+        cflags=cflags,
+        symbol=symbol,
+        target_va=target_va,
+        target_size=target_size,
+        ignore_lint=ignore_lint,
+        json_output=json_output,
     )
 
     # --mutation-focus: bias GA mutation selection toward a near-diag category.

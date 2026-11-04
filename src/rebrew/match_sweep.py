@@ -128,6 +128,47 @@ def select_annotation(annos: list[SourceBinding], symbol: str | None) -> SourceB
     return find_source_binding_by_symbol(annos, symbol)
 
 
+def resolve_arg_params(
+    cfg: Any,
+    seed_c: str,
+    *,
+    cl: str | None = None,
+    inc: str | None = None,
+    cflags: str | None = None,
+    symbol: str | None = None,
+    target_va: str | None = None,
+    target_size: int | None = None,
+    ignore_lint: bool = False,
+    json_output: bool = False,
+) -> BuildParams:
+    """Resolve a CLI source argument (path, symbol, or VA) into build params.
+
+    Shared by ``diff``, ``stack_cmp``, and ``match`` so the VA/symbol
+    threading into ``resolve_build_params`` cannot drift between copies.
+    """
+    from rebrew.cli import resolve_source_arg
+
+    original_arg = seed_c
+    va_arg = seed_c.strip().lower().startswith("0x")
+    resolved = str(resolve_source_arg(cfg, seed_c))
+    if va_arg and target_va is None:
+        target_va = original_arg
+    if symbol is None and not va_arg and not Path(original_arg).exists():
+        symbol = original_arg
+    return resolve_build_params(
+        cfg,
+        resolved,
+        cl,
+        inc,
+        cflags,
+        symbol,
+        target_va,
+        target_size,
+        ignore_lint,
+        json_output,
+    )
+
+
 def resolve_build_params(
     cfg: Any,
     seed_c: str,

@@ -41,27 +41,9 @@ def run_stack_cmp(
     """Compile *seed_c* and compare its stack frame against the target."""
     cfg = require_config(target=target, json_mode=json_output)
 
-    from rebrew.cli import resolve_source_arg
+    from rebrew.match_sweep import resolve_arg_params
 
-    va_arg = seed_c.strip().lower().startswith("0x")
-    original_arg = seed_c
-    seed_c = str(resolve_source_arg(cfg, seed_c))
-
-    from rebrew.match_sweep import resolve_build_params
-
-    symbol_arg = not va_arg and not Path(original_arg).exists()
-    params = resolve_build_params(
-        cfg,
-        seed_c,
-        None,
-        None,
-        None,
-        original_arg if symbol_arg else None,
-        original_arg if va_arg else None,
-        None,
-        False,  # ignore_lint
-        json_output,
-    )
+    params = resolve_arg_params(cfg, seed_c, json_output=json_output)
 
     from rebrew.matcher import compiler as compile_seam
 

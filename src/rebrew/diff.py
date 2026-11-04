@@ -618,33 +618,14 @@ def main(
 
     cfg = require_config(target=target, json_mode=json_output)
 
-    # Accept a hex VA or symbol name in addition to a .c path, like
-    # `rebrew prove`/`rebrew test` (resolve_source_arg returns the argument
-    # unchanged when nothing matches, so the original error path is kept).
-    from rebrew.cli import resolve_source_arg
-
     va_arg = seed_c.strip().lower().startswith("0x")
+    symbol_arg = not va_arg and not Path(seed_c).exists()
     original_arg = seed_c
-    seed_c = str(resolve_source_arg(cfg, seed_c))
 
-    # Resolve build parameters via match module's shared resolver.  When the
-    # argument was a bare VA, pass it through so resolve_build_params targets
-    # THAT annotation in a multi-function file, not the first one.
-    from rebrew.match_sweep import resolve_build_params
+    from rebrew.match_sweep import resolve_arg_params
 
-    symbol_arg = not va_arg and not Path(original_arg).exists()
-    params = resolve_build_params(
-        cfg,
-        seed_c,
-        None,
-        None,
-        None,
-        original_arg if symbol_arg else None,
-        original_arg if va_arg else None,
-        None,
-        ignore_lint,
-        json_output,
-    )
+    params = resolve_arg_params(cfg, seed_c, ignore_lint=ignore_lint, json_output=json_output)
+    seed_c = str(params.seed_c)
 
     if watch:
         from rebrew.utils import watch_files
