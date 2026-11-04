@@ -150,12 +150,11 @@ Rebrew filters source bindings by the active `--target`. Several targets may sha
 > set/clear`, the locked owner APIs for metadata changes. Files are mode 0444
 > (`atomic_write_locked`). SIZE and CFLAGS are metadata-owned;
 > Reconstruction source, STRUCT/CALLERS and support purposes are metadata-only.
-> `rebrew source register` records address-bound identities. Functions and addressless source evidence/purposes use format-3 `rebrew-functions.toml`; data uses format 2. Ordinary readers reject old schemas; use `rebrew source consolidate --dry-run --json`, then apply with its `--expected-digest` to migrate reviewed format-2 functions/source stores. See `references/annotation-format.md`.
+> `rebrew source register` records address-bound identities. Format and migration details: `references/annotation-format.md`.
 
 `ORIGINS` records the external source of each imported field; `VERIFICATION`
 records comparison evidence independently of ordinary edits. Note edits preserve
 that evidence. Re-run `test`/`verify` when source, headers, or compiler inputs change.
-Storage defaults to TOML. Preview experimental SQLite with `rebrew metadata migrate sqlite --dry-run`, apply without `--dry-run`; `rebrew metadata migrate toml` switches back. Project configuration stays TOML; never edit the database directly.
 
 ## 4. Implement and Test
 
