@@ -14,8 +14,6 @@ lazy import re
 lazy from pathlib import Path
 lazy from typing import Any
 
-_HEX_VA_RE = re.compile(r"^0[xX][0-9a-fA-F]+$")
-
 import typer
 lazy from rich.console import Console
 
@@ -35,6 +33,8 @@ lazy from rebrew.metadata.bindings import find_source_binding_by_symbol
 lazy from rebrew.near_analysis import analyze, blocker_text, catalog_markdown
 lazy from rebrew.utils import TerminalTable, untrusted_ident
 lazy from rebrew.workspace.status import NEAR_MATCH_CANDIDATE_STATUSES
+
+_HEX_VA_RE = re.compile(r"^0[xX][0-9a-fA-F]+$")
 
 
 class _DiagnoseError(RuntimeError):

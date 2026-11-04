@@ -366,7 +366,6 @@ def _tail_call_arg_count(
     ``rebrew.asm.build_function_lookup``); building it scans the whole
     source tree, so batch callers pass one shared instance instead of
     paying a tree scan per instruction."""
-    import re
 
     lazy_lookup = func_lookup
     for insn in reversed(insns):

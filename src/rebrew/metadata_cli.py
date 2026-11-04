@@ -1,8 +1,8 @@
 """CLI for reviewed managed-metadata storage transfers and database backup/restore."""
 
-import typer
-lazy import os
 from pathlib import Path
+
+import typer
 
 from rebrew.cli import (
     EXPECTED_DIGEST_HELP,
@@ -62,7 +62,9 @@ def migrate_cmd(
     epilog="[bold]Examples:[/bold]\n\n  rebrew metadata backup --dir /off-tree/backups\n\n  rebrew metadata backup --dir /off-tree/backups --json",
 )
 def backup_cmd(
-    dir: Path = typer.Option(..., "--dir", help="Directory to copy the experimental sqlite metadata database into"),
+    dest_dir: Path = typer.Option(
+        ..., "--dir", help="Directory to copy the experimental sqlite metadata database into"
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -71,7 +73,7 @@ def backup_cmd(
 
     cfg = require_config(target=target, json_mode=json_output)
     try:
-        dest = backup_metadata_database(Path(cfg.root), dir)
+        dest = backup_metadata_database(Path(cfg.root), dest_dir)
     except (OSError, ValueError) as exc:
         error_exit(str(exc), json_mode=json_output)
     if json_output:

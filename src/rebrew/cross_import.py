@@ -59,9 +59,9 @@ if TYPE_CHECKING:
     from rebrew.metadata.bindings import SourceBinding
 
 
-lazy from rebrew.cli import console
-
 lazy import logging
+
+lazy from rebrew.cli import console
 
 _log = logging.getLogger(__name__)
 

@@ -350,14 +350,20 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
             try:
                 staged_version = staged.execute("PRAGMA user_version").fetchone()[0]
                 staged_integrity = staged.execute("PRAGMA integrity_check").fetchone()[0]
-                staged_count = staged.execute(
-                    "SELECT COUNT(*) FROM metadata_documents"
-                ).fetchone()[0]
+                staged_count = staged.execute("SELECT COUNT(*) FROM metadata_documents").fetchone()[
+                    0
+                ]
             except sqlite3.Error as exc:
-                raise MetadataStorageError(f"{backup}: restored copy verification failed: {exc}") from exc
+                raise MetadataStorageError(
+                    f"{backup}: restored copy verification failed: {exc}"
+                ) from exc
             finally:
                 staged.close()
-            if staged_version != _SCHEMA_VERSION or staged_integrity != "ok" or staged_count != count:
+            if (
+                staged_version != _SCHEMA_VERSION
+                or staged_integrity != "ok"
+                or staged_count != count
+            ):
                 raise MetadataStorageError(f"{backup}: restored copy verification failed")
             # fsync the staged file, publish atomically, fsync the directory.
             fd = os.open(tmp, os.O_RDONLY)

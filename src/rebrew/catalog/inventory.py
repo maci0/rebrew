@@ -7,7 +7,6 @@ lazy import json
 lazy from datetime import UTC, datetime
 lazy from typing import Any
 
-lazy from rebrew.catalog.models import FunctionEntry
 lazy from rebrew.config import ProjectConfig, inventory_path_for
 lazy from rebrew.formats.binary_loader import load_binary
 lazy from rebrew.utils import atomic_write_text, file_lock
@@ -142,7 +141,9 @@ def repair_inventory_extents(
                 raise ValueError("derived coverage rows cannot establish native inventory extents")
             retired.append({"va": f"0x{va:x}", "row": row, "reason": reason.strip()})
         if retire_list:
-            document = [row for row, va in zip(document, row_vas, strict=True) if va not in retire_list]
+            document = [
+                row for row, va in zip(document, row_vas, strict=True) if va not in retire_list
+            ]
         binary = load_binary(cfg.target_binary)
 
         def complete_span(va: int, size: int) -> bool:
@@ -170,8 +171,16 @@ def repair_inventory_extents(
                         f"{label} row 0x{head_va if label == 'head' else tail_va:x} is derived "
                         "coverage and cannot establish native extents"
                     )
-            head_size = int(head_row["size"]) if isinstance(head_row["size"], int) else int(str(head_row["size"]), 0)
-            tail_size = int(tail_row["size"]) if isinstance(tail_row["size"], int) else int(str(tail_row["size"]), 0)
+            head_size = (
+                int(head_row["size"])
+                if isinstance(head_row["size"], int)
+                else int(str(head_row["size"]), 0)
+            )
+            tail_size = (
+                int(tail_row["size"])
+                if isinstance(tail_row["size"], int)
+                else int(str(tail_row["size"]), 0)
+            )
             if head_size <= 0 or tail_size <= 0:
                 raise ValueError("merge requires positive head and tail extents")
             if head_va + head_size != tail_va:
@@ -245,12 +254,20 @@ def repair_inventory_extents(
                         other_size = updates[other_va]
                     else:
                         raw_size = other["size"]
-                        other_size = int(raw_size) if isinstance(raw_size, int) else int(str(raw_size), 0)
+                        other_size = (
+                            int(raw_size) if isinstance(raw_size, int) else int(str(raw_size), 0)
+                        )
                     if other_va != va and va < other_va + other_size and other_va < va + size:
                         raise ValueError(
                             f"0x{va:x}+{size} overlaps inventory extent 0x{other_va:x}"
                         )
-            old_size = None if va in unknown else (int(row["size"]) if isinstance(row["size"], int) else int(str(row["size"]), 0))
+            old_size = (
+                None
+                if va in unknown
+                else (
+                    int(row["size"]) if isinstance(row["size"], int) else int(str(row["size"]), 0)
+                )
+            )
             if old_size == size:
                 continue
             event = {
