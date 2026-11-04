@@ -725,7 +725,7 @@ def run_single_toolchain_sweep(
         )
         results.append((score_val, matched, count, total, profile))
 
-    results.sort(key=lambda r: r[0])
+    results.sort(key=lambda r: (r[0], r[4]))
     if json_output:
         json_print(
             {

@@ -1209,7 +1209,9 @@ def run_all(
     # Skip recently-run stubs BEFORE capping by max_stubs so --skip-recent
     # and --max-stubs compose sensibly (skip first, then limit).
     if skip_recent_hours:
-        stubs = _filter_recently_run(stubs, cfg, skip_recent_hours, json_output)
+        stubs = _filter_recently_run(
+            stubs, cfg, skip_recent_hours, json_output, now=now() if now is not None else None
+        )
 
     if max_stubs > 0:
         stubs = stubs[:max_stubs]

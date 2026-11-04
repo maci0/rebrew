@@ -865,7 +865,7 @@ class TestRunAllBatch:
         monkeypatch.setattr("rebrew.match_run.find_all_stubs", lambda *a, **k: stubs)
         # Keep only the second stub, the way a recent-run filter would.
         monkeypatch.setattr(
-            "rebrew.match_run._filter_recently_run", lambda s, cfg, hours, j: [s[1]]
+            "rebrew.match_run._filter_recently_run", lambda s, cfg, hours, j, *, now=None: [s[1]]
         )
         out = self._run(self._cfg(tmp_path), dry_run=True, json_output=True, skip_recent_hours=24)
         assert out == (0, 0)
