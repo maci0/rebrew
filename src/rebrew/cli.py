@@ -535,7 +535,8 @@ def _install_click_error_hook() -> None:
     from click.exceptions import UsageError as ClickUsageError
 
     original = ClickException.show
-    if getattr(original, "_rebrew_hook", False):
+    usage_original = ClickUsageError.show
+    if getattr(original, "_rebrew_hook", False) and getattr(usage_original, "_rebrew_hook", False):
         return
 
     def show(self: ClickException, file: Any = None) -> None:
@@ -543,10 +544,35 @@ def _install_click_error_hook() -> None:
             kind = "usage" if isinstance(self, ClickUsageError) else "failure"
             _write_error(kind, self.format_message(), "")
             return
-        original(self, file=file)
+        if isinstance(self, ClickUsageError):
+            usage_original(self, file=file)
+        else:
+            original(self, file=file)
 
     show._rebrew_hook = True  # type: ignore[attr-defined]
     ClickException.show = show  # type: ignore[method-assign]
+    # UsageError overrides show() in click 8.5, so patching only the base
+    # class never fires for usage errors (bad flags, missing args).
+    ClickUsageError.show = show  # type: ignore[method-assign]
+    # Typer's rich error path bypasses show() entirely when rich_markup_mode
+    # is set: typer.core.main calls rich_utils.rich_format_error(e) instead.
+    try:
+        from typer import rich_utils
+
+        original_rich = rich_utils.rich_format_error
+        if not getattr(original_rich, "_rebrew_hook", False):
+
+            def rich_show(self: ClickException) -> None:
+                if _json_mode_active():
+                    kind = "usage" if isinstance(self, ClickUsageError) else "failure"
+                    _write_error(kind, self.format_message(), "")
+                    return
+                original_rich(self)
+
+            rich_show._rebrew_hook = True  # type: ignore[attr-defined]
+            rich_utils.rich_format_error = rich_show  # type: ignore[method-assign]
+    except ImportError:
+        pass
 
 
 _install_click_error_hook()
