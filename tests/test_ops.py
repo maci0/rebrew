@@ -13,6 +13,7 @@ import hashlib
 import http.client
 import http.server
 import json
+import logging
 import os
 import secrets
 import shutil
@@ -1093,9 +1094,10 @@ class TestHttpTransport:
                 "--concurrency",
                 "1",
             ),
-            env={**os.environ, "REBREW_OPS_TOKEN": TOKEN},
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            env={**os.environ, "REBREW_OPS_TOKEN": TOKEN, "PYTHONUNBUFFERED": "1"},
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
         )
         deadline = time.monotonic() + WAIT_SECONDS
         try:
@@ -1271,3 +1273,58 @@ class TestHttpTransport:
             assert time.monotonic() < deadline, "the slot was not released"
             time.sleep(0.05)
         assert (status, reply["error"]) == (404, "unknown-op")
+
+    def test_access_line_and_header_share_a_request_id(self, server: tuple[int, Path]) -> None:
+        port, _workspace = server
+        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=WAIT_SECONDS)
+        try:
+            connection.request(
+                "POST",
+                "/rebrew.nope",
+                body=b"{}",
+                headers={
+                    "Authorization": f"Bearer {TOKEN}",
+                    "Content-Type": "application/json",
+                },
+            )
+            response = connection.getresponse()
+            response.read()
+        finally:
+            connection.close()
+        assert response.status == 404
+        request_id = response.getheader("X-Request-Id")
+        assert request_id is not None and request_id.startswith("r")
+
+    def test_unauthenticated_requests_log_a_warning(self, server: tuple[int, Path]) -> None:
+        port, _workspace = server
+        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=WAIT_SECONDS)
+        try:
+            connection.request(
+                "POST",
+                "/rebrew.fingerprint",
+                body=b"{}",
+                headers={"Authorization": "Bearer wrong", "Content-Type": "application/json"},
+            )
+            response = connection.getresponse()
+            response.read()
+        finally:
+            connection.close()
+        assert response.status == 401
+
+
+def test_dispatch_5xx_is_logged_and_4xx_is_not(caplog: Any) -> None:
+    cfg = WorkerConfig()
+    with caplog.at_level(logging.ERROR, logger="rebrew.ops"):
+        status5, _ = dispatch(
+            cfg,
+            "rebrew.fingerprint",
+            json.dumps({"binary_id": 1, "sha256": "0" * 64, "name": "x", "key": "k"}).encode(),
+        )
+    assert status5 == 500
+    assert [record.levelno for record in caplog.records] == [logging.ERROR]
+    assert "refused" in caplog.records[0].getMessage()
+    caplog.clear()
+    with caplog.at_level(logging.ERROR, logger="rebrew.ops"):
+        status4, _ = dispatch(cfg, "rebrew.nope", b"{}")
+    assert status4 == 404
+    assert caplog.records == []

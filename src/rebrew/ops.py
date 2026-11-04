@@ -47,6 +47,7 @@ lazy import binascii
 lazy import dataclasses
 lazy import hashlib
 lazy import hmac
+lazy import itertools
 lazy import json
 lazy import os
 lazy import re
@@ -56,6 +57,7 @@ lazy import subprocess
 lazy import sys
 lazy import tempfile
 lazy import threading
+lazy import time
 lazy import typing
 lazy import unicodedata
 lazy from collections.abc import Callable, Iterable, Iterator, Mapping
@@ -69,6 +71,42 @@ from rebrew.errors import RebrewError
 lazy from rebrew.cli import EXIT_ERROR, console, error_exit
 
 logger = logging.getLogger(__name__)
+
+#: Correlation id per ops request, mirroring the dashboard's ``r<N>``: the
+#: ``X-Request-Id`` header, the access line, and every error line of one
+#: request carry it, so an operator holding a refusal can pivot to the log
+#: lines that explain it.
+_REQUEST_IDS = itertools.count(1)
+#: The request in flight on this thread, for the logger records a library
+#: warning raises inside the request path (see ``dashboard._stamp_request``).
+_REQUEST_LOCAL = threading.local()
+
+#: Control characters escaped in request-derived log text, plus backslash.
+_LOG_CONTROL_CHARS = {code: f"\\x{code:02x}" for code in (*range(0x20), *range(0x7F, 0xA0))}
+_LOG_CONTROL_CHARS[ord("\\")] = "\\\\"
+
+
+def _escape_log_text(text: str) -> str:
+    """One-line, terminal-safe form of request-derived text for the log stream.
+
+    Strips bidi-format characters and escapes control characters, exactly as
+    the dashboard's access log does: a path or Host carrying a newline or
+    bidi override must not forge a second log line or reorder the first.
+    """
+    from rebrew.utils import strip_bidi_format
+
+    return strip_bidi_format(text).translate(_LOG_CONTROL_CHARS)
+
+
+def _stamp_request(request_id: str) -> None:
+    """Record the correlation id of the request in flight on this thread."""
+    _REQUEST_LOCAL.request_id = request_id
+
+
+def _request_id() -> str:
+    """The stamped correlation id, or ``"-"`` off the HTTP transport."""
+    return getattr(_REQUEST_LOCAL, "request_id", "-")
+
 
 # ---------------------------------------------------------------------------
 # Limits and wire constants
@@ -1968,7 +2006,7 @@ def _answer(config: WorkerConfig, name: str, body: bytes) -> Mapping[str, Any]:
     except typer.Exit as exc:
         raise _refused(f"rebrew refused {name} (exit {exc.exit_code})") from None
     except Exception:  # the engine is a trust boundary: log the cause, answer a fixed detail
-        logger.exception("%s failed", name)
+        logger.exception("%s %s failed", _request_id(), name)
         raise _refused(f"{name} failed; the worker log has the cause") from None
 
 
@@ -1977,11 +2015,18 @@ def dispatch(config: WorkerConfig, name: str, body: bytes) -> tuple[int, bytes]:
     try:
         reply = json.dumps(_answer(config, name, body), allow_nan=False).encode()
     except OpsError as exc:
+        # A 5xx refusal is a server failure with no exception attached (a
+        # download timing out, a child command dying): without one line the
+        # operator holding the refusal has only the fixed detail to go on.
+        # 4xx refusals are the caller's diagnosis, already in the wire body.
+        if exc.status >= 500:
+            logger.exception("%s %s refused (%d)", _request_id(), name, exc.status)
         return exc.status, error_body(exc.code, str(exc), exc.status)
     except TypeError, ValueError:
-        logger.exception("%s produced a reply that is not JSON", name)
+        logger.exception("%s %s produced a reply that is not JSON", _request_id(), name)
         return 500, error_body(ENGINE_ERROR, f"{name} produced a reply that is not JSON", 500)
     if len(reply) > MAX_REPLY_BYTES:
+        logger.error("%s %s produced a reply over %d bytes", _request_id(), name, MAX_REPLY_BYTES)
         return 500, error_body(ENGINE_ERROR, f"reply exceeds {MAX_REPLY_BYTES} bytes", 500)
     return 200, reply
 
@@ -2049,18 +2094,66 @@ class OpsServer(ThreadingHTTPServer):
 
 class _OpsHandler(BaseHTTPRequestHandler):
     timeout: typing.ClassVar[float | None] = SOCKET_TIMEOUT_SECONDS
+    #: Correlation id of the request in flight; stamped per request in
+    #: ``handle_one_request`` so a keep-alive connection never reuses one.
+    _request_id: str = "-"
+    #: Wall-clock start of the request in flight, for the access line.
+    _request_started: float = 0.0
+
+    @override
+    def handle_one_request(self) -> None:  # (http.server API)
+        self._request_started = time.perf_counter()
+        self._request_id = f"r{next(_REQUEST_IDS)}"
+        _stamp_request(self._request_id)
+        super().handle_one_request()
+
+    @override
+    def log_request(
+        self, code: int | str = "-", size: int | str = "-"
+    ) -> None:  # (http.server API)
+        """One INFO access line per answered request: id, op, status, and time.
+
+        ``send_response`` calls this, so every refusal and reply logs exactly
+        once.  The op comes from the request path (remote text, escaped);
+        the elapsed time is the one number that says the engine, not the
+        network, is what a slow call spent its time on.
+        """
+        elapsed_ms = (time.perf_counter() - self._request_started) * 1000.0
+        op = (
+            _escape_log_text(urlsplit(getattr(self, "path", "") or "").path.removeprefix("/"))
+            or "-"
+        )
+        logger.info("%s %s %s %s %.1fms", self._request_id, op, code, size, elapsed_ms)
+
+    @override
+    def log_message(self, fmt: str, *args: Any) -> None:  # (http.server API)
+        """Drop the stdlib's default access line: ``log_request`` already logs it.
+
+        ``BaseHTTPRequestHandler.log_request`` delegates here, so without
+        this the request would appear twice — once on the console in the
+        stdlib format, once as the correlated ``logger`` record above.
+        """
 
     @override
     def send_response(self, code: int, message: str | None = None) -> None:
         # No Server banner: BaseHTTPRequestHandler would emit the Python
         # patch level to any caller that can reach the worker.
+        self.log_request(code, getattr(self, "_response_size", "-"))
         self.send_response_only(code, message)
         self.send_header("Date", self.date_time_string())
+        self.send_header("X-Request-Id", self._request_id)
 
     @override
     def send_error(self, code: int, message: str | None = None, explain: str | None = None) -> None:
         # http.server's own errors (400/414/431/505/501) must not leak the
         # stdlib HTML page or the request line; answer with the JSON envelope.
+        logger.log(
+            logging.ERROR if code >= 500 else logging.WARNING,
+            "%s rejected %s: code %d",
+            self._request_id,
+            _escape_log_text(getattr(self, "requestline", "") or "-"),
+            code,
+        )
         status = int(code)
         body = error_body(INVALID_REQUEST, "invalid request", status)
         self._response_size = len(body)
@@ -2097,15 +2190,24 @@ class _OpsHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # (http.server API)
         server = typing.cast("OpsServer", self.server)
         if self.headers.get("Host", "").strip().lower() not in server.allowed_hosts:
+            peer = getattr(self, "client_address", None)
+            logger.warning(
+                "%s rejected request with Host %r from %s",
+                self._request_id,
+                _escape_log_text(self.headers.get("Host", "")) or "-",
+                _escape_log_text(str(peer[0]) if peer else "-"),
+            )
             self._refuse(
                 "host-not-allowed", "request Host not allowed (wrong or missing Host header)", 403
             )
             return
         given = self.headers.get("Authorization", "").encode()
         if not hmac.compare_digest(given, f"Bearer {server.token}".encode()):
+            logger.warning("%s rejected unauthenticated request", self._request_id)
             self._refuse("unauthorized", "a valid bearer token is required", 401)
             return
         if not server.slots.acquire(blocking=False):
+            logger.warning("%s worker busy; returning 503", self._request_id)
             body = error_body(WORKER_BUSY, "every worker slot is busy; retry later", 503)
             self._send(503, body, {"Retry-After": str(BUSY_RETRY_AFTER_SECONDS)})
             return
@@ -2133,6 +2235,13 @@ class _OpsHandler(BaseHTTPRequestHandler):
     def _not_post(self) -> None:
         server = typing.cast("OpsServer", self.server)
         if self.headers.get("Host", "").strip().lower() not in server.allowed_hosts:
+            peer = getattr(self, "client_address", None)
+            logger.warning(
+                "%s rejected request with Host %r from %s",
+                self._request_id,
+                _escape_log_text(self.headers.get("Host", "")) or "-",
+                _escape_log_text(str(peer[0]) if peer else "-"),
+            )
             self._refuse(
                 "host-not-allowed", "request Host not allowed (wrong or missing Host header)", 403
             )
