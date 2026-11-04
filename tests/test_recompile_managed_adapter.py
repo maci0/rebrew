@@ -12,7 +12,7 @@ from rebrew.compiler.recompile_client import RecompileError, compile_source
 
 
 def test_authenticated_retry_replays_exact_original_and_fetches_same_origin(monkeypatch):
-    monkeypatch.setenv("RECOMPILE_API_KEY", "rck_synthetic")
+    monkeypatch.setenv("REBREW_RECOMPILE_API_KEY", "rck_synthetic")
     monkeypatch.delenv("REBREW_JOB_COMPILE_SOCKET", raising=False)
     seen = []
 
@@ -39,14 +39,14 @@ def test_authenticated_retry_replays_exact_original_and_fetches_same_origin(monk
         )
     assert result.obj_bytes == b"OBJ"
     assert len(seen) == 3 and seen[0].content == seen[1].content
-    assert re.fullmatch("[0-9a-f]{12}", seen[0].headers["idempotency-key"])
+    assert re.fullmatch("[0-9a-f]{64}", seen[0].headers["idempotency-key"])
     assert seen[0].headers["idempotency-key"] == seen[1].headers["idempotency-key"]
     assert json.loads(seen[0].content)["source"] == "int f(void){return 1;}"
     assert seen[2].url.host == "compiler.test" and "idempotency-key" not in seen[2].headers
 
 
 def test_foreign_redirect_is_not_followed_with_credential(monkeypatch):
-    monkeypatch.setenv("RECOMPILE_API_KEY", "rck_synthetic")
+    monkeypatch.setenv("REBREW_RECOMPILE_API_KEY", "rck_synthetic")
     monkeypatch.delenv("REBREW_JOB_COMPILE_SOCKET", raising=False)
     seen = []
 
@@ -67,7 +67,7 @@ def test_foreign_redirect_is_not_followed_with_credential(monkeypatch):
 
 
 def test_job_socket_never_receives_ambient_managed_key(monkeypatch):
-    monkeypatch.setenv("RECOMPILE_API_KEY", "rck_synthetic")
+    monkeypatch.setenv("REBREW_RECOMPILE_API_KEY", "rck_synthetic")
     monkeypatch.setenv("REBREW_JOB_COMPILE_SOCKET", "/run/rebrew-job/owner.sock")
 
     def handler(req):
@@ -79,7 +79,7 @@ def test_job_socket_never_receives_ambient_managed_key(monkeypatch):
 
 
 def test_foreign_artifact_url_refuses_before_download(monkeypatch):
-    monkeypatch.setenv("RECOMPILE_API_KEY", "rck_synthetic")
+    monkeypatch.setenv("REBREW_RECOMPILE_API_KEY", "rck_synthetic")
     monkeypatch.delenv("REBREW_JOB_COMPILE_SOCKET", raising=False)
     seen = []
 
@@ -96,7 +96,7 @@ def test_foreign_artifact_url_refuses_before_download(monkeypatch):
 
 
 def test_token_is_not_exposed_in_terminal_http_error(monkeypatch):
-    monkeypatch.setenv("RECOMPILE_API_KEY", "rck_synthetic")
+    monkeypatch.setenv("REBREW_RECOMPILE_API_KEY", "rck_synthetic")
     monkeypatch.delenv("REBREW_JOB_COMPILE_SOCKET", raising=False)
 
     def handler(req):
@@ -111,7 +111,7 @@ def test_token_is_not_exposed_in_terminal_http_error(monkeypatch):
 
 
 def test_managed_key_refuses_cleartext_before_network(monkeypatch):
-    monkeypatch.setenv("RECOMPILE_API_KEY", "rck_synthetic")
+    monkeypatch.setenv("REBREW_RECOMPILE_API_KEY", "rck_synthetic")
     monkeypatch.delenv("REBREW_JOB_COMPILE_SOCKET", raising=False)
     seen = []
 
@@ -130,7 +130,7 @@ def test_managed_key_refuses_cleartext_before_network(monkeypatch):
 def test_transport_exception_traceback_does_not_expose_key(monkeypatch):
     import traceback
 
-    monkeypatch.setenv("RECOMPILE_API_KEY", "rck_synthetic")
+    monkeypatch.setenv("REBREW_RECOMPILE_API_KEY", "rck_synthetic")
     monkeypatch.delenv("REBREW_JOB_COMPILE_SOCKET", raising=False)
 
     def handler(req):
@@ -146,7 +146,7 @@ def test_transport_exception_traceback_does_not_expose_key(monkeypatch):
 
 
 def test_compile_failure_log_does_not_expose_key(monkeypatch):
-    monkeypatch.setenv("RECOMPILE_API_KEY", "rck_synthetic")
+    monkeypatch.setenv("REBREW_RECOMPILE_API_KEY", "rck_synthetic")
     monkeypatch.delenv("REBREW_JOB_COMPILE_SOCKET", raising=False)
 
     def handler(req):
@@ -166,7 +166,7 @@ def test_compile_failure_log_does_not_expose_key(monkeypatch):
     ],
 )
 def test_authenticated_base_url_rejects_credentials_query_and_fragment(monkeypatch, url):
-    monkeypatch.setenv("RECOMPILE_API_KEY", "rck_synthetic")
+    monkeypatch.setenv("REBREW_RECOMPILE_API_KEY", "rck_synthetic")
     monkeypatch.delenv("REBREW_JOB_COMPILE_SOCKET", raising=False)
     seen = []
 
@@ -183,7 +183,7 @@ def test_authenticated_base_url_rejects_credentials_query_and_fragment(monkeypat
 
 
 def test_token_in_service_path_is_redacted_from_warning(monkeypatch, caplog):
-    monkeypatch.setenv("RECOMPILE_API_KEY", "rck_synthetic")
+    monkeypatch.setenv("REBREW_RECOMPILE_API_KEY", "rck_synthetic")
     monkeypatch.delenv("REBREW_JOB_COMPILE_SOCKET", raising=False)
 
     def handler(req):
@@ -199,7 +199,7 @@ def test_token_in_service_path_is_redacted_from_warning(monkeypatch, caplog):
 
 def test_key_is_redacted_before_error_detail_is_truncated(monkeypatch):
     key = "rck_" + "x" * 64
-    monkeypatch.setenv("RECOMPILE_API_KEY", key)
+    monkeypatch.setenv("REBREW_RECOMPILE_API_KEY", key)
     monkeypatch.delenv("REBREW_JOB_COMPILE_SOCKET", raising=False)
 
     def handler(req):

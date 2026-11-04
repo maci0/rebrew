@@ -12,7 +12,7 @@ routes every compile through the sibling [recompile](https://github.com/relumea/
 service instead: the same pinned images over `POST /api/v1/compile` plus an
 artifact download, with optional assembly output via `recompile_emit_assembly`.
 The client does not grant training consent.
-For an authenticated HTTPS service, set `RECOMPILE_API_KEY` in the environment. The
+For an authenticated HTTPS service, set `REBREW_RECOMPILE_API_KEY` in the environment. The
 key is sent as a bearer credential to the configured service and its
 same-origin artifact endpoint. Each authenticated compile uses one idempotency
 key for retries within that invocation. The request and key are not saved for

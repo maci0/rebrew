@@ -302,7 +302,7 @@ def compile_source(
     itself and is ignored for an injected *client*.  When omitted, one
     short-lived client covers both the compile POST and the artifact GET.
 
-    ``RECOMPILE_API_KEY`` supplies a bearer credential to this service and its
+    ``REBREW_RECOMPILE_API_KEY`` supplies a bearer credential to this service and its
     same-origin artifact endpoint. Authenticated POST retries share one key for
     this invocation; neither key nor request is persisted across process restarts.
     Job-socket compiles use their own capability and never forward this credential.
@@ -329,7 +329,7 @@ def compile_source(
     """
     import httpx
 
-    configured_key = os.environ.get("RECOMPILE_API_KEY", "")
+    configured_key = os.environ.get("REBREW_RECOMPILE_API_KEY", "")
     if retries < 0:
         raise RecompileError(
             f"retries must be >= 0, got {retries}",
@@ -377,7 +377,7 @@ def compile_source(
     ):
         api_key = ""
     if api_key and (not api_key.isascii() or any(not 33 <= ord(c) <= 126 for c in api_key)):
-        raise RecompileError("invalid RECOMPILE_API_KEY", kind="validation")
+        raise RecompileError("invalid REBREW_RECOMPILE_API_KEY", kind="validation")
     if api_key and parsed.scheme != "https":
         raise RecompileError("authenticated recompile service requires HTTPS", kind="validation")
     if api_key and (
