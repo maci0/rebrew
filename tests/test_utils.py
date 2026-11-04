@@ -1591,6 +1591,12 @@ class TestFloorPct:
     def test_zero_whole(self) -> None:
         assert floor_pct(5, 0) == 0.0
 
+    def test_non_finite_and_negative_inputs(self) -> None:
+        nan = float("nan")
+        inf = float("inf")
+        for args in [(nan, 100), (inf, 100), (100, nan), (inf, inf), (-5, 100), (5, -100)]:
+            assert floor_pct(*args) == 0.0
+
 
 class TestClipSpan:
     def test_last_start_is_never_clipped(self) -> None:

@@ -34,6 +34,7 @@ from functools import lru_cache
 from types import MappingProxyType
 from typing import Any
 lazy import json
+lazy import math
 lazy import tomllib
 lazy import unicodedata
 lazy from datetime import UTC, datetime
@@ -1145,7 +1146,8 @@ def _opt_int(value: Any) -> int | None:
 def _opt_float(value: Any) -> float | None:
     if isinstance(value, bool) or not isinstance(value, int | float):
         return None
-    return float(value)
+    out = float(value)
+    return out if math.isfinite(out) else None
 
 
 def _str_tuple(value: Any) -> tuple[str, ...]:

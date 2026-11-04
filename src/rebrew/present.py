@@ -9,6 +9,8 @@ are the ones that may grow.
 
 from __future__ import annotations
 
+lazy import math
+
 lazy from rich.table import Table
 lazy from rich.text import Text
 
@@ -18,9 +20,12 @@ BAR_WIDTH = 40
 
 def filled_cells(part: float, whole: float, width: int = BAR_WIDTH) -> int:
     """Cells of *width* that *part* / *whole* fills, clamped to *width*."""
-    if whole <= 0 or part <= 0:
+    if whole <= 0 or part <= 0 or not math.isfinite(part) or not math.isfinite(whole):
         return 0
-    cells = int(width * part / whole)
+    ratio = width * part / whole
+    if not math.isfinite(ratio):
+        return width if part >= whole else 0
+    cells = int(ratio)
     if cells <= 0:
         return 1
     return min(width, cells)

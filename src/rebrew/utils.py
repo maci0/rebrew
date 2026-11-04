@@ -390,7 +390,7 @@ def floor_pct(part: float, whole: float, decimals: int = 1) -> float:
     Progress and match figures must not round up: to nearest, 2809 of 2810
     matched reads "100.0%" with one function still unmatched.
     """
-    if not whole:
+    if not whole or not math.isfinite(part) or not math.isfinite(whole) or part <= 0 or whole < 0:
         return 0.0
     scale = float(10**decimals)
     # The inner round absorbs float error (57.3 * 10 = 572.99...).
