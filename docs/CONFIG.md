@@ -565,8 +565,8 @@ rebrew receives.
   match is reported by `rebrew cfg effective`.
   The Xvfb rebrew starts is handed an `-auth` file exported as
   `XAUTHORITY`, which travels to the wine children with the display.  That
-  file holds a bare hex token rather than an xauth record, so it does not
-  enforce client authentication; see `docs/THREAT_MODEL.md`.
+  file holds a real MIT-MAGIC-COOKIE-1 xauth record, so the started
+  display refuses clients without the cookie; see `docs/THREAT_MODEL.md`.
 - `REBREW_XVFB_AUTH`: path of the `-auth` file the Xvfb started by rebrew
   was launched with.  rebrew writes it into the spawned server's own
   environment, not its own; a later process reads it from the server's

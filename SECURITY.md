@@ -55,15 +55,15 @@ those two rebrew-owned scratch directories, and nothing else. And
 `XAUTHORITY` names the X cookie file rebrew
 adopts for host-wine helpers and re-exports to wine children, accepted as any
 file the analyst can read (`_local_cookie` in `src/rebrew/compiler/headless.py`), so the
-headless-display access decision is taken from the process environment. On a multi-user host the headless X display is a boundary, and on **both**
-of its paths the access control is not in force. The `Xvfb` rebrew starts is
-handed an `-auth` file whose contents are a bare hex token, not an xauth
-record (`address display protocol name data`), so no cookie can be read out
-of it (`_new_cookie` in `src/rebrew/compiler/headless.py`); the same applies to
-adopting an Xvfb already on the box, where `_adopt` falls back to the
-operator's `XAUTHORITY` when the candidate server advertises no `-auth`
+headless-display access decision for adopted servers is taken from the process environment. On a multi-user host the headless X display is a boundary, and on **both**
+of its paths the access control holds only for a server rebrew starts. The `Xvfb` rebrew starts is
+handed an `-auth` file holding a real MIT-MAGIC-COOKIE-1 xauth record
+(`_xauth_record` via `_new_cookie` in `src/rebrew/compiler/headless.py`), so the started
+display refuses clients without the cookie; adopting an Xvfb already on the box is
+still unauthenticated, because `_adopt` falls back to the operator's
+`XAUTHORITY` when the candidate server advertises no `-auth`
 cookie of its own. Nothing in the module opens an X connection to verify.
-Treat the display wine draws on as unauthenticated, and note that
+Treat an adopted display as unauthenticated, and note that
 `XAUTHORITY` is written into `os.environ`, so every later child process
 inherits it. The display's pid is resolved through `/proc/*/cmdline` on
 the process name `Xvfb`, which is world-readable.
@@ -225,12 +225,11 @@ plugin cache backends or remove the open upstream diskcache advisory.
   non-TLS `--api` sends the function source, its object, and the returned
   `claim_token` in cleartext.
 - No claim that a decomp.me or other outbound URL is pinned in transport.
-  No HTTP/TCP call in the package passes `trust_env=False` (the one
-  `trust_env=False` in the tree is the managed-compile Unix-socket client in
-  `src/rebrew/compiler/compile.py`, which cannot use a proxy), so
-  `HTTPS_PROXY`, `SSL_CERT_FILE`, and `REQUESTS_CA_BUNDLE` apply to the wibo
-  asset and metadata fetches, the toolchain media download, and the
-  `GH_TOKEN`-bearing GitHub commit lookup. The wibo asset is capped at
+  The wibo asset and metadata fetches, the toolchain media download, and the
+  `GH_TOKEN`-bearing GitHub commit lookup pass `trust_env=False`, so their
+  httpx calls ignore `HTTPS_PROXY`, `SSL_CERT_FILE`, and
+  `REQUESTS_CA_BUNDLE`. The other httpx clients (recompile, decomp.me, LLM,
+  MCP, ops `_download`) still honour them. The wibo asset is capped at
   64 MiB (`_MAX_WIBO_DOWNLOAD_BYTES` in `src/rebrew/wibo.py`) and the
   toolchain media at 2 GiB (`_MAX_PINNED_DOWNLOAD_BYTES` in
   `src/rebrew/toolchain_cli.py`); the release-metadata JSON and the commit
