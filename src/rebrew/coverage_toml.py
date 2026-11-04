@@ -560,11 +560,11 @@ def _merge_history(
     # the same transition again, duplicating it on every replay.
     seen: set[tuple[tuple[str, Any], ...]] = set()
     unique: list[dict[str, Any]] = []
-    for row in carried:
-        key = tuple(sorted(row.items()))
+    for history_row in carried:
+        key = tuple(sorted(history_row.items()))
         if key not in seen:
             seen.add(key)
-            unique.append(row)
+            unique.append(history_row)
     unique.sort(key=lambda r: str(r.get("changed_at", "")))
     return unique[-HISTORY_RETENTION:]
 
