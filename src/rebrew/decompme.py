@@ -681,10 +681,24 @@ def verify_compiler(
             return
         try:
             data = resp.json()
-            compilers = data.get("compilers") or {}
         except ValueError:
+            console.print(
+                "[yellow]warning:[/yellow] decomp.me registry response is not valid JSON "
+                "— skipping compiler check"
+            )
             return
+        if not isinstance(data, dict) or not isinstance(data.get("compilers"), dict):
+            console.print(
+                "[yellow]warning:[/yellow] decomp.me registry response has no compiler "
+                "list — skipping compiler check"
+            )
+            return
+        compilers = data["compilers"]
         if not isinstance(compilers, dict):
+            console.print(
+                "[yellow]warning:[/yellow] decomp.me registry response has no compiler "
+                "list — skipping compiler check"
+            )
             return
         if compiler in compilers:
             return

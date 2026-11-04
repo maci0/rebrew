@@ -3938,8 +3938,10 @@ def update_cmd(
             # 3. rebuild the docker image.
             build_cmd(name, json_output=False)
         except Exception:
-            # Rollback the pin (file + Dockerfile) to the pre-update values.
-            # A rollback failure must not mask the original error.
+            # Rollback the pin (file + Dockerfile + in-memory SOURCES) to the
+            # pre-update values.  A rollback failure must not mask the
+            # original error.
+            SOURCES[name] = src
             try:
                 _rewrite_source_pin(name, src.sha256, src.commit)
                 _rewrite_dockerfile_sha(name, src.sha256)

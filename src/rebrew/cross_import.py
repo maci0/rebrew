@@ -61,6 +61,10 @@ if TYPE_CHECKING:
 
 lazy from rebrew.cli import console
 
+lazy import logging
+
+_log = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
 # Pure matching core (testable with hand-crafted signatures)
 # ---------------------------------------------------------------------------
@@ -125,8 +129,14 @@ def signature_for(cfg: ProjectConfig, code: bytes, va: int) -> dict[str, Any] | 
                         and all(b in PADDING_BYTES for b in code[extent:])
                     ):
                         code = code[:extent]
-        except OSError, ValueError:
-            pass
+        except (OSError, ValueError) as exc:
+            _log.warning(
+                "signature_for: cannot load %s to strip padding at 0x%x (%s); "
+                "signature includes the padding bytes",
+                cfg.target_binary,
+                va,
+                exc,
+            )
     return disasm_signature(
         code,
         va,
