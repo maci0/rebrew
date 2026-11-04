@@ -1343,7 +1343,8 @@ def _detect_toolchain_core(
     # large binary twice.
     try:
         raw = path.read_bytes()
-    except OSError:
+    except OSError as exc:
+        logger.warning("cannot read %s for string evidence: %s", path, exc)
         raw = b""
     # String signals run FIRST — they decide the family for formats
     # load_binary cannot parse (e.g. 16-bit NE Delphi), where the

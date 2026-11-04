@@ -253,7 +253,8 @@ def _discover_eh_frame(binary: Path) -> list[tuple[int, int, str]]:
     """
     try:
         info = load_binary(binary)
-    except OSError, ValueError:
+    except (OSError, ValueError) as exc:
+        logger.warning("eh_frame discoverer: cannot load %s: %s", binary, exc)
         return []
     if info.format != "elf":
         return []
@@ -288,7 +289,8 @@ def _discover_pdata(binary: Path) -> list[tuple[int, int, str]]:
     config.parse_exceptions = True
     try:
         pe = lief.PE.parse(str(binary), config) if lief.is_pe(str(binary)) else None
-    except OSError, ValueError:
+    except (OSError, ValueError) as exc:
+        logger.warning("pdata discoverer: cannot parse %s: %s", binary, exc)
         return []
     if pe is None:
         return []
@@ -419,7 +421,8 @@ def _capstone_sweep(binary: Path) -> list[tuple[int, int, str]]:
     """
     try:
         info = load_binary(binary)
-    except OSError, ValueError:
+    except (OSError, ValueError) as exc:
+        logger.warning("capstone sweep: cannot load %s: %s", binary, exc)
         return []
     text = next((s for s in info.sections.values() if s.name.lower() == ".text"), None)
     if text is None:

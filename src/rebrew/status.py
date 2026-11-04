@@ -768,7 +768,8 @@ def _text_gap_ranges(
 
         info = load_binary(cfg.target_binary)
         sec = info.sections[".text"]
-    except OSError, KeyError, ValueError:
+    except (OSError, KeyError, ValueError) as exc:
+        log.warning("cannot load %s for .text gap ranges: %s", cfg.target_binary, exc)
         return None
     text_bytes = info.data[sec.file_offset : sec.file_offset + min(sec.size, sec.raw_size)]
     return classify_unattributed_ranges(text_bytes, sec.va, spans)
@@ -790,7 +791,8 @@ def _split_tail_fill(
 
         info = load_binary(cfg.target_binary)
         sec = info.sections[".text"]
-    except OSError, KeyError, ValueError:
+    except (OSError, KeyError, ValueError) as exc:
+        log.warning("cannot load %s for tail fill split: %s", cfg.target_binary, exc)
         return 0, list(ranges)
     text_bytes = info.data[sec.file_offset : sec.file_offset + min(sec.size, sec.raw_size)]
     fill = 0
@@ -1328,7 +1330,8 @@ def _target_binary(cfg: ProjectConfig) -> tuple[Path, BinaryInfo] | None:
         from rebrew.formats.binary_loader import load_binary
 
         return Path(path), load_binary(Path(path))
-    except OSError, KeyError, ValueError:
+    except (OSError, KeyError, ValueError) as exc:
+        log.warning("cannot load %s for target binary: %s", path, exc)
         return None
 
 
