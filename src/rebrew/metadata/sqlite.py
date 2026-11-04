@@ -377,6 +377,13 @@ def backup_metadata_database(root: Path, backup_dir: Path) -> Path:
         raise FileNotFoundError(f"no metadata database at {location}")
     dest = backup_dir / METADATA_BACKUP_FILENAME
     dest.parent.mkdir(parents=True, exist_ok=True)
+    # A previous backup left this destination read-only (0444, below); the
+    # backup API opens its target for writing, so a re-run would fail with
+    # "attempt to write a readonly database" unless the mode is relaxed
+    # first (the copy is re-sealed 0444 after verification).
+    with contextlib.suppress(OSError):
+        if dest.exists():
+            dest.chmod(0o644)
     with file_transaction(location.parent, location.name):
         source = sqlite3.connect(location.as_uri() + "?mode=ro", uri=True, timeout=30)
         try:
@@ -444,6 +451,12 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
     with file_transaction(location.parent, location.name):
         if location.is_file():
             preserved = location.with_name(location.name + ".before-restore")
+            # As in backup_metadata_database: a previous restore left the
+            # preserved copy read-only (0444), and the backup API would
+            # refuse to write it on a second restore.
+            with contextlib.suppress(OSError):
+                if preserved.exists():
+                    preserved.chmod(0o644)
             source = sqlite3.connect(location.as_uri() + "?mode=ro", uri=True, timeout=30)
             try:
                 with contextlib.closing(sqlite3.connect(preserved, timeout=30)) as target:
