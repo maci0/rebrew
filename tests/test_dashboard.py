@@ -738,6 +738,9 @@ class TestReload:
     def test_reload_rereads_the_coverage_documents(self) -> None:
         _run_script("dashboard_reload.mjs")
 
+    def test_empty_state_reload_is_reachable(self) -> None:
+        _run_script("dashboard_no_targets.mjs")
+
 
 class TestHandle:
     def test_index_html(self, dashboard: Dashboard) -> None:
