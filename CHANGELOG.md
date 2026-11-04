@@ -8,6 +8,13 @@
 
 - **Breaking:** `rebrew.compiler.toolchain_spec.flags_style_from_str` now raises `ValueError` on an explicit empty `flags_style` declaration instead of silently defaulting it to `"msvc"`. A `None` (absent) value still defaults to `"msvc"`; callers must pass `"msvc"`, `"posix"`, or omit the field.
 - **Breaking:** `rebrew.intake` provisional profile for an unidentified ELF x86-64 binary is now `gcc-14.2.0` instead of `msvc-6.0`. Other unidentified binaries still default to `msvc-6.0`.
+- **Breaking:** `rebrew.compiler.msvc16` and `rebrew.compiler.tc16` no longer re-export `DosboxError`, `find_staged_object`, `make_sandbox_dir`, `read_uppercase`, `run_dosbox`, or `stage_tree_source`; import them from `rebrew.compiler.dosbox`. The shared `rebrew.compiler.dosbox.compile_staged_source` now owns the stage/run/read/find sequence both compilers call.
+- **Breaking:** `rebrew.catalog.inventory` no longer re-exports `FunctionEntry`; import it from `rebrew.catalog.models`. `repair_inventory_extents` no longer constructs it.
+- **Breaking:** The authenticated recompile bearer key env var was renamed from `RECOMPILE_API_KEY` to `REBREW_RECOMPILE_API_KEY`; the old name is no longer read. Set `REBREW_RECOMPILE_API_KEY` in the environment.
+- **Breaking:** `rebrew.init_profiles.COMPILER_DEFAULTS` is now built through `rebrew.init_profiles._docker_profile` for the Docker-only `clang-*`/`gcc-*`/`mingw-*`/`watcom-*` entries; the resolved dict values are unchanged, so only code that compared the literal source text of the table sees a difference.
+- **Breaking:** `rebrew.match.run` and the `flags`/`toolchains` commands in `rebrew.match` now spell their shared Typer options through the module-level `ClOption`/`IncOption`/`CflagsOption`/`SymbolOption`/`VaOption`/`SizeOption`/`JobsOption` aliases instead of inline `typer.Option(...)` calls; the CLI flags, defaults, help, and panels are unchanged, so only code that introspects the function default objects sees a difference.
+- **Breaking:** `rebrew.theme.TOKENS` (re-exported through `rebrew.depgraph.TOKENS` and `rebrew.status_style.TOKENS`) now spells `sans` as the mono stack instead of the system sans stack. Consumers that read `TOKENS["sans"]` for body text get the mono stack.
+- **Breaking:** `rebrew.workspace.va.parse_va_candidates` rejects spellings containing `_` and `rebrew.disassemble_bytes` raises `ValueError` on an unsupported `arch` instead of returning empty results; both previously silently accepted or dropped the input.
 
 ### Fixed
 
