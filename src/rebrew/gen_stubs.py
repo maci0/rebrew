@@ -289,6 +289,17 @@ def _array_size_text(brackets: str) -> str:
 #: varargs ellipsis, which cannot stand on its own.
 _SAFE_TYPE_RE = re.compile(r"\A[A-Za-z0-9_ \t*(),\[\].]*\Z")
 _SAFE_PARAMS_RE = re.compile(r"\A[A-Za-z0-9_ \t*(),\[\].]*\Z")
+_EXTERN_PREFIX_RE = re.compile(r"^extern\b")
+_DECL_CC_RE = re.compile(
+    r"(.*?)\b(__vectorcall|__thiscall|__fastcall|__clrcall|__stdcall|__cdecl"
+    r"|REBREW_NAKED|APIENTRY|CALLBACK|_CRTIMP|WINAPI)\s+(\w+)\s*(\(.*)",
+    re.DOTALL,
+)
+_DECL_GENERIC_RE = re.compile(r"(.*?)\b(\w+)\s*(\(.*)", re.DOTALL)
+_DECL_ARRAY_RE = re.compile(
+    r"(.*?)\b(\w+)\s*((?:\[(?:[^\[\]]|\[[^\]]*\])*\])+)", re.DOTALL
+)
+_DECL_SCALAR_RE = re.compile(r"(.*?)\b(\w+)\s*$", re.DOTALL)
 
 
 def _is_pasteable_declaration(type_text: str, params: str | None) -> bool:
@@ -306,18 +317,12 @@ def parse_extern_decl(decl: str) -> dict[str, typing.Any] | None:
     from a ``.c`` in the reviewed tree, and ``generate_stubs`` pastes it into
     a file the build compiles.
     """
-    rest = re.sub(r"^extern\b", "", decl, count=1).strip().rstrip(";").strip()
+    rest = _EXTERN_PREFIX_RE.sub("", decl, count=1).strip().rstrip(";").strip()
 
     # Function with calling convention: TYPE __cdecl NAME(PARAMS).
     # ``WINAPI`` and ``__vectorcall`` are conventions too. Leaving them
     # in the type made the stub ``int __cdecl``.
-    m = re.match(
-        r"(.*?)\b("
-        r"__vectorcall|__thiscall|__fastcall|__clrcall|__stdcall|__cdecl"
-        r"|REBREW_NAKED|APIENTRY|CALLBACK|_CRTIMP|WINAPI"
-        r")\s+(\w+)\s*(\(.*)",
-        rest,
-    )
+    m = _DECL_CC_RE.match(rest)
     if m:
         ret_type = m.group(1).strip()
         cc = m.group(2)
@@ -341,7 +346,7 @@ def parse_extern_decl(decl: str) -> dict[str, typing.Any] | None:
     # Function without calling convention: TYPE NAME(PARAMS).
     # ``g[sizeof(int)]`` puts a parenthesis inside the brackets. That is an
     # array bound, not a function named sizeof.
-    m = re.match(r"(.*?)\b(\w+)\s*(\(.*)", rest)
+    m = _DECL_GENERIC_RE.match(rest)
     if m and "(" in m.group(3) and rest[: m.start(3)].count("[") == rest[: m.start(3)].count("]"):
         ret_type = m.group(1).strip()
         name = m.group(2)
@@ -372,8 +377,6 @@ def parse_extern_decl(decl: str) -> dict[str, typing.Any] | None:
     # ``(* const name[N])`` keeps the qualifier on the pointer type.
     # ``(*name)[N]`` is a pointer to an array and does not match: the
     # brackets sit outside the parentheses, and none sit inside.
-    from rebrew.c_parser import CALLING_CONVENTION
-
     m = re.match(
         r"(.*?)\(\s*" + CALLING_CONVENTION + r"(\**)\s*((?:(?:const|volatile)\b\s*)*)(\w+)\s*"
         r"((?:\[(?:[^\[\]]|\[[^\]]*\])*\])+)\)"
@@ -409,7 +412,7 @@ def parse_extern_decl(decl: str) -> dict[str, typing.Any] | None:
 
     # Variable with array: TYPE NAME[SIZE]. One nested ``[]`` stays in the
     # bound, so ``[sizeof(wchar_t[3])]`` is not cut at the inner bracket.
-    m = re.match(r"(.*?)\b(\w+)\s*((?:\[(?:[^\[\]]|\[[^\]]*\])*\])+)", rest)
+    m = _DECL_ARRAY_RE.match(rest)
     if m:
         var_type = m.group(1).strip()
         name = m.group(2)
@@ -431,7 +434,7 @@ def parse_extern_decl(decl: str) -> dict[str, typing.Any] | None:
             }
 
     # Simple variable: TYPE NAME
-    m = re.match(r"(.*?)\b(\w+)\s*$", rest)
+    m = _DECL_SCALAR_RE.match(rest)
     if m:
         var_type = m.group(1).strip()
         name = m.group(2)

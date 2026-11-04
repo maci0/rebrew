@@ -76,10 +76,32 @@ app = typer.Typer(
 QUALIFIERS: list[tuple[str, str, str]] = [
     ("volatile", r"\A(\s*)(?!(?:.*\bvolatile\b))(?=\S)", r"\1volatile "),
 ]
+_STRING_LITERAL_RE = re.compile(r'"(?:[^"\\]|\\.)*"')
+_IS_DECL_RE = re.compile(
+    r"^(?:volatile\s+|const\s+|static\s+|register\s+)?"
+    r"(?:\w[\w\s\*]*?)"
+    r"(?:\s+\w+"
+    r"|\s*\*+\s*\w+"
+    r"|\(\s*"
+    + CALLING_CONVENTION
+    + r"\*+\s*"
+    + r"(?:(?:const|volatile)\b\s*)*"
+    + r"\w+\s*\)"
+    + r"(?:\((?:[^()]|\([^()]*\))*\))?"
+    + r"|\(\s*"
+    + CALLING_CONVENTION
+    + r"\**\s*"
+    + r"(?:(?:const|volatile)\b\s*)*"
+    + r"\w+\s*(?:\[(?:[^\[\]]|\[[^\]]*\])*\])+\s*\)"
+    + r"(?:\((?:[^()]|\([^()]*\))*\))?"
+    + r")"
+    r"(?:\[(?:[^\[\]]|\[[^\]]*\])*\]\s*)*"
+    r"\s*(?:=[^;]*)?;"
+)
 
 
 def _strip_literals(text: str) -> str:
-    return re.sub(r'"(?:[^"\\]|\\.)*"', '""', text)
+    return _STRING_LITERAL_RE.sub('""', text)
 
 
 def variants(decl: str) -> list[tuple[str, str]]:
@@ -121,30 +143,7 @@ def _is_decl(unit: str) -> bool:
     # (``char (*g)[4]``) is still a declaration; the name is not a bare word.
     # ``*name[N]`` glues the star to the name, and ``(*name[N])`` /
     # ``(name[N])`` put the brackets inside the parentheses.
-    return bool(
-        re.match(
-            r"^(?:volatile\s+|const\s+|static\s+|register\s+)?"
-            r"(?:\w[\w\s\*]*?)"
-            r"(?:\s+\w+"
-            r"|\s*\*+\s*\w+"
-            r"|\(\s*"
-            + CALLING_CONVENTION
-            + r"\*+\s*"
-            + _POINTER_NAME_QUALIFIER
-            + r"\w+\s*\)"
-            + _FN_PARAMS
-            + r"|\(\s*"
-            + CALLING_CONVENTION
-            + r"\**\s*"
-            + _POINTER_NAME_QUALIFIER
-            + r"\w+\s*(?:\[(?:[^\[\]]|\[[^\]]*\])*\])+\s*\)"
-            + _FN_PARAMS
-            + r")"
-            r"(?:\[(?:[^\[\]]|\[[^\]]*\])*\]\s*)*"
-            r"\s*(?:=[^;]*)?;",
-            s,
-        )
-    )
+    return bool(_IS_DECL_RE.match(s))
 
 
 @contextlib.contextmanager
