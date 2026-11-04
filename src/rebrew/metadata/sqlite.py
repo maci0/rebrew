@@ -18,6 +18,14 @@ lazy from rebrew.metadata.locking import file_transaction, project_transaction
 
 DATABASE_FILENAME = "rebrew-metadata.sqlite3"
 _SCHEMA_VERSION = 1
+#: The one DDL this store creates.  ``_check_schema`` compares the stored
+#: ``CREATE TABLE`` against it so a database whose table was hand-altered to
+#: drop the primary key or the revision check is rejected instead of being
+#: trusted — ``user_version`` alone cannot tell those apart.
+_EXPECTED_DDL = (
+    "CREATE TABLE metadata_documents(path TEXT NOT NULL PRIMARY KEY, "
+    "revision INTEGER NOT NULL CHECK (revision > 0), content TEXT NOT NULL)"
+)
 _CONNECTIONS = threading.local()
 
 
@@ -53,6 +61,11 @@ class SqliteStore:
     def _check_schema(self, connection: sqlite3.Connection) -> None:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
         if version != _SCHEMA_VERSION:
+            raise MetadataStorageError(f"{self.location}: unsupported metadata schema {version}")
+        row = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='metadata_documents'"
+        ).fetchone()
+        if row is None or " ".join(str(row[0]).split()) != _EXPECTED_DDL:
             raise MetadataStorageError(f"{self.location}: unsupported metadata schema {version}")
 
     @contextlib.contextmanager
