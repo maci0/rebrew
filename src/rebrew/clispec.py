@@ -158,6 +158,18 @@ def build_schema(root: typer.Typer, *, path: str | None = None) -> dict[str, Any
                 "retryable": False,
                 "description": "A confirmation prompt had no terminal. The hint names the bypass flag.",
             },
+            {
+                "kind": "interrupted",
+                "exit_code": 130,
+                "retryable": False,
+                "description": "The command was interrupted (Ctrl+C).",
+            },
+            {
+                "kind": "sigpipe",
+                "exit_code": 141,
+                "retryable": False,
+                "description": "The output pipe closed before the command finished writing.",
+            },
         ],
         "outcomes": [
             {
@@ -165,7 +177,7 @@ def build_schema(root: typer.Typer, *, path: str | None = None) -> dict[str, Any
                 "name": "mismatch",
                 "description": (
                     "A check found a difference or a failed match."
-                    " The report is on stdout. Not an error."
+                    " Not an error."
                 ),
             }
         ],
