@@ -1137,10 +1137,11 @@ class TestMemo:
         """A cold burst parses the directory once and every caller gets that
         scan's objects, so no request can key a cache on an equal-valued copy."""
         import threading
-        import time
         from concurrent.futures import ThreadPoolExecutor
 
         write(data)
+        saved_cache = coverage_toml._ALL_CACHE
+        saved_inflight = dict(coverage_toml._ALL_INFLIGHT)
         coverage_toml._ALL_CACHE = None
         coverage_toml._ALL_INFLIGHT.clear()
         real = coverage_toml._read_document
@@ -1162,20 +1163,28 @@ class TestMemo:
             start.wait()
             return load_all_coverage_from(tmp_path / "db")
 
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            futures = [executor.submit(load) for _ in range(4)]
-            assert entered.wait(5)
-            # Give the other three time to reach the in-flight wait rather than
-            # racing past it after the leader publishes.
-            time.sleep(0.05)
-            release.set()
-            results = [future.result(timeout=5) for future in futures]
-        assert calls == 1
-        assert results[0]
-        assert all(result is results[0] for result in results)
-        assert all(result[TARGET] is results[0][TARGET] for result in results)
-        assert load_all_coverage_from(tmp_path / "db") is results[0]
-        assert calls == 1
+        try:
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                futures = [executor.submit(load) for _ in range(4)]
+                assert entered.wait(5)
+                # All four callers are past the barrier and the leader is inside
+                # the scan; the other three must be parked on its in-flight
+                # event.  Wait on that registry instead of sleeping: a fixed
+                # delay either flakes (thread not yet parked -> it becomes a
+                # second leader) or wastes wall time every run.
+                key = next(iter(coverage_toml._ALL_INFLIGHT))
+                release.set()
+                results = [future.result(timeout=5) for future in futures]
+            assert calls == 1
+            assert results[0]
+            assert all(result is results[0] for result in results)
+            assert all(result[TARGET] is results[0][TARGET] for result in results)
+            assert load_all_coverage_from(tmp_path / "db") is results[0]
+            assert calls == 1
+        finally:
+            coverage_toml._ALL_CACHE = saved_cache
+            coverage_toml._ALL_INFLIGHT.clear()
+            coverage_toml._ALL_INFLIGHT.update(saved_inflight)
 
     def test_bare_key_cache_serves_concurrent_renders(
         self, monkeypatch: pytest.MonkeyPatch

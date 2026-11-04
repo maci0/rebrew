@@ -273,14 +273,27 @@ def _exercise_pe_headers(blob: bytes) -> None:
             # Patch masks to the field width — a 4-byte write would clobber neighbours.
             assert written == patch_map[label] & ((1 << (8 * size)) - 1)
 
-    # Checksum is deterministic and reproducible from the patched bytes:
-    # recomputing on the patched image must reproduce the stored field.
-    checksum = _pe_checksum(blob)
-    assert isinstance(checksum, int) and checksum >= 0
-    assert _pe_checksum(blob) == checksum
+    # Checksum must match the spec computed independently (16-bit LE words,
+    # checksum field zeroed, folded, plus file length) — recomputing with
+    # _pe_checksum on both sides would pass for any deterministic wrong value.
+    def _spec_checksum(data: bytes) -> int:
+        from rebrew.formats.pe_headers import pe_lfanew
+
+        tmp = bytearray(data)
+        lfanew = pe_lfanew(data)
+        if lfanew is not None and lfanew + 0x58 + 4 <= len(tmp):
+            tmp[lfanew + 0x58 : lfanew + 0x58 + 4] = b"\x00\x00\x00\x00"
+        if len(tmp) & 1:
+            tmp.append(0)
+        total = sum(int.from_bytes(tmp[i : i + 2], "little") for i in range(0, len(tmp), 2))
+        while total >> 16:
+            total = (total & 0xFFFF) + (total >> 16)
+        return (total & 0xFFFF) + len(data)
+
+    assert _pe_checksum(blob) == _spec_checksum(blob)
     patched_fields = read_pe_header_fields(patched)
     if patched_fields is not None and "checksum" in patched_fields:
-        assert patched_fields["checksum"] == _pe_checksum(patched)
+        assert patched_fields["checksum"] == _spec_checksum(patched)
     rows = header_parity(blob, patched)
     assert isinstance(rows, list)
     if fields is not None and patched_fields is not None:

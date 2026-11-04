@@ -2711,29 +2711,42 @@ class TestServerTiming:
         for path in ("/", _APP_JS_URL):
             assert "Server-Timing" not in self._headers(dashboard, path), path
 
-    def test_route_duration_tracks_the_query(self, dashboard: Dashboard) -> None:
-        """The reported duration is the time the route actually took."""
-        import time
+    def test_route_duration_tracks_the_query(
+        self, dashboard: Dashboard, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The reported duration is the time the route actually took.
+
+        Drive the clock instead of sleeping: a real 50 ms sleep flakes on
+        loaded CI and proves only that *some* time passed.  Fake
+        ``perf_counter`` returns 0 at ``route_started`` and 0.075 at the
+        header write, so the duration must be exactly 75.0 ms — a route
+        timer measured from the wrong point (or not at all) fails exactly.
+        """
+        import rebrew.dashboard as dashboard_module
 
         real_handle = dashboard.handle
         real_etag = dashboard.response_etag
 
         def slow_handle(*args: object, **kwargs: object) -> tuple[int, str, str]:
-            time.sleep(0.05)
             return real_handle(*args, **kwargs)  # type: ignore[arg-type]
 
         def slow_etag(*args: object, **kwargs: object) -> str:
-            time.sleep(0.05)
             return real_etag(*args, **kwargs)
 
         dashboard.handle = slow_handle  # type: ignore[method-assign]
         dashboard.response_etag = slow_etag  # type: ignore[method-assign]
+        ticks = iter([0.0, 0.075])
+        monkeypatch.setattr(
+            dashboard_module.time,
+            "perf_counter",
+            lambda: next(ticks, 0.075),
+        )
         try:
             timing = self._headers(dashboard, "/api/targets")["Server-Timing"]
         finally:
             dashboard.handle = real_handle  # type: ignore[method-assign]
             dashboard.response_etag = real_etag  # type: ignore[method-assign]
-        assert float(timing.removeprefix("route;dur=")) >= 50.0
+        assert float(timing.removeprefix("route;dur=")) == pytest.approx(75.0)
 
 
 class TestHostValidation:
