@@ -618,7 +618,7 @@ components:
         The target name, as listed by `/api/targets`.  Missing or blank is
         400 `missing_target`; a name with no readable coverage document is 404
         `unknown_target`.  A repeated parameter takes its first value.
-      schema: { type: string, minLength: 1 }
+      schema: { type: string }
     Status:
       name: status
       in: query
@@ -673,7 +673,7 @@ components:
         non-numeric and fall back rather than naming a page the client did not
         ask for.  The applied value is read back from the envelope's `limit`.
         A repeated parameter takes its first value.
-      schema: { type: integer, minimum: 1, maximum: 5000, default: 100 }
+      schema: { type: integer, default: 100 }
     Offset:
       name: offset
       in: query
@@ -684,7 +684,7 @@ components:
         `limit`; values past the address ceiling (`VA_MAX`) clamp to it, so an
         oversized skip is an empty page rather than a 500.  Read back from
         `offset`.  A repeated parameter takes its first value.
-      schema: { type: integer, minimum: 0, default: 0 }
+      schema: { type: integer, default: 0 }
     CacheBuster:
       name: v
       in: query
