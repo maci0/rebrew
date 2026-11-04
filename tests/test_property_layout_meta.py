@@ -135,9 +135,12 @@ def test_extract_layout_fails_only_with_valueerror(data: bytes) -> None:
     any other exception is a traceback on the user's terminal.
     """
     try:
-        extract_layout(data, "fuzz.dll")
+        meta = extract_layout(data, "fuzz.dll")
     except ValueError:
         return
+    assert meta.target == "fuzz.dll"
+    assert data.startswith(meta.header), "stored header is not a prefix of the file"
+    assert len(meta.header) <= len(data)
 
 
 @settings(max_examples=100, deadline=None)

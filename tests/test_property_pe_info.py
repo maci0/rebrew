@@ -86,4 +86,6 @@ def test_pe_info_mutated_fixture_payload_or_value_error(blob: bytes) -> None:
 def test_pe_info_random_bytes_payload_or_value_error(blob: bytes) -> None:
     payload = _run(blob)
     if payload is not None:
-        json.dumps(payload)
+        assert payload.keys() >= _IDENTITY_KEYS
+        assert payload["size"] == len(blob)
+        assert json.loads(json.dumps(payload, sort_keys=True)) == payload

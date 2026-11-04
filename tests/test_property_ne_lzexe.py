@@ -244,7 +244,9 @@ def test_ne_tables_robust_on_random_bytes(blob: bytes, ne_offset: int) -> None:
     """Fuzz: arbitrary bytes at an arbitrary offset.  Anything the loader
     refuses must surface as :class:`NeParseError`, never a traceback."""
     from rebrew.formats.ne_loader import (
+        NeExport,
         NeParseError,
+        NeSegment,
         parse_exports,
         parse_imports,
         parse_ne_header,
@@ -256,11 +258,24 @@ def test_ne_tables_robust_on_random_bytes(blob: bytes, ne_offset: int) -> None:
     except NeParseError:
         return
     with suppress(NeParseError):
-        parse_segments(blob, ne_offset, header)
+        segments = parse_segments(blob, ne_offset, header)
+        assert len(segments) == header.segment_count
+        for i, seg in enumerate(segments):
+            assert isinstance(seg, NeSegment)
+            assert seg.index == i + 1
+            assert seg.file_offset >= 0
     with suppress(NeParseError):
-        parse_imports(blob, ne_offset, header)
+        modules = parse_imports(blob, ne_offset, header)
+        assert isinstance(modules, list)
+        for mod in modules:
+            assert isinstance(mod.module, str)
+            assert isinstance(mod.imports, list)
     with suppress(NeParseError):
-        parse_exports(blob, ne_offset, header)
+        exports = parse_exports(blob, ne_offset, header)
+        assert isinstance(exports, list)
+        for exp in exports:
+            assert isinstance(exp, NeExport)
+            assert isinstance(exp.name, str)
 
 
 # ---------------------------------------------------------------------------
