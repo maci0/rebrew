@@ -38,7 +38,7 @@ Retry-After. Request bodies are never read and force connection closure.
 Successful responses negotiate zstd then gzip with quality weights. ETags key
 on the live input version or portable file state plus the exact route/query;
 health is no-store. Static assets are content-hashed and precompressed. The
-entry checkpoint measured 12629 B zstd / 13249 B gzip against a 13320 B budget;
+entry checkpoint measured 12630 B zstd / 13249 B gzip against a 13320 B budget;
 host zlib versions can change gzip size. Tests enforce the wire budget.
 Reload re-reads the live view; view/target/filter navigation is stored in the
 URL hash. Details, API schema and transfer measurements live in
@@ -740,7 +740,7 @@ function renderSummary(s) {
   $("cards").innerHTML = cards.map(([k, v, status, title], i) => {
     const mark = status ? statusMark(status) : "";
     const label = mark ? "<span class='label " + mark + "'>" : "<span class=label>";
-    const inner = "<span class=value>" + esc(v) + "</span>" + label + esc(k) + "</span>";
+    const inner = "<span class=value>" + esc(v) + "</span> " + label + esc(k) + "</span>";
     const hintId = "card-desc-" + i;
     if (status) {
       const pressed = currentView === "functions" && $("status").value === status;
