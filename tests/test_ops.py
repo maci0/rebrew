@@ -1013,6 +1013,74 @@ class TestReconstructionOps:
         status, _body = dispatch(config, "rebrew.verify_function", json.dumps(request).encode())
         assert status == 400
 
+    def test_target_operations_use_retained_snapshot(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        from rebrew import ops
+
+        filestore, workspace = _worker_dirs(tmp_path)
+        live = workspace / "live"
+        live.mkdir()
+        project = b'[project]\ndefault_target="mini"\n[targets.mini]\nbinary="original/mini"\nformat="pe"\narch="x86_32"\nreversed_dir="src"\n'
+        (live / "rebrew-project.toml").write_bytes(project)
+        source = b"int add(int a, int b) { return a-b; }\n"
+        entries = []
+        for name, data in (("rebrew-project.toml", project), ("src/add.c", source)):
+            digest, key = _store(filestore, data)
+            entries.append({"path": name, "digest": digest, "size": len(data), "key": key})
+        seen: list[Path] = []
+
+        def run(args: Any, root: Path, *unused: Any, **kwargs: Any) -> dict[str, Any]:
+            assert root != live and (root / "src/add.c").read_bytes() == source
+            assert "--target=mini" in args
+            seen.append(root)
+            return {"status": "ok"}
+
+        monkeypatch.setattr(ops, "run_rebrew", run)
+        monkeypatch.setattr(ops, "remote_header_refusal", lambda *args: None)
+        config = WorkerConfig(filestore.resolve(), workspace.resolve())
+        request = {
+            "project_dir": str(live),
+            "sha256": SHA256,
+            "files": entries,
+            "rebrew_target": "mini",
+            "binary_key": KEY,
+        }
+        for op in ("rebrew.build", "rebrew.verify_target"):
+            body = {**request, **({"no_promote": True} if op.endswith("verify_target") else {})}
+            status, reply = dispatch(config, op, json.dumps(body).encode())
+            assert status == 200, reply
+        assert len(seen) == 2 and all(not path.exists() for path in seen)
+        bad = {**request, "files": [*entries, entries[0]]}
+        status, _ = dispatch(config, "rebrew.build", json.dumps(bad).encode())
+        assert status == 400
+        status, _ = dispatch(config, "rebrew.verify_target", json.dumps(request).encode())
+        assert status == 400
+
+        def mutate(args: Any, root: Path, *unused: Any, **kwargs: Any) -> dict[str, Any]:
+            (root / "src/add.c").write_text("changed")
+            return {"status": "ok"}
+
+        monkeypatch.setattr(ops, "run_rebrew", mutate)
+        status, _ = dispatch(config, "rebrew.build", json.dumps(request).encode())
+        assert status == 400
+
+        from rebrew import report
+
+        def render(_cfg: Any, out: Path) -> dict[str, Any]:
+            (out / "index.html").write_text("safe report")
+            return {"out": str(out), "pages": 1, "summary": {}}
+
+        monkeypatch.setattr(report, "generate_report", render)
+        report_request = {**request, "binary_id": 1, "output_dir": "reports/generated/" + "a" * 32}
+        status, reply = dispatch(config, "rebrew.report", json.dumps(report_request).encode())
+        assert status == 200, reply
+        assert json.loads(reply)["manifest"] == [
+            {"path": "index.html", "size": 11, "digest": hashlib.sha256(b"safe report").hexdigest()}
+        ]
+        status, _ = dispatch(config, "rebrew.report", json.dumps(report_request).encode())
+        assert status == 400
+
     def test_skeleton(self, world: tuple[WorkerConfig, Path]) -> None:
         config, project = world
         request = {"project_dir": str(project), "va": 0x401010, "name": "second"}
