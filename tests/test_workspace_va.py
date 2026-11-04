@@ -50,3 +50,9 @@ def test_max_kept() -> None:
 def test_empty_and_unparseable() -> None:
     assert parse_va_candidates("") == []
     assert parse_va_candidates("zzz") == []
+
+
+def test_non_ascii_digits_rejected() -> None:
+    assert parse_va_candidates("١٢") == []
+    assert parse_va_candidates("１２") == []
+    assert parse_va_candidates("0x١٢") == []

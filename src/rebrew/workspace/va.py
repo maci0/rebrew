@@ -29,6 +29,10 @@ def parse_va_candidates(raw: str) -> list[int]:
     """
     if "_" in raw:
         return []
+    # int() also reads Unicode decimal digits (e.g. "١٢" as 12); only ASCII
+    # counts, matching _parse_ascii_int in rebrew.utils.
+    if not raw.isascii():
+        return []
     lowered = raw.lower()
     bases = (
         (16,) if lowered.startswith("0x") or any(c in _HEX_DIGITS for c in lowered) else (10, 16)
