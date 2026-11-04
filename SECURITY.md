@@ -24,7 +24,7 @@ channel. Acknowledgement and fix timing depend on maintainer availability.
 
 ## Security model (summary)
 
-Rebrew is a local compiler-in-the-loop reversing workbench (CLI). It is not a multi-tenant network service. The one authenticated network listener is rebrew ops serve (bearer token, plain HTTP, workspace-confined write ops; src/rebrew/ops.py); the coverage dashboard is loopback by default and unauthenticated. The living attack-surface and trust-boundary
+Rebrew is a local compiler-in-the-loop reversing workbench (CLI). It is not a multi-tenant network service. Two bearer-token network listeners exist, both plain HTTP: rebrew ops serve (workspace-confined write ops, `src/rebrew/ops.py`) and the Go jobs owner `rebrew-jobs` (`services/jobs/`, loopback `127.0.0.1:8089` by default, `REBREW_JOBS_ADDR` to override, `REBREW_WORKSPACE`/`REBREW_JOB_DIR`/`REBREW_JOB_TOKEN` required); the coverage dashboard is loopback by default and unauthenticated. The living attack-surface and trust-boundary
 document is:
 
 - [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md)
