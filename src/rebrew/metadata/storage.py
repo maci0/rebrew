@@ -135,29 +135,59 @@ def _configured_backend(path: Path, fingerprint: tuple[int, int, int, int]) -> s
     return validate_backend_settings(load_tomllib(path).get("metadata", {}))
 
 
-#: ``directory -> project root``.  The walk lstats every ancestor; a whole-tree
-#: scan calls ``metadata_store`` once per source file.  Misses are not cached:
-#: a config created later must still be found.
-_PROJECT_ROOTS: OrderedDict[Path, Path] = OrderedDict()
+#: ``directory -> (project root, ancestor identities)``.  The walk lstats every
+#: ancestor; a whole-tree scan calls ``metadata_store`` once per source file.
+#: Misses are not cached: a config created later must still be found.  A hit is
+#: only reused while every ancestor's identity is unchanged, so creating or
+#: removing a ``rebrew-project.toml`` marker above a cached directory — or
+#: replacing an ancestor with a lookalike — invalidates the memo instead of
+#: keeping the old root for the life of the process.
+_PROJECT_ROOTS: OrderedDict[Path, tuple[Path, tuple[tuple[str, tuple[int, ...] | None], ...]]] = (
+    OrderedDict()
+)
 _PROJECT_ROOTS_LOCK = threading.Lock()
 _PROJECT_ROOTS_MAX = 256
+
+
+def _marker_identity(directory: Path) -> tuple[int, int, int, int, int] | None:
+    """Stat identity of the project marker in *directory*, ``None`` when absent."""
+    try:
+        st = (directory / "rebrew-project.toml").stat()
+    except OSError:
+        return None
+    return (st.st_mtime_ns, st.st_ctime_ns, st.st_ino, st.st_size, 1)
+
+
+def _ancestor_identities(directory: Path) -> tuple[tuple[str, tuple[int, ...] | None], ...]:
+    """Marker identity of *directory* and every ancestor, for cache validation."""
+    identities: list[tuple[str, tuple[int, ...] | None]] = []
+    current: Path | None = directory
+    while current is not None:
+        identities.append((str(current), _marker_identity(current)))
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+    return tuple(identities)
 
 
 def _project_root(directory: Path) -> Path:
     """Find and memoize the project root for *directory*, if one exists."""
     with _PROJECT_ROOTS_LOCK:
-        found = _PROJECT_ROOTS.get(directory)
-        if found is not None:
-            _PROJECT_ROOTS.move_to_end(directory)
-    if found is not None:
-        return found
+        cached = _PROJECT_ROOTS.get(directory)
+    if cached is not None and cached[1] == _ancestor_identities(directory):
+        with _PROJECT_ROOTS_LOCK:
+            if directory in _PROJECT_ROOTS:
+                _PROJECT_ROOTS.move_to_end(directory)
+        return cached[0]
     walked = walk_up_to_root(directory)
     if walked is None:
         return directory
+    identities = _ancestor_identities(directory)
     with _PROJECT_ROOTS_LOCK:
-        _PROJECT_ROOTS[directory] = walked
+        _PROJECT_ROOTS[directory] = (walked, identities)
         _PROJECT_ROOTS.move_to_end(directory)
-        if len(_PROJECT_ROOTS) > _PROJECT_ROOTS_MAX:
+        while len(_PROJECT_ROOTS) > _PROJECT_ROOTS_MAX:
             _PROJECT_ROOTS.popitem(last=False)
     return walked
 

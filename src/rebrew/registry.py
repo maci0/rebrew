@@ -101,7 +101,7 @@ _entry_points_snapshot: tuple[tuple[Any, ...], Any] | None = None
 _entry_points_lock = threading.Lock()
 
 
-_IMPORT_DIRECTORY_CONTENTS: dict[Path, tuple[tuple[int, int, int], tuple[Any, ...]]] = {}
+_IMPORT_DIRECTORY_CONTENTS: dict[Path, tuple[tuple[int, ...], tuple[Any, ...]]] = {}
 _IMPORT_DIRECTORY_LOCK = threading.Lock()
 
 
@@ -111,6 +111,14 @@ def _sys_path_fingerprint() -> tuple[tuple[Any, ...], ...]:
     Stat each import path, listing it only when its directory changes. Adding,
     removing or replacing distribution metadata invalidates discovery; creating
     a report or a cache file beside it does not re-read every installed package.
+
+    The directory stamp includes the directory's size and link count, and the
+    listing records each entry's size as well: a distribution installed or
+    edited in place inside one timestamp tick does not reliably bump mtime on
+    every filesystem, so mtime/ctime/inode alone can keep serving the previous
+    entry-point set after a plugin install. The fingerprint also carries the
+    raw ``sys.path`` spelling list, so an insertion or reordering that lands
+    on an already-cached directory still changes the key.
     """
     out: list[tuple[Any, ...]] = []
     for entry in sys.path:
@@ -118,11 +126,11 @@ def _sys_path_fingerprint() -> tuple[tuple[Any, ...], ...]:
         try:
             info = path.stat()
         except OSError:
-            out.append((str(path), None))
+            out.append((str(entry), str(path), None))
             continue
-        stamp = (info.st_mtime_ns, info.st_ctime_ns, info.st_ino)
+        stamp = (info.st_mtime_ns, info.st_ctime_ns, info.st_ino, info.st_size, info.st_nlink)
         if not stat.S_ISDIR(info.st_mode):
-            out.append((str(path), stamp))
+            out.append((str(entry), str(path), stamp))
             continue
         with _IMPORT_DIRECTORY_LOCK:
             cached = _IMPORT_DIRECTORY_CONTENTS.get(path)
@@ -133,7 +141,12 @@ def _sys_path_fingerprint() -> tuple[tuple[Any, ...], ...]:
                     with os.scandir(path) as entries:
                         members = tuple(
                             sorted(
-                                (item.name, item.stat().st_mtime_ns, item.inode())
+                                (
+                                    item.name,
+                                    item.stat().st_mtime_ns,
+                                    item.inode(),
+                                    item.stat().st_size,
+                                )
                                 for item in entries
                                 if item.name.lower().endswith((".dist-info", ".egg-info"))
                                 or item.name.lower() == "egg-info"
@@ -144,7 +157,7 @@ def _sys_path_fingerprint() -> tuple[tuple[Any, ...], ...]:
                 if len(_IMPORT_DIRECTORY_CONTENTS) >= 128:
                     _IMPORT_DIRECTORY_CONTENTS.clear()
                 _IMPORT_DIRECTORY_CONTENTS[path] = (stamp, members)
-        out.append((str(path), members))
+        out.append((str(entry), str(path), members))
     return tuple(out)
 
 
