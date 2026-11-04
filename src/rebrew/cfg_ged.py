@@ -281,22 +281,8 @@ def _add_edge(
             edges.append(edge)
 
 
-def _norm(sig: Counter[str]) -> float:
-    return math.sqrt(sum(v * v for v in sig.values()))
-
-
-def _cosine(a: Counter[str], b: Counter[str]) -> float:
-    va = math.sqrt(sum(v * v for v in a.values()))
-    vb = math.sqrt(sum(v * v for v in b.values()))
-    return _cosine_scaled(a, b, va, vb)
-
-
 def _cosine_scaled(a: Counter[str], b: Counter[str], va: float, vb: float) -> float:
-    """``_cosine`` with the two vector norms already computed.
-
-    The greedy match calls this once per block pair, and a signature's norm
-    is invariant across the whole sweep, so callers hoist them out.
-    """
+    """Cosine of two signatures with norms precomputed (invariant per sweep)."""
     if va == 0 or vb == 0:
         return 0.0
     denom = va * vb
@@ -334,8 +320,8 @@ def cfg_similarity(
     # Greedy best-match blocks by mnemonic-multiset cosine, weighted by instruction count.
     sigs_t = [Counter(m) for _, _, m in tb]
     sigs_c = [Counter(m) for _, _, m in cb]
-    norms_t = [_norm(s) for s in sigs_t]
-    norms_c = [_norm(s) for s in sigs_c]
+    norms_t = [math.sqrt(sum(v * v for v in s.values())) for s in sigs_t]
+    norms_c = [math.sqrt(sum(v * v for v in s.values())) for s in sigs_c]
     sizes_t = [s for _, s, _ in tb]
     total_weights = sum(sizes_t)
     matched_t: set[int] = set()
