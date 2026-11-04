@@ -137,7 +137,7 @@ exit is 120, and click's is 1; `run_cli` overrides both.
 
 ## Entry Points
 
-The 35 root entries lead to the daily workflow and focused domain scopes.
+The 36 root entries lead to the daily workflow and focused domain scopes.
 Counts include each entry's landing page and all of its nested operations.
 Each operation below has a reference section with its current arguments,
 options, and defaults.
@@ -156,6 +156,7 @@ options, and defaults.
 | [`rebrew todo`](#rebrew-todo) | 1 | Prioritized actions by overall impact, then estimated effort. |
 | [`rebrew doctor`](#rebrew-doctor) | 1 | Diagnostic checks for rebrew project health. |
 | [`rebrew schema`](#rebrew-schema) | 1 | Print the clispec 0.3 JSON document for this CLI. |
+| [`rebrew ops`](#rebrew-ops) | 3 | Answer one op over stdin/stdout or serve `POST /<op>` over HTTP behind a bearer token. |
 | [`rebrew prove`](#rebrew-prove) | 1 | Prove semantic equivalence of NEAR_MATCHING/SIZE_MISMATCH functions via symbolic execution. |
 | [`rebrew recommend`](#rebrew-recommend) | 1 | Deterministic project advice: TU layout, hygiene, next steps. |
 | [`rebrew sync`](#rebrew-sync) | 8 | Exchange metadata with Ghidra through BinSync and perform structural operations. |
