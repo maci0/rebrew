@@ -69,7 +69,20 @@ _IDEMPOTENT = frozenset({"cfg target remove", "cfg module remove"})
 
 # Full paths that are read-only even though their leaf is not in
 # _READ_ONLY_LEAVES: coverage serve only serves read-only metadata.
-_READ_ONLY_PATHS = frozenset({"coverage serve"})
+# cfg path/effective/raw, data bss/dispatch, and similarity binary only
+# report state; their leaves (path, effective, raw, bss, dispatch, binary)
+# are too generic to list globally.
+_READ_ONLY_PATHS = frozenset(
+    {
+        "cfg effective",
+        "cfg path",
+        "cfg raw",
+        "coverage serve",
+        "data bss",
+        "data dispatch",
+        "similarity binary",
+    }
+)
 
 # Full paths that write. Leaf classification called them read_only.
 # ``lint --fix`` and ``diff --fix-blocker`` edit metadata or source.
