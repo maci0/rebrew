@@ -300,6 +300,15 @@ jobs:
   # uv.lock (--no-install-project + --no-deps wheel overlay), not live PyPI.
   package:
     runs-on: ubuntu-24.04
+    # Only the package job signs dist/, so only it gets the write grants:
+    # attest-build-provenance records SLSA build provenance under
+    # `attestations: write` and mints the Sigstore identity with
+    # `id-token: write`. Every other job stays on the workflow-level
+    # `contents: read` (the read/attest split is asserted in test_ci_pins.py).
+    permissions:
+      contents: read
+      attestations: write
+      id-token: write
     # 30, not 10: this is the only job that produces the release artifact, and
     # it runs five separate build/resolve cycles (sdist, wheel, the
     # `git archive` rebuild's own two, and the wheel built from the sdist),
@@ -406,6 +415,19 @@ jobs:
             dist/rebrew.cdx.json
           if-no-files-found: error
           retention-days: 14
+      # SLSA build provenance + Sigstore transparency-log record for the
+      # artifacts above, so consumers can verify what the package job
+      # produced rather than trusting the upload. The action is commit-SHA
+      # pinned like every other third-party action here; Dependabot's
+      # github-actions group refreshes the SHA weekly. Only the wheel and
+      # sdist are subjects: the SBOM/buildinfo are generated beside them and
+      # verified by `make verify-dist`, not consumers.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
+        with:
+          subject-path: |
+            dist/*.whl
+            dist/*.tar.gz
 
   # Contract smoke: CLI surfaces for the high-value gates documented in docs/CI.md.
   # These do not require a target binary: only that the options exist and help text

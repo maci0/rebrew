@@ -356,12 +356,24 @@ class TestCiPins:
         assert setup_uv["with"]["enable-cache"] is True
 
     def test_token_permissions_read_only(self) -> None:
-        """GITHUB_TOKEN stays contents:read; the Actions cache uses the runner token."""
+        """GITHUB_TOKEN stays contents:read; the Actions cache uses the runner token.
+
+        The single exception is the package job's per-job grant pair for
+        `attest-build-provenance` (see `test_package_job_attests_build_provenance`):
+        the workflow-level block and the toolchain-sync workflow must stay
+        write-free.
+        """
         for path in (CI_YML, SYNC_YML):
             text = path.read_text(encoding="utf-8")
             head = text.split("\njobs:", 1)[0]
             assert "contents: read" in head, path.name
-            assert ": write" not in text, path.name
+            assert ": write" not in head, path.name
+        sync_text = SYNC_YML.read_text(encoding="utf-8")
+        assert ": write" not in sync_text, SYNC_YML.name
+        ci = CI_YML.read_text(encoding="utf-8")
+        package_job = ci.split("\n  package:\n", 1)[1].split("\n  cli-contract:\n", 1)[0]
+        without_package = ci.replace(package_job, "", 1)
+        assert ": write" not in without_package
 
     def test_gh_token_scoped_to_needing_steps(self) -> None:
         """Do not expose secrets.GITHUB_TOKEN to pytest/ruff/mypy via workflow env.
@@ -398,6 +410,46 @@ class TestCiPins:
         assert "dist/rebrew.cdx.json" in package_job
         assert "retention-days: 14" in package_job
         assert "if-no-files-found: error" in package_job
+
+    def test_package_job_attests_build_provenance(self) -> None:
+        """The package job signs dist/ wheel+sdist under SLSA build provenance.
+
+        The upload step alone gives consumers no way to verify what
+        shipped. `attest-build-provenance` records the builder identity and
+        subject digests in Sigstore's transparency log; without the step,
+        the per-job `attestations: write` / `id-token: write` grants, or a
+        subject glob matching the built artifacts, that record silently
+        never exists.
+        """
+        import yaml
+
+        ci = yaml.safe_load(CI_YML.read_text(encoding="utf-8"))
+        package = ci["jobs"]["package"]
+        assert package["permissions"] == {
+            "contents": "read",
+            "attestations": "write",
+            "id-token": "write",
+        }
+        attest = next(
+            step
+            for step in package["steps"]
+            if str(step.get("uses", "")).startswith("actions/attest-build-provenance@")
+        )
+        # Commit-SHA pinned like every other third-party action here: a tag
+        # can be retargeted, and Dependabot's github-actions group refreshes
+        # a pinned SHA the same way it refreshes the others.
+        ref = attest["uses"].split("@", 1)[1]
+        assert re.fullmatch(r"[0-9a-f]{40}", ref), attest["uses"]
+        assert "dist/*.whl" in attest["with"]["subject-path"]
+        assert "dist/*.tar.gz" in attest["with"]["subject-path"]
+        # No other job in either workflow may carry a write grant.
+        for name, job in ci["jobs"].items():
+            if name == "package":
+                continue
+            assert ": write" not in str(job.get("permissions", "")), name
+        sync = yaml.safe_load(SYNC_YML.read_text(encoding="utf-8"))
+        for name, job in sync["jobs"].items():
+            assert ": write" not in str(job.get("permissions", "")), name
 
     def test_sbom_outlives_every_later_build(self) -> None:
         """``make build`` clears dist/*.cdx.json and ``sdist-check`` rebuilds.
