@@ -1,21 +1,12 @@
 ---
 name: rebrew-init
 description: >-
-  Scaffold or refresh a Rebrew project with rebrew init, choose target names and
-  compiler profiles, and check scaffold drift. Use rebrew-intake for one-shot binary
-  onboarding and rebrew-workflow for an existing target.
+  Set up a new Rebrew project with rebrew init (scaffold, first setup, new
+  project): choose target names and compiler profiles, and check scaffold
+  drift. Use rebrew-intake for one-shot binary onboarding and
+  rebrew-workflow for an existing target.
 license: MIT
 ---
-
-```mermaid
-graph TD
-    Place[Place binary<br/>mkdir -p original && cp game.exe original/] --> Init
-    Init{rebrew init<br/>--target + --guess-compiler} -->|done| Doctor{Doctor passes?<br/>rebrew doctor}
-    Doctor -->|fail| Fix[Repair from doctor report<br/>rebrew toolchain pull &lt;profile&gt;]
-    Fix --> Doctor
-    Doctor -->|pass| Skills[Check scaffold drift<br/>rebrew init --check]
-    Skills --> Handoff[Hand off to rebrew-intake]
-```
 
 # Rebrew Init
 
@@ -56,9 +47,10 @@ right for standard builds. Override with `--toolchain <profile>` when:
   headers, not the codegen).
 - You already know the exact toolchain (matching SP-level profile matters:
   `msvc-6.0-sp6` vs `msvc-6.0` is a different code generator).
-- 16-bit DOS/NE binaries where the heuristic prefers wrong (see
-  rebrew repo `docs/TOOLCHAIN.md` for the `watcom-2.0-win16` / `msvc-1.52` / `borland-3.1`
-  decision tree).
+- 16-bit DOS/NE binaries where the heuristic prefers wrong: use
+  `watcom-2.0-win16` for Open Watcom 2.0 wcc, `msvc-1.52` for MSVC 1.52
+  (16-bit DOSBox), `borland-3.1` for Turbo C++ 3.1. List shipped profiles
+  with `rebrew toolchain list`.
 
 ```bash
 rebrew init --target <name> --binary <filename> --toolchain <profile> --no-wizard

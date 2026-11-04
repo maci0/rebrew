@@ -1,29 +1,13 @@
 ---
 name: rebrew-matching
 description: >-
-  Resolve stalled Rebrew byte matches with structural diffs, compiler flag sweeps, GA,
-  statement/qualifier search, symbolic proving, and library flag overrides. Use after
-  ordinary C edits stop improving a match; use rebrew-workflow for the initial edit/test
-  loop.
+  Resolve stalled or near Rebrew byte matches (stuck, NEAR_MATCHING, make it
+  EXACT) with structural diffs, compiler flag sweeps, GA, statement/qualifier
+  search, symbolic proving, and library flag overrides. Use after ordinary C
+  edits stop improving a match; use rebrew-workflow for the initial
+  edit/test loop.
 license: MIT
 ---
-
-```mermaid
-graph TD
-    Diff[Diff analysis<br/>rebrew diff --json] --> FixBlocker[Classify blockers<br/>rebrew diff --fix-blocker]
-    FixBlocker --> Sensitive{flag_sensitive?<br/>structural similarity}
-    Sensitive -->|yes| Sweep[Flag sweep<br/>rebrew match flags --tier &lt;tier&gt;]
-    Sensitive -->|no| Ga[GA engine<br/>rebrew match run]
-    Sweep -->|EXACT / RELOC| RoundTrip[Round-trip validation<br/>rebrew build round-trip --json]
-    Sweep -->|still NEAR| Ga
-    Ga -->|EXACT / RELOC| RoundTrip
-    Ga -->|NEAR_MATCHING| Classify[Classify delta<br/>rebrew diagnose near --json]
-    Classify -->|register / equivalent| Edit[C-level tweaks<br/>edit .c source]
-    Edit --> Diff
-    Classify -->|structural| Prove[Prove equivalence<br/>rebrew prove --watch-va]
-    Prove -->|PROVEN| Held[Not spliced<br/>next test/verify records bytes]
-    Prove -->|not proven| Edit
-```
 
 # Rebrew Matching
 

@@ -1,16 +1,16 @@
 ---
 name: rebrew-workflow
 description: >-
-  Reverse functions on an onboarded Rebrew target: select work with todo, generate skeletons,
-  edit/test/diff C, verify progress, manage metadata, and reorganize sources. Covers
-  status accounting, coverage documents, and local recon. Use rebrew-matching for
-  stalled byte matches, rebrew-data-analysis for globals, and rebrew-ghidra-sync for
-  integration sync.
+  Reverse and decompile functions on an onboarded Rebrew target to make them
+  byte-match: select work with todo, generate skeletons, edit/test/diff C,
+  verify progress, manage metadata, and reorganize sources. Covers status
+  accounting, coverage documents, and local recon. Use rebrew-matching for
+  stalled byte matches, rebrew-data-analysis for globals, and
+  rebrew-ghidra-sync for integration sync.
 license: MIT
 ---
 
-Work loop: `todo` → library check → native review → C → `test`/`diff` →
-`verify`/lint. Use the matching skill when ordinary edits stop improving bytes.
+Work loop: `todo` → library check → native review → C → `test`/`diff` → `verify`/lint. Use matching when edits stop improving bytes.
 
 # Rebrew Workflow
 

@@ -1,26 +1,12 @@
 ---
 name: rebrew-intake
 description: >-
-  Onboard a new binary into Rebrew with intake, compiler identification, discovery,
-  library detection, and initial catalog/coverage triage. Use rebrew-init for
-  scaffolding alone and rebrew-workflow for later reversing.
+  Onboard a new binary into Rebrew for the first time (intake, analyze a
+  binary, compiler identification, discovery, library detection, and initial
+  catalog/coverage triage). Use rebrew-init for scaffolding alone and
+  rebrew-workflow for later reversing.
 license: MIT
 ---
-
-```mermaid
-graph TD
-    OneShot[One-shot optional<br/>rebrew intake binary] --> Doctor
-    Doctor{Doctor passes?<br/>rebrew doctor} -->|fail| Fix[Repair from doctor report<br/>rebrew toolchain pull &lt;profile&gt;]
-    Fix --> Doctor
-    Doctor -->|pass| Flirt[FLIRT library scan<br/>rebrew cfg detect-crt apply<br/>rebrew library scan-signatures --json]
-    Flirt --> CrtMatch[Annotate library sources<br/>rebrew library crt-match --all --fix-source]
-    CrtMatch --> Catalog[Build function catalog<br/>rebrew coverage catalog --export-ghidra-labels]
-    Catalog --> Triage[Initial triage<br/>rebrew status --json / rebrew todo --json]
-    Catalog -.-> Export[Optional portable export<br/>rebrew coverage export --output snapshots/]
-    Triage --> CuMap[Infer compilation units<br/>rebrew source graph --cu-map]
-    CuMap --> Skeleton[Generate first skeletons<br/>rebrew skeleton --batch 10]
-    Catalog -.-> Layout[Linker-script scaffolding<br/>rebrew build layout]
-```
 
 # Rebrew Intake
 

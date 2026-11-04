@@ -1,26 +1,13 @@
 ---
 name: rebrew-ghidra-sync
 description: >-
-  Synchronize Rebrew names, prototypes, comments, locals, globals, and types through
-  BinSync state directories, including conflict resolution, provenance, git-backed
-  state, and related-target overlays. Use ReVa only for live Ghidra structural
-  operations: function creation, bookmarks, and data-label pulls. Use rebrew-workflow
-  for local C edits.
+  Sync Rebrew with Ghidra (push/pull names, prototypes, comments, locals,
+  globals, and types through BinSync state directories, including conflict
+  resolution, provenance, git-backed state, and related-target overlays). Use
+  ReVa only for live Ghidra structural operations: function creation,
+  bookmarks, and data-label pulls. Use rebrew-workflow for local C edits.
 license: MIT
 ---
-
-```mermaid
-graph TD
-    Doctor{Doctor passes?<br/>rebrew doctor} -->|fail| Fix[Fix health check<br/>per doctor report]
-    Fix --> Doctor
-    Doctor -->|pass| Push[Push to state dir<br/>rebrew sync push --state-dir D]
-    Push --> Plugin[BinSync Ghidra plugin<br/>relays state -> Ghidra]
-    Plugin --> Pull[Pull from state dir<br/>rebrew sync pull --state-dir D]
-    Pull -->|new functions| Chain[Create in Ghidra<br/>sync pull --create-functions]
-    Pull -->|conflict| Resolve{Resolve conflicts?<br/>--accept-binsync / --accept-local}
-    Resolve --> Pull
-    Pull -->|structural ops| Mcp[rebrew sync create-functions<br/>sync bookmarks / sync pull-data]
-```
 
 # Rebrew Ghidra Sync
 

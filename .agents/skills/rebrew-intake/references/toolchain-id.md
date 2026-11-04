@@ -14,7 +14,7 @@ Decide the compiler family before FLIRT / catalog: it drives the whole pipeline.
 
 ## MinGW
 
-`rebrew init --toolchain mingw-16.2.0` (see rebrew repo `docs/TOOLCHAIN.md`). Packaged rizin
+`rebrew init --toolchain mingw-16.2.0`. Packaged rizin
 discoverers use `aa; aap`, because `aaa` mis-merges on this toolchain. Byte-exact matching
 needs the author's exact GCC version; old builds often match structurally only
 (document semantic decomp + blocker for the byte delta).

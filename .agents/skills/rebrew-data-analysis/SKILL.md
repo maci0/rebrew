@@ -1,20 +1,13 @@
 ---
 name: rebrew-data-analysis
 description: >-
-  Analyze and verify Rebrew globals, dedicated data metadata, complete extents, BSS
-  gaps, dispatch tables/vtables, relocation hints, and cross-TU type conflicts. Covers
-  data layout repairs and stored verdict accounting. Use rebrew-ghidra-sync for external
-  data imports and rebrew-workflow for function bodies.
+  Analyze and verify Rebrew globals and data (dedicated data metadata,
+  complete extents, BSS gaps, dispatch tables/vtables, relocation mismatches,
+  missing globals, and cross-TU type conflicts). Covers data layout repairs
+  and stored verdict accounting. Use rebrew-ghidra-sync for external data
+  imports and rebrew-workflow for function bodies.
 license: MIT
 ---
-
-```mermaid
-graph TD
-    Scan[Scan globals<br/>rebrew data list --json] --> Roles[Separate definition owners,<br/>declarations, and users]
-    Roles --> Evidence[Establish extent, section,<br/>backing object and library provenance]
-    Evidence --> Repair[Repair canonical declarations<br/>and managed metadata]
-    Repair --> Verify[Lint, test affected functions,<br/>verify raw linked data]
-```
 
 # Rebrew Data Analysis
 
