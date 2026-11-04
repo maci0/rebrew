@@ -307,20 +307,12 @@ def _rebuilt_error_class(type_name: object) -> type[RebrewError] | None:
 
 
 def __getattr__(name: str) -> object:
-    if name in _LAZY_ERRORS:
-        mod_name, attr_name = _LAZY_ERRORS[name]
+    location = _LAZY_ERRORS.get(name) or _LAZY_ERROR_KINDS.get(name)
+    if location is not None:
+        mod_name, attr_name = location
         import importlib
 
-        mod = importlib.import_module(mod_name)
-        val: object = getattr(mod, attr_name)
-        globals()[name] = val
-        return val
-    if name in _LAZY_ERROR_KINDS:
-        mod_name, attr_name = _LAZY_ERROR_KINDS[name]
-        import importlib
-
-        mod = importlib.import_module(mod_name)
-        val = getattr(mod, attr_name)
+        val: object = getattr(importlib.import_module(mod_name), attr_name)
         globals()[name] = val
         return val
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

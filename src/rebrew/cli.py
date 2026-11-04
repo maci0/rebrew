@@ -613,6 +613,11 @@ def json_print(data: dict[str, Any] | list[Any]) -> None:
     print(text)
 
 
+def _calling_module(main: Any) -> Any:
+    """Return the module a single-command ``main`` was defined in, or ``None``."""
+    return sys.modules.get(getattr(main, "__module__", None) or "")
+
+
 def _standalone_command_kwargs(main: Any) -> dict[str, Any]:
     """Help-facing Typer settings copied from the calling module's ``app``.
 
@@ -626,7 +631,7 @@ def _standalone_command_kwargs(main: Any) -> dict[str, Any]:
     """
     from typer.models import DefaultPlaceholder
 
-    module = sys.modules.get(getattr(main, "__module__", None) or "")
+    module = _calling_module(main)
     source = getattr(module, "app", None)
     info = getattr(source, "info", None)
     if info is None:
@@ -898,7 +903,7 @@ def run_standalone(main: Any) -> None:
     treats the positional as a command name), while the umbrella's command
     registration parses both orderings.
     """
-    module = sys.modules.get(getattr(main, "__module__", None) or "")
+    module = _calling_module(main)
     markup: Literal["markdown", "rich"] | None = getattr(
         getattr(module, "app", None), "rich_markup_mode", "rich"
     )
