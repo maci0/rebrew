@@ -18,7 +18,7 @@ lazy from rebrew.metadata_transfer import migrate_metadata
 app = typer.Typer(
     help="Manage metadata storage and preview backend transfers.",
     rich_markup_mode="rich",
-    epilog="[bold]Examples:[/bold]\n\n  rebrew metadata migrate sqlite --dry-run\n\n  rebrew metadata migrate sqlite\n\n  rebrew metadata migrate toml\n\n  rebrew metadata backup --dir /off-tree/backups\n\n  rebrew metadata restore --file /off-tree/backups/rebrew-metadata.backup.sqlite3",
+    epilog="[bold]Examples:[/bold]\n\n  rebrew metadata migrate sqlite --dry-run\n\n  rebrew metadata migrate sqlite\n\n  rebrew metadata migrate toml\n\n  rebrew metadata backup --dir /off-tree/backups\n\n  rebrew metadata restore --file backups/db.sqlite3",
 )
 
 
@@ -84,7 +84,7 @@ def backup_cmd(
 
 @app.command(
     "restore",
-    epilog="[bold]Examples:[/bold]\n\n  rebrew metadata restore --file /off-tree/backups/rebrew-metadata.backup.sqlite3\n\n  rebrew metadata restore --file /off-tree/backups/rebrew-metadata.backup.sqlite3 --json",
+    epilog="[bold]Examples:[/bold]\n\n  rebrew metadata restore --file backups/db.sqlite3\n\n  rebrew metadata restore --file backups/db.sqlite3 --json",
 )
 def restore_cmd(
     file: Path = typer.Option(..., "--file", help="Backup file made with 'rebrew metadata backup'"),
