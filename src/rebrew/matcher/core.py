@@ -155,7 +155,7 @@ class GACheckpoint:
             return v
 
         raw_state = d.get("rng_state", [])
-        mutations = d.get("applied_mutations", [])
+        raw_mutations = d.get("applied_mutations", [])
         seed = d.get("rng_seed")
         raw_population = d.get("population", [])
         return cls(
@@ -168,7 +168,9 @@ class GACheckpoint:
             population=list(raw_population) if isinstance(raw_population, list) else [],
             rng_state=_to_tuple(raw_state) if isinstance(raw_state, list) else None,
             args_hash=str(d.get("args_hash", "")),
-            applied_mutations={str(m) for m in mutations},
+            applied_mutations=(
+                {str(m) for m in raw_mutations} if isinstance(raw_mutations, list) else set()
+            ),
             restarts=int(d.get("restarts", 0)),
             stagnant_gens=int(d.get("stagnant_gens", 0)),
             rng_seed=seed if isinstance(seed, int) else None,
