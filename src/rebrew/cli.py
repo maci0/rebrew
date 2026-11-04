@@ -461,6 +461,14 @@ def _argv_format_choice() -> str | None:
                 elif value == "json":
                     saw_json = True
                 index += 1
+        elif arg in ("-otext", "-ojson", "-oauto"):
+            # Click accepts attached short-option values: -otext / -ojson.
+            value = arg[2:]
+            if not saw_command:
+                if value == "text":
+                    saw_text = True
+                elif value == "json":
+                    saw_json = True
         elif not arg.startswith("-"):
             saw_command = True
         index += 1
@@ -966,9 +974,17 @@ def _json_requested(argv: list[str] | None = None) -> bool:
     """True when the invocation passed the exact ``--json`` / ``--json=true`` token.
 
     A substring scan would match a file named ``x--json.c`` or
-    ``--cflags "--json"``.
+    ``--cflags "--json"``. Tokens after ``--`` are operands to the
+    subcommand (e.g. compiler flags for ``build driver``), not rebrew
+    options; ``_argv_format_choice`` already stops there.
     """
-    return any(arg in ("--json", "--json=true") for arg in (sys.argv if argv is None else argv))
+    args = sys.argv if argv is None else argv
+    for arg in args:
+        if arg == "--":
+            break
+        if arg in ("--json", "--json=true"):
+            return True
+    return False
 
 
 def _stdout_is_fifo() -> bool:
