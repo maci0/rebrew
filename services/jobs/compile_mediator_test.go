@@ -84,6 +84,7 @@ func TestCompileMediatorUncertainOriginalAndAuthorizedArtifact(t *testing.T) {
 		req := httptest.NewRequest(method, path, bytes.NewBufferString(body))
 		req.Header.Set("X-Rebrew-Job-Capability", capability)
 		req.Header.Set("X-Rebrew-Compile-Intent", id)
+		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 		mediator.ServeHTTP(w, req)
 		return w
@@ -100,6 +101,7 @@ func TestCompileMediatorUncertainOriginalAndAuthorizedArtifact(t *testing.T) {
 	other := httptest.NewRequest("POST", "/api/v1/compile", strings.NewReader(body))
 	other.Header.Set("X-Rebrew-Job-Capability", cap)
 	other.Header.Set("X-Rebrew-Compile-Intent", strings.Repeat("f", 64))
+	other.Header.Set("Content-Type", "application/json")
 	blocked := httptest.NewRecorder()
 	mediator.ServeHTTP(blocked, other)
 	if blocked.Code != 409 || posts != 1 {
@@ -123,6 +125,7 @@ func TestCompileMediatorUncertainOriginalAndAuthorizedArtifact(t *testing.T) {
 	other = httptest.NewRequest("POST", "/api/v1/compile", strings.NewReader(body))
 	other.Header.Set("X-Rebrew-Job-Capability", cap)
 	other.Header.Set("X-Rebrew-Compile-Intent", strings.Repeat("f", 64))
+	other.Header.Set("Content-Type", "application/json")
 	mediator.ServeHTTP(blocked, other)
 	if blocked.Code != 429 || posts != 2 {
 		t.Fatal("compile budget not enforced")
@@ -214,6 +217,7 @@ func TestManagedCompileRecoveryRequiresOriginalCredentialAndConfiguration(t *tes
 	req := httptest.NewRequest("POST", "/api/v1/compile", strings.NewReader(`{"compiler":"gcc","source":"int x;","flags":[],"filename":"a.c","emit_assembly":false}`))
 	req.Header.Set("X-Rebrew-Job-Capability", owner.compileMediator.capability)
 	req.Header.Set("X-Rebrew-Compile-Intent", intent)
+	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	owner.compileMediator.ServeHTTP(w, req)
 	if w.Code != 503 {
@@ -338,6 +342,7 @@ func TestCompileMediatorDroppedReplyNeverRetries(t *testing.T) {
 	req := httptest.NewRequest("POST", "/api/v1/compile", strings.NewReader(`{"compiler":"gcc","source":"int x;","flags":[],"filename":"a.c"}`))
 	req.Header.Set("X-Rebrew-Job-Capability", cap)
 	req.Header.Set("X-Rebrew-Compile-Intent", strings.Repeat("b", 64))
+	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	m.ServeHTTP(w, req)
 	if w.Code != 503 || calls.Load() != 1 {
@@ -372,6 +377,7 @@ func TestCompileMediatorRecoversOriginalBeforeIndexCommit(t *testing.T) {
 	req := httptest.NewRequest("POST", "/api/v1/compile", bytes.NewReader(original.Body))
 	req.Header.Set("X-Rebrew-Job-Capability", cap)
 	req.Header.Set("X-Rebrew-Compile-Intent", strings.Repeat("c", 64))
+	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	m.ServeHTTP(w, req)
 	if w.Code != 409 {

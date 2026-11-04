@@ -40,6 +40,7 @@ func TestHTTPAdmissionAndToken(t *testing.T) {
 		r.Host = "localhost"
 		if authenticated {
 			r.Header.Set("Authorization", "Bearer "+token)
+			r.Header.Set("Content-Type", "application/json")
 		}
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, r)

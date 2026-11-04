@@ -282,7 +282,7 @@ func (m *CompileMediator) Reconcile(ctx context.Context, id string) error {
 
 func (m *CompileMediator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Rebrew-Job-Capability")), []byte(m.capability)) != 1 {
-		http.Error(w, "unauthorized", 401)
+		apiError(w, "unauthorized", 401)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -291,33 +291,46 @@ func (m *CompileMediator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Context().Err() != nil {
 		return
 	}
+	// POST /api/v1/compile carries the JSON compile body.  A missing or
+	// wrong Content-Type is a client mistake answered 415 here, before the
+	// body is read, exactly as the jobs API and `rebrew ops serve` do.
+	if r.Method == http.MethodPost {
+		media := r.Header.Get("Content-Type")
+		if i := strings.IndexByte(media, ';'); i >= 0 {
+			media = media[:i]
+		}
+		if strings.TrimSpace(media) != "application/json" {
+			apiError(w, "Content-Type must be application/json", http.StatusUnsupportedMediaType)
+			return
+		}
+	}
 	if r.Method == http.MethodPost && r.URL.Path == "/api/v1/compile" {
 		id := r.Header.Get("X-Rebrew-Compile-Intent")
 		if !validHex(id, 64) {
-			http.Error(w, "invalid intent", 400)
+			apiError(w, "invalid intent", 400)
 			return
 		}
 		b, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 16*1024*1024))
 		if err != nil {
-			http.Error(w, "invalid body", 400)
+			apiError(w, "invalid body", 400)
 			return
 		}
 		var payload compileBody
 		dec := json.NewDecoder(bytes.NewReader(b))
 		dec.DisallowUnknownFields()
 		if dec.Decode(&payload) != nil || dec.Decode(new(any)) != io.EOF || !m.compilers[payload.Compiler] || payload.TrainingConsent {
-			http.Error(w, "compile refused", 400)
+			apiError(w, "compile refused", 400)
 			return
 		}
 		var canonical bytes.Buffer
 		if json.Compact(&canonical, b) != nil {
-			http.Error(w, "invalid body", 400)
+			apiError(w, "invalid body", 400)
 			return
 		}
 		b = canonical.Bytes()
 		ids, e := readCompileIndex(m.dir)
 		if e != nil {
-			http.Error(w, "ledger unavailable", 503)
+			apiError(w, "ledger unavailable", 503)
 			return
 		}
 		indexed := make(map[string]bool, len(ids))
@@ -325,13 +338,13 @@ func (m *CompileMediator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			indexed[known] = true
 			v, err := m.readOriginal(known)
 			if err != nil || !json.Valid(v.Body) || !compileResultValid(v) {
-				http.Error(w, "prior compile remains unresolved", 409)
+				apiError(w, "prior compile remains unresolved", 409)
 				return
 			}
 		}
 		entries, e := os.ReadDir(m.dir)
 		if e != nil {
-			http.Error(w, "ledger unavailable", 503)
+			apiError(w, "ledger unavailable", 503)
 			return
 		}
 		for _, entry := range entries {
@@ -339,52 +352,52 @@ func (m *CompileMediator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			if !indexed[strings.TrimSuffix(entry.Name(), ".json")] {
-				http.Error(w, "prior compile remains unresolved", 409)
+				apiError(w, "prior compile remains unresolved", 409)
 				return
 			}
 		}
 		if old, e := m.readOriginal(id); e == nil {
 			if !bytes.Equal(old.Body, b) || len(old.Result) == 0 {
-				http.Error(w, "original unresolved or changed", 409)
+				apiError(w, "original unresolved or changed", 409)
 				return
 			}
 			old, e = m.exchange(r.Context(), old)
 			if e != nil {
-				http.Error(w, "compile outcome unresolved", 503)
+				apiError(w, "compile outcome unresolved", 503)
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write(old.Result)
 			return
 		} else if !errors.Is(e, os.ErrNotExist) {
-			http.Error(w, "ledger unavailable", 503)
+			apiError(w, "ledger unavailable", 503)
 			return
 		}
 		if len(ids) >= m.max {
 			w.Header().Set("Retry-After", "5")
-			http.Error(w, "compile budget exhausted", 429)
+			apiError(w, "compile budget exhausted", 429)
 			return
 		}
 		var key [6]byte
 		if _, e = rand.Read(key[:]); e != nil {
-			http.Error(w, "ledger unavailable", 503)
+			apiError(w, "ledger unavailable", 503)
 			return
 		}
 		sum := sha256.Sum256([]byte(m.credential))
 		bodySum := sha256.Sum256(b)
 		v := compileOriginal{Intent: id, Key: hex.EncodeToString(key[:]), Body: append([]byte(nil), b...), BodySHA256: hex.EncodeToString(bodySum[:]), CredentialSHA256: hex.EncodeToString(sum[:])}
 		if e = m.writeOriginal(v); e != nil {
-			http.Error(w, "ledger unavailable", 503)
+			apiError(w, "ledger unavailable", 503)
 			return
 		}
 		ids = append(ids, id)
 		if e = writeCompileIndex(m.dir, ids); e != nil {
-			http.Error(w, "ledger unavailable", 503)
+			apiError(w, "ledger unavailable", 503)
 			return
 		}
 		v, e = m.exchange(r.Context(), v)
 		if e != nil {
-			http.Error(w, "compile outcome unresolved", 503)
+			apiError(w, "compile outcome unresolved", 503)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -395,38 +408,38 @@ func (m *CompileMediator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		id := r.Header.Get("X-Rebrew-Compile-Intent")
 		v, err := m.readOriginal(id)
 		if err != nil || v.Artifact != r.URL.Path || len(v.Result) == 0 {
-			http.NotFound(w, r)
+			apiError(w, "not found", http.StatusNotFound)
 			return
 		}
 		req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, m.upstream+v.Artifact, nil)
 		if err != nil {
-			http.Error(w, "artifact unavailable", 503)
+			apiError(w, "artifact unavailable", 503)
 			return
 		}
 		req.Header.Set("Authorization", "Bearer "+m.credential)
 		resp, err := m.client.Do(req)
 		if err != nil {
-			http.Error(w, "artifact unavailable", 503)
+			apiError(w, "artifact unavailable", 503)
 			return
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != 200 {
-			http.Error(w, "artifact unavailable", resp.StatusCode)
+			apiError(w, "artifact unavailable", resp.StatusCode)
 			return
 		}
 		body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024*1024+1))
 		if err != nil || len(body) > 64*1024*1024 {
-			http.Error(w, "artifact unavailable", 503)
+			apiError(w, "artifact unavailable", 503)
 			return
 		}
 		digest := sha256.Sum256(body)
 		if resp.Header.Get("ETag") != `"sha256-`+hex.EncodeToString(digest[:])+`"` {
-			http.Error(w, "artifact integrity unavailable", 503)
+			apiError(w, "artifact integrity unavailable", 503)
 			return
 		}
 		w.Header().Set("Content-Type", "application/octet-stream")
 		_, _ = w.Write(body)
 		return
 	}
-	http.NotFound(w, r)
+	apiError(w, "not found", http.StatusNotFound)
 }

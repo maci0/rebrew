@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -51,6 +52,23 @@ func (r *statusRecorder) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
+// apiError answers one refusal in the service's single error envelope:
+// {"error": detail, "code": status}.  Codes are the bare numeric status as a
+// string because every documented client (and the tests) branch on the
+// status line, not on a code name; detail is a fixed string safe to log,
+// never an internal error.  http.Error is never used: it emits text/plain,
+// which no JSON client can branch on uniformly.
+func apiError(w http.ResponseWriter, detail string, status int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if status == http.StatusUnauthorized {
+		w.Header().Set("WWW-Authenticate", `Bearer realm="rebrew-jobs"`)
+	}
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]any{"error": detail, "code": strconv.Itoa(status)})
+}
+
 func hostAllowed(host string) bool {
 	if host == "" {
 		return true
@@ -82,7 +100,7 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !hostAllowed(r.Host) {
-			http.Error(w, "host not allowed", http.StatusForbidden)
+			apiError(w, "host not allowed", http.StatusForbidden)
 			return
 		}
 		start := time.Now()
@@ -108,13 +126,28 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 				r.Method, r.URL.Path, s, time.Since(start).Milliseconds(), requestID, jobID)
 		}()
 		if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+token)) != 1 {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			apiError(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
+		// Every JSON request on this service declares its media type, as
+		// `rebrew ops serve` already requires on POST (415 otherwise).
+		if r.Method == http.MethodPost {
+			media := r.Header.Get("Content-Type")
+			if i := strings.IndexByte(media, ';'); i >= 0 {
+				media = media[:i]
+			}
+			if strings.TrimSpace(media) != "application/json" {
+				apiError(w, "Content-Type must be application/json", http.StatusUnsupportedMediaType)
+				return
+			}
+		}
+		// POST /jobs carries the JSON admission body; the Content-Type check
+		// above already refused a missing or wrong media type (415), so the
+		// body here is known to be declared JSON.
 		if r.Method == http.MethodPost && r.URL.Path == "/jobs" {
 			var in struct {
 				Key             string `json:"key"`
@@ -127,7 +160,7 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 			dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
 			dec.DisallowUnknownFields()
 			if dec.Decode(&in) != nil || dec.Decode(new(any)) != io.EOF {
-				http.Error(w, "invalid request", 400)
+				apiError(w, "invalid request", 400)
 				return
 			}
 			credential := r.Header.Get("X-Rebrew-Compile-Credential")
@@ -143,12 +176,12 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 			}
 			if in.Kind == "catalog" {
 				if in.Seed != "" || credential != "" || in.Generations != nil || in.Population != nil {
-					http.Error(w, "invalid catalog request", 400)
+					apiError(w, "invalid catalog request", 400)
 					return
 				}
 				saved, created, err = o.AdmitCatalog(in.Key, in.WorkspaceSHA256)
 			} else if in.Kind != "" && in.Kind != "match" {
-				http.Error(w, "invalid kind", 400)
+				apiError(w, "invalid kind", 400)
 				return
 			} else if credential != "" {
 				saved, created, err = o.AdmitManagedTuned(in.Key, in.Seed, in.WorkspaceSHA256, credential, options)
@@ -157,15 +190,15 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 			}
 			if err != nil {
 				if errors.Is(err, ErrIdempotencyConflict) {
-					http.Error(w, "idempotency conflict", http.StatusConflict)
+					apiError(w, "idempotency conflict", http.StatusConflict)
 					return
 				}
 				if errors.Is(err, ErrOccupied) {
 					w.Header().Set("Retry-After", "5")
-					http.Error(w, "workspace has unresolved work", http.StatusConflict)
+					apiError(w, "workspace has unresolved work", http.StatusConflict)
 					return
 				}
-				http.Error(w, "admission refused", 400)
+				apiError(w, "admission refused", 400)
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
@@ -179,16 +212,16 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 		// served path, rather than 404 which would claim the resource is missing.
 		if r.URL.Path == "/jobs" {
 			w.Header().Set("Allow", http.MethodPost)
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			apiError(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		if !strings.HasPrefix(r.URL.Path, "/jobs/") {
-			http.NotFound(w, r)
+			apiError(w, "not found", http.StatusNotFound)
 			return
 		}
 		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/jobs/"), "/")
 		if len(parts) > 2 {
-			http.NotFound(w, r)
+			apiError(w, "not found", http.StatusNotFound)
 			return
 		}
 		id := parts[0]
@@ -197,7 +230,7 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 		// on a known shape is 405 with Allow, not 404.
 		if len(parts) == 1 && r.Method != http.MethodGet {
 			w.Header().Set("Allow", http.MethodGet)
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			apiError(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		if len(parts) == 2 {
@@ -205,24 +238,24 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 			case "events", "output", "compile-intents":
 				if r.Method != http.MethodGet {
 					w.Header().Set("Allow", http.MethodGet)
-					http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+					apiError(w, "method not allowed", http.StatusMethodNotAllowed)
 					return
 				}
 			case "cancel", "reconcile", "compile-reconcile":
 				if r.Method != http.MethodPost {
 					w.Header().Set("Allow", http.MethodPost)
-					http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+					apiError(w, "method not allowed", http.StatusMethodNotAllowed)
 					return
 				}
 			default:
-				http.NotFound(w, r)
+				apiError(w, "not found", http.StatusNotFound)
 				return
 			}
 		}
 		if r.Method == http.MethodGet && len(parts) == 2 && parts[1] == "compile-intents" {
 			intents, err := o.CompileIntents(id)
 			if err != nil {
-				http.Error(w, "managed job unavailable", 404)
+				apiError(w, "managed job unavailable", 404)
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
@@ -236,17 +269,17 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 			dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024))
 			dec.DisallowUnknownFields()
 			if dec.Decode(&in) != nil || dec.Decode(new(any)) != io.EOF || !validHex(in.Intent, 64) {
-				http.Error(w, "invalid request", 400)
+				apiError(w, "invalid request", 400)
 				return
 			}
 			ctx, cancel := context.WithTimeout(r.Context(), 150*time.Second)
 			defer cancel()
 			if err := o.ReconcileCompile(ctx, id, in.Intent, r.Header.Get("X-Rebrew-Compile-Credential")); err != nil {
 				if errors.Is(err, os.ErrNotExist) {
-					http.Error(w, "job unavailable", http.StatusNotFound)
+					apiError(w, "job unavailable", http.StatusNotFound)
 					return
 				}
-				http.Error(w, "compile remains unresolved", http.StatusConflict)
+				apiError(w, "compile remains unresolved", http.StatusConflict)
 				return
 			}
 			w.WriteHeader(http.StatusNoContent)
@@ -255,7 +288,7 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 		if r.Method == http.MethodPost && len(parts) == 2 && parts[1] == "cancel" {
 			saved, err := o.Cancel(id)
 			if err != nil {
-				http.Error(w, "job unavailable", 404)
+				apiError(w, "job unavailable", 404)
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
@@ -268,10 +301,10 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 			saved, err := o.ReconcileDocker(ctx, id)
 			if err != nil {
 				if errors.Is(err, os.ErrNotExist) {
-					http.Error(w, "job unavailable", http.StatusNotFound)
+					apiError(w, "job unavailable", http.StatusNotFound)
 					return
 				}
-				http.Error(w, "stop remains unresolved", http.StatusConflict)
+				apiError(w, "stop remains unresolved", http.StatusConflict)
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
@@ -281,7 +314,7 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 		if r.Method == http.MethodGet && len(parts) == 1 {
 			saved, err := o.Get(id)
 			if err != nil {
-				http.Error(w, "job unavailable", 404)
+				apiError(w, "job unavailable", 404)
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
@@ -290,12 +323,12 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 		}
 		if r.Method == http.MethodGet && len(parts) == 2 && parts[1] == "output" {
 			if _, err := o.Get(id); err != nil {
-				http.Error(w, "job unavailable", 404)
+				apiError(w, "job unavailable", 404)
 				return
 			}
 			file, err := os.Open(filepath.Join(o.dir, id+".output"))
 			if err != nil {
-				http.Error(w, "output unavailable", 404)
+				apiError(w, "output unavailable", 404)
 				return
 			}
 			defer file.Close()
@@ -304,19 +337,19 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 			return
 		}
 		if r.Method != http.MethodGet || len(parts) != 2 || parts[1] != "events" {
-			http.NotFound(w, r)
+			apiError(w, "not found", http.StatusNotFound)
 			return
 		}
 		flusher, ok := w.(http.Flusher)
 		if !ok {
-			http.Error(w, "stream unavailable", 500)
+			apiError(w, "stream unavailable", 500)
 			return
 		}
 		o.mu.Lock()
 		saved, err := o.read(id)
 		if err != nil {
 			o.mu.Unlock()
-			http.Error(w, "job unavailable", 404)
+			apiError(w, "job unavailable", 404)
 			return
 		}
 		ch := make(chan struct{}, 1)
