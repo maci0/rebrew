@@ -1,6 +1,6 @@
 """Tests for c_parser.py — tree-sitter C parsing helpers."""
 
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 
@@ -464,7 +464,7 @@ class TestDeclaratorCorpus:
     name (and a non-empty prototype).  Locks the walkers against tree-sitter
     or refactor regressions."""
 
-    _CASES: list[tuple[str, str]] = [
+    _CASES: ClassVar[list[tuple[str, str]]] = [
         ("void __cdecl my_func(int x) { }", "my_func"),
         ("void __stdcall handler(unsigned char* p, int n) { }", "handler"),
         ("char *strdup_c(const char *s) { return 0; }", "strdup_c"),

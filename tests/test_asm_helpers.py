@@ -1,8 +1,8 @@
 """Tests for asm.py — NASM conversion and disassembly helpers (no nasm/r2 needed)."""
 
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+lazy from pathlib import Path
 
 import pytest
 

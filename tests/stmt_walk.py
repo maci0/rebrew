@@ -8,7 +8,7 @@ those nodes. This walk still enters every statement body, including ``if``,
 from __future__ import annotations
 
 import ast
-from collections.abc import Iterator
+lazy from collections.abc import Iterator
 
 _NESTED = ("body", "orelse", "finalbody", "handlers", "cases")
 

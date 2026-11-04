@@ -1,8 +1,8 @@
 """Tests for the rebrew source split command."""
 
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+lazy from pathlib import Path
 
 import pytest
 from cli_json import cli_payload

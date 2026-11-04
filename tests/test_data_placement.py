@@ -1,8 +1,8 @@
 """Placement needs independent linked-object evidence, not matching zeros."""
 
 import struct
-from pathlib import Path
 from types import SimpleNamespace
+lazy from pathlib import Path
 
 import pytest
 

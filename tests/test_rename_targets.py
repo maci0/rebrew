@@ -9,8 +9,8 @@ change list.
 from __future__ import annotations
 
 import tomllib
-from pathlib import Path
 from typing import Any
+lazy from pathlib import Path
 
 import pytest
 from cli_json import cli_payload

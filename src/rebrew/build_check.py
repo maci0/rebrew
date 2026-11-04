@@ -462,9 +462,9 @@ def main(
 
 __all__ = [
     "app",
+    "check",
     "main",
     "main_entry",
-    "check",
     "parse_compile_lines",
     "parse_recorded",
     "parse_sources",

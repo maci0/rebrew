@@ -1,6 +1,6 @@
 """Tests for flirt.py — pure helpers (signature scanning needs real .sig files)."""
 
-from pathlib import Path
+lazy from pathlib import Path
 
 import pytest
 

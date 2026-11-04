@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 from typing import Any
+lazy from collections.abc import Iterator
 
 import typer
 from rich.cells import cell_len

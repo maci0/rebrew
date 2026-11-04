@@ -12,11 +12,11 @@ import json
 import logging
 import threading
 import time
-from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from pathlib import Path
 from types import SimpleNamespace
+lazy from collections.abc import Iterator
+lazy from pathlib import Path
 
 import httpx
 import pytest
@@ -2268,7 +2268,7 @@ class TestMatchGlue:
         class _FakeGA:
             rng_seed = 0
 
-            def __init__(self, *a, **k):  # type: ignore[no-untyped-def]
+            def __init__(self, *a, **k) -> None:  # type: ignore[no-untyped-def]
                 captured["extra_seeds"] = k.get("extra_seeds")
                 captured["target"] = k.get("target_bytes")
 
@@ -2334,7 +2334,7 @@ class TestMatchGlue:
         class _FakeGA:
             rng_seed = 0
 
-            def __init__(self, *a, **k):  # type: ignore[no-untyped-def]
+            def __init__(self, *a, **k) -> None:  # type: ignore[no-untyped-def]
                 return None
 
             def run(self, clock=None) -> tuple[str, float]:
@@ -2416,7 +2416,7 @@ class TestMatchGlue:
         class _FakeGA:
             rng_seed = 0
 
-            def __init__(self, *a, **k):  # type: ignore[no-untyped-def]
+            def __init__(self, *a, **k) -> None:  # type: ignore[no-untyped-def]
                 calls.append(k.get("extra_seeds"))
 
             def run(self, clock=None) -> tuple[str, float]:
@@ -2474,7 +2474,7 @@ class TestLlmSeedDryRun:
         class _FakeGA:
             rng_seed = 0
 
-            def __init__(self, *a, **k):  # type: ignore[no-untyped-def]
+            def __init__(self, *a, **k) -> None:  # type: ignore[no-untyped-def]
                 calls.append(1)
 
             def run(self, clock=None) -> tuple[str, float]:

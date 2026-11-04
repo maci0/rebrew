@@ -1,6 +1,6 @@
 """Tests for rebrew.metadata.bindings — SourceBinding dataclass and parsers."""
 
-from pathlib import Path
+lazy from pathlib import Path
 
 import pytest
 from source_util import write_source

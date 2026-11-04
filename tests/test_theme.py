@@ -7,8 +7,8 @@ gates are what keep a palette change from trading accessibility for identity.
 import itertools
 import math
 import re
-from collections.abc import Mapping
 from typing import NamedTuple
+lazy from collections.abc import Mapping
 
 from rebrew.status_colors import LIGHT, TERMINAL
 from rebrew.status_style import STATUS_COLORS, STATUS_HEX

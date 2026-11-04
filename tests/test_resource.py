@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+lazy from pathlib import Path
 
 from bin_util import append_pe_section, make_pe
 from cli_json import cli_payload

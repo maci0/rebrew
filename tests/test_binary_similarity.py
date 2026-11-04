@@ -1,7 +1,7 @@
 """Tests for binary_similarity.py — whole-binary structural similarity."""
 
-from pathlib import Path
 from types import SimpleNamespace
+lazy from pathlib import Path
 
 import pytest
 from cli_json import cli_payload

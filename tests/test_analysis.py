@@ -8,7 +8,7 @@ plus an appended string blob (ASCII and UTF-16LE).
 from __future__ import annotations
 
 import struct
-from pathlib import Path
+lazy from pathlib import Path
 
 import pytest
 from bin_util import PROBE_IMAGE_BASE, PROBE_TEXT_VA, make_pe, make_xref_probe

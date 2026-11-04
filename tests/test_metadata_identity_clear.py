@@ -1,7 +1,7 @@
 """Identity removal must preserve evidence and other targets at the same VA."""
 
-from pathlib import Path
 from typing import Any
+lazy from pathlib import Path
 
 import pytest
 

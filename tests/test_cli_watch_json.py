@@ -1,7 +1,7 @@
 """Watch commands reject single-document JSON mode before starting work."""
 
 import importlib
-from pathlib import Path
+lazy from pathlib import Path
 
 import pytest
 from cli_json import cli_payload

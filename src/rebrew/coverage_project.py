@@ -9,11 +9,11 @@ from __future__ import annotations
 
 import threading
 from collections import OrderedDict
-from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 lazy import hashlib
 lazy import time
+lazy from collections.abc import Mapping
 lazy from datetime import UTC, datetime
 lazy from pathlib import Path
 lazy from types import MappingProxyType

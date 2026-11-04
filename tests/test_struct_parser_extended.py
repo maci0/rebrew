@@ -1,6 +1,6 @@
 """Tests for struct_parser — tree-sitter-absent and unreadable-file branches."""
 
-from pathlib import Path
+lazy from pathlib import Path
 
 import pytest
 

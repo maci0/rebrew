@@ -205,7 +205,7 @@ def _run_help(subcommand: str) -> tuple[bool, str]:
     from click.testing import CliRunner
 
     result = CliRunner().invoke(
-        cast(Command, _command_tree()),
+        cast("Command", _command_tree()),
         [*subcommand.split(), "--help"],
         env={"COLUMNS": "200"},
     )

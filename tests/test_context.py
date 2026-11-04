@@ -1,7 +1,7 @@
 """Tests for context.py — universal decompiler context file generation."""
 
-from pathlib import Path
 from types import SimpleNamespace
+lazy from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner

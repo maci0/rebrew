@@ -1,6 +1,6 @@
 """Tests for matcher/ast_engine.py parsing."""
 
-from collections.abc import Iterator
+lazy from collections.abc import Iterator
 
 import pytest
 from tree_sitter import Node, Tree

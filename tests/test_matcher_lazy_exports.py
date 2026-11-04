@@ -8,7 +8,7 @@ so the lock cannot be a plain ``Lock``.
 
 import importlib
 import threading
-from types import ModuleType
+lazy from types import ModuleType
 
 import pytest
 

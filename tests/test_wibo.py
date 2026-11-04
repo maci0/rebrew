@@ -4,8 +4,8 @@ import hashlib
 import json
 import stat
 import sys
-from pathlib import Path
 from types import SimpleNamespace
+lazy from pathlib import Path
 
 import pytest
 

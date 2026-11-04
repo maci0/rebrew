@@ -1,7 +1,7 @@
 """CLI tests for rebrew near_diag — main() with stubbed compile/extract."""
 
-from pathlib import Path
 from types import SimpleNamespace
+lazy from pathlib import Path
 
 import pytest
 from cli_json import cli_payload

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+lazy from pathlib import Path
 
 from source_util import SourceFixture, write_source, write_store_fixture
 

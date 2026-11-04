@@ -1,7 +1,7 @@
 """Current canonical metadata bindings, optional address anchors and match accounting."""
 
-from pathlib import Path
 from typing import Any
+lazy from pathlib import Path
 
 from source_util import write_source
 

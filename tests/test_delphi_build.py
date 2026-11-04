@@ -1,7 +1,7 @@
 """The Delphi CLI produces consistent artifacts without changing reference bytes or stores."""
 
-from pathlib import Path
 from types import SimpleNamespace
+lazy from pathlib import Path
 
 import pytest
 from cli_json import cli_payload

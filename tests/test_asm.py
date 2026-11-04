@@ -1,7 +1,7 @@
 """Tests for rebrew.asm — build_function_lookup helper."""
 
 import json
-from pathlib import Path
+lazy from pathlib import Path
 
 import pytest
 from source_util import SourceFixture, write_source, write_store_fixture

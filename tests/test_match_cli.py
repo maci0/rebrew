@@ -711,7 +711,7 @@ class TestKunaSeed:
         seen: dict = {}
 
         class FakeGA:
-            def __init__(self, *a, **k):
+            def __init__(self, *a, **k) -> None:
                 seen["extra_seeds"] = k.get("extra_seeds")
 
             def run(self, clock=None):
@@ -786,7 +786,7 @@ class TestKunaSeed:
         constructed: list = []
 
         class FakeGA:
-            def __init__(self, *a, **k):
+            def __init__(self, *a, **k) -> None:
                 constructed.append(a)
 
         monkeypatch.setattr(match_mod, "BinaryMatchingGA", FakeGA)
@@ -855,7 +855,7 @@ class TestLlmSeedMisconfiguration:
         seen: dict = {}
 
         class FakeGA:
-            def __init__(self, *a, **k):
+            def __init__(self, *a, **k) -> None:
                 seen["extra_seeds"] = k.get("extra_seeds")
 
             def run(self, clock=None):
@@ -914,7 +914,7 @@ class TestLlmSeedMisconfiguration:
         seen: dict = {}
 
         class FakeGA:
-            def __init__(self, *a, **k):
+            def __init__(self, *a, **k) -> None:
                 seen["extra_seeds"] = k.get("extra_seeds")
 
             def run(self, clock=None):
@@ -964,7 +964,7 @@ class TestLlmSeedMisconfiguration:
         constructed: list = []
 
         class FakeGA:
-            def __init__(self, *a, **k):
+            def __init__(self, *a, **k) -> None:
                 constructed.append(a)
 
         monkeypatch.setattr(match_mod, "BinaryMatchingGA", FakeGA)

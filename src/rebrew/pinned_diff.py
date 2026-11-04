@@ -56,7 +56,7 @@ class SequenceMatcherWithPins:
         a: Sequence[str],
         b: Sequence[str],
         pinned_lines: Iterable[tuple[int, int]],
-    ):
+    ) -> None:
         self.a = list(a)
         self.b = list(b)
         valid_pins = (

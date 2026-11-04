@@ -1,7 +1,7 @@
 """Tests for verify.py prepare_entries filtering and dedup."""
 
-from pathlib import Path
 from types import SimpleNamespace
+lazy from pathlib import Path
 
 import pytest
 from cache_util import cache_text as _cache_text

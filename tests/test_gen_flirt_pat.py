@@ -1,8 +1,8 @@
 """Tests for rebrew.gen_flirt_pat — archive parsing and PAT line generation."""
 
 import struct
-from pathlib import Path
 from types import SimpleNamespace
+lazy from pathlib import Path
 
 import pytest
 from bin_util import make_coff_obj, make_lib_archive

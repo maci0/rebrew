@@ -7,7 +7,7 @@ the base relocation table, so the command reads the same tables a linker writes.
 from __future__ import annotations
 
 import struct
-from pathlib import Path
+lazy from pathlib import Path
 
 import lief
 import pytest

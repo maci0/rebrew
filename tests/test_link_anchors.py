@@ -1,6 +1,6 @@
 """Target isolation and definition ownership in generated linker anchors."""
 
-from pathlib import Path
+lazy from pathlib import Path
 
 from rebrew.config import load_config
 from rebrew.link_anchors import anchor_symbols

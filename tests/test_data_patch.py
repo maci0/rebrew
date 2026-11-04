@@ -1,8 +1,8 @@
 """Atomic non-verdict patches, strict previews and reviewed-input rejection."""
 
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
+lazy from pathlib import Path
 
 import pytest
 
@@ -11,6 +11,9 @@ from rebrew.metadata.data import (
     patch_data_fields_batch,
     set_data_fields_batch,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 
 def _update(va: int = 0x401000, **fields: Any) -> dict[str, Any]:
@@ -89,7 +92,6 @@ class TestDataPatch:
         assert (path.read_bytes(), path.stat()) == before
 
     def test_rechecks_digest_under_lock(self, tmp_path: Path) -> None:
-        from collections.abc import Iterator
         from contextlib import contextmanager
 
         from rebrew.metadata.storage import metadata_write_lock

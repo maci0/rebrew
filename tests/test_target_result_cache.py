@@ -1,9 +1,9 @@
 """Target-isolated verification receipts and last-good compare baselines."""
 
 from dataclasses import replace
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+lazy from pathlib import Path
 
 import pytest
 

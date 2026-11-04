@@ -10,8 +10,8 @@ everything else (data rows, exports, FUNCTION names) must stay in.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
+lazy from pathlib import Path
 
 import pytest
 from source_util import write_source

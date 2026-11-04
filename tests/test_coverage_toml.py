@@ -14,12 +14,12 @@ import os
 import re
 import tomllib
 import unicodedata
-from collections.abc import Callable
 from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, cast
+from typing import Any, ClassVar, cast
+lazy from collections.abc import Callable
 
 import pytest
 
@@ -510,7 +510,7 @@ class TestVerifyResults:
     ``last_verify`` panel had nothing to read.
     """
 
-    ENTRY: dict[str, Any] = {
+    ENTRY: ClassVar[dict[str, Any]] = {
         "va": "0x10001000",
         "status": "NEAR_MATCHING",
         "delta": 3,
@@ -730,7 +730,7 @@ class TestAtomic:
         def boom(src: object, dst: object) -> None:
             raise OSError("disk full")
 
-        monkeypatch.setattr(cast(Any, utils).os, "replace", boom)
+        monkeypatch.setattr(cast("Any", utils).os, "replace", boom)
         with pytest.raises(OSError, match="disk full"):
             atomic_write_text(path, "bad\n")
         assert path.read_text(encoding="utf-8") == "good\n"

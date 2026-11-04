@@ -1,8 +1,8 @@
 """Tests for rebrew data mark-literals: link-map literals into rebrew-data.toml rows."""
 
 import tomllib
-from pathlib import Path
 from typing import Any
+lazy from pathlib import Path
 
 import pytest
 from cli_json import cli_payload

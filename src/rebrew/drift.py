@@ -35,11 +35,11 @@ lazy from typing import Any
 lazy from rebrew.utils import parse_int_literal
 
 __all__ = [
-    "DriftWindow",
     "DerivedRegion",
+    "DriftWindow",
     "branch_targets",
-    "drift_windows",
     "derive_regions",
+    "drift_windows",
 ]
 
 

@@ -16,7 +16,7 @@ passed BEFORE the positional binary path.
 from __future__ import annotations
 
 import struct
-from pathlib import Path
+lazy from pathlib import Path
 
 from bin_util import make_pe
 from cli_json import cli_payload

@@ -443,7 +443,7 @@ def _backend_hash(backend: Any, data: bytes) -> str | None:
     field to ``None`` rather than aborting the bundle.
     """
     try:
-        return cast(str, backend.hash(data))
+        return cast("str", backend.hash(data))
     except Exception as exc:
         # None is recorded as "this backend declined"; a crash looks identical
         # without this line.
@@ -546,7 +546,7 @@ def main(
         table.add_row(key, rendered)
     console.print(table)
 
-    sections = cast(list[dict[str, object]], bundle["section_entropies"])
+    sections = cast("list[dict[str, object]]", bundle["section_entropies"])
     if sections:
         section_table = TerminalTable(title="Sections")
         section_table.add_column("Name")
@@ -562,7 +562,7 @@ def main(
                 va_text,
                 str(section["vsize"]),
                 str(section["raw_size"]),
-                f"{float(cast(float, section['entropy'])):.4f}",
+                f"{float(cast('float', section['entropy'])):.4f}",
             )
         console.print(section_table)
 

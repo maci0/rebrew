@@ -7,8 +7,8 @@ These tests assert public behavior (load_config values, detect/discover
 results, reloc application), never private table contents.
 """
 
-from pathlib import Path
 from types import SimpleNamespace
+lazy from pathlib import Path
 
 import pytest
 

@@ -5,9 +5,9 @@ Catches nondeterminism (dict ordering, timestamps, unordered iteration)
 in dry-run reporting paths across the file-level and listing CLIs.
 """
 
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+lazy from pathlib import Path
 
 import pytest
 from source_util import SourceFixture, write_source, write_store_fixture

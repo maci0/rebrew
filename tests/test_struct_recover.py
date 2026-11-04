@@ -1,8 +1,8 @@
 """Tests for struct_recover.py — struct recovery from decompiler output."""
 
 import itertools
-from pathlib import Path
 from types import SimpleNamespace
+lazy from pathlib import Path
 
 import pytest
 from cli_json import cli_payload

@@ -6,7 +6,7 @@ LIEF (~0.11 s per command).  Freshness is the contract: a layout older
 than the binary must fall back to a real parse, never serve stale VAs.
 """
 
-from pathlib import Path
+lazy from pathlib import Path
 
 from rebrew.layout_meta import read_layout_header
 

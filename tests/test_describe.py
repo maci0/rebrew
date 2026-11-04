@@ -9,10 +9,10 @@ annotations and a function list so the dossier can resolve names.
 from __future__ import annotations
 
 import struct
-from collections.abc import Iterator
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+lazy from collections.abc import Iterator
+lazy from pathlib import Path
 
 import pytest
 from bin_util import append_pe_section, make_pe

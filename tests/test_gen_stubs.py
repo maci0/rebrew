@@ -1,7 +1,7 @@
 """Tests for rebrew build symbol-stubs (unresolved linker symbol stub TU generation)."""
 
 import sys
-from pathlib import Path
+lazy from pathlib import Path
 
 import pytest
 from cli_json import cli_payload

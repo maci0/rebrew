@@ -1,7 +1,7 @@
 """Tests for rebrew.metadata.document: qualified-key algebra, doc parse/build, write lock."""
 
-from pathlib import Path
 from typing import Any
+lazy from pathlib import Path
 
 import pytest
 

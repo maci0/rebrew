@@ -21,9 +21,9 @@ import shutil
 import subprocess
 import threading
 import time
-from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
+lazy from collections.abc import Mapping
 
 import pytest
 from cli_json import cli_payload

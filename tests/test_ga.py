@@ -1679,8 +1679,13 @@ class TestSkipRecent:
         ]
         for i, (given, _exp) in enumerate(calls):
             record_ga_run(
-                root, target="SERVER", va=f"0x{i:x}", symbol=f"_s{i}",
-                matched=True, ts=given, solved_at=given,
+                root,
+                target="SERVER",
+                va=f"0x{i:x}",
+                symbol=f"_s{i}",
+                matched=True,
+                ts=given,
+                solved_at=given,
             )
         lines = (root / ".rebrew" / "ga_runs.jsonl").read_text(encoding="utf-8").splitlines()
         for line, (_given, expected) in zip(lines, calls, strict=True):

@@ -1,7 +1,7 @@
 """CLI tests for rebrew library scan-signatures — main() with stubbed signature loading."""
 
-from pathlib import Path
 from types import SimpleNamespace
+lazy from pathlib import Path
 
 import pytest
 from cli_json import cli_payload

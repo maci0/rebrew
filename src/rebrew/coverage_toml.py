@@ -28,11 +28,10 @@ Two consequences of writing TOML are load-bearing and stated once here:
 import contextlib
 import logging
 import threading
-from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from functools import lru_cache
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 lazy import json
 lazy import math
 lazy import tomllib
@@ -61,6 +60,9 @@ lazy from rebrew.metadata.bindings import FUNCTION_KINDS, SYMBOL_KINDS
 lazy from rebrew.metadata.functions import canonical_status
 lazy from rebrew.utils import atomic_write_text, clip_span, file_lock, floor_pct, read_toml_text, toml_safe
 lazy from rebrew.workspace.status import MATCHED_STATUSES
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator, Mapping, Sequence
 
 log = logging.getLogger(__name__)
 

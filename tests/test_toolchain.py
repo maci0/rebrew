@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
+lazy from collections.abc import Iterator
 
 import pytest
 from cli_json import cli_payload
@@ -31,7 +31,7 @@ class _FakeProc:
 class _DownloadResponse:
     """httpx.stream() stand-in for the pinned-download retry tests."""
 
-    headers: dict[str, str] = {}
+    headers: ClassVar[dict[str, str]] = {}
     status_code = 200
 
     def __init__(
@@ -134,8 +134,8 @@ class TestRegistry:
         import rebrew.compiler.toolchain as tc
 
         assert tc.__all__ == [
-            "RunResult",
             "TOOLCHAINS",
+            "RunResult",
             "ToolchainError",
             "ToolchainErrorKind",
             "ToolchainSpec",

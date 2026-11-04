@@ -1,8 +1,8 @@
 """Unit tests for tools/validate_skill_commands.py — command extraction."""
 
 import subprocess
-from pathlib import Path
 from typing import Any
+lazy from pathlib import Path
 
 import pytest
 import typer

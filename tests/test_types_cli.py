@@ -1,7 +1,7 @@
 """Tests for rebrew.types_cli — evidence collection + name resolution."""
 
-from pathlib import Path
 from typing import Any
+lazy from pathlib import Path
 
 import pytest
 from cli_json import cli_payload

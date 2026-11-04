@@ -1,9 +1,9 @@
 """Address-only sources bind syntax; dedicated stores own every other field."""
 
 import logging
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+lazy from pathlib import Path
 
 import pytest
 

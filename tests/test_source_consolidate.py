@@ -2,8 +2,8 @@
 
 import hashlib
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 from typing import Any
+lazy from pathlib import Path
 
 import pytest
 import tomlkit

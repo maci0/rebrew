@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import random
 import struct
-from pathlib import Path
+lazy from pathlib import Path
 
 import pytest
 

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
+lazy from pathlib import Path
 
 import pytest
 from cli_json import cli_payload

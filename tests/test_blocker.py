@@ -1,6 +1,6 @@
 """Tests for rebrew blocker CLI — programmatic BLOCKER writer."""
 
-from pathlib import Path
+lazy from pathlib import Path
 
 from cli_json import cli_payload
 from source_util import write_source

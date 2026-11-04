@@ -13,8 +13,8 @@ these tests do not prove the paper's independence and confinement premises.
 
 from __future__ import annotations
 
-from pathlib import Path
 from types import SimpleNamespace
+lazy from pathlib import Path
 
 from hypothesis import given
 from hypothesis import strategies as st

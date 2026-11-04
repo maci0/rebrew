@@ -1,8 +1,8 @@
 """`library adopt` records a proved stock-archive identity over a FUNCTION claim."""
 
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+lazy from pathlib import Path
 
 from bin_util import make_coff_obj, make_lib_archive, make_pe
 from typer.testing import CliRunner

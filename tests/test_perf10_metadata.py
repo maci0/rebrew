@@ -1,9 +1,9 @@
 """Cold metadata reads keep isolation, and the perf10 metadata benchmarks measure real work."""
 
 import json
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, override
+lazy from pathlib import Path
 
 import pytest
 

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Iterator
 from pathlib import Path
+lazy from collections.abc import Iterator
 
 import pytest
 from source_util import write_source

@@ -1,7 +1,7 @@
 """Tests for rebrew.extract — byte extraction, detect_reversed_vas, cmd_list."""
 
 import re
-from pathlib import Path
+lazy from pathlib import Path
 
 import pytest
 from source_util import write_source

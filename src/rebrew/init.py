@@ -423,7 +423,7 @@ def _write_completion_scripts(project_root: Path) -> list[Path]:
     # typer>=0.25 vendors click (typer._click): the command object is no
     # longer a click.core.Command, but the completion classes only use its
     # runtime shape.  Cast instead of pinning either type.
-    cli_command = cast(Any, cli_command)
+    cli_command = cast("Any", cli_command)
     prog_name = "rebrew"
     complete_var = f"_{prog_name.replace('-', '_').replace('.', '_')}_COMPLETE".upper()
 

@@ -1,8 +1,8 @@
 """Xtensa ELF detection and exact, bounded relocation regression checks."""
 
 import struct
-from pathlib import Path
 from types import SimpleNamespace
+lazy from pathlib import Path
 
 import pytest
 from bin_util import make_elf

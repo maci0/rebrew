@@ -6,7 +6,7 @@ order can fail at load time.
 
 import importlib.util
 from pathlib import Path
-from types import ModuleType
+lazy from types import ModuleType
 
 _ROOT = Path(__file__).resolve().parent.parent
 

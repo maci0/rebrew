@@ -1557,7 +1557,7 @@ class TestCompileToObjCacheIntegration:
         workdir1 = tmp_path / "w1"
         workdir1.mkdir()
         obj1, err1 = compile_to_obj(
-            cast(ProjectConfig, cfg),
+            cast("ProjectConfig", cfg),
             source,
             ["/O2"],
             workdir1,
@@ -1570,7 +1570,7 @@ class TestCompileToObjCacheIntegration:
         workdir2 = tmp_path / "w2"
         workdir2.mkdir()
         obj2, err2 = compile_to_obj(
-            cast(ProjectConfig, cfg),
+            cast("ProjectConfig", cfg),
             source,
             ["/O2"],
             workdir2,
@@ -1612,7 +1612,7 @@ class TestCompileToObjCacheIntegration:
             wd = tmp_path / f"w{i}"
             wd.mkdir()
             compile_to_obj(
-                cast(ProjectConfig, cfg),
+                cast("ProjectConfig", cfg),
                 source,
                 ["/O2"],
                 wd,
@@ -1647,7 +1647,7 @@ class TestCompileToObjCacheIntegration:
             wd = tmp_path / f"w{i}"
             wd.mkdir()
             compile_to_obj(
-                cast(ProjectConfig, cfg),
+                cast("ProjectConfig", cfg),
                 source,
                 flags,
                 wd,
@@ -1670,7 +1670,7 @@ class TestCompileToObjCacheIntegration:
         workdir = tmp_path / "w"
         workdir.mkdir()
         obj, err = compile_to_obj(
-            cast(ProjectConfig, cfg),
+            cast("ProjectConfig", cfg),
             tmp_path / "does_not_exist.c",
             ["/O2"],
             workdir,
@@ -1705,7 +1705,7 @@ class TestCompileToObjCacheIntegration:
             wd = tmp_path / f"w{i}"
             wd.mkdir()
             obj, err = compile_to_obj(
-                cast(ProjectConfig, cfg),
+                cast("ProjectConfig", cfg),
                 source,
                 ["/O2"],
                 wd,

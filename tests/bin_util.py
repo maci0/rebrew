@@ -12,8 +12,8 @@ into ``sys.path``.
 from __future__ import annotations
 
 import struct
-from collections.abc import Sequence
-from pathlib import Path
+lazy from collections.abc import Sequence
+lazy from pathlib import Path
 
 _TEXT_CHARS = 0x60000020  # CODE | EXECUTE | READ | CNT_CODE
 

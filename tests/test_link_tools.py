@@ -4,7 +4,7 @@ build link-stubs, build check-data-placement, and build layout --data-gap."""
 from __future__ import annotations
 
 import struct
-from pathlib import Path
+lazy from pathlib import Path
 
 import pytest
 from cli_json import cli_payload

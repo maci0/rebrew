@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import importlib
 import sys
-from pathlib import Path
+lazy from pathlib import Path
 
 import pytest
 

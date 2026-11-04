@@ -1,9 +1,9 @@
 """Clearing saved compiler flags preserves earned status and all other metadata."""
 
 import json
-from pathlib import Path
 from typing import Any
 from unittest.mock import patch
+lazy from pathlib import Path
 
 from typer.testing import CliRunner
 

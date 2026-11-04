@@ -22,7 +22,7 @@ random bytes, and assert:
 from __future__ import annotations
 
 import struct
-from pathlib import Path
+lazy from pathlib import Path
 
 import pytest
 from hypothesis import given, settings

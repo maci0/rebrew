@@ -1,7 +1,8 @@
 """Reviewed source claims retain native identities and historical comparisons."""
 
-from pathlib import Path
+from typing import Any
 from unittest.mock import patch
+lazy from pathlib import Path
 
 import pytest
 from cli_json import cli_payload
@@ -636,10 +637,10 @@ class TestBatchBindingChanges:
         real = module.metadata_store
 
         class CountingStore:
-            def __init__(self, path):
+            def __init__(self, path) -> None:
                 self._store = real(path)
 
-            def __getattr__(self, name):
+            def __getattr__(self, name: str) -> Any:
                 return getattr(self._store, name)
 
             def write(self, *args, **kwargs):

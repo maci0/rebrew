@@ -1,7 +1,7 @@
 """Tests for rebrew source inline-strings (string-literal global materialization)."""
 
 import re
-from pathlib import Path
+lazy from pathlib import Path
 
 import pytest
 from cli_json import cli_payload

@@ -27,11 +27,11 @@ import re
 import subprocess
 import sys
 import tempfile
-from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from types import ModuleType
 from typing import Any
+lazy from collections.abc import Sequence
+lazy from types import ModuleType
 
 from rebrew.binsync.git import GIT_NETWORK_TIMEOUT
 from rebrew.flags import Checkbox, FlagSet

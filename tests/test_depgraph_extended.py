@@ -1,7 +1,7 @@
 """Tests for rebrew depgraph — build_graph branches, summary edges, CLI main."""
 
-from pathlib import Path
 from types import SimpleNamespace
+lazy from pathlib import Path
 
 import pytest
 from cli_json import cli_payload

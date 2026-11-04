@@ -4,8 +4,8 @@ import hashlib
 import struct
 import subprocess
 import sys
-from pathlib import Path
 from unittest.mock import patch
+lazy from pathlib import Path
 
 import pytest
 from bin_util import make_coff_obj, make_pe

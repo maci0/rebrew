@@ -1,7 +1,7 @@
 """Unit tests for tools/detect_cycles.py helpers."""
 
 import ast
-from pathlib import Path
+lazy from pathlib import Path
 
 from tools import detect_cycles as dc
 

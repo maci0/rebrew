@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+from typing import ClassVar
 
 from rebrew.toolchain_detect import (
     ToolchainInfo,
@@ -585,7 +586,7 @@ class TestNEStringDetection:
 class TestCrtLinkage:
     """CRT-linkage detection from PE imports (msvcrt.dll -> /MD)."""
 
-    _MSVC_DETS = [
+    _MSVC_DETS: ClassVar[list[dict]] = [
         {
             "values": [
                 {

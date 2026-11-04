@@ -28,10 +28,9 @@ own order at 0x10018c49 / 0x10018c59.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Sequence
 from difflib import Match, SequenceMatcher
 from functools import lru_cache, partial
-from typing import Any, Literal, override
+from typing import TYPE_CHECKING, Any, Literal, override
 lazy import contextlib
 lazy import os
 lazy import signal
@@ -70,6 +69,9 @@ lazy from rebrew.utils import (
     source_backup,
     untrusted_ident,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Sequence
 
 app = typer.Typer(
     help="Deterministic single-statement hill-climb for one function.",

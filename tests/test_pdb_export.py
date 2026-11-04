@@ -6,7 +6,7 @@ import re
 import shutil
 import struct
 import uuid
-from pathlib import Path
+lazy from pathlib import Path
 
 import lief
 import pytest

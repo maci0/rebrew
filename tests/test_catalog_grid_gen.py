@@ -1,13 +1,16 @@
 """Tests for catalog/grid.build_coverage_data — absorption, gap classification, cells."""
 
 import struct
-from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any
+lazy from pathlib import Path
 
 from rebrew.catalog.grid import build_coverage_data
 from rebrew.metadata.bindings import SourceBinding
 from rebrew.utils import floor_pct
+
+if TYPE_CHECKING:
+    from rebrew.catalog.registry import RegistryEntry
 
 TEXT_VA = 0x1000
 TEXT_SIZE = 0x3000
@@ -626,7 +629,6 @@ class TestUnannotatedBoundaries:
     """
 
     def test_unannotated_function_not_absorbed(self, monkeypatch, tmp_path: Path) -> None:
-        from rebrew.catalog.registry import RegistryEntry
 
         size = 0x100
         blob = bytearray(b"\xcc" * size)

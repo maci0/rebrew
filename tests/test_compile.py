@@ -1,10 +1,10 @@
 """Tests for rebrew.compiler.compile — resolve_cl_command and compile_and_compare helpers."""
 
 import subprocess
-from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
+lazy from collections.abc import Callable
 
 import pytest
 
@@ -161,7 +161,7 @@ class TestCompileToObj:
         source = src_dir / "f.c"
         source.write_text("int f(void){return 1;}\n", encoding="utf-8")
 
-        obj_path, err = compile_to_obj(cast(ProjectConfig, cfg), source, ["/O2"], tmp_path)
+        obj_path, err = compile_to_obj(cast("ProjectConfig", cfg), source, ["/O2"], tmp_path)
         assert obj_path is None
         assert "Failed to copy source into workdir" in err
 
@@ -197,7 +197,7 @@ class TestCompileToObj:
         workdir = tmp_path / "work"
         workdir.mkdir()
 
-        obj_path, err = compile_to_obj(cast(ProjectConfig, cfg), source, ["/O2"], workdir)
+        obj_path, err = compile_to_obj(cast("ProjectConfig", cfg), source, ["/O2"], workdir)
         assert err == ""
         assert obj_path is not None
         assert any("/FImy forced.h" in a for a in captured["args"])
@@ -246,9 +246,9 @@ class TestCompileToObj:
         workdir = tmp_path / "work"
         workdir.mkdir()
 
-        compile_to_obj(cast(ProjectConfig, cfg), source, ["/O2"], workdir, cache=_FakeCache())
+        compile_to_obj(cast("ProjectConfig", cfg), source, ["/O2"], workdir, cache=_FakeCache())
         compile_to_obj(
-            cast(ProjectConfig, cfg),
+            cast("ProjectConfig", cfg),
             source,
             ["/O2"],
             workdir,
@@ -307,7 +307,7 @@ class TestCompileToObj:
         workdir = tmp_path / "work"
         workdir.mkdir()
 
-        compile_to_obj(cast(ProjectConfig, cfg), source, ["/O2"], workdir, cache=_FakeCache())
+        compile_to_obj(cast("ProjectConfig", cfg), source, ["/O2"], workdir, cache=_FakeCache())
         assert compiled == [old]
         assert len(stored) == 1
 
@@ -366,7 +366,7 @@ class TestCompileToObj:
         workdir.mkdir()
 
         obj_path, err = compile_to_obj(
-            cast(ProjectConfig, cfg), source, ["/O2"], workdir, cache=_FakeCache()
+            cast("ProjectConfig", cfg), source, ["/O2"], workdir, cache=_FakeCache()
         )
         assert err == ""
         assert obj_path is not None
@@ -429,7 +429,7 @@ class TestCompileToObj:
             workdir = tmp_path / name
             workdir.mkdir()
             obj_path, err = compile_to_obj(
-                cast(ProjectConfig, cfg), source, ["/O2"], workdir, cache=_FakeCache()
+                cast("ProjectConfig", cfg), source, ["/O2"], workdir, cache=_FakeCache()
             )
             assert err == ""
             assert obj_path is not None
@@ -483,7 +483,7 @@ class TestCompileToObj:
         workdir.mkdir()
 
         obj_path, err = compile_to_obj(
-            cast(ProjectConfig, cfg), source, ["/O2"], workdir, cache=_FakeCache()
+            cast("ProjectConfig", cfg), source, ["/O2"], workdir, cache=_FakeCache()
         )
 
         assert obj_path is None
@@ -527,7 +527,7 @@ class TestCompileToObjPosix:
         workdir.mkdir()
 
         obj_path, err = compile_to_obj(
-            cast(ProjectConfig, cfg), source, ["-O2", "-fno-builtin"], workdir
+            cast("ProjectConfig", cfg), source, ["-O2", "-fno-builtin"], workdir
         )
         assert err == ""
         assert obj_path is not None
@@ -573,7 +573,7 @@ class TestCompileToObjPosix:
         workdir = tmp_path / "work"
         workdir.mkdir()
 
-        obj_path, err = compile_to_obj(cast(ProjectConfig, cfg), source, ["/O2"], workdir)
+        obj_path, err = compile_to_obj(cast("ProjectConfig", cfg), source, ["/O2"], workdir)
         assert err == ""
         assert obj_path is not None
         assert any(a.startswith("/Fo") for a in captured["args"])
@@ -623,7 +623,9 @@ class TestSourceInWorkdir:
             posix_style=not profile.startswith("msvc"),
             msvc_env=lambda: {},
         )
-        obj, error = compile_to_obj(cast(ProjectConfig, cfg), source, [], workdir, use_cache=False)
+        obj, error = compile_to_obj(
+            cast("ProjectConfig", cfg), source, [], workdir, use_cache=False
+        )
         assert obj is not None, error
         assert source.read_text() == '#include "../header.h"\nint f(void){return VALUE;}\n'
 
@@ -702,7 +704,7 @@ class TestCompileErrorExcerpt:
             msvc_env=lambda: {},
         )
         result = compile_and_compare(
-            cast(ProjectConfig, cfg),
+            cast("ProjectConfig", cfg),
             source,
             "_f",
             b"\x90" * 8,
@@ -757,7 +759,7 @@ class TestCompileErrorExcerpt:
             msvc_env=lambda: {},
         )
         result = compile_and_compare(
-            cast(ProjectConfig, cfg),
+            cast("ProjectConfig", cfg),
             source,
             "_f",
             b"\x90" * 8,
@@ -828,7 +830,7 @@ class TestPosixDropsMsvcBaseCflags:
             msvc_env=lambda: {},
         )
         result = compile_and_compare(
-            cast(ProjectConfig, cfg),
+            cast("ProjectConfig", cfg),
             source,
             "_f",
             b"\x90" * 8,
@@ -883,7 +885,7 @@ class TestPosixDropsMsvcBaseCflags:
             msvc_env=lambda: {},
         )
         compile_and_compare(
-            cast(ProjectConfig, cfg),
+            cast("ProjectConfig", cfg),
             source,
             "_f",
             b"\x90" * 8,
@@ -2079,7 +2081,7 @@ class TestPinnedImageExecution:
         work = tmp_path / "w1"
         work.mkdir()
         obj, err = compile_to_obj(
-            cast(ProjectConfig, self._cfg(tmp_path)), source, ["/O2"], work, cache=_Cache()
+            cast("ProjectConfig", self._cfg(tmp_path)), source, ["/O2"], work, cache=_Cache()
         )
         assert err == "" and obj is not None
         assert ran["image_id"] == _ID_A
@@ -2097,7 +2099,7 @@ class TestPinnedImageExecution:
         work2 = tmp_path / "w2"
         work2.mkdir()
         obj2, err = compile_to_obj(
-            cast(ProjectConfig, self._cfg(tmp_path)), source, ["/O2"], work2, cache=_Cache()
+            cast("ProjectConfig", self._cfg(tmp_path)), source, ["/O2"], work2, cache=_Cache()
         )
         assert err == "" and obj2 is not None
         assert ran["image_id"] == _ID_B
@@ -2137,7 +2139,7 @@ class TestPinnedImageExecution:
         work = tmp_path / "w"
         work.mkdir()
         obj, err = compile_to_obj(
-            cast(ProjectConfig, self._cfg(tmp_path)), source, ["/O2"], work, cache=_Cache()
+            cast("ProjectConfig", self._cfg(tmp_path)), source, ["/O2"], work, cache=_Cache()
         )
         assert err == "" and obj is not None
         assert Path(obj).read_bytes() == b"fresh"
@@ -2311,7 +2313,7 @@ class TestPinnedImageExecution:
         work = tmp_path / "w"
         work.mkdir()
         obj, err = compile_to_obj(
-            cast(ProjectConfig, self._cfg(tmp_path)), source, ["/O2"], work, cache=_Cache()
+            cast("ProjectConfig", self._cfg(tmp_path)), source, ["/O2"], work, cache=_Cache()
         )
         assert obj is None
         assert "Unable to find image" in err
@@ -2728,7 +2730,7 @@ def test_compare_forwards_staged_source_include_dirs(tmp_path, monkeypatch):
 
     monkeypatch.setattr(compile_mod, "compile_to_obj", compile_obj)
     result = compile_and_compare(
-        cast(ProjectConfig, SimpleNamespace()),
+        cast("ProjectConfig", SimpleNamespace()),
         tmp_path / "copy.c",
         "_demo",
         b"target",

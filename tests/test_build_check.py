@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import os
 import subprocess
-from pathlib import Path
+lazy from pathlib import Path
 
 import pytest
 from cli_json import cli_payload

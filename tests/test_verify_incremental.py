@@ -7,7 +7,7 @@ import time
 import tomllib
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from cache_util import cache_text
@@ -34,6 +34,9 @@ from rebrew.verify_hash import (
     headers_hash,
     source_hash,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 runner = CliRunner()
 
@@ -1014,7 +1017,6 @@ class TestPatchVerifyCacheEntries:
     def test_filtered_save_preserves_concurrent_patch(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from collections.abc import Iterator
         from concurrent.futures import ThreadPoolExecutor
         from contextlib import contextmanager
         from threading import Event, current_thread, main_thread

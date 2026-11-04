@@ -1,7 +1,7 @@
 """PE machine and optional-header metadata must remain independent."""
 
 import struct
-from pathlib import Path
+lazy from pathlib import Path
 
 import capstone
 import pytest

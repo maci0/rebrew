@@ -1,6 +1,6 @@
 """Tests for rebrew build check-tu-data: per-object TU shape from an MSVC link map."""
 
-from pathlib import Path
+lazy from pathlib import Path
 
 import pytest
 from cli_json import cli_payload

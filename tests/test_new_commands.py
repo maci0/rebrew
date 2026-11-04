@@ -1,6 +1,7 @@
 """Tests for diagnose probe, match qualifiers, diagnose gap, and build residue."""
 
-from pathlib import Path
+from typing import ClassVar
+lazy from pathlib import Path
 
 import pytest
 from cli_json import cli_payload
@@ -210,8 +211,11 @@ class TestGapTraceHelpers:
                 self.is_function = is_function
 
         class FakeBinary:
-            sections = [FakeSection(".text", b"\x90" * 8), FakeSection(".text", b"\x55\x8b\xec")]
-            symbols = [FakeSymbol(1, False), FakeSymbol(2, True)]
+            sections: ClassVar[list[object]] = [
+                FakeSection(".text", b"\x90" * 8),
+                FakeSection(".text", b"\x55\x8b\xec"),
+            ]
+            symbols: ClassVar[list[object]] = [FakeSymbol(1, False), FakeSymbol(2, True)]
 
         monkeypatch.setattr(lief, "parse", lambda _path: FakeBinary())
         body, _rels = gap_trace._obj_text(str(tmp_path / "fake.obj"))
@@ -231,8 +235,11 @@ class TestGapTraceHelpers:
                 self.relocations: list[object] = []
 
         class FakeBinary:
-            sections = [FakeSection(".text", b"\x90" * 4), FakeSection(".rdata", b"\x01")]
-            symbols: list[object] = []
+            sections: ClassVar[list[object]] = [
+                FakeSection(".text", b"\x90" * 4),
+                FakeSection(".rdata", b"\x01"),
+            ]
+            symbols: ClassVar[list[object]] = []
 
         monkeypatch.setattr(lief, "parse", lambda _path: FakeBinary())
         body, _rels = gap_trace._obj_text(str(tmp_path / "fake.obj"))
@@ -288,8 +295,8 @@ class TestGapTraceHelpers:
         monkeypatch.setattr(gap_trace, "load_binary", lambda *_a: SimpleNamespace())
 
         ref = [
-            Insn(0x1000, 1, "nop", "", cast(bytes, bytearray(b"\x90"))),
-            Insn(0x1001, 2, "je", "0x1005", cast(bytes, bytearray(b"\x74\x03"))),
+            Insn(0x1000, 1, "nop", "", cast("bytes", bytearray(b"\x90"))),
+            Insn(0x1001, 2, "je", "0x1005", cast("bytes", bytearray(b"\x74\x03"))),
         ]
         obj = [
             SimpleNamespace(address=0x1000, bytes=bytearray(b"\x90"), mnemonic="nop", op_str=""),

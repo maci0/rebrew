@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+lazy from pathlib import Path
 
 import pytest
 from bin_util import make_pe

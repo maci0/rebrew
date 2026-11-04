@@ -1,7 +1,7 @@
 """Tests for rebrew orphans CLI — list/prune orphaned metadata blocks + drop."""
 
-from pathlib import Path
 from types import SimpleNamespace
+lazy from pathlib import Path
 
 import pytest
 from cli_json import cli_payload

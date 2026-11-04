@@ -1,6 +1,6 @@
 """Tests for match.py annotation parsing filters."""
 
-from pathlib import Path
+lazy from pathlib import Path
 
 from source_util import SourceFixture, write_source
 

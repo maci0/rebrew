@@ -7,8 +7,8 @@ pins the assembly source for its host tree.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Literal, cast, get_args
+lazy from pathlib import Path
 
 #: Flag syntax a toolchain takes: MSVC's ``/I``/``/Fo``/``/c`` or POSIX's
 #: ``-I``/``-o``/``-c``.  Drives config's ``posix_style`` and the default
@@ -25,7 +25,7 @@ def flags_style_from_str(value: object) -> FlagsStyle:
     style = str(value or "msvc")
     if style not in ("msvc", "posix"):
         raise ValueError(f"flags_style must be 'msvc' or 'posix', got {style!r}")
-    return cast(FlagsStyle, style)
+    return cast("FlagsStyle", style)
 
 
 #: How a compiler takes its input and emits its object, beyond flag syntax:
@@ -44,7 +44,7 @@ def arg_style_from_str(value: object) -> ArgStyle:
     style = str(value)
     if style not in ARG_STYLES:
         raise ValueError(f"arg_style must be one of {sorted(ARG_STYLES)}, got {style!r}")
-    return cast(ArgStyle, style)
+    return cast("ArgStyle", style)
 
 
 @dataclass(frozen=True)

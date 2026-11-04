@@ -5,7 +5,7 @@ Covers: parser consolidation, CFLAGS validation, safe file write-back,
 """
 
 import re
-from pathlib import Path
+lazy from pathlib import Path
 
 import pytest
 from source_util import SourceFixture, write_source

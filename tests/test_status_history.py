@@ -1,7 +1,7 @@
 """Status history survives dashboard restarts and explicit snapshot retirement."""
 
 from datetime import UTC, datetime
-from pathlib import Path
+lazy from pathlib import Path
 
 import pytest
 

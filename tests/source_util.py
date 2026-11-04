@@ -1,8 +1,8 @@
 """Build source fixtures with address anchors and explicit canonical metadata."""
 
-from collections.abc import Iterator
-from pathlib import Path
 from typing import Any, SupportsIndex, override
+lazy from collections.abc import Iterator
+lazy from pathlib import Path
 
 import pytest
 

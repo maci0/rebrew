@@ -1,8 +1,8 @@
 """End-to-end sync reconciliation, evidence retention and failure recovery."""
 
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
+lazy from pathlib import Path
 
 import pytest
 import tomlkit

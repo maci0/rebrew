@@ -1,8 +1,8 @@
 """Tests for rebrew binary extract.py — load_functions, cmd_extract/batch, CLI."""
 
 import json
-from pathlib import Path
 from types import SimpleNamespace
+lazy from pathlib import Path
 
 import pytest
 import typer

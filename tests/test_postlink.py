@@ -15,7 +15,8 @@ wrong ``.data`` raw size + operand, stamped headers), then asserts that
 from __future__ import annotations
 
 import struct
-from pathlib import Path
+from typing import ClassVar
+lazy from pathlib import Path
 
 import pytest
 from cli_json import cli_payload
@@ -216,7 +217,10 @@ def _write(tmp_path: Path, name: str, data: bytes) -> Path:
 
 
 class TestImportsFixer:
-    IMPORTS = [("KERNEL32.dll", ["GetLocalTime", "WriteFile"]), ("USER32.dll", ["MessageBoxA"])]
+    IMPORTS: ClassVar[list[tuple[str, list[str]]]] = [
+        ("KERNEL32.dll", ["GetLocalTime", "WriteFile"]),
+        ("USER32.dll", ["MessageBoxA"]),
+    ]
 
     def test_converges_scrambled_records(self, tmp_path: Path) -> None:
         ref = _write(tmp_path, "ref.dll", make_full_pe(imports=self.IMPORTS))
@@ -307,7 +311,7 @@ class TestImportsFixer:
 
 
 class TestDataFixer:
-    IMPORTS: list[tuple[str, list[str]]] = []
+    IMPORTS: ClassVar[list[tuple[str, list[str]]]] = []
 
     def test_grows_data_and_rewrites_operand(self, tmp_path: Path) -> None:
         # .text: mov eax, imm32 (B8 + 4 bytes) referencing .data

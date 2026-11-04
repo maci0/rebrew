@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from types import SimpleNamespace
+lazy from pathlib import Path
 
 from rebrew.pdb_info import _parse_compile3, _parse_procs, extract_pdb_info
 

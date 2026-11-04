@@ -1,9 +1,9 @@
 """CLI tests for rebrew cu_map — main() with stubbed registry/clustering."""
 
 import json
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+lazy from pathlib import Path
 
 import pytest
 import typer

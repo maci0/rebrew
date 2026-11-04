@@ -128,7 +128,7 @@ class TestDiscoverFunctions:
         # Mock load_binary + iter_instructions for the validation pass: every
         # function ends in a ret right before the next start.
         class Insn:
-            def __init__(self, va, size, mnemonic):
+            def __init__(self, va, size, mnemonic) -> None:
                 self.va = va
                 self.size = size
                 self.mnemonic = mnemonic
@@ -282,7 +282,7 @@ class TestInteriorFalsePositiveDrop:
         lookups = []
 
         class CountingCounter(Counter[int]):
-            def __contains__(self, key):
+            def __contains__(self, key) -> bool:
                 lookups.append(key)
                 return super().__contains__(key)
 

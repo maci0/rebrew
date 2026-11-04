@@ -1,6 +1,6 @@
 """Tests for rebrew.signature_parser — function signature extraction via tree-sitter."""
 
-from pathlib import Path
+lazy from pathlib import Path
 
 from rebrew.signature_parser import extract_function_signatures
 

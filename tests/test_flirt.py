@@ -1,6 +1,7 @@
 """Tests for the rebrew library scan-signatures module -- pure-function helpers."""
 
-from pathlib import Path
+from typing import ClassVar
+lazy from pathlib import Path
 
 import pytest
 from cli_json import cli_payload
@@ -186,7 +187,7 @@ class TestAmbiguousReporting:
         import rebrew.flirt as flirt_mod
 
         class FakeMatch:
-            names = [
+            names: ClassVar[list[tuple[str, str, int]]] = [
                 ("_isalpha", "public", 0),
                 ("_isupper", "public", 0),
                 ("_islower", "public", 0),
@@ -217,7 +218,7 @@ class TestAmbiguousReporting:
         import rebrew.flirt as flirt_mod
 
         class FakeMatch:
-            names = [
+            names: ClassVar[list[tuple[str, str, int]]] = [
                 ("_a", "public", 0),
                 ("_b", "public", 0),
                 ("_c", "public", 0),
@@ -244,7 +245,9 @@ class TestAmbiguousReporting:
         import rebrew.flirt as flirt_mod
 
         class FakeMatch:
-            names = [(f"_fn{i}", "public", 0) for i in range(30)]
+            names: ClassVar[list[tuple[str, str, int]]] = [
+                (f"_fn{i}", "public", 0) for i in range(30)
+            ]
 
         class FakeMatcher:
             def match(self, buf: bytes) -> list[object]:

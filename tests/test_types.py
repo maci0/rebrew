@@ -1,6 +1,6 @@
 """Unit tests for the shared parsed type model."""
 
-from pathlib import Path
+lazy from pathlib import Path
 
 from hypothesis import given, settings
 from hypothesis import strategies as st

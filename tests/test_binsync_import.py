@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
+lazy from pathlib import Path
 
 import pytest
 import tomlkit

@@ -9,8 +9,8 @@ the document.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 lazy import hashlib
+lazy from pathlib import Path
 
 #: Name a compile unit gives the context's declarations when they are merged
 #: into the source (``compile.contextualized_source``), and the name the

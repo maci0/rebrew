@@ -1,8 +1,8 @@
 """Tests for the rebrew data scanner."""
 
 import struct
-from pathlib import Path
 from types import SimpleNamespace
+lazy from pathlib import Path
 
 import pytest
 from cli_json import cli_payload

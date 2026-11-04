@@ -2,7 +2,7 @@
 
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 from cli_json import cli_payload
@@ -2602,7 +2602,7 @@ class TestW029RedundantCflags:
         from rebrew.formats.binary_model import SectionInfo
 
         class _Info:
-            sections = {".data": SectionInfo(".data", 0x2000, 0x100, 0, 0x100)}
+            sections: ClassVar[dict] = {".data": SectionInfo(".data", 0x2000, 0x100, 0, 0x100)}
 
         import rebrew.formats.binary_loader as bl
 
@@ -2638,7 +2638,7 @@ class TestW029RedundantCflags:
         from rebrew.formats.binary_model import SectionInfo
 
         class _Info:
-            sections = {".rdata": SectionInfo(".rdata", 0x2000, 0x100, 0, 0x100)}
+            sections: ClassVar[dict] = {".rdata": SectionInfo(".rdata", 0x2000, 0x100, 0, 0x100)}
 
         monkeypatch.setattr(bl, "load_binary", lambda path: _Info())
         result = CliRunner().invoke(app, ["--fix", "--dry-run", str(f)])

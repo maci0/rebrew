@@ -1,10 +1,10 @@
 """Tests for rebrew.extract — candidate list building and show command."""
 
 import json
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
+lazy from pathlib import Path
 
 import pytest
 import typer

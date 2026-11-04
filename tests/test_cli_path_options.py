@@ -1,8 +1,8 @@
 """Path-valued CLI parameters provide native completion without changing APIs."""
 
 import importlib
-from pathlib import Path
 from typing import Any
+lazy from pathlib import Path
 
 import pytest
 from typer.main import get_command

@@ -1,7 +1,7 @@
 """Source-only assembly evidence stays definition-scoped and never earns a verdict."""
 
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
+lazy from pathlib import Path
 
 import pytest
 from cli_json import cli_payload
@@ -16,7 +16,7 @@ from rebrew.metadata.source_provenance import (
     function_definition_hashes,
     load_source_provenance,
 )
-from rebrew.rename_ops import RenamePlan
+lazy from rebrew.rename_ops import RenamePlan
 
 SOURCE = (
     "/* ü: offsets must survive masking */\n"

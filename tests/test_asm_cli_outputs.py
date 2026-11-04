@@ -1,9 +1,9 @@
 """Assembly previews, output files and machine-readable summaries."""
 
 import json
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+lazy from pathlib import Path
 
 import capstone
 import pytest

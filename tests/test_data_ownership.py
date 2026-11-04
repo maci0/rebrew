@@ -1,7 +1,7 @@
 """Storage owners, extern declarations, and symbol users stay separate."""
 
 from io import StringIO
-from pathlib import Path
+lazy from pathlib import Path
 
 from rich.console import Console
 from source_util import write_source

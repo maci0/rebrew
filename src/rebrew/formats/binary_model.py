@@ -19,8 +19,8 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import TYPE_CHECKING
+lazy from pathlib import Path
 
 from rebrew.utils import BYTES_PER_MIB
 
@@ -147,4 +147,4 @@ class BinaryInfo:
         return self._data
 
 
-__all__ = ["MAX_BINARY_SIZE", "CODE_SECTION_NAMES", "BinaryInfo", "SectionInfo"]
+__all__ = ["CODE_SECTION_NAMES", "MAX_BINARY_SIZE", "BinaryInfo", "SectionInfo"]

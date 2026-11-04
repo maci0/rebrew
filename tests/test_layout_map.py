@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import struct
 import warnings
-from pathlib import Path
+lazy from pathlib import Path
 
 import pytest
 from bin_util import append_pe_section, make_pe

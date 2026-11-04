@@ -1,6 +1,6 @@
 """Moved sources retain their original quoted-header providers."""
 
-from pathlib import Path
+lazy from pathlib import Path
 
 from rebrew.source_paths import rebase_includes
 

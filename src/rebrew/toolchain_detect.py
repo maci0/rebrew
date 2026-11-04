@@ -56,10 +56,10 @@ import re
 import shutil
 import subprocess
 import threading
-from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
+lazy from collections.abc import Iterator
 
 from rebrew.formats.binary_loader import REAL_MODE_ADDRESS_MASK, load_binary
 from rebrew.utils import SOURCE_CHECKOUT
@@ -1186,7 +1186,7 @@ def detect_with_pe_meta(path: Path) -> ToolchainInfo | None:
     # while preserving the duck-typing that keeps mock-based tests working.
     # Any (not lief.PE.Binary): `lief` is lazily imported and mock-patched,
     # so no statically resolvable name exists here.
-    pe = cast(Any, pe)
+    pe = cast("Any", pe)
     major = pe.optional_header.major_linker_version
     minor = pe.optional_header.minor_linker_version
     linker_ver = f"{major}.{minor}"

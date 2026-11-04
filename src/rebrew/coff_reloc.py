@@ -904,7 +904,7 @@ def smart_reloc_compare(
     if isinstance(coff_relocs, (list, tuple)) and any(
         isinstance(rec, CoffRelocRecord) and rec.format == "elf-xtensa" for rec in coff_relocs
     ):
-        records = cast(list[CoffRelocRecord], coff_relocs)
+        records = cast("list[CoffRelocRecord]", coff_relocs)
         if section_va is None:
             return False, 0, max(len(obj_bytes), len(target_bytes)), [], [r.offset for r in records]
         try:
@@ -947,7 +947,7 @@ def smart_reloc_compare(
             and coff_relocs
             and isinstance(coff_relocs[0], CoffRelocRecord)
         ):
-            typed_relocs = cast(Sequence[CoffRelocRecord], coff_relocs)
+            typed_relocs = cast("Sequence[CoffRelocRecord]", coff_relocs)
             table = _RELOC_TABLES.get(reloc_table, _RELOC_TABLES["coff-i386"])
             for rec in typed_relocs:
                 r = rec.offset

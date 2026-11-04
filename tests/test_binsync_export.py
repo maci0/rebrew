@@ -223,7 +223,7 @@ class TestBinsyncExportPrototype:
         doc = tomlkit.loads((outdir / "functions" / "10001000.toml").read_text())
         assert "header" in doc
         # Body should be stripped from [header].type — only the signature
-        header_type = cast(dict[str, Any], doc["header"])["type"]
+        header_type = cast("dict[str, Any]", doc["header"])["type"]
         assert header_type == "int __cdecl Calc(int x, int y)"
         assert "{" not in header_type
 
@@ -246,7 +246,7 @@ class TestBinsyncExportPrototype:
         doc = tomlkit.loads((outdir / "functions" / "10002000.toml").read_text())
         # prototype is always derived from the C source; body must be stripped
         assert "header" in doc
-        htype = cast(dict[str, Any], doc["header"])["type"]
+        htype = cast("dict[str, Any]", doc["header"])["type"]
         assert "{" not in htype
         assert "void f(void)" in htype
 

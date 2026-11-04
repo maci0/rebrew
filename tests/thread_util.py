@@ -11,8 +11,8 @@ Imports from a tests/ file work because pytest inserts the test directory into
 
 from __future__ import annotations
 
-import threading
-from collections.abc import Iterable
+lazy import threading
+lazy from collections.abc import Iterable
 
 JOIN_TIMEOUT_SECONDS = 30.0
 

@@ -371,7 +371,7 @@ class CompareResult:
                 f"CompareResult.from_dict got error {raw_error!r}, "
                 "expected None or a serialized error mapping",
                 matched=bool(kwargs.get("matched", False)),
-                status=cast(CompareStatus, status),
+                status=cast("CompareStatus", status),
             )
         try:
             return cls(**kwargs)
@@ -379,7 +379,7 @@ class CompareResult:
             raise CompareResultError(
                 f"CompareResult.from_dict cannot build a result: {exc}",
                 matched=bool(kwargs.get("matched", False)),
-                status=cast(CompareStatus, status),
+                status=cast("CompareStatus", status),
             ) from exc
 
 
@@ -3407,10 +3407,10 @@ def compile_and_compare_linked(
 
 
 __all__ = [
+    "NEAR_MATCH_THRESHOLD",
     "CompareResult",
     "CompareResultError",
     "CompareStatus",
-    "NEAR_MATCH_THRESHOLD",
     "build_linked_link_cmd",
     "classify_compare_result",
     "classify_match_status",

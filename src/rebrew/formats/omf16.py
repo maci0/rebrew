@@ -315,4 +315,4 @@ def parse_obj_omf16(
     return _match_symbol(mod, symbol)
 
 
-__all__ = ["Omf16Error", "Omf16Module", "is_omf16", "parse_omf16", "parse_obj_omf16"]
+__all__ = ["Omf16Error", "Omf16Module", "is_omf16", "parse_obj_omf16", "parse_omf16"]

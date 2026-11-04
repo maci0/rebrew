@@ -1,9 +1,9 @@
 """Tests for rebrew library inspect: COFF archive members, symbols, and short imports."""
 
 import struct
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+lazy from pathlib import Path
 
 import pytest
 from bin_util import make_lib_archive

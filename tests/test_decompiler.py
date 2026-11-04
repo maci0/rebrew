@@ -4,12 +4,12 @@ import importlib.util
 import subprocess
 import threading
 import time
-from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
+lazy from collections.abc import Iterator
 
 import pytest
 

@@ -1,6 +1,6 @@
 """Tests for the synthetic ELF fixture (tests/bin_util.make_elf)."""
 
-from pathlib import Path
+lazy from pathlib import Path
 
 from bin_util import make_elf
 

@@ -2,7 +2,7 @@
 
 import re
 import struct
-from pathlib import Path
+lazy from pathlib import Path
 
 from source_util import write_source
 

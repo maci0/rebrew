@@ -686,7 +686,7 @@ class BinaryMatchingGA:
             with self._memo_lock:
                 cached = self._lru_get(self.cache, src_hash)
             if cached is not None:
-                return cast(BuildResult, cached)
+                return cast("BuildResult", cached)
 
         if self.compare_obj:
             res = compile_seam.build_candidate_obj_only(
@@ -758,7 +758,7 @@ class BinaryMatchingGA:
         with self._memo_lock:
             memoized = self._lru_get(self._fitness_memo, src_hash)
         if memoized is not None:
-            return cast(float, memoized)
+            return cast("float", memoized)
         cached_fitness = res.fitness
         if res.ok and cached_fitness is not None:
             with self._memo_lock:

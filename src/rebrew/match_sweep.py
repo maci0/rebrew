@@ -10,10 +10,10 @@ import logging
 import math
 import shlex
 import time
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+lazy from collections.abc import Callable
 
 import typer
 
@@ -22,9 +22,6 @@ from rebrew.coff_reloc import build_iat_region, smart_reloc_compare
 from rebrew.compiler.compile import resolve_compiler_env
 from rebrew.config import ProjectConfig, target_module
 from rebrew.formats.binary_loader import capstone_mode_for_arch, extract_raw_bytes
-from rebrew.match_batch import (
-    StubInfo,
-)
 from rebrew.matcher import compiler as compile_seam
 from rebrew.matcher import (
     flag_sweep,
@@ -40,6 +37,9 @@ from rebrew.metadata.bindings import (
     read_source_bindings,
 )
 from rebrew.utils import read_compile_source
+lazy from rebrew.match_batch import (
+    StubInfo,
+)
 lazy from rebrew.utils import TerminalTable
 
 if TYPE_CHECKING:

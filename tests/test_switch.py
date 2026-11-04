@@ -1,8 +1,8 @@
 """Tests for rebrew.switch — jump-table switch dispatch decoding."""
 
 import struct
-from pathlib import Path
 from types import SimpleNamespace
+lazy from pathlib import Path
 
 from bin_util import make_pe
 

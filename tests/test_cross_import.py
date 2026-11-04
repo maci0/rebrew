@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import errno
 import os
-from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, ClassVar
+lazy from pathlib import Path
 
 import pytest
 from bin_util import make_pe
@@ -2419,7 +2419,7 @@ class TestVerifiedSymbolShapes:
     an ``extern``).
     """
 
-    SHAPES = [
+    SHAPES: ClassVar[list] = [
         pytest.param(
             "int ZEXPORT deflate(strm, flush)\n    z_streamp strm;\n    int flush;\n"
             "{\n    return flush;\n}\n",

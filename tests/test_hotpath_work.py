@@ -4,8 +4,8 @@ import copy
 import math
 import os
 from dataclasses import dataclass, fields
-from pathlib import Path
 from typing import Any, ClassVar, override
+lazy from pathlib import Path
 
 import pytest
 

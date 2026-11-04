@@ -91,13 +91,13 @@ def __dir__() -> list[str]:
 # literals, and tests/test_package_metadata.py fails when the two lists
 # disagree.
 __all__ = [
-    "__version__",
     "CompareResult",
     "CompareStatus",
     "ConfigError",
     "ProjectConfig",
     "RebrewError",
     "ToolchainError",
+    "__version__",
     "compile_and_compare",
     "get_toolchain",
     "iter_library_headers",

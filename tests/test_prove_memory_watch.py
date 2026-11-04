@@ -10,9 +10,9 @@ The comparison loop is exercised two ways:
 import importlib.util
 import sys
 import types
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+lazy from pathlib import Path
 
 import pytest
 

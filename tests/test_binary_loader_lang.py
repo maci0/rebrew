@@ -1,7 +1,7 @@
 """Tests for binary_loader — Mach-O loader, load_binary fmt dispatch, language detection."""
 
-from pathlib import Path
 from types import SimpleNamespace
+lazy from pathlib import Path
 
 import pytest
 from bin_util import make_pe_stub

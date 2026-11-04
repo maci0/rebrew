@@ -11,8 +11,8 @@ import random
 import subprocess
 import sys
 import textwrap
-from collections.abc import Callable, Iterable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from rebrew.matcher.mutations.structural import (
     mut_call_prototype_view,
@@ -22,6 +22,9 @@ from rebrew.matcher.mutations.structural import (
     mut_walk_in_parameter,
 )
 from rebrew.matcher.mutator import quick_validate
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable
 
 _RNG_SEED = 42
 

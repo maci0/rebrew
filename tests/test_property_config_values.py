@@ -26,8 +26,8 @@ confusions the dispatch exists to reject, and assert:
 from __future__ import annotations
 
 import math
-from collections.abc import Iterator
 from typing import Any
+lazy from collections.abc import Iterator
 
 import pytest
 from hypothesis import given, settings

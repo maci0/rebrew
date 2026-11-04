@@ -5,8 +5,8 @@ Tests the per-directory rebrew-data.toml metadata for DATA/GLOBAL annotation met
 
 from __future__ import annotations
 
-from pathlib import Path
 from types import SimpleNamespace
+lazy from pathlib import Path
 
 import pytest
 from source_util import write_store_fixture

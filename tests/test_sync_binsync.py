@@ -1,8 +1,8 @@
 """Tests for the BinSync-primary sync command (ghidra/cli.py) and the
 structural MCP op builders (ghidra/commands.py)."""
 
-from pathlib import Path
 from types import SimpleNamespace
+lazy from pathlib import Path
 
 import pytest
 from cli_json import cli_payload

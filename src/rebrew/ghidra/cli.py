@@ -311,7 +311,7 @@ def execute_sync(
         if create_functions:
             from typing import cast
 
-            touched = sorted(int(v) for v in cast(list[Any], result.get("touched_vas") or []))
+            touched = sorted(int(v) for v in cast("list[Any]", result.get("touched_vas") or []))
             if touched:
                 program_path = resolve_program_path(cfg)
                 ops = [

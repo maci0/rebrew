@@ -1,6 +1,6 @@
 """Unit tests for verify --data byte comparison of built data sections."""
 
-from pathlib import Path
+lazy from pathlib import Path
 
 import pytest
 from source_util import write_store_fixture

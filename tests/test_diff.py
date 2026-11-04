@@ -1,8 +1,8 @@
 """Tests for diff.py — blocker classification and similarity printing."""
 
 from io import StringIO
-from pathlib import Path
 from types import SimpleNamespace
+lazy from pathlib import Path
 
 import pytest
 from rich.console import Console

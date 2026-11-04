@@ -10,8 +10,8 @@ the "writes nothing" assertions about the user's project files.
 from __future__ import annotations
 
 import hashlib
-import os
-from pathlib import Path
+lazy import os
+lazy from pathlib import Path
 
 CACHE_DIRNAME = ".rebrew"
 

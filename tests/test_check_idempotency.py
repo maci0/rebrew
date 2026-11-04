@@ -1,7 +1,7 @@
 """Tests for tools/check_idempotency — the CLI determinism checker."""
 
 import os
-from pathlib import Path
+lazy from pathlib import Path
 
 import pytest
 

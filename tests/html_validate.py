@@ -18,8 +18,8 @@ from __future__ import annotations
 
 import shutil
 import subprocess
-from collections.abc import Sequence
-from pathlib import Path
+lazy from collections.abc import Sequence
+lazy from pathlib import Path
 
 #: Seconds one validation run may take.  A cold JVM start is a second or two;
 #: a run over a whole report site is a handful.

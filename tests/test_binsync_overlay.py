@@ -8,8 +8,8 @@ the source (its BinSync state carries the names); target B is the destination
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
+lazy from pathlib import Path
 
 import pytest
 import tomlkit

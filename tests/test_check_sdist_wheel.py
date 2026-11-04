@@ -8,7 +8,7 @@ gate cannot pass vacuously.
 from __future__ import annotations
 
 import zipfile
-from pathlib import Path
+lazy from pathlib import Path
 
 from tools.check_sdist_wheel import diff_contents, diff_members, main, wheel_digests, wheel_members
 

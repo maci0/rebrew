@@ -2,8 +2,8 @@
 
 import json
 import struct
-from pathlib import Path
 from types import SimpleNamespace
+lazy from pathlib import Path
 
 import pytest
 from bin_util import make_coff_obj, make_lib_archive, make_pe

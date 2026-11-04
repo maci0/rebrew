@@ -2,8 +2,8 @@
 
 import hashlib
 import struct
-from pathlib import Path
 from typing import Any
+lazy from pathlib import Path
 
 from bin_util import append_pe_section, make_pe
 

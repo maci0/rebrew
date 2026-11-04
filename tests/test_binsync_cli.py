@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import shutil
 import subprocess
-from collections.abc import Callable
-from pathlib import Path
 from typing import Any
+lazy from collections.abc import Callable
+lazy from pathlib import Path
 
 import pytest
 from cli_json import cli_payload

@@ -1,5 +1,7 @@
 """Tests for name_decomp.py — applying known struct names to decompiler output."""
 
+from typing import ClassVar
+
 from cli_json import cli_payload
 from source_util import write_source
 
@@ -356,7 +358,7 @@ class TestFieldLayout:
 
 
 class TestApplyKnownNames:
-    _DEFS = {
+    _DEFS: ClassVar[dict[str, str]] = {
         "command_s": (
             "typedef struct command_s {\n"
             "\tchar gap_0000[0x3];\n"

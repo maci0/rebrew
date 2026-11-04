@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import hashlib
 import os
-from pathlib import Path
 from typing import Any
+lazy from pathlib import Path
 
 import pytest
 from bin_util import make_pe

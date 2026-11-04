@@ -1,8 +1,8 @@
 """Tests for compiler/compile.py pure helpers — CL command resolution and include flags."""
 
 import subprocess
-from pathlib import Path
 from types import SimpleNamespace
+lazy from pathlib import Path
 
 import pytest
 

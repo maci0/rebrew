@@ -22,8 +22,8 @@ pin what a caller may rely on:
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Callable
 from dataclasses import dataclass
+lazy from collections.abc import Callable
 
 from hypothesis import assume, given, settings
 from hypothesis import strategies as st

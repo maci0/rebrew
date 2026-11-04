@@ -14,9 +14,9 @@ import re
 import subprocess
 import sys
 import tomllib
-from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+lazy from collections.abc import Iterator
 
 import pytest
 from cli_json import cli_payload

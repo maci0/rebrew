@@ -12,7 +12,7 @@ from __future__ import annotations
 import random
 import struct
 from contextlib import suppress
-from pathlib import Path
+lazy from pathlib import Path
 
 import pytest
 from hypothesis import example, given, settings

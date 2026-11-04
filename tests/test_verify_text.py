@@ -7,8 +7,8 @@ function fails the gate in both human and ``--json`` output, and the JSON
 payload carries the text verdict block.
 """
 
-from pathlib import Path
 from types import SimpleNamespace
+lazy from pathlib import Path
 
 import pytest
 from cli_json import cli_payload

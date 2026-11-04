@@ -9,7 +9,7 @@ and the JSON shape, which are the only parts a caller can observe.
 
 from __future__ import annotations
 
-from pathlib import Path
+lazy from pathlib import Path
 
 import pytest
 from cli_json import cli_payload

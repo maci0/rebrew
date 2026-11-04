@@ -7,8 +7,8 @@ declarations (unknown toolchains, preset contradictions, family drift).
 
 from __future__ import annotations
 
-from pathlib import Path
 from types import SimpleNamespace
+lazy from pathlib import Path
 
 from source_util import SourceFixture, write_source
 

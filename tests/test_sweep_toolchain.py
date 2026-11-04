@@ -10,7 +10,7 @@ from rebrew.match_sweep import run_single_toolchain_sweep
 
 
 class _FakeRes:
-    def __init__(self, obj: bytes):
+    def __init__(self, obj: bytes) -> None:
         self.ok = True
         self.obj_bytes = obj
         self.reloc_offsets = []

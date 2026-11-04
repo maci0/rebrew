@@ -1,8 +1,8 @@
 """Correctness and work budgets for the additional source-scan experiments."""
 
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+lazy from pathlib import Path
 
 import pytest
 

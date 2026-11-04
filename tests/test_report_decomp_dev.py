@@ -1,8 +1,9 @@
 """Tests for report.generate_decomp_dev_report — objdiff-format report.json."""
 
 import json
-from pathlib import Path
 from types import SimpleNamespace
+from typing import ClassVar
+lazy from pathlib import Path
 
 import pytest
 
@@ -142,7 +143,7 @@ class TestDecompDevReport:
             match_percent = 72.5
 
         class _Cache:
-            entries = {0x2000: _Entry()}
+            entries: ClassVar[dict] = {0x2000: _Entry()}
 
         monkeypatch.setattr("rebrew.verify_cache.load_verify_cache", lambda _p, _c: _Cache())
         out = tmp_path / "report.json"
@@ -164,7 +165,7 @@ class TestDecompDevReport:
             match_percent = 61.0
 
         class _Cache:
-            entries = {"0x2000": _Entry()}
+            entries: ClassVar[dict] = {"0x2000": _Entry()}
 
         monkeypatch.setattr("rebrew.verify_cache.load_verify_cache", lambda _p, _c: _Cache())
         out = tmp_path / "report.json"
@@ -186,7 +187,7 @@ class TestDecompDevReport:
             match_percent = 100.0
 
         class _Cache:
-            entries = {0x2000: _Entry()}
+            entries: ClassVar[dict] = {0x2000: _Entry()}
 
         monkeypatch.setattr("rebrew.verify_cache.load_verify_cache", lambda _p, _c: _Cache())
         out = tmp_path / "report.json"
@@ -212,7 +213,7 @@ class TestDecompDevReport:
             match_percent = 99.996
 
         class _Cache:
-            entries = {0x2000: _Entry()}
+            entries: ClassVar[dict] = {0x2000: _Entry()}
 
         monkeypatch.setattr("rebrew.verify_cache.load_verify_cache", lambda _p, _c: _Cache())
         out = tmp_path / "report.json"
@@ -238,7 +239,7 @@ class TestDecompDevReport:
             match_percent = 100.0
 
         class _Cache:
-            entries = {0x1000: _Entry(), 0x1200: _Entry()}
+            entries: ClassVar[dict] = {0x1000: _Entry(), 0x1200: _Entry()}
 
         monkeypatch.setattr("rebrew.verify_cache.load_verify_cache", lambda _p, _c: _Cache())
         out = tmp_path / "report.json"

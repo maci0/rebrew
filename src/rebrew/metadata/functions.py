@@ -106,50 +106,48 @@ METADATA_FIELDS: frozenset[str]
 
 
 __all__ = [
+    "FUNCTION_IDENTITY_FIELDS",
     "GA_CEILING_PREFIX",
     "KNOWN_STATUSES",
-    "PROVENANCE_TAGS",
     "LIBRARY_METADATA_FILE",
     "LIBRARY_PRESET_ENTRY_POINT_GROUP",
-    "LibraryOverride",
-    "LibraryOverrideError",
-    "FUNCTION_IDENTITY_FIELDS",
     "MATCHED_STATUSES",
     "METADATA_FIELDS",
     "METADATA_FIELD_TYPES",
-    "SYNC_FIELD_RULES",
-    "validate_provenance_table",
-    "validate_library_document",
-    "record_verification",
     "METADATA_FILENAME",
+    "PROVENANCE_TAGS",
+    "SYNC_FIELD_RULES",
+    "LibraryOverride",
+    "LibraryOverrideError",
     "all_library_presets",
     "apply_library_presets",
     "apply_metadata_entry",
+    "as_metadata_int",
     "canonical_status",
     "clear_identity_fields",
     "clear_library_override_cache",
     "clear_metadata_cache",
-    "as_metadata_int",
     "coerce_metadata_value",
     "delete_entries_batch",
     "delete_metadata_entry",
     "find_library_override",
     "get_entry",
+    "identity_file",
+    "import_status_history",
     "is_metadata_key",
     "is_status_parked",
+    "is_table_field",
     "library_override_fingerprint",
     "library_presets_generation",
-    "is_table_field",
     "load_metadata",
     "load_status_history",
-    "import_status_history",
     "merge_into_binding",
     "metadata_path",
     "nearest_library_metadata_path",
     "parse_library_metadata",
-    "identity_file",
     "record_function_identity",
     "record_function_rows",
+    "record_verification",
     "refresh_library_presets",
     "remove_field",
     "remove_fields_batch",
@@ -159,12 +157,14 @@ __all__ = [
     "set_fields_batch",
     "should_promote_status",
     "stamp_provenance",
-    "validate_metadata_field",
-    "validate_identity_file",
+    "stored_file_matches",
     "update_field",
     "update_source_status",
     "update_statuses_batch",
-    "stored_file_matches",
+    "validate_identity_file",
+    "validate_library_document",
+    "validate_metadata_field",
+    "validate_provenance_table",
 ]
 
 
@@ -548,7 +548,7 @@ def _ensure_entry_table(
             f"metadata entry {toml_key!r} is not a table "
             f"({type(doc_dict[toml_key]).__name__}); repair or remove it first"
         )
-    return toml_key, typing.cast(dict[str, Any], doc_dict[toml_key])
+    return toml_key, typing.cast("dict[str, Any]", doc_dict[toml_key])
 
 
 def _set_field(
@@ -1087,7 +1087,7 @@ def clear_identity_fields(
         wanted.append(key)
 
     def _drop(doc_dict: dict[str, Any], toml_key: str) -> bool:
-        entry = typing.cast(dict[str, Any], doc_dict[toml_key])
+        entry = typing.cast("dict[str, Any]", doc_dict[toml_key])
         changed = False
         for key in wanted:
             if key in entry:
@@ -1133,7 +1133,7 @@ def remove_fields_batch(metadata_dir: Path | str | Any, updates: list[dict[str, 
             toml_key = resolve_metadata_key(doc_dict, str(module), int(va), index=key_index)
             if toml_key not in doc_dict:
                 continue
-            entry = typing.cast(dict[str, Any], doc_dict[toml_key])
+            entry = typing.cast("dict[str, Any]", doc_dict[toml_key])
             changed = False
             for key in keys:
                 key = key.lower() if isinstance(key, str) else key
@@ -1240,7 +1240,7 @@ def _delete_field(directory: Path | str | Any, va: int, key: str, module: str) -
     """
 
     def _drop(doc_dict: dict[str, Any], toml_key: str) -> bool:
-        entry = typing.cast(dict[str, Any], doc_dict[toml_key])
+        entry = typing.cast("dict[str, Any]", doc_dict[toml_key])
         if key in entry:
             del entry[key]
             return True

@@ -39,17 +39,17 @@ lazy from rebrew.utils import (
 )
 
 __all__ = [
+    "SOURCE_PROVENANCE_FILENAME",
     "AssemblyProvenance",
     "SourceFilePurpose",
-    "SOURCE_PROVENANCE_FILENAME",
-    "function_definition_hashes",
-    "load_source_provenance",
-    "document_assembly",
-    "rename_source_provenance",
-    "load_source_files",
-    "set_source_file",
-    "replace_source_metadata",
     "consolidate_source_metadata",
+    "document_assembly",
+    "function_definition_hashes",
+    "load_source_files",
+    "load_source_provenance",
+    "rename_source_provenance",
+    "replace_source_metadata",
+    "set_source_file",
 ]
 
 SOURCE_PROVENANCE_FILENAME = "rebrew-functions.toml"
