@@ -92,25 +92,31 @@ _INCLUDE_RE = re.compile(r"^\s*#\s*include\s+")
 _EXTERN_RE = re.compile(r"^\s*extern\s+")
 _TYPEDEF_RE = re.compile(r"^\s*typedef\s+")
 _PRAGMA_INTRINSIC_RE = re.compile(r"^\s*#\s*pragma\s+intrinsic\s*\(")
+_BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/")
+_LINE_COMMENT_RE = re.compile(r"//.*")
+_EXTERN_NAME_PAREN_RE = re.compile(
+    r"\(\s*" + CALLING_CONVENTION + r"\*+\s*(?:(?:const|volatile)\b\s*)*(\w+)"
+)
+_EXTERN_NAME_BRACKET_RE = re.compile(r"(\w+)\s*[\[\(]")
+_EXTERN_NAME_TAIL_RE = re.compile(r"(\w+)\s*$")
+_ARG_NAME_RE = re.compile(r"\b[a-z_]\w*(?=\s*[,)])")
+_INTRINSIC_ARGS_RE = re.compile(r"intrinsic\s*\(([^)]+)\)")
 
 
 def _extract_extern_name(decl: str) -> str | None:
     """The symbol name from an extern declaration."""
     d = decl.strip().rstrip(";").strip()
-    d = re.sub(r"/\*.*?\*/", "", d).strip()
+    d = _BLOCK_COMMENT_RE.sub("", d).strip()
     # ``int (*fp)(void)``, ``int (* const rows[2])[4]``, ``char (__cdecl *row)[4]``.
     # The convention and qualifier are not the symbol. Tested before the plain
     # declarator rule or the base type matches instead of the symbol.
-    m = re.search(
-        r"\(\s*" + CALLING_CONVENTION + r"\*+\s*(?:(?:const|volatile)\b\s*)*(\w+)",
-        d,
-    )
+    m = _EXTERN_NAME_PAREN_RE.search(d)
     if m:
         return m.group(1)
-    m = re.search(r"(\w+)\s*[\[(]", d)
+    m = _EXTERN_NAME_BRACKET_RE.search(d)
     if m:
         return m.group(1)
-    m = re.search(r"(\w+)\s*$", d)
+    m = _EXTERN_NAME_TAIL_RE.search(d)
     return m.group(1) if m else None
 
 
@@ -122,7 +128,7 @@ def _extern_specificity(decl: str) -> int:
             score += 2
     if "unsigned" in decl:
         score += 1
-    score += len(re.findall(r"\b[a-z_]\w*(?=\s*[,)])", decl)) * 3
+    score += len(_ARG_NAME_RE.findall(decl)) * 3
     if "..." in decl:
         score += 5
     if "struct" in decl:
@@ -173,7 +179,7 @@ def _resolve_externs(externs: list[str]) -> ExternReport:
 def _pragma_funcs(pragmas: list[str]) -> set[str]:
     funcs: set[str] = set()
     for p in pragmas:
-        m = re.search(r"intrinsic\s*\(([^)]+)\)", p)
+        m = _INTRINSIC_ARGS_RE.search(p)
         if m:
             funcs.update(f.strip() for f in m.group(1).split(",") if f.strip())
     return funcs
@@ -181,8 +187,8 @@ def _pragma_funcs(pragmas: list[str]) -> set[str]:
 
 def _ends_declaration(line: str) -> bool:
     """True if *line*'s code portion (comments stripped) ends a ``;``-terminated declaration."""
-    code = re.sub(r"/\*.*?\*/", "", line)
-    code = re.sub(r"//.*", "", code)
+    code = _BLOCK_COMMENT_RE.sub("", line)
+    code = _LINE_COMMENT_RE.sub("", code)
     return code.rstrip().endswith(";")
 
 

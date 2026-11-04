@@ -55,6 +55,10 @@ _CC_PATTERN = re.compile(
 # grammar doesn't know them.  Allow any content up to the matching ')',
 # including a nested (...) such as align(16).
 _DECLSPEC_PATTERN = re.compile(r"__declspec\s*\((?:[^()]*|\([^)]*\))*\)")
+_NON_NEWLINE_RE = re.compile(rb"[^\r\n]")
+_CDECL_WORD_RE = re.compile(r"\b__cdecl\b")
+_PUNCT_SPACE_RE = re.compile(r"\s*([(),*\[\]])\s*")
+_PROTO_PUNCT_RE = re.compile(r"\s*([(),*])\s*")
 
 # ---------------------------------------------------------------------------
 # Lazy tree-sitter initialisation
@@ -2355,7 +2359,7 @@ def _mask_cc(source: str) -> str:
 
     def blank(match: re.Match[str]) -> str:
         raw = match[0].encode("utf-8", errors="surrogateescape")
-        return re.sub(rb"[^\r\n]", b" ", raw).decode("ascii")
+        return _NON_NEWLINE_RE.sub(b" ", raw).decode("ascii")
 
     if any(cc in source for cc in _CALLING_CONVENTIONS):
         source = _CC_PATTERN.sub(blank, source)
@@ -2448,7 +2452,7 @@ def mask_msvc_syntax(source: str) -> str:
     for group in _msvc_asm_token_groups(masked):
         for node_kind, node_start, node_end, _row in group:
             if node_kind != "comment":
-                out[node_start:node_end] = re.sub(rb"[^\r\n]", b" ", data[node_start:node_end])
+                out[node_start:node_end] = _NON_NEWLINE_RE.sub(b" ", data[node_start:node_end])
     return bytes(out).decode("utf-8", errors="surrogateescape")
 
 
@@ -2506,7 +2510,7 @@ def mask_va_arg_types(source: str) -> str:
         type_node = expressions[0].child_by_field_name("type")
         if type_node is None:
             continue
-        masked[start:end] = re.sub(rb"[^\r\n]", b" ", data[start:end])
+        masked[start:end] = _NON_NEWLINE_RE.sub(b" ", data[start:end])
         masked[start + type_node.start_byte - 1] = ord("0")
     return masked.decode("utf-8", errors="surrogateescape")
 
@@ -2592,9 +2596,9 @@ def prototype_type_key(prototype: str) -> str | None:
             cursor = end
         pieces.append(raw[cursor:])
         key = b"".join(pieces).decode("utf-8", errors="surrogateescape").rstrip(";")
-        key = re.sub(r"\b__cdecl\b", " ", key)
+        key = _CDECL_WORD_RE.sub(" ", key)
         key = " ".join(key.split())
-        key = re.sub(r"\s*([(),*\[\]])\s*", r"\1", key)
+        key = _PUNCT_SPACE_RE.sub(r"\1", key)
         return key.replace("(void)", "()")
     return None
 
@@ -2790,7 +2794,7 @@ def _spell_digraph_directives(src: str) -> str:
 def normalize_function_prototype(proto: str) -> str:
     """Collapse insignificant prototype whitespace for equality checks."""
     text = " ".join(proto.split())
-    return re.sub(r"\s*([(),*])\s*", r"\1", text)
+    return _PROTO_PUNCT_RE.sub(r"\1", text)
 
 
 def _code_tokens(code: bytes, root: Any) -> str:
