@@ -1,5 +1,11 @@
 ## [Unreleased]
 
+## [6.20.0] - 2026-11-04
+
+### Fixed
+
+- Keep the dashboard's initial assets within the cold-connection transfer budget.
+
 ## [6.19.0] - 2026-11-04
 
 ### Added

@@ -15,8 +15,6 @@ Usage::
 
 from __future__ import annotations
 
-lazy from pathlib import Path
-
 import typer
 
 from rebrew.cli import (

@@ -1031,7 +1031,9 @@ def _collect_hygiene(
             if len(definitions) != 1:
                 continue
             _name, start_byte, end_byte = definitions[0]
-            body = text.encode("utf-8", errors="surrogateescape")[start_byte:end_byte].decode("utf-8", errors="surrogateescape")
+            body = text.encode("utf-8", errors="surrogateescape")[start_byte:end_byte].decode(
+                "utf-8", errors="surrogateescape"
+            )
             bodies.setdefault(body.strip(), []).append(str(cfile))
         twins = [sorted(v) for v in bodies.values() if len(v) > 1]
         recs.extend(recommend_shared_twins(twins))

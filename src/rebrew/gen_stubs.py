@@ -1440,7 +1440,9 @@ def _update_selected_stubs(
                 or new_defs[symbol][0][2] != 1
             ):
                 raise ValueError(f"special must define only {symbol}")
-        replacements.append((node.start_byte, node.end_byte, impl.encode("utf-8", errors="surrogateescape")))
+        replacements.append(
+            (node.start_byte, node.end_byte, impl.encode("utf-8", errors="surrogateescape"))
+        )
         changes.append(
             {
                 "symbol": symbol,

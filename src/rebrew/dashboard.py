@@ -38,7 +38,7 @@ Retry-After. Request bodies are never read and force connection closure.
 Successful responses negotiate zstd then gzip with quality weights. ETags key
 on the live input version or portable file state plus the exact route/query;
 health is no-store. Static assets are content-hashed and precompressed. The
-entry checkpoint measured 12625 B zstd / 13242 B gzip against a 13320 B budget;
+entry checkpoint measured 12569 B zstd / 13179 B gzip against a 13320 B budget;
 host zlib versions can change gzip size. Tests enforce the wire budget.
 Reload re-reads the live view; view/target/filter navigation is stored in the
 URL hash. Details, API schema and transfer measurements live in
@@ -320,8 +320,6 @@ let pendingModule = "";
 let pendingModuleBlank = false;
 // Hash writes start once init has restored state, so a reload keeps it.
 let hashReady = false;
-// Target and view the hash was last written for: a change to either is a
-// navigation Back returns to, the rest of the state rides along with it.
 let lastNav = "";
 let whenFormat = null;
 const VIEWS = ["functions", "sections", "globals", "history"];
@@ -372,8 +370,7 @@ function esc(s) {
 }
 function formatWhen(value) {
   if (!value) return "";
-  // Rebrew stores UTC instants; a zone-less date-time reads as local wall time
-  // under Date.parse, so pin it with Z.
+  // Zone-less date-times are stored in UTC.
   let raw = String(value).trim();
   if (/^\\d{4}-\\d{2}-\\d{2}[Tt ]\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?$/.test(raw)) {
     raw += "Z";
@@ -381,9 +378,7 @@ function formatWhen(value) {
   const parsed = Date.parse(raw);
   if (Number.isNaN(parsed)) return String(value);
   try {
-    // One shared formatter: toLocaleString(options) builds one per call
-    // (~117 ms vs 3 ms for 5000 rows).  timeZoneName is required: without it
-    // a fall-back hour prints twice.
+    // Reuse the formatter and distinguish repeated daylight-saving hours.
     whenFormat ??= new Intl.DateTimeFormat(undefined, {
       year: "numeric", month: "short", day: "numeric",
       hour: "numeric", minute: "2-digit",

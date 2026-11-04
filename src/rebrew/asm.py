@@ -65,7 +65,12 @@ lazy from rebrew.metadata.bindings import read_source_bindings
 lazy from rebrew.rename_ops import c_name_from_symbol
 lazy from rebrew.sources import iter_sources
 lazy from rebrew.status_style import DISPLAY_STATUSES
-lazy from rebrew.utils import atomic_write_text, parse_int_literal, run_process_group, untrusted_ident
+lazy from rebrew.utils import (
+    atomic_write_text,
+    parse_int_literal,
+    run_process_group,
+    untrusted_ident,
+)
 
 logger = logging.getLogger(__name__)
 

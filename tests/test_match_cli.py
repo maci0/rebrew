@@ -56,7 +56,7 @@ class TestMatchCliWatch:
             default_jobs=2,
         )
         monkeypatch.setattr("rebrew.match.require_config", lambda **kw: cfg)
-        monkeypatch.setattr("rebrew.match.resolve_build_params", lambda *a, **k: _params())
+        monkeypatch.setattr("rebrew.match.resolve_arg_params", lambda *a, **k: _params())
 
         seen: dict = {}
         monkeypatch.setattr(
@@ -410,13 +410,13 @@ int __fastcall keeps(int a) { return a; }
     def test_set_target_range_scopes_cursor(self) -> None:
         """set_target_range must restrict mutation queries to the byte window."""
         from rebrew.matcher import ast_engine
-        from rebrew.matcher.mutations.queries import _LazyQuery
+        from rebrew.matcher.mutations.queries import LazyQuery
         from rebrew.matcher.mutations.runtime import _cursor, set_target_range
 
         src = b"int a(void) { return 1; } int b(void) { return 2; }"
         set_target_range(0, len(b"int a(void) { return 1; } "))  # only function a
         try:
-            q = _LazyQuery(
+            q = LazyQuery(
                 ast_engine.C_LANGUAGE,
                 "(function_definition declarator: (function_declarator declarator: (identifier) @name)) @fn",
             )
@@ -441,9 +441,9 @@ int __fastcall keeps(int a) { return a; }
         import threading
 
         from rebrew.matcher import ast_engine
-        from rebrew.matcher.mutations.queries import _LazyQuery
+        from rebrew.matcher.mutations.queries import LazyQuery
 
-        q = _LazyQuery(ast_engine.C_LANGUAGE, "(identifier) @id")
+        q = LazyQuery(ast_engine.C_LANGUAGE, "(identifier) @id")
         results: list[object] = []
         errors: list[BaseException] = []
         barrier = threading.Barrier(16)
@@ -657,7 +657,7 @@ class TestMatchCliLink:
         cfg = self._cfg(tmp_path)
         monkeypatch.setattr("rebrew.match.require_config", lambda **kw: cfg)
         monkeypatch.setattr(
-            "rebrew.match.resolve_build_params",
+            "rebrew.match.resolve_arg_params",
             lambda *a, **k: _params(),
         )
         captured: dict = {}
@@ -1056,8 +1056,7 @@ class TestMatchOptionContracts:
         monkeypatch.setattr(
             "rebrew.match.require_config", lambda **kw: SimpleNamespace(default_jobs=4)
         )
-        monkeypatch.setattr("rebrew.match.resolve_source_arg", lambda cfg, source: source)
-        monkeypatch.setattr("rebrew.match.resolve_build_params", lambda *a, **kw: _params())
+        monkeypatch.setattr("rebrew.match.resolve_arg_params", lambda *a, **kw: _params())
         seen: dict = {}
 
         def _sweep(*args: object) -> None:

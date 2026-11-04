@@ -393,7 +393,6 @@ def test_omf_to_coff_failed_conversion_raises(monkeypatch, tmp_path: Path) -> No
 
     ``shutil.which`` is pointed at any existing file so the branch is reached
     without the gitignored objconv binary; ``subprocess.run`` is stubbed."""
-    import subprocess
     import sys
 
     from rebrew.matcher import parsers as parsers_mod

@@ -41,7 +41,9 @@ from rebrew.cli import (
     json_print,
     option_default,
     require_config,
-    resolve_source_arg,
+)
+from rebrew.cli import (
+    resolve_source_arg as resolve_source_arg,
 )
 from rebrew.limits import NO_MAX_SIZE
 lazy from rebrew.match_ga import (
@@ -56,10 +58,12 @@ lazy from rebrew.match_run import (
 )
 lazy from rebrew.match_sweep import (
     resolve_arg_params,
-    resolve_build_params,
     run_single_flag_sweep,
     run_single_toolchain_flag_sweep,
     run_single_toolchain_sweep,
+)
+lazy from rebrew.match_sweep import (
+    resolve_build_params as resolve_build_params,
 )
 lazy from rebrew.utils import interruptible_pool, preset_module_key, untrusted_ident
 

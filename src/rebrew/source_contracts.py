@@ -325,7 +325,11 @@ def _resolved_contract_sites(
                         and any(n.type == "pointer_declarator" for n in _nodes(declarator))
                     ):
                         value = key[len("void(") : -1]
-                        callback = (declaration.encode("utf-8", errors="surrogateescape"), span[1], span[2])
+                        callback = (
+                            declaration.encode("utf-8", errors="surrogateescape"),
+                            span[1],
+                            span[2],
+                        )
                     else:
                         value = ""
                 if _conditional(node, path) or any(token in value for token in ("[", "{")):
@@ -376,7 +380,13 @@ def _resolved_contract_sites(
                     replacement = template[:start] + declarator.text + template[end:]
                     edits.append((parent.start_byte, parent.end_byte, replacement))
                 else:
-                    edits.append((node.start_byte, node.end_byte, value.encode("utf-8", errors="surrogateescape")))
+                    edits.append(
+                        (
+                            node.start_byte,
+                            node.end_byte,
+                            value.encode("utf-8", errors="surrogateescape"),
+                        )
+                    )
             if not edits:
                 break
             raw = parsed.data
@@ -804,7 +814,9 @@ def reconcile_contract(
     if header_sites:
         site = header_sites[0]
         edits[header] = [edit for edit in edits.get(header, []) if edit[0] != site["start"]]
-        edits[header].append((site["start"], site["end"], canonical.encode("utf-8", errors="surrogateescape")))
+        edits[header].append(
+            (site["start"], site["end"], canonical.encode("utf-8", errors="surrogateescape"))
+        )
     else:
         text = texts[header][0]
         parsed = ParsedSource.parse(text)
@@ -819,7 +831,11 @@ def reconcile_contract(
             offset = ends[-1].start_byte
         newline = source_newline(text)
         edits.setdefault(header, []).append(
-            (offset, offset, (newline + canonical + newline).encode("utf-8", errors="surrogateescape"))
+            (
+                offset,
+                offset,
+                (newline + canonical + newline).encode("utf-8", errors="surrogateescape"),
+            )
         )
     affected = sorted(
         {Path(site["context"]) for report in reports for site in report["sites"]}
@@ -848,7 +864,9 @@ def reconcile_contract(
                 position = min((start for start, _end, _new in edits.get(path, [])), default=0)
                 prefix = raw[:position]
                 updated = (
-                    prefix + (directive + source_newline(text)).encode("utf-8", errors="surrogateescape") + raw[position:]
+                    prefix
+                    + (directive + source_newline(text)).encode("utf-8", errors="surrogateescape")
+                    + raw[position:]
                 ).decode("utf-8", errors="surrogateescape")
         if updated != text:
             changes.append(

@@ -88,7 +88,7 @@ class TestConventionEnforced:
             target_bytes=b"",
             seed_c=Path("/tmp/f.c"),
         )
-        monkeypatch.setattr(match, "resolve_build_params", lambda *a, **k: params)
+        monkeypatch.setattr(match, "resolve_arg_params", lambda *a, **k: params)
 
         # Exercise the adapter, then capture the watch closure's re-entry.
         from typer.testing import CliRunner
@@ -129,7 +129,7 @@ class TestSweepFilterSelectsTheSweep:
         monkeypatch.setattr(match, "run_single_ga", _ga)
         monkeypatch.setattr(
             match,
-            "resolve_build_params",
+            "resolve_arg_params",
             lambda *a, **k: SimpleNamespace(cfg=SimpleNamespace(reversed_dir=Path("/tmp"))),
         )
         monkeypatch.setattr(match, "require_config", lambda **kw: SimpleNamespace())

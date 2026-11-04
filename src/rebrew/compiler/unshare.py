@@ -81,7 +81,10 @@ def _helper(root: Path) -> Path:
     helper = directory / "runner"
     manifest = directory / "sha256"
     if helper.is_file() and manifest.is_file():
-        if hashlib.sha256(helper.read_bytes()).hexdigest() == manifest.read_text(encoding="utf-8").strip():
+        if (
+            hashlib.sha256(helper.read_bytes()).hexdigest()
+            == manifest.read_text(encoding="utf-8").strip()
+        ):
             return helper
         raise UnshareError(f"experimental helper failed its digest check; remove {directory}")
     cc, pkg = shutil.which("cc"), shutil.which("pkg-config")

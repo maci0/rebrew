@@ -634,6 +634,7 @@ class TestDiffCli:
             source_ext=".c",
         )
         monkeypatch.setattr("rebrew.diff.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.cli.resolve_source_arg", lambda cfg, source: Path(source))
         monkeypatch.setattr("rebrew.match_sweep.resolve_build_params", lambda *a, **k: _params())
 
         seen: dict = {}
@@ -652,7 +653,7 @@ class TestDiffCli:
         # First invocation must enter watch mode, not run the diff itself.
         assert seen == {}
         (watched,) = captured["paths"]
-        assert watched == Path("f.c").resolve()
+        assert watched == _params().seed_c.resolve()
         # Re-invoking the retest re-enters main() with watch=False.
         captured["retest"]()
         assert seen["json_out"] is False
