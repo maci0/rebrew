@@ -690,6 +690,315 @@ class TestRefusals:
 
 
 # ---------------------------------------------------------------------------
+# Function digests, library functions, compiler identification, splat configs
+# ---------------------------------------------------------------------------
+
+#: The fixture's first function: ``push ebp; mov ebp, esp; mov eax, [0]; pop ebp; ret``.
+ENTRY_CODE = bytes.fromhex("55 8b ec 8b 05 00 00 00 00 5d c3")
+
+SPLAT_YAML = """\
+options:
+  basename: fixture.exe
+  target_path: "fixture.exe"
+  platform: win32
+  compiler: MSVC6
+  symbol_addrs_path: symbol_addrs.txt
+segments:
+  - name: text
+    type: code
+    start: 0x200
+    vram: 0x00401000
+    subsegments:
+      - [0x200, text, main_text]
+  - [0x400]
+"""
+
+
+def _store(filestore: Path, data: bytes) -> tuple[str, str]:
+    """Store *data* under its content key; return ``(sha256, key)``."""
+    digest = hashlib.sha256(data).hexdigest()
+    (filestore / "binaries" / digest).write_bytes(data)
+    return digest, f"binaries/{digest}"
+
+
+def _relocated_fixture(directory: Path) -> bytes:
+    """The fixture with one HIGHLOW fixup on the entry function's ``[0]`` operand."""
+    import lief
+
+    binary = lief.PE.parse(BINARY)
+    assert binary is not None
+    block = lief.PE.Relocation()
+    block.virtual_address = 0x1000
+    block.add_entry(lief.PE.RelocationEntry(5, lief.PE.RelocationEntry.BASE_TYPES.HIGHLOW))
+    binary.add_relocation(block)
+    path = directory / "relocated.exe"
+    binary.write(str(path))
+    return path.read_bytes()
+
+
+class TestFunctionDigests:
+    def _request(self, sha256: str, key: str, *extents: tuple[int, int]) -> dict[str, Any]:
+        functions = [{"va": va, "size": size} for va, size in extents]
+        return {"sha256": sha256, "file": key, "functions": functions}
+
+    def test_unrelocated_bytes_hash_whole(self, tmp_path: Path) -> None:
+        filestore, workspace = _worker_dirs(tmp_path)
+        config = WorkerConfig(filestore.resolve(), workspace.resolve())
+        request = self._request(SHA256, KEY, (ENTRY_VA, ENTRY_SIZE))
+        reply = _call(config, "rebrew.binary_function_digests", request)
+        assert reply == {
+            "identities": [
+                {
+                    "algorithm": "sha256-relocations-v1",
+                    "arch": "x86_32",
+                    "size": ENTRY_SIZE,
+                    "digest": hashlib.sha256(ENTRY_CODE).hexdigest(),
+                }
+            ]
+        }
+
+    def test_fixups_are_masked(self, tmp_path: Path) -> None:
+        filestore, workspace = _worker_dirs(tmp_path)
+        config = WorkerConfig(filestore.resolve(), workspace.resolve())
+        digest, key = _store(filestore, _relocated_fixture(tmp_path))
+        reply = _call(
+            config,
+            "rebrew.binary_function_digests",
+            self._request(digest, key, (ENTRY_VA, ENTRY_SIZE)),
+        )
+        masked = ENTRY_CODE[:5] + b"\0\0\0\0" + ENTRY_CODE[9:]
+        assert reply["identities"][0]["digest"] == hashlib.sha256(masked).hexdigest()
+
+    @pytest.mark.parametrize(
+        ("extents", "detail"),
+        [
+            ((), "functions must hold 1 to 128 entries"),
+            (((ENTRY_VA, 0),), "function extent is outside its bounds"),
+            (((-1, 4),), "function extent is outside its bounds"),
+            (((0x10, 4),), "function digest extent is not file backed"),
+        ],
+    )
+    def test_refusals(
+        self, tmp_path: Path, extents: tuple[tuple[int, int], ...], detail: str
+    ) -> None:
+        filestore, workspace = _worker_dirs(tmp_path)
+        config = WorkerConfig(filestore.resolve(), workspace.resolve())
+        body = json.dumps(self._request(SHA256, KEY, *extents)).encode()
+        refusal = _refusal(config, "rebrew.binary_function_digests", body)
+        assert (refusal["status"], refusal["detail"]) == (400, detail)
+
+
+class TestStoredFileOps:
+    def test_library_functions(self, tmp_path: Path) -> None:
+        filestore, workspace = _worker_dirs(tmp_path)
+        digest, key = _store(filestore, (FIXTURES / "mini.lib").read_bytes())
+        config = WorkerConfig(filestore.resolve(), workspace.resolve())
+        reply = _call(config, "rebrew.library_functions", {"sha256": digest, "file": key})
+        functions = {f["name"]: f for f in reply["functions"]}
+        assert set(functions) == {"_func1", "_func2"}
+        assert (functions["_func1"]["arch"], functions["_func1"]["size"]) == ("x86_32", 16)
+        assert "push ebp" in functions["_func1"]["listing"]
+
+    def test_library_functions_refuses_a_non_archive(self, tmp_path: Path) -> None:
+        filestore, workspace = _worker_dirs(tmp_path)
+        config = WorkerConfig(filestore.resolve(), workspace.resolve())
+        body = json.dumps({"sha256": SHA256, "file": KEY}).encode()
+        refusal = _refusal(config, "rebrew.library_functions", body)
+        assert refusal["detail"] == "the file is not an ar archive"
+
+    def test_identify_compiler(self, tmp_path: Path) -> None:
+        filestore, workspace = _worker_dirs(tmp_path)
+        config = WorkerConfig(filestore.resolve(), workspace.resolve())
+        reply = _call(config, "rebrew.identify_compiler", _binary_file())
+        assert {"family", "confidence", "evidence", "detected_by", "profile"} <= set(reply)
+        assert isinstance(reply["evidence"], list)
+
+    def test_splat_parse(self) -> None:
+        reply = _call(WorkerConfig(), "rebrew.splat_parse", {"config": SPLAT_YAML})
+        assert (reply["platform"], reply["compiler"], reply["target_path"]) == (
+            "win32",
+            "MSVC6",
+            "fixture.exe",
+        )
+        assert reply["symbol_addrs_paths"] == ["symbol_addrs.txt"]
+        (segment,) = reply["segments"]
+        assert (segment["rom_start"], segment["rom_end"], segment["vram"]) == (
+            0x200,
+            0x400,
+            0x401000,
+        )
+        assert segment["subsegments"] == [{"rom_start": 0x200, "kind": "text", "name": "main_text"}]
+
+    def test_splat_parse_refuses_unreadable_text(self) -> None:
+        body = json.dumps({"config": "segments: [unclosed"}).encode()
+        refusal = _refusal(WorkerConfig(), "rebrew.splat_parse", body)
+        assert refusal["status"] == 400
+        assert "/splat" not in refusal["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Reconstruction ops on a project
+# ---------------------------------------------------------------------------
+
+
+def _project_copy(world: tuple[WorkerConfig, Path], name: str) -> tuple[WorkerConfig, Path]:
+    """A copy of the analysed project inside the workspace, for ops that write."""
+    config, project = world
+    assert config.workspace is not None
+    copy = config.workspace / "copies" / name
+    shutil.copytree(project, copy)
+    return config, copy
+
+
+def _with_project_header(project: Path) -> str:
+    """Add a source that includes a project header; return its project-relative path."""
+    (project / "src" / "mini" / "local.h").write_text("#define ONE 1\n")
+    source = project / "src" / "mini" / "uses_header.c"
+    source.write_text('#include "local.h"\nint uses_header(void) { return ONE; }\n')
+    return "src/mini/uses_header.c"
+
+
+class TestReconstructionOps:
+    def test_skeleton(self, world: tuple[WorkerConfig, Path]) -> None:
+        config, project = world
+        request = {"project_dir": str(project), "va": 0x401010, "name": "second"}
+        source = _call(config, "rebrew.skeleton", request)["source"]
+        assert "second" in source and "0x00401010" in source.lower()
+        request["va"] = 0x10
+        assert _refusal(config, "rebrew.skeleton", json.dumps(request).encode())["status"] == 400
+
+    def test_reference_flirt(self, world: tuple[WorkerConfig, Path]) -> None:
+        from rebrew.gen_flirt_pat import bytes_to_pat_line
+
+        config, project = world
+        assert config.filestore is not None
+        pat = (bytes_to_pat_line("_func1", ENTRY_CODE, {5, 6, 7, 8}) + "\n---\n").encode()
+        digest, key = _store(config.filestore, pat)
+        request = {
+            "project_dir": str(project),
+            "sha256": SHA256,
+            "format": "pat",
+            "signatures": {"sha256": digest, "file": key},
+            "min_size": 0,
+        }
+        reply = _call(config, "rebrew.reference_flirt", request)
+        assert [(m["va"], m["names"]) for m in reply["matches"]] == [("0x00401000", ["_func1"])]
+        request["format"] = "idb"
+        assert _refusal(config, "rebrew.reference_flirt", json.dumps(request).encode())[
+            "status"
+        ] == (400)
+
+    def test_coverage_export_round_trips_through_import(
+        self, world: tuple[WorkerConfig, Path]
+    ) -> None:
+        config, project = world
+        assert config.workspace is not None
+        request = {"project_dir": str(project), "sha256": SHA256, "output_dir": "exports/cov"}
+        reply = _call(config, "rebrew.coverage_export", request)
+        out = config.workspace / "exports" / "cov"
+        assert reply == {"output_dir": str(out), "documents": [str(out / "coverage-mini.toml")]}
+        imported = _call(
+            config, "rebrew.import-project", {"project_dir": str(project), "snapshots": str(out)}
+        )
+        assert len(imported["targets"][0]["functions"]) == 2
+
+    def test_coverage_report(self, world: tuple[WorkerConfig, Path]) -> None:
+        config, project = world
+        reply = _call(config, "rebrew.coverage_report", {"project_dir": str(project)})
+        assert reply["report"]["version"] == 2
+        assert (reply["summary"]["total_functions"], reply["summary"]["matched_functions"]) == (
+            2,
+            0,
+        )
+        assert "out" not in reply["summary"]
+
+    def test_data_list_and_set(self, world: tuple[WorkerConfig, Path]) -> None:
+        config, project = world
+        listing = _call(config, "rebrew.data_list", {"project_dir": str(project)})
+        assert listing["sections"][".text"]["va"] == "0x00401000"
+        request = {"project_dir": str(project), "va": 0x401050, "note": "seen", "dry_run": True}
+        reply = _call(config, "rebrew.data_set", request)
+        assert (reply["dry_run"], reply["changed"], reply["set"][0]["note"]) == (True, 1, "seen")
+        empty = {"project_dir": str(project), "va": 0x401050}
+        assert _refusal(config, "rebrew.data_set", json.dumps(empty).encode())["detail"] == (
+            "data_set needs at least one field to set"
+        )
+
+    def test_source_rename_preview(self, world: tuple[WorkerConfig, Path]) -> None:
+        config, project = world
+        request = {
+            "project_dir": str(project),
+            "kind": "function",
+            "old_name": "fcn_00401000",
+            "new_name": "entry_fn",
+            "dry_run": True,
+        }
+        reply = _call(config, "rebrew.source_rename", request)
+        assert (reply["new_symbol"], reply["dry_run"]) == ("_entry_fn", True)
+
+    def test_source_merge_preview_and_split_refusal(self, world: tuple[WorkerConfig, Path]) -> None:
+        config, project = world
+        sources = ["src/mini/fcn_00401000.c", "src/mini/fcn_00401010.c"]
+        request = {
+            "project_dir": str(project),
+            "sources": sources,
+            "output": "src/mini/merged.c",
+            "dry_run": True,
+        }
+        reply = _call(config, "rebrew.source_merge", request)
+        assert (reply["count"], reply["vas"]) == (2, ["0x00401000", "0x00401010"])
+        assert not (project / "src" / "mini" / "merged.c").exists()
+        split = {"project_dir": str(project), "source": sources[0], "dry_run": True}
+        refusal = _refusal(config, "rebrew.source_split", json.dumps(split).encode())
+        assert refusal["detail"].startswith("rebrew source split failed: Input must contain")
+
+    def test_decompme_export_preview(self, world: tuple[WorkerConfig, Path]) -> None:
+        config, project = world
+        request = {
+            "project_dir": str(project),
+            "source": "src/mini/fcn_00401000.c",
+            "dry_run": True,
+        }
+        reply = _call(config, "rebrew.decompme_export", request)
+        assert (reply["dry_run"], reply["va"], reply["platform"]) == (True, "0x00401000", "win32")
+
+    @pytest.mark.parametrize("source", ["../escape.c", "/etc/passwd", "src/mini/missing.c"])
+    def test_source_paths_stay_in_the_project(
+        self, world: tuple[WorkerConfig, Path], source: str
+    ) -> None:
+        config, project = world
+        body = json.dumps({"project_dir": str(project), "source": source}).encode()
+        assert _refusal(config, "rebrew.verify_function", body)["status"] == 400
+
+    @pytest.mark.parametrize(
+        ("op", "extra"),
+        [
+            ("rebrew.verify_function", {"source": "src/mini/uses_header.c"}),
+            ("rebrew.verify_target", {}),
+            ("rebrew.build", {}),
+            (
+                "rebrew.source_variants",
+                {"source": "src/mini/uses_header.c", "generations": 1, "population": 2, "seed": 1},
+            ),
+        ],
+    )
+    def test_remote_compile_refuses_project_headers(
+        self,
+        world: tuple[WorkerConfig, Path],
+        monkeypatch: pytest.MonkeyPatch,
+        op: str,
+        extra: dict[str, Any],
+    ) -> None:
+        config, project = _project_copy(world, op.removeprefix("rebrew."))
+        _with_project_header(project)
+        monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://127.0.0.1:9")
+        body = json.dumps({"project_dir": str(project), **extra}).encode()
+        refusal = _refusal(config, op, body)
+        assert (refusal["error"], refusal["status"]) == ("remote-compile-headers", 422)
+        assert refusal["detail"].startswith("src/mini/uses_header.c reads project headers")
+
+
+# ---------------------------------------------------------------------------
 # Transports, end to end through the installed command
 # ---------------------------------------------------------------------------
 

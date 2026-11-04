@@ -6266,11 +6266,12 @@ Pretty-print the SKILL.md for the named skill.
 Answers the relumea backend's `rebrew` dispatch service. The ops, their
 request fields and their replies are the backend's contract
 (`internal/engines/rebrew` and the generated
-`contracts/dispatch/rebrew.schema.json` in the backend repository); all 19
+`contracts/dispatch/rebrew.schema.json` in the backend repository); all 37
 are served. A request with an unknown or missing field, or a field of the
 wrong JSON type, is refused. A refusal is
 `{"error","detail","status"}`: `invalid-request` (400; 413 when the request
-exceeds 16 MiB), `unknown-op` (404), `engine-error` (500), or, from
+exceeds 16 MiB), `unknown-op` (404), `engine-error` (500),
+`remote-compile-headers` (422, see below), or, from
 `serve` only, `worker-busy` (503). An engine
 failure answers a fixed detail and logs its cause on stderr.
 
@@ -6312,6 +6313,35 @@ Op details the contract leaves open:
   `constant` finding also has `va` and `section`.
 - `rebrew.import-project`: live coverage is always read refreshed; `build_db`
   asks for exactly that and only excludes `snapshots`.
+- `rebrew.binary_function_digests`: the image is parsed once; every byte a
+  typed fixup covers (PE or ELF, x86_32 and x86_64 only; other images are
+  refused) is zeroed before SHA-256 (`sha256-relocations-v1`). At most 128
+  extents of 1 byte to 1 MiB; an extent that is not file backed, or that is
+  all fixup bytes, refuses the call.
+- `rebrew.library_functions`, `rebrew.identify_compiler` and
+  `rebrew.splat_parse` read a stored file or the request text, never a
+  project. `splat_parse` opens nothing the config names and refuses a config
+  over 256 KiB.
+- Reconstruction ops (`reference_flirt`, `verify_function`, `verify_target`,
+  `build`, `skeleton`, `coverage_export`, `coverage_report`,
+  `source_variants`, `decompme_export`, `data_list`, `data_set`,
+  `source_rename`, `source_split`, `source_merge`) take `project_dir` and an
+  optional target `sha256`. Their `source`, `sources` and `output` are
+  project-relative and may not leave the project; `coverage_export`'s
+  `output_dir` is relative to `--workspace`. Ops wrapping a command
+  (`verify`, `build round-trip`, `match run`, `export
+  decompme`, `data list`/`set`, `source rename`/`split`/`merge`,
+  `library scan-signatures`) run it as a child process in the project and
+  answer the JSON it prints; `verify_target`, `build` and `source_variants`
+  are bounded at 3600 s, the others at 600 s. For `verify_target`, `build`
+  and `source_variants` exit 1 (a mismatch) still answers the report.
+- While the compile backend is the remote recompile service
+  (`REBREW_RECOMPILE_URL` or `[compiler] recompile_url`), `verify_function`,
+  `verify_target`, `build` and `source_variants` refuse 422
+  `remote-compile-headers` when a source they would compile includes a
+  header found under its directory or the project's `/I` directories, or
+  computes an include: the service receives the source text alone. Local
+  backends are unaffected.
 
 The backend selects a transport with `RELUMEA_DISPATCH_REBREW`:
 `exec:rebrew ops call --filestore DIR --workspace DIR` runs one process per

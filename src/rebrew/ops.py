@@ -25,7 +25,13 @@ that hash.  ``analyse`` creates ``<workspace>/projects/<sha256>`` and
 
 Project paths (``project_dir``, ``snapshots``) must be absolute.  With a
 workspace configured they must resolve, symlinks followed, inside it; ``serve``
-always has one, so over HTTP no project path leaves the workspace.
+always has one, so over HTTP no project path leaves the workspace.  Source and
+output paths inside a project are project-relative and may not leave it.
+
+Ops whose rebrew command prints its report instead of returning it run that
+command as a child process in the project (:func:`run_rebrew`).  Ops that
+compile refuse, while a remote compile backend is configured, a source that
+reads project headers (:func:`remote_header_refusal`).
 """
 
 from __future__ import annotations
@@ -43,13 +49,14 @@ lazy import hmac
 lazy import json
 lazy import os
 lazy import re
+lazy import shutil
 lazy import signal
 lazy import subprocess
 lazy import sys
 lazy import tempfile
 lazy import threading
 lazy import typing
-lazy from collections.abc import Callable, Iterator, Mapping
+lazy from collections.abc import Callable, Iterable, Iterator, Mapping
 lazy from typing import Any
 lazy from urllib.parse import urlsplit
 
@@ -83,6 +90,13 @@ SOCKET_TIMEOUT_SECONDS = 60
 
 #: Wall-clock bound on one ``rebrew intake`` run (``analyse``).
 INTAKE_TIMEOUT_SECONDS = 600
+
+#: Wall-clock bound on a rebrew command an op runs as a child process.
+COMMAND_TIMEOUT_SECONDS = 600
+
+#: Wall-clock bound on the child commands that compile every function or
+#: search mutations: ``verify_target``, ``build`` and ``source_variants``.
+SEARCH_TIMEOUT_SECONDS = 3600
 
 #: Default of ``--concurrency``: calls ``serve`` runs at once.
 DEFAULT_CONCURRENCY = 4
@@ -124,6 +138,39 @@ OPERAND_MAX_FUNCTION_BYTES = 1 << 20
 OPERAND_MAX_LOCATIONS = 256
 OPERAND_MAX_INDEX = 7
 
+#: ``binary_function_digests`` bounds: functions per call and bytes per function.
+DIGEST_MAX_FUNCTIONS = 128
+DIGEST_MAX_FUNCTION_BYTES = 1 << 20
+
+#: The relocation-masked digest ``binary_function_digests`` answers.
+DIGEST_ALGORITHM = "sha256-relocations-v1"
+
+#: Largest splat config text ``splat_parse`` reads.
+SPLAT_MAX_CONFIG_BYTES = 256 << 10
+
+#: Where ``splat_parse`` places the config text: its relative paths hang from
+#: this directory, and nothing there is opened.
+SPLAT_ANCHOR = Path("/splat/splat.yaml")
+
+#: Signature formats ``reference_flirt`` reads, by request ``format``.
+FLIRT_FORMATS = frozenset({"sig", "pat"})
+
+#: ``rebrew source rename`` selectors by request ``kind``; a function takes none.
+RENAME_KINDS = {"function": (), "data": ("--data",), "type": ("--type",), "field": ("--field",)}
+
+#: ``data_set`` request fields and the ``rebrew data set`` option each sets.
+DATA_FIELD_OPTIONS = {
+    "name": "--name",
+    "type": "--type",
+    "section": "--section",
+    "kind": "--kind",
+    "note": "--note",
+    "storage_kind": "--storage-kind",
+    "backing": "--backing",
+    "link_symbol": "--link-symbol",
+    "source_file": "--file",
+}
+
 #: Coverage rows that are data, not functions.
 _DATA_MARKERS = frozenset({"GLOBAL", "DATA"})
 
@@ -140,6 +187,8 @@ INVALID_REQUEST = "invalid-request"
 UNKNOWN_OP = "unknown-op"
 ENGINE_ERROR = "engine-error"
 WORKER_BUSY = "worker-busy"
+#: A remote compile of a source that reads project headers (relumea ADR 0010, decision 4).
+REMOTE_HEADERS = "remote-compile-headers"
 
 
 class OpsError(RebrewError):
@@ -312,6 +361,148 @@ class StructsRequest:
     project_dir: str
     decompiler: str
     limit: int
+
+
+@dataclass(frozen=True)
+class Extent:
+    va: int
+    size: int
+
+
+@dataclass(frozen=True)
+class FunctionDigestsRequest:
+    sha256: str
+    functions: list[Extent]
+    file: str = ""
+    url: str = ""
+
+
+@dataclass(frozen=True)
+class StoredFile:
+    sha256: str
+    file: str = ""
+    url: str = ""
+
+
+@dataclass(frozen=True)
+class SplatRequest:
+    config: str
+
+
+@dataclass(frozen=True)
+class TargetRequest:
+    project_dir: str
+    sha256: str = ""
+
+
+@dataclass(frozen=True)
+class ReferenceFlirtRequest:
+    project_dir: str
+    format: str
+    signatures: StoredFile
+    min_size: int
+    sha256: str = ""
+
+
+@dataclass(frozen=True)
+class VerifyRequest:
+    project_dir: str
+    source: str
+    sha256: str = ""
+    no_promote: bool = False
+
+
+@dataclass(frozen=True)
+class VerifyTargetRequest:
+    project_dir: str
+    sha256: str = ""
+    no_promote: bool = False
+
+
+@dataclass(frozen=True)
+class BuildRequest:
+    project_dir: str
+    sha256: str = ""
+    fix_headers: bool = False
+
+
+@dataclass(frozen=True)
+class SkeletonRequest:
+    project_dir: str
+    va: int
+    sha256: str = ""
+    name: str = ""
+
+
+@dataclass(frozen=True)
+class CoverageExportRequest:
+    project_dir: str
+    output_dir: str
+    sha256: str = ""
+
+
+@dataclass(frozen=True)
+class SourceVariantsRequest:
+    project_dir: str
+    source: str
+    generations: int
+    population: int
+    seed: int
+    sha256: str = ""
+
+
+@dataclass(frozen=True)
+class DecompmeRequest:
+    project_dir: str
+    source: str
+    sha256: str = ""
+    dry_run: bool = False
+
+
+@dataclass(frozen=True)
+class DataSetRequest:
+    project_dir: str
+    va: int
+    sha256: str = ""
+    name: str = ""
+    type: str = ""
+    size: int = 0
+    section: str = ""
+    kind: str = ""
+    note: str = ""
+    storage_kind: str = ""
+    backing: str = ""
+    link_symbol: str = ""
+    source_file: str = ""
+    dry_run: bool = False
+
+
+@dataclass(frozen=True)
+class RenameRequest:
+    project_dir: str
+    kind: str
+    old_name: str
+    new_name: str
+    sha256: str = ""
+    dry_run: bool = False
+
+
+@dataclass(frozen=True)
+class SplitRequest:
+    project_dir: str
+    source: str
+    sha256: str = ""
+    va: int = 0
+    dry_run: bool = False
+
+
+@dataclass(frozen=True)
+class MergeRequest:
+    project_dir: str
+    sources: list[str]
+    output: str
+    sha256: str = ""
+    dry_run: bool = False
 
 
 def _decode(value: Any, hint: Any, where: str) -> Any:
@@ -512,14 +703,29 @@ def target_config(root: Path, sha256: str) -> Any:
     raise _invalid("no target of project_dir has a binary with that sha256")
 
 
-def _inside(base: Path, relative: str, what: str) -> Path:
+def _inside(base: Path, relative: str, what: str, scope: str = "the worker workspace") -> Path:
     """*relative* resolved under *base*; an absolute path or an escape is refused."""
     if not relative or Path(relative).is_absolute():
         raise _invalid(f"{what} must be a relative path")
     path = (base / relative).resolve()
     if path == base or not path.is_relative_to(base):
-        raise _invalid(f"{what} must stay inside the worker workspace")
+        raise _invalid(f"{what} must stay inside {scope}")
     return path
+
+
+def _project_file(root: Path, relative: str, what: str) -> Path:
+    """The existing file *relative* names inside the project at *root*."""
+    path = _inside(root, relative, what, "project_dir")
+    if not path.is_file():
+        raise _invalid(f"{what} is not a file of the project")
+    return path
+
+
+def _target_options(root: Path, sha256: str) -> list[str]:
+    """``--target`` for the target whose binary hashes to *sha256*; none for the default."""
+    if not sha256:
+        return []
+    return [f"--target={target_config(root, sha256).target_name}"]
 
 
 # ---------------------------------------------------------------------------
@@ -755,6 +961,56 @@ def binary_operand_locations(config: WorkerConfig, req: OperandLocationsRequest)
     return {"locations": results}
 
 
+def binary_function_digests(config: WorkerConfig, req: FunctionDigestsRequest) -> dict[str, Any]:
+    """The relocation-masked digest of each extent, parsing the image once.
+
+    Every byte a typed fixup of the image covers is zeroed before hashing, so
+    the same function linked at another base digests alike.  Only identities
+    leave: no bytes, addresses or masks.  An extent that is not file backed,
+    or one whose every byte is a fixup, fails the whole call.
+    """
+    from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary
+    from rebrew.formats.relocations import relocation_spans
+    from rebrew.matcher.scoring import normalize_with_reloc_offsets
+
+    if not 1 <= len(req.functions) <= DIGEST_MAX_FUNCTIONS:
+        raise _invalid(f"functions must hold 1 to {DIGEST_MAX_FUNCTIONS} entries")
+    for extent in req.functions:
+        if extent.va < 0 or not 1 <= extent.size <= DIGEST_MAX_FUNCTION_BYTES:
+            raise _invalid("function extent is outside its bounds")
+    with binary_file(config, req.file, req.url, req.sha256, "file") as path:
+        info = load_binary(path)
+        try:
+            spans = relocation_spans(info)
+        except NotImplementedError as exc:
+            raise _invalid(_bounded(str(exc))) from None
+        identities = []
+        for extent in req.functions:
+            va, size = extent.va, extent.size
+            code = extract_bytes_at_va(info, va, size, trim_padding=False)
+            if code is None or len(code) != size:
+                raise _invalid("function digest extent is not file backed")
+            masked = sorted(
+                {
+                    offset - va
+                    for address, width in spans
+                    for offset in range(max(va, address), min(va + size, address + width))
+                }
+            )
+            if len(masked) == size:
+                raise _invalid("function has no unmasked bytes")
+            normalized = normalize_with_reloc_offsets(code, masked, pointer_size=1)
+            identities.append(
+                {
+                    "algorithm": DIGEST_ALGORITHM,
+                    "arch": info.arch,
+                    "size": size,
+                    "digest": hashlib.sha256(normalized).hexdigest(),
+                }
+            )
+    return {"identities": identities}
+
+
 # ---------------------------------------------------------------------------
 # Scan ops on a stored binary
 # ---------------------------------------------------------------------------
@@ -811,6 +1067,131 @@ def pe_info(config: WorkerConfig, req: BinaryFile) -> dict[str, Any]:
         return dict(info(path))
 
 
+def identify_compiler(config: WorkerConfig, req: BinaryFile) -> dict[str, Any]:
+    """The toolchain ``rebrew intake`` and ``rebrew doctor`` detect, and the profile it suggests.
+
+    The detection fields (family, version_hint, confidence, evidence, flags,
+    detected_by, ...) are ``ToolchainInfo``'s; ``profile`` is the suggested
+    rebrew compiler profile, null when no profile fits.  An unreadable or
+    unrecognized binary answers family ``unknown``.
+    """
+    from rebrew.toolchain_detect import detect_toolchain, suggest_profile
+
+    with _scan_binary(config, req) as path:
+        info = detect_toolchain(path)
+        return {**dataclasses.asdict(info), "profile": suggest_profile(info, path)}
+
+
+def library_functions(config: WorkerConfig, req: StoredFile) -> dict[str, Any]:
+    """The named functions of a static library (``.lib``/``.a``), each with its listing.
+
+    Each member object's function symbols, file-static ones included, come
+    with their code disassembled at offset 0 in the object's own ISA: NASM
+    source for x86_32, ``asm`` lines otherwise, so a listing compares with a
+    linked binary's.  Members of an unknown machine and functions that decode
+    to nothing are left out; the rest keep archive order.
+    """
+    from rebrew.asm import disassemble_to_nasm
+    from rebrew.formats.archives import parse_archive
+    from rebrew.formats.binary_loader import capstone_config_for, object_arch
+    from rebrew.formats.binary_model import BinaryInfo
+    from rebrew.gen_flirt_pat import parse_coff_obj, parse_elf_obj
+
+    functions: list[dict[str, Any]] = []
+    with binary_file(config, req.file, req.url, req.sha256, "file") as path:
+        try:
+            members = list(parse_archive(str(path)))
+        except ValueError:
+            raise _invalid("the file is not an ar archive") from None
+        for _member, obj in members:
+            machine = object_arch(obj)
+            if machine is None:
+                continue
+            arch, endian = machine
+            cs_arch, cs_mode = capstone_config_for(
+                BinaryInfo(path=path, format="", arch=arch, endian=endian)
+            )
+            symbols = (
+                parse_elf_obj(obj, include_local=True)
+                if obj.startswith(b"\x7fELF")
+                else parse_coff_obj(obj)
+            )
+            for name, code, _relocations in symbols:
+                if arch == NASM_ARCH:
+                    listing, _stats = disassemble_to_nasm(code, 0, None)
+                else:
+                    listing = _asm_listing(code, 0, cs_arch, cs_mode)
+                if listing.strip():
+                    functions.append(
+                        {"name": name, "size": len(code), "arch": arch, "listing": listing}
+                    )
+    return {"functions": functions}
+
+
+# ---------------------------------------------------------------------------
+# Splat configs
+# ---------------------------------------------------------------------------
+
+
+def _anchored(path: Path | None) -> str | None:
+    """*path* relative to the config's directory when it lies under it."""
+    if path is None:
+        return None
+    return (
+        str(path.relative_to(SPLAT_ANCHOR.parent))
+        if path.is_relative_to(SPLAT_ANCHOR.parent)
+        else str(path)
+    )
+
+
+def splat_parse(_config: WorkerConfig, req: SplatRequest) -> dict[str, Any]:
+    """The splat config surface rebrew reads, parsed from the request text.
+
+    Nothing the config names (target binary, symbol files) is opened, and
+    nothing is written: ``rebrew source import-splat`` applies a config.
+    Paths are as the config spells them, relative to its own directory.  A
+    malformed config, an unsupported platform, or a construct outside the
+    supported subset is refused with the parser's reason.
+    """
+    from rebrew.splat_config import parse_splat_text
+
+    if len(req.config.encode("utf-8", errors="surrogatepass")) > SPLAT_MAX_CONFIG_BYTES:
+        raise _invalid(f"config exceeds {SPLAT_MAX_CONFIG_BYTES} bytes")
+    try:
+        parsed = parse_splat_text(req.config, SPLAT_ANCHOR)
+    except ValueError as exc:
+        raise _invalid(_bounded(str(exc).replace(f"{SPLAT_ANCHOR}: ", ""))) from None
+    except RecursionError:
+        raise _invalid("config nesting is too deep") from None
+    return {
+        "platform": parsed.platform,
+        "compiler": parsed.compiler,
+        "basename": parsed.basename,
+        "target_path": _anchored(parsed.target_path),
+        "elf_path": _anchored(parsed.elf_path),
+        "rom_end": parsed.rom_end,
+        "segments": [
+            {
+                "name": segment.name,
+                "kind": segment.kind,
+                "rom_start": segment.rom_start,
+                "rom_end": segment.rom_end,
+                "vram": segment.vram,
+                "bss_size": segment.bss_size,
+                "subsegments": [
+                    {"rom_start": sub.rom_start, "kind": sub.kind, "name": sub.name}
+                    for sub in segment.subsegments
+                ],
+            }
+            for segment in parsed.segments
+        ],
+        "symbol_addrs_paths": [_anchored(path) for path in parsed.symbol_addrs_paths],
+        "undefined_funcs_auto_path": _anchored(parsed.undefined_funcs_auto_path),
+        "undefined_syms_auto_path": _anchored(parsed.undefined_syms_auto_path),
+        "ignored": [{"key": item.key, "reason": item.reason} for item in parsed.ignored],
+    }
+
+
 # ---------------------------------------------------------------------------
 # Project ops
 # ---------------------------------------------------------------------------
@@ -855,13 +1236,31 @@ def _run_intake(binary: Path, project: Path, target: str) -> dict[str, Any]:
     """Run ``rebrew intake --json`` in *project*.
 
     Intake onboards the project in its working directory and has no entry
-    point that takes a root, while ``serve`` handles calls on threads sharing
-    one cwd, so it runs as a child process in its own session; a timeout kills
-    the whole group.
+    point that takes a root, so it runs through :func:`run_rebrew`.
     """
-    command = [sys.executable, "-m", "rebrew.app.main", "intake", "--json", "--target", target]
+    return run_rebrew(
+        ["intake", "--json", "--target", target, str(binary)], project, INTAKE_TIMEOUT_SECONDS
+    )
+
+
+def run_rebrew(
+    arguments: list[str], project: Path, timeout: int, *, outcome_exit: bool = False
+) -> dict[str, Any]:
+    """Run ``rebrew <arguments>`` in *project* and answer the JSON object it prints.
+
+    *arguments* must select JSON output.  The commands an op runs this way
+    work in their working directory, print their report rather than return
+    it, or exit through ``error_exit``, while ``serve`` handles calls on
+    threads sharing one cwd and one stdout, so each runs as a child process
+    in its own session; a timeout kills the whole group.  With
+    *outcome_exit*, exit 1 (rebrew's mismatch or failed-check outcome) also
+    answers the printed report; any other non-zero exit is a refusal carrying
+    the command's JSON error message.
+    """
+    name = " ".join(word for word in arguments[:2] if not word.startswith("-"))
+    command = [sys.executable, "-m", "rebrew.app.main"]
     process = subprocess.Popen(
-        [*command, str(binary)],
+        [*command, *arguments],
         cwd=project,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
@@ -872,22 +1271,26 @@ def _run_intake(binary: Path, project: Path, target: str) -> dict[str, Any]:
         start_new_session=True,
     )
     try:
-        stdout, stderr = process.communicate(timeout=INTAKE_TIMEOUT_SECONDS)
+        stdout, stderr = process.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
         os.killpg(process.pid, signal.SIGKILL)
         process.communicate()
-        raise _refused(f"rebrew intake did not finish within {INTAKE_TIMEOUT_SECONDS} s") from None
-    if process.returncode != 0:
-        logger.error("rebrew intake exited %d: %s", process.returncode, stderr.strip())
-        raise _refused(f"rebrew intake failed: {_intake_refusal(stderr)}")
-    report = json.loads(stdout)
+        raise _refused(f"rebrew {name} did not finish within {timeout} s") from None
+    if process.returncode != 0 and not (outcome_exit and process.returncode == 1):
+        logger.error("rebrew %s exited %d: %s", name, process.returncode, stderr.strip())
+        raise _refused(f"rebrew {name} failed: {_command_refusal(stderr)}")
+    try:
+        report = json.loads(stdout)
+    except json.JSONDecodeError:
+        logger.exception("rebrew %s printed no JSON report: %s", name, stderr.strip())
+        raise _refused(f"rebrew {name} printed no JSON report") from None
     if not isinstance(report, dict):
-        raise _refused("rebrew intake answered a report that is not an object")
+        raise _refused(f"rebrew {name} answered a report that is not an object")
     return report
 
 
-def _intake_refusal(stderr: str) -> str:
-    """The message of intake's JSON error line, or its exit being unexplained."""
+def _command_refusal(stderr: str) -> str:
+    """The message of a command's JSON error line, or its exit being unexplained."""
     for line in reversed(stderr.splitlines()):
         with contextlib.suppress(json.JSONDecodeError):
             payload = json.loads(line)
@@ -990,6 +1393,317 @@ def project_report(root: Path, snapshots: Path | None) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Reconstruction ops on a project
+#
+# Each names the target by its binary's sha256 (empty: the default target).
+# Ops that run a rebrew command answer the JSON object it prints; the source
+# and output paths they take are project-relative and must stay inside it.
+# ---------------------------------------------------------------------------
+
+
+def _flag(enabled: bool, option: str) -> list[str]:
+    return [option] if enabled else []
+
+
+def remote_header_refusal(cfg: Any, sources: Iterable[Path]) -> None:
+    """Refuse a remote compile of a source that reads project headers.
+
+    The recompile service compiles the source text against its image's own
+    include tree; no project header travels with it, so such a source would
+    not compile as it does locally (relumea ADR 0010, decision 4).  Until
+    include bundles exist, a source whose include closure reaches a header
+    under its directory or the project's ``/I`` directories, or that computes
+    an include, is refused before anything compiles.  Local compiles pass.
+    """
+    from rebrew.compiler.compile import recompile_url
+
+    if recompile_url(cfg) is None:
+        return
+    from rebrew.compiler.cache import scan_include_closure
+    from rebrew.compiler.compile import effective_compile_flags, extract_include_dirs
+
+    for source in sources:
+        flags = effective_compile_flags(cfg, None, "", source.parent)
+        headers, computed, _snapshots, _consistent = scan_include_closure(
+            source.read_text(encoding="utf-8", errors="surrogateescape"),
+            str(source.parent),
+            tuple(extract_include_dirs(flags)),
+        )
+        if headers or computed:
+            shown = source.relative_to(cfg.root) if source.is_relative_to(cfg.root) else source
+            raise OpsError(
+                f"{shown} reads project headers, which a remote compile cannot ship yet;"
+                " compile it with a local backend",
+                code=REMOTE_HEADERS,
+                status=422,
+            )
+
+
+def reference_flirt(config: WorkerConfig, req: ReferenceFlirtRequest) -> dict[str, Any]:
+    """Match one FLIRT ``.sig``/``.pat`` file against the target's code sections.
+
+    ``rebrew library scan-signatures`` with that file alone: unambiguous
+    matches of at least ``min_size`` bytes, and the count of ambiguous ones
+    skipped.  The signatures are a stored file like a binary.
+    """
+    if req.format not in FLIRT_FORMATS:
+        raise _invalid(f"format must be one of {', '.join(sorted(FLIRT_FORMATS))}")
+    if req.min_size < 0:
+        raise _invalid(f"min_size must not be negative, got {req.min_size}")
+    root = project_root(config, req.project_dir)
+    target = _target_options(root, req.sha256)
+    signatures = req.signatures
+    scratch = config.require_workspace() / SCRATCH_DIR
+    with binary_file(
+        config, signatures.file, signatures.url, signatures.sha256, "signatures.file"
+    ) as path:
+        scratch.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="flirt-", dir=scratch) as directory:
+            shutil.copyfile(path, Path(directory) / f"reference.{req.format}")
+            arguments = ["library", "scan-signatures", "--json", f"--min-size={req.min_size}"]
+            return run_rebrew([*arguments, *target, "--", directory], root, COMMAND_TIMEOUT_SECONDS)
+
+
+def verify_function(config: WorkerConfig, req: VerifyRequest) -> dict[str, Any]:
+    """Compile one source and byte-compare it to the target (``rebrew test <source> --json``).
+
+    A mismatch is a result.  Without ``no_promote`` the comparison writes the
+    function's STATUS into the project metadata, as ``rebrew test`` does.
+    """
+    from rebrew.test import run_test
+
+    root = project_root(config, req.project_dir)
+    cfg = target_config(root, req.sha256)
+    source = _project_file(root, req.source, "source")
+    remote_header_refusal(cfg, [source])
+    return run_test(cfg, source, no_promote=req.no_promote, json_output=True)
+
+
+def verify_target(config: WorkerConfig, req: VerifyTargetRequest) -> dict[str, Any]:
+    """Re-verify every source of the target (``rebrew verify --json``); a mismatch is a result."""
+    from rebrew.sources import iter_sources
+
+    root = project_root(config, req.project_dir)
+    cfg = target_config(root, req.sha256)
+    remote_header_refusal(cfg, iter_sources(cfg.reversed_dir, cfg))
+    arguments = ["verify", "--json", *_flag(req.no_promote, "--no-promote")]
+    return run_rebrew(
+        [*arguments, *_target_options(root, req.sha256)],
+        root,
+        SEARCH_TIMEOUT_SECONDS,
+        outcome_exit=True,
+    )
+
+
+def build(config: WorkerConfig, req: BuildRequest) -> dict[str, Any]:
+    """Splice every matched function back into the target and compare the image.
+
+    ``rebrew build round-trip --json``; the rebuilt image is written beside the
+    target's binary as ``<binary>.reasm``.  A byte difference is a result.
+    """
+    from rebrew.sources import iter_sources
+
+    root = project_root(config, req.project_dir)
+    cfg = target_config(root, req.sha256)
+    remote_header_refusal(cfg, iter_sources(cfg.reversed_dir, cfg))
+    arguments = ["build", "round-trip", "--json", *_flag(req.fix_headers, "--fix-headers")]
+    return run_rebrew(
+        [*arguments, *_target_options(root, req.sha256)],
+        root,
+        SEARCH_TIMEOUT_SECONDS,
+        outcome_exit=True,
+    )
+
+
+def skeleton(config: WorkerConfig, req: SkeletonRequest) -> dict[str, Any]:
+    """The C skeleton ``rebrew skeleton`` would write for ``va``, without writing it.
+
+    ``name`` names the function; empty means ``FUN_<va>``.
+    """
+    from rebrew.analysis import is_inside
+    from rebrew.config import target_module
+    from rebrew.formats.binary_loader import load_binary
+    from rebrew.skeleton import generate_skeleton
+
+    cfg = target_config(project_root(config, req.project_dir), req.sha256)
+    va = _address(req.va)
+    if not is_inside(load_binary(cfg.target_binary), va):
+        raise _invalid(f"VA 0x{va:x} is outside the binary image")
+    ghidra_name = req.name or f"FUN_{va:08x}"
+    return {"source": generate_skeleton(cfg, va, ghidra_name, target_module(cfg), req.name or None)}
+
+
+def coverage_export(config: WorkerConfig, req: CoverageExportRequest) -> dict[str, Any]:
+    """Write portable coverage documents into ``output_dir`` under the workspace.
+
+    ``rebrew coverage export``: one ``coverage-<target>.toml`` for the
+    selected target, or for every target when ``sha256`` is empty.
+    ``import-project`` reads the directory back as its ``snapshots``.
+    """
+    from rebrew.coverage_toml import write_coverage_toml
+
+    root = project_root(config, req.project_dir)
+    out = _inside(config.require_workspace(), req.output_dir, "output_dir")
+    target = target_config(root, req.sha256).target_name if req.sha256 else None
+    written = write_coverage_toml(root, out, target=target, json_output=True)
+    return {"output_dir": str(out), "documents": [str(path) for path in written]}
+
+
+def coverage_report(config: WorkerConfig, req: TargetRequest) -> dict[str, Any]:
+    """The target's decomp.dev progress report (objdiff ``report.json``, version 2).
+
+    ``report`` is the document ``rebrew coverage report --decomp-dev``
+    writes; ``summary`` its totals (functions, code bytes, fuzzy match).
+    """
+    from rebrew.report import generate_decomp_dev_report
+
+    cfg = target_config(project_root(config, req.project_dir), req.sha256)
+    scratch = config.require_workspace() / SCRATCH_DIR
+    scratch.mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="report-", dir=scratch) as directory:
+        out = Path(directory) / "report.json"
+        summary = generate_decomp_dev_report(cfg, out)
+        report = json.loads(out.read_text(encoding="utf-8"))
+    return {"summary": {k: v for k, v in summary.items() if k != "out"}, "report": report}
+
+
+def source_variants(config: WorkerConfig, req: SourceVariantsRequest) -> dict[str, Any]:
+    """Search source mutations of one function for a byte match (``rebrew match run --json``).
+
+    A run that finds no match is a result.  ``seed`` makes the search
+    reproducible.
+    """
+    if req.generations < 1 or req.population < 1 or req.seed < 0:
+        raise _invalid("generations and population must be positive and seed not negative")
+    root = project_root(config, req.project_dir)
+    cfg = target_config(root, req.sha256)
+    source = _project_file(root, req.source, "source")
+    remote_header_refusal(cfg, [source])
+    arguments = [
+        "match",
+        "run",
+        "--json",
+        f"--generations={req.generations}",
+        f"--pop-size={req.population}",
+        f"--seed={req.seed}",
+    ]
+    return run_rebrew(
+        [*arguments, *_target_options(root, req.sha256), "--", str(source)],
+        root,
+        SEARCH_TIMEOUT_SECONDS,
+        outcome_exit=True,
+    )
+
+
+def decompme_export(config: WorkerConfig, req: DecompmeRequest) -> dict[str, Any]:
+    """Upload one function as a decomp.me scratch (``rebrew export decompme --json``).
+
+    ``dry_run`` builds the payload and answers its summary without uploading.
+    The worker reaches decomp.me (``REBREW_DECOMPME_API``) itself.
+    """
+    root = project_root(config, req.project_dir)
+    source = _project_file(root, req.source, "source")
+    arguments = ["export", "decompme", "--json", *_flag(req.dry_run, "--dry-run")]
+    return run_rebrew(
+        [*arguments, *_target_options(root, req.sha256), "--", str(source)],
+        root,
+        COMMAND_TIMEOUT_SECONDS,
+    )
+
+
+def data_list(config: WorkerConfig, req: TargetRequest) -> dict[str, Any]:
+    """The target's global data inventory and section summary (``rebrew data list --json``)."""
+    root = project_root(config, req.project_dir)
+    return run_rebrew(
+        ["data", "list", "--json", *_target_options(root, req.sha256)],
+        root,
+        COMMAND_TIMEOUT_SECONDS,
+    )
+
+
+def data_set(config: WorkerConfig, req: DataSetRequest) -> dict[str, Any]:
+    """Set non-verdict fields of the data row at ``va`` (``rebrew data set --json``).
+
+    Every non-empty field is set at once; ``size`` 0 leaves the size alone.
+    """
+    root = project_root(config, req.project_dir)
+    va = _address(req.va)
+    options = [
+        f"{option}=0x{va:x}={value}"
+        for field_name, option in DATA_FIELD_OPTIONS.items()
+        if (value := getattr(req, field_name))
+    ]
+    if req.size < 0:
+        raise _invalid(f"size must not be negative, got {req.size}")
+    if req.size:
+        options.append(f"--size=0x{va:x}={req.size}")
+    if not options:
+        raise _invalid("data_set needs at least one field to set")
+    arguments = ["data", "set", "--json", *options, *_flag(req.dry_run, "--dry-run")]
+    return run_rebrew(
+        [*arguments, *_target_options(root, req.sha256)], root, COMMAND_TIMEOUT_SECONDS
+    )
+
+
+def source_rename(config: WorkerConfig, req: RenameRequest) -> dict[str, Any]:
+    """Rename a function, global, type or struct member project-wide (``rebrew source rename``).
+
+    ``kind`` is ``function`` (a name, symbol, file, VA or MODULE.0xVA),
+    ``data`` (a global), ``type`` (a tag or typedef) or ``field``
+    (``STRUCT.MEMBER``).
+    """
+    selector = RENAME_KINDS.get(req.kind)
+    if selector is None:
+        raise _invalid(f"kind must be one of {', '.join(RENAME_KINDS)}")
+    root = project_root(config, req.project_dir)
+    arguments = ["source", "rename", "--json", *selector, *_flag(req.dry_run, "--dry-run")]
+    return run_rebrew(
+        [*arguments, *_target_options(root, req.sha256), "--", req.old_name, req.new_name],
+        root,
+        COMMAND_TIMEOUT_SECONDS,
+    )
+
+
+def source_split(config: WorkerConfig, req: SplitRequest) -> dict[str, Any]:
+    """Split a multi-function source into one file per function (``rebrew source split``).
+
+    ``va``, when non-zero, extracts that one function instead.
+    """
+    root = project_root(config, req.project_dir)
+    source = _project_file(root, req.source, "source")
+    extract = [f"--va=0x{_address(req.va):x}"] if req.va else []
+    arguments = ["source", "split", "--json", *extract, *_flag(req.dry_run, "--dry-run")]
+    return run_rebrew(
+        [*arguments, *_target_options(root, req.sha256), "--", str(source)],
+        root,
+        COMMAND_TIMEOUT_SECONDS,
+    )
+
+
+def source_merge(config: WorkerConfig, req: MergeRequest) -> dict[str, Any]:
+    """Merge single-function sources into ``output``, a new project file (``rebrew source merge``)."""
+    if len(req.sources) < 2:
+        raise _invalid("sources must name at least two files")
+    root = project_root(config, req.project_dir)
+    sources = [str(_project_file(root, source, "source")) for source in req.sources]
+    output = _inside(root, req.output, "output", "project_dir")
+    if output.exists():
+        raise _invalid("output must name a file that does not exist yet")
+    arguments = ["source", "merge", "--json", f"--output={output}"]
+    return run_rebrew(
+        [
+            *arguments,
+            *_flag(req.dry_run, "--dry-run"),
+            *_target_options(root, req.sha256),
+            "--",
+            *sources,
+        ],
+        root,
+        COMMAND_TIMEOUT_SECONDS,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
 
@@ -1013,16 +1727,34 @@ OPS: dict[str, Op] = {
     "rebrew.identify_library": Op(ProjectRequest, identify_library),
     "rebrew.structs": Op(StructsRequest, structs),
     "rebrew.binary_operand_locations": Op(OperandLocationsRequest, binary_operand_locations),
+    "rebrew.binary_function_digests": Op(FunctionDigestsRequest, binary_function_digests),
     "rebrew.imports": Op(BinaryFile, imports),
     "rebrew.strings": Op(BinaryFile, strings),
     "rebrew.fingerprint": Op(BinaryFile, fingerprint),
     "rebrew.analyze": Op(BinaryFile, analyze),
     "rebrew.crypto_scan": Op(BinaryFile, crypto_scan),
     "rebrew.pe_info": Op(BinaryFile, pe_info),
+    "rebrew.identify_compiler": Op(BinaryFile, identify_compiler),
+    "rebrew.library_functions": Op(StoredFile, library_functions),
+    "rebrew.splat_parse": Op(SplatRequest, splat_parse),
     "rebrew.report": Op(ReportRequest, report),
     "rebrew.security_scan": Op(SecurityScanRequest, security_scan),
     "rebrew.analyse": Op(AnalyseRequest, analyse),
     "rebrew.import-project": Op(ImportRequest, import_project),
+    "rebrew.reference_flirt": Op(ReferenceFlirtRequest, reference_flirt),
+    "rebrew.verify_function": Op(VerifyRequest, verify_function),
+    "rebrew.verify_target": Op(VerifyTargetRequest, verify_target),
+    "rebrew.build": Op(BuildRequest, build),
+    "rebrew.skeleton": Op(SkeletonRequest, skeleton),
+    "rebrew.coverage_export": Op(CoverageExportRequest, coverage_export),
+    "rebrew.coverage_report": Op(TargetRequest, coverage_report),
+    "rebrew.source_variants": Op(SourceVariantsRequest, source_variants),
+    "rebrew.decompme_export": Op(DecompmeRequest, decompme_export),
+    "rebrew.data_list": Op(TargetRequest, data_list),
+    "rebrew.data_set": Op(DataSetRequest, data_set),
+    "rebrew.source_rename": Op(RenameRequest, source_rename),
+    "rebrew.source_split": Op(SplitRequest, source_split),
+    "rebrew.source_merge": Op(MergeRequest, source_merge),
 }
 
 

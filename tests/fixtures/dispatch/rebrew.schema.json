@@ -177,6 +177,84 @@
         "type": "object"
       }
     },
+    "rebrew.binary_function_digests": {
+      "request": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "file": {
+            "type": "string"
+          },
+          "functions": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "size": {
+                  "type": "integer"
+                },
+                "va": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "va",
+                "size"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sha256",
+          "functions"
+        ],
+        "type": "object"
+      },
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "identities": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "algorithm": {
+                  "type": "string"
+                },
+                "arch": {
+                  "type": "string"
+                },
+                "digest": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "algorithm",
+                "arch",
+                "size",
+                "digest"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "identities"
+        ],
+        "type": "object"
+      }
+    },
     "rebrew.binary_operand_locations": {
       "request": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -254,6 +332,31 @@
         "type": "object"
       }
     },
+    "rebrew.build": {
+      "request": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "fix_headers": {
+            "type": "boolean"
+          },
+          "project_dir": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_dir"
+        ],
+        "type": "object"
+      },
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object"
+      }
+    },
     "rebrew.control_flow_graph": {
       "request": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -290,6 +393,70 @@
         "type": "object"
       }
     },
+    "rebrew.coverage_export": {
+      "request": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "output_dir": {
+            "type": "string"
+          },
+          "project_dir": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_dir",
+          "output_dir"
+        ],
+        "type": "object"
+      },
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "documents": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "output_dir": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "output_dir",
+          "documents"
+        ],
+        "type": "object"
+      }
+    },
+    "rebrew.coverage_report": {
+      "request": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "project_dir": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_dir"
+        ],
+        "type": "object"
+      },
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object"
+      }
+    },
     "rebrew.crypto_scan": {
       "request": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -315,6 +482,87 @@
           "binary_id",
           "sha256",
           "name"
+        ],
+        "type": "object"
+      },
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object"
+      }
+    },
+    "rebrew.data_list": {
+      "request": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "project_dir": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_dir"
+        ],
+        "type": "object"
+      },
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object"
+      }
+    },
+    "rebrew.data_set": {
+      "request": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "backing": {
+            "type": "string"
+          },
+          "dry_run": {
+            "type": "boolean"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "link_symbol": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "project_dir": {
+            "type": "string"
+          },
+          "section": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "source_file": {
+            "type": "string"
+          },
+          "storage_kind": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "va": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "project_dir",
+          "va"
         ],
         "type": "object"
       },
@@ -368,6 +616,35 @@
           "code",
           "backend"
         ],
+        "type": "object"
+      }
+    },
+    "rebrew.decompme_export": {
+      "request": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "dry_run": {
+            "type": "boolean"
+          },
+          "project_dir": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_dir",
+          "source"
+        ],
+        "type": "object"
+      },
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object"
       }
     },
@@ -491,6 +768,39 @@
       }
     },
     "rebrew.fingerprint": {
+      "request": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "binary_id": {
+            "type": "integer"
+          },
+          "key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "binary_id",
+          "sha256",
+          "name"
+        ],
+        "type": "object"
+      },
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object"
+      }
+    },
+    "rebrew.identify_compiler": {
       "request": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
@@ -709,6 +1019,64 @@
         "type": "object"
       }
     },
+    "rebrew.library_functions": {
+      "request": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "file": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sha256"
+        ],
+        "type": "object"
+      },
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "functions": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "arch": {
+                  "type": "string"
+                },
+                "listing": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "name",
+                "size",
+                "arch",
+                "listing"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "functions"
+        ],
+        "type": "object"
+      }
+    },
     "rebrew.pe_info": {
       "request": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -734,6 +1102,55 @@
           "binary_id",
           "sha256",
           "name"
+        ],
+        "type": "object"
+      },
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object"
+      }
+    },
+    "rebrew.reference_flirt": {
+      "request": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "format": {
+            "type": "string"
+          },
+          "min_size": {
+            "type": "integer"
+          },
+          "project_dir": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "signatures": {
+            "additionalProperties": false,
+            "properties": {
+              "file": {
+                "type": "string"
+              },
+              "sha256": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "sha256"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "project_dir",
+          "format",
+          "signatures",
+          "min_size"
         ],
         "type": "object"
       },
@@ -796,6 +1213,393 @@
         "type": "object"
       }
     },
+    "rebrew.skeleton": {
+      "request": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "project_dir": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "va": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "project_dir",
+          "va"
+        ],
+        "type": "object"
+      },
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "type": "object"
+      }
+    },
+    "rebrew.source_merge": {
+      "request": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "dry_run": {
+            "type": "boolean"
+          },
+          "output": {
+            "type": "string"
+          },
+          "project_dir": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "project_dir",
+          "sources",
+          "output"
+        ],
+        "type": "object"
+      },
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object"
+      }
+    },
+    "rebrew.source_rename": {
+      "request": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "dry_run": {
+            "type": "boolean"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "new_name": {
+            "type": "string"
+          },
+          "old_name": {
+            "type": "string"
+          },
+          "project_dir": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_dir",
+          "kind",
+          "old_name",
+          "new_name"
+        ],
+        "type": "object"
+      },
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object"
+      }
+    },
+    "rebrew.source_split": {
+      "request": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "dry_run": {
+            "type": "boolean"
+          },
+          "project_dir": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "va": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "project_dir",
+          "source"
+        ],
+        "type": "object"
+      },
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object"
+      }
+    },
+    "rebrew.source_variants": {
+      "request": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "generations": {
+            "type": "integer"
+          },
+          "population": {
+            "type": "integer"
+          },
+          "project_dir": {
+            "type": "string"
+          },
+          "seed": {
+            "type": "integer"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_dir",
+          "source",
+          "generations",
+          "population",
+          "seed"
+        ],
+        "type": "object"
+      },
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object"
+      }
+    },
+    "rebrew.splat_parse": {
+      "request": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "config": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "config"
+        ],
+        "type": "object"
+      },
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "basename": {
+            "type": "string"
+          },
+          "compiler": {
+            "type": "string"
+          },
+          "elf_path": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ignored": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "key",
+                "reason"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "rom_end": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "segments": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "bss_size": {
+                  "oneOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "rom_end": {
+                  "oneOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "rom_start": {
+                  "oneOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "subsegments": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "rom_start": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "rom_start",
+                      "kind",
+                      "name"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "vram": {
+                  "oneOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "name",
+                "kind",
+                "rom_start",
+                "rom_end",
+                "vram",
+                "bss_size",
+                "subsegments"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "symbol_addrs_paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "target_path": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "undefined_funcs_auto_path": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "undefined_syms_auto_path": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "platform",
+          "compiler",
+          "basename",
+          "target_path",
+          "elf_path",
+          "rom_end",
+          "segments",
+          "symbol_addrs_paths",
+          "undefined_funcs_auto_path",
+          "undefined_syms_auto_path",
+          "ignored"
+        ],
+        "type": "object"
+      }
+    },
     "rebrew.strings": {
       "request": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -852,6 +1656,60 @@
           "project_dir",
           "decompiler",
           "limit"
+        ],
+        "type": "object"
+      },
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object"
+      }
+    },
+    "rebrew.verify_function": {
+      "request": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "no_promote": {
+            "type": "boolean"
+          },
+          "project_dir": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_dir",
+          "source"
+        ],
+        "type": "object"
+      },
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object"
+      }
+    },
+    "rebrew.verify_target": {
+      "request": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "no_promote": {
+            "type": "boolean"
+          },
+          "project_dir": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_dir"
         ],
         "type": "object"
       },
