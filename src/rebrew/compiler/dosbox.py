@@ -377,10 +377,38 @@ def _drop_stale_object(sandbox: Path, stem: str) -> None:
             stale.unlink()
 
 
+def compile_staged_source(
+    tree: Path,
+    c_source: str | Path,
+    workdir: str | Path | None,
+    *,
+    sandbox_prefix: str,
+    autoexec: list[str],
+    timeout: int,
+    log_name: str,
+    error_type: type[RebrewError],
+) -> tuple[Path | None, str, str]:
+    """Stage *c_source* beside *tree* in a DOSBox sandbox and run *autoexec*.
+
+    Shared by the 16-bit compilers (MSVC/TCC): returns ``(obj, log,
+    src_name)`` where *obj* is ``None`` when the compiler produced none.
+    Wraps :class:`DosboxError` in *error_type*.
+    """
+    sandbox = Path(workdir) if workdir is not None else make_sandbox_dir(sandbox_prefix)
+    src_name = stage_tree_source(sandbox, tree, c_source, STAGED_SOURCE_NAME)
+    try:
+        run_dosbox(sandbox, autoexec, timeout=timeout)
+    except DosboxError as exc:
+        raise error_type(str(exc)) from exc
+    log = read_uppercase(sandbox, log_name)
+    return find_staged_object(sandbox, STAGED_SOURCE_NAME), log, src_name
+
+
 __all__ = [
     "STAGED_SOURCE_NAME",
     "TREE_SUBDIRS",
     "DosboxError",
+    "compile_staged_source",
     "find_staged_object",
     "make_sandbox_dir",
     "read_uppercase",

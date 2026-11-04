@@ -85,6 +85,18 @@ _EPILOG = (
     "2 usage/config/build error; 130 interrupted; 141 output pipe closed.\n\n"
 )
 
+# Shared typer options for single-function commands.
+ClOption = typer.Option(None, help="Compiler command override (default: project config)", rich_help_panel="Build inputs")
+IncOption = typer.Option(None, help="Include dir (auto from project config)", rich_help_panel="Build inputs", click_type=TyperPath(path_type=str))
+CflagsOption = typer.Option(None, help=CFLAGS_HELP, rich_help_panel="Build inputs")
+SymbolOption = typer.Option(None, "--symbol", help="Symbol to match (default: C definition or metadata)", rich_help_panel="Build inputs")
+VaOption = typer.Option(None, "--va", help="Target VA in hex (default: from metadata)", rich_help_panel="Build inputs")
+SizeOption = typer.Option(None, "--size", help=SIZE_HELP, rich_help_panel="Build inputs")
+JobsOption = typer.Option(None, "--jobs", "-j", help=JOBS_HELP, rich_help_panel="Search")
+TierOption = typer.Option("targeted", "--tier", help=TIER_HELP, rich_help_panel="Search", metavar="TIER")
+IgnoreLintOption = typer.Option(False, "--ignore-lint", help="Continue even if source binding lint errors exist", rich_help_panel="Build inputs")
+JsonOption = typer.Option(False, "--json", help="Output results as JSON")
+
 app = typer.Typer(
     help="Search source mutations, compiler flags, and toolchains for byte matches.",
     rich_markup_mode="rich",
@@ -539,37 +551,12 @@ def execute_search(
 )
 def run(
     seed_c: str | None = typer.Argument(..., metavar="source", help=SOURCE_HELP),
-    cl: str | None = typer.Option(
-        None,
-        help="Compiler command override (default: project config)",
-        rich_help_panel="Build inputs",
-    ),
-    inc: str | None = typer.Option(
-        None,
-        help="Include dir (auto from project config)",
-        rich_help_panel="Build inputs",
-        click_type=TyperPath(path_type=str),
-    ),
-    cflags: str | None = typer.Option(
-        None,
-        help=CFLAGS_HELP,
-        rich_help_panel="Build inputs",
-    ),
-    symbol: str | None = typer.Option(
-        None,
-        "--symbol",
-        help="Symbol to match (default: C definition or metadata)",
-        rich_help_panel="Build inputs",
-    ),
-    target_va: str | None = typer.Option(
-        None,
-        "--va",
-        help="Target VA in hex (default: from metadata)",
-        rich_help_panel="Build inputs",
-    ),
-    target_size: int | None = typer.Option(
-        None, "--size", help=SIZE_HELP, rich_help_panel="Build inputs"
-    ),
+    cl: str | None = ClOption,
+    inc: str | None = IncOption,
+    cflags: str | None = CflagsOption,
+    symbol: str | None = SymbolOption,
+    target_va: str | None = VaOption,
+    target_size: int | None = SizeOption,
     out_dir: str = typer.Option(
         "output/ga_runs",
         "--output",
@@ -595,19 +582,8 @@ def run(
         rich_help_panel="Build inputs",
     ),
     ldflags: str | None = typer.Option(None, help="Linker flags", rich_help_panel="Build inputs"),
-    jobs: int | None = typer.Option(
-        None,
-        "--jobs",
-        "-j",
-        help=JOBS_HELP,
-        rich_help_panel="GA Tuning",
-    ),
-    ignore_lint: bool = typer.Option(
-        False,
-        "--ignore-lint",
-        help="Continue even if source binding lint errors exist",
-        rich_help_panel="Build inputs",
-    ),
+    jobs: int | None = JobsOption,
+    ignore_lint: bool = IgnoreLintOption,
     seed: int | None = typer.Option(
         None, "--seed", help="RNG seed for reproducible GA runs", rich_help_panel="GA Tuning"
     ),
@@ -666,7 +642,7 @@ def run(
         help=WATCH_FILE_HELP,
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
-    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    json_output: bool = JsonOption,
     target: str | None = TargetOption,
 ) -> None:
     """Run genetic matching for one source function."""
@@ -887,58 +863,16 @@ def batch(
 )
 def flags(
     seed_c: str | None = typer.Argument(..., metavar="source", help=SOURCE_HELP),
-    cl: str | None = typer.Option(
-        None,
-        help="Compiler command override (default: project config)",
-        rich_help_panel="Build inputs",
-    ),
-    inc: str | None = typer.Option(
-        None,
-        help="Include dir (auto from project config)",
-        rich_help_panel="Build inputs",
-        click_type=TyperPath(path_type=str),
-    ),
-    cflags: str | None = typer.Option(
-        None,
-        help=CFLAGS_HELP,
-        rich_help_panel="Build inputs",
-    ),
-    symbol: str | None = typer.Option(
-        None,
-        "--symbol",
-        help="Symbol to match (default: C definition or metadata)",
-        rich_help_panel="Build inputs",
-    ),
-    target_va: str | None = typer.Option(
-        None,
-        "--va",
-        help="Target VA in hex (default: from metadata)",
-        rich_help_panel="Build inputs",
-    ),
-    target_size: int | None = typer.Option(
-        None, "--size", help=SIZE_HELP, rich_help_panel="Build inputs"
-    ),
-    jobs: int | None = typer.Option(
-        None,
-        "--jobs",
-        "-j",
-        help=JOBS_HELP,
-        rich_help_panel="Search",
-    ),
-    tier: Literal["quick", "targeted", "normal", "thorough", "full"] = typer.Option(
-        "targeted",
-        "--tier",
-        help=TIER_HELP,
-        rich_help_panel="Search",
-        metavar="TIER",
-    ),
-    ignore_lint: bool = typer.Option(
-        False,
-        "--ignore-lint",
-        help="Continue even if source binding lint errors exist",
-        rich_help_panel="Build inputs",
-    ),
-    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    cl: str | None = ClOption,
+    inc: str | None = IncOption,
+    cflags: str | None = CflagsOption,
+    symbol: str | None = SymbolOption,
+    target_va: str | None = VaOption,
+    target_size: int | None = SizeOption,
+    jobs: int | None = JobsOption,
+    tier: Literal["quick", "targeted", "normal", "thorough", "full"] = TierOption,
+    ignore_lint: bool = IgnoreLintOption,
+    json_output: bool = JsonOption,
     target: str | None = TargetOption,
 ) -> None:
     """Search compiler flags for one source function."""
@@ -969,26 +903,10 @@ def flags(
 )
 def toolchains(
     seed_c: str | None = typer.Argument(..., metavar="source", help=SOURCE_HELP),
-    cflags: str | None = typer.Option(
-        None,
-        help=CFLAGS_HELP,
-        rich_help_panel="Build inputs",
-    ),
-    symbol: str | None = typer.Option(
-        None,
-        "--symbol",
-        help="Symbol to match (default: C definition or metadata)",
-        rich_help_panel="Build inputs",
-    ),
-    target_va: str | None = typer.Option(
-        None,
-        "--va",
-        help="Target VA in hex (default: from metadata)",
-        rich_help_panel="Build inputs",
-    ),
-    target_size: int | None = typer.Option(
-        None, "--size", help=SIZE_HELP, rich_help_panel="Build inputs"
-    ),
+    cflags: str | None = CflagsOption,
+    symbol: str | None = SymbolOption,
+    target_va: str | None = VaOption,
+    target_size: int | None = SizeOption,
     jobs: int | None = typer.Option(
         None,
         "--jobs",
@@ -1018,13 +936,8 @@ def toolchains(
         help="Comma-separated profiles or version prefixes to exclude",
         rich_help_panel="Search",
     ),
-    ignore_lint: bool = typer.Option(
-        False,
-        "--ignore-lint",
-        help="Continue even if source binding lint errors exist",
-        rich_help_panel="Build inputs",
-    ),
-    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    ignore_lint: bool = IgnoreLintOption,
+    json_output: bool = JsonOption,
     target: str | None = TargetOption,
 ) -> None:
     """Compare compiler profiles, optionally searching flags per profile."""

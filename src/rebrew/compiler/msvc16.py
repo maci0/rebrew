@@ -16,12 +16,7 @@ from pathlib import Path
 from rebrew.errors import RebrewError
 lazy from rebrew.compiler.dosbox import (
     STAGED_SOURCE_NAME,
-    DosboxError,
-    find_staged_object,
-    make_sandbox_dir,
-    read_uppercase,
-    run_dosbox,
-    stage_tree_source,
+    compile_staged_source,
 )
 
 
@@ -85,26 +80,21 @@ def compile_c(
     """
     vc = _find_vc152(version)
 
-    sandbox = Path(workdir) if workdir is not None else make_sandbox_dir("msvc16-")
-    staged_name = STAGED_SOURCE_NAME
-    src_name = stage_tree_source(sandbox, vc, c_source, staged_name)
-
     flags = cflags if cflags is not None else ["/c", "/nologo"]
-    cmd = "C:\\BIN\\CL.EXE " + " ".join(flags) + f" {staged_name} > C:\\clout.txt"
-    try:
-        run_dosbox(
-            sandbox,
-            ["set INCLUDE=C:\\INCLUDE", "set LIB=C:\\LIB", cmd],
-            timeout=timeout,
-        )
-    except DosboxError as exc:
-        raise Msvc16Error(str(exc)) from exc
-
-    log = read_uppercase(sandbox, "clout.txt")
-    obj = find_staged_object(sandbox, staged_name)
+    cmd = "C:\\BIN\\CL.EXE " + " ".join(flags) + f" {STAGED_SOURCE_NAME} > C:\\clout.txt"
+    obj, log, src_name = compile_staged_source(
+        vc,
+        c_source,
+        workdir,
+        sandbox_prefix="msvc16-",
+        autoexec=["set INCLUDE=C:\\INCLUDE", "set LIB=C:\\LIB", cmd],
+        timeout=timeout,
+        log_name="clout.txt",
+        error_type=Msvc16Error,
+    )
     if obj is None:
         raise Msvc16Error(
-            f"CL produced no object for {src_name} (staged as {staged_name}; log below):\n{log.strip()}"
+            f"CL produced no object for {src_name} (staged as {STAGED_SOURCE_NAME}; log below):\n{log.strip()}"
         )
     return Msvc16Result(obj_path=obj, log=log)
 

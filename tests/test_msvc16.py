@@ -136,7 +136,7 @@ class TestStaleOutputIsNotSuccess:
         for sub in ("BIN", "INCLUDE", "LIB"):
             (tree / sub).mkdir(parents=True)
         monkeypatch.setattr("rebrew.compiler.msvc16._find_vc152", lambda version: tree)
-        monkeypatch.setattr("rebrew.compiler.msvc16.run_dosbox", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compiler.dosbox.run_dosbox", lambda *a, **k: None)
         src = tmp_path / "f.c"
         src.write_text("int f(void) { return 1; }\n", encoding="utf-8")
         workdir = tmp_path / "sandbox"
@@ -160,7 +160,7 @@ class TestStaleOutputIsNotSuccess:
             staged["src"] = (sandbox / "SRC.C").read_bytes()
             (sandbox / "SRC.OBJ").write_bytes(b"\x80\x08")
 
-        monkeypatch.setattr("rebrew.compiler.msvc16.run_dosbox", _capture)
+        monkeypatch.setattr("rebrew.compiler.dosbox.run_dosbox", _capture)
         raw = b'char *s = "Caf\xe9";\nint f(void) { return 0; }\n'
         src = tmp_path / "cafe.c"
         src.write_bytes(raw)

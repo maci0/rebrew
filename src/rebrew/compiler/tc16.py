@@ -25,12 +25,7 @@ from pathlib import Path
 from rebrew.errors import RebrewError
 lazy from rebrew.compiler.dosbox import (
     STAGED_SOURCE_NAME,
-    DosboxError,
-    find_staged_object,
-    make_sandbox_dir,
-    read_uppercase,
-    run_dosbox,
-    stage_tree_source,
+    compile_staged_source,
 )
 
 __all__ = ["Tc16Error", "Tc16Result", "compile_c"]
@@ -101,27 +96,26 @@ def compile_c(
     """
     tree = _find_tc16(version)
 
-    sandbox = Path(workdir) if workdir is not None else make_sandbox_dir("tc16-")
-    staged_name = STAGED_SOURCE_NAME
-    src_name = stage_tree_source(sandbox, tree, c_source, staged_name)
-
     flags = cflags if cflags is not None else ["-c"]
     cmd = (
         "C:\\BIN\\TCC.EXE "
         + " ".join(flags)
-        + f" -I\\INCLUDE -oSRC.OBJ {staged_name} > C:\\tcout.txt"
+        + f" -I\\INCLUDE -oSRC.OBJ {STAGED_SOURCE_NAME} > C:\\tcout.txt"
     )
-    try:
-        run_dosbox(sandbox, [cmd], timeout=timeout)
-    except DosboxError as exc:
-        raise Tc16Error(str(exc)) from exc
-
-    log = read_uppercase(sandbox, "tcout.txt")
-    obj = find_staged_object(sandbox, staged_name)
+    obj, log, src_name = compile_staged_source(
+        tree,
+        c_source,
+        workdir,
+        sandbox_prefix="tc16-",
+        autoexec=[cmd],
+        timeout=timeout,
+        log_name="tcout.txt",
+        error_type=Tc16Error,
+    )
     if obj is None:
         raise Tc16Error(
             f"TCC {version} produced no object for {src_name} "
-            f"(staged as {staged_name}, flags={flags!r}; log below):\n"
+            f"(staged as {STAGED_SOURCE_NAME}, flags={flags!r}; log below):\n"
             f"{log.strip()}"
         )
     return Tc16Result(obj_path=obj, log=log)

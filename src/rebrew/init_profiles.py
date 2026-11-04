@@ -108,6 +108,21 @@ GAME = "{cflags}"
 """
 
 
+def _docker_profile(command: str, *, arch: str, fmt: str = "elf", lang: str = "C99") -> dict[str, str]:
+    """Docker-only profile: no runner/includes/libs (image supplies them)."""
+    return {
+        "runner": "",
+        "command": command,
+        "includes": "",
+        "libs": "",
+        "cflags": "-O2",
+        "base_cflags": "",
+        "format": fmt,
+        "arch": arch,
+        "lang": lang,
+    }
+
+
 COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
     "msvc-4.0": {
         "runner": "wine",
@@ -441,82 +456,12 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_16",
         "lang": "C89",
     },
-    "clang-18.1.8": {
-        # Docker-only (rebrew/clang:18.1.8-linux-x64): command/runner are
-        # blanked by the image check below.  No includes/libs — the system
-        # headers ship inside the image, and a host /usr/include path here
-        # would be bind-mounted over the container's own tree.
-        "runner": "",
-        "command": "clang",
-        "includes": "",
-        "libs": "",
-        "cflags": "-O2",
-        "base_cflags": "",
-        "format": "elf",
-        "arch": "x86_64",
-        "lang": "C99",
-    },
-    "clang-16.0.4": {
-        # Docker-only (rebrew/clang:16.0.4-linux-x64) — see the clang entry.
-        "runner": "",
-        "command": "clang",
-        "includes": "",
-        "libs": "",
-        "cflags": "-O2",
-        "base_cflags": "",
-        "format": "elf",
-        "arch": "x86_64",
-        "lang": "C99",
-    },
-    "gcc-14.2.0": {
-        # Docker-only (rebrew/gcc:14.2.0-linux-x64) — see the clang entry.
-        "runner": "",
-        "command": "gcc",
-        "includes": "",
-        "libs": "",
-        "cflags": "-O2",
-        "base_cflags": "",
-        "format": "elf",
-        "arch": "x86_64",
-        "lang": "C99",
-    },
-    "gcc-12.3.0": {
-        # Docker-only (rebrew/gcc:12.3.0-linux-x64) — see the clang entry.
-        "runner": "",
-        "command": "gcc",
-        "includes": "",
-        "libs": "",
-        "cflags": "-O2",
-        "base_cflags": "",
-        "format": "elf",
-        "arch": "x86_64",
-        "lang": "C99",
-    },
-    "mingw-16.2.0": {
-        # Docker-only (rebrew/mingw:16.2.0-win32): the mingw tree ships
-        # inside the image, so no host include/lib paths.
-        "runner": "",
-        "command": "i686-w64-mingw32-gcc",
-        "includes": "",
-        "libs": "",
-        "cflags": "-O2",
-        "base_cflags": "",
-        "format": "pe",
-        "arch": "x86_32",
-        "lang": "C99",
-    },
-    "mingw-14.2.0": {
-        # Docker-only (rebrew/mingw:14.2.0-win32) — see the mingw-16.2.0 entry.
-        "runner": "",
-        "command": "i686-w64-mingw32-gcc",
-        "includes": "",
-        "libs": "",
-        "cflags": "-O2",
-        "base_cflags": "",
-        "format": "pe",
-        "arch": "x86_32",
-        "lang": "C99",
-    },
+    "clang-18.1.8": _docker_profile("clang", arch="x86_64"),
+    "clang-16.0.4": _docker_profile("clang", arch="x86_64"),
+    "gcc-14.2.0": _docker_profile("gcc", arch="x86_64"),
+    "gcc-12.3.0": _docker_profile("gcc", arch="x86_64"),
+    "mingw-16.2.0": _docker_profile("i686-w64-mingw32-gcc", arch="x86_32", fmt="pe"),
+    "mingw-14.2.0": _docker_profile("i686-w64-mingw32-gcc", arch="x86_32", fmt="pe"),
     "watcom-2.0-win32": {
         "runner": "",
         "command": "toolchain/watcom/2.0-win32/source/binl/wcc386",
