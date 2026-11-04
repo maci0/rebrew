@@ -1,6 +1,6 @@
 # CLI Reference
 
-The CLI exposes 236 surfaces: 202 leaf commands and 34 groups, including the
+The CLI exposes 238 surfaces: 204 leaf commands and 34 groups, including the
 root. They are registered under the unified `rebrew` entry point in `app/main.py`
 (`CliComponent` rows in `app/builtins.py`).
 Only `rebrew` is installed. Invoke tools as subcommands:
@@ -161,7 +161,7 @@ options, and defaults.
 | [`rebrew recommend`](#rebrew-recommend) | 1 | Deterministic project advice: TU layout, hygiene, next steps. |
 | [`rebrew sync`](#rebrew-sync) | 8 | Exchange metadata with Ghidra through BinSync and perform structural operations. |
 | [`rebrew data`](#rebrew-data) | 17 | Inspect global data, edit metadata, and generate declarations and layout repairs. |
-| [`rebrew metadata`](#rebrew-metadata) | 2 | Preview and apply a managed-metadata backend transfer. |
+| [`rebrew metadata`](#rebrew-metadata) | 4 | Preview and apply a managed-metadata backend transfer, and back up or restore the experimental SQLite database. |
 | [`rebrew blocker`](#rebrew-blocker) | 4 | Record, inspect, and clear function blockers in dedicated metadata. |
 | [`rebrew orphans`](#rebrew-orphans) | 4 | List or prune metadata rows without a live source binding. |
 | [`rebrew types`](#rebrew-types) | 7 | Manage type identities; check layouts; apply types to C signatures. |
@@ -1083,6 +1083,12 @@ settings cannot reappear after switching back. `--expected-digest` rejects
 changes to either side since preview. Previews create no files. Existing domain
 commands and their STATUS/provenance rules work with either backend. See
 [metadata storage](METADATA.md#storage-api-and-backend-selection).
+
+`rebrew metadata backup --dir DIR` copies the experimental SQLite metadata
+database to `DIR/rebrew-metadata.backup.sqlite3` and verifies the copy; it
+raises when no database exists. `rebrew metadata restore --file FILE` validates
+a backup, preserves the live database as `rebrew-metadata.sqlite3.before-restore`,
+and installs the backup. Both support `--json` and `--target`.
 
 ## Source
 
@@ -3090,6 +3096,34 @@ without writing; `--json` emits the report as JSON.
 | `BACKEND` | `toml` / `sqlite` | required | Destination backend |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--expected-digest` | sha256 | none | Refuse a store changed since review |
+| `--json` | flag | `False` | Output results as JSON |
+| `--target` | name | default target | Project target |
+
+### `rebrew metadata backup`
+
+`rebrew metadata backup [OPTIONS]`
+
+Copy the experimental SQLite metadata database into a directory. The backup is
+made with SQLite's online backup API, written read-only, and verified (schema
+version, row count) before success is reported.
+
+| Option | Value | Default | Description |
+| --- | --- | --- | --- |
+| `--dir` | path | required | Directory to copy the database into |
+| `--json` | flag | `False` | Output results as JSON |
+| `--target` | name | default target | Project target |
+
+### `rebrew metadata restore`
+
+`rebrew metadata restore [OPTIONS]`
+
+Install a metadata database backup. The backup is validated (schema version,
+integrity) before anything is written; the current database, if any, is
+preserved as `rebrew-metadata.sqlite3.before-restore`.
+
+| Option | Value | Default | Description |
+| --- | --- | --- | --- |
+| `--file` | path | required | Backup file made with `rebrew metadata backup` |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` | name | default target | Project target |
 
