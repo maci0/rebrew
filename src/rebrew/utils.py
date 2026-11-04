@@ -1648,7 +1648,7 @@ def _kill_pids(pids: set[int]) -> None:
             os.kill(pid, signal.SIGKILL)
 
 
-def _release_captured_pipes(proc: subprocess.Popen[Any]) -> None:
+def release_captured_pipes(proc: subprocess.Popen[Any]) -> None:
     """Close captured stdio so a surviving writer cannot pin ``communicate``.
 
     ``communicate`` waits for EOF. A helper that escaped both the process
@@ -1663,7 +1663,7 @@ def _release_captured_pipes(proc: subprocess.Popen[Any]) -> None:
             stream.close()
 
 
-def _stop_process_tree(proc: subprocess.Popen[Any]) -> None:
+def stop_process_tree(proc: subprocess.Popen[Any]) -> None:
     """Kill *proc*'s session and descendants snapshotted before the signal."""
     descendants = _descendant_pids(proc.pid)
     _kill_process_group(proc)
@@ -1705,24 +1705,24 @@ def run_process_group(
         popen_kwargs.setdefault("encoding", "utf-8")
         popen_kwargs.setdefault("errors", "replace")
     # Not a `with`: see the docstring.  Every non-success path below calls
-    # `_stop_process_tree`, which kills the group and reaps with a bounded
+    # `stop_process_tree`, which kills the group and reaps with a bounded
     # wait; the success path is already reaped by `communicate`.
     proc = subprocess.Popen(list(cmd), start_new_session=True, **popen_kwargs)
     try:
         stdout, stderr = proc.communicate(stdin_input, timeout=timeout)
     except subprocess.TimeoutExpired:
-        _stop_process_tree(proc)
+        stop_process_tree(proc)
         # Drain output the kill left in the pipe.  A short timeout covers
         # a writer the snapshot missed; closing the read ends then lets
         # the caller return instead of blocking on that writer.
         try:
             proc.communicate(timeout=5)
         except subprocess.TimeoutExpired:
-            _stop_process_tree(proc)
-            _release_captured_pipes(proc)
+            stop_process_tree(proc)
+            release_captured_pipes(proc)
         raise
     except BaseException:
-        _stop_process_tree(proc)
+        stop_process_tree(proc)
         raise
     return subprocess.CompletedProcess(proc.args, proc.returncode, stdout, stderr)
 

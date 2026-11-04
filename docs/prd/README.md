@@ -18,7 +18,7 @@ PRDs are organised by feature area:
 | #  | PRD                                              | Scope |
 | -- | ------------------------------------------------ | ----- |
 | 01 | [Project Onboarding](01-project-onboarding.md)   | `init`, `intake`, `doctor`, `cfg`, multi-target setup |
-| 02 | [Function Catalog](02-function-catalog.md)       | `coverage catalog/build`, `binary extract`, `library scan-signatures/crt-match/match` |
+| 02 | [Function Catalog](02-function-catalog.md)       | `coverage catalog/export`, `binary extract`, `library scan-signatures/crt-match/match` |
 | 03 | [Skeleton & Iteration](03-skeleton-and-iteration.md) | `skeleton`, `test`, `diff`, `lint`, `register`, `split`/`merge`/`rename`, `todo` |
 | 04 | [Byte-Matching Engine](04-byte-matching-engine.md) | `match` (GA), flag sweeps, `prove` |
 | 05 | [Verification & Progress](05-verification-and-progress.md) | `verify`, `status`, `graph`, `cache`, `round-trip` |

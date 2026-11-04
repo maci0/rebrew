@@ -26,7 +26,7 @@ The Function Catalog feature unifies these by collecting **all** known
 function metadata from Ghidra exports, the discovery inventory, FLIRT
 signatures, CRT source mirrors, and canonical function/data metadata and optional declaration-bound ADDRESS anchors, then reports the merged view in
 process: `rebrew coverage export --output snapshots/` is what writes it, as
-`db/coverage-<target>.toml`.
+`snapshots/coverage-<target>.toml`.
 (>2026-09: CATALOG.md generation and `functions.txt` were removed; the same
 information lives in `rebrew-functions.toml`, served by `status`/`todo`/dashboard.)
 
@@ -35,7 +35,7 @@ information lives in `rebrew-functions.toml`, served by `status`/`todo`/dashboar
 - **Solo reverser** running `rebrew todo` to pick what to work on next.
 - **AI agent** (`rebrew-intake` and `rebrew-workflow` skills) running
   catalog + FLIRT + CRT triage as part of onboarding.
-- **Dashboard / CI** consumers reading `db/coverage-<target>.toml`
+- **Dashboard / CI** consumers reading `snapshots/coverage-<target>.toml`
   for progress reporting.
 - **Team lead** producing a high-level progress view to share with stakeholders
   (`rebrew status`, dashboard).
@@ -44,7 +44,7 @@ information lives in `rebrew-functions.toml`, served by `status`/`todo`/dashboar
 
 - Single command (`rebrew coverage catalog`) that scans annotations and produces:
   - the coverage grid, in process (the rendered result is
-    `db/coverage-<target>.toml`, written by `rebrew coverage export --output snapshots/`; the JSON and CSV
+    `snapshots/coverage-<target>.toml`, written by `rebrew coverage export --output snapshots/`; the JSON and CSV
     files this goal originally named are gone)
   - Ghidra function/label exports
 - Bulk extraction of raw `.bin` slices of uncovered functions for
@@ -87,7 +87,7 @@ information lives in `rebrew-functions.toml`, served by `status`/`todo`/dashboar
     coverage document from the same in-process scan.
   - `--data-json` / `--csv` (removed): the grid JSON and the reccmp-compatible
     CSV have no replacement.  A reader that needs the grid reads
-    `db/coverage-<target>.toml` (see [COVERAGE_DOCUMENT.md](../COVERAGE_DOCUMENT.md)).
+    `snapshots/coverage-<target>.toml` (see [COVERAGE_DOCUMENT.md](../COVERAGE_DOCUMENT.md)).
   - `--summary` prints the summary table to stderr.
   - `--export-ghidra` prints interactive Ghidra MCP export instructions for
     `function_structure.json` / `ghidra_data_labels.json` (writes no cache;
@@ -160,7 +160,7 @@ Output `.bin` files land in the configured `bin_dir`.
 ### `rebrew coverage export --output snapshots/`
 
 - Scans the project in process and writes
-  `db/coverage-<target>.toml` (one document per target), a clear-text document per target holding the
+  `snapshots/coverage-<target>.toml` (one document per target), a clear-text document per target holding the
   functions, globals, sections with their cells, verify results and status
   history.  Every aggregate (per-section buckets, byte coverage,
   `function_stats`) is derived by the reader, so nothing can disagree with the
@@ -180,7 +180,7 @@ Output `.bin` files land in the configured `bin_dir`.
    itself comes from `rebrew coverage export --output snapshots/`).
 3. `rebrew binary extract batch 20` produces 20 `.bin` files ready for the
    reversing loop.
-4. `rebrew coverage export --output snapshots/` produces `db/coverage-<target>.toml`, consumed by the
+4. `rebrew coverage export --output snapshots/` produces `snapshots/coverage-<target>.toml`, consumed by the
    recovery dashboard.
 
 ### Story 2: Mapping library functions to upstream source
@@ -206,7 +206,7 @@ Output `.bin` files land in the configured `bin_dir`.
 ### Story 4: Dashboard refresh
 
 1. CI runs `rebrew coverage export --output snapshots/ --json` on every push to main.
-2. `db/coverage-<target>.toml` is uploaded as an artifact and consumed by recovery.
+2. `snapshots/coverage-<target>.toml` is uploaded as an artifact and consumed by recovery.
 
 ## CLI Surface
 
@@ -287,7 +287,7 @@ rebrew coverage export --output snapshots/
   stamped `function_structure.json` today, so the ingester's `_generated_by`
   filter only skips one written elsewhere. Fetch live data via
   `rebrew sync push`.
-- `build-db` writes each `coverage-<target>.toml` deterministically.  It never
+- `coverage export` writes each `coverage-<target>.toml` deterministically.  It never
   migrates an older format: a document from another `version` contributes no
   history and is replaced whole on the next run, so an upgrade costs a rebuild
   and loses nothing the catalog can regenerate.

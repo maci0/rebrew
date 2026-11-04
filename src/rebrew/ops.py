@@ -1283,10 +1283,10 @@ def run_rebrew(
         try:
             process.communicate(timeout=5)
         except subprocess.TimeoutExpired:
-            from rebrew.utils import _release_captured_pipes, _stop_process_tree
+            from rebrew.utils import release_captured_pipes, stop_process_tree
 
-            _stop_process_tree(process)
-            _release_captured_pipes(process)
+            stop_process_tree(process)
+            release_captured_pipes(process)
         raise _refused(f"rebrew {name} did not finish within {timeout} s") from None
     if process.returncode != 0 and not (outcome_exit and process.returncode == 1):
         logger.error("rebrew %s exited %d: %s", name, process.returncode, stderr.strip())
