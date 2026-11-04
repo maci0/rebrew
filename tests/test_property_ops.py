@@ -116,9 +116,15 @@ class TestParseRequestNeverCrashes:
     def test_dict_payloads_never_crash(self, raw: dict[str, Any]) -> None:
         for cls in _SIMPLE_REQUESTS:
             try:
-                parse_request(cls, raw)
+                value = parse_request(cls, raw)
             except OpsError:
                 continue
+            assert isinstance(value, cls)
+            # Accepted fields must be the decoded form, never raw JSON values
+            # leaked through (e.g. a str standing in for a bytes field).
+            if cls is DisassembleBytesRequest:
+                assert isinstance(value.code, bytes)
+                assert isinstance(value.va, int) and isinstance(value.arch, str)
 
 
 class TestBytesField:

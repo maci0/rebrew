@@ -18,7 +18,6 @@ project (Quantum 0.97, 1 and 3 files).
 from __future__ import annotations
 
 import random
-from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -104,16 +103,20 @@ class TestMalformedInputs:
 
     def test_mutation_fuzz_no_crash(self) -> None:
         """Header mutations may fail — but never with a non-ValueError crash."""
-        from contextlib import suppress
-
         real = (FIXTURES / "test_multi.q").read_bytes()[:200]
         rng = random.Random(7)
         for _ in range(150):
             blob = bytearray(real)
             for _ in range(rng.randint(1, 12)):
                 blob[rng.randrange(len(blob))] = rng.randrange(256)
-            with suppress(ValueError):
-                parse_archive(bytes(blob))  # clean rejection — the contract
+            try:
+                header, files, stream_off = parse_archive(bytes(blob))
+            except ValueError:
+                continue  # clean rejection — the contract
+            assert len(header) == 5
+            assert 0 <= stream_off <= len(blob)
+            for f in files:
+                assert isinstance(f["name"], str) and f["name"]
 
     def test_decompress_rejects_impossible_sizes(self) -> None:
         """A declared size the stream cannot produce must raise ValueError."""
@@ -159,8 +162,14 @@ class TestHypothesisPak:
     def test_parse_archive_never_crashes(self, blob: bytes) -> None:
         """Structure-aware header fuzz: parse either succeeds or raises a
         clean ValueError — never IndexError/struct.error."""
-        with suppress(ValueError):
-            parse_archive(blob)
+        try:
+            header, files, stream_off = parse_archive(blob)
+        except ValueError:
+            return
+        assert len(header) == 5
+        assert 0 <= stream_off <= len(blob)
+        for f in files:
+            assert isinstance(f["name"], str) and f["name"]
 
     @settings(max_examples=200, deadline=None)
     @given(
@@ -173,5 +182,9 @@ class TestHypothesisPak:
     ) -> None:
         """Random arithmetic-coded streams + declared sizes: the decoder must
         raise ValueError (truncation/overrun) or return — never crash."""
-        with suppress(ValueError):
-            quantum_decompress(stream, file_sizes, window_bits)
+        try:
+            out = quantum_decompress(stream, file_sizes, window_bits)
+        except ValueError:
+            return
+        assert isinstance(out, bytes)
+        assert len(out) == sum(file_sizes)

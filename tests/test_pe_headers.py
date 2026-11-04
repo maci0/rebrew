@@ -251,9 +251,14 @@ def _exercise_pe_headers(blob: bytes) -> None:
     if fields is not None and pe_lfanew(blob) is not None:
         again_fields = read_pe_header_fields(patched)
         assert again_fields is not None
+        from rebrew.formats.pe_headers import _FIELD_SPECS
+
         for label in patch_map:
             written = again_fields.get(label)
-            assert written is None or isinstance(written, int)
+            assert written is not None
+            size = next(s for _o, s, lab in _FIELD_SPECS if lab == label)
+            # Patch masks to the field width — a 4-byte write would clobber neighbours.
+            assert written == patch_map[label] & ((1 << (8 * size)) - 1)
 
     assert isinstance(_pe_checksum(blob), int)
     rows = header_parity(blob, patched)
