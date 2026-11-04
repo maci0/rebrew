@@ -1503,7 +1503,7 @@ __STATUS_FORCED__
 <button type="button" class="btn" id="retry-functions" hidden>Retry functions</button>
 <button type="button" class="btn" id="retry-view" hidden>Retry</button>
 </div>
-<div id="view-functions" class="view-panel" role="tabpanel" tabindex="0" aria-labelledby="tab-functions">
+<div id="view-functions" class="view-panel" role="tabpanel" tabindex="-1" aria-labelledby="tab-functions">
 <h2 class="visually-hidden">Functions</h2>
 <p id="results-hint" hidden></p>
 <p id="empty-state" hidden></p>
@@ -1519,7 +1519,7 @@ __STATUS_FORCED__
 <button type="button" class="btn" id="show-more">Show more functions</button>
 </div>
 </div>
-<div id="view-sections" class="view-panel" role="tabpanel" tabindex="0" aria-labelledby="tab-sections" hidden>
+<div id="view-sections" class="view-panel" role="tabpanel" tabindex="-1" aria-labelledby="tab-sections" hidden>
 <h2 class="visually-hidden">Sections</h2>
 <p id="sections-hint" hidden></p>
 <p id="sections-empty" hidden>No section stats. Check the target binary, then choose Reload.</p>
@@ -1534,7 +1534,7 @@ __STATUS_FORCED__
 </tr></thead><tbody></tbody></table>
 </div>
 </div>
-<div id="view-globals" class="view-panel" role="tabpanel" tabindex="0" aria-labelledby="tab-globals" hidden>
+<div id="view-globals" class="view-panel" role="tabpanel" tabindex="-1" aria-labelledby="tab-globals" hidden>
 <h2 class="visually-hidden">Globals</h2>
 <p id="globals-hint" hidden></p>
 <p id="globals-empty" hidden></p>
@@ -1549,7 +1549,7 @@ __STATUS_FORCED__
 <button type="button" class="btn" id="show-more-globals">Show more globals</button>
 </div>
 </div>
-<div id="view-history" class="view-panel" role="tabpanel" tabindex="0" aria-labelledby="tab-history" hidden>
+<div id="view-history" class="view-panel" role="tabpanel" tabindex="-1" aria-labelledby="tab-history" hidden>
 <h2 class="visually-hidden">Status history</h2>
 <p id="history-hint" hidden></p>
 <p id="history-empty" hidden>No status changes recorded yet. Comparisons record history, then choose Reload.</p>

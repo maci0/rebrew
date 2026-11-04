@@ -90,6 +90,7 @@ TOKENS: dict[str, str] = {
 #: browser cannot cache or compress.
 FAVICON_SVG = (
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">'
+    "<title>Rebrew</title>"
     '<rect width="16" height="16" rx="3" fill="' + TOKENS["ink"] + '"/>'
     '<text x="8.2" y="12.1" font-family="monospace" font-size="12" font-weight="bold"'
     ' text-anchor="middle" letter-spacing="-0.6" fill="#7ee0a3">0x</text></svg>'
