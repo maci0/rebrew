@@ -45,6 +45,52 @@ transaction can cover all four stores in that database. This experimental
 backend adds no relational query API or performance promise. See
 [ADR 034](adr/034-metadata-storage-backends.md).
 
+## Backup and restore
+
+Durable, must-back-up state: the C sources under `src/` (and any other
+source tree the project config points at), `rebrew-project.toml`, the four
+managed metadata stores (`rebrew-functions.toml`, `rebrew-data.toml`,
+`rebrew-types.toml`, `rebrew-libraries.toml`, including their `.d/`
+drop-ins) in the TOML backend, or `rebrew-metadata.sqlite3` in the
+SQLite backend, plus `.rebrew/ga_runs.jsonl` (GA win fingerprints;
+fsynced per record, never pruned for wins). Everything else is
+regenerable: verify/compile caches, coverage snapshots, `output/`,
+`bin/`, and toolchain images (re-pull via `rebrew toolchain pull`).
+The target binary under `original/` is the other input; it is not
+regenerable from anything rebrew holds.
+
+RPO is the last successful backup of the files above; RTO is a file
+copy restore plus `rebrew verify` for the touched target. There is no
+point-in-time recovery: logical corruption is recovered by restoring
+the whole backup set, not by replay.
+
+Backup procedure: with no `rebrew` process running (the TOML writers
+hold `.lock` sidecars and the SQLite writer holds its own transaction),
+copy the project tree excluding `.rebrew/compile_cache/`, `output/`,
+`bin/`, `__pycache__/`, and any `-journal`/`-wal` sidecar. For the
+SQLite backend copy only `rebrew-metadata.sqlite3` itself, never the
+`-journal`: a journal present at copy time belongs to an in-flight
+transaction whose commit has not happened, and the database file
+without it is the last committed state. Take the copy when the writer
+is quiescent so the file is not mid-write. Keep the copy outside the
+project directory; the project `.gitignore` excludes the SQLite
+database, so git is not a backup for it. Commit the TOML stores and
+sources to git as usual. Copy `.rebrew/ga_runs.jsonl` out of the
+project as well: it lives under the gitignored `.rebrew/` directory,
+so by default it is lost with the host.
+
+Restore procedure: stop all `rebrew` processes, unpack the backup,
+confirm `rebrew-project.toml` selects the backend matching the
+restored stores (`backend = "toml"` with the TOML files, or
+`"sqlite"` with `rebrew-metadata.sqlite3`), then run
+`rebrew doctor` and `rebrew verify --target <name>` for one target.
+If the SQLite database was copied while a `-journal` existed, delete
+the journal before opening; sqlite will otherwise try to roll back
+an uncommitted transaction against a database that may already have
+been replaced. A corrupt or wrong-schema database is refused with
+`MetadataStorageError` and never silently replaced; restore it from
+the backup copy or migrate back to TOML from a TOML backup.
+
 Assembly evidence on definitions without a VA and target-scoped support-file
 purposes live under `[source]` in format-3 `rebrew-functions.toml`, including
 function drop-ins. They share the function store and its storage transaction;

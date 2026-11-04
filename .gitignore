@@ -117,6 +117,10 @@ rebrew-types.toml.lock
 rebrew-libraries.toml.lock
 rebrew-project.toml.lock
 
+rebrew-metadata.sqlite3
+rebrew-metadata.sqlite3-journal
+rebrew-metadata.sqlite3.lock
+
 # Vendored Open Watcom 2.0 (tools/WATCOM) — kept out of git.
 # Re-fetch from open-watcom/open-watcom-v2 Last-CI-build ow-snapshot.tar.xz.
 /tools/WATCOM/

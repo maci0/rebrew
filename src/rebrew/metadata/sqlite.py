@@ -178,6 +178,8 @@ class SqliteStore:
                 with contextlib.closing(
                     sqlite3.connect(self.location, timeout=30, isolation_level=None)
                 ) as connection:
+                    connection.execute("PRAGMA journal_mode = DELETE")
+                    connection.execute("PRAGMA synchronous = FULL")
                     connection.execute("BEGIN IMMEDIATE")
                     version = connection.execute("PRAGMA user_version").fetchone()[0]
                     if version == 0:
