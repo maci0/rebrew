@@ -9,6 +9,8 @@ from dataclasses import dataclass
 lazy import math
 lazy from typing import Any
 
+lazy from rebrew.utils import parse_int_literal
+
 
 def _coerce_str(value: Any) -> str:
     """*value* when it is a string, else the empty string.
@@ -43,6 +45,8 @@ def _parse_int(value: Any) -> int:
 
     Finite integral floats (``16.0`` from JSON) are accepted; non-integral
     floats are rejected — ``int(12.9)`` would truncate and invent a size.
+    Strings go through :func:`rebrew.utils.parse_int_literal`, so a ``0x``
+    prefix selects hex and underscore / non-ASCII digit spellings are rejected.
     """
     if isinstance(value, bool):
         raise ValueError(f"Cannot parse integer from {value!r}")
@@ -54,7 +58,7 @@ def _parse_int(value: Any) -> int:
         return int(value)
     s = str(value).strip()
     try:
-        return int(s, 0)  # auto-detect base: 0x prefix → hex, plain digits → decimal
+        return parse_int_literal(s)
     except (ValueError, TypeError) as e:
         raise ValueError(f"Cannot parse integer from {value!r}: {e}") from e
 

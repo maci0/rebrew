@@ -21,6 +21,14 @@ class TestParseInt:
         with pytest.raises(ValueError, match="Cannot parse integer"):
             _parse_int("not-a-number")
 
+    def test_underscores_rejected(self) -> None:
+        with pytest.raises(ValueError, match="Cannot parse integer"):
+            _parse_int("1_0")
+
+    def test_non_ascii_digits_rejected(self) -> None:
+        with pytest.raises(ValueError, match="Cannot parse integer"):
+            _parse_int("١٢")
+
 
 class TestFunctionEntryFromDict:
     def test_hex_string_va(self) -> None:

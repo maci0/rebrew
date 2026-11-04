@@ -33,6 +33,16 @@ def test_overflow_dropped() -> None:
     assert parse_va_candidates("0x" + format(1 << 63, "x")) == []
 
 
+def test_negative_overflow_dropped() -> None:
+    assert parse_va_candidates("-9223372036854775809") == []
+    assert parse_va_candidates("-0x8000000000000001") == []
+
+
+def test_underscores_rejected() -> None:
+    assert parse_va_candidates("1_0") == []
+    assert parse_va_candidates("0x1_0") == []
+
+
 def test_max_kept() -> None:
     assert parse_va_candidates(str(VA_MAX)) == [VA_MAX]
 
