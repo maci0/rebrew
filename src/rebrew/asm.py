@@ -65,7 +65,7 @@ lazy from rebrew.metadata.bindings import read_source_bindings
 lazy from rebrew.rename_ops import c_name_from_symbol
 lazy from rebrew.sources import iter_sources
 lazy from rebrew.status_style import DISPLAY_STATUSES
-lazy from rebrew.utils import atomic_write_text, parse_int_literal, untrusted_ident
+lazy from rebrew.utils import atomic_write_text, parse_int_literal, run_process_group, untrusted_ident
 
 logger = logging.getLogger(__name__)
 
@@ -1573,7 +1573,9 @@ def _run_nasm(source: str, *, tmpdir: Path | None = None) -> bytes | None:
         bin_path = tmp / "output.bin"
         asm_path.write_text(source, encoding="utf-8")
         try:
-            r = subprocess.run(
+            # run_process_group kills the whole group on timeout; plain
+            # subprocess.run would orphan nasm children after the 5s bound.
+            r = run_process_group(
                 ["nasm", "-f", "bin", "-o", str(bin_path), str(asm_path)],
                 capture_output=True,
                 timeout=5,

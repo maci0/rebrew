@@ -301,7 +301,7 @@ def _omf_to_coff(obj_path: str | Path, out_path: str | Path) -> None:
     # Prefer the vendored (pinned) objconv over a PATH binary — the vendored
     # copy is the byte-reproducible one and carries the 16-bit OMF fix; a
     # system objconv may be an arbitrary version (vendored only in a checkout).
-    from rebrew.utils import find_install_tool
+    from rebrew.utils import find_install_tool, run_process_group
 
     path_objconv = shutil.which("objconv")
     objconv: Path | None = find_install_tool("tools/objconv/objconv") or (
@@ -311,14 +311,19 @@ def _omf_to_coff(obj_path: str | Path, out_path: str | Path) -> None:
         raise FileNotFoundError(
             "objconv not found (needed to parse OMF objects) — vendored at tools/objconv"
         )
-    r = subprocess.run(
-        [str(objconv), "-fcoff", str(obj_path), "-o", str(out_path)],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=60,
-    )
+    # run_process_group kills the whole group on timeout; plain subprocess.run
+    # would leave objconv's children running after the 60s bound.
+    try:
+        r = run_process_group(
+            [str(objconv), "-fcoff", str(obj_path), "-o", str(out_path)],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=60,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ValueError(f"objconv timed out converting OMF {obj_path}") from exc
     # Mere existence of the output is not proof of conversion: a failed
     # objconv run can leave a zero-length file that LIEF would silently
     # parse as None.  Require a non-empty output AND a clean exit — a real

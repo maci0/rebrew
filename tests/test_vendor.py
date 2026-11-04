@@ -208,7 +208,7 @@ class TestVendor:
         def unavailable(*args: object, **kwargs: object) -> None:
             raise FileNotFoundError("GNU patch is missing")
 
-        monkeypatch.setattr("rebrew.vendor.subprocess.run", unavailable)
+        monkeypatch.setattr("rebrew.vendor.run_process_group", unavailable)
         result = CliRunner().invoke(app, ["--root", str(tmp_path), "--json", str(manifest)])
         assert result.exit_code == 2 and "GNU patch" in cli_payload(result)["error"]
 

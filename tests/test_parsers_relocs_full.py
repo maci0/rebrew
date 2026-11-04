@@ -403,7 +403,7 @@ def test_omf_to_coff_failed_conversion_raises(monkeypatch, tmp_path: Path) -> No
         stdout = ""
         stderr = "Error 2316: Incompatible relocation method"
 
-    monkeypatch.setattr(subprocess, "run", lambda *a, **k: _Fail())
+    monkeypatch.setattr("rebrew.utils.run_process_group", lambda *a, **k: _Fail())
     monkeypatch.setattr("shutil.which", lambda _name: sys.executable)
     out = tmp_path / "out.coff"
     out.write_bytes(b"")  # caller pre-creates the tempfile

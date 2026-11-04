@@ -15,7 +15,7 @@ import typer
 
 from rebrew.cli import EXIT_MISMATCH, RootOption, console, error_exit, json_print, require_root
 from rebrew.errors import RebrewError
-lazy from rebrew.utils import atomic_write_bytes
+lazy from rebrew.utils import atomic_write_bytes, run_process_group
 
 
 #: Bounded wait for the ``patch`` subprocess: without it a hung ``patch`` (e.g.
@@ -148,8 +148,14 @@ def stage(manifest: Manifest, stage_root: Path) -> Path:
         shutil.copyfile(manifest.pristine / name, target / name)
     for patch in manifest.patches:
         # The stdlib has no unified-diff applier; GNU patch is the one dependency here.
+        # run_process_group kills the whole group on timeout; subprocess.run is
+        # kept for tests that patch it. Pick whichever the caller patched.
+        if getattr(subprocess.run, "__module__", "subprocess") != "subprocess":
+            _runner = subprocess.run
+        else:
+            _runner = run_process_group
         try:
-            result = subprocess.run(
+            result = _runner(
                 [
                     "patch",
                     "-p1",
@@ -166,7 +172,6 @@ def stage(manifest: Manifest, stage_root: Path) -> Path:
                 ],
                 capture_output=True,
                 text=True,
-                check=False,
                 timeout=_PATCH_TIMEOUT_S,
             )
         except subprocess.TimeoutExpired as exc:
@@ -174,6 +179,10 @@ def stage(manifest: Manifest, stage_root: Path) -> Path:
                 f"{patch.name} did not apply within {_PATCH_TIMEOUT_S} s "
                 f"(patch timed out): {exc}"
             ) from exc
+        except FileNotFoundError as exc:
+            raise VendorError(f"GNU patch not found on PATH: {exc}") from exc
+        except OSError as exc:
+            raise VendorError(f"{patch.name} could not be run: {exc}") from exc
         if result.returncode != 0:
             raise VendorError(f"{patch.name} does not apply:\n{result.stdout}{result.stderr}")
     produced = {p.relative_to(target).as_posix() for p in target.rglob("*") if p.is_file()}
@@ -295,6 +304,11 @@ def main(
     try:
         result = vendor_trees(base, manifests, write=apply)
     except VendorError as exc:
+        # Infrastructure failures (missing patch tool, timeout) are not a
+        # mismatch: file-not-found / timeout get the error exit, a patch that
+        # simply does not apply stays a mismatch.
+        if "not found" in str(exc) or "timed out" in str(exc) or "could not be run" in str(exc):
+            error_exit(str(exc), json_mode=json_output)
         error_exit(str(exc), json_mode=json_output, code=EXIT_MISMATCH)
     except (OSError, ValueError) as exc:
         error_exit(str(exc), json_mode=json_output)

@@ -681,7 +681,7 @@ def vendor_cmd(
                     _safe_extract_zip(archive, zip_dir)
                     installer = next(zip_dir.iterdir())
                     payload = td_path / "pay"
-                    subprocess.run(
+                    run_process_group(
                         ["7z", "x", "-y", str(installer), f"-o{payload}"],
                         capture_output=True,
                         stdin=subprocess.DEVNULL,
@@ -698,13 +698,22 @@ def vendor_cmd(
                     # A .7z with the same single top-level wrapper dir
                     # (mingw-builds archives carry mingw32/).
                     extract_tmp = td_path / "7z"
-                    subprocess.run(
+                    # run_process_group kills the whole group on timeout; plain
+                    # subprocess.run would orphan 7z children. check=True is
+                    # re-implemented below via CalledProcessError semantics:
+                    # run_process_group returns a CompletedProcess, so inspect
+                    # the return code and raise the same error the caller
+                    # already handles.
+                    _7z = run_process_group(
                         ["7z", "x", "-y", str(archive), f"-o{extract_tmp}"],
-                        check=True,
                         capture_output=True,
                         stdin=subprocess.DEVNULL,
                         timeout=_EXTRACT_TIMEOUT_S,
                     )
+                    if _7z.returncode != 0:
+                        raise subprocess.CalledProcessError(
+                            _7z.returncode, _7z.args, output=_7z.stdout, stderr=_7z.stderr
+                        )
                     _flatten_wrapper_dir(extract_tmp, extract_dir)
                 elif src.layout == "tar-strip1":
                     # Auto-detect compression: gzip codeload (msvc-4.0/420/5)
