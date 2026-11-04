@@ -365,6 +365,39 @@ def section_range(info: BinaryInfo, name: str) -> tuple[int, int] | None:
     return section.va, section.size
 
 
+def _merged_ranges(info: BinaryInfo) -> tuple[list[int], list[int]]:
+    """Sorted, merged ``(starts, ends)`` for every mapped section.
+
+    Built once per scan and shared by the hot loops below: the previous
+    per-reference ``any(...)`` over ``sections.values()`` cost O(sections)
+    per candidate, so a whole-.text scan paid O(instructions × sections).
+    """
+    spans = sorted(
+        (section.va, section.va + section.size)
+        for section in info.sections.values()
+        if section.size > 0
+    )
+    starts: list[int] = []
+    ends: list[int] = []
+    for start, end in spans:
+        if starts and start <= ends[-1]:
+            ends[-1] = max(ends[-1], end)
+        else:
+            starts.append(start)
+            ends.append(end)
+    return starts, ends
+
+
+def _inside_ranges(starts: list[int], ends: list[int], va: int) -> bool:
+    """Whether *va* falls in the merged ranges (binary search)."""
+    if va < 0:
+        return False
+    from bisect import bisect_right
+
+    index = bisect_right(starts, va) - 1
+    return index >= 0 and va < ends[index]
+
+
 def is_inside(info: BinaryInfo, va: int) -> bool:
     """Whether *va* falls inside any mapped section of the binary."""
     if va < 0:
@@ -418,6 +451,7 @@ def scan_references(
     """
     names = section_names if section_names is not None else _default_scan_sections(info)
     md = capstone_for(info)
+    starts, ends = _merged_ranges(info)
     xrefs: list[Xref] = []
     for name in names:
         rng = section_range(info, name)
@@ -434,7 +468,7 @@ def scan_references(
             for kind, from_va, to_va in _classify_insn(info, insn, include_indexed=include_indexed):
                 if target_va is not None and to_va != target_va:
                     continue
-                if is_inside(info, to_va):
+                if _inside_ranges(starts, ends, to_va):
                     xrefs.append(Xref(kind=kind, from_va=from_va, to_va=to_va))
     xrefs.sort(key=lambda x: (x.from_va, x.to_va))
     return xrefs
@@ -461,12 +495,13 @@ def data_references(
     # NE code segments carry a 2-byte Borland index marker before the
     # instruction stream, the same offset scan_references skips.
     start = 2 if info.format == "ne" and len(raw) > 2 else 0
+    starts, ends = _merged_ranges(info)
     out: list[Xref] = []
     for insn in md.disasm(raw[start:], va + start):
         if insn.mnemonic == "db":  # skipdata placeholder
             continue
         for kind, from_va, to_va in _classify_insn(info, insn, include_indexed=include_indexed):
-            if is_inside(info, to_va):
+            if _inside_ranges(starts, ends, to_va):
                 out.append(Xref(kind=kind, from_va=from_va, to_va=to_va))
     return out
 
@@ -490,6 +525,7 @@ def reachable_code(
     covered: set[int] = set()
     refs: list[Xref] = []
     md = capstone_for(info)
+    starts, ends = _merged_ranges(info)
     _, op_imm, _ = _op_constants()
     while pending:
         pc = pending.pop()
@@ -506,7 +542,7 @@ def reachable_code(
         covered.update(occupied)
         decoded[pc] = Insn(pc, insn.size, insn.mnemonic, insn.op_str, bytes(insn.bytes))
         for ref in _classify_insn(info, insn, include_indexed=include_indexed):
-            if is_inside(info, ref[2]):
+            if _inside_ranges(starts, ends, ref[2]):
                 refs.append(Xref(*ref))
         if insn.group(capstone.CS_GRP_RET) or insn.group(capstone.CS_GRP_IRET):
             continue
