@@ -195,13 +195,14 @@ td.file { max-width: 18rem; overflow-wrap: anywhere; }
 td details { max-width: 40rem; overflow-wrap: anywhere; }
 /* The disclosure toggle is the only way to read a full string or every ref, so
    it is pinned past 24px tall; the 14px cell font left it at the threshold. */
-td summary { cursor: pointer; padding: 0.25rem 0; min-height: 1.5rem; }
+td summary { cursor: pointer; padding: 0.25rem 0; min-height: 1.5rem; display: flex;
+             align-items: center; }
 /* The status reference sits between the cards and the table, so it takes the
    card surface rather than the page's. */
 .legend { background: var(--rb-surface); border: 1px solid var(--rb-line);
           border-radius: var(--rb-radius); padding: 0.6rem 1.1rem; margin: 0 0 1.5rem; }
 .legend > summary { cursor: pointer; font-weight: 600; min-height: 1.5rem;
-                    padding: 0.25rem 0; }
+                    padding: 0.25rem 0; display: flex; align-items: center; }
 .legend dl { display: grid; grid-template-columns: max-content 1fr;
              gap: 0.35rem 1.25rem; margin: 0.75rem 0 0.25rem; }
 .legend dt { font-family: var(--rb-mono); font-weight: 600; }
