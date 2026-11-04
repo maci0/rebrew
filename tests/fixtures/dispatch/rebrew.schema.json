@@ -18,13 +18,15 @@
           },
           "sha256": {
             "type": "string"
+          },
+          "url": {
+            "type": "string"
           }
         },
         "required": [
           "binary_id",
           "sha256",
-          "name",
-          "file_key"
+          "name"
         ],
         "type": "object"
       },
@@ -33,7 +35,14 @@
         "additionalProperties": false,
         "properties": {
           "coverage_dir": {
-            "type": "string"
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "intake": true,
           "project": {
@@ -151,12 +160,14 @@
           },
           "sha256": {
             "type": "string"
+          },
+          "url": {
+            "type": "string"
           }
         },
         "required": [
           "binary_id",
           "sha256",
-          "key",
           "name"
         ],
         "type": "object"
@@ -207,11 +218,13 @@
           },
           "sha256": {
             "type": "string"
+          },
+          "url": {
+            "type": "string"
           }
         },
         "required": [
           "sha256",
-          "file",
           "functions"
         ],
         "type": "object"
@@ -293,12 +306,14 @@
           },
           "sha256": {
             "type": "string"
+          },
+          "url": {
+            "type": "string"
           }
         },
         "required": [
           "binary_id",
           "sha256",
-          "key",
           "name"
         ],
         "type": "object"
@@ -491,12 +506,14 @@
           },
           "sha256": {
             "type": "string"
+          },
+          "url": {
+            "type": "string"
           }
         },
         "required": [
           "binary_id",
           "sha256",
-          "key",
           "name"
         ],
         "type": "object"
@@ -550,7 +567,14 @@
         "additionalProperties": false,
         "properties": {
           "coverage_dir": {
-            "type": "string"
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "intake": true,
           "project": {
@@ -668,12 +692,14 @@
           },
           "sha256": {
             "type": "string"
+          },
+          "url": {
+            "type": "string"
           }
         },
         "required": [
           "binary_id",
           "sha256",
-          "key",
           "name"
         ],
         "type": "object"
@@ -699,12 +725,14 @@
           },
           "sha256": {
             "type": "string"
+          },
+          "url": {
+            "type": "string"
           }
         },
         "required": [
           "binary_id",
           "sha256",
-          "key",
           "name"
         ],
         "type": "object"
@@ -784,12 +812,14 @@
           },
           "sha256": {
             "type": "string"
+          },
+          "url": {
+            "type": "string"
           }
         },
         "required": [
           "binary_id",
           "sha256",
-          "key",
           "name"
         ],
         "type": "object"

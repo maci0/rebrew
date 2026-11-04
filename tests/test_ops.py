@@ -9,21 +9,25 @@ beside it).  The project the function and project ops read is the one
 from __future__ import annotations
 
 import base64
-import copy
 import hashlib
 import http.client
+import http.server
 import json
 import os
 import secrets
 import shutil
 import socket
+import ssl
+import struct
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, override
 
 import pytest
+from bin_util import append_pe_section
 
 from rebrew.ops import OPS, WorkerConfig, dispatch
 
@@ -54,6 +58,7 @@ _KEYWORDS = {
     "minItems",
     "maxItems",
     "contentEncoding",
+    "oneOf",
 }
 _TYPES = {
     "object": lambda v: isinstance(v, dict),
@@ -73,6 +78,15 @@ def _validate(schema: Any, value: Any, where: str = "$") -> None:
     if "type" in schema:
         types = schema["type"] if isinstance(schema["type"], list) else [schema["type"]]
         assert any(_TYPES[t](value) for t in types), f"{where}: {value!r} is not {types}"
+    if "oneOf" in schema:
+        matched = 0
+        for option in schema["oneOf"]:
+            try:
+                _validate(option, value, where)
+            except AssertionError:
+                continue
+            matched += 1
+        assert matched == 1, f"{where}: {value!r} matches {matched} oneOf options"
     if schema.get("contentEncoding") is not None:
         assert schema["contentEncoding"] == "base64"
         base64.b64decode(value, validate=True)
@@ -95,12 +109,7 @@ def _validate(schema: Any, value: Any, where: str = "$") -> None:
 
 
 def _op_schema(op: str, part: str) -> Any:
-    schema = copy.deepcopy(_CONTRACT["ops"][op][part])
-    if part == "response" and op in ("rebrew.analyse", "rebrew.import-project"):
-        # The Go field is `CoverageDir *string` ("null when the project has
-        # none"); the generated schema drops the nullability.
-        schema["properties"]["coverage_dir"] = {"type": ["string", "null"]}
-    return schema
+    return _CONTRACT["ops"][op][part]
 
 
 def _call(config: WorkerConfig, op: str, request: dict[str, Any]) -> Any:
@@ -211,6 +220,33 @@ class TestListingOps:
         refusal = _refusal(config, "rebrew.disassemble", json.dumps(request).encode())
         assert refusal["status"] == 400
 
+    @pytest.mark.parametrize("fmt", ["hex", "asm"])
+    def test_arch_override_applies_to_every_format(
+        self, world: tuple[WorkerConfig, Path], fmt: str
+    ) -> None:
+        config, project = world
+        request = {
+            "project_dir": str(project),
+            "arch": "x86_16",
+            "va": ENTRY_VA,
+            "size": 1,
+            "format": fmt,
+        }
+        first = _call(config, "rebrew.disassemble", request)["text"].splitlines()[0]
+        assert first.split()[-2:] == ["push", "bp"]
+
+    def test_unknown_arch_is_refused(self, world: tuple[WorkerConfig, Path]) -> None:
+        config, project = world
+        request = {
+            "project_dir": str(project),
+            "arch": "vax",
+            "va": ENTRY_VA,
+            "size": 1,
+            "format": "hex",
+        }
+        refusal = _refusal(config, "rebrew.disassemble", json.dumps(request).encode())
+        assert (refusal["status"], refusal["detail"]) == (400, "unsupported arch: vax")
+
     def test_disassemble_bytes(self) -> None:
         code = base64.b64encode(b"\x55\x48\x89\xe5\xc3").decode()
         reply = _call(
@@ -263,11 +299,40 @@ class TestFunctionOps:
         reply = _call(config, "rebrew.identify_library", {"project_dir": str(project)})
         assert (reply["identified"], reply["written"]) == (0, 0)
 
-    def test_structs_with_no_functions_to_decompile(self, world: tuple[WorkerConfig, Path]) -> None:
+    @pytest.mark.parametrize(("limit", "decompiled"), [(0, 2), (1, 1), (5, 2)])
+    def test_structs_limit_zero_means_no_cap(
+        self,
+        world: tuple[WorkerConfig, Path],
+        monkeypatch: pytest.MonkeyPatch,
+        limit: int,
+        decompiled: int,
+    ) -> None:
+        # The decompiler is an external engine; a fake one records the calls.
+        calls: list[int] = []
+
+        def fake_decompiler(_backend: str, _binary: Path, va: int, _root: Path) -> tuple[str, str]:
+            calls.append(va)
+            return "int f(int *p) { return p[1]; }", "kuna"
+
+        monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", fake_decompiler)
+        config, project = world
+        request = {
+            "binary_id": 1,
+            "project_dir": str(project),
+            "decompiler": "kuna",
+            "limit": limit,
+        }
+        reply = _call(config, "rebrew.structs", request)
+        assert (reply["decompiled"], len(calls)) == (decompiled, decompiled)
+
+    def test_structs_without_a_decompilation_is_refused(
+        self, world: tuple[WorkerConfig, Path], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", lambda *_args: ("", "kuna"))
         config, project = world
         request = {"binary_id": 1, "project_dir": str(project), "decompiler": "kuna", "limit": 0}
-        reply = _call(config, "rebrew.structs", request)
-        assert reply == {"functions": 0, "structs": []}
+        detail = _refusal(config, "rebrew.structs", json.dumps(request).encode())["detail"]
+        assert detail.startswith("no decompilation obtained via 'kuna' (2 function(s) skipped)")
 
     def test_operand_locations(self, world: tuple[WorkerConfig, Path]) -> None:
         config, _project = world
@@ -306,6 +371,18 @@ class TestScanOps:
         config, _project = world
         assert _call(config, "rebrew.analyze", _binary_file())["meta"]["format"] == "pe"
 
+    def test_crypto_scan_names_each_constant(self, tmp_path: Path) -> None:
+        sha1_h = struct.pack("<5I", 0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0)
+        pe = append_pe_section(BINARY.read_bytes(), ".rdata", sha1_h)
+        filestore, workspace = _worker_dirs(tmp_path)
+        digest = hashlib.sha256(pe).hexdigest()
+        (filestore / "binaries" / digest).write_bytes(pe)
+        request = {**_binary_file(), "sha256": digest, "key": f"binaries/{digest}"}
+        reply = _call(WorkerConfig(filestore, workspace), "rebrew.crypto_scan", request)
+        assert [(f["kind"], f["name"], f["section"]) for f in reply["findings"]] == [
+            ("constant", "SHA-1 initial hash H", ".rdata")
+        ]
+
 
 class TestProjectOps:
     def test_report_writes_under_the_workspace(self, world: tuple[WorkerConfig, Path]) -> None:
@@ -339,22 +416,209 @@ class TestProjectOps:
             "fcn_00401010",
         ]
 
+    def test_import_project_build_db_reads_live_coverage(
+        self, world: tuple[WorkerConfig, Path]
+    ) -> None:
+        config, project = world
+        request = {"project_dir": str(project), "build_db": True}
+        reply = _call(config, "rebrew.import-project", request)
+        assert (reply["coverage_dir"], len(reply["targets"][0]["functions"])) == (None, 2)
+
     def test_import_project_from_snapshots(
         self, world: tuple[WorkerConfig, Path], tmp_path: Path
     ) -> None:
         from rebrew.coverage_db import write_coverage
 
         config, project = world
-        write_coverage(project, tmp_path, target=None, json_output=True)
-        request = {"project_dir": str(project), "snapshots": str(tmp_path)}
+        assert config.workspace is not None
+        exports = config.workspace / "exports" / tmp_path.name
+        exports.mkdir(parents=True)
+        write_coverage(project, exports, target=None, json_output=True)
+        request = {"project_dir": str(project), "snapshots": str(exports)}
         reply = _call(config, "rebrew.import-project", request)
-        assert reply["coverage_dir"] == str(tmp_path)
-        assert reply["targets"][0]["document"] == str(tmp_path / "coverage-mini.toml")
+        assert reply["coverage_dir"] == str(exports)
+        assert reply["targets"][0]["document"] == str(exports / "coverage-mini.toml")
         assert len(reply["targets"][0]["functions"]) == 2
         request["build_db"] = True
         assert _refusal(config, "rebrew.import-project", json.dumps(request).encode())[
             "detail"
         ] == ("snapshots and build_db exclude each other")
+
+        write_coverage(project, tmp_path, target=None, json_output=True)
+        outside = {"project_dir": str(project), "snapshots": str(tmp_path)}
+        assert _refusal(config, "rebrew.import-project", json.dumps(outside).encode())[
+            "detail"
+        ] == ("snapshots must be inside the worker workspace")
+
+
+class TestProjectPaths:
+    """project_dir is absolute and, with a workspace, resolves inside it."""
+
+    def test_relative_project_dir_is_refused(self, world: tuple[WorkerConfig, Path]) -> None:
+        config, project = world
+        relative = os.path.relpath(project)
+        body = json.dumps({"project_dir": relative}).encode()
+        assert _refusal(config, "rebrew.identify_library", body)["detail"] == (
+            "project_dir must be an absolute path"
+        )
+
+    def test_dotdot_inside_the_workspace_is_resolved(
+        self, world: tuple[WorkerConfig, Path]
+    ) -> None:
+        config, project = world
+        dotted = project / ".." / project.name
+        reply = _call(config, "rebrew.import-project", {"project_dir": str(dotted)})
+        assert reply["project"] == str(project)
+
+    def test_project_outside_the_workspace_is_refused(
+        self, world: tuple[WorkerConfig, Path], tmp_path: Path
+    ) -> None:
+        config, project = world
+        outside = tmp_path / "copy"
+        shutil.copytree(project, outside, symlinks=True)
+        assert config.workspace is not None
+        link = config.workspace / f"link-{tmp_path.name}"
+        link.symlink_to(outside)
+        for path in (outside, link, config.workspace / ".." / tmp_path.name / "copy"):
+            body = json.dumps({"project_dir": str(path)}).encode()
+            assert _refusal(config, "rebrew.import-project", body)["detail"] == (
+                "project_dir must be inside the worker workspace"
+            )
+        # Without a workspace (a local `ops call` worker) the copy is readable.
+        reply = _call(WorkerConfig(), "rebrew.import-project", {"project_dir": str(outside)})
+        assert reply["project"] == str(outside.resolve())
+
+
+# ---------------------------------------------------------------------------
+# Binaries named by a presigned HTTPS url
+# ---------------------------------------------------------------------------
+
+
+class _OriginHandler(http.server.BaseHTTPRequestHandler):
+    """Serves the fixture at /mini.exe, without a length at /unsized.exe."""
+
+    def do_GET(self) -> None:
+        body = BINARY.read_bytes()
+        if self.path not in ("/mini.exe?X-Signature=s3cret", "/unsized.exe"):
+            self.send_error(404)
+            return
+        self.send_response(200)
+        if self.path != "/unsized.exe":
+            self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    @override
+    def log_message(self, format: str, *args: Any) -> None:
+        pass
+
+
+@pytest.fixture
+def https_origin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
+    """An HTTPS server with a self-signed certificate the worker trusts."""
+    if shutil.which("openssl") is None:
+        pytest.skip("openssl is not installed")
+    cert, key = tmp_path / "cert.pem", tmp_path / "key.pem"
+    subprocess.run(
+        [
+            "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+            "-subj", "/CN=127.0.0.1", "-addext", "subjectAltName=IP:127.0.0.1",
+            "-keyout", str(key), "-out", str(cert),
+        ],
+        check=True,
+        capture_output=True,
+        timeout=WAIT_SECONDS,
+    )  # fmt: skip
+    context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+    context.load_cert_chain(cert, key)
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _OriginHandler)
+    server.socket = context.wrap_socket(server.socket, server_side=True)
+    monkeypatch.setenv("SSL_CERT_FILE", str(cert))
+    monkeypatch.setenv("NO_PROXY", "127.0.0.1")
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"https://127.0.0.1:{server.server_port}"
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+class TestUrlBinaries:
+    def _config(self, tmp_path: Path, **extra: Any) -> WorkerConfig:
+        filestore, workspace = _worker_dirs(tmp_path)
+        return WorkerConfig(filestore.resolve(), workspace.resolve(), **extra)
+
+    def _url_file(self, origin: str, path: str = "/mini.exe?X-Signature=s3cret") -> dict[str, Any]:
+        request = {**_binary_file(), "url": origin + path}
+        del request["key"]
+        return request
+
+    def _scratch_is_empty(self, config: WorkerConfig) -> bool:
+        assert config.workspace is not None
+        return not any((config.workspace / ".scratch").iterdir())
+
+    def test_scan_ops_read_a_url(self, tmp_path: Path, https_origin: str) -> None:
+        config = self._config(tmp_path)
+        for path in ("/mini.exe?X-Signature=s3cret", "/unsized.exe"):
+            request = self._url_file(https_origin, path)
+            assert _call(config, "rebrew.fingerprint", request)["sha256"] == SHA256
+        assert self._scratch_is_empty(config)
+
+    def test_operand_locations_read_a_url(self, tmp_path: Path, https_origin: str) -> None:
+        config = self._config(tmp_path)
+        function = {"va": ENTRY_VA, "size": ENTRY_SIZE, "locations": [[0, 0]]}
+        request = {
+            "sha256": SHA256,
+            "url": https_origin + "/mini.exe?X-Signature=s3cret",
+            "functions": [function],
+        }
+        assert _call(config, "rebrew.binary_operand_locations", request) == {
+            "locations": [[[0, 0]]]
+        }
+
+    def test_analyse_reads_a_url(self, tmp_path: Path, https_origin: str) -> None:
+        config = self._config(tmp_path)
+        request = {**_analyse_request(), "url": https_origin + "/mini.exe?X-Signature=s3cret"}
+        del request["file_key"]
+        assert config.workspace is not None
+        _check_analysed(_call(config, "rebrew.analyse", request), config.workspace)
+        assert self._scratch_is_empty(config)
+
+    @pytest.mark.parametrize(
+        ("change", "limit", "detail"),
+        [
+            ({"key": KEY}, None, "exactly one of key and url must be set"),
+            ({"url": ""}, None, "exactly one of key and url must be set"),
+            ({"url": "http://127.0.0.1/mini.exe"}, None, "url must be an https URL"),
+            ({"url": "file:///etc/passwd"}, None, "url must be an https URL"),
+            ({"path": "/missing.exe"}, None, "url answered HTTP 404"),
+            ({}, 64, "url names more than 64 bytes"),
+            ({"path": "/unsized.exe"}, 64, "url names more than 64 bytes"),
+            ({"sha256": "0" * 64}, None, "the downloaded file does not match its sha256"),
+        ],
+    )
+    def test_refusals(
+        self,
+        tmp_path: Path,
+        https_origin: str,
+        change: dict[str, Any],
+        limit: int | None,
+        detail: str,
+    ) -> None:
+        config = self._config(tmp_path, **({} if limit is None else {"max_download_bytes": limit}))
+        request = self._url_file(https_origin, change.pop("path", "/mini.exe?X-Signature=s3cret"))
+        request.update(change)
+        refusal = _refusal(config, "rebrew.fingerprint", json.dumps(request).encode())
+        assert (refusal["status"], refusal["detail"]) == (400, detail)
+        assert "s3cret" not in refusal["detail"]
+        scratch = tmp_path / "workspace" / ".scratch"
+        assert not scratch.exists() or not any(scratch.iterdir())
+
+    def test_a_url_needs_a_workspace(self, https_origin: str) -> None:
+        request = self._url_file(https_origin)
+        refusal = _refusal(WorkerConfig(), "rebrew.fingerprint", json.dumps(request).encode())
+        assert refusal["detail"] == "the rebrew worker has no workspace configured (--workspace)"
 
 
 class TestRefusals:
@@ -492,6 +756,8 @@ class TestHttpTransport:
                 str(filestore),
                 "--workspace",
                 str(workspace),
+                "--concurrency",
+                "1",
             ),
             env={**os.environ, "REBREW_OPS_TOKEN": TOKEN},
             stdout=subprocess.DEVNULL,
@@ -599,3 +865,69 @@ class TestHttpTransport:
         )
         assert done.returncode == 2
         assert "REBREW_OPS_TOKEN is not set" in done.stderr
+
+    def test_serve_requires_a_workspace(self) -> None:
+        done = subprocess.run(
+            _rebrew("ops", "serve", "--port", "0"),
+            env={
+                **{k: v for k, v in os.environ.items() if k != "REBREW_OPS_WORKSPACE"},
+                "REBREW_OPS_TOKEN": TOKEN,
+            },
+            capture_output=True,
+            text=True,
+            timeout=WAIT_SECONDS,
+            check=False,
+        )
+        assert done.returncode == 2
+        assert "serve needs --workspace" in done.stderr
+
+    def test_project_outside_the_workspace_is_refused(self, server: tuple[int, Path]) -> None:
+        port, _workspace = server
+        status, reply = self._post(
+            port,
+            "/rebrew.import-project",
+            json.dumps({"project_dir": str(FIXTURES)}).encode(),
+            {"Authorization": f"Bearer {TOKEN}"},
+        )
+        assert (status, reply["detail"]) == (400, "project_dir must be inside the worker workspace")
+
+    def test_a_full_worker_answers_503_with_retry_after(self, server: tuple[int, Path]) -> None:
+        port, _workspace = server
+        # The only slot is held while the worker waits for a body that never comes.
+        stalled = socket.create_connection(("127.0.0.1", port), timeout=WAIT_SECONDS)
+        try:
+            stalled.sendall(
+                b"POST /rebrew.fingerprint HTTP/1.1\r\nHost: x\r\n"
+                + f"Authorization: Bearer {TOKEN}\r\nContent-Length: 10\r\n\r\n".encode()
+            )
+            deadline = time.monotonic() + WAIT_SECONDS
+            while True:
+                connection = http.client.HTTPConnection("127.0.0.1", port, timeout=WAIT_SECONDS)
+                try:
+                    connection.request(
+                        "POST",
+                        "/rebrew.nope",
+                        body=b"{}",
+                        headers={"Authorization": f"Bearer {TOKEN}"},
+                    )
+                    response = connection.getresponse()
+                    reply = json.loads(response.read())
+                finally:
+                    connection.close()
+                if response.status == 503:
+                    break
+                assert time.monotonic() < deadline, "the stalled call never took the slot"
+                time.sleep(0.05)
+            assert (reply["error"], response.getheader("Retry-After")) == ("worker-busy", "5")
+        finally:
+            stalled.close()
+        deadline = time.monotonic() + WAIT_SECONDS
+        while True:
+            status, reply = self._post(
+                port, "/rebrew.nope", b"{}", {"Authorization": f"Bearer {TOKEN}"}
+            )
+            if status != 503:
+                break
+            assert time.monotonic() < deadline, "the slot was not released"
+            time.sleep(0.05)
+        assert (status, reply["error"]) == (404, "unknown-op")

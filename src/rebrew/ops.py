@@ -11,26 +11,33 @@ stdout.  A refusal writes ``{"error", "detail", "status"}`` on stdout and exits
 
 ``rebrew ops serve --port N`` answers ``POST /<op>`` with the request as the
 body, the same reply, and the refusal under its HTTP ``status``.  Every request
-needs ``Authorization: Bearer $REBREW_OPS_TOKEN``.
+needs ``Authorization: Bearer $REBREW_OPS_TOKEN``; at most ``--concurrency``
+calls run at once and the next one is answered 503 with ``Retry-After``.
 
-Binaries are referenced, never carried in a request.  A stored binary is a
-filestore key resolved under ``--filestore`` (the backend's local filestore
-directory); its bytes must hash to the request's ``sha256``.  An analysed
-binary is the absolute ``project_dir`` of its rebrew project; a request
-``sha256`` selects the target whose binary has that hash.  ``analyse`` creates
-``<workspace>/projects/<sha256>`` and ``report`` writes its relative
-``output_dir`` under ``--workspace``.
+Binaries are referenced, never carried in a request.  A stored binary is
+either a filestore key resolved under ``--filestore`` (the backend's local
+filestore directory) or a presigned HTTPS ``url`` downloaded into
+``<workspace>/.scratch``; exactly one of the two is set, and the bytes must
+hash to the request's ``sha256``.  An analysed binary is the ``project_dir`` of
+its rebrew project; a request ``sha256`` selects the target whose binary has
+that hash.  ``analyse`` creates ``<workspace>/projects/<sha256>`` and
+``report`` writes its relative ``output_dir`` under ``--workspace``.
+
+Project paths (``project_dir``, ``snapshots``) must be absolute.  With a
+workspace configured they must resolve, symlinks followed, inside it; ``serve``
+always has one, so over HTTP no project path leaves the workspace.
 """
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from dataclasses import MISSING, dataclass, field, fields
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 lazy import base64
 lazy import binascii
-lazy import contextlib
+lazy import dataclasses
 lazy import hashlib
 lazy import hmac
 lazy import json
@@ -39,11 +46,15 @@ lazy import re
 lazy import signal
 lazy import subprocess
 lazy import sys
+lazy import tempfile
+lazy import threading
 lazy import typing
-lazy from collections.abc import Callable, Mapping
+lazy from collections.abc import Callable, Iterator, Mapping
 lazy from typing import Any
+lazy from urllib.parse import urlsplit
 
 import typer
+lazy import httpx
 
 from rebrew.errors import RebrewError
 lazy from rebrew.cli import EXIT_ERROR, console, error_exit
@@ -72,6 +83,25 @@ SOCKET_TIMEOUT_SECONDS = 60
 
 #: Wall-clock bound on one ``rebrew intake`` run (``analyse``).
 INTAKE_TIMEOUT_SECONDS = 600
+
+#: Default of ``--concurrency``: calls ``serve`` runs at once.
+DEFAULT_CONCURRENCY = 4
+
+#: ``Retry-After`` seconds of the 503 ``serve`` answers when every slot is busy.
+BUSY_RETRY_AFTER_SECONDS = 5
+
+#: Default of ``--max-download``: the largest binary a ``url`` may name.
+#: It matches the backend's default upload cap (``max_upload_bytes``).
+DEFAULT_MAX_DOWNLOAD_BYTES = 256 << 20
+
+#: Seconds a ``url`` download may stall connecting or between reads.
+DOWNLOAD_TIMEOUT_SECONDS = 60
+
+#: Bytes read per chunk of a ``url`` download.
+DOWNLOAD_CHUNK_BYTES = 1 << 20
+
+#: Directory under the workspace that holds ``url`` downloads while a call runs.
+SCRATCH_DIR = ".scratch"
 
 #: Detail characters kept from a rebrew refusal.
 DETAIL_MAX_CHARS = 400
@@ -109,6 +139,7 @@ _INT64_MAX = (1 << 63) - 1
 INVALID_REQUEST = "invalid-request"
 UNKNOWN_OP = "unknown-op"
 ENGINE_ERROR = "engine-error"
+WORKER_BUSY = "worker-busy"
 
 
 class OpsError(RebrewError):
@@ -148,10 +179,14 @@ def _bounded(text: str) -> str:
 
 @dataclass(frozen=True)
 class WorkerConfig:
-    """Where the worker reads stored binaries and writes projects and reports."""
+    """Where the worker reads stored binaries and writes projects and reports.
+
+    ``max_download_bytes`` bounds a binary fetched from a request ``url``.
+    """
 
     filestore: Path | None = None
     workspace: Path | None = None
+    max_download_bytes: int = DEFAULT_MAX_DOWNLOAD_BYTES
 
     def require_filestore(self) -> Path:
         if self.filestore is None:
@@ -221,8 +256,9 @@ class ProjectRequest:
 class BinaryFile:
     binary_id: int
     sha256: str
-    key: str
     name: str
+    key: str = ""
+    url: str = ""
 
 
 @dataclass(frozen=True)
@@ -244,7 +280,8 @@ class AnalyseRequest:
     binary_id: int
     sha256: str
     name: str
-    file_key: str
+    file_key: str = ""
+    url: str = ""
 
 
 @dataclass(frozen=True)
@@ -264,8 +301,9 @@ class OperandFunction:
 @dataclass(frozen=True)
 class OperandLocationsRequest:
     sha256: str
-    file: str
     functions: list[OperandFunction]
+    file: str = ""
+    url: str = ""
 
 
 @dataclass(frozen=True)
@@ -375,11 +413,82 @@ def stored_file(config: WorkerConfig, key: str, sha256: str) -> Path:
     return path
 
 
-def project_root(project_dir: str) -> Path:
-    """The rebrew project at the absolute *project_dir*."""
-    root = Path(project_dir)
-    if not root.is_absolute():
-        raise _invalid("project_dir must be an absolute path")
+def _download(config: WorkerConfig, url: str, wanted: str, into: Path) -> None:
+    """Write the body of a GET of the presigned HTTPS *url* to *into*.
+
+    Redirects are not followed.  A body over ``max_download_bytes`` or one not
+    hashing to *wanted* is refused.  Details never carry the URL: its query
+    string is a credential.
+    """
+    parts = urlsplit(url)
+    if parts.scheme != "https" or not parts.hostname:
+        raise _invalid("url must be an https URL")
+    limit = config.max_download_bytes
+    digest = hashlib.sha256()
+    received = 0
+    try:
+        with (
+            httpx.stream("GET", url, timeout=DOWNLOAD_TIMEOUT_SECONDS) as response,
+            into.open("wb") as out,
+        ):
+            if response.status_code != 200:
+                raise _invalid(f"url answered HTTP {response.status_code}")
+            declared = response.headers.get("Content-Length", "")
+            if declared.isdigit() and int(declared) > limit:
+                raise _invalid(f"url names more than {limit} bytes")
+            for chunk in response.iter_bytes(DOWNLOAD_CHUNK_BYTES):
+                received += len(chunk)
+                if received > limit:
+                    raise _invalid(f"url names more than {limit} bytes")
+                digest.update(chunk)
+                out.write(chunk)
+    except httpx.HTTPError as exc:
+        raise _refused(f"url download failed ({type(exc).__name__})") from None
+    if digest.hexdigest() != wanted:
+        raise _invalid("the downloaded file does not match its sha256")
+
+
+@contextlib.contextmanager
+def binary_file(
+    config: WorkerConfig, key: str, url: str, sha256: str, key_field: str
+) -> Iterator[Path]:
+    """The binary a request names by filestore *key* or by presigned *url*.
+
+    Exactly one of the two is set.  A download lives under
+    ``<workspace>/.scratch`` until the block ends.
+    """
+    if bool(key) == bool(url):
+        raise _invalid(f"exactly one of {key_field} and url must be set")
+    if key:
+        yield stored_file(config, key, sha256)
+        return
+    wanted = _sha256(sha256)
+    scratch = config.require_workspace() / SCRATCH_DIR
+    scratch.mkdir(exist_ok=True)
+    handle, name = tempfile.mkstemp(prefix="download-", dir=scratch)
+    os.close(handle)
+    path = Path(name)
+    try:
+        _download(config, url, wanted, path)
+        yield path
+    finally:
+        path.unlink(missing_ok=True)
+
+
+def confined_dir(config: WorkerConfig, text: str, what: str) -> Path:
+    """The absolute directory *text*, resolved; inside the workspace when one is set."""
+    path = Path(text)
+    if not path.is_absolute():
+        raise _invalid(f"{what} must be an absolute path")
+    resolved = path.resolve()
+    if config.workspace is not None and not resolved.is_relative_to(config.workspace):
+        raise _invalid(f"{what} must be inside the worker workspace")
+    return resolved
+
+
+def project_root(config: WorkerConfig, project_dir: str) -> Path:
+    """The rebrew project at *project_dir* (see :func:`confined_dir`)."""
+    root = confined_dir(config, project_dir, "project_dir")
     if not (root / "rebrew-project.toml").is_file():
         raise _invalid("project_dir is not a rebrew project (no rebrew-project.toml)")
     return root
@@ -442,27 +551,30 @@ def _asm_listing(code: bytes, va: int, cs_arch: int, cs_mode: int) -> str:
     )
 
 
-def disassemble(_config: WorkerConfig, req: DisassembleRequest) -> dict[str, Any]:
+def disassemble(config: WorkerConfig, req: DisassembleRequest) -> dict[str, Any]:
     """Listing of ``[va, va+size)``: NASM source, ``asm`` lines, or the hex view.
 
-    ``arch`` overrides the target's ISA for ``asm``; NASM covers x86_32 only and
-    the hex view decodes the target's own ISA.
+    ``arch`` overrides the target's ISA for every format; it must be one of
+    rebrew's arch presets, and NASM covers x86_32 only.
     """
+    from rebrew.config import ARCH_PRESETS
+
     if req.format not in DISASM_FORMATS:
         raise _invalid(f"format must be one of {', '.join(sorted(DISASM_FORMATS))}")
     if req.size <= 0:
         raise _invalid(f"size must be positive, got {req.size}")
     va = _address(req.va)
-    cfg = target_config(project_root(req.project_dir), req.sha256)
-    arch = req.arch or cfg.arch
+    cfg = target_config(project_root(config, req.project_dir), req.sha256)
+    if req.arch and req.arch != cfg.arch:
+        if req.arch not in ARCH_PRESETS:
+            raise _invalid(f"unsupported arch: {_bounded(req.arch)}")
+        cfg = dataclasses.replace(cfg, arch=req.arch)
     if req.format == "hex":
-        if arch != cfg.arch:
-            raise _invalid("the hex listing decodes the target's own arch; use asm for an override")
         from rebrew.asm import hex_disassembly
 
         return {"text": hex_disassembly(cfg, va, req.size)}
-    if req.format == "nasm" and arch != NASM_ARCH:
-        raise _invalid(f"NASM source covers {NASM_ARCH} only and this binary is {arch}")
+    if req.format == "nasm" and cfg.arch != NASM_ARCH:
+        raise _invalid(f"NASM source covers {NASM_ARCH} only and this binary is {cfg.arch}")
     from rebrew.formats.binary_loader import extract_raw_bytes
 
     code = extract_raw_bytes(cfg.target_binary, va, req.size)
@@ -470,10 +582,7 @@ def disassemble(_config: WorkerConfig, req: DisassembleRequest) -> dict[str, Any
         raise _invalid(f"no file bytes at 0x{va:x}")
     if req.format == "nasm":
         return {"text": _nasm_listing(code, va)}
-    cs_arch, cs_mode = (
-        (cfg.capstone_arch, cfg.capstone_mode) if arch == cfg.arch else _capstone_for(arch)
-    )
-    return {"text": _asm_listing(code, va, cs_arch, cs_mode)}
+    return {"text": _asm_listing(code, va, cfg.capstone_arch, cfg.capstone_mode)}
 
 
 def disassemble_bytes(_config: WorkerConfig, req: DisassembleBytesRequest) -> dict[str, Any]:
@@ -489,31 +598,31 @@ def disassemble_bytes(_config: WorkerConfig, req: DisassembleBytesRequest) -> di
 # ---------------------------------------------------------------------------
 
 
-def control_flow_graph(_config: WorkerConfig, req: AddressRequest) -> dict[str, Any]:
+def control_flow_graph(config: WorkerConfig, req: AddressRequest) -> dict[str, Any]:
     """Basic-block graph; ``size`` 0 lets rebrew resolve the extent."""
     from rebrew.asm import build_cfg_payload
 
     if req.size < 0:
         raise _invalid(f"size must not be negative, got {req.size}")
-    cfg = target_config(project_root(req.project_dir), req.sha256)
+    cfg = target_config(project_root(config, req.project_dir), req.sha256)
     return build_cfg_payload(cfg, _address(req.va), req.size)
 
 
-def xrefs(_config: WorkerConfig, req: AddressRequest) -> dict[str, Any]:
+def xrefs(config: WorkerConfig, req: AddressRequest) -> dict[str, Any]:
     """References to ``va``, narrowed to ``kinds`` when given."""
     from rebrew.xrefs import build_xrefs_payload
 
-    cfg = target_config(project_root(req.project_dir), req.sha256)
+    cfg = target_config(project_root(config, req.project_dir), req.sha256)
     return build_xrefs_payload(cfg.target_binary, _address(req.va), req.kinds or None)
 
 
-def describe(_config: WorkerConfig, req: AddressRequest) -> dict[str, Any]:
+def describe(config: WorkerConfig, req: AddressRequest) -> dict[str, Any]:
     """The function dossier ``rebrew describe --json`` prints."""
     from rebrew.analysis import is_inside
     from rebrew.describe import JSON_KEYS, build_dossier
     from rebrew.formats.binary_loader import load_binary
 
-    cfg = target_config(project_root(req.project_dir), req.sha256)
+    cfg = target_config(project_root(config, req.project_dir), req.sha256)
     va = _address(req.va)
     info = load_binary(cfg.target_binary)
     if not is_inside(info, va):
@@ -522,13 +631,13 @@ def describe(_config: WorkerConfig, req: AddressRequest) -> dict[str, Any]:
     return {key: dossier[key] for key in JSON_KEYS}
 
 
-def decompile(_config: WorkerConfig, req: DecompileRequest) -> dict[str, Any]:
+def decompile(config: WorkerConfig, req: DecompileRequest) -> dict[str, Any]:
     """Decompiled source of ``va``; ``named`` applies the project's known struct names."""
     from rebrew.decompiler import fetch_decompilation
 
     if req.backend not in DECOMPILER_BACKENDS:
         raise _invalid(f"unsupported decompiler backend: {req.backend}")
-    cfg = target_config(project_root(req.project_dir), req.sha256)
+    cfg = target_config(project_root(config, req.project_dir), req.sha256)
     va = _address(req.va)
     code, backend = fetch_decompilation(req.backend, cfg.target_binary, va, cfg.root)
     if not code:
@@ -550,13 +659,13 @@ def decompile(_config: WorkerConfig, req: DecompileRequest) -> dict[str, Any]:
     return {"code": code, "backend": backend}
 
 
-def identify_library(_config: WorkerConfig, req: ProjectRequest) -> dict[str, Any]:
+def identify_library(config: WorkerConfig, req: ProjectRequest) -> dict[str, Any]:
     """Library candidates of the default target, as a dry run that writes nothing."""
     from rebrew.config import load_config
     from rebrew.identify_library import collect_candidates
     from rebrew.naming import load_existing_vas
 
-    cfg = load_config(project_root(req.project_dir))
+    cfg = load_config(project_root(config, req.project_dir))
     candidates = collect_candidates(cfg)
     existing = set(load_existing_vas(cfg.reversed_dir, cfg))
     fresh = sum(1 for candidate in candidates if candidate.va not in existing)
@@ -579,19 +688,30 @@ def identify_library(_config: WorkerConfig, req: ProjectRequest) -> dict[str, An
     }
 
 
-def structs(_config: WorkerConfig, req: StructsRequest) -> dict[str, Any]:
-    """Recovered structs of the default target; ``limit`` caps decompiled functions (0: none)."""
+def structs(config: WorkerConfig, req: StructsRequest) -> dict[str, Any]:
+    """Structs recovered from the default target's annotated functions.
+
+    ``limit`` caps how many functions are decompiled; 0 means no cap.  A
+    project with no annotated functions answers ``{"functions": 0, "structs": []}``.
+    """
     from rebrew.config import load_config
-    from rebrew.struct_recover import recover_project_structs
+    from rebrew.struct_recover import NoDecompilationError, recover_project_structs
 
     if req.decompiler not in DECOMPILER_BACKENDS:
         raise _invalid(f"unsupported decompiler backend: {req.decompiler}")
     if req.limit < 0:
         raise _invalid(f"limit must not be negative, got {req.limit}")
-    cfg = load_config(project_root(req.project_dir))
-    return recover_project_structs(
-        cfg, decompiler=req.decompiler, limit=req.limit, json_output=True
-    )
+    cfg = load_config(project_root(config, req.project_dir))
+    try:
+        return recover_project_structs(
+            cfg,
+            decompiler=req.decompiler,
+            all_funcs=True,
+            limit=req.limit or None,
+            json_output=True,
+        )
+    except NoDecompilationError as exc:
+        raise _refused(_bounded(str(exc))) from None
 
 
 def binary_operand_locations(config: WorkerConfig, req: OperandLocationsRequest) -> dict[str, Any]:
@@ -612,25 +732,26 @@ def binary_operand_locations(config: WorkerConfig, req: OperandLocationsRequest)
             for offset, index in function.locations
         ):
             raise _invalid("operand locations are outside their bounds")
-    info = load_binary(stored_file(config, req.file, req.sha256))
-    decoder = capstone_handle(*capstone_config_for(info), detail=True)
-    results: list[list[list[int]]] = []
-    for function in req.functions:
-        code = extract_bytes_at_va(info, function.va, function.size, trim_padding=False)
-        if code is None or len(code) != function.size:
-            raise _invalid("operand extent is not file backed")
-        wanted = set(function.locations)
-        valid: set[tuple[int, int]] = set()
-        for instruction in decoder.disasm(code, function.va):
-            offset = int(instruction.address) - function.va
-            valid.update(
-                (offset, index)
-                for index in range(len(instruction.operands))
-                if (offset, index) in wanted
-            )
-            if valid == wanted:
-                break
-        results.append([list(location) for location in sorted(valid)])
+    with binary_file(config, req.file, req.url, req.sha256, "file") as path:
+        info = load_binary(path)
+        decoder = capstone_handle(*capstone_config_for(info), detail=True)
+        results: list[list[list[int]]] = []
+        for function in req.functions:
+            code = extract_bytes_at_va(info, function.va, function.size, trim_padding=False)
+            if code is None or len(code) != function.size:
+                raise _invalid("operand extent is not file backed")
+            wanted = set(function.locations)
+            valid: set[tuple[int, int]] = set()
+            for instruction in decoder.disasm(code, function.va):
+                offset = int(instruction.address) - function.va
+                valid.update(
+                    (offset, index)
+                    for index in range(len(instruction.operands))
+                    if (offset, index) in wanted
+                )
+                if valid == wanted:
+                    break
+            results.append([list(location) for location in sorted(valid)])
     return {"locations": results}
 
 
@@ -639,43 +760,55 @@ def binary_operand_locations(config: WorkerConfig, req: OperandLocationsRequest)
 # ---------------------------------------------------------------------------
 
 
+def _scan_binary(config: WorkerConfig, req: BinaryFile) -> contextlib.AbstractContextManager[Path]:
+    return binary_file(config, req.key, req.url, req.sha256, "key")
+
+
 def imports(config: WorkerConfig, req: BinaryFile) -> dict[str, Any]:
     from rebrew.imports import imports_payload
 
-    return imports_payload(stored_file(config, req.key, req.sha256))
+    with _scan_binary(config, req) as path:
+        return imports_payload(path)
 
 
 def strings(config: WorkerConfig, req: BinaryFile) -> dict[str, Any]:
     from rebrew.strings import collect_strings
 
-    return collect_strings(stored_file(config, req.key, req.sha256), json_output=True)
+    with _scan_binary(config, req) as path:
+        return collect_strings(path, json_output=True)
 
 
 def fingerprint(config: WorkerConfig, req: BinaryFile) -> dict[str, Any]:
     from rebrew.fingerprints import fingerprint_bundle
 
-    return dict(fingerprint_bundle(stored_file(config, req.key, req.sha256)))
+    with _scan_binary(config, req) as path:
+        return dict(fingerprint_bundle(path))
 
 
 def analyze(config: WorkerConfig, req: BinaryFile) -> dict[str, Any]:
     """The standalone dossier: no project, so project-scoped sections stay empty."""
     from rebrew.analyze import build_dossier, standalone_config
 
-    path = stored_file(config, req.key, req.sha256)
-    return build_dossier(standalone_config(path), path)
+    with _scan_binary(config, req) as path:
+        return build_dossier(standalone_config(path), path)
 
 
 def crypto_scan(config: WorkerConfig, req: BinaryFile) -> dict[str, Any]:
-    """Crypto constants and APIs; with no project there are no function names to match."""
+    """Crypto constants (each finding named) and APIs.
+
+    With no project there are no function names to match.
+    """
     from rebrew.crypto_scan import crypto_scan as scan
 
-    return scan(stored_file(config, req.key, req.sha256), [])
+    with _scan_binary(config, req) as path:
+        return scan(path, [])
 
 
 def pe_info(config: WorkerConfig, req: BinaryFile) -> dict[str, Any]:
     from rebrew.pe_info import pe_info as info
 
-    return dict(info(stored_file(config, req.key, req.sha256)))
+    with _scan_binary(config, req) as path:
+        return dict(info(path))
 
 
 # ---------------------------------------------------------------------------
@@ -684,16 +817,23 @@ def pe_info(config: WorkerConfig, req: BinaryFile) -> dict[str, Any]:
 
 
 def report(config: WorkerConfig, req: ReportRequest) -> dict[str, Any]:
-    """Render the default target's report into ``output_dir`` under the workspace."""
+    """Render the default target's report site into ``output_dir`` under the workspace.
+
+    The inputs are the request's ``project_dir`` and ``output_dir``; the reply
+    is the summary (``out``, ``pages``, ``summary``), not the site.  The
+    backend serves ``/reports/<binary_id>/`` from ``reports/<binary_id>`` of
+    its own workspace, so the pages reach users only when ``--workspace`` is
+    that directory (one host or a shared volume).
+    """
     from rebrew.config import load_config
     from rebrew.report import generate_report
 
-    root = project_root(req.project_dir)
+    root = project_root(config, req.project_dir)
     out = _inside(config.require_workspace(), req.output_dir, "output_dir")
     return generate_report(load_config(root), out)
 
 
-def security_scan(_config: WorkerConfig, req: SecurityScanRequest) -> dict[str, Any]:
+def security_scan(config: WorkerConfig, req: SecurityScanRequest) -> dict[str, Any]:
     """Rule findings over the default target's reversed sources at ``min_severity`` or above."""
     from rebrew.config import load_config
     from rebrew.security_scan import SEVERITY_ORDER, filter_by_severity
@@ -701,7 +841,7 @@ def security_scan(_config: WorkerConfig, req: SecurityScanRequest) -> dict[str, 
 
     if req.min_severity not in SEVERITY_ORDER:
         raise _invalid(f"min_severity must be one of {', '.join(SEVERITY_ORDER)}")
-    cfg = load_config(project_root(req.project_dir))
+    cfg = load_config(project_root(config, req.project_dir))
     return filter_by_severity(scan(cfg.reversed_dir), req.min_severity)
 
 
@@ -761,26 +901,29 @@ def analyse(config: WorkerConfig, req: AnalyseRequest) -> dict[str, Any]:
 
     A second run re-discovers into the same project.  ``intake`` is the onboarding report.
     """
-    binary = stored_file(config, req.file_key, req.sha256)
-    project = config.require_workspace() / "projects" / req.sha256
-    project.mkdir(parents=True, exist_ok=True)
-    intake = _run_intake(binary, project, target_name(req.name))
+    with binary_file(config, req.file_key, req.url, req.sha256, "file_key") as binary:
+        project = config.require_workspace() / "projects" / req.sha256
+        project.mkdir(parents=True, exist_ok=True)
+        intake = _run_intake(binary, project, target_name(req.name))
     return {**project_report(project, None), "intake": intake}
 
 
-def import_project(_config: WorkerConfig, req: ImportRequest) -> dict[str, Any]:
+def import_project(config: WorkerConfig, req: ImportRequest) -> dict[str, Any]:
     """Coverage of an existing workspace: live, or the portable export in ``snapshots``.
 
-    Live coverage is always refreshed, so ``build_db`` asks for nothing more.
+    ``build_db`` asks for a refreshed live coverage view, the step the
+    backend's ``--build-db`` ran before importing.  Live coverage is always
+    read with ``refresh=True``, so the flag selects nothing beyond excluding
+    ``snapshots``.
     """
-    root = project_root(req.project_dir)
+    root = project_root(config, req.project_dir)
     if req.snapshots and req.build_db:
         raise _invalid("snapshots and build_db exclude each other")
     snapshots = None
     if req.snapshots:
-        snapshots = Path(req.snapshots)
-        if not snapshots.is_absolute() or not snapshots.is_dir():
-            raise _invalid("snapshots must be an absolute path to a directory")
+        snapshots = confined_dir(config, req.snapshots, "snapshots")
+        if not snapshots.is_dir():
+            raise _invalid("snapshots must be a directory")
     return project_report(root, snapshots)
 
 
@@ -926,23 +1069,32 @@ def dispatch(config: WorkerConfig, name: str, body: bytes) -> tuple[int, bytes]:
 
 
 class OpsServer(ThreadingHTTPServer):
-    """HTTP server answering ``POST /<op>`` for one worker configuration and token."""
+    """HTTP server answering ``POST /<op>`` for one worker configuration and token.
+
+    At most *concurrency* calls hold a slot at once, from reading the body
+    to writing the reply; a call finding none free is answered 503.
+    """
 
     daemon_threads = True
 
-    def __init__(self, address: tuple[str, int], config: WorkerConfig, token: str) -> None:
+    def __init__(
+        self, address: tuple[str, int], config: WorkerConfig, token: str, concurrency: int
+    ) -> None:
         super().__init__(address, _OpsHandler)
         self.config = config
         self.token = token
+        self.slots = threading.BoundedSemaphore(concurrency)
 
 
 class _OpsHandler(BaseHTTPRequestHandler):
     timeout: typing.ClassVar[float | None] = SOCKET_TIMEOUT_SECONDS
 
-    def _send(self, status: int, body: bytes) -> None:
+    def _send(self, status: int, body: bytes, headers: Mapping[str, str] | None = None) -> None:
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body)
 
@@ -955,6 +1107,16 @@ class _OpsHandler(BaseHTTPRequestHandler):
         if not hmac.compare_digest(given, f"Bearer {server.token}".encode()):
             self._refuse("unauthorized", "a valid bearer token is required", 401)
             return
+        if not server.slots.acquire(blocking=False):
+            body = error_body(WORKER_BUSY, "every worker slot is busy; retry later", 503)
+            self._send(503, body, {"Retry-After": str(BUSY_RETRY_AFTER_SECONDS)})
+            return
+        try:
+            self._answer(server)
+        finally:
+            server.slots.release()
+
+    def _answer(self, server: OpsServer) -> None:
         try:
             length = int(self.headers.get("Content-Length", ""))
         except ValueError:
@@ -989,8 +1151,10 @@ app = typer.Typer(
 
 _FILESTORE_HELP = "The backend's local filestore directory; request file keys resolve under it"
 _WORKSPACE_HELP = (
-    "Directory analyse creates projects/<sha256> in and report output_dir resolves under"
+    "Directory analyse creates projects/<sha256> in, report output_dir resolves under,"
+    " url downloads land in, and project paths must lie inside"
 )
+_MAX_DOWNLOAD_HELP = "Largest binary in bytes a request url may name"
 
 
 @app.command(
@@ -1006,13 +1170,22 @@ def call_command(
     workspace: Path | None = typer.Option(
         None, "--workspace", envvar="REBREW_OPS_WORKSPACE", help=_WORKSPACE_HELP
     ),
+    max_download_bytes: int = typer.Option(
+        DEFAULT_MAX_DOWNLOAD_BYTES,
+        "--max-download",
+        envvar="REBREW_OPS_MAX_DOWNLOAD",
+        min=1,
+        help=_MAX_DOWNLOAD_HELP,
+    ),
 ) -> None:
     """Answer one op: the JSON request on stdin, the reply on stdout.
 
     A refusal prints {"error","detail","status"} on stdout and exits 2.
     """
     config = WorkerConfig(
-        _existing_dir(filestore, "--filestore"), _existing_dir(workspace, "--workspace")
+        _existing_dir(filestore, "--filestore"),
+        _existing_dir(workspace, "--workspace"),
+        max_download_bytes,
     )
     body = sys.stdin.buffer.read(MAX_REQUEST_BYTES + 1)
     # stdout carries only the reply; anything rebrew prints goes to stderr.
@@ -1026,7 +1199,8 @@ def call_command(
 
 @app.command(
     "serve",
-    epilog="[bold]Examples:[/bold]\n\n  rebrew ops serve --port 0 --filestore /srv/files",
+    epilog="[bold]Examples:[/bold]\n\n"
+    "  rebrew ops serve --port 0 --workspace /srv/relumea --filestore /srv/files",
 )
 def serve_command(
     port: int = typer.Option(..., "--port", help="TCP port; 0 picks a free one"),
@@ -1035,20 +1209,39 @@ def serve_command(
         None, "--filestore", envvar="REBREW_OPS_FILESTORE", help=_FILESTORE_HELP
     ),
     workspace: Path | None = typer.Option(
-        None, "--workspace", envvar="REBREW_OPS_WORKSPACE", help=_WORKSPACE_HELP
+        None, "--workspace", envvar="REBREW_OPS_WORKSPACE", help=_WORKSPACE_HELP + " (required)"
+    ),
+    max_download_bytes: int = typer.Option(
+        DEFAULT_MAX_DOWNLOAD_BYTES,
+        "--max-download",
+        envvar="REBREW_OPS_MAX_DOWNLOAD",
+        min=1,
+        help=_MAX_DOWNLOAD_HELP,
+    ),
+    concurrency: int = typer.Option(
+        DEFAULT_CONCURRENCY,
+        "--concurrency",
+        envvar="REBREW_OPS_CONCURRENCY",
+        min=1,
+        help="Calls answered at once; the next is refused 503 with Retry-After",
     ),
 ) -> None:
     """Serve POST /<op> over HTTP until interrupted.
 
-    Every request needs Authorization: Bearer $REBREW_OPS_TOKEN.
+    Every request needs Authorization: Bearer $REBREW_OPS_TOKEN.  --workspace
+    is required: every project path a request names must lie inside it.
     """
     token = os.environ.get(TOKEN_ENV, "").strip()
     if not token:
         error_exit(f"{TOKEN_ENV} is not set; serve answers only bearer-authenticated calls")
+    if workspace is None:
+        error_exit("serve needs --workspace (or REBREW_OPS_WORKSPACE) to confine project paths")
     config = WorkerConfig(
-        _existing_dir(filestore, "--filestore"), _existing_dir(workspace, "--workspace")
+        _existing_dir(filestore, "--filestore"),
+        _existing_dir(workspace, "--workspace"),
+        max_download_bytes,
     )
-    server = OpsServer((host, port), config, token)
+    server = OpsServer((host, port), config, token, concurrency)
     console.print(f"serving rebrew ops on http://{host}:{server.server_port}")
     try:
         server.serve_forever()

@@ -2,7 +2,7 @@
 
 ### Added
 
-- `rebrew ops call <op>` and `rebrew ops serve --port N` answer the relumea backend's `rebrew` dispatch ops (all 19 in its contract): one op per process over stdin/stdout, or `POST /<op>` over HTTP with a bearer token from `REBREW_OPS_TOKEN`, loopback by default. Requests reference binaries by filestore key under `--filestore` (checked against their `sha256`) or by rebrew `project_dir`; `analyse` creates `<workspace>/projects/<sha256>`. A refusal is `rebrew.errors.OpsError`. See `docs/CLI.md#rebrew-ops`.
+- `rebrew ops call <op>` and `rebrew ops serve --port N` answer the relumea backend's `rebrew` dispatch ops (all 19 in its contract): one op per process over stdin/stdout, or `POST /<op>` over HTTP with a bearer token from `REBREW_OPS_TOKEN`, loopback by default. Requests reference binaries by filestore key under `--filestore` or by presigned HTTPS `url` (downloaded under `<workspace>/.scratch`, bounded by `--max-download`), both checked against their `sha256`, or by an absolute rebrew `project_dir`, which must lie inside `--workspace` when one is given; `serve` requires `--workspace` and answers at most `--concurrency` calls at once (503 `worker-busy` with `Retry-After` beyond). `analyse` creates `<workspace>/projects/<sha256>`. A refusal is `rebrew.errors.OpsError`. See `docs/CLI.md#rebrew-ops`.
 
 ### Changed
 

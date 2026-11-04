@@ -6270,22 +6270,48 @@ request fields and their replies are the backend's contract
 are served. A request with an unknown or missing field, or a field of the
 wrong JSON type, is refused. A refusal is
 `{"error","detail","status"}`: `invalid-request` (400; 413 when the request
-exceeds 16 MiB), `unknown-op` (404), or `engine-error` (500). An engine
+exceeds 16 MiB), `unknown-op` (404), `engine-error` (500), or, from
+`serve` only, `worker-busy` (503). An engine
 failure answers a fixed detail and logs its cause on stderr.
 
 Binaries are referenced, never sent:
 
-- A stored binary (`key`, `file_key`, `file`) is a relative filestore key
-  resolved under `--filestore`, the backend's local filestore directory. A key
-  that is absolute, contains `.`/`..`, or resolves outside the directory
-  (through a symlink, say) is refused, and the file must hash to the request's
-  `sha256`. A remote (S3) filestore is not read; mount it as a directory.
-- An analysed binary is the absolute `project_dir` of its rebrew project. A
-  request `sha256` selects the target whose binary has that hash; without one
-  the project's default target is used.
+- A stored binary is its `sha256` plus exactly one of a filestore key
+  (`key`, `file_key`, `file`) or `url`. A key is relative and resolved under
+  `--filestore`, the backend's local filestore directory; one that is
+  absolute, contains `.`/`..`, or resolves outside the directory (through a
+  symlink, say) is refused. A `url` is a presigned HTTPS GET: the worker
+  downloads it into `<workspace>/.scratch` without following redirects,
+  refuses a body over `--max-download`, and deletes the file when the
+  call ends. Either way the bytes must hash to `sha256`. A refusal never
+  echoes the URL, whose query string is a credential.
+- An analysed binary is the `project_dir` of its rebrew project. A request
+  `sha256` selects the target whose binary has that hash; without one the
+  project's default target is used.
 - `rebrew.analyse` runs `rebrew intake` in `<workspace>/projects/<sha256>`,
   so a second run re-discovers into the same project. `rebrew.report` writes
-  its relative `output_dir` under `--workspace`.
+  its relative `output_dir` under `--workspace` and answers the summary, not
+  the pages; the backend serves the pages from its own workspace's
+  `reports/<binary_id>`, so they reach users only when `--workspace` is that
+  directory (one host, or a volume both mount).
+
+Project paths (`project_dir`, `snapshots`) must be absolute. With a
+`--workspace` they must also resolve, symlinks followed, inside it; `serve`
+requires one, so no HTTP caller reaches a project outside it. A local
+`call` worker without `--workspace` reads any absolute project path.
+
+Op details the contract leaves open:
+
+- `rebrew.disassemble`: `arch` overrides the target's arch in every format
+  and must be a rebrew arch name (`x86_16`, `x86_32`, `arm32`, ...); `nasm`
+  covers `x86_32` only.
+- `rebrew.structs`: `limit` caps the annotated functions decompiled; `0`
+  means no cap. A run where the decompiler returns nothing is an
+  `engine-error` naming the skipped count.
+- `rebrew.crypto_scan`: each finding has `kind`, `name` and `confidence`; a
+  `constant` finding also has `va` and `section`.
+- `rebrew.import-project`: live coverage is always read refreshed; `build_db`
+  asks for exactly that and only excludes `snapshots`.
 
 The backend selects a transport with `RELUMEA_DISPATCH_REBREW`:
 `exec:rebrew ops call --filestore DIR --workspace DIR` runs one process per
@@ -6309,7 +6335,8 @@ answering goes to stderr.
 | --- | --- | --- | --- |
 | `OP` | str | required | Wire op name, such as `rebrew.disassemble` |
 | `--filestore` | path | `REBREW_OPS_FILESTORE` | The backend's local filestore directory |
-| `--workspace` | path | `REBREW_OPS_WORKSPACE` | Directory for generated projects and report output |
+| `--workspace` | path | `REBREW_OPS_WORKSPACE` | Directory for generated projects, report output and `url` downloads; project paths must lie inside it |
+| `--max-download` | int | `REBREW_OPS_MAX_DOWNLOAD`, else 268435456 | Largest binary a request `url` may name |
 
 ### `rebrew ops serve`
 
@@ -6317,15 +6344,20 @@ answering goes to stderr.
 
 Serves `POST /<op>` until interrupted. Every request needs
 `Authorization: Bearer $REBREW_OPS_TOKEN`; the command exits 2 when the
-variable is unset. A request needs a `Content-Length` of at most 16 MiB.
-Calls run on one thread each.
+variable is unset or no workspace is given. A request needs a
+`Content-Length` of at most 16 MiB. Calls run on one thread each, at most
+`--concurrency` at once, counted from reading the body to writing the
+reply; an authenticated call that finds every slot busy is answered 503
+`worker-busy` with `Retry-After: 5`.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `--port` | int | required | TCP port; 0 picks a free one |
 | `--host` | str | `127.0.0.1` | Address to bind |
 | `--filestore` | path | `REBREW_OPS_FILESTORE` | The backend's local filestore directory |
-| `--workspace` | path | `REBREW_OPS_WORKSPACE` | Directory for generated projects and report output |
+| `--workspace` | path | `REBREW_OPS_WORKSPACE` | Required. Directory for generated projects, report output and `url` downloads; project paths must lie inside it |
+| `--max-download` | int | `REBREW_OPS_MAX_DOWNLOAD`, else 268435456 | Largest binary a request `url` may name |
+| `--concurrency` | int | `REBREW_OPS_CONCURRENCY`, else 4 | Calls answered at once |
 
 ## Similarity
 

@@ -537,8 +537,13 @@ rebrew receives.
   packaged skills of the same name).
 - `REBREW_OPS_FILESTORE` / `REBREW_OPS_WORKSPACE`: defaults for `rebrew ops`
   `--filestore` (the backend's local filestore directory) and `--workspace`
-  (where `analyse` creates `projects/<sha256>` and `report` output lands).
-  Each must be an absolute path to an existing directory.
+  (where `analyse` creates `projects/<sha256>`, `report` output and `url`
+  downloads land, and project paths must lie). Each must be an absolute path
+  to an existing directory.
+- `REBREW_OPS_MAX_DOWNLOAD` / `REBREW_OPS_CONCURRENCY`: defaults for
+  `rebrew ops` `--max-download` (largest binary a request `url` may
+  name, default 268435456) and `serve --concurrency` (calls answered at
+  once, default 4). Each must be at least 1.
 - `REBREW_CONTAINER_RUNTIME`: container CLI (`docker` default; `podman` or
   `nerdctl` also accepted). A bare name outside that set raises, so a typo
   fails at load rather than at exec; set a path to the binary to use another
