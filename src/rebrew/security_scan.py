@@ -46,9 +46,9 @@ lazy from rebrew.c_parser import (
 lazy from rebrew.sources import iter_sources
 lazy from rebrew.utils import (
     TerminalTable,
-    truncate_text,
     rel_display_path,
     split_source_lines,
+    truncate_text,
     untrusted_ident,
     untrusted_text,
 )
