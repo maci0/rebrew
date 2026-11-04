@@ -38,7 +38,7 @@ Retry-After. Request bodies are never read and force connection closure.
 Successful responses negotiate zstd then gzip with quality weights. ETags key
 on the live input version or portable file state plus the exact route/query;
 health is no-store. Static assets are content-hashed and precompressed. The
-entry checkpoint measured 12629 B zstd / 13249 B gzip against a 13320 B budget;
+entry checkpoint measured 12677 B zstd / 13304 B gzip against a 13320 B budget;
 host zlib versions can change gzip size. Tests enforce the wire budget.
 Reload re-reads the live view; view/target/filter navigation is stored in the
 URL hash. Details, API schema and transfer measurements live in
@@ -433,6 +433,8 @@ function syncError() {
     box.textContent = "";
     box.hidden = true;
   }
+  // Reload re-reads every input, so it is the way out of any load failure.
+  if (loadErrors.summary || loadErrors.functions || loadErrors.view) $("reload").hidden = false;
   $("retry-summary").hidden = !loadErrors.summary;
   $("retry-functions").hidden = !(loadErrors.functions && currentView === "functions");
   const showViewRetry = !!(loadErrors.view && currentView !== "functions");
@@ -1455,7 +1457,7 @@ __STATUS_FORCED__
 <p id="boot-status" role="status">Loading coverage…</p>
 <noscript><p id="no-script">The dashboard needs JavaScript to load coverage data.
   Enable it for this page, then reload.</p></noscript>
-<p id="no-targets" hidden>No readable targets. Check project inputs or the selected snapshots, then choose Reload.</p>
+<p id="no-targets" hidden>No readable targets. Check project inputs or the selected snapshots, then choose Reload above.</p>
 <div id="views" class="views" hidden role="tablist" aria-label="Coverage views">
 <button type="button" role="tab" id="tab-functions" data-view="functions"
   aria-controls="view-functions" class="btn active" aria-selected="true" tabindex="0">Functions</button>

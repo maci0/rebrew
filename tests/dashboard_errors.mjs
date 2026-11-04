@@ -33,3 +33,9 @@ assert.match(
   "a dead server is named instead of a raw fetch error",
 );
 assert.equal(el("dashboard-error").scrolled, 2, "a different alert scrolls itself into view");
+
+// Reload re-reads every input, so it is the way out of any load failure, not
+// just the summary one: previously it stayed hidden behind the unrevealed
+// retry bar on a functions-only failure, stranding the reader on a dead
+// "Retry functions" with no way to re-read the project.
+assert.equal(el("reload").hidden, false, "Reload is reachable alongside the retry buttons");
