@@ -89,7 +89,9 @@ def _utc_now_iso(now: Callable[[], datetime] | None = None) -> str:
     moment = now()
     from datetime import UTC
 
-    return (moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)).isoformat()
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    return moment.astimezone(UTC).isoformat()
 
 
 class _GaRunRecord(NamedTuple):
