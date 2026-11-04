@@ -18,24 +18,24 @@ from rebrew.matcher.ast_engine import (
     parse_c_ast,
 )
 from rebrew.matcher.mutations.queries import (
-    _QUERY_ADD_VOLATILE_INTERMEDIATE,
-    _QUERY_ARRAY_INDEX,
-    _QUERY_BYTE_CAST,
-    _QUERY_BYTE_LOCAL_DECL,
-    _QUERY_BYTE_TYPE_DECL,
-    _QUERY_CONDITIONAL,
-    _QUERY_DEREF_PTR_ADD,
-    _QUERY_IF_STMT,
-    _QUERY_INIT_DECLARATION,
-    _QUERY_INJECT_DUMMY_ARRAY,
-    _QUERY_INJECT_DUMMY_VAR,
-    _QUERY_NEGATED_COMPARISON,
-    _QUERY_PLAIN_CALL,
-    _QUERY_REGISTER_DECL,
-    _QUERY_SCOPE_VARIABLE,
-    _QUERY_SUBSCRIPT_SCALED,
-    _QUERY_WHILE_LOOP,
-    _LazyQuery,
+    QUERY_ADD_VOLATILE_INTERMEDIATE,
+    QUERY_ARRAY_INDEX,
+    QUERY_BYTE_CAST,
+    QUERY_BYTE_LOCAL_DECL,
+    QUERY_BYTE_TYPE_DECL,
+    QUERY_CONDITIONAL,
+    QUERY_DEREF_PTR_ADD,
+    QUERY_IF_STMT,
+    QUERY_INIT_DECLARATION,
+    QUERY_INJECT_DUMMY_ARRAY,
+    QUERY_INJECT_DUMMY_VAR,
+    QUERY_NEGATED_COMPARISON,
+    QUERY_PLAIN_CALL,
+    QUERY_REGISTER_DECL,
+    QUERY_SCOPE_VARIABLE,
+    QUERY_SUBSCRIPT_SCALED,
+    QUERY_WHILE_LOOP,
+    LazyQuery,
 )
 lazy from rebrew.matcher.mutations.runtime import (
     _apply_query_once,
@@ -69,7 +69,7 @@ def mut_while_to_goto_loop(s: str, rng: random.Random) -> str | None:
               ;
     """
     b_source = encode_source(s)
-    cursor = _cursor(_QUERY_WHILE_LOOP)
+    cursor = _cursor(QUERY_WHILE_LOOP)
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
 
@@ -138,7 +138,7 @@ def mut_inject_dummy_var(s: str, rng: random.Random) -> str | None:
     tree = parse_c_ast(b_source)
 
     # Find function body compound statements
-    q = _QUERY_INJECT_DUMMY_VAR
+    q = QUERY_INJECT_DUMMY_VAR
     cursor = _cursor(q)
     matches = cursor.matches(tree.root_node)
 
@@ -168,7 +168,7 @@ def mut_inject_dummy_array(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
     tree = parse_c_ast(b_source)
 
-    q = _QUERY_INJECT_DUMMY_ARRAY
+    q = QUERY_INJECT_DUMMY_ARRAY
     cursor = _cursor(q)
     matches = cursor.matches(tree.root_node)
 
@@ -201,7 +201,7 @@ def mut_scope_variable(s: str, rng: random.Random) -> str | None:
     tree = parse_c_ast(b_source)
 
     # Find declarations inside the function body (top-level compound_statement)
-    q = _QUERY_SCOPE_VARIABLE
+    q = QUERY_SCOPE_VARIABLE
     cursor = _cursor(q)
     matches = cursor.matches(tree.root_node)
 
@@ -241,7 +241,7 @@ def mut_array_to_ptr_arith(s: str, rng: random.Random) -> str | None:
         deref = b"*(" + arr + b" + " + idx + b")"
         return b"(" + deref + b")" if _under_postfix(captures["expr"]) else deref
 
-    res = _apply_query_once(b_source, _QUERY_ARRAY_INDEX, _repl, rng)
+    res = _apply_query_once(b_source, QUERY_ARRAY_INDEX, _repl, rng)
     if not res:
         return None
     res_str = decode_source(res)
@@ -257,7 +257,7 @@ def mut_ptr_arith_to_array(s: str, rng: random.Random) -> str | None:
         idx = _cap_bytes(b_source, captures, "idx")
         return ptr + b"[" + idx + b"]"
 
-    res = _apply_query_once(b_source, _QUERY_DEREF_PTR_ADD, _repl, rng)
+    res = _apply_query_once(b_source, QUERY_DEREF_PTR_ADD, _repl, rng)
     if not res:
         return None
     res_str = decode_source(res)
@@ -276,7 +276,7 @@ def mut_decouple_index_math(s: str, rng: random.Random) -> str | None:
     """
     b_source = encode_source(s)
     tree = parse_c_ast(b_source)
-    cursor = _cursor(_QUERY_SUBSCRIPT_SCALED)
+    cursor = _cursor(QUERY_SUBSCRIPT_SCALED)
     matches = cursor.matches(tree.root_node)
 
     if not matches:
@@ -324,7 +324,7 @@ def mut_preinit_byte_load(s: str, rng: random.Random) -> str | None:
     MSVC6 emits xor eax, eax + mov al, [mem] instead of movzx.
     """
     b_source = encode_source(s)
-    cursor = _cursor(_QUERY_BYTE_TYPE_DECL)
+    cursor = _cursor(QUERY_BYTE_TYPE_DECL)
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
 
@@ -369,7 +369,7 @@ def mut_cast_to_bitmask(s: str, rng: random.Random) -> str | None:
             return _cap_bytes(b_source, captures, "expr")
         return b"((" + val + b") & " + mask + b")"
 
-    res = _apply_query_once(b_source, _QUERY_BYTE_CAST, _repl, rng)
+    res = _apply_query_once(b_source, QUERY_BYTE_CAST, _repl, rng)
     if not res:
         return None
     res_str = decode_source(res)
@@ -378,7 +378,7 @@ def mut_cast_to_bitmask(s: str, rng: random.Random) -> str | None:
 
 # --- Category 5: Register Pressure Fuzzing ---
 
-_QUERY_ALL_DECLARATIONS = _LazyQuery(C_LANGUAGE, "(declaration) @decl")
+_QUERY_ALL_DECLARATIONS = LazyQuery(C_LANGUAGE, "(declaration) @decl")
 
 
 def mut_swap_register_keywords(s: str, rng: random.Random) -> str | None:
@@ -471,7 +471,7 @@ def mut_add_volatile_intermediate(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
     tree = parse_c_ast(b_source)
 
-    q = _QUERY_ADD_VOLATILE_INTERMEDIATE
+    q = QUERY_ADD_VOLATILE_INTERMEDIATE
     cursor = _cursor(q)
     matches = cursor.matches(tree.root_node)
 
@@ -517,7 +517,7 @@ def mut_reorder_register_vars(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
     tree = parse_c_ast(b_source)
 
-    cursor = _cursor(_QUERY_REGISTER_DECL)
+    cursor = _cursor(QUERY_REGISTER_DECL)
     matches = cursor.matches(tree.root_node)
 
     # Collect all register declarations
@@ -553,7 +553,7 @@ def mut_reorder_register_vars(s: str, rng: random.Random) -> str | None:
 # Switch statement mutations (MSVC6 comparison chain codegen)
 # ---------------------------------------------------------------------------
 
-_QUERY_SWITCH_STMT = _LazyQuery(
+_QUERY_SWITCH_STMT = LazyQuery(
     C_LANGUAGE,
     """
     (switch_statement
@@ -831,7 +831,7 @@ def mut_if_chain_to_switch(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     tree = parse_c_ast(b_source)
-    cursor = _cursor(_QUERY_IF_STMT)
+    cursor = _cursor(QUERY_IF_STMT)
     matches = cursor.matches(tree.root_node)
 
     valid_chains = []
@@ -979,7 +979,7 @@ def mut_wrap_in_else(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     tree = parse_c_ast(b_source)
-    cursor = _cursor(_QUERY_IF_STMT)
+    cursor = _cursor(QUERY_IF_STMT)
     matches = cursor.matches(tree.root_node)
 
     valid_ifs = []
@@ -1252,7 +1252,7 @@ def mut_ternary_lift_constant(s: str, rng: random.Random) -> str | None:
     tree = parse_c_ast(b_source)
 
     candidates: list[tuple[ts.Node, str, str, str]] = []
-    for _idx, caps in _cursor(_QUERY_CONDITIONAL).matches(tree.root_node):
+    for _idx, caps in _cursor(QUERY_CONDITIONAL).matches(tree.root_node):
         cond = _first_caps(caps).get("cond")
         if cond is None:
             continue
@@ -1311,7 +1311,7 @@ def mut_compare_negate_to_ternary(s: str, rng: random.Random) -> str | None:
     tree = parse_c_ast(b_source)
 
     candidates: list[tuple[ts.Node, ts.Node, bytes]] = []
-    for _idx, caps in _cursor(_QUERY_NEGATED_COMPARISON).matches(tree.root_node):
+    for _idx, caps in _cursor(QUERY_NEGATED_COMPARISON).matches(tree.root_node):
         cap = _first_caps(caps)
         unary = cap.get("un")
         cmp_node = cap.get("cmp")
@@ -1349,7 +1349,7 @@ def mut_walk_in_parameter(s: str, rng: random.Random) -> str | None:
     tree = parse_c_ast(b_source)
 
     candidates: list[tuple[ts.Node, ts.Node, bytes, bytes, list[ts.Node]]] = []
-    for _idx, caps in _cursor(_QUERY_INIT_DECLARATION).matches(tree.root_node):
+    for _idx, caps in _cursor(QUERY_INIT_DECLARATION).matches(tree.root_node):
         cap = _first_caps(caps)
         decl = cap.get("decl")
         init = cap.get("init")
@@ -1415,7 +1415,7 @@ def mut_home_byte_in_param_slot(s: str, rng: random.Random) -> str | None:
     byte_types = {b"char", b"unsigned char", b"signed char", b"BYTE"}
 
     candidates: list[tuple[ts.Node, ts.Node | None, bytes, bytes, list[ts.Node]]] = []
-    for _idx, caps in _cursor(_QUERY_BYTE_LOCAL_DECL).matches(tree.root_node):
+    for _idx, caps in _cursor(QUERY_BYTE_LOCAL_DECL).matches(tree.root_node):
         cap = _first_caps(caps)
         declaration = cap.get("stmt")
         name_node = cap.get("name")
@@ -1478,7 +1478,7 @@ def mut_call_prototype_view(s: str, rng: random.Random) -> str | None:
     varied = ("unsigned char", "char", "short", "int")
 
     candidates: list[tuple[ts.Node, ts.Node, str]] = []
-    for _idx, caps in _cursor(_QUERY_PLAIN_CALL).matches(tree.root_node):
+    for _idx, caps in _cursor(QUERY_PLAIN_CALL).matches(tree.root_node):
         cap = _first_caps(caps)
         fn = cap.get("fn")
         args = cap.get("args")

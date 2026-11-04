@@ -23,69 +23,69 @@ lazy from rebrew.matcher.ast_engine import (
     replace_node,
 )
 lazy from rebrew.matcher.mutations.queries import (
-    _QUERY_ACCUM,
-    _QUERY_ADJACENT_DECL,
-    _QUERY_ADJACENT_EXPR_STMTS,
-    _QUERY_ARRAY_INDEX,
-    _QUERY_BARE_CHAR_TYPE,
-    _QUERY_BITAND,
-    _QUERY_CALL_ASSIGN,
-    _QUERY_CALL_CONV,
-    _QUERY_CMP_BOUNDARY,
-    _QUERY_COMBINE_PTR_ARITH,
-    _QUERY_COMPOUND_ASSIGN,
-    _QUERY_CONST_ADD_FOLD,
-    _QUERY_CONST_ADD_UNFOLD,
-    _QUERY_DECLARATION,
-    _QUERY_DEMORGAN_NOT_AND,
-    _QUERY_DEMORGAN_NOT_OR,
-    _QUERY_DO_WHILE,
-    _QUERY_DOUBLE_NOT,
-    _QUERY_EARLY_RETURN,
-    _QUERY_ELSE_IF,
-    _QUERY_EQ_ZERO,
-    _QUERY_EXPANDED_COMPOUND,
-    _QUERY_FLIP_LT_GE,
-    _QUERY_FOR_COUNT_UP,
-    _QUERY_FOR_LOOP,
-    _QUERY_GOTO_RET_FALSE,
-    _QUERY_HOIST_RETURN,
-    _QUERY_IDENTIFIER,
-    _QUERY_IF_ASSIGN_ELSE,
-    _QUERY_IF_BODY_RETURN,
-    _QUERY_IF_ELSE,
-    _QUERY_IF_FALSE_BITAND,
-    _QUERY_INSERT_NOOP_BLOCK,
-    _QUERY_INT_PARAM,
-    _QUERY_INTRODUCE_LOCAL_ALIAS,
-    _QUERY_MERGE_DECL,
-    _QUERY_NEGATE_CONDITION,
-    _QUERY_NO_CALL_CONV,
-    _QUERY_NUMBER_LITERAL,
-    _QUERY_PARAM_ORDER,
-    _QUERY_POST_DECREMENT,
-    _QUERY_POST_INCREMENT,
-    _QUERY_PTR_ARROW,
-    _QUERY_PTR_PARAM,
-    _QUERY_REASSOCIATE,
-    _QUERY_REMOVE_CAST,
-    _QUERY_REORDER_DECLARATIONS,
-    _QUERY_RETURN_FALSE,
-    _QUERY_RETURN_TYPE,
-    _QUERY_RHS_IDENT,
-    _QUERY_SIZED_CHAR_TYPE,
-    _QUERY_SPLIT_DECL,
-    _QUERY_SPLIT_PTR_ARITH,
-    _QUERY_SWAP_AND,
-    _QUERY_SWAP_EQ,
-    _QUERY_SWAP_NE,
-    _QUERY_SWAP_OR,
-    _QUERY_TEMP_VAR,
-    _QUERY_TERNARY,
-    _QUERY_VOLATILE_ACCESS,
-    _QUERY_WHILE,
-    _QUERY_XOR_SELF,
-    _LazyQuery,
+    QUERY_ACCUM,
+    QUERY_ADJACENT_DECL,
+    QUERY_ADJACENT_EXPR_STMTS,
+    QUERY_ARRAY_INDEX,
+    QUERY_BARE_CHAR_TYPE,
+    QUERY_BITAND,
+    QUERY_CALL_ASSIGN,
+    QUERY_CALL_CONV,
+    QUERY_CMP_BOUNDARY,
+    QUERY_COMBINE_PTR_ARITH,
+    QUERY_COMPOUND_ASSIGN,
+    QUERY_CONST_ADD_FOLD,
+    QUERY_CONST_ADD_UNFOLD,
+    QUERY_DECLARATION,
+    QUERY_DEMORGAN_NOT_AND,
+    QUERY_DEMORGAN_NOT_OR,
+    QUERY_DO_WHILE,
+    QUERY_DOUBLE_NOT,
+    QUERY_EARLY_RETURN,
+    QUERY_ELSE_IF,
+    QUERY_EQ_ZERO,
+    QUERY_EXPANDED_COMPOUND,
+    QUERY_FLIP_LT_GE,
+    QUERY_FOR_COUNT_UP,
+    QUERY_FOR_LOOP,
+    QUERY_GOTO_RET_FALSE,
+    QUERY_HOIST_RETURN,
+    QUERY_IDENTIFIER,
+    QUERY_IF_ASSIGN_ELSE,
+    QUERY_IF_BODY_RETURN,
+    QUERY_IF_ELSE,
+    QUERY_IF_FALSE_BITAND,
+    QUERY_INSERT_NOOP_BLOCK,
+    QUERY_INT_PARAM,
+    QUERY_INTRODUCE_LOCAL_ALIAS,
+    QUERY_MERGE_DECL,
+    QUERY_NEGATE_CONDITION,
+    QUERY_NO_CALL_CONV,
+    QUERY_NUMBER_LITERAL,
+    QUERY_PARAM_ORDER,
+    QUERY_POST_DECREMENT,
+    QUERY_POST_INCREMENT,
+    QUERY_PTR_ARROW,
+    QUERY_PTR_PARAM,
+    QUERY_REASSOCIATE,
+    QUERY_REMOVE_CAST,
+    QUERY_REORDER_DECLARATIONS,
+    QUERY_RETURN_FALSE,
+    QUERY_RETURN_TYPE,
+    QUERY_RHS_IDENT,
+    QUERY_SIZED_CHAR_TYPE,
+    QUERY_SPLIT_DECL,
+    QUERY_SPLIT_PTR_ARITH,
+    QUERY_SWAP_AND,
+    QUERY_SWAP_EQ,
+    QUERY_SWAP_NE,
+    QUERY_SWAP_OR,
+    QUERY_TEMP_VAR,
+    QUERY_TERNARY,
+    QUERY_VOLATILE_ACCESS,
+    QUERY_WHILE,
+    QUERY_XOR_SELF,
+    LazyQuery,
 )
 lazy from rebrew.matcher.mutations.runtime import (
     _RE_FUNC_PRAGMA,
@@ -122,7 +122,7 @@ def mut_flip_eq_zero(s: str, rng: random.Random) -> str | None:
             return b"!" + left
         return b"!!" + left
 
-    res = _apply_query_once(b_source, _QUERY_EQ_ZERO, _repl, rng)
+    res = _apply_query_once(b_source, QUERY_EQ_ZERO, _repl, rng)
     return decode_source(res) if res else None
 
 
@@ -135,7 +135,7 @@ def mut_flip_lt_ge(s: str, rng: random.Random) -> str | None:
         right = _cap_bytes(b_source, captures, "right")
         return b"!(" + left + b" >= " + right + b")"
 
-    res = _apply_query_once(b_source, _QUERY_FLIP_LT_GE, _repl, rng)
+    res = _apply_query_once(b_source, QUERY_FLIP_LT_GE, _repl, rng)
     return decode_source(res) if res else None
 
 
@@ -149,7 +149,7 @@ def mut_add_redundant_parens(s: str, rng: random.Random) -> str | None:
     """
     b_source = encode_source(s)
     tree = parse_c_ast(b_source)
-    cursor = _cursor(_QUERY_IDENTIFIER)
+    cursor = _cursor(QUERY_IDENTIFIER)
     candidates: list[ts.Node] = []
     for _pattern_index, captures in cursor.matches(tree.root_node):
         node = _capture(_first_caps(captures), "expr")
@@ -168,12 +168,12 @@ def mut_add_redundant_parens(s: str, rng: random.Random) -> str | None:
 
 def mut_swap_eq_operands(s: str, rng: random.Random) -> str | None:
     """Swap A == b to b == a."""
-    return _commute_operands(s, rng, _QUERY_SWAP_EQ, b"==")
+    return _commute_operands(s, rng, QUERY_SWAP_EQ, b"==")
 
 
 def mut_swap_ne_operands(s: str, rng: random.Random) -> str | None:
     """Swap A != b to b != a."""
-    return _commute_operands(s, rng, _QUERY_SWAP_NE, b"!=")
+    return _commute_operands(s, rng, QUERY_SWAP_NE, b"!=")
 
 
 def mut_reassociate_add(s: str, rng: random.Random) -> str | None:
@@ -186,18 +186,18 @@ def mut_reassociate_add(s: str, rng: random.Random) -> str | None:
         c = _cap_bytes(b_source, captures, "c")
         return a + b" + (" + b + b" + " + c + b")"
 
-    res = _apply_query_once(b_source, _QUERY_REASSOCIATE, _repl, rng)
+    res = _apply_query_once(b_source, QUERY_REASSOCIATE, _repl, rng)
     return decode_source(res) if res else None
 
 
 def mut_swap_or_operands(s: str, rng: random.Random) -> str | None:
     """Swap A || b to b || a (changes short-circuit order, affects codegen)."""
-    return _commute_operands(s, rng, _QUERY_SWAP_OR, b"||")
+    return _commute_operands(s, rng, QUERY_SWAP_OR, b"||")
 
 
 def mut_swap_and_operands(s: str, rng: random.Random) -> str | None:
     """Swap A && b to b && a."""
-    return _commute_operands(s, rng, _QUERY_SWAP_AND, b"&&")
+    return _commute_operands(s, rng, QUERY_SWAP_AND, b"&&")
 
 
 def mut_toggle_bool_not(s: str, rng: random.Random) -> str | None:
@@ -207,7 +207,7 @@ def mut_toggle_bool_not(s: str, rng: random.Random) -> str | None:
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         return _cap_bytes(b_source, captures, "ident")
 
-    res = _apply_query_once(b_source, _QUERY_DOUBLE_NOT, _repl, rng)
+    res = _apply_query_once(b_source, QUERY_DOUBLE_NOT, _repl, rng)
     return decode_source(res) if res else None
 
 
@@ -218,7 +218,7 @@ def mut_return_to_goto(s: str, rng: random.Random) -> str | None:
 
     b_source = encode_source(s)
     tree = parse_c_ast(b_source)
-    cursor = _cursor(_QUERY_RETURN_FALSE)
+    cursor = _cursor(QUERY_RETURN_FALSE)
     matches = cursor.matches(tree.root_node)
 
     if not matches:
@@ -237,7 +237,7 @@ def mut_return_to_goto(s: str, rng: random.Random) -> str | None:
     # before an arbitrary later `return 1;` (wrong value on the error path).
     label_pos = None
     tree2 = parse_c_ast(result)
-    cursor2 = _cursor(_QUERY_RETURN_FALSE)
+    cursor2 = _cursor(QUERY_RETURN_FALSE)
     for m2 in cursor2.matches(tree2.root_node):
         caps2 = _first_caps(m2[1])
         node = caps2["expr"]
@@ -272,7 +272,7 @@ def mut_goto_to_return(s: str, rng: random.Random) -> str | None:
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         return b"return 0;"
 
-    res = _apply_query_once(b_source, _QUERY_GOTO_RET_FALSE, _repl, rng)
+    res = _apply_query_once(b_source, QUERY_GOTO_RET_FALSE, _repl, rng)
     if not res:
         return None
 
@@ -308,7 +308,7 @@ def mut_swap_if_else(s: str, rng: random.Random) -> str | None:
         # flipping branch outcomes.
         return b"if (" + negated_cond + b") " + brace_block(alt) + b" else " + brace_block(cons)
 
-    res = _apply_query_once(b_source, _QUERY_IF_ELSE, _repl, rng)
+    res = _apply_query_once(b_source, QUERY_IF_ELSE, _repl, rng)
     return decode_source(res) if res else None
 
 
@@ -343,7 +343,7 @@ def mut_add_cast(s: str, rng: random.Random) -> str | None:
 
         return cast + ident
 
-    res = _apply_query_once(b_source, _QUERY_RHS_IDENT, _repl, rng)
+    res = _apply_query_once(b_source, QUERY_RHS_IDENT, _repl, rng)
     if not res:
         return None
     res_str = decode_source(res)
@@ -357,7 +357,7 @@ def mut_remove_cast(s: str, rng: random.Random) -> str | None:
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         return _cap_bytes(b_source, captures, "val")
 
-    res = _apply_query_once(b_source, _QUERY_REMOVE_CAST, _repl, rng)
+    res = _apply_query_once(b_source, QUERY_REMOVE_CAST, _repl, rng)
     return decode_source(res) if res else None
 
 
@@ -376,7 +376,7 @@ def mut_toggle_volatile(s: str, rng: random.Random) -> str | None:
 
         return decl
 
-    res = _apply_query_once(b_source, _QUERY_DECLARATION, _repl, rng)
+    res = _apply_query_once(b_source, QUERY_DECLARATION, _repl, rng)
     if not res:
         return None
     res_str = decode_source(res)
@@ -405,7 +405,7 @@ def mut_volatile_access(s: str, rng: random.Random) -> str | None:
             return expr.replace(b"volatile ", b"", 1)
         return expr.replace(ty, b"volatile " + ty, 1)
 
-    res = _apply_query_once(b_source, _QUERY_VOLATILE_ACCESS, _repl, rng)
+    res = _apply_query_once(b_source, QUERY_VOLATILE_ACCESS, _repl, rng)
     if not res:
         return None
     res_str = decode_source(res)
@@ -422,7 +422,7 @@ def mut_add_register_keyword(s: str, rng: random.Random) -> str | None:
             return b"register " + decl
         return decl
 
-    res = _apply_query_once(b_source, _QUERY_DECLARATION, _repl, rng)
+    res = _apply_query_once(b_source, QUERY_DECLARATION, _repl, rng)
     if not res:
         return None
     res_str = decode_source(res)
@@ -439,7 +439,7 @@ def mut_remove_register_keyword(s: str, rng: random.Random) -> str | None:
             return decl.replace(b"register ", b"")
         return decl
 
-    res = _apply_query_once(b_source, _QUERY_DECLARATION, _repl, rng)
+    res = _apply_query_once(b_source, QUERY_DECLARATION, _repl, rng)
     if not res:
         return None
     res_str = decode_source(res)
@@ -456,7 +456,7 @@ def mut_if_false_to_bitand(s: str, rng: random.Random) -> str | None:
 
         return var + b" &= " + cond + b";"
 
-    res = _apply_query_once(b_source, _QUERY_IF_FALSE_BITAND, _repl, rng)
+    res = _apply_query_once(b_source, QUERY_IF_FALSE_BITAND, _repl, rng)
     return decode_source(res) if res else None
 
 
@@ -494,7 +494,7 @@ def mut_reorder_elseif(s: str, rng: random.Random) -> str | None:
             replacement += b" else " + tail_text
         return replacement
 
-    res = _apply_query_once(b_source, _QUERY_ELSE_IF, _repl, rng)
+    res = _apply_query_once(b_source, QUERY_ELSE_IF, _repl, rng)
     return decode_source(res) if res else None
 
 
@@ -508,7 +508,7 @@ def mut_bitand_to_if_false(s: str, rng: random.Random) -> str | None:
 
         return b"if (!(" + expr + b"))\n            " + var + b" = 0;"
 
-    res = _apply_query_once(b_source, _QUERY_BITAND, _repl, rng)
+    res = _apply_query_once(b_source, QUERY_BITAND, _repl, rng)
     return decode_source(res) if res else None
 
 
@@ -519,7 +519,7 @@ def mut_introduce_temp_for_call(s: str, rng: random.Random) -> str | None:
     """
     b_source = encode_source(s)
     tree = parse_c_ast(b_source)
-    cursor = _cursor(_QUERY_CALL_ASSIGN)
+    cursor = _cursor(QUERY_CALL_ASSIGN)
     matches = cursor.matches(tree.root_node)
 
     if not matches:
@@ -558,7 +558,7 @@ def mut_introduce_temp_for_call(s: str, rng: random.Random) -> str | None:
 def mut_remove_temp_var(s: str, rng: random.Random) -> str | None:
     """Remove a temp variable usage: 'tmp = expr; var = tmp;' -> 'var = expr;'."""
     b_source = encode_source(s)
-    cursor = _cursor(_QUERY_TEMP_VAR)
+    cursor = _cursor(QUERY_TEMP_VAR)
 
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
@@ -591,14 +591,14 @@ def mut_toggle_signedness(s: str, rng: random.Random) -> str | None:
             return decl.replace(b"unsigned ", b"")
         return b"unsigned " + decl
 
-    res = _apply_query_once(b_source, _QUERY_DECLARATION, _repl, rng)
+    res = _apply_query_once(b_source, QUERY_DECLARATION, _repl, rng)
     if not res:
         return None
     res_str = decode_source(res)
     return res_str if res_str != s else None
 
 
-def _swap_decl_pair(s: str, query: ts.Query | _LazyQuery, rng: random.Random) -> str | None:
+def _swap_decl_pair(s: str, query: ts.Query | LazyQuery, rng: random.Random) -> str | None:
     """Swap the two declarations captured as ``d1``/``d2`` by *query*."""
     b_source = encode_source(s)
     tree = parse_c_ast(b_source)
@@ -618,7 +618,7 @@ def _swap_decl_pair(s: str, query: ts.Query | _LazyQuery, rng: random.Random) ->
 
 def mut_swap_adjacent_declarations(s: str, rng: random.Random) -> str | None:
     """Swap two adjacent variable declarations."""
-    return _swap_decl_pair(s, _QUERY_ADJACENT_DECL, rng)
+    return _swap_decl_pair(s, QUERY_ADJACENT_DECL, rng)
 
 
 def mut_split_declaration_init(s: str, rng: random.Random) -> str | None:
@@ -632,7 +632,7 @@ def mut_split_declaration_init(s: str, rng: random.Random) -> str | None:
     tree = parse_c_ast(b_source)
 
     valid: list[tuple[ts.Node, int, bytes, bytes, bytes]] = []
-    for match in _cursor(_QUERY_SPLIT_DECL).matches(tree.root_node):
+    for match in _cursor(QUERY_SPLIT_DECL).matches(tree.root_node):
         caps = _first_caps(match[1])
         declaration = caps.get("stmt")
         if declaration is None:
@@ -664,7 +664,7 @@ def mut_split_declaration_init(s: str, rng: random.Random) -> str | None:
 def mut_merge_declaration_init(s: str, rng: random.Random) -> str | None:
     """Merge 'TYPE var; ... var = expr;' into 'TYPE var = expr;'."""
     b_source = encode_source(s)
-    cursor = _cursor(_QUERY_MERGE_DECL)
+    cursor = _cursor(QUERY_MERGE_DECL)
 
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
@@ -696,7 +696,7 @@ def mut_while_to_dowhile(s: str, rng: random.Random) -> str | None:
         body = _cap_bytes(b_source, captures, "body")
         return b"if " + cond + b" {\n    do " + body + b" while " + cond + b";\n    }"
 
-    res = _apply_query_once(b_source, _QUERY_WHILE, _repl, rng)
+    res = _apply_query_once(b_source, QUERY_WHILE, _repl, rng)
     return decode_source(res) if res else None
 
 
@@ -709,7 +709,7 @@ def mut_dowhile_to_while(s: str, rng: random.Random) -> str | None:
         body = _cap_bytes(b_source, captures, "body")
         return b"while " + cond + b" " + body
 
-    res = _apply_query_once(b_source, _QUERY_DO_WHILE, _repl, rng)
+    res = _apply_query_once(b_source, QUERY_DO_WHILE, _repl, rng)
     return decode_source(res) if res else None
 
 
@@ -733,7 +733,7 @@ def mut_early_return_to_accum(s: str, rng: random.Random) -> str | None:
         var = b"retcode" if b"retcode" in b_source else b"ret"
         return var + b" &= " + expr + b";"
 
-    res = _apply_query_once(b_source, _QUERY_EARLY_RETURN, _repl, rng)
+    res = _apply_query_once(b_source, QUERY_EARLY_RETURN, _repl, rng)
     return decode_source(res) if res else None
 
 
@@ -745,7 +745,7 @@ def mut_accum_to_early_return(s: str, rng: random.Random) -> str | None:
         expr = _cap_bytes(b_source, captures, "expr")
         return b"if (!(" + expr + b"))\n        return 0;"
 
-    res = _apply_query_once(b_source, _QUERY_ACCUM, _repl, rng)
+    res = _apply_query_once(b_source, QUERY_ACCUM, _repl, rng)
     return decode_source(res) if res else None
 
 
@@ -757,7 +757,7 @@ def mut_pointer_to_int_param(s: str, rng: random.Random) -> str | None:
         var = _cap_bytes(b_source, captures, "var")
         return b"int " + var
 
-    res = _apply_query_once(b_source, _QUERY_PTR_PARAM, _repl, rng)
+    res = _apply_query_once(b_source, QUERY_PTR_PARAM, _repl, rng)
     return decode_source(res) if res else None
 
 
@@ -769,7 +769,7 @@ def mut_int_to_pointer_param(s: str, rng: random.Random) -> str | None:
         var = _cap_bytes(b_source, captures, "var")
         return b"char *" + var
 
-    res = _apply_query_once(b_source, _QUERY_INT_PARAM, _repl, rng)
+    res = _apply_query_once(b_source, QUERY_INT_PARAM, _repl, rng)
     return decode_source(res) if res else None
 
 
@@ -787,7 +787,7 @@ def mut_duplicate_loop_body(s: str, rng: random.Random) -> str | None:
         return b"while " + cond + b" {\n    " + inner + b"\n    " + inner + b"\n}"
 
     try:
-        res = _apply_query_once(b_source, _QUERY_WHILE, _repl, rng)
+        res = _apply_query_once(b_source, QUERY_WHILE, _repl, rng)
         return decode_source(res) if res else None
     except ValueError:
         return None
@@ -796,7 +796,7 @@ def mut_duplicate_loop_body(s: str, rng: random.Random) -> str | None:
 def _fold_add_pair(
     s: str,
     rng: random.Random,
-    query: _LazyQuery,
+    query: LazyQuery,
     adjacent: Callable[[bytes, ts.Node, ts.Node], bool],
 ) -> str | None:
     """Rewrite a random ``v = v + n1; v = v + n2;`` match of *query* whose
@@ -830,7 +830,7 @@ def _fold_add_pair(
 def mut_fold_constant_add(s: str, rng: random.Random) -> str | None:
     """Fold two consecutive constant additions into a single statement."""
     return _fold_add_pair(
-        s, rng, _QUERY_CONST_ADD_FOLD, lambda _src, s1, s2: s1.next_named_sibling == s2
+        s, rng, QUERY_CONST_ADD_FOLD, lambda _src, s1, s2: s1.next_named_sibling == s2
     )
 
 
@@ -855,7 +855,7 @@ def mut_tweak_integer_literal(s: str, rng: random.Random) -> str | None:
     """
     b_source = encode_source(s)
     tree = parse_c_ast(b_source)
-    cursor = _cursor(_QUERY_NUMBER_LITERAL)
+    cursor = _cursor(QUERY_NUMBER_LITERAL)
 
     valid: list[tuple[Any, str, int]] = []
     for match in cursor.matches(tree.root_node):
@@ -939,7 +939,7 @@ def mut_materialize_constant(s: str, rng: random.Random) -> str | None:
     """
     b_source = encode_source(s)
     tree = parse_c_ast(b_source)
-    cursor = _cursor(_QUERY_NUMBER_LITERAL)
+    cursor = _cursor(QUERY_NUMBER_LITERAL)
 
     valid: list[ts.Node] = []
     for match in cursor.matches(tree.root_node):
@@ -986,7 +986,7 @@ def mut_materialize_constant(s: str, rng: random.Random) -> str | None:
 def mut_unfold_constant_add(s: str, rng: random.Random) -> str | None:
     """Expand a constant addition into repeated increment-by-one statements."""
     b_source = encode_source(s)
-    cursor = _cursor(_QUERY_CONST_ADD_UNFOLD)
+    cursor = _cursor(QUERY_CONST_ADD_UNFOLD)
 
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
@@ -1020,7 +1020,7 @@ def mut_change_array_index_order(s: str, rng: random.Random) -> str | None:
         idx = _operand_bytes(b_source, captures, "idx")
         return idx + b"[" + arr + b"]"
 
-    res = _apply_query_once(b_source, _QUERY_ARRAY_INDEX, _repl, rng)
+    res = _apply_query_once(b_source, QUERY_ARRAY_INDEX, _repl, rng)
     return decode_source(res) if res is not None else None
 
 
@@ -1033,7 +1033,7 @@ def mut_struct_vs_ptr_access(s: str, rng: random.Random) -> str | None:
         field = _cap_bytes(b_source, captures, "field")
         return b"(*" + ptr + b")." + field
 
-    res = _apply_query_once(b_source, _QUERY_PTR_ARROW, _repl, rng)
+    res = _apply_query_once(b_source, QUERY_PTR_ARROW, _repl, rng)
     return decode_source(res) if res is not None else None
 
 
@@ -1049,7 +1049,7 @@ def mut_change_return_type(s: str, rng: random.Random) -> str | None:
             return encode_source(current)
         return encode_source(rng.choice(candidates))
 
-    res = _apply_query_once(b_source, _QUERY_RETURN_TYPE, _repl, rng)
+    res = _apply_query_once(b_source, QUERY_RETURN_TYPE, _repl, rng)
     return decode_source(res) if res is not None else None
 
 
@@ -1058,7 +1058,7 @@ def mut_combine_ptr_arith(s: str, rng: random.Random) -> str | None:
     return _fold_add_pair(
         s,
         rng,
-        _QUERY_COMBINE_PTR_ARITH,
+        QUERY_COMBINE_PTR_ARITH,
         lambda src, s1, s2: not src[s1.end_byte : s2.start_byte].strip(),
     )
 
@@ -1066,7 +1066,7 @@ def mut_combine_ptr_arith(s: str, rng: random.Random) -> str | None:
 def mut_split_ptr_arith(s: str, rng: random.Random) -> str | None:
     """Split a single pointer addition into two smaller additions."""
     b_source = encode_source(s)
-    cursor = _cursor(_QUERY_SPLIT_PTR_ARITH)
+    cursor = _cursor(QUERY_SPLIT_PTR_ARITH)
 
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
@@ -1122,7 +1122,7 @@ def mut_change_param_order(s: str, rng: random.Random) -> str | None:
         params_text[i], params_text[j] = params_text[j], params_text[i]
         return b"(" + b", ".join(params_text) + b")"
 
-    res = _apply_query_once(b_source, _QUERY_PARAM_ORDER, _repl, rng)
+    res = _apply_query_once(b_source, QUERY_PARAM_ORDER, _repl, rng)
     return decode_source(res) if res is not None else None
 
 
@@ -1138,19 +1138,19 @@ def mut_toggle_calling_convention(s: str, rng: random.Random) -> str | None:
             return b"__cdecl"
         return conv
 
-    res = _apply_query_once(b_source, _QUERY_CALL_CONV, _repl_existing, rng)
+    res = _apply_query_once(b_source, QUERY_CALL_CONV, _repl_existing, rng)
     if res is not None:
         return decode_source(res)
 
     # No existing convention — insert one after the return type.  The query
-    # captures the TYPE node as `expr` (see _QUERY_NO_CALL_CONV): splicing the
+    # captures the TYPE node as `expr` (see QUERY_NO_CALL_CONV): splicing the
     # whole function_definition destroyed the body.
     def _repl_insert(captures: dict[str, ts.Node]) -> bytes:
         t = _cap_bytes(b_source, captures, "expr")
         conv = rng.choice([b"__cdecl", b"__stdcall"])
         return t + b" " + conv
 
-    res = _apply_query_once(b_source, _QUERY_NO_CALL_CONV, _repl_insert, rng)
+    res = _apply_query_once(b_source, QUERY_NO_CALL_CONV, _repl_insert, rng)
     return decode_source(res) if res is not None else None
 
 
@@ -1167,9 +1167,9 @@ def mut_toggle_char_signedness(s: str, rng: random.Random) -> str | None:
         }
         return mapping.get(t, t)
 
-    res = _apply_query_once(b_source, _QUERY_SIZED_CHAR_TYPE, _repl, rng)
+    res = _apply_query_once(b_source, QUERY_SIZED_CHAR_TYPE, _repl, rng)
     if res is None:
-        res = _apply_query_once(b_source, _QUERY_BARE_CHAR_TYPE, _repl, rng)
+        res = _apply_query_once(b_source, QUERY_BARE_CHAR_TYPE, _repl, rng)
     if res is None or res == b_source:
         return None
     return decode_source(res)
@@ -1196,7 +1196,7 @@ def mut_comparison_boundary(s: str, rng: random.Random) -> str | None:
             return left + b" < 1"
         return _cap_bytes(b_source, captures, "expr")
 
-    res = _apply_query_once(b_source, _QUERY_CMP_BOUNDARY, _repl, rng)
+    res = _apply_query_once(b_source, QUERY_CMP_BOUNDARY, _repl, rng)
     return decode_source(res) if res is not None else None
 
 
@@ -1206,7 +1206,7 @@ def mut_insert_noop_block(s: str, rng: random.Random) -> str | None:
 
     tree = parse_c_ast(b_source)
     # Find all statements inside compound_statements
-    q = _QUERY_INSERT_NOOP_BLOCK
+    q = QUERY_INSERT_NOOP_BLOCK
     cursor = _cursor(q)
     matches = cursor.matches(tree.root_node)
     if not matches:
@@ -1224,7 +1224,7 @@ def mut_introduce_local_alias(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     tree = parse_c_ast(b_source)
-    q = _QUERY_INTRODUCE_LOCAL_ALIAS
+    q = QUERY_INTRODUCE_LOCAL_ALIAS
     cursor = _cursor(q)
     matches = cursor.matches(tree.root_node)
     if not matches:
@@ -1249,7 +1249,7 @@ def mut_introduce_local_alias(s: str, rng: random.Random) -> str | None:
 
 def mut_reorder_declarations(s: str, rng: random.Random) -> str | None:
     """Swap two declarations anywhere in a compound statement."""
-    return _swap_decl_pair(s, _QUERY_REORDER_DECLARATIONS, rng)
+    return _swap_decl_pair(s, QUERY_REORDER_DECLARATIONS, rng)
 
 
 # ---------------------------------------------------------------------------
@@ -1475,7 +1475,7 @@ def mut_extract_else_body(s: str, rng: random.Random) -> str | None:
     ``return NULL;`` for pointers, ``return 0;`` otherwise).
     """
     b_source = encode_source(s)
-    cursor = _cursor(_QUERY_IF_BODY_RETURN)
+    cursor = _cursor(QUERY_IF_BODY_RETURN)
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
 
@@ -1517,7 +1517,7 @@ def mut_for_to_while(s: str, rng: random.Random) -> str | None:
     Changes:  for (i=0; i<n; i++) { body }  ->  i=0; while (i<n) { body i++; }
     """
     b_source = encode_source(s)
-    cursor = _cursor(_QUERY_FOR_LOOP)
+    cursor = _cursor(QUERY_FOR_LOOP)
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
 
@@ -1570,7 +1570,7 @@ def mut_while_to_for(s: str, rng: random.Random) -> str | None:
             cond_inner = cond_inner[1:-1]
         return b"for (; " + cond_inner.strip() + b"; ) " + body
 
-    res = _apply_query_once(b_source, _QUERY_WHILE, _repl, rng)
+    res = _apply_query_once(b_source, QUERY_WHILE, _repl, rng)
     return decode_source(res) if res is not None else None
 
 
@@ -1580,7 +1580,7 @@ def mut_if_to_ternary(s: str, rng: random.Random) -> str | None:
     Changes:  if (c) x = a; else x = b;  ->  x = (c) ? a : b;
     """
     b_source = encode_source(s)
-    cursor = _cursor(_QUERY_IF_ASSIGN_ELSE)
+    cursor = _cursor(QUERY_IF_ASSIGN_ELSE)
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
 
@@ -1615,7 +1615,7 @@ def mut_ternary_to_if(s: str, rng: random.Random) -> str | None:
     Changes:  x = c ? a : b;  ->  if (c) x = a; else x = b;
     """
     b_source = encode_source(s)
-    cursor = _cursor(_QUERY_TERNARY)
+    cursor = _cursor(QUERY_TERNARY)
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
 
@@ -1658,7 +1658,7 @@ def mut_hoist_return(s: str, rng: random.Random) -> str | None:
         return None
 
     tree = parse_c_ast(b_source)
-    q = _QUERY_HOIST_RETURN
+    q = QUERY_HOIST_RETURN
     cursor = _cursor(q)
     matches = cursor.matches(tree.root_node)
 
@@ -1741,7 +1741,7 @@ def mut_sink_return(s: str, rng: random.Random) -> str | None:
 def mut_swap_adjacent_stmts(s: str, rng: random.Random) -> str | None:
     """Swap two adjacent non-dependent assignment statements."""
     b_source = encode_source(s)
-    cursor = _cursor(_QUERY_ADJACENT_EXPR_STMTS)
+    cursor = _cursor(QUERY_ADJACENT_EXPR_STMTS)
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
 
@@ -1823,7 +1823,7 @@ def mut_guard_clause(s: str, rng: random.Random) -> str | None:
 def mut_invert_loop_direction(s: str, rng: random.Random) -> str | None:
     """Reverse loop iteration: for(i=0;i<n;i++) -> for(i=n-1;i>=0;i--)."""
     b_source = encode_source(s)
-    cursor = _cursor(_QUERY_FOR_COUNT_UP)
+    cursor = _cursor(QUERY_FOR_COUNT_UP)
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
 
@@ -1849,12 +1849,12 @@ def mut_compound_assign_toggle(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     # Try expanding compound (x += n -> x = x + n)
-    expand_cursor = _cursor(_QUERY_COMPOUND_ASSIGN)
+    expand_cursor = _cursor(QUERY_COMPOUND_ASSIGN)
     tree = parse_c_ast(b_source)
     expand_matches = [(m, "expand") for m in expand_cursor.matches(tree.root_node)]
 
     # Try shortening expanded (x = x + n -> x += n)
-    short_cursor = _cursor(_QUERY_EXPANDED_COMPOUND)
+    short_cursor = _cursor(QUERY_EXPANDED_COMPOUND)
     short_matches = []
     for m in short_cursor.matches(tree.root_node):
         caps = _first_caps(m[1])
@@ -1900,10 +1900,10 @@ def mut_demorgan(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
     tree = parse_c_ast(b_source)
 
-    and_cursor = _cursor(_QUERY_DEMORGAN_NOT_AND)
+    and_cursor = _cursor(QUERY_DEMORGAN_NOT_AND)
     and_matches = [(m, "and") for m in and_cursor.matches(tree.root_node)]
 
-    or_cursor = _cursor(_QUERY_DEMORGAN_NOT_OR)
+    or_cursor = _cursor(QUERY_DEMORGAN_NOT_OR)
     or_matches = [(m, "or") for m in or_cursor.matches(tree.root_node)]
 
     all_matches = and_matches + or_matches
@@ -1933,7 +1933,7 @@ def mut_postpre_increment(s: str, rng: random.Random) -> str | None:
 
     candidates: list[tuple[dict[str, ts.Node], bytes]] = []
 
-    for q in [_QUERY_POST_INCREMENT, _QUERY_POST_DECREMENT]:
+    for q in [QUERY_POST_INCREMENT, QUERY_POST_DECREMENT]:
         cursor = _cursor(q)
         for m in cursor.matches(tree.root_node):
             caps = _first_caps(m[1])
@@ -1969,7 +1969,7 @@ def mut_xor_zero_toggle(s: str, rng: random.Random) -> str | None:
     for caps, var in _assign_zero_targets(b_source, tree):
         candidates.append((caps, var + b" ^= " + var + b";", "expr"))
 
-    xor_cursor = _cursor(_QUERY_XOR_SELF)
+    xor_cursor = _cursor(QUERY_XOR_SELF)
     for m in xor_cursor.matches(tree.root_node):
         caps = _first_caps(m[1])
         var = b_source[caps["var"].start_byte : caps["var"].end_byte]
@@ -1989,7 +1989,7 @@ def mut_negate_condition(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
     tree = parse_c_ast(b_source)
 
-    q = _QUERY_NEGATE_CONDITION
+    q = QUERY_NEGATE_CONDITION
     cursor = _cursor(q)
     matches = cursor.matches(tree.root_node)
 

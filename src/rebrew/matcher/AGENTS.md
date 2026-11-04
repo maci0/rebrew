@@ -10,7 +10,7 @@ GA engine for binary-matching decompilation. Compiles C through the docker-backe
 | `compiler.py` | `build_candidate_obj_only`, `build_candidate`, `flag_sweep`, `generate_flag_combinations` |
 | `scoring.py` | `score_candidate`, `diff_functions`, `structural_similarity` (pure) |
 | `mutator.py` | `mutate_code` / `ALL_MUTATIONS` + GA helpers |
-| `mutations/` | Operators by file (`basic`, `structural`, `advanced`, `enhancements`, `pragmas`) + `queries` / `runtime` |
+| `mutations/` | Operators by file (`basic`, `structural`, `advanced`, `enhancements`, `pragmas`) + `queries` / `runtime` (shared `LazyQuery` / `QUERY_*` live in `queries`) |
 | `parsers.py` | Object/binary symbol extraction (LIEF) |
 | `solutions.py` | Solution-transfer DB (seed GA from solved lookalikes) |
 | `ast_engine.py` | tree-sitter C AST for mutations |

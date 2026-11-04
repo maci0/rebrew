@@ -18,13 +18,13 @@ from rebrew.matcher.ast_engine import (
     parse_c_ast,
 )
 from rebrew.matcher.mutations.queries import (
-    _QUERY_BIN_COND_IF,
-    _QUERY_LOCAL_DECL,
-    _QUERY_NESTED_IF_P3,
-    _QUERY_SINK_COMMON_TAIL,
-    _QUERY_TERNARY_ARG_TO_IF_ELSE_CALL,
-    _QUERY_WHILE_LOOP,
-    _LazyQuery,
+    QUERY_BIN_COND_IF,
+    QUERY_LOCAL_DECL,
+    QUERY_NESTED_IF_P3,
+    QUERY_SINK_COMMON_TAIL,
+    QUERY_TERNARY_ARG_TO_IF_ELSE_CALL,
+    QUERY_WHILE_LOOP,
+    LazyQuery,
 )
 lazy from rebrew.matcher.mutations.runtime import (
     _capture,
@@ -43,7 +43,7 @@ def _bin_cond_if_ops(b_source: bytes, op: bytes) -> list[tuple[Any, Any, Any, An
     apply the same capture/else rules; only the operator filter differs.
     """
     tree = parse_c_ast(b_source)
-    cursor = _cursor(_QUERY_BIN_COND_IF)
+    cursor = _cursor(QUERY_BIN_COND_IF)
     matches = cursor.matches(tree.root_node)
 
     valid_ifs: list[tuple[Any, Any, Any, Any]] = []
@@ -121,7 +121,7 @@ def mut_merge_nested_ifs(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     tree = parse_c_ast(b_source)
-    cursor = _cursor(_QUERY_NESTED_IF_P3)
+    cursor = _cursor(QUERY_NESTED_IF_P3)
     matches = cursor.matches(tree.root_node)
 
     valid_ifs = []
@@ -182,7 +182,7 @@ def mut_extract_condition_to_var(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     tree = parse_c_ast(b_source)
-    cursor = _cursor(_QUERY_BIN_COND_IF)
+    cursor = _cursor(QUERY_BIN_COND_IF)
     matches = cursor.matches(tree.root_node)
 
     valid_ifs = []
@@ -248,7 +248,7 @@ def mut_loop_condition_extraction(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     tree = parse_c_ast(b_source)
-    cursor = _cursor(_QUERY_WHILE_LOOP)
+    cursor = _cursor(QUERY_WHILE_LOOP)
     matches = cursor.matches(tree.root_node)
 
     valid_loops = []
@@ -320,7 +320,7 @@ def mut_widen_local_type(s: str, rng: random.Random) -> str | None:
     depending on the declared type width.
     """
     b_source = encode_source(s)
-    cursor = _cursor(_QUERY_LOCAL_DECL)
+    cursor = _cursor(QUERY_LOCAL_DECL)
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
 
@@ -472,7 +472,7 @@ def mut_loop_to_memcpy(s: str, rng: random.Random) -> str | None:
     return decode_source(res)
 
 
-_QUERY_FLOAT_BINOP = _LazyQuery(
+_QUERY_FLOAT_BINOP = LazyQuery(
     C_LANGUAGE,
     """
     (binary_expression
@@ -559,7 +559,7 @@ def mut_commute_float_operands(s: str, rng: random.Random) -> str | None:
 # --- Phase 4: Manual decomp insight mutations ---
 
 
-_QUERY_FUNC_PARAM = _LazyQuery(
+_QUERY_FUNC_PARAM = LazyQuery(
     C_LANGUAGE,
     """
     (function_definition
@@ -628,7 +628,7 @@ def mut_unregister_param(s: str, rng: random.Random) -> str | None:
 # --- Loop break mutations ---
 
 
-_QUERY_BREAK_IN_LOOP = _LazyQuery(
+_QUERY_BREAK_IN_LOOP = LazyQuery(
     C_LANGUAGE,
     """
     [
@@ -639,7 +639,7 @@ _QUERY_BREAK_IN_LOOP = _LazyQuery(
 """,
 )
 
-_QUERY_LOOP_BODY = _LazyQuery(
+_QUERY_LOOP_BODY = LazyQuery(
     C_LANGUAGE,
     """
     [
@@ -710,7 +710,7 @@ def mut_add_loop_break(s: str, rng: random.Random) -> str | None:
 # --- If/else call to ternary arg ---
 
 
-_QUERY_IF_ELSE_CALL = _LazyQuery(
+_QUERY_IF_ELSE_CALL = LazyQuery(
     C_LANGUAGE,
     """
     (if_statement
@@ -800,7 +800,7 @@ def mut_ternary_arg_to_if_else_call(s: str, rng: random.Random) -> str | None:
     tree = parse_c_ast(b_source)
 
     # Find call expressions that have a conditional_expression in their argument list
-    q = _QUERY_TERNARY_ARG_TO_IF_ELSE_CALL
+    q = QUERY_TERNARY_ARG_TO_IF_ELSE_CALL
     cursor = _cursor(q)
     matches = cursor.matches(tree.root_node)
 
@@ -857,7 +857,7 @@ def mut_ternary_arg_to_if_else_call(s: str, rng: random.Random) -> str | None:
 # --- Hoist/sink common tail from if/else branches ---
 
 
-_QUERY_IF_ELSE_COMPOUND = _LazyQuery(
+_QUERY_IF_ELSE_COMPOUND = LazyQuery(
     C_LANGUAGE,
     """
     (if_statement
@@ -959,7 +959,7 @@ def mut_sink_common_tail(s: str, rng: random.Random) -> str | None:
     tree = parse_c_ast(b_source)
 
     # Find if/else followed by a sibling statement
-    q = _QUERY_SINK_COMMON_TAIL
+    q = QUERY_SINK_COMMON_TAIL
     cursor = _cursor(q)
     matches = cursor.matches(tree.root_node)
 

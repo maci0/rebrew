@@ -21,7 +21,7 @@ lazy from rebrew.matcher.ast_engine import (
     parse_c_ast,
     replace_node,
 )
-lazy from rebrew.matcher.mutations.queries import _QUERY_ASSIGN_ZERO, _LazyQuery
+lazy from rebrew.matcher.mutations.queries import QUERY_ASSIGN_ZERO, LazyQuery
 
 
 def _capture(match_or_captures: Any, name: str) -> Any:
@@ -151,9 +151,9 @@ def get_target_range() -> tuple[int, int] | None:
     return rng
 
 
-def _cursor(query: ts.Query | _LazyQuery) -> ts.QueryCursor:
-    """QueryCursor over a (possibly lazy) query — unwraps _LazyQuery."""
-    if isinstance(query, _LazyQuery):
+def _cursor(query: ts.Query | LazyQuery) -> ts.QueryCursor:
+    """QueryCursor over a (possibly lazy) query — unwraps LazyQuery."""
+    if isinstance(query, LazyQuery):
         query = query._get()
     assert isinstance(query, ts.Query)
     cursor = ts.QueryCursor(query)
@@ -171,7 +171,7 @@ def _assign_zero_targets(b_source: bytes, tree: ts.Tree) -> list[tuple[dict[str,
     plain identifiers are returned.
     """
     targets: list[tuple[dict[str, ts.Node], bytes]] = []
-    for m in _cursor(_QUERY_ASSIGN_ZERO).matches(tree.root_node):
+    for m in _cursor(QUERY_ASSIGN_ZERO).matches(tree.root_node):
         caps = _first_caps(m[1])
         parent = caps["expr"].parent
         if parent and parent.type == "for_statement":
@@ -223,7 +223,7 @@ def _statement_region_start(block: ts.Node) -> int:
 
 def _apply_query_once(
     source: bytes,
-    query: ts.Query | _LazyQuery,
+    query: ts.Query | LazyQuery,
     repl: Callable[[dict[str, ts.Node]], bytes],
     rng: random.Random,
 ) -> bytes | None:
@@ -248,7 +248,7 @@ def _apply_query_once(
 
 
 def _commute_operands(
-    s: str, rng: random.Random, query: ts.Query | _LazyQuery, op_str: bytes
+    s: str, rng: random.Random, query: ts.Query | LazyQuery, op_str: bytes
 ) -> str | None:
     """Generic commutative operand swap for the given binary operator query."""
     b_source = encode_source(s)

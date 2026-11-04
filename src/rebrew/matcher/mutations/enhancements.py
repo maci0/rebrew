@@ -19,10 +19,10 @@ from rebrew.matcher.ast_engine import (
     parse_c_ast,
 )
 from rebrew.matcher.mutations.queries import (
-    _QUERY_ADJACENT_EXPR_STMTS,
-    _QUERY_BODY,
-    _QUERY_LOCAL_DECL,
-    _LazyQuery,
+    QUERY_ADJACENT_EXPR_STMTS,
+    QUERY_BODY,
+    QUERY_LOCAL_DECL,
+    LazyQuery,
 )
 lazy from rebrew.matcher.mutations.runtime import (
     _assign_zero_targets,
@@ -37,7 +37,7 @@ lazy from rebrew.matcher.mutations.runtime import (
 
 # --- Queries for Phase 5 mutations ---
 
-_QUERY_COMMUTE_BIT_OR = _LazyQuery(
+_QUERY_COMMUTE_BIT_OR = LazyQuery(
     C_LANGUAGE,
     """
     (binary_expression
@@ -47,7 +47,7 @@ _QUERY_COMMUTE_BIT_OR = _LazyQuery(
 """,
 )
 
-_QUERY_COMMUTE_BIT_AND = _LazyQuery(
+_QUERY_COMMUTE_BIT_AND = LazyQuery(
     C_LANGUAGE,
     """
     (binary_expression
@@ -57,7 +57,7 @@ _QUERY_COMMUTE_BIT_AND = _LazyQuery(
 """,
 )
 
-_QUERY_COMMUTE_BIT_XOR = _LazyQuery(
+_QUERY_COMMUTE_BIT_XOR = LazyQuery(
     C_LANGUAGE,
     """
     (binary_expression
@@ -67,7 +67,7 @@ _QUERY_COMMUTE_BIT_XOR = _LazyQuery(
 """,
 )
 
-_QUERY_COMMUTE_ADD_GENERAL = _LazyQuery(
+_QUERY_COMMUTE_ADD_GENERAL = LazyQuery(
     C_LANGUAGE,
     """
     (binary_expression
@@ -77,7 +77,7 @@ _QUERY_COMMUTE_ADD_GENERAL = _LazyQuery(
 """,
 )
 
-_QUERY_COMMUTE_MUL_GENERAL = _LazyQuery(
+_QUERY_COMMUTE_MUL_GENERAL = LazyQuery(
     C_LANGUAGE,
     """
     (binary_expression
@@ -87,7 +87,7 @@ _QUERY_COMMUTE_MUL_GENERAL = _LazyQuery(
 """,
 )
 
-_QUERY_BITAND_ZERO = _LazyQuery(
+_QUERY_BITAND_ZERO = LazyQuery(
     C_LANGUAGE,
     """
     (expression_statement
@@ -137,7 +137,7 @@ def mut_commute_mul_general(s: str, rng: random.Random) -> str | None:
 
 # --- Enhancement 2: C89 Block-Scoped Register Injection ---
 
-_QUERY_LOOP_BODY_BLOCK = _LazyQuery(
+_QUERY_LOOP_BODY_BLOCK = LazyQuery(
     C_LANGUAGE,
     """
     [
@@ -167,7 +167,7 @@ def mut_inject_block_register(s: str, rng: random.Random) -> str | None:
     loop_matches = cursor.matches(tree.root_node)
 
     # Strategy 2: wrap 2-4 adjacent expression_statements in a block
-    cursor2 = _cursor(_QUERY_ADJACENT_EXPR_STMTS)
+    cursor2 = _cursor(QUERY_ADJACENT_EXPR_STMTS)
     adj_matches = cursor2.matches(tree.root_node)
 
     candidates: list[tuple[str, dict[str, ts.Node]]] = []
@@ -237,7 +237,7 @@ def mut_retype_local_equiv(s: str, rng: random.Random) -> str | None:
     Also: unsigned int ↔ ULONG
     """
     b_source = encode_source(s)
-    cursor = _cursor(_QUERY_LOCAL_DECL)
+    cursor = _cursor(QUERY_LOCAL_DECL)
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
 
@@ -327,7 +327,7 @@ def mut_zero_to_bitand(s: str, rng: random.Random) -> str | None:
 
 # --- Queries for Phase 6 ---
 
-_QUERY_IF_ELSE_FULL = _LazyQuery(
+_QUERY_IF_ELSE_FULL = LazyQuery(
     C_LANGUAGE,
     """
     (if_statement
@@ -344,7 +344,7 @@ _QUERY_IF_ELSE_FULL = _LazyQuery(
 """,
 )
 
-_QUERY_NESTED_CALL_ARG = _LazyQuery(
+_QUERY_NESTED_CALL_ARG = LazyQuery(
     C_LANGUAGE,
     """
     (call_expression
@@ -359,7 +359,7 @@ _QUERY_NESTED_CALL_ARG = _LazyQuery(
 """,
 )
 
-_QUERY_COMPLEX_ARG = _LazyQuery(
+_QUERY_COMPLEX_ARG = LazyQuery(
     C_LANGUAGE,
     """
     (call_expression
@@ -371,9 +371,9 @@ _QUERY_COMPLEX_ARG = _LazyQuery(
 """,
 )
 
-_QUERY_DUMMY_STACK_VARS = _LazyQuery(C_LANGUAGE, _QUERY_BODY)
-_QUERY_INJECT_DUMMY_REGISTERS = _LazyQuery(C_LANGUAGE, _QUERY_BODY)
-_QUERY_HOIST_REPEATED_DEREF = _LazyQuery(C_LANGUAGE, _QUERY_BODY)
+_QUERY_DUMMY_STACK_VARS = LazyQuery(C_LANGUAGE, QUERY_BODY)
+_QUERY_INJECT_DUMMY_REGISTERS = LazyQuery(C_LANGUAGE, QUERY_BODY)
+_QUERY_HOIST_REPEATED_DEREF = LazyQuery(C_LANGUAGE, QUERY_BODY)
 _DEREF_PTR_ADDR_RE = re.compile(rb"\*\s*\(\s*[^)]*\*\s*\)\s*0x[0-9a-fA-F]+")
 _HEX_ADDR_TAIL_RE = re.compile(rb"0x[0-9a-fA-F]+$")
 
