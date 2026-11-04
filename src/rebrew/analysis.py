@@ -24,6 +24,7 @@ from __future__ import annotations
 import re
 import threading
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any, Protocol
 lazy from collections.abc import Iterator
 
@@ -736,6 +737,19 @@ _UTF16_PRINTABLE = set(range(0x20, 0x7F))
 _ASCII_RUN = re.compile(rb"[\x20-\x7e]{4,}")
 _UTF16_RUN = re.compile(rb"(?:[\x20-\x7e]\x00){4,}")
 
+
+@lru_cache(maxsize=64)
+def _ascii_run(min_len: int):
+    """Run matcher for ASCII strings."""
+    return _ASCII_RUN if min_len <= 4 else re.compile(rb"[\x20-\x7e]{%d,}" % min_len)
+
+
+@lru_cache(maxsize=64)
+def _utf16_run(min_len: int):
+    """Run matcher for UTF-16LE strings."""
+    return _UTF16_RUN if min_len <= 4 else re.compile(rb"(?:[\x20-\x7e]\x00){%d,}" % min_len)
+
+
 #: Borland/Delphi ``ShortString`` maximum length: the length prefix is one byte,
 #: so a string runs to 255 bytes.  The old cap of 63 silently dropped every
 #: 64..255-byte string, and a long printable run is *stronger* evidence of a
@@ -807,7 +821,7 @@ def _scan_pascal(raw: bytes, va: int, section: str, min_len: int) -> list[String
 
 
 def _scan_ascii(raw: bytes, va: int, section: str, min_len: int) -> list[StringEntry]:
-    pat = _ASCII_RUN if min_len <= 4 else re.compile(rb"[\x20-\x7e]{%d,}" % min_len)
+    pat = _ascii_run(min_len)
     return [
         StringEntry(
             va=va + m.start(),
@@ -821,7 +835,7 @@ def _scan_ascii(raw: bytes, va: int, section: str, min_len: int) -> list[StringE
 
 
 def _scan_utf16(raw: bytes, va: int, section: str, min_len: int) -> list[StringEntry]:
-    pat = _UTF16_RUN if min_len <= 4 else re.compile(rb"(?:[\x20-\x7e]\x00){%d,}" % min_len)
+    pat = _utf16_run(min_len)
     return [
         StringEntry(
             va=va + m.start(),

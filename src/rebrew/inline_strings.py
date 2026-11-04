@@ -56,6 +56,8 @@ lazy from rebrew.utils import (
     split_source_lines,
 )
 
+_EXTERN_CHAR_RE = re.compile(r"^(\s*)extern\s+(?:char|unsigned char)\s+")
+
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
     "  # Preview the globals, write nothing\n"
@@ -265,13 +267,12 @@ def define_remaining_strings(
         counts = tok_counts[tok]
         owner[tok] = max(counts, key=counts.__getitem__)
 
-    extern_re = re.compile(r"^(\s*)extern\s+(?:char|unsigned char)\s+")
     done = 0
     for f, text in texts.items():
         lines = split_source_lines(text)
         changed = False
         for i, ln in enumerate(lines):
-            m = extern_re.match(ln)
+            m = _EXTERN_CHAR_RE.match(ln)
             tm = token_re.search(ln) if m else None
             if not m or not tm:
                 continue

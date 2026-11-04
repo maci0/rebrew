@@ -156,7 +156,7 @@ def main(
     if max_iters < 1:
         error_exit("--max-iters must be at least 1", json_mode=json_output)
 
-    tail_re = re.compile(rf"{symbol}\[\s*0x([0-9A-Fa-f]+)\s*\]")
+    tail_re = re.compile(rf"{re.escape(symbol)}\[\s*0x([0-9A-Fa-f]+)\s*\]")
     # Stub is a C source: use the shared detector so a CP1252/Shift-JIS comment
     # survives the calibrate rewrite (utf-8-only read+write would U+FFFD it).
     stub_text, stub_encoding = read_source_text(stub)

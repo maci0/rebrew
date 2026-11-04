@@ -28,6 +28,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 lazy import copy
@@ -1538,8 +1539,14 @@ def _type_index(project: _Project) -> TypeIndex:
     return index
 
 
+@lru_cache(maxsize=256)
+def _word_re(old: str) -> re.Pattern[str]:
+    """Whole-word pattern for *old*; cached because a rename rewrites many rows."""
+    return re.compile(r"(?<![\w$])" + re.escape(old) + r"(?![\w$])")
+
+
 def _replace_word(text: str, old: str, new: str) -> str:
-    return re.sub(r"(?<![\w$])" + re.escape(old) + r"(?![\w$])", new, text)
+    return _word_re(old).sub(new, text)
 
 
 def plan_type_rename(
