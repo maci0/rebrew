@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -62,7 +63,7 @@ func TestDockerProviderRealRebrewAndExactStop(t *testing.T) {
 	if _, err = provider.InspectNeverStarted(ctx, id, job, original, root, "seed.c"); err == nil {
 		t.Fatal("executed container treated as never started")
 	}
-	if _, err = provider.InspectStop(ctx, id, stringsRepeat("0", 64), original, root, "seed.c"); err == nil {
+	if _, err = provider.InspectStop(ctx, id, strings.Repeat("0", 64), original, root, "seed.c"); err == nil {
 		t.Fatal("foreign job accepted")
 	}
 }
@@ -164,13 +165,6 @@ func TestDockerManagedCompileThroughSocket(t *testing.T) {
 		t.Fatal("worker did not receive authorized artifact")
 	}
 }
-func stringsRepeat(s string, n int) string {
-	var b bytes.Buffer
-	for i := 0; i < n; i++ {
-		b.WriteString(s)
-	}
-	return b.String()
-}
 
 func TestDockerReconcileCancelledNeverStarted(t *testing.T) {
 	image := os.Getenv("REBREW_TEST_DOCKER_IMAGE")
@@ -228,7 +222,7 @@ func TestDockerCompileSocketMountIsReadOnly(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	m, err := NewCompileMediator(ledger, "http://127.0.0.1:1", "rck_test", stringsRepeat("a", 64), 1, []string{"gcc"})
+	m, err := NewCompileMediator(ledger, "http://127.0.0.1:1", "rck_test", strings.Repeat("a", 64), 1, []string{"gcc"})
 	if err != nil {
 		t.Fatal(err)
 	}
