@@ -24,8 +24,7 @@ channel. Acknowledgement and fix timing depend on maintainer availability.
 
 ## Security model (summary)
 
-Rebrew is a **local** compiler-in-the-loop reversing workbench (CLI). It is
-not a multi-tenant network service. The living attack-surface and trust-boundary
+Rebrew is a local compiler-in-the-loop reversing workbench (CLI). It is not a multi-tenant network service. The one authenticated network listener is rebrew ops serve (bearer token, plain HTTP, workspace-confined write ops; src/rebrew/ops.py); the coverage dashboard is loopback by default and unauthenticated. The living attack-surface and trust-boundary
 document is:
 
 - [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md)
@@ -181,7 +180,7 @@ plugin cache backends or remove the open upstream diskcache advisory.
   bound is the project `root`, so project-internal paths such as `.git/hooks/`,
   `rebrew-project.toml`, or `.rebrew/` can pass that validator. It says nothing
   about a project running host commands, which
-  [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) §4 covers separately.
+  [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) §5 covers separately.
 - No claim that `REBREW_CONTAINER_RUNTIME` is restricted to a container
   runtime rebrew trusts. `container_runtime` (`src/rebrew/utils.py`) rejects
   characters outside `^[a-zA-Z0-9_\-\./]+$` and, for a value with no path
