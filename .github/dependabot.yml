@@ -19,3 +19,12 @@ updates:
       actions:
         patterns:
           - "*"
+  - package-ecosystem: gomod
+    # services/jobs is the only Go module; without this entry its go.mod /
+    # go.sum are never refreshed, so a stdlib security fix or a bumped
+    # `go` directive lands only when someone edits go.mod by hand. The
+    # module is stdlib-only today (no go.sum), so the PR is a go.mod-only
+    # bump until a third-party dependency appears.
+    directory: /services/jobs
+    schedule:
+      interval: weekly

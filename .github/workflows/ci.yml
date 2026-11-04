@@ -50,6 +50,12 @@ jobs:
         env:
           GO_VERSION: 1.27.3
           GO_SHA256: 65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40
+          # The toolchain is SHA-256 verified above, but Go can still fetch
+          # a newer toolchain on demand when go.mod's `toolchain` line (or
+          # a future dependency's go directive) asks for one newer than the
+          # installed release. Refuse that download so the verified release
+          # is the only Go that can run.
+          GOTOOLCHAIN: local
         run: |
           set -euo pipefail
           curl --proto '=https' --tlsv1.2 -fsSLo "$RUNNER_TEMP/go.tar.gz" \
@@ -69,6 +75,17 @@ jobs:
           key: go-build-${{ runner.os }}-${{ hashFiles('services/jobs/go.mod') }}
           restore-keys: |
             go-build-${{ runner.os }}-
+      - name: Cache the Go module cache
+        # The module cache (GOMODCACHE, ~/go/pkg/mod) is the Go analogue of
+        # setup-uv's cache: without it every run re-fetches the module graph
+        # and recompiles the build cache from scratch. Keyed on go.mod and
+        # go.sum so a new dependency misses cleanly.
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/go/pkg/mod
+          key: go-${{ runner.os }}-${{ hashFiles('services/jobs/go.mod', 'services/jobs/go.sum') }}
+          restore-keys: |
+            go-${{ runner.os }}-
       - name: Check the jobs service
         working-directory: services/jobs
         run: |

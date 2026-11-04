@@ -41,6 +41,7 @@ import logging
 from dataclasses import MISSING, dataclass, field, fields
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import override  # decorator: definition-time use
 lazy import base64
 lazy import binascii
 lazy import dataclasses
@@ -1821,18 +1822,20 @@ class OpsServer(ThreadingHTTPServer):
 class _OpsHandler(BaseHTTPRequestHandler):
     timeout: typing.ClassVar[float | None] = SOCKET_TIMEOUT_SECONDS
 
+    @override
     def send_response(self, code: int, message: str | None = None) -> None:
         # No Server banner: BaseHTTPRequestHandler would emit the Python
         # patch level to any caller that can reach the worker.
         self.send_response_only(code, message)
         self.send_header("Date", self.date_time_string())
 
+    @override
     def send_error(self, code: int, message: str | None = None, explain: str | None = None) -> None:
         # http.server's own errors (400/414/431/505/501) must not leak the
         # stdlib HTML page or the request line; answer with the JSON envelope.
         status = int(code)
         body = error_body(INVALID_REQUEST, "invalid request", status)
-        self._response_size = len(body)  # type: ignore[attr-defined]
+        self._response_size = len(body)
         self.send_response(status)
         self.send_header("Connection", "close")
         self.send_header("Content-Type", "application/json")

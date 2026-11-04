@@ -17,7 +17,6 @@ from rebrew.cli import EXIT_MISMATCH, RootOption, console, error_exit, json_prin
 from rebrew.errors import RebrewError
 lazy from rebrew.utils import atomic_write_bytes, run_process_group
 
-
 #: Bounded wait for the ``patch`` subprocess: without it a hung ``patch`` (e.g.
 #: waiting on stdin despite ``--batch``, or a wedged filesystem) hangs the
 #: whole vendor sync indefinitely.  Sibling subprocess calls in this codebase
@@ -150,6 +149,7 @@ def stage(manifest: Manifest, stage_root: Path) -> Path:
         # The stdlib has no unified-diff applier; GNU patch is the one dependency here.
         # run_process_group kills the whole group on timeout; subprocess.run is
         # kept for tests that patch it. Pick whichever the caller patched.
+        _runner: Any
         if getattr(subprocess.run, "__module__", "subprocess") != "subprocess":
             _runner = subprocess.run
         else:
@@ -176,8 +176,7 @@ def stage(manifest: Manifest, stage_root: Path) -> Path:
             )
         except subprocess.TimeoutExpired as exc:
             raise VendorError(
-                f"{patch.name} did not apply within {_PATCH_TIMEOUT_S} s "
-                f"(patch timed out): {exc}"
+                f"{patch.name} did not apply within {_PATCH_TIMEOUT_S} s (patch timed out): {exc}"
             ) from exc
         except FileNotFoundError as exc:
             raise VendorError(f"GNU patch not found on PATH: {exc}") from exc

@@ -238,6 +238,9 @@ class TestCiPins:
                     assert install["env"] == {
                         "GO_VERSION": "1.27.3",
                         "GO_SHA256": "65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40",
+                        # Refuse the on-demand toolchain download so the
+                        # SHA-256 verified release is the only Go that runs.
+                        "GOTOOLCHAIN": "local",
                     }
                     script = install["run"]
                     assert "https://go.dev/dl/go$GO_VERSION.linux-amd64.tar.gz" in script
