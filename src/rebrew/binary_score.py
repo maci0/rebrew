@@ -118,14 +118,15 @@ def score(reference: bytes, built: bytes, reference_sections: dict[str, Any]) ->
         same, informative_same, informative_compared = _count_window(
             reference, built, start, window
         )
+        clipped = max(0, window - max(start, 0))
         sections[name] = {
             "same": same,
-            "compared": max(0, window - start),
+            "compared": clipped,
             "informative_same": informative_same,
             "informative_compared": informative_compared,
         }
         total += same
-        compared += max(0, window - start)
+        compared += clipped
         info_total += informative_same
         info_compared += informative_compared
     file_compared = min(len(reference), len(built))

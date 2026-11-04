@@ -109,3 +109,27 @@ def test_count_window_clips_a_negative_start(
     monkeypatch.setattr(bs, "_VECTOR_COMPARE_MIN_BYTES", vector_threshold)
     assert bs._count_window(b"abcd", b"abce", -3, 2) == (2, 2, 2)
     assert bs._count_window(b"abcd", b"abce", -10, 2) == (2, 2, 2)
+
+def test_score_compared_excludes_bytes_before_image_start() -> None:
+    """score()'s 'compared' denominator must match _count_window's clipped window."""
+    from types import SimpleNamespace
+
+    from rebrew.binary_score import score
+
+    result = score(
+        b"abcd",
+        b"abcd",
+        {".text": SimpleNamespace(file_offset=-1, raw_size=3)},
+    )
+    assert result["sections"][".text"]["compared"] == 2
+    assert result["compared"] == 2
+    assert result["ratio"] == 1.0
+
+    result = score(
+        b"abcd",
+        b"abcd",
+        {".text": SimpleNamespace(file_offset=-10, raw_size=5)},
+    )
+    assert result["sections"][".text"]["compared"] == 0
+    assert result["compared"] == 0
+    assert result["ratio"] == 0.0
