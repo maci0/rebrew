@@ -408,9 +408,17 @@ class ReferenceFlirtRequest:
 @dataclass(frozen=True)
 class VerifyRequest:
     project_dir: str
-    source: str
+    source: str = ""
     sha256: str = ""
     no_promote: bool = False
+    candidate: str = ""
+    va: int = 0
+    size: int = 0
+    files: list[FlagSearchFile] = field(default_factory=list)
+    rebrew_target: str = ""
+    source_sha256: str = ""
+    binary_key: str = ""
+    binary_url: str = ""
 
 
 @dataclass(frozen=True)
@@ -1533,11 +1541,104 @@ def verify_function(config: WorkerConfig, req: VerifyRequest) -> dict[str, Any]:
     """
     from rebrew.test import run_test
 
+    if req.candidate:
+        return verify_candidate(config, req)
+
     root = project_root(config, req.project_dir)
     cfg = target_config(root, req.sha256)
     source = _project_file(root, req.source, "source")
     remote_header_refusal(cfg, [source])
     return run_test(cfg, source, no_promote=req.no_promote, json_output=True)
+
+
+def verify_candidate(config: WorkerConfig, req: VerifyRequest) -> dict[str, Any]:
+    """Compare candidate text in a private snapshot of retained inputs."""
+    from rebrew.c_parser import find_c_function_definitions
+    from rebrew.config import load_config
+    from rebrew.workspace import read_config, target_binary, targets_table
+
+    definitions = find_c_function_definitions(req.candidate)
+    if len(definitions) != 1 or len(req.candidate.encode()) > 2_000_000:
+        raise _invalid("candidate must contain one function and at most 2000000 bytes")
+    if req.va < 0 or not 1 <= req.size <= 1048576:
+        raise _invalid("invalid function extent")
+    if not req.files or len(req.files) > 1024 or sum(f.size for f in req.files) > 32 * 1024 * 1024:
+        raise _invalid("invalid retained source manifest size")
+    paths = [f.path for f in req.files]
+    if len(set(paths)) != len(paths) or req.source not in paths:
+        raise _invalid("invalid retained source manifest paths")
+    scratch = config.require_workspace() / SCRATCH_DIR
+    scratch.mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="verify-candidate-", dir=scratch) as temp:
+        root = Path(temp).resolve()
+        for entry in req.files:
+            if (
+                entry.size < 0
+                or entry.size > 1024 * 1024
+                or not re.fullmatch(r"[0-9a-f]{64}", entry.digest)
+            ):
+                raise _invalid("invalid retained source manifest entry")
+            dest = _inside(root, entry.path, "source file", "snapshot")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            with (
+                binary_file(config, entry.key, entry.url, entry.digest, "key") as src,
+                src.open("rb") as inp,
+            ):
+                data = inp.read(entry.size + 1)
+            if len(data) != entry.size or hashlib.sha256(data).hexdigest() != entry.digest:
+                raise _invalid("source does not match retained manifest")
+            dest.write_bytes(data)
+        source = _project_file(root, req.source, "source")
+        if source.suffix.lower() != ".c":
+            raise _invalid("candidate source must be a C file")
+        if _file_sha256(source) != req.source_sha256:
+            raise _invalid("source does not match its retained digest")
+        target = targets_table(read_config(root)).get(req.rebrew_target)
+        if not isinstance(target, dict) or not isinstance(target.get("binary"), str):
+            raise _invalid("retained project has no selected target binary")
+        destination = _inside(root, target["binary"], "target binary", "snapshot")
+        with binary_file(
+            config, req.binary_key, req.binary_url, req.sha256, "binary_key"
+        ) as binary:
+            if destination.exists():
+                if not destination.is_file() or _file_sha256(destination) != req.sha256:
+                    raise _invalid("retained target binary conflicts with snapshot")
+            else:
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(binary, destination)
+            resolved = target_binary(root, target)
+            if (
+                resolved is None
+                or resolved.resolve() != destination
+                or _file_sha256(destination) != req.sha256
+            ):
+                raise _invalid("snapshot target binary does not match")
+            source.write_text(req.candidate, encoding="utf-8")
+            cfg = load_config(root, target=req.rebrew_target)
+            remote_header_refusal(cfg, [source])
+            result = run_rebrew(
+                [
+                    "test",
+                    "--json",
+                    "--no-promote",
+                    f"--target={req.rebrew_target}",
+                    f"--va=0x{req.va:x}",
+                    f"--size={req.size}",
+                    f"--symbol={definitions[0][0]}",
+                    "--",
+                    str(source),
+                ],
+                root,
+                COMMAND_TIMEOUT_SECONDS,
+                outcome_exit=True,
+            )
+            if (
+                _file_sha256(destination) != req.sha256
+                or source.read_text(encoding="utf-8") != req.candidate
+            ):
+                raise _invalid("snapshot candidate or binary changed during verification")
+            result["source"] = req.source
+            return result
 
 
 def verify_target(config: WorkerConfig, req: VerifyTargetRequest) -> dict[str, Any]:
@@ -2008,13 +2109,18 @@ class OpsServer(ThreadingHTTPServer):
     daemon_threads = True
 
     def __init__(
-        self, address: tuple[str, int], config: WorkerConfig, token: str, concurrency: int
+        self,
+        address: tuple[str, int],
+        config: WorkerConfig,
+        token: str,
+        concurrency: int,
+        allowed_hosts: frozenset[str] = frozenset(),
     ) -> None:
         super().__init__(address, _OpsHandler)
         self.config = config
         self.token = token
         self.slots = threading.BoundedSemaphore(concurrency)
-        self.allowed_hosts = _allowed_hosts_for(address[0], address[1])
+        self.allowed_hosts = _allowed_hosts_for(address[0], address[1]) | allowed_hosts
 
 
 class _OpsHandler(BaseHTTPRequestHandler):
@@ -2203,6 +2309,12 @@ def serve_command(
         min=1,
         help="Calls answered at once; the next is refused 503 with Retry-After",
     ),
+    allowed_hosts: str = typer.Option(
+        "",
+        "--allowed-hosts",
+        envvar="REBREW_OPS_ALLOWED_HOSTS",
+        help="Comma-separated exact additional HTTP Host authorities, including ports",
+    ),
 ) -> None:
     """Serve POST /<op> over HTTP until interrupted.
 
@@ -2219,7 +2331,10 @@ def serve_command(
         _existing_dir(workspace, "--workspace"),
         max_download_bytes,
     )
-    server = OpsServer((host, port), config, token, concurrency)
+    hosts = frozenset(item.strip().lower() for item in allowed_hosts.split(",") if item.strip())
+    if any(not re.fullmatch(r"[a-z0-9][a-z0-9.-]*(?::[0-9]{1,5})?", item) for item in hosts):
+        error_exit("--allowed-hosts must contain exact DNS names and optional ports")
+    server = OpsServer((host, port), config, token, concurrency, hosts)
     if host not in ("127.0.0.1", "localhost", "::1"):
         console.print(
             f"serving rebrew ops on http://{host}:{server.server_port} (non-loopback bind: bearer auth required)"

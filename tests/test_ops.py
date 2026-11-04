@@ -873,6 +873,48 @@ def _with_project_header(project: Path) -> str:
 
 
 class TestReconstructionOps:
+    def test_candidate_uses_private_retained_snapshot(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        from rebrew import ops
+
+        filestore, workspace = _worker_dirs(tmp_path)
+        original = b"int add(int a, int b) { return a - b; }\n"
+        project = b'[project]\ndefault_target="mini"\n[targets.mini]\nbinary="original/mini"\nformat="pe"\narch="x86_32"\nreversed_dir="src"\n'
+        entries = []
+        for name, data in (("rebrew-project.toml", project), ("src/add.c", original)):
+            digest, key = _store(filestore, data)
+            entries.append({"path": name, "digest": digest, "size": len(data), "key": key})
+        seen: list[Path] = []
+
+        def run(args: Any, root: Path, *unused: Any, **kwargs: Any) -> dict[str, Any]:
+            assert (root / "src/add.c").read_text() == "int add(int a, int b) { return a+b; }\n"
+            assert "--va=0x401000" in args and "--size=11" in args and "--no-promote" in args
+            seen.append(root)
+            return {"status": "EXACT"}
+
+        monkeypatch.setattr(ops, "run_rebrew", run)
+        config = WorkerConfig(filestore.resolve(), workspace.resolve())
+        request = {
+            "project_dir": "/unused",
+            "source": "src/add.c",
+            "candidate": "int add(int a, int b) { return a+b; }\n",
+            "sha256": SHA256,
+            "va": ENTRY_VA,
+            "size": ENTRY_SIZE,
+            "files": entries,
+            "source_sha256": hashlib.sha256(original).hexdigest(),
+            "rebrew_target": "mini",
+            "binary_key": KEY,
+        }
+        status, body = dispatch(config, "rebrew.verify_function", json.dumps(request).encode())
+        assert status == 200, body
+        assert json.loads(body)["status"] == "EXACT" and len(seen) == 1 and not seen[0].exists()
+        assert (filestore / entries[1]["key"]).read_bytes() == original
+        request["source_sha256"] = "0" * 64
+        status, _body = dispatch(config, "rebrew.verify_function", json.dumps(request).encode())
+        assert status == 400
+
     def test_skeleton(self, world: tuple[WorkerConfig, Path]) -> None:
         config, project = world
         request = {"project_dir": str(project), "va": 0x401010, "name": "second"}
@@ -1081,6 +1123,8 @@ class TestHttpTransport:
                 str(workspace),
                 "--concurrency",
                 "1",
+                "--allowed-hosts",
+                f"relumea-rebrew:{port}",
             ),
             env={**os.environ, "REBREW_OPS_TOKEN": TOKEN},
             stdout=subprocess.DEVNULL,
@@ -1121,6 +1165,17 @@ class TestHttpTransport:
         assert status == 200, reply
         _validate(_op_schema(op, "response"), reply)
         return reply
+
+    def test_configured_host_is_exact(self, server: tuple[int, Path]) -> None:
+        port, _ = server
+        for host, expected in ((f"relumea-rebrew:{port}", 200), (f"attacker:{port}", 403)):
+            status, _ = self._post(
+                port,
+                "/rebrew.disassemble_bytes",
+                b'{"code":"ww==","va":4096,"arch":"x86_64"}',
+                {"Host": host, "Authorization": f"Bearer {TOKEN}"},
+            )
+            assert status == expected
 
     def test_analyse_then_function_ops(self, server: tuple[int, Path]) -> None:
         port, workspace = server
