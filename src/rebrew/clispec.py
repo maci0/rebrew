@@ -175,10 +175,7 @@ def build_schema(root: typer.Typer, *, path: str | None = None) -> dict[str, Any
             {
                 "code": 1,
                 "name": "mismatch",
-                "description": (
-                    "A check found a difference or a failed match."
-                    " Not an error."
-                ),
+                "description": ("A check found a difference or a failed match. Not an error."),
             }
         ],
     }

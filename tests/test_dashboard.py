@@ -764,7 +764,10 @@ class TestHandle:
         _, _, html = dashboard.handle("GET", "/", {})
         _, _, js = dashboard.handle("GET", "/app.js", {})
         body = html + js
-        assert f'<script src="/app.js?v={_APP_JS_VERSION}" defer fetchpriority="high"></script>' in html
+        assert (
+            f'<script src="/app.js?v={_APP_JS_VERSION}" defer fetchpriority="high"></script>'
+            in html
+        )
         assert f'rel="preload" href="/app.js?v={_APP_JS_VERSION}" as="script"' in html
         assert 'fetchpriority="high"' in html
         assert "content-visibility: auto" in html

@@ -30,12 +30,11 @@ from __future__ import annotations
 
 import struct
 from contextlib import suppress
-from pathlib import Path
+lazy from pathlib import Path
 
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
-
 
 _CLASS = "TExample"
 _MARKER = b"\x08TExample"
@@ -57,10 +56,23 @@ def _ne_image_bytes(draw: st.DrawFn) -> bytes:
     content = draw(st.binary(min_size=0, max_size=64))
     fixup_flag = draw(st.booleans())
     flags = (0x0100 if fixup_flag else 0) | draw(st.integers(0, 0xFF))
-    exports = draw(st.lists(st.tuples(st.binary(min_size=1, max_size=8).map(lambda b: b.decode("latin1")), st.integers(0, 0xFFFF)), max_size=2))
+    exports = draw(
+        st.lists(
+            st.tuples(
+                st.binary(min_size=1, max_size=8).map(lambda b: b.decode("latin1")),
+                st.integers(0, 0xFFFF),
+            ),
+            max_size=2,
+        )
+    )
     # make_ne encodes names as ascii; keep exports ascii-safe
     exports = [(n.encode("ascii", "replace").decode("ascii"), o) for n, o in exports]
-    modules = draw(st.lists(st.binary(min_size=1, max_size=6).map(lambda b: b.decode("latin1", "replace")), max_size=2))
+    modules = draw(
+        st.lists(
+            st.binary(min_size=1, max_size=6).map(lambda b: b.decode("latin1", "replace")),
+            max_size=2,
+        )
+    )
     modules = [m.encode("ascii", "replace").decode("ascii") for m in modules]
     blob = bytearray(make_ne(segments=[(content, flags)], exports=exports, modules=modules))
     if fixup_flag:
@@ -123,9 +135,7 @@ def test_ne_image_geometry_or_parse_error(_ne_dir: Path, blob: bytes) -> None:
 
 @settings(max_examples=200, deadline=None)
 @given(_ne_image_bytes())
-def test_ne_fixups_stay_inside_following_region(
-    _ne_dir: Path, blob: bytes
-) -> None:
+def test_ne_fixups_stay_inside_following_region(_ne_dir: Path, blob: bytes) -> None:
     """Fuzz: every fixup block ``NeImage.fixups`` returns is complete —
     its records sit after the segment, before the next on-disk segment,
     and the census/refs only ever report records that were read."""
@@ -193,9 +203,7 @@ def _method_table_blob(draw: st.DrawFn) -> bytes:
     count = draw(st.integers(0, 4))
     table = bytearray(struct.pack("<H", count))
     for _ in range(count):
-        name = draw(
-            st.binary(min_size=0, max_size=8).map(lambda b: b.decode("latin1"))
-        )
+        name = draw(st.binary(min_size=0, max_size=8).map(lambda b: b.decode("latin1")))
         pointer = draw(st.integers(0, 0xFFFFFFFF))
         size = draw(st.integers(0, 0xFF))
         table += struct.pack("<IB", pointer & 0xFFFFFFFF, size)

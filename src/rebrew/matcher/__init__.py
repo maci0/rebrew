@@ -223,6 +223,7 @@ __all__ = [
     "Score",
     "SolutionEntry",
     "StructuralSimilarity",
+    "backup_ga_runs",
     "build_candidate",
     "build_candidate_obj_only",
     "code_similarity",
@@ -249,6 +250,7 @@ __all__ = [
     "quick_validate",
     "record_ga_run",
     "refresh_mutations",
+    "restore_ga_runs",
     "save_solution",
     "save_solutions",
     "score_candidate",
@@ -256,8 +258,6 @@ __all__ = [
     "split_preamble_body",
     "structural_similarity",
     "utc_now_iso",
-    "backup_ga_runs",
-    "restore_ga_runs",
 ]
 
 _mutator_loaded = False

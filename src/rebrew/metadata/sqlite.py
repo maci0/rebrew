@@ -240,6 +240,7 @@ class SqliteStore:
                     result.append(path)
             return tuple(result)
 
+
 METADATA_BACKUP_FILENAME = "rebrew-metadata.backup.sqlite3"
 
 

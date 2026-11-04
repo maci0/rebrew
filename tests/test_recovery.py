@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from types import SimpleNamespace
+lazy from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
@@ -82,7 +82,9 @@ class TestGaRunsBackup:
         _seed_log(tmp_path)
         monkeypatch.setattr(
             "rebrew.solutions_db.require_config",
-            lambda target=None, json_mode=False: SimpleNamespace(root=tmp_path, target_name="SERVER"),
+            lambda target=None, json_mode=False: SimpleNamespace(
+                root=tmp_path, target_name="SERVER"
+            ),
         )
         handed_off = tmp_path / "off-tree"
         result = CliRunner().invoke(app, ["match", "solutions", "--backup", str(handed_off)])

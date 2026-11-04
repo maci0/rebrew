@@ -57,15 +57,13 @@ class TestParseArchiveRobust:
             os.unlink(name)
 
     @st.composite
-    def _ar_stream(draw: st.DrawFn) -> bytes:
+    def _ar_stream(self: st.DrawFn) -> bytes:
         """A structured ar stream: valid magic + forged headers/bodies."""
         out = b"!<arch>\n"
-        for _ in range(draw(st.integers(0, 3))):
-            name = draw(
-                st.sampled_from([b"a.obj/", b"//", b"/0", b"/9999", b"b.o/", b""])
-            )
-            body = draw(st.binary(max_size=16))
-            size = draw(st.integers(0, len(body) + 8))
+        for _ in range(self(st.integers(0, 3))):
+            name = self(st.sampled_from([b"a.obj/", b"//", b"/0", b"/9999", b"b.o/", b""]))
+            body = self(st.binary(max_size=16))
+            size = self(st.integers(0, len(body) + 8))
             # Header layout: name[16] mtime[12] uid[6] gid[6] mode[8] size[10] "`\n"
             hdr = (
                 name.ljust(16, b" ")[:16]
@@ -80,8 +78,8 @@ class TestParseArchiveRobust:
             if size % 2 == 1 and len(body) >= size:
                 out += b"\n"
         # Occasionally truncate mid-header or mid-body.
-        if out and draw(st.booleans()):
-            cut = draw(st.integers(0, len(out)))
+        if out and self(st.booleans()):
+            cut = self(st.integers(0, len(out)))
             out = out[:cut]
         return out
 
@@ -96,7 +94,19 @@ class TestParseArchiveRobust:
             assert isinstance(body, bytes)
 
     @settings(max_examples=50)
-    @given(st.just(b"!<arch>\n" + b"a.obj/          " + b"0".ljust(12, b" ") + b"0".ljust(6, b" ") + b"0".ljust(6, b" ") + b"100644".ljust(8, b" ") + b"5".ljust(10, b" ") + b"`\n" + b"hello"))
+    @given(
+        st.just(
+            b"!<arch>\n"
+            b"a.obj/          "
+            + b"0".ljust(12, b" ")
+            + b"0".ljust(6, b" ")
+            + b"0".ljust(6, b" ")
+            + b"100644".ljust(8, b" ")
+            + b"5".ljust(10, b" ")
+            + b"`\n"
+            + b"hello"
+        )
+    )
     def test_valid_archive_roundtrip(self, data: bytes) -> None:
         members = _parse_archive_bytes(data)
         assert members == [("a.obj", b"hello")]
@@ -110,15 +120,15 @@ class TestCoffSymbolNamesRobust:
         assert all(isinstance(n, str) for n in names)
 
     @st.composite
-    def _coff_blob(draw: st.DrawFn) -> bytes:
+    def _coff_blob(self: st.DrawFn) -> bytes:
         """A COFF-ish blob: 20-byte header + forged string-table geometry."""
-        offset = draw(st.integers(0, 64))
-        count = draw(st.integers(0, 8))
+        offset = self(st.integers(0, 64))
+        count = self(st.integers(0, 8))
         # Header: machine[2] sections[2] time[4] symptr[4]=offset count[4] optlen[2] char[2]
         hdr = struct.pack("<HHIIIHH", 0x14C, 1, 0, offset, count, 0, 0)
-        pad = draw(st.binary(max_size=32))
-        str_len = draw(st.integers(0, 64))
-        trailer = struct.pack("<I", str_len) + draw(st.binary(max_size=32))
+        pad = self(st.binary(max_size=32))
+        str_len = self(st.integers(0, 64))
+        trailer = struct.pack("<I", str_len) + self(st.binary(max_size=32))
         return hdr + pad + trailer
 
     @given(_coff_blob())

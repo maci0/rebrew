@@ -58,7 +58,14 @@ lazy from rebrew.coverage_db import (
 )
 lazy from rebrew.metadata.bindings import FUNCTION_KINDS, SYMBOL_KINDS
 lazy from rebrew.metadata.functions import canonical_status
-lazy from rebrew.utils import atomic_write_text, clip_span, file_lock, floor_pct, read_toml_text, toml_safe
+lazy from rebrew.utils import (
+    atomic_write_text,
+    clip_span,
+    file_lock,
+    floor_pct,
+    read_toml_text,
+    toml_safe,
+)
 lazy from rebrew.workspace.status import MATCHED_STATUSES
 
 if TYPE_CHECKING:

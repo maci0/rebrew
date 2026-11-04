@@ -145,7 +145,10 @@ def migrate_metadata(
         atomic_write_text(config_path, tomlkit.dumps(config))
     return report
 
-def _snapshot_destination(root: Path, backend: str, destinations: tuple[MetadataStore, ...]) -> Path | None:
+
+def _snapshot_destination(
+    root: Path, backend: str, destinations: tuple[MetadataStore, ...]
+) -> Path | None:
     """Copy the inactive destination's bytes beside it before a transfer.
 
     For the SQLite backend the copy is a consistent backup-API snapshot of
