@@ -506,6 +506,40 @@ _LOSS_RECORD_RETENTION = 20_000
 _PRUNE_MIN_BYTES = 4 * _TAIL_READ_BYTES
 
 
+def _recent_run_keys(path: Path) -> set[str]:
+    """Run keys in the tail window of *path*.
+
+    The duplicate check only needs keys, not records: reading the whole
+    tail and re-serializing every record on every append was O(tail) JSON
+    work per GA run, paid again for every record in a batch replay.
+    """
+    try:
+        with path.open("rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            size = fh.tell()
+            start = max(0, size - _TAIL_READ_BYTES)
+            aligned = max(0, start - _TAIL_ALIGN_BYTES)
+            fh.seek(aligned)
+            tail = fh.read().decode("utf-8", errors="replace")
+    except OSError:
+        return set()
+    lines = tail.splitlines()
+    if aligned:
+        lines = lines[1:]
+    keys: set[str] = set()
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(record, dict):
+            keys.add(_run_key(record))
+    return keys
+
+
 def _recent_records(path: Path) -> list[dict[str, Any]]:
     """Return the well-formed records in the tail window of *path*, oldest first.
 
@@ -517,9 +551,6 @@ def _recent_records(path: Path) -> list[dict[str, Any]]:
             fh.seek(0, os.SEEK_END)
             size = fh.tell()
             start = max(0, size - _TAIL_READ_BYTES)
-            # Reach back far enough to cover the record the window opens
-            # inside; its head is before `start`, so the window alone yields a
-            # truncated line that json cannot read and the repeat check misses.
             aligned = max(0, start - _TAIL_ALIGN_BYTES)
             fh.seek(aligned)
             tail = fh.read().decode("utf-8", errors="replace")
@@ -527,8 +558,6 @@ def _recent_records(path: Path) -> list[dict[str, Any]]:
         return []
     lines = tail.splitlines()
     if aligned:
-        # The reach-back does not know where a record starts either, so the
-        # first line is partial whenever the read clipped. Drop it alone.
         lines = lines[1:]
     records: list[dict[str, Any]] = []
     for line in lines:
@@ -625,7 +654,7 @@ def record_ga_run(
     p = _ensure_runs_dir(project_root)
     line = json.dumps(record) + "\n"
     with _ga_runs_append_lock(p):
-        if _run_key(record) in {_run_key(r) for r in _recent_records(p)}:
+        if _run_key(record) in _recent_run_keys(p):
             return p
         _append_durable(p, line)
         _prune_loss_records(p)
