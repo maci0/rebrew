@@ -39,7 +39,12 @@ lazy from collections.abc import Callable, Iterator, Mapping
 lazy from functools import partial
 lazy from urllib.parse import urlparse
 
-from rebrew.errors import ConfigError, ConfigKeyError, ConfigNotFoundError
+from rebrew.errors import (
+    ConfigError,
+    ConfigKeyError,
+    ConfigNotFoundError,
+    RebrewError,
+)
 lazy from rebrew.compiler.toolchain_spec import FlagsStyle
 lazy from rebrew.metadata.storage import metadata_store, metadata_write_lock
 lazy from rebrew.utils import (
@@ -2930,6 +2935,7 @@ __all__ = [
     "ConfigNotFoundError",
     "ConfigWarning",
     "LinkConfig",
+    "RebrewError",
     "ProjectConfig",
     "arch_byte_order",
     "arch_is_big_endian",

@@ -655,7 +655,14 @@ class TestRecompileClientFlagsFlexibility:
         captured: dict[str, object] = {}
 
         class FakeClient:
-            def post(self, url: str, *, json: object = None) -> object:
+            def post(
+                self,
+                url: str,
+                *,
+                json: object = None,
+                headers: object = None,
+                follow_redirects: bool = False,
+            ) -> object:
                 captured["url"] = url
                 captured["json"] = json
                 return SimpleNamespace(
@@ -664,7 +671,13 @@ class TestRecompileClientFlagsFlexibility:
                     close=lambda: None,
                 )
 
-            def get(self, url: str) -> object:
+            def get(
+                self,
+                url: str,
+                *,
+                headers: object = None,
+                follow_redirects: bool = False,
+            ) -> object:
                 return SimpleNamespace(status_code=200, content=b"", text="", close=lambda: None)
 
         res = compile_source(

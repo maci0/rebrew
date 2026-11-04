@@ -15,6 +15,7 @@
 - **Breaking:** `rebrew.match.run` and the `flags`/`toolchains` commands in `rebrew.match` now spell their shared Typer options through the module-level `ClOption`/`IncOption`/`CflagsOption`/`SymbolOption`/`VaOption`/`SizeOption`/`JobsOption` aliases instead of inline `typer.Option(...)` calls; the CLI flags, defaults, help, and panels are unchanged, so only code that introspects the function default objects sees a difference.
 - **Breaking:** `rebrew.theme.TOKENS` (re-exported through `rebrew.depgraph.TOKENS` and `rebrew.status_style.TOKENS`) now spells `sans` as the mono stack instead of the system sans stack. Consumers that read `TOKENS["sans"]` for body text get the mono stack.
 - **Breaking:** `rebrew.workspace.va.parse_va_candidates` rejects spellings containing `_` and `rebrew.disassemble_bytes` raises `ValueError` on an unsupported `arch` instead of returning empty results; both previously silently accepted or dropped the input.
+- **Breaking:** `rebrew.config.RebrewError` is restored as a re-export of `rebrew.errors.RebrewError` (ConfigError and friends moved to `rebrew.errors`); import `RebrewError` from `rebrew.errors`.
 
 ### Fixed
 

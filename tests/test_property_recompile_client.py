@@ -188,13 +188,21 @@ class _Client:
             return scripted.pop(0)
         return scripted[0]
 
-    def post(self, url: str, json: Any = None) -> Any:
+    def post(
+        self,
+        url: str,
+        json: Any = None,
+        headers: Any = None,
+        follow_redirects: bool = False,
+    ) -> Any:
         self.calls.append("post")
         if isinstance(self._post, Exception):
             raise self._post
         return self._next(self._post)
 
-    def get(self, url: str) -> Any:
+    def get(
+        self, url: str, headers: Any = None, follow_redirects: bool = False
+    ) -> Any:
         self.calls.append("get")
         if isinstance(self._get, Exception):
             raise self._get
