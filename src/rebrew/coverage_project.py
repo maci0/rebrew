@@ -7,6 +7,7 @@ Unchanged inputs reuse the same view; a failed target does not hide healthy ones
 
 from __future__ import annotations
 
+import logging
 import threading
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -37,6 +38,8 @@ lazy from rebrew.verify_cache import CACHE_FILENAME, cache_path_for
 lazy from rebrew.workspace import read_config, targets_table
 
 __all__ = ["ProjectCoverageError", "ProjectCoverageView", "load_project_coverage"]
+
+log = logging.getLogger(__name__)
 
 
 class ProjectCoverageError(RebrewError):
@@ -135,6 +138,7 @@ def _configs(root: Path) -> tuple[dict[str, ProjectConfig], dict[str, str]]:
             configs[target] = load_config(root, target=target)
         except (OSError, ValueError, KeyError, TypeError, RebrewError) as exc:
             failures[target] = str(exc)
+            log.warning("coverage_project: target %s failed to load config: %s", target, exc)
     return configs, failures
 
 
@@ -234,10 +238,17 @@ def load_project_coverage(root: Path, *, refresh: bool = False) -> ProjectCovera
                 failures.pop(target, None)
                 changed = True
             except (OSError, ValueError, KeyError, TypeError, RebrewError) as exc:
-                if target in state.targets or failures.get(target) != str(exc):
+                is_new_failure = target in state.targets or failures.get(target) != str(exc)
+                if is_new_failure:
                     changed = True
                 state.targets.pop(target, None)
                 failures[target] = str(exc)
+                # Log on transition only: a broken target is retried every
+                # poll, and the wire payload withholds the reason on a
+                # non-loopback bind ("inspect the server log"), so the log
+                # must carry the detail — but not at poll rate.
+                if is_new_failure:
+                    log.warning("coverage_project: target %s failed: %s", target, exc)
         # A shared input can change after an earlier target finished. Validate
         # the complete project frame before publishing any successful target.
         if changed:
@@ -249,6 +260,8 @@ def load_project_coverage(root: Path, *, refresh: bool = False) -> ProjectCovera
                     reason = f"{target}: inputs changed while project coverage was being read"
                 except (OSError, ValueError, KeyError, TypeError, RebrewError) as exc:
                     reason = str(exc)
+                if target not in failures or failures[target] != reason:
+                    log.warning("coverage_project: target %s failed: %s", target, reason)
                 state.targets.pop(target)
                 failures[target] = reason
                 changed = True
