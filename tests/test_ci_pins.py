@@ -252,10 +252,12 @@ class TestCiPins:
                         if step.get("name") == "Check the jobs service"
                     )
                     assert check["working-directory"] == "services/jobs"
+                    assert check["env"] == {"CGO_ENABLED": "0"}
                     assert all(
                         command in check["run"]
                         for command in ("gofmt -l .", "go vet ./...", "go test -race ./...")
                     )
+                    assert "go build -trimpath" in check["run"]
                 else:
                     assert UV_ENV_USES in uses, f"{path.name}:{name} does not use {UV_ENV_USES}"
 

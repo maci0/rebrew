@@ -88,10 +88,13 @@ jobs:
             go-${{ runner.os }}-
       - name: Check the jobs service
         working-directory: services/jobs
+        env:
+          CGO_ENABLED: "0"
         run: |
           set -euo pipefail
           test -z "$(gofmt -l .)"
           go vet ./...
+          go build -trimpath -ldflags=-buildid= ./...
           go test -race ./...
 
   lint:
