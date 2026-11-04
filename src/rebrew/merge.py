@@ -932,12 +932,24 @@ def _stop_before_write(
 
 
 def _rollback_output(output_path: Path, previous: bytes | None) -> None:
-    if previous is None:
-        output_path.unlink(missing_ok=True)
-    else:
-        # Restore atomically so a concurrent reader never sees a half-written
-        # merge output and a crash cannot truncate the previous file.
-        atomic_write_bytes(output_path, previous)
+    """Restore *output_path* to *previous*, logging but never raising.
+
+    A rollback failure must not mask the original error, so OSError is
+    swallowed after a warning; callers still report the original failure.
+    """
+    import logging
+
+    try:
+        if previous is None:
+            output_path.unlink(missing_ok=True)
+        else:
+            # Restore atomically so a concurrent reader never sees a half-written
+            # merge output and a crash cannot truncate the previous file.
+            atomic_write_bytes(output_path, previous)
+    except OSError as exc:
+        logging.getLogger(__name__).warning(
+            "merge: could not restore %s after failure: %s", output_path, exc
+        )
 
 
 def _retarget_rows(
@@ -996,10 +1008,10 @@ def _undo_retarget(
             _retarget_data_rows(meta, data_rows, new_file=None)
         if functions_done:
             _retarget_rows(meta, function_rows, new_file=None)
-    except Exception:
+    except Exception as undo_exc:
         error_exit(
             f"Merge did not finish ({exc}). The output was restored "
-            "and the row retarget could not be undone.",
+            f"and the row retarget could not be undone ({undo_exc}).",
             json_mode=json_output,
         )
     error_exit(

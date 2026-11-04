@@ -784,15 +784,26 @@ def _split_definitions(
             ]
             record_function_rows(meta, identity_rows)
         except Exception as exc:
+            import logging
+
             if bak_created:
                 bak_path.unlink(missing_ok=True)
             # Restore atomically: the source is read by other commands while
             # this runs, and a crash mid-restore must not leave it truncated.
-            atomic_write_bytes(source_path, source_bytes)
+            # A restore failure must not mask the original error, and the
+            # created outputs must still be cleaned up.
+            restore_exc: Exception | None = None
+            try:
+                atomic_write_bytes(source_path, source_bytes)
+            except OSError as restore_exc:
+                logging.getLogger(__name__).warning(
+                    "split: could not restore %s after failure: %s", source_path, restore_exc
+                )
             for path in created:
                 path.unlink(missing_ok=True)
+            detail = f" ({restore_exc})" if restore_exc is not None else ""
             error_exit(
-                f"Split did not finish ({exc}). The source was restored.",
+                f"Split did not finish ({exc}). The source was restored{detail}.",
                 json_mode=json_output,
             )
 
