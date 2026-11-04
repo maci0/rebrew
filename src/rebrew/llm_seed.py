@@ -1107,7 +1107,17 @@ def _claim_seed_request(key: str) -> bool:
     :func:`_cached_seeds`; when a leader produced nothing (a refusal, an
     outage, a budget stop) the next waiter takes over instead of inheriting an
     empty answer that was never cacheable.
+
+    The wait carries the same budget as the leader's HTTP request plus
+    headroom: an unbounded ``event.wait()`` leaks a waiter thread per
+    in-flight key for the life of the process if the leader never finishes
+    (hung socket read the per-chunk timeout does not bound, a deadlocked
+    pool checkout).  On timeout the waiter returns False and the outer
+    loop re-checks the cache / retries as a new leader, so a stuck leader
+    degrades to a duplicate paid request rather than a permanently parked
+    thread.
     """
+    deadline = time.monotonic() + _request_timeout() * 2 + 30.0
     while True:
         with _cache_lock:
             if key in _seed_cache:
@@ -1116,7 +1126,10 @@ def _claim_seed_request(key: str) -> bool:
             if event is None:
                 _seed_inflight[key] = threading.Event()
                 return True
-        event.wait()
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        event.wait(timeout=remaining)
 
 
 def _finish_seed_request(key: str) -> None:

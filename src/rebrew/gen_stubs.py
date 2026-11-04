@@ -1457,6 +1457,12 @@ def _update_selected_stubs(
     return raw.decode("utf-8", errors="surrogateescape"), changes
 
 
+#: Bound on linker output read from stdin: an unbounded ``read()`` lets a
+#: misbehaving build command exhaust memory; the parse only needs the
+#: unresolved-symbol lines, and oversize input is refused like ops requests.
+_MAX_LINKER_OUTPUT_BYTES = 64 << 20
+
+
 @app.callback(invoke_without_command=True)
 def main(
     output: Path = typer.Option(
@@ -1579,7 +1585,13 @@ def main(
     elif log is not None:
         linker_output = log.read_text(encoding="utf-8", errors="replace")
     else:
-        linker_output = sys.stdin.buffer.read().decode("utf-8", errors="replace")
+        linker_output = sys.stdin.buffer.read(_MAX_LINKER_OUTPUT_BYTES + 1)
+        if len(linker_output) > _MAX_LINKER_OUTPUT_BYTES:
+            error_exit(
+                f"linker output exceeds {_MAX_LINKER_OUTPUT_BYTES} bytes",
+                json_mode=json_output,
+            )
+        linker_output = linker_output.decode("utf-8", errors="replace")
     unresolved = parse_unresolved_symbols(linker_output)
     if not unresolved:
         error_exit(

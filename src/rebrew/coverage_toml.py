@@ -1423,6 +1423,11 @@ _ALL_CACHE: (
 #: target tree.  Waiters block on the leader's event and then take the
 #: published snapshots, so one scan serves the burst.
 _ALL_INFLIGHT: dict[tuple[Path, tuple[tuple[str, int, int, int, int], ...]], threading.Event] = {}
+#: Bound on a singleflight wait in :func:`load_all_coverage_from`.  A directory
+#: scan is fast and local; waiting without a deadline parks a dashboard
+#: request thread forever if the leader thread dies before setting its
+#: event.  On timeout the waiter loops and may become the next leader.
+_ALL_WAIT_TIMEOUT_S = 30.0
 
 
 def _stat_key(db_directory: Path) -> tuple[tuple[str, int, int, int, int], ...]:
@@ -1511,8 +1516,10 @@ def load_all_coverage_from(db_directory: Path) -> dict[str, CoverageSnapshot]:
                 break
         # Another caller owns this scan.  Wait for it, then re-check the
         # cache: the directory may have changed meanwhile, in which case this
-        # caller computes a fresh key and starts the next scan.
-        event.wait()
+        # caller computes a fresh key and starts the next scan.  The wait is
+        # bounded so a leader that dies before setting its event cannot park
+        # a request thread forever.
+        event.wait(timeout=_ALL_WAIT_TIMEOUT_S)
 
     snapshots: dict[str, CoverageSnapshot] = {}
     try:
