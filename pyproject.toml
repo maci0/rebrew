@@ -244,13 +244,13 @@ resembl = { path = "../resembl" }
 
 [dependency-groups]
 dev = [
-    "mypy>=2.4.1,<3",
+    "mypy>=2.4.1,<2.5",
     "pytest>=9.2.0,<10",  # CVE-2025-71176 (tmpdir) fixed in 9.0.3; floor tracks lock
     "slipcover>=1.1.0,<2",
     "ruff>=0.17.3,<1",  # floor tracks lock; older minors shipped years-old lint rulesets
     "pre-commit>=4.7.0,<5",
     "hypothesis>=6.170.14,<7",
-    "skills-ref>=0.1.1,<1",  # the pre-commit "Validate Agent Skills" hook binary
+    "skills-ref>=0.1.1,<0.2",  # the pre-commit "Validate Agent Skills" hook binary
     "pyyaml>=6.0.3,<7",  # direct import in tests/test_ci_pins.py; was only reachable via pre-commit
     "pytest-xdist>=3.8.0,<4",  # full-suite workers; tests/pytest_ansi_env.py injects -n auto
 ]
