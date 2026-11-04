@@ -14,6 +14,7 @@ selected this member: identical bodies and masked wrappers can overlap.
 
 from __future__ import annotations
 
+from operator import eq as _eq
 lazy from pathlib import Path
 lazy from typing import Any
 
@@ -69,7 +70,7 @@ def locate_body(
     text: bytes, body: bytes, relocs: set[int], min_fixed: int = PRESENT_MIN_FIXED
 ) -> dict[str, Any] | None:
     """Best masked match of *body* in *text*: located offset and fixed-byte ratio."""
-    total = sum(1 for i in range(len(body)) if i not in relocs)
+    total = len(body) - sum(1 for i in relocs if 0 <= i < len(body))
     if total < min_fixed or len(body) < 8:
         return None
     anchor = _anchor(body, relocs)
@@ -82,7 +83,9 @@ def locate_body(
         base = pos - start
         if base >= 0 and base + len(body) <= len(text):
             window_ref = text[base : base + len(body)]
-            same = sum(1 for i in range(len(body)) if i not in relocs and window_ref[i] == body[i])
+            same = sum(
+                map(_eq, window_ref, body, strict=False)
+            ) - sum(1 for i in relocs if 0 <= i < len(body) and window_ref[i] == body[i])
             ratio = same / total
             if best is None or same > best["fixed_matched"]:
                 best = {
@@ -135,7 +138,7 @@ def audit_object(
     for symbol, body, relocs in symbols:
         if not body:
             continue
-        fixed_total = sum(1 for i in range(len(body)) if i not in relocs)
+        fixed_total = len(body) - sum(1 for i in relocs if 0 <= i < len(body))
         tested = fixed_total >= min_fixed and len(body) >= 8
         best = locate_body(text, body, relocs, min_fixed) if tested else None
         verdict = classify(best, tested, min_ratio, min_fixed)

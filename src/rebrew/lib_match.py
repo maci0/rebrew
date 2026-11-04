@@ -152,9 +152,11 @@ def match_bytes(index: Index, data: bytes) -> list[tuple[str, str]]:
             # Only reloc offsets inside the compared window mask a byte here;
             # relocs past len(data) (a longer library body) must not make the
             # mostly-relocation guard stricter than the comparison itself.
-            if not all(i in relocs or data[i] == body[i] for i in range(len(data))):
+            if not (relocs and min(relocs) >= 0 and max(relocs) < len(data)) and not all(
+                i in relocs or data[i] == body[i] for i in range(len(data))
+            ):
                 continue
-            fixed_count = len(data) - sum(0 <= i < len(data) for i in relocs)
+            fixed_count = len(data) - sum(1 for i in relocs if 0 <= i < len(data))
             if fixed_count < MIN_FIXED_FRACTION * len(data):
                 continue  # a mostly-relocation table trivially matches anything
             candidate = (sym, obj_name)
@@ -201,9 +203,9 @@ def match_leading_body(index: Index, data: bytes) -> list[tuple[str, str]]:
             if n < MIN_BYTES or n > len(data) or n < best_size:
                 continue
             if relocs:
-                if not all(i in relocs or data[i] == body[i] for i in range(n)):
+                if (min(relocs) < 0 or max(relocs) >= n) and not all(i in relocs or data[i] == body[i] for i in range(n)):
                     continue
-                matched = n - sum(0 <= i < n for i in relocs) >= MIN_FIXED_FRACTION * n
+                matched = n - sum(1 for i in relocs if 0 <= i < n) >= MIN_FIXED_FRACTION * n
             else:
                 matched = body == data[:n]
             if matched:
@@ -295,7 +297,7 @@ def resolve_native_callees(
                         for obj, code, masks in index.get(callee, [])
                         if len(code) >= MIN_BYTES
                         and " -> " not in obj
-                        and sum(i not in masks for i in range(len(code)))
+                        and len(code) - sum(1 for i in masks if 0 <= i < len(code))
                         >= MIN_FIXED_FRACTION * len(code)
                     ]
                     if eligible and destination != va and callee != symbol:
