@@ -47,6 +47,7 @@ lazy import binascii
 lazy import dataclasses
 lazy import hashlib
 lazy import hmac
+lazy import itertools
 lazy import json
 lazy import os
 lazy import re
@@ -56,6 +57,7 @@ lazy import subprocess
 lazy import sys
 lazy import tempfile
 lazy import threading
+lazy import time
 lazy import typing
 lazy from collections.abc import Callable, Iterable, Iterator, Mapping
 lazy from typing import Any
@@ -68,6 +70,100 @@ from rebrew.errors import RebrewError
 lazy from rebrew.cli import EXIT_ERROR, console, error_exit
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Request correlation
+# ---------------------------------------------------------------------------
+
+_REQUEST_IDS = itertools.count(1)
+_REQUEST_LOCAL = threading.local()
+
+
+def _stamp_request(request_id: str, op: str) -> None:
+    """Record the correlation id and op for the current thread."""
+    _REQUEST_LOCAL.request_id = request_id
+    _REQUEST_LOCAL.op = op
+
+
+def _request_id() -> str:
+    return getattr(_REQUEST_LOCAL, "request_id", "-")
+
+
+def _request_op() -> str:
+    return getattr(_REQUEST_LOCAL, "op", "-")
+
+
+class _CorrelatedFormatter(logging.Formatter):
+    """Prefix every record in a request with its correlation id."""
+
+    @override
+    def format(self, record: logging.LogRecord) -> str:
+        line = super().format(record)
+        rid = _request_id()
+        return line if rid == "-" else f"{rid} {line}"
+
+
+def _attach_ops_log_handler() -> Callable[[], None]:
+    """Send this module's and the package's ERROR/WARNING lines to stderr with correlation.
+
+    Without this, ``logging`` falls back to ``lastResort``: bare messages with
+    no timestamp and no request id, interleaved with the access lines.  The
+    formatter gives every line the same stamp and the correlation prefix so the
+    whole stream is greppable by request id.
+
+    Returns a disposer that restores prior handlers/propagation.
+    """
+    handler = logging.StreamHandler(sys.stderr)
+    handler_formatter = _CorrelatedFormatter(
+        "%(asctime)s %(levelname)-8s %(name)s: %(message)s", "%Y-%m-%d %H:%M:%S UTC"
+    )
+    handler_formatter.converter = time.gmtime
+    handler.setFormatter(handler_formatter)
+    handler.set_name("rebrew-ops")
+
+    package_log = logging.getLogger("rebrew")
+    package_handler = logging.StreamHandler(sys.stderr)
+    package_handler.setFormatter(handler_formatter)
+    package_handler.set_name("rebrew-ops-package")
+
+    module_replaced = [h for h in logger.handlers if h.get_name() == handler.get_name()]
+    package_replaced = [h for h in package_log.handlers if h.get_name() == package_handler.get_name()]
+    module_prev_level = logger.level
+    module_prev_propagate = logger.propagate
+    package_prev_propagate = package_log.propagate
+
+    disposed = False
+
+    def restore() -> None:
+        nonlocal disposed
+        if disposed:
+            return
+        disposed = True
+        logger.removeHandler(handler)
+        for h in module_replaced:
+            logger.addHandler(h)
+        logger.setLevel(module_prev_level)
+        logger.propagate = module_prev_propagate
+        package_log.removeHandler(package_handler)
+        for h in package_replaced:
+            package_log.addHandler(h)
+        package_log.propagate = package_prev_propagate
+
+    try:
+        for h in module_replaced:
+            logger.removeHandler(h)
+        logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
+        logger.propagate = False
+        for h in package_replaced:
+            package_log.removeHandler(h)
+        package_log.addHandler(package_handler)
+        package_log.propagate = False
+    except BaseException:
+        restore()
+        raise
+    return restore
+
 
 # ---------------------------------------------------------------------------
 # Limits and wire constants
@@ -1938,21 +2034,28 @@ def _answer(config: WorkerConfig, name: str, body: bytes) -> Mapping[str, Any]:
     except typer.Exit as exc:
         raise _refused(f"rebrew refused {name} (exit {exc.exit_code})") from None
     except Exception:  # the engine is a trust boundary: log the cause, answer a fixed detail
-        logger.exception("%s failed", name)
+        logger.exception("%s %s failed", _request_id(), name)
         raise _refused(f"{name} failed; the worker log has the cause") from None
 
 
 def dispatch(config: WorkerConfig, name: str, body: bytes) -> tuple[int, bytes]:
     """Answer one call: ``(200, reply)`` or ``(status, refusal)``."""
+    started = time.perf_counter()
+    rid = _request_id()
     try:
         reply = json.dumps(_answer(config, name, body), allow_nan=False).encode()
     except OpsError as exc:
+        elapsed_ms = (time.perf_counter() - started) * 1000.0
+        if exc.status >= 500:
+            logger.error("%s %s failed status=%d duration_ms=%.1f", rid, name, exc.status, elapsed_ms)
         return exc.status, error_body(exc.code, str(exc), exc.status)
     except TypeError, ValueError:
-        logger.exception("%s produced a reply that is not JSON", name)
+        logger.exception("%s %s produced a reply that is not JSON", rid, name)
         return 500, error_body(ENGINE_ERROR, f"{name} produced a reply that is not JSON", 500)
     if len(reply) > MAX_REPLY_BYTES:
         return 500, error_body(ENGINE_ERROR, f"reply exceeds {MAX_REPLY_BYTES} bytes", 500)
+    elapsed_ms = (time.perf_counter() - started) * 1000.0
+    logger.info("%s %s ok status=200 duration_ms=%.1f", rid, name, elapsed_ms)
     return 200, reply
 
 
@@ -2019,6 +2122,35 @@ class OpsServer(ThreadingHTTPServer):
 
 class _OpsHandler(BaseHTTPRequestHandler):
     timeout: typing.ClassVar[float | None] = SOCKET_TIMEOUT_SECONDS
+    #: Correlation id stamped per request; ``"-"`` until the first one is parsed.
+    _request_id: str = "-"
+    _request_started: float = 0.0
+
+    @override
+    def handle_one_request(self) -> None:  # (http.server API)
+        self._request_started = time.perf_counter()
+        self._request_id = f"r{next(_REQUEST_IDS)}"
+        _stamp_request(self._request_id, "-")
+        super().handle_one_request()
+
+    @override
+    def log_message(self, fmt: str, *args: Any) -> None:  # quiet default logging
+        # One access line per request: id, method, path, status, duration.
+        # The path is the op name (trusted wire name); the client address is
+        # the peer, not user input. This replaces BaseHTTPRequestHandler's
+        # default which writes to stderr without a stamp or correlation id.
+        elapsed_ms = (time.perf_counter() - self._request_started) * 1000.0 if self._request_started else 0.0
+        logger.info(
+            "%s %s %s duration_ms=%.1f",
+            self._request_id,
+            self.command,
+            self.path.split("?")[0],
+            elapsed_ms,
+        )
+
+    @override
+    def log_error(self, format: str, *args: Any) -> None:  # (http.server API)
+        logger.warning("%s %s", self._request_id, format % args)
 
     @override
     def send_response(self, code: int, message: str | None = None) -> None:
@@ -2067,15 +2199,22 @@ class _OpsHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # (http.server API)
         server = typing.cast("OpsServer", self.server)
         if self.headers.get("Host", "").strip().lower() not in server.allowed_hosts:
+            logger.warning(
+                "%s rejected Host %r",
+                self._request_id,
+                self.headers.get("Host", ""),
+            )
             self._refuse(
                 "host-not-allowed", "request Host not allowed (wrong or missing Host header)", 403
             )
             return
         given = self.headers.get("Authorization", "").encode()
         if not hmac.compare_digest(given, f"Bearer {server.token}".encode()):
+            logger.warning("%s unauthorized request to %s", self._request_id, self.path)
             self._refuse("unauthorized", "a valid bearer token is required", 401)
             return
         if not server.slots.acquire(blocking=False):
+            logger.warning("%s worker busy, 503 for %s", self._request_id, self.path)
             body = error_body(WORKER_BUSY, "every worker slot is busy; retry later", 503)
             self._send(503, body, {"Retry-After": str(BUSY_RETRY_AFTER_SECONDS)})
             return
@@ -2094,7 +2233,10 @@ class _OpsHandler(BaseHTTPRequestHandler):
             self._refuse(INVALID_REQUEST, f"request exceeds {MAX_REQUEST_BYTES} bytes", 413)
             return
         body = self.rfile.read(length)
-        self._send(*dispatch(server.config, urlsplit(self.path).path.removeprefix("/"), body))
+        op_name = urlsplit(self.path).path.removeprefix("/")
+        _stamp_request(self._request_id, op_name)
+        status, reply = dispatch(server.config, op_name, body)
+        self._send(status, reply)
 
     def _not_post(self) -> None:
         server = typing.cast("OpsServer", self.server)
@@ -2167,6 +2309,7 @@ def call_command(
     )
     body = sys.stdin.buffer.read(MAX_REQUEST_BYTES + 1)
     # stdout carries only the reply; anything rebrew prints goes to stderr.
+    _stamp_request(f"r{next(_REQUEST_IDS)}", op)
     with contextlib.redirect_stdout(sys.stderr):
         status, reply = dispatch(config, op, body)
     sys.stdout.buffer.write(reply + b"\n")
@@ -2220,6 +2363,7 @@ def serve_command(
         max_download_bytes,
     )
     server = OpsServer((host, port), config, token, concurrency)
+    dispose = _attach_ops_log_handler()
     if host not in ("127.0.0.1", "localhost", "::1"):
         console.print(
             f"serving rebrew ops on http://{host}:{server.server_port} (non-loopback bind: bearer auth required)"
@@ -2228,6 +2372,7 @@ def serve_command(
     try:
         server.serve_forever()
     finally:
+        dispose()
         server.server_close()
 
 
