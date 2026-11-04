@@ -957,6 +957,68 @@ class TestStatusLegend:
         assert status_legend_rows({"NOPE"}) == []
         assert status_legend_rows({"LIBRARY", "LIVE"}) == []
 
+    def test_mark_groups_cover_every_hex_status_except_dispatch(self) -> None:
+        from rebrew.status_style import status_mark_groups
+
+        groups = status_mark_groups()
+        grouped = [status for statuses, _ in groups for status in statuses]
+        assert sorted(grouped) == sorted(set(STATUS_HEX) - {"DISPATCH"})
+        assert len(grouped) == len(set(grouped)), "a status in two groups would get two colours"
+        for statuses, color in groups:
+            for status in statuses:
+                assert STATUS_HEX[status] == color
+        assert len({color for _, color in groups}) == len(groups)
+
+    def test_mark_groups_collapse_the_error_red_family(self) -> None:
+        from rebrew.status_style import status_mark_groups
+
+        error_group = next(
+            statuses
+            for statuses, color in status_mark_groups()
+            if color == STATUS_HEX["SIZE_MISMATCH"]
+        )
+        assert set(error_group) == {
+            "SIZE_MISMATCH",
+            "COMPILE_ERROR",
+            "EXTRACT_ERROR",
+            "MISSING_FILE",
+            "MISSING_SIZE",
+            "INVALID_VA",
+            "INTERNAL_ERROR",
+        }
+
+    def test_text_css_one_rule_per_group_with_unknown_unbolded(self) -> None:
+        from rebrew.status_style import status_mark_groups, status_text_css
+
+        css = status_text_css()
+        lines = css.splitlines()
+        assert len(lines) == len(status_mark_groups())
+        for line in lines:
+            assert line.startswith(".status-")
+            assert " { color: " in line
+        unknown = next(line for line in lines if ".status-UNKNOWN" in line)
+        assert "font-weight" not in unknown
+        assert all("font-weight: 600;" in line for line in lines if ".status-UNKNOWN" not in line)
+        error_line = next(line for line in lines if ".status-SIZE_MISMATCH" in line)
+        for status in (
+            "COMPILE_ERROR",
+            "EXTRACT_ERROR",
+            "MISSING_FILE",
+            "MISSING_SIZE",
+            "INVALID_VA",
+            "INTERNAL_ERROR",
+        ):
+            assert f".status-{status}" in error_line
+        assert "DISPATCH" not in css
+
+    def test_text_css_indent_prefixes_every_rule(self) -> None:
+        from rebrew.status_style import status_text_css
+
+        indented = status_text_css("  ")
+        plain = status_text_css()
+        assert indented.splitlines() == [f"  {line}" for line in plain.splitlines()]
+        assert all(line.startswith("  ") for line in indented.splitlines())
+
     def test_legend_explains_every_status_the_page_shows(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

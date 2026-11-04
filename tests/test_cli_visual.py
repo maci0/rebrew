@@ -12,7 +12,7 @@ from io import StringIO
 import pytest
 from rich.console import Console
 
-from rebrew.present import BAR_WIDTH, bar_plain, filled_cells
+from rebrew.present import BAR_WIDTH, bar_plain, count_column, filled_cells, ratio_bar
 
 
 def _console(monkeypatch: pytest.MonkeyPatch, module: object) -> StringIO:
@@ -51,6 +51,69 @@ def test_large_magnitudes_do_not_overflow_before_division() -> None:
     assert filled_cells(1e308, 1.1e308) == 36
     assert filled_cells(5e307, 1e308) == 20
     assert filled_cells(1.7e308, 1.7e308) == BAR_WIDTH
+
+
+def test_filled_cells_clamps_over_full_ratio() -> None:
+    assert filled_cells(20, 10) == BAR_WIDTH
+    assert bar_plain(20, 10) == "█" * BAR_WIDTH
+
+
+def test_filled_cells_rejects_negative_and_zero_whole() -> None:
+    assert filled_cells(-5, 10) == 0
+    assert filled_cells(5, -10) == 0
+    assert filled_cells(5, 0) == 0
+    assert bar_plain(5, 0) == "░" * BAR_WIDTH
+
+
+def test_filled_cells_rejects_non_finite_inputs() -> None:
+    inf = float("inf")
+    nan = float("nan")
+    assert filled_cells(inf, 10) == 0
+    assert filled_cells(nan, 10) == 0
+    assert filled_cells(5, inf) == 0
+    assert filled_cells(5, nan) == 0
+    assert filled_cells(inf, inf) == 0
+
+
+def test_filled_cells_tiny_positive_share_gets_one_cell() -> None:
+    assert filled_cells(0.001, 10) == 1
+    assert bar_plain(0.001, 10) == "█" + "░" * (BAR_WIDTH - 1)
+
+
+def test_filled_cells_custom_width() -> None:
+    assert filled_cells(1, 2, width=10) == 5
+    assert bar_plain(1, 2, width=10) == "█" * 5 + "░" * 5
+    assert filled_cells(0, 10, width=10) == 0
+    assert bar_plain(0, 10, width=10) == "░" * 10
+
+
+def test_ratio_bar_spans_match_filled_cells() -> None:
+    bar = ratio_bar(1, 2)
+    assert str(bar) == bar_plain(1, 2)
+    assert [(s.start, s.end, s.style) for s in bar.spans] == [(0, 20, "green"), (20, 40, "dim")]
+
+
+def test_ratio_bar_full_and_empty() -> None:
+    full = ratio_bar(10, 10)
+    assert str(full) == "█" * BAR_WIDTH
+    assert [(s.start, s.end, s.style) for s in full.spans] == [(0, BAR_WIDTH, "green")]
+    empty = ratio_bar(0, 10)
+    assert str(empty) == "░" * BAR_WIDTH
+    assert [(s.start, s.end, s.style) for s in empty.spans] == [(0, BAR_WIDTH, "dim")]
+
+
+def test_count_column_is_fixed_width_right_aligned() -> None:
+    from rich.table import Table
+
+    table = Table()
+    count_column(table, "Count", width=12)
+    cols = list(table.columns)
+    assert len(cols) == 1
+    col = cols[0]
+    assert col.justify == "right"
+    assert col.width == 12
+    assert col.no_wrap is True
+    assert col.overflow == "ellipsis"
 
 
 def test_status_explains_unverified_data(monkeypatch: pytest.MonkeyPatch) -> None:
