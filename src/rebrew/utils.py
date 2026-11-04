@@ -1098,7 +1098,7 @@ def library_header_name(module: str) -> str:
     headers as soon as the stem is not ASCII, and a ``../`` stem escapes the
     reversed dir.
     """
-    return f"library_{filename_component(module.lower())}.h"
+    return f"library_{filename_component(module.casefold())}.h"
 
 
 def _set_mode_quietly(filepath: Path, mode: int) -> None:

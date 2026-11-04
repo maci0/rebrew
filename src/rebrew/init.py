@@ -51,7 +51,7 @@ if TYPE_CHECKING:
     from rebrew.toolchain_detect import ToolchainInfo
 lazy from rebrew.cli import console
 lazy from rebrew.compiler.toolchain import toolchain_link_candidates
-lazy from rebrew.utils import ascii_slug, atomic_write_text, read_json_text
+lazy from rebrew.utils import ascii_slug, atomic_write_text, read_json_text, read_toml_text
 lazy from rebrew.workspace.config import target_module
 
 logger = logging.getLogger(__name__)
@@ -84,7 +84,7 @@ def _agents_project_tail(path: Path) -> str:
     """Return the project-owned tail of an existing AGENTS.md, marker included."""
     if not path.is_file():
         return ""
-    text = path.read_text(encoding="utf-8")
+    text = path.read_text(encoding="utf-8-sig")
     at = text.find(AGENTS_PROJECT_MARKER)
     return text[at:] if at >= 0 else ""
 
@@ -867,7 +867,7 @@ def _refresh_agents(
 
     if not toml_path.exists():
         error_exit(f"no rebrew-project.toml in {cwd}", json_mode=json_output)
-    data = tomllib.loads(toml_path.read_text(encoding="utf-8-sig"))
+    data = tomllib.loads(read_toml_text(toml_path))
     targets = data.get("targets", {})
     if not targets:
         error_exit("rebrew-project.toml declares no [targets]", json_mode=json_output)

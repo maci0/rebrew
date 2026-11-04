@@ -58,7 +58,7 @@ lazy from rebrew.coverage_db import (
 )
 lazy from rebrew.metadata.bindings import FUNCTION_KINDS, SYMBOL_KINDS
 lazy from rebrew.metadata.functions import canonical_status
-lazy from rebrew.utils import atomic_write_text, clip_span, file_lock, floor_pct, toml_safe
+lazy from rebrew.utils import atomic_write_text, clip_span, file_lock, floor_pct, read_toml_text, toml_safe
 lazy from rebrew.workspace.status import MATCHED_STATUSES
 
 log = logging.getLogger(__name__)
@@ -603,7 +603,7 @@ def _read_previous(path: Path) -> dict[str, Any]:
     the one that went through a file.
     """
     try:
-        return tomllib.loads(path.read_text(encoding="utf-8"))
+        return tomllib.loads(read_toml_text(path))
     except FileNotFoundError:
         return {}
     except (OSError, ValueError) as exc:
@@ -1365,7 +1365,7 @@ def _read_document(path: Path, target: str) -> CoverageSnapshot:
     all four is the same: this target is not readable, show the others.
     """
     try:
-        text = path.read_text(encoding="utf-8")
+        text = read_toml_text(path)
     except (OSError, UnicodeError) as exc:
         raise CoverageTomlError(f"{path}: cannot read ({exc})") from exc
     try:

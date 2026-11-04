@@ -148,8 +148,10 @@ def ownership_inputs(cfg: ProjectConfig) -> set[Path]:
         commands = cfg.raw_link.parent / "compile_commands.json"
         paths.add(commands)
         if commands.is_file():
+            from rebrew.utils import read_json_text
+
             try:
-                rows = json.loads(commands.read_text(encoding="utf-8"))
+                rows = json.loads(read_json_text(commands))
                 for row in rows:
                     source = Path(row["file"])
                     paths.add(source if source.is_absolute() else Path(row["directory"]) / source)
@@ -316,8 +318,10 @@ def enrich_library_owners(
     source_objects: dict[str, set[Path]] = {}
     compilation_db = link_map.parent / "compile_commands.json"
     if compilation_db.is_file():
+        from rebrew.utils import read_json_text
+
         try:
-            commands = json.loads(compilation_db.read_text(encoding="utf-8"))
+            commands = json.loads(read_json_text(compilation_db))
             for command in commands:
                 source = Path(command["file"])
                 if not source.is_absolute():

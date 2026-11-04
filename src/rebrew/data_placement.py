@@ -144,9 +144,11 @@ def private_data_symbols(cfg: ProjectConfig, built: Path, map_path: Path) -> dic
         for name, va in coff_data_symbols(body, unique, read).items():
             values[name].add(va)
 
+    from rebrew.utils import read_json_text
+
     commands = map_path.parent / "compile_commands.json"
     if commands.is_file():
-        for command in json.loads(commands.read_text(encoding="utf-8")):
+        for command in json.loads(read_json_text(commands)):
             output = command.get("output")
             if not output:
                 continue
