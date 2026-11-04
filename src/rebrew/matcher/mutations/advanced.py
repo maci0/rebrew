@@ -27,6 +27,7 @@ from rebrew.matcher.mutations.queries import (
     LazyQuery,
 )
 lazy from rebrew.matcher.mutations.runtime import (
+    cap1,
     capture,
     find_function_body_insert_pos,
     first_caps,
@@ -48,21 +49,15 @@ def _bin_cond_if_ops(b_source: bytes, op: bytes) -> list[tuple[Any, Any, Any, An
 
     valid_ifs: list[tuple[Any, Any, Any, Any]] = []
     for match in matches:
-        stmt = capture(match, "stmt")
-        if isinstance(stmt, list):
-            stmt = stmt[0]
+        stmt = cap1(match, "stmt")
         if not stmt:
             continue
 
         if stmt.child_by_field_name("alternative"):
             continue
 
-        left = capture(match, "left")
-        if isinstance(left, list):
-            left = left[0]
-        right = capture(match, "right")
-        if isinstance(right, list):
-            right = right[0]
+        left = cap1(match, "left")
+        right = cap1(match, "right")
 
         if not left or not right:
             continue
@@ -70,9 +65,7 @@ def _bin_cond_if_ops(b_source: bytes, op: bytes) -> list[tuple[Any, Any, Any, An
         if op_text != op:
             continue
 
-        body = capture(match, "body")
-        if isinstance(body, list):
-            body = body[-1]
+        body = cap1(match, "body")
 
         valid_ifs.append((stmt, left, right, body))
     return valid_ifs
@@ -126,35 +119,22 @@ def mut_merge_nested_ifs(s: str, rng: random.Random) -> str | None:
 
     valid_ifs = []
     for match in matches:
-        stmt = capture(match, "stmt")
-        if isinstance(stmt, list):
-            stmt = stmt[0]
+        stmt = cap1(match, "stmt")
         if not stmt:
             continue
 
         if stmt.child_by_field_name("alternative"):
             continue
 
-        inner_if = capture(match, "inner_if")
-        if isinstance(inner_if, list):
-            inner_if = inner_if[-1]
+        inner_if = cap1(match, "inner_if")
         if inner_if.child_by_field_name("alternative"):
             continue
 
-        cond1 = capture(match, "cond1")
-        if isinstance(cond1, list):
-            cond1 = cond1[0]
-        cond2 = capture(match, "cond2")
-        if isinstance(cond2, list):
-            cond2 = cond2[0]
+        cond1 = cap1(match, "cond1")
+        cond2 = cap1(match, "cond2")
 
-        body = capture(match, "body")
-        if isinstance(body, list):
-            body = body[-1]
-
-        outer_body = capture(match, "outer_body")
-        if isinstance(outer_body, list):
-            outer_body = outer_body[0]
+        body = cap1(match, "body")
+        outer_body = cap1(match, "outer_body")
 
         # Ensure the outer_body only contains the inner_if statement
         block_nodes = [c for c in outer_body.children if c.type not in ("{", "}")]
@@ -187,22 +167,13 @@ def mut_extract_condition_to_var(s: str, rng: random.Random) -> str | None:
 
     valid_ifs = []
     for match in matches:
-        stmt = capture(match, "stmt")
-        if isinstance(stmt, list):
-            stmt = stmt[0]
+        stmt = cap1(match, "stmt")
         if not stmt:
             continue
 
-        bin_node = capture(match, "bin")
-        if isinstance(bin_node, list):
-            bin_node = bin_node[0]
-
-        left = capture(match, "left")
-        if isinstance(left, list):
-            left = left[0]
-        right = capture(match, "right")
-        if isinstance(right, list):
-            right = right[0]
+        bin_node = cap1(match, "bin")
+        left = cap1(match, "left")
+        right = cap1(match, "right")
 
         if not left or not right:
             continue
@@ -253,19 +224,12 @@ def mut_loop_condition_extraction(s: str, rng: random.Random) -> str | None:
 
     valid_loops = []
     for match in matches:
-        stmt = capture(match, "stmt")
-        if isinstance(stmt, list):
-            stmt = stmt[0]
+        stmt = cap1(match, "stmt")
         if not stmt:
             continue
 
-        cond = capture(match, "cond")
-        if isinstance(cond, list):
-            cond = cond[0]
-
-        body = capture(match, "body")
-        if isinstance(body, list):
-            body = body[-1]
+        cond = cap1(match, "cond")
+        body = cap1(match, "body")
 
         valid_loops.append((stmt, cond, body))
 

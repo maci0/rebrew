@@ -35,8 +35,10 @@ __all__ = [
     "apply_query_once",
     "assign_zero_targets",
     "brace_block",
+    "cap1",
     "cap_bytes",
     "capture",
+    "case_value_text",
     "commute_operands",
     "find_function_body_insert_pos",
     "first_caps",
@@ -96,6 +98,23 @@ def cap_bytes(source: bytes, captures: dict[str, ts.Node], name: str) -> bytes:
     """Return the *source* bytes spanned by capture *name*."""
     node = captures[name]
     return source[node.start_byte : node.end_byte]
+
+
+def cap1(match_or_captures: Any, name: str) -> Any:
+    """First node of capture *name*, or ``None`` when absent (a list head)."""
+    value = capture(match_or_captures, name)
+    return value[0] if isinstance(value, list) else value
+
+
+def case_value_text(source: bytes, case_node: ts.Node) -> bytes | None:
+    """Text of the case value: the last child before ``:`` in a ``case_statement``."""
+    value: bytes | None = None
+    for child in case_node.children:
+        if child.type == ":":
+            break
+        if child.type != "case":
+            value = source[child.start_byte : child.end_byte].strip()
+    return value
 
 
 #: Expressions that bind at least as tightly as a postfix operator, so they

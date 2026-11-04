@@ -41,6 +41,7 @@ lazy from rebrew.matcher.mutations.runtime import (
     apply_query_once,
     cap_bytes,
     capture,
+    case_value_text,
     find_function_body_insert_pos,
     first_caps,
     operand_bytes,
@@ -655,18 +656,11 @@ def mut_switch_to_if_chain(s: str, rng: random.Random) -> str | None:
         is_default = child.children and child.children[0].type == "default"
         if is_default:
             branches.append((None, _case_body(child)))
-        else:
-            value_node = None
-            for sub in child.children:
-                if sub.type == "case":
-                    continue
-                if sub.type == ":":
-                    break
-                value_node = sub
-            if value_node is None:
-                continue
-            case_val = b_source[value_node.start_byte : value_node.end_byte].strip()
-            branches.append((case_val, _case_body(child)))
+            continue
+        case_val = case_value_text(b_source, child)
+        if case_val is None:
+            continue
+        branches.append((case_val, _case_body(child)))
 
     if not branches:
         return None
@@ -741,15 +735,7 @@ def mut_split_switch(s: str, rng: random.Random) -> str | None:
     left_cases = case_nodes[:split_idx]
     right_cases = case_nodes[split_idx:]
 
-    # Extract the pivot value from the last left case
-    pivot_node = left_cases[-1]
-    pivot_val = None
-    for sub in pivot_node.children:
-        if sub.type == "case":
-            continue
-        if sub.type == ":":
-            break
-        pivot_val = b_source[sub.start_byte : sub.end_byte].strip()
+    pivot_val = case_value_text(b_source, left_cases[-1])
     if pivot_val is None:
         return None
 
