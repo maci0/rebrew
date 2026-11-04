@@ -67,8 +67,17 @@ def _declib() -> Any:
 def declib_available() -> bool:
     """True when declib (the ``binsync`` extra) imports."""
     import importlib.util
+    import sys
 
-    return importlib.util.find_spec("declib") is not None
+    if "declib" in sys.modules:
+        # Already loaded (or a test-poisoned None) — answer from the cache,
+        # never triggering the import ourselves (same rule as angr in prove.py).
+        return sys.modules["declib"] is not None
+    try:
+        return importlib.util.find_spec("declib") is not None
+    except ImportError, ValueError:
+        # find_spec can also raise when the spec machinery is unusable.
+        return False
 
 
 def require_declib(*, json_mode: bool) -> None:
