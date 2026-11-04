@@ -40,7 +40,7 @@ def resolve_runner_path(runner: str, root: Path) -> str:
     root (this is the config shape ``rebrew init --install-wibo`` writes).
     """
     rp = Path(runner)
-    if rp.is_absolute() or "/" not in runner and "\\" not in runner:
+    if rp.is_absolute() or ("/" not in runner and "\\" not in runner):
         return runner
     return str(root / rp)
 

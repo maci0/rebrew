@@ -323,9 +323,7 @@ def _resolve_name(cfg: Any, va: int, func_lookup: dict[int, tuple[str, str]] | N
         name, _status = func_lookup.get(va, ("", ""))
         return name
     except Exception:  # best-effort naming
-        logging.getLogger(__name__).debug(
-            "function name lookup failed for 0x%x", va, exc_info=True
-        )
+        logging.getLogger(__name__).debug("function name lookup failed for 0x%x", va, exc_info=True)
         return ""
 
 

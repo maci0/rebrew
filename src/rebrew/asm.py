@@ -557,12 +557,8 @@ def disassembled_extent_window(cfg: ProjectConfig, va: int) -> tuple[list[Any], 
         extent_kind = function_extent_from_disasm(cfg.target_binary, va, with_kind=True)
         if extent_kind is not None:
             extent, kind = extent_kind
-        if (
-            kind == "jmp"
-            and extent is not None
-            and extent <= 16
-            or kind == "ret"
-            and extent is not None
+        if (kind == "jmp" and extent is not None and extent <= 16) or (
+            kind == "ret" and extent is not None
         ):
             window = extent
         else:

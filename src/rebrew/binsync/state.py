@@ -1615,7 +1615,7 @@ def collect_enum_definitions(
                 if not name:
                     continue
                 members = _enum_members(text)
-                if name in unsafe or not members or name in result and result[name][1] != members:
+                if name in unsafe or not members or (name in result and result[name][1] != members):
                     ambiguous.add(name)
                 else:
                     result[name] = (text.strip(), members)

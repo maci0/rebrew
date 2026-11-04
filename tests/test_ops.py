@@ -1242,7 +1242,10 @@ class TestHttpTransport:
                         "POST",
                         "/rebrew.nope",
                         body=b"{}",
-                        headers={"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"},
+                        headers={
+                            "Authorization": f"Bearer {TOKEN}",
+                            "Content-Type": "application/json",
+                        },
                     )
                     response = connection.getresponse()
                     reply = json.loads(response.read())
@@ -1258,7 +1261,10 @@ class TestHttpTransport:
         deadline = time.monotonic() + WAIT_SECONDS
         while True:
             status, reply = self._post(
-                port, "/rebrew.nope", b"{}", {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
+                port,
+                "/rebrew.nope",
+                b"{}",
+                {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"},
             )
             if status != 503:
                 break

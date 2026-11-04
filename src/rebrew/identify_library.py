@@ -317,8 +317,7 @@ def _import_candidates(cfg: Any, default_module: str) -> list[LibCandidate]:
         # guessed module; visibility here costs one line and matches the
         # warning the stub scan above already emits.
         console.print(
-            f"[yellow]warning:[/yellow] import parse skipped for"
-            f" {cfg.target_binary}: {exc}"
+            f"[yellow]warning:[/yellow] import parse skipped for {cfg.target_binary}: {exc}"
         )
         dll_by_name = {}
 

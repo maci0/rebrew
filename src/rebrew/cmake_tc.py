@@ -210,7 +210,7 @@ def _is_host_path(arg: str) -> bool:
     if not arg.startswith("/") or len(arg) < 2:
         return False
     rest = arg[1:]
-    return "/" in rest or os.path.exists(arg)
+    return "/" in rest or Path(arg).exists()
 
 
 def _rewrite_args(mode: str, args: list[str]) -> list[str]:

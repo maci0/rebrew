@@ -14,12 +14,11 @@ Usage:
 
 from __future__ import annotations
 
+import logging
 lazy from collections import Counter
 lazy from collections.abc import Sequence
 lazy from pathlib import Path
 lazy from typing import Any
-
-import logging
 
 import typer
 
