@@ -742,6 +742,11 @@ class TestReload:
         _run_script("dashboard_no_targets.mjs")
 
 
+class TestNoTargets:
+    def test_empty_state_offers_reload(self) -> None:
+        _run_script("dashboard_no_targets.mjs")
+
+
 class TestHandle:
     def test_index_html(self, dashboard: Dashboard) -> None:
         status, content_type, body = dashboard.handle("GET", "/", {})

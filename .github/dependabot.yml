@@ -1,9 +1,10 @@
 # Weekly bundled update PRs for the pinned GitHub Actions (checkout,
-# setup-uv, ...).  Workflows pin Actions by commit SHA; Dependabot refreshes
-# those SHAs (and the trailing version comments).  Python dependencies are
-# intentionally NOT automated: uv.lock is the audited inventory and
-# `uv audit --locked` in CI gates it; bumps land as deliberate
-# `uv lock --upgrade` changes.
+# setup-uv, ...) and the remote pre-commit hook repo.  Workflows pin
+# Actions by commit SHA; Dependabot refreshes those SHAs (and the trailing
+# version comments) and the pre-commit `rev:` pin in the same weekly
+# cadence.  Python dependencies are intentionally NOT automated: uv.lock
+# is the audited inventory and `uv audit --locked` in CI gates it; bumps
+# land as deliberate `uv lock --upgrade` changes.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -26,5 +27,13 @@ updates:
     # module is stdlib-only today (no go.sum), so the PR is a go.mod-only
     # bump until a third-party dependency appears.
     directory: /services/jobs
+    schedule:
+      interval: weekly
+  - package-ecosystem: pre-commit
+    # The only remote repo in .pre-commit-config.yaml (pre-commit-hooks,
+    # commit-SHA pinned). Without this entry its rev goes stale silently;
+    # the local hooks above it need no refresh. Dependabot rewrites the
+    # `rev:` line and its `# frozen:` comment together.
+    directory: /
     schedule:
       interval: weekly
