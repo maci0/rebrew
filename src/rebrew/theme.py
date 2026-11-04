@@ -58,6 +58,8 @@ TOKENS: dict[str, str] = {
     "accent-hi": "#003e85",
     "accent-soft": "#9dc4f5",
     "ring": "rgba(0,95,204,.25)",
+    # mark
+    "mark": "#7ee0a3",
     # type
     "sans": '"SFMono-Regular", ui-monospace, "Cascadia Code", Menlo, Consolas, "DejaVu Sans Mono", monospace',
     "mono": '"JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, "DejaVu Sans Mono", monospace',
@@ -93,7 +95,7 @@ FAVICON_SVG = (
     "<title>Rebrew</title>"
     '<rect width="16" height="16" rx="3" fill="' + TOKENS["ink"] + '"/>'
     '<text x="8.2" y="12.1" font-family="monospace" font-size="12" font-weight="bold"'
-    ' text-anchor="middle" letter-spacing="-0.6" fill="#7ee0a3">0x</text></svg>'
+    ' text-anchor="middle" letter-spacing="-0.6" fill="' + TOKENS["mark"] + '">0x</text></svg>'
 )
 
 _VAR = re.compile(r"var\(--rb-([a-z-]+)\)")

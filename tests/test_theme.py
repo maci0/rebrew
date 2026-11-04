@@ -34,6 +34,7 @@ _TEXT_ROLES = {
     "accent-hi": ("surface", "sunken", "hover", "pressed"),
     "surface": ("ink",),
     "nav": ("ink",),
+    "mark": ("ink",),
     "note-ink": ("note-bg",),
 }
 

@@ -156,6 +156,7 @@ body { font-family: var(--rb-sans); line-height: var(--rb-leading-body);
 header { background: var(--rb-ink); color: var(--rb-surface); padding: 0.75rem 1.5rem;
          display: flex; flex-wrap: wrap; align-items: baseline; gap: 1rem 2rem; }
 header h1 { font-size: var(--rb-size-title); letter-spacing: var(--rb-track-display); margin: 0; }
+header h1 .mark { font-family: var(--rb-mono); color: var(--rb-mark); }
 header nav { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; }
 header nav a { color: var(--rb-nav); text-decoration: underline; min-height: 2.75rem; padding: 0.5rem 0.35rem;
         display: inline-flex; align-items: center; }
@@ -485,7 +486,7 @@ def _page(title: str, target: str, active: str, body: str) -> str:
         f"<style>{_CSS}</style>\n"
         "</head>\n<body>\n"
         "<a class='skip-link' href='#main'>Skip to content</a>\n"
-        f"<header><h1>{html.escape(target)} - Rebrew report</h1>"
+        f"<header><h1><span class='mark' aria-hidden='true'>0x</span> {html.escape(target)} - Rebrew report</h1>"
         f"<nav aria-label='Report pages'>{nav}</nav></header>\n"
         f"<main id='main' tabindex='-1'>\n{body}\n</main>\n"
         "</body>\n</html>\n"

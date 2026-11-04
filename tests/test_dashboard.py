@@ -914,7 +914,7 @@ class TestHandle:
             (int(level), re.sub(r"<[^>]+>", "", text).strip())
             for level, text in re.findall(r"<h([1-6])[^>]*>(.*?)</h\1>", html, re.S)
         ]
-        assert [text for level, text in outline if level == 1] == ["Rebrew coverage"]
+        assert [text for level, text in outline if level == 1] == ["0x Rebrew coverage"]
         assert [level for level, _ in outline[1:]] == [2] * (len(outline) - 1)
         # Every view panel is named, so switching tabs does not move the reader
         # out of the outline.
@@ -2430,7 +2430,7 @@ class TestEncodingNegotiation:
 
     @pytest.mark.parametrize(
         ("accept", "expected_body"),
-        [("zstd", 12677), ("gzip", None)],
+        [("zstd", 12681), ("gzip", None)],
     )
     def test_the_documented_entry_flight_matches_the_wire(
         self, accept: str, expected_body: int | None
