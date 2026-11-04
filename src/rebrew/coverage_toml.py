@@ -1518,7 +1518,10 @@ def load_all_coverage_from(db_directory: Path) -> dict[str, CoverageSnapshot]:
         # cache: the directory may have changed meanwhile, in which case this
         # caller computes a fresh key and starts the next scan.  The wait is
         # bounded so a leader that dies before setting its event cannot park
-        # a request thread forever.
+        # a request thread forever.  A timeout must not spawn a duplicate
+        # parse while the leader is alive: the loop re-checks the cache and,
+        # unless it landed, re-waits on the same event, so the timeout only
+        # bounds one wait, not the whole singleflight.
         event.wait(timeout=_ALL_WAIT_TIMEOUT_S)
 
     snapshots: dict[str, CoverageSnapshot] = {}
