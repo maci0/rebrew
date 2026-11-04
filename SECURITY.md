@@ -29,7 +29,7 @@ document is:
 
 - [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md)
 
-Operators should treat project source, configured HTTP endpoints
+Operators should also treat operator-supplied backup/restore paths as trusted: `rebrew match solutions --backup <dir>` / `--restore <file>` copies `.rebrew/ga_runs.jsonl` off-tree (`src/rebrew/matcher/solutions.py` `backup_ga_runs` / `restore_ga_runs`), and the SQLite metadata backup/restore (`src/rebrew/metadata/sqlite.py`) and `rebrew metadata migrate` destination snapshot (`src/rebrew/metadata_transfer.py`) handle `rebrew-metadata.sqlite3` the same way. Restores validate the payload and preserve the live store as `.before-restore` before replacing it, but nothing confines a backup destination or a restore source to the project — a restore file a hostile project planted is installed as the live store. Operators should treat project source, configured HTTP endpoints
 (recompile, LLM, ReVa MCP, decomp.me), GitHub release and toolchain-media
 downloads (wibo, SDK tarballs), docker/podman images (`REBREW_CONTAINER_RUNTIME`),
 cmake bridge wineprefix / profile pins (`REBREW_WINEPREFIX`, `REBREW_TOOLCHAIN`),
