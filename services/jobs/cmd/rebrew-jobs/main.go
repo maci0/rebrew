@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func main() {
@@ -52,5 +53,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Fatal(http.Serve(ln, h))
+	// Explicit timeouts, matching the compile mediator's socket server:
+	// without ReadHeaderTimeout a slow-loris client can hold a connection
+	// forever, and without WriteTimeout a stalled client can block a job
+	// dispatch past the request's own context. WriteTimeout is generous
+	// by design: reconcile and SSE follow handlers run past 150s.
+	srv := &http.Server{Handler: h, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 180 * time.Second}
+	log.Fatal(srv.Serve(ln))
 }
