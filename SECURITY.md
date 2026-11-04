@@ -111,13 +111,17 @@ plugin cache backends or remove the open upstream diskcache advisory.
   would still serve the path.
 - No claim that docker toolchain or cmake-bridge execution is a hardened
   sandbox against a hostile project tree or malicious image. Local container
-  runs use `--network=none` (no egress) and `no-new-privileges`. Compile
-  runs through `run_toolchain` also pass `--pull=never`, so a missing image
-  is an error rather than a daemon pull. None of that implies escape
-  resistance. The compile path passes no `--user`, so the
-  compiler runs as the image's default user; it mounts the project root
-  read-only but can read all of it. The cmake bridge mounts the project root
-  and wineprefix read-write.
+  runs share `docker_hardening_args()` in
+  `src/rebrew/compiler/toolchain.py`: `--network=none` (no egress),
+  `--cap-drop=ALL`, `--security-opt=no-new-privileges`,
+  `--pids-limit=256`, `--memory=2g`, `--cpus=2`, plus `--pull=never`
+  where the call site passes `pull=True` (the cmake bridge passes
+  `pull=False`). `--read-only` is deliberately absent: toolchain images
+  write a wineprefix under `/opt/wineprefix` and `$HOME` on every
+  compile. None of that implies escape resistance. The compile path
+  passes no `--user`, so the compiler runs as the image's default user;
+  it mounts the project root read-only but can read all of it. The cmake
+  bridge mounts the project root and wineprefix read-write.
 - No claim that "docker-only" covers toolchains registered by an entry point
   or a `REBREW_TOOLCHAIN_OVERLAY_DIR` TOML file: a spec without `image` runs
   its `binary` on the host with the full process environment
@@ -209,7 +213,14 @@ plugin cache backends or remove the open upstream diskcache advisory.
   (`_project_endpoint_allowed` in `src/rebrew/llm_seed.py`). That gate reads
   the key's provenance, so a key committed in the project TOML still travels
   to that project's own endpoint, and `[compiler] recompile_url` is not gated
-  at all.
+  at all. The recompile bearer key, when set, is the one exception on that
+  path: `REBREW_RECOMPILE_API_KEY` is read from the environment only (never
+  from the project tree), `compile_source` in
+  `src/rebrew/compiler/recompile_client.py` refuses it unless the service
+  URL is `https` with no credentials/query/fragment, sends it only to the
+  configured service and its same-origin artifact endpoint, and every
+  compile POST carries a deterministic `Idempotency-Key` so retries and
+  restarts dedup server-side instead of re-billing.
 - No claim that a recompile endpoint only receives the source. The object it
   returns is written to the compile workdir and parsed for that run (LIEF's
   COFF parser, or host `objconv` on an OMF profile). It is not published into
