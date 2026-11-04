@@ -37,7 +37,7 @@ cmake bridge wineprefix / profile pins (`REBREW_WINEPREFIX`, `REBREW_TOOLCHAIN`)
 fast-forwards and imports by default), a foreign splat project handed to
 `rebrew source import-splat` (its `splat.yaml` and `symbol_addrs` files are written into
 the local project as metadata, source markers, and `library_<module>.h` names;
-the command is a dry run unless `--write` is passed), and installed Python
+the command is a dry run unless `--apply` is passed), and installed Python
 entry-point plugins
 (including `rebrew.cache_backends`) as part of the trust boundary. So are the
 host-tool knobs outside the `REBREW_` namespace: `KUNA_SPECS` (else the first
@@ -49,7 +49,7 @@ deleted by `sweep_stale_temp_dirs` on the next compile
 also deletes, by the same age rule, directories under the project at
 `.rebrew/climb` and `.rebrew/qualsweep`, where the prefix it matches is
 declared by the caller and derived from the function's symbol name
-(`src/rebrew/climb.py` `:633`, `src/rebrew/qual_sweep.py` `:244`), so a
+(`src/rebrew/climb.py` `:911`, `src/rebrew/qual_sweep.py` `:294`), so a
 symbol name in shipped metadata decides what a later run may remove from
 those two rebrew-owned scratch directories, and nothing else. And
 `XAUTHORITY` names the X cookie file rebrew
@@ -235,9 +235,9 @@ plugin cache backends or remove the open upstream diskcache advisory.
   toolchain media at 2 GiB (`_MAX_PINNED_DOWNLOAD_BYTES` in
   `src/rebrew/toolchain_cli.py`); the release-metadata JSON and the commit
   lookup reply are not capped.
-- No claim that `rebrew source import-splat` constrains the files a foreign config
-  names to the foreign project. `splat_config._rel` (`splat_config.py:516-521`)
-  resolves every `splat.yaml` path against the operator's base with no
-  containment check, so an absolute, `../..`, or backslash-separated entry
-  makes the command read a host file and `shutil.copy2` it into the project.
-  `--write` is still the only opt-in.
+- No claim that a hostile splat config can escape the foreign project through
+  a path entry. `splat_config._rel` (`splat_config.py:517-531`) resolves every
+  `splat.yaml` path against the operator's base and raises `ValueError` on any
+  that escape it (`is_relative_to`), so an absolute, `../..`, or backslash-
+  separated entry is refused before any read or `shutil.copy2` into the project.
+  `--apply` is still the only opt-in.
