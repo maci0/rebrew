@@ -233,15 +233,28 @@ def _exercise_pe_headers(blob: bytes) -> None:
         # must reproduce the same table (pair assertion on the section reader).
         again = sections_at(blob, layout.section_table_offset, layout.number_of_sections)
         assert again == layout.sections
-        find_section(blob, ".text")
-        find_section(blob, "")
+        # find_section must agree with the layout table: a named section that
+        # the layout lists is found, an empty name never matches a clipped
+        # section, and a hit is the exact section entry.
+        for name in (".text", ""):
+            hit = find_section(blob, name)
+            listed = next((s for s in layout.sections if s.name == name), None)
+            assert hit == listed, (name, hit, listed)
 
     fields = read_pe_header_fields(blob)
     if fields is not None:
-        assert isinstance(fields, dict)
+        assert type(fields) is dict
         for label, value in fields.items():
             assert isinstance(label, str)
             assert isinstance(value, int)
+        # Every reported field is a known spec label at its table width, so
+        # a width bug (read as 4 bytes regardless) cannot pass on type alone.
+        from rebrew.formats.pe_headers import _FIELD_SPECS
+
+        known = {lab: size for _o, size, lab in _FIELD_SPECS}
+        for label, value in fields.items():
+            assert label in known, f"unknown header field {label!r}"
+            assert 0 <= value < (1 << (8 * known[label])), (label, value)
 
     # Patch must never raise and must preserve length.
     patch_labels = [lab for lab in sorted(PATCHABLE) if lab != "checksum"]
@@ -260,12 +273,27 @@ def _exercise_pe_headers(blob: bytes) -> None:
             # Patch masks to the field width — a 4-byte write would clobber neighbours.
             assert written == patch_map[label] & ((1 << (8 * size)) - 1)
 
-    assert isinstance(_pe_checksum(blob), int)
+    # Checksum is deterministic and reproducible from the patched bytes:
+    # recomputing on the patched image must reproduce the stored field.
+    checksum = _pe_checksum(blob)
+    assert isinstance(checksum, int) and checksum >= 0
+    assert _pe_checksum(blob) == checksum
+    patched_fields = read_pe_header_fields(patched)
+    if patched_fields is not None and "checksum" in patched_fields:
+        assert patched_fields["checksum"] == _pe_checksum(patched)
     rows = header_parity(blob, patched)
     assert isinstance(rows, list)
-    for row in rows:
-        assert "field" in row and "match" in row
-        assert isinstance(row["match"], bool)
+    if fields is not None and patched_fields is not None:
+        # Parity must agree with a direct field comparison, not merely be
+        # shaped: each row's match flag is the equality of the two maps.
+        assert {row["field"] for row in rows} == set(fields) & set(patched_fields)
+        for row in rows:
+            label = row["field"]  # type: ignore[assignment]
+            assert row["original"] == fields[label]  # type: ignore[index]
+            assert row["reasm"] == patched_fields[label]  # type: ignore[index]
+            assert row["match"] == (fields[label] == patched_fields[label])
+    else:
+        assert rows == []
 
 
 @settings(max_examples=200, deadline=None)

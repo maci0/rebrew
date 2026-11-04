@@ -93,6 +93,36 @@ class TestParseMatchingInfo:
         f = _stub_file(tmp_path, status="EXACT")
         assert parse_matching_info(f) == []
 
+    def test_near_matching_without_delta_uses_no_delta_sentinel(
+        self, tmp_path: Path
+    ) -> None:
+        """A NEAR_MATCHING row with no ``blocker_delta`` carries NO_DELTA.
+
+        The sentinel is what keeps the batch delta filter and the terminal
+        renderer from treating "no delta measured" as a measured zero: with
+        ``max_delta=10`` the row is excluded (9999 > 10, not 0 <= 10), and
+        with no filter it is kept with ``delta == NO_DELTA`` so callers can
+        omit ``Δ9999B`` from output.  A default of 0 would let an unmeasured
+        row through every delta filter and display a false perfect match.
+        """
+        from rebrew.limits import NO_DELTA
+        from rebrew.match_batch import parse_matching_all
+
+        f = _write_stub(
+            tmp_path,
+            "func.c",
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */\n\n\nint func(void) { return 1; }\n",
+                {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 32, "symbol": "_func"}},
+            ),
+        )
+        _write_meta(tmp_path, 0x10001000, "NEAR_MATCHING")
+        assert parse_matching_info(f, max_delta=10) == []
+        all_stubs = parse_matching_all(f)
+        assert len(all_stubs) == 1
+        assert all_stubs[0].delta == NO_DELTA
+        assert all_stubs[0].delta != 0
+
 
 class TestFindAllStubs:
     def test_finds_stub(self, tmp_path: Path) -> None:

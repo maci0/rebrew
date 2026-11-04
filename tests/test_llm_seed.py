@@ -1512,13 +1512,18 @@ class TestSeedCache:
         assert usage is not None
         assert usage.requests == 1
 
-    def test_identical_parallel_prompts_share_one_request(self) -> None:
+    def test_identical_parallel_prompts_share_one_request(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Two workers reaching one uncached prompt pay for one request.
 
         The cache is filled only after the first answer arrives, so without a
         singleflight both workers pass the miss and each sends the same paid
-        prompt.  The first request blocks here until the second has had time to
-        reach the gate, which is the window the bug used to occupy.
+        prompt.  The first request blocks here until the second has reached
+        the gate, which is the window the bug used to occupy.  The gate is
+        signalled from the claim itself, not from a fixed sleep: the second
+        worker's ``_claim_seed_request`` call proves it reached the in-flight
+        wait before ``release`` is set.
         """
         source = "int f(void) { return 0; }"
         snippet = "int f(void) { int r = 0; return r; }"
@@ -1528,8 +1533,23 @@ class TestSeedCache:
         }
         entered = threading.Event()
         release = threading.Event()
+        second_at_gate = threading.Event()
         calls = 0
         calls_lock = threading.Lock()
+        claim_calls = 0
+        claim_lock = threading.Lock()
+        real_claim = rebrew.llm_seed._claim_seed_request
+
+        def _claim_counting(key: str) -> bool:
+            nonlocal claim_calls
+            with claim_lock:
+                claim_calls += 1
+                is_second = claim_calls == 2
+            if is_second:
+                second_at_gate.set()
+            return real_claim(key)
+
+        monkeypatch.setattr(rebrew.llm_seed, "_claim_seed_request", _claim_counting)
 
         class _Blocking:
             @contextmanager
@@ -1546,8 +1566,9 @@ class TestSeedCache:
             first = pool.submit(request_seeds, _cfg("https://llm/v1"), source, client=_Blocking())
             assert entered.wait(timeout=5), "the first request never started"
             second = pool.submit(request_seeds, _cfg("https://llm/v1"), source, client=_Blocking())
-            # Let the second worker reach the cache miss and the in-flight gate.
-            time.sleep(0.05)
+            # Wait until the second worker has reached the in-flight gate
+            # (its _claim_seed_request call), not a fixed sleep.
+            assert second_at_gate.wait(timeout=5), "the second request never reached the gate"
             release.set()
             assert first.result(timeout=5) == [snippet]
             assert second.result(timeout=5) == [snippet]
