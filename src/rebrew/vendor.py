@@ -174,6 +174,8 @@ def stage(manifest: Manifest, stage_root: Path) -> Path:
                 ],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=_PATCH_TIMEOUT_S,
             )
         except subprocess.TimeoutExpired as exc:

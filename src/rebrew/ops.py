@@ -258,7 +258,9 @@ def error_body(code: str, detail: str, status: int) -> bytes:
 
 def _bounded(text: str) -> str:
     """*text* on one line, cut at :data:`DETAIL_MAX_CHARS`."""
-    return " ".join(text.split())[:DETAIL_MAX_CHARS]
+    from rebrew.utils import truncate_text
+
+    return truncate_text(" ".join(text.split()), DETAIL_MAX_CHARS)
 
 
 # ---------------------------------------------------------------------------

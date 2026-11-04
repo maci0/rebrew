@@ -46,6 +46,7 @@ lazy from rebrew.c_parser import (
 lazy from rebrew.sources import iter_sources
 lazy from rebrew.utils import (
     TerminalTable,
+    truncate_text,
     rel_display_path,
     split_source_lines,
     untrusted_ident,
@@ -335,7 +336,7 @@ def _snippet(lines: Sequence[str], row: int) -> str:
     """Trimmed source line at *row*, capped at :data:`_SNIPPET_MAX_CHARS`."""
     if row < 0 or row >= len(lines):
         return ""
-    return lines[row].strip()[:_SNIPPET_MAX_CHARS]
+    return truncate_text(lines[row].strip(), _SNIPPET_MAX_CHARS)
 
 
 def scan_source(text: str, *, file: str) -> list[dict[str, Any]]:

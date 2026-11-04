@@ -343,6 +343,33 @@ console = _TargetSafeConsole(stderr=True, highlight=False)
 BYTES_PER_MIB = 1024 * 1024
 
 
+def truncate_text(text: str, max_chars: int) -> str:
+    """*text* cut at *max_chars* code points without splitting a grapheme cluster.
+
+    ``text[:max_chars]`` can end in the middle of a combining sequence
+    (``e`` + U+0301), a ZWJ emoji (``👨‍👩‍👧``), a variation selector, or a
+    base + combining mark pair, leaving a dangling mark or a broken emoji
+    that renders as ``�`` or a stray ZWJ. Back off while the next code
+    point would continue the cluster.
+    """
+    if len(text) <= max_chars:
+        return text
+    cut = text[:max_chars]
+    while cut and len(cut) < len(text):
+        nxt = text[len(cut)]
+        if (
+            unicodedata.category(nxt) in ("Mn", "Mc", "Me")
+            or nxt == "\u200d"
+            or "\ufe00" <= nxt <= "\ufe0f"
+        ):
+            cut = cut[:-1]
+        elif cut and cut[-1] == "\u200d":
+            cut = cut[:-1]
+        else:
+            break
+    return cut
+
+
 def clip_span(starts: list[int], va: int, size: int) -> int:
     """*size* cut so ``va + size`` does not pass the next of the sorted *starts*.
 
@@ -433,6 +460,12 @@ def pe_name_token(name: str | None) -> str:
     """
     if not name:
         return ""
+    # NFC first: the substitution deletes non-ASCII either way, but a
+    # different amount per spelling, so without it "café" (NFC) and
+    # "cafe\u0301" (NFD) – the same DLL named from a PE import table and
+    # from a .pat file on a decomposing volume – land as "caf_" and
+    # "cafe_" in two different tokens. filename_component does the same.
+    name = unicodedata.normalize("NFC", name)
     # No strip: a leading underscore is ordinary in MSVC import names, and
     # the substitution already guarantees a non-empty result.
     return _PE_NAME_RE.sub("_", name)[:_PE_NAME_MAX_CHARS]
