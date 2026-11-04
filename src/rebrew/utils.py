@@ -352,24 +352,40 @@ def truncate_text(text: str, max_chars: int) -> str:
     (``e`` + U+0301), a ZWJ emoji (``👨‍👩‍👧``), a variation selector, or a
     base + combining mark pair, leaving a dangling mark or a broken emoji
     that renders as ``�`` or a stray ZWJ. Back off while the next code
-    point would continue the cluster.
+    point would continue the cluster. Regional indicators (a flag is two
+    of them) and emoji skin-tone modifiers (category ``Sk``, not a
+    combining mark) continue a cluster too, as do tag characters
+    (U+E0020-U+E007F, subdivision flags), so a cut there backs off as
+    well rather than leaving a lone regional indicator or a bare base.
     """
     if len(text) <= max_chars:
         return text
     cut = text[:max_chars]
     while cut and len(cut) < len(text):
         nxt = text[len(cut)]
+        prev = cut[-1]
         if (
             unicodedata.category(nxt) in ("Mn", "Mc", "Me")
             or nxt == "\u200d"
             or "\ufe00" <= nxt <= "\ufe0f"
-        ):
-            cut = cut[:-1]
-        elif cut and cut[-1] == "\u200d":
+            or "\U0001f3fb" <= nxt <= "\U0001f3ff"
+            or "\U000e0020" <= nxt <= "\U000e007f"
+            or ("\U0001f1e6" <= nxt <= "\U0001f1ff" and "\U0001f1e6" <= prev <= "\U0001f1ff" and _ri_run(cut) % 2 == 1)
+        ) or prev == "\u200d":
             cut = cut[:-1]
         else:
             break
     return cut
+
+
+def _ri_run(text: str) -> int:
+    """Trailing regional indicators in *text* (a flag is a run of two)."""
+    run = 0
+    for ch in reversed(text):
+        if not "\U0001f1e6" <= ch <= "\U0001f1ff":
+            break
+        run += 1
+    return run
 
 
 def clip_span(starts: list[int], va: int, size: int) -> int:

@@ -42,7 +42,7 @@ from rebrew.cli import (
     untrusted_ident,
 )
 from rebrew.errors import RebrewError
-lazy from rebrew.utils import TerminalTable
+lazy from rebrew.utils import TerminalTable, fold_ident
 
 log = logging.getLogger(__name__)
 
@@ -183,13 +183,17 @@ def imphash_from_pairs(pairs: Iterable[tuple[str, str]]) -> str:
     """Mandiant import hash over ``(dll, name)`` pairs.
 
     Each record is ``<dll-basename>.<name>``: the DLL basename before its
-    first dot, lowercased, and the function name lowercased.  Records keep
-    the input order and are joined with ``,``; ordinal imports pass the name
-    as ``ord<N>``.  Callers pass a non-empty iterable: :func:`imphash`
+    first dot and the function name, both folded with :func:`fold_ident`
+    (NFC, then casefold).  ``str.lower`` alone splits NFC ``\u00e9`` from
+    NFD ``e\u0301`` and ``\u00df`` from ``SS``, so the same import named
+    from a PE table on a decomposing volume and from one that composes
+    its text hashed as two different binaries.  Records keep the input
+    order and are joined with ``,``; ordinal imports pass the name as
+    ``ord<N>``.  Callers pass a non-empty iterable: :func:`imphash`
     returns ``None`` for a binary without imports rather than hashing an
     empty record list.
     """
-    records = [f"{dll.split('.', 1)[0].lower()}.{name.lower()}" for dll, name in pairs]
+    records = [f"{fold_ident(dll.split('.', 1)[0])}.{fold_ident(name)}" for dll, name in pairs]
     return hashlib.md5(",".join(records).encode("utf-8"), usedforsecurity=False).hexdigest()
 
 
@@ -225,12 +229,14 @@ def imphash(path: str | Path) -> str | None:
 def export_hash_from_pairs(pairs: Iterable[tuple[int, str]]) -> str:
     """SHA-256 over a PE export table's ``ordinal:name`` records.
 
-    Each record is ``<ordinal>:<lowercased name>``; records are sorted
-    lexicographically and joined with newlines, so the hash depends on the
-    export set rather than the table's on-disk order.  No exports hashes the
-    empty string, which keeps the value stable for a stripped binary.
+    Each record is ``<ordinal>:<folded name>`` (:func:`fold_ident`: NFC,
+    then casefold, so NFD and NFC spellings and ``\u00df``/``SS`` collide
+    as one export); records are sorted lexicographically and joined with
+    newlines, so the hash depends on the export set rather than the
+    table's on-disk order.  No exports hashes the empty string, which
+    keeps the value stable for a stripped binary.
     """
-    lines = sorted(f"{ordinal}:{name.lower()}" for ordinal, name in pairs)
+    lines = sorted(f"{ordinal}:{fold_ident(name)}" for ordinal, name in pairs)
     return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
 
 

@@ -208,7 +208,7 @@ def _peer_dir(cfg: ProjectConfig, state_dir: Path, peer: str) -> Path:
     Stable per (state dir, peer) so the sync baseline keyed by that path is
     the per-peer baseline.
     """
-    key = hashlib.sha256(str(state_dir.resolve()).encode()).hexdigest()[:16]
+    key = hashlib.sha256(str(state_dir.resolve()).encode("utf-8", errors="surrogateescape")).hexdigest()[:16]
     root = Path(getattr(cfg, "root", None) or Path(cfg.reversed_dir).parent)
     return root / ".rebrew" / "sync" / "peers" / key / peer
 

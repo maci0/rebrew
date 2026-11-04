@@ -723,7 +723,7 @@ def artifact_hash(state_dir: Path) -> str:
         relative = path.relative_to(state_dir)
         if path.name == "manifest.toml" or ".git" in relative.parts:
             continue
-        name = relative.as_posix().encode()
+        name = relative.as_posix().encode("utf-8", errors="surrogateescape")
         try:
             body = path.read_bytes()
         except OSError as exc:

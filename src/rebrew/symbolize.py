@@ -19,6 +19,7 @@ lazy from pathlib import Path, PureWindowsPath
 import typer
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
+lazy from rebrew.utils import fold_ident
 
 app = typer.Typer(
     help="Rewrite raw (T *) 0xVA casts to the data symbols the reference relocates.",
@@ -93,7 +94,7 @@ def _sites_in(spans: list[tuple[int, int]], starts: list[int], va: int, size: in
 
 def object_names(source: Path) -> set[str]:
     """Object file names a build gives *source*: ``net.c.obj`` (CMake) and ``net.obj``."""
-    return {f"{source.name}.obj".casefold(), f"{source.stem}.obj".casefold()}
+    return {fold_ident(f"{source.name}.obj"), fold_ident(f"{source.stem}.obj")}
 
 
 @dataclass
@@ -124,7 +125,7 @@ def missing_relocations(cfg: Any, source: Path, built: Path, link_map: Path) -> 
     built_functions = {
         sym.name: sym.va
         for sym in symbols
-        if sym.is_function and PureWindowsPath(sym.object).name.casefold() in objects
+        if sym.is_function and fold_ident(PureWindowsPath(sym.object).name) in objects
     }
     rows = defined_data_rows(cfg, {sym.name for sym in symbols if not sym.is_function})
     row_starts = [row.va for row in rows]

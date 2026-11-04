@@ -90,7 +90,9 @@ def metadata_bytes(path: Path) -> bytes | None:
         return path.read_bytes()
     chunks = [b"rebrew metadata collection\0"]
     for member in paths:
-        name, content = member.relative_to(path.parent).as_posix().encode(), member.read_bytes()
+        name, content = member.relative_to(path.parent).as_posix().encode(
+            "utf-8", errors="surrogateescape"
+        ), member.read_bytes()
         for part in (name, content):
             chunks.extend((str(len(part)).encode(), b":", part))
     return b"".join(chunks)
