@@ -1275,7 +1275,18 @@ def run_rebrew(
         stdout, stderr = process.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
         os.killpg(process.pid, signal.SIGKILL)
-        process.communicate()
+        # Do not call communicate() unbounded here: a grandchild that escaped
+        # the process group can hold the pipe write end, and Python's
+        # communicate() waits for EOF forever on it.  utils.run_process_group
+        # handles the same wedged-writer case by killing descendants, waiting
+        # with a timeout, then closing the read ends.
+        try:
+            process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            from rebrew.utils import _release_captured_pipes, _stop_process_tree
+
+            _stop_process_tree(process)
+            _release_captured_pipes(process)
         raise _refused(f"rebrew {name} did not finish within {timeout} s") from None
     if process.returncode != 0 and not (outcome_exit and process.returncode == 1):
         logger.error("rebrew %s exited %d: %s", name, process.returncode, stderr.strip())

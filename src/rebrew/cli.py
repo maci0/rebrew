@@ -996,7 +996,14 @@ def run_cli(app: Callable[[], Any]) -> None:
         finally:
             # Flush here, not at interpreter exit, so a closed pipe raises
             # inside this handler instead of printing "Exception ignored".
-            sys.stdout.flush()
+            # A buffered write to a closed pipe can fail with ValueError
+            # ("I/O operation on closed file") instead of BrokenPipeError;
+            # surface both as BrokenPipeError so the outer handler below
+            # exits 141 rather than MASKING the flush error as EXIT_ERROR.
+            try:
+                sys.stdout.flush()
+            except ValueError as exc:
+                raise BrokenPipeError from exc
     except BrokenPipeError:
         devnull_fd = os.open(os.devnull, os.O_WRONLY)
         try:
