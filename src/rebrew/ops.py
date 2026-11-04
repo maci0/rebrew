@@ -2459,6 +2459,8 @@ def serve_command(
     token = os.environ.get(TOKEN_ENV, "").strip()
     if not token:
         error_exit(f"{TOKEN_ENV} is not set; serve answers only bearer-authenticated calls")
+    if len(token) < 32:
+        error_exit(f"{TOKEN_ENV} must contain at least 32 bytes")
     if workspace is None:
         error_exit("serve needs --workspace (or REBREW_OPS_WORKSPACE) to confine project paths")
     config = WorkerConfig(

@@ -29,6 +29,15 @@ func main() {
 	if len(os.Args) != 1 {
 		log.Fatal("usage: rebrew-jobs [workspace-digest PATH]")
 	}
+	// Fail fast on missing required env vars: the README names workspace, job
+	// dir and token (≥32 bytes, checked in Handler) as required, and the
+	// token/workspaces are passed as empty strings to Open/OpenDocker if unset,
+	// which would otherwise surface as a confusing downstream error.
+	for _, name := range []string{"REBREW_WORKSPACE", "REBREW_JOB_DIR"} {
+		if os.Getenv(name) == "" {
+			log.Fatalf("%s is required", name)
+		}
+	}
 	var o *jobs.Owner
 	var err error
 	if image := os.Getenv("REBREW_JOB_DOCKER_IMAGE"); image != "" {
@@ -41,11 +50,26 @@ func main() {
 	}
 	defer o.Close()
 	if upstream := os.Getenv("REBREW_MANAGED_RECOMPILE_URL"); upstream != "" {
-		max, err := strconv.Atoi(os.Getenv("REBREW_MANAGED_COMPILE_LIMIT"))
-		if err != nil {
-			log.Fatal("invalid managed compile limit")
+		limitRaw := os.Getenv("REBREW_MANAGED_COMPILE_LIMIT")
+		compilersRaw := os.Getenv("REBREW_MANAGED_COMPILERS")
+		if limitRaw == "" {
+			log.Fatal("REBREW_MANAGED_COMPILE_LIMIT is required with REBREW_MANAGED_RECOMPILE_URL")
 		}
-		if err := o.ConfigureManagedCompile(upstream, max, strings.Split(os.Getenv("REBREW_MANAGED_COMPILERS"), ",")); err != nil {
+		if compilersRaw == "" {
+			log.Fatal("REBREW_MANAGED_COMPILERS is required with REBREW_MANAGED_RECOMPILE_URL")
+		}
+		max, err := strconv.Atoi(limitRaw)
+		if err != nil {
+			log.Fatalf("invalid REBREW_MANAGED_COMPILE_LIMIT %q: %v", limitRaw, err)
+		}
+		compilers := strings.Split(compilersRaw, ",")
+		for i, c := range compilers {
+			compilers[i] = strings.TrimSpace(c)
+			if compilers[i] == "" {
+				log.Fatal("REBREW_MANAGED_COMPILERS must list at least one compiler")
+			}
+		}
+		if err := o.ConfigureManagedCompile(upstream, max, compilers); err != nil {
 			log.Fatal(err)
 		}
 	}
