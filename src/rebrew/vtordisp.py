@@ -65,9 +65,9 @@ def find_vtordisps(code: bytes, base_addr: int = 0) -> Iterator[VtordispFunction
         # the 14-byte shape must be tested before the 8-byte one or its
         # prefix would match first.
         for regex, unpackers, size, addend_of in (
-            (_VTOR_ADD_RE, ("b", "<i", "<i"), 14, lambda g: g[1]),
-            (_VTOR_SUB_RE, ("b", "b", "<i"), 11, lambda g: -g[1]),
-            (_VTOR_RE, ("b", "<i"), 8, lambda g: 0),
+            (_VTOR_ADD_RE, ("<b", "<i", "<i"), 14, lambda g: g[1]),
+            (_VTOR_SUB_RE, ("<b", "<b", "<i"), 11, lambda g: -g[1]),
+            (_VTOR_RE, ("<b", "<i"), 8, lambda g: 0),
         ):
             m = regex.match(view)
             if m is None:

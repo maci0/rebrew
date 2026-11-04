@@ -644,7 +644,12 @@ def _append_durable(path: Path, line: str) -> None:
     created so the file does not vanish with its own directory entry.
     """
     existed = path.exists()
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o666)
+    # O_NOFOLLOW: a symlink planted at the log path must not redirect the
+    # append outside the project (the atomic writers in rebrew.utils replace
+    # such a link; an append cannot, so it refuses instead).  O_NOFOLLOW is
+    # absent on some platforms (Windows); getattr keeps those hosts working.
+    flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags, 0o666)
     try:
         view = memoryview(line.encode("utf-8"))
         while view:
