@@ -4440,3 +4440,25 @@ would break the jump-table case the current default exists to handle.
 
 Replay: `rebrew diagnose gap 0x0048cdb0 --json` in guild-rebrew, against the store row
 `GOLDTL.0x0048cdb0` whose size is 2131 with a reviewed trim in its extent history.
+
+## Orphan pruning needs a selector, and test should refuse a non-entry VA
+
+Problem: `rebrew test <file> --va 0xADDR` accepts an address that is not an inventory
+entry start. It compiles, writes a row for that address, and reports a comparison whose
+window begins mid-instruction, so the numbers are meaningless. The row it writes has no
+file, symbol or name, which makes it an orphan. Removing that one row is not possible:
+`rebrew orphans prune` only has `--include-matched` and `--dry-run`, so on a project
+with a long history it would remove over thirteen hundred rows at once instead of the
+one just created.
+
+Proposed capability, in two parts. First, `rebrew test --va` should warn or refuse when
+the address is not an entry start in the configured inventory, naming the owning entry
+and offset, and require an explicit override for a deliberate interior comparison.
+Second, `orphans prune` should take a selector (`--va`, `--module`, or a store filter) so
+a single mistaken row can be removed without touching reviewed history. Neither change
+alters an existing verdict.
+
+Replay: in guild-rebrew, `rebrew test src/Develop/DieGildeAddOn/game/GOLDTL.fcn_004994c0.c
+--va 0x00499a80 --json` writes `GOLDTL.0x00499a80` with no file and status STUB;
+`rebrew orphans list --json` then reports it among 1342 orphans, and `orphans prune`
+offers no way to select only it.
