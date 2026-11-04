@@ -69,6 +69,11 @@ def _wibo_asset_name() -> str:
 
 _NETWORK_TIMEOUT_S = 30  # Fail fast rather than hang indefinitely in CI/automation
 
+#: Cap on a wibo asset's body.  The sha256 digest is checked only after the
+#: body lands in memory, so without a cap a compromised mirror could OOM the
+#: process before the digest ever runs (DoS).  A wibo binary is a few MiB.
+_MAX_WIBO_DOWNLOAD_BYTES = 64 * 1024**2
+
 
 def _trusted_wibo_download_url(url: str) -> str:
     """Return *url* when it is an https GitHub release asset URL; else raise.
@@ -200,7 +205,16 @@ def download_wibo(dest: Path) -> str:
         resp = _get_with_trusted_redirects(download_url)
         try:
             resp.raise_for_status()
+            declared = resp.headers.get("content-length", "")
+            if declared.isdigit() and int(declared) > _MAX_WIBO_DOWNLOAD_BYTES:
+                raise RuntimeError(
+                    f"wibo asset exceeds {_MAX_WIBO_DOWNLOAD_BYTES} bytes: {asset_name}"
+                )
             body = resp.content
+            if len(body) > _MAX_WIBO_DOWNLOAD_BYTES:
+                raise RuntimeError(
+                    f"wibo asset exceeds {_MAX_WIBO_DOWNLOAD_BYTES} bytes: {asset_name}"
+                )
         finally:
             close_response(resp)
     except httpx.HTTPError as exc:

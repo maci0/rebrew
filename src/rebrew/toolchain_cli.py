@@ -77,6 +77,12 @@ _DOWNLOAD_REDIRECT_LIMIT = 10
 _HTTP_ATTEMPTS = 3
 _HTTP_RETRY_BACKOFF_S = 0.5
 
+#: Cap on a pinned download's body.  The sha256 pin is checked only after the
+#: body lands, so without a running cap a compromised mirror could stream
+#: without bound and fill the disk before the pin ever runs (DoS).  Toolchain
+#: media is a few hundred MiB at most; 2 GiB leaves generous headroom.
+_MAX_PINNED_DOWNLOAD_BYTES = 2 * 1024**3
+
 #: Tracked repo metadata kept when a vendored host tree is cleared or
 #: refreshed.  Docker build inputs, wrapper scripts, the pinned media and the
 #: per-toolchain docs are repo content, never vendored payload.
@@ -527,8 +533,14 @@ def _download_pinned_url(
                         redirected = True
                         break
                     resp.raise_for_status()
+                    received = 0
                     with dest.open("wb") as fh:
                         for chunk in resp.iter_bytes():
+                            received += len(chunk)
+                            if received > _MAX_PINNED_DOWNLOAD_BYTES:
+                                raise ToolchainError(
+                                    f"toolchain download exceeds {_MAX_PINNED_DOWNLOAD_BYTES} bytes from {current!r}"
+                                )
                             fh.write(chunk)
                     return
             except httpx.HTTPError as exc:
