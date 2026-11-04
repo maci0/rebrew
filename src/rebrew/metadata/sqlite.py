@@ -29,6 +29,25 @@ _EXPECTED_DDL = (
 _CONNECTIONS = threading.local()
 
 
+def _check_database_schema(connection: sqlite3.Connection, location: Path) -> None:
+    """Reject a database whose schema is not exactly the one this store creates."""
+    version = connection.execute("PRAGMA user_version").fetchone()[0]
+    if version != _SCHEMA_VERSION:
+        raise MetadataStorageError(f"{location}: unsupported metadata schema {version}")
+    row = connection.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='metadata_documents'"
+    ).fetchone()
+    if row is None or " ".join(str(row[0]).split()) != _EXPECTED_DDL:
+        raise MetadataStorageError(f"{location}: unsupported metadata schema {version}")
+    extra = connection.execute(
+        "SELECT type, name FROM sqlite_master "
+        "WHERE name NOT LIKE 'sqlite_%' AND NOT (type='table' AND name='metadata_documents') "
+        "AND NOT (type='index' AND name='sqlite_autoindex_metadata_documents_1')"
+    ).fetchall()
+    if extra:
+        raise MetadataStorageError(f"{location}: unsupported metadata schema {version}")
+
+
 class MetadataStorageError(RebrewError, ValueError):
     """A metadata database is corrupt, incompatible, inaccessible or busy."""
 
@@ -59,14 +78,7 @@ class SqliteStore:
             raise MetadataStorageError(f"{path}: metadata path must stay inside {root}")
 
     def _check_schema(self, connection: sqlite3.Connection) -> None:
-        version = connection.execute("PRAGMA user_version").fetchone()[0]
-        if version != _SCHEMA_VERSION:
-            raise MetadataStorageError(f"{self.location}: unsupported metadata schema {version}")
-        row = connection.execute(
-            "SELECT sql FROM sqlite_master WHERE type='table' AND name='metadata_documents'"
-        ).fetchone()
-        if row is None or " ".join(str(row[0]).split()) != _EXPECTED_DDL:
-            raise MetadataStorageError(f"{self.location}: unsupported metadata schema {version}")
+        _check_database_schema(connection, self.location)
 
     @contextlib.contextmanager
     def _reader(self) -> Iterator[sqlite3.Connection | None]:
@@ -495,14 +507,12 @@ def backup_metadata_database(root: Path, backup_dir: Path) -> Path:
     os.chmod(dest, 0o444)
     check = sqlite3.connect(dest.as_uri() + "?mode=ro", uri=True, timeout=30)
     try:
-        version = check.execute("PRAGMA user_version").fetchone()[0]
+        _check_database_schema(check, dest)
         count = check.execute("SELECT COUNT(*) FROM metadata_documents").fetchone()[0]
     except sqlite3.Error as exc:
         raise MetadataStorageError(f"{dest}: backup verification failed: {exc}") from exc
     finally:
         check.close()
-    if version != _SCHEMA_VERSION:
-        raise MetadataStorageError(f"{dest}: unsupported metadata schema version {version}")
     if count == 0:
         # An empty database is a valid state only if the source is empty;
         # re-check the source so a torn copy cannot pass silently.
@@ -533,18 +543,18 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
         raise FileNotFoundError(f"no metadata database backup at {backup}")
     check = sqlite3.connect(backup.as_uri() + "?mode=ro", uri=True, timeout=30)
     try:
-        version = check.execute("PRAGMA user_version").fetchone()[0]
+        _check_database_schema(check, backup)
         integrity = check.execute("PRAGMA integrity_check").fetchone()[0]
         try:
             count = check.execute("SELECT COUNT(*) FROM metadata_documents").fetchone()[0]
         except sqlite3.Error as exc:
             raise MetadataStorageError(f"{backup}: corrupt backup: {exc}") from exc
+    except MetadataStorageError:
+        raise
     except sqlite3.Error as exc:
         raise MetadataStorageError(f"{backup}: corrupt backup: {exc}") from exc
     finally:
         check.close()
-    if version != _SCHEMA_VERSION:
-        raise MetadataStorageError(f"{backup}: unsupported metadata schema version {version}")
     if integrity != "ok":
         raise MetadataStorageError(f"{backup}: integrity check failed: {integrity}")
     location = root / DATABASE_FILENAME
@@ -578,22 +588,22 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
             # Verify the staged copy before it becomes the live database.
             staged = sqlite3.connect(tmp.as_uri() + "?mode=ro", uri=True, timeout=30)
             try:
-                staged_version = staged.execute("PRAGMA user_version").fetchone()[0]
+                _check_database_schema(staged, tmp)
                 staged_integrity = staged.execute("PRAGMA integrity_check").fetchone()[0]
                 staged_count = staged.execute("SELECT COUNT(*) FROM metadata_documents").fetchone()[
                     0
                 ]
+            except MetadataStorageError as exc:
+                raise MetadataStorageError(
+                    f"{backup}: restored copy verification failed: {exc}"
+                ) from exc
             except sqlite3.Error as exc:
                 raise MetadataStorageError(
                     f"{backup}: restored copy verification failed: {exc}"
                 ) from exc
             finally:
                 staged.close()
-            if (
-                staged_version != _SCHEMA_VERSION
-                or staged_integrity != "ok"
-                or staged_count != count
-            ):
+            if staged_integrity != "ok" or staged_count != count:
                 raise MetadataStorageError(f"{backup}: restored copy verification failed")
             # fsync the staged file, publish atomically, fsync the directory.
             fd = os.open(tmp, os.O_RDONLY)
