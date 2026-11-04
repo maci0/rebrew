@@ -741,6 +741,31 @@ class TestGaRunHistory:
         # The win survives the rewrite the prune just did.
         assert [r["symbol"] for r in iter_ga_runs(project_root) if r["matched"]] == ["_win"]
 
+    def test_the_prune_preserves_undecodable_bytes(
+        self, project_root: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A line that is not valid UTF-8 survives a prune byte-for-byte.
+
+        The prune rewrites the whole log; decoding it with
+        ``errors="replace"`` first would turn the bad bytes into U+FFFD
+        permanently, corrupting a line that was only unreadable to that
+        decode.
+        """
+        from rebrew.matcher import solutions as solutions_mod
+
+        monkeypatch.setattr(solutions_mod, "_PRUNE_MIN_BYTES", 1)
+        monkeypatch.setattr(solutions_mod, "_LOSS_RECORD_RETENTION", 2)
+        record_ga_run(project_root, target="SERVER", va=0x1000, symbol="_win", matched=True)
+        for i in range(3):
+            record_ga_run(
+                project_root, target="SERVER", va=0x2000 + i, symbol=f"_l{i}", matched=False
+            )
+        log_path = project_root / ".rebrew" / "ga_runs.jsonl"
+        bad = b'{"symbol":"_bad","target":"SERVER","va":1,"matched":false}\xff\n'
+        log_path.write_bytes(log_path.read_bytes() + bad)
+        record_ga_run(project_root, target="SERVER", va=0x9000, symbol="_later", matched=False)
+        assert bad in log_path.read_bytes()
+
 
 class TestLoadSolutionsFile:
     """load_solutions_file — explicit-path loading for cross-project seeding."""

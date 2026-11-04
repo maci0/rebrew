@@ -57,6 +57,7 @@ lazy import sys
 lazy import tempfile
 lazy import threading
 lazy import typing
+lazy import unicodedata
 lazy from collections.abc import Callable, Iterable, Iterator, Mapping
 lazy from typing import Any
 lazy from urllib.parse import urlsplit
@@ -1282,8 +1283,14 @@ def security_scan(config: WorkerConfig, req: SecurityScanRequest) -> dict[str, A
 
 def target_name(display_name: str) -> str:
     """The rebrew target name for an uploaded file: ``2k-calc.exe`` is ``t_2k_calc``."""
-    stem = _TARGET_UNSAFE.sub("_", Path(display_name).stem).strip("_") or "target"
-    return f"t_{stem}" if stem[0].isdigit() else stem
+    # NFC first: the same name from a macOS volume arrives NFD, and the
+    # combining mark would become ``_`` while an NFC accent becomes ``_``
+    # mid-word, yielding two target names for one file (``Cafe\u0301``
+    # -> ``Cafe`` vs ``Caf\u00e9`` -> ``Caf``).  ASCII-digit test: the stem
+    # is ``[A-Za-z0-9_]`` only, so ``str.isdigit`` cannot see a non-ASCII digit.
+    stem = _TARGET_UNSAFE.sub("_", Path(unicodedata.normalize("NFC", display_name)).stem)
+    stem = stem.strip("_") or "target"
+    return f"t_{stem}" if "0" <= stem[0] <= "9" else stem
 
 
 def _run_intake(binary: Path, project: Path, target: str) -> dict[str, Any]:

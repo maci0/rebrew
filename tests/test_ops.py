@@ -29,7 +29,7 @@ from typing import Any, override
 import pytest
 from bin_util import append_pe_section
 
-from rebrew.ops import OPS, WorkerConfig, dispatch
+from rebrew.ops import OPS, WorkerConfig, dispatch, target_name
 
 FIXTURES = Path(__file__).parent / "fixtures"
 BINARY = FIXTURES / "mini_pe.exe"
@@ -170,6 +170,17 @@ def world(tmp_path_factory: pytest.TempPathFactory) -> tuple[WorkerConfig, Path]
     config = WorkerConfig(filestore.resolve(), workspace.resolve())
     reply = _call(config, "rebrew.analyse", _analyse_request())
     return config, _check_analysed(reply, workspace.resolve())
+
+
+class TestTargetName:
+    def test_nfd_and_nfc_spellings_share_one_name(self) -> None:
+        # A macOS volume hands back NFD; the backend NFC spelling must
+        # not mint a second target.
+        assert target_name("Café.exe") == target_name("Café.exe")
+
+    def test_ascii_names_are_unchanged(self) -> None:
+        assert target_name("2k-calc.exe") == "t_2k_calc"
+        assert target_name("mini.exe") == "mini"
 
 
 class TestContract:

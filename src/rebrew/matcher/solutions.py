@@ -717,15 +717,20 @@ def _prune_loss_records(path: Path) -> None:
             return
     except OSError:
         return
+    # Raw bytes, not a lossy text read: ``errors="replace"`` would turn an
+    # undecodable byte into U+FFFD before the write below, permanently
+    # corrupting a line that was only unreadable to this decode (a foreign
+    # writer, a torn tail).  Unparseable lines are kept either way; the
+    # JSON check below runs on a per-line lossy decode for that decision.
     try:
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
+        raw_lines = path.read_bytes().splitlines(keepends=True)
     except OSError:
         log.warning("Cannot read GA run log %s for pruning", path, exc_info=True)
         return
     keep: list[bool] = []
     losses_kept = 0
-    for raw in reversed(lines):
-        stripped = raw.strip()
+    for raw_bytes in reversed(raw_lines):
+        stripped = raw_bytes.decode("utf-8", errors="replace").strip()
         parsed: Any = None
         if stripped:
             with contextlib.suppress(json.JSONDecodeError):
@@ -735,8 +740,8 @@ def _prune_loss_records(path: Path) -> None:
         if not is_win and keep_now:
             losses_kept += 1
         keep.append(keep_now)
-    kept = [raw for raw, keep_now in zip(lines, reversed(keep), strict=True) if keep_now]
-    if len(kept) == len(lines):
+    kept = [raw for raw, keep_now in zip(raw_lines, reversed(keep), strict=True) if keep_now]
+    if len(kept) == len(raw_lines):
         return
     # Publish through the shared atomic replace, not a hand-rolled
     # ``write_text`` + ``os.replace``: this rewrite republishes the whole log,
@@ -745,10 +750,11 @@ def _prune_loss_records(path: Path) -> None:
     # dropping every win in it — the one store with no other copy.  The shared
     # helper fsyncs the temp file and the parent directory before and after the
     # replace, and removes its temp on failure, so the log survives a crash
-    # mid-prune.  ``errors="replace"`` is preserved from the read above: a line
-    # that did not decode stays decodable on the way back out.
+    # mid-prune.  Kept lines are republished as their original bytes, so an
+    # undecodable line survives a prune byte-for-byte instead of being
+    # rewritten with U+FFFD replacements.
     try:
-        atomic_write_bytes(path, "".join(kept).encode("utf-8"))
+        atomic_write_bytes(path, b"".join(kept))
     except OSError:
         log.warning("Cannot prune GA run log %s", path, exc_info=True)
 

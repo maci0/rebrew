@@ -915,7 +915,7 @@ def image_environment(image_id: str) -> dict[str, str] | None:
             capture_output=True,
             text=True,
             encoding="utf-8",
-            errors="strict",
+            errors="replace",
             timeout=15,
         )
         if result.returncode != 0:
