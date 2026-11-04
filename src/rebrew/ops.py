@@ -768,10 +768,16 @@ def _target_options(root: Path, sha256: str) -> list[str]:
 
 
 def _capstone_for(arch: str) -> tuple[int, int]:
+    from rebrew.config import ARCH_PRESETS
     from rebrew.formats.binary_loader import capstone_config_for
     from rebrew.formats.binary_model import BinaryInfo
 
-    return capstone_config_for(BinaryInfo(path=Path(), format="", arch=arch, endian=""))
+    if arch not in ARCH_PRESETS:
+        raise _invalid(f"unsupported arch: {_bounded(arch)}")
+    try:
+        return capstone_config_for(BinaryInfo(path=Path(), format="", arch=arch, endian=""))
+    except NotImplementedError as exc:
+        raise _invalid(_bounded(str(exc))) from None
 
 
 def _nasm_listing(code: bytes, va: int) -> str:
@@ -827,6 +833,11 @@ def disassemble(config: WorkerConfig, req: DisassembleRequest) -> dict[str, Any]
 
 def disassemble_bytes(_config: WorkerConfig, req: DisassembleBytesRequest) -> dict[str, Any]:
     """Listing of raw code: NASM source for x86_32 (or no arch), ``asm`` lines otherwise."""
+    if req.arch and req.arch != NASM_ARCH:
+        from rebrew.config import ARCH_PRESETS
+
+        if req.arch not in ARCH_PRESETS:
+            raise _invalid(f"unsupported arch: {_bounded(req.arch)}")
     va = _address(req.va)
     if req.arch in ("", NASM_ARCH):
         return {"text": _nasm_listing(req.code, va)}
