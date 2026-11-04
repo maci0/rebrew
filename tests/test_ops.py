@@ -1190,6 +1190,53 @@ class TestHttpTransport:
         finally:
             connection.close()
 
+    def test_health_and_metrics(self, server: tuple[int, Path]) -> None:
+        port, _workspace = server
+        auth = {"Authorization": f"Bearer {TOKEN}"}
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=WAIT_SECONDS)
+        try:
+            conn.request("GET", "/health", headers=auth)
+            resp = conn.getresponse()
+            body = resp.read()
+            assert resp.status == 200
+            payload = json.loads(body)
+            assert payload["status"] == "up"
+            assert payload["requests"] >= 0
+            assert "latency_ms_avg" in payload
+            assert "uptime_seconds" in payload
+        finally:
+            conn.close()
+
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=WAIT_SECONDS)
+        try:
+            conn.request("GET", "/metrics", headers=auth)
+            resp = conn.getresponse()
+            text = resp.read().decode()
+            assert resp.status == 200
+            assert "rebrew_ops_requests_total" in text
+            assert "rebrew_ops_errors_total" in text
+            assert "rebrew_ops_latency_ms_total" in text
+        finally:
+            conn.close()
+
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=WAIT_SECONDS)
+        try:
+            conn.request("GET", "/health")
+            resp = conn.getresponse()
+            resp.read()
+            assert resp.status == 401
+        finally:
+            conn.close()
+
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=WAIT_SECONDS)
+        try:
+            conn.request("GET", "/metrics")
+            resp = conn.getresponse()
+            resp.read()
+            assert resp.status == 401
+        finally:
+            conn.close()
+
     def test_serve_requires_a_token(self) -> None:
         done = subprocess.run(
             _rebrew("ops", "serve", "--port", "0"),

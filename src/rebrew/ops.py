@@ -2080,6 +2080,11 @@ class OpsServer(ThreadingHTTPServer):
 
     At most *concurrency* calls hold a slot at once, from reading the body
     to writing the reply; a call finding none free is answered 503.
+
+    Carries request metrics (see :meth:`record_request` and
+    :meth:`metrics_snapshot`) behind ``/health`` and ``/metrics`` on the
+    same port: counters plus latency, so an operator can pivot from a
+    metric anomaly to the access lines that name the op and its id.
     """
 
     daemon_threads = True
@@ -2092,6 +2097,40 @@ class OpsServer(ThreadingHTTPServer):
         self.token = token
         self.slots = threading.BoundedSemaphore(concurrency)
         self.allowed_hosts = _allowed_hosts_for(address[0], address[1])
+        self._metrics_lock = threading.Lock()
+        self._request_count = 0
+        self._error_count = 0
+        self._server_error_count = 0
+        self._client_error_count = 0
+        self._latency_ms_total = 0.0
+        self._latency_ms_max = 0.0
+        self._started_at = time.time()
+        self.concurrency = concurrency
+
+    def record_request(self, code: int, elapsed_ms: float) -> None:
+        with self._metrics_lock:
+            self._request_count += 1
+            self._latency_ms_total += elapsed_ms
+            self._latency_ms_max = max(self._latency_ms_max, elapsed_ms)
+            if code >= 500:
+                self._server_error_count += 1
+                self._error_count += 1
+            elif code >= 400:
+                self._client_error_count += 1
+                self._error_count += 1
+
+    def metrics_snapshot(self) -> dict[str, float | int]:
+        with self._metrics_lock:
+            return {
+                "request_count": self._request_count,
+                "error_count": self._error_count,
+                "server_error_count": self._server_error_count,
+                "client_error_count": self._client_error_count,
+                "latency_ms_total": self._latency_ms_total,
+                "latency_ms_max": self._latency_ms_max,
+                "latency_ms_avg": (self._latency_ms_total / self._request_count) if self._request_count else 0.0,
+                "uptime_seconds": time.time() - self._started_at,
+            }
 
 
 class _OpsHandler(BaseHTTPRequestHandler):
@@ -2140,6 +2179,9 @@ class _OpsHandler(BaseHTTPRequestHandler):
     def send_response(self, code: int, message: str | None = None) -> None:
         # No Server banner: BaseHTTPRequestHandler would emit the Python
         # patch level to any caller that can reach the worker.
+        elapsed_ms = (time.perf_counter() - self._request_started) * 1000.0
+        with contextlib.suppress(AttributeError):
+            typing.cast("OpsServer", self.server).record_request(code, elapsed_ms)
         self.log_request(code, getattr(self, "_response_size", "-"))
         self.send_response_only(code, message)
         self.send_header("Date", self.date_time_string())
@@ -2248,10 +2290,62 @@ class _OpsHandler(BaseHTTPRequestHandler):
                 "host-not-allowed", "request Host not allowed (wrong or missing Host header)", 403
             )
             return
+        path = urlsplit(self.path).path
+        if path in ("/health", "/metrics") and self.command in ("GET", "HEAD"):
+            if not hmac.compare_digest(
+                self.headers.get("Authorization", "").encode(), f"Bearer {server.token}".encode()
+            ):
+                self._refuse("unauthorized", "a valid bearer token is required", 401)
+                return
+            snapshot = server.metrics_snapshot()
+            if path == "/health":
+                payload = {
+                    "status": "up",
+                    "requests": snapshot["request_count"],
+                    "errors": snapshot["error_count"],
+                    "server_errors": snapshot["server_error_count"],
+                    "client_errors": snapshot["client_error_count"],
+                    "latency_ms_avg": round(snapshot["latency_ms_avg"], 3),
+                    "latency_ms_max": round(snapshot["latency_ms_max"], 3),
+                    "uptime_seconds": round(snapshot["uptime_seconds"], 3),
+                    "concurrency": server.concurrency,
+                }
+                body = json.dumps(payload).encode()
+                self._send(200, body)
+                return
+            lines = [
+                "# HELP rebrew_ops_requests_total Total ops requests answered.",
+                "# TYPE rebrew_ops_requests_total counter",
+                f"rebrew_ops_requests_total {snapshot['request_count']}",
+                "# HELP rebrew_ops_errors_total Total ops requests answered with an error status.",
+                "# TYPE rebrew_ops_errors_total counter",
+                f"rebrew_ops_errors_total {snapshot['error_count']}",
+                "# HELP rebrew_ops_server_errors_total Total ops requests answered with a 5xx status.",
+                "# TYPE rebrew_ops_server_errors_total counter",
+                f"rebrew_ops_server_errors_total {snapshot['server_error_count']}",
+                "# HELP rebrew_ops_client_errors_total Total ops requests answered with a 4xx status.",
+                "# TYPE rebrew_ops_client_errors_total counter",
+                f"rebrew_ops_client_errors_total {snapshot['client_error_count']}",
+                "# HELP rebrew_ops_latency_ms_total Total latency of answered ops requests, in milliseconds.",
+                "# TYPE rebrew_ops_latency_ms_total counter",
+                f"rebrew_ops_latency_ms_total {snapshot['latency_ms_total']:.3f}",
+                "# HELP rebrew_ops_latency_ms_max Maximum latency of an answered ops request, in milliseconds.",
+                "# TYPE rebrew_ops_latency_ms_max gauge",
+                f"rebrew_ops_latency_ms_max {snapshot['latency_ms_max']:.3f}",
+                "# HELP rebrew_ops_uptime_seconds Seconds since the server started.",
+                "# TYPE rebrew_ops_uptime_seconds gauge",
+                f"rebrew_ops_uptime_seconds {snapshot['uptime_seconds']:.3f}",
+                "# HELP rebrew_ops_concurrency Configured number of calls answered at once.",
+                "# TYPE rebrew_ops_concurrency gauge",
+                f"rebrew_ops_concurrency {server.concurrency}",
+            ]
+            body = ("\n".join(lines) + "\n").encode()
+            self._send(200, body, {"Content-Type": "text/plain; version=0.0.4; charset=utf-8"})
+            return
         # 404 before 405, like the dashboard: a path that names no op has no
         # resource to list methods for.  POST on the same unknown name
         # already answers 404 unknown-op, so a non-POST must too.
-        name = urlsplit(self.path).path.removeprefix("/")
+        name = path.removeprefix("/")
         if name not in OPS:
             self._refuse(UNKNOWN_OP, f"unknown op: {_bounded(name)}", 404)
             return
