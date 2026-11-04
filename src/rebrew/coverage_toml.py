@@ -555,8 +555,18 @@ def _merge_history(
     # Retention: the newest HISTORY_RETENTION rows.  ``sorted`` is stable, so
     # two rows sharing a changed_at keep write order and the file stays
     # byte-identical across runs that changed nothing.
-    carried.sort(key=lambda r: str(r.get("changed_at", "")))
-    return carried[-HISTORY_RETENTION:]
+    # Dedup identical events first: a retry after a partial write (history
+    # row present but functions snapshot still old) would otherwise append
+    # the same transition again, duplicating it on every replay.
+    seen: set[tuple[tuple[str, Any], ...]] = set()
+    unique: list[dict[str, Any]] = []
+    for row in carried:
+        key = tuple(sorted(row.items()))
+        if key not in seen:
+            seen.add(key)
+            unique.append(row)
+    unique.sort(key=lambda r: str(r.get("changed_at", "")))
+    return unique[-HISTORY_RETENTION:]
 
 
 # ---------------------------------------------------------------------------
