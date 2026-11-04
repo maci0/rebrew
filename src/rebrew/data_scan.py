@@ -130,18 +130,28 @@ class ScanResult:
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize scan results to a plain dict for JSON output."""
+        annotated = unannotated = multiple_definitions = library_owned = 0
+        for g in self.globals.values():
+            if g.annotated:
+                annotated += 1
+            else:
+                unannotated += 1
+            if len(g.defined_in) > 1:
+                multiple_definitions += 1
+            if g.library_owners:
+                library_owned += 1
         return {
             "globals": {k: v.to_dict() for k, v in sorted(self.globals.items())},
             "data_annotations": self.data_annotations,
             "type_conflicts": self.type_conflicts,
             "summary": {
                 "total": len(self.globals),
-                "annotated": sum(1 for g in self.globals.values() if g.annotated),
-                "unannotated": sum(1 for g in self.globals.values() if not g.annotated),
+                "annotated": annotated,
+                "unannotated": unannotated,
                 "data_entries": len(self.data_annotations),
                 "conflicts": len(self.type_conflicts),
-                "multiple_definitions": sum(len(g.defined_in) > 1 for g in self.globals.values()),
-                "library_owned": sum(bool(g.library_owners) for g in self.globals.values()),
+                "multiple_definitions": multiple_definitions,
+                "library_owned": library_owned,
             },
         }
 
@@ -204,14 +214,24 @@ class DispatchTable:
 # ---------------------------------------------------------------------------
 
 
-def classify_section(va: int, sections: dict[str, dict[str, Any]]) -> str:
-    """Determine which binary section a VA belongs to."""
-    for sec_name, sec in sections.items():
-        sec_va = sec.get("va", 0)
-        sec_size = sec.get("size", 0)
-        if sec_va <= va < sec_va + sec_size:
+def _section_ranges(sections: dict[str, dict[str, Any]]) -> list[tuple[int, int, str]]:
+    """``(start, end, name)`` section intervals for repeated VA lookups."""
+    return [
+        (sec.get("va", 0), sec.get("va", 0) + sec.get("size", 0), sec_name)
+        for sec_name, sec in sections.items()
+    ]
+
+
+def _classify_in_ranges(va: int, ranges: list[tuple[int, int, str]]) -> str:
+    for start, end, sec_name in ranges:
+        if start <= va < end:
             return sec_name
     return ""
+
+
+def classify_section(va: int, sections: dict[str, dict[str, Any]]) -> str:
+    """Determine which binary section a VA belongs to."""
+    return _classify_in_ranges(va, _section_ranges(sections))
 
 
 # ---------------------------------------------------------------------------
@@ -1248,9 +1268,10 @@ def scan_data_annotations(
 
 def enrich_with_sections(scan: ScanResult, sections: dict[str, dict[str, Any]]) -> None:
     """Classify each annotated global into its binary section."""
+    ranges = _section_ranges(sections)
     for entry in scan.globals.values():
         if entry.va:
-            entry.section = classify_section(entry.va, sections)
+            entry.section = _classify_in_ranges(entry.va, ranges)
 
 
 # ---------------------------------------------------------------------------

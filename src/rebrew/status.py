@@ -625,6 +625,17 @@ def load_verify_details(
     return details
 
 
+def _canonical_status_fast(value: str) -> str:
+    """Canonical status without the alias lookup on the hot path.
+
+    Most inputs are already canonical TOML/cache spellings; only the
+    ``NEAR_MATCH`` alias needs folding.  ``canonical_status`` in
+    ``metadata.functions`` remains the full normalization for cold paths.
+    """
+    folded = value.strip().upper()
+    return "NEAR_MATCHING" if folded == "NEAR_MATCH" else folded
+
+
 def effective_status(ann_status: str, cached: str | None) -> str:
     """The status reported for a function: metadata *ann_status* overlaid by
     the verify cache verdict *cached* (``None`` when uncached).
@@ -640,10 +651,8 @@ def effective_status(ann_status: str, cached: str | None) -> str:
     stub's size mismatch is expected); every other cached verdict wins.
     A sourced function without either status defaults to STUB.
     """
-    from rebrew.metadata.functions import canonical_status
-
-    ann = canonical_status(ann_status or "")
-    cache = canonical_status(cached) if cached and str(cached).strip() else None
+    ann = _canonical_status_fast(ann_status or "")
+    cache = _canonical_status_fast(cached) if cached and str(cached).strip() else None
     if ann in ("PROVEN", "SKIP"):
         return ann
     if (
