@@ -155,6 +155,88 @@ class TestBytesField:
         raise AssertionError(f"non-string {code!r} accepted as bytes")
 
 
+_ARCHES = st.sampled_from(
+    [
+        "",
+        "x86_32",
+        "x86_16",
+        "x86_64",
+        "arm32",
+        "arm64",
+        "mips32",
+        "mips64",
+        "ppc32",
+        "ppc64",
+        "sh2",
+        "xtensa",
+        "bogus",
+        "MIPS32",
+    ]
+)
+
+
+class TestDisassembleBytesExecution:
+    """Fuzz handler behind ``rebrew.disassemble_bytes``: raw code bytes via
+    NASM (x86_32) or capstone (other arch) listing arms.
+
+    Prior tests fuzzed only the request decoder; handler itself —
+    ``disassemble_to_nasm``/``disasm_insns`` on attacker bytes plus arch
+    dispatch — had no property harness.  Assertions pin valid output
+    shape so logic bugs (wrong va, invented instructions) fail fuzzer.
+    """
+
+    @given(st.binary(max_size=256), st.integers(min_value=0, max_value=0xFFFFFFFF), _ARCHES)
+    @settings(max_examples=150, deadline=None)
+    def test_disassemble_bytes_never_crashes(self, code: bytes, va: int, arch: str) -> None:
+        import base64
+
+        body = json.dumps(
+            {"code": base64.b64encode(code).decode(), "va": va, "arch": arch}
+        ).encode()
+        status, reply = dispatch(WorkerConfig(), "rebrew.disassemble_bytes", body)
+        assert isinstance(status, int)
+        decoded = json.loads(reply)
+        if status == 200:
+            assert set(decoded) == {"text"}
+            assert isinstance(decoded["text"], str)
+        else:
+            assert set(decoded) == {"error", "detail", "status"}
+            assert decoded["status"] == status
+            assert status in (400, 413, 500)
+
+    @given(st.binary(max_size=128), st.integers(min_value=0, max_value=0xFFFFFFFF))
+    @settings(max_examples=100, deadline=None)
+    def test_nasm_listing_covers_input_bytes(self, code: bytes, va: int) -> None:
+        from rebrew.ops import disassemble_bytes
+
+        result = disassemble_bytes(
+            WorkerConfig(), DisassembleBytesRequest(code=code, va=va, arch="")
+        )
+        text = result["text"]
+        assert isinstance(text, str)
+        assert f"org 0x{va:08x}" in text.lower()
+        if code:
+            assert code.hex() in text.lower() or code[:1].hex() in text.lower()
+
+    @given(st.binary(max_size=128), st.integers(min_value=0, max_value=0xFFFFFFFF))
+    @settings(max_examples=100, deadline=None)
+    def test_capstone_listing_insns_stay_in_range(self, code: bytes, va: int) -> None:
+        from rebrew.analysis import disasm_insns
+        from rebrew.ops import _capstone_for
+
+        for arch in ("arm32", "arm64", "mips32", "ppc32", "x86_64"):
+            cs_arch, cs_mode = _capstone_for(arch)
+            insns = disasm_insns(code, va, cs_arch, cs_mode)
+            cursor = va
+            for insn in insns:
+                assert insn.va == cursor
+                assert insn.size >= 1
+                assert cursor + insn.size <= va + len(code)
+                assert insn.raw == code[cursor - va : cursor - va + insn.size]
+                assert isinstance(insn.mnemonic, str) and insn.mnemonic
+                cursor += insn.size
+
+
 class TestNestedRequest:
     @given(_JSON_VALUE)
     @settings(max_examples=_MAX_EXAMPLES)
