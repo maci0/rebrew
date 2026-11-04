@@ -344,6 +344,9 @@ def _convention_stub(
 
 FuncLookup = dict[int, tuple[str, str]]
 
+_HEX_ADDR_RE = re.compile(r"0x([0-9a-fA-F]+)")
+_DECOR_RE = re.compile(r"@(\d+)\s*$")
+
 
 def _tail_call_arg_count(
     insns: list[Any], cfg: ProjectConfig, func_lookup: FuncLookup | None = None
@@ -369,7 +372,7 @@ def _tail_call_arg_count(
     for insn in reversed(insns):
         if insn.mnemonic != "jmp":
             continue
-        m = re.search(r"0x([0-9a-fA-F]+)", insn.op_str)
+        m = _HEX_ADDR_RE.search(insn.op_str)
         if m is None:
             continue
         target = int(m.group(1), 16)
@@ -382,7 +385,7 @@ def _tail_call_arg_count(
                 logger.debug("function lookup build failed", exc_info=True)
                 return 0, ""
         name, _status = lazy_lookup.get(target, ("", ""))
-        dm = re.search(r"@(\d+)\s*$", name)
+        dm = _DECOR_RE.search(name)
         if dm is not None:
             return max(0, int(dm.group(1)) // 4), name
     return 0, ""

@@ -14,6 +14,8 @@ lazy import re
 lazy from pathlib import Path
 lazy from typing import Any
 
+_HEX_VA_RE = re.compile(r"^0[xX][0-9a-fA-F]+$")
+
 import typer
 lazy from rich.console import Console
 
@@ -470,7 +472,7 @@ def main(
         error_exit(f"No annotations found in {source}", json_mode=json_output)
     va_from_flag = bool(va)  # explicit --va: user override, annotation optional
     va_int = parse_va(va, json_mode=json_output) if va else None
-    if va_int is None and re.match(r"^0[xX][0-9a-fA-F]+$", raw_source):
+    if va_int is None and _HEX_VA_RE.match(raw_source):
         # The positional argument itself was a hex VA.
         va_int = parse_va(raw_source, json_mode=json_output)
     if va_int is None and not Path(raw_source).exists():

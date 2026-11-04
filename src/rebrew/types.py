@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 lazy import re
 lazy from typing import Any
 
+_PACK_RE = re.compile(r"\s*#\s*pragma\s+pack\s*\(([^)]*)\)")
+
 _PRIMITIVE_SIZES: dict[str, int] = {
     "char": 1,
     # 32-bit MSVC ``bool`` is 1 byte, the same width as ``char``.
@@ -259,7 +261,7 @@ def _struct_name(spec: Any, source: bytes) -> str:
 
 def _packing_after(text: str, current: int, stack: list[tuple[str, int]]) -> int:
     """Apply an MSVC pack pragma, including named push/pop records."""
-    match = re.match(r"\s*#\s*pragma\s+pack\s*\(([^)]*)\)", text)
+    match = _PACK_RE.match(text)
     if not match:
         return current
     args = [arg.strip() for arg in match[1].split(",")]

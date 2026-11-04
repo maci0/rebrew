@@ -125,11 +125,14 @@ def repair_inventory_extents(
         if not isinstance(document, list) or any(not isinstance(row, dict) for row in document):
             raise ValueError("native inventory must be an array of function rows")
         rows: dict[int, dict[str, Any]] = {}
+        row_vas: list[int] = []
         for row in document:
-            entry = FunctionEntry.from_dict(row)
-            if entry.va in rows or entry.va < 0 or entry.size < 0:
+            va = int(row["va"]) if isinstance(row["va"], int) else int(str(row["va"]), 0)
+            size = int(row["size"]) if isinstance(row["size"], int) else int(str(row["size"]), 0)
+            if va in rows or va < 0 or size < 0:
                 raise ValueError("native inventory has duplicate addresses or negative extents")
-            rows[entry.va] = row
+            rows[va] = row
+            row_vas.append(va)
         retired = []
         for va in sorted(retire_list):
             if va not in rows:
@@ -138,7 +141,8 @@ def repair_inventory_extents(
             if row.get("_generated_by"):
                 raise ValueError("derived coverage rows cannot establish native inventory extents")
             retired.append({"va": f"0x{va:x}", "row": row, "reason": reason.strip()})
-        document = [row for row in document if FunctionEntry.from_dict(row).va not in retire_list]
+        if retire_list:
+            document = [row for row, va in zip(document, row_vas, strict=True) if va not in retire_list]
         binary = load_binary(cfg.target_binary)
 
         def complete_span(va: int, size: int) -> bool:
@@ -163,11 +167,11 @@ def repair_inventory_extents(
             for label, row in (("head", head_row), ("tail", tail_row)):
                 if row.get("_generated_by"):
                     raise ValueError(
-                        f"{label} row 0x{FunctionEntry.from_dict(row).va:x} is derived "
+                        f"{label} row 0x{head_va if label == 'head' else tail_va:x} is derived "
                         "coverage and cannot establish native extents"
                     )
-            head_size = FunctionEntry.from_dict(head_row).size
-            tail_size = FunctionEntry.from_dict(tail_row).size
+            head_size = int(head_row["size"]) if isinstance(head_row["size"], int) else int(str(head_row["size"]), 0)
+            tail_size = int(tail_row["size"]) if isinstance(tail_row["size"], int) else int(str(tail_row["size"]), 0)
             if head_size <= 0 or tail_size <= 0:
                 raise ValueError("merge requires positive head and tail extents")
             if head_va + head_size != tail_va:
@@ -218,10 +222,11 @@ def repair_inventory_extents(
             rows[va] = row
             # Preserve the relative order and contents of every pre-existing row.
             index = next(
-                (i for i, item in enumerate(document) if FunctionEntry.from_dict(item).va > va),
+                (i for i, item_va in enumerate(row_vas) if item_va > va),
                 len(document),
             )
             document.insert(index, row)
+            row_vas.insert(index, va)
         starts = sorted(rows)
         following = dict(zip(starts, [*starts[1:], None], strict=True))
         changed = []
@@ -236,12 +241,16 @@ def repair_inventory_extents(
                 raise ValueError(f"0x{va:x}+{size} overlaps next inventory start 0x{next_va:x}")
             if va in unknown:
                 for other_va, other in rows.items():
-                    other_size = updates.get(other_va, FunctionEntry.from_dict(other).size)
+                    if other_va in updates:
+                        other_size = updates[other_va]
+                    else:
+                        raw_size = other["size"]
+                        other_size = int(raw_size) if isinstance(raw_size, int) else int(str(raw_size), 0)
                     if other_va != va and va < other_va + other_size and other_va < va + size:
                         raise ValueError(
                             f"0x{va:x}+{size} overlaps inventory extent 0x{other_va:x}"
                         )
-            old_size = None if va in unknown else FunctionEntry.from_dict(row).size
+            old_size = None if va in unknown else (int(row["size"]) if isinstance(row["size"], int) else int(str(row["size"]), 0))
             if old_size == size:
                 continue
             event = {

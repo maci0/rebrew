@@ -17,6 +17,7 @@ lazy from rebrew.formats.binary_loader import decode_binary_name, load_binary, s
 lazy from rebrew.formats.xtensa import xtensa_symbol_relocations
 
 _NAME = re.compile(r"[A-Za-z_.$][A-Za-z0-9_.$-]*\Z")
+_DISASM_LINE = re.compile(r"^\s*([0-9a-fA-F]+):\s+([0-9a-fA-F]+)\s+(.+)")
 
 
 def link_xtensa_function(
@@ -294,7 +295,7 @@ def disassemble_xtensa(
         instructions = []
         consumed = 0
         for line in result.stdout.splitlines():
-            match = re.match(r"^\s*([0-9a-fA-F]+):\s+([0-9a-fA-F]+)\s+(.+)", line)
+            match = _DISASM_LINE.match(line)
             if match is None:
                 continue
             address = int(match[1], 16)
