@@ -19,12 +19,11 @@ rebrew leaves an orphan Xvfb behind; the next run finds it via the
 Authentication: the server rebrew starts is handed an ``-auth`` file (mode
 0600) exported as ``XAUTHORITY`` for the wine children, and an existing Xvfb
 is adopted only when this process can read the server's recorded ``-auth``
-file or its own ``XAUTHORITY``.  The started file holds a bare hex token
-rather than an xauth record, so it does not enforce the access-control gate a
-real MIT-MAGIC-COOKIE-1 entry would (see ``docs/THREAT_MODEL.md``).  An X
-server without access control accepts any local client that can reach its
-world-writable ``/tmp/.X11-unix`` socket, which would let another user on the
-box read the windows wine draws and inject events into them.
+file or its own ``XAUTHORITY``.  The started file holds a real xauth record
+(``MIT-MAGIC-COOKIE-1`` for the display's hostname and number), so the server
+refuses clients without the cookie.  Adoption of a server rebrew did not
+start still depends on a readable cookie file, which does not prove the
+server enforces it.
 """
 
 from __future__ import annotations
@@ -38,6 +37,8 @@ lazy import contextlib
 lazy import os
 lazy import secrets
 lazy import shutil
+lazy import socket
+lazy import struct
 lazy import subprocess
 lazy import tempfile
 lazy import time
@@ -67,9 +68,14 @@ XVFB_DISPLAY_ENV = _XVFB_DISPLAY_ENV
 _XVFB_AUTH_ENV = "REBREW_XVFB_AUTH"
 
 #: Bytes of random token written to the Xvfb ``-auth`` file (the xvfb-run
-#: default).  The file is not an xauth record, so it does not enforce access
-#: control; see the module note.
+#: default).
 _XVFB_COOKIE_BYTES = 16
+
+#: X authorization protocol the cookie record names.
+_XVFB_AUTH_PROTOCOL = b"MIT-MAGIC-COOKIE-1"
+
+#: Xauth address family for a local hostname entry.
+_XAUTH_FAMILY_LOCAL = 256
 
 #: Display range rebrew is allowed to use.  Real desktops live on :0/:1, so
 #: scanning this range only ever collides with other virtual servers.
@@ -152,20 +158,46 @@ def _local_cookie() -> Path | None:
     return _readable_cookie(Path(raw).expanduser()) if raw else None
 
 
-def _new_cookie() -> Path | None:
-    """Owner-only file holding a fresh token for Xvfb's ``-auth``.
+def _xauth_record(hostname: bytes, display_number: bytes, cookie: bytes) -> bytes:
+    """One binary Xauthority entry, as ``xauth add`` writes it.
 
-    The token is bare hex, not an xauth record, so this file does not enforce
-    client authentication; it is still passed as ``-auth`` and exported for
-    the wine children (see ``docs/THREAT_MODEL.md``).
+    Each field is a big-endian u16 length followed by its bytes, in the
+    order family, address, display number, protocol name, cookie.
     """
+    parts = (
+        struct.pack(">H", _XAUTH_FAMILY_LOCAL),
+        hostname,
+        display_number,
+        _XVFB_AUTH_PROTOCOL,
+        cookie,
+    )
+    return b"".join(
+        struct.pack(">H", len(part)) + part if i else part for i, part in enumerate(parts)
+    )
+
+
+def _new_cookie(display: str) -> Path | None:
+    """Owner-only file holding a fresh MIT-MAGIC-COOKIE-1 record for ``-auth``.
+
+    The record names this host and *display*'s number, the two fields the
+    server and the client match on, so a client without the cookie is
+    refused.  The display number is derived from *display* (``:99`` or
+    ``:99.0``); a spelling without one falls back to the text after ``:``.
+    """
+    number = _server_display(display).removeprefix(":") or "0"
+    hostname = socket.gethostname().encode("utf-8", "replace")
+    record = _xauth_record(
+        hostname,
+        number.encode("ascii"),
+        secrets.token_bytes(_XVFB_COOKIE_BYTES),
+    )
     try:
         fd, name = tempfile.mkstemp(prefix="rebrew-xvfb-", suffix=".cookie")
     except OSError:
         return None
     try:
-        with os.fdopen(fd, "w", encoding="ascii") as fh:
-            fh.write(secrets.token_hex(_XVFB_COOKIE_BYTES) + "\n")
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(record)
     except BaseException:
         # A short write leaves a cookie file that no display will ever read and
         # that no caller holds a path to, so the unlink below never runs.
@@ -461,7 +493,7 @@ def _ensure_xvfb_locked() -> str | None:
         if display is None:
             log.debug("every Xvfb display in the reserved range is in use")
             return None
-        cookie = _new_cookie()
+        cookie = _new_cookie(display)
         if cookie is None:
             log.warning(
                 "could not create an Xvfb cookie file; "

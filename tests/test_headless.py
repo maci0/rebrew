@@ -430,7 +430,7 @@ class TestEnsureXvfb:
             headless.shutil, "which", lambda name: "/usr/bin/Xvfb" if name == "Xvfb" else None
         )
         monkeypatch.setattr(headless, "_wait_for_socket", lambda d, timeout=3.0, proc=None: True)
-        monkeypatch.setattr(headless, "_new_cookie", lambda: tmp_path / "cookie-0")
+        monkeypatch.setattr(headless, "_new_cookie", lambda display: tmp_path / "cookie-0")
         (tmp_path / "cookie-0").write_text("secret\n")
 
         class _DeadProc:
@@ -447,7 +447,7 @@ class TestEnsureXvfb:
         assert ensure_xvfb() is not None
         assert len(headless._owned_xvfb) == 1
 
-        monkeypatch.setattr(headless, "_new_cookie", lambda: tmp_path / "cookie-1")
+        monkeypatch.setattr(headless, "_new_cookie", lambda display: tmp_path / "cookie-1")
         (tmp_path / "cookie-1").write_text("secret\n")
         assert headless._ensure_xvfb_locked() is not None  # dead server swept on entry
 
@@ -475,7 +475,7 @@ class TestEnsureXvfb:
         monkeypatch.setattr(headless, "_wait_for_socket", lambda d, timeout=3.0, proc=None: True)
         registered: list[Any] = []
         monkeypatch.setattr(headless.atexit, "register", lambda fn, *a: registered.append(fn))
-        monkeypatch.setattr(headless, "_new_cookie", lambda: tmp_path / "cookie")
+        monkeypatch.setattr(headless, "_new_cookie", lambda display: tmp_path / "cookie")
 
         class _LiveProc:
             def poll(self) -> None:
@@ -490,7 +490,7 @@ class TestEnsureXvfb:
         monkeypatch.setattr(headless.subprocess, "Popen", lambda *a, **k: _LiveProc())
         for generation in range(3):
             cookie = tmp_path / f"cookie{generation}"
-            monkeypatch.setattr(headless, "_new_cookie", lambda cookie=cookie: cookie)
+            monkeypatch.setattr(headless, "_new_cookie", lambda display, cookie=cookie: cookie)
             assert ensure_xvfb() is not None
         assert registered == [headless._release_owned_xvfb]
         assert len(headless._owned_xvfb) == 3

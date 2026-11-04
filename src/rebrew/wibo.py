@@ -102,7 +102,9 @@ def _get_with_trusted_redirects(url: str) -> httpx.Response:
 
     current = _trusted_wibo_download_url(url)
     for _ in range(10):
-        resp = httpx.get(current, timeout=_NETWORK_TIMEOUT_S, follow_redirects=False)
+        resp = httpx.get(
+            current, timeout=_NETWORK_TIMEOUT_S, follow_redirects=False, trust_env=False
+        )
         if resp.status_code not in {301, 302, 303, 307, 308}:
             return resp
         try:
@@ -136,7 +138,9 @@ def _read_release_metadata() -> dict[str, Any]:
     current = _trusted_wibo_metadata_url(_WIBO_API_URL)
     for _ in range(10):
         try:
-            resp = httpx.get(current, timeout=_NETWORK_TIMEOUT_S, follow_redirects=False)
+            resp = httpx.get(
+                current, timeout=_NETWORK_TIMEOUT_S, follow_redirects=False, trust_env=False
+            )
         except httpx.HTTPError as exc:
             raise RuntimeError(
                 f"Failed to fetch wibo release metadata from {current!r}: {exc}"

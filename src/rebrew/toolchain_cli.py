@@ -522,7 +522,9 @@ def _download_pinned_url(
         redirected = False
         for attempt in range(max(1, attempts)):
             try:
-                with httpx.stream("GET", current, timeout=timeout, follow_redirects=False) as resp:
+                with httpx.stream(
+                    "GET", current, timeout=timeout, follow_redirects=False, trust_env=False
+                ) as resp:
                     if resp.status_code in {301, 302, 303, 307, 308}:
                         location = resp.headers.get("location")
                         if not location:
@@ -3641,7 +3643,11 @@ def _live_commit_sha(
     for attempt in range(_HTTP_ATTEMPTS):
         try:
             resp = httpx.get(
-                url, headers=_github_auth_headers(), timeout=20, follow_redirects=False
+                url,
+                headers=_github_auth_headers(),
+                timeout=20,
+                follow_redirects=False,
+                trust_env=False,
             )
             try:
                 resp.raise_for_status()
