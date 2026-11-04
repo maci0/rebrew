@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -16,6 +17,26 @@ import (
 	"strings"
 	"time"
 )
+
+// requestID returns the client's X-Request-ID when it is a well-formed single
+// token, and otherwise mints one. Every admitted request then carries a
+// non-empty correlation id in the access log that an operator can pivot on
+// (a missing header previously logged request_id="" and could not be
+// correlated with anything).
+func requestID(r *http.Request) string {
+	id := r.Header.Get("X-Request-ID")
+	if id == "" || len(id) > 128 || strings.ContainsAny(id, " \t\r\n") {
+		var b [16]byte
+		if _, err := rand.Read(b[:]); err != nil {
+			return ""
+		}
+		if b[0] == 0 && b[1] == 0 && b[2] == 0 && b[3] == 0 && b[4] == 0 && b[5] == 0 && b[6] == 0 && b[7] == 0 && b[8] == 0 && b[9] == 0 && b[10] == 0 && b[11] == 0 && b[12] == 0 && b[13] == 0 && b[14] == 0 && b[15] == 0 {
+			return ""
+		}
+		return fmt.Sprintf("%x", b)
+	}
+	return id
+}
 
 type statusRecorder struct {
 	http.ResponseWriter
@@ -104,7 +125,10 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 			return
 		}
 		start := time.Now()
-		requestID := r.Header.Get("X-Request-ID")
+		requestID := requestID(r)
+		if requestID != "" {
+			w.Header().Set("X-Request-ID", requestID)
+		}
 		status := 0
 		// Instrument only the response status that a handler actually commits;
 		// the log line at the end is the single access log for the service.
@@ -190,14 +214,17 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 			}
 			if err != nil {
 				if errors.Is(err, ErrIdempotencyConflict) {
+					log.Printf("job_admission_conflict key=%q error=%q", in.Key, err.Error())
 					apiError(w, "idempotency conflict", http.StatusConflict)
 					return
 				}
 				if errors.Is(err, ErrOccupied) {
+					log.Printf("job_admission_busy key=%q error=%q", in.Key, err.Error())
 					w.Header().Set("Retry-After", "5")
 					apiError(w, "workspace has unresolved work", http.StatusConflict)
 					return
 				}
+				log.Printf("job_admission_refused key=%q kind=%q error=%q", in.Key, in.Kind, err.Error())
 				apiError(w, "admission refused", 400)
 				return
 			}

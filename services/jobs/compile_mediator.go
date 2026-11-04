@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -160,6 +161,7 @@ func (m *CompileMediator) readOriginal(id string) (compileOriginal, error) {
 	return v, nil
 }
 func (m *CompileMediator) exchange(ctx context.Context, v compileOriginal) (compileOriginal, error) {
+	start := time.Now()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, m.upstream+"/api/v1/compile", bytes.NewReader(v.Body))
 	if err != nil {
 		return v, err
@@ -171,6 +173,7 @@ func (m *CompileMediator) exchange(ctx context.Context, v compileOriginal) (comp
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := m.client.Do(req)
 	if err != nil {
+		log.Printf("compile_upstream_error intent=%q duration_ms=%d error=%q", v.Intent, time.Since(start).Milliseconds(), err.Error())
 		return v, errors.New("compile outcome unresolved")
 	}
 	defer resp.Body.Close()
@@ -178,6 +181,7 @@ func (m *CompileMediator) exchange(ctx context.Context, v compileOriginal) (comp
 	if err != nil || len(b) > 1024*1024 || resp.StatusCode != http.StatusOK {
 		v.LastHTTPStatus = resp.StatusCode
 		_ = m.writeOriginal(v)
+		log.Printf("compile_upstream_error intent=%q status=%d duration_ms=%d", v.Intent, resp.StatusCode, time.Since(start).Milliseconds())
 		return v, errors.New("compile outcome unresolved")
 	}
 	var result struct {
@@ -185,6 +189,7 @@ func (m *CompileMediator) exchange(ctx context.Context, v compileOriginal) (comp
 		Artifact string `json:"artifact_url"`
 	}
 	if json.Unmarshal(b, &result) != nil || (result.Status != "ok" && result.Status != "error") {
+		log.Printf("compile_upstream_error intent=%q status=%d duration_ms=%d", v.Intent, resp.StatusCode, time.Since(start).Milliseconds())
 		return v, errors.New("compile outcome unresolved")
 	}
 	if result.Status == "ok" && !validArtifact(result.Artifact) {
@@ -204,6 +209,7 @@ func (m *CompileMediator) exchange(ctx context.Context, v compileOriginal) (comp
 	if err = m.writeOriginal(v); err != nil {
 		return v, errors.New("compile result retention unresolved")
 	}
+	log.Printf("compile_upstream_ok intent=%q status=%d result=%q duration_ms=%d", v.Intent, resp.StatusCode, result.Status, time.Since(start).Milliseconds())
 	return v, nil
 }
 func validArtifact(p string) bool {
@@ -281,6 +287,24 @@ func (m *CompileMediator) Reconcile(ctx context.Context, id string) error {
 }
 
 func (m *CompileMediator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Same single-line shape as the job server's access log so both
+	// services' logs parse with one query; the compile intent is the
+	// correlation key for the paid upstream call.
+	start := time.Now()
+	status := 0
+	rec := &statusRecorder{ResponseWriter: w, status: &status}
+	w = rec
+	defer func() {
+		s := status
+		if s == 0 {
+			s = http.StatusOK
+		}
+		intent := r.Header.Get("X-Rebrew-Compile-Intent")
+		if !validHex(intent, 64) {
+			intent = ""
+		}
+		log.Printf("http_request method=%s path=%s status=%d duration_ms=%d intent=%q", r.Method, r.URL.Path, s, time.Since(start).Milliseconds(), intent)
+	}()
 	if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Rebrew-Job-Capability")), []byte(m.capability)) != 1 {
 		apiError(w, "unauthorized", 401)
 		return
@@ -368,6 +392,7 @@ func (m *CompileMediator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write(old.Result)
+			log.Printf("compile_replayed intent=%q", id)
 			return
 		} else if !errors.Is(e, os.ErrNotExist) {
 			apiError(w, "ledger unavailable", 503)
@@ -402,6 +427,7 @@ func (m *CompileMediator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(v.Result)
+		log.Printf("compile_admitted intent=%q compiler=%q key=%q", v.Intent, payload.Compiler, v.Key)
 		return
 	}
 	if r.Method == http.MethodGet && validArtifact(r.URL.Path) {
@@ -439,6 +465,7 @@ func (m *CompileMediator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Type", "application/octet-stream")
 		_, _ = w.Write(body)
+		log.Printf("compile_artifact_ok intent=%q bytes=%d", id, len(body))
 		return
 	}
 	apiError(w, "not found", http.StatusNotFound)

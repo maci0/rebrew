@@ -60,6 +60,7 @@ func main() {
 	if addr == "" {
 		addr = "127.0.0.1:8089"
 	}
+	log.Printf("server_starting addr=%q managed=%v", addr, os.Getenv("REBREW_MANAGED_RECOMPILE_URL") != "")
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		log.Fatal(err)
