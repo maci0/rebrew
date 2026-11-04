@@ -987,6 +987,9 @@ def _display_instant(value: object) -> str:
     ``solved_at`` verbatim, because a solution list is a record to read back
     rather than a timeline to scan.
 
+    Stored stamps are normalised to an explicit UTC offset at write time, so
+    the verbatim rendering still names the zone it is in.
+
     The zone is rendered as its numeric UTC offset, never as a ``%Z``
     abbreviation: several zones share one abbreviation for offsets hours
     apart, so a Dublin run read in Kolkata as ``IST`` says ``11:00`` where

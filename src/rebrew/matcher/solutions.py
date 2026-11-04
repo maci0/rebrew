@@ -57,14 +57,39 @@ def _ga_runs_append_lock(path: Path) -> Iterator[None]:
         yield
 
 
-def utc_now_iso() -> str:
-    """The current aware UTC instant, as an ISO 8601 stamp.
+def utc_now_iso(now: datetime | None = None) -> str:
+    """An aware UTC instant as an ISO 8601 stamp.
 
     The default source for every ``solved_at`` / ``ts`` this module writes.
     A replay supplies the instant instead (the ``solved_at=`` / ``ts=``
     arguments), so a re-run of one seed leaves a byte-identical file.
+    A zone-less *now* is read as UTC, the same rule readers of the field
+    apply, so a naive stamp never leaks into the log without an offset.
     """
-    return datetime.now(UTC).isoformat()
+    moment = now or datetime.now(UTC)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    return moment.astimezone(UTC).isoformat()
+
+
+def _normalise_ts(value: str) -> str:
+    """Parse *value* as an instant and re-render it as an aware UTC stamp.
+
+    A caller-supplied *ts* / *solved_at* is a string, so any zone it
+    carries survives storage and the readers' zone-less-as-UTC rule never
+    sees it.  Normalising here keeps one rule at the writer: every stored
+    stamp names its offset, unparseable input passes through unchanged.
+    """
+    raw = value.strip()
+    if raw.endswith(("Z", "z")):
+        raw = raw[:-1] + "+00:00"
+    try:
+        moment = datetime.fromisoformat(raw)
+    except ValueError:
+        return value
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    return moment.astimezone(UTC).isoformat()
 
 
 @dataclass
@@ -572,7 +597,7 @@ def record_ga_run(
     """
     finished = ts or utc_now_iso()
     record: dict[str, Any] = {
-        "ts": finished,
+        "ts": _normalise_ts(finished),
         "target": target,
         "va": str(va),
         "symbol": symbol,
@@ -596,7 +621,7 @@ def record_ga_run(
             record["source_sha"] = source_sha
         if mutations:
             record["mutations"] = list(mutations)
-        record["solved_at"] = solved_at or finished
+        record["solved_at"] = _normalise_ts(solved_at or finished)
     p = _ensure_runs_dir(project_root)
     line = json.dumps(record) + "\n"
     with _ga_runs_append_lock(p):

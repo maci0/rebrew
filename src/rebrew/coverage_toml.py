@@ -520,7 +520,9 @@ def _merge_history(
         else []
     )
 
-    now_iso = (now or datetime.now(UTC)).isoformat()
+    _now = now or datetime.now(UTC)
+    _now = _now.replace(tzinfo=UTC) if _now.tzinfo is None else _now.astimezone(UTC)
+    now_iso = _now.isoformat()
     for row in fn_rows:
         new_va, new_status, updated_by = row[1], row[6], row[24]
         old_status = old_statuses.get(new_va)
@@ -798,7 +800,9 @@ def write_coverage_toml(
         target=target,
         json_output=json_output,
     )
-    stamp = (now or datetime.now(UTC)).isoformat()
+    _now = now or datetime.now(UTC)
+    _now = _now.replace(tzinfo=UTC) if _now.tzinfo is None else _now.astimezone(UTC)
+    stamp = _now.isoformat()
     written: list[Path] = []
     for target_name, data in datasets:
         path = db_directory / f"coverage-{target_name}.toml"

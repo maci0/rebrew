@@ -1665,6 +1665,29 @@ class TestSkipRecent:
         )
         assert _filter_recently_run(stubs, cfg, hours=2, json_output=True) == stubs
 
+    def test_writer_normalises_naive_and_offset_stamps(self, tmp_path: Path) -> None:
+        """record_ga_run stores an explicit UTC offset for every stamp."""
+        import json
+
+        from rebrew.matcher.solutions import record_ga_run
+
+        root = tmp_path
+        calls = [
+            ("2026-01-02T03:04:05", "2026-01-02T03:04:05"),
+            ("2026-01-02T03:04:05Z", "2026-01-02T03:04:05"),
+            ("2026-01-02T05:04:05+02:00", "2026-01-02T03:04:05"),
+        ]
+        for i, (given, _exp) in enumerate(calls):
+            record_ga_run(
+                root, target="SERVER", va=f"0x{i:x}", symbol=f"_s{i}",
+                matched=True, ts=given, solved_at=given,
+            )
+        lines = (root / ".rebrew" / "ga_runs.jsonl").read_text(encoding="utf-8").splitlines()
+        for line, (_given, expected) in zip(lines, calls, strict=True):
+            rec = json.loads(line)
+            assert rec["ts"] == expected + "+00:00"
+            assert rec["solved_at"] == expected + "+00:00"
+
     def test_window_end_is_injectable(self, tmp_path: Path) -> None:
         """The skip window reads *now*, so the same log gives the same answer.
 

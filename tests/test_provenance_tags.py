@@ -178,3 +178,17 @@ class TestFieldWriterProvenance:
         with pytest.raises(ValueError, match="Unknown provenance tag"):
             stamp_provenance(entry, "not-a-tool")
         assert entry == before
+
+
+class TestStampTimezone:
+    def test_naive_now_is_read_as_utc_offsets(self) -> None:
+        from datetime import datetime, timedelta, timezone
+
+        from rebrew.metadata.functions import _stamp, stamp_provenance
+
+        entry: dict = {}
+        stamp_provenance(entry, "verify", now=datetime(2026, 1, 2, 3, 4, 5))  # noqa: DTZ001
+        assert entry["updated_at"] == "2026-01-02T03:04:05+00:00"
+        # An offset-aware caller instant is re-rendered in UTC, not leaked as-is.
+        aware = datetime(2026, 1, 2, 5, 4, 5, tzinfo=timezone(timedelta(hours=2)))
+        assert _stamp(aware) == "2026-01-02T03:04:05+00:00"

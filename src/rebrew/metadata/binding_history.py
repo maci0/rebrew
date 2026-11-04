@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 lazy import copy
-lazy from datetime import UTC, datetime
+lazy from datetime import datetime
 lazy from pathlib import Path
 lazy from typing import Any
 
@@ -11,6 +11,7 @@ from rebrew.metadata.functions import (
     FUNCTION_IDENTITY_FIELDS,
     METADATA_FIELDS,
     METADATA_FILENAME,
+    _stamp,
     identity_file,
     resolve_metadata_dir,
     stamp_provenance,
@@ -270,7 +271,7 @@ def _apply_change(
     event = {
         "action": "retire" if identity is None else "rebind",
         "reason": reason.strip(),
-        "changed_at": (now or datetime.now(UTC)).isoformat(),
+        "changed_at": _stamp(now),
         "previous": previous,
         "replacement": identity or {},
         "counterpart_va": counterpart_va or 0,

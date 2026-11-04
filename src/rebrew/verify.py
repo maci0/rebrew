@@ -1775,7 +1775,9 @@ def build_report(
     UTC instant), so a report captured from a replayed run is byte-comparable
     with the run it replays instead of differing in that one field.
     """
-    timestamp = (now or datetime.now(UTC)).isoformat()
+    _now = now or datetime.now(UTC)
+    _now = _now.replace(tzinfo=UTC) if _now.tzinfo is None else _now.astimezone(UTC)
+    timestamp = _now.isoformat()
     # Single-pass status counting instead of 7 separate iterations.
     _status_counts: dict[str, int] = {}
     for _r in results:
