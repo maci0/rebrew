@@ -3612,6 +3612,19 @@ def _image_smoke_hash(tool: str, workdir: Path) -> str | None:
 
 
 _CODELOAD_RE = r"https://codeload\.github\.com/([^/]+)/([^/]+)/tar\.gz/refs/heads/([A-Za-z0-9._-]+)"
+_CODELOAD_PATTERN: re.Pattern[str] | None = None
+
+
+def _codeload_pattern() -> re.Pattern[str]:
+    """Compiled codeload pattern (module import lazily loads ``re``)."""
+    global _CODELOAD_PATTERN
+    if _CODELOAD_PATTERN is None:
+        import re
+
+        _CODELOAD_PATTERN = re.compile(_CODELOAD_RE)
+    return _CODELOAD_PATTERN
+
+
 _MOVING_RELEASE = "Last-CI-build"
 
 
@@ -3722,7 +3735,7 @@ def check_updates_cmd(
             rows[name] = STATUS_STATIC_TARBALL
             continue
         url = src.url or ""
-        m = re.match(_CODELOAD_RE, url)
+        m = _codeload_pattern().match(url)
         if m:
             owner, repo, branch = m.group(1), m.group(2), m.group(3)
             try:
@@ -3912,7 +3925,7 @@ def update_cmd(
             else:
                 console.print(f"[green]{msg}[/green]")
             return
-        m = re.match(_CODELOAD_RE, url)
+        m = _codeload_pattern().match(url)
         live_commit = ""
         if m:
             try:

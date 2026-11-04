@@ -1038,6 +1038,14 @@ def processor_pack_profiles() -> set[str]:
     return {str(name) for name in TOOLCHAINS if str(name).endswith("-pp")}
 
 
+_COMPILE3_BLOCK_RE = re.compile(r"S_COMPILE3.*?(?=\n\s*S_|\Z)", re.S)
+_COMPILE3_FIELDS = (
+    ("frontend", re.compile(r"frontend\s*=\s*([^\n,]+)")),
+    ("backend", re.compile(r"backend\s*=\s*([^\n,]+)")),
+    ("flags", re.compile(r"flags\s*=\s*([^\n,]+)")),
+)
+
+
 def _pdb_compile_record(path: Path) -> dict[str, str] | None:
     """Parse the PDB's S_COMPILE3 record via llvm-pdbutil (best effort).
 
@@ -1065,12 +1073,12 @@ def _pdb_compile_record(path: Path) -> dict[str, str] | None:
         logger.warning("llvm-pdbutil dump -symbols failed on %s (%s)", pdb, exc)
         return None
     text = r.stdout + r.stderr
-    m = re.search(r"S_COMPILE3.*?(?=\n\s*S_|\Z)", text, re.S)
+    m = _COMPILE3_BLOCK_RE.search(text)
     out: dict[str, str] = {}
     if m:
         block = m.group(0)
-        for key in ("frontend", "backend", "flags"):
-            km = re.search(rf"{key}\s*=\s*([^\n,]+)", block)
+        for key, pat in _COMPILE3_FIELDS:
+            km = pat.search(block)
             if km:
                 out[key] = km.group(1).strip()
 

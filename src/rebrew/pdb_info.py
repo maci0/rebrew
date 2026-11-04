@@ -113,26 +113,43 @@ def _run_pdbutil(args: list[str], pdb: Path, timeout: int = 30) -> str:
     return (r.stdout or "") + (r.stderr or "")
 
 
+_COMPILE3_RE = re.compile(r"S_COMPILE3.*?(?=\n\s*S_|\Z)", re.S)
+_FRONTEND_RE = re.compile(r"frontend\s*=\s*([^\n,]+)")
+_BACKEND_RE = re.compile(r"backend\s*=\s*([^\n,]+)")
+_FLAGS_RE = re.compile(r"flags\s*=\s*([^\n,]+)")
+
+
 def _parse_compile3(text: str) -> tuple[str, str, list[str]]:
     """Extract frontend/backend versions + flags from an S_COMPILE3 block."""
-    m = re.search(r"S_COMPILE3.*?(?=\n\s*S_|\Z)", text, re.S)
+    m = _COMPILE3_RE.search(text)
     if not m:
         return "", "", []
     block = m.group(0)
     frontend = backend = ""
     flags: list[str] = []
-    fm = re.search(r"frontend\s*=\s*([^\n,]+)", block)
+    fm = _FRONTEND_RE.search(block)
     if fm:
         frontend = fm.group(1).strip()
-    bm = re.search(r"backend\s*=\s*([^\n,]+)", block)
+    bm = _BACKEND_RE.search(block)
     if bm:
         backend = bm.group(1).strip()
-    fl = re.search(r"flags\s*=\s*([^\n,]+)", block)
+    fl = _FLAGS_RE.search(block)
     if fl and fl.group(1).strip().lower() not in ("none", ""):
         # llvm-pdbutil joins the symbolic CompileSym3Flags with " | "; split on
         # that as well as whitespace so `sdl | pgo` is two entries, not one.
         flags = [tok for tok in re.split(r"[|\s]+", fl.group(1)) if tok]
     return frontend, backend, flags
+
+
+_PROC_RE = re.compile(
+    r"^[ \t]*(?:\d+[ \t]*\|[ \t]*)?S_(?:G|L)PROC32(?:_ID)? \[size = \d+\]"
+    r"(?:[^\S\n]+`([^`]+)`)?(.*?)"
+    r"(?=\n[ \t]*(?:\d+[ \t]*\|[ \t]*)?S_[A-Z0-9_]+ \[size = \d+\]|\Z)",
+    re.S | re.M,
+)
+_NAME_RE = re.compile(r"name\s*=\s*'([^']+)'")
+_DEBUG_START_RE = re.compile(r"debug start\s*=\s*(0x[0-9a-fA-F]+|\d+)")
+_DEBUG_END_RE = re.compile(r"debug end\s*=\s*(0x[0-9a-fA-F]+|\d+)")
 
 
 def _parse_procs(text: str) -> list[dict[str, object]]:
@@ -144,24 +161,18 @@ def _parse_procs(text: str) -> list[dict[str, object]]:
     """
     out: list[dict[str, object]] = []
     # Detail-block form (name = '...' inside the record block).
-    for m in re.finditer(
-        r"^[ \t]*(?:\d+[ \t]*\|[ \t]*)?S_(?:G|L)PROC32(?:_ID)? \[size = \d+\]"
-        r"(?:[^\S\n]+`([^`]+)`)?(.*?)"
-        r"(?=\n[ \t]*(?:\d+[ \t]*\|[ \t]*)?S_[A-Z0-9_]+ \[size = \d+\]|\Z)",
-        text,
-        re.S | re.M,
-    ):
+    for m in _PROC_RE.finditer(text):
         inline = m.group(1)
         block = m.group(2) or ""
         name = inline
-        nm = re.search(r"name\s*=\s*'([^']+)'", block)
+        nm = _NAME_RE.search(block)
         if nm:
             name = nm.group(1)
         if not name:
             continue
         entry: dict[str, object] = {"name": name}
-        sm = re.search(r"debug start\s*=\s*(0x[0-9a-fA-F]+|\d+)", block)
-        em = re.search(r"debug end\s*=\s*(0x[0-9a-fA-F]+|\d+)", block)
+        sm = _DEBUG_START_RE.search(block)
+        em = _DEBUG_END_RE.search(block)
         if sm:
             entry["start"] = sm.group(1)
         if em:
