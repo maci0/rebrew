@@ -1253,12 +1253,26 @@ def data_byte_coverage(
     past the file-backed range is clipped. Overlap counts once.
     """
     total = merged_span_bytes(ranges)
+    if not spans or not ranges:
+        return 0, total
+    # Ranges in real use are the .data/.rdata file extents (a handful), but a
+    # symbol can span several when they are fragmented; walk both lists in
+    # sorted order once instead of testing every (span, range) pair.
+    sorted_ranges = sorted((lo, hi) for lo, hi in ranges if hi > lo)
     clipped: list[tuple[int, int]] = []
-    for lo, hi in spans:
-        for rlo, rhi in ranges:
-            start, end = max(lo, rlo), min(hi, rhi)
+    ri = 0
+    for lo, hi in sorted(spans):
+        if hi <= lo:
+            continue
+        while ri < len(sorted_ranges) and sorted_ranges[ri][1] <= lo:
+            ri += 1
+        rj = ri
+        while rj < len(sorted_ranges) and sorted_ranges[rj][0] < hi:
+            start = max(lo, sorted_ranges[rj][0])
+            end = min(hi, sorted_ranges[rj][1])
             if end > start:
                 clipped.append((start, end))
+            rj += 1
     return merged_span_bytes(clipped), total
 
 
