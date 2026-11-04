@@ -18,6 +18,14 @@ from rebrew.errors import RebrewError
 lazy from rebrew.utils import atomic_write_bytes
 
 
+#: Bounded wait for the ``patch`` subprocess: without it a hung ``patch`` (e.g.
+#: waiting on stdin despite ``--batch``, or a wedged filesystem) hangs the
+#: whole vendor sync indefinitely.  Sibling subprocess calls in this codebase
+#: use 30–60 s bounds (``pdb_info._run_pdbutil`` 30 s, ``matcher.parsers``
+#: objconv 60 s); a patch application is smaller work, so 60 s is generous.
+_PATCH_TIMEOUT_S = 60
+
+
 class VendorError(RebrewError, ValueError):
     """A vendored tree does not match its manifest."""
 
@@ -140,25 +148,32 @@ def stage(manifest: Manifest, stage_root: Path) -> Path:
         shutil.copyfile(manifest.pristine / name, target / name)
     for patch in manifest.patches:
         # The stdlib has no unified-diff applier; GNU patch is the one dependency here.
-        result = subprocess.run(
-            [
-                "patch",
-                "-p1",
-                "--batch",
-                "--forward",
-                "--fuzz=0",
-                "--quiet",
-                "--no-backup-if-mismatch",
-                "--reject-file=-",
-                "-d",
-                str(target),
-                "-i",
-                str(patch),
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        try:
+            result = subprocess.run(
+                [
+                    "patch",
+                    "-p1",
+                    "--batch",
+                    "--forward",
+                    "--fuzz=0",
+                    "--quiet",
+                    "--no-backup-if-mismatch",
+                    "--reject-file=-",
+                    "-d",
+                    str(target),
+                    "-i",
+                    str(patch),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=_PATCH_TIMEOUT_S,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise VendorError(
+                f"{patch.name} did not apply within {_PATCH_TIMEOUT_S} s "
+                f"(patch timed out): {exc}"
+            ) from exc
         if result.returncode != 0:
             raise VendorError(f"{patch.name} does not apply:\n{result.stdout}{result.stderr}")
     produced = {p.relative_to(target).as_posix() for p in target.rglob("*") if p.is_file()}

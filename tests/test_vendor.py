@@ -212,6 +212,21 @@ class TestVendor:
         result = CliRunner().invoke(app, ["--root", str(tmp_path), "--json", str(manifest)])
         assert result.exit_code == 2 and "GNU patch" in cli_payload(result)["error"]
 
+    def test_patch_timeout_reports_vendor_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import subprocess
+
+        manifest = _tree(tmp_path)
+
+        def hung(*args: object, **kwargs: object) -> None:
+            raise subprocess.TimeoutExpired(cmd=args[0] if args else "patch", timeout=60)
+
+        monkeypatch.setattr("rebrew.vendor.subprocess.run", hung)
+        with pytest.raises(VendorError, match="did not apply within"):
+            vendor_trees(tmp_path, [manifest], write=True)
+        assert "return 2;" in (tmp_path / "lib/f.c").read_text()
+
     def test_output_must_be_a_directory(self, tmp_path: Path) -> None:
         manifest = _tree(tmp_path)
         _replace(manifest, 'output = "lib"', 'output = "lib.patch"')

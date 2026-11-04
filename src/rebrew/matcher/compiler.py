@@ -1039,9 +1039,9 @@ def flag_sweep(
                         log.warning("Flag sweep worker failed: %s", exc)
                 except Exception:
                     # Unexpected exception (e.g. TypeError from scoring pipeline bug):
-                    # log at DEBUG so it surfaces in --verbose or CI runs without crashing the sweep.
+                    # log at WARNING so it surfaces in normal runs without crashing the sweep.
                     worker_errors += 1
-                    log.debug("Unexpected error in flag_sweep worker", exc_info=True)
+                    log.warning("Unexpected error in flag_sweep worker", exc_info=True)
                 else:
                     if score < float("inf"):
                         results.append((score, flags))

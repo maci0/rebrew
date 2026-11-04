@@ -1470,7 +1470,7 @@ def run_all(
                 now=now,
             )
         except Exception as exc:  # one bad stub must not abort the batch
-            log.debug("GA run failed for %s", stub.symbol, exc_info=True)
+            log.warning("GA run failed for %s", stub.symbol, exc_info=True)
             console.print(
                 f"  [yellow]warning:[/yellow] GA run failed for {untrusted_ident(stub.symbol)}: "
                 f"{exc.__class__.__name__}: {untrusted_ident(exc)}"
