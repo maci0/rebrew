@@ -178,6 +178,19 @@ class TestGapTraceHelpers:
         branch = next(iter(_BRANCHES))
         assert _masked_key(b"\x74\x05", False, branch) == b"\x74\x00"
 
+    def test_masked_key_accepts_bytearray(self) -> None:
+        """Capstone hands back bytearray, and difflib rejects an unhashable key."""
+        from rebrew.gap_trace import _BRANCHES, _masked_key
+
+        branch = next(iter(_BRANCHES))
+        keys = [
+            _masked_key(bytearray(b"\x74\x05"), False, branch),
+            _masked_key(bytearray(b"\x12\x34"), True, "mov"),
+            _masked_key(bytearray(b"\x90\x90"), False, "nop"),
+        ]
+        assert all(isinstance(key, bytes) for key in keys)
+        assert len(set(keys)) >= 1
+
     def test_obj_text_prefers_the_function_section(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

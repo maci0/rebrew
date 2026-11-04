@@ -93,12 +93,12 @@ def reference_window(cfg: Any, va: int) -> int | None:
     return (nxt - va) if nxt else None
 
 
-def _masked_key(raw: bytes, reloc: bool, mnemonic: str) -> bytes:
+def _masked_key(raw: bytes | bytearray, reloc: bool, mnemonic: str) -> bytes:
     """Instruction bytes with reloc slots and branch operands blanked.
 
-    Always returns ``bytes``: capstone hands the disassembly stream a
-    ``bytearray``, and slicing one returns another bytearray, which the
-    sequence aligner cannot use as a dict key.
+    Accepts ``bytearray`` because capstone hands one back, and returns ``bytes``
+    because slicing a bytearray yields another bytearray, which the sequence
+    aligner cannot use as a dict key.
     """
     if reloc:
         return b"\x00" * len(raw)
