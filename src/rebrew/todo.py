@@ -2001,7 +2001,7 @@ def main(
         )
 
     if not display_items:
-        console.print("No action items found. Great progress!")
+        console.print("No action items found.")
         return
 
     # Match % is the figure that must not read as 100% for a near miss.  Fixed

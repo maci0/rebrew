@@ -59,7 +59,7 @@ TOKENS: dict[str, str] = {
     "accent-soft": "#9dc4f5",
     "ring": "rgba(0,95,204,.25)",
     # type
-    "sans": 'ui-sans-system, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+    "sans": '"SFMono-Regular", ui-monospace, "Cascadia Code", Menlo, Consolas, "DejaVu Sans Mono", monospace',
     "mono": '"JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, "DejaVu Sans Mono", monospace',
     # One tighter step scale for display (24/20/18) and text (15/14/13),
     # so the "0x mug" mark in the title band reads as the tool's own
