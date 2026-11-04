@@ -1855,8 +1855,11 @@ def retry_backoff_delay(attempt: int) -> float:
     The one backoff policy the service clients share, so ``recompile_client``
     and ``decompme`` cannot drift on how hard they hammer a recovering
     service: ``delay = min(RETRY_BACKOFF_BASE * 2**attempt, RETRY_BACKOFF_CAP)``.
+    A negative *attempt* clamps to the first retry's delay: the exponent
+    would otherwise shrink the wait below the base, hammering a recovering
+    service harder than the first retry does.
     """
-    exponent = min(attempt, RETRY_BACKOFF_CAP_EXPONENT)
+    exponent = min(max(attempt, 0), RETRY_BACKOFF_CAP_EXPONENT)
     return min(RETRY_BACKOFF_BASE * (2.0**exponent), RETRY_BACKOFF_CAP)
 
 

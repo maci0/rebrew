@@ -7,6 +7,8 @@ persistence is the shared compile cache.
 
 from __future__ import annotations
 
+import math
+import sys
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -46,13 +48,20 @@ class Score:
     @property
     def total(self) -> float:
         """Weighted sum of the five components; lower is better."""
-        return (
+        total = (
             (self.length_diff * WEIGHT_LEN_DIFF)
             + (self.byte_score * WEIGHT_BYTE)
             + (self.reloc_score * WEIGHT_RELOC)
             + (self.mnemonic_score * WEIGHT_MNEMONIC)
             + self.prologue_bonus
         )
+        # A component at float max overflows its weighted term to inf even
+        # though every component is finite; callers round a finite total and
+        # store None for inf, silently dropping a real (terrible) candidate
+        # from best-score tracking.  Saturate at float max instead.
+        if math.isinf(total):
+            return math.copysign(sys.float_info.max, total)
+        return total
 
 
 @dataclass

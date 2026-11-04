@@ -41,6 +41,7 @@ import re
 from typing import Any, Literal, Protocol, runtime_checkable
 lazy import hashlib
 lazy import json
+lazy import math
 lazy import os
 lazy import time
 lazy from collections.abc import Callable, Mapping
@@ -635,7 +636,10 @@ def _is_recent(entry: dict[str, str], now: float) -> bool:
         at = float(entry.get("at", 0) or 0)
     except ValueError:
         return False
-    return now - at < _UPLOADS_RETENTION_SECONDS
+    if not math.isfinite(at) or not math.isfinite(now):
+        return False
+    age = now - at
+    return 0.0 <= age < _UPLOADS_RETENTION_SECONDS
 
 
 def verify_compiler(

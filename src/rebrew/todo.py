@@ -17,6 +17,7 @@ import threading
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 lazy import json
+lazy import math
 lazy import shlex
 lazy from collections.abc import Callable, Sequence
 lazy from pathlib import Path
@@ -210,6 +211,10 @@ def calculate_roi(size: int, match_pct: float | None, delta: int | None) -> floa
         match_pct = 0.0
     # 0-100 only: a percent above 100 (corrupt cache row) drives the base
     # score negative and would rank a function as easier than a fresh one.
+    # Non-finite reads as unmeasured (0.0): max/min with NaN is
+    # order-dependent and silently passed the garbage through as a mid score.
+    if not math.isfinite(match_pct):
+        match_pct = 0.0
     match_pct = max(0.0, min(100.0, match_pct))
 
     # Invert the score: 0% match = 65 base, 100% match = 25 base
