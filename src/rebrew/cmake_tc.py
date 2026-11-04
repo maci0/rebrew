@@ -39,7 +39,12 @@ import typer
 
 lazy from rebrew.cli import console, error_exit, json_print, option_default, require_config
 lazy from rebrew.compiler.temp_dirs import xdg_cache_home
-lazy from rebrew.compiler.toolchain import ToolchainSpec, bind_mount, kill_container
+lazy from rebrew.compiler.toolchain import (
+    ToolchainSpec,
+    bind_mount,
+    docker_hardening_args,
+    kill_container,
+)
 lazy from rebrew.config import ConfigError, check_env_wineprefix, source_date_epoch
 lazy from rebrew.utils import (
     atomic_write_text,
@@ -330,8 +335,7 @@ def _ensure_wineprefix(prefix: Path, spec: ToolchainSpec, *, runtime: str | None
                     container_runtime(runtime) if runtime else container_runtime(),
                     "run",
                     "--rm",
-                    "--network=none",  # wineboot needs no network
-                    "--security-opt=no-new-privileges",  # no setuid escalation inside the image
+                    *docker_hardening_args(pull=False),
                     "--name",
                     name,
                     *_docker_user_args(),
@@ -424,8 +428,7 @@ def _docker_run(
         container_runtime(runtime) if runtime else container_runtime(),
         "run",
         "--rm",
-        "--network=none",  # compile-only containers — no egress needed
-        "--security-opt=no-new-privileges",  # no setuid escalation inside the image
+        *docker_hardening_args(pull=False),
         "--name",
         f"rebrew-{spec.name}-{mode}-{uuid.uuid4().hex[:12]}",
         *_docker_user_args(),

@@ -96,6 +96,7 @@ lazy from rebrew.compiler.toolchain import (
     ToolchainSpec,
     bind_mount,
     cached_image_digest,
+    docker_hardening_args,
     image_content_id,
     run_toolchain,
 )
@@ -3111,8 +3112,7 @@ def build_linked_link_cmd(
         container_runtime(),
         "run",
         "--rm",
-        "--network=none",  # link-only container - no egress needed
-        "--security-opt=no-new-privileges",  # no setuid escalation inside the image
+        *docker_hardening_args(pull=False),
         # Named so the timeout path can kill it (a killed docker CLI leaves
         # the container under dockerd - same discipline as run_toolchain).
         "--name",

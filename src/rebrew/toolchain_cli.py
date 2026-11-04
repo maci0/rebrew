@@ -3492,7 +3492,7 @@ def _run_smoke_container(
     """
     import uuid
 
-    from rebrew.compiler.toolchain import bind_mount, kill_container
+    from rebrew.compiler.toolchain import bind_mount, docker_hardening_args, kill_container
 
     container = f"{name_prefix}-{uuid.uuid4().hex[:12]}"
     try:
@@ -3501,9 +3501,7 @@ def _run_smoke_container(
                 container_runtime(),
                 "run",
                 "--rm",
-                "--network=none",  # compile-only container
-                "--pull=never",
-                "--security-opt=no-new-privileges",  # no setuid escalation inside the image
+                *docker_hardening_args(),
                 "--name",
                 container,
                 "-v",

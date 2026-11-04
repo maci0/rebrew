@@ -538,7 +538,12 @@ def ensure_stock_lib(dest: Path, *, profile: str, name: str) -> bool:
     that fails with the runtime present is an error rather than a skip: it
     means the image does not carry the archive where its spec says it does.
     """
-    from rebrew.compiler.toolchain import ToolchainError, bind_mount, runtime_on_path
+    from rebrew.compiler.toolchain import (
+        ToolchainError,
+        bind_mount,
+        docker_hardening_args,
+        runtime_on_path,
+    )
 
     if stock_lib_valid(dest):
         return True
@@ -557,8 +562,7 @@ def ensure_stock_lib(dest: Path, *, profile: str, name: str) -> bool:
                 runtime,
                 "run",
                 "--rm",
-                "--network=none",  # local file copy - no egress needed
-                "--security-opt=no-new-privileges",  # no setuid escalation inside the image
+                *docker_hardening_args(pull=False),
                 "--name",
                 container,
                 "--entrypoint",
@@ -614,7 +618,7 @@ def assert_library_is_stock(
     files is an error rather than a silent pass.  An unavailable runtime
     skips, matching ``ensure_stock_lib``.
     """
-    from rebrew.compiler.toolchain import bind_mount, runtime_on_path
+    from rebrew.compiler.toolchain import bind_mount, docker_hardening_args, runtime_on_path
 
     runtime = container_runtime()
     if not runtime_on_path():
@@ -629,8 +633,7 @@ def assert_library_is_stock(
                 runtime,
                 "run",
                 "--rm",
-                "--network=none",  # local hash - no egress needed
-                "--security-opt=no-new-privileges",  # no setuid escalation inside the image
+                *docker_hardening_args(pull=False),
                 "--name",
                 container,
                 "--entrypoint",

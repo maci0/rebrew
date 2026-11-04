@@ -213,7 +213,7 @@ def _import_lib_symbols_from_image(dll_stem: str) -> set[str]:
     setups — the import libraries now live inside the toolchain image.  Grep
     the same ``__imp_`` thunk strings out of the image's ``Lib/<DLL>.LIB``.
     """
-    from rebrew.compiler.toolchain import TOOLCHAINS
+    from rebrew.compiler.toolchain import TOOLCHAINS, docker_hardening_args
 
     spec = TOOLCHAINS.get("msvc-6.0")
     if spec is None or spec.image is None or spec.tool_root is None:
@@ -233,8 +233,7 @@ def _import_lib_symbols_from_image(dll_stem: str) -> set[str]:
                 container_runtime(),
                 "run",
                 "--rm",
-                "--network=none",  # read-only grep inside the image
-                "--security-opt=no-new-privileges",  # no setuid escalation inside the image
+                *docker_hardening_args(pull=False),
                 # Named so the timeout path can kill it (a killed docker CLI
                 # leaves the container running under dockerd).
                 "--name",

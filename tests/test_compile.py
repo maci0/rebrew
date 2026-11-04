@@ -1541,25 +1541,31 @@ class TestLinkedLinkCmd:
         cmd, _script = build_linked_link_cmd(
             self._spec(), base=0x10000000, obj_name="f.obj", out_name="out.dll", workdir="/tmp/w"
         )
-        assert cmd[:5] == [
-            "docker",
-            "run",
-            "--rm",
-            "--network=none",
-            "--security-opt=no-new-privileges",
-        ]
+        from rebrew.compiler.toolchain import docker_hardening_args
+
+        hardening = docker_hardening_args(pull=False)
+        assert cmd[:3] == ["docker", "run", "--rm"]
+        assert cmd[3 : 3 + len(hardening)] == hardening
         # Named so a timed-out run can be killed instead of leaking under dockerd.
-        assert cmd[5] == "--name"
-        assert cmd[6].startswith("rebrew-link-")
+        name_at = 3 + len(hardening)
+        assert cmd[name_at] == "--name"
+        assert cmd[name_at + 1].startswith("rebrew-link-")
         # The MSVC include/lib trees and LINK.EXE travel as env vars, never
         # spliced into the script body.
-        assert cmd[7] == "--env"
-        assert cmd[9] == "--env"
-        assert cmd[11] == "--env"
-        assert cmd[13:19] == ["-v", "/tmp/w:/work", "-w", "/work", "--entrypoint", "sh"]
-        assert cmd[19] == "rebrew/msvc:6.0-win32"
+        assert cmd[name_at + 2] == "--env"
+        assert cmd[name_at + 4] == "--env"
+        assert cmd[name_at + 6] == "--env"
+        assert cmd[name_at + 8 : name_at + 14] == [
+            "-v",
+            "/tmp/w:/work",
+            "-w",
+            "/work",
+            "--entrypoint",
+            "sh",
+        ]
+        assert cmd[name_at + 14] == "rebrew/msvc:6.0-win32"
         # LINK flags: DLL / NOENTRY at the target base, /OPT:NOREF + /OPT:NOICF.
-        args = cmd[23:]
+        args = cmd[name_at + 18 :]
         assert "/DLL" in args and "/NOENTRY" in args
         assert "/BASE:0x10000000" in args
         assert "/ALIGN:4096" in args and "/FILEALIGN:4096" in args

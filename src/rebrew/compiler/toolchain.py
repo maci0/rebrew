@@ -1230,6 +1230,30 @@ def bind_mount(host: str | Path, container: str | Path, *, readonly: bool = Fals
     return f"{Path(host).resolve()}:{container}{':ro' if readonly else ''}"
 
 
+def docker_hardening_args(*, pull: bool = True) -> list[str]:
+    """Shared ``docker run`` isolation flags for every compile-only container.
+
+    One place so a new ``docker run`` call cannot ship without the cap drop
+    and resource bounds the Go jobs service already enforces.  ``--read-only``
+    is deliberately absent: toolchain images write a wineprefix under
+    ``/opt/wineprefix`` and ``$HOME`` on every compile, and a read-only rootfs
+    would need a per-image tmpfs exception for each.  The writable surface is
+    the bind mounts (workdir, wineprefix, include trees); the cap drop and
+    ``no-new-privileges`` keep the rest of the image from escalating.
+    """
+    args: list[str] = [
+        "--network=none",
+        "--cap-drop=ALL",
+        "--security-opt=no-new-privileges",
+        "--pids-limit=256",
+        "--memory=2g",
+        "--cpus=2",
+    ]
+    if pull:
+        args.append("--pull=never")
+    return args
+
+
 def run_toolchain(
     spec: ToolchainSpec,
     args: list[str],
@@ -1370,12 +1394,10 @@ def run_toolchain(
             runtime,
             "run",
             "--rm",
-            "--network=none",  # compile-only containers — no egress needed
             # Docker's default is --pull=missing.  An admitted id skips the
             # tag presence check, so a vanished image would otherwise be
             # fetched.  Never pull on this path; build and pull stay explicit.
-            "--pull=never",
-            "--security-opt=no-new-privileges",  # no setuid escalation inside the image
+            *docker_hardening_args(),
             # A stable name lets the timeout path kill the container: when the
             # docker CLI is killed, dockerd keeps the (attached) container
             # running, so a hung compile would linger forever and accumulate
@@ -1594,6 +1616,7 @@ __all__ = [
     "cached_image_digest",
     "check_experimental_unshare",
     "docker_available",
+    "docker_hardening_args",
     "get_toolchain",
     "image_content_id",
     "image_environment",

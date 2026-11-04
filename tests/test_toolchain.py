@@ -144,6 +144,7 @@ class TestRegistry:
             "cached_image_digest",
             "check_experimental_unshare",
             "docker_available",
+            "docker_hardening_args",
             "get_toolchain",
             "image_content_id",
             "image_environment",
@@ -445,22 +446,24 @@ class TestRunToolchain:
         r = run_toolchain(spec, ["/c", "f.c"], workdir=tmp_path)
         assert r.backend == "docker"
         assert r.ok
-        assert calls[0][:6] == [
-            "docker",
-            "run",
-            "--rm",
-            "--network=none",
-            "--pull=never",
-            "--security-opt=no-new-privileges",
-        ]
+        from rebrew.compiler.toolchain import docker_hardening_args
+
+        assert calls[0][:3] == ["docker", "run", "--rm"]
+        assert calls[0][3 : 3 + len(docker_hardening_args())] == docker_hardening_args()
         # Named container: the timeout path must be able to kill it (a killed
         # docker CLI alone leaves the container running under dockerd).
-        assert calls[0][6] == "--name"
-        assert calls[0][7].startswith("rebrew-")
-        assert calls[0][8:12] == ["-v", f"{tmp_path.resolve()}:/work", "-w", "/work"]
-        assert calls[0][12:14] == ["--entrypoint", "/usr/local/bin/cl"]
-        assert calls[0][14] == "rebrew/t:latest"
-        assert calls[0][15:] == ["/c", "f.c"]
+        name_at = 3 + len(docker_hardening_args())
+        assert calls[0][name_at] == "--name"
+        assert calls[0][name_at + 1].startswith("rebrew-")
+        assert calls[0][name_at + 2 : name_at + 6] == [
+            "-v",
+            f"{tmp_path.resolve()}:/work",
+            "-w",
+            "/work",
+        ]
+        assert calls[0][name_at + 6 : name_at + 8] == ["--entrypoint", "/usr/local/bin/cl"]
+        assert calls[0][name_at + 8] == "rebrew/t:latest"
+        assert calls[0][name_at + 9 :] == ["/c", "f.c"]
 
     def test_docker_extra_mounts_are_read_only(self, tmp_path: Path, monkeypatch) -> None:
         """Include trees (the project root included) are mounted read-only so
@@ -502,8 +505,7 @@ class TestRunToolchain:
         calls = _monkey_docker(monkeypatch)
         run_toolchain(spec, ["-zq", "f.c"], workdir=tmp_path)
         assert "--pull=never" in calls[0]
-        assert calls[0][12] == "rebrew/t:latest"
-        assert calls[0][13:] == ["-zq", "f.c"]
+        assert calls[0][calls[0].index(spec.image) + 1 :] == ["-zq", "f.c"]
 
     def test_docker_passes_entrypoint_wrapper(self, tmp_path: Path, monkeypatch) -> None:
         """An explicit image_entrypoint is passed as ``--entrypoint``
@@ -517,9 +519,9 @@ class TestRunToolchain:
         )
         calls = _monkey_docker(monkeypatch)
         run_toolchain(spec, ["hello.dpr"], workdir=tmp_path)
-        assert calls[0][12:14] == ["--entrypoint", "/usr/local/bin/dcc"]
-        assert calls[0][14] == "rebrew/t:latest"
-        assert calls[0][15:] == ["hello.dpr"]
+        image_at = calls[0].index(spec.image)
+        assert calls[0][image_at - 2 : image_at] == ["--entrypoint", "/usr/local/bin/dcc"]
+        assert calls[0][image_at + 1 :] == ["hello.dpr"]
 
     def test_image_id_pins_the_run_and_skips_tag_presence(
         self, tmp_path: Path, monkeypatch
@@ -599,7 +601,10 @@ class TestRunToolchain:
             run_toolchain(spec, ["/c", "f.c"], workdir=tmp_path, timeout=1)
 
         assert len(calls) == 2
-        assert calls[0][6:8] == ["--name", calls[1][2]], "kill must target the run's container"
+        name_at = calls[0].index("--name")
+        assert calls[0][name_at : name_at + 2] == ["--name", calls[1][2]], (
+            "kill must target the run's container"
+        )
         assert calls[1][:2] == ["docker", "kill"]
 
     def test_docker_interrupt_kills_named_container(self, tmp_path: Path, monkeypatch) -> None:
@@ -624,7 +629,10 @@ class TestRunToolchain:
             run_toolchain(spec, ["/c", "f.c"], workdir=tmp_path, timeout=1)
 
         assert len(calls) == 2
-        assert calls[0][6:8] == ["--name", calls[1][2]], "kill must target the run's container"
+        name_at = calls[0].index("--name")
+        assert calls[0][name_at : name_at + 2] == ["--name", calls[1][2]], (
+            "kill must target the run's container"
+        )
         assert calls[1][:2] == ["docker", "kill"]
 
     def test_docker_os_error_skips_kill(self, tmp_path: Path, monkeypatch) -> None:
