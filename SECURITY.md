@@ -69,8 +69,14 @@ inherits it. The display's pid is resolved through `/proc/*/cmdline` on
 the process name `Xvfb`, which is world-readable.
 
 CI is a boundary of its own: `pull_request` (never `pull_request_target`),
-workflow `permissions: contents: read`, no `id-token`, `persist-credentials: false`,
-and every third-party Action pinned by commit SHA. `secrets.GITHUB_TOKEN` is
+workflow `permissions: contents: read`, `persist-credentials: false`,
+and every third-party Action pinned by commit SHA. The one exception is the
+`package` job in `ci.yml`, which carries per-job `attestations: write` and
+`id-token: write` grants so its `actions/attest-build-provenance` step
+records SLSA build provenance for the wheel and sdist in Sigstore's
+transparency log (`.github/workflows/ci.yml` `package:` job,
+`tests/test_ci_pins.py` `test_package_job_attests_build_provenance`). Every
+other job in both workflows stays on `contents: read` with no write grant. `secrets.GITHUB_TOKEN` is
 never workflow-level `env`: in `ci.yml` it reaches only the resembl clone
 step through the composite action's `github-token` input, and in
 `.github/workflows/toolchain-sync.yml` it reaches the resembl clone step and
@@ -79,7 +85,11 @@ toolchain pin drift without applying it. There is no publish step in this
 repository: the PyPI upload is a manual `uv publish` from a `dist/` the package
 job verified, so a release is not attributable to a workflow run. That command
 does upload a PEP 740 attestation beside the files, which names the publisher
-who uploaded them, not this repository; nothing in CI signs artifacts.
+who uploaded them, not this repository. CI signing is limited to the SLSA
+build-provenance attestation for the `package` job's wheel and sdist
+subjects: it records what the package job built, under the workflow's
+Sigstore identity, and is not a signature over the manually uploaded release
+files.
 
 The packaged compile-cache backends refuse pickle deserialize
 (`NoPickleDisk` in `src/rebrew/compiler/cache.py`); that does not attest
