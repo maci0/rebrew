@@ -739,19 +739,22 @@ function renderSummary(s) {
   // Same order as the Status select.
   for (const k of Object.keys(byStatus).sort()) cards.push([k, byStatus[k], k, "Filter Functions by " + k]);
   // A div cannot be named, so title rides in a visually-hidden span after the
-  // visible text (WCAG 2.5.3); a button exposes title as a description.
-  $("cards").innerHTML = cards.map(([k, v, status, title]) => {
+  // visible text (WCAG 2.5.3); a button exposes its hint as an accessible
+  // description, so a screen-reader user hears "Filter Functions by EXACT"
+  // without it leaking into the accessible name.
+  $("cards").innerHTML = cards.map(([k, v, status, title], i) => {
     const mark = status ? statusMark(status) : "";
     const label = mark ? "<span class='label " + mark + "'>" : "<span class=label>";
     const inner = "<span class=value>" + esc(v) + "</span>" + label + esc(k) + "</span>";
+    const hintId = "card-desc-" + i;
     if (status) {
       const pressed = currentView === "functions" && $("status").value === status;
       const active = pressed ? " active" : "";
       return "<button type=button class='card" + active + "' data-status='" + esc(status)
-        + "' title='" + esc(title) + "' aria-pressed='" + (pressed ? "true" : "false") + "'>"
-        + inner + "</button>";
+        + "' aria-describedby='" + hintId + "' aria-pressed='" + (pressed ? "true" : "false") + "'>"
+        + inner + "<span class=visually-hidden id='" + hintId + "'>" + esc(title) + "</span></button>";
     }
-    return "<div class=card title='" + esc(title) + "'>" + inner
+    return "<div class=card>" + inner
       + "<span class=visually-hidden>, " + esc(title) + "</span></div>";
   }).join("");
   $("summary").hidden = false;
@@ -1225,6 +1228,7 @@ async function init() {
   $("views").hidden = false;
   $("target").innerHTML = targets.map(t =>
     "<option value='" + esc(t) + "'>" + esc(t) + "</option>").join("");
+  $("target").disabled = false;
   const saved = new URLSearchParams(location.hash.slice(1));
   if (targets.includes(saved.get("target"))) $("target").value = saved.get("target");
   // The hash is the whole navigation state, so a hash without a view names the
@@ -1470,15 +1474,15 @@ __STATUS_FORCED__
 <div id="controls" class="filters" hidden role="group" aria-label="Coverage filters">
 <div>
 <label for="target">Target</label>
-<select id="target"></select>
+<select id="target" disabled></select>
 </div>
 <div id="filter-status">
 <label for="status">Status</label>
-<select id="status"><option value="">any</option></select>
+<select id="status" disabled><option value="">any</option></select>
 </div>
 <div id="filter-module">
 <label for="module">Module</label>
-<select id="module"><option value="">any</option></select>
+<select id="module" disabled><option value="">any</option></select>
 </div>
 <div id="filter-q">
 <label for="q">Search name, symbol, or address</label>
