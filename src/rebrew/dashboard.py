@@ -38,7 +38,7 @@ Retry-After. Request bodies are never read and force connection closure.
 Successful responses negotiate zstd then gzip with quality weights. ETags key
 on the live input version or portable file state plus the exact route/query;
 health is no-store. Static assets are content-hashed and precompressed. The
-entry checkpoint measured 12569 B zstd / 13179 B gzip against a 13320 B budget;
+entry checkpoint measured 12571 B zstd / 13180 B gzip against a 13320 B budget;
 host zlib versions can change gzip size. Tests enforce the wire budget.
 Reload re-reads the live view; view/target/filter navigation is stored in the
 URL hash. Details, API schema and transfer measurements live in
@@ -1552,7 +1552,7 @@ __STATUS_FORCED__
 <div id="view-history" class="view-panel" role="tabpanel" tabindex="0" aria-labelledby="tab-history" hidden>
 <h2 class="visually-hidden">Status history</h2>
 <p id="history-hint" hidden></p>
-<p id="history-empty" hidden>No status changes recorded yet. Comparisons record history.</p>
+<p id="history-empty" hidden>No status changes recorded yet. Comparisons record history, then choose Reload.</p>
 <div id="history-results" class="table-scroll" tabindex="0" role="region"
   aria-label="History results" aria-busy="false" hidden>
 <table id="history-rows"><caption class="visually-hidden">Recent status changes</caption><thead><tr>
