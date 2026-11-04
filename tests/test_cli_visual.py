@@ -45,6 +45,14 @@ def test_zero_bar_has_no_filled_cells() -> None:
     assert bar_plain(0, 10) == "░" * BAR_WIDTH
 
 
+def test_large_magnitudes_do_not_overflow_before_division() -> None:
+    # width * part overflows to inf for part near float max, which used to
+    # make a ~91% bar read as empty (and a >100% bar ambiguous).
+    assert filled_cells(1e308, 1.1e308) == 36
+    assert filled_cells(5e307, 1e308) == 20
+    assert filled_cells(1.7e308, 1.7e308) == BAR_WIDTH
+
+
 def test_status_explains_unverified_data(monkeypatch: pytest.MonkeyPatch) -> None:
     import rebrew.status as status_mod
 

@@ -1597,6 +1597,13 @@ class TestFloorPct:
         for args in [(nan, 100), (inf, 100), (100, nan), (inf, inf), (-5, 100), (5, -100)]:
             assert floor_pct(*args) == 0.0
 
+    def test_large_magnitudes_do_not_overflow_before_division(self) -> None:
+        # 100 * part overflows near float max; dividing first keeps the
+        # 58.8% / 90.9% / 100% figures instead of raising OverflowError.
+        assert floor_pct(1e308, 1.7e308) == 58.8
+        assert floor_pct(1e308, 1.1e308) == 90.9
+        assert floor_pct(1.7e308, 1.7e308) == 100.0
+
 
 class TestClipSpan:
     def test_last_start_is_never_clipped(self) -> None:

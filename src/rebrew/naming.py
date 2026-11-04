@@ -414,7 +414,7 @@ def _clip_to_next_start(funcs: list[FunctionEntry], annotated: Iterable[int]) ->
     """
     starts = sorted({f.va for f in funcs}.union(annotated))
     for f in funcs:
-        f.size = clip_span(starts, f.va, f.size)
+        f.size = clip_span(starts, f.va, max(f.size, 0))
 
 
 def inside_annotated_vas(

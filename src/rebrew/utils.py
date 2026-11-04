@@ -393,8 +393,9 @@ def floor_pct(part: float, whole: float, decimals: int = 1) -> float:
     if not whole or not math.isfinite(part) or not math.isfinite(whole) or part <= 0 or whole < 0:
         return 0.0
     scale = float(10**decimals)
-    # The inner round absorbs float error (57.3 * 10 = 572.99...).
-    return math.floor(round(100.0 * part / whole * scale, 6)) / scale
+    # Divide first: 100 * part overflows near float max. The inner round
+    # absorbs float error (57.3 * 10 = 572.99...).
+    return math.floor(round(100.0 * (part / whole) * scale, 6)) / scale
 
 
 def is_safe_c_ident(name: str) -> bool:

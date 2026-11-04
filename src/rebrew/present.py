@@ -22,7 +22,9 @@ def filled_cells(part: float, whole: float, width: int = BAR_WIDTH) -> int:
     """Cells of *width* that *part* / *whole* fills, clamped to *width*."""
     if whole <= 0 or part <= 0 or not math.isfinite(part) or not math.isfinite(whole):
         return 0
-    ratio = width * part / whole
+    # Divide first: width * part overflows near float max (part ~1e308),
+    # turning a near-full bar into inf and then 0 below.
+    ratio = width * (part / whole)
     if not math.isfinite(ratio):
         return width if part >= whole else 0
     cells = int(ratio)
