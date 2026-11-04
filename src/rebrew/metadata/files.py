@@ -42,7 +42,7 @@ def metadata_paths(path: Path) -> tuple[Path, ...]:
         paths = [path]
     try:
         members = list(path.with_suffix(".d").iterdir())
-    except FileNotFoundError:
+    except (FileNotFoundError, NotADirectoryError):
         members = []
     paths.extend(sorted(p for p in members if p.suffix == ".toml" and p.is_file()))
     return tuple(paths)
@@ -76,7 +76,7 @@ def metadata_fingerprint(path: Path) -> tuple[tuple[str, int, int, int, int], ..
                 result.append(
                     (entry.path, stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size, stat.st_ino)
                 )
-    except FileNotFoundError:
+    except (FileNotFoundError, NotADirectoryError):
         pass
     return tuple(result)
 

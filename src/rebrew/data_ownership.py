@@ -160,12 +160,23 @@ def ownership_inputs(cfg: ProjectConfig) -> set[Path]:
 
             try:
                 rows = json.loads(read_json_text(commands))
-                for row in rows:
-                    source = Path(row["file"])
-                    paths.add(source if source.is_absolute() else Path(row["directory"]) / source)
-            except OSError, ValueError, KeyError, TypeError:
+            except OSError, ValueError:
                 # The ownership scanner reports malformed compile commands.
-                pass
+                log.warning("malformed compile_commands.json at %s (sources omitted)", commands)
+                return paths
+            if not isinstance(rows, list):
+                log.warning("malformed compile_commands.json at %s (sources omitted)", commands)
+                return paths
+            for row in rows:
+                if not isinstance(row, dict) or not isinstance(row.get("file"), str):
+                    log.debug("skipping malformed compile_commands row in %s", commands)
+                    continue
+                source = Path(row["file"])
+                directory = row.get("directory")
+                if source.is_absolute() or not isinstance(directory, str):
+                    paths.add(source)
+                else:
+                    paths.add(Path(directory) / source)
     return paths
 
 

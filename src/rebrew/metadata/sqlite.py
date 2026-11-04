@@ -330,7 +330,7 @@ def metadata_paths(path: Path) -> tuple[Path, ...]:
         paths = [path]
     try:
         members = list(path.with_suffix(".d").iterdir())
-    except FileNotFoundError:
+    except (FileNotFoundError, NotADirectoryError):
         members = []
     paths.extend(sorted(p for p in members if p.suffix == ".toml" and p.is_file()))
     return tuple(paths)
@@ -428,17 +428,36 @@ def restore_metadata_toml(bundle: Path, root: Path) -> tuple[Path, ...]:
     if not any(rel.name in _TOML_STORE_NAMES for rel in planned):
         raise FileNotFoundError(f"no metadata stores in backup bundle at {bundle}")
     installed = []
+    # Snapshot destinations first: a mid-restore failure must roll back
+    # already-installed files instead of leaving a half-restored store
+    # (silent data loss — the pre-restore bytes survive only in
+    # ``.before-restore`` sidecars, which a later run does not re-apply).
+    before: dict[Path, bytes | None] = {}
     for rel in planned:
-        raw = (bundle / rel).read_bytes()
         dest = root / rel
-        if dest.is_file():
-            atomic_write_bytes(
-                dest.with_name(dest.name + ".before-restore"), dest.read_bytes(), mode=0o444
-            )
-        atomic_write_bytes(dest, raw, mode=0o444)
-        if dest.read_bytes() != raw:
-            raise MetadataStorageError(f"{dest}: restored copy verification failed")
-        installed.append(dest)
+        before[dest] = dest.read_bytes() if dest.is_file() else None
+    try:
+        for rel in planned:
+            raw = (bundle / rel).read_bytes()
+            dest = root / rel
+            if dest.is_file():
+                atomic_write_bytes(
+                    dest.with_name(dest.name + ".before-restore"),
+                    dest.read_bytes(),
+                    mode=0o444,
+                )
+            atomic_write_bytes(dest, raw, mode=0o444)
+            if dest.read_bytes() != raw:
+                raise MetadataStorageError(f"{dest}: restored copy verification failed")
+            installed.append(dest)
+    except BaseException:
+        for dest in reversed(installed):
+            original = before[dest]
+            if original is None:
+                dest.unlink(missing_ok=True)
+            else:
+                atomic_write_bytes(dest, original, mode=0o444)
+        raise
     return tuple(installed)
 
 
