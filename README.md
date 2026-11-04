@@ -31,11 +31,12 @@ images require `rebrew toolchain pull <profile>` or an authorized build from
 [recompile-toolchains](https://github.com/maci0/recompile-toolchains).
 
 ```bash
-# Preferred: prebuilt wheel from the latest GitHub release (no Rust needed;
-# python-flirt resolves to a prebuilt wheel on qualified platforms).
+# Preferred: prebuilt wheel from the latest GitHub release.
 # Download rebrew-*.whl from https://github.com/maci0/rebrew/releases, then:
+# It needs a Rust toolchain to build python-flirt from source, unless you
+# override it with the exact published native wheel (see Development below).
 uv tool install ./rebrew-*.whl
-# Fallback: from source (needs a Rust toolchain to build python-flirt).
+# Fallback: from source (also needs a Rust toolchain to build python-flirt).
 uv tool install git+https://github.com/maci0/rebrew.git
 mkdir my-decomp && cd my-decomp
 rebrew intake /path/to/server.dll        # scaffold, detect compiler, discover, document stubs
