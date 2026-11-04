@@ -1319,7 +1319,9 @@ def run_rebrew(
     the command's JSON error message.
     """
     name = " ".join(word for word in arguments[:2] if not word.startswith("-"))
-    command = [sys.executable, "-m", "rebrew.app.main"]
+    # -P keeps the project cwd off sys.path so a rebrew/ tree inside the
+    # project cannot shadow the installed rebrew.app.main (code exec).
+    command = [sys.executable, "-P", "-m", "rebrew.app.main"]
     process = subprocess.Popen(
         [*command, *arguments],
         cwd=project,

@@ -1116,7 +1116,7 @@ def fetch_m2c(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
         args += ["--context", str(ctx)]
     try:
         result = run_process_group(
-            [sys.executable, "-c", _M2C_RUN_CMD] + args,
+            [sys.executable, "-P", "-c", _M2C_RUN_CMD] + args,
             input=asm,
             capture_output=True,
             text=True,
