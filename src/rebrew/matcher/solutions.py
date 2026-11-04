@@ -771,3 +771,67 @@ def iter_ga_runs(project_root: Path, *, target: str = "") -> Iterator[dict[str, 
         if target and record.get("target") != target:
             continue
         yield record
+
+
+GA_BACKUP_FILENAME = "ga_runs.backup.jsonl"
+
+
+def ga_runs_backup_path(backup_dir: Path) -> Path:
+    """Path of the portable backup inside *backup_dir*."""
+    return backup_dir / GA_BACKUP_FILENAME
+
+
+def backup_ga_runs(project_root: Path, backup_dir: Path) -> Path:
+    """Copy the irreplaceable GA log to *backup_dir* and verify the copy.
+
+    The log is gitignored and holds win fingerprints a re-run cannot
+    reproduce, so losing the working tree loses that history.  This copy
+    is the off-tree backup the docs ask the operator to arrange.  The
+    destination is written through the shared atomic replace (fsync of
+    temp file and directory), then re-read and compared byte-for-byte
+    with the source; a short or torn copy raises instead of reporting
+    success.  A missing log raises ``FileNotFoundError`` rather than
+    writing an empty backup that a later restore would mistake for history.
+    """
+    source = _runs_path(project_root)
+    if not source.is_file():
+        raise FileNotFoundError(f"no GA run log at {source}")
+    payload = source.read_bytes()
+    dest = ga_runs_backup_path(backup_dir)
+    atomic_write_bytes(dest, payload, mode=0o644)
+    if dest.read_bytes() != payload:
+        raise ValueError(f"GA run log backup verification failed for {dest}")
+    return dest
+
+
+def restore_ga_runs(backup: Path, project_root: Path) -> Path:
+    """Install a backup made by :func:`backup_ga_runs` back as the GA log.
+
+    The current log, if any, is first preserved as
+    ``ga_runs.jsonl.before-restore`` beside it, so a restore pointed at the
+    wrong backup is itself reversible.  The backup is validated line by
+    line (every non-empty line must parse as a JSON object) before anything
+    is written; a corrupt backup raises and leaves the current log alone.
+    """
+    if not backup.is_file():
+        raise FileNotFoundError(f"no GA run log backup at {backup}")
+    raw = backup.read_bytes()
+    for lineno, line in enumerate(raw.decode("utf-8", errors="replace").splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            parsed = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"corrupt GA run log backup {backup} line {lineno}") from exc
+        if not isinstance(parsed, dict):
+            raise ValueError(f"corrupt GA run log backup {backup} line {lineno}")
+    dest = _runs_path(project_root)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.is_file():
+        atomic_write_bytes(
+            dest.with_name(dest.name + ".before-restore"), dest.read_bytes(), mode=0o644
+        )
+    atomic_write_bytes(dest, raw, mode=0o644)
+    if dest.read_bytes() != raw:
+        raise ValueError(f"GA run log restore verification failed for {dest}")
+    return dest

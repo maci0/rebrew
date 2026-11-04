@@ -28,7 +28,10 @@ lazy from rebrew.metadata.storage import (
     project_metadata_stores,
 )
 lazy from rebrew.type_metadata import validate_type_document
-lazy from rebrew.utils import atomic_write_text, load_toml_for_write_strict
+lazy from rebrew.utils import atomic_write_bytes, atomic_write_text, load_toml_for_write_strict
+
+#: Suffix beside the inactive destination holding its pre-transfer bytes.
+DESTINATION_SNAPSHOT_SUFFIX = ".before-transfer"
 
 
 def validate_store_document(path: Path, doc: dict[str, Any]) -> None:
@@ -119,6 +122,12 @@ def migrate_metadata(
         if not report["changed"]:
             return report
         destination = metadata_store(root / "rebrew-functions.toml", backend=backend, root=root)
+        # Preserve the inactive destination before overwriting it: a
+        # transfer is the one deliberate mass-replace of durable metadata,
+        # and without this copy the previous destination bytes exist nowhere
+        # once the writes below land.  The copy is written atomically and
+        # verified; a failed copy aborts the transfer before any write.
+        _snapshot_destination(root, backend, _stores(cfg, backend))
         with destination.transaction():
             current_paths = {path for path, _doc in documents}
             for obsolete in _stores(cfg, backend):
@@ -135,3 +144,36 @@ def migrate_metadata(
         config.setdefault("metadata", {})["backend"] = backend
         atomic_write_text(config_path, tomlkit.dumps(config))
     return report
+
+def _snapshot_destination(root: Path, backend: str, destinations: tuple[MetadataStore, ...]) -> Path | None:
+    """Copy the inactive destination's bytes beside it before a transfer.
+
+    For the SQLite backend the copy is a consistent backup-API snapshot of
+    the whole database (a file copy can be torn mid-transaction); for TOML
+    it is the store's own snapshot bytes.  Returns the snapshot path, or
+    ``None`` when the destination holds nothing.  Raises on a failed copy
+    so the caller aborts before any destination write.
+    """
+    if backend == "sqlite":
+        from rebrew.metadata.sqlite import DATABASE_FILENAME, backup_metadata_database
+
+        location = root / DATABASE_FILENAME
+        if not location.is_file():
+            return None
+        snapshot_dir = root / ".rebrew"
+        dest = backup_metadata_database(root, snapshot_dir)
+        sqlite_snapshot = snapshot_dir / (DATABASE_FILENAME + DESTINATION_SNAPSHOT_SUFFIX)
+        if dest != sqlite_snapshot:
+            dest.replace(sqlite_snapshot)
+        return sqlite_snapshot
+    snapshot: Path | None = None
+    for store in destinations:
+        data = store.snapshot()
+        if data is None:
+            continue
+        target = store.location.with_name(store.location.name + DESTINATION_SNAPSHOT_SUFFIX)
+        atomic_write_bytes(target, data, mode=0o444)
+        if target.read_bytes() != data:
+            raise ValueError(f"metadata destination snapshot verification failed for {target}")
+        snapshot = target
+    return snapshot

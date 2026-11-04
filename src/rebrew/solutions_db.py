@@ -8,6 +8,7 @@ run log (``.rebrew/ga_runs.jsonl``).  Read-only.
 from __future__ import annotations
 
 lazy import unicodedata
+lazy from pathlib import Path
 lazy from typing import Any
 
 import typer
@@ -89,11 +90,44 @@ def main(
     best: bool = typer.Option(
         False, "--best", help="Show best-known GA score per function (run history)"
     ),
+    backup: Path | None = typer.Option(
+        None,
+        "--backup",
+        help="Copy the irreplaceable GA log to this directory and verify the copy",
+    ),
+    restore: Path | None = typer.Option(
+        None,
+        "--restore",
+        help="Install a backup file made with --backup as the GA log (current log preserved)",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Query the GA solutions database."""
     cfg = require_config(target=target, json_mode=json_output)
+
+    if backup is not None or restore is not None:
+        from rebrew.cli import error_exit as _error_exit
+        from rebrew.matcher import backup_ga_runs, restore_ga_runs
+
+        root = Path(cfg.root)
+        if backup is not None and restore is not None:
+            _error_exit("--backup and --restore are mutually exclusive", json_mode=json_output)
+        try:
+            if backup is not None:
+                dest = backup_ga_runs(root, backup)
+                message = f"backed up GA run log to {dest}"
+            else:
+                assert restore is not None
+                dest = restore_ga_runs(restore, root)
+                message = f"restored GA run log to {dest}"
+        except (OSError, ValueError) as exc:
+            _error_exit(str(exc), json_mode=json_output)
+        if json_output:
+            json_print({"ok": True, "file": str(dest), "action": "backup" if backup else "restore"})
+        else:
+            console.print(f"[green]{message}[/green]")
+        return
 
     if best:
         rows = _collect_best(cfg)

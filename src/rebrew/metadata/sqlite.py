@@ -239,3 +239,103 @@ class SqliteStore:
                 ):
                     result.append(path)
             return tuple(result)
+
+METADATA_BACKUP_FILENAME = "rebrew-metadata.backup.sqlite3"
+
+
+def backup_metadata_database(root: Path, backup_dir: Path) -> Path:
+    """Copy the SQLite metadata database to *backup_dir* via the backup API.
+
+    A plain file copy of a live SQLite database can capture a torn page
+    image if a writer is mid-transaction; ``sqlite3``'s online backup API
+    copies a transactionally consistent snapshot instead.  The copy is
+    then opened read-only and its schema version and row count checked,
+    so a backup that cannot be restored raises here rather than at
+    restore time.  A missing database raises ``FileNotFoundError``.
+    """
+    from rebrew.metadata.locking import file_transaction
+
+    location = root / DATABASE_FILENAME
+    if not location.is_file():
+        raise FileNotFoundError(f"no metadata database at {location}")
+    dest = backup_dir / METADATA_BACKUP_FILENAME
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with file_transaction(location.parent, location.name):
+        source = sqlite3.connect(location.as_uri() + "?mode=ro", uri=True, timeout=30)
+        try:
+            with contextlib.closing(sqlite3.connect(dest, timeout=30)) as target:
+                source.backup(target)
+        finally:
+            source.close()
+    os.chmod(dest, 0o444)
+    check = sqlite3.connect(dest.as_uri() + "?mode=ro", uri=True, timeout=30)
+    try:
+        version = check.execute("PRAGMA user_version").fetchone()[0]
+        count = check.execute("SELECT COUNT(*) FROM metadata_documents").fetchone()[0]
+    except sqlite3.Error as exc:
+        raise MetadataStorageError(f"{dest}: backup verification failed: {exc}") from exc
+    finally:
+        check.close()
+    if version != _SCHEMA_VERSION:
+        raise MetadataStorageError(f"{dest}: unsupported metadata schema version {version}")
+    if count == 0:
+        # An empty database is a valid state only if the source is empty;
+        # re-check the source so a torn copy cannot pass silently.
+        src = sqlite3.connect(location.as_uri() + "?mode=ro", uri=True, timeout=30)
+        try:
+            src_count = src.execute("SELECT COUNT(*) FROM metadata_documents").fetchone()[0]
+        finally:
+            src.close()
+        if src_count:
+            raise MetadataStorageError(f"{dest}: backup is empty but source holds {src_count} rows")
+    return dest
+
+
+def restore_metadata_database(backup: Path, root: Path) -> Path:
+    """Install a backup made by :func:`backup_metadata_database` as the database.
+
+    The current database, if any, is first preserved as
+    ``rebrew-metadata.sqlite3.before-restore`` beside it.  The backup is
+    validated (schema version, integrity) before anything is written; a
+    corrupt backup raises and leaves the current database alone.
+    """
+    from rebrew.metadata.locking import file_transaction
+
+    if not backup.is_file():
+        raise FileNotFoundError(f"no metadata database backup at {backup}")
+    check = sqlite3.connect(backup.as_uri() + "?mode=ro", uri=True, timeout=30)
+    try:
+        version = check.execute("PRAGMA user_version").fetchone()[0]
+        integrity = check.execute("PRAGMA integrity_check").fetchone()[0]
+    except sqlite3.Error as exc:
+        raise MetadataStorageError(f"{backup}: corrupt backup: {exc}") from exc
+    finally:
+        check.close()
+    if version != _SCHEMA_VERSION:
+        raise MetadataStorageError(f"{backup}: unsupported metadata schema version {version}")
+    if integrity != "ok":
+        raise MetadataStorageError(f"{backup}: integrity check failed: {integrity}")
+    location = root / DATABASE_FILENAME
+    location.parent.mkdir(parents=True, exist_ok=True)
+    with file_transaction(location.parent, location.name):
+        # The active database is mode 0444 at rest; the backup target must be
+        # writable for the copy, as the store's own transaction does.
+        if location.is_file():
+            location.chmod(0o644)
+        if location.is_file():
+            preserved = location.with_name(location.name + ".before-restore")
+            source = sqlite3.connect(location.as_uri() + "?mode=ro", uri=True, timeout=30)
+            try:
+                with contextlib.closing(sqlite3.connect(preserved, timeout=30)) as target:
+                    source.backup(target)
+            finally:
+                source.close()
+            os.chmod(preserved, 0o444)
+        source = sqlite3.connect(backup.as_uri() + "?mode=ro", uri=True, timeout=30)
+        try:
+            with contextlib.closing(sqlite3.connect(location, timeout=30)) as target:
+                source.backup(target)
+        finally:
+            source.close()
+        os.chmod(location, 0o444)
+    return location

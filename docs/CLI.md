@@ -1933,6 +1933,7 @@ Read-only.
 | `--min-size` | int | `0` | Minimum function size |
 | `--max-size` | int | `0` | Maximum function size (0 = no cap) |
 | `--best` | flag | `False` | Show best-known GA score per function (run history) |
+| `--backup` / `--restore` | path | — | Copy the irreplaceable GA log to a directory / install a backup as the GA log (current log preserved as `.before-restore`); mutually exclusive |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
 

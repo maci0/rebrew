@@ -127,6 +127,9 @@ if TYPE_CHECKING:
         SolutionEntry as SolutionEntry,
     )
     from .solutions import (
+        backup_ga_runs as backup_ga_runs,
+    )
+    from .solutions import (
         find_similar as find_similar,
     )
     from .solutions import (
@@ -143,6 +146,9 @@ if TYPE_CHECKING:
     )
     from .solutions import (
         record_ga_run as record_ga_run,
+    )
+    from .solutions import (
+        restore_ga_runs as restore_ga_runs,
     )
     from .solutions import (
         save_solution as save_solution,
@@ -188,6 +194,8 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "save_solution": (".solutions", "save_solution"),
     "save_solutions": (".solutions", "save_solutions"),
     "utc_now_iso": (".solutions", "utc_now_iso"),
+    "backup_ga_runs": (".solutions", "backup_ga_runs"),
+    "restore_ga_runs": (".solutions", "restore_ga_runs"),
     # mutator core surface (ops arrive via _load_mutator_exports)
     "mutate_code": (".mutator", "mutate_code"),
     "ALL_MUTATIONS": (".mutator", "ALL_MUTATIONS"),
@@ -248,6 +256,8 @@ __all__ = [
     "split_preamble_body",
     "structural_similarity",
     "utc_now_iso",
+    "backup_ga_runs",
+    "restore_ga_runs",
 ]
 
 _mutator_loaded = False
