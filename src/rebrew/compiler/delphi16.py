@@ -118,45 +118,52 @@ def compile_ne(
         base = Path(workdir)
         base.mkdir(parents=True, exist_ok=True)
     sandbox = Path(tempfile.mkdtemp(prefix="build-", dir=base))
-    (sandbox / staged_name).write_bytes(payload)
-    if stage_siblings and source_exists:
-        _stage_unit_sources(source, sandbox)
-    if units_dir is not None:
-        library = Path(units_dir)
-        if not library.is_dir():
-            raise Delphi16Error(f"units directory not found: {library}")
-        shutil.copytree(library, sandbox / "DELPHI" / "LIB")
-    if dcc_cfg is not None:
-        (sandbox / "DCC.CFG").write_bytes(
-            dcc_cfg if isinstance(dcc_cfg, bytes) else dcc_cfg.encode("utf-8")
-        )
-    flags = ["-B", *(arg for arg in extra_args if arg != "-B")]
-    if map_file and "-GS" not in flags:
-        flags.append("-GS")
     try:
-        spec = get_toolchain("delphi-1.0")
-        if not spec.image:
-            raise Delphi16Error("delphi-1.0 requires a Docker image")
-        result = run_toolchain(
-            spec,
-            [*flags, staged_name],
-            workdir=sandbox,
-            timeout=timeout,
-        )
-    except ToolchainError as exc:
-        raise Delphi16Error(str(exc)) from exc
-    log = read_uppercase(sandbox, "dccout.txt") or result.stdout
-    if result.returncode != 0:
-        raise Delphi16Error(f"DCC failed:\n{log}\n{result.stderr}")
-    stem = Path(staged_name).stem.upper()
-    executable = next((p for p in sandbox.iterdir() if p.name.upper() == f"{stem}.EXE"), None)
-    if executable is None:
-        raise Delphi16Error(f"DCC produced no executable:\n{log}")
-    map_path = None
-    if map_file:
-        map_path = next((p for p in sandbox.iterdir() if p.name.upper() == f"{stem}.MAP"), None)
-        if map_path is None:
-            raise Delphi16Error(f"DCC produced no requested map:\n{log}")
+        (sandbox / staged_name).write_bytes(payload)
+        if stage_siblings and source_exists:
+            _stage_unit_sources(source, sandbox)
+        if units_dir is not None:
+            library = Path(units_dir)
+            if not library.is_dir():
+                raise Delphi16Error(f"units directory not found: {library}")
+            shutil.copytree(library, sandbox / "DELPHI" / "LIB")
+        if dcc_cfg is not None:
+            (sandbox / "DCC.CFG").write_bytes(
+                dcc_cfg if isinstance(dcc_cfg, bytes) else dcc_cfg.encode("utf-8")
+            )
+        flags = ["-B", *(arg for arg in extra_args if arg != "-B")]
+        if map_file and "-GS" not in flags:
+            flags.append("-GS")
+        try:
+            spec = get_toolchain("delphi-1.0")
+            if not spec.image:
+                raise Delphi16Error("delphi-1.0 requires a Docker image")
+            result = run_toolchain(
+                spec,
+                [*flags, staged_name],
+                workdir=sandbox,
+                timeout=timeout,
+            )
+        except ToolchainError as exc:
+            raise Delphi16Error(str(exc)) from exc
+        log = read_uppercase(sandbox, "dccout.txt") or result.stdout
+        if result.returncode != 0:
+            raise Delphi16Error(f"DCC failed:\n{log}\n{result.stderr}")
+        stem = Path(staged_name).stem.upper()
+        executable = next((p for p in sandbox.iterdir() if p.name.upper() == f"{stem}.EXE"), None)
+        if executable is None:
+            raise Delphi16Error(f"DCC produced no executable:\n{log}")
+        map_path = None
+        if map_file:
+            map_path = next((p for p in sandbox.iterdir() if p.name.upper() == f"{stem}.MAP"), None)
+            if map_path is None:
+                raise Delphi16Error(f"DCC produced no requested map:\n{log}")
+    except BaseException:
+        # A failed compile must not leave a per-call build dir behind: this
+        # path can run per-candidate in a long-lived process, and a dir per
+        # failure is a temp-dir leak until exit.
+        shutil.rmtree(sandbox, ignore_errors=True)
+        raise
     from rebrew.formats.binary_loader import is_ne, load_binary
     from rebrew.formats.ne_loader import enumerate_ne_functions
 

@@ -2276,7 +2276,20 @@ class _OpsHandler(BaseHTTPRequestHandler):
         if not 0 <= length <= MAX_REQUEST_BYTES:
             self._refuse(INVALID_REQUEST, f"request exceeds {MAX_REQUEST_BYTES} bytes", 413)
             return
-        body = self.rfile.read(length)
+        # Read in chunks under the same bound so a stalled or truncated
+        # stream cannot leave a half-read buffer queued behind the socket
+        # timeout: each chunk is a fresh read, and the total never exceeds
+        # the declared length that was already validated above.
+        chunks: list[bytes] = []
+        remaining = length
+        while remaining > 0:
+            chunk = self.rfile.read(min(remaining, 65536))
+            if not chunk:
+                self._refuse(INVALID_REQUEST, "request body truncated", 400)
+                return
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        body = b"".join(chunks)
         self._send(*dispatch(server.config, urlsplit(self.path).path.removeprefix("/"), body))
 
     def _not_post(self) -> None:
