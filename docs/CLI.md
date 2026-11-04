@@ -1074,6 +1074,8 @@ rebrew metadata migrate sqlite --dry-run --json
 rebrew metadata migrate sqlite --expected-digest <input_digest-from-preview>
 rebrew metadata migrate toml --dry-run
 rebrew metadata migrate toml
+rebrew metadata backup --dir /off-tree/backups
+rebrew metadata restore --file backups/db.sqlite3
 ```
 
 `rebrew metadata migrate BACKEND` validates and copies the active stores,
