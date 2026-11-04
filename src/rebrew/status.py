@@ -21,6 +21,7 @@ lazy from pathlib import Path
 lazy from typing import Any
 
 import typer
+lazy from rich.markup import escape
 lazy from rich.panel import Panel
 lazy from rich.text import Text
 
@@ -1774,7 +1775,11 @@ def _render_terminal(report: StatusReport) -> None:
     if report.load_error:
         # Replaces "No functions yet": the zero counts are unmeasured, not
         # measured as zero, and the operator needs the cause to act.
-        summary_lines.append(f"[red]inventory load failed[/red]  [dim]{report.load_error}[/dim]")
+        # Escape the exception text: it carries project-file content (paths,
+        # TOML keys) that would otherwise be parsed as Rich markup.
+        summary_lines.append(
+            f"[red]inventory load failed[/red]  [dim]{escape(report.load_error)}[/dim]"
+        )
     # Pointer to the prioritized next-action list (PRD 05 status requirement)
     summary_lines.append(
         "[bold]Next[/bold]  rebrew todo"
