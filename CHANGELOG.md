@@ -1,5 +1,29 @@
 ## [Unreleased]
 
+## [6.19.0] - 2026-11-04
+
+### Added
+
+- Structured observability and telemetry logging in the jobs service.
+- Dependabot configuration for the Go module in `services/jobs`.
+- TPF0 parser fuzz harness.
+
+### Changed
+
+- Promote mutation query names to public module API in `rebrew.matcher.mutation_queries`.
+- Share source-argument build-parameter resolution across CLI commands.
+- Normalize `match_run` timestamps to timezone-aware UTC.
+- Bound external subprocess invocations across vendor patching and toolchain helpers with process-group timeouts.
+
+### Fixed
+
+- Harden ops and jobs HTTP servers: strip `Server` response banners, emit standard security headers, enforce explicit read/write/header timeouts, configure bind address via `REBREW_JOBS_ADDR`, and handle graceful shutdown on SIGINT/SIGTERM.
+- Explicit UTF-8 and `surrogateescape` handling at text boundaries, with NFC normalization in file identity matching.
+- Guard the archive parser against negative member sizes and prevent negative window starts in binary score calculations.
+- Isolate flag-sweep compilation failures per stub and log compile cache-save failures without aborting sweeps.
+- Pin local Go toolchain execution (`GOTOOLCHAIN=local`) and cache both Go build and module directories in CI.
+- Fix dashboard API paging schema alignment, accessible card descriptions, and disabled filter select behavior.
+
 ## [6.18.0] - 2026-11-04
 
 ### Added
