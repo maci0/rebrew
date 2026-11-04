@@ -271,6 +271,11 @@ _TOML_STORE_NAMES = (
 #: trees as they were on disk, so a restore is a copy back, not a merge.
 TOML_BACKUP_DIRNAME = METADATA_TOML_BACKUP_DIRNAME
 
+#: Project config holding every target's paths and metadata backend choice.
+#: Without it a restore has no root to install into and a re-pointed
+#: ``metadata_dir`` would strand the restored stores.
+_PROJECT_CONFIG_NAME = "rebrew-project.toml"
+
 
 def _toml_store_tree(root: Path, name: str) -> list[Path]:
     """Main TOML plus its ``.d/*.toml`` drop-ins, when present."""
@@ -284,8 +289,68 @@ def _toml_store_tree(root: Path, name: str) -> list[Path]:
     return tree
 
 
+def _toml_store_trees(root: Path) -> list[tuple[Path, list[Path]]]:
+    """``(directory, tree)`` pairs for every managed store under *root*.
+
+    Stores may sit in a nested ``metadata_dir`` (``cfg.metadata_dir``) rather
+    than at the project root; the walk finds them anywhere below *root*.
+    The walk skips nested projects (a directory holding its own
+    ``rebrew-project.toml``) so an unrelated checkout is never swept in, and
+    mirrors :data:`rebrew.metadata.files.TomlStore`'s pruning without
+    importing it (that import would be a layering violation).
+    """
+    found: dict[Path, list[Path]] = {}
+    for directory, folders, files in os.walk(root):
+        parent = Path(directory)
+        if parent != root and _PROJECT_CONFIG_NAME in files:
+            folders[:] = []
+            continue
+        for name in _TOML_STORE_NAMES:
+            if name in files:
+                found.setdefault(parent, []).extend(metadata_paths(parent / name))
+        folders[:] = [
+            folder
+            for folder in folders
+            if not folder.startswith(".")
+            and folder not in {"node_modules", "__pycache__"}
+            and Path(folder).with_suffix(".toml").name not in _TOML_STORE_NAMES
+        ]
+    return sorted(found.items())
+
+
+def metadata_paths(path: Path) -> tuple[Path, ...]:
+    """Main TOML plus its ``.d/*.toml`` drop-ins, when present.
+
+    Mirrors ``rebrew.metadata.files.metadata_paths`` without importing it
+    (that module imports the locking helper this module uses).
+    """
+    try:
+        path.stat()
+    except FileNotFoundError:
+        paths: list[Path] = []
+    else:
+        paths = [path]
+    try:
+        members = list(path.with_suffix(".d").iterdir())
+    except FileNotFoundError:
+        members = []
+    paths.extend(sorted(p for p in members if p.suffix == ".toml" and p.is_file()))
+    return tuple(paths)
+
+
+def _project_config(root: Path) -> Path | None:
+    """The project config at *root*, when present."""
+    candidate = root / _PROJECT_CONFIG_NAME
+    return candidate if candidate.is_file() else None
+
+
 def _toml_stores_present(root: Path) -> list[tuple[str, list[Path]]]:
-    """Non-empty ``(name, tree)`` pairs for the managed TOML stores."""
+    """Non-empty ``(name, tree)`` pairs for the managed TOML stores.
+
+    Kept for the flat layout and existing callers; the backup/restore pair
+    below uses :func:`_toml_store_trees` so a nested ``metadata_dir`` is
+    covered too.
+    """
     present = []
     for name in _TOML_STORE_NAMES:
         tree = _toml_store_tree(root, name)
@@ -305,21 +370,28 @@ def backup_metadata_toml(root: Path, backup_dir: Path) -> Path:
     against its source, so a short copy raises instead of reporting
     success.  A project with no TOML store raises ``FileNotFoundError``
     rather than writing an empty bundle a restore would mistake for a
-    backup.  Returns the bundle directory.
+    backup.  The project config is copied too: without it a bare store
+    bundle cannot be installed into a fresh tree.  Returns the bundle
+    directory.
     """
     from rebrew.utils import atomic_write_bytes
 
-    present = _toml_stores_present(root)
-    if not present:
+    trees = _toml_store_trees(root)
+    config = _project_config(root)
+    if not trees and config is None:
         raise FileNotFoundError(f"no metadata stores at {root}")
     bundle = backup_dir / TOML_BACKUP_DIRNAME
-    for _name, tree in present:
-        for source in tree:
-            dest = bundle / source.relative_to(root)
-            payload = source.read_bytes()
-            atomic_write_bytes(dest, payload, mode=0o444)
-            if dest.read_bytes() != payload:
-                raise MetadataStorageError(f"{dest}: backup verification failed")
+    sources: list[Path] = []
+    for _directory, tree in trees:
+        sources.extend(tree)
+    if config is not None:
+        sources.append(config)
+    for source in sources:
+        dest = bundle / source.relative_to(root)
+        payload = source.read_bytes()
+        atomic_write_bytes(dest, payload, mode=0o444)
+        if dest.read_bytes() != payload:
+            raise MetadataStorageError(f"{dest}: backup verification failed")
     return bundle
 
 
@@ -329,21 +401,33 @@ def restore_metadata_toml(bundle: Path, root: Path) -> tuple[Path, ...]:
     Every current store tree is first preserved as ``<file>.before-restore``
     beside it, so a restore pointed at the wrong bundle is itself
     reversible.  A bundle file that does not parse as TOML raises and
-    leaves the current stores alone.  Returns the installed paths.
+    leaves the current stores alone.  The project config, when the bundle
+    carries one, is installed first so a nested ``metadata_dir`` still
+    resolves after the stores land.  Returns the installed paths.
     """
     from rebrew.utils import atomic_write_bytes, load_tomllib
 
     if not bundle.is_dir():
         raise FileNotFoundError(f"no metadata backup bundle at {bundle}")
-    planned = []
-    for name in _TOML_STORE_NAMES:
-        for source in _toml_store_tree(bundle, name):
+    planned: list[Path] = []
+    config = bundle / _PROJECT_CONFIG_NAME
+    trees = _toml_store_trees(bundle)
+    if config.is_file():
+        try:
+            load_tomllib(config)
+        except (ValueError, OSError) as exc:
+            raise MetadataStorageError(f"{config}: corrupt backup: {exc}") from exc
+        planned.append(config.relative_to(bundle))
+    for _directory, tree in trees:
+        for source in tree:
             try:
                 load_tomllib(source)
             except (ValueError, OSError) as exc:
                 raise MetadataStorageError(f"{source}: corrupt backup: {exc}") from exc
             planned.append(source.relative_to(bundle))
     if not planned:
+        raise FileNotFoundError(f"no metadata stores in backup bundle at {bundle}")
+    if not any(rel.name in _TOML_STORE_NAMES for rel in planned):
         raise FileNotFoundError(f"no metadata stores in backup bundle at {bundle}")
     installed = []
     for rel in planned:
