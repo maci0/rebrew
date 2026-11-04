@@ -729,6 +729,13 @@ def _classify_insn(
 _PRINTABLE = set(range(0x20, 0x7F))
 _UTF16_PRINTABLE = set(range(0x20, 0x7F))
 
+#: Whole-section strings scan: one compiled run per section instead of a
+#: per-byte Python loop. Matched runs are exactly the printable stretches the
+#: old loops collected, so results are identical; the regex engine does the
+#: byte walk in C.
+_ASCII_RUN = re.compile(rb"[\x20-\x7e]{4,}")
+_UTF16_RUN = re.compile(rb"(?:[\x20-\x7e]\x00){4,}")
+
 #: Borland/Delphi ``ShortString`` maximum length: the length prefix is one byte,
 #: so a string runs to 255 bytes.  The old cap of 63 silently dropped every
 #: 64..255-byte string, and a long printable run is *stronger* evidence of a
@@ -800,72 +807,31 @@ def _scan_pascal(raw: bytes, va: int, section: str, min_len: int) -> list[String
 
 
 def _scan_ascii(raw: bytes, va: int, section: str, min_len: int) -> list[StringEntry]:
-    out: list[StringEntry] = []
-    start = -1
-    for i, byte in enumerate(raw):
-        if byte in _PRINTABLE:
-            if start < 0:
-                start = i
-        else:
-            if start >= 0 and i - start >= min_len:
-                text = raw[start:i].decode("ascii")
-                out.append(
-                    StringEntry(
-                        va=va + start,
-                        size=i - start,
-                        text=text,
-                        kind="ascii",
-                        section=section,
-                    )
-                )
-            start = -1
-    if start >= 0 and len(raw) - start >= min_len:
-        text = raw[start:].decode("ascii")
-        out.append(
-            StringEntry(
-                va=va + start, size=len(raw) - start, text=text, kind="ascii", section=section
-            )
+    pat = _ASCII_RUN if min_len <= 4 else re.compile(rb"[\x20-\x7e]{%d,}" % min_len)
+    return [
+        StringEntry(
+            va=va + m.start(),
+            size=m.end() - m.start(),
+            text=m.group().decode("ascii"),
+            kind="ascii",
+            section=section,
         )
-    return out
+        for m in pat.finditer(raw)
+    ]
 
 
 def _scan_utf16(raw: bytes, va: int, section: str, min_len: int) -> list[StringEntry]:
-    out: list[StringEntry] = []
-    start = -1
-    i = 0
-    while i + 1 < len(raw):
-        lo, hi = raw[i], raw[i + 1]
-        if hi == 0 and lo in _UTF16_PRINTABLE:
-            if start < 0:
-                start = i
-        else:
-            if start >= 0 and (i - start) // 2 >= min_len:
-                text = raw[start:i:2].decode("ascii")
-                out.append(
-                    StringEntry(
-                        va=va + start,
-                        size=i - start,
-                        text=text,
-                        kind="utf16",
-                        section=section,
-                    )
-                )
-            start = -1
-        i += 2
-    if start >= 0:
-        # Only COMPLETE pairs: the loop stops before an unpaired trailing byte,
-        # so the flush must drop it from both the text and the size (else an
-        # odd-length region reports a bogus final character, e.g. "ABCDE" for
-        # raw "A\0B\0C\0D\0E").
-        end = start + ((len(raw) - start) // 2) * 2
-        if (end - start) // 2 >= min_len:
-            text = raw[start:end:2].decode("ascii")
-            out.append(
-                StringEntry(
-                    va=va + start, size=end - start, text=text, kind="utf16", section=section
-                )
-            )
-    return out
+    pat = _UTF16_RUN if min_len <= 4 else re.compile(rb"(?:[\x20-\x7e]\x00){%d,}" % min_len)
+    return [
+        StringEntry(
+            va=va + m.start(),
+            size=m.end() - m.start(),
+            text=m.group()[::2].decode("ascii"),
+            kind="utf16",
+            section=section,
+        )
+        for m in pat.finditer(raw)
+    ]
 
 
 def string_refs(
