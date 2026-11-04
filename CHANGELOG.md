@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.17.0] - 2026-11-04
+
 ### Fixed
 
 - `rebrew build symbol-stubs` emits a `const` definition for a global whose managed data row lives in `.rdata`, or whose extern declaration qualifies the object `const`, so the object lands in `.rdata` instead of `.data`. Pointer constness stays on the pointer object (`int* const`, not `const int*`), including an array of pointers. Rows in `.data`/`.bss`, and any symbol a source store writes, stay writable; a pointee store (`*p = x`, `p[i] = x`, `p->field = x`) writes the pointee, not the pointer object. `--module` scopes the row check to one target when the same name has different sections per target, and `--reference` classifies each row by its VA in the reference image instead of the stored section.
