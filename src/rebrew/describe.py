@@ -72,7 +72,7 @@ _IAT_KINDS = frozenset({"iat_call", "iat_jmp"})
 _MAX_FALLBACK_SIZE = 4096
 
 # Keys of the JSON contract.  ``blocker``/``note`` are terminal-only.
-_JSON_KEYS = (
+JSON_KEYS = (
     "va",
     "name",
     "status",
@@ -452,7 +452,7 @@ def build_dossier(cfg: ProjectConfig, info: BinaryInfo, va: int) -> dict[str, An
     """Compute the recon dossier for the function at *va*.
 
     Returns the dossier dict: the JSON contract keys plus terminal-only
-    ``blocker``/``note`` entries (``_JSON_KEYS`` names the JSON subset).
+    ``blocker``/``note`` entries (``JSON_KEYS`` names the JSON subset).
     """
     try:
         annotations, names, ranges = _build_lookup(cfg)
@@ -627,7 +627,7 @@ def main(
         error_exit(f"VA 0x{va_int:08x} is outside the binary image", json_mode=json_output)
     dossier = build_dossier(cfg, info, va_int)
     if json_output:
-        json_print({key: dossier[key] for key in _JSON_KEYS})
+        json_print({key: dossier[key] for key in JSON_KEYS})
         return
     _print_terminal(dossier)
 

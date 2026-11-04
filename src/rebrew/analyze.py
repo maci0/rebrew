@@ -489,6 +489,26 @@ def _collect_float_consts(info: Any) -> list[dict[str, Any]]:
     return [{"va": f"0x{c.address:08x}", "size": c.size, "value": repr(c.value)} for c in consts]
 
 
+def standalone_config(binary: Path) -> Any:
+    """The stand-in config :func:`build_dossier` reads for *binary* outside a project.
+
+    No root, metadata or reversed sources, so the project-scoped dossier
+    sections (FLIRT sigs, library headers, near-match metadata) come back empty.
+    """
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        root=None,
+        target_binary=binary,
+        metadata_dir=None,
+        module="",
+        target_name=binary.stem,
+        crt_sources={},
+        reversed_dir=Path("/nonexistent"),  # no sources -> no CRT/library annotations
+        source_ext=".c",
+    )
+
+
 def build_dossier(
     cfg: Any,
     binary: Path,
@@ -750,18 +770,7 @@ def main(
                 "Run inside a project or pass a binary path.",
                 json_mode=json_output,
             )
-        from types import SimpleNamespace
-
-        cfg = SimpleNamespace(
-            root=None,
-            target_binary=binary,
-            metadata_dir=None,
-            module="",
-            target_name=binary.stem,
-            crt_sources={},
-            reversed_dir=Path("/nonexistent"),  # no sources -> no CRT/library annotations
-            source_ext=".c",
-        )
+        cfg = standalone_config(binary)
     else:
         if binary is None:
             binary = cfg.target_binary

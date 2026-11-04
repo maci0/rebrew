@@ -95,7 +95,7 @@ _SNIPPET_MAX_CHARS = 200
 
 #: Severity levels, most severe first; drives ``--min-severity`` filtering and
 #: the ``by_severity`` summary keys.
-_SEVERITY_ORDER: tuple[str, ...] = ("high", "medium", "low")
+SEVERITY_ORDER: tuple[str, ...] = ("high", "medium", "low")
 
 _SEVERITY_COLORS: dict[str, str] = {"high": "red", "medium": "yellow", "low": "cyan"}
 
@@ -447,7 +447,7 @@ def security_scan(directory: Path, *, recursive: bool = True) -> dict[str, Any]:
     """
     paths = _source_files(directory, recursive=recursive)
     findings = scan_paths(paths)
-    by_severity: dict[str, int] = dict.fromkeys(_SEVERITY_ORDER, 0)
+    by_severity: dict[str, int] = dict.fromkeys(SEVERITY_ORDER, 0)
     for finding in findings:
         by_severity[str(finding["severity"])] += 1
     return {
@@ -459,15 +459,15 @@ def security_scan(directory: Path, *, recursive: bool = True) -> dict[str, Any]:
     }
 
 
-def _filter_result(result: dict[str, Any], min_severity: str) -> dict[str, Any]:
+def filter_by_severity(result: dict[str, Any], min_severity: str) -> dict[str, Any]:
     """Drop findings below *min_severity* and recompute the summary counts."""
-    limit = _SEVERITY_ORDER.index(min_severity)
+    limit = SEVERITY_ORDER.index(min_severity)
     findings = [
         finding
         for finding in result["findings"]
-        if _SEVERITY_ORDER.index(str(finding["severity"])) <= limit
+        if SEVERITY_ORDER.index(str(finding["severity"])) <= limit
     ]
-    by_severity: dict[str, int] = dict.fromkeys(_SEVERITY_ORDER, 0)
+    by_severity: dict[str, int] = dict.fromkeys(SEVERITY_ORDER, 0)
     for finding in findings:
         by_severity[str(finding["severity"])] += 1
     return {**result, "findings": findings, "count": len(findings), "by_severity": by_severity}
@@ -510,9 +510,9 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Scan C sources for unsafe API use and report findings by severity."""
-    if min_severity not in _SEVERITY_ORDER:
+    if min_severity not in SEVERITY_ORDER:
         error_exit(
-            f"invalid --min-severity {min_severity!r}; expected one of: {', '.join(_SEVERITY_ORDER)}",
+            f"invalid --min-severity {min_severity!r}; expected one of: {', '.join(SEVERITY_ORDER)}",
             json_mode=json_output,
         )
     if directory is None:
@@ -524,7 +524,7 @@ def main(
         )
 
     try:
-        result = _filter_result(security_scan(directory), min_severity)
+        result = filter_by_severity(security_scan(directory), min_severity)
     except SecurityScanUnavailable as exc:
         error_exit(f"security scan did not run: {exc}", json_mode=json_output, code=EXIT_ERROR)
 

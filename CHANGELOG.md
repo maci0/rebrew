@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Changed
+
+- `rebrew.describe.JSON_KEYS`, `rebrew.security_scan.SEVERITY_ORDER` and `rebrew.security_scan.filter_by_severity` are public (were `_JSON_KEYS`, `_SEVERITY_ORDER`, `_filter_result`), and `rebrew.analyze.standalone_config` builds the project-free config `rebrew binary analyze` uses outside a project.
+
 ## [6.17.0] - 2026-11-04
 
 ### Fixed
