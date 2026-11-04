@@ -1821,10 +1821,34 @@ class OpsServer(ThreadingHTTPServer):
 class _OpsHandler(BaseHTTPRequestHandler):
     timeout: typing.ClassVar[float | None] = SOCKET_TIMEOUT_SECONDS
 
+    def send_response(self, code: int, message: str | None = None) -> None:
+        # No Server banner: BaseHTTPRequestHandler would emit the Python
+        # patch level to any caller that can reach the worker.
+        self.send_response_only(code, message)
+        self.send_header("Date", self.date_time_string())
+
+    def send_error(self, code: int, message: str | None = None, explain: str | None = None) -> None:
+        # http.server's own errors (400/414/431/505/501) must not leak the
+        # stdlib HTML page or the request line; answer with the JSON envelope.
+        status = int(code)
+        body = error_body(INVALID_REQUEST, "invalid request", status)
+        self._response_size = len(body)  # type: ignore[attr-defined]
+        self.send_response(status)
+        self.send_header("Connection", "close")
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
+
     def _send(self, status: int, body: bytes, headers: Mapping[str, str] | None = None) -> None:
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
         for name, value in (headers or {}).items():
             self.send_header(name, value)
         self.end_headers()

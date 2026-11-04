@@ -82,6 +82,9 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 			return
 		}
 		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "no-referrer")
 		if r.Method == http.MethodPost && r.URL.Path == "/jobs" {
 			var in struct {
 				Key             string `json:"key"`
