@@ -158,7 +158,7 @@ class TestReportCli:
         # Prevent per-load /favicon.ico 404, and ship the mark rather than a
         # blank icon.  Linked, not inlined: a data URI would put 443 B of
         # percent-encoded payload in every page and could not be cached apart.
-        assert "<link rel='icon' href='favicon.svg' type='image/svg+xml'>" in index
+        assert "<link rel='icon' href='favicon.svg' type='image/svg+xml' fetchpriority='low'>" in index
         assert "data:image/svg+xml," not in index
         assert (site / "favicon.svg").read_text(encoding="utf-8") == FAVICON_SVG
         # Dark-header link colors must not reach the pager nav on the light

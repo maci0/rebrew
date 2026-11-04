@@ -764,7 +764,7 @@ class TestHandle:
         _, _, html = dashboard.handle("GET", "/", {})
         _, _, js = dashboard.handle("GET", "/app.js", {})
         body = html + js
-        assert f'<script src="/app.js?v={_APP_JS_VERSION}" defer></script>' in html
+        assert f'<script src="/app.js?v={_APP_JS_VERSION}" defer fetchpriority="high"></script>' in html
         assert f'rel="preload" href="/app.js?v={_APP_JS_VERSION}" as="script"' in html
         assert 'fetchpriority="high"' in html
         assert "content-visibility: auto" in html
@@ -931,7 +931,7 @@ class TestHandle:
         from rebrew.dashboard import _BOOT_GUARD_HASH
 
         _, _, html = dashboard.handle("GET", "/", {})
-        assert f'<script src="{_APP_JS_URL}" defer></script>' in html
+        assert f'<script src="{_APP_JS_URL}" defer fetchpriority="high"></script>' in html
         assert f"<script>{_BOOT_GUARD_JS}</script>" in html
         # Deferred scripts run before DOMContentLoaded, so the guard is after
         # the client without a second request on the cold path.
@@ -2421,7 +2421,7 @@ class TestEncodingNegotiation:
 
     @pytest.mark.parametrize(
         ("accept", "expected_body"),
-        [("zstd", 12571), ("gzip", None)],
+        [("zstd", 12576), ("gzip", None)],
     )
     def test_the_documented_entry_flight_matches_the_wire(
         self, accept: str, expected_body: int | None
@@ -3203,7 +3203,7 @@ class TestHostValidation:
         assert 'rel="preload" href="/api/bootstrap" as="fetch" crossorigin' in html
         assert 'fetchpriority="high"' in html
         assert f'rel="preload" href="/app.js?v={_APP_JS_VERSION}" as="script"' in html
-        assert f'src="/app.js?v={_APP_JS_VERSION}" defer' in html
+        assert f'src="/app.js?v={_APP_JS_VERSION}" defer fetchpriority="high"' in html
         # preload crossorigin=anonymous uses credentials "same-origin"; any other
         # fetch credentials mode misses the preload and downloads bootstrap twice.
         assert "await fetch(path, { signal })" in js
