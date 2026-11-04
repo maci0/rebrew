@@ -739,13 +739,13 @@ _UTF16_RUN = re.compile(rb"(?:[\x20-\x7e]\x00){4,}")
 
 
 @lru_cache(maxsize=64)
-def _ascii_run(min_len: int):
+def _ascii_run(min_len: int) -> re.Pattern[bytes]:
     """Run matcher for ASCII strings."""
     return _ASCII_RUN if min_len == 4 else re.compile(rb"[\x20-\x7e]{%d,}" % min_len)
 
 
 @lru_cache(maxsize=64)
-def _utf16_run(min_len: int):
+def _utf16_run(min_len: int) -> re.Pattern[bytes]:
     """Run matcher for UTF-16LE strings."""
     return _UTF16_RUN if min_len == 4 else re.compile(rb"(?:[\x20-\x7e]\x00){%d,}" % min_len)
 
