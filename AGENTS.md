@@ -1,5 +1,7 @@
 # AGENTS.md: Rebrew
 
+This file is hand-maintained for this repo. `src/rebrew/AGENTS.md.template` is the separate downstream template `rebrew init` renders into user projects; never overwrite this file from it.
+
 ## Overview
 
 **Rebrew** is a compiler-in-the-loop decompilation workbench for binary-matching game reversing. Python package (`src/rebrew/`) with CLI tools to compile, compare, and match C source against target binary functions.
@@ -37,7 +39,7 @@ Docker build source lives in the sibling **recompile-toolchains** checkout (`REB
 ## Build & Test Commands
 
 ```bash
-make doctor                               # report every missing prerequisite (uv, the pinned uv version, ../resembl, bash, nasm, bun, shellcheck, yamllint, vnu, venv extras) and its fix
+make doctor                               # report every missing prerequisite (uv, the pinned uv version, ../resembl, bash, nasm, bun, cc/pkg-config/json-c, shellcheck, yamllint, vnu, venv extras) and its fix
 make test-one T=tests/test_source_bindings.py  # edit-test loop; T takes a node id (::TestClass), FLAGS= takes any pytest flag
 make test                                 # full suite (needs nasm + bun + the setup extras; vnu skips if absent)
 make lint / make format / make mypy
