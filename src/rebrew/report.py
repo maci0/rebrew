@@ -95,6 +95,18 @@ _PAGES: list[tuple[str, str]] = [
 # document's HTML parse budget small on large projects (thousands of
 # functions, strings, or imports); extra pages are linked via a no-JS pager.
 _TABLE_PAGE_SIZE = 250
+
+
+def _total_pages(total: int) -> int:
+    """Ceiling page count for *total* rows at ``_TABLE_PAGE_SIZE`` rows/page.
+
+    The one computation the index, strings and paged-table renderers share so
+    they cannot drift on the ceil/floor edge (a single-page table still counts
+    as one page).
+    """
+    return max(1, -(-total // _TABLE_PAGE_SIZE))
+
+
 # Strings-table cells longer than these collapse into a <details> disclosure.
 _STRING_CELL_CHARS = 80
 _REFS_CELL_COUNT = 5
@@ -738,7 +750,7 @@ def _render_index(
         return [("index.html", _page("Function index", target, "index.html", body))]
 
     total = len(functions)
-    total_pages = max(1, (total + _TABLE_PAGE_SIZE - 1) // _TABLE_PAGE_SIZE)
+    total_pages = _total_pages(total)
     # The strings and imports pages open with a count; the index carried none,
     # so a single-page table gave a reader no idea how much of the target it
     # was showing.  A multi-page table reads the total off its pager.
@@ -842,7 +854,7 @@ def _render_strings(cfg: ProjectConfig) -> list[tuple[str, str]]:
         refs = None
 
     total = len(strings)
-    total_pages = max(1, (total + _TABLE_PAGE_SIZE - 1) // _TABLE_PAGE_SIZE)
+    total_pages = _total_pages(total)
     pages: list[tuple[str, str]] = []
     # The count travels with the table the way the index and imports pages
     # carry theirs: a single-page table renders no pager, so without it the
@@ -963,7 +975,7 @@ def _paginate_rows(
     total = len(rows_html)
     if total == 0:
         return []
-    total_pages = max(1, (total + _TABLE_PAGE_SIZE - 1) // _TABLE_PAGE_SIZE)
+    total_pages = _total_pages(total)
     pages: list[tuple[str, str]] = []
     for page_num in range(1, total_pages + 1):
         start = (page_num - 1) * _TABLE_PAGE_SIZE

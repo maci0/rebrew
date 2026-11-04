@@ -3820,7 +3820,6 @@ def update_cmd(
 
     Dry-run (default): downloads the current source and reports the old -> new pin (sha256 + commit).  --apply additionally rewrites SOURCES, clears + re-vendors the host tree, rebuilds the docker image, regenerates the smoke golden (verified stable across two compiles) and runs the smoke gate for that toolchain.
     """
-    import contextlib
     import hashlib
     import re
     import shutil
