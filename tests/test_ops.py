@@ -1237,6 +1237,27 @@ class TestHttpTransport:
         finally:
             conn.close()
 
+        # HEAD must carry headers only, never a body (RFC 9110 §9.3.2).
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=WAIT_SECONDS)
+        try:
+            conn.request("HEAD", "/health", headers=auth)
+            resp = conn.getresponse()
+            assert resp.status == 200
+            assert resp.getheader("Content-Length") is not None
+            assert resp.read() == b""
+        finally:
+            conn.close()
+
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=WAIT_SECONDS)
+        try:
+            conn.request("HEAD", "/metrics", headers=auth)
+            resp = conn.getresponse()
+            assert resp.status == 200
+            assert resp.getheader("Content-Length") is not None
+            assert resp.read() == b""
+        finally:
+            conn.close()
+
     def test_serve_requires_a_token(self) -> None:
         done = subprocess.run(
             _rebrew("ops", "serve", "--port", "0"),

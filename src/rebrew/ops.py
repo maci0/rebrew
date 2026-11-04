@@ -2226,7 +2226,8 @@ class _OpsHandler(BaseHTTPRequestHandler):
         for name, value in (headers or {}).items():
             self.send_header(name, value)
         self.end_headers()
-        self.wfile.write(body)
+        if self.command != "HEAD":
+            self.wfile.write(body)
 
     def _refuse(self, code: str, detail: str, status: int) -> None:
         self._send(status, error_body(code, detail, status))
