@@ -25,6 +25,32 @@ class MetadataStorageError(RebrewError, ValueError):
     """A metadata database is corrupt, incompatible, inaccessible or busy."""
 
 
+def _require_metadata_table(connection: sqlite3.Connection, location: Path) -> None:
+    row = connection.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='metadata_documents'"
+    ).fetchone()
+    if row is None:
+        raise MetadataStorageError(f"{location}: not a Rebrew metadata database")
+    sql = str(row[0] or "")
+    if (
+        "length(path)" not in sql
+        or "length(content)" not in sql
+        or "path TEXT NOT NULL PRIMARY KEY" not in sql
+        or "revision INTEGER NOT NULL CHECK (revision > 0)" not in sql
+        or "content TEXT NOT NULL" not in sql
+    ):
+        raise MetadataStorageError(f"{location}: not a Rebrew metadata database")
+
+
+_METADATA_TABLE_SQL = (
+    "CREATE TABLE metadata_documents("
+    "path TEXT NOT NULL PRIMARY KEY CHECK (length(path) > 0), "
+    "revision INTEGER NOT NULL CHECK (revision > 0), "
+    "content TEXT NOT NULL CHECK (length(content) > 0)"
+    ")"
+)
+
+
 def _connections() -> dict[Path, sqlite3.Connection]:
     connections: dict[Path, sqlite3.Connection] | None = getattr(_CONNECTIONS, "active", None)
     if connections is None:
@@ -54,6 +80,7 @@ class SqliteStore:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
         if version != _SCHEMA_VERSION:
             raise MetadataStorageError(f"{self.location}: unsupported metadata schema {version}")
+        _require_metadata_table(connection, self.location)
 
     @contextlib.contextmanager
     def _reader(self) -> Iterator[sqlite3.Connection | None]:
@@ -107,7 +134,7 @@ class SqliteStore:
 
     def write(self, doc: dict[str, Any], description: str) -> None:
         """Replace a document atomically, advancing its revision only on change."""
-        content = tomlkit.dumps(doc)
+        content = tomlkit.dumps(doc) or "\n"
         with self.transaction():
             connection = _connections()[self.location]
             connection.execute(
@@ -190,9 +217,7 @@ class SqliteStore:
                             raise MetadataStorageError(
                                 f"{self.location}: not a Rebrew metadata database"
                             )
-                        connection.execute(
-                            "CREATE TABLE metadata_documents(path TEXT NOT NULL PRIMARY KEY, revision INTEGER NOT NULL CHECK (revision > 0), content TEXT NOT NULL)"
-                        )
+                        connection.execute(_METADATA_TABLE_SQL)
                         connection.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
                     self._check_schema(connection)
                     connections[self.location] = connection
@@ -250,7 +275,7 @@ def backup_metadata_database(root: Path, backup_dir: Path) -> Path:
     A plain file copy of a live SQLite database can capture a torn page
     image if a writer is mid-transaction; ``sqlite3``'s online backup API
     copies a transactionally consistent snapshot instead.  The copy is
-    then opened read-only and its schema version and row count checked,
+    then opened read-only and its schema version and table checked,
     so a backup that cannot be restored raises here rather than at
     restore time.  A missing database raises ``FileNotFoundError``.
     """
@@ -262,6 +287,8 @@ def backup_metadata_database(root: Path, backup_dir: Path) -> Path:
     dest = backup_dir / METADATA_BACKUP_FILENAME
     dest.parent.mkdir(parents=True, exist_ok=True)
     with file_transaction(location.parent, location.name):
+        if dest.is_file():
+            dest.chmod(0o644)
         source = sqlite3.connect(location.as_uri() + "?mode=ro", uri=True, timeout=30)
         try:
             with contextlib.closing(sqlite3.connect(dest, timeout=30)) as target:
@@ -272,6 +299,7 @@ def backup_metadata_database(root: Path, backup_dir: Path) -> Path:
     check = sqlite3.connect(dest.as_uri() + "?mode=ro", uri=True, timeout=30)
     try:
         version = check.execute("PRAGMA user_version").fetchone()[0]
+        _require_metadata_table(check, dest)
         count = check.execute("SELECT COUNT(*) FROM metadata_documents").fetchone()[0]
     except sqlite3.Error as exc:
         raise MetadataStorageError(f"{dest}: backup verification failed: {exc}") from exc
@@ -307,6 +335,7 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
     check = sqlite3.connect(backup.as_uri() + "?mode=ro", uri=True, timeout=30)
     try:
         version = check.execute("PRAGMA user_version").fetchone()[0]
+        _require_metadata_table(check, backup)
         integrity = check.execute("PRAGMA integrity_check").fetchone()[0]
     except sqlite3.Error as exc:
         raise MetadataStorageError(f"{backup}: corrupt backup: {exc}") from exc
@@ -319,12 +348,11 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
     location = root / DATABASE_FILENAME
     location.parent.mkdir(parents=True, exist_ok=True)
     with file_transaction(location.parent, location.name):
-        # The active database is mode 0444 at rest; the backup target must be
-        # writable for the copy, as the store's own transaction does.
         if location.is_file():
             location.chmod(0o644)
-        if location.is_file():
             preserved = location.with_name(location.name + ".before-restore")
+            if preserved.is_file():
+                preserved.chmod(0o644)
             source = sqlite3.connect(location.as_uri() + "?mode=ro", uri=True, timeout=30)
             try:
                 with contextlib.closing(sqlite3.connect(preserved, timeout=30)) as target:
