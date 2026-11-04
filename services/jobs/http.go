@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,12 +14,69 @@ import (
 	"time"
 )
 
+type statusRecorder struct {
+	http.ResponseWriter
+	status *int
+	wrote  bool
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	if !r.wrote {
+		*r.status = code
+		r.wrote = true
+	}
+	r.ResponseWriter.WriteHeader(code)
+}
+
+func (r *statusRecorder) Write(b []byte) (int, error) {
+	if !r.wrote {
+		*r.status = http.StatusOK
+		r.wrote = true
+	}
+	return r.ResponseWriter.Write(b)
+}
+
+func (r *statusRecorder) Flush() {
+	if f, ok := r.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (r *statusRecorder) SetWriteDeadline(t time.Time) error {
+	if rc, ok := r.ResponseWriter.(interface{ SetWriteDeadline(time.Time) error }); ok {
+		return rc.SetWriteDeadline(t)
+	}
+	return nil
+}
+
 // Handler exposes one configured owner's local API; it is not a tenant authorization boundary.
 func (o *Owner) Handler(token string) (http.Handler, error) {
 	if len(token) < 32 {
 		return nil, fmt.Errorf("job token must contain at least 32 bytes")
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		requestID := r.Header.Get("X-Request-ID")
+		status := 0
+		// Instrument only the response status that a handler actually commits;
+		// the log line at the end is the single access log for the service.
+		rec := &statusRecorder{ResponseWriter: w, status: &status}
+		w = rec
+		defer func() {
+			// http.Error without WriteHeader leaves the implicit 200; handlers
+			// in this file always set a status before writing, but recover the
+			// common cases so the log is never misleading.
+			s := status
+			if s == 0 {
+				s = http.StatusOK
+			}
+			jobID := ""
+			if strings.HasPrefix(r.URL.Path, "/jobs/") {
+				jobID = strings.Split(strings.TrimPrefix(r.URL.Path, "/jobs/"), "/")[0]
+			}
+			log.Printf("http_request method=%s path=%s status=%d duration_ms=%d request_id=%q job_id=%q",
+				r.Method, r.URL.Path, s, time.Since(start).Milliseconds(), requestID, jobID)
+		}()
 		if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+token)) != 1 {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return

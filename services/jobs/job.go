@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -349,7 +350,14 @@ func (o *Owner) admit(key, seed, expectedWorkspaceSHA256, credential string, opt
 	o.queued[r.ID] = true
 	o.notify(r.ID)
 	o.workers.Add(1)
-	go func() { defer o.workers.Done(); _ = o.run(r) }()
+	go func() {
+		defer o.workers.Done()
+		if err := o.run(r); err != nil {
+			// The job worker owns its lifecycle; do not swallow an outcome the
+			// receipt does not already carry.
+			log.Printf("job_run_error job_id=%q error=%q", r.ID, err.Error())
+		}
+	}()
 	return r, true, nil
 }
 
@@ -530,7 +538,11 @@ func (o *Owner) runDocker(saved Receipt, workspace string) error {
 	startCancel()
 	o.mu.Unlock()
 	if startErr == nil {
-		_ = provider.Follow(context.Background(), id, output)
+		if err := provider.Follow(context.Background(), id, output); err != nil {
+			// Lost-attached logs are already surfaced as incomplete output
+			// via InspectStop; record loss here for operators watching logs.
+			log.Printf("job_follow_error job_id=%q error=%q", saved.ID, err.Error())
+		}
 	}
 	digest, outputErr := output.finish()
 	if outputErr != nil {
@@ -675,7 +687,9 @@ func (o *Owner) Cancel(id string) (Receipt, error) {
 			defer o.workers.Done()
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
-			_ = provider.Stop(ctx, containerID)
+			if err := provider.Stop(ctx, containerID); err != nil {
+				log.Printf("job_cancel_stop_error job_id=%q error=%q", id, err.Error())
+			}
 		}()
 	}
 	return r, nil
