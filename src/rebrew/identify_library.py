@@ -312,7 +312,14 @@ def _import_candidates(cfg: Any, default_module: str) -> list[LibCandidate]:
             dll = str(rec.get("dll", ""))
             if name and dll:
                 dll_by_name[name] = dll.rsplit(".", 1)[0].upper()
-    except Exception:  # import parse is best-effort
+    except Exception as exc:  # import parse is best-effort
+        # A failed import parse silently degrades every candidate to the
+        # guessed module; visibility here costs one line and matches the
+        # warning the stub scan above already emits.
+        console.print(
+            f"[yellow]warning:[/yellow] import parse skipped for"
+            f" {cfg.target_binary}: {exc}"
+        )
         dll_by_name = {}
 
     out: list[LibCandidate] = []

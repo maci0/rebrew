@@ -19,6 +19,8 @@ lazy from collections.abc import Sequence
 lazy from pathlib import Path
 lazy from typing import Any
 
+import logging
+
 import typer
 
 from rebrew.cli import (
@@ -147,6 +149,14 @@ def build_calls_from_payload(binary: Path, start: int, size: int) -> dict[str, A
     try:
         imports = parse_import_table(binary)  # {iat_va: api_name}
     except Exception:  # the import table is optional for this inventory
+        # Log it: a malformed import table otherwise makes every
+        # register call in the inventory unresolvable, which reads as
+        # "this function makes no indirect calls" instead of a failure.
+        logging.getLogger(__name__).debug(
+            "import table parse failed for %s; indirect calls unresolved",
+            binary,
+            exc_info=True,
+        )
         imports = {}
 
     insns = iter_instructions(info, start, size)

@@ -21,6 +21,7 @@ yield an empty result, and unresolvable entries are shown as raw VAs.
 
 from __future__ import annotations
 
+import logging
 import re
 lazy from typing import Any
 
@@ -106,6 +107,12 @@ def find_switches(cfg: Any, va: int, window: int = 512) -> list[dict[str, Any]]:
     try:
         raw = extract_raw_bytes(cfg.target_binary, va, window)
     except Exception:  # missing/unreadable binary → no dispatch
+        logging.getLogger(__name__).debug(
+            "switch dispatch read failed at 0x%x from %s",
+            va,
+            cfg.target_binary,
+            exc_info=True,
+        )
         return []
     if not raw:
         return []
@@ -262,6 +269,9 @@ def _read_table(
     try:
         info = load_binary(cfg.target_binary)
     except Exception:  # unreadable binary → no table
+        logging.getLogger(__name__).debug(
+            "switch table load failed for %s", cfg.target_binary, exc_info=True
+        )
         return []
 
     entries: list[tuple[int, int]] = []
@@ -313,6 +323,9 @@ def _resolve_name(cfg: Any, va: int, func_lookup: dict[int, tuple[str, str]] | N
         name, _status = func_lookup.get(va, ("", ""))
         return name
     except Exception:  # best-effort naming
+        logging.getLogger(__name__).debug(
+            "function name lookup failed for 0x%x", va, exc_info=True
+        )
         return ""
 
 
@@ -372,6 +385,9 @@ def main(
     try:
         func_lookup: dict[int, tuple[str, str]] | None = build_function_lookup(cfg)
     except Exception:  # best-effort naming
+        logging.getLogger(__name__).debug(
+            "function lookup build failed; handler names unresolved", exc_info=True
+        )
         func_lookup = None
 
     for sw in switches:
