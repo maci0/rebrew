@@ -186,7 +186,7 @@ lists every contributor target.
 
 ```bash
 make doctor                             # report every missing prerequisite (uv, ../resembl, bash, nasm,
-                                        # bun, cc/pkg-config/json-c, shellcheck, yamllint, vnu, venv extras) with the fix for each;
+                                        # bun, JDK/ant, go, patch, cc/pkg-config/json-c, shellcheck, yamllint, vnu, venv extras) with the fix for each;
                                         # read-only; on a clean clone ../resembl and the venv extras are the
                                         # next step (clone-resembl, setup), so the exit code is 1 only
                                         # for a host tool the bootstrap cannot install

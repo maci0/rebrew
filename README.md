@@ -160,14 +160,14 @@ Run the following from the directory that will hold both checkouts:
 git clone https://github.com/maci0/rebrew.git
 cd rebrew/
 make doctor                # report every missing prerequisite (uv, ../resembl, bash, nasm,
-                           # bun, cc/pkg-config/json-c, shellcheck, yamllint, vnu, venv extras)
+                           # bun, JDK/ant, go, patch, cc/pkg-config/json-c, shellcheck, yamllint, vnu, venv extras)
                            # with the fix for each; read-only, and exits non-zero only for a
                            # host tool the two steps below cannot install
 make clone-resembl         # clone sibling resembl pin (tag v3.12.0) into ../resembl
 make setup                 # uv sync --locked --all-extras --group similarity + pre-commit hooks
 make add-dep ADD_DEP_SPEC=<spec>  # add a dependency (wraps `uv add`; prints the license-table step)
 make test-one T=tests/test_annotation_roundtrip.py   # single-file edit-test loop
-make test                  # full suite (needs nasm, bun, and cc/pkg-config/json-c)
+make test                  # full suite (needs nasm, bun, patch, and cc/pkg-config/json-c)
 make lint                  # ruff check (same as CI)
 make format                # ruff format (writes)
 make all                   # local gates: format-check, lint, mypy, audit, coverage, gen-fixtures-check, cycles-check, layering-check, idempotency-check, cli-contract

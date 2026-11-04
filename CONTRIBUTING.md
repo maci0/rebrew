@@ -25,7 +25,15 @@ bun cannot run the dashboard JS exercised by CI; `make test` fails on a
 missing bun, while `make test-one` only warns). Native runner tests also need
 **cc**, **pkg-config** and **json-c development files**; on Debian/Ubuntu install
 `build-essential pkg-config libjson-c-dev`. `make test`, `make coverage` and
-`make doctor` check these before running the suite.
+`make doctor` check these before running the suite. The `binsync` extra
+(`declib` → `pyghidra` → `jpype1`, sdist-only in `uv.lock`) also needs a **JDK
+and Apache Ant** on `PATH` (plus `cc`/`make`) so CPython 3.15 can build JPype
+1.7.1 from source; CI installs `ant default-jdk build-essential` before
+`uv sync`, and `make setup` fails closed naming that prerequisite instead of
+dying inside the build. `make jobs-check` needs **Go** (`GO_VERSION` pin in
+the `Makefile`, matching `services/jobs/go.mod` and CI), and the vendor tests
+and `rebrew library vendor` need **GNU patch** (CI installs it in the test
+job); `make doctor` reports both.
 `make clone-resembl` also needs
 **bash**: it runs `tools/ci_clone_resembl.sh`, and the target says so instead of
 printing `bash: not found`.  **shellcheck** is optional locally
@@ -61,14 +69,16 @@ make test-one T=tests/test_annotation_roundtrip.py   # smoke the edit-test loop
 ```
 
 `make doctor` is read-only and runs every preflight the other targets use (uv
-and its version, the sibling `../resembl` checkout, bash, nasm, bun, shellcheck,
+and its version, the sibling `../resembl` checkout, bash, nasm, bun, JDK/ant,
+go, patch, shellcheck,
 yamllint, vnu, cc/pkg-config/json-c, and
 the `prove` extra / `similarity` group in `.venv`), so a host missing several of
 them sees all of them at once instead of one failed target at a time.  It
 separates the two that the next two bootstrap steps install (`../resembl` and
 the venv extras) from a host tool the bootstrap cannot install, so on a clean
 clone it exits 0 and prints `make clone-resembl` / `make setup` as the next
-step, and it exits non-zero only for a missing uv, bash, nasm, bun or native
+step, and it exits non-zero only for a missing uv, bash, nasm, bun, JDK/ant,
+go, patch or native
 runner build prerequisites. Every line still prints its own fix. The
 checks still guard their own targets: a missing nasm surfaces at `make test`
 whether or not `make doctor` was run.
@@ -120,7 +130,7 @@ in `tests/test_packaging.py` fails the suite listing every distribution left
 
 ```bash
 make help                     # list contributor make targets
-make doctor                   # report every missing prerequisite (uv, ../resembl, bash, nasm, bun, shellcheck, yamllint, vnu, venv extras)
+make doctor                   # report every missing prerequisite (uv, ../resembl, bash, nasm, bun, JDK/ant, go, patch, shellcheck, yamllint, vnu, venv extras)
 make clone-resembl            # clone sibling resembl pin into ../resembl (required for uv sync)
 make vnu                      # install the pinned W3C HTML validator and print the PATH line for it
 make setup                    # locked sync (extras + similarity) + pre-commit install (checks uv + ../resembl first)
@@ -129,7 +139,7 @@ make clean                    # remove build/dist artifacts and caches
 make test-one T=tests/test_annotation_roundtrip.py  # single file / nodeid (fast edit-test loop; defaults to test_annotation_roundtrip.py)
 make test-one T=tests/test_annotation_roundtrip.py FLAGS="-k roundtrip"  # narrow further with any pytest flag
 make test-one T=tests/test_dashboard.py::TestSummaryRequests   # one class
-make test                     # full suite (a few minutes; needs nasm + bun + the setup extras, warns without vnu)
+make test                     # full suite (a few minutes; needs nasm + bun + patch + the setup extras, warns without vnu)
 make coverage                 # full suite under slipcover; fails below COV_FLOOR (CI test job, 3.15)
 make lint                     # ruff check .
 make format                   # ruff format (writes)

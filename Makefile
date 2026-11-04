@@ -5,7 +5,7 @@
 	warn-yamllint \
 	warn-vnu \
 	vnu \
-	ensure-bash ensure-unshare-build \
+	ensure-bash ensure-unshare-build ensure-jpype-build ensure-go ensure-patch \
 	smoke-wheel \
 	require-dist \
 	ensure-extras \
@@ -56,6 +56,10 @@ RESEMBL_SHA ?= 2061b01c9ccd7db1b042868ac9d3418ba0f27097
 RESEMBL_DIR := $(abspath $(CURDIR)/../resembl)
 # Match the CI uv pin so local sync/audit behavior tracks CI.
 UV_VERSION ?= 0.13.6
+# Match the CI Go pin (.github/workflows/ci.yml GO_VERSION) and the
+# services/jobs/go.mod toolchain. `make jobs-check` runs on any newer Go,
+# but contributors should install this exact release to track CI.
+GO_VERSION ?= 1.27.3
 
 # Single-file / nodeid override for the edit-test loop:
 #   make test-one T=tests/test_annotation_roundtrip.py
@@ -145,7 +149,7 @@ UV_RUN_TOOLS := uv run --no-project --offline --python $(PYTHON_PIN)
 
 help:
 	@printf '%s\n' \
-		'  make doctor             # report every missing prerequisite (uv, resembl, nasm, bun, cc/json-c, shellcheck, yamllint, vnu, extras)' \
+		'  make doctor             # report every missing prerequisite (uv, resembl, JDK/ant, go, patch, nasm, bun, cc/json-c, shellcheck, yamllint, vnu, extras)' \
 		'  make setup              # uv sync (locked + extras + similarity) + pre-commit/pre-push hooks' \
 		'  make add-dep ADD_DEP_SPEC=<spec>  # uv add <spec> (pyproject.toml + uv.lock), then the license-table step' \
 		'  make clone-resembl      # clone sibling resembl pin into ../resembl (required for uv sync)' \
@@ -183,7 +187,9 @@ help:
 		'' \
 		'Bootstrap (clean clone):' \
 		'  0. make doctor          # reports which of the steps below this host is missing' \
-		'  1. Install uv $(UV_VERSION)+ (CI pin), Python 3.15+ (.python-version), nasm + bun on PATH' \
+		'  1. Install uv $(UV_VERSION)+ (CI pin), Python 3.15+ (.python-version), nasm + bun on PATH,' \
+		'     JDK + Ant + cc/make (JPype sdist build for the binsync extra),' \
+		'     Go $(GO_VERSION) (services/jobs), GNU patch (vendor tests)' \
 		'     (shellcheck + yamllint too: the pre-commit shell and YAML hooks skip' \
 		'     themselves without them, CI runs both; vnu for the W3C HTML gate,' \
 		'     which skips without it, so run make vnu and eval the line it prints;' \
@@ -280,6 +286,54 @@ ensure-unshare-build:
 	  exit 1; \
 	fi
 
+# The binsync extra (declib -> pyghidra -> jpype1) ships sdist-only in uv.lock
+# (zero wheels), so CPython 3.15 builds it from source and needs a JDK and
+# Apache Ant on PATH.  CI installs ant + default-jdk + build-essential before
+# `uv sync` in the lint and test jobs; a clean clone running `make setup`
+# (which syncs --all-extras, including binsync) otherwise fails inside the
+# JPype build with an unactionable compiler error.  `make setup` gates on
+# this so the failure names the fix; `make doctor` reports it as a host
+# prerequisite.  An explicit non-default UV_SYNC_FLAGS without the binsync
+# extra (e.g. UV_SYNC_FLAGS=) does not need it, so the check is not a
+# prerequisite of bare `uv sync`.
+ensure-jpype-build:
+	@set -eu; \
+	if ! command -v javac >/dev/null 2>&1 || ! command -v java >/dev/null 2>&1 \
+	  || ! command -v ant >/dev/null 2>&1 \
+	  || ! command -v cc >/dev/null 2>&1 || ! command -v make >/dev/null 2>&1; then \
+	  echo "ERROR: JDK + Ant + cc/make not on PATH (required to build JPype 1.7.1 from sdist on Python 3.15, same as CI)."; \
+	  echo "The binsync extra (declib -> pyghidra -> jpype1, sdist-only in uv.lock) is in --all-extras,"; \
+	  echo "so `make setup` needs a JDK and Apache Ant before uv sync can build it."; \
+	  echo "Install them, then re-run: e.g. apt install default-jdk ant build-essential / pacman -S jdk-openjdk ant make / dnf install java-21-openjdk-devel ant make"; \
+	  echo "Or sync without the binsync extra: make setup UV_SYNC_FLAGS='--locked --group similarity'"; \
+	  exit 1; \
+	fi
+
+# Go jobs service (CI jobs-service job).  jobs-check used to check this
+# inline; as a named preflight `make doctor` can report it alongside the
+# other host prerequisites instead of failing only at the last gate of
+# `make all`.  CI pins GO_VERSION via a SHA-256 verified tarball; this only
+# checks presence, not the version, so a newer Go still runs the checks.
+ensure-go:
+	@set -eu; \
+	if ! command -v go >/dev/null 2>&1; then \
+	  echo "ERROR: go not on PATH (required for make jobs-check, same as CI jobs-service)."; \
+	  echo "Install Go $(GO_VERSION) (services/jobs/go.mod toolchain; CI pins GO_VERSION=$(GO_VERSION)), then re-run: make jobs-check"; \
+	  exit 1; \
+	fi
+
+# `rebrew vendor` / `rebrew library vendor` shells out to GNU patch to apply
+# pinned patches, and tests/test_vendor.py exercises the real binary.  CI
+# installs patch in the test job; without it the suite fails inside the
+# vendor tests.  Hard gate for `make test` / `make coverage`, doctor entry.
+ensure-patch:
+	@set -eu; \
+	if ! command -v patch >/dev/null 2>&1; then \
+	  echo "ERROR: GNU patch not on PATH (required for the vendor tests and `rebrew library vendor`, same as CI)."; \
+	  echo "Install it, then re-run: e.g. apt install patch / pacman -S patch / dnf install patch"; \
+	  exit 1; \
+	fi
+
 # tests/dashboard_*.mjs drive the dashboard's JS through a stub DOM; the
 # pytest wrapper skips them when `bun` is absent, so a host without it reads
 # a green `make test` as full coverage of a file CI does run (CI installs
@@ -362,7 +416,7 @@ clone-resembl: ensure-bash
 	RESEMBL_REF=$(RESEMBL_REF) RESEMBL_SHA=$(RESEMBL_SHA) bash tools/ci_clone_resembl.sh "$(RESEMBL_DIR)"
 
 # Setup the development environment
-setup: ensure-resembl warn-nasm warn-uv-version
+setup: ensure-resembl warn-nasm ensure-jpype-build warn-uv-version
 	uv sync $(UV_SYNC_FLAGS)
 	uv run --frozen pre-commit install
 
@@ -475,7 +529,7 @@ warn-test-extras: ensure-uv
 doctor:
 	@set -u; \
 	rc=0; setup_rc=0; uv_rc=0; \
-	for check in ensure-uv warn-uv-version ensure-resembl ensure-bash ensure-nasm ensure-bun ensure-unshare-build warn-shellcheck warn-yamllint warn-vnu ensure-extras; do \
+	for check in ensure-uv warn-uv-version ensure-resembl ensure-bash ensure-nasm ensure-bun ensure-unshare-build ensure-jpype-build ensure-go ensure-patch warn-shellcheck warn-yamllint warn-vnu ensure-extras; do \
 	  case $$check in \
 	    ensure-uv) label='uv on PATH' ;; \
 	    warn-uv-version) label="uv >= $(UV_VERSION) (CI pin)" ;; \
@@ -484,6 +538,9 @@ doctor:
 	    ensure-nasm) label='nasm on PATH (make test; optional for test-one)' ;; \
 	    ensure-bun) label='bun on PATH (dashboard interaction tests; optional for test-one)' ;; \
 	    ensure-unshare-build) label='cc, pkg-config and json-c (native runner tests)' ;; \
+	    ensure-jpype-build) label='JDK, Ant and cc/make (JPype sdist build for binsync extra)' ;; \
+	    ensure-go) label='go on PATH (Go $(GO_VERSION) for jobs-check)' ;; \
+	    ensure-patch) label='GNU patch on PATH (vendor tests / library vendor)' ;; \
 	    warn-shellcheck) label='shellcheck on PATH (pre-commit shell hook)' ;; \
 	    warn-yamllint) label='yamllint on PATH (pre-commit YAML hook)' ;; \
 	    warn-vnu) label='vnu on PATH (W3C validation of the HTML surfaces)' ;; \
@@ -539,7 +596,7 @@ doctor:
 # help/status text.  The pytest plugin ``pytest_ansi_env`` sets the same
 # trio for bare ``uv run pytest``; export here too so the recipe stays
 # self-documenting and covers any non-pytest child processes.
-test: ensure-nasm ensure-bun ensure-unshare-build warn-vnu ensure-uv ensure-test-extras
+test: ensure-nasm ensure-bun ensure-unshare-build ensure-patch warn-vnu ensure-uv ensure-test-extras
 	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
 		uv run --frozen pytest tests/ -v --tb=short
 
@@ -551,7 +608,7 @@ test-one: warn-nasm warn-bun ensure-uv warn-test-extras
 
 # Coverage floor (AGENTS.md: ratchet up, never down).  slipcover ignores
 # [tool.slipcover] fail_under, so the floor is passed on the command line.
-coverage: ensure-nasm ensure-bun ensure-unshare-build warn-vnu ensure-uv ensure-test-extras
+coverage: ensure-nasm ensure-bun ensure-unshare-build ensure-patch warn-vnu ensure-uv ensure-test-extras
 	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
 		uv run --frozen python -m slipcover --fail-under $(COV_FLOOR) -m pytest tests/ -q --tb=short
 
@@ -1006,15 +1063,10 @@ smoke-wheel: require-dist ensure-uv
 	.venv-pkg/bin/rebrew --help >/dev/null
 
 # Go jobs service (CI jobs-service job): gofmt, vet, race tests.  Needs Go
-# 1.27.3 on PATH (services/jobs/go.mod toolchain pin); not the pinned
-# tarball CI installs, so a newer/older Go still runs the same checks.
-jobs-check:
-	@set -eu; \
-	if ! command -v go >/dev/null 2>&1; then \
-	  echo "ERROR: go not on PATH (required for make jobs-check, same as CI jobs-service)."; \
-	  echo "Install Go 1.27.3 (services/jobs/go.mod toolchain), then re-run: make jobs-check"; \
-	  exit 1; \
-	fi; \
+# on PATH (services/jobs/go.mod toolchain pin; CI installs GO_VERSION);
+# not the pinned tarball CI installs, so a newer/older Go still runs the
+# same checks.
+jobs-check: ensure-go
 	cd services/jobs; \
 	test -z "$$(gofmt -l .)"; \
 	go vet ./...; \
