@@ -63,46 +63,55 @@ def migrate_cmd(
 )
 def backup_cmd(
     dest_dir: Path = typer.Option(
-        ..., "--dir", help="Directory to copy the experimental sqlite metadata database into"
+        ...,
+        "--dir",
+        help="Directory to copy the active metadata backend's stores into",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """Copy the experimental sqlite metadata database to an off-tree directory."""
-    from rebrew.metadata.sqlite import backup_metadata_database
+    """Copy the active metadata backend's stores to an off-tree directory."""
+    from rebrew.metadata.sqlite import backup_metadata_database, backup_metadata_toml
 
     cfg = require_config(target=target, json_mode=json_output)
     try:
-        dest = backup_metadata_database(Path(cfg.root), dest_dir)
+        if getattr(cfg, "metadata_backend", "toml") == "sqlite":
+            dest = backup_metadata_database(Path(cfg.root), dest_dir)
+        else:
+            dest = backup_metadata_toml(Path(cfg.root), dest_dir)
     except (OSError, ValueError) as exc:
         error_exit(str(exc), json_mode=json_output)
     if json_output:
         json_print({"ok": True, "file": str(dest), "action": "backup"})
     else:
-        console.print(f"[green]backed up metadata database to {dest}[/green]")
+        console.print(f"[green]backed up metadata to {dest}[/green]")
 
 
 @app.command(
     "restore",
-    epilog="[bold]Examples:[/bold]\n\n  rebrew metadata restore --file backups/db.sqlite3\n\n  rebrew metadata restore --file backups/db.sqlite3 --json",
+    epilog="[bold]Examples:[/bold]\n\n  rebrew metadata restore --file backups/db.sqlite3\n\n  rebrew metadata restore --file backups/rebrew-metadata.backup.toml --json",
 )
 def restore_cmd(
-    file: Path = typer.Option(..., "--file", help="Backup file made with 'rebrew metadata backup'"),
+    file: Path = typer.Option(..., "--file", help="Backup made with 'rebrew metadata backup'"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """Install a metadata database backup (current database preserved as .before-restore)."""
-    from rebrew.metadata.sqlite import restore_metadata_database
+    """Install a metadata backup (current stores preserved as .before-restore)."""
+    from rebrew.metadata.sqlite import restore_metadata_database, restore_metadata_toml
 
     cfg = require_config(target=target, json_mode=json_output)
     try:
-        dest = restore_metadata_database(file, Path(cfg.root))
+        if file.is_dir():
+            dests = restore_metadata_toml(file, Path(cfg.root))
+            dest: str = str(dests[0]) if len(dests) == 1 else f"{len(dests)} stores"
+        else:
+            dest = str(restore_metadata_database(file, Path(cfg.root)))
     except (OSError, ValueError) as exc:
         error_exit(str(exc), json_mode=json_output)
     if json_output:
-        json_print({"ok": True, "file": str(dest), "action": "restore"})
+        json_print({"ok": True, "file": dest, "action": "restore"})
     else:
-        console.print(f"[green]restored metadata database to {dest}[/green]")
+        console.print(f"[green]restored metadata to {dest}[/green]")
 
 
 def main_entry() -> None:

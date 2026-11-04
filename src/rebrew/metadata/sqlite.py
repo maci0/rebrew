@@ -255,6 +255,109 @@ class SqliteStore:
 
 
 METADATA_BACKUP_FILENAME = "rebrew-metadata.backup.sqlite3"
+METADATA_TOML_BACKUP_DIRNAME = "rebrew-metadata.backup.toml"
+
+#: The four managed TOML collections, mirrored from
+#: :data:`rebrew.metadata.files.METADATA_FILENAMES` without importing it
+#: (that module imports the locking helper this module uses).
+_TOML_STORE_NAMES = (
+    "rebrew-functions.toml",
+    "rebrew-data.toml",
+    "rebrew-types.toml",
+    "rebrew-libraries.toml",
+)
+
+#: Destination name for a TOML backup bundle: one directory holding the
+#: trees as they were on disk, so a restore is a copy back, not a merge.
+TOML_BACKUP_DIRNAME = METADATA_TOML_BACKUP_DIRNAME
+
+
+def _toml_store_tree(root: Path, name: str) -> list[Path]:
+    """Main TOML plus its ``.d/*.toml`` drop-ins, when present."""
+    main = root / name
+    tree = [main] if main.is_file() else []
+    dropins = main.with_suffix(".d")
+    if dropins.is_dir():
+        tree.extend(
+            sorted(p for p in dropins.iterdir() if p.suffix == ".toml" and p.is_file())
+        )
+    return tree
+
+
+def _toml_stores_present(root: Path) -> list[tuple[str, list[Path]]]:
+    """Non-empty ``(name, tree)`` pairs for the managed TOML stores."""
+    present = []
+    for name in _TOML_STORE_NAMES:
+        tree = _toml_store_tree(root, name)
+        if tree:
+            present.append((name, tree))
+    return present
+
+
+def backup_metadata_toml(root: Path, backup_dir: Path) -> Path:
+    """Copy every present managed TOML store tree to *backup_dir*.
+
+    The TOML backend is the default, yet ``rebrew metadata backup`` only
+    ever copied the experimental SQLite database, so a default project
+    had no backup command for its durable stores.  Each tree is copied
+    under the same relative layout (main file plus ``.d/`` drop-ins)
+    through the shared atomic replace, and every copied byte is compared
+    against its source, so a short copy raises instead of reporting
+    success.  A project with no TOML store raises ``FileNotFoundError``
+    rather than writing an empty bundle a restore would mistake for a
+    backup.  Returns the bundle directory.
+    """
+    from rebrew.utils import atomic_write_bytes
+
+    present = _toml_stores_present(root)
+    if not present:
+        raise FileNotFoundError(f"no metadata stores at {root}")
+    bundle = backup_dir / TOML_BACKUP_DIRNAME
+    for _name, tree in present:
+        for source in tree:
+            dest = bundle / source.relative_to(root)
+            payload = source.read_bytes()
+            atomic_write_bytes(dest, payload, mode=0o444)
+            if dest.read_bytes() != payload:
+                raise MetadataStorageError(f"{dest}: backup verification failed")
+    return bundle
+
+
+def restore_metadata_toml(bundle: Path, root: Path) -> tuple[Path, ...]:
+    """Install a bundle made by :func:`backup_metadata_toml` back into *root*.
+
+    Every current store tree is first preserved as ``<file>.before-restore``
+    beside it, so a restore pointed at the wrong bundle is itself
+    reversible.  A bundle file that does not parse as TOML raises and
+    leaves the current stores alone.  Returns the installed paths.
+    """
+    from rebrew.utils import atomic_write_bytes, load_tomllib
+
+    if not bundle.is_dir():
+        raise FileNotFoundError(f"no metadata backup bundle at {bundle}")
+    planned = []
+    for name in _TOML_STORE_NAMES:
+        for source in _toml_store_tree(bundle, name):
+            try:
+                load_tomllib(source)
+            except (ValueError, OSError) as exc:
+                raise MetadataStorageError(f"{source}: corrupt backup: {exc}") from exc
+            planned.append(source.relative_to(bundle))
+    if not planned:
+        raise FileNotFoundError(f"no metadata stores in backup bundle at {bundle}")
+    installed = []
+    for rel in planned:
+        raw = (bundle / rel).read_bytes()
+        dest = root / rel
+        if dest.is_file():
+            atomic_write_bytes(
+                dest.with_name(dest.name + ".before-restore"), dest.read_bytes(), mode=0o444
+            )
+        atomic_write_bytes(dest, raw, mode=0o444)
+        if dest.read_bytes() != raw:
+            raise MetadataStorageError(f"{dest}: restored copy verification failed")
+        installed.append(dest)
+    return tuple(installed)
 
 
 def backup_metadata_database(root: Path, backup_dir: Path) -> Path:

@@ -16,7 +16,9 @@ from rebrew.metadata.sqlite import (
     DATABASE_FILENAME,
     MetadataStorageError,
     backup_metadata_database,
+    backup_metadata_toml,
     restore_metadata_database,
+    restore_metadata_toml,
 )
 from rebrew.metadata.storage import metadata_store
 from rebrew.metadata_transfer import migrate_metadata
@@ -165,3 +167,38 @@ class TestTransferSnapshot:
             con.close()
         assert "size = 7" in content  # pre-transfer destination held size 7, not 4
         assert "size = 4" not in content
+
+
+class TestTomlBackup:
+    def test_round_trip_covers_all_stores_and_dropins(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")
+        dropins = tmp_path / "rebrew-functions.d"
+        dropins.mkdir()
+        (dropins / "game.toml").write_text("format=3\n", encoding="utf-8")
+        (tmp_path / "rebrew-data.toml").write_text("format=2\n", encoding="utf-8")
+        bundle = backup_metadata_toml(tmp_path, tmp_path / "off-tree")
+        assert (bundle / "rebrew-functions.toml").is_file()
+        assert (bundle / "rebrew-functions.d" / "game.toml").is_file()
+        dest = tmp_path / "rebrew-functions.toml"
+        dest.chmod(0o644)
+        dest.write_text("format=3\nchanged=1\n", encoding="utf-8")
+        installed = restore_metadata_toml(bundle, tmp_path)
+        assert dest in installed
+        assert dest.read_text(encoding="utf-8") == "format=3\n"
+        assert dest.with_name(dest.name + ".before-restore").read_text(
+            encoding="utf-8"
+        ) == "format=3\nchanged=1\n"
+
+    def test_missing_stores_raise_not_empty_bundle(self, tmp_path: Path) -> None:
+        with pytest.raises(FileNotFoundError):
+            backup_metadata_toml(tmp_path, tmp_path / "off-tree")
+
+    def test_corrupt_bundle_leaves_stores_alone(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")
+        bundle = backup_metadata_toml(tmp_path, tmp_path / "off-tree")
+        bad = bundle / "rebrew-functions.toml"
+        bad.chmod(0o644)
+        bad.write_text("not toml [[[\n", encoding="utf-8")
+        with pytest.raises(MetadataStorageError):
+            restore_metadata_toml(bundle, tmp_path)
+        assert (tmp_path / "rebrew-functions.toml").read_text(encoding="utf-8") == "format=3\n"
