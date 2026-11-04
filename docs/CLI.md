@@ -954,7 +954,9 @@ The **Runner** check treats wine as the compatible default. When wibo is
 also present it notes that fact on a passing check: it does **not**
 recommend switching (`runner = "tools/wibo"`), because wibo fails on some
 tools. For image-backed profiles the host runner config is obsolete;
-`rebrew toolchain install-wibo` downloads only and leaves `compiler.runner` untouched.
+`rebrew toolchain install-wibo` downloads only and leaves `compiler.runner`
+untouched. For an image-less (host-only plugin) profile it also rewrites
+`compiler.runner` to `tools/wibo` in `rebrew-project.toml`.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
