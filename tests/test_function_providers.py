@@ -1,5 +1,6 @@
 """Compiled library identities and evidence for prebuilt link providers."""
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -860,12 +861,25 @@ def test_bind_source_refuses_unsupported_cpp(
 
 
 def test_bind_source_preserves_previous_positional_python_call(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     from rebrew.library import bind_source_cmd
+    from rebrew.metadata.functions import get_entry
 
     cfg = _project(tmp_path)
     source = tmp_path / "vendor.c"
     source.write_text("int f(void) { return 1; }\n")
     monkeypatch.setattr("rebrew.library.require_config", lambda **_kwargs: cfg)
+    # Positional order: va, source, symbol, dry_run, json_output, target.
+    # dry_run=True must preview without writing metadata.
     bind_source_cmd("0x10001000", source, "_f", True, True, None)
+    # Dry-run writes nothing: no entry must exist afterwards.
+    assert not get_entry(cfg.metadata_dir, 0x10001000, "GAME")
+    # JSON payload was emitted on stdout with the expected fields.
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["va"] == "0x10001000"
+    assert payload["provider"] == "compiled"
+    assert payload["dry_run"] is True
+    assert payload["symbol"] == "_f"
+    assert payload["file"] == "vendor.c"
+    assert "input_digest" in payload

@@ -632,4 +632,11 @@ class TestLinkSweepTemplate:
     def test_template_can_repeat_valid_placeholders(self) -> None:
         from rebrew.link_sweep import _validate_link_template
 
-        _validate_link_template("link objects.obj /OUT:{out} {options} /MAP:{out}.map")
+        # A template that repeats {out} is valid and must not raise; the
+        # validation is the behavior, so assert the call completes and the
+        # formatted result contains both occurrences.
+        template = "link objects.obj /OUT:{out} {options} /MAP:{out}.map"
+        assert _validate_link_template(template) is None
+        formatted = template.format(options="/O2", out="output.dll")
+        assert formatted == "link objects.obj /OUT:output.dll /O2 /MAP:output.dll.map"
+        assert formatted.count("output.dll") == 2

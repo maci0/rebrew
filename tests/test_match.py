@@ -517,7 +517,15 @@ class TestGAVirtualClockReplay:
             raise AssertionError("run() read the wall clock despite an injected clock")
 
         monkeypatch.setattr(time, "monotonic", _boom)
-        self._seeded_run(tmp_path, monkeypatch, self._virtual_clock(1.0), 10.0)
+        result = self._seeded_run(tmp_path, monkeypatch, self._virtual_clock(1.0), 10.0)
+        # The run must actually complete under the injected clock; a no-op
+        # run that never reads the clock would also pass the _boom check.
+        assert 0 < result[1] < 8
+        assert result[2] > 0.0
+        assert result[0] is not None
+        assert len(result[3]) == 8
+        assert result[5]  # best.c bytes were written
+        assert result[6]  # checkpoint bytes were written
 
     def test_frozen_virtual_clock_runs_the_full_generation_budget(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
