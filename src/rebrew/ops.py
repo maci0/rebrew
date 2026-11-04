@@ -2248,6 +2248,13 @@ class _OpsHandler(BaseHTTPRequestHandler):
                 "host-not-allowed", "request Host not allowed (wrong or missing Host header)", 403
             )
             return
+        # 404 before 405, like the dashboard: a path that names no op has no
+        # resource to list methods for.  POST on the same unknown name
+        # already answers 404 unknown-op, so a non-POST must too.
+        name = urlsplit(self.path).path.removeprefix("/")
+        if name not in OPS:
+            self._refuse(UNKNOWN_OP, f"unknown op: {_bounded(name)}", 404)
+            return
         self._send(
             405,
             error_body("method-not-allowed", "ops are called with POST", 405),

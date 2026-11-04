@@ -241,8 +241,12 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 			}
 			ctx, cancel := context.WithTimeout(r.Context(), 150*time.Second)
 			defer cancel()
-			if o.ReconcileCompile(ctx, id, in.Intent, r.Header.Get("X-Rebrew-Compile-Credential")) != nil {
-				http.Error(w, "compile remains unresolved", 409)
+			if err := o.ReconcileCompile(ctx, id, in.Intent, r.Header.Get("X-Rebrew-Compile-Credential")); err != nil {
+				if errors.Is(err, os.ErrNotExist) {
+					http.Error(w, "job unavailable", http.StatusNotFound)
+					return
+				}
+				http.Error(w, "compile remains unresolved", http.StatusConflict)
 				return
 			}
 			w.WriteHeader(http.StatusNoContent)
@@ -263,7 +267,11 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 			defer cancel()
 			saved, err := o.ReconcileDocker(ctx, id)
 			if err != nil {
-				http.Error(w, "stop remains unresolved", 409)
+				if errors.Is(err, os.ErrNotExist) {
+					http.Error(w, "job unavailable", http.StatusNotFound)
+					return
+				}
+				http.Error(w, "stop remains unresolved", http.StatusConflict)
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
