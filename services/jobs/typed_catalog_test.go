@@ -35,6 +35,7 @@ func TestCatalogAdmissionPinsKindAndRejectsForeignParameters(t *testing.T) {
 	}
 	post := func(body string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(http.MethodPost, "/jobs", bytes.NewBufferString(body))
+		r.Host = "localhost"
 		r.Header.Set("Authorization", "Bearer "+strings.Repeat("x", 32))
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, r)

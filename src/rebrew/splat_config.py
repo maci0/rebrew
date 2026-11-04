@@ -515,11 +515,21 @@ def segment_mixes_kinds(segment: Segment) -> bool:
 
 
 def _rel(base: Path, raw: Any) -> Path | None:
-    """Resolve a YAML path value against *base* (splat's ``base_path``)."""
+    """Resolve a YAML path value against *base* (splat's ``base_path``).
+
+    Paths must stay inside *base*: absolute paths and ``..`` escapes are
+    refused so a hostile splat config cannot make the importer read or copy
+    arbitrary files outside the directory it was invoked from.
+    """
     if not isinstance(raw, str) or not raw.strip():
         return None
     path = config_path(raw)
-    return path if path.is_absolute() else (base / path)
+    base_resolved = base.resolve()
+    candidate = (base_resolved / path) if not path.is_absolute() else path
+    resolved = candidate.resolve()
+    if not resolved.is_relative_to(base_resolved):
+        raise ValueError(f"splat path {raw!r} escapes the config directory")
+    return resolved
 
 
 def _as_int(value: Any, key: str, path: Path) -> int | None:
@@ -702,13 +712,19 @@ def parse_splat_text(text: str, path: Path) -> SplatConfig:
     if not isinstance(segments_raw, list) or not segments_raw:
         raise ValueError(f"{path}: 'segments' must be a non-empty list")
 
-    # The caller's base_path is relative to the config's own directory.
+    # The caller's base_path is relative to the config's own directory and
+    # must stay inside it (see _rel).
     config_dir = path.parent
     base_rel = options.get("base_path")
     base_path = config_dir
     if isinstance(base_rel, str) and base_rel.strip() and base_rel.strip() not in (".", "./"):
         candidate = Path(base_rel)
         base_path = candidate if candidate.is_absolute() else (config_dir / candidate)
+        base_resolved = config_dir.resolve()
+        resolved_base = base_path.resolve()
+        if not resolved_base.is_relative_to(base_resolved):
+            raise ValueError(f"{path}: options.base_path {base_rel!r} escapes the config directory")
+        base_path = resolved_base
 
     segments: list[Segment] = []
     rom_end: int | None = None

@@ -702,15 +702,26 @@ def vendor_cmd(
                     _safe_extract_zip(archive, zip_dir)
                     installer = next(zip_dir.iterdir())
                     payload = td_path / "pay"
-                    run_process_group(
+                    _7z = run_process_group(
                         ["7z", "x", "-y", str(installer), f"-o{payload}"],
                         capture_output=True,
                         stdin=subprocess.DEVNULL,
                         timeout=_EXTRACT_TIMEOUT_S,
-                    )  # warning exits tolerated — the final check below guards
+                    )
+                    if _7z.returncode != 0:
+                        raise subprocess.CalledProcessError(
+                            _7z.returncode, _7z.args, output=_7z.stdout, stderr=_7z.stderr
+                        )
+                    payload_root = payload.resolve()
                     for sub in ("Bin", "Include", "Lib"):
                         src_sub = payload / sub
                         if src_sub.is_symlink() or not src_sub.is_dir():
+                            raise ToolchainError(
+                                f"refusing unsafe InstallShield payload entry: {sub!r}"
+                            )
+                        # Contain the move: the extracted tree must not escape
+                        # the payload dir via a nested symlink.
+                        if not src_sub.resolve().is_relative_to(payload_root):
                             raise ToolchainError(
                                 f"refusing unsafe InstallShield payload entry: {sub!r}"
                             )

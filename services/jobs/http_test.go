@@ -37,6 +37,7 @@ func TestHTTPAdmissionAndToken(t *testing.T) {
 	}
 	request := func(body string, authenticated bool) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(http.MethodPost, "/jobs", bytes.NewBufferString(body))
+		r.Host = "localhost"
 		if authenticated {
 			r.Header.Set("Authorization", "Bearer "+token)
 		}

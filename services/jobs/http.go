@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -49,12 +50,31 @@ func (r *statusRecorder) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
+func hostAllowed(host string) bool {
+	if host == "" { return true }
+	h := host
+	if strings.Contains(h, ":") {
+		var err error
+		h, _, err = net.SplitHostPort(h)
+		if err != nil { return false }
+	}
+	h = strings.Trim(h, "[]")
+	switch strings.ToLower(h) {
+	case "127.0.0.1", "localhost", "::1", "0.0.0.0", "::":
+		return true
+	}
+	ip := net.ParseIP(h)
+	if ip != nil && (ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast()) { return true }
+	return false
+}
+
 // Handler exposes one configured owner's local API; it is not a tenant authorization boundary.
 func (o *Owner) Handler(token string) (http.Handler, error) {
 	if len(token) < 32 {
 		return nil, fmt.Errorf("job token must contain at least 32 bytes")
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !hostAllowed(r.Host) { http.Error(w, "host not allowed", http.StatusForbidden); return }
 		start := time.Now()
 		requestID := r.Header.Get("X-Request-ID")
 		status := 0

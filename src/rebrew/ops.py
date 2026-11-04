@@ -1812,6 +1812,43 @@ def dispatch(config: WorkerConfig, name: str, body: bytes) -> tuple[int, bytes]:
 # ---------------------------------------------------------------------------
 
 
+_SECURITY_HEADERS: tuple[tuple[str, str], ...] = (
+    ("X-Frame-Options", "DENY"),
+    ("Referrer-Policy", "no-referrer"),
+    ("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()"),
+)
+_CSP = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+
+
+def _allowed_hosts_for(host: str, port: int) -> frozenset[str]:
+    """Host-header values the ops server must answer (DNS-rebinding guard).
+
+    Mirrors the dashboard's allow-list: loopback binds accept their numeric
+    and localhost aliases; a wildcard bind also accepts the machine's own
+    addresses. Anything else gets 403 before the bearer check.
+    """
+    wildcard = host in ("0.0.0.0", "::", "")
+    loopback = wildcard or host in ("127.0.0.1", "localhost", "::1")
+    names = {host} if host else set()
+    if loopback:
+        names |= {"127.0.0.1", "localhost", "::1"}
+    if wildcard:
+        try:
+            import socket as _socket
+
+            infos = _socket.getaddrinfo(_socket.gethostname(), None)
+            names |= {str(info[4][0]) for info in infos if info[4]}
+        except OSError:
+            pass
+    hosts: set[str] = set()
+    for name in names:
+        display = f"[{name}]" if ":" in name else name
+        hosts.add(f"{display}:{port}".lower())
+        if port == 80:
+            hosts.add(display.lower())
+    return frozenset(hosts)
+
+
 class OpsServer(ThreadingHTTPServer):
     """HTTP server answering ``POST /<op>`` for one worker configuration and token.
 
@@ -1828,6 +1865,7 @@ class OpsServer(ThreadingHTTPServer):
         self.config = config
         self.token = token
         self.slots = threading.BoundedSemaphore(concurrency)
+        self.allowed_hosts = _allowed_hosts_for(address[0], address[1])
 
 
 class _OpsHandler(BaseHTTPRequestHandler):
@@ -1853,6 +1891,9 @@ class _OpsHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        for _name, _value in _SECURITY_HEADERS:
+            self.send_header(_name, _value)
+        self.send_header("Content-Security-Policy", _CSP)
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(body)
@@ -1863,6 +1904,9 @@ class _OpsHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        for name, value in _SECURITY_HEADERS:
+            self.send_header(name, value)
+        self.send_header("Content-Security-Policy", _CSP)
         for name, value in (headers or {}).items():
             self.send_header(name, value)
         self.end_headers()
@@ -1873,6 +1917,9 @@ class _OpsHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # (http.server API)
         server = typing.cast("OpsServer", self.server)
+        if self.headers.get("Host", "").strip().lower() not in server.allowed_hosts:
+            self._refuse("host-not-allowed", "request Host not allowed (wrong or missing Host header)", 403)
+            return
         given = self.headers.get("Authorization", "").encode()
         if not hmac.compare_digest(given, f"Bearer {server.token}".encode()):
             self._refuse("unauthorized", "a valid bearer token is required", 401)
@@ -1899,6 +1946,10 @@ class _OpsHandler(BaseHTTPRequestHandler):
         self._send(*dispatch(server.config, urlsplit(self.path).path.removeprefix("/"), body))
 
     def _not_post(self) -> None:
+        server = typing.cast("OpsServer", self.server)
+        if self.headers.get("Host", "").strip().lower() not in server.allowed_hosts:
+            self._refuse("host-not-allowed", "request Host not allowed (wrong or missing Host header)", 403)
+            return
         self._send(
             405,
             error_body("method-not-allowed", "ops are called with POST", 405),
@@ -2016,6 +2067,8 @@ def serve_command(
         max_download_bytes,
     )
     server = OpsServer((host, port), config, token, concurrency)
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        console.print(f"serving rebrew ops on http://{host}:{server.server_port} (non-loopback bind: bearer auth required)")
     console.print(f"serving rebrew ops on http://{host}:{server.server_port}")
     try:
         server.serve_forever()
