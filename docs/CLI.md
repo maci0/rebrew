@@ -6268,7 +6268,7 @@ Pretty-print the SKILL.md for the named skill.
 Answers the relumea backend's `rebrew` dispatch service. The ops, their
 request fields and their replies are the backend's contract
 (`internal/engines/rebrew` and the generated
-`contracts/dispatch/rebrew.schema.json` in the backend repository); all 37
+`contracts/dispatch/rebrew.schema.json` in the backend repository); all 39
 are served. A request with an unknown or missing field, or a field of the
 wrong JSON type, is refused. A refusal is
 `{"error","detail","status"}`: `invalid-request` (400; 413 when the request

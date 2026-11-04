@@ -1,5 +1,19 @@
 ## [Unreleased]
 
+### Added
+
+- `rebrew.ops.flag_search` and `rebrew.ops.call_references`: bounded flag/compiler-profile sweep and call/jump/import-slot scan dispatch ops. The contract now holds 39 ops, not 37.
+
+### Changed
+
+- **Breaking:** `rebrew.compiler.toolchain_spec.flags_style_from_str` now raises `ValueError` on an explicit empty `flags_style` declaration instead of silently defaulting it to `"msvc"`. A `None` (absent) value still defaults to `"msvc"`; callers must pass `"msvc"`, `"posix"`, or omit the field.
+- **Breaking:** `rebrew.intake` provisional profile for an unidentified ELF x86-64 binary is now `gcc-14.2.0` instead of `msvc-6.0`. Other unidentified binaries still default to `msvc-6.0`.
+
+### Fixed
+
+- Surface silent failures in `rebrew.cross_import.signature_for` (padding-strip load errors) and `rebrew.decompme.verify_compiler` (invalid registry replies) instead of swallowing them.
+- Restore the in-memory toolchain source pin on rollback in `rebrew.toolchain_cli.update_cmd` so a failed update does not leave a stale `SOURCES` entry.
+
 ## [6.21.1] - 2026-11-05
 
 ### Fixed
