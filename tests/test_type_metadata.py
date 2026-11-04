@@ -72,15 +72,15 @@ class TestTypeMetadata:
         bind_type(cfg, "engine.pair", Path("types.h"), "PAIR", 8, 8, "allocation", "native", {})
 
         reads = 0
-        original = Path.read_bytes
+        original = Path.open
 
-        def counting(path: Path) -> bytes:
+        def counting(self: Path, *args: Any, **kwargs: Any) -> Any:
             nonlocal reads
-            if path == cfg.target_binary:
+            if self == cfg.target_binary:
                 reads += 1
-            return original(path)
+            return original(self, *args, **kwargs)
 
-        monkeypatch.setattr(Path, "read_bytes", counting)
+        monkeypatch.setattr(Path, "open", counting)
         assert check_types(cfg) == []
         assert reads == 1
 

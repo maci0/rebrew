@@ -23,6 +23,14 @@ lazy from rebrew.verify_hash import entry_headers_fp
 
 TYPE_METADATA_FILENAME = "rebrew-types.toml"
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z_0-9]*\Z")
+
+
+def _source_sha256(path: Path) -> str:
+    """Streamed SHA-256 hex digest of *path*'s bytes."""
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
 _FIELDS = frozenset(
     {
         "file",
@@ -196,10 +204,10 @@ def _inputs(
     }
     context["cflags"] = cflags
     return {
-        "source_hash": hashlib.sha256(file.read_bytes()).hexdigest(),
+        "source_hash": _source_sha256(file),
         "headers_hash": entry_headers_fp(cfg, file, cflags),
         "context_hash": hashlib.sha256(json.dumps(context, sort_keys=True).encode()).hexdigest(),
-        "binary_hash": binary_hash or hashlib.sha256(cfg.target_binary.read_bytes()).hexdigest(),
+        "binary_hash": binary_hash or _source_sha256(cfg.target_binary),
     }
 
 
@@ -356,7 +364,7 @@ def check_types(cfg: ProjectConfig, *, compile_layouts: bool = False) -> list[di
                 file = (cfg.metadata_dir / record["file"]).resolve()
                 file.relative_to(cfg.metadata_dir.resolve())
                 if binary_hash is None:
-                    binary_hash = hashlib.sha256(cfg.target_binary.read_bytes()).hexdigest()
+                    binary_hash = _source_sha256(cfg.target_binary)
                 inputs = _inputs(
                     cfg, file, record["symbol"], record["cflags"], binary_hash=binary_hash
                 )

@@ -100,8 +100,10 @@ def _inside(root: Path, path: Path) -> Path:
 
 
 def sha256(path: Path) -> str:
-    """Lowercase SHA-256 hex digest of *path*'s bytes."""
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    """Lowercase SHA-256 hex digest of *path*'s bytes, streamed to avoid
+    holding a whole file in memory for large archives."""
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
 def verify_pristine(root: Path, manifest: Manifest) -> None:

@@ -96,6 +96,7 @@ _SNIPPET_MAX_CHARS = 200
 #: Severity levels, most severe first; drives ``--min-severity`` filtering and
 #: the ``by_severity`` summary keys.
 SEVERITY_ORDER: tuple[str, ...] = ("high", "medium", "low")
+_SEVERITY_RANK: dict[str, int] = {name: rank for rank, name in enumerate(SEVERITY_ORDER)}
 
 _SEVERITY_COLORS: dict[str, str] = {"high": "red", "medium": "yellow", "low": "cyan"}
 
@@ -461,11 +462,11 @@ def security_scan(directory: Path, *, recursive: bool = True) -> dict[str, Any]:
 
 def filter_by_severity(result: dict[str, Any], min_severity: str) -> dict[str, Any]:
     """Drop findings below *min_severity* and recompute the summary counts."""
-    limit = SEVERITY_ORDER.index(min_severity)
+    limit = _SEVERITY_RANK[min_severity]
     findings = [
         finding
         for finding in result["findings"]
-        if SEVERITY_ORDER.index(str(finding["severity"])) <= limit
+        if _SEVERITY_RANK[str(finding["severity"])] <= limit
     ]
     by_severity: dict[str, int] = dict.fromkeys(SEVERITY_ORDER, 0)
     for finding in findings:

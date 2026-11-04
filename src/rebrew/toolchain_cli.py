@@ -50,6 +50,15 @@ lazy from rebrew.utils import (
 if TYPE_CHECKING:
     from re import Match
 
+
+def _stream_sha256(path: Path) -> str:
+    """Streamed SHA-256 hex digest of *path*'s bytes."""
+    import hashlib
+
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
 #: ``check-updates`` row values. The two ``static`` spellings mark a source
 #: that cannot drift (an immutable release asset, a tarball pinned inside the
 #: recompile-toolchains checkout); the nightly gate in
@@ -630,7 +639,6 @@ def vendor_cmd(
 
     Downloads (sha256-verified) or extracts the pinned tarball into <family>/<version>-<arch>/source under the recompile-toolchains checkout, the same source the docker image builds from, so host trees and containers are byte-identical.  A complete tree is an idempotent success (already_present), matching pull.  An incomplete source/ from a failed prior run is removed so retry converges; unexpected non-meta content still refuses to clobber.
     """
-    import hashlib
     import tempfile
 
     from rebrew.compiler.toolchain import get_toolchain, require_toolchains_repo
@@ -695,7 +703,7 @@ def vendor_cmd(
                     _download_pinned_url(src.url, archive, timeout=1800)
                 except ToolchainError as exc:
                     _abort_incomplete_vendor(extract_dir, str(exc), json_mode=json_output)
-                actual = hashlib.sha256(archive.read_bytes()).hexdigest()
+                actual = _stream_sha256(archive)
                 if actual != src.sha256:
                     msg = f"sha256 mismatch for {name}: expected {src.sha256}, got {actual}"
                     error_exit(msg, json_mode=json_output)
@@ -3680,7 +3688,6 @@ def check_updates_cmd(
 
     GitHub-codeload sources (archaic-msvc, archaic-toolchains, itsmattkc, open-watcom): compares the live default-branch commit sha (GitHub API, no download) against the commit the pin was taken from.  The Open Watcom snapshot (a moving 'Last-CI-build' release tag) is re-downloaded and re-hashed.  Immutable release assets (decomp.me, archive.org) and pinned tarballs (16-bit media in the recompile-toolchains checkout) are reported as static.
     """
-    import hashlib
     import re
     import tempfile
 
@@ -3718,7 +3725,7 @@ def check_updates_cmd(
                 with tempfile.TemporaryDirectory() as td:
                     path = Path(td) / "src.bin"
                     _download_pinned_url(url, path, timeout=60)
-                    actual = hashlib.sha256(path.read_bytes()).hexdigest()
+                    actual = _stream_sha256(path)
                 if actual == src.sha256:
                     rows[name] = STATUS_CURRENT
                 else:
@@ -3847,7 +3854,6 @@ def update_cmd(
 
     Dry-run (default): downloads the current source and reports the old -> new pin (sha256 + commit).  --apply additionally rewrites SOURCES, clears + re-vendors the host tree, rebuilds the docker image, regenerates the smoke golden (verified stable across two compiles) and runs the smoke gate for that toolchain.
     """
-    import hashlib
     import re
     import shutil
     import tempfile
@@ -3876,7 +3882,7 @@ def update_cmd(
             _download_pinned_url(url, archive, timeout=1800)
         except ToolchainError as exc:
             error_exit(str(exc), json_mode=json_output)
-        actual_sha = hashlib.sha256(archive.read_bytes()).hexdigest()
+        actual_sha = _stream_sha256(archive)
         if actual_sha == src.sha256:
             msg = f"toolchain {name!r} is already current (sha256 {src.sha256[:16]}…)"
             if json_output:

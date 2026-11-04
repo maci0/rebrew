@@ -20,6 +20,14 @@ if TYPE_CHECKING:
     from rebrew.data_scan import ScanResult
 
 log = logging.getLogger(__name__)
+
+
+def _sha256_file(path: Path) -> str:
+    """Streamed SHA-256 hex digest of *path*'s bytes."""
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
 _MAP_ROW = re.compile(
     r"^\s*([0-9a-fA-F]{4}):([0-9a-fA-F]{8,16})\s+(\S+)\s+([0-9a-fA-F]{8,16})\s+(.+?)\s*$"
 )
@@ -307,7 +315,7 @@ def enrich_library_owners(
         except (OSError, ValueError, RuntimeError) as exc:
             log.warning("cannot read data ownership from %s: %s", archive, exc)
             continue
-        archive_hash = hashlib.sha256(archive.read_bytes()).hexdigest()
+        archive_hash = _sha256_file(archive)
         for name, defining_members in definitions.items():
             common.setdefault(name, []).extend(
                 (library_names[library], member, archive_hash) for member in defining_members
