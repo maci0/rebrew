@@ -1,0 +1,12 @@
+32-bit PE and COFF objects generated with i686-w64-mingw32-gcc 16.2.0:
+  i686-w64-mingw32-gcc -O2 reloc-reference.c -o reloc-reference.exe
+  i686-w64-mingw32-gcc -O2 -c reloc-candidate.c -o reloc-candidate.o
+  i686-w64-mingw32-gcc -O2 -c reloc-wrong.c -o reloc-wrong.o
+  i686-w64-mingw32-gcc -O2 -c reloc-unknown.c -o reloc-unknown.o
+The PE symbol table binds _read_value at 0x401560, _value at 0x403008 and
+_other at 0x403004. All three objects carry a DIR32 relocation at offset 1.
+The reloc-remote-*.o objects were independently produced from the same sources
+by the local Recompile service's mingw-16.2.0 profile with flags -c -O2.
+The reloc-call-* fixture uses the same commands for a REL32 function call.
+The reloc-import-* fixture uses the same commands for a DLL import and is
+intentionally refused pending an authenticated import-binding policy.

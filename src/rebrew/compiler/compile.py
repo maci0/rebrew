@@ -1868,10 +1868,17 @@ def compile_to_obj(
         # Remote backend: one POST carries source text + resolved flags; the
         # artifact bytes come back over HTTP.  No mounts, no local image.
         active = toolchain or profile
+        remote_flags = all_flags
+        if (
+            spec is not None
+            and spec.effective_arg_style in ("posix", "pipeline", "borland")
+            and "-c" not in all_flags
+        ):
+            remote_flags = [*all_flags, "-c"]
         obj_path, remote_err = _compile_via_recompile(
             cfg,
             source_path,
-            all_flags,
+            remote_flags,
             workdir,
             obj_name,
             active,

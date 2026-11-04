@@ -494,6 +494,43 @@ class TestCompileToObj:
 class TestCompileToObjPosix:
     """mingw-16.2.0 / mingw (POSIX-style) compiler routing."""
 
+    @pytest.mark.parametrize("profile", ["gcc-14.2.0", "mingw-16.2.0"])
+    def test_remote_posix_requests_an_object(
+        self, tmp_path: Path, monkeypatch, profile: str
+    ) -> None:
+        import rebrew.compiler.recompile_client as rc
+
+        seen = []
+
+        def fake(_url: str, **kwargs: Any) -> Any:
+            seen.append(kwargs["flags"])
+            return rc.RecompileResult(ok=True, obj_bytes=b"object")
+
+        monkeypatch.setattr(rc, "compile_source", fake)
+        monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
+        cfg: Any = SimpleNamespace(
+            root=tmp_path,
+            compiler_includes=tmp_path,
+            compiler_libs=tmp_path,
+            base_cflags="",
+            compile_timeout=3,
+            compiler_command="gcc",
+            compiler_runner="",
+            compiler_profile=profile,
+            posix_style=True,
+            msvc_env=lambda: {},
+            recompile_url="http://svc",
+        )
+        source = tmp_path / "source.c"
+        source.write_text("int f(void) { return 1; }")
+        workdir = tmp_path / "work"
+        workdir.mkdir()
+        result, error = compile_to_obj(
+            cast("ProjectConfig", cfg), source, ["-O2"], workdir, use_cache=False
+        )
+        assert result is not None and error == ""
+        assert seen[0].count("-c") == 1
+
     def test_mingw_uses_posix_flags(self, tmp_path: Path, monkeypatch) -> None:
         """mingw-16.2.0 is image-backed, and the argv compile_to_obj hands the
         toolchain is still POSIX-style: -I/-c/-o, no MSVC /Fo."""

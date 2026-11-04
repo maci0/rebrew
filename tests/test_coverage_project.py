@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -37,6 +38,105 @@ def _project(root: Path, *, extra: str = "") -> None:
 
 
 class TestLiveProjectCoverage:
+    def test_trusted_near_match_uses_verified_byte_count(self, tmp_path: Path) -> None:
+        from rebrew.config import load_config
+        from rebrew.metadata.functions import update_field
+        from rebrew.report import generate_decomp_dev_report
+        from rebrew.workspace.status import TrustedCoverage, TrustedVerification
+
+        _project(tmp_path)
+        (tmp_path / "game.exe").write_bytes(make_pe(b"\x90\x90\x90\xc3"))
+        (tmp_path / "src" / "function_structure.json").write_text(
+            json.dumps([{"va": 0x401000, "size": 4, "name": "foo"}])
+        )
+        update_field(tmp_path, 0x401000, "size", 4, "GOOD")
+        cfg = load_config(tmp_path, target="good")
+        verdict = TrustedCoverage(
+            (TrustedVerification("src/function.c", 0x401000, 4, "NEAR_MATCHING", 3),)
+        )
+        out = tmp_path / "near.json"
+        generate_decomp_dev_report(cfg, out, trusted=verdict)
+        doc = json.loads(out.read_text())
+        assert doc["measures"]["matched_functions"] == 0
+        assert doc["units"][0]["functions"][0]["fuzzy_match_percent"] == 75
+
+    def test_trusted_coverage_ignores_metadata_and_uses_validated_verdict(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.config import load_config
+        from rebrew.coverage_project import trusted_project_coverage
+        from rebrew.metadata.data import set_data_field
+        from rebrew.report import generate_decomp_dev_report, generate_report
+        from rebrew.status import collect_status
+        from rebrew.workspace.status import TrustedCoverage, TrustedVerification
+
+        _project(tmp_path)
+        set_data_field(tmp_path, 0x402000, "name", "g_forged", "GOOD")
+        set_data_field(tmp_path, 0x402000, "status", "VERIFIED", "GOOD")
+        (tmp_path / "src" / "function_structure.json").write_text(
+            json.dumps([{"va": 0x401000, "size": 1, "name": "foo"}])
+        )
+        cfg = load_config(tmp_path, target="good")
+        empty = TrustedCoverage(())
+        verdict = TrustedCoverage((TrustedVerification("src/function.c", 0x401000, 1, "EXACT", 1),))
+        assert trusted_project_coverage(cfg, empty).functions[0].status == "UNKNOWN"
+        assert collect_status(cfg).data_verified == 1
+
+        def forbidden(*_args: Any, **_kwargs: Any) -> None:
+            raise AssertionError("trusted report read an unbound cache or build artifact")
+
+        monkeypatch.setattr("rebrew.status._load_verify_info", forbidden)
+        monkeypatch.setattr("rebrew.status._attach_file_similarity", forbidden)
+        assert collect_status(cfg, trusted=empty).data_verified == 0
+        assert collect_status(cfg, trusted=empty).matched_functions == 0
+        assert trusted_project_coverage(cfg, verdict).functions[0].status == "EXACT"
+        assert collect_status(cfg, trusted=verdict).matched_functions == 1
+        out = tmp_path / "report.json"
+        generate_decomp_dev_report(cfg, out, trusted=empty)
+        assert json.loads(out.read_text())["measures"]["matched_functions"] == 0
+        generate_decomp_dev_report(cfg, out, trusted=verdict)
+        assert json.loads(out.read_text())["measures"]["matched_functions"] == 1
+        site = tmp_path / "site"
+        nodes = {
+            "good": {
+                "va": 0x401000,
+                "size": 1,
+                "file": "function.c",
+                "status": "EXACT",
+                "symbol": "foo",
+            },
+            "forged": {
+                "va": 0x401100,
+                "size": 7,
+                "file": "function.c",
+                "status": "EXACT",
+                "symbol": "forged",
+            },
+        }
+        monkeypatch.setattr(
+            "rebrew.report.build_graph", lambda *_args, **_kwargs: (nodes, [("good", "forged")], [])
+        )
+        assert (
+            generate_report(cfg, site, trusted=empty)["summary"]["status_counts"].get("EXACT", 0)
+            == 0
+        )
+        adjacency = site / "adjacency.txt"
+        if adjacency.exists():
+            assert "[EXACT]" not in adjacency.read_text()
+            assert "forged" not in adjacency.read_text()
+        assert generate_report(cfg, site, trusted=verdict)["summary"]["status_counts"]["EXACT"] == 1
+        mismatch = TrustedCoverage(
+            (TrustedVerification("src/function.c", 0x401000, 1, "SIZE_MISMATCH"),)
+        )
+        assert trusted_project_coverage(cfg, mismatch).functions[0].status == "SIZE_MISMATCH"
+        assert collect_status(cfg, trusted=mismatch).matched_functions == 0
+        generate_decomp_dev_report(cfg, out, trusted=mismatch)
+        assert json.loads(out.read_text())["measures"]["matched_functions"] == 0
+        with pytest.raises(ValueError, match="source binding"):
+            trusted_project_coverage(
+                cfg, TrustedCoverage((TrustedVerification("src/other.c", 0x401000, 1, "EXACT", 1),))
+            )
+
     def test_existing_epoch_timestamp_config_is_read(self, tmp_path: Path) -> None:
         _project(tmp_path)
         config = tmp_path / "rebrew-project.toml"

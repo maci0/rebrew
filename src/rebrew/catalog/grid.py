@@ -252,6 +252,7 @@ def build_coverage_data(
     root_dir: Path | None = None,
     metadata_dir: Path | None = None,
     cfg: Any = None,
+    trusted: bool = False,
 ) -> dict[str, Any]:
     """Build the coverage dict ``rebrew coverage export --output snapshots/`` renders into a document.
 
@@ -293,7 +294,10 @@ def build_coverage_data(
     # iter_sources falls back to ".c" only and never appends cfg.shared_dir, so
     # every global in a .cpp or shared source vanishes from the coverage document.
     globals_dict = get_globals(src_dir, cfg) if src_dir else {}
-    if metadata_dir is not None:
+    if trusted:
+        for value in globals_dict.values():
+            value.pop("status", None)
+    if metadata_dir is not None and not trusted:
         from rebrew.metadata.data import load_data_metadata, module_visible_to_target
 
         try:
@@ -612,9 +616,13 @@ def build_coverage_data(
                         # Find the parent via pre-built reverse lookup (O(1))
                         parent_off = name_end_to_start.get((parent_name, func_end_off))
                         if parent_off is not None and parent_off in items_by_off:
+                            if trusted:
+                                items_by_off[parent_off].setdefault(
+                                    "verified_extent", items_by_off[parent_off]["size"]
+                                )
                             items_by_off[parent_off]["size"] += absorb_size
                             # Also update the functions dict if present
-                            if parent_name in functions:
+                            if not trusted and parent_name in functions:
                                 functions[parent_name]["size"] += absorb_size
                             absorbed_any = True
 
@@ -641,7 +649,10 @@ def build_coverage_data(
                 next_start = item_starts[idx + 1] if idx + 1 < len(item_starts) else sec_size
                 e = min(sec_size, off + item["size"], next_start)
                 state = item["status"].lower()
-                segments.append((s, e, state, [item["name"]], None, None))
+                verified_end = min(e, s + item.get("verified_extent", item["size"]))
+                segments.append((s, verified_end, state, [item["name"]], None, None))
+                if verified_end < e:
+                    segments.append((verified_end, e, "unknown", [item["name"]], None, None))
                 off = e
                 continue
 

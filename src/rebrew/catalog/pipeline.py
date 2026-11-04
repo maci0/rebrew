@@ -10,15 +10,24 @@ from __future__ import annotations
 lazy from typing import Any
 
 lazy from rebrew.catalog.grid import build_coverage_data
-lazy from rebrew.catalog.loaders import cached_function_list, scan_reversed_dir
+lazy from rebrew.catalog.loaders import (
+    cached_function_list,
+    scan_reversed_dir,
+    trusted_function_list,
+)
 lazy from rebrew.catalog.registry import build_function_registry, count_detection_sources
 lazy from rebrew.config import inventory_path_for
 lazy from rebrew.sections import get_text_section_size
 lazy from rebrew.utils import console
+lazy from rebrew.workspace.status import TrustedCoverage
 
 
 def build_catalog_data(
-    cfg: Any, *, with_data: bool = True, progress: bool = True
+    cfg: Any,
+    *,
+    with_data: bool = True,
+    progress: bool = True,
+    trusted: TrustedCoverage | None = None,
 ) -> dict[str, Any]:
     """Scan, registry, and coverage-grid dict for one target (no disk writes).
 
@@ -35,7 +44,9 @@ def build_catalog_data(
         console.print(f"Scanning {reversed_dir}...", style="dim")
     entries = scan_reversed_dir(reversed_dir, cfg=cfg)
 
-    funcs = cached_function_list(cfg)
+    funcs = cached_function_list(cfg) if trusted is None else trusted_function_list(cfg)
+    if trusted is not None:
+        entries = trusted.bind(cfg, entries, funcs)
 
     # The .text size drives the coverage percentage.  With no binary there
     # is no real denominator, so report 0 (coverage_pct -> 0.0) and say so.
@@ -79,6 +90,7 @@ def build_catalog_data(
             cfg.root,
             metadata_dir=cfg.metadata_dir,
             cfg=cfg,
+            trusted=trusted is not None,
         )
         if with_data
         else None

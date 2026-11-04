@@ -873,6 +873,117 @@ def _with_project_header(project: Path) -> str:
 
 
 class TestReconstructionOps:
+    def test_retained_reports_require_and_use_verified_readset(self, tmp_path: Path) -> None:
+        from rebrew.coverage_input_contract import (
+            coverage_input_digest,
+            plan_coverage_readset,
+            verification_records_digest,
+        )
+        from rebrew.ops import FlagSearchFile, retained_target_snapshot
+
+        filestore, workspace = _worker_dirs(tmp_path)
+        config = WorkerConfig(filestore.resolve(), workspace.resolve())
+        status, raw = dispatch(config, "rebrew.analyse", json.dumps(_analyse_request()).encode())
+        assert status == 200, raw
+        analysed = json.loads(raw)
+        capture = analysed["analysis_capture"]
+        files = []
+        source_paths = {
+            entry["path"] for entry in capture["entries"] if entry.get("role") == "source"
+        }
+        for entry in capture["entries"]:
+            if entry["kind"] != "file":
+                continue
+            data = base64.b64decode(entry["data"])
+            digest, key = _store(filestore, data)
+            files.append({"path": entry["path"], "size": len(data), "digest": digest, "key": key})
+        target = capture["target"]
+        with retained_target_snapshot(
+            config, [FlagSearchFile(**item) for item in files], target, SHA256, KEY, ""
+        ) as staged:
+            plan = plan_coverage_readset(staged, target)
+        envelope = {
+            "version": 1,
+            "source_revision": "a" * 64,
+            "generation": "b" * 32,
+            "binary_sha256": SHA256,
+            "target": target,
+            "analysis_manifest": "c" * 64,
+            "verification_digest": hashlib.sha256(b"[]").hexdigest(),
+            "readset": [
+                {
+                    **row,
+                    "origin": "source"
+                    if row["path"] in source_paths or row["path"] == "rebrew-project.toml"
+                    else "analysis",
+                }
+                for row in plan
+            ],
+        }
+        request = {
+            "project_dir": analysed["project"],
+            "sha256": SHA256,
+            "files": files,
+            "rebrew_target": target,
+            "binary_key": KEY,
+            "coverage_input": envelope,
+            "coverage_input_digest": coverage_input_digest(envelope),
+            "verification_records": [],
+        }
+        status, body = dispatch(config, "rebrew.coverage_report", json.dumps(request).encode())
+        assert status == 200, body
+        assert json.loads(body)["report"]["measures"]["matched_functions"] == 0
+        missing_records = {
+            key: value for key, value in request.items() if key != "verification_records"
+        }
+        status, _ = dispatch(config, "rebrew.coverage_report", json.dumps(missing_records).encode())
+        assert status == 409
+        status, _ = dispatch(
+            config,
+            "rebrew.coverage_report",
+            json.dumps({"project_dir": analysed["project"], "coverage_input": {}}).encode(),
+        )
+        assert status == 400
+        site = {**request, "binary_id": 1, "output_dir": "reports/generated/" + "a" * 32}
+        status, body = dispatch(config, "rebrew.report", json.dumps(site).encode())
+        assert status == 200, body
+        assert json.loads(body)["manifest"]
+        function = analysed["targets"][0]["functions"][0]
+        source = next(row for row in envelope["readset"] if row["path"] == function["source_path"])
+        record = {
+            "verification_id": "modeled",
+            "source": source["path"],
+            "source_sha256": source["digest"],
+            "va": function["va"],
+            "size": function["size"],
+            "status": "EXACT",
+            "match_count": function["size"],
+            "total": function["size"],
+            "obj_size": function["size"],
+            "reloc_count": 0,
+            "result_digest": "e" * 64,
+        }
+        envelope["verification_digest"] = verification_records_digest([record])
+        request["coverage_input_digest"] = coverage_input_digest(envelope)
+        request["verification_records"] = [record]
+        status, body = dispatch(config, "rebrew.coverage_report", json.dumps(request).encode())
+        assert status == 200, body
+        assert json.loads(body)["report"]["measures"]["matched_functions"] == 1
+        record.update(
+            status="SIZE_MISMATCH",
+            match_count=0,
+            obj_size=function["size"] + 1,
+            total=function["size"] + 1,
+        )
+        envelope["verification_digest"] = verification_records_digest([record])
+        request["coverage_input_digest"] = coverage_input_digest(envelope)
+        status, body = dispatch(config, "rebrew.coverage_report", json.dumps(request).encode())
+        assert status == 200, body
+        assert json.loads(body)["report"]["measures"]["matched_functions"] == 0
+        request["coverage_input_digest"] = "d" * 64
+        status, body = dispatch(config, "rebrew.coverage_report", json.dumps(request).encode())
+        assert status == 409, body
+
     def test_analyse_same_binary_has_isolated_project_workspaces(self, tmp_path: Path) -> None:
         filestore, workspace = _worker_dirs(tmp_path)
         config = WorkerConfig(filestore.resolve(), workspace.resolve())
@@ -881,7 +992,21 @@ class TestReconstructionOps:
             request = {**_analyse_request(), "project_id": project_id}
             status, body = dispatch(config, "rebrew.analyse", json.dumps(request).encode())
             assert status == 200, body
-            return Path(json.loads(body)["project"])
+            report = json.loads(body)
+            capture = report["analysis_capture"]
+            assert capture["version"] == 1
+            assert capture["binary_sha256"] == SHA256
+            assert capture["target"] == report["targets"][0]["name"]
+            assert report["targets"][0]["sha256"] == SHA256
+            assert sum(entry["kind"] == "binary" for entry in capture["entries"]) == 1
+            assert any(entry["kind"] == "file" for entry in capture["entries"])
+            source_paths = {
+                entry["path"] for entry in capture["entries"] if entry.get("role") == "source"
+            }
+            for function in report["targets"][0]["functions"]:
+                if "source_path" in function:
+                    assert function["source_path"] in source_paths
+            return Path(report["project"])
 
         first = analyse("tenant-a")
         second = analyse("tenant-b")
@@ -976,6 +1101,7 @@ class TestReconstructionOps:
     ) -> None:
         from rebrew import ops
 
+        monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://127.0.0.1:18953")
         filestore, workspace = _worker_dirs(tmp_path)
         original = b"int add(int a, int b) { return a - b; }\n"
         project = b'[project]\ndefault_target="mini"\n[targets.mini]\nbinary="original/mini"\nformat="pe"\narch="x86_32"\nreversed_dir="src"\n'
@@ -1012,12 +1138,22 @@ class TestReconstructionOps:
         request["source_sha256"] = "0" * 64
         status, _body = dispatch(config, "rebrew.verify_function", json.dumps(request).encode())
         assert status == 400
+        request["source_sha256"] = hashlib.sha256(original).hexdigest()
+
+        def mutate(_args: Any, root: Path, *unused: Any, **kwargs: Any) -> dict[str, Any]:
+            (root / "rebrew-project.toml").write_text("changed")
+            return {"status": "EXACT"}
+
+        monkeypatch.setattr(ops, "run_rebrew", mutate)
+        status, _ = dispatch(config, "rebrew.verify_function", json.dumps(request).encode())
+        assert status == 400
 
     def test_target_operations_use_retained_snapshot(
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:
         from rebrew import ops
 
+        monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://127.0.0.1:18953")
         filestore, workspace = _worker_dirs(tmp_path)
         live = workspace / "live"
         live.mkdir()
@@ -1025,7 +1161,12 @@ class TestReconstructionOps:
         (live / "rebrew-project.toml").write_bytes(project)
         source = b"int add(int a, int b) { return a-b; }\n"
         entries = []
-        for name, data in (("rebrew-project.toml", project), ("src/add.c", source)):
+        for name, data in (
+            ("rebrew-project.toml", project),
+            ("src/add.c", source),
+            ("src/function_structure.json", b'{"functions": []}'),
+            ("rebrew-functions.toml", b""),
+        ):
             digest, key = _store(filestore, data)
             entries.append({"path": name, "digest": digest, "size": len(data), "key": key})
         seen: list[Path] = []
@@ -1058,6 +1199,25 @@ class TestReconstructionOps:
         bad = {**request, "files": [*entries, alias]}
         status, _ = dispatch(config, "rebrew.build", json.dumps(bad).encode())
         assert status == 400
+        escape = project.replace(b'reversed_dir="src"', b'reversed_dir="/etc"')
+        digest, key = _store(filestore, escape)
+        bad_config = {
+            "path": "rebrew-project.toml",
+            "digest": digest,
+            "size": len(escape),
+            "key": key,
+        }
+        status, _ = dispatch(
+            config,
+            "rebrew.build",
+            json.dumps({**request, "files": [bad_config, *entries[1:]]}).encode(),
+        )
+        assert status == 400
+        outside_library = workspace / "rebrew-libraries.toml"
+        outside_library.write_text('library = "foreign"\n')
+        status, _ = dispatch(config, "rebrew.build", json.dumps(request).encode())
+        assert status == 400
+        outside_library.unlink()
         status, _ = dispatch(config, "rebrew.verify_target", json.dumps(request).encode())
         assert status == 400
 
@@ -1078,12 +1238,9 @@ class TestReconstructionOps:
         monkeypatch.setattr(report, "generate_report", render)
         report_request = {**request, "binary_id": 1, "output_dir": "reports/generated/" + "a" * 32}
         status, reply = dispatch(config, "rebrew.report", json.dumps(report_request).encode())
-        assert status == 200, reply
-        assert json.loads(reply)["manifest"] == [
-            {"path": "index.html", "size": 11, "digest": hashlib.sha256(b"safe report").hexdigest()}
-        ]
-        status, _ = dispatch(config, "rebrew.report", json.dumps(report_request).encode())
-        assert status == 400
+        assert status == 409, reply
+        status, _ = dispatch(config, "rebrew.coverage_report", json.dumps(request).encode())
+        assert status == 409
 
     def test_skeleton(self, world: tuple[WorkerConfig, Path]) -> None:
         config, project = world

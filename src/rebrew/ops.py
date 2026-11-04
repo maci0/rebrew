@@ -312,6 +312,42 @@ class BinaryFile:
 
 
 @dataclass(frozen=True)
+class CoverageInputEntry:
+    path: str
+    present: bool
+    origin: str
+    digest: str
+    size: int
+
+
+@dataclass(frozen=True)
+class CoverageInput:
+    version: int = 0
+    source_revision: str = ""
+    generation: str = ""
+    binary_sha256: str = ""
+    target: str = ""
+    readset: list[CoverageInputEntry] = field(default_factory=list)
+    analysis_manifest: str = ""
+    verification_digest: str = ""
+
+
+@dataclass(frozen=True)
+class CoverageVerification:
+    verification_id: str
+    source: str
+    source_sha256: str
+    va: int
+    size: int
+    status: str
+    match_count: int
+    total: int
+    obj_size: int
+    reloc_count: int
+    result_digest: str
+
+
+@dataclass(frozen=True)
 class ReportRequest:
     binary_id: int
     project_dir: str
@@ -321,6 +357,9 @@ class ReportRequest:
     rebrew_target: str = ""
     binary_key: str = ""
     binary_url: str = ""
+    coverage_input: CoverageInput = field(default_factory=CoverageInput)
+    coverage_input_digest: str = ""
+    verification_records: list[CoverageVerification] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -408,6 +447,9 @@ class CoverageReportRequest(TargetRequest):
     rebrew_target: str = ""
     binary_key: str = ""
     binary_url: str = ""
+    coverage_input: CoverageInput = field(default_factory=CoverageInput)
+    coverage_input_digest: str = ""
+    verification_records: list[CoverageVerification] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -562,6 +604,38 @@ class MergeRequest:
     dry_run: bool = False
 
 
+@dataclass(frozen=True)
+class SnapshotMutationRequest:
+    files: list[FlagSearchFile]
+    rebrew_target: str
+    sha256: str
+    binary_key: str
+    operation: str
+    binary_url: str = ""
+    source: str = ""
+    candidate: str = ""
+    candidate_sha256: str = ""
+    generations: int = 1
+    population: int = 1
+    seed: int = 0
+    va: int = 0
+    name: str = ""
+    type: str = ""
+    size: int = 0
+    section: str = ""
+    kind: str = ""
+    note: str = ""
+    storage_kind: str = ""
+    backing: str = ""
+    link_symbol: str = ""
+    source_file: str = ""
+    old_name: str = ""
+    new_name: str = ""
+    sources: list[str] = field(default_factory=list)
+    output: str = ""
+    dry_run: bool = False
+
+
 def _decode(value: Any, hint: Any, where: str) -> Any:
     """Check one JSON value against the field type *hint*; bytes arrive base64."""
     origin = typing.get_origin(hint)
@@ -604,6 +678,22 @@ def parse_request[T](cls: type[T], raw: Any, where: str = "request") -> T:
     """Build *cls* from a decoded JSON object, refusing unknown and missing fields."""
     if type(raw) is not dict:
         raise _invalid(f"{where} must be a JSON object")
+    if (
+        cls in {ReportRequest, CoverageReportRequest}
+        and not raw.get("files")
+        and {"coverage_input", "coverage_input_digest", "verification_records"} & raw.keys()
+    ):
+        raise _invalid("coverage input requires a retained snapshot")
+    if (
+        cls in {ReportRequest, CoverageReportRequest}
+        and raw.get("coverage_input")
+        and "verification_records" not in raw
+    ):
+        raise OpsError(
+            "coverage verification records are required",
+            code="coverage-input-unverified",
+            status=409,
+        )
     hints = typing.get_type_hints(cls)
     known = {spec.name: spec for spec in fields(cls)}  # type: ignore[arg-type]
     unknown = sorted(set(raw) - set(known))
@@ -1294,6 +1384,8 @@ def report(config: WorkerConfig, req: ReportRequest) -> dict[str, Any]:
     root = project_root(config, req.project_dir)
     out = _inside(config.require_workspace(), req.output_dir, "output_dir")
     if req.files:
+        if req.coverage_input.version != 1 or not req.coverage_input_digest:
+            verified_coverage_inputs_required()
         if not re.fullmatch(r"reports/generated/[0-9a-f]{32}", req.output_dir):
             raise _invalid("retained report output must have a unique generated path")
         if out != config.require_workspace() / req.output_dir:
@@ -1307,7 +1399,16 @@ def report(config: WorkerConfig, req: ReportRequest) -> dict[str, Any]:
             with retained_target_snapshot(
                 config, req.files, req.rebrew_target, req.sha256, req.binary_key, req.binary_url
             ) as snapshot:
-                result = generate_report(load_config(snapshot, target=req.rebrew_target), out)
+                trusted = checked_coverage_input(snapshot, req)
+                try:
+                    result = generate_report(
+                        load_config(snapshot, target=req.rebrew_target), out, trusted=trusted
+                    )
+                except ValueError as exc:
+                    raise OpsError(
+                        _bounded(str(exc)), code="coverage-input-unverified", status=409
+                    ) from None
+                checked_coverage_input(snapshot, req)
                 entries = []
                 size = 0
                 for path in sorted(out.rglob("*")):
@@ -1330,6 +1431,8 @@ def report(config: WorkerConfig, req: ReportRequest) -> dict[str, Any]:
         except BaseException:
             shutil.rmtree(out)
             raise
+    if req.coverage_input.version or req.coverage_input_digest or req.verification_records:
+        raise _invalid("coverage input requires a retained snapshot")
     return generate_report(load_config(root), out)
 
 
@@ -1451,7 +1554,93 @@ def analyse(config: WorkerConfig, req: AnalyseRequest) -> dict[str, Any]:
         if _inside(workspace, relative, "analysis project") != project:
             raise _invalid("analysis project must not traverse symlinks")
         intake = _run_intake(binary, project, target_name(req.name))
-    return {**project_report(project, None), "intake": intake}
+        capture, report = capture_fresh_analysis(config, binary, req.sha256, target_name(req.name))
+        for item in report["targets"]:
+            for field in ("document", "path"):
+                if item[field]:
+                    item[field] = str(project / item[field])
+    return {**report, "project": str(project), "intake": intake, "analysis_capture": capture}
+
+
+def capture_fresh_analysis(
+    config: WorkerConfig, binary: Path, sha256: str, target: str
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Capture the complete baseline readset from a new, independent intake."""
+    from rebrew.config import load_config
+    from rebrew.coverage_project import _inputs
+    from rebrew.sources import iter_headers, iter_sources
+
+    scratch = config.require_workspace() / SCRATCH_DIR
+    scratch.mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="analysis-capture-", dir=scratch) as temp:
+        root = Path(temp).resolve()
+        _run_intake(binary, root, target)
+        for path in root.rglob("*"):
+            if path.is_symlink():
+                raise _invalid("fresh analysis capture contains a symlink")
+        cfg = load_config(root, target=target)
+        confined_snapshot_config(cfg, root)
+        if cfg.raw_link is not None:
+            raise _invalid("fresh analysis capture cannot include an unverified raw link")
+        if not cfg.target_binary.is_file() or _file_sha256(cfg.target_binary) != sha256:
+            raise _invalid("fresh analysis binary does not match the request")
+        source_paths = {p.resolve() for p in iter_sources(cfg.reversed_dir, cfg)}
+        source_paths.update(p.resolve() for p in iter_headers(cfg.reversed_dir, cfg))
+        paths = {Path(entry[0]) for entry in _inputs(cfg)}
+        entries: list[dict[str, Any]] = []
+        total = 0
+        for path in sorted(paths, key=lambda value: str(value).encode()):
+            resolved = path.resolve()
+            if not resolved.is_relative_to(root):
+                if path.exists() or path.is_symlink():
+                    raise _invalid("fresh analysis reads an ambient input")
+                continue
+            relative = resolved.relative_to(root).as_posix()
+            if path.is_symlink() or relative == "." or len(entries) >= 1024:
+                raise _invalid("invalid fresh analysis readset")
+            if not path.exists():
+                entries.append(
+                    {"path": relative, "kind": "absent", "size": 0, "digest": "", "data": ""}
+                )
+                continue
+            if not path.is_file():
+                raise _invalid("fresh analysis readset contains an unsupported directory")
+            if "verify_cache" in path.name:
+                raise _invalid("fresh analysis capture must not contain verification cache")
+            if resolved == cfg.target_binary.resolve():
+                entries.append(
+                    {
+                        "path": relative,
+                        "kind": "binary",
+                        "size": path.stat().st_size,
+                        "digest": sha256,
+                        "data": "",
+                    }
+                )
+                continue
+            size = path.stat().st_size
+            total += size
+            if size > 1024 * 1024 or total > 8 * 1024 * 1024:
+                raise _invalid("fresh analysis capture exceeds its size limit")
+            data = path.read_bytes()
+            if len(data) != size:
+                raise _invalid("fresh analysis input changed during capture")
+            entries.append(
+                {
+                    "path": relative,
+                    "kind": "file",
+                    "role": "source" if resolved in source_paths else "analysis",
+                    "size": size,
+                    "digest": hashlib.sha256(data).hexdigest(),
+                    "data": base64.b64encode(data).decode("ascii"),
+                }
+            )
+        report = project_report(root, None, include_source=True)
+        for item in report["targets"]:
+            for field in ("document", "path"):
+                if item[field]:
+                    item[field] = str(Path(item[field]).relative_to(root))
+        return {"version": 1, "binary_sha256": sha256, "target": target, "entries": entries}, report
 
 
 def import_project(config: WorkerConfig, req: ImportRequest) -> dict[str, Any]:
@@ -1478,11 +1667,14 @@ def import_project(config: WorkerConfig, req: ImportRequest) -> dict[str, Any]:
     return project_report(root, snapshots)
 
 
-def project_report(root: Path, snapshots: Path | None) -> dict[str, Any]:
+def project_report(
+    root: Path, snapshots: Path | None, *, include_source: bool = False
+) -> dict[str, Any]:
     """The backend's ``ProjectReport`` of *root*: targets, functions and import stubs.
 
     Live coverage is read unless *snapshots* names a portable export directory.
     """
+    from rebrew.config import load_config
     from rebrew.coverage_project import load_project_coverage
     from rebrew.coverage_toml import load_coverage_from
     from rebrew.discover import elf_function_symbols
@@ -1503,6 +1695,16 @@ def project_report(root: Path, snapshots: Path | None) -> dict[str, Any]:
     targets = []
     for name in sorted(coverage):
         entry = table.get(name, {})
+        cfg = load_config(root, target=name) if include_source else None
+
+        def source_path(row: Any, source_dir: Path = cfg.reversed_dir if cfg else root) -> str:
+            paths: set[str] = set()
+            for value in row.files:
+                path = (source_dir / value).resolve()
+                if path.is_relative_to(root.resolve()) and path.is_file():
+                    paths.add(path.relative_to(root.resolve()).as_posix())
+            return next(iter(paths)) if len(paths) == 1 else ""
+
         binary = target_binary(root, entry) if entry else None
         if binary is not None and not binary.is_file():
             binary = None
@@ -1521,6 +1723,9 @@ def project_report(root: Path, snapshots: Path | None) -> dict[str, Any]:
                 if row.name.strip() == f"fcn_{row.va:08x}"
                 else max(0, row.size or 0),
                 "status": row.status,
+                **(
+                    {"source_path": source_path(row)} if include_source and source_path(row) else {}
+                ),
             }
             for row in sorted(coverage[name].functions, key=lambda row: row.va)
             if row.markerType not in _DATA_MARKERS
@@ -1595,6 +1800,24 @@ def remote_header_refusal(cfg: Any, sources: Iterable[Path]) -> None:
                 code=REMOTE_HEADERS,
                 status=422,
             )
+
+
+def retained_compile_refusal(cfg: Any, sources: Iterable[Path]) -> None:
+    """Use only the operator-configured remote compiler and confined include flags."""
+    from rebrew.compiler.compile import effective_compile_flags, extract_include_dirs
+
+    approved = os.environ.get("REBREW_RECOMPILE_URL", "").strip()
+    if not approved or cfg.recompile_url != approved:
+        raise _refused("retained compilation requires the configured private recompile service")
+    source_list = list(sources)
+    for source in source_list:
+        for flags in (cfg.cflags, *cfg.cflags_presets.values()):
+            for item in extract_include_dirs(
+                effective_compile_flags(cfg, None, flags, source.parent)
+            ):
+                if "\\" in item or not Path(item).resolve().is_relative_to(cfg.root):
+                    raise _invalid("compiler include directory escapes the retained snapshot")
+    remote_header_refusal(cfg, source_list)
 
 
 def reference_flirt(config: WorkerConfig, req: ReferenceFlirtRequest) -> dict[str, Any]:
@@ -1711,7 +1934,8 @@ def verify_candidate(config: WorkerConfig, req: VerifyRequest) -> dict[str, Any]
                 raise _invalid("snapshot target binary does not match")
             source.write_text(req.candidate, encoding="utf-8")
             cfg = load_config(root, target=req.rebrew_target)
-            remote_header_refusal(cfg, [source])
+            confined_snapshot_config(cfg, root)
+            retained_compile_refusal(cfg, [source])
             result = run_rebrew(
                 [
                     "test",
@@ -1733,8 +1957,25 @@ def verify_candidate(config: WorkerConfig, req: VerifyRequest) -> dict[str, Any]
                 or source.read_text(encoding="utf-8") != req.candidate
             ):
                 raise _invalid("snapshot candidate or binary changed during verification")
+            for entry in req.files:
+                if entry.path == req.source:
+                    continue
+                path = _project_file(root, entry.path, "source file")
+                if path.stat().st_size != entry.size or _file_sha256(path) != entry.digest:
+                    raise _invalid("snapshot source changed during verification")
             result["source"] = req.source
             return result
+
+
+def confined_snapshot_config(cfg: Any, root: Path) -> None:
+    """Refuse project-config paths that could read or write outside a retained snapshot."""
+    from rebrew.coverage_input_contract import CoverageInputError
+    from rebrew.coverage_input_contract import confined_snapshot_config as check
+
+    try:
+        check(cfg, root)
+    except CoverageInputError as exc:
+        raise _invalid(str(exc)) from exc
 
 
 @contextlib.contextmanager
@@ -1747,6 +1988,7 @@ def retained_target_snapshot(
     binary_url: str,
 ) -> Iterator[Path]:
     """Stage a bounded retained source manifest and binary without touching the live project."""
+    from rebrew.config import inventory_path_for, load_config
     from rebrew.workspace import read_config, target_binary, targets_table
 
     if (
@@ -1799,6 +2041,18 @@ def retained_target_snapshot(
                 or _file_sha256(destination) != sha256
             ):
                 raise _invalid("snapshot target binary does not match")
+            cfg = load_config(root, target=target_name)
+            confined_snapshot_config(cfg, root)
+            required = (
+                inventory_path_for(cfg.reversed_dir, cfg),
+                cfg.metadata_dir / "rebrew-functions.toml",
+            )
+            if cfg.metadata_backend != "toml" or any(
+                not path.is_file()
+                or path.relative_to(root).as_posix() not in {entry.path for entry in files}
+                for path in required
+            ):
+                raise _invalid("retained target requires its inventory and TOML function metadata")
             yield root
             if _file_sha256(destination) != sha256:
                 raise _invalid("snapshot target binary changed during operation")
@@ -1821,7 +2075,7 @@ def verify_target(config: WorkerConfig, req: VerifyTargetRequest) -> dict[str, A
             config, req.files, req.rebrew_target, req.sha256, req.binary_key, req.binary_url
         ) as snapshot:
             cfg = load_config(snapshot, target=req.rebrew_target)
-            remote_header_refusal(cfg, iter_sources(cfg.reversed_dir, cfg))
+            retained_compile_refusal(cfg, iter_sources(cfg.reversed_dir, cfg))
             return run_rebrew(
                 ["verify", "--json", "--no-promote", f"--target={req.rebrew_target}"],
                 snapshot,
@@ -1854,7 +2108,7 @@ def build(config: WorkerConfig, req: BuildRequest) -> dict[str, Any]:
             config, req.files, req.rebrew_target, req.sha256, req.binary_key, req.binary_url
         ) as snapshot:
             cfg = load_config(snapshot, target=req.rebrew_target)
-            remote_header_refusal(cfg, iter_sources(cfg.reversed_dir, cfg))
+            retained_compile_refusal(cfg, iter_sources(cfg.reversed_dir, cfg))
             return run_rebrew(
                 [
                     "build",
@@ -1912,6 +2166,40 @@ def coverage_export(config: WorkerConfig, req: CoverageExportRequest) -> dict[st
     return {"output_dir": str(out), "documents": [str(path) for path in written]}
 
 
+def verified_coverage_inputs_required() -> None:
+    """Coverage metadata needs producer custody, not merely a supplied manifest."""
+    raise OpsError(
+        "retained coverage requires verified inventory and result provenance",
+        code="coverage-input-unverified",
+        status=409,
+    )
+
+
+def checked_coverage_input(root: Path, req: Any) -> Any:
+    """Validate the retained readset before and after each trusted calculation."""
+    from rebrew.coverage_input_contract import CoverageInputError, validate_coverage_execution
+    from rebrew.workspace.status import TrustedCoverage, TrustedVerification
+
+    records = [dataclasses.asdict(record) for record in req.verification_records]
+    try:
+        validate_coverage_execution(
+            root,
+            req.rebrew_target,
+            req.sha256,
+            dataclasses.asdict(req.coverage_input),
+            req.coverage_input_digest,
+            records,
+        )
+        return TrustedCoverage(
+            tuple(
+                TrustedVerification(r.source, r.va, r.size, r.status, r.match_count)
+                for r in req.verification_records
+            )
+        )
+    except (CoverageInputError, ValueError) as exc:
+        raise OpsError(_bounded(str(exc)), code="coverage-input-unverified", status=409) from None
+
+
 def coverage_report(config: WorkerConfig, req: CoverageReportRequest) -> dict[str, Any]:
     """The target's decomp.dev progress report (objdiff ``report.json``, version 2).
 
@@ -1922,15 +2210,31 @@ def coverage_report(config: WorkerConfig, req: CoverageReportRequest) -> dict[st
     from rebrew.report import generate_decomp_dev_report
 
     if req.files:
+        if req.coverage_input.version != 1 or not req.coverage_input_digest:
+            verified_coverage_inputs_required()
         project_root(config, req.project_dir)
         with retained_target_snapshot(
             config, req.files, req.rebrew_target, req.sha256, req.binary_key, req.binary_url
         ) as snapshot:
             cfg = load_config(snapshot, target=req.rebrew_target)
-            out = snapshot / ".retained-report.json"
-            summary = generate_decomp_dev_report(cfg, out)
-            report = json.loads(out.read_text(encoding="utf-8"))
-            return {"summary": {k: v for k, v in summary.items() if k != "out"}, "report": report}
+            trusted = checked_coverage_input(snapshot, req)
+            scratch = config.require_workspace() / SCRATCH_DIR
+            with tempfile.TemporaryDirectory(prefix="coverage-report-", dir=scratch) as directory:
+                out = Path(directory) / "report.json"
+                try:
+                    summary = generate_decomp_dev_report(cfg, out, trusted=trusted)
+                except ValueError as exc:
+                    raise OpsError(
+                        _bounded(str(exc)), code="coverage-input-unverified", status=409
+                    ) from None
+                checked_coverage_input(snapshot, req)
+                report = json.loads(out.read_text(encoding="utf-8"))
+                return {
+                    "summary": {k: v for k, v in summary.items() if k != "out"},
+                    "report": report,
+                }
+    if req.coverage_input.version or req.coverage_input_digest or req.verification_records:
+        raise _invalid("coverage input requires a retained snapshot")
     cfg = target_config(project_root(config, req.project_dir), req.sha256)
     scratch = config.require_workspace() / SCRATCH_DIR
     scratch.mkdir(exist_ok=True)
@@ -2188,6 +2492,13 @@ class Op:
     run: Callable[[WorkerConfig, Any], Mapping[str, Any]]
 
 
+def retained_source_operation(config: WorkerConfig, req: SnapshotMutationRequest) -> dict[str, Any]:
+    """Run an operation against an isolated retained target."""
+    from rebrew.snapshot_mutations import snapshot_mutation
+
+    return snapshot_mutation(config, req)
+
+
 #: Every op of the backend's rebrew contract, by wire name.
 OPS: dict[str, Op] = {
     "rebrew.disassemble": Op(DisassembleRequest, disassemble),
@@ -2229,6 +2540,7 @@ OPS: dict[str, Op] = {
     "rebrew.source_rename": Op(RenameRequest, source_rename),
     "rebrew.source_split": Op(SplitRequest, source_split),
     "rebrew.source_merge": Op(MergeRequest, source_merge),
+    "rebrew.retained_source_operation": Op(SnapshotMutationRequest, retained_source_operation),
 }
 
 
