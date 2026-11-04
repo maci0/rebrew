@@ -3660,7 +3660,23 @@ def _live_commit_sha(
             )
             try:
                 resp.raise_for_status()
-                return str(resp.json()["sha"])
+                try:
+                    body = resp.json()
+                except ValueError as exc:
+                    raise ToolchainError(
+                        f"GitHub API returned non-JSON for {owner}/{repo}@{branch}: {exc}"
+                    ) from exc
+                if not isinstance(body, dict):
+                    raise ToolchainError(
+                        f"GitHub API returned {type(body).__name__} for {owner}/{repo}@{branch}, "
+                        "expected an object with a 'sha' field"
+                    )
+                sha = body.get("sha")
+                if not isinstance(sha, str) or not sha:
+                    raise ToolchainError(
+                        f"GitHub API response for {owner}/{repo}@{branch} missing 'sha' field"
+                    )
+                return sha
             finally:
                 resp.close()
         except httpx.HTTPStatusError as exc:
