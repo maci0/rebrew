@@ -868,9 +868,10 @@ def restore_ga_runs(backup: Path, project_root: Path) -> Path:
     dest = _runs_path(project_root)
     dest.parent.mkdir(parents=True, exist_ok=True)
     if dest.is_file():
-        atomic_write_bytes(
-            dest.with_name(dest.name + ".before-restore"), dest.read_bytes(), mode=0o644
-        )
+        preserved = dest.with_name(dest.name + ".before-restore")
+        current = dest.read_bytes()
+        if current != raw and (not preserved.is_file() or preserved.read_bytes() != current):
+            atomic_write_bytes(preserved, current, mode=0o644)
     atomic_write_bytes(dest, raw, mode=0o644)
     if dest.read_bytes() != raw:
         raise ValueError(f"GA run log restore verification failed for {dest}")

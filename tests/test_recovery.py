@@ -71,6 +71,16 @@ class TestGaRunsBackup:
             encoding="utf-8"
         ) == '{"ts": "new", "matched": false}\n'
 
+    def test_restore_twice_preserves_current_log(self, tmp_path: Path) -> None:
+        log = _seed_log(tmp_path)
+        dest = backup_ga_runs(tmp_path, tmp_path / "off-tree")
+        log.write_text('{"ts": "new", "matched": false}\n', encoding="utf-8")
+        restore_ga_runs(dest, tmp_path)
+        restore_ga_runs(dest, tmp_path)
+        assert (tmp_path / ".rebrew" / "ga_runs.jsonl.before-restore").read_text(
+            encoding="utf-8"
+        ) == '{"ts": "new", "matched": false}\n'
+
     def test_corrupt_backup_leaves_log_alone(self, tmp_path: Path) -> None:
         log = _seed_log(tmp_path)
         bad = tmp_path / "bad.jsonl"
