@@ -38,7 +38,7 @@ Retry-After. Request bodies are never read and force connection closure.
 Successful responses negotiate zstd then gzip with quality weights. ETags key
 on the live input version or portable file state plus the exact route/query;
 health is no-store. Static assets are content-hashed and precompressed. The
-entry checkpoint measured 12576 B zstd / 13183 B gzip against a 13320 B budget;
+entry checkpoint measured 12666 B zstd / 13285 B gzip against a 13320 B budget;
 host zlib versions can change gzip size. Tests enforce the wire budget.
 Reload re-reads the live view; view/target/filter navigation is stored in the
 URL hash. Details, API schema and transfer measurements live in
@@ -1354,7 +1354,7 @@ _INDEX_HTML = """<!doctype html>
 <link rel="icon" href="__FAVICON__" type="image/svg+xml" fetchpriority="low">
 <style>
   [hidden] { display: none !important; }
-  body { font-family: var(--rb-sans); margin: 1.5rem;
+  body { font-family: var(--rb-sans); line-height: var(--rb-leading-body); margin: 1.5rem;
     background: var(--rb-sunken); color: var(--rb-ink); }
   .skip-link { position: absolute; left: -9999px; top: 0; z-index: 100;
     padding: .5rem 1rem; background: var(--rb-surface); color: var(--rb-accent);
@@ -1367,10 +1367,10 @@ _INDEX_HTML = """<!doctype html>
     font: inherit; border: 1px solid var(--rb-line); border-radius: var(--rb-radius);
     background: var(--rb-surface); color: inherit; }
   :focus-visible { outline: 3px solid var(--rb-accent); outline-offset: 2px; }
-  h1 { font-size: var(--rb-size-title);
+  h1 { font-size: var(--rb-size-title); letter-spacing: var(--rb-track-display);
     margin: -1.5rem -1.5rem 1rem; padding: .75rem 1.5rem;
     background: var(--rb-ink); color: var(--rb-surface); }
-  h2 { font-size: var(--rb-size-heading); margin: 1.5rem 0 .5rem; }
+  h2 { font-size: var(--rb-size-heading); letter-spacing: var(--rb-track-display); margin: 1.5rem 0 .5rem; }
   .cards { display: flex; gap: 1rem; flex-wrap: wrap; margin: 1rem 0;
     min-height: 4.3rem; }
   .card { border: 1px solid var(--rb-line); border-radius: var(--rb-radius);
@@ -1382,7 +1382,7 @@ _INDEX_HTML = """<!doctype html>
     box-shadow: 0 0 0 2px var(--rb-ring); }
   button.card.active .label, .views button.active { font-weight: 700; }
   .card .value { font-size: var(--rb-size-value); font-weight: 700; display: block; }
-  .label { color: var(--rb-muted); font-size: var(--rb-size-caption); }
+  .label { color: var(--rb-muted); font-size: var(--rb-size-caption); letter-spacing: var(--rb-track-label); }
 __STATUS_CSS__
   .table-scroll { overflow-x: auto; position: relative; min-height: 6rem; }
   .table-scroll[aria-busy="true"]::after {

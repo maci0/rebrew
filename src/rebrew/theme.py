@@ -59,10 +59,11 @@ TOKENS: dict[str, str] = {
     "accent-soft": "#9dc4f5",
     "ring": "rgba(0,95,204,.25)",
     # type
-    "sans": "system-ui, sans-serif",
-    "mono": 'ui-monospace, "Cascadia Code", Consolas, monospace',
-    # One ladder, 24/20/18 for display and 15/14/13 for text, so a level
-    # reads as a step rather than as a default.
+    "sans": 'ui-sans-system, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+    "mono": '"JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, "DejaVu Sans Mono", monospace',
+    # One tighter step scale for display (24/20/18) and text (15/14/13),
+    # so the "0x mug" mark in the title band reads as the tool's own
+    # voice instead of a framework default.
     "size-title": "1.5rem",
     "size-value": "1.25rem",
     "size-heading": "1.125rem",
@@ -70,6 +71,13 @@ TOKENS: dict[str, str] = {
     "size-cell": "0.875rem",
     "size-caption": "0.8125rem",
     "size-code": "0.8125rem",
+    # Tracking and leading are decisions, not defaults: a
+    # small negative track on display sizes, a positive one on the
+    # 13px caption/label step, and a 1.5 body leading for address-dense
+    # tables read at arm's length.
+    "track-display": "-0.02em",
+    "track-label": "0.04em",
+    "leading-body": "1.5",
     # shape
     "radius": "6px",
 }

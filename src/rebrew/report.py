@@ -147,7 +147,7 @@ def _status_forced_selectors() -> str:
 # Chrome is the shared token set (rebrew.theme, resolved below) and the status
 # marks are status_style.STATUS_HEX, the same ones the coverage dashboard renders.
 _CSS = """
-body { font-family: var(--rb-sans);
+body { font-family: var(--rb-sans); line-height: var(--rb-leading-body);
        margin: 0; background: var(--rb-sunken); color: var(--rb-ink); }
 .skip-link { position: absolute; inset-inline-start: -9999px; top: 0; z-index: 100;
              padding: 0.5rem 1rem; background: var(--rb-surface); color: var(--rb-accent);
@@ -155,7 +155,7 @@ body { font-family: var(--rb-sans);
 .skip-link:focus { inset-inline-start: 1rem; top: 1rem; }
 header { background: var(--rb-ink); color: var(--rb-surface); padding: 0.75rem 1.5rem;
          display: flex; flex-wrap: wrap; align-items: baseline; gap: 1rem 2rem; }
-header h1 { font-size: var(--rb-size-title); margin: 0; }
+header h1 { font-size: var(--rb-size-title); letter-spacing: var(--rb-track-display); margin: 0; }
 header nav { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; }
 header nav a { color: var(--rb-nav); text-decoration: underline; min-height: 2.75rem; padding: 0.5rem 0.35rem;
         display: inline-flex; align-items: center; }
@@ -164,7 +164,7 @@ header nav a.active { color: var(--rb-surface); font-weight: 600; text-decoratio
 :focus-visible { outline: 3px solid var(--rb-accent); outline-offset: 2px; }
 header nav a:focus-visible { outline-color: var(--rb-accent-soft); }
 main { max-width: 1100px; margin: 1.5rem auto; padding: 0 1.5rem; }
-h2 { font-size: var(--rb-size-heading); margin: 1.5rem 0 .5rem; }
+h2 { font-size: var(--rb-size-heading); letter-spacing: var(--rb-track-display); margin: 1.5rem 0 .5rem; }
 .cards { display: flex; flex-wrap: wrap; gap: 1rem; margin: 0 0 1.5rem; }
 /* Label reads first (dt before dd); column-reverse shows the value on top. */
 .card { background: var(--rb-surface); border: 1px solid var(--rb-line);
@@ -173,7 +173,7 @@ h2 { font-size: var(--rb-size-heading); margin: 1.5rem 0 .5rem; }
         display: flex; flex-direction: column-reverse; }
 .card dd { margin: 0; }
 .card .value { font-size: var(--rb-size-value); font-weight: 700; }
-.card .label { color: var(--rb-muted); font-size: var(--rb-size-caption); }
+.card .label { color: var(--rb-muted); font-size: var(--rb-size-caption); letter-spacing: var(--rb-track-label); }
 .table-scroll { overflow-x: auto; margin-bottom: 1.5rem; }
 table { width: 100%; border-collapse: collapse; background: var(--rb-surface);
         border: 1px solid var(--rb-line); border-radius: var(--rb-radius);
