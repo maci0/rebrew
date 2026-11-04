@@ -46,8 +46,10 @@ def _row_name(entry: dict[str, Any]) -> str:
 
 def _defined_names(path: Path) -> set[str]:
     from rebrew.c_parser import find_c_function_definitions
+    from rebrew.utils import read_source_text
 
-    return {fn for fn, _ in find_c_function_definitions(path.read_text(errors="replace"))}
+    text, _encoding = read_source_text(path)
+    return {fn for fn, _ in find_c_function_definitions(text)}
 
 
 def _rows_naming(

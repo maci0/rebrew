@@ -1336,7 +1336,7 @@ def _retired_leftover(
     from rebrew.metadata.binding_history import retired_source_elsewhere
 
     try:
-        source = filepath.read_text(errors="surrogateescape")
+        source, _encoding = read_source_text(filepath)
     except OSError:
         return False
     from rebrew.c_parser import find_c_function_definitions

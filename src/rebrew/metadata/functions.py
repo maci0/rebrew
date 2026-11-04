@@ -997,7 +997,9 @@ def identity_file(filepath: Path | str, metadata_dir: Path | str) -> str:
 
 def stored_file_matches(stored: str, rel: str) -> bool:
     """True when two metadata-root-relative source identities are equal."""
-    return bool(stored) and stored.replace("\\", "/") == rel.replace("\\", "/")
+    return bool(stored) and unicodedata.normalize(
+        "NFC", stored.replace("\\", "/")
+    ) == unicodedata.normalize("NFC", rel.replace("\\", "/"))
 
 
 def record_function_identity(
