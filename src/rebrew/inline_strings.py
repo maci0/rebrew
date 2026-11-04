@@ -363,7 +363,7 @@ def _word_pattern(encoded: bytes) -> re.Pattern[bytes]:
 
 def _code_occurrences(parsed: _ParsedSource, name: str) -> int:
     """Whole-word occurrences of *name* outside comments and literals."""
-    encoded = name.encode("utf-8")
+    encoded = name.encode("utf-8", errors="surrogateescape")
     if re.fullmatch(rb"\w+", encoded):
         parsed.occurrence_queries += 1
         if parsed.code_counts is None and parsed.occurrence_queries >= 3:
@@ -397,7 +397,7 @@ def _in_error(node: Any) -> bool:
 
 def _storage_classes(decl: Any, data: bytes) -> set[str]:
     return {
-        data[c.start_byte : c.end_byte].decode()
+        data[c.start_byte : c.end_byte].decode("utf-8", errors="surrogateescape")
         for c in decl.children
         if c.type == "storage_class_specifier"
     }

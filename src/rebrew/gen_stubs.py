@@ -1409,7 +1409,7 @@ def _update_selected_stubs(
     if not symbols or len(symbols) != len(set(symbols)):
         raise ValueError("selected symbols must be distinct")
     existing = definitions(content)
-    raw = content.encode("utf-8")
+    raw = content.encode("utf-8", errors="surrogateescape")
     replacements = []
     changes = []
     for symbol in symbols:
@@ -1419,7 +1419,7 @@ def _update_selected_stubs(
         if len(matches) != 1 or not matches[0][1] or matches[0][2] != 1:
             raise ValueError(f"expected one unambiguous top-level definition: {symbol}")
         node = matches[0][0]
-        old = raw[node.start_byte : node.end_byte].decode("utf-8")
+        old = raw[node.start_byte : node.end_byte].decode("utf-8", errors="surrogateescape")
         if old.lstrip().startswith("extern "):
             raise ValueError(f"not a definition: {symbol}")
         spec = specs.get("specials", {}).get(symbol, {})
@@ -1440,7 +1440,7 @@ def _update_selected_stubs(
                 or new_defs[symbol][0][2] != 1
             ):
                 raise ValueError(f"special must define only {symbol}")
-        replacements.append((node.start_byte, node.end_byte, impl.encode("utf-8")))
+        replacements.append((node.start_byte, node.end_byte, impl.encode("utf-8", errors="surrogateescape")))
         changes.append(
             {
                 "symbol": symbol,
@@ -1451,7 +1451,7 @@ def _update_selected_stubs(
         )
     for start, end, replacement in sorted(replacements, reverse=True):
         raw = raw[:start] + replacement + raw[end:]
-    return raw.decode("utf-8"), changes
+    return raw.decode("utf-8", errors="surrogateescape"), changes
 
 
 @app.callback(invoke_without_command=True)
@@ -1576,7 +1576,7 @@ def main(
     elif log is not None:
         linker_output = log.read_text(encoding="utf-8", errors="replace")
     else:
-        linker_output = sys.stdin.read()
+        linker_output = sys.stdin.buffer.read().decode("utf-8", errors="replace")
     unresolved = parse_unresolved_symbols(linker_output)
     if not unresolved:
         error_exit(

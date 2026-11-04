@@ -157,14 +157,15 @@ def link_xtensa_function(
         (directory / "layout.ld").write_text(
             "SECTIONS {\n"
             + "\n".join(statements)
-            + "\n/DISCARD/ : { *(.debug*) *(.text*) *(.literal*) *(.rodata*) *(.data*) *(.bss*) }\n}\n"
+            + "\n/DISCARD/ : { *(.debug*) *(.text*) *(.literal*) *(.rodata*) *(.data*) *(.bss*) }\n}\n",
+            encoding="utf-8",
         )
         image_id = cached_image_digest(
             spec.image,
             runtime=cfg.execution_backend if cfg.execution_backend not in ("", "unshare") else None,
         )
         if assembly:
-            (directory / "anchors.S").write_text("\n".join(assembly) + "\n")
+            (directory / "anchors.S").write_text("\n".join(assembly) + "\n", encoding="utf-8")
             assembled = run_toolchain(
                 spec,
                 ["-c", "anchors.S", "-o", "anchors.o"],

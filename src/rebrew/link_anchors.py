@@ -97,7 +97,7 @@ def main(
         report = anchor_symbols(cfg, data_sources or [], symbols or [], data_prefix)
         destination = output if output is None or output.is_absolute() else cfg.root / output
         drift = destination is not None and (
-            not destination.is_file() or destination.read_text() != report["text"]
+            not destination.is_file() or destination.read_text(encoding="utf-8") != report["text"]
         )
         if destination is not None and not check and not dry_run:
             destination.parent.mkdir(parents=True, exist_ok=True)

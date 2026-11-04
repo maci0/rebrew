@@ -56,7 +56,7 @@ def struct_definition_names(source: str) -> set[str]:
         if parent is not None and parent.type == "type_definition":
             name_nodes.append(parent.child_by_field_name("declarator"))
         names = {
-            raw[n.start_byte : n.end_byte].decode("utf-8")
+            raw[n.start_byte : n.end_byte].decode("utf-8", errors="surrogateescape")
             for n in name_nodes
             if n is not None and n.type == "type_identifier"
         }
@@ -223,7 +223,7 @@ def compile_type(cfg: ProjectConfig, record: dict[str, Any]) -> None:
         if (
             node.type == "type_definition"
             and declarator is not None
-            and declarator.text.decode() == spelling
+            and declarator.text.decode("utf-8", errors="surrogateescape") == spelling
         ):
             typedef = True
     if not typedef:
@@ -244,7 +244,8 @@ def compile_type(cfg: ProjectConfig, record: dict[str, Any]) -> None:
                 f"typedef char rebrew_layout_{i}[({expr}) ? 1 : -1];"
                 for i, expr in enumerate(assertions)
             )
-            + "\n"
+            + "\n",
+            encoding="utf-8",
         )
         flags = resolve_include_flags(safe_shlex_split(record["cflags"]), file.parent, cfg.root)
         cfg = replace(

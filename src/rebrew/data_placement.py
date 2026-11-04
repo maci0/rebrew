@@ -146,7 +146,7 @@ def private_data_symbols(cfg: ProjectConfig, built: Path, map_path: Path) -> dic
 
     commands = map_path.parent / "compile_commands.json"
     if commands.is_file():
-        for command in json.loads(commands.read_text()):
+        for command in json.loads(commands.read_text(encoding="utf-8")):
             output = command.get("output")
             if not output:
                 continue

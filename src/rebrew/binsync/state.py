@@ -920,7 +920,7 @@ def sync_health(
     binary = binary_identity(cfg)
     stored_binaries = {manifest.get("binary_hash", "")}
     if (state_dir / "binary_hash").exists():
-        stored_binaries.add((state_dir / "binary_hash").read_text().strip())
+        stored_binaries.add((state_dir / "binary_hash").read_text(encoding="utf-8").strip())
     issues: list[str] = []
     if binary and any(stored and stored != binary for stored in stored_binaries):
         issues.append("binary_mismatch")

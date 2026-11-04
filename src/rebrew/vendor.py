@@ -100,7 +100,7 @@ def sha256(path: Path) -> str:
 def verify_pristine(root: Path, manifest: Manifest) -> None:
     """Every listed file matches its hash and the pristine tree holds no other file."""
     listed: dict[Path, str] = {}
-    for line in manifest.checksums.read_text().splitlines():
+    for line in manifest.checksums.read_text(encoding="utf-8").splitlines():
         digest, _, name = line.partition("  ")
         if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest) or not name:
             raise VendorError(f"{manifest.checksums}: malformed line {line!r}")

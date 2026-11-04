@@ -81,7 +81,7 @@ def _helper(root: Path) -> Path:
     helper = directory / "runner"
     manifest = directory / "sha256"
     if helper.is_file() and manifest.is_file():
-        if hashlib.sha256(helper.read_bytes()).hexdigest() == manifest.read_text().strip():
+        if hashlib.sha256(helper.read_bytes()).hexdigest() == manifest.read_text(encoding="utf-8").strip():
             return helper
         raise UnshareError(f"experimental helper failed its digest check; remove {directory}")
     cc, pkg = shutil.which("cc"), shutil.which("pkg-config")
@@ -111,7 +111,7 @@ def _helper(root: Path) -> Path:
         partial.chmod(0o700)
         digest = hashlib.sha256(partial.read_bytes()).hexdigest()
         partial.replace(helper)
-        manifest.write_text(digest + "\n")
+        manifest.write_text(digest + "\n", encoding="utf-8")
     finally:
         partial.unlink(missing_ok=True)
     return helper
@@ -167,7 +167,7 @@ def _image(root: Path, image_id: str) -> tuple[Path, dict[str, Any]]:
     directory = root / "images-v2" / image_id.removeprefix("sha256:")
     manifest = directory / "image.json"
     if manifest.is_file() and (directory / "rootfs").is_dir():
-        info = json.loads(manifest.read_text())
+        info = json.loads(manifest.read_text(encoding="utf-8"))
         if info.get("Id") != image_id:
             raise UnshareError(f"experimental image cache identity mismatch: {directory}")
         return directory / "rootfs", info
@@ -207,7 +207,7 @@ def _image(root: Path, image_id: str) -> tuple[Path, dict[str, Any]]:
         _unpack(archive, filesystem)
         archive.unlink()
         _initialize_wineprefix(filesystem, info, _helper(root))
-        (staging / "image.json").write_text(json.dumps(info) + "\n")
+        (staging / "image.json").write_text(json.dumps(info) + "\n", encoding="utf-8")
         staging.replace(directory)
     finally:
         try:
@@ -254,7 +254,7 @@ def _initialize_wineprefix(rootfs: Path, info: dict[str, Any], helper: Path) -> 
             {},
         )
         path = bundle / "config.json"
-        path.write_text(json.dumps(profile) + "\n")
+        path.write_text(json.dumps(profile) + "\n", encoding="utf-8")
         result = _command([str(helper), str(path)], timeout=120)
         _require_success(result, "cannot initialize cached Wine prefix")
     finally:
@@ -442,7 +442,7 @@ def run_unshare(
             rootfs, info, bundle, args, entrypoint, workdir, mounts, env, project_cwd
         )
         path = bundle / "config.json"
-        path.write_text(json.dumps(profile) + "\n")
+        path.write_text(json.dumps(profile) + "\n", encoding="utf-8")
         result = _command([str(helper), str(path)], timeout=timeout)
         if result.returncode == 125 and result.stderr.startswith("rebrew-unshare:"):
             raise UnshareError(result.stderr.strip() or "experimental namespace setup failed")

@@ -156,7 +156,7 @@ def _parse_address_anchors(source: str) -> list[AddressAnchor]:
     masked = bytearray(src)
     pending: list[tuple[str, int, int]] = []
     for node in comment_nodes(tree):
-        comment = src[node.start_byte : node.end_byte].decode("utf-8")
+        comment = src[node.start_byte : node.end_byte].decode("utf-8", errors="surrogateescape")
         masked[node.start_byte : node.end_byte] = src[node.start_byte : node.end_byte].translate(
             _COMMENT_MASK
         )
@@ -228,7 +228,7 @@ def metadata_comments(source: str) -> list[tuple[int, str]]:
             parent = parent.parent
         if parent is not None:
             continue
-        text = src[node.start_byte : node.end_byte].decode("utf-8")
+        text = src[node.start_byte : node.end_byte].decode("utf-8", errors="surrogateescape")
         body = text[2:-2].strip() if text.startswith("/*") else text[2:].strip()
         key, separator, _value = body.partition(":")
         if separator and key in _RESERVED_METADATA_KEYS:
