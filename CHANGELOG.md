@@ -1,5 +1,11 @@
 ## [Unreleased]
 
+## [6.21.1] - 2026-11-05
+
+### Fixed
+
+- Format the jobs service source so its CI checks can run.
+
 ## [6.21.0] - 2026-11-04
 
 ### Added

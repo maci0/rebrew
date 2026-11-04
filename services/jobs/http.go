@@ -51,12 +51,16 @@ func (r *statusRecorder) SetWriteDeadline(t time.Time) error {
 }
 
 func hostAllowed(host string) bool {
-	if host == "" { return true }
+	if host == "" {
+		return true
+	}
 	h := host
 	if strings.Contains(h, ":") {
 		var err error
 		h, _, err = net.SplitHostPort(h)
-		if err != nil { return false }
+		if err != nil {
+			return false
+		}
 	}
 	h = strings.Trim(h, "[]")
 	switch strings.ToLower(h) {
@@ -64,7 +68,9 @@ func hostAllowed(host string) bool {
 		return true
 	}
 	ip := net.ParseIP(h)
-	if ip != nil && (ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast()) { return true }
+	if ip != nil && (ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast()) {
+		return true
+	}
 	return false
 }
 
@@ -74,7 +80,10 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 		return nil, fmt.Errorf("job token must contain at least 32 bytes")
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !hostAllowed(r.Host) { http.Error(w, "host not allowed", http.StatusForbidden); return }
+		if !hostAllowed(r.Host) {
+			http.Error(w, "host not allowed", http.StatusForbidden)
+			return
+		}
 		start := time.Now()
 		requestID := r.Header.Get("X-Request-ID")
 		status := 0

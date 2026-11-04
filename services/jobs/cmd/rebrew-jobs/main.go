@@ -54,7 +54,9 @@ func main() {
 		log.Fatal(err)
 	}
 	addr := os.Getenv("REBREW_JOBS_ADDR")
-	if addr != "" && !strings.HasPrefix(addr, "127.0.0.1:") && !strings.HasPrefix(addr, "[::1]:") && !strings.HasPrefix(addr, "localhost:") { log.Println("warning: rebrew-jobs bound to non-loopback address;", addr) }
+	if addr != "" && !strings.HasPrefix(addr, "127.0.0.1:") && !strings.HasPrefix(addr, "[::1]:") && !strings.HasPrefix(addr, "localhost:") {
+		log.Println("warning: rebrew-jobs bound to non-loopback address;", addr)
+	}
 	if addr == "" {
 		addr = "127.0.0.1:8089"
 	}
