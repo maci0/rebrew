@@ -52,6 +52,9 @@ TARGETLESS_EXEMPT: set[tuple[str, str]] = {
     ("toolchain", "update"),
     ("skills", "list"),
     ("skills", "show"),
+    # The backend worker names its project per request (project_dir).
+    ("ops", "call"),
+    ("ops", "serve"),
     # schema prints the CLI document and never reads a project.
     ("schema", "main"),
     ("library", "show"),

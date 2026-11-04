@@ -1,6 +1,6 @@
 # CLI Reference
 
-The CLI exposes 233 surfaces: 200 leaf commands and 33 groups, including the
+The CLI exposes 236 surfaces: 202 leaf commands and 34 groups, including the
 root. They are registered under the unified `rebrew` entry point in `app/main.py`
 (`CliComponent` rows in `app/builtins.py`).
 Only `rebrew` is installed. Invoke tools as subcommands:
@@ -6256,6 +6256,76 @@ Pretty-print the SKILL.md for the named skill.
 | --- | --- | --- | --- |
 | `NAME` | str | required | Skill name (e.g. 'rebrew-workflow') |
 | `--json` | flag | `False` | Output results as JSON |
+
+## Backend worker
+
+### `rebrew ops`
+
+`rebrew ops [OPTIONS] COMMAND [ARGS]…`
+
+Answers the relumea backend's `rebrew` dispatch service. The ops, their
+request fields and their replies are the backend's contract
+(`internal/engines/rebrew` and the generated
+`contracts/dispatch/rebrew.schema.json` in the backend repository); all 19
+are served. A request with an unknown or missing field, or a field of the
+wrong JSON type, is refused. A refusal is
+`{"error","detail","status"}`: `invalid-request` (400; 413 when the request
+exceeds 16 MiB), `unknown-op` (404), or `engine-error` (500). An engine
+failure answers a fixed detail and logs its cause on stderr.
+
+Binaries are referenced, never sent:
+
+- A stored binary (`key`, `file_key`, `file`) is a relative filestore key
+  resolved under `--filestore`, the backend's local filestore directory. A key
+  that is absolute, contains `.`/`..`, or resolves outside the directory
+  (through a symlink, say) is refused, and the file must hash to the request's
+  `sha256`. A remote (S3) filestore is not read; mount it as a directory.
+- An analysed binary is the absolute `project_dir` of its rebrew project. A
+  request `sha256` selects the target whose binary has that hash; without one
+  the project's default target is used.
+- `rebrew.analyse` runs `rebrew intake` in `<workspace>/projects/<sha256>`,
+  so a second run re-discovers into the same project. `rebrew.report` writes
+  its relative `output_dir` under `--workspace`.
+
+The backend selects a transport with `RELUMEA_DISPATCH_REBREW`:
+`exec:rebrew ops call --filestore DIR --workspace DIR` runs one process per
+call, or `http://127.0.0.1:PORT` reaches `rebrew ops serve` with the token in
+`RELUMEA_DISPATCH_REBREW_TOKEN`.
+
+| Operation | Purpose |
+| --- | --- |
+| `rebrew ops call` | Answer one op: request on stdin, reply on stdout. |
+| `rebrew ops serve` | Answer `POST /<op>` over HTTP. |
+
+### `rebrew ops call`
+
+`rebrew ops call [OPTIONS] OP`
+
+Reads the JSON request on stdin and writes the reply on stdout. A refusal
+writes the error object on stdout and exits 2. Anything rebrew prints while
+answering goes to stderr.
+
+| Argument or option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `OP` | str | required | Wire op name, such as `rebrew.disassemble` |
+| `--filestore` | path | `REBREW_OPS_FILESTORE` | The backend's local filestore directory |
+| `--workspace` | path | `REBREW_OPS_WORKSPACE` | Directory for generated projects and report output |
+
+### `rebrew ops serve`
+
+`rebrew ops serve [OPTIONS]`
+
+Serves `POST /<op>` until interrupted. Every request needs
+`Authorization: Bearer $REBREW_OPS_TOKEN`; the command exits 2 when the
+variable is unset. A request needs a `Content-Length` of at most 16 MiB.
+Calls run on one thread each.
+
+| Argument or option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--port` | int | required | TCP port; 0 picks a free one |
+| `--host` | str | `127.0.0.1` | Address to bind |
+| `--filestore` | path | `REBREW_OPS_FILESTORE` | The backend's local filestore directory |
+| `--workspace` | path | `REBREW_OPS_WORKSPACE` | Directory for generated projects and report output |
 
 ## Similarity
 

@@ -1,0 +1,1067 @@
+"""ops.py – The op worker the relumea backend dispatches rebrew calls to.
+
+The backend names each call ``rebrew.<op>`` with a JSON request and reads a
+JSON reply (contract: the backend's ``internal/engines/rebrew`` package and its
+generated ``contracts/dispatch/rebrew.schema.json``).  One dispatcher serves two
+transports:
+
+``rebrew ops call <op>`` reads the request on stdin and writes the reply on
+stdout.  A refusal writes ``{"error", "detail", "status"}`` on stdout and exits
+``EXIT_ERROR``.
+
+``rebrew ops serve --port N`` answers ``POST /<op>`` with the request as the
+body, the same reply, and the refusal under its HTTP ``status``.  Every request
+needs ``Authorization: Bearer $REBREW_OPS_TOKEN``.
+
+Binaries are referenced, never carried in a request.  A stored binary is a
+filestore key resolved under ``--filestore`` (the backend's local filestore
+directory); its bytes must hash to the request's ``sha256``.  An analysed
+binary is the absolute ``project_dir`` of its rebrew project; a request
+``sha256`` selects the target whose binary has that hash.  ``analyse`` creates
+``<workspace>/projects/<sha256>`` and ``report`` writes its relative
+``output_dir`` under ``--workspace``.
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import MISSING, dataclass, field, fields
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+lazy import base64
+lazy import binascii
+lazy import contextlib
+lazy import hashlib
+lazy import hmac
+lazy import json
+lazy import os
+lazy import re
+lazy import signal
+lazy import subprocess
+lazy import sys
+lazy import typing
+lazy from collections.abc import Callable, Mapping
+lazy from typing import Any
+
+import typer
+
+from rebrew.errors import RebrewError
+lazy from rebrew.cli import EXIT_ERROR, console, error_exit
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Limits and wire constants
+# ---------------------------------------------------------------------------
+
+#: Environment variable holding the bearer token ``serve`` requires.
+TOKEN_ENV = "REBREW_OPS_TOKEN"  # noqa: S105  # a variable name, not a credential
+
+#: Largest request body accepted on either transport.  The biggest request is
+#: ``disassemble_bytes`` carrying base64 code; 16 MiB leaves room for a 1 MiB
+#: function many times over.
+MAX_REQUEST_BYTES = 16 << 20
+
+#: Largest reply written.  The backend reads at most this much (its
+#: ``dispatch.MaxReply``), so a larger reply is refused here, with a reason.
+MAX_REPLY_BYTES = 64 << 20
+
+#: Seconds an HTTP connection may stall while its request is read or its reply
+#: written.  Engine work is not bounded by it.
+SOCKET_TIMEOUT_SECONDS = 60
+
+#: Wall-clock bound on one ``rebrew intake`` run (``analyse``).
+INTAKE_TIMEOUT_SECONDS = 600
+
+#: Detail characters kept from a rebrew refusal.
+DETAIL_MAX_CHARS = 400
+
+#: Listing formats ``disassemble`` accepts.
+DISASM_FORMATS = frozenset({"nasm", "asm", "hex"})
+
+#: The one ISA rebrew's NASM source decodes.  ``disassemble_bytes`` lists every
+#: other ISA in the ``asm`` format.
+NASM_ARCH = "x86_32"
+
+#: Backends ``decompile`` and ``structs`` accept (the backend's
+#: ``DecompileRequest`` list).
+DECOMPILER_BACKENDS = frozenset({"auto", "ghidra", "kuna", "r2dec", "r2ghidra"})
+
+#: ``binary_operand_locations`` bounds: functions per call, bytes per function,
+#: locations per function and the highest capstone operand index.
+OPERAND_MAX_FUNCTIONS = 128
+OPERAND_MAX_FUNCTION_BYTES = 1 << 20
+OPERAND_MAX_LOCATIONS = 256
+OPERAND_MAX_INDEX = 7
+
+#: Coverage rows that are data, not functions.
+_DATA_MARKERS = frozenset({"GLOBAL", "DATA"})
+
+_SHA256 = re.compile(r"[0-9a-f]{64}\Z")
+_TARGET_UNSAFE = re.compile(r"[^A-Za-z0-9_]")
+_INT64_MIN = -(1 << 63)
+_INT64_MAX = (1 << 63) - 1
+
+# ---------------------------------------------------------------------------
+# Refusals
+# ---------------------------------------------------------------------------
+
+INVALID_REQUEST = "invalid-request"
+UNKNOWN_OP = "unknown-op"
+ENGINE_ERROR = "engine-error"
+
+
+class OpsError(RebrewError):
+    """A refusal: a detail safe to show, a stable code, and an HTTP status."""
+
+    code: str = ENGINE_ERROR
+    status: int = 500
+
+    def __init__(self, detail: str, *, code: str = ENGINE_ERROR, status: int = 500) -> None:
+        super().__init__(detail)
+        self.code = code
+        self.status = status
+
+
+def _invalid(detail: str) -> OpsError:
+    return OpsError(detail, code=INVALID_REQUEST, status=400)
+
+
+def _refused(detail: str) -> OpsError:
+    return OpsError(detail)
+
+
+def error_body(code: str, detail: str, status: int) -> bytes:
+    """The refusal reply both transports write."""
+    return json.dumps({"error": code, "detail": detail, "status": status}).encode()
+
+
+def _bounded(text: str) -> str:
+    """*text* on one line, cut at :data:`DETAIL_MAX_CHARS`."""
+    return " ".join(text.split())[:DETAIL_MAX_CHARS]
+
+
+# ---------------------------------------------------------------------------
+# Worker configuration
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class WorkerConfig:
+    """Where the worker reads stored binaries and writes projects and reports."""
+
+    filestore: Path | None = None
+    workspace: Path | None = None
+
+    def require_filestore(self) -> Path:
+        if self.filestore is None:
+            raise _refused("the rebrew worker has no filestore configured (--filestore)")
+        return self.filestore
+
+    def require_workspace(self) -> Path:
+        if self.workspace is None:
+            raise _refused("the rebrew worker has no workspace configured (--workspace)")
+        return self.workspace
+
+
+def _existing_dir(value: Path | None, flag: str) -> Path | None:
+    if value is None:
+        return None
+    if not value.is_absolute() or not value.is_dir():
+        error_exit(f"{flag} must be an absolute path to an existing directory: {value}")
+    return value.resolve()
+
+
+# ---------------------------------------------------------------------------
+# Requests (field names and required fields follow the backend's Go types)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DisassembleRequest:
+    project_dir: str
+    va: int
+    size: int
+    format: str
+    sha256: str = ""
+    arch: str = ""
+
+
+@dataclass(frozen=True)
+class DisassembleBytesRequest:
+    code: bytes
+    va: int
+    arch: str
+
+
+@dataclass(frozen=True)
+class AddressRequest:
+    project_dir: str
+    sha256: str
+    va: int
+    size: int = 0
+    kinds: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class DecompileRequest:
+    project_dir: str
+    sha256: str
+    va: int
+    backend: str
+    named: bool
+
+
+@dataclass(frozen=True)
+class ProjectRequest:
+    project_dir: str
+
+
+@dataclass(frozen=True)
+class BinaryFile:
+    binary_id: int
+    sha256: str
+    key: str
+    name: str
+
+
+@dataclass(frozen=True)
+class ReportRequest:
+    binary_id: int
+    project_dir: str
+    output_dir: str
+
+
+@dataclass(frozen=True)
+class SecurityScanRequest:
+    binary_id: int
+    project_dir: str
+    min_severity: str
+
+
+@dataclass(frozen=True)
+class AnalyseRequest:
+    binary_id: int
+    sha256: str
+    name: str
+    file_key: str
+
+
+@dataclass(frozen=True)
+class ImportRequest:
+    project_dir: str
+    snapshots: str = ""
+    build_db: bool = False
+
+
+@dataclass(frozen=True)
+class OperandFunction:
+    va: int
+    size: int
+    locations: list[tuple[int, int]]
+
+
+@dataclass(frozen=True)
+class OperandLocationsRequest:
+    sha256: str
+    file: str
+    functions: list[OperandFunction]
+
+
+@dataclass(frozen=True)
+class StructsRequest:
+    binary_id: int
+    project_dir: str
+    decompiler: str
+    limit: int
+
+
+def _decode(value: Any, hint: Any, where: str) -> Any:
+    """Check one JSON value against the field type *hint*; bytes arrive base64."""
+    origin = typing.get_origin(hint)
+    if hint is bool:
+        if type(value) is not bool:
+            raise _invalid(f"{where} must be a boolean")
+        return value
+    if hint is int:
+        if type(value) is not int or not _INT64_MIN <= value <= _INT64_MAX:
+            raise _invalid(f"{where} must be a 64-bit integer")
+        return value
+    if hint is str:
+        if type(value) is not str:
+            raise _invalid(f"{where} must be a string")
+        return value
+    if hint is bytes:
+        if type(value) is not str:
+            raise _invalid(f"{where} must be a base64 string")
+        try:
+            return base64.b64decode(value, validate=True)
+        except binascii.Error:
+            raise _invalid(f"{where} is not valid base64") from None
+    if origin is list:
+        if type(value) is not list:
+            raise _invalid(f"{where} must be an array")
+        (item,) = typing.get_args(hint)
+        return [_decode(entry, item, f"{where}[{index}]") for index, entry in enumerate(value)]
+    if origin is tuple:
+        items = typing.get_args(hint)
+        if type(value) is not list or len(value) != len(items):
+            raise _invalid(f"{where} must be an array of {len(items)} items")
+        return tuple(
+            _decode(entry, item, f"{where}[{index}]")
+            for index, (entry, item) in enumerate(zip(value, items, strict=True))
+        )
+    return parse_request(hint, value, where)
+
+
+def parse_request[T](cls: type[T], raw: Any, where: str = "request") -> T:
+    """Build *cls* from a decoded JSON object, refusing unknown and missing fields."""
+    if type(raw) is not dict:
+        raise _invalid(f"{where} must be a JSON object")
+    hints = typing.get_type_hints(cls)
+    known = {spec.name: spec for spec in fields(cls)}  # type: ignore[arg-type]
+    unknown = sorted(set(raw) - set(known))
+    if unknown:
+        raise _invalid(f"{where} has unknown fields: {', '.join(unknown)}")
+    values: dict[str, Any] = {}
+    for name, spec in known.items():
+        if name in raw:
+            values[name] = _decode(raw[name], hints[name], f"{where}.{name}")
+        elif spec.default is MISSING and spec.default_factory is MISSING:
+            raise _invalid(f"{where} is missing {name}")
+    return cls(**values)
+
+
+# ---------------------------------------------------------------------------
+# Binary and project references
+# ---------------------------------------------------------------------------
+
+
+def _file_sha256(path: Path) -> str:
+    with path.open("rb") as handle:
+        return hashlib.file_digest(handle, "sha256").hexdigest()
+
+
+def _sha256(text: str) -> str:
+    if _SHA256.match(text) is None:
+        raise _invalid("sha256 must be 64 lowercase hex digits")
+    return text
+
+
+def _address(va: int) -> int:
+    if va < 0:
+        raise _invalid(f"va must not be negative, got {va}")
+    return va
+
+
+def stored_file(config: WorkerConfig, key: str, sha256: str) -> Path:
+    """The filestore file at *key*, checked to lie under the root and hash to *sha256*.
+
+    Keys follow the backend filestore's rule: relative, clean, ``/``-separated.
+    """
+    root = config.require_filestore()
+    wanted = _sha256(sha256)
+    parts = key.split("/")
+    if not key or "\\" in key or "\0" in key or any(p in ("", ".", "..") for p in parts):
+        raise _invalid("file key must be a clean relative filestore key")
+    try:
+        path = root.joinpath(*parts).resolve(strict=True)
+    except FileNotFoundError:
+        raise _invalid("no stored file for the key") from None
+    if not path.is_relative_to(root) or not path.is_file():
+        raise _invalid("the key does not name a stored file")
+    if _file_sha256(path) != wanted:
+        raise _invalid("the stored file does not match its sha256")
+    return path
+
+
+def project_root(project_dir: str) -> Path:
+    """The rebrew project at the absolute *project_dir*."""
+    root = Path(project_dir)
+    if not root.is_absolute():
+        raise _invalid("project_dir must be an absolute path")
+    if not (root / "rebrew-project.toml").is_file():
+        raise _invalid("project_dir is not a rebrew project (no rebrew-project.toml)")
+    return root
+
+
+def target_config(root: Path, sha256: str) -> Any:
+    """The project config of the target whose binary hashes to *sha256*.
+
+    An empty *sha256* selects the project's default target.
+    """
+    from rebrew.config import load_config
+    from rebrew.workspace import read_config, target_binary, targets_table
+
+    if not sha256:
+        return load_config(root)
+    wanted = _sha256(sha256)
+    for name, entry in targets_table(read_config(root)).items():
+        binary = target_binary(root, entry)
+        if binary is not None and binary.is_file() and _file_sha256(binary) == wanted:
+            return load_config(root, target=name)
+    raise _invalid("no target of project_dir has a binary with that sha256")
+
+
+def _inside(base: Path, relative: str, what: str) -> Path:
+    """*relative* resolved under *base*; an absolute path or an escape is refused."""
+    if not relative or Path(relative).is_absolute():
+        raise _invalid(f"{what} must be a relative path")
+    path = (base / relative).resolve()
+    if path == base or not path.is_relative_to(base):
+        raise _invalid(f"{what} must stay inside the worker workspace")
+    return path
+
+
+# ---------------------------------------------------------------------------
+# Listings
+# ---------------------------------------------------------------------------
+
+
+def _capstone_for(arch: str) -> tuple[int, int]:
+    from rebrew.formats.binary_loader import capstone_config_for
+    from rebrew.formats.binary_model import BinaryInfo
+
+    return capstone_config_for(BinaryInfo(path=Path(), format="", arch=arch, endian=""))
+
+
+def _nasm_listing(code: bytes, va: int) -> str:
+    from rebrew.asm import disassemble_to_nasm
+
+    source, _stats = disassemble_to_nasm(code, va, f"func_{va:08X}")
+    return source + "\n"
+
+
+def _asm_listing(code: bytes, va: int, cs_arch: int, cs_mode: int) -> str:
+    """One ``mnemonic operands`` line per instruction."""
+    from rebrew.analysis import disasm_insns
+
+    return "".join(
+        f"{insn.mnemonic} {insn.op_str}".rstrip() + "\n"
+        for insn in disasm_insns(code, va, cs_arch, cs_mode)
+    )
+
+
+def disassemble(_config: WorkerConfig, req: DisassembleRequest) -> dict[str, Any]:
+    """Listing of ``[va, va+size)``: NASM source, ``asm`` lines, or the hex view.
+
+    ``arch`` overrides the target's ISA for ``asm``; NASM covers x86_32 only and
+    the hex view decodes the target's own ISA.
+    """
+    if req.format not in DISASM_FORMATS:
+        raise _invalid(f"format must be one of {', '.join(sorted(DISASM_FORMATS))}")
+    if req.size <= 0:
+        raise _invalid(f"size must be positive, got {req.size}")
+    va = _address(req.va)
+    cfg = target_config(project_root(req.project_dir), req.sha256)
+    arch = req.arch or cfg.arch
+    if req.format == "hex":
+        if arch != cfg.arch:
+            raise _invalid("the hex listing decodes the target's own arch; use asm for an override")
+        from rebrew.asm import hex_disassembly
+
+        return {"text": hex_disassembly(cfg, va, req.size)}
+    if req.format == "nasm" and arch != NASM_ARCH:
+        raise _invalid(f"NASM source covers {NASM_ARCH} only and this binary is {arch}")
+    from rebrew.formats.binary_loader import extract_raw_bytes
+
+    code = extract_raw_bytes(cfg.target_binary, va, req.size)
+    if not code:
+        raise _invalid(f"no file bytes at 0x{va:x}")
+    if req.format == "nasm":
+        return {"text": _nasm_listing(code, va)}
+    cs_arch, cs_mode = (
+        (cfg.capstone_arch, cfg.capstone_mode) if arch == cfg.arch else _capstone_for(arch)
+    )
+    return {"text": _asm_listing(code, va, cs_arch, cs_mode)}
+
+
+def disassemble_bytes(_config: WorkerConfig, req: DisassembleBytesRequest) -> dict[str, Any]:
+    """Listing of raw code: NASM source for x86_32 (or no arch), ``asm`` lines otherwise."""
+    va = _address(req.va)
+    if req.arch in ("", NASM_ARCH):
+        return {"text": _nasm_listing(req.code, va)}
+    return {"text": _asm_listing(req.code, va, *_capstone_for(req.arch))}
+
+
+# ---------------------------------------------------------------------------
+# Function ops on an analysed binary
+# ---------------------------------------------------------------------------
+
+
+def control_flow_graph(_config: WorkerConfig, req: AddressRequest) -> dict[str, Any]:
+    """Basic-block graph; ``size`` 0 lets rebrew resolve the extent."""
+    from rebrew.asm import build_cfg_payload
+
+    if req.size < 0:
+        raise _invalid(f"size must not be negative, got {req.size}")
+    cfg = target_config(project_root(req.project_dir), req.sha256)
+    return build_cfg_payload(cfg, _address(req.va), req.size)
+
+
+def xrefs(_config: WorkerConfig, req: AddressRequest) -> dict[str, Any]:
+    """References to ``va``, narrowed to ``kinds`` when given."""
+    from rebrew.xrefs import build_xrefs_payload
+
+    cfg = target_config(project_root(req.project_dir), req.sha256)
+    return build_xrefs_payload(cfg.target_binary, _address(req.va), req.kinds or None)
+
+
+def describe(_config: WorkerConfig, req: AddressRequest) -> dict[str, Any]:
+    """The function dossier ``rebrew describe --json`` prints."""
+    from rebrew.analysis import is_inside
+    from rebrew.describe import JSON_KEYS, build_dossier
+    from rebrew.formats.binary_loader import load_binary
+
+    cfg = target_config(project_root(req.project_dir), req.sha256)
+    va = _address(req.va)
+    info = load_binary(cfg.target_binary)
+    if not is_inside(info, va):
+        raise _invalid(f"VA 0x{va:x} is outside the binary image")
+    dossier = build_dossier(cfg, info, va)
+    return {key: dossier[key] for key in JSON_KEYS}
+
+
+def decompile(_config: WorkerConfig, req: DecompileRequest) -> dict[str, Any]:
+    """Decompiled source of ``va``; ``named`` applies the project's known struct names."""
+    from rebrew.decompiler import fetch_decompilation
+
+    if req.backend not in DECOMPILER_BACKENDS:
+        raise _invalid(f"unsupported decompiler backend: {req.backend}")
+    cfg = target_config(project_root(req.project_dir), req.sha256)
+    va = _address(req.va)
+    code, backend = fetch_decompilation(req.backend, cfg.target_binary, va, cfg.root)
+    if not code:
+        raise _refused(
+            f"no decompilation via '{req.backend}' for 0x{va:x}"
+            " (backend unavailable or unsupported address)"
+        )
+    if req.named:
+        from rebrew.name_decomp import apply_known_names
+        from rebrew.sources import iter_library_headers, iter_sources
+        from rebrew.struct_recover import existing_structs
+
+        sources = [
+            *iter_sources(cfg.reversed_dir, cfg),
+            *iter_library_headers(cfg.reversed_dir, cfg),
+        ]
+        pointer_width = int(getattr(cfg, "pointer_size", 4) or 4)
+        code = apply_known_names(code, existing_structs(sources), pointer_width=pointer_width).code
+    return {"code": code, "backend": backend}
+
+
+def identify_library(_config: WorkerConfig, req: ProjectRequest) -> dict[str, Any]:
+    """Library candidates of the default target, as a dry run that writes nothing."""
+    from rebrew.config import load_config
+    from rebrew.identify_library import collect_candidates
+    from rebrew.naming import load_existing_vas
+
+    cfg = load_config(project_root(req.project_dir))
+    candidates = collect_candidates(cfg)
+    existing = set(load_existing_vas(cfg.reversed_dir, cfg))
+    fresh = sum(1 for candidate in candidates if candidate.va not in existing)
+    return {
+        "sigs_written": 0,
+        "identified": len(candidates),
+        "already_annotated": len(candidates) - fresh,
+        "to_write": fresh,
+        "written": 0,
+        "candidates": [
+            {
+                "va": f"0x{candidate.va:08x}",
+                "name": candidate.name,
+                "module": candidate.module,
+                "kind": candidate.kind,
+                "confidence": round(candidate.confidence, 2),
+            }
+            for candidate in candidates
+        ],
+    }
+
+
+def structs(_config: WorkerConfig, req: StructsRequest) -> dict[str, Any]:
+    """Recovered structs of the default target; ``limit`` caps decompiled functions (0: none)."""
+    from rebrew.config import load_config
+    from rebrew.struct_recover import recover_project_structs
+
+    if req.decompiler not in DECOMPILER_BACKENDS:
+        raise _invalid(f"unsupported decompiler backend: {req.decompiler}")
+    if req.limit < 0:
+        raise _invalid(f"limit must not be negative, got {req.limit}")
+    cfg = load_config(project_root(req.project_dir))
+    return recover_project_structs(
+        cfg, decompiler=req.decompiler, limit=req.limit, json_output=True
+    )
+
+
+def binary_operand_locations(config: WorkerConfig, req: OperandLocationsRequest) -> dict[str, Any]:
+    """Per function, the requested (offset, operand index) pairs that decode as operands.
+
+    Decoding starts at each function entry with the loader's ISA.
+    """
+    from rebrew.analysis import capstone_handle
+    from rebrew.formats.binary_loader import capstone_config_for, extract_bytes_at_va, load_binary
+
+    if not 1 <= len(req.functions) <= OPERAND_MAX_FUNCTIONS:
+        raise _invalid(f"functions must hold 1 to {OPERAND_MAX_FUNCTIONS} entries")
+    for function in req.functions:
+        if function.va < 0 or not 1 <= function.size <= OPERAND_MAX_FUNCTION_BYTES:
+            raise _invalid("function extent is outside its bounds")
+        if len(function.locations) > OPERAND_MAX_LOCATIONS or any(
+            not 0 <= offset < function.size or not 0 <= index <= OPERAND_MAX_INDEX
+            for offset, index in function.locations
+        ):
+            raise _invalid("operand locations are outside their bounds")
+    info = load_binary(stored_file(config, req.file, req.sha256))
+    decoder = capstone_handle(*capstone_config_for(info), detail=True)
+    results: list[list[list[int]]] = []
+    for function in req.functions:
+        code = extract_bytes_at_va(info, function.va, function.size, trim_padding=False)
+        if code is None or len(code) != function.size:
+            raise _invalid("operand extent is not file backed")
+        wanted = set(function.locations)
+        valid: set[tuple[int, int]] = set()
+        for instruction in decoder.disasm(code, function.va):
+            offset = int(instruction.address) - function.va
+            valid.update(
+                (offset, index)
+                for index in range(len(instruction.operands))
+                if (offset, index) in wanted
+            )
+            if valid == wanted:
+                break
+        results.append([list(location) for location in sorted(valid)])
+    return {"locations": results}
+
+
+# ---------------------------------------------------------------------------
+# Scan ops on a stored binary
+# ---------------------------------------------------------------------------
+
+
+def imports(config: WorkerConfig, req: BinaryFile) -> dict[str, Any]:
+    from rebrew.imports import imports_payload
+
+    return imports_payload(stored_file(config, req.key, req.sha256))
+
+
+def strings(config: WorkerConfig, req: BinaryFile) -> dict[str, Any]:
+    from rebrew.strings import collect_strings
+
+    return collect_strings(stored_file(config, req.key, req.sha256), json_output=True)
+
+
+def fingerprint(config: WorkerConfig, req: BinaryFile) -> dict[str, Any]:
+    from rebrew.fingerprints import fingerprint_bundle
+
+    return dict(fingerprint_bundle(stored_file(config, req.key, req.sha256)))
+
+
+def analyze(config: WorkerConfig, req: BinaryFile) -> dict[str, Any]:
+    """The standalone dossier: no project, so project-scoped sections stay empty."""
+    from rebrew.analyze import build_dossier, standalone_config
+
+    path = stored_file(config, req.key, req.sha256)
+    return build_dossier(standalone_config(path), path)
+
+
+def crypto_scan(config: WorkerConfig, req: BinaryFile) -> dict[str, Any]:
+    """Crypto constants and APIs; with no project there are no function names to match."""
+    from rebrew.crypto_scan import crypto_scan as scan
+
+    return scan(stored_file(config, req.key, req.sha256), [])
+
+
+def pe_info(config: WorkerConfig, req: BinaryFile) -> dict[str, Any]:
+    from rebrew.pe_info import pe_info as info
+
+    return dict(info(stored_file(config, req.key, req.sha256)))
+
+
+# ---------------------------------------------------------------------------
+# Project ops
+# ---------------------------------------------------------------------------
+
+
+def report(config: WorkerConfig, req: ReportRequest) -> dict[str, Any]:
+    """Render the default target's report into ``output_dir`` under the workspace."""
+    from rebrew.config import load_config
+    from rebrew.report import generate_report
+
+    root = project_root(req.project_dir)
+    out = _inside(config.require_workspace(), req.output_dir, "output_dir")
+    return generate_report(load_config(root), out)
+
+
+def security_scan(_config: WorkerConfig, req: SecurityScanRequest) -> dict[str, Any]:
+    """Rule findings over the default target's reversed sources at ``min_severity`` or above."""
+    from rebrew.config import load_config
+    from rebrew.security_scan import SEVERITY_ORDER, filter_by_severity
+    from rebrew.security_scan import security_scan as scan
+
+    if req.min_severity not in SEVERITY_ORDER:
+        raise _invalid(f"min_severity must be one of {', '.join(SEVERITY_ORDER)}")
+    cfg = load_config(project_root(req.project_dir))
+    return filter_by_severity(scan(cfg.reversed_dir), req.min_severity)
+
+
+def target_name(display_name: str) -> str:
+    """The rebrew target name for an uploaded file: ``2k-calc.exe`` is ``t_2k_calc``."""
+    stem = _TARGET_UNSAFE.sub("_", Path(display_name).stem).strip("_") or "target"
+    return f"t_{stem}" if stem[0].isdigit() else stem
+
+
+def _run_intake(binary: Path, project: Path, target: str) -> dict[str, Any]:
+    """Run ``rebrew intake --json`` in *project*.
+
+    Intake onboards the project in its working directory and has no entry
+    point that takes a root, while ``serve`` handles calls on threads sharing
+    one cwd, so it runs as a child process in its own session; a timeout kills
+    the whole group.
+    """
+    command = [sys.executable, "-m", "rebrew.app.main", "intake", "--json", "--target", target]
+    process = subprocess.Popen(
+        [*command, str(binary)],
+        cwd=project,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = process.communicate(timeout=INTAKE_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.communicate()
+        raise _refused(f"rebrew intake did not finish within {INTAKE_TIMEOUT_SECONDS} s") from None
+    if process.returncode != 0:
+        logger.error("rebrew intake exited %d: %s", process.returncode, stderr.strip())
+        raise _refused(f"rebrew intake failed: {_intake_refusal(stderr)}")
+    report = json.loads(stdout)
+    if not isinstance(report, dict):
+        raise _refused("rebrew intake answered a report that is not an object")
+    return report
+
+
+def _intake_refusal(stderr: str) -> str:
+    """The message of intake's JSON error line, or its exit being unexplained."""
+    for line in reversed(stderr.splitlines()):
+        with contextlib.suppress(json.JSONDecodeError):
+            payload = json.loads(line)
+            if isinstance(payload, dict) and isinstance(payload.get("error"), dict):
+                return _bounded(str(payload["error"].get("message", "")))
+    return "no error report"
+
+
+def analyse(config: WorkerConfig, req: AnalyseRequest) -> dict[str, Any]:
+    """Onboard a stored binary into ``<workspace>/projects/<sha256>`` and report its coverage.
+
+    A second run re-discovers into the same project.  ``intake`` is the onboarding report.
+    """
+    binary = stored_file(config, req.file_key, req.sha256)
+    project = config.require_workspace() / "projects" / req.sha256
+    project.mkdir(parents=True, exist_ok=True)
+    intake = _run_intake(binary, project, target_name(req.name))
+    return {**project_report(project, None), "intake": intake}
+
+
+def import_project(_config: WorkerConfig, req: ImportRequest) -> dict[str, Any]:
+    """Coverage of an existing workspace: live, or the portable export in ``snapshots``.
+
+    Live coverage is always refreshed, so ``build_db`` asks for nothing more.
+    """
+    root = project_root(req.project_dir)
+    if req.snapshots and req.build_db:
+        raise _invalid("snapshots and build_db exclude each other")
+    snapshots = None
+    if req.snapshots:
+        snapshots = Path(req.snapshots)
+        if not snapshots.is_absolute() or not snapshots.is_dir():
+            raise _invalid("snapshots must be an absolute path to a directory")
+    return project_report(root, snapshots)
+
+
+def project_report(root: Path, snapshots: Path | None) -> dict[str, Any]:
+    """The backend's ``ProjectReport`` of *root*: targets, functions and import stubs.
+
+    Live coverage is read unless *snapshots* names a portable export directory.
+    """
+    from rebrew.coverage_project import load_project_coverage
+    from rebrew.coverage_toml import load_coverage_from
+    from rebrew.formats.import_table import find_import_stubs
+    from rebrew.workspace import read_config, target_binary, targets_table
+
+    if snapshots is None:
+        view = load_project_coverage(root, refresh=True)
+        if view.failures:
+            raise _refused(f"coverage failed for targets: {', '.join(sorted(view.failures))}")
+        coverage = dict(view.snapshots)
+    else:
+        names = sorted(p.stem.removeprefix("coverage-") for p in snapshots.glob("coverage-*.toml"))
+        coverage = {name: load_coverage_from(snapshots, name) for name in names}
+    if not coverage:
+        raise _invalid("the project has no coverage targets")
+    table = targets_table(read_config(root))
+    targets = []
+    for name in sorted(coverage):
+        entry = table.get(name, {})
+        binary = target_binary(root, entry) if entry else None
+        if binary is not None and not binary.is_file():
+            binary = None
+        functions = [
+            {
+                "va": row.va,
+                "name": row.name.strip() or f"sub_{row.va:x}",
+                "size": max(0, row.size or 0),
+                "status": row.status,
+            }
+            for row in sorted(coverage[name].functions, key=lambda row: row.va)
+            if row.markerType not in _DATA_MARKERS
+        ]
+        stubs = sorted(find_import_stubs(binary).items()) if binary is not None else []
+        targets.append(
+            {
+                "name": name,
+                "arch": str(entry.get("arch") or ""),
+                "format": str(entry.get("format") or ""),
+                "document": str(
+                    root / "rebrew-project.toml"
+                    if snapshots is None
+                    else snapshots / f"coverage-{name}.toml"
+                ),
+                "functions": functions,
+                "stubs": [{"va": va, "name": stub} for va, stub in stubs],
+                "sha256": _file_sha256(binary) if binary is not None else "",
+                "path": str(binary) if binary is not None else "",
+                "size": binary.stat().st_size if binary is not None else 0,
+            }
+        )
+    return {
+        "project": str(root),
+        "coverage_dir": str(snapshots) if snapshots is not None else None,
+        "targets": targets,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Dispatcher
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Op:
+    """One wire op: its request type and the function that answers it."""
+
+    request: type
+    run: Callable[[WorkerConfig, Any], Mapping[str, Any]]
+
+
+#: Every op of the backend's rebrew contract, by wire name.
+OPS: dict[str, Op] = {
+    "rebrew.disassemble": Op(DisassembleRequest, disassemble),
+    "rebrew.disassemble_bytes": Op(DisassembleBytesRequest, disassemble_bytes),
+    "rebrew.control_flow_graph": Op(AddressRequest, control_flow_graph),
+    "rebrew.xrefs": Op(AddressRequest, xrefs),
+    "rebrew.describe": Op(AddressRequest, describe),
+    "rebrew.decompile": Op(DecompileRequest, decompile),
+    "rebrew.identify_library": Op(ProjectRequest, identify_library),
+    "rebrew.structs": Op(StructsRequest, structs),
+    "rebrew.binary_operand_locations": Op(OperandLocationsRequest, binary_operand_locations),
+    "rebrew.imports": Op(BinaryFile, imports),
+    "rebrew.strings": Op(BinaryFile, strings),
+    "rebrew.fingerprint": Op(BinaryFile, fingerprint),
+    "rebrew.analyze": Op(BinaryFile, analyze),
+    "rebrew.crypto_scan": Op(BinaryFile, crypto_scan),
+    "rebrew.pe_info": Op(BinaryFile, pe_info),
+    "rebrew.report": Op(ReportRequest, report),
+    "rebrew.security_scan": Op(SecurityScanRequest, security_scan),
+    "rebrew.analyse": Op(AnalyseRequest, analyse),
+    "rebrew.import-project": Op(ImportRequest, import_project),
+}
+
+
+def _answer(config: WorkerConfig, name: str, body: bytes) -> Mapping[str, Any]:
+    op = OPS.get(name)
+    if op is None:
+        raise OpsError(f"unknown op: {_bounded(name)}", code=UNKNOWN_OP, status=404)
+    if len(body) > MAX_REQUEST_BYTES:
+        detail = f"request exceeds {MAX_REQUEST_BYTES} bytes"
+        raise OpsError(detail, code=INVALID_REQUEST, status=413)
+    try:
+        raw = json.loads(body)
+    except json.JSONDecodeError, UnicodeDecodeError:
+        raise _invalid("request is not JSON") from None
+    request: Any = parse_request(op.request, raw)
+    try:
+        return op.run(config, request)
+    except OpsError:
+        raise
+    except typer.Exit as exc:
+        raise _refused(f"rebrew refused {name} (exit {exc.exit_code})") from None
+    except Exception:  # the engine is a trust boundary: log the cause, answer a fixed detail
+        logger.exception("%s failed", name)
+        raise _refused(f"{name} failed; the worker log has the cause") from None
+
+
+def dispatch(config: WorkerConfig, name: str, body: bytes) -> tuple[int, bytes]:
+    """Answer one call: ``(200, reply)`` or ``(status, refusal)``."""
+    try:
+        reply = json.dumps(_answer(config, name, body), allow_nan=False).encode()
+    except OpsError as exc:
+        return exc.status, error_body(exc.code, str(exc), exc.status)
+    except TypeError, ValueError:
+        logger.exception("%s produced a reply that is not JSON", name)
+        return 500, error_body(ENGINE_ERROR, f"{name} produced a reply that is not JSON", 500)
+    if len(reply) > MAX_REPLY_BYTES:
+        return 500, error_body(ENGINE_ERROR, f"reply exceeds {MAX_REPLY_BYTES} bytes", 500)
+    return 200, reply
+
+
+# ---------------------------------------------------------------------------
+# HTTP transport
+# ---------------------------------------------------------------------------
+
+
+class OpsServer(ThreadingHTTPServer):
+    """HTTP server answering ``POST /<op>`` for one worker configuration and token."""
+
+    daemon_threads = True
+
+    def __init__(self, address: tuple[str, int], config: WorkerConfig, token: str) -> None:
+        super().__init__(address, _OpsHandler)
+        self.config = config
+        self.token = token
+
+
+class _OpsHandler(BaseHTTPRequestHandler):
+    timeout: typing.ClassVar[float | None] = SOCKET_TIMEOUT_SECONDS
+
+    def _send(self, status: int, body: bytes) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _refuse(self, code: str, detail: str, status: int) -> None:
+        self._send(status, error_body(code, detail, status))
+
+    def do_POST(self) -> None:  # (http.server API)
+        server = typing.cast("OpsServer", self.server)
+        given = self.headers.get("Authorization", "").encode()
+        if not hmac.compare_digest(given, f"Bearer {server.token}".encode()):
+            self._refuse("unauthorized", "a valid bearer token is required", 401)
+            return
+        try:
+            length = int(self.headers.get("Content-Length", ""))
+        except ValueError:
+            self._refuse(INVALID_REQUEST, "Content-Length is required", 411)
+            return
+        if not 0 <= length <= MAX_REQUEST_BYTES:
+            self._refuse(INVALID_REQUEST, f"request exceeds {MAX_REQUEST_BYTES} bytes", 413)
+            return
+        body = self.rfile.read(length)
+        self._send(*dispatch(server.config, self.path.removeprefix("/"), body))
+
+    def _not_post(self) -> None:
+        self._refuse("method-not-allowed", "ops are called with POST", 405)
+
+    do_GET = do_PUT = do_DELETE = do_PATCH = _not_post
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+app = typer.Typer(
+    help="Answer the relumea backend's rebrew ops over stdin/stdout or HTTP.",
+    rich_markup_mode="rich",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew ops call rebrew.fingerprint --filestore /srv/files\n\n"
+        "  rebrew ops serve --port 8790 --workspace /srv/relumea\n\n"
+        "serve needs REBREW_OPS_TOKEN. Backend setup: the rebrew repo's docs/CLI.md."
+    ),
+)
+
+_FILESTORE_HELP = "The backend's local filestore directory; request file keys resolve under it"
+_WORKSPACE_HELP = (
+    "Directory analyse creates projects/<sha256> in and report output_dir resolves under"
+)
+
+
+@app.command(
+    "call",
+    epilog="[bold]Examples:[/bold]\n\n"
+    "  rebrew ops call rebrew.pe_info --filestore /srv/files · request on stdin",
+)
+def call_command(
+    op: str = typer.Argument(..., help="Wire op name, such as rebrew.disassemble"),
+    filestore: Path | None = typer.Option(
+        None, "--filestore", envvar="REBREW_OPS_FILESTORE", help=_FILESTORE_HELP
+    ),
+    workspace: Path | None = typer.Option(
+        None, "--workspace", envvar="REBREW_OPS_WORKSPACE", help=_WORKSPACE_HELP
+    ),
+) -> None:
+    """Answer one op: the JSON request on stdin, the reply on stdout.
+
+    A refusal prints {"error","detail","status"} on stdout and exits 2.
+    """
+    config = WorkerConfig(
+        _existing_dir(filestore, "--filestore"), _existing_dir(workspace, "--workspace")
+    )
+    body = sys.stdin.buffer.read(MAX_REQUEST_BYTES + 1)
+    # stdout carries only the reply; anything rebrew prints goes to stderr.
+    with contextlib.redirect_stdout(sys.stderr):
+        status, reply = dispatch(config, op, body)
+    sys.stdout.buffer.write(reply + b"\n")
+    sys.stdout.flush()
+    if status != 200:
+        raise typer.Exit(EXIT_ERROR)
+
+
+@app.command(
+    "serve",
+    epilog="[bold]Examples:[/bold]\n\n  rebrew ops serve --port 0 --filestore /srv/files",
+)
+def serve_command(
+    port: int = typer.Option(..., "--port", help="TCP port; 0 picks a free one"),
+    host: str = typer.Option("127.0.0.1", "--host", help="Address to bind (loopback by default)"),
+    filestore: Path | None = typer.Option(
+        None, "--filestore", envvar="REBREW_OPS_FILESTORE", help=_FILESTORE_HELP
+    ),
+    workspace: Path | None = typer.Option(
+        None, "--workspace", envvar="REBREW_OPS_WORKSPACE", help=_WORKSPACE_HELP
+    ),
+) -> None:
+    """Serve POST /<op> over HTTP until interrupted.
+
+    Every request needs Authorization: Bearer $REBREW_OPS_TOKEN.
+    """
+    token = os.environ.get(TOKEN_ENV, "").strip()
+    if not token:
+        error_exit(f"{TOKEN_ENV} is not set; serve answers only bearer-authenticated calls")
+    config = WorkerConfig(
+        _existing_dir(filestore, "--filestore"), _existing_dir(workspace, "--workspace")
+    )
+    server = OpsServer((host, port), config, token)
+    console.print(f"serving rebrew ops on http://{host}:{server.server_port}")
+    try:
+        server.serve_forever()
+    finally:
+        server.server_close()
+
+
+def main_entry() -> None:
+    """Run the Typer CLI application."""
+    from rebrew.cli import run_cli
+
+    run_cli(app)
+
+
+if __name__ == "__main__":
+    main_entry()

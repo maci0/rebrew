@@ -198,10 +198,10 @@ def test_cli_reference_counts_match_the_registered_tree() -> None:
 
 #: Commands intentionally absent from the agent skills — meta/niche tooling
 #: agents never drive (PE resource compare, skill discovery, the clispec
-#: document).  Every
+#: document, the relumea backend worker).  Every
 #: other command must be named in a SKILL.md or a progressive-disclosure
 #: reference under agent-skills/ (e.g. workflow references/advanced-commands.md).
-_SKILL_OUT_OF_SCOPE = {"resource", "skills", "schema"}
+_SKILL_OUT_OF_SCOPE = {"resource", "skills", "schema", "ops"}
 
 
 def test_every_cli_command_covered_by_agent_skills() -> None:

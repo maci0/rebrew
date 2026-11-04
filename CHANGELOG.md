@@ -1,7 +1,12 @@
 ## [Unreleased]
 
+### Added
+
+- `rebrew ops call <op>` and `rebrew ops serve --port N` answer the relumea backend's `rebrew` dispatch ops (all 19 in its contract): one op per process over stdin/stdout, or `POST /<op>` over HTTP with a bearer token from `REBREW_OPS_TOKEN`, loopback by default. Requests reference binaries by filestore key under `--filestore` (checked against their `sha256`) or by rebrew `project_dir`; `analyse` creates `<workspace>/projects/<sha256>`. A refusal is `rebrew.errors.OpsError`. See `docs/CLI.md#rebrew-ops`.
+
 ### Changed
 
+- **Breaking:** `rebrew.app.builtins.BUILTIN_COMPONENTS` and `rebrew.app.main.BUILTIN_COMPONENTS` gained the `ops` command group.
 - `rebrew.describe.JSON_KEYS`, `rebrew.security_scan.SEVERITY_ORDER` and `rebrew.security_scan.filter_by_severity` are public (were `_JSON_KEYS`, `_SEVERITY_ORDER`, `_filter_result`), and `rebrew.analyze.standalone_config` builds the project-free config `rebrew binary analyze` uses outside a project.
 
 ## [6.17.0] - 2026-11-04

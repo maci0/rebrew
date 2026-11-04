@@ -512,6 +512,10 @@ by the CLI layer and win for that invocation.
   reaches the process environment of an image-less (native) toolchain,
   which runs on the host.
 
+- `REBREW_OPS_TOKEN`: bearer token `rebrew ops serve` requires on every
+  request; the command refuses to start without it. Give the backend the
+  same value (`RELUMEA_DISPATCH_REBREW_TOKEN` there).
+
 ### Paths / overlays
 
 Every path knob below expands a leading `~` before it is checked and before
@@ -531,6 +535,10 @@ rebrew receives.
   sigs.
 - `REBREW_SKILLS_DIR`: user/community Agent Skills directory (overrides
   packaged skills of the same name).
+- `REBREW_OPS_FILESTORE` / `REBREW_OPS_WORKSPACE`: defaults for `rebrew ops`
+  `--filestore` (the backend's local filestore directory) and `--workspace`
+  (where `analyse` creates `projects/<sha256>` and `report` output lands).
+  Each must be an absolute path to an existing directory.
 - `REBREW_CONTAINER_RUNTIME`: container CLI (`docker` default; `podman` or
   `nerdctl` also accepted). A bare name outside that set raises, so a typo
   fails at load rather than at exec; set a path to the binary to use another

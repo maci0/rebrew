@@ -823,6 +823,13 @@ BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
         panel=Panel.PROJECT_SETUP,
     ),
     CliComponent(
+        name="ops",
+        module="rebrew.ops",
+        help="Answer the relumea backend's rebrew ops over stdin/stdout or HTTP.",
+        panel=Panel.EXPORT_SYNC,
+        is_group=True,
+    ),
+    CliComponent(
         name="prove",
         module="rebrew.prove",
         help="Prove semantic equivalence of NEAR_MATCHING/SIZE_MISMATCH functions via symbolic execution.",

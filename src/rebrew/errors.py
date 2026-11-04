@@ -86,6 +86,7 @@ if TYPE_CHECKING:
     from rebrew.metadata.functions import LibraryOverrideError as LibraryOverrideError
     from rebrew.metadata.model import MetadataValidationError as MetadataValidationError
     from rebrew.metadata.sqlite import MetadataStorageError as MetadataStorageError
+    from rebrew.ops import OpsError as OpsError
     from rebrew.orphans import OrphanInventoryError as OrphanInventoryError
     from rebrew.pdb_export import PdbExportError as PdbExportError
     from rebrew.registry import RegistryError as RegistryError
@@ -237,6 +238,7 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "ConfigError": ("rebrew.config", "ConfigError"),
     "ConfigKeyError": ("rebrew.config", "ConfigKeyError"),
     "ConfigNotFoundError": ("rebrew.config", "ConfigNotFoundError"),
+    "OpsError": ("rebrew.ops", "OpsError"),
     "DecompmeError": ("rebrew.decompme", "DecompmeError"),
     "Delphi16Error": ("rebrew.compiler.delphi16", "Delphi16Error"),
     "DfmError": ("rebrew.formats.dfm", "DfmError"),
@@ -357,6 +359,7 @@ __all__ = [
     "NoDecompilationError",
     "NotLzexeError",
     "Omf16Error",
+    "OpsError",
     "OrphanInventoryError",
     "PdbExportError",
     "ProjectCoverageError",
