@@ -453,6 +453,32 @@ class SourceVariantsRequest:
 
 
 @dataclass(frozen=True)
+class FlagSearchFile:
+    path: str
+    digest: str
+    size: int
+    key: str = ""
+    url: str = ""
+
+
+@dataclass(frozen=True)
+class FlagSearchRequest:
+    source: str
+    source_sha256: str
+    va: int
+    files: list[FlagSearchFile]
+    rebrew_target: str
+    sha256: str = ""
+    binary_key: str = ""
+    binary_url: str = ""
+    tier: str = "targeted"
+    toolchains: str = ""
+    exclude_toolchains: str = ""
+    compare_toolchains: bool = False
+    with_flags: bool = False
+
+
+@dataclass(frozen=True)
 class DecompmeRequest:
     project_dir: str
     source: str
@@ -821,6 +847,29 @@ def xrefs(config: WorkerConfig, req: AddressRequest) -> dict[str, Any]:
 
     cfg = target_config(project_root(config, req.project_dir), req.sha256)
     return build_xrefs_payload(cfg.target_binary, _address(req.va), req.kinds or None)
+
+
+def call_references(config: WorkerConfig, req: ProjectRequest) -> dict[str, Any]:
+    """Scan one analysed binary for calls, jumps and import slots."""
+    from rebrew.analysis import scan_references
+    from rebrew.formats.binary_loader import load_binary
+    from rebrew.formats.import_table import parse_import_table
+
+    cfg = target_config(project_root(config, req.project_dir), "")
+    references = scan_references(load_binary(cfg.target_binary))
+    calls = sorted(
+        (
+            {"kind": ref.kind, "from_va": ref.from_va, "to_va": ref.to_va}
+            for ref in references
+            if ref.kind in {"call", "jmp", "iat_call", "iat_jmp"}
+        ),
+        key=lambda ref: (ref["from_va"], ref["to_va"], ref["kind"]),
+    )
+    imports = parse_import_table(cfg.target_binary)
+    return {
+        "references": calls,
+        "import_slots": [{"va": va, "name": imports[va]} for va in sorted(imports)],
+    }
 
 
 def describe(config: WorkerConfig, req: AddressRequest) -> dict[str, Any]:
@@ -1607,6 +1656,104 @@ def source_variants(config: WorkerConfig, req: SourceVariantsRequest) -> dict[st
     )
 
 
+def flag_search(config: WorkerConfig, req: FlagSearchRequest) -> dict[str, Any]:
+    """Run a bounded flag or compiler profile sweep for one project source."""
+    if req.va < 0 or req.tier not in {"quick", "targeted", "normal", "thorough", "full"}:
+        raise _invalid("invalid address or flag search tier")
+    if not req.compare_toolchains and (req.toolchains or req.exclude_toolchains or req.with_flags):
+        raise _invalid("toolchain selection requires a toolchain comparison")
+    if req.compare_toolchains and not req.with_flags and req.tier != "targeted":
+        raise _invalid("tier requires flag search during toolchain comparison")
+    if any(
+        len(value) > 1024 or "\x00" in value for value in (req.toolchains, req.exclude_toolchains)
+    ):
+        raise _invalid("toolchain selectors must be at most 1024 characters")
+    from rebrew.config import load_config
+    from rebrew.workspace import read_config, target_binary, targets_table
+
+    if not req.files or len(req.files) > 1024 or sum(f.size for f in req.files) > 32 * 1024 * 1024:
+        raise _invalid("invalid retained source manifest size")
+    paths = [f.path for f in req.files]
+    if len(set(paths)) != len(paths) or req.source not in paths:
+        raise _invalid("invalid retained source manifest paths")
+    scratch = config.require_workspace() / SCRATCH_DIR
+    scratch.mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="flag-search-", dir=scratch) as temp:
+        root = Path(temp).resolve()
+        for entry in req.files:
+            if (
+                entry.size < 0
+                or entry.size > 1024 * 1024
+                or not re.fullmatch(r"[0-9a-f]{64}", entry.digest)
+            ):
+                raise _invalid("invalid retained source manifest entry")
+            dest = _inside(root, entry.path, "source file", "snapshot")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            with (
+                binary_file(config, entry.key, entry.url, entry.digest, "key") as src,
+                src.open("rb") as inp,
+                dest.open("xb") as out,
+            ):
+                data = inp.read(entry.size + 1)
+                if len(data) != entry.size or hashlib.sha256(data).hexdigest() != entry.digest:
+                    raise _invalid("source does not match retained manifest")
+                out.write(data)
+        source = _project_file(root, req.source, "source")
+        if _file_sha256(source) != req.source_sha256:
+            raise _invalid("source does not match its retained digest")
+        target = targets_table(read_config(root)).get(req.rebrew_target)
+        if not isinstance(target, dict):
+            raise _invalid("retained project has no selected target")
+        configured = target.get("binary")
+        if not isinstance(configured, str):
+            raise _invalid("target binary path is missing")
+        destination = _inside(root, configured, "target binary", "snapshot")
+        with binary_file(
+            config, req.binary_key, req.binary_url, req.sha256, "binary_key"
+        ) as binary:
+            if destination.exists():
+                if not destination.is_file() or _file_sha256(destination) != req.sha256:
+                    raise _invalid("retained target binary conflicts with snapshot")
+            else:
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(binary, destination)
+            resolved_binary = target_binary(root, target)
+            if (
+                resolved_binary is None
+                or resolved_binary.resolve() != destination
+                or _file_sha256(destination) != req.sha256
+            ):
+                raise _invalid("snapshot target binary does not match")
+            cfg = load_config(root, target=req.rebrew_target)
+            remote_header_refusal(cfg, [source])
+            arguments = [
+                "match",
+                "toolchains" if req.compare_toolchains else "flags",
+                "--json",
+                "--jobs=2",
+                f"--va=0x{req.va:x}",
+            ]
+            if not req.compare_toolchains or req.with_flags:
+                arguments.append(f"--tier={req.tier}")
+            if req.compare_toolchains:
+                if not req.with_flags:
+                    arguments.remove("--jobs=2")
+                arguments += _flag(req.with_flags, "--flags")
+                if req.toolchains:
+                    arguments.append(f"--toolchains={req.toolchains}")
+                if req.exclude_toolchains:
+                    arguments.append(f"--exclude-toolchains={req.exclude_toolchains}")
+            result = run_rebrew(
+                [*arguments, f"--target={req.rebrew_target}", "--", str(source)],
+                root,
+                SEARCH_TIMEOUT_SECONDS,
+                outcome_exit=True,
+            )
+            if _file_sha256(source) != req.source_sha256 or _file_sha256(destination) != req.sha256:
+                raise _invalid("snapshot source or binary changed during flag search")
+            return result
+
+
 def decompme_export(config: WorkerConfig, req: DecompmeRequest) -> dict[str, Any]:
     """Upload one function as a decomp.me scratch (``rebrew export decompme --json``).
 
@@ -1734,6 +1881,7 @@ OPS: dict[str, Op] = {
     "rebrew.disassemble_bytes": Op(DisassembleBytesRequest, disassemble_bytes),
     "rebrew.control_flow_graph": Op(AddressRequest, control_flow_graph),
     "rebrew.xrefs": Op(AddressRequest, xrefs),
+    "rebrew.call_references": Op(ProjectRequest, call_references),
     "rebrew.describe": Op(AddressRequest, describe),
     "rebrew.decompile": Op(DecompileRequest, decompile),
     "rebrew.identify_library": Op(ProjectRequest, identify_library),
@@ -1761,6 +1909,7 @@ OPS: dict[str, Op] = {
     "rebrew.coverage_export": Op(CoverageExportRequest, coverage_export),
     "rebrew.coverage_report": Op(TargetRequest, coverage_report),
     "rebrew.source_variants": Op(SourceVariantsRequest, source_variants),
+    "rebrew.flag_search": Op(FlagSearchRequest, flag_search),
     "rebrew.decompme_export": Op(DecompmeRequest, decompme_export),
     "rebrew.data_list": Op(TargetRequest, data_list),
     "rebrew.data_set": Op(DataSetRequest, data_set),

@@ -1,0 +1,5 @@
+Verbatim copy of relumea-app-backend/tests/fixtures/two-functions.elf
+at checkout 8c7d86f87f70d4ab038f173169b0617c03d10c94 (last file change
+02e74310e759e92a1cac244d60bef18dfca534f3).
+SHA-256: 31c4bc91c56f2521c5f650c9ce42b4759438ea3db59722445f14a10a50c3ed7f.
+ELF x86-64 sample used to verify intake's provisional unknown-compiler profile.

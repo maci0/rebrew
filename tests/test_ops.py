@@ -177,6 +177,20 @@ class TestContract:
         assert set(OPS) == set(_CONTRACT["ops"])
 
 
+class TestCallReferences:
+    def test_binary_call_scan(self, world: tuple[WorkerConfig, Path]) -> None:
+        config, project = world
+        reply = _call(config, "rebrew.call_references", {"project_dir": str(project)})
+        assert isinstance(reply["references"], list)
+        assert all(
+            row["kind"] in {"call", "jmp", "iat_call", "iat_jmp"} for row in reply["references"]
+        )
+        assert reply["references"] == sorted(
+            reply["references"], key=lambda row: (row["from_va"], row["to_va"], row["kind"])
+        )
+        assert reply["import_slots"] == sorted(reply["import_slots"], key=lambda row: row["va"])
+
+
 class TestListingOps:
     @pytest.mark.parametrize(
         ("fmt", "first"),

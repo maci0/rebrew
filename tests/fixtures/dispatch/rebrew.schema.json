@@ -357,6 +357,74 @@
         "type": "object"
       }
     },
+    "rebrew.call_references": {
+      "request": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "project_dir": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_dir"
+        ],
+        "type": "object"
+      },
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "import_slots": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "va": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "va",
+                "name"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "references": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "from_va": {
+                  "type": "integer"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "to_va": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "kind",
+                "from_va",
+                "to_va"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "references",
+          "import_slots"
+        ],
+        "type": "object"
+      }
+    },
     "rebrew.control_flow_graph": {
       "request": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -800,6 +868,91 @@
         "type": "object"
       }
     },
+    "rebrew.flag_search": {
+      "request": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "binary_key": {
+            "type": "string"
+          },
+          "binary_url": {
+            "type": "string"
+          },
+          "compare_toolchains": {
+            "type": "boolean"
+          },
+          "exclude_toolchains": {
+            "type": "string"
+          },
+          "files": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "digest": {
+                  "type": "string"
+                },
+                "key": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "integer"
+                },
+                "url": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "digest",
+                "size"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "rebrew_target": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "source_sha256": {
+            "type": "string"
+          },
+          "tier": {
+            "type": "string"
+          },
+          "toolchains": {
+            "type": "string"
+          },
+          "va": {
+            "type": "integer"
+          },
+          "with_flags": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "files",
+          "rebrew_target",
+          "source",
+          "source_sha256",
+          "va"
+        ],
+        "type": "object"
+      },
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object"
+      }
+    },
     "rebrew.identify_compiler": {
       "request": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -830,6 +983,105 @@
       },
       "response": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "arch": {
+            "type": "string"
+          },
+          "base_cflags": {
+            "type": "string"
+          },
+          "codegen": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "string"
+          },
+          "crt": {
+            "type": "string"
+          },
+          "crt_linkage": {
+            "type": "string"
+          },
+          "detected_by": {
+            "type": "string"
+          },
+          "evidence": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "family": {
+            "type": "string"
+          },
+          "flags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "msvc_version": {
+            "type": "string"
+          },
+          "o1_wrapper_sites": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "o2_wrapper_sites": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "opt_level": {
+            "type": "string"
+          },
+          "packed": {
+            "type": "string"
+          },
+          "profile": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "suggested_profiles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "version_hint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "family",
+          "version_hint",
+          "confidence",
+          "evidence",
+          "flags",
+          "detected_by",
+          "arch",
+          "crt",
+          "crt_linkage",
+          "base_cflags",
+          "opt_level",
+          "o2_wrapper_sites",
+          "o1_wrapper_sites",
+          "msvc_version",
+          "suggested_profiles",
+          "packed",
+          "codegen",
+          "profile"
+        ],
         "type": "object"
       }
     },

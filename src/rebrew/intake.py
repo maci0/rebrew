@@ -126,10 +126,17 @@ def _suggest_profile(binary: Path) -> tuple[str, str, str, list[str]]:
             "intake will document functions as blockers"
         )
     if profile is None:
-        profile = "msvc-6.0"
-        notes.append(
-            "compiler family not identified — defaulting to msvc-6.0 (check `rebrew doctor`)"
-        )
+        if family == "unknown" and _native_format_and_arch(binary) == ("elf", "x86_64"):
+            profile = "gcc-14.2.0"
+            notes.append(
+                "compiler family not identified — using gcc-14.2.0 as a provisional "
+                "ELF x86-64 compatible profile, not a compiler identification"
+            )
+        else:
+            profile = "msvc-6.0"
+            notes.append(
+                "compiler family not identified — defaulting to msvc-6.0 (check `rebrew doctor`)"
+            )
     elif family == "borlandc":
         notes.append(
             f"binary looks Borland C/C++ — using the {profile} profile "

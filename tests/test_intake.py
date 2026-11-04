@@ -780,3 +780,27 @@ class TestLinkToolchain:
         # Re-running is idempotent: returns same link without error
         linked2 = _link_toolchain(project, "msvc-6.0")
         assert linked2 == linked1
+
+
+def test_unknown_elf64_uses_explicit_provisional_compatible_profile(monkeypatch) -> None:
+    from rebrew.toolchain_detect import ToolchainInfo
+
+    monkeypatch.setattr(
+        "rebrew.toolchain_detect.detect_toolchain", lambda _: ToolchainInfo(family="unknown")
+    )
+    fixture = Path(__file__).parent / "fixtures" / "intake-unknown-elf64.elf"
+    profile, family, _, notes = _suggest_profile(fixture)
+    assert profile == "gcc-14.2.0"
+    assert family == "unknown"
+    assert any("provisional" in note and "not a compiler identification" in note for note in notes)
+
+    from typer.testing import CliRunner
+
+    import rebrew.app.main as main_mod
+
+    monkeypatch.setattr("rebrew.intake._enumerate_functions", lambda _: FAKE_FUNCS)
+    result = CliRunner().invoke(main_mod.app, ["intake", str(fixture), "--dry-run", "--json"])
+    assert result.exit_code == 0, result.output
+    preview = json.loads(result.output)
+    assert (preview["family"], preview["profile"]) == ("unknown", "gcc-14.2.0")
+    assert any("provisional" in note for note in preview["notes"])
