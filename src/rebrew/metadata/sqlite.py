@@ -298,7 +298,10 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
     The current database, if any, is first preserved as
     ``rebrew-metadata.sqlite3.before-restore`` beside it.  The backup is
     validated (schema version, integrity) before anything is written; a
-    corrupt backup raises and leaves the current database alone.
+    corrupt backup raises and leaves the current database alone. The
+    restored bytes are built in a sibling temp file and published with
+    ``os.replace`` plus fsyncs, so a crash cannot leave a torn database
+    at the live path.
     """
     from rebrew.metadata.locking import file_transaction
 
@@ -308,6 +311,10 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
     try:
         version = check.execute("PRAGMA user_version").fetchone()[0]
         integrity = check.execute("PRAGMA integrity_check").fetchone()[0]
+        try:
+            count = check.execute("SELECT COUNT(*) FROM metadata_documents").fetchone()[0]
+        except sqlite3.Error as exc:
+            raise MetadataStorageError(f"{backup}: corrupt backup: {exc}") from exc
     except sqlite3.Error as exc:
         raise MetadataStorageError(f"{backup}: corrupt backup: {exc}") from exc
     finally:
@@ -319,10 +326,6 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
     location = root / DATABASE_FILENAME
     location.parent.mkdir(parents=True, exist_ok=True)
     with file_transaction(location.parent, location.name):
-        # The active database is mode 0444 at rest; the backup target must be
-        # writable for the copy, as the store's own transaction does.
-        if location.is_file():
-            location.chmod(0o644)
         if location.is_file():
             preserved = location.with_name(location.name + ".before-restore")
             source = sqlite3.connect(location.as_uri() + "?mode=ro", uri=True, timeout=30)
@@ -332,11 +335,45 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
             finally:
                 source.close()
             os.chmod(preserved, 0o444)
-        source = sqlite3.connect(backup.as_uri() + "?mode=ro", uri=True, timeout=30)
+        import time
+
+        tmp = location.with_name(f"{location.name}.{os.getpid()}.{time.monotonic_ns()}.tmp")
         try:
-            with contextlib.closing(sqlite3.connect(location, timeout=30)) as target:
-                source.backup(target)
-        finally:
-            source.close()
-        os.chmod(location, 0o444)
+            source = sqlite3.connect(backup.as_uri() + "?mode=ro", uri=True, timeout=30)
+            try:
+                with contextlib.closing(sqlite3.connect(tmp, timeout=30)) as target:
+                    source.backup(target)
+            finally:
+                source.close()
+            # Verify the staged copy before it becomes the live database.
+            staged = sqlite3.connect(tmp.as_uri() + "?mode=ro", uri=True, timeout=30)
+            try:
+                staged_version = staged.execute("PRAGMA user_version").fetchone()[0]
+                staged_integrity = staged.execute("PRAGMA integrity_check").fetchone()[0]
+                staged_count = staged.execute(
+                    "SELECT COUNT(*) FROM metadata_documents"
+                ).fetchone()[0]
+            except sqlite3.Error as exc:
+                raise MetadataStorageError(f"{backup}: restored copy verification failed: {exc}") from exc
+            finally:
+                staged.close()
+            if staged_version != _SCHEMA_VERSION or staged_integrity != "ok" or staged_count != count:
+                raise MetadataStorageError(f"{backup}: restored copy verification failed")
+            # fsync the staged file, publish atomically, fsync the directory.
+            fd = os.open(tmp, os.O_RDONLY)
+            try:
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+            os.chmod(tmp, 0o444)
+            os.replace(tmp, location)
+            dir_fd = os.open(location.parent, os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                tmp.unlink()
+            raise
     return location
