@@ -21,7 +21,6 @@ pin what a caller may rely on:
 
 from __future__ import annotations
 
-import contextlib
 from dataclasses import dataclass
 lazy from collections.abc import Callable
 
@@ -101,8 +100,25 @@ class TestParseIntLiteral:
     @settings(max_examples=300)
     def test_only_value_error(self, text: str, base: int) -> None:
         """A malformed literal is a ``ValueError``, never a ``TypeError``."""
-        with contextlib.suppress(ValueError):
-            parse_int_literal(text, base=base)
+        # A parser that silently returned a value for malformed input would
+        # pass a bare suppress() with no assertion. Require that an accepted
+        # value is exactly the base reading of the ASCII digit body, so a
+        # garbage return (e.g. 0 for "hello") fails here.
+        try:
+            value = parse_int_literal(text, base=base)
+        except ValueError:
+            return
+        body = _digit_body(text)
+        assert body is not None, f"accepted malformed literal {text!r} as {value}"
+        effective_base = (
+            16
+            if body[:2].lower() == "0x" or text.strip().lstrip("+-")[:2].lower() == "0x"
+            else base
+        )
+        sign = -1 if text.strip().startswith("-") else 1
+        digit_body = body[2:] if body[:2].lower() == "0x" else body
+        # _digit_body strips suffixes/0x but not sign; re-derive without sign
+        assert value == sign * int(digit_body, effective_base), f"{text!r} -> {value}"
 
     @given(text=_JUNK_TEXT, base=_BASES)
     @settings(max_examples=300)
@@ -152,8 +168,27 @@ class TestParseCIntegerLiteral:
     @given(text=_TEXT)
     @settings(max_examples=300)
     def test_only_value_error(self, text: str) -> None:
-        with contextlib.suppress(ValueError):
-            parse_c_integer_literal(text)
+        try:
+            value = parse_c_integer_literal(text)
+        except ValueError:
+            return
+        body = _digit_body(text)
+        assert body is not None, f"accepted malformed literal {text!r} as {value}"
+        stripped = text.strip()
+        sign = -1 if stripped.startswith("-") else 1
+        is_hex = stripped.lstrip("+-")[:2].lower() == "0x"
+        digit_body = body[2:] if is_hex else body
+        if is_hex:
+            expected = sign * int(digit_body, 16)
+        elif (
+            len(digit_body) > 1
+            and digit_body[0] == "0"
+            and all(c in "01234567" for c in digit_body)
+        ):
+            expected = sign * int(digit_body, 8)
+        else:
+            expected = sign * int(digit_body, 10)
+        assert value == expected, f"{text!r} -> {value} != {expected}"
 
     @given(text=_JUNK_TEXT)
     @settings(max_examples=300)
