@@ -18,8 +18,9 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, runtime_checkable
+lazy import hashlib
+lazy import json as _json
 lazy import os
-lazy import secrets
 lazy import time
 lazy from collections.abc import Callable, Mapping
 lazy from contextlib import nullcontext
@@ -390,9 +391,29 @@ def compile_source(
         )
     safe_url = url.replace(api_key, "[redacted]") if api_key else url
     auth_headers = {"Authorization": f"Bearer {api_key}"} if api_key else None
-    post_headers = (
-        {**auth_headers, "Idempotency-Key": secrets.token_hex(6)} if auth_headers else None
-    )
+    # Idempotency-Key: deterministic digest of the logical compile (compiler,
+    # source, flags, filename, emit_assembly) so a retry, a crash-restart, or a
+    # re-run of the same compile in another process presents the same key.
+    # The server can then dedup a duplicate POST (e.g. emit_assembly's
+    # train.jsonl append) instead of treating each attempt as new.  Previously
+    # unauthenticated calls sent no key at all, and authenticated calls sent a
+    # fresh random token per invocation, so every retry looked new.
+    _idem_digest = hashlib.sha256(
+        _json.dumps(
+            {
+                "compiler": compiler,
+                "source": source,
+                "flags": flags_list,
+                "filename": filename,
+                "emit_assembly": emit_assembly,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    post_headers: dict[str, str] = {"Idempotency-Key": _idem_digest}
+    if auth_headers:
+        post_headers = {**auth_headers, "Idempotency-Key": _idem_digest}
     payload = {
         "compiler": compiler,
         "source": source,
@@ -418,15 +439,11 @@ def compile_source(
             with cm as http:
                 if pending is None:
                     try:
-                        resp = (
-                            http.post(
-                                f"{url}/api/v1/compile",
-                                json=payload,
-                                headers=post_headers,
-                                follow_redirects=False,
-                            )
-                            if post_headers
-                            else http.post(f"{url}/api/v1/compile", json=payload)
+                        resp = http.post(
+                            f"{url}/api/v1/compile",
+                            json=payload,
+                            headers=post_headers,
+                            follow_redirects=False,
                         )
                     except Exception as exc:
                         never_sent = isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout))

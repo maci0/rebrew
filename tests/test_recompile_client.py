@@ -115,13 +115,19 @@ class _FakeClient:
     def __exit__(self, *exc: object) -> bool:
         return False
 
-    def post(self, url: str, json: Any = None) -> Any:
+    def post(
+        self,
+        url: str,
+        json: Any = None,
+        headers: Any = None,
+        follow_redirects: bool = False,
+    ) -> Any:
         self.calls.append(("post", url))
         if isinstance(self._post, Exception):
             raise self._post
         return self._post
 
-    def get(self, url: str) -> Any:
+    def get(self, url: str, headers: Any = None, follow_redirects: bool = False) -> Any:
         self.calls.append(("get", url))
         if isinstance(self._get, Exception):
             raise self._get
@@ -141,11 +147,17 @@ def _sequence_client(
     replies = gets or []
 
     class _SeqClient(_FakeClient):
-        def post(self, url: str, json: Any = None) -> Any:
+        def post(
+            self,
+            url: str,
+            json: Any = None,
+            headers: Any = None,
+            follow_redirects: bool = False,
+        ) -> Any:
             self.calls.append(("post", url))
             return posts.pop(0)
 
-        def get(self, url: str) -> Any:
+        def get(self, url: str, headers: Any = None, follow_redirects: bool = False) -> Any:
             self.calls.append(("get", url))
             return replies.pop(0)
 
@@ -335,12 +347,18 @@ class TestCompileSource:
         gets = [_Resp(503, text="busy"), _Resp(200, content=b"OBJ")]
 
         class _SeqClient(_FakeClient):
-            def post(self, url: str, json: Any = None) -> Any:
+            def post(
+                self,
+                url: str,
+                json: Any = None,
+                headers: Any = None,
+                follow_redirects: bool = False,
+            ) -> Any:
                 self.calls.append(("post", url))
                 assert json.get("emit_assembly") is True
                 return posts.pop(0)
 
-            def get(self, url: str) -> Any:
+            def get(self, url: str, headers: Any = None, follow_redirects: bool = False) -> Any:
                 self.calls.append(("get", url))
                 return gets.pop(0)
 
@@ -374,7 +392,13 @@ class TestCompileSource:
         train.jsonl row, so an ``emit_assembly`` POST is not re-sent."""
 
         class _SeqClient(_FakeClient):
-            def post(self, url: str, json: Any = None) -> Any:
+            def post(
+                self,
+                url: str,
+                json: Any = None,
+                headers: Any = None,
+                follow_redirects: bool = False,
+            ) -> Any:
                 self.calls.append(("post", url))
                 if isinstance(first, Exception):
                     raise first
@@ -400,14 +424,20 @@ class TestCompileSource:
         posts: list[Any] = [first, _Resp(200, json_body=body)]
 
         class _SeqClient(_FakeClient):
-            def post(self, url: str, json: Any = None) -> Any:
+            def post(
+                self,
+                url: str,
+                json: Any = None,
+                headers: Any = None,
+                follow_redirects: bool = False,
+            ) -> Any:
                 self.calls.append(("post", url))
                 nxt = posts.pop(0)
                 if isinstance(nxt, Exception):
                     raise nxt
                 return nxt
 
-            def get(self, url: str) -> Any:
+            def get(self, url: str, headers: Any = None, follow_redirects: bool = False) -> Any:
                 self.calls.append(("get", url))
                 return _Resp(200, content=b"OBJ")
 
