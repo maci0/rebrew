@@ -21,8 +21,10 @@ def flags_style_from_str(value: object) -> FlagsStyle:
 
     Raises ``ValueError`` on anything but the two supported syntaxes so a
     misdeclared toolchain fails loud at load instead of silently taking MSVC
-    flag axes."""
-    style = str(value or "msvc")
+    flag axes.  ``None`` (the field is absent) defaults to ``"msvc"``, the
+    :class:`ToolchainSpec` default; an explicit empty string is a
+    misdeclaration and raises like any other invalid value."""
+    style = "msvc" if value is None else str(value)
     if style not in ("msvc", "posix"):
         raise ValueError(f"flags_style must be 'msvc' or 'posix', got {style!r}")
     return cast("FlagsStyle", style)
