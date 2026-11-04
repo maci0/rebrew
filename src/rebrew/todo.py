@@ -420,7 +420,7 @@ def _collect_active_functions(
 
         v_match = v_entry.match_percent if v_entry else None
         v_delta = v_entry.delta if v_entry else None
-        unmeasured = v_status in (*INFRASTRUCTURE_STATUSES, "MISSING_SIZE", "INTERNAL_ERROR")
+        unmeasured = v_status in (*INFRASTRUCTURE_STATUSES, "MISSING_SIZE")
         if unmeasured:
             # Failed runs carry default metrics, not a byte comparison.
             v_delta = None

@@ -116,7 +116,12 @@ def available_metadata_backends() -> tuple[str, ...]:
 def validate_backend_settings(raw: Any) -> str:
     """Validate the explicit, project-wide [metadata].backend selection."""
     if not isinstance(raw, dict) or set(raw) - {"backend"}:
-        raise ValueError("[metadata] accepts only backend = 'toml' or 'sqlite'")
+        raise ValueError(
+            "[metadata] accepts only backend = "
+            + " or ".join(repr(name) for name in available_metadata_backends())
+            + " (plus any module registered under the metadata_backends "
+            "entry-point group)"
+        )
     backend = raw.get("backend", "toml")
     if not isinstance(backend, str) or backend not in available_metadata_backends():
         raise ValueError(

@@ -60,12 +60,15 @@ EARNED_STATUSES: tuple[str, ...] = (*MATCHED_STATUSES, "PROVEN")
 # them are transient, so they may not overwrite :data:`EARNED_STATUSES` — a
 # missing compiler must not cost a reverser a byte match.  They remain the
 # honest verdict over a STUB, NEAR_MATCHING or empty status, where nothing
-# earned is at stake.
+# earned is at stake.  INTERNAL_ERROR is a crash in the tooling itself:
+# verify never persists it as a function status, but it appears in cached
+# verify results, so callers that read those must treat it the same way.
 INFRASTRUCTURE_STATUSES: tuple[str, ...] = (
     "COMPILE_ERROR",
     "EXTRACT_ERROR",
     "MISSING_FILE",
     "INVALID_VA",
+    "INTERNAL_ERROR",
 )
 
 # Machine verdicts that only mean "this stub has no real body yet": a
