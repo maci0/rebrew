@@ -195,9 +195,10 @@ class TestTomlBackup:
         installed = restore_metadata_toml(bundle, tmp_path)
         assert dest in installed
         assert dest.read_text(encoding="utf-8") == "format=3\n"
-        assert dest.with_name(dest.name + ".before-restore").read_text(
-            encoding="utf-8"
-        ) == "format=3\nchanged=1\n"
+        assert (
+            dest.with_name(dest.name + ".before-restore").read_text(encoding="utf-8")
+            == "format=3\nchanged=1\n"
+        )
 
     def test_missing_stores_raise_not_empty_bundle(self, tmp_path: Path) -> None:
         with pytest.raises(FileNotFoundError):

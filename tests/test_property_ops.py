@@ -94,9 +94,7 @@ class TestDispatchNeverCrashes:
 class TestParseRequestNeverCrashes:
     @given(st.sampled_from(_SIMPLE_REQUESTS), _JSON_VALUE)
     @settings(max_examples=_MAX_EXAMPLES)
-    def test_arbitrary_json_only_raises_ops_error(
-        self, cls: type[Any], raw: Any
-    ) -> None:
+    def test_arbitrary_json_only_raises_ops_error(self, cls: type[Any], raw: Any) -> None:
         try:
             value = parse_request(cls, raw)
         except OpsError:

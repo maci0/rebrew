@@ -83,9 +83,9 @@ def locate_body(
         base = pos - start
         if base >= 0 and base + len(body) <= len(text):
             window_ref = text[base : base + len(body)]
-            same = sum(
-                map(_eq, window_ref, body, strict=False)
-            ) - sum(1 for i in relocs if 0 <= i < len(body) and window_ref[i] == body[i])
+            same = sum(map(_eq, window_ref, body, strict=False)) - sum(
+                1 for i in relocs if 0 <= i < len(body) and window_ref[i] == body[i]
+            )
             ratio = same / total
             if best is None or same > best["fixed_matched"]:
                 best = {

@@ -108,7 +108,9 @@ GAME = "{cflags}"
 """
 
 
-def _docker_profile(command: str, *, arch: str, fmt: str = "elf", lang: str = "C99") -> dict[str, str]:
+def _docker_profile(
+    command: str, *, arch: str, fmt: str = "elf", lang: str = "C99"
+) -> dict[str, str]:
     """Docker-only profile: no runner/includes/libs (image supplies them)."""
     return {
         "runner": "",

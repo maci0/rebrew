@@ -86,15 +86,36 @@ _EPILOG = (
 )
 
 # Shared typer options for single-function commands.
-ClOption = typer.Option(None, help="Compiler command override (default: project config)", rich_help_panel="Build inputs")
-IncOption = typer.Option(None, help="Include dir (auto from project config)", rich_help_panel="Build inputs", click_type=TyperPath(path_type=str))
+ClOption = typer.Option(
+    None, help="Compiler command override (default: project config)", rich_help_panel="Build inputs"
+)
+IncOption = typer.Option(
+    None,
+    help="Include dir (auto from project config)",
+    rich_help_panel="Build inputs",
+    click_type=TyperPath(path_type=str),
+)
 CflagsOption = typer.Option(None, help=CFLAGS_HELP, rich_help_panel="Build inputs")
-SymbolOption = typer.Option(None, "--symbol", help="Symbol to match (default: C definition or metadata)", rich_help_panel="Build inputs")
-VaOption = typer.Option(None, "--va", help="Target VA in hex (default: from metadata)", rich_help_panel="Build inputs")
+SymbolOption = typer.Option(
+    None,
+    "--symbol",
+    help="Symbol to match (default: C definition or metadata)",
+    rich_help_panel="Build inputs",
+)
+VaOption = typer.Option(
+    None, "--va", help="Target VA in hex (default: from metadata)", rich_help_panel="Build inputs"
+)
 SizeOption = typer.Option(None, "--size", help=SIZE_HELP, rich_help_panel="Build inputs")
 JobsOption = typer.Option(None, "--jobs", "-j", help=JOBS_HELP, rich_help_panel="Search")
-TierOption = typer.Option("targeted", "--tier", help=TIER_HELP, rich_help_panel="Search", metavar="TIER")
-IgnoreLintOption = typer.Option(False, "--ignore-lint", help="Continue even if source binding lint errors exist", rich_help_panel="Build inputs")
+TierOption = typer.Option(
+    "targeted", "--tier", help=TIER_HELP, rich_help_panel="Search", metavar="TIER"
+)
+IgnoreLintOption = typer.Option(
+    False,
+    "--ignore-lint",
+    help="Continue even if source binding lint errors exist",
+    rich_help_panel="Build inputs",
+)
 JsonOption = typer.Option(False, "--json", help="Output results as JSON")
 
 app = typer.Typer(

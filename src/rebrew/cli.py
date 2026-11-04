@@ -543,9 +543,7 @@ def _install_click_error_hook() -> None:
     # union covers both hierarchies the hook may receive.
     _AnyClickException = _ClickClickException | _TyperClickException
 
-    def _make_show(
-        original: Any, usage_original: Any, usage_error: type[Any]
-    ) -> Any:
+    def _make_show(original: Any, usage_original: Any, usage_error: type[Any]) -> Any:
         def show(self: Any, file: Any = None) -> None:
             if _json_mode_active():
                 kind = "usage" if isinstance(self, usage_error) else "failure"

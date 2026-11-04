@@ -283,9 +283,7 @@ def _toml_store_tree(root: Path, name: str) -> list[Path]:
     tree = [main] if main.is_file() else []
     dropins = main.with_suffix(".d")
     if dropins.is_dir():
-        tree.extend(
-            sorted(p for p in dropins.iterdir() if p.suffix == ".toml" and p.is_file())
-        )
+        tree.extend(sorted(p for p in dropins.iterdir() if p.suffix == ".toml" and p.is_file()))
     return tree
 
 

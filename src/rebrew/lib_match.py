@@ -203,7 +203,9 @@ def match_leading_body(index: Index, data: bytes) -> list[tuple[str, str]]:
             if n < MIN_BYTES or n > len(data) or n < best_size:
                 continue
             if relocs:
-                if (min(relocs) < 0 or max(relocs) >= n) and not all(i in relocs or data[i] == body[i] for i in range(n)):
+                if (min(relocs) < 0 or max(relocs) >= n) and not all(
+                    i in relocs or data[i] == body[i] for i in range(n)
+                ):
                     continue
                 matched = n - sum(1 for i in relocs if 0 <= i < n) >= MIN_FIXED_FRACTION * n
             else:

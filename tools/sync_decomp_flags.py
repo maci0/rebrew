@@ -289,8 +289,12 @@ def drifted_lines(committed: str, generated: str) -> list[str]:
     """
     return list(
         difflib.unified_diff(
-            _COMMIT_LINE_RE.sub("Commit: <sha>", _SYNCED_LINE_RE.sub("Synced: <date>", committed)).splitlines(),
-            _COMMIT_LINE_RE.sub("Commit: <sha>", _SYNCED_LINE_RE.sub("Synced: <date>", generated)).splitlines(),
+            _COMMIT_LINE_RE.sub(
+                "Commit: <sha>", _SYNCED_LINE_RE.sub("Synced: <date>", committed)
+            ).splitlines(),
+            _COMMIT_LINE_RE.sub(
+                "Commit: <sha>", _SYNCED_LINE_RE.sub("Synced: <date>", generated)
+            ).splitlines(),
             fromfile="committed",
             tofile="regenerated",
             lineterm="",
@@ -352,7 +356,9 @@ def main() -> None:
             print(f"  → {tier_name}: {n_axes} axes, {total:,} combos")
 
         timestamp = sync_date()
-        source = generate_flag_data_py(msvc_flags, msvc6_flags, timestamp, resolved_commit(repo_dir))
+        source = generate_flag_data_py(
+            msvc_flags, msvc6_flags, timestamp, resolved_commit(repo_dir)
+        )
         # Preserve the hand-maintained flag families (Watcom/Borland/MSVC152/
         # GCC …): everything from the marker comment to EOF survives a sync.
         source = splice_preserved_tail(source, output_path)
