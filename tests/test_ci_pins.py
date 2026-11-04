@@ -1665,6 +1665,8 @@ sysctl() {
     [ "$KEY_EXISTS" = 1 ]
 }
 sudo() {
+    [ "$1" = '-n' ] || return 99
+    shift
     [ "$*" = 'sysctl -w kernel.apparmor_restrict_unprivileged_userns=0' ] || return 99
     printf 'set policy\\n'
     return "$SET_EXIT"

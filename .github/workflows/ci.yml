@@ -58,7 +58,7 @@ jobs:
           GOTOOLCHAIN: local
         run: |
           set -euo pipefail
-          curl --proto '=https' --tlsv1.2 -fsSLo "$RUNNER_TEMP/go.tar.gz" \
+          curl --proto '=https' --tlsv1.2 -fsSL --retry 2 -o "$RUNNER_TEMP/go.tar.gz" \
             "https://go.dev/dl/go$GO_VERSION.linux-amd64.tar.gz"
           echo "$GO_SHA256  $RUNNER_TEMP/go.tar.gz" | sha256sum -c -
           mkdir -p "$RUNNER_TEMP/jobs-go"
@@ -189,7 +189,7 @@ jobs:
         run: |
           set -euo pipefail
           if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
-            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+            sudo -n sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
           unshare --user --map-root-user true
       - name: Set up bun (dashboard interaction tests)
