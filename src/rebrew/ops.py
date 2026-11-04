@@ -647,7 +647,9 @@ def _download(config: WorkerConfig, url: str, wanted: str, into: Path) -> None:
     received = 0
     try:
         with (
-            httpx.stream("GET", url, timeout=DOWNLOAD_TIMEOUT_SECONDS) as response,
+            httpx.stream(
+                "GET", url, timeout=DOWNLOAD_TIMEOUT_SECONDS, follow_redirects=False
+            ) as response,
             into.open("wb") as out,
         ):
             if response.status_code != 200:

@@ -1426,7 +1426,7 @@ def _send_seeds(
                 )
             import httpx
 
-            with httpx.Client(timeout=_request_timeout()) as http:
+            with httpx.Client(timeout=_request_timeout(), follow_redirects=False) as http:
                 return _request(
                     http, conf, source, count, expect, model=model, billed_ceiling=billed_ceiling
                 )

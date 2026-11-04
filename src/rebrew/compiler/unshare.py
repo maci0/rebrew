@@ -165,7 +165,10 @@ def _unpack(archive: Path, destination: Path) -> None:
                 target.symlink_to(member.linkname)
                 os.utime(target, (member.mtime, member.mtime), follow_symlinks=False)
             else:
-                original = destination / member.linkname
+                hardlink = PurePosixPath(member.linkname)
+                if hardlink.is_absolute() or ".." in hardlink.parts or not hardlink.parts:
+                    raise UnshareError(f"unsafe image hard link: {member.name}")
+                original = destination.joinpath(*hardlink.parts)
                 if not original.resolve().is_relative_to(destination) or not original.is_file():
                     raise UnshareError(f"unsafe image hard link: {member.name}")
                 os.link(original, target)
