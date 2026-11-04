@@ -676,7 +676,11 @@ def _collect_prover_candidates(
             # cached value above 100 makes est_diff negative, so the gate below
             # never fires and a badly mismatched function is queued for the
             # prover.  Clamped, not rejected: an out-of-range row still means
-            # "measured, and not a match".
+            # "measured, and not a match".  Non-finite reads as unmeasured
+            # (0.0): max/min with NaN returns the 100.0 bound on Python 3.13+,
+            # queuing a corrupt row as a perfect match.
+            if not math.isfinite(match_pct):
+                match_pct = 0.0
             match_pct = max(0.0, min(100.0, match_pct))
             est_diff = size * (100.0 - match_pct) / 100.0
             if est_diff > _PROVE_MAX_DIFF_BYTES:

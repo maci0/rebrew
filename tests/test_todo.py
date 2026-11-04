@@ -2253,6 +2253,27 @@ class TestProverCandidateFiltering:
         verify["0x00001000"] = SN(status="NEAR_MATCHING", match_percent=100.0, delta=17)
         assert _collect_prover_candidates(existing, {0x1000: 600}, verify) == []
 
+    def test_non_finite_match_percent_not_queued_as_perfect(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A corrupt NaN percent must not read as a perfect match.
+
+        ``max(0.0, min(100.0, nan))`` is 100.0 on Python 3.13+, so without an
+        explicit finite check the estimated diff is 0 and a row of unknown
+        quality is queued for the prover as though it were an exact match.
+        The verify-cache writer maps non-finite to 0.0; this gate must too.
+        """
+        from types import SimpleNamespace as SN
+
+        from rebrew.todo import _collect_prover_candidates
+
+        monkeypatch.setitem(sys.modules, "angr", SN())  # fake: treat as available
+        existing = self._existing("50")
+        for bad in (float("nan"), float("inf"), float("-inf")):
+            verify = {"0x00001000": SN(status="NEAR_MATCHING", match_percent=bad, delta=17)}
+            items = _collect_prover_candidates(existing, {0x1000: 50}, verify)
+            assert items == [], bad
+
     def test_metadata_size_preferred_over_ghidra(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from types import SimpleNamespace as SN
 
