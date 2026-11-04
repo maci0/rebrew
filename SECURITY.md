@@ -73,7 +73,7 @@ workflow `permissions: contents: read`, `persist-credentials: false`,
 and every third-party Action pinned by commit SHA. The one exception is the
 `package` job in `ci.yml`, which carries per-job `attestations: write` and
 `id-token: write` grants so its `actions/attest-build-provenance` step
-records SLSA build provenance for the wheel and sdist in Sigstore's
+records SLSA build provenance for the wheel, sdist and SBOM in Sigstore's
 transparency log (`.github/workflows/ci.yml` `package:` job,
 `tests/test_ci_pins.py` `test_package_job_attests_build_provenance`). Every
 other job in both workflows stays on `contents: read` with no write grant. `secrets.GITHUB_TOKEN` is
@@ -86,8 +86,8 @@ repository: the PyPI upload is a manual `uv publish` from a `dist/` the package
 job verified, so a release is not attributable to a workflow run. That command
 does upload a PEP 740 attestation beside the files, which names the publisher
 who uploaded them, not this repository. CI signing is limited to the SLSA
-build-provenance attestation for the `package` job's wheel and sdist
-subjects: it records what the package job built, under the workflow's
+build-provenance attestation for the `package` job's wheel, sdist and SBOM
+(`dist/rebrew.cdx.json`) subjects: it records what the package job built, under the workflow's
 Sigstore identity, and is not a signature over the manually uploaded release
 files.
 
