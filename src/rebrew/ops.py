@@ -650,6 +650,10 @@ def _download(config: WorkerConfig, url: str, wanted: str, into: Path) -> None:
             into.open("wb") as out,
         ):
             if response.status_code != 200:
+                # Upstream 5xx is a server failure the caller cannot fix by
+                # changing the request (retry later), not a 400 client error.
+                if response.status_code >= 500:
+                    raise _refused(f"url answered HTTP {response.status_code}")
                 raise _invalid(f"url answered HTTP {response.status_code}")
             declared = response.headers.get("Content-Length", "")
             if declared.isdigit() and int(declared) > limit:
@@ -2085,6 +2089,10 @@ class _OpsHandler(BaseHTTPRequestHandler):
             server.slots.release()
 
     def _answer(self, server: OpsServer) -> None:
+        content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+        if content_type != "application/json":
+            self._refuse(INVALID_REQUEST, "Content-Type must be application/json", 415)
+            return
         try:
             length = int(self.headers.get("Content-Length", ""))
         except ValueError:

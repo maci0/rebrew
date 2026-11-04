@@ -87,7 +87,7 @@ func TestHTTPAdmissionAndToken(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("replay: %d", w.Code)
 	}
-	if w = request(`{"key":"k","seed":"seed.c","workspace_sha256":"`+digest+`","generations":2,"population":2}`, true); w.Code != 400 {
+	if w = request(`{"key":"k","seed":"seed.c","workspace_sha256":"`+digest+`","generations":2,"population":2}`, true); w.Code != 409 {
 		t.Fatal("changed match bounds accepted on replay")
 	}
 }

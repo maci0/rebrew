@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -155,6 +156,15 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 				saved, created, err = o.AdmitTuned(in.Key, in.Seed, in.WorkspaceSHA256, options)
 			}
 			if err != nil {
+				if errors.Is(err, ErrIdempotencyConflict) {
+					http.Error(w, "idempotency conflict", http.StatusConflict)
+					return
+				}
+				if errors.Is(err, ErrOccupied) {
+					w.Header().Set("Retry-After", "5")
+					http.Error(w, "workspace has unresolved work", http.StatusConflict)
+					return
+				}
 				http.Error(w, "admission refused", 400)
 				return
 			}
@@ -163,6 +173,13 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 				w.WriteHeader(http.StatusAccepted)
 			}
 			_ = json.NewEncoder(w).Encode(saved)
+			return
+		}
+		// Known collection path with wrong method: 405, like dashboard/ops on a
+		// served path, rather than 404 which would claim the resource is missing.
+		if r.URL.Path == "/jobs" {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		if !strings.HasPrefix(r.URL.Path, "/jobs/") {
@@ -175,6 +192,33 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 			return
 		}
 		id := parts[0]
+		// Known job paths: /jobs/{id} (GET), /jobs/{id}/events|output|compile-intents
+		// (GET), /jobs/{id}/cancel|reconcile|compile-reconcile (POST). Wrong method
+		// on a known shape is 405 with Allow, not 404.
+		if len(parts) == 1 && r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if len(parts) == 2 {
+			switch parts[1] {
+			case "events", "output", "compile-intents":
+				if r.Method != http.MethodGet {
+					w.Header().Set("Allow", http.MethodGet)
+					http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+					return
+				}
+			case "cancel", "reconcile", "compile-reconcile":
+				if r.Method != http.MethodPost {
+					w.Header().Set("Allow", http.MethodPost)
+					http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+					return
+				}
+			default:
+				http.NotFound(w, r)
+				return
+			}
+		}
 		if r.Method == http.MethodGet && len(parts) == 2 && parts[1] == "compile-intents" {
 			intents, err := o.CompileIntents(id)
 			if err != nil {

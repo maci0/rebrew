@@ -1154,7 +1154,7 @@ class TestHttpTransport:
         connection = http.client.HTTPConnection("127.0.0.1", port, timeout=WAIT_SECONDS)
         try:
             connection.putrequest("POST", path)
-            sent = {"Content-Length": "2", **headers}
+            sent = {"Content-Length": "2", "Content-Type": "application/json", **headers}
             for name, value in sent.items():
                 connection.putheader(name, value)
             connection.endheaders(b"{}" if sent["Content-Length"] == "2" else b"")
@@ -1210,7 +1210,7 @@ class TestHttpTransport:
             port,
             "/rebrew.import-project",
             json.dumps({"project_dir": str(FIXTURES)}).encode(),
-            {"Authorization": f"Bearer {TOKEN}"},
+            {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"},
         )
         assert (status, reply["detail"]) == (400, "project_dir must be inside the worker workspace")
 
@@ -1221,7 +1221,7 @@ class TestHttpTransport:
         try:
             stalled.sendall(
                 f"POST /rebrew.fingerprint HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n".encode()
-                + f"Authorization: Bearer {TOKEN}\r\nContent-Length: 10\r\n\r\n".encode()
+                + f"Authorization: Bearer {TOKEN}\r\nContent-Type: application/json\r\nContent-Length: 10\r\n\r\n".encode()
             )
             deadline = time.monotonic() + WAIT_SECONDS
             while True:
@@ -1231,7 +1231,7 @@ class TestHttpTransport:
                         "POST",
                         "/rebrew.nope",
                         body=b"{}",
-                        headers={"Authorization": f"Bearer {TOKEN}"},
+                        headers={"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"},
                     )
                     response = connection.getresponse()
                     reply = json.loads(response.read())
@@ -1247,7 +1247,7 @@ class TestHttpTransport:
         deadline = time.monotonic() + WAIT_SECONDS
         while True:
             status, reply = self._post(
-                port, "/rebrew.nope", b"{}", {"Authorization": f"Bearer {TOKEN}"}
+                port, "/rebrew.nope", b"{}", {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
             )
             if status != 503:
                 break

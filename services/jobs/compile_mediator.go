@@ -361,6 +361,7 @@ func (m *CompileMediator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if len(ids) >= m.max {
+			w.Header().Set("Retry-After", "5")
 			http.Error(w, "compile budget exhausted", 429)
 			return
 		}

@@ -61,7 +61,7 @@ func TestCatalogAdmissionPinsKindAndRejectsForeignParameters(t *testing.T) {
 	if w = post(`{"key":"catalog","kind":"unknown","workspace_sha256":"` + digest + `"}`); w.Code != 400 {
 		t.Fatal("unknown kind accepted")
 	}
-	if w = post(`{"key":"catalog","seed":"rebrew-project.toml","workspace_sha256":"` + digest + `"}`); w.Code != 400 {
+	if w = post(`{"key":"catalog","seed":"rebrew-project.toml","workspace_sha256":"` + digest + `"}`); w.Code != 409 {
 		t.Fatal("kind change accepted")
 	}
 	if strings.Join(jobArguments("catalog", "ignored", 100, 64), " ") != "coverage catalog --json" {

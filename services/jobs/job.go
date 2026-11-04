@@ -188,6 +188,12 @@ func (o *Owner) read(id string) (Receipt, error) {
 	}
 	return r, nil
 }
+
+var (
+	ErrIdempotencyConflict = errors.New("idempotency conflict")
+	ErrOccupied            = errors.New("workspace has unresolved work")
+)
+
 func (o *Owner) save(r Receipt) error {
 	return writeJSONAtomic(o.dir, ".job-", r.ID+".json", r)
 }
@@ -299,7 +305,7 @@ func (o *Owner) admit(key, seed, expectedWorkspaceSHA256, credential string, opt
 	r, err := o.read(id)
 	if err == nil {
 		if r.Kind != kind || r.Seed != rel || r.SeedSHA256 != seedDigest || r.WorkspaceSHA256 != workspaceDigest || r.ManagedCompile != (credential != "") || r.CredentialSHA256 != credentialDigest || r.Generations != options.Generations || r.Population != options.Population {
-			return Receipt{}, false, errors.New("idempotency conflict")
+			return Receipt{}, false, ErrIdempotencyConflict
 		}
 		return r, false, nil
 	}
@@ -307,7 +313,7 @@ func (o *Owner) admit(key, seed, expectedWorkspaceSHA256, credential string, opt
 		return Receipt{}, false, err
 	}
 	if o.occupied {
-		return Receipt{}, false, errors.New("workspace has unresolved work")
+		return Receipt{}, false, ErrOccupied
 	}
 	originalPath := filepath.Join(o.dir, id+".original")
 	if _, statErr := os.Lstat(originalPath); !errors.Is(statErr, os.ErrNotExist) {
