@@ -1406,6 +1406,7 @@ def project_report(root: Path, snapshots: Path | None) -> dict[str, Any]:
     """
     from rebrew.coverage_project import load_project_coverage
     from rebrew.coverage_toml import load_coverage_from
+    from rebrew.discover import elf_function_symbols
     from rebrew.formats.import_table import find_import_stubs
     from rebrew.workspace import read_config, target_binary, targets_table
 
@@ -1426,11 +1427,20 @@ def project_report(root: Path, snapshots: Path | None) -> dict[str, Any]:
         binary = target_binary(root, entry) if entry else None
         if binary is not None and not binary.is_file():
             binary = None
+        symbol_names = (
+            {va: (size, symbol) for va, size, symbol in elf_function_symbols(binary)}
+            if binary is not None
+            else {}
+        )
         functions = [
             {
                 "va": row.va,
-                "name": row.name.strip() or f"sub_{row.va:x}",
-                "size": max(0, row.size or 0),
+                "name": symbol_names.get(row.va, (0, row.name.strip()))[1]
+                if row.name.strip() == f"fcn_{row.va:08x}"
+                else row.name.strip() or f"sub_{row.va:x}",
+                "size": (symbol_names.get(row.va, (0, ""))[0] or max(0, row.size or 0))
+                if row.name.strip() == f"fcn_{row.va:08x}"
+                else max(0, row.size or 0),
                 "status": row.status,
             }
             for row in sorted(coverage[name].functions, key=lambda row: row.va)
@@ -2120,6 +2130,9 @@ class OpsServer(ThreadingHTTPServer):
         self.config = config
         self.token = token
         self.slots = threading.BoundedSemaphore(concurrency)
+        self.active = 0
+        self.draining = False
+        self.idle = threading.Condition()
         self.allowed_hosts = _allowed_hosts_for(address[0], address[1]) | allowed_hosts
 
 
@@ -2181,14 +2194,21 @@ class _OpsHandler(BaseHTTPRequestHandler):
         if not hmac.compare_digest(given, f"Bearer {server.token}".encode()):
             self._refuse("unauthorized", "a valid bearer token is required", 401)
             return
-        if not server.slots.acquire(blocking=False):
+        with server.idle:
+            admitted = not server.draining and server.slots.acquire(blocking=False)
+            if admitted:
+                server.active += 1
+        if not admitted:
             body = error_body(WORKER_BUSY, "every worker slot is busy; retry later", 503)
             self._send(503, body, {"Retry-After": str(BUSY_RETRY_AFTER_SECONDS)})
             return
         try:
             self._answer(server)
         finally:
-            server.slots.release()
+            with server.idle:
+                server.active -= 1
+                server.slots.release()
+                server.idle.notify_all()
 
     def _answer(self, server: OpsServer) -> None:
         try:
@@ -2340,10 +2360,23 @@ def serve_command(
             f"serving rebrew ops on http://{host}:{server.server_port} (non-loopback bind: bearer auth required)"
         )
     console.print(f"serving rebrew ops on http://{host}:{server.server_port}")
+
+    def stop(_signum: int, _frame: Any) -> None:
+        with server.idle:
+            if server.draining:
+                return
+            server.draining = True
+        threading.Thread(target=server.shutdown, daemon=True).start()
+
+    previous = signal.signal(signal.SIGTERM, stop)
     try:
         server.serve_forever()
     finally:
         server.server_close()
+        with server.idle:
+            server.draining = True
+            server.idle.wait_for(lambda: server.active == 0, timeout=30)
+        signal.signal(signal.SIGTERM, previous)
 
 
 def main_entry() -> None:

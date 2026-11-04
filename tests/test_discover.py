@@ -696,6 +696,42 @@ def test_a_stripped_elf_is_discovered_from_its_unwind_records(tmp_path: Path) ->
     assert {va: found.get(va) for va in truth} == truth
 
 
+def test_elf_defined_symbols_preserve_extents_without_rizin(tmp_path: Path, monkeypatch) -> None:
+    import shutil
+    import subprocess
+
+    import lief
+
+    from rebrew import discover
+
+    cc = shutil.which("cc")
+    if not cc:
+        pytest.skip("needs a C compiler")
+    source = tmp_path / "symbols.c"
+    source.write_text(
+        "__attribute__((noinline)) int checksum(int a) { return a * 17 + 3; }\nint main(void) { return checksum(2); }\n"
+    )
+    binary = tmp_path / "symbols"
+    subprocess.run([cc, "-O0", "-no-pie", "-o", str(binary), str(source)], check=True)
+    monkeypatch.setattr(
+        discover,
+        "_DISCOVERER_MAP",
+        {**discover._DISCOVERER_MAP, "rizin aaa": lambda _: [], "rizin aa;aap": lambda _: []},
+    )
+    elf = lief.ELF.parse(str(binary))
+    assert elf is not None
+    expected = {
+        s.name: (s.value, s.size) for s in elf.symbols if s.name in {"checksum", "main", "_start"}
+    }
+    found = {name: (va, size) for va, size, name in discover.discover_functions(binary).functions}
+    assert {name: found.get(name) for name in expected} == expected
+    plt = elf.get_section(".plt")
+    if plt is not None:
+        assert not any(
+            plt.virtual_address <= va < plt.virtual_address + plt.size for va, _ in found.values()
+        )
+
+
 def test_a_stripped_x64_pe_is_discovered_from_its_pdata(tmp_path: Path) -> None:
     """Every non-leaf function of a stripped x64 PE, at its exact start."""
     import shutil

@@ -275,6 +275,40 @@ def _discover_eh_frame(binary: Path) -> list[tuple[int, int, str]]:
     ]
 
 
+def elf_function_symbols(binary: Path) -> list[tuple[int, int, str]]:
+    """Defined ELF function symbols in executable sections, excluding linkage stubs."""
+    import lief
+
+    from rebrew.formats.binary_loader import decode_binary_name
+
+    try:
+        info = load_binary(binary)
+        if info.format != "elf":
+            return []
+        elf = lief.ELF.parse(str(binary))
+        if elf is None:
+            return []
+        sections = [
+            s for s in info.sections.values() if s.is_code and not s.name.startswith(".plt")
+        ]
+        found: dict[int, tuple[int, str]] = {}
+        for symbol in elf.symbols:
+            va, size, name = int(symbol.value), int(symbol.size), decode_binary_name(symbol.name)
+            if symbol.type != lief.ELF.Symbol.TYPE.FUNC or not symbol.shndx or not name or not va:
+                continue
+            if not any(
+                s.va <= va < s.va + s.size and (not size or va + size <= s.va + s.size)
+                for s in sections
+            ):
+                continue
+            previous = found.get(va)
+            if previous is None or (size > previous[0]):
+                found[va] = (size, name)
+        return [(va, size, name) for va, (size, name) in sorted(found.items())]
+    except OSError, ValueError, TypeError:
+        return []
+
+
 def _discover_pdata(binary: Path) -> list[tuple[int, int, str]]:
     """Packaged discoverer: exact function extents from an x64 PE's ``.pdata``.
 
@@ -354,6 +388,7 @@ _PACKAGED_DISCOVERERS: dict[str, Discoverer] = {
     "rizin aa;aap": _discover_rizin_aap,
     "capstone sweep": _discover_capstone_sweep,
     "eh_frame": _discover_eh_frame,
+    "elf symbols": elf_function_symbols,
     "pdata": _discover_pdata,
     "ne loader": _discover_ne_loader,
     "mz sweep": _discover_mz_sweep,
@@ -987,7 +1022,7 @@ def discover_functions(binary: Path, *, min_size: int = 8) -> Discovery:
         return d
 
     found = _run_providers(
-        ["rizin aaa", "rizin aa;aap", "eh_frame", "pdata", *plugins],
+        ["rizin aaa", "rizin aa;aap", "eh_frame", "pdata", "elf symbols", *plugins],
         binary,
         d,
         providers=providers,
@@ -995,6 +1030,8 @@ def discover_functions(binary: Path, *, min_size: int = 8) -> Discovery:
     # Merge: prefer-larger-size union over every provider (rizin strategies
     # and plugins alike); the merged-rizin count tracks the rizin pair only.
     merged = _merge_union(found)
+    symbols = {va: (size, name) for va, size, name in found.get("elf symbols", [])}
+    merged.update(symbols)
     d.sources["merged-rizin"] = len(
         _merge_union({k: found[k] for k in ("rizin aaa", "rizin aa;aap") if k in found})
     )
@@ -1015,14 +1052,14 @@ def discover_functions(binary: Path, *, min_size: int = 8) -> Discovery:
     extents = sorted(unwind.items())
     if extents:
         inside = _extent_contains(extents)
-        merged = {va: entry for va, entry in merged.items() if not inside(va)}
+        merged = {va: entry for va, entry in merged.items() if va in symbols or not inside(va)}
 
     # Validate: drop candidates that fall inside a larger span.
     ordered = sorted(merged.items())
     kept: dict[int, tuple[int, str]] = {}
     for i, (va, (size, name)) in enumerate(ordered):
         nxt_va = ordered[i + 1][0] if i + 1 < len(ordered) else None
-        if nxt_va is not None and nxt_va - va <= 2:
+        if nxt_va is not None and nxt_va - va <= 2 and va not in symbols:
             continue  # duplicate/adjacent junk
         kept[va] = (size, name)
 
@@ -1031,16 +1068,35 @@ def discover_functions(binary: Path, *, min_size: int = 8) -> Discovery:
     ]
 
     # Refine sizes against the binary (first-ret).
+    info = None
     try:
         info = load_binary(binary)
-        funcs = _validate_and_refine(info, funcs, vouched=frozenset(unwind))
+        funcs = _validate_and_refine(info, funcs, vouched=frozenset(unwind) | frozenset(symbols))
     except Exception as exc:
         # Unvalidated gap-based sizes are still emitted, but the user must
         # know the refine pass was skipped.
         logger.warning("size refine step failed (emitting unvalidated sizes): %s", exc)
 
-    funcs = [(va, unwind.get(va, size), name) for va, size, name in funcs]
-    funcs = [f for f in funcs if f[1] >= min_size]
+    funcs = [
+        (va, symbols[va][0] if va in symbols and symbols[va][0] else unwind.get(va, size), name)
+        for va, size, name in funcs
+    ]
+    if info is not None and getattr(info, "format", "") == "elf":
+        plt = [(s.va, s.va + s.size) for s in info.sections.values() if s.name.startswith(".plt")]
+        funcs = [f for f in funcs if not any(lo <= f[0] < hi for lo, hi in plt)]
+        code = [s for s in info.sections.values() if s.is_code and not s.name.startswith(".plt")]
+        funcs = [
+            (
+                va,
+                min(
+                    size,
+                    next((s.va + s.size - va for s in code if s.va <= va < s.va + s.size), size),
+                ),
+                name,
+            )
+            for va, size, name in funcs
+        ]
+    funcs = [f for f in funcs if f[1] >= min_size or (f[0] in symbols and symbols[f[0]][0] > 0)]
 
     d.functions = funcs
     return d

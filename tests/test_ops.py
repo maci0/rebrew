@@ -873,6 +873,40 @@ def _with_project_header(project: Path) -> str:
 
 
 class TestReconstructionOps:
+    def test_analysed_elf_reports_defined_symbol_names_and_sizes(self, tmp_path: Path) -> None:
+        import lief
+
+        compiler = shutil.which("cc")
+        if compiler is None:
+            pytest.skip("needs a C compiler")
+        source = tmp_path / "fixture.c"
+        source.write_text(
+            "__attribute__((noinline)) int checksum(int x) { return x*17+3; }\nint main(void) { return checksum(2); }\n"
+        )
+        binary = tmp_path / "fixture.elf"
+        subprocess.run([compiler, "-O0", "-no-pie", "-o", str(binary), str(source)], check=True)
+        filestore, workspace = _worker_dirs(tmp_path)
+        digest, key = _store(filestore, binary.read_bytes())
+        status, body = dispatch(
+            WorkerConfig(filestore.resolve(), workspace.resolve()),
+            "rebrew.analyse",
+            json.dumps(
+                {"binary_id": 1, "sha256": digest, "name": "fixture", "file_key": key}
+            ).encode(),
+        )
+        assert status == 200, body
+        elf = lief.ELF.parse(str(binary))
+        assert elf is not None
+        expected = {
+            s.name: (s.value, s.size)
+            for s in elf.symbols
+            if s.name in {"checksum", "main", "_start"}
+        }
+        found = {
+            f["name"]: (f["va"], f["size"]) for f in json.loads(body)["targets"][0]["functions"]
+        }
+        assert {name: found.get(name) for name in expected} == expected
+
     def test_candidate_uses_private_retained_snapshot(
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:
@@ -1107,6 +1141,58 @@ def _free_port() -> int:
 
 
 class TestHttpTransport:
+    def test_sigterm_drains_active_request(self, tmp_path: Path) -> None:
+        filestore, workspace = _worker_dirs(tmp_path)
+        port = _free_port()
+        process = subprocess.Popen(
+            _rebrew(
+                "ops",
+                "serve",
+                "--port",
+                str(port),
+                "--filestore",
+                str(filestore),
+                "--workspace",
+                str(workspace),
+                "--concurrency",
+                "1",
+            ),
+            env={**os.environ, "REBREW_OPS_TOKEN": TOKEN},
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        connection = None
+        try:
+            deadline = time.monotonic() + WAIT_SECONDS
+            while connection is None:
+                assert process.poll() is None and time.monotonic() < deadline
+                try:
+                    connection = socket.create_connection(("127.0.0.1", port), timeout=1)
+                except OSError:
+                    time.sleep(0.1)
+            connection.settimeout(WAIT_SECONDS)
+            connection.sendall(
+                f"POST /rebrew.nope HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAuthorization: Bearer {TOKEN}\r\nContent-Length: 2\r\n\r\n".encode()
+            )
+            while (
+                self._post(port, "/rebrew.nope", b"{}", {"Authorization": f"Bearer {TOKEN}"})[0]
+                != 503
+            ):
+                assert process.poll() is None and time.monotonic() < deadline
+                time.sleep(0.05)
+            process.terminate()
+            time.sleep(0.2)
+            assert process.poll() is None
+            connection.sendall(b"{}")
+            assert b"404" in connection.recv(4096)
+            assert process.wait(timeout=5) == 0
+        finally:
+            if connection is not None:
+                connection.close()
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=WAIT_SECONDS)
+
     @pytest.fixture
     def server(self, tmp_path: Path) -> Any:
         filestore, workspace = _worker_dirs(tmp_path)
