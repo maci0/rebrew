@@ -1,5 +1,27 @@
 ## [Unreleased]
 
+## [6.21.0] - 2026-11-04
+
+### Added
+
+- Verified backup and restore for metadata and genetic algorithm solution logs.
+
+### Changed
+
+- **Breaking:** `theme.TOKENS`, `depgraph.TOKENS`, and `status_style.TOKENS` expose updated font values and additional typography tokens.
+- Improve dashboard and report typography, asset loading, and keyboard navigation.
+- Reduce repeated regular-expression compilation in C parsing and source merging.
+- Harden native helper and jobs service builds for reproducibility.
+
+### Fixed
+
+- Harden Splat configuration, operations, toolchain downloads, and the jobs service against unsafe paths, hosts, and oversized downloads.
+- Bound subprocess pipe draining after termination and preserve flush errors.
+- Handle non-finite values and overflow in scores, percentages, retries, and display helpers.
+- Accept UTF-8 BOMs in TOML and JSON inputs, normalize recorded timestamps, and match library headers case-insensitively.
+- Return the correct HTTP method response for operations, report coverage transition failures, and declare interrupted and broken-pipe exit codes in the CLI schema.
+- Add metadata database constraints and surface toolchain status, rollback, and cleanup failures.
+
 ## [6.20.0] - 2026-11-04
 
 ### Fixed

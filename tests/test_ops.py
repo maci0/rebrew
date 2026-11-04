@@ -1206,7 +1206,7 @@ class TestHttpTransport:
         stalled = socket.create_connection(("127.0.0.1", port), timeout=WAIT_SECONDS)
         try:
             stalled.sendall(
-                b"POST /rebrew.fingerprint HTTP/1.1\r\nHost: x\r\n"
+                f"POST /rebrew.fingerprint HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n".encode()
                 + f"Authorization: Bearer {TOKEN}\r\nContent-Length: 10\r\n\r\n".encode()
             )
             deadline = time.monotonic() + WAIT_SECONDS

@@ -243,10 +243,10 @@ def test_published_method_candidates_fixups_stay_same_segment(blob: bytes) -> No
     candidate; a same-segment fixup rewrites the offset to the target."""
     from rebrew.formats.ne_analysis import published_method_candidates
 
-    site = len(_MARKER) + 2
-    cross = published_method_candidates(blob, _CLASS, fixups={(0, site): (1, 0)})
+    sites = [i + len(_MARKER) + 2 for i in range(len(blob)) if blob.startswith(_MARKER, i)]
+    cross = published_method_candidates(blob, _CLASS, fixups={(0, site): (1, 0) for site in sites})
     assert cross == []
-    same = published_method_candidates(blob, _CLASS, fixups={(0, site): (0, 0)})
+    same = published_method_candidates(blob, _CLASS, fixups={(0, site): (0, 0) for site in sites})
     _check_methods(blob, same)
     # A same-segment fixup can only rescue a candidate the unfixed scan
     # rejected (pointer past EOF); it never invents a new name.

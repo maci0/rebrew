@@ -187,7 +187,7 @@ class TestStampTimezone:
         from rebrew.metadata.document import stamp_now
         from rebrew.metadata.functions import stamp_provenance
 
-        entry: dict = {}
+        entry: dict[str, Any] = {}
         stamp_provenance(entry, "verify", now=datetime(2026, 1, 2, 3, 4, 5))  # noqa: DTZ001
         assert entry["updated_at"] == "2026-01-02T03:04:05+00:00"
         # An offset-aware caller instant is re-rendered in UTC, not leaked as-is.

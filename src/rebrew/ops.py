@@ -1918,7 +1918,9 @@ class _OpsHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # (http.server API)
         server = typing.cast("OpsServer", self.server)
         if self.headers.get("Host", "").strip().lower() not in server.allowed_hosts:
-            self._refuse("host-not-allowed", "request Host not allowed (wrong or missing Host header)", 403)
+            self._refuse(
+                "host-not-allowed", "request Host not allowed (wrong or missing Host header)", 403
+            )
             return
         given = self.headers.get("Authorization", "").encode()
         if not hmac.compare_digest(given, f"Bearer {server.token}".encode()):
@@ -1948,7 +1950,9 @@ class _OpsHandler(BaseHTTPRequestHandler):
     def _not_post(self) -> None:
         server = typing.cast("OpsServer", self.server)
         if self.headers.get("Host", "").strip().lower() not in server.allowed_hosts:
-            self._refuse("host-not-allowed", "request Host not allowed (wrong or missing Host header)", 403)
+            self._refuse(
+                "host-not-allowed", "request Host not allowed (wrong or missing Host header)", 403
+            )
             return
         self._send(
             405,
@@ -2068,7 +2072,9 @@ def serve_command(
     )
     server = OpsServer((host, port), config, token, concurrency)
     if host not in ("127.0.0.1", "localhost", "::1"):
-        console.print(f"serving rebrew ops on http://{host}:{server.server_port} (non-loopback bind: bearer auth required)")
+        console.print(
+            f"serving rebrew ops on http://{host}:{server.server_port} (non-loopback bind: bearer auth required)"
+        )
     console.print(f"serving rebrew ops on http://{host}:{server.server_port}")
     try:
         server.serve_forever()
