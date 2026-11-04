@@ -64,6 +64,7 @@ def _count_window(reference: bytes, built: bytes, start: int, end: int) -> tuple
     informative bytes are the reference's nonzero ones, which carry content.
     """
     stop = min(end, len(reference), len(built))
+    start = max(start, 0)
     if stop <= start:
         return 0, 0, 0
     if stop - start < _VECTOR_COMPARE_MIN_BYTES:

@@ -97,3 +97,15 @@ def test_count_window_clips_a_window_past_the_images(monkeypatch: pytest.MonkeyP
 
     monkeypatch.setattr(bs, "_VECTOR_COMPARE_MIN_BYTES", 1 << 30)
     assert bs._count_window(b"\x01\x02", b"\x01\x02", 0, 0x100) == (2, 2, 2)
+
+
+@pytest.mark.parametrize("vector_threshold", [1 << 30, 1])
+def test_count_window_clips_a_negative_start(
+    monkeypatch: pytest.MonkeyPatch, vector_threshold: int
+) -> None:
+    """A window starting before the image counts only bytes both sides hold."""
+    import rebrew.binary_score as bs
+
+    monkeypatch.setattr(bs, "_VECTOR_COMPARE_MIN_BYTES", vector_threshold)
+    assert bs._count_window(b"abcd", b"abce", -3, 2) == (2, 2, 2)
+    assert bs._count_window(b"abcd", b"abce", -10, 2) == (2, 2, 2)
