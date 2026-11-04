@@ -11,7 +11,7 @@ allocation fails for them).  Produces 16-bit OMF objects — the OMF parser
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
+lazy from pathlib import Path
 
 from rebrew.errors import RebrewError
 lazy from rebrew.compiler.dosbox import (

@@ -135,7 +135,7 @@ class TestBytesField:
                 base64.b64decode(code, validate=True)
             except Exception:
                 return
-            raise AssertionError(f"{code!r} is valid base64 but was refused")
+            raise AssertionError(f"{code!r} is valid base64 but was refused") from None
         assert value.code == base64.b64decode(code, validate=True)
 
     @given(_JSON_SCALAR)

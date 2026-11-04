@@ -531,29 +531,51 @@ def _write_error(kind: str, message: str, hint: str) -> None:
 
 def _install_click_error_hook() -> None:
     """JSON mode turns Click errors into the stderr envelope. Text mode stays human."""
-    from click.exceptions import ClickException
-    from click.exceptions import UsageError as ClickUsageError
+    # Typer vendors its own click copy under typer._click; patch both the
+    # upstream click classes and the vendored ones so JSON mode works
+    # regardless of which copy raises.
+    from click.exceptions import ClickException as _ClickClickException
+    from click.exceptions import UsageError as _ClickUsageError
+    from typer._click.exceptions import ClickException as _TyperClickException
+    from typer._click.exceptions import UsageError as _TyperUsageError
 
-    original = ClickException.show
-    usage_original = ClickUsageError.show
-    if getattr(original, "_rebrew_hook", False) and getattr(usage_original, "_rebrew_hook", False):
-        return
+    # Typer's ClickException is a separate class from click's, so the
+    # union covers both hierarchies the hook may receive.
+    _AnyClickException = _ClickClickException | _TyperClickException
 
-    def show(self: ClickException, file: Any = None) -> None:
-        if _json_mode_active():
-            kind = "usage" if isinstance(self, ClickUsageError) else "failure"
-            _write_error(kind, self.format_message(), "")
-            return
-        if isinstance(self, ClickUsageError):
-            usage_original(self, file=file)
-        else:
-            original(self, file=file)
+    def _make_show(
+        original: Any, usage_original: Any, usage_error: type[Any]
+    ) -> Any:
+        def show(self: Any, file: Any = None) -> None:
+            if _json_mode_active():
+                kind = "usage" if isinstance(self, usage_error) else "failure"
+                _write_error(kind, self.format_message(), "")
+                return
+            if isinstance(self, usage_error):
+                usage_original(self, file=file)
+            else:
+                original(self, file=file)
 
-    show._rebrew_hook = True  # type: ignore[attr-defined]
-    ClickException.show = show  # type: ignore[method-assign]
-    # UsageError overrides show() in click 8.5, so patching only the base
-    # class never fires for usage errors (bad flags, missing args).
-    ClickUsageError.show = show  # type: ignore[method-assign]
+        show._rebrew_hook = True  # type: ignore[attr-defined]
+        return show
+
+    for click_exc, usage_exc in [
+        (_ClickClickException, _ClickUsageError),
+        (_TyperClickException, _TyperUsageError),
+    ]:
+        _exc_any: Any = click_exc
+        _usage_any: Any = usage_exc
+        original = _exc_any.show
+        usage_original = _usage_any.show
+        if getattr(original, "_rebrew_hook", False) and getattr(
+            usage_original, "_rebrew_hook", False
+        ):
+            continue
+        show = _make_show(original, usage_original, usage_exc)
+        _exc_any.show = show
+        # UsageError overrides show() in click 8.5, so patching only the
+        # base class never fires for usage errors (bad flags, missing args).
+        _usage_any.show = show
     # Typer's rich error path bypasses show() entirely when rich_markup_mode
     # is set: typer.core.main calls rich_utils.rich_format_error(e) instead.
     try:
@@ -562,15 +584,19 @@ def _install_click_error_hook() -> None:
         original_rich = rich_utils.rich_format_error
         if not getattr(original_rich, "_rebrew_hook", False):
 
-            def rich_show(self: ClickException) -> None:
+            def rich_show(self: _AnyClickException) -> None:
                 if _json_mode_active():
-                    kind = "usage" if isinstance(self, ClickUsageError) else "failure"
+                    kind = (
+                        "usage"
+                        if isinstance(self, (_ClickUsageError, _TyperUsageError))
+                        else "failure"
+                    )
                     _write_error(kind, self.format_message(), "")
                     return
-                original_rich(self)
+                original_rich(self)  # type: ignore[arg-type]
 
             rich_show._rebrew_hook = True  # type: ignore[attr-defined]
-            rich_utils.rich_format_error = rich_show  # type: ignore[method-assign]
+            rich_utils.rich_format_error = rich_show
     except ImportError:
         pass
 
