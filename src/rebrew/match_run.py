@@ -84,7 +84,12 @@ def _utc_now_iso(now: Callable[[], datetime] | None = None) -> str:
     """
     from rebrew.matcher import utc_now_iso
 
-    return utc_now_iso() if now is None else now().isoformat()
+    if now is None:
+        return utc_now_iso()
+    moment = now()
+    from datetime import UTC
+
+    return (moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)).isoformat()
 
 
 class _GaRunRecord(NamedTuple):
@@ -952,13 +957,20 @@ def _as_utc_instant(value: object) -> datetime | None:
     raw = value.strip()
     if not raw:
         return None
+    # ``datetime.fromisoformat`` rejects a bare ``Z`` before Python 3.11, and
+    # the repo's own stamp shapes include it (``%Y-%m-%dT%H:%M:%SZ`` in the
+    # run-log tests, ``.replace("+00:00", "Z")`` in ``pe_info``); normalize
+    # one trailing ``Z`` so a Z-stamped row and its twin keyed off the naive
+    # fallback don't silently disagree about which instant it names.
+    if raw.endswith(("Z", "z")):
+        raw = raw[:-1] + "+00:00"
     try:
         moment = datetime.fromisoformat(raw)
     except ValueError:
         return None
     if moment.tzinfo is None:
         return moment.replace(tzinfo=UTC)
-    return moment
+    return moment.astimezone(UTC)
 
 
 def _display_instant(value: object) -> str:
