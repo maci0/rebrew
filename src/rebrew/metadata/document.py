@@ -22,6 +22,7 @@ lazy import copy
 lazy import json
 lazy import unicodedata
 lazy from collections.abc import Sequence
+lazy from datetime import UTC, datetime
 
 lazy import tomlkit
 lazy from tomlkit import TOMLDocument
@@ -46,6 +47,18 @@ def stamp_format(doc: Any, *, version: int | None = None) -> None:
     ):
         raise ValueError(f"unsupported metadata format {current!r}; expected {expected}")
     doc[FORMAT_KEY] = expected
+
+
+def stamp_now(now: datetime | None, *, timespec: str = "auto") -> str:
+    """Render *now* (default: the wall clock) as an aware UTC ISO stamp.
+
+    A zone-less *now* is read as UTC, the same rule readers of these fields
+    apply, so a naive caller cannot leak an offset-less stamp into the store.
+    """
+    moment = now or datetime.now(UTC)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    return moment.astimezone(UTC).isoformat(timespec=timespec)
 
 
 def metadata_format(path: Path) -> int:

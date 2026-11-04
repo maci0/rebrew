@@ -184,11 +184,12 @@ class TestStampTimezone:
     def test_naive_now_is_read_as_utc_offsets(self) -> None:
         from datetime import datetime, timedelta, timezone
 
-        from rebrew.metadata.functions import _stamp, stamp_provenance
+        from rebrew.metadata.document import stamp_now
+        from rebrew.metadata.functions import stamp_provenance
 
         entry: dict = {}
         stamp_provenance(entry, "verify", now=datetime(2026, 1, 2, 3, 4, 5))  # noqa: DTZ001
         assert entry["updated_at"] == "2026-01-02T03:04:05+00:00"
         # An offset-aware caller instant is re-rendered in UTC, not leaked as-is.
         aware = datetime(2026, 1, 2, 5, 4, 5, tzinfo=timezone(timedelta(hours=2)))
-        assert _stamp(aware) == "2026-01-02T03:04:05+00:00"
+        assert stamp_now(aware) == "2026-01-02T03:04:05+00:00"

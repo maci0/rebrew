@@ -11,7 +11,6 @@ from rebrew.metadata.functions import (
     FUNCTION_IDENTITY_FIELDS,
     METADATA_FIELDS,
     METADATA_FILENAME,
-    stamp,
     identity_file,
     resolve_metadata_dir,
     stamp_provenance,
@@ -23,6 +22,7 @@ lazy from rebrew.metadata.document import (
     load_metadata_for_write,
     resolve_metadata_key,
     stamp_format,
+    stamp_now,
 )
 lazy from rebrew.metadata.storage import input_digest, metadata_store, metadata_write_lock
 lazy from rebrew.utils import is_safe_c_ident, preset_module_key
@@ -271,7 +271,7 @@ def _apply_change(
     event = {
         "action": "retire" if identity is None else "rebind",
         "reason": reason.strip(),
-        "changed_at": stamp(now),
+        "changed_at": stamp_now(now),
         "previous": previous,
         "replacement": identity or {},
         "counterpart_va": counterpart_va or 0,
