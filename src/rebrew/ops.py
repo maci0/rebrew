@@ -1885,12 +1885,16 @@ class _OpsHandler(BaseHTTPRequestHandler):
             self._refuse(INVALID_REQUEST, f"request exceeds {MAX_REQUEST_BYTES} bytes", 413)
             return
         body = self.rfile.read(length)
-        self._send(*dispatch(server.config, self.path.removeprefix("/"), body))
+        self._send(*dispatch(server.config, urlsplit(self.path).path.removeprefix("/"), body))
 
     def _not_post(self) -> None:
-        self._refuse("method-not-allowed", "ops are called with POST", 405)
+        self._send(
+            405,
+            error_body("method-not-allowed", "ops are called with POST", 405),
+            {"Allow": "POST"},
+        )
 
-    do_GET = do_PUT = do_DELETE = do_PATCH = _not_post
+    do_GET = do_HEAD = do_PUT = do_DELETE = do_PATCH = do_OPTIONS = _not_post
 
 
 # ---------------------------------------------------------------------------
