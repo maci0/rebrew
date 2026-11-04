@@ -142,7 +142,8 @@ needs a JDK and Apache Ant on PATH to build JPype 1.7.1 on Python 3.15
 (qualified with OpenJDK 27 and Ant 1.10.18).
 
 Clean clone needs **uv**, **Python 3.15+** (`.python-version`), **nasm** and
-**bun** on `PATH`, a sibling [`resembl`](https://github.com/maci0/resembl) checkout at
+**bun** on `PATH`, a **Rust toolchain** (**cargo** + **rustc**, qualified with
+Rust 1.99.1 — `make setup` builds `python-flirt` from its sdist), a sibling [`resembl`](https://github.com/maci0/resembl) checkout at
 `../resembl` (tag `v3.12.0`, matching CI `RESEMBL_REF` / `uv.lock`; `make setup`
 also requires `HEAD` to be the `RESEMBL_SHA` commit CI's `resembl-sha` pins),
 **bash** for the `make clone-resembl` step below, and **cc**, **pkg-config**
@@ -160,7 +161,7 @@ Run the following from the directory that will hold both checkouts:
 git clone https://github.com/maci0/rebrew.git
 cd rebrew/
 make doctor                # report every missing prerequisite (uv, ../resembl, bash, nasm,
-                           # bun, JDK/ant, go, patch, cc/pkg-config/json-c, shellcheck, yamllint, vnu, venv extras)
+                           # bun, JDK/ant, go, patch, rust, cc/pkg-config/json-c, shellcheck, yamllint, vnu, venv extras)
                            # with the fix for each; read-only, and exits non-zero only for a
                            # host tool the two steps below cannot install
 make clone-resembl         # clone sibling resembl pin (tag v3.12.0) into ../resembl

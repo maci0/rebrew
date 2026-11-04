@@ -5,7 +5,7 @@
 	warn-yamllint \
 	warn-vnu \
 	vnu \
-	ensure-bash ensure-unshare-build ensure-jpype-build ensure-go ensure-patch \
+	ensure-bash ensure-unshare-build ensure-jpype-build ensure-go ensure-patch ensure-rust \
 	smoke-wheel \
 	require-dist \
 	ensure-extras \
@@ -149,7 +149,7 @@ UV_RUN_TOOLS := uv run --no-project --offline --python $(PYTHON_PIN)
 
 help:
 	@printf '%s\n' \
-		'  make doctor             # report every missing prerequisite (uv, resembl, JDK/ant, go, patch, nasm, bun, cc/json-c, shellcheck, yamllint, vnu, extras)' \
+		'  make doctor             # report every missing prerequisite (uv, resembl, JDK/ant, go, patch, rust, nasm, bun, cc/json-c, shellcheck, yamllint, vnu, extras)' \
 		'  make setup              # uv sync (locked + extras + similarity) + pre-commit/pre-push hooks' \
 		'  make add-dep ADD_DEP_SPEC=<spec>  # uv add <spec> (pyproject.toml + uv.lock), then the license-table step' \
 		'  make clone-resembl      # clone sibling resembl pin into ../resembl (required for uv sync)' \
@@ -189,6 +189,7 @@ help:
 		'  0. make doctor          # reports which of the steps below this host is missing' \
 		'  1. Install uv $(UV_VERSION)+ (CI pin), Python 3.15+ (.python-version), nasm + bun on PATH,' \
 		'     JDK + Ant + cc/make (JPype sdist build for the binsync extra),' \
+		'     Rust toolchain (cargo + rustc; python-flirt sdist build for make setup),' \
 		'     Go $(GO_VERSION) (services/jobs), GNU patch (vendor tests)' \
 		'     (shellcheck + yamllint too: the pre-commit shell and YAML hooks skip' \
 		'     themselves without them, CI runs both; vnu for the W3C HTML gate,' \
@@ -334,6 +335,22 @@ ensure-patch:
 	  exit 1; \
 	fi
 
+# python-flirt ships sdist-only in uv.lock (a direct URL tarball with no
+# wheels), so `make setup` builds it from source and needs a Rust toolchain
+# (qualified with Rust 1.99.1 and maturin 1.15.0 — README Development).
+# Without cargo the build fails inside the maturin invoke with an
+# unactionable error, so gate it here like the JPype build above.  Only
+# presence is checked, not the version: any newer Rust still builds it.
+ensure-rust:
+	@set -eu; \
+	if ! command -v cargo >/dev/null 2>&1 || ! command -v rustc >/dev/null 2>&1; then \
+	  echo "ERROR: Rust toolchain (cargo + rustc) not on PATH (required to build python-flirt from sdist on `make setup`, same as README Development)."; \
+	  echo "python-flirt ships sdist-only in uv.lock, so uv sync compiles it with maturin and needs cargo."; \
+	  echo "Install it, then re-run: e.g. apt install cargo rustc / pacman -S rust / dnf install cargo rustc"; \
+	  echo "Qualified with Rust 1.99.1 (README Development)."; \
+	  exit 1; \
+	fi
+
 # tests/dashboard_*.mjs drive the dashboard's JS through a stub DOM; the
 # pytest wrapper skips them when `bun` is absent, so a host without it reads
 # a green `make test` as full coverage of a file CI does run (CI installs
@@ -416,7 +433,7 @@ clone-resembl: ensure-bash
 	RESEMBL_REF=$(RESEMBL_REF) RESEMBL_SHA=$(RESEMBL_SHA) bash tools/ci_clone_resembl.sh "$(RESEMBL_DIR)"
 
 # Setup the development environment
-setup: ensure-resembl warn-nasm ensure-jpype-build warn-uv-version
+setup: ensure-resembl warn-nasm ensure-jpype-build ensure-rust warn-uv-version
 	uv sync $(UV_SYNC_FLAGS)
 	uv run --frozen pre-commit install
 
@@ -529,7 +546,7 @@ warn-test-extras: ensure-uv
 doctor:
 	@set -u; \
 	rc=0; setup_rc=0; uv_rc=0; \
-	for check in ensure-uv warn-uv-version ensure-resembl ensure-bash ensure-nasm ensure-bun ensure-unshare-build ensure-jpype-build ensure-go ensure-patch warn-shellcheck warn-yamllint warn-vnu ensure-extras; do \
+	for check in ensure-uv warn-uv-version ensure-resembl ensure-bash ensure-nasm ensure-bun ensure-unshare-build ensure-jpype-build ensure-go ensure-patch ensure-rust warn-shellcheck warn-yamllint warn-vnu ensure-extras; do \
 	  case $$check in \
 	    ensure-uv) label='uv on PATH' ;; \
 	    warn-uv-version) label="uv >= $(UV_VERSION) (CI pin)" ;; \
@@ -541,6 +558,7 @@ doctor:
 	    ensure-jpype-build) label='JDK, Ant and cc/make (JPype sdist build for binsync extra)' ;; \
 	    ensure-go) label='go on PATH (Go $(GO_VERSION) for jobs-check)' ;; \
 	    ensure-patch) label='GNU patch on PATH (vendor tests / library vendor)' ;; \
+	    ensure-rust) label='Rust toolchain (cargo + rustc) on PATH (python-flirt sdist build for make setup)' ;; \
 	    warn-shellcheck) label='shellcheck on PATH (pre-commit shell hook)' ;; \
 	    warn-yamllint) label='yamllint on PATH (pre-commit YAML hook)' ;; \
 	    warn-vnu) label='vnu on PATH (W3C validation of the HTML surfaces)' ;; \

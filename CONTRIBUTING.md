@@ -30,7 +30,11 @@ missing bun, while `make test-one` only warns). Native runner tests also need
 and Apache Ant** on `PATH` (plus `cc`/`make`) so CPython 3.15 can build JPype
 1.7.1 from source; CI installs `ant default-jdk build-essential` before
 `uv sync`, and `make setup` fails closed naming that prerequisite instead of
-dying inside the build. `make jobs-check` needs **Go** (`GO_VERSION` pin in
+dying inside the build. `make setup` also needs a **Rust toolchain**
+(**cargo** + **rustc**, qualified with Rust 1.99.1 and maturin 1.15.0 — see
+README Development): `python-flirt` ships sdist-only in `uv.lock`, so the
+sync compiles it from source, and without cargo it fails inside the build.
+`make jobs-check` needs **Go** (`GO_VERSION` pin in
 the `Makefile`, matching `services/jobs/go.mod` and CI), and the vendor tests
 and `rebrew library vendor` need **GNU patch** (CI installs it in the test
 job); `make doctor` reports both.
@@ -70,7 +74,7 @@ make test-one T=tests/test_annotation_roundtrip.py   # smoke the edit-test loop
 
 `make doctor` is read-only and runs every preflight the other targets use (uv
 and its version, the sibling `../resembl` checkout, bash, nasm, bun, JDK/ant,
-go, patch, shellcheck,
+go, patch, rust, shellcheck,
 yamllint, vnu, cc/pkg-config/json-c, and
 the `prove` extra / `similarity` group in `.venv`), so a host missing several of
 them sees all of them at once instead of one failed target at a time.  It
@@ -78,7 +82,7 @@ separates the two that the next two bootstrap steps install (`../resembl` and
 the venv extras) from a host tool the bootstrap cannot install, so on a clean
 clone it exits 0 and prints `make clone-resembl` / `make setup` as the next
 step, and it exits non-zero only for a missing uv, bash, nasm, bun, JDK/ant,
-go, patch or native
+go, patch, rust or native
 runner build prerequisites. Every line still prints its own fix. The
 checks still guard their own targets: a missing nasm surfaces at `make test`
 whether or not `make doctor` was run.
@@ -130,7 +134,7 @@ in `tests/test_packaging.py` fails the suite listing every distribution left
 
 ```bash
 make help                     # list contributor make targets
-make doctor                   # report every missing prerequisite (uv, ../resembl, bash, nasm, bun, JDK/ant, go, patch, shellcheck, yamllint, vnu, venv extras)
+make doctor                   # report every missing prerequisite (uv, ../resembl, bash, nasm, bun, JDK/ant, go, patch, rust, shellcheck, yamllint, vnu, venv extras)
 make clone-resembl            # clone sibling resembl pin into ../resembl (required for uv sync)
 make vnu                      # install the pinned W3C HTML validator and print the PATH line for it
 make setup                    # locked sync (extras + similarity) + pre-commit install (checks uv + ../resembl first)
