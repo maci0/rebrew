@@ -667,8 +667,12 @@ def _download(config: WorkerConfig, url: str, wanted: str, into: Path) -> None:
                     raise _invalid(f"url names more than {limit} bytes")
                 digest.update(chunk)
                 out.write(chunk)
-    except httpx.HTTPError as exc:
-        raise _refused(f"url download failed ({type(exc).__name__})") from None
+    except (httpx.HTTPError, OSError) as exc:
+        # A disk-full / permission failure on the write must surface as a
+        # refusal with the cause, not escape as an unhandled OSError that
+        # the caller reports as an internal error.  The partial file is
+        # left for binary_file's finally to unlink.
+        raise _refused(f"url download failed: {exc}") from exc
     if digest.hexdigest() != wanted:
         raise _invalid("the downloaded file does not match its sha256")
 

@@ -554,6 +554,9 @@ def _download_pinned_url(
                                 )
                             fh.write(chunk)
                     return
+            except ToolchainError:
+                dest.unlink(missing_ok=True)
+                raise
             except httpx.HTTPError as exc:
                 last = exc
                 dest.unlink(missing_ok=True)

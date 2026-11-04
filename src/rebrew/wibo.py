@@ -102,9 +102,12 @@ def _get_with_trusted_redirects(url: str) -> httpx.Response:
 
     current = _trusted_wibo_download_url(url)
     for _ in range(10):
-        resp = httpx.get(
-            current, timeout=_NETWORK_TIMEOUT_S, follow_redirects=False, trust_env=False
-        )
+        try:
+            resp = httpx.get(
+                current, timeout=_NETWORK_TIMEOUT_S, follow_redirects=False, trust_env=False
+            )
+        except httpx.HTTPError as exc:
+            raise RuntimeError(f"Failed to download wibo asset: {exc}") from exc
         if resp.status_code not in {301, 302, 303, 307, 308}:
             return resp
         try:
