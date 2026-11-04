@@ -87,8 +87,6 @@ _PIN_ONLY_REQUIREMENTS = {
     "RCE-class advisory fix (3.1.58+) that angr's own range does not",
     "idna": "httpx pulls it for IDNA; the floor forces the Unicode-property DoS "
     "fix (3.15+) through httpx's tree, which is left unpinned upstream",
-    "bitstring": "pyvex (the prove extra) imports ConstBitStream from it; the <5 "
-    "cap keeps a bitstring major that removed that API from breaking angr",
 }
 
 # ``rebrew`` itself is the package under test, not a dependency of itself.
