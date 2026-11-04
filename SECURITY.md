@@ -225,10 +225,12 @@ plugin cache backends or remove the open upstream diskcache advisory.
   non-TLS `--api` sends the function source, its object, and the returned
   `claim_token` in cleartext.
 - No claim that a decomp.me or other outbound URL is pinned in transport.
-  No HTTP call in the package passes `trust_env`, so `HTTPS_PROXY`,
-  `SSL_CERT_FILE`, and `REQUESTS_CA_BUNDLE` apply to the wibo asset and
-  metadata fetches, the toolchain media download, and the `GH_TOKEN`-bearing
-  GitHub commit lookup, none of which is size-capped.
+  No HTTP/TCP call in the package passes `trust_env=False` (the one
+  `trust_env=False` in the tree is the managed-compile Unix-socket client in
+  `src/rebrew/compiler/compile.py`, which cannot use a proxy), so
+  `HTTPS_PROXY`, `SSL_CERT_FILE`, and `REQUESTS_CA_BUNDLE` apply to the wibo
+  asset and metadata fetches, the toolchain media download, and the
+  `GH_TOKEN`-bearing GitHub commit lookup, none of which is size-capped.
 - No claim that `rebrew source import-splat` constrains the files a foreign config
   names to the foreign project. `splat_config._rel` (`splat_config.py:516-521`)
   resolves every `splat.yaml` path against the operator's base with no
