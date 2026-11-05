@@ -73,6 +73,7 @@ def sample(tmp_path_factory: pytest.TempPathFactory) -> tuple[WorkerConfig, dict
             "version": 1,
             "binary_sha256": SHA256,
             "target": capture["target"],
+            **{key: capture[key] for key in ("inventory_path", "report_path") if key in capture},
             "entries": analysis_entries,
         }
     )
@@ -120,6 +121,24 @@ def test_named_decompile_uses_only_snapshot(
     assert result["source_snapshot_sha256"] == request["source_snapshot_sha256"]
     assert result["analysis_manifest_sha256"] == request["analysis_manifest_sha256"]
     assert result["generation"] == request["generation"]
+
+
+def test_legacy_capture_without_selected_paths_remains_readable(
+    sample: tuple[WorkerConfig, dict], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config, original = sample
+    request = copy.deepcopy(original)
+    capture = json.loads(request["analysis_manifest"])
+    capture.pop("inventory_path", None)
+    capture.pop("report_path", None)
+    request["analysis_manifest"] = _json(capture)
+    request["analysis_manifest_sha256"] = _digest(request["analysis_manifest"])
+    monkeypatch.setattr(
+        "rebrew.decompiler.fetch_decompilation",
+        lambda *_args: ("int a0;\n*(char *)(a0 + 0x10) = 1;\n", "kuna"),
+    )
+    status, result = _call(config, request)
+    assert status == 200, result
 
 
 def test_real_decompiler_from_snapshot(sample: tuple[WorkerConfig, dict]) -> None:
@@ -286,6 +305,32 @@ def test_refuses_incomplete_source_manifest(sample: tuple[WorkerConfig, dict]) -
     manifest["complete"] = False
     req["source_manifest"] = _json(manifest)
     req["source_snapshot_sha256"] = _digest(req["source_manifest"])
+    status, _ = _call(config, req)
+    assert status == 400
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("inventory_path", "missing.json"),
+        ("report_path", "src/mini/function_structure.json"),
+        ("unknown", "value"),
+    ],
+)
+def test_refuses_unqualified_selected_capture_path(
+    sample: tuple[WorkerConfig, dict], monkeypatch: pytest.MonkeyPatch, field: str, value: str
+) -> None:
+    config, original = sample
+    req = copy.deepcopy(original)
+    capture = json.loads(req["analysis_manifest"])
+    capture[field] = value
+    req["analysis_manifest"] = _json(capture)
+    req["analysis_manifest_sha256"] = _digest(req["analysis_manifest"])
+
+    def forbidden(*_args: object) -> tuple[str, str]:
+        raise AssertionError("decompiler must not run")
+
+    monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", forbidden)
     status, _ = _call(config, req)
     assert status == 400
 

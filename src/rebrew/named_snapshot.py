@@ -107,7 +107,9 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
         capture = json.loads(req.analysis_manifest, object_pairs_hook=_unique_object)
         if (
             type(capture) is not dict
-            or set(capture) != {"version", "binary_sha256", "target", "entries"}
+            or not {"version", "binary_sha256", "target", "entries"} <= set(capture)
+            or set(capture)
+            - {"version", "binary_sha256", "target", "inventory_path", "report_path", "entries"}
             or type(capture["version"]) is not int
             or capture["version"] != 1
             or capture["binary_sha256"] != req.sha256
@@ -190,12 +192,26 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
             or total > 8 * 1024 * 1024
         ):
             raise ValueError("invalid capture bounds")
+        for field in ("inventory_path", "report_path"):
+            if field not in capture:
+                continue
+            path = capture[field]
+            if type(path) is not str or not _valid_path(path):
+                raise ValueError("invalid selected capture path")
+            if field == "report_path" and path != ".relumea/analysis-report.json":
+                raise ValueError("invalid captured report path")
+            item = reserved.get(path)
+            if item is None or item["kind"] != "file" or item.get("role") != "analysis":
+                raise ValueError("selected capture path is not an analysis file")
         canonical = {
             "version": 1,
             "binary_sha256": req.sha256,
             "target": req.rebrew_target,
-            "entries": ordered,
         }
+        for field in ("inventory_path", "report_path"):
+            if field in capture:
+                canonical[field] = capture[field]
+        canonical["entries"] = ordered
         if json.dumps(canonical, ensure_ascii=False, separators=(",", ":")).encode("utf-8") != raw:
             raise ValueError("noncanonical capture")
         for entry in req.files:
