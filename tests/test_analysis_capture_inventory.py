@@ -12,7 +12,7 @@ import socket
 import subprocess
 import sys
 import time
-from pathlib import Path  # noqa: TC003
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -278,3 +278,32 @@ def test_changed_input_during_report_refused(
     monkeypatch.setattr(ops, "project_report", mutate)
     with pytest.raises(ops.OpsError, match="changed during reporting"):
         _capture(tmp_path)
+
+
+NOTEPAD = (
+    Path(__file__).resolve().parents[2] / "rebrew-test-projects/win2k-notepad-rebrew/notepad.exe"
+)
+NOTEPAD_SHA256 = "d765da6b0ad1a3f1a4b0a0beadc854b9b12d76ccf73d3855e7a5409bb6b42916"
+
+
+def test_notepad_function_and_import_stub_share_no_report_identity(tmp_path: Path) -> None:
+    """Windows 2000 Notepad analyses without `invalid fresh analysis report identity`.
+
+    Offending row: VA 0x10065dc is both the function row `fcn_010065dc` (size 20,
+    a `jmp [iat]` thunk) and the import stub `_initterm`; functions and stubs share
+    one `seen` set, so the stub row was refused. The function row now wins.
+    The fixture is a sibling checkout (rebrew-test-projects), skipped when absent.
+    """
+    if not NOTEPAD.is_file() or hashlib.sha256(NOTEPAD.read_bytes()).hexdigest() != NOTEPAD_SHA256:
+        pytest.skip("needs rebrew-test-projects/win2k-notepad-rebrew/notepad.exe")
+    files, workspace = _worker_dirs(tmp_path)
+    digest, key = _store(files, NOTEPAD.read_bytes())
+    status, raw = ops.dispatch(
+        WorkerConfig(files.resolve(), workspace.resolve()),
+        "rebrew.analyse",
+        json.dumps({"binary_id": 1, "sha256": digest, "name": "notepad", "file_key": key}).encode(),
+    )
+    assert status == 200, raw
+    (target,) = json.loads(raw)["targets"]
+    assert target["stubs"]
+    assert not {row["va"] for row in target["functions"]} & {row["va"] for row in target["stubs"]}

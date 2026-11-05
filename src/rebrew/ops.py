@@ -1959,7 +1959,7 @@ def project_report(
             if binary is not None
             else {}
         )
-        functions = [
+        functions: list[dict[str, Any]] = [
             {
                 "va": row.va,
                 "name": symbol_names.get(row.va, (0, row.name.strip()))[1]
@@ -1976,7 +1976,14 @@ def project_report(
             for row in sorted(coverage[name].functions, key=lambda row: row.va)
             if row.markerType not in _DATA_MARKERS
         ]
-        stubs = sorted(find_import_stubs(binary).items()) if binary is not None else []
+        import_stubs: dict[int, str] = find_import_stubs(binary) if binary is not None else {}
+        # An import thunk that is also a function row is one identity: the function
+        # row wins, taking the import name when it only has the generated one.
+        for row in functions:
+            stub = import_stubs.pop(row["va"], None)
+            if stub is not None and row["name"] == f"fcn_{row['va']:08x}":
+                row["name"] = stub
+        stubs = sorted(import_stubs.items())
         targets.append(
             {
                 "name": name,
