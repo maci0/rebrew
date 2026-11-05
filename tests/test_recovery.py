@@ -182,9 +182,7 @@ class TestTransferSnapshot:
 def _write_extra_durable(root: Path) -> None:
     """GA log + a BinSync baseline, the gitignored durable state."""
     (root / ".rebrew" / "sync").mkdir(parents=True, exist_ok=True)
-    (root / ".rebrew" / "ga_runs.jsonl").write_text(
-        '{"ts":"r","matched":true}\n', encoding="utf-8"
-    )
+    (root / ".rebrew" / "ga_runs.jsonl").write_text('{"ts":"r","matched":true}\n', encoding="utf-8")
     (root / ".rebrew" / "sync" / "baseline.toml").write_text(
         "format = 1\nrecords = {}\n", encoding="utf-8"
     )
@@ -219,9 +217,7 @@ class TestTomlBackup:
         (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")
         _write_extra_durable(tmp_path)
         bundle = backup_metadata_toml(tmp_path, tmp_path / "off-tree")
-        assert (bundle / ".rebrew" / "ga_runs.jsonl").read_text() == (
-            '{"ts":"r","matched":true}\n'
-        )
+        assert (bundle / ".rebrew" / "ga_runs.jsonl").read_text() == ('{"ts":"r","matched":true}\n')
         assert (bundle / ".rebrew" / "sync" / "baseline.toml").is_file()
 
     def test_restore_roundtrips_ga_log_and_baselines(self, tmp_path: Path) -> None:
@@ -239,9 +235,7 @@ class TestTomlBackup:
             "format = 1\nrecords = {}\n"
         )
 
-    def test_restore_rejects_corrupt_ga_log_and_leaves_stores_alone(
-        self, tmp_path: Path
-    ) -> None:
+    def test_restore_rejects_corrupt_ga_log_and_leaves_stores_alone(self, tmp_path: Path) -> None:
         (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")
         _write_extra_durable(tmp_path)
         bundle = backup_metadata_toml(tmp_path, tmp_path / "off-tree")

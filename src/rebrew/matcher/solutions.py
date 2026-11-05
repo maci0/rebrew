@@ -203,9 +203,11 @@ def _entry_from_record(item: dict[str, Any]) -> SolutionEntry | None:
     # rather than being dropped.
     if entry.score is None:
         entry = dataclasses.replace(entry, score=0.0)
-    elif not isinstance(entry.score, (int, float)) or isinstance(entry.score, bool):
-        return None
-    elif not math.isfinite(entry.score):
+    elif (
+        not isinstance(entry.score, (int, float))
+        or isinstance(entry.score, bool)
+        or not math.isfinite(entry.score)
+    ):
         return None
     if not all(isinstance(m, str) for m in entry.mutations):
         return None

@@ -885,6 +885,375 @@ def _with_project_header(project: Path) -> str:
 
 
 class TestReconstructionOps:
+    def test_retained_reports_require_and_use_verified_readset(self, tmp_path: Path) -> None:
+        from rebrew.coverage_input_contract import (
+            coverage_input_digest,
+            plan_coverage_readset,
+            verification_records_digest,
+        )
+        from rebrew.ops import FlagSearchFile, retained_target_snapshot
+
+        filestore, workspace = _worker_dirs(tmp_path)
+        config = WorkerConfig(filestore.resolve(), workspace.resolve())
+        status, raw = dispatch(config, "rebrew.analyse", json.dumps(_analyse_request()).encode())
+        assert status == 200, raw
+        analysed = json.loads(raw)
+        capture = analysed["analysis_capture"]
+        files = []
+        source_paths = {
+            entry["path"] for entry in capture["entries"] if entry.get("role") == "source"
+        }
+        for entry in capture["entries"]:
+            if entry["kind"] != "file":
+                continue
+            data = base64.b64decode(entry["data"])
+            digest, key = _store(filestore, data)
+            files.append({"path": entry["path"], "size": len(data), "digest": digest, "key": key})
+        target = capture["target"]
+        with retained_target_snapshot(
+            config, [FlagSearchFile(**item) for item in files], target, SHA256, KEY, ""
+        ) as staged:
+            plan = plan_coverage_readset(staged, target)
+        envelope = {
+            "version": 1,
+            "source_revision": "a" * 64,
+            "generation": "b" * 32,
+            "binary_sha256": SHA256,
+            "target": target,
+            "analysis_manifest": "c" * 64,
+            "verification_digest": hashlib.sha256(b"[]").hexdigest(),
+            "readset": [
+                {
+                    **row,
+                    "origin": "source"
+                    if row["path"] in source_paths or row["path"] == "rebrew-project.toml"
+                    else "analysis",
+                }
+                for row in plan
+            ],
+        }
+        request = {
+            "project_dir": analysed["project"],
+            "sha256": SHA256,
+            "files": files,
+            "rebrew_target": target,
+            "binary_key": KEY,
+            "coverage_input": envelope,
+            "coverage_input_digest": coverage_input_digest(envelope),
+            "verification_records": [],
+        }
+        status, body = dispatch(config, "rebrew.coverage_report", json.dumps(request).encode())
+        assert status == 200, body
+        assert json.loads(body)["report"]["measures"]["matched_functions"] == 0
+        missing_records = {
+            key: value for key, value in request.items() if key != "verification_records"
+        }
+        status, _ = dispatch(config, "rebrew.coverage_report", json.dumps(missing_records).encode())
+        assert status == 409
+        status, _ = dispatch(
+            config,
+            "rebrew.coverage_report",
+            json.dumps({"project_dir": analysed["project"], "coverage_input": {}}).encode(),
+        )
+        assert status == 400
+        site = {**request, "binary_id": 1, "output_dir": "reports/generated/" + "a" * 32}
+        status, body = dispatch(config, "rebrew.report", json.dumps(site).encode())
+        assert status == 200, body
+        assert json.loads(body)["manifest"]
+        function = analysed["targets"][0]["functions"][0]
+        source = next(row for row in envelope["readset"] if row["path"] == function["source_path"])
+        record = {
+            "verification_id": "modeled",
+            "source": source["path"],
+            "source_sha256": source["digest"],
+            "va": function["va"],
+            "size": function["size"],
+            "status": "EXACT",
+            "match_count": function["size"],
+            "total": function["size"],
+            "obj_size": function["size"],
+            "reloc_count": 0,
+            "result_digest": "e" * 64,
+        }
+        envelope["verification_digest"] = verification_records_digest([record])
+        request["coverage_input_digest"] = coverage_input_digest(envelope)
+        request["verification_records"] = [record]
+        status, body = dispatch(config, "rebrew.coverage_report", json.dumps(request).encode())
+        assert status == 200, body
+        assert json.loads(body)["report"]["measures"]["matched_functions"] == 1
+        record.update(
+            status="SIZE_MISMATCH",
+            match_count=0,
+            obj_size=function["size"] + 1,
+            total=function["size"] + 1,
+        )
+        envelope["verification_digest"] = verification_records_digest([record])
+        request["coverage_input_digest"] = coverage_input_digest(envelope)
+        status, body = dispatch(config, "rebrew.coverage_report", json.dumps(request).encode())
+        assert status == 200, body
+        assert json.loads(body)["report"]["measures"]["matched_functions"] == 0
+        request["coverage_input_digest"] = "d" * 64
+        status, body = dispatch(config, "rebrew.coverage_report", json.dumps(request).encode())
+        assert status == 409, body
+
+    def test_analyse_same_binary_has_isolated_project_workspaces(self, tmp_path: Path) -> None:
+        filestore, workspace = _worker_dirs(tmp_path)
+        config = WorkerConfig(filestore.resolve(), workspace.resolve())
+
+        def analyse(project_id: str) -> Path:
+            request = {**_analyse_request(), "project_id": project_id}
+            status, body = dispatch(config, "rebrew.analyse", json.dumps(request).encode())
+            assert status == 200, body
+            report = json.loads(body)
+            capture = report["analysis_capture"]
+            assert capture["version"] == 1
+            assert capture["binary_sha256"] == SHA256
+            assert capture["target"] == report["targets"][0]["name"]
+            assert report["targets"][0]["sha256"] == SHA256
+            assert sum(entry["kind"] == "binary" for entry in capture["entries"]) == 1
+            assert any(entry["kind"] == "file" for entry in capture["entries"])
+            source_paths = {
+                entry["path"] for entry in capture["entries"] if entry.get("role") == "source"
+            }
+            for function in report["targets"][0]["functions"]:
+                if "source_path" in function:
+                    assert function["source_path"] in source_paths
+            return Path(report["project"])
+
+        first = analyse("tenant-a")
+        second = analyse("tenant-b")
+        assert first != second
+        (first / "isolation-marker").write_text("tenant-a")
+        assert not (second / "isolation-marker").exists()
+        assert analyse("tenant-b") == second
+        assert (first / "isolation-marker").read_text() == "tenant-a"
+        default = analyse("default")
+        assert (
+            default
+            == workspace.resolve()
+            / "projects"
+            / "scopes"
+            / hashlib.sha256(b"default").hexdigest()
+            / SHA256
+        )
+        assert default not in (first, second)
+        status, body = dispatch(config, "rebrew.analyse", json.dumps(_analyse_request()).encode())
+        assert status == 200, body
+        assert Path(json.loads(body)["project"]) == workspace.resolve() / "projects" / SHA256
+        status, _ = dispatch(
+            config, "rebrew.analyse", json.dumps({**_analyse_request(), "project_id": ""}).encode()
+        )
+        assert status == 400
+
+    def test_analyse_rejects_scope_symlink_to_another_project(self, tmp_path: Path) -> None:
+        filestore, workspace = _worker_dirs(tmp_path)
+        target = workspace / "other"
+        target.mkdir()
+        scope = hashlib.sha256(b"project-a").hexdigest()
+        parent = workspace / "projects" / "scopes"
+        parent.mkdir(parents=True)
+        (parent / scope).symlink_to(target, target_is_directory=True)
+        request = {**_analyse_request(), "project_id": "project-a"}
+        status, _body = dispatch(
+            WorkerConfig(filestore.resolve(), workspace.resolve()),
+            "rebrew.analyse",
+            json.dumps(request).encode(),
+        )
+        assert status == 400
+        assert not list(target.iterdir())
+
+    def test_import_refuses_scoped_analysis_path(self, tmp_path: Path) -> None:
+        filestore, workspace = _worker_dirs(tmp_path)
+        project = workspace / "projects" / "scopes" / "scope-a" / SHA256
+        project.mkdir(parents=True)
+        (project / "rebrew-project.toml").write_text("")
+        status, _ = dispatch(
+            WorkerConfig(filestore.resolve(), workspace.resolve()),
+            "rebrew.import-project",
+            json.dumps({"project_dir": str(project)}).encode(),
+        )
+        assert status == 400
+
+    def test_analysed_elf_reports_defined_symbol_names_and_sizes(self, tmp_path: Path) -> None:
+        import lief
+
+        compiler = shutil.which("cc")
+        if compiler is None:
+            pytest.skip("needs a C compiler")
+        source = tmp_path / "fixture.c"
+        source.write_text(
+            "__attribute__((noinline)) int checksum(int x) { return x*17+3; }\nint main(void) { return checksum(2); }\n"
+        )
+        binary = tmp_path / "fixture.elf"
+        subprocess.run([compiler, "-O0", "-no-pie", "-o", str(binary), str(source)], check=True)
+        filestore, workspace = _worker_dirs(tmp_path)
+        digest, key = _store(filestore, binary.read_bytes())
+        status, body = dispatch(
+            WorkerConfig(filestore.resolve(), workspace.resolve()),
+            "rebrew.analyse",
+            json.dumps(
+                {"binary_id": 1, "sha256": digest, "name": "fixture", "file_key": key}
+            ).encode(),
+        )
+        assert status == 200, body
+        elf = lief.ELF.parse(str(binary))
+        assert elf is not None
+        expected = {
+            s.name: (s.value, s.size)
+            for s in elf.symbols
+            if s.name in {"checksum", "main", "_start"}
+        }
+        found = {
+            f["name"]: (f["va"], f["size"]) for f in json.loads(body)["targets"][0]["functions"]
+        }
+        assert {name: found.get(name) for name in expected} == expected
+
+    def test_candidate_uses_private_retained_snapshot(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        from rebrew import ops
+
+        monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://127.0.0.1:18953")
+        filestore, workspace = _worker_dirs(tmp_path)
+        original = b"int add(int a, int b) { return a - b; }\n"
+        project = b'[project]\ndefault_target="mini"\n[targets.mini]\nbinary="original/mini"\nformat="pe"\narch="x86_32"\nreversed_dir="src"\n'
+        entries = []
+        for name, data in (("rebrew-project.toml", project), ("src/add.c", original)):
+            digest, key = _store(filestore, data)
+            entries.append({"path": name, "digest": digest, "size": len(data), "key": key})
+        seen: list[Path] = []
+
+        def run(args: Any, root: Path, *unused: Any, **kwargs: Any) -> dict[str, Any]:
+            assert (root / "src/add.c").read_text() == "int add(int a, int b) { return a+b; }\n"
+            assert "--va=0x401000" in args and "--size=11" in args and "--no-promote" in args
+            seen.append(root)
+            return {"status": "EXACT"}
+
+        monkeypatch.setattr(ops, "run_rebrew", run)
+        config = WorkerConfig(filestore.resolve(), workspace.resolve())
+        request = {
+            "project_dir": "/unused",
+            "source": "src/add.c",
+            "candidate": "int add(int a, int b) { return a+b; }\n",
+            "sha256": SHA256,
+            "va": ENTRY_VA,
+            "size": ENTRY_SIZE,
+            "files": entries,
+            "source_sha256": hashlib.sha256(original).hexdigest(),
+            "rebrew_target": "mini",
+            "binary_key": KEY,
+        }
+        status, body = dispatch(config, "rebrew.verify_function", json.dumps(request).encode())
+        assert status == 200, body
+        assert json.loads(body)["status"] == "EXACT" and len(seen) == 1 and not seen[0].exists()
+        assert (filestore / entries[1]["key"]).read_bytes() == original
+        request["source_sha256"] = "0" * 64
+        status, _body = dispatch(config, "rebrew.verify_function", json.dumps(request).encode())
+        assert status == 400
+        request["source_sha256"] = hashlib.sha256(original).hexdigest()
+
+        def mutate(_args: Any, root: Path, *unused: Any, **kwargs: Any) -> dict[str, Any]:
+            (root / "rebrew-project.toml").write_text("changed")
+            return {"status": "EXACT"}
+
+        monkeypatch.setattr(ops, "run_rebrew", mutate)
+        status, _ = dispatch(config, "rebrew.verify_function", json.dumps(request).encode())
+        assert status == 400
+
+    def test_target_operations_use_retained_snapshot(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        from rebrew import ops
+
+        monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://127.0.0.1:18953")
+        filestore, workspace = _worker_dirs(tmp_path)
+        live = workspace / "live"
+        live.mkdir()
+        project = b'[project]\ndefault_target="mini"\n[targets.mini]\nbinary="original/mini"\nformat="pe"\narch="x86_32"\nreversed_dir="src"\n'
+        (live / "rebrew-project.toml").write_bytes(project)
+        source = b"int add(int a, int b) { return a-b; }\n"
+        entries = []
+        for name, data in (
+            ("rebrew-project.toml", project),
+            ("src/add.c", source),
+            ("src/function_structure.json", b'{"functions": []}'),
+            ("rebrew-functions.toml", b""),
+        ):
+            digest, key = _store(filestore, data)
+            entries.append({"path": name, "digest": digest, "size": len(data), "key": key})
+        seen: list[Path] = []
+
+        def run(args: Any, root: Path, *unused: Any, **kwargs: Any) -> dict[str, Any]:
+            assert root != live and (root / "src/add.c").read_bytes() == source
+            assert "--target=mini" in args
+            seen.append(root)
+            return {"status": "ok"}
+
+        monkeypatch.setattr(ops, "run_rebrew", run)
+        monkeypatch.setattr(ops, "remote_header_refusal", lambda *args: None)
+        config = WorkerConfig(filestore.resolve(), workspace.resolve())
+        request = {
+            "project_dir": str(live),
+            "sha256": SHA256,
+            "files": entries,
+            "rebrew_target": "mini",
+            "binary_key": KEY,
+        }
+        for op in ("rebrew.build", "rebrew.verify_target"):
+            body = {**request, **({"no_promote": True} if op.endswith("verify_target") else {})}
+            status, reply = dispatch(config, op, json.dumps(body).encode())
+            assert status == 200, reply
+        assert len(seen) == 2 and all(not path.exists() for path in seen)
+        bad = {**request, "files": [*entries, entries[0]]}
+        status, _ = dispatch(config, "rebrew.build", json.dumps(bad).encode())
+        assert status == 400
+        alias = {**entries[1], "path": "src/../src/add.c"}
+        bad = {**request, "files": [*entries, alias]}
+        status, _ = dispatch(config, "rebrew.build", json.dumps(bad).encode())
+        assert status == 400
+        escape = project.replace(b'reversed_dir="src"', b'reversed_dir="/etc"')
+        digest, key = _store(filestore, escape)
+        bad_config = {
+            "path": "rebrew-project.toml",
+            "digest": digest,
+            "size": len(escape),
+            "key": key,
+        }
+        status, _ = dispatch(
+            config,
+            "rebrew.build",
+            json.dumps({**request, "files": [bad_config, *entries[1:]]}).encode(),
+        )
+        assert status == 400
+        outside_library = workspace / "rebrew-libraries.toml"
+        outside_library.write_text('library = "foreign"\n')
+        status, _ = dispatch(config, "rebrew.build", json.dumps(request).encode())
+        assert status == 400
+        outside_library.unlink()
+        status, _ = dispatch(config, "rebrew.verify_target", json.dumps(request).encode())
+        assert status == 400
+
+        def mutate(args: Any, root: Path, *unused: Any, **kwargs: Any) -> dict[str, Any]:
+            (root / "src/add.c").write_text("changed")
+            return {"status": "ok"}
+
+        monkeypatch.setattr(ops, "run_rebrew", mutate)
+        status, _ = dispatch(config, "rebrew.build", json.dumps(request).encode())
+        assert status == 400
+
+        from rebrew import report
+
+        def render(_cfg: Any, out: Path) -> dict[str, Any]:
+            (out / "index.html").write_text("safe report")
+            return {"out": str(out), "pages": 1, "summary": {}}
+
+        monkeypatch.setattr(report, "generate_report", render)
+        report_request = {**request, "binary_id": 1, "output_dir": "reports/generated/" + "a" * 32}
+        status, reply = dispatch(config, "rebrew.report", json.dumps(report_request).encode())
+        assert status == 409, reply
+        status, _ = dispatch(config, "rebrew.coverage_report", json.dumps(request).encode())
+        assert status == 409
+
     def test_skeleton(self, world: tuple[WorkerConfig, Path]) -> None:
         config, project = world
         request = {"project_dir": str(project), "va": 0x401010, "name": "second"}
@@ -1077,6 +1446,58 @@ def _free_port() -> int:
 
 
 class TestHttpTransport:
+    def test_sigterm_drains_active_request(self, tmp_path: Path) -> None:
+        filestore, workspace = _worker_dirs(tmp_path)
+        port = _free_port()
+        process = subprocess.Popen(
+            _rebrew(
+                "ops",
+                "serve",
+                "--port",
+                str(port),
+                "--filestore",
+                str(filestore),
+                "--workspace",
+                str(workspace),
+                "--concurrency",
+                "1",
+            ),
+            env={**os.environ, "REBREW_OPS_TOKEN": TOKEN},
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        connection = None
+        try:
+            deadline = time.monotonic() + WAIT_SECONDS
+            while connection is None:
+                assert process.poll() is None and time.monotonic() < deadline
+                try:
+                    connection = socket.create_connection(("127.0.0.1", port), timeout=1)
+                except OSError:
+                    time.sleep(0.1)
+            connection.settimeout(WAIT_SECONDS)
+            connection.sendall(
+                f"POST /rebrew.nope HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAuthorization: Bearer {TOKEN}\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n".encode()
+            )
+            while (
+                self._post(port, "/rebrew.nope", b"{}", {"Authorization": f"Bearer {TOKEN}"})[0]
+                != 503
+            ):
+                assert process.poll() is None and time.monotonic() < deadline
+                time.sleep(0.05)
+            process.terminate()
+            time.sleep(0.2)
+            assert process.poll() is None
+            connection.sendall(b"{}")
+            assert b"404" in connection.recv(4096)
+            assert process.wait(timeout=5) == 0
+        finally:
+            if connection is not None:
+                connection.close()
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=WAIT_SECONDS)
+
     @pytest.fixture
     def server(self, tmp_path: Path) -> Any:
         filestore, workspace = _worker_dirs(tmp_path)
@@ -1093,6 +1514,8 @@ class TestHttpTransport:
                 str(workspace),
                 "--concurrency",
                 "1",
+                "--allowed-hosts",
+                f"relumea-rebrew:{port}",
             ),
             env={**os.environ, "REBREW_OPS_TOKEN": TOKEN, "PYTHONUNBUFFERED": "1"},
             stdout=subprocess.PIPE,
@@ -1117,7 +1540,8 @@ class TestHttpTransport:
     def _post(self, port: int, path: str, body: bytes, headers: dict[str, str]) -> tuple[int, Any]:
         connection = http.client.HTTPConnection("127.0.0.1", port, timeout=WAIT_SECONDS)
         try:
-            connection.request("POST", path, body=body, headers=headers)
+            req_headers = {"Content-Type": "application/json", **headers}
+            connection.request("POST", path, body=body, headers=req_headers)
             response = connection.getresponse()
             return response.status, json.loads(response.read())
         finally:
@@ -1134,6 +1558,17 @@ class TestHttpTransport:
         assert status == 200, reply
         _validate(_op_schema(op, "response"), reply)
         return reply
+
+    def test_configured_host_is_exact(self, server: tuple[int, Path]) -> None:
+        port, _ = server
+        for host, expected in ((f"relumea-rebrew:{port}", 200), (f"attacker:{port}", 403)):
+            status, _ = self._post(
+                port,
+                "/rebrew.disassemble_bytes",
+                b'{"code":"ww==","va":4096,"arch":"x86_64"}',
+                {"Host": host, "Authorization": f"Bearer {TOKEN}"},
+            )
+            assert status == expected
 
     def test_analyse_then_function_ops(self, server: tuple[int, Path]) -> None:
         port, workspace = server

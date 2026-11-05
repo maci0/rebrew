@@ -93,9 +93,7 @@ class TestParseMatchingInfo:
         f = _stub_file(tmp_path, status="EXACT")
         assert parse_matching_info(f) == []
 
-    def test_near_matching_without_delta_uses_no_delta_sentinel(
-        self, tmp_path: Path
-    ) -> None:
+    def test_near_matching_without_delta_uses_no_delta_sentinel(self, tmp_path: Path) -> None:
         """A NEAR_MATCHING row with no ``blocker_delta`` carries NO_DELTA.
 
         The sentinel is what keeps the batch delta filter and the terminal

@@ -28,8 +28,6 @@ from hypothesis import strategies as st
 
 from rebrew.matcher.solutions import (
     _entry_from_record,
-    iter_ga_runs,
-    load_ga_runs,
     load_solutions_file,
 )
 
@@ -161,16 +159,14 @@ def test_arbitrary_log_bytes_never_raise(tmp_path_factory: Any, data: bytes) -> 
 
 @settings(max_examples=_MAX_EXAMPLES, deadline=None)
 @given(
-    st.lists(
-        st.dictionaries(st.sampled_from(_RECORD_KEYS), _json_value, max_size=6), max_size=8
-    )
+    st.lists(st.dictionaries(st.sampled_from(_RECORD_KEYS), _json_value, max_size=6), max_size=8)
 )
-def test_jsonl_of_records_never_raises(tmp_path_factory: Any, records: list[dict[str, Any]]) -> None:
+def test_jsonl_of_records_never_raises(
+    tmp_path_factory: Any, records: list[dict[str, Any]]
+) -> None:
     """A JSONL log of arbitrary records loads; winners are well-typed and deduped."""
     path = tmp_path_factory.mktemp("ga_runs_fuzz") / "ga_runs.jsonl"
-    lines = [
-        json.dumps(rec, default=str) if not isinstance(rec, str) else rec for rec in records
-    ]
+    lines = [json.dumps(rec, default=str) if not isinstance(rec, str) else rec for rec in records]
     # Inject malformed lines between records.
     lines.insert(0, "not json at all {{{")
     lines.append("")

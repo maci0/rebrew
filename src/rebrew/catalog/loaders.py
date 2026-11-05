@@ -257,6 +257,22 @@ def cached_function_list(cfg: ProjectConfig) -> list[dict[str, Any]]:
     return [dict(f) for f in funcs]
 
 
+def trusted_function_list(cfg: ProjectConfig) -> list[dict[str, Any]]:
+    """Read the retained inventory without the live cache's degraded fallback."""
+    path = inventory_path_for(cfg.reversed_dir, cfg)
+    if not path.is_file():
+        raise ValueError("trusted coverage inventory is missing")
+    functions = load_function_structure(path)
+    result: list[dict[str, Any]] = [
+        {"va": e.va, "size": e.size, "name": e.name or e.tool_name} for e in functions
+    ]
+    if len({item["va"] for item in result}) != len(result) or any(
+        item["va"] < 0 or item["size"] < 0 for item in result
+    ):
+        raise ValueError("trusted coverage inventory has ambiguous extents")
+    return result
+
+
 def cached_function_vas(cfg: ProjectConfig) -> frozenset[int]:
     """VA set for the discovery inventory, once per path.
 

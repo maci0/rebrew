@@ -1315,7 +1315,9 @@ def build_source_known_functions(cfg: ProjectConfig, src_dir: Path) -> dict[int,
     return known_functions
 
 
-def build_dispatch_known_functions(cfg: ProjectConfig, src_dir: Path) -> dict[int, dict[str, str]]:
+def build_dispatch_known_functions(
+    cfg: ProjectConfig, src_dir: Path, *, strict: bool = False
+) -> dict[int, dict[str, str]]:
     """Map VA -> {"name", "status"} for dispatch-table naming.
 
     Source-file annotations take precedence; the function list / Ghidra
@@ -1340,6 +1342,8 @@ def build_dispatch_known_functions(cfg: ProjectConfig, src_dir: Path) -> dict[in
             if name and va not in known_functions:
                 known_functions[va] = {"name": name, "status": ""}
     except (OSError, ValueError, KeyError, AttributeError) as exc:
+        if strict:
+            raise
         # Registry is best-effort enrichment (function names from the catalog
         # list); a failure must be visible so a name-less data scan is not
         # mistaken for a complete one.

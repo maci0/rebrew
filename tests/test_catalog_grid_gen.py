@@ -542,6 +542,31 @@ class TestGenerateDataJsonNoBinary:
 class TestAbsorptionRegression:
     """Regression: an absorbed jump table must not re-absorb the next function."""
 
+    def test_trusted_jump_table_is_identified_but_not_verified(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        size = 0x200
+        blob = bytearray(b"\xcc" * size)
+        blob[0:8] = b"\x55\x8b\xec\x5d\xc3\xcc\xcc\xcc"
+        blob[0x40:0x60] = b"".join(
+            struct.pack("<I", v)
+            for v in (0x1005, 0x100A, 0x100F, 0x1014, 0x1019, 0x101E, 0x1023, 0x1028)
+        )
+        blob[0x60:0x68] = b"\x55\x8b\xec\x5d\xc3\xcc\xcc\xcc"
+        bin_path = tmp_path / "reg.dll"
+        bin_path.write_bytes(bytes(blob))
+        _patch_binary(monkeypatch, bytes(blob), sections_va=0x1000, sections_size=size)
+        entries = [_ann(0x1000, "fn_a", "EXACT", 0x40), _ann(0x1060, "fn_b", "STUB", 0x20)]
+        data = build_coverage_data(entries, [], text_size=size, bin_path=bin_path, trusted=True)
+        cells = data["sections"][".text"]["cells"]
+        assert (
+            sum(cell["end"] - cell["start"] for cell in cells if cell["state"] == "exact") == 0x40
+        )
+        assert (
+            sum(cell["end"] - cell["start"] for cell in cells if cell["state"] == "unknown") == 0x20
+        )
+        assert data["functions"]["0x00001000"]["size"] == 0x40
+
     def test_absorbed_gap_does_not_eat_next_function(self, monkeypatch, tmp_path: Path) -> None:
         # fn_a (0x0-0x40) + jump table (0x40-0x60) + fn_b (0x60-0x80, small).
         # Round 1 absorbs the table into fn_a → fn_a end == fn_b start.

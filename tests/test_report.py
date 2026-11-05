@@ -1115,7 +1115,10 @@ class TestChromeTokens:
         """
         from rebrew.report import _CSS
 
-        assert "td summary { cursor: pointer; padding: 0.25rem 0; min-height: 1.5rem; display: flex;" in (_CSS)
+        assert (
+            "td summary { cursor: pointer; padding: 0.25rem 0; min-height: 1.5rem; display: flex;"
+            in (_CSS)
+        )
 
     def test_tokens_resolve_in_the_report_css(self) -> None:
         from rebrew.dashboard import _INDEX_HTML

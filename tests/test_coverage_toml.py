@@ -1172,7 +1172,7 @@ class TestMemo:
                 # event.  Wait on that registry instead of sleeping: a fixed
                 # delay either flakes (thread not yet parked -> it becomes a
                 # second leader) or wastes wall time every run.
-                key = next(iter(coverage_toml._ALL_INFLIGHT))
+                next(iter(coverage_toml._ALL_INFLIGHT))
                 release.set()
                 results = [future.result(timeout=5) for future in futures]
             assert calls == 1

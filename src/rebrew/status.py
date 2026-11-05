@@ -891,6 +891,7 @@ def collect_status(
     *,
     tree: list[Path] | None = None,
     data: SourceData | None = None,
+    trusted: Any = None,
 ) -> StatusReport:
     """Collect all project health data into a StatusReport.
 
@@ -936,7 +937,35 @@ def collect_status(
         # is `targets.<name>.external_libs` (plus LIBRARY binding rows).
         library_vas = external_vas(existing, getattr(cfg, "external_libs", None))
         existing = scope_to_target(existing, cfg)
+        if trusted is not None:
+            from rebrew.catalog.loaders import scan_reversed_dir, trusted_function_list
+
+            inventory = trusted_function_list(cfg)
+            trusted.bind(cfg, scan_reversed_dir(cfg.reversed_dir, cfg=cfg), inventory)
+            sizes = {int(item["va"]): int(item["size"]) for item in inventory}
+            existing = {
+                va: {
+                    **info,
+                    "size": str(sizes[va]),
+                    "status": (
+                        record.status
+                        if (
+                            record := trusted.verdict(
+                                cfg.root, cfg.reversed_dir / info["filename"], va
+                            )
+                        )
+                        else "UNKNOWN"
+                    ),
+                    "kind": "FUNCTION",
+                    "source": "",
+                }
+                for va, info in existing.items()
+                if va in sizes
+            }
+            library_vas = set()
     except (OSError, json.JSONDecodeError, KeyError, ValueError) as exc:
+        if trusted is not None:
+            raise
         # Graceful degradation: return zeroed report.  ValueError is what the
         # loaders raise for a corrupt structure JSON, so omitting it meant the
         # documented fallback skipped exactly the case it exists for.  The
@@ -959,7 +988,7 @@ def collect_status(
     function_vas = {va for va in existing if va not in library_vas}
     # Switch arms and split bodies inside an annotated function are not
     # functions (the same rule `rebrew todo` applies).
-    pseudo_vas = inside_annotated_vas(ghidra_funcs, existing)
+    pseudo_vas = inside_annotated_vas(ghidra_funcs, existing) if trusted is None else set()
     report.total_functions = len(function_vas | (ghidra_vas - library_vas - pseudo_vas))
     report.covered_functions = len(function_vas)
 
@@ -974,8 +1003,8 @@ def collect_status(
     # STUB/SIZE_MISMATCH/MISSING_SIZE placeholders (effective_status).
     # One validated read serves both the per-VA details below and the
     # summary: each load deep-copies the whole document.
-    cache_raw = _load_cache_raw(cfg)
-    verify_details = load_verify_details(cfg, cache_raw)
+    cache_raw = _load_cache_raw(cfg) if trusted is None else None
+    verify_details = load_verify_details(cfg, cache_raw) if trusted is None else {}
     verify_statuses = {va: status for va, (status, _eff) in verify_details.items()}
 
     # Single pass: status breakdown + byte-level coverage.
@@ -1187,7 +1216,7 @@ def collect_status(
         size = data_symbol_size(fields, arch=getattr(cfg, "arch", "x86_32"))
         if span_is_copied(va, size, copied):
             continue
-        verdict = str(fields.get("status") or "").strip().upper()
+        verdict = str(fields.get("status") or "").strip().upper() if trusted is None else ""
         bucket = data_status_bucket(verdict)
         if bucket == "verified":
             report.data_verified += 1
@@ -1220,9 +1249,9 @@ def collect_status(
     report.data_conflicting_verified_bytes = verified - report.data_verified_bytes
 
     # Verify info
-    report.verify_info = _load_verify_info(cfg, library_vas, cache_raw, sources=sources)
-
-    _attach_file_similarity(report, cfg)
+    if trusted is None:
+        report.verify_info = _load_verify_info(cfg, library_vas, cache_raw, sources=sources)
+        _attach_file_similarity(report, cfg)
 
     return report
 

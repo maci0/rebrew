@@ -519,7 +519,7 @@ def _display_name(ann: SourceBinding, src: Path) -> str:
     return src.stem
 
 
-def _collect_functions(cfg: ProjectConfig) -> list[dict[str, Any]]:
+def _collect_functions(cfg: ProjectConfig, *, trusted: Any = None) -> list[dict[str, Any]]:
     """Return per-function rows (name, va, file, status, size, cflags, blocker) sorted by VA.
 
     Mirrors the aggregation done by :func:`rebrew.status.collect_status` so
@@ -537,6 +537,13 @@ def _collect_functions(cfg: ProjectConfig) -> list[dict[str, Any]]:
     if not reversed_path.exists():
         return []
     functions: list[dict[str, Any]] = []
+    sizes: dict[int, int] = {}
+    if trusted is not None:
+        from rebrew.catalog.loaders import scan_reversed_dir, trusted_function_list
+
+        inventory = trusted_function_list(cfg)
+        trusted.bind(cfg, scan_reversed_dir(cfg.reversed_dir, cfg=cfg), inventory)
+        sizes = {int(item["va"]): int(item["size"]) for item in inventory}
     metadata_dir = getattr(cfg, "metadata_dir", None)
     entries: dict[tuple[str, int], dict[str, Any]] = {}
     if isinstance(metadata_dir, Path):
@@ -568,13 +575,18 @@ def _collect_functions(cfg: ProjectConfig) -> list[dict[str, Any]]:
                 continue
             if ann.va < min_valid_va_for(cfg):
                 continue
+            if trusted is not None and ann.va not in sizes:
+                continue
             md = entries.get((ann.module, ann.va), {})
+            verdict = trusted.verdict(cfg.root, src, ann.va) if trusted is not None else None
             functions.append(
                 {
                     "name": _display_name(ann, src),
                     "va": ann.va,
-                    "status": ann.status or "UNKNOWN",
-                    "size": ann.size,
+                    "status": (verdict.status if verdict else "UNKNOWN")
+                    if trusted is not None
+                    else ann.status or "UNKNOWN",
+                    "size": sizes[ann.va] if trusted is not None else ann.size,
                     "cflags": ann.cflags,
                     "module": ann.module,
                     "file": rel_display_path(src, reversed_path),
@@ -589,12 +601,17 @@ def _collect_functions(cfg: ProjectConfig) -> list[dict[str, Any]]:
         for ann in library_bindings_for_file(header, metadata_dir=metadata_dir):
             if ann.va < min_valid_va_for(cfg):
                 continue
+            if trusted is not None and ann.va not in sizes:
+                continue
+            verdict = trusted.verdict(cfg.root, header, ann.va) if trusted is not None else None
             functions.append(
                 {
                     "name": ann.symbol or ann.name or f"func_{ann.va:08x}",
                     "va": ann.va,
-                    "status": ann.status or "UNKNOWN",
-                    "size": ann.size,
+                    "status": (verdict.status if verdict else "UNKNOWN")
+                    if trusted is not None
+                    else ann.status or "UNKNOWN",
+                    "size": sizes[ann.va] if trusted is not None else ann.size,
                     "cflags": ann.cflags,
                     "module": ann.module,
                     "file": rel_display_path(header, reversed_path),
@@ -1194,7 +1211,7 @@ def _graph_body(mermaid: str, *, spilled: bool, nodes: int, edges: int, dispatch
     )
 
 
-def _render_graph(cfg: ProjectConfig) -> tuple[str, str | None, str | None]:
+def _render_graph(cfg: ProjectConfig, *, trusted: Any = None) -> tuple[str, str | None, str | None]:
     """Render graph.html, optional adjacency.txt, and optional spilled Mermaid.
 
     Returns ``(html_page, adjacency_text_or_none, mermaid_or_none)``.  The
@@ -1221,6 +1238,27 @@ def _render_graph(cfg: ProjectConfig) -> tuple[str, str | None, str | None]:
         )
     try:
         nodes, edges, dispatch_edges = build_graph(Path(reversed_dir), cfg=cfg)
+        if trusted is not None:
+            from rebrew.catalog.loaders import scan_reversed_dir, trusted_function_list
+
+            inventory = trusted_function_list(cfg)
+            entries = trusted.bind(cfg, scan_reversed_dir(cfg.reversed_dir, cfg=cfg), inventory)
+            sizes = {int(item["va"]): int(item["size"]) for item in inventory}
+            allowed = {
+                (entry.va, (cfg.reversed_dir / entry.filepath).resolve())
+                for entry in entries
+                if not entry.is_data
+            }
+            nodes = {
+                key: node
+                for key, node in nodes.items()
+                if (node["va"], (cfg.reversed_dir / node["file"]).resolve()) in allowed
+            }
+            for node in nodes.values():
+                va = node["va"]
+                verdict = trusted.verdict(cfg.root, cfg.reversed_dir / node["file"], va)
+                node["status"] = verdict.status if verdict else "UNKNOWN"
+                node["size"] = sizes.get(va, 0)
         if not nodes:
             note = (
                 f"<h2>Call graph</h2><p class='note'>{_no_functions_note(Path(reversed_dir))}</p>"
@@ -1246,9 +1284,14 @@ def _render_graph(cfg: ProjectConfig) -> tuple[str, str | None, str | None]:
                         edges.extend(binary_call_edges(info, ranges))
                 except Exception as exc:  # best-effort augmentation
                     logging.getLogger(__name__).debug("NE edge augmentation failed: %s", exc)
+        if trusted is not None:
+            edges = [(a, b) for a, b in edges if a in nodes and b in nodes]
+            dispatch_edges = [(a, b) for a, b in dispatch_edges if a in nodes and b in nodes]
         mermaid = render_mermaid(nodes, edges, dispatch_edges)
         adjacency = _adjacency_list(nodes, edges, dispatch_edges)
     except Exception as exc:  # best-effort graph; the report must not crash
+        if trusted is not None:
+            raise
         logging.getLogger(__name__).warning(
             "Call graph generation failed for %s", target, exc_info=True
         )
@@ -1342,7 +1385,7 @@ def _adjacency_list(
 # ---------------------------------------------------------------------------
 
 
-def generate_report(cfg: ProjectConfig, out: Path) -> dict[str, Any]:
+def generate_report(cfg: ProjectConfig, out: Path, *, trusted: Any = None) -> dict[str, Any]:
     """Generate the static HTML report site into *out*.
 
     Returns the machine-readable summary dict::
@@ -1357,12 +1400,12 @@ def generate_report(cfg: ProjectConfig, out: Path) -> dict[str, Any]:
     Owned files this run did not write are removed.
     """
     out.mkdir(parents=True, exist_ok=True)
-    report = collect_status(cfg)
-    functions = _collect_functions(cfg)
+    report = collect_status(cfg, trusted=trusted)
+    functions = _collect_functions(cfg, trusted=trusted)
     target = _target_name(cfg)
     reversed_dir = getattr(cfg, "reversed_dir", None)
 
-    graph_html, adjacency, spilled_mermaid = _render_graph(cfg)
+    graph_html, adjacency, spilled_mermaid = _render_graph(cfg, trusted=trusted)
     page_files: list[tuple[str, str]] = []
     page_files.extend(
         _render_index(
@@ -1409,7 +1452,9 @@ def generate_report(cfg: ProjectConfig, out: Path) -> dict[str, Any]:
     return {"out": str(out), "pages": primary_names + extra, "summary": summary}
 
 
-def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, Any]:
+def generate_decomp_dev_report(
+    cfg: ProjectConfig, out_path: Path, *, trusted: Any = None
+) -> dict[str, Any]:
     """Write an objdiff-format ``report.json`` for decomp.dev ingestion.
 
     decomp.dev (the decomp-scene progress hub) polls a GitHub Actions
@@ -1435,6 +1480,13 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
     from rebrew.sections import get_text_section_size
     from rebrew.workspace.status import FUZZY_STATUSES, MATCHED_STATUSES
 
+    sizes: dict[int, int] = {}
+    if trusted is not None:
+        from rebrew.catalog.loaders import scan_reversed_dir, trusted_function_list
+
+        inventory = trusted_function_list(cfg)
+        trusted.bind(cfg, scan_reversed_dir(cfg.reversed_dir, cfg=cfg), inventory)
+        sizes = {int(item["va"]): int(item["size"]) for item in inventory}
     sources = list(iter_sources(cfg.reversed_dir, cfg))
     target_module_name = target_module(cfg)
     annos_by_file: list[tuple[str, list[Any]]] = []
@@ -1447,6 +1499,15 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
         # Relative to reversed_dir, like every other source-path computation in
         # this module: a bare basename made two `pool.c` under different
         # directories indistinguishable in report.json.
+        if trusted is not None:
+            from dataclasses import replace
+
+            annos = [
+                replace(a, status=(record.status if record else "UNKNOWN"), size=sizes[a.va])
+                for a in annos
+                if a.va in sizes
+                for record in (trusted.verdict(cfg.root, path, a.va),)
+            ]
         annos_by_file.append((rel_display_path(path, cfg.reversed_dir), annos))
 
     # Cached match_percent for NEAR_MATCHING (the fuzzy measure).  Verify-cache
@@ -1456,7 +1517,7 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
     try:
         from rebrew.verify_cache import cache_path_for, load_verify_cache
 
-        cache = load_verify_cache(cache_path_for(cfg), cfg)
+        cache = load_verify_cache(cache_path_for(cfg), cfg) if trusted is None else None
         if cache is not None:
             for key, entry in cache.entries.items():
                 mp = entry.match_percent
@@ -1480,9 +1541,14 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
             "verify cache unavailable for fuzzy match percents: %s", exc
         )
 
+    trusted_by_va = {r.va: r for r in trusted.records} if trusted is not None else {}
+
     def fuzzy_for(status: str, va: int) -> float:
         if status in MATCHED_STATUSES:
             return 100.0
+        if trusted is not None and status == "NEAR_MATCHING":
+            record = trusted_by_va.get(va)
+            return 100.0 * record.match_count / record.size if record else 0.0
         if status in FUZZY_STATUSES:
             return cached_pct.get(va, 0.0)
         return 0.0
@@ -1546,7 +1612,7 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
     # status counts are verify-overlaid (a verify cache that demoted a
     # metadata EXACT is reflected here) and the denominator is the
     # ghidra-functions ∪ annotated set.
-    status = collect_status(cfg)
+    status = collect_status(cfg, trusted=trusted)
     registry_total = status.total_functions or 0
     matched_functions = status.matched_functions
     matched_code = status.matched_bytes

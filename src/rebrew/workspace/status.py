@@ -10,6 +10,98 @@ portal statuses are not interchangeable with this tuple.
 
 from __future__ import annotations
 
+from collections import Counter
+from dataclasses import dataclass, field, replace
+from pathlib import Path
+from types import MappingProxyType
+from typing import Any
+lazy from collections.abc import Mapping
+
+
+@dataclass(frozen=True)
+class TrustedVerification:
+    """A backend-authenticated verdict for one retained source and extent."""
+
+    source: str
+    va: int
+    size: int
+    status: str
+    match_count: int = 0
+
+
+@dataclass(frozen=True)
+class TrustedCoverage:
+    """Per-invocation verdicts; caller validates custody before constructing this."""
+
+    records: tuple[TrustedVerification, ...]
+    _by_va: Mapping[int, TrustedVerification] = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        records = {record.va: record for record in self.records}
+        if len(records) != len(self.records):
+            raise ValueError("duplicate trusted verification address")
+        object.__setattr__(self, "_by_va", MappingProxyType(records))
+
+    def verdict(self, root: Path, source: Path, va: int) -> TrustedVerification | None:
+        root = root.resolve()
+        source = source.resolve()
+        if not source.is_relative_to(root):
+            return None
+        name = source.relative_to(root).as_posix()
+        record = self._by_va.get(va)
+        return record if record is not None and record.source == name else None
+
+    def bind(self, cfg: Any, entries: list[Any], funcs: list[dict[str, Any]]) -> list[Any]:
+        inventory = {int(item["va"]): int(item["size"]) for item in funcs}
+        records = self._by_va
+        counts = Counter(entry.va for entry in entries if not entry.is_data and entry.va in records)
+        if any(counts[va] != 1 for va in records):
+            raise ValueError("ambiguous trusted verification binding")
+        for record in self.records:
+            if (
+                record.status not in {"EXACT", "SIZE_MISMATCH", "STUB", "NEAR_MATCHING"}
+                or record.size <= 0
+                or inventory.get(record.va) != record.size
+                or not 0 <= record.match_count <= record.size
+                or (record.status == "EXACT" and record.match_count != record.size)
+                or (
+                    record.status in {"STUB", "NEAR_MATCHING"} and record.match_count == record.size
+                )
+            ):
+                raise ValueError("unsupported or unbound trusted verification")
+        bound: set[int] = set()
+        result = []
+        root = Path(cfg.root).resolve()
+        for entry in entries:
+            if not entry.is_data and entry.va not in inventory:
+                continue
+            rec = records.get(entry.va)
+            source = (Path(cfg.reversed_dir) / entry.filepath).resolve()
+            matched = (
+                rec is not None
+                and source.is_relative_to(root)
+                and source.relative_to(root).as_posix() == rec.source
+                and not entry.is_data
+            )
+            if matched:
+                if entry.va in bound:
+                    raise ValueError("ambiguous trusted verification binding")
+                bound.add(entry.va)
+            result.append(
+                replace(
+                    entry,
+                    status=rec.status if (matched and rec is not None) else "UNKNOWN",
+                    size=rec.size
+                    if (matched and rec is not None)
+                    else max(inventory.get(entry.va, 0), 0),
+                    kind="FUNCTION" if entry.kind == "LIBRARY" else entry.kind,
+                )
+            )
+        if bound != records.keys():
+            raise ValueError("trusted verification has no unique source binding")
+        return result
+
+
 KNOWN_STATUSES: frozenset[str] = frozenset(
     {
         # User classification (annotation / user edits).

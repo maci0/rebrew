@@ -37,7 +37,12 @@ lazy from rebrew.sources import scan_files
 lazy from rebrew.verify_cache import CACHE_FILENAME, cache_path_for
 lazy from rebrew.workspace import read_config, targets_table
 
-__all__ = ["ProjectCoverageError", "ProjectCoverageView", "load_project_coverage"]
+__all__ = [
+    "ProjectCoverageError",
+    "ProjectCoverageView",
+    "load_project_coverage",
+    "trusted_project_coverage",
+]
 
 log = logging.getLogger(__name__)
 
@@ -142,7 +147,7 @@ def _configs(root: Path) -> tuple[dict[str, ProjectConfig], dict[str, str]]:
     return configs, failures
 
 
-def _target_view(cfg: ProjectConfig, old: _Target | None) -> _Target:
+def _target_view(cfg: ProjectConfig, old: _Target | None, trusted: Any = None) -> _Target:
     # Never publish a frame assembled across an input change. One retry covers
     # an ordinary atomic metadata replacement; a busy writer stays explicit.
     for _attempt in range(2):
@@ -153,19 +158,25 @@ def _target_view(cfg: ProjectConfig, old: _Target | None) -> _Target:
                 f"{cfg.target_name}: target binary missing: {cfg.target_binary}"
             )
         load_binary(cfg.target_binary)
-        data = build_catalog_data(cfg, progress=False)["data"]
+        data = build_catalog_data(cfg, progress=False, trusted=trusted)["data"]
         previous = old.baseline if old is not None else {}
-        rows = import_verify_rows(
-            cfg.root,
-            cfg.target_name,
-            previous_measurements(previous),
-            datetime.now(UTC).isoformat(),
+        rows = (
+            import_verify_rows(
+                cfg.root,
+                cfg.target_name,
+                previous_measurements(previous),
+                datetime.now(UTC).isoformat(),
+            )
+            if trusted is None
+            else []
         )
         document = coverage_document(
             cfg.target_name,
             data,
             verify_rows=rows,
-            history=load_status_history(cfg.metadata_dir, target_module(cfg)),
+            history=load_status_history(cfg.metadata_dir, target_module(cfg))
+            if trusted is None
+            else [],
         )
         snapshot = snapshot_from_document(
             cfg.root / "rebrew-project.toml", document, cfg.target_name
@@ -178,6 +189,11 @@ def _target_view(cfg: ProjectConfig, old: _Target | None) -> _Target:
             }
             return _Target(after, baseline, snapshot)
     raise ProjectCoverageError(f"{cfg.target_name}: inputs changed while coverage was being read")
+
+
+def trusted_project_coverage(cfg: ProjectConfig, trusted: Any) -> CoverageSnapshot:
+    """Build one uncached snapshot using only the supplied validated verdicts."""
+    return _target_view(cfg, None, trusted).snapshot
 
 
 def load_project_coverage(root: Path, *, refresh: bool = False) -> ProjectCoverageView:
