@@ -4055,9 +4055,16 @@ keep_stub_exceptions = ["_vfs_Crc32Update"]
 
 Use `--update-symbol NAME` to preview a digest-bound change to a selected
 existing definition from `--specials`; repeat the option for multiple symbols.
-An empty `impl` removes the selected definition, and the preview labels that
-action `remove`. Run with `--dry-run` first, then pass its digest with
-`--expected-digest` to apply the reviewed changes.
+To append an absent function, supply its complete reviewed `impl` and
+`kind = "function"` in its `[specials.NAME]` table. Additions do not infer or
+verify the ABI, external provider, target participation, or macro context in
+other files; review those independently. Data additions are not supported.
+An empty `impl` removes an existing definition. The preview labels each action;
+run with `--dry-run`, then pass its digest with `--expected-digest` to apply.
+Existing file bytes are preserved. If an error occurs after publication and the
+output path is occupied, the error names a retained original backup for manual
+reconciliation. This is exception handling, not crash recovery or isolation
+from editors that retain an open file handle.
 
 Build integration: `--exclude-file PATH` renames the stub TU out of the
 build for the duration (`.off`, restored after); `--cmake-stub-var LINK_STUBS`

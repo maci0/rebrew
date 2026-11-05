@@ -1380,7 +1380,7 @@ def _run_build(
 def _update_selected_stubs(
     content: str, specs: dict[str, typing.Any], symbols: list[str]
 ) -> tuple[str, list[dict[str, str]]]:
-    """Replace selected unambiguous top-level definitions from specials."""
+    """Update selected definitions, or append explicitly reviewed functions."""
     from rebrew.c_parser import find_declarator_name, find_function_name_in_node, parse_c_source
 
     def definitions(source: str) -> dict[str, list[typing.Any]]:
@@ -1389,6 +1389,26 @@ def _update_selected_stubs(
         pending = [(tree.root_node, True)]
         while pending:
             node, top = pending.pop()
+            name: str | None
+            if node.type in {"preproc_def", "preproc_function_def"}:
+                name_node = node.child_by_field_name("name")
+                if name_node is not None:
+                    name = data[name_node.start_byte : name_node.end_byte].decode("utf-8")
+                    found.setdefault(name, []).append((node, False, 1))
+                continue
+            if node.type in {"type_definition", "enumerator"}:
+                decls = (
+                    node.children_by_field_name("declarator")
+                    if node.type == "type_definition"
+                    else [node.child_by_field_name("name")]
+                )
+                for decl in decls:
+                    name = find_function_name_in_node(decl, data) if decl is not None else None
+                    if name:
+                        found.setdefault(name, []).append((node, False, 1))
+                if node.type == "type_definition":
+                    pending.extend((child, False) for child in node.named_children)
+                continue
             if node.type == "function_definition":
                 decl = node.child_by_field_name("declarator")
                 name = find_function_name_in_node(decl, data) if decl is not None else None
@@ -1398,7 +1418,9 @@ def _update_selected_stubs(
             if node.type == "declaration":
                 decls = node.children_by_field_name("declarator")
                 for decl in decls:
-                    name = find_declarator_name(decl, data)
+                    name = find_declarator_name(decl, data) or find_function_name_in_node(
+                        decl, data
+                    )
                     if name:
                         found.setdefault(name, []).append((node, top, len(decls)))
                 continue
@@ -1417,10 +1439,14 @@ def _update_selected_stubs(
         if not is_safe_c_ident(symbol):
             raise ValueError(f"invalid symbol: {symbol}")
         matches = existing.get(symbol, [])
-        if len(matches) != 1 or not matches[0][1] or matches[0][2] != 1:
+        if len(matches) > 1 or (matches and (not matches[0][1] or matches[0][2] != 1)):
             raise ValueError(f"expected one unambiguous top-level definition: {symbol}")
-        node = matches[0][0]
-        old = raw[node.start_byte : node.end_byte].decode("utf-8", errors="surrogateescape")
+        node = matches[0][0] if matches else None
+        old = (
+            raw[node.start_byte : node.end_byte].decode("utf-8", errors="surrogateescape")
+            if node is not None
+            else ""
+        )
         if old.lstrip().startswith("extern "):
             raise ValueError(f"not a definition: {symbol}")
         spec = specs.get("specials", {}).get(symbol, {})
@@ -1429,25 +1455,40 @@ def _update_selected_stubs(
             raise ValueError(f"missing special implementation: {symbol}")
         impl = impl.strip()
         new_defs = definitions(impl)
+        if node is None and (spec.get("kind") != "function" or not impl):
+            raise ValueError(f"adding {symbol} requires a reviewed function implementation")
         if impl:
             new_tree, _ = parse_c_source(impl)
             nodes = [n for n in new_tree.root_node.named_children if n.type != "comment"]
             if (
                 len(nodes) != 1
-                or nodes[0].type != node.type
+                or nodes[0].type != (node.type if node is not None else "function_definition")
+                or nodes[0].has_error
+                or (
+                    node is None
+                    and re.search(
+                        r"\bstatic\b", impl[: nodes[0].child_by_field_name("body").start_byte]
+                    )
+                )
                 or impl.startswith("extern ")
                 or len(new_defs.get(symbol, [])) != 1
                 or len(new_defs) != 1
                 or new_defs[symbol][0][2] != 1
             ):
                 raise ValueError(f"special must define only {symbol}")
-        replacements.append(
-            (node.start_byte, node.end_byte, impl.encode("utf-8", errors="surrogateescape"))
-        )
+        if node is not None:
+            replacements.append(
+                (node.start_byte, node.end_byte, impl.encode("utf-8", errors="surrogateescape"))
+            )
+        else:
+            suffix = ("" if not raw or raw.endswith(b"\n") else "\n") + impl + "\n"
+            replacements.append(
+                (len(raw), len(raw), suffix.encode("utf-8", errors="surrogateescape"))
+            )
         changes.append(
             {
                 "symbol": symbol,
-                "action": "replace" if impl else "remove",
+                "action": "add" if node is None else "replace" if impl else "remove",
                 "before": old,
                 "after": impl,
             }
@@ -1455,6 +1496,53 @@ def _update_selected_stubs(
     for start, end, replacement in sorted(replacements, reverse=True):
         raw = raw[:start] + replacement + raw[end:]
     return raw.decode("utf-8", errors="surrogateescape"), changes
+
+
+def _publish_selected_stubs(
+    target: Path, original: bytes, content: bytes, specials: Path, spec: bytes
+) -> None:
+    """Stage the original and publish without overwriting a concurrent path."""
+    import tempfile
+
+    from rebrew.metadata.coordinated import CoordinatedStage
+    from rebrew.metadata.locking import file_transaction
+
+    target = target.absolute()
+    with file_transaction(target.parent, target.name):
+        if target.is_symlink() or not target.is_file() or target.read_bytes() != original:
+            raise ValueError("output changed since preview")
+        mode = target.stat().st_mode & 0o777
+        fd, name = tempfile.mkstemp(prefix=".rebrew-stubs-", dir=target.parent)
+        os.close(fd)
+        backup = Path(name)
+        stage = CoordinatedStage([target])
+        moved = False
+        try:
+            os.replace(target, backup)
+            moved = True
+            stage[target] = backup
+            if backup.read_bytes() != original or backup.stat().st_mode & 0o777 != mode:
+                raise ValueError("output changed during staging")
+            if specials.is_symlink() or specials.read_bytes() != spec:
+                raise ValueError("specials changed during update")
+            stage.publish(target, content, mode=mode)
+            if (
+                backup.read_bytes() != original
+                or backup.stat().st_mode & 0o777 != mode
+                or not stage.is_unchanged_publication(target)
+                or specials.is_symlink()
+                or specials.read_bytes() != spec
+            ):
+                raise ValueError("selected update inputs changed during publication")
+            backup.unlink()
+        except BaseException:
+            if moved:
+                try:
+                    os.link(backup, target)
+                except FileExistsError as exc:
+                    raise ValueError(f"output preserved; original retained at {backup}") from exc
+            backup.unlink(missing_ok=True)
+            raise
 
 
 #: Bound on linker output read from stdin: an unbounded ``read()`` lets a
@@ -1513,7 +1601,7 @@ def main(
     update_symbol: list[str] | None = typer.Option(
         None,
         "--update-symbol",
-        help="Update this definition from specials; an empty implementation removes it (repeatable)",
+        help="Update a definition or add a reviewed function from specials (repeatable)",
     ),
     expected_digest: str | None = typer.Option(
         None, "--expected-digest", help=EXPECTED_DIGEST_HELP
@@ -1546,8 +1634,13 @@ def main(
             )
         target = output if output.is_absolute() else root / output
         try:
-            original = target.read_text(encoding="utf-8")
+            original = target.read_bytes().decode("utf-8", errors="surrogateescape")
+            if specials.is_symlink():
+                raise ValueError("specials must not be a symlink")
+            spec_bytes = specials.read_bytes()
             selected_spec = load_tomllib(specials)
+            if specials.is_symlink() or specials.read_bytes() != spec_bytes:
+                raise ValueError("specials changed while loading")
             content, changes = _update_selected_stubs(original, selected_spec, update_symbol)
             digest = hashlib.sha256(
                 json.dumps([original, selected_spec, update_symbol], sort_keys=True).encode()
@@ -1555,9 +1648,13 @@ def main(
             if not dry_run:
                 if expected_digest != digest:
                     raise ValueError("selected update digest does not match preview")
-                if target.read_text(encoding="utf-8") != original:
-                    raise ValueError("output changed since preview")
-                atomic_write_text(target, content, encoding="utf-8")
+                _publish_selected_stubs(
+                    target,
+                    original.encode("utf-8", errors="surrogateescape"),
+                    content.encode("utf-8", errors="surrogateescape"),
+                    specials,
+                    spec_bytes,
+                )
         except (OSError, ValueError) as exc:
             error_exit(str(exc), json_mode=json_output)
         result = {

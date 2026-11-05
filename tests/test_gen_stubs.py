@@ -1496,3 +1496,120 @@ def test_selected_update_removes_only_the_requested_function() -> None:
         gen_stubs._update_selected_stubs(
             content, {"specials": {"done": {"impl": "int done;"}}}, ["done"]
         )
+
+
+def test_selected_function_addition_preserves_bytes_and_requires_digest(tmp_path: Path) -> None:
+    out = tmp_path / "stubs.c"
+    original = b"/* \xff historical */\r\nint keep = 0;\r\n"
+    out.write_bytes(original)
+    spec = tmp_path / "specials.toml"
+    spec.write_text(
+        '[specials.missing]\nkind = "function"\nimpl = "int missing(void) { return 0; }"\n',
+        encoding="utf-8",
+    )
+    args = ["--output", str(out), "--specials", str(spec), "--update-symbol", "missing", "--json"]
+    runner = CliRunner()
+    preview = runner.invoke(gen_stubs.app, [*args, "--dry-run"])
+    assert preview.exit_code == 0, preview.output
+    payload = cli_payload(preview)
+    assert payload["changes"][0]["action"] == "add"
+    assert runner.invoke(gen_stubs.app, [*args, "--expected-digest", "stale"]).exit_code != 0
+    assert out.read_bytes() == original
+    applied = runner.invoke(gen_stubs.app, [*args, "--expected-digest", payload["digest"]])
+    assert applied.exit_code == 0, applied.output
+    assert out.read_bytes() == original + b"int missing(void) { return 0; }\n"
+
+
+def test_selected_addition_refuses_ambiguous_or_unreviewed_code() -> None:
+    special = {"specials": {"f": {"kind": "function", "impl": "int f(void) { return 0; }"}}}
+    for existing in (
+        "#define f other\n",
+        "#ifdef A\nint f(void) { return 0; }\n#endif\n",
+        "int f(void);\n",
+        "static int f(void);\n",
+        "float f(int);\n",
+        "typedef int f;\n",
+        "enum { f = 4 };\n",
+    ):
+        with pytest.raises(ValueError):
+            gen_stubs._update_selected_stubs(existing, special, ["f"])
+    for impl in ("int f;", "int f(void);", "static int f(void) { return 0; }", "int f( { }"):
+        with pytest.raises(ValueError):
+            gen_stubs._update_selected_stubs(
+                "", {"specials": {"f": {"kind": "function", "impl": impl}}}, ["f"]
+            )
+    with pytest.raises(ValueError, match="reviewed function"):
+        gen_stubs._update_selected_stubs(
+            "", {"specials": {"f": {"impl": "int f(void) { return 0; }"}}}, ["f"]
+        )
+
+
+def test_selected_publication_preserves_edit_before_staging(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+
+    out = tmp_path / "stubs.c"
+    out.write_bytes(b"original\n")
+    spec = tmp_path / "specials.toml"
+    spec.write_bytes(b"spec")
+    replace = os.replace
+
+    def concurrent(src: str | Path, dst: str | Path) -> None:
+        if Path(src) == out:
+            out.write_bytes(b"concurrent\n")
+        replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", concurrent)
+    with pytest.raises(ValueError, match="during staging"):
+        gen_stubs._publish_selected_stubs(out, b"original\n", b"new\n", spec, b"spec")
+    assert out.read_bytes() == b"concurrent\n"
+
+
+def test_selected_publication_preserves_recreated_path_and_backup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from rebrew.metadata.coordinated import CoordinatedStage
+
+    out = tmp_path / "stubs.c"
+    out.write_bytes(b"original\n")
+    spec = tmp_path / "specials.toml"
+    spec.write_bytes(b"spec")
+    publish = CoordinatedStage.publish
+
+    def concurrent(
+        self: CoordinatedStage, path: Path, content: bytes, *, mode: int | None = None
+    ) -> None:
+        path.write_bytes(b"concurrent\n")
+        publish(self, path, content, mode=mode)
+
+    monkeypatch.setattr(CoordinatedStage, "publish", concurrent)
+    with pytest.raises(ValueError, match="original retained"):
+        gen_stubs._publish_selected_stubs(out, b"original\n", b"new\n", spec, b"spec")
+    assert out.read_bytes() == b"concurrent\n"
+    assert [path.read_bytes() for path in tmp_path.glob(".rebrew-stubs-*")] == [b"original\n"]
+
+
+def test_selected_publication_rolls_back_if_specials_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from rebrew.metadata.coordinated import CoordinatedStage
+
+    out = tmp_path / "stubs.c"
+    out.write_bytes(b"original\n")
+    spec = tmp_path / "specials.toml"
+    spec.write_bytes(b"spec")
+    publish = CoordinatedStage.publish
+
+    def changed(
+        self: CoordinatedStage, path: Path, content: bytes, *, mode: int | None = None
+    ) -> None:
+        publish(self, path, content, mode=mode)
+        spec.write_bytes(b"changed")
+
+    monkeypatch.setattr(CoordinatedStage, "publish", changed)
+    with pytest.raises(ValueError, match="original retained"):
+        gen_stubs._publish_selected_stubs(out, b"original\n", b"new\n", spec, b"spec")
+    assert out.read_bytes() == b"new\n"
+    assert spec.read_bytes() == b"changed"
+    assert [path.read_bytes() for path in tmp_path.glob(".rebrew-stubs-*")] == [b"original\n"]

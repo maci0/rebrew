@@ -114,6 +114,48 @@ class CoordinatedStage(dict[Path, Path]):
             stat.st_mode & 0o777,
         ) == expected
 
+    def remove_publication(self, path: Path) -> None:
+        """Quarantine the current path before checking whether it is ours."""
+        expected = self.published.get(path)
+        if expected is None:
+            raise FileExistsError(f"output preserved at {path}")
+        fd, name = tempfile.mkstemp(prefix=".rebrew-rollback-", dir=path.parent)
+        os.close(fd)
+        held = Path(name)
+        try:
+            os.replace(path, held)
+        except BaseException:
+            held.unlink(missing_ok=True)
+            raise
+        try:
+            stat = held.lstat()
+            unchanged = (
+                not held.is_symlink()
+                and held.is_file()
+                and (
+                    stat.st_dev,
+                    stat.st_ino,
+                    hashlib.sha256(held.read_bytes()).hexdigest(),
+                    stat.st_mode & 0o777,
+                )
+                == expected
+            )
+            if unchanged:
+                held.unlink()
+                return
+            try:
+                os.link(held, path, follow_symlinks=False)
+            except FileExistsError as exc:
+                raise FileExistsError(
+                    f"concurrent output retained at {held}; output exists at {path}"
+                ) from exc
+            held.unlink()
+            raise FileExistsError(f"concurrent output preserved at {path}")
+        except BaseException:
+            if held.exists() or held.is_symlink():
+                logging.getLogger(__name__).warning("rollback retained output at %s", held)
+            raise
+
 
 @contextmanager
 def coordinated_transaction(
@@ -127,7 +169,10 @@ def coordinated_transaction(
     validate: Callable[[], None] | None = None,
     validate_after: Callable[[], None] | None = None,
 ) -> Iterator[CoordinatedStage]:
-    """Lock stores, stage existing sources and restore all inputs on exceptions.
+    """Lock stores, stage existing sources and restore inputs on exceptions.
+
+    Concurrent replacements are retained for reconciliation. This does not
+    provide crash recovery or isolate editors with open file handles.
 
     Sources must be explicitly selected inside the project; include the output
     path even when absent. ``stage`` selects which reviewed sources are moved
@@ -291,16 +336,18 @@ def coordinated_transaction(
                         failures.append(exc)
             for path in stage_paths:
                 try:
+                    if path not in staged and path not in staged.published:
+                        continue
                     if path.exists() or path.is_symlink():
-                        if staged.is_unchanged_publication(path):
-                            path.unlink()
-                        else:
-                            if path in staged:
-                                failures.append(
-                                    FileExistsError(
-                                        f"concurrent file preserved at {path}; staged original retained at {staged[path]}"
-                                    )
-                                )
+                        try:
+                            staged.remove_publication(path)
+                        except OSError as exc:
+                            detail = (
+                                f"; staged original retained at {staged[path]}"
+                                if path in staged
+                                else ""
+                            )
+                            failures.append(FileExistsError(f"{exc}{detail}"))
                             continue
                     if path in staged:
                         os.link(staged[path], path, follow_symlinks=False)

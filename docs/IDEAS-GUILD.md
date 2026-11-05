@@ -4222,6 +4222,16 @@ Replay: Guild `.scratch/counter-contract/gold-queue-specials.toml`,
 .scratch/counter-contract/gold-queue-generated.c`. A complete clean rebuild
 and raw-link placement verification remain separate requirements.
 
+Follow-up (2026-11-05): `--update-symbol` can also append an explicitly
+reviewed function implementation marked `kind = "function"`, preserving the
+old file bytes and requiring the preview digest. This does not infer or verify
+providers, target selection, ABI, or macro context outside the output file.
+Automatic incremental generation from selected linker errors and reviewed data
+additions remain open: Guild's TL latest-only regeneration would drop 3,512
+historical entries, while some unresolved data names are interior aliases whose
+extent and owner cannot be inferred from the log. See
+`.scratch/consolidation-2026-11-05/slot-1/tl-scaffold-review.txt` in Guild.
+
 ### Guarded, interleaved source organization (2026-11-02)
 
 Guild's T&L queue removal and clearing routines share a source file, with the

@@ -22,6 +22,55 @@ def _setup(root: Path, backend: str) -> tuple[Path, Path, list]:
 
 
 @pytest.mark.parametrize("backend", ["toml", "sqlite"])
+def test_failed_publication_preserves_concurrent_replacement(tmp_path: Path, backend: str) -> None:
+    a, _, stores = _setup(tmp_path, backend)
+    snapshots = [store.snapshot() for store in stores]
+    expected = coordinated_inputs(tmp_path, [a])
+    with (
+        pytest.raises(BaseExceptionGroup, match="rollback failed"),
+        coordinated_transaction(tmp_path, [a], expected_inputs=expected) as staged,
+    ):
+        staged.publish(a, b"published\n")
+        a.unlink()
+        a.write_bytes(b"concurrent edit\n")
+        raise RuntimeError("injected")
+    assert a.read_bytes() == b"concurrent edit\n"
+    assert [p.read_bytes() for p in tmp_path.glob(".rebrew-stage-*")] == [
+        b"int a(void) { return 1; }\n"
+    ]
+    assert [store.snapshot() for store in stores] == snapshots
+
+
+@pytest.mark.parametrize("backend", ["toml", "sqlite"])
+def test_rollback_quarantines_concurrent_edit_at_removal(
+    tmp_path: Path, backend: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import rebrew.metadata.coordinated as coordinated
+
+    a, _, _ = _setup(tmp_path, backend)
+    expected = coordinated_inputs(tmp_path, [a])
+    replace = coordinated.os.replace
+
+    def concurrent(src: Path, dst: Path) -> None:
+        if src == a and Path(dst).name.startswith(".rebrew-rollback-"):
+            a.unlink()
+            a.write_bytes(b"concurrent edit\n")
+        replace(src, dst)
+
+    monkeypatch.setattr(coordinated.os, "replace", concurrent)
+    with (
+        pytest.raises(BaseExceptionGroup, match="rollback failed"),
+        coordinated_transaction(tmp_path, [a], expected_inputs=expected) as staged,
+    ):
+        staged.publish(a, b"published\n")
+        raise RuntimeError("injected")
+    assert a.read_bytes() == b"concurrent edit\n"
+    assert [p.read_bytes() for p in tmp_path.glob(".rebrew-stage-*")] == [
+        b"int a(void) { return 1; }\n"
+    ]
+
+
+@pytest.mark.parametrize("backend", ["toml", "sqlite"])
 def test_rollback_restores_both_stores_and_source(tmp_path: Path, backend: str) -> None:
     a, out, stores = _setup(tmp_path, backend)
     if backend == "toml":
