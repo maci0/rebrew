@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 lazy import logging
+lazy import re
 lazy import shutil
 lazy import subprocess
 lazy import time
@@ -3619,8 +3620,6 @@ def _codeload_pattern() -> re.Pattern[str]:
     """Compiled codeload pattern (module import lazily loads ``re``)."""
     global _CODELOAD_PATTERN
     if _CODELOAD_PATTERN is None:
-        import re
-
         _CODELOAD_PATTERN = re.compile(_CODELOAD_RE)
     return _CODELOAD_PATTERN
 
@@ -3723,7 +3722,6 @@ def check_updates_cmd(
 
     GitHub-codeload sources (archaic-msvc, archaic-toolchains, itsmattkc, open-watcom): compares the live default-branch commit sha (GitHub API, no download) against the commit the pin was taken from.  The Open Watcom snapshot (a moving 'Last-CI-build' release tag) is re-downloaded and re-hashed.  Immutable release assets (decomp.me, archive.org) and pinned tarballs (16-bit media in the recompile-toolchains checkout) are reported as static.
     """
-    import re
     import tempfile
 
     from rebrew.compiler.toolchain_data import SOURCES
@@ -3889,7 +3887,6 @@ def update_cmd(
 
     Dry-run (default): downloads the current source and reports the old -> new pin (sha256 + commit).  --apply additionally rewrites SOURCES, clears + re-vendors the host tree, rebuilds the docker image, regenerates the smoke golden (verified stable across two compiles) and runs the smoke gate for that toolchain.
     """
-    import re
     import shutil
     import tempfile
     from dataclasses import replace
