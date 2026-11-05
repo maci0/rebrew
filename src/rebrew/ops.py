@@ -575,6 +575,43 @@ class FlagSearchFile:
 
 
 @dataclass(frozen=True)
+class DecompileSnapshotRequest:
+    project_dir: str
+    sha256: str
+    va: int
+    backend: str
+    rebrew_target: str
+    source_revision: str
+    source_snapshot_sha256: str
+    source_manifest: str
+    files: list[FlagSearchFile]
+    generation: str
+    analysis_manifest_sha256: str
+    analysis_manifest: str
+    analysis_files: list[FlagSearchFile]
+    binary_key: str = ""
+    binary_url: str = ""
+
+
+@dataclass(frozen=True)
+class SecuritySnapshotRequest:
+    project_dir: str
+    sha256: str
+    rebrew_target: str
+    source_revision: str
+    source_snapshot_sha256: str
+    source_manifest: str
+    files: list[FlagSearchFile]
+    generation: str
+    analysis_manifest: str
+    analysis_manifest_sha256: str
+    analysis_files: list[FlagSearchFile]
+    min_severity: str
+    binary_key: str = ""
+    binary_url: str = ""
+
+
+@dataclass(frozen=True)
 class FlagSearchRequest:
     source: str
     source_sha256: str
@@ -1636,7 +1673,7 @@ def capture_fresh_analysis(
     config: WorkerConfig, binary: Path, sha256: str, target: str
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Capture the complete baseline readset from a new, independent intake."""
-    from rebrew.config import load_config
+    from rebrew.config import inventory_path_for, load_config
     from rebrew.coverage_project import coverage_inputs
     from rebrew.sources import iter_headers, iter_sources
 
@@ -1654,6 +1691,7 @@ def capture_fresh_analysis(
             raise _invalid("fresh analysis capture cannot include an unverified raw link")
         if not cfg.target_binary.is_file() or _file_sha256(cfg.target_binary) != sha256:
             raise _invalid("fresh analysis binary does not match the request")
+        inventory = inventory_path_for(cfg.reversed_dir, cfg).resolve()
         source_paths = {p.resolve() for p in iter_sources(cfg.reversed_dir, cfg)}
         source_paths.update(p.resolve() for p in iter_headers(cfg.reversed_dir, cfg))
         paths = {Path(entry[0]) for entry in coverage_inputs(cfg)}
@@ -1706,11 +1744,148 @@ def capture_fresh_analysis(
                 }
             )
         report = project_report(root, None, include_source=True)
+        # The report is an assertion by this worker, so its complete captured
+        # readset must still match after the report was constructed.
+        current_paths = {Path(entry[0]) for entry in coverage_inputs(cfg)}
+        current_sources = {p.resolve() for p in iter_sources(cfg.reversed_dir, cfg)}
+        current_sources.update(p.resolve() for p in iter_headers(cfg.reversed_dir, cfg))
+        if current_paths != paths or current_sources != source_paths:
+            raise _invalid("fresh analysis input changed during reporting")
+        for captured in entries:
+            path = root / captured["path"]
+            if any(
+                part.is_symlink()
+                for part in (path, *path.parents)
+                if part != root and part.is_relative_to(root)
+            ):
+                raise _invalid("fresh analysis input changed during reporting")
+            if captured["kind"] == "absent":
+                if path.exists():
+                    raise _invalid("fresh analysis input changed during reporting")
+            elif (
+                not path.is_file()
+                or path.stat().st_size != captured["size"]
+                or _file_sha256(path) != captured["digest"]
+            ):
+                raise _invalid("fresh analysis input changed during reporting")
+        selected = None
+        if inventory.is_relative_to(root):
+            relative_inventory = inventory.relative_to(root).as_posix()
+            selected = next(
+                (entry for entry in entries if entry["path"] == relative_inventory), None
+            )
+        if (
+            selected is not None
+            and selected["kind"] == "file"
+            and selected.get("role") == "analysis"
+        ):
+            project_config = next(
+                (entry for entry in entries if entry["path"] == "rebrew-project.toml"), None
+            )
+            if project_config is None or project_config["kind"] != "file":
+                raise _invalid("fresh analysis configuration is not captured")
+            for captured in (project_config, selected):
+                path = root / captured["path"]
+                if (
+                    any(
+                        part.is_symlink()
+                        for part in (path, *path.parents)
+                        if part != root and part.is_relative_to(root)
+                    )
+                    or not path.is_file()
+                    or path.stat().st_size != captured["size"]
+                    or _file_sha256(path) != captured["digest"]
+                ):
+                    raise _invalid("fresh analysis input changed during reporting")
+            if not cfg.target_binary.is_file() or _file_sha256(cfg.target_binary) != sha256:
+                raise _invalid("fresh analysis input changed during reporting")
+            current = load_config(root, target=target)
+            if inventory_path_for(current.reversed_dir, current).resolve() != inventory:
+                raise _invalid("fresh analysis inventory changed during reporting")
         for item in report["targets"]:
             for field in ("document", "path"):
                 if item[field]:
                     item[field] = str(Path(item[field]).relative_to(root))
-        return {"version": 1, "binary_sha256": sha256, "target": target, "entries": entries}, report
+        capture = {"version": 1, "binary_sha256": sha256, "target": target, "entries": entries}
+        if (
+            selected is not None
+            and selected["kind"] == "file"
+            and selected.get("role") == "analysis"
+        ):
+            capture["inventory_path"] = selected["path"]
+        if len(report["targets"]) == 1:
+            item = report["targets"][0]
+            if item["name"] != target or item["sha256"] != sha256:
+                raise _invalid("fresh analysis report has a different target")
+            functions, stubs = [], []
+            seen: set[int] = set()
+            for raw, result, size_field in (
+                (item["functions"], functions, True),
+                (item["stubs"], stubs, False),
+            ):
+                for row in raw:
+                    va, name = row["va"], row["name"]
+                    if (
+                        type(va) is not int
+                        or not 0 <= va <= 2**63 - 1
+                        or va in seen
+                        or not isinstance(name, str)
+                        or not name
+                        or len(name.encode("utf-8")) > 4096
+                    ):
+                        raise _invalid("invalid fresh analysis report identity")
+                    entry = {"va": va, "name": name}
+                    if size_field:
+                        size = row["size"]
+                        if type(size) is not int or not 0 <= size <= 2**63 - 1:
+                            raise _invalid("invalid fresh analysis report extent")
+                        entry["size"] = size
+                    seen.add(va)
+                    result.append(entry)
+                result.sort(key=lambda row: row["va"])
+            report_path = ".relumea/analysis-report.json"
+            report_location = root / report_path
+            if (
+                report_location.exists()
+                or any(
+                    part.is_symlink()
+                    for part in (report_location, *report_location.parents)
+                    if part != root and part.is_relative_to(root)
+                )
+                or any(e["path"] == report_path for e in entries)
+            ):
+                raise _invalid("fresh analysis report path already exists")
+            normalized = json.dumps(
+                {
+                    "version": 1,
+                    "binary_sha256": sha256,
+                    "target": target,
+                    "functions": functions,
+                    "stubs": stubs,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")
+            if (
+                len(normalized) <= 1024 * 1024
+                and total + len(normalized) <= 8 * 1024 * 1024
+                and len(entries) < 1024
+            ):
+                entries.append(
+                    {
+                        "path": report_path,
+                        "kind": "file",
+                        "role": "analysis",
+                        "size": len(normalized),
+                        "digest": hashlib.sha256(normalized).hexdigest(),
+                        "data": base64.b64encode(normalized).decode("ascii"),
+                    }
+                )
+                entries.sort(key=lambda entry: entry["path"].encode())
+                capture["report_path"] = report_path
+        return capture, report
 
 
 def import_project(config: WorkerConfig, req: ImportRequest) -> dict[str, Any]:
@@ -2569,6 +2744,20 @@ def retained_source_operation(config: WorkerConfig, req: SnapshotMutationRequest
     return snapshot_mutation(config, req)
 
 
+def decompile_snapshot(config: WorkerConfig, req: DecompileSnapshotRequest) -> dict[str, Any]:
+    """Decompile with names from a verified retained source snapshot."""
+    from rebrew.named_snapshot import decompile_retained
+
+    return decompile_retained(config, req)
+
+
+def security_scan_snapshot(config: WorkerConfig, req: SecuritySnapshotRequest) -> dict[str, Any]:
+    """Scan only a verified retained source and analysis snapshot."""
+    from rebrew.security_snapshot import scan_retained
+
+    return scan_retained(config, req)
+
+
 #: Every op of the backend's rebrew contract, by wire name.
 OPS: dict[str, Op] = {
     "rebrew.disassemble": Op(DisassembleRequest, disassemble),
@@ -2578,6 +2767,7 @@ OPS: dict[str, Op] = {
     "rebrew.call_references": Op(ProjectRequest, call_references),
     "rebrew.describe": Op(AddressRequest, describe),
     "rebrew.decompile": Op(DecompileRequest, decompile),
+    "rebrew.decompile_snapshot": Op(DecompileSnapshotRequest, decompile_snapshot),
     "rebrew.identify_library": Op(ProjectRequest, identify_library),
     "rebrew.structs": Op(StructsRequest, structs),
     "rebrew.binary_operand_locations": Op(OperandLocationsRequest, binary_operand_locations),
@@ -2593,6 +2783,7 @@ OPS: dict[str, Op] = {
     "rebrew.splat_parse": Op(SplatRequest, splat_parse),
     "rebrew.report": Op(ReportRequest, report),
     "rebrew.security_scan": Op(SecurityScanRequest, security_scan),
+    "rebrew.security_scan_snapshot": Op(SecuritySnapshotRequest, security_scan_snapshot),
     "rebrew.analyse": Op(AnalyseRequest, analyse),
     "rebrew.import-project": Op(ImportRequest, import_project),
     "rebrew.reference_flirt": Op(ReferenceFlirtRequest, reference_flirt),
@@ -2622,8 +2813,13 @@ def _answer(config: WorkerConfig, name: str, body: bytes) -> Mapping[str, Any]:
         detail = f"request exceeds {MAX_REQUEST_BYTES} bytes"
         raise OpsError(detail, code=INVALID_REQUEST, status=413)
     try:
-        raw = json.loads(body)
-    except json.JSONDecodeError, UnicodeDecodeError:
+        if name in {"rebrew.decompile_snapshot", "rebrew.security_scan_snapshot"}:
+            from rebrew.named_snapshot import _unique_object
+
+            raw = json.loads(body, object_pairs_hook=_unique_object)
+        else:
+            raw = json.loads(body)
+    except ValueError:
         raise _invalid("request is not JSON") from None
     request: Any = parse_request(op.request, raw)
     try:

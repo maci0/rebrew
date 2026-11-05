@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- Match Recompile’s 12-character idempotency key contract for remote compiles.
+
 ## [6.22.0] - 2026-11-05
 
 ### Added

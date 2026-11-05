@@ -339,7 +339,7 @@ def _snippet(lines: Sequence[str], row: int) -> str:
     return truncate_text(lines[row].strip(), _SNIPPET_MAX_CHARS)
 
 
-def scan_source(text: str, *, file: str) -> list[dict[str, Any]]:
+def scan_source(text: str, *, file: str, strict: bool = False) -> list[dict[str, Any]]:
     """Scan one C source *text* and return findings attributed to *file*.
 
     Findings are sorted by line then rule.  Empty input, a source with a
@@ -349,10 +349,14 @@ def scan_source(text: str, *, file: str) -> list[dict[str, Any]]:
         return []
     parsed = get_ts_parser()
     if parsed is None:
+        if strict:
+            raise SecurityScanUnavailable("tree-sitter C parser is unavailable")
         return []
     try:
         tree, source_bytes = parse_c_source(text)
-    except ImportError:
+    except ImportError as exc:
+        if strict:
+            raise SecurityScanUnavailable("tree-sitter C parser is unavailable") from exc
         return []
     _, language = parsed
 
@@ -397,10 +401,10 @@ def scan_source(text: str, *, file: str) -> list[dict[str, Any]]:
     return findings
 
 
-def scan_paths(paths: Sequence[Path]) -> list[dict[str, Any]]:
+def scan_paths(paths: Sequence[Path], *, strict: bool = False) -> list[dict[str, Any]]:
     """Scan every path and return all findings sorted by file, line, then rule.
 
-    An unreadable path is skipped; the remaining files still report.
+    An unreadable path is skipped unless strict is set, in which case it raises.
     """
     from rebrew.utils import read_source_text
 
@@ -416,11 +420,13 @@ def scan_paths(paths: Sequence[Path]) -> list[dict[str, Any]]:
             # U+FFFD-replaced before the pattern match runs.
             text, _ = read_source_text(path)
         except OSError as exc:
+            if strict:
+                raise
             # An unscanned file contributes no findings, so a report that
             # omits it reads as clean.  Name the file so the gap is visible.
             log.warning("not scanned (unreadable): %s: %s", path, exc)
             continue
-        findings.extend(scan_source(text, file=str(path)))
+        findings.extend(scan_source(text, file=str(path), strict=strict))
     findings.sort(key=lambda finding: (finding["file"], finding["line"], finding["rule"]))
     return findings
 
