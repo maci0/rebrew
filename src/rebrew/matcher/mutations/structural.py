@@ -45,6 +45,7 @@ lazy from rebrew.matcher.mutations.runtime import (
     find_function_body_insert_pos,
     first_caps,
     operand_bytes,
+    pick_match,
     query_cursor,
     under_postfix,
 )
@@ -136,18 +137,9 @@ def mut_inject_dummy_var(s: str, rng: random.Random) -> str | None:
     and sub esp, N (larger frame).
     """
     b_source = encode_source(s)
-    tree = parse_c_ast(b_source)
-
-    # Find function body compound statements
-    q = QUERY_INJECT_DUMMY_VAR
-    cursor = query_cursor(q)
-    matches = cursor.matches(tree.root_node)
-
-    if not matches:
+    caps = pick_match(b_source, QUERY_INJECT_DUMMY_VAR, rng)
+    if caps is None:
         return None
-
-    match = rng.choice(matches)
-    caps = first_caps(match[1])
     body_node = caps["body"]
 
     dummy_id = rng.randint(0, 99)
@@ -167,17 +159,9 @@ def mut_inject_dummy_array(s: str, rng: random.Random) -> str | None:
     MSVC6 changes stack allocation strategy at certain byte boundaries.
     """
     b_source = encode_source(s)
-    tree = parse_c_ast(b_source)
-
-    q = QUERY_INJECT_DUMMY_ARRAY
-    cursor = query_cursor(q)
-    matches = cursor.matches(tree.root_node)
-
-    if not matches:
+    caps = pick_match(b_source, QUERY_INJECT_DUMMY_ARRAY, rng)
+    if caps is None:
         return None
-
-    match = rng.choice(matches)
-    caps = first_caps(match[1])
     body_node = caps["body"]
 
     pad_id = rng.randint(0, 99)
@@ -199,18 +183,9 @@ def mut_scope_variable(s: str, rng: random.Random) -> str | None:
     Wraps the declaration + its first usage in a bare { } block.
     """
     b_source = encode_source(s)
-    tree = parse_c_ast(b_source)
-
-    # Find declarations inside the function body (top-level compound_statement)
-    q = QUERY_SCOPE_VARIABLE
-    cursor = query_cursor(q)
-    matches = cursor.matches(tree.root_node)
-
-    if not matches:
+    caps = pick_match(b_source, QUERY_SCOPE_VARIABLE, rng)
+    if caps is None:
         return None
-
-    match = rng.choice(matches)
-    caps = first_caps(match[1])
 
     d1 = caps["d1"]
     next_stmt = caps["next_stmt"]
@@ -470,17 +445,9 @@ def mut_add_volatile_intermediate(s: str, rng: random.Random) -> str | None:
     registers for the main computation path.
     """
     b_source = encode_source(s)
-    tree = parse_c_ast(b_source)
-
-    q = QUERY_ADD_VOLATILE_INTERMEDIATE
-    cursor = query_cursor(q)
-    matches = cursor.matches(tree.root_node)
-
-    if not matches:
+    caps = pick_match(b_source, QUERY_ADD_VOLATILE_INTERMEDIATE, rng)
+    if caps is None:
         return None
-
-    match = rng.choice(matches)
-    caps = first_caps(match[1])
 
     var = b_source[caps["var"].start_byte : caps["var"].end_byte]
     rhs = b_source[caps["rhs"].start_byte : caps["rhs"].end_byte]

@@ -31,6 +31,7 @@ lazy from rebrew.matcher.mutations.runtime import (
     commute_operands,
     find_function_body_insert_pos,
     first_caps,
+    pick_match,
     query_cursor,
     statement_region_start,
 )
@@ -468,17 +469,9 @@ def mut_dummy_stack_vars(s: str, rng: random.Random) -> str | None:
     precisely target the push/sub-esp boundary.
     """
     b_source = encode_source(s)
-    tree = parse_c_ast(b_source)
-
-    q = _QUERY_DUMMY_STACK_VARS
-    cursor = query_cursor(q)
-    matches = cursor.matches(tree.root_node)
-
-    if not matches:
+    caps = pick_match(b_source, _QUERY_DUMMY_STACK_VARS, rng)
+    if caps is None:
         return None
-
-    match = rng.choice(matches)
-    caps = first_caps(match[1])
     body_node = caps["body"]
 
     pad_id = rng.randint(0, 99)
@@ -524,17 +517,9 @@ def mut_inject_dummy_registers(s: str, rng: random.Random) -> str | None:
     register pressure levels.
     """
     b_source = encode_source(s)
-    tree = parse_c_ast(b_source)
-
-    q = _QUERY_INJECT_DUMMY_REGISTERS
-    cursor = query_cursor(q)
-    matches = cursor.matches(tree.root_node)
-
-    if not matches:
+    caps = pick_match(b_source, _QUERY_INJECT_DUMMY_REGISTERS, rng)
+    if caps is None:
         return None
-
-    match = rng.choice(matches)
-    caps = first_caps(match[1])
     body_node = caps["body"]
 
     count = rng.randint(1, 3)

@@ -102,6 +102,7 @@ lazy from rebrew.matcher.mutations.runtime import (
     find_function_body_insert_pos,
     first_caps,
     operand_bytes,
+    pick_match,
     query_cursor,
     statement_region_start,
 )
@@ -1203,16 +1204,9 @@ def mut_comparison_boundary(s: str, rng: random.Random) -> str | None:
 def mut_insert_noop_block(s: str, rng: random.Random) -> str | None:
     """Insert a no-op block `if (0) {}` before a random statement in a compound body."""
     b_source = encode_source(s)
-
-    tree = parse_c_ast(b_source)
-    # Find all statements inside compound_statements
-    q = QUERY_INSERT_NOOP_BLOCK
-    cursor = query_cursor(q)
-    matches = cursor.matches(tree.root_node)
-    if not matches:
+    captures = pick_match(b_source, QUERY_INSERT_NOOP_BLOCK, rng)
+    if captures is None:
         return None
-    match = rng.choice(matches)
-    captures = first_caps(match[1])
     stmt_node = captures["stmt"]
     noop = b"if (0) {} "
     start = stmt_node.start_byte
@@ -1222,15 +1216,9 @@ def mut_insert_noop_block(s: str, rng: random.Random) -> str | None:
 def mut_introduce_local_alias(s: str, rng: random.Random) -> str | None:
     """Introduce a local alias for an identifier used in an expression statement."""
     b_source = encode_source(s)
-
-    tree = parse_c_ast(b_source)
-    q = QUERY_INTRODUCE_LOCAL_ALIAS
-    cursor = query_cursor(q)
-    matches = cursor.matches(tree.root_node)
-    if not matches:
+    captures = pick_match(b_source, QUERY_INTRODUCE_LOCAL_ALIAS, rng)
+    if captures is None:
         return None
-    match = rng.choice(matches)
-    captures = first_caps(match[1])
     var_node = captures["var"]
     stmt_node = captures["stmt"]
     var_name = b_source[var_node.start_byte : var_node.end_byte]
@@ -1657,16 +1645,9 @@ def mut_hoist_return(s: str, rng: random.Random) -> str | None:
     if b"end:" in b_source:
         return None
 
-    tree = parse_c_ast(b_source)
-    q = QUERY_HOIST_RETURN
-    cursor = query_cursor(q)
-    matches = cursor.matches(tree.root_node)
-
-    if not matches:
+    caps = pick_match(b_source, QUERY_HOIST_RETURN, rng)
+    if caps is None:
         return None
-
-    match = rng.choice(matches)
-    caps = first_caps(match[1])
     val = b_source[caps["val"].start_byte : caps["val"].end_byte]
     stmt = caps["stmt"]
 
@@ -1987,17 +1968,9 @@ def mut_xor_zero_toggle(s: str, rng: random.Random) -> str | None:
 def mut_negate_condition(s: str, rng: random.Random) -> str | None:
     """Wrap if-condition in negation: if (a > b) -> if (!(a > b))."""
     b_source = encode_source(s)
-    tree = parse_c_ast(b_source)
-
-    q = QUERY_NEGATE_CONDITION
-    cursor = query_cursor(q)
-    matches = cursor.matches(tree.root_node)
-
-    if not matches:
+    caps = pick_match(b_source, QUERY_NEGATE_CONDITION, rng)
+    if caps is None:
         return None
-
-    match = rng.choice(matches)
-    caps = first_caps(match[1])
     cond_node = caps["cond"]
     cond = b_source[cond_node.start_byte + 1 : cond_node.end_byte - 1].strip()
 

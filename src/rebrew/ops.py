@@ -2234,19 +2234,24 @@ class _OpsHandler(BaseHTTPRequestHandler):
     def _refuse(self, code: str, detail: str, status: int) -> None:
         self._send(status, error_body(code, detail, status))
 
+    def _check_host(self, server: OpsServer) -> bool:
+        if self.headers.get("Host", "").strip().lower() in server.allowed_hosts:
+            return True
+        peer = getattr(self, "client_address", None)
+        logger.warning(
+            "%s rejected request with Host %r from %s",
+            self._request_id,
+            _escape_log_text(self.headers.get("Host", "")) or "-",
+            _escape_log_text(str(peer[0]) if peer else "-"),
+        )
+        self._refuse(
+            "host-not-allowed", "request Host not allowed (wrong or missing Host header)", 403
+        )
+        return False
+
     def do_POST(self) -> None:  # (http.server API)
         server = typing.cast("OpsServer", self.server)
-        if self.headers.get("Host", "").strip().lower() not in server.allowed_hosts:
-            peer = getattr(self, "client_address", None)
-            logger.warning(
-                "%s rejected request with Host %r from %s",
-                self._request_id,
-                _escape_log_text(self.headers.get("Host", "")) or "-",
-                _escape_log_text(str(peer[0]) if peer else "-"),
-            )
-            self._refuse(
-                "host-not-allowed", "request Host not allowed (wrong or missing Host header)", 403
-            )
+        if not self._check_host(server):
             return
         given = self.headers.get("Authorization", "").encode("utf-8")
         if not hmac.compare_digest(given, f"Bearer {server.token}".encode("utf-8")):
@@ -2294,17 +2299,7 @@ class _OpsHandler(BaseHTTPRequestHandler):
 
     def _not_post(self) -> None:
         server = typing.cast("OpsServer", self.server)
-        if self.headers.get("Host", "").strip().lower() not in server.allowed_hosts:
-            peer = getattr(self, "client_address", None)
-            logger.warning(
-                "%s rejected request with Host %r from %s",
-                self._request_id,
-                _escape_log_text(self.headers.get("Host", "")) or "-",
-                _escape_log_text(str(peer[0]) if peer else "-"),
-            )
-            self._refuse(
-                "host-not-allowed", "request Host not allowed (wrong or missing Host header)", 403
-            )
+        if not self._check_host(server):
             return
         path = urlsplit(self.path).path
         if path in ("/health", "/metrics") and self.command in ("GET", "HEAD"):

@@ -44,6 +44,7 @@ __all__ = [
     "first_caps",
     "get_target_range",
     "operand_bytes",
+    "pick_match",
     "query_cursor",
     "set_target_range",
     "statement_region_start",
@@ -205,6 +206,16 @@ def query_cursor(query: ts.Query | LazyQuery) -> ts.QueryCursor:
     if rng is not None:
         cursor.set_byte_range(*rng)
     return cursor
+
+
+def pick_match(
+    b_source: bytes, query: ts.Query | LazyQuery, rng: random.Random
+) -> dict[str, ts.Node] | None:
+    """Captures of one random match of *query* over *b_source*, or None."""
+    matches = query_cursor(query).matches(parse_c_ast(b_source).root_node)
+    if not matches:
+        return None
+    return first_caps(rng.choice(matches)[1])
 
 
 def assign_zero_targets(b_source: bytes, tree: ts.Tree) -> list[tuple[dict[str, ts.Node], bytes]]:

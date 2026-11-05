@@ -31,6 +31,7 @@ lazy from rebrew.matcher.mutations.runtime import (
     capture,
     find_function_body_insert_pos,
     first_caps,
+    pick_match,
     query_cursor,
 )
 
@@ -761,18 +762,9 @@ def mut_ternary_arg_to_if_else_call(s: str, rng: random.Random) -> str | None:
          ->  if (c) { Fn(a, X); } else { Fn(a, Y); }
     """
     b_source = encode_source(s)
-    tree = parse_c_ast(b_source)
-
-    # Find call expressions that have a conditional_expression in their argument list
-    q = QUERY_TERNARY_ARG_TO_IF_ELSE_CALL
-    cursor = query_cursor(q)
-    matches = cursor.matches(tree.root_node)
-
-    if not matches:
+    caps = pick_match(b_source, QUERY_TERNARY_ARG_TO_IF_ELSE_CALL, rng)
+    if caps is None:
         return None
-
-    match = rng.choice(matches)
-    caps = first_caps(match[1])
 
     fn = b_source[caps["fn"].start_byte : caps["fn"].end_byte]
     cond = b_source[caps["cond"].start_byte : caps["cond"].end_byte]
@@ -920,18 +912,9 @@ def mut_sink_common_tail(s: str, rng: random.Random) -> str | None:
     as the last statement in both branches.
     """
     b_source = encode_source(s)
-    tree = parse_c_ast(b_source)
-
-    # Find if/else followed by a sibling statement
-    q = QUERY_SINK_COMMON_TAIL
-    cursor = query_cursor(q)
-    matches = cursor.matches(tree.root_node)
-
-    if not matches:
+    caps = pick_match(b_source, QUERY_SINK_COMMON_TAIL, rng)
+    if caps is None:
         return None
-
-    match = rng.choice(matches)
-    caps = first_caps(match[1])
     if_body = caps["if_body"]
     else_body = caps["else_body"]
     next_stmt = caps["next_stmt"]
