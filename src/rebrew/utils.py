@@ -441,10 +441,27 @@ def floor_pct(part: float, whole: float, decimals: int = 1) -> float:
     """
     if not whole or not math.isfinite(part) or not math.isfinite(whole) or part <= 0 or whole < 0:
         return 0.0
+    # *decimals* is a display precision, not a magnitude: only the
+    # precisions every caller uses (0-2) are meaningful. A huge value
+    # makes ``10**decimals`` an enormous int (OverflowError on float
+    # conversion, or a hang building it); a negative one floors to tens
+    # instead of decimal places; a non-int raises in ``10**`` or silently
+    # truncates. Clamp to the supported range instead of trusting it.
+    if isinstance(decimals, bool) or not isinstance(decimals, int):
+        return 0.0
+    decimals = max(0, min(decimals, 6))
     scale = float(10**decimals)
     # Divide first: 100 * part overflows near float max. The inner round
     # absorbs float error (57.3 * 10 = 572.99...).
-    return math.floor(round(100.0 * (part / whole) * scale, 6)) / scale
+    ratio = part / whole
+    result = 100.0 * ratio * scale if math.isfinite(ratio) else ratio
+    if not math.isfinite(result):
+        # The percent overflowed float (ratio > ~1e306, e.g. 1e308/1):
+        # floor(inf) would raise OverflowError. The share is far above
+        # 100%; return the largest finite percent at this precision
+        # instead of crashing a status report.
+        return float(10**6) if result > 0 else 0.0
+    return math.floor(round(result, 6)) / scale
 
 
 def is_safe_c_ident(name: str) -> bool:

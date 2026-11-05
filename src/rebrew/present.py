@@ -20,6 +20,8 @@ BAR_WIDTH = 40
 
 def filled_cells(part: float, whole: float, width: int = BAR_WIDTH) -> int:
     """Cells of *width* that *part* / *whole* fills, clamped to *width*."""
+    if width <= 0:
+        return 0
     if whole <= 0 or part <= 0 or not math.isfinite(part) or not math.isfinite(whole):
         return 0
     # Divide first: width * part overflows near float max (part ~1e308),
