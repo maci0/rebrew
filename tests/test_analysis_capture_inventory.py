@@ -37,7 +37,10 @@ def _selected(capture: dict[str, Any], path: str) -> None:
     data = base64.b64decode(entry["data"], validate=True)
     assert len(data) == entry["size"]
     assert hashlib.sha256(data).hexdigest() == entry["digest"]
-    assert {row["name"] for row in json.loads(data)} == {"entry0", "fcn.00401010"}
+    rows = sorted(json.loads(data), key=lambda row: row["va"])
+    assert [(row["va"], row["size"]) for row in rows] == [(0x401000, 11), (0x401010, 10)]
+    assert rows[0]["name"] in {"entry0", "fcn.00401000"}
+    assert rows[1]["name"] == "fcn.00401010"
 
 
 def _report(capture: dict[str, Any], report: dict[str, Any]) -> dict[str, Any]:

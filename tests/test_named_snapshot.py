@@ -9,6 +9,7 @@ import http.client
 import json
 import os
 import secrets
+import shutil
 import socket
 import subprocess
 import sys
@@ -148,6 +149,7 @@ def test_legacy_capture_without_selected_paths_remains_readable(
     assert status == 200, result
 
 
+@pytest.mark.skipif(shutil.which("kuna") is None, reason="requires the optional Kuna executable")
 def test_real_decompiler_from_snapshot(sample: tuple[WorkerConfig, dict]) -> None:
     config, request = sample
     status, result = _call(config, request)
@@ -180,6 +182,7 @@ def test_kuna_cast_index_names_preserve_access_type() -> None:
     )
 
 
+@pytest.mark.skipif(shutil.which("kuna") is None, reason="requires the optional Kuna executable")
 def test_real_kuna_elf_applies_retained_name(tmp_path: Path) -> None:
     from rebrew.decompiler import fetch_decompilation
     from rebrew.name_decomp import apply_known_names
@@ -216,6 +219,7 @@ def test_real_kuna_elf_applies_retained_name(tmp_path: Path) -> None:
     assert "a0->named" in result.code, (code, result.code)
 
 
+@pytest.mark.skipif(shutil.which("kuna") is None, reason="requires the optional Kuna executable")
 def test_exec_and_http_transport(sample: tuple[WorkerConfig, dict]) -> None:
     config, request = sample
     argv = [sys.executable, "-m", "rebrew.app.main", "ops"]
