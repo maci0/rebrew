@@ -40,6 +40,7 @@ lazy from rebrew.workspace import read_config, targets_table
 __all__ = [
     "ProjectCoverageError",
     "ProjectCoverageView",
+    "coverage_inputs",
     "load_project_coverage",
     "trusted_project_coverage",
 ]
@@ -94,7 +95,7 @@ def _stat(path: Path) -> tuple[int, int, int, int]:
     return st.st_mtime_ns, st.st_ctime_ns, st.st_size, st.st_ino
 
 
-def _inputs(
+def coverage_inputs(
     cfg: ProjectConfig, scans: dict[Path, tuple[Path, ...]] | None = None
 ) -> tuple[tuple[str, int, int, int, int], ...]:
     def _scan(root: Path) -> tuple[Path, ...]:
@@ -130,6 +131,9 @@ def _inputs(
     if cfg.raw_link is not None:
         paths.update((cfg.raw_link, cfg.raw_link.with_suffix(".map")))
     return tuple((str(path), *_stat(path)) for path in sorted(paths))
+
+
+_inputs = coverage_inputs
 
 
 def _configs(root: Path) -> tuple[dict[str, ProjectConfig], dict[str, str]]:

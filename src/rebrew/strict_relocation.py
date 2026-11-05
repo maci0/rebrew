@@ -12,11 +12,12 @@ lazy from pathlib import Path
 
 import lief
 
-from rebrew.coff_reloc import _resolve_exact_then_stripped, smart_reloc_compare
+from rebrew.coff_reloc import resolve_exact_then_stripped, smart_reloc_compare
+from rebrew.errors import RebrewError
 from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 
 
-class StrictRelocationError(ValueError):
+class StrictRelocationError(RebrewError, ValueError):
     """The binary or compiler output cannot prove a strict relocation match."""
 
 
@@ -150,7 +151,7 @@ def strict_pe_relocation(
                 raise StrictRelocationError("import relocation proof is unavailable")
             if any(len(aliases.get(name, set())) > 1 for name in names):
                 raise StrictRelocationError("ambiguous relocation symbol")
-            resolved = _resolve_exact_then_stripped(addresses, record.symbol)
+            resolved = resolve_exact_then_stripped(addresses, record.symbol)
             if resolved is None:
                 raise StrictRelocationError("relocation symbol is absent from the binary")
             bindings.append(

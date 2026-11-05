@@ -16,6 +16,8 @@ from pathlib import Path
 from typing import Any
 lazy import os
 
+from rebrew.errors import RebrewError
+
 _SHA = re.compile(r"[0-9a-f]{64}\Z")
 _GENERATION = re.compile(r"[0-9a-f]{32}\Z")
 _ORIGINS = frozenset({"source", "analysis", "verification"})
@@ -34,7 +36,7 @@ _FIELDS = frozenset(
 _ENTRY_FIELDS = frozenset({"path", "present", "origin", "digest", "size"})
 
 
-class CoverageInputError(ValueError):
+class CoverageInputError(RebrewError, ValueError):
     """The declared coverage input is malformed or differs from its readset."""
 
 
@@ -186,7 +188,7 @@ def verify_coverage_readset(root: Path, value: Any, required_paths: set[str]) ->
 def rebrew_coverage_paths(root: Path, target: str) -> set[str]:
     """Discover Rebrew's current coverage inputs inside a confined snapshot."""
     from rebrew.config import load_config
-    from rebrew.coverage_project import _inputs
+    from rebrew.coverage_project import coverage_inputs
 
     root = root.resolve(strict=True)
     cfg = load_config(root, target=target)
@@ -224,7 +226,7 @@ def rebrew_coverage_paths(root: Path, target: str) -> set[str]:
             except (OSError, ValueError, UnicodeDecodeError) as exc:
                 raise CoverageInputError("invalid compile commands") from exc
     paths: set[str] = set()
-    for item in _inputs(cfg):
+    for item in coverage_inputs(cfg):
         path = Path(item[0])
         if not path.is_absolute():
             raise CoverageInputError("coverage reader returned a relative path")

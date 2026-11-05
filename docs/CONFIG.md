@@ -546,6 +546,9 @@ rebrew receives.
   `rebrew ops` `--max-download` (largest binary a request `url` may
   name, default 268435456) and `serve --concurrency` (calls answered at
   once, default 4). Each must be at least 1.
+- `REBREW_OPS_ALLOWED_HOSTS`: comma-separated exact additional HTTP Host
+  authorities (including optional ports) `rebrew ops serve` accepts beyond
+  loopback binds.
 - `REBREW_CONTAINER_RUNTIME`: container CLI (`docker` default; `podman` or
   `nerdctl` also accepted). A bare name outside that set raises, so a typo
   fails at load rather than at exec; set a path to the binary to use another

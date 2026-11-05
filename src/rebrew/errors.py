@@ -65,6 +65,7 @@ if TYPE_CHECKING:
     from rebrew.compiler.toolchain import ToolchainError as ToolchainError
     from rebrew.compiler.toolchain import ToolchainErrorKind as ToolchainErrorKind
     from rebrew.compiler.unshare import UnshareError as UnshareError
+    from rebrew.coverage_input_contract import CoverageInputError as CoverageInputError
     from rebrew.coverage_project import ProjectCoverageError as ProjectCoverageError
     from rebrew.coverage_toml import CoverageTomlError as CoverageTomlError
     from rebrew.decompme import DecompmeError as DecompmeError
@@ -90,6 +91,7 @@ if TYPE_CHECKING:
     from rebrew.rename_ops import RenameError as RenameError
     from rebrew.residue import ResidueError as ResidueError
     from rebrew.security_scan import SecurityScanUnavailable as SecurityScanUnavailable
+    from rebrew.strict_relocation import StrictRelocationError as StrictRelocationError
     from rebrew.struct_recover import NoDecompilationError as NoDecompilationError
     from rebrew.vendor import VendorError as VendorError
     from rebrew.workspace.config import WorkspaceConfigError as WorkspaceConfigError
@@ -261,6 +263,7 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "CatalogScanError": ("rebrew.coff_reloc", "CatalogScanError"),
     "ComponentError": ("rebrew.app.plugin", "ComponentError"),
     "CompareResultError": ("rebrew.compiler.compile", "CompareResultError"),
+    "CoverageInputError": ("rebrew.coverage_input_contract", "CoverageInputError"),
     "OpsError": ("rebrew.ops", "OpsError"),
     "DecompmeError": ("rebrew.decompme", "DecompmeError"),
     "Delphi16Error": ("rebrew.compiler.delphi16", "Delphi16Error"),
@@ -287,6 +290,7 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "ResidueError": ("rebrew.residue", "ResidueError"),
     "SecurityScanUnavailable": ("rebrew.security_scan", "SecurityScanUnavailable"),
     "SimilarityUnavailable": ("rebrew.matcher.scoring", "SimilarityUnavailable"),
+    "StrictRelocationError": ("rebrew.strict_relocation", "StrictRelocationError"),
     "Tc16Error": ("rebrew.compiler.tc16", "Tc16Error"),
     "ToolchainError": ("rebrew.compiler.toolchain", "ToolchainError"),
     "UnshareError": ("rebrew.compiler.unshare", "UnshareError"),
@@ -354,6 +358,7 @@ __all__ = [
     "ConfigError",
     "ConfigKeyError",
     "ConfigNotFoundError",
+    "CoverageInputError",
     "CoverageTomlError",
     "DecompmeError",
     "DecompmeErrorKind",
@@ -386,6 +391,7 @@ __all__ = [
     "ResidueError",
     "SecurityScanUnavailable",
     "SimilarityUnavailable",
+    "StrictRelocationError",
     "Tc16Error",
     "ToolchainError",
     "ToolchainErrorKind",

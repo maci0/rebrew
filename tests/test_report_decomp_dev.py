@@ -70,7 +70,7 @@ class TestDecompDevReport:
         monkeypatch.setattr(
             report,
             "collect_status",
-            lambda cfg: StatusReport(
+            lambda cfg, **kwargs: StatusReport(
                 target=cfg.target_name,
                 total_functions=int(fields.get("total_functions", 3)),
                 status_counts=dict(fields.get("status_counts") or {"EXACT": 1}),
@@ -297,7 +297,7 @@ class TestDecompDevDataMeasure:
         monkeypatch.setattr(
             report,
             "collect_status",
-            lambda cfg: StatusReport(
+            lambda cfg, **kwargs: StatusReport(
                 target=cfg.target_name,
                 total_functions=1,
                 status_counts={"EXACT": 1},

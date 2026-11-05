@@ -21,8 +21,8 @@ _SRC = Path(__file__).resolve().parent.parent / "src" / "rebrew"
 
 #: ``writable_temp_dir("x")`` and ``make_sandbox_dir("x")``: both the direct
 #: callers and the toolchain modules that hand a prefix to
-#: :func:`rebrew.compiler.dosbox.make_sandbox_dir`.
-_SANDBOX_FACTORIES = frozenset({"writable_temp_dir", "make_sandbox_dir"})
+#: :func:`rebrew.compiler.dosbox.make_sandbox_dir` (including ``compile_staged_source``).
+_SANDBOX_FACTORIES = frozenset({"writable_temp_dir", "make_sandbox_dir", "compile_staged_source"})
 
 
 @cache
@@ -40,11 +40,21 @@ def _shipped_prefixes() -> set[str]:
                 continue
             func = node.func
             name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
-            if name not in _SANDBOX_FACTORIES or not node.args:
+            if name not in _SANDBOX_FACTORIES:
                 continue
-            first = node.args[0]
-            if isinstance(first, ast.Constant) and isinstance(first.value, str):
-                found.add(first.value)
+            if (
+                node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+            ):
+                found.add(node.args[0].value)
+            for kw in node.keywords:
+                if (
+                    kw.arg in ("prefix", "sandbox_prefix")
+                    and isinstance(kw.value, ast.Constant)
+                    and isinstance(kw.value.value, str)
+                ):
+                    found.add(kw.value.value)
     return found
 
 

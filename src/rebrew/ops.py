@@ -1637,7 +1637,7 @@ def capture_fresh_analysis(
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Capture the complete baseline readset from a new, independent intake."""
     from rebrew.config import load_config
-    from rebrew.coverage_project import _inputs
+    from rebrew.coverage_project import coverage_inputs
     from rebrew.sources import iter_headers, iter_sources
 
     scratch = config.require_workspace() / SCRATCH_DIR
@@ -1656,7 +1656,7 @@ def capture_fresh_analysis(
             raise _invalid("fresh analysis binary does not match the request")
         source_paths = {p.resolve() for p in iter_sources(cfg.reversed_dir, cfg)}
         source_paths.update(p.resolve() for p in iter_headers(cfg.reversed_dir, cfg))
-        paths = {Path(entry[0]) for entry in _inputs(cfg)}
+        paths = {Path(entry[0]) for entry in coverage_inputs(cfg)}
         entries: list[dict[str, Any]] = []
         total = 0
         for path in sorted(paths, key=lambda value: str(value).encode()):

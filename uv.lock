@@ -1314,7 +1314,7 @@ similarity = [
 
 [[package]]
 name = "resembl"
-version = "4.0.0"
+version = "3.12.0"
 source = { directory = "../resembl" }
 dependencies = [
     { name = "numpy" },

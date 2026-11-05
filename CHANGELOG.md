@@ -1,10 +1,14 @@
 ## [Unreleased]
 
+## [6.22.0] - 2026-11-05
+
 ### Added
 
-- `rebrew.ops.flag_search` and `rebrew.ops.call_references`: bounded flag/compiler-profile sweep and call/jump/import-slot scan dispatch ops. The contract now holds 39 ops, not 37.
+- `rebrew.ops.retained_source_operation` and qualified retained coverage calculation (`rebrew.coverage_input_contract`, `rebrew.strict_relocation`, `rebrew.snapshot_mutations`).
+- `rebrew.ops.flag_search` and `rebrew.ops.call_references`: bounded flag/compiler-profile sweep and call/jump/import-slot scan dispatch ops.
 - `rebrew metadata backup --dir DIR` and `rebrew metadata restore --file FILE`: copy the active metadata backend's stores to an off-tree directory and install a backup back (preserved as `.before-restore`). The TOML spellings `rebrew.metadata.sqlite.backup_metadata_toml` / `restore_metadata_toml` (and `metadata_paths`) cover the default TOML stores, including nested `metadata_dir` trees and the project config; the SQLite spelling covers the experimental backend.
 - Ops server `GET /health` and `GET /metrics` aggregates (`rebrew.ops.OpsServer.metrics_snapshot`, `record_request`) with correlated request logging (`X-Request-Id` on every access and error line).
+- Jobs service unauthenticated `/healthz` and `/health` probe endpoints with structured access and failure logging.
 
 ### Changed
 
@@ -25,6 +29,8 @@
 
 ### Fixed
 
+- Make native dispatch analysis fail closed on unresolvable or ambiguous relocations.
+- Separate dashboard coverage card value and label with spacing for screen reader accessibility.
 - Surface silent failures in `rebrew.cross_import.signature_for` (padding-strip load errors) and `rebrew.decompme.verify_compiler` (invalid registry replies) instead of swallowing them.
 - Restore the in-memory toolchain source pin on rollback in `rebrew.toolchain_cli.update_cmd` so a failed update does not leave a stale `SOURCES` entry.
 

@@ -546,7 +546,7 @@ def _slot_in_prefix(offset: int, min_len: int) -> bool:
     return offset >= 0 and offset + 4 <= min_len
 
 
-def _resolve_exact_then_stripped(name_to_va: dict[str, int], sym_name: str) -> int | None:
+def resolve_exact_then_stripped(name_to_va: dict[str, int], sym_name: str) -> int | None:
     """Look up *sym_name* in a name→VA map, exact spelling first.
 
     Single documented precedence shared by every tolerant lookup: the exact
@@ -570,6 +570,9 @@ def _resolve_exact_then_stripped(name_to_va: dict[str, int], sym_name: str) -> i
     if stripped and stripped != sym_name and stripped in name_to_va:
         return name_to_va[stripped]
     return None
+
+
+_resolve_exact_then_stripped = resolve_exact_then_stripped
 
 
 def _validate_dir32(

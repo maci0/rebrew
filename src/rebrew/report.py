@@ -1612,7 +1612,7 @@ def generate_decomp_dev_report(
     # status counts are verify-overlaid (a verify cache that demoted a
     # metadata EXACT is reflected here) and the denominator is the
     # ghidra-functions ∪ annotated set.
-    status = collect_status(cfg, trusted=trusted)
+    status = collect_status(cfg, trusted=trusted) if trusted is not None else collect_status(cfg)
     registry_total = status.total_functions or 0
     matched_functions = status.matched_functions
     matched_code = status.matched_bytes
