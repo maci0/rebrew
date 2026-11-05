@@ -18,7 +18,14 @@ from pathlib import Path
 import pytest
 from test_ops import ENTRY_VA, KEY, SHA256, _analyse_request, _free_port, _store, _worker_dirs
 
+from rebrew.named_snapshot import unique_json_object
 from rebrew.ops import OPS, WorkerConfig, dispatch
+
+
+def test_unique_json_object_rejects_duplicate_keys() -> None:
+    assert json.loads('{"name":1}', object_pairs_hook=unique_json_object) == {"name": 1}
+    with pytest.raises(ValueError, match="duplicate manifest key"):
+        json.loads('{"name":1,"name":2}', object_pairs_hook=unique_json_object)
 
 
 def _json(value: object) -> str:

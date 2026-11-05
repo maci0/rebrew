@@ -30,7 +30,8 @@ def _valid_path(path: str) -> bool:
     )
 
 
-def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+def unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """Reject duplicate keys while decoding a retained snapshot request."""
     out: dict[str, Any] = {}
     for key, value in pairs:
         if key in out:
@@ -46,7 +47,7 @@ def _validate_manifest(req: Any) -> None:
         encoded = req.source_manifest.encode("utf-8")
         if len(encoded) > 2 * 1024 * 1024:
             raise ValueError("manifest too large")
-        manifest = json.loads(req.source_manifest, object_pairs_hook=_unique_object)
+        manifest = json.loads(req.source_manifest, object_pairs_hook=unique_json_object)
         if (
             json.dumps(manifest, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
                 "utf-8"
@@ -111,7 +112,7 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
             or hashlib.sha256(raw).hexdigest() != req.analysis_manifest_sha256
         ):
             raise ValueError("capture digest differs")
-        capture = json.loads(req.analysis_manifest, object_pairs_hook=_unique_object)
+        capture = json.loads(req.analysis_manifest, object_pairs_hook=unique_json_object)
         if (
             type(capture) is not dict
             or not {"version", "binary_sha256", "target", "entries"} <= set(capture)

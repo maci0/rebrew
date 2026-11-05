@@ -15,10 +15,18 @@ from rebrew.struct_recover import (
     NoDecompilationError,
     existing_structs,
     parse_decomp_for_structs,
+    parse_member_index,
     recover_project_structs,
     recover_structs,
     synthesize_struct,
 )
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"), [("010", 10), ("0x10", 16), ("-1", None), ("123456789", None)]
+)
+def test_public_member_index_parser(text: str, expected: int | None) -> None:
+    assert parse_member_index(text) == expected
 
 
 def _project_cfg(tmp_path: Path) -> SimpleNamespace:

@@ -43,8 +43,8 @@ lazy from rebrew.struct_recover import (
     PSEUDO_TYPES,
     TYPE_WIDTHS,
     StructEvidence,
-    _parse_index,
     parse_decomp_for_structs,
+    parse_member_index,
     pointer_element_widths,
     type_width,
 )
@@ -401,7 +401,7 @@ def apply_known_names(
                 continue
             for m in uses:
                 width = _CAST_INDEX_WIDTHS.get(" ".join(m.group("xtype").split()))
-                index = _parse_index(m.group("xidx"))
+                index = parse_member_index(m.group("xidx"))
                 if width is not None and index is not None and index * width < 0x1000000:
                     indexed_offsets = parsed.anonymous.setdefault(var, StructEvidence()).offsets
                     counts = indexed_offsets.setdefault(index * width, {})
@@ -470,7 +470,7 @@ def _rewrite_access(
     if m.group("xvar") is not None:
         var, cast = m.group("xvar"), m.group("xtype")
         width = _CAST_INDEX_WIDTHS.get(" ".join(cast.split()))
-        index = _parse_index(m.group("xidx"))
+        index = parse_member_index(m.group("xidx"))
         if pointer_width not in (4, 8) or width is None or index is None:
             return m.group(0)
         off = index * width

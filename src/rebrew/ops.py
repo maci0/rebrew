@@ -2899,9 +2899,9 @@ def _answer(config: WorkerConfig, name: str, body: bytes) -> Mapping[str, Any]:
         raise OpsError(detail, code=INVALID_REQUEST, status=413)
     try:
         if name in {"rebrew.decompile_snapshot", "rebrew.security_scan_snapshot"}:
-            from rebrew.named_snapshot import _unique_object
+            from rebrew.named_snapshot import unique_json_object
 
-            raw = json.loads(body, object_pairs_hook=_unique_object)
+            raw = json.loads(body, object_pairs_hook=unique_json_object)
         else:
             raw = json.loads(body)
     except ValueError:

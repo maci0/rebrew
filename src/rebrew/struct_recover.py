@@ -280,7 +280,7 @@ _MAX_MEMBER_OFFSET = 0x1000000  # 16 MiB — far above any real x86-32 struct
 _MAX_INDEX_DIGITS = 8
 
 
-def _parse_index(text: str) -> int | None:
+def parse_member_index(text: str) -> int | None:
     """An array index as evidence, or ``None`` when it cannot be a member offset.
 
     Hex (``0x10``) and decimal (``16``, ``010``) follow
@@ -454,14 +454,14 @@ def parse_decomp_for_structs(text: str, max_offset: int = _MAX_MEMBER_OFFSET) ->
         width = type_width(m.group("type"))
         var = m.group("var")
         elem = _declared_width(var_types.get(var, ""))
-        index = _parse_index(m.group("idx"))
+        index = parse_member_index(m.group("idx"))
         if width is None or elem is None or index is None:
             continue
         _record(var, index * elem, width)
     for m in ARRAY_IDX_RE.finditer(text):
         var = m.group("var")
         elem = _declared_width(var_types.get(var, ""))
-        index = _parse_index(m.group("idx"))
+        index = parse_member_index(m.group("idx"))
         if elem is None or index is None:
             continue
         _record(var, index * elem, elem)

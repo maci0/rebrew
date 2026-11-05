@@ -36,6 +36,7 @@ def test_sources_public_all() -> None:
     import rebrew.sources as sources
 
     assert sources.__all__ == [
+        "EXCLUDE_DIRS",
         "contained_path",
         "files_with_ext",
         "iter_headers",
