@@ -42,6 +42,8 @@ from rebrew.decompiler import BACKEND_HELP_CHOICES, complete_backends
 lazy from rebrew.struct_recover import (
     PSEUDO_TYPES,
     TYPE_WIDTHS,
+    StructEvidence,
+    _parse_index,
     parse_decomp_for_structs,
     pointer_element_widths,
     type_width,
@@ -261,9 +263,25 @@ def _match_struct(var_offsets: set[int], layouts: dict[str, FieldLayout]) -> str
 
 #: Access forms, longest first (single pass — the engine consumes each match
 #: so the bare ``var + N`` alternative never re-matches inside a cast form).
+_CAST_INDEX_PATTERN = (
+    r"(?P<xamp>&\s*)?\(\s*\(\s*(?P<xtype>[A-Za-z_]\w*(?:\s+\w+)*?)\s*\*\s*\)"
+    r"\s*(?P<xvar>[A-Za-z_]\w*)\s*\)\s*\[\s*(?P<xidx>0x[0-9a-fA-F]+|\d+)\s*\]"
+)
+_CAST_INDEX_RE = re.compile(_CAST_INDEX_PATTERN)
+_CAST_INDEX_WIDTHS = {
+    "char": 1,
+    "signed char": 1,
+    "unsigned char": 1,
+    "short": 2,
+    "unsigned short": 2,
+    "int": 4,
+    "unsigned int": 4,
+}
+
 _ACCESS_RE = re.compile(
+    _CAST_INDEX_PATTERN
     # *(T *)(var + N)
-    r"\*\s*\(\s*(?P<cast>[A-Za-z_]\w*(?:\s+\w+)*?)\s*\*\s*\)\s*\(\s*(?P<cvar>[A-Za-z_]\w*)\s*\+\s*(?P<coff>0x[0-9a-fA-F]+|\d+)\s*\)"
+    + r"|\*\s*\(\s*(?P<cast>[A-Za-z_]\w*(?:\s+\w+)*?)\s*\*\s*\)\s*\(\s*(?P<cvar>[A-Za-z_]\w*)\s*\+\s*(?P<coff>0x[0-9a-fA-F]+|\d+)\s*\)"
     # *(T *)&var[i] / *(T *)var[i]  (decimal or 0x hex; hex before \d+)
     r"|\*\s*\(\s*(?P<cast2>[A-Za-z_]\w*(?:\s+\w+)*?)\s*\*\s*\)\s*&?\s*(?P<avar>[A-Za-z_]\w*)\s*\[\s*(?P<aidx>0x[0-9a-fA-F]+|\d+)\s*\]"
     # &var[i] / var[i].  Whitespace before a bare variable stays outside
@@ -366,6 +384,28 @@ def apply_known_names(
     # Only vars with pointer evidence are rewritten: a bare ``int`` loop
     # counter used in ``var + N`` address arithmetic must not be renamed.
     parsed = parse_decomp_for_structs(text)
+    # Only rewrite cast-index parameters when no other use could change meaning
+    # after the parameter's type changes from a primitive pointer to a struct.
+    if pointer_width in (4, 8):
+        first_line = text.split("\n", 1)[0]
+        params = {
+            m.group("var")
+            for m in _SIG_TYPE_RE.finditer(first_line)
+            if m.group("ptr")
+            and (m.group("base") in TYPE_WIDTHS or m.group("base") in PSEUDO_TYPES)
+        }
+        matches = list(_CAST_INDEX_RE.finditer(text))
+        for var in params:
+            uses = [m for m in matches if m.group("xvar") == var]
+            if len(list(re.finditer(rf"\b{re.escape(var)}\b", text))) != len(uses) + 1:
+                continue
+            for m in uses:
+                width = _CAST_INDEX_WIDTHS.get(" ".join(m.group("xtype").split()))
+                index = _parse_index(m.group("xidx"))
+                if width is not None and index is not None and index * width < 0x1000000:
+                    offsets = parsed.anonymous.setdefault(var, StructEvidence()).offsets
+                    counts = offsets.setdefault(index * width, {})
+                    counts[width] = counts.get(width, 0) + 1
     var_structs: dict[str, str] = {}
     for var, ev in parsed.anonymous.items():
         if var not in pointer_vars:
@@ -394,7 +434,10 @@ def apply_known_names(
         applied.append({"var": var, "struct": struct, "offsets": [f"0x{o:x}" for o in offsets]})
 
     code = _ACCESS_RE.sub(
-        lambda m: _rewrite_access(m, var_structs, layouts, elem_widths, pointer_vars), text
+        lambda m: _rewrite_access(
+            m, var_structs, layouts, elem_widths, pointer_vars, pointer_width
+        ),
+        text,
     )
     lines = split_source_lines(code)
     if lines:
@@ -420,10 +463,20 @@ def _rewrite_access(
     layouts: dict[str, FieldLayout],
     elem_widths: dict[str, int],
     pointer_vars: set[str] | None = None,
+    pointer_width: int = 4,
 ) -> str:
     cast: str | None = None  # set only by the cast-deref forms
     addressed = False  # bare ``&var[i]`` is an address, ``var[i]`` is a load
-    if m.group("cvar") is not None:
+    if m.group("xvar") is not None:
+        var, cast = m.group("xvar"), m.group("xtype")
+        width = _CAST_INDEX_WIDTHS.get(" ".join(cast.split()))
+        index = _parse_index(m.group("xidx"))
+        if pointer_width not in (4, 8) or width is None or index is None:
+            return m.group(0)
+        off = index * width
+        addressed = m.group("xamp") is not None
+        form = "cast_index"
+    elif m.group("cvar") is not None:
         var, off, cast = m.group("cvar"), parse_int_literal(m.group("coff")), m.group("cast")
         form = "deref"
     elif m.group("avar") is not None:
@@ -466,6 +519,9 @@ def _rewrite_access(
     name, width = field
 
     if cast is not None:
+        if form == "cast_index":
+            expr = f"({cast} *)&{var}->{name}"
+            return expr if addressed else f"*({expr})"
         cast_w = type_width(cast)
         if cast_w is None:  # named cast type — leave the access untouched
             return m.group(0)
