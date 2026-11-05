@@ -52,6 +52,7 @@ lazy from rebrew.formats.binary_loader import decode_binary_name, extract_bytes_
 lazy from rebrew.formats.binary_model import BinaryInfo
 lazy from rebrew.formats.import_table import parse_imports
 lazy from rebrew.formats.pe_headers import pe_layout
+lazy from rebrew.utils import ascii_fold_preserve_case, ascii_slug
 
 # ---------------------------------------------------------------------------
 # Named constants
@@ -630,8 +631,18 @@ def _sanitize_identifier(text: str) -> str:
     Characters outside ``[A-Za-z0-9_]`` become ``_`` and a leading digit gains
     a ``_`` prefix (a label may not start with one).  An empty result becomes
     ``sym`` so a name is never the empty string.
+
+    Import *names* (the part after the DLL stem) keep their case, so the fold
+    applied to the DLL token in :func:`iat_symbol_name` does not live here:
+    non-ASCII is folded through
+    :func:`rebrew.utils.ascii_fold_preserve_case` (NFKD, then drop
+    non-ASCII), so the NFC ``café`` and the NFD ``cafe\\u0301`` spellings of
+    one name land as ``Cafe`` without lower-casing ASCII import names such
+    as ``Sleep``.  The fold keeps the base letter of ``é``; the plain
+    substitution below would delete it (``caf_``).
     """
-    sanitized = "".join(char if char in _LABEL_SAFE else "_" for char in text)
+    folded = ascii_fold_preserve_case(text)
+    sanitized = "".join(char if char in _LABEL_SAFE else "_" for char in folded)
     if sanitized and sanitized[0].isdigit():
         sanitized = "_" + sanitized
     return sanitized or "sym"
@@ -648,7 +659,8 @@ def iat_symbol_name(dll: str, name: str, ordinal: int | None) -> str:
     token = PureWindowsPath(dll).name
     if "." in token:
         token = token.rsplit(".", 1)[0]
-    token = _sanitize_identifier(token).lower()
+    token = ascii_slug(token).lower()
+    token = _sanitize_identifier(token)
     if ordinal is not None:
         return f"__imp_{token}_ord{ordinal}"
     if name:

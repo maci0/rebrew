@@ -62,7 +62,7 @@ from typing import Any, cast
 lazy from collections.abc import Iterator
 
 from rebrew.formats.binary_loader import REAL_MODE_ADDRESS_MASK, load_binary
-from rebrew.utils import SOURCE_CHECKOUT
+from rebrew.utils import SOURCE_CHECKOUT, fold_ident
 
 logger = logging.getLogger(__name__)
 
@@ -1580,15 +1580,15 @@ def _detect_toolchain_core(
     for imp in bin_imports:
         dll = str(getattr(imp, "dll", "") or "")
         if dll:
-            imports.add(dll.lower())
+            imports.add(fold_ident(dll))
     if not imports and getattr(binfo, "format", "") == "pe":
         try:
             from rebrew.formats.import_table import parse_imports
 
             for entry in parse_imports(path):
-                dll = str(entry.get("dll") or "").lower()
+                dll = str(entry.get("dll") or "")
                 if dll:
-                    imports.add(dll)
+                    imports.add(fold_ident(dll))
         except Exception:
             logger.debug("import-table scan failed for %s", path, exc_info=True)
             # import scan is best-effort — string evidence still applies

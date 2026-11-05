@@ -1372,6 +1372,18 @@ def ascii_slug(value: str) -> str:
     return decomposed.encode("ascii", "ignore").decode("ascii")
 
 
+def ascii_fold_preserve_case(value: str) -> str:
+    """*value* reduced to ASCII without changing the case of ASCII letters.
+
+    Like :func:`ascii_slug` (NFKD, then drop non-ASCII) but without the
+    ``casefold`` step, so ``"Café"`` becomes ``"Cafe"`` and ``"Sleep"`` stays
+    ``"Sleep"``.  NFC and NFD spellings of one name still unify, because NFKD
+    decomposes both to the same base letters.
+    """
+    decomposed = unicodedata.normalize("NFKD", value)
+    return decomposed.encode("ascii", "ignore").decode("ascii")
+
+
 #: Bounded memo over :func:`preset_module_key`.  Whole-tree passes compare
 #: every metadata row and source binding against the same target name, so a
 #: 5,000-row pass normalized that constant 5,001 times.  The fold is pure and
