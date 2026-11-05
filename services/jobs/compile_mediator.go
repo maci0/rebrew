@@ -468,5 +468,18 @@ func (m *CompileMediator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		log.Printf("compile_artifact_ok intent=%q bytes=%d", id, len(body))
 		return
 	}
+	// Known path with wrong method: 405 with Allow, like the jobs API /
+	// dashboard / ops on a served path, rather than 404 which would claim
+	// the resource is missing.
+	if r.URL.Path == "/api/v1/compile" {
+		w.Header().Set("Allow", http.MethodPost)
+		apiError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if validArtifact(r.URL.Path) {
+		w.Header().Set("Allow", http.MethodGet)
+		apiError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	apiError(w, "not found", http.StatusNotFound)
 }

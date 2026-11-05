@@ -315,7 +315,12 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 		if r.Method == http.MethodPost && len(parts) == 2 && parts[1] == "cancel" {
 			saved, err := o.Cancel(id)
 			if err != nil {
-				apiError(w, "job unavailable", 404)
+				if errors.Is(err, os.ErrNotExist) {
+					apiError(w, "job unavailable", http.StatusNotFound)
+					return
+				}
+				log.Printf("job_cancel_refused job_id=%q error=%q", id, err.Error())
+				apiError(w, "cancel refused", 400)
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
