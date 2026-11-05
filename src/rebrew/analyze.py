@@ -320,7 +320,7 @@ def _collect_near_match(cfg: Any) -> list[dict[str, Any]] | None:
     return items
 
 
-def _collect_dispatch(info: Any, cfg: Any) -> list[dict[str, Any]]:
+def _collect_dispatch(info: Any, cfg: Any, *, strict: bool = False) -> list[dict[str, Any]]:
     """Dispatch-table / vtable detection in the data sections.
 
     *cfg* supplies the known-function names, so each table reports how many of
@@ -331,11 +331,27 @@ def _collect_dispatch(info: Any, cfg: Any) -> list[dict[str, Any]]:
     from rebrew.data_scan import build_dispatch_known_functions, find_dispatch_tables
 
     try:
-        known = build_dispatch_known_functions(cfg, cfg.reversed_dir)
+        sections = _section_dicts(info)
+        if strict:
+            if info.format != "ne" and ".text" not in sections:
+                raise ValueError("dispatch scan has no code section")
+            names = {".text", ".data", ".rdata"}
+            if info.format == "ne":
+                names = {f"SEG{s.index}" for s in info.ne_segments}
+                if not names or not names.issubset(sections):
+                    raise ValueError("dispatch scan has missing segments")
+            for name in names & sections.keys():
+                section = sections[name]
+                offset, size = section["file_offset"], section["raw_size"]
+                if offset < 0 or size < 0 or offset + size > len(info.data):
+                    raise ValueError("dispatch scan has invalid section bounds")
+        known = build_dispatch_known_functions(cfg, cfg.reversed_dir, strict=strict)
         tables = find_dispatch_tables(
-            info.data, _section_dicts(info), known, ptr_size=4, min_entries=3, info=info
+            info.data, sections, known, ptr_size=None, min_entries=3, info=info
         )
-    except Exception:  # best-effort
+    except Exception:  # best-effort for the legacy dossier
+        if strict:
+            raise
         logger.debug("dispatch-table scan failed", exc_info=True)
         return []
     return [
@@ -504,6 +520,7 @@ def standalone_config(binary: Path) -> Any:
         module="",
         target_name=binary.stem,
         crt_sources={},
+        dll_exports={},
         reversed_dir=Path("/nonexistent"),  # no sources -> no CRT/library annotations
         source_ext=".c",
     )
@@ -515,6 +532,7 @@ def build_dossier(
     *,
     min_len: int = 4,
     top_n: int = 10,
+    strict_dispatch: bool = False,
 ) -> dict[str, Any]:
     """Assemble the full intelligence dossier for *binary*.
 
@@ -544,12 +562,15 @@ def build_dossier(
         "far_calls": _collect_far_calls(binary),
         "functions": _collect_functions(cfg),
         "near_match": _collect_near_match(cfg),
-        "dispatch_tables": _collect_dispatch(info, cfg),
+        "dispatch_tables": _collect_dispatch(info, cfg, strict=strict_dispatch),
         "vtordisp": _collect_vtordisp(info),
         "float_consts": _collect_float_consts(info),
         "flirt": _collect_flirt(cfg, info),
         "library": _collect_library(cfg),
     }
+    if strict_dispatch:
+        dossier["dispatch_name_context"] = "unavailable"
+        dossier["dispatch_scan_status"] = "partial"
     return dossier
 
 
