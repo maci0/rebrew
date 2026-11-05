@@ -594,6 +594,24 @@ class DecompileSnapshotRequest:
 
 
 @dataclass(frozen=True)
+class SecuritySnapshotRequest:
+    project_dir: str
+    sha256: str
+    rebrew_target: str
+    source_revision: str
+    source_snapshot_sha256: str
+    source_manifest: str
+    files: list[FlagSearchFile]
+    generation: str
+    analysis_manifest: str
+    analysis_manifest_sha256: str
+    analysis_files: list[FlagSearchFile]
+    min_severity: str
+    binary_key: str = ""
+    binary_url: str = ""
+
+
+@dataclass(frozen=True)
 class FlagSearchRequest:
     source: str
     source_sha256: str
@@ -2595,6 +2613,13 @@ def decompile_snapshot(config: WorkerConfig, req: DecompileSnapshotRequest) -> d
     return decompile_retained(config, req)
 
 
+def security_scan_snapshot(config: WorkerConfig, req: SecuritySnapshotRequest) -> dict[str, Any]:
+    """Scan only a verified retained source and analysis snapshot."""
+    from rebrew.security_snapshot import scan_retained
+
+    return scan_retained(config, req)
+
+
 #: Every op of the backend's rebrew contract, by wire name.
 OPS: dict[str, Op] = {
     "rebrew.disassemble": Op(DisassembleRequest, disassemble),
@@ -2620,6 +2645,7 @@ OPS: dict[str, Op] = {
     "rebrew.splat_parse": Op(SplatRequest, splat_parse),
     "rebrew.report": Op(ReportRequest, report),
     "rebrew.security_scan": Op(SecurityScanRequest, security_scan),
+    "rebrew.security_scan_snapshot": Op(SecuritySnapshotRequest, security_scan_snapshot),
     "rebrew.analyse": Op(AnalyseRequest, analyse),
     "rebrew.import-project": Op(ImportRequest, import_project),
     "rebrew.reference_flirt": Op(ReferenceFlirtRequest, reference_flirt),
@@ -2649,7 +2675,7 @@ def _answer(config: WorkerConfig, name: str, body: bytes) -> Mapping[str, Any]:
         detail = f"request exceeds {MAX_REQUEST_BYTES} bytes"
         raise OpsError(detail, code=INVALID_REQUEST, status=413)
     try:
-        if name == "rebrew.decompile_snapshot":
+        if name in {"rebrew.decompile_snapshot", "rebrew.security_scan_snapshot"}:
             from rebrew.named_snapshot import _unique_object
 
             raw = json.loads(body, object_pairs_hook=_unique_object)

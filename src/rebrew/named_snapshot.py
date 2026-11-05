@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import re
@@ -222,29 +223,24 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
         raise ops._invalid("invalid retained analysis capture") from None
 
 
-def decompile_retained(config: Any, req: Any) -> dict[str, str]:
+@contextlib.contextmanager
+def retained_snapshot(config: Any, req: Any):
     from rebrew import ops
     from rebrew.config import load_config
-    from rebrew.decompiler import fetch_decompilation
-    from rebrew.name_decomp import apply_known_names
-    from rebrew.sources import iter_library_headers, iter_sources
-    from rebrew.struct_recover import existing_structs
 
     _validate_manifest(req)
     try:
         revision_size = len(req.source_revision.encode("utf-8"))
     except UnicodeError:
-        raise ops._invalid("invalid retained decompilation request") from None
+        raise ops._invalid("invalid retained snapshot request") from None
     if (
         not req.source_revision
         or revision_size > 256
         or any(ord(c) < 32 or ord(c) == 127 for c in req.source_revision)
         or bool(req.binary_key) == bool(req.binary_url)
-        or req.backend not in ops.DECOMPILER_BACKENDS
     ):
-        raise ops._invalid("invalid retained decompilation request")
+        raise ops._invalid("invalid retained snapshot request")
     ops.confined_dir(config, req.project_dir, "project_dir")
-    va = ops._address(req.va)
     scratch = config.require_workspace() / ops.SCRATCH_DIR
     if scratch.is_symlink() or (scratch.exists() and not scratch.is_dir()):
         raise ops._invalid("invalid worker scratch directory")
@@ -274,9 +270,24 @@ def decompile_retained(config: Any, req: Any) -> dict[str, str]:
                     or path.stat().st_size != entry.size
                     or ops._file_sha256(path) != entry.digest
                 ):
-                    raise ops._invalid("retained source changed during decompilation")
+                    raise ops._invalid("retained source changed during operation")
 
         verify_files()
+        yield root, cfg, retained, verify_files
+        verify_files()
+
+
+def decompile_retained(config: Any, req: Any) -> dict[str, str]:
+    from rebrew import ops
+    from rebrew.decompiler import fetch_decompilation
+    from rebrew.name_decomp import apply_known_names
+    from rebrew.sources import iter_library_headers, iter_sources
+    from rebrew.struct_recover import existing_structs
+
+    if req.backend not in ops.DECOMPILER_BACKENDS:
+        raise ops._invalid("invalid retained decompilation request")
+    va = ops._address(req.va)
+    with retained_snapshot(config, req) as (root, cfg, retained, verify_files):
         sources = [
             *iter_sources(cfg.reversed_dir, cfg),
             *iter_library_headers(cfg.reversed_dir, cfg),
