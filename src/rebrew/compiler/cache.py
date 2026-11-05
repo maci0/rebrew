@@ -673,8 +673,8 @@ def source_digest(source_content: str) -> str:
 _INCLUDE_RE = re.compile(r"include(?:_next)?\b")
 
 
-def _mask_include_comments(text: str) -> str:
-    """Replace comments with whitespace while retaining literals and newlines."""
+def mask_preprocessor_comments(text: str) -> str:
+    """Apply trigraphs and line splicing, then mask comments while retaining literals."""
     trigraphs = {
         "=": "#",
         "/": "\\",
@@ -749,7 +749,7 @@ def _iter_include_specs(text: str) -> Iterator[tuple[str, str]]:
     """
     if "#" not in text and "??=" not in text and "%:" not in text:
         return
-    for raw in split_source_lines(_mask_include_comments(text)):
+    for raw in split_source_lines(mask_preprocessor_comments(text)):
         line = raw.lstrip()
         if line.startswith("%:"):
             line = "#" + line[2:]

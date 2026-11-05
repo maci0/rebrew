@@ -41,6 +41,13 @@ def _compile_cfg(tmp_path: Path) -> Any:
 
 
 class TestIncludeScanWork:
+    def test_public_comment_mask_preserves_literals_and_splices_lines(self) -> None:
+        source = '/* Use #999 */\nconst char *s = "#line";\n#inc\\\nlude "a.h"\n'
+        masked = cache_module.mask_preprocessor_comments(source)
+        assert "#999" not in masked
+        assert 'const char *s = "#line";' in masked
+        assert '#include "a.h"' in masked
+
     def test_cache_tracks_msvc_and_non_msvc_nested_lookup(self, tmp_path: Path) -> None:
         source = tmp_path / "src"
         nested = source / "sub"
@@ -64,14 +71,14 @@ class TestIncludeScanWork:
     def test_comment_scanning_is_skipped_without_directive_markers(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        original = cache_module._mask_include_comments
+        original = cache_module.mask_preprocessor_comments
         visited = []
 
         def strip(text: str) -> str:
             visited.append(text)
             return original(text)
 
-        monkeypatch.setattr(cache_module, "_mask_include_comments", strip)
+        monkeypatch.setattr(cache_module, "mask_preprocessor_comments", strip)
         assert list(cache_module.include_specs("int f; /* comment */\n")) == []
         assert not visited
         text = 'int f;\n/* prefix */ #include "a.h"\nint g;\n#include NAME\n'
