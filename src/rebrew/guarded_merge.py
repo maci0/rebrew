@@ -36,7 +36,10 @@ def prepare_guarded_inputs(
     masks: dict[Path, str] = {}
     wrappers: dict[Path, tuple[str, str]] = {}
     names = {row["name"] for row in report["definitions"]}
-    prefixes = [match.group(0) if (match := _SHARED_PROTOTYPE.match(text)) else "" for text, _ in readings.values()]
+    prefixes = [
+        match.group(0) if (match := _SHARED_PROTOTYPE.match(text)) else ""
+        for text, _ in readings.values()
+    ]
     if len(set(prefixes)) != 1:
         raise ValueError("guarded interleave requires an identical shared declaration preamble")
     prefix = prefixes[0]
@@ -63,9 +66,7 @@ def prepare_guarded_inputs(
         _source, spans = source_layout(text)
         funcs = [span for span in spans if span.kind == "function"]
         if not funcs or any(span.static for span in funcs):
-            raise ValueError(
-                f"{path}: guarded interleave requires external functions"
-            )
+            raise ValueError(f"{path}: guarded interleave requires external functions")
         parameters_by_start: dict[int, set[str]] = {}
         pending_nodes = [tree.root_node]
         while pending_nodes:
@@ -76,7 +77,8 @@ def prepare_guarded_inputs(
                 if (
                     result_type is None
                     or result_type.type != "primitive_type"
-                    or raw[result_type.start_byte : result_type.end_byte] not in {b"int", b"void", b"float"}
+                    or raw[result_type.start_byte : result_type.end_byte]
+                    not in {b"int", b"void", b"float"}
                     or decl is None
                     or decl.type != "function_declarator"
                 ):
@@ -96,7 +98,11 @@ def prepare_guarded_inputs(
                     scalar = raw[param_type.start_byte : param_type.end_byte]
                     if scalar == b"void" and param_decl is None and len(params.named_children) == 1:
                         continue
-                    if scalar not in {b"int", b"float"} or param_decl is None or param_decl.type != "identifier":
+                    if (
+                        scalar not in {b"int", b"float"}
+                        or param_decl is None
+                        or param_decl.type != "identifier"
+                    ):
                         raise ValueError(f"{path}: unsupported guarded function parameter")
                     name = raw[param_decl.start_byte : param_decl.end_byte].decode("utf-8")
                     if name in local or name in names or name.startswith("_"):
@@ -211,9 +217,10 @@ def prepare_guarded_inputs(
     ):
         raise ValueError("shared declaration is incompatible with its definition")
     if any(
-        name not in names or explicit_conventions.get(name, "__cdecl") not in {"__cdecl", "_cdecl"} or parameter_counts.get(name) != 0 or (
-            return_types.get(name) != b"int" and (prototype is None or prototype.group(2) != name)
-        )
+        name not in names
+        or explicit_conventions.get(name, "__cdecl") not in {"__cdecl", "_cdecl"}
+        or parameter_counts.get(name) != 0
+        or (return_types.get(name) != b"int" and (prototype is None or prototype.group(2) != name))
         for name in calls
     ):
         raise ValueError("guarded interleave cannot resolve an external call contract")
@@ -246,19 +253,27 @@ def validate_guarded_flags(
                     cfg, None, setting.get("cflags") or "", Path(context["source"]).parent
                 )
                 if require_gd and not any(flag.lower() in {"/gd", "-gd"} for flag in flags):
-                    raise ValueError("guarded interleave requires explicit /Gd for called __cdecl functions")
+                    raise ValueError(
+                        "guarded interleave requires explicit /Gd for called __cdecl functions"
+                    )
                 index = 0
                 while index < len(flags):
                     flag = flags[index]
                     lower = flag.lower()
-                    if flag.startswith(
-                        ("@", "-include", "-imacros", "-Wp,", "-Xpreprocessor")
-                    ) or lower.startswith(("/fi", "/yu", "/yc", "/fp", "-fi", "-yu", "-yc", "-fp")) or lower in {"/x", "-x"}:
+                    if (
+                        flag.startswith(("@", "-include", "-imacros", "-Wp,", "-Xpreprocessor"))
+                        or lower.startswith(
+                            ("/fi", "/yu", "/yc", "/fp", "-fi", "-yu", "-yc", "-fp")
+                        )
+                        or lower in {"/x", "-x"}
+                    ):
                         raise ValueError(
                             "guarded interleave refuses forced includes, precompiled headers or response files"
                         )
                     if lower in {"/gz", "-gz", "/gr", "-gr"}:
-                        raise ValueError("guarded interleave requires the default C calling convention")
+                        raise ValueError(
+                            "guarded interleave requires the default C calling convention"
+                        )
                     if flag.startswith(("/D", "-D")):
                         value = flag[2:]
                         if not value:

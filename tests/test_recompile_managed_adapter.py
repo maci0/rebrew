@@ -45,7 +45,6 @@ def test_authenticated_retry_replays_exact_original_and_fetches_same_origin(monk
     assert seen[2].url.host == "compiler.test" and "idempotency-key" not in seen[2].headers
 
 
-
 def test_idempotency_key_tracks_compile_inputs(monkeypatch):
     monkeypatch.delenv("REBREW_RECOMPILE_API_KEY", raising=False)
     monkeypatch.delenv("REBREW_JOB_COMPILE_SOCKET", raising=False)

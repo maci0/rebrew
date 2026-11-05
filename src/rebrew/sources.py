@@ -53,7 +53,7 @@ def source_glob(cfg: ProjectConfig | None) -> str:
 
 
 #: Directories the source walk must not descend into (see :func:`_files_matching`).
-_EXCLUDE_DIRS = {
+EXCLUDE_DIRS = {
     ".git",
     ".hg",
     "__pycache__",
@@ -67,7 +67,7 @@ _EXCLUDE_DIRS = {
 
 
 def scan_files(directory: Path | str) -> list[Path]:
-    """Every non-symlink file under *directory*, sorted, skipping :data:`_EXCLUDE_DIRS`.
+    """Every non-symlink file under *directory*, sorted, skipping :data:`EXCLUDE_DIRS`.
 
     The one traversal behind :func:`files_with_ext` and
     :func:`_library_headers_under`.  Call it directly when a single command
@@ -98,7 +98,7 @@ def scan_files(directory: Path | str) -> list[Path]:
                 for entry in entries:
                     try:
                         if entry.is_dir(follow_symlinks=False):
-                            if entry.name not in _EXCLUDE_DIRS:
+                            if entry.name not in EXCLUDE_DIRS:
                                 stack.append(Path(entry.path))
                             continue
                         if entry.is_symlink():
@@ -130,7 +130,7 @@ def _files_matching(
     *,
     scanned: Sequence[Path] | None = None,
 ) -> list[Path]:
-    """Sorted non-symlink files under *directory* matching *predicate*, skipping :data:`_EXCLUDE_DIRS`.
+    """Sorted non-symlink files under *directory* matching *predicate*, skipping :data:`EXCLUDE_DIRS`.
 
     *scanned* is a :func:`scan_files` result for the same *directory*; pass
     it to filter an existing traversal instead of repeating it.
@@ -142,7 +142,7 @@ def _files_matching(
 def _library_headers_under(
     directory: Path | str, *, scanned: Sequence[Path] | None = None
 ) -> list[Path]:
-    """``library_*.h`` files under *directory*, skipping :data:`_EXCLUDE_DIRS`.
+    """``library_*.h`` files under *directory*, skipping :data:`EXCLUDE_DIRS`.
 
     The exclusion set matches :func:`files_with_ext` — without it the header
     scan descended into ``build/``, ``.venv/``, and a copied dependency tree,
@@ -293,7 +293,7 @@ def iter_sources(
 
     Uses :func:`source_exts` to determine the file extensions and an
     ``os.scandir`` walk to descend into nested subdirectories, skipping
-    :data:`_EXCLUDE_DIRS` (``.git``, ``.venv``, ``build``, …) at every
+    :data:`EXCLUDE_DIRS` (``.git``, ``.venv``, ``build``, …) at every
     level.  Extension matching is case-insensitive (``FOO.C`` counts as
     ``.c``), uniformly for single- and
     multi-extension configs (e.g. ``source_ext = ".c,.cpp"``).  This is the
@@ -379,6 +379,7 @@ def iter_sources_and_headers(
 
 
 __all__ = [
+    "EXCLUDE_DIRS",
     "contained_path",
     "files_with_ext",
     "iter_headers",

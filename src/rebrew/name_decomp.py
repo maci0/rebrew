@@ -403,8 +403,8 @@ def apply_known_names(
                 width = _CAST_INDEX_WIDTHS.get(" ".join(m.group("xtype").split()))
                 index = _parse_index(m.group("xidx"))
                 if width is not None and index is not None and index * width < 0x1000000:
-                    offsets = parsed.anonymous.setdefault(var, StructEvidence()).offsets
-                    counts = offsets.setdefault(index * width, {})
+                    indexed_offsets = parsed.anonymous.setdefault(var, StructEvidence()).offsets
+                    counts = indexed_offsets.setdefault(index * width, {})
                     counts[width] = counts.get(width, 0) + 1
     var_structs: dict[str, str] = {}
     for var, ev in parsed.anonymous.items():

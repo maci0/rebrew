@@ -12,7 +12,14 @@ lazy from rebrew.c_parser import (
     parse_c_structure,
 )
 
-__all__ = ["SourceSpan", "decode_span", "gap_is_blank", "mask_for_parse", "source_layout", "span_extent"]
+__all__ = [
+    "SourceSpan",
+    "decode_span",
+    "gap_is_blank",
+    "mask_for_parse",
+    "source_layout",
+    "span_extent",
+]
 
 _PREAMBLE_TYPES = frozenset(
     {
@@ -313,5 +320,3 @@ def span_extent(raw: bytes, span: SourceSpan, spans: list[SourceSpan]) -> tuple[
     elif raw.startswith(b"\n", end):
         end += 1
     return start, end
-
-

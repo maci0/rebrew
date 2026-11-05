@@ -114,10 +114,12 @@ def test_guarded_interleave_accepts_simple_msx_scalar_signature(
 ) -> None:
     paths, out, _ = _project(tmp_path, monkeypatch)
     source = paths[2]
-    source.write_text(source.read_text().replace(
-        "int animation_int(void) { return 3; }",
-        "void __cdecl animation_int(float fade, int time) { (void)fade; (void)time; }",
-    ))
+    source.write_text(
+        source.read_text().replace(
+            "int animation_int(void) { return 3; }",
+            "void __cdecl animation_int(float fade, int time) { (void)fade; (void)time; }",
+        )
+    )
     preview = _invoke(paths, out, "--dry-run")
     assert preview.exit_code == 0, preview.output
     digest = json.loads(preview.output)["input_digest"]
@@ -132,10 +134,12 @@ def test_guarded_interleave_refuses_parameter_capture_and_hidden_includes(
 ) -> None:
     paths, out, cfg = _project(tmp_path, monkeypatch)
     source = paths[2]
-    source.write_text(source.read_text().replace(
-        "int animation_int(void) { return 3; }",
-        "void animation_int(float fade, int time) { (void)fade; (void)time; }",
-    ))
+    source.write_text(
+        source.read_text().replace(
+            "int animation_int(void) { return 3; }",
+            "void animation_int(float fade, int time) { (void)fade; (void)time; }",
+        )
+    )
     cfg.base_cflags = flag
     result = _invoke(paths, out, "--dry-run")
     assert result.exit_code != 0
@@ -147,9 +151,11 @@ def test_guarded_interleave_refuses_incompatible_internal_call(
 ) -> None:
     paths, out, _ = _project(tmp_path, monkeypatch)
     source = paths[0]
-    source.write_text(source.read_text().replace(
-        "int walk(void) { return 1; }", "int walk(int vol) { return vol; }"
-    ))
+    source.write_text(
+        source.read_text().replace(
+            "int walk(void) { return 1; }", "int walk(int vol) { return vol; }"
+        )
+    )
     result = _invoke(paths, out, "--dry-run")
     assert result.exit_code != 0 and "call contract" in result.output
     assert not out.exists()
@@ -161,10 +167,16 @@ def test_guarded_interleave_refuses_implicit_non_int_call(
 ) -> None:
     paths, out, _ = _project(tmp_path, monkeypatch)
     script = paths[0]
-    replacement = "float walk(void) { return 1; }" if result_type == "float" else "void walk(void) { return; }"
-    script.write_text(script.read_text().replace("int walk(void) { return 1; }", replacement).replace(
-        "return walk() + camera();", "return camera();"
-    ))
+    replacement = (
+        "float walk(void) { return 1; }"
+        if result_type == "float"
+        else "void walk(void) { return; }"
+    )
+    script.write_text(
+        script.read_text()
+        .replace("int walk(void) { return 1; }", replacement)
+        .replace("return walk() + camera();", "return camera();")
+    )
     animation = paths[1]
     animation.write_text(animation.read_text().replace("return 2;", "walk(); return 2;"))
     result = _invoke(paths, out, "--dry-run")
@@ -176,9 +188,11 @@ def test_guarded_interleave_accepts_compatible_shared_float_declaration(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     paths, out, _ = _project(tmp_path, monkeypatch)
-    paths[0].write_text(paths[0].read_text().replace(
-        "int walk(void) { return 1; }", "float walk(void) { return 1; }"
-    ))
+    paths[0].write_text(
+        paths[0]
+        .read_text()
+        .replace("int walk(void) { return 1; }", "float walk(void) { return 1; }")
+    )
     for path in paths:
         path.write_text("float walk(void);\n" + path.read_text())
     preview = _invoke(paths, out, "--dry-run")

@@ -7,7 +7,14 @@ import hashlib
 import json
 import re
 import unicodedata
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
+    from pathlib import Path
+
+    from rebrew.config import ProjectConfig
+    from rebrew.ops import DecompileSnapshotRequest, SecuritySnapshotRequest, WorkerConfig
 
 
 def _valid_path(path: str) -> bool:
@@ -240,7 +247,9 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
 
 
 @contextlib.contextmanager
-def retained_snapshot(config: Any, req: Any):
+def retained_snapshot(
+    config: WorkerConfig, req: DecompileSnapshotRequest | SecuritySnapshotRequest
+) -> Iterator[tuple[Path, ProjectConfig, set[Path], Callable[[], None]]]:
     from rebrew import ops
     from rebrew.config import load_config
 
@@ -291,39 +300,3 @@ def retained_snapshot(config: Any, req: Any):
         verify_files()
         yield root, cfg, retained, verify_files
         verify_files()
-
-
-def decompile_retained(config: Any, req: Any) -> dict[str, str]:
-    from rebrew import ops
-    from rebrew.decompiler import fetch_decompilation
-    from rebrew.name_decomp import apply_known_names
-    from rebrew.sources import iter_library_headers, iter_sources
-    from rebrew.struct_recover import existing_structs
-
-    if req.backend not in ops.DECOMPILER_BACKENDS:
-        raise ops._invalid("invalid retained decompilation request")
-    va = ops._address(req.va)
-    with retained_snapshot(config, req) as (root, cfg, retained, verify_files):
-        sources = [
-            *iter_sources(cfg.reversed_dir, cfg),
-            *iter_library_headers(cfg.reversed_dir, cfg),
-        ]
-        if any(path.is_symlink() or path.resolve() not in retained for path in sources):
-            raise ops._invalid("source is not in the retained snapshot")
-        definitions = existing_structs(sources)
-        verify_files()
-        code, backend = fetch_decompilation(req.backend, cfg.target_binary, va, root)
-        if not code:
-            raise ops._refused(f"no decompilation via '{req.backend}' for 0x{va:x}")
-        verify_files()
-        pointer_width = int(getattr(cfg, "pointer_size", 4) or 4)
-        code = apply_known_names(code, definitions, pointer_width=pointer_width).code
-        verify_files()
-    return {
-        "code": code,
-        "backend": backend,
-        "source_revision": req.source_revision,
-        "source_snapshot_sha256": req.source_snapshot_sha256,
-        "analysis_manifest_sha256": req.analysis_manifest_sha256,
-        "generation": req.generation,
-    }

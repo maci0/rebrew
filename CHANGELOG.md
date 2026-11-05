@@ -1,9 +1,13 @@
 ## [Unreleased]
 
+## [6.23.0] - 2026-11-05
+
 ### Added
 
-- Independent metadata `read_backends`/`write_backends` lists, ordered read failover, durable queued writes and `rebrew metadata reconcile`, with document timestamps, causal conflict detection and deletion tombstones.
+- Guarded source merge, rehome and anchor operations with reviewed binding plans, compiler/include context checks, and coordinated source/metadata rollback.
+- Retained named decompilation and security-scan operations over verified source snapshots, plus a captured inventory/report for fresh analysis.
 
+- Independent metadata `read_backends`/`write_backends` lists, ordered read failover, durable queued writes and `rebrew metadata reconcile`, with document timestamps, causal conflict detection and deletion tombstones.
 - Configurable source address comments: C89, C++ and Delphi defaults, project/target body regex and rendering templates, and declaration-bound Delphi routine anchors. Source registration and metadata readers honor the selected syntax without changing comparison verdicts.
 - Experimental PostgreSQL metadata backend (`rebrew[pgsql]`), configured through `[metadata.pgsql]` in `rebrew-project.toml`, with project namespaces, cross-checkout transactions, remote cache invalidation and reviewed migrations.
 
@@ -17,6 +21,8 @@
 ### Fixed
 
 - Match Recompile’s 12-character idempotency key contract for remote compiles.
+- Preserve compile-cache correctness across include search order, forced includes, archive/image header changes and source contract checks.
+- Run Go race checks with CGO enabled, and refresh the pinned dependency metadata for reproducible CI installs.
 
 ## [6.22.0] - 2026-11-05
 

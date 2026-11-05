@@ -1182,16 +1182,28 @@ def _destination(cfg: Any, output_path: Path, json_output: bool) -> tuple[Any, s
 
 def _merge_include_inputs(
     cfg: Any, input_files: list[Path]
-) -> tuple[list[Path], list[Any], dict[str, str], list[tuple[str, str, tuple[str, ...]]], list[tuple[str, tuple[str, ...]]]]:
+) -> tuple[
+    list[Path],
+    list[Any],
+    dict[str, str],
+    list[tuple[str, str, tuple[str, ...]]],
+    list[tuple[str, tuple[str, ...]]],
+]:
     """Pin every resolved include and per-directory compiler override across targets."""
     from rebrew.metadata.coordinated import path_identity_digest
     from rebrew.source_contracts import contract_contexts
     from rebrew.source_organization import organization_configs
 
     config_path = cfg.root / "rebrew-project.toml"
-    before = (config_path.read_bytes() if config_path.is_file() else None, path_identity_digest(config_path))
+    before = (
+        config_path.read_bytes() if config_path.is_file() else None,
+        path_identity_digest(config_path),
+    )
     configurations = organization_configs(cfg)
-    if (config_path.read_bytes() if config_path.is_file() else None, path_identity_digest(config_path)) != before:
+    if (
+        config_path.read_bytes() if config_path.is_file() else None,
+        path_identity_digest(config_path),
+    ) != before:
         raise ValueError("project config changed while loading targets")
     matching = [c for c in configurations if c.target_name == cfg.target_name]
     if cfg.target_name and not matching:
@@ -1225,9 +1237,7 @@ def _merge_include_inputs(
         watched.update(path.resolve() for path in closure if path.resolve() not in selected)
         for path, resolved in lexical:
             if identities[path]["links"]:
-                raise ValueError(
-                    f"{path}: symlinked include search context requires manual review"
-                )
+                raise ValueError(f"{path}: symlinked include search context requires manual review")
             if (
                 path.resolve() != resolved
                 or resolved.read_bytes() != observed[resolved]
@@ -1257,7 +1267,13 @@ def _merge_include_inputs(
                 if parent == context.root.resolve().parent:
                     break
                 watched.add(parent / "rebrew-libraries.toml")
-    return sorted(watched), configurations, observed_inputs, sorted(set(shadows)), sorted(set(probes))
+    return (
+        sorted(watched),
+        configurations,
+        observed_inputs,
+        sorted(set(shadows)),
+        sorted(set(probes)),
+    )
 
 
 def _merge_definitions(
@@ -1294,7 +1310,9 @@ def _merge_definitions(
                 config_path.read_bytes() if config_path.is_file() else None,
                 path_identity_digest(config_path),
             )
-            watched, configurations, observed_inputs, shadows, probes = _merge_include_inputs(cfg, input_files)
+            watched, configurations, observed_inputs, shadows, probes = _merge_include_inputs(
+                cfg, input_files
+            )
             transaction_inputs = coordinated_inputs(
                 Path(meta), transaction_paths, watched=watched, discovery_roots=[cfg.reversed_dir]
             )
@@ -1345,7 +1363,9 @@ def _merge_definitions(
                 raise ValueError(
                     "guarded interleave requires complete, conflict-free organization review"
                 )
-            guarded_masks, wrappers, guarded_parameters, guarded_preamble, guarded_require_gd = prepare_guarded_inputs(readings)
+            guarded_masks, wrappers, guarded_parameters, guarded_preamble, guarded_require_gd = (
+                prepare_guarded_inputs(readings)
+            )
         except (OSError, ValueError) as exc:
             error_exit(str(exc), json_mode=json_output)
     entries = load_metadata(meta)
@@ -1389,7 +1409,9 @@ def _merge_definitions(
             store_out: list[_Piece] = []
             func_out = [piece for piece, _guard in wrapped]
             validate_guarded_flags(
-                {piece.name for piece in func_out} | guarded_parameters, configurations, review,
+                {piece.name for piece in func_out} | guarded_parameters,
+                configurations,
+                review,
                 require_gd=guarded_require_gd,
             )
             parts = [guarded_preamble] if guarded_preamble else []
@@ -1445,15 +1467,23 @@ def _merge_definitions(
         from rebrew.metadata.source_provenance import plan_source_rehome
 
         try:
-            current_watched, _, current_observed, current_shadows, current_probes = _merge_include_inputs(cfg, input_files)
-            if current_watched != watched or current_observed != observed_inputs or current_shadows != shadows or current_probes != probes or (
-                coordinated_inputs(
-                    Path(meta),
-                    transaction_paths,
-                    watched=watched,
-                    discovery_roots=[cfg.reversed_dir],
+            current_watched, _, current_observed, current_shadows, current_probes = (
+                _merge_include_inputs(cfg, input_files)
+            )
+            if (
+                current_watched != watched
+                or current_observed != observed_inputs
+                or current_shadows != shadows
+                or current_probes != probes
+                or (
+                    coordinated_inputs(
+                        Path(meta),
+                        transaction_paths,
+                        watched=watched,
+                        discovery_roots=[cfg.reversed_dir],
+                    )
+                    != transaction_inputs
                 )
-                != transaction_inputs
             ):
                 raise ValueError("merge inputs changed during planning")
             definitions, files = plan_source_rehome(Path(meta), source_texts, new_file, merged_text)
@@ -1514,8 +1544,11 @@ def _merge_definitions(
 
         stage = transaction_paths if delete else [output_path]
         try:
+
             def validate_resolution() -> None:
-                current, contexts, observations, current_shadows, current_probes = _merge_include_inputs(cfg, input_files)
+                current, contexts, observations, current_shadows, current_probes = (
+                    _merge_include_inputs(cfg, input_files)
+                )
                 if (
                     current != watched
                     or observations != observed_inputs
@@ -1535,7 +1568,9 @@ def _merge_definitions(
                     raise ValueError("include resolution changed during merge")
                 for path in [*watched, cfg.root / "rebrew-project.toml"]:
                     absolute = path.absolute()
-                    if path_identity_digest(path) != transaction_inputs.get("path-identity:" + str(absolute)):
+                    if path_identity_digest(path) != transaction_inputs.get(
+                        "path-identity:" + str(absolute)
+                    ):
                         raise ValueError(f"{path}: include path changed during merge")
                     resolved = path.resolve()
                     digest = (

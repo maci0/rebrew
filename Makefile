@@ -1113,7 +1113,7 @@ jobs-check: ensure-go
 	GOTOOLCHAIN=local test -z "$$(gofmt -l .)"; \
 	GOTOOLCHAIN=local CGO_ENABLED=0 go vet ./...; \
 	GOTOOLCHAIN=local CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags=-buildid= ./...; \
-	GOTOOLCHAIN=local CGO_ENABLED=0 go test -race ./...
+	GOTOOLCHAIN=local CGO_ENABLED=1 go test -race ./...
 
 # Run all non-mutating verification gates (mirrors CI lint + test +
 # cli-contract + jobs-service jobs: ruff, mypy, uv audit, pytest under the

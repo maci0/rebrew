@@ -1817,7 +1817,8 @@ def capture_fresh_analysis(
             item = report["targets"][0]
             if item["name"] != target or item["sha256"] != sha256:
                 raise _invalid("fresh analysis report has a different target")
-            functions, stubs = [], []
+            functions: list[dict[str, Any]] = []
+            stubs: list[dict[str, Any]] = []
             seen: set[int] = set()
             for raw, result, size_field in (
                 (item["functions"], functions, True),
@@ -2745,17 +2746,101 @@ def retained_source_operation(config: WorkerConfig, req: SnapshotMutationRequest
 
 
 def decompile_snapshot(config: WorkerConfig, req: DecompileSnapshotRequest) -> dict[str, Any]:
-    """Decompile with names from a verified retained source snapshot."""
-    from rebrew.named_snapshot import decompile_retained
+    """Run the operation over a verified retained snapshot."""
+    from rebrew.decompiler import fetch_decompilation
+    from rebrew.name_decomp import apply_known_names
+    from rebrew.named_snapshot import retained_snapshot
+    from rebrew.sources import iter_library_headers, iter_sources
+    from rebrew.struct_recover import existing_structs
 
-    return decompile_retained(config, req)
+    if req.backend not in DECOMPILER_BACKENDS:
+        raise _invalid("invalid retained decompilation request")
+    va = _address(req.va)
+    with retained_snapshot(config, req) as (root, cfg, retained, verify_files):
+        sources = [
+            *iter_sources(cfg.reversed_dir, cfg),
+            *iter_library_headers(cfg.reversed_dir, cfg),
+        ]
+        if any(path.is_symlink() or path.resolve() not in retained for path in sources):
+            raise _invalid("source is not in the retained snapshot")
+        definitions = existing_structs(sources)
+        verify_files()
+        code, backend = fetch_decompilation(req.backend, cfg.target_binary, va, root)
+        if not code:
+            raise _refused(f"no decompilation via '{req.backend}' for 0x{va:x}")
+        verify_files()
+        pointer_width = int(getattr(cfg, "pointer_size", 4) or 4)
+        code = apply_known_names(code, definitions, pointer_width=pointer_width).code
+        verify_files()
+    return {
+        "code": code,
+        "backend": backend,
+        "source_revision": req.source_revision,
+        "source_snapshot_sha256": req.source_snapshot_sha256,
+        "analysis_manifest_sha256": req.analysis_manifest_sha256,
+        "generation": req.generation,
+    }
 
 
 def security_scan_snapshot(config: WorkerConfig, req: SecuritySnapshotRequest) -> dict[str, Any]:
-    """Scan only a verified retained source and analysis snapshot."""
-    from rebrew.security_snapshot import scan_retained
+    """Run the operation over a verified retained snapshot."""
+    from rebrew.named_snapshot import retained_snapshot
+    from rebrew.security_scan import SEVERITY_ORDER, filter_by_severity, scan_paths
+    from rebrew.sources import EXCLUDE_DIRS, iter_sources
 
-    return scan_retained(config, req)
+    if req.min_severity not in SEVERITY_ORDER:
+        raise _invalid(f"min_severity must be one of {', '.join(SEVERITY_ORDER)}")
+    with retained_snapshot(config, req) as (root, cfg, retained, verify_files):
+        directory = cfg.reversed_dir.resolve()
+        if not directory.is_relative_to(root):
+            raise _invalid("security source directory escapes the snapshot")
+        expected = {
+            path
+            for path in retained
+            if path.is_relative_to(directory)
+            and path.suffix.lower() == ".c"
+            and not any(part in EXCLUDE_DIRS for part in path.relative_to(directory).parts[:-1])
+        }
+        published = {root / entry.path for entry in req.files}
+        if not expected.issubset(published):
+            raise _invalid("security source is not in the published snapshot")
+        paths = iter_sources(directory) if directory.is_dir() else []
+        if (
+            any(path.is_symlink() or path.resolve() not in retained for path in paths)
+            or set(paths) != expected
+        ):
+            raise _invalid("security sources differ from the retained snapshot")
+        verify_files()
+        try:
+            findings = scan_paths(paths, strict=True)
+        except OSError:
+            raise _invalid("retained security source is unreadable") from None
+        verify_files()
+        for finding in findings:
+            path = _project_file(root, finding["file"].removeprefix(str(root) + "/"), "source")
+            if path not in expected:
+                raise _invalid("security finding escapes the retained snapshot")
+            finding["file"] = path.relative_to(root).as_posix()
+        by_severity = dict.fromkeys(SEVERITY_ORDER, 0)
+        for finding in findings:
+            by_severity[str(finding["severity"])] += 1
+        result = filter_by_severity(
+            {
+                "root": directory.relative_to(root).as_posix(),
+                "files_scanned": len(paths),
+                "findings": findings,
+                "count": len(findings),
+                "by_severity": by_severity,
+            },
+            req.min_severity,
+        )
+    return {
+        "result": result,
+        "source_revision": req.source_revision,
+        "source_snapshot_sha256": req.source_snapshot_sha256,
+        "generation": req.generation,
+        "analysis_manifest_sha256": req.analysis_manifest_sha256,
+    }
 
 
 #: Every op of the backend's rebrew contract, by wire name.

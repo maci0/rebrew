@@ -36,7 +36,7 @@ def _single(
     cflags: str = "/O2",
     extra: str = "",
     module: str = "SERVER",
-) -> str:
+) -> SourceFixture:
     name = symbol.lstrip("_")
     return SourceFixture(
         preamble
@@ -1525,7 +1525,7 @@ class TestMarkerlessMerge:
 class TestMergeNativeOrder:
     @pytest.mark.parametrize("dry_run", [False, True])
     def test_interleaving_required_refuses_before_any_write(
-        self, tmp_path: Path, monkeypatch: Any, dry_run: bool
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, dry_run: bool
     ) -> None:
         from tree_snapshot import snapshot_with_stat
 
@@ -1875,7 +1875,7 @@ def test_transactional_merge_rejects_alias_change_after_header_read(
     monkeypatch.setattr(merge, "require_config", lambda **kwargs: cfg)
     load = merge._merge_include_inputs
 
-    def change_after_read(*args: object) -> object:
+    def change_after_read(*args: Any) -> Any:
         result = load(*args)
         alias.unlink()
         alias.symlink_to("actual.h")
@@ -1906,7 +1906,10 @@ def test_transactional_merge_rejects_earlier_include_created_before_lock(
     b = _write(src / "b.c", _single(0x10002000, "_second"))
     out = src / "merged.c"
     cfg = ProjectConfig(
-        root=tmp_path, reversed_dir=src, module="SERVER", target_name="SERVER",
+        root=tmp_path,
+        reversed_dir=src,
+        module="SERVER",
+        target_name="SERVER",
         base_cflags=f"/I{early} /I{late}",
     )
     monkeypatch.setattr("rebrew.merge.require_config", lambda **kwargs: cfg)
@@ -1917,7 +1920,7 @@ def test_transactional_merge_rejects_earlier_include_created_before_lock(
     if timing == "before_lock":
         original = coordinated.coordinated_transaction
 
-        def create_shadow(*args: object, **kwargs: object) -> object:
+        def create_shadow(*args: Any, **kwargs: Any) -> Any:
             (early / "api.h").write_text("#define VALUE 1\n")
             return original(*args, **kwargs)
 
@@ -1925,7 +1928,7 @@ def test_transactional_merge_rejects_earlier_include_created_before_lock(
     else:
         publish = coordinated.CoordinatedStage.publish
 
-        def publish_then_shadow(stage: object, path: Path, content: bytes) -> None:
+        def publish_then_shadow(stage: Any, path: Path, content: bytes) -> None:
             publish(stage, path, content)
             (early / "api.h").write_text("#define VALUE 1\n")
 

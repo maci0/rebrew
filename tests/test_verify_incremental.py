@@ -2199,7 +2199,7 @@ class TestEntryFingerprint:
         header.write_text("#define VALUE 1\n")
         entry = SimpleNamespace(filepath="a.c", size=4, cflags="", module="", toolchain="")
         reads: list[Path] = []
-        scans: list[None] = []
+        scans: list[bool] = []
         read_bytes = Path.read_bytes
         scan = cache.scan_include_closure
 
@@ -2209,7 +2209,7 @@ class TestEntryFingerprint:
             return read_bytes(path)
 
         def counted_scan(*args: Any, **kwargs: Any) -> Any:
-            scans.append(None)
+            scans.append(bool(kwargs.get("msvc_include_parents", False)))
             return scan(*args, **kwargs)
 
         monkeypatch.setattr(Path, "read_bytes", counted_read)
@@ -2218,7 +2218,7 @@ class TestEntryFingerprint:
         assert first is not None
         assert reads.count(source) == 1
         assert header in reads
-        assert len(scans) == 1
+        assert scans == [False, True]
 
         reads.clear()
         scans.clear()
@@ -2241,11 +2241,11 @@ class TestEntryFingerprint:
             assert reads.count(source) == 1
             assert after.mtime_ns != first.mtime_ns
             assert (after.source_hash != first.source_hash) == (operation == "edit")
-            assert len(scans) == (1 if operation == "edit" else 0)
+            assert scans == ([False, True] if operation == "edit" else [])
         else:
             assert source not in reads
             assert header in reads
-            assert len(scans) == 1
+            assert scans == [False, True]
             assert after.source_hash == first.source_hash
             assert after.headers_fp != first.headers_fp
 

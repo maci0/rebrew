@@ -235,6 +235,17 @@ class TestSerializationRoundTrip:
     naive rebuild.
     """
 
+    def test_metadata_replication_errors_keep_public_identity(self) -> None:
+        from rebrew.errors import MetadataConflictError, MetadataUnavailableError
+        from rebrew.metadata.replication import MetadataConflictError as Conflict
+        from rebrew.metadata.sqlite import MetadataUnavailableError as Unavailable
+
+        assert MetadataConflictError is Conflict
+        assert MetadataUnavailableError is Unavailable
+        for cls in (Conflict, Unavailable):
+            rebuilt = RebrewError.from_dict(cls("metadata failure").to_dict())
+            assert type(rebuilt) is cls
+
     def test_every_public_error_class_round_trips(self) -> None:
         import rebrew.errors as err_mod
 
