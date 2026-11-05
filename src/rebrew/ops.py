@@ -2254,7 +2254,7 @@ class _OpsHandler(BaseHTTPRequestHandler):
         if not self._check_host(server):
             return
         given = self.headers.get("Authorization", "").encode("utf-8")
-        if not hmac.compare_digest(given, f"Bearer {server.token}".encode("utf-8")):
+        if not hmac.compare_digest(given, f"Bearer {server.token}".encode()):
             logger.warning("%s rejected unauthenticated request", self._request_id)
             self._refuse("unauthorized", "a valid bearer token is required", 401)
             return
@@ -2305,7 +2305,7 @@ class _OpsHandler(BaseHTTPRequestHandler):
         if path in ("/health", "/metrics") and self.command in ("GET", "HEAD"):
             if not hmac.compare_digest(
                 self.headers.get("Authorization", "").encode("utf-8"),
-                f"Bearer {server.token}".encode("utf-8"),
+                f"Bearer {server.token}".encode(),
             ):
                 self._refuse("unauthorized", "a valid bearer token is required", 401)
                 return

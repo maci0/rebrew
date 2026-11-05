@@ -120,7 +120,19 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 		return nil, fmt.Errorf("job token must contain at least 32 bytes")
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Health probes must not require auth: the orchestrator needs a
+		// liveness signal that does not depend on the bearer token.  No
+		// admission or credential is consulted; the owner already holds
+		// the workspace seal and the job directory lock.
+		if r.URL.Path == "/healthz" || r.URL.Path == "/health" {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Cache-Control", "no-store")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"status":"ok"}`))
+			return
+		}
 		if !hostAllowed(r.Host) {
+			log.Printf("level=warning msg=http_host_rejected host=%q path=%q", r.Host, r.URL.Path)
 			apiError(w, "host not allowed", http.StatusForbidden)
 			return
 		}
@@ -146,10 +158,17 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 			if strings.HasPrefix(r.URL.Path, "/jobs/") {
 				jobID = strings.Split(strings.TrimPrefix(r.URL.Path, "/jobs/"), "/")[0]
 			}
-			log.Printf("http_request method=%s path=%s status=%d duration_ms=%d request_id=%q job_id=%q",
-				r.Method, r.URL.Path, s, time.Since(start).Milliseconds(), requestID, jobID)
+			level := "info"
+			if s >= 500 {
+				level = "error"
+			} else if s >= 400 {
+				level = "warning"
+			}
+			log.Printf("level=%s msg=http_request method=%s path=%s status=%d duration_ms=%d request_id=%q job_id=%q",
+				level, r.Method, r.URL.Path, s, time.Since(start).Milliseconds(), requestID, jobID)
 		}()
 		if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+token)) != 1 {
+			log.Printf("level=warning msg=http_unauthorized method=%s path=%s request_id=%q", r.Method, r.URL.Path, requestID)
 			apiError(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
