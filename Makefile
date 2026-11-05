@@ -1112,7 +1112,7 @@ jobs-check: ensure-go
 	cd services/jobs; \
 	GOTOOLCHAIN=local test -z "$$(gofmt -l .)"; \
 	GOTOOLCHAIN=local CGO_ENABLED=0 go vet ./...; \
-	GOTOOLCHAIN=local CGO_ENABLED=0 go build -trimpath -ldflags=-buildid= ./...; \
+	GOTOOLCHAIN=local CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags=-buildid= ./...; \
 	GOTOOLCHAIN=local CGO_ENABLED=0 go test -race ./...
 
 # Run all non-mutating verification gates (mirrors CI lint + test +

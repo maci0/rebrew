@@ -258,6 +258,7 @@ class TestCiPins:
                         for command in ("gofmt -l .", "go vet ./...", "go test -race ./...")
                     )
                     assert "go build -trimpath" in check["run"]
+                    assert "-buildvcs=false" in check["run"]
                 else:
                     assert UV_ENV_USES in uses, f"{path.name}:{name} does not use {UV_ENV_USES}"
 
