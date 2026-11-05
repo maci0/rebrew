@@ -1305,7 +1305,7 @@ reviewed capture again, pass its digest as `expected_digest`.
 
 Only the source and a conservatively resolved transitive include closure are
 staged into the read-only compiler mount. Protected credential paths are
-refused. Macro-computed includes, symlinks, line directives, direct volatile
+refused. Macro-computed, backslash or rooted includes, symlinks, line directives, direct volatile
 time macros, unsupported switches and unknown paths are refused. Absent literal
 includes are checked as negative search probes before and after execution; an
 active missing include still fails in the compiler. Token pasting is refused
@@ -1329,6 +1329,11 @@ reported source path, refusing internal markers, ambiguous names, unexpected
 definitions and masked prefixes. Compare original raw byte spans, not the
 masked parser view. Parsing does not authenticate markers or prove ABI, types,
 macro state or linked ownership.
+`reported_declaration_scopes` inventories ordered preceding declarations for
+syntactic identifier uses and refuses visible declarations with unparsed or
+masked prefixes; its results leave reference classification, full
+declaration extents, typedef/pragma context and provider binding explicitly
+unproven.
 
 ### Rebrew executable selection in generated CMake toolchains
 

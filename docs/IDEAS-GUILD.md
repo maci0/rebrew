@@ -4565,6 +4565,17 @@ infer a callable's signature from successful symbol resolution or silently
 carry forward data scaffolds as real code. No production scaffold change was
 made by the tooling repair slot.
 
+The later TL failure also illustrates why unresolved names need address-aware
+review before adding stubs: Slot 1 found 23 `_fcn_<VA>` names with active TL
+metadata by address (22 selected source files and one CRT-header identity),
+plus four address-matched data rows including aliases backed by `g_9b0e30`.
+A name-only lookup previously missed those bindings. The reported `%i%%` and
+`%i` literals cannot safely become generic zero-filled `char[1]` definitions.
+See Guild `.scratch/consolidation-2026-11-05/slot-1/` and
+`slot-5/tl-unresolved-providers.json`; that older provider report is name-only.
+An incremental review should distinguish address identity, selected linker
+symbol and storage owner, without treating any one of those as the others.
+
 
 ### Repaired merge target-participation expansion (2026-11-05)
 
@@ -4649,3 +4660,25 @@ multiple declarators containing functions are rejected instead of silently
 missing later declarators. Real candidate direct inspection retains three
 scoped declarations of `fcn_00425bf0`. The related upstream suite passes
 147 tests; guarded assembly/apply is still not implemented.
+
+### Msx preprocessed declaration and binding review (2026-11-05)
+
+The bounded guarded writer now supports a small scalar/prototype subset, but
+not Guild's Msx candidate with SDK headers, locals, globals and storage. Pinned
+MSVC preprocessing of a scratch-only candidate and its three inputs produced
+equal unmasked expanded function spans for all 13 functions in each client.
+An ordered syntax-only declaration inventory finds 19 changed preceding
+declaration sequences and three unresolved classifications per client. SDK
+header groups differ where five identical typedef declarations appear earlier
+in the candidate. Receipts: Guild `.scratch/consolidation-2026-11-05/slot-5/`
+`msx-full-tu-inventory.json`, `msx-api-declaration-scopes.json` and
+`msx-expanded-header-comparison.json`.
+
+`source_preprocessed` now exposes an offset-preserving parser view and ordered
+declaration fragments, refusing unsupported syntax, unexpected definitions and
+masked prefixes. It does not yet resolve lexical declarations, typedef/pragma
+state, compiler macro tables, ABI, header-local storage or linked providers.
+Implement a reviewed all-target scope/binding comparison and guarded writer
+that preserves those contexts and rejects unresolved ownership. Raw pre-change
+and fresh post-change PE comparisons remain independent requirements; neither
+preprocessed span equality nor a missing linked baseline authorizes an apply.

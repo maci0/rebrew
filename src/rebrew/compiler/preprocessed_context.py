@@ -43,6 +43,16 @@ def _protected(path: Path, root: Path) -> bool:
     return False
 
 
+def _check_include_spellings(raw: bytes) -> None:
+    from rebrew.compiler.cache import include_specs
+
+    for _, name in include_specs(raw.decode("utf-8", "surrogateescape")):
+        if "\\" in name:
+            raise ValueError("backslash include spellings require compiler-specific review")
+        if name.startswith("/") or re.match(r"^[A-Za-z]:", name):
+            raise ValueError("rooted include spellings require compiler-specific review")
+
+
 def _check_missing_probes(probes: list[tuple[str, tuple[str, ...]]]) -> None:
     """Distinguish a missing earlier include from an unreadable search path."""
     for name, roots in probes:
@@ -96,7 +106,7 @@ def _closure(
     root: Path, source: Path, flags: list[str], sdk_root: Path, *, allow_token_paste: bool = False
 ) -> tuple[dict[str, str], dict[Path, bytes], dict[str, Any]]:
     """Conservatively prove the selected include closure before exposing files."""
-    from rebrew.compiler.cache import include_specs, scan_include_closure
+    from rebrew.compiler.cache import scan_include_closure
     from rebrew.compiler.compile import extract_include_dirs
 
     if _protected(source, root):
@@ -107,6 +117,7 @@ def _closure(
         raise ValueError(
             "source line directives, token pasting or volatile builtins require review"
         )
+    _check_include_spellings(raw)
     contents: dict[str, bytes] = {}
     unresolved: list[tuple[str, tuple[str, ...]]] = []
     shadows: list[tuple[str, str, tuple[str, ...]]] = []
@@ -130,8 +141,7 @@ def _closure(
     except OSError, ValueError:
         raise ValueError("ambiguous or unreadable preprocessing include closure") from None
     for data in (raw, *contents.values()):
-        if any("\\" in name for _, name in include_specs(data.decode("utf-8", "surrogateescape"))):
-            raise ValueError("backslash include spellings require compiler-specific review")
+        _check_include_spellings(data)
     if fallback or not consistent:
         raise ValueError("preprocessing include closure is incomplete or ambiguous")
     if any(

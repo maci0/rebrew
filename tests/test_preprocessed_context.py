@@ -484,6 +484,17 @@ def test_backslash_include_is_refused_before_compiler(
     assert not calls
 
 
+@pytest.mark.parametrize("name", ["C:/secret.h", "/absolute/secret.h"])
+def test_rooted_include_is_refused_before_compiler(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    source, db, calls = _fixture(tmp_path, monkeypatch)
+    source.write_text(f"#include <{name}>\nint f(void) {{ return 1; }}\n")
+    with pytest.raises(ValueError, match="rooted include"):
+        capture.capture_msvc_context(tmp_path, db, source, output="TL.obj")
+    assert not calls
+
+
 def test_capture_refuses_pasted_volatile_flag(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

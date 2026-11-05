@@ -4,7 +4,11 @@ lazy from pathlib import Path
 
 import pytest
 
-from rebrew.source_preprocessed import parse_msvc_preprocessed, reported_source_functions
+from rebrew.source_preprocessed import (
+    parse_msvc_preprocessed,
+    reported_declaration_scopes,
+    reported_source_functions,
+)
 
 
 def test_msvc_projection_preserves_literals_offsets_and_anonymous_fields() -> None:
@@ -96,3 +100,30 @@ def test_inventory_requires_exact_reported_path_and_refuses_internal_marker(tmp_
     interior = (marker(source) + "int f(void) {\n" + marker(other) + "return 1;\n}\n").encode()
     with pytest.raises(ValueError, match="contains a preprocessor line marker"):
         reported_source_functions(interior, parse_msvc_preprocessed(interior), source)
+
+
+def test_declaration_scope_inventory_retains_order_and_unknowns(tmp_path: Path) -> None:
+    source = tmp_path / "unit.c"
+    encoded = ("Z:" + str(source).replace("/", "\\")).replace("\\", "\\\\")
+    raw = (
+        f'#line 1 "{encoded}"\n'
+        "extern int item;\nextern int item;\nint f(void) { return item + unresolved(); }\n"
+    ).encode()
+    report = parse_msvc_preprocessed(raw)
+    scopes = reported_declaration_scopes(raw, report, source, expected_names={"f"})
+    declarations = scopes["functions"]["f"]["item"]
+    assert len(declarations) == 2 and declarations[0]["start"] < declarations[1]["start"]
+    assert scopes["functions"]["f"]["unresolved"] == []
+    assert not scopes["reference_classification_proven"]
+    assert not scopes["declaration_extents_proven"] and not scopes["abi_proven"]
+
+
+@pytest.mark.parametrize(
+    "prefix", ["__stdcall ", "__cdecl /* comment */ ", "__stdcall\n/* comment */\n"]
+)
+def test_declaration_scope_refuses_masked_convention_prefix(tmp_path: Path, prefix: str) -> None:
+    source = tmp_path / "unit.c"
+    encoded = ("Z:" + str(source).replace("/", "\\")).replace("\\", "\\\\")
+    raw = f'#line 1 "{encoded}"\n{prefix}int dep(void);\nint f(void) {{ return dep(); }}\n'.encode()
+    with pytest.raises(ValueError, match="precedes a visible declaration"):
+        reported_declaration_scopes(raw, parse_msvc_preprocessed(raw), source, expected_names={"f"})

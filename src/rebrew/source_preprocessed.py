@@ -9,7 +9,13 @@ lazy import re
 lazy from pathlib import Path
 lazy from typing import Any
 
-lazy from rebrew.c_parser import find_function_name_in_node, parse_c_source
+lazy from rebrew.c_parser import (
+    declares_function,
+    find_declarator_name,
+    find_function_name_in_node,
+    find_variable_roles,
+    parse_c_source,
+)
 lazy from rebrew.source_layout import mask_for_parse
 
 _LINE = re.compile(rb'(?m)^[ \t]*#line[ \t]+[0-9]+[ \t]+"((?:\\.|[^"\\])*)"[^\r\n]*')
@@ -181,4 +187,89 @@ def reported_source_functions(
     return found
 
 
-__all__ = ["parse_msvc_preprocessed", "reported_source_functions"]
+def _unparsed_prefix(raw: bytes, start: int, end: int, markers: list[dict[str, Any]]) -> bool:
+    prefix = bytearray(raw[start:end])
+    for item in markers:
+        left, right = max(item["start"], start), min(item["end"], end)
+        if left < right:
+            prefix[left - start : right - start] = b" " * (right - left)
+    return bool(prefix.strip())
+
+
+def reported_declaration_scopes(
+    raw: bytes, report: dict[str, Any], source: Path, *, expected_names: set[str] | None = None
+) -> dict[str, Any]:
+    """List ordered preceding declarations for syntactic uses in reported functions.
+
+    This inventory is not semantic binding, ABI, marker-origin or provider proof.
+    """
+    functions = reported_source_functions(raw, report, source, expected_names=expected_names)
+    declarations: dict[str, list[dict[str, Any]]] = {}
+    previous_end = 0
+    for node in report["tree"].root_node.named_children:
+        if node.type == "comment":
+            continue
+        boundary = previous_end
+        previous_end = node.end_byte
+        if node.type == "declaration":
+            declarators = node.children_by_field_name("declarator")
+            for declarator in declarators:
+                function = declares_function(declarator)
+                name = (
+                    find_function_name_in_node(declarator, raw)
+                    if function
+                    else find_declarator_name(declarator, raw)
+                )
+                if name:
+                    declarations.setdefault(name, []).append(
+                        {
+                            "kind": "function_declaration" if function else "object_declaration",
+                            "start": node.start_byte,
+                            "end": node.end_byte,
+                            "raw": raw[node.start_byte : node.end_byte],
+                            "multiple_declarators": len(declarators) != 1,
+                            "prefix_start": boundary,
+                        }
+                    )
+        elif node.type == "function_definition":
+            declarator = node.child_by_field_name("declarator")
+            body = node.child_by_field_name("body")
+            name = find_function_name_in_node(declarator, raw) if declarator is not None else None
+            if name and body is not None:
+                declarations.setdefault(name, []).append(
+                    {
+                        "kind": "function_definition",
+                        "start": node.start_byte,
+                        "end": body.start_byte,
+                        "raw": raw[node.start_byte : body.start_byte],
+                        "multiple_declarators": False,
+                        "prefix_start": boundary,
+                    }
+                )
+    scopes: dict[str, Any] = {}
+    for name, (start, end) in functions.items():
+        _, _, uses = find_variable_roles(raw[start:end].decode("utf-8", "surrogateescape"))
+        scopes[name] = {}
+        for symbol in sorted(uses):
+            visible = [item for item in declarations.get(symbol, []) if item["start"] < start]
+            if any(
+                _unparsed_prefix(raw, item["prefix_start"], item["start"], report["markers"])
+                for item in visible
+            ):
+                raise ValueError("masked or unparsed text precedes a visible declaration")
+            scopes[name][symbol] = [
+                {key: value for key, value in item.items() if key != "prefix_start"}
+                for item in visible
+            ]
+    return {
+        "functions": scopes,
+        "reference_classification_proven": False,
+        "declaration_extents_proven": False,
+        "typedef_or_pragma_context_proven": False,
+        "marker_origins_proven": False,
+        "abi_proven": False,
+        "provider_proven": False,
+    }
+
+
+__all__ = ["parse_msvc_preprocessed", "reported_declaration_scopes", "reported_source_functions"]
