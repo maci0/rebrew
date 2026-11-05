@@ -1294,6 +1294,34 @@ An explicit units directory replaces the image's library tree; custom DCC.CFG
 and switches are preserved. `find_dcc` and the separate host-only doctor check
 are removed; use the image inventory and compiler checks.
 
+### Reviewed MSVC preprocessor capture
+
+`rebrew.compiler.preprocessed_context.capture_msvc_context` is an opt-in,
+read-only API. Select an exact source and output from a CMake compilation
+database; it runs the pinned MSVC image with those ordered target flags and
+returns `/P` bytes, reported line markers, image and input hashes, and a review
+digest. Serialize compiler work using the project's compiler lock. To check a
+reviewed capture again, pass its digest as `expected_digest`.
+
+Only the source and a conservatively resolved transitive include closure are
+staged into the read-only compiler mount. Protected credential paths are
+refused. Macro-computed includes, symlinks, line directives, direct volatile
+time macros, unsupported switches and unknown paths are refused. Absent literal
+includes are checked as negative search probes before and after execution; an
+active missing include still fails in the compiler. Token pasting is refused
+unless `allow_token_paste=True` and `SOURCE_DATE_EPOCH` is set. That opt-in
+uses the image clock helper and preserves and records selected source/header
+mtimes; image identity pins SDK files and metadata. SDK headers are verified
+against the admitted image manifest. Docker or Podman is required: the experimental
+unshare rootfs cache is not authenticated as an image filesystem for this API.
+
+Line markers are compiler output and can be spoofed; the API does not claim
+they authenticate origin. The capture is scoped preprocessing evidence, not a
+complete macro table, proof that the build database is fresh, proof of original
+TU equivalence, or proof of a linked provider. Review native evidence and raw
+links separately. The lexical include closure is rescanned after execution;
+edits by writers that evade both observations remain outside its guarantee.
+
 ### Rebrew executable selection in generated CMake toolchains
 
 `rebrew build cmake-toolchain` resolves Rebrew again on each configure, discarding

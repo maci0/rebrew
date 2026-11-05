@@ -9,6 +9,7 @@ Compile execution and the compile cache: resolve a toolchain profile, run its do
 | `compile.py` | `compile_to_obj`, `compile_and_compare`, `CompareResult`, batch precompile, remote backend dispatch |
 | `cache.py` | Compile cache keys and storage (`CACHE_SCHEMA_VERSION`, diskcache backend, `rebrew.cache_backends` plugins) |
 | `context.py` | `CompileContext`: the declarations document a compile is pinned to |
+| `preprocessed_context.py` | Opt-in, scoped pinned-MSVC preprocessing capture; unresolved inputs refuse |
 | `overrides.py` | Effective `TOOLCHAIN` / `CFLAGS` per source (function → `rebrew-libraries.toml` → project) |
 | `xtensa.py` | Core-aware XCC relocation/relaxation linking and verified native disassembly |
 | `toolchain.py` | Toolchain registry, image id admission, `run_toolchain` (image-backed for shipped profiles) |

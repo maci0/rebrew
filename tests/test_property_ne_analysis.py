@@ -248,12 +248,33 @@ def test_published_method_candidates_fixups_stay_same_segment(blob: bytes) -> No
     assert cross == []
     same = published_method_candidates(blob, _CLASS, fixups={(0, site): (0, 0) for site in sites})
     _check_methods(blob, same)
-    # A same-segment fixup can only rescue a candidate the unfixed scan
-    # rejected (pointer past EOF); it never invents a new name.
-    unfixed = published_method_candidates(blob, _CLASS)
-    for name, offset in same:
-        if (name, offset) not in unfixed:
-            assert offset == 0  # the fixup target, not the raw pointer
+    # Fixing the first pointer can expose later unfixed entries in a table
+    # which the unfixed scan rejected as a whole.
+    if same:
+        assert same[0][1] == 0
+
+        def matches_table(first_site: int) -> bool:
+            if first_site > len(blob) or struct.unpack_from("<H", blob, first_site - 2)[0] != len(
+                same
+            ):
+                return False
+            pos = first_site
+            for name, offset in same:
+                encoded = name.encode("latin1")
+                if pos + 5 + len(encoded) > len(blob):
+                    return False
+                raw_offset = struct.unpack_from("<I", blob, pos)[0] & 0xFFFF
+                expected = 0 if pos in sites else raw_offset
+                if (
+                    offset != expected
+                    or blob[pos + 4] != len(encoded)
+                    or blob[pos + 5 : pos + 5 + len(encoded)] != encoded
+                ):
+                    return False
+                pos += 5 + len(encoded)
+            return True
+
+        assert any(matches_table(site) for site in sites)
 
 
 @settings(max_examples=300, deadline=None)

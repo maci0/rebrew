@@ -67,6 +67,7 @@ from typing import Any, Protocol
 lazy import atexit
 lazy import contextlib
 lazy import os
+lazy import stat
 lazy import unicodedata
 lazy from collections.abc import Callable, Iterator, Sequence
 lazy from pathlib import Path
@@ -78,7 +79,7 @@ from rebrew.utils import BYTES_PER_MIB, path_identity, resolved_path, split_sour
 logger = logging.getLogger(__name__)
 
 # Bump on key semantics changes to invalidate stale entries.
-CACHE_SCHEMA_VERSION = 14
+CACHE_SCHEMA_VERSION = 15
 
 # Warn once per process *and per operation*: a corrupt/contended store
 # degrades every get/put, and one line per lookup would flood a GA batch's
@@ -785,69 +786,71 @@ def _find_in_dirs(
 ) -> Path | None:
     """Locate *name* in the first of *dirs* that contains it.
 
-    Exact match first; falls back to a case-insensitive scan per path component
-    (wine/Windows resolution is case-insensitive while the host FS is not —
-    a header included with different case than on disk would otherwise go
-    untracked and risk a stale hit).  Rejects path-traversal components
-    (``..`` / absolute paths) to avoid escaping the include roots.
+    Case-insensitive matches must be unique at every path component.
+    Rejects path-traversal components (``..`` / absolute paths).
     """
     # Reject traversal — otherwise ``#include "../../etc/passwd"`` would escape.
     if name.is_absolute() or ".." in name.parts:
         return None
-    for d in dirs:
-        try:
-            candidate = d / name
-            if candidate.is_file():
-                found = resolved_path(candidate)
-                if lexical is not None:
-                    lexical.append((candidate.absolute(), found))
-                return found
-        except OSError:
-            continue
-        try:
-            if not d.is_dir():
-                continue
-            # Complete this root's case-folded lookup before trying the next
-            # root: Wine can read DIR/api.h before a later exact dir/api.h.
-            candidate = d
-            for index, part in enumerate(name.parts):
-                leaf = index == len(name.parts) - 1
-                exact = candidate / part
-                if exact.is_file() if leaf else exact.is_dir():
-                    candidate = exact
-                    continue
-                norm_part = unicodedata.normalize("NFC", part).casefold()
-                with os.scandir(candidate) as children:
-                    match = next(
-                        (
-                            Path(child.path)
-                            for child in children
-                            if unicodedata.normalize("NFC", child.name).casefold() == norm_part
-                            and (child.is_file() if leaf else child.is_dir())
-                        ),
-                        None,
-                    )
-                if match is None:
-                    break
-                candidate = match
-            else:
-                if candidate.is_file():
-                    found = resolved_path(candidate)
-                    if lexical is not None:
-                        lexical.append((candidate.absolute(), found))
-                    return found
-        except OSError:
-            continue
+    for directory in dirs:
+        found = _walk_include_path(directory, name.parts, lexical=lexical)
+        if found is not None:
+            return found
     return None
+
+
+def _walk_include_path(
+    directory: Path, parts: Sequence[str], *, lexical: list[tuple[Path, Path]] | None
+) -> Path | None:
+    try:
+        return _walk_include_path_checked(directory, parts, lexical=lexical)
+    except OSError as exc:
+        raise ValueError("cannot inspect an include search path") from exc
+
+
+def _walk_include_path_checked(
+    directory: Path, parts: Sequence[str], *, lexical: list[tuple[Path, Path]] | None
+) -> Path | None:
+    if not parts or parts[-1] == "..":
+        return None
+    try:
+        if not stat.S_ISDIR(directory.stat().st_mode):
+            return None
+    except FileNotFoundError, NotADirectoryError:
+        return None
+    candidate = directory
+    for index, part in enumerate(parts):
+        if part == "..":
+            candidate = candidate / part
+            continue
+        folded = unicodedata.normalize("NFC", part).casefold()
+        with os.scandir(candidate) as children:
+            matches = [
+                child
+                for child in children
+                if unicodedata.normalize("NFC", child.name).casefold() == folded
+            ]
+            if len(matches) > 1:
+                raise ValueError("ambiguous case-insensitive include component")
+            if not matches:
+                return None
+            entry = matches[0]
+            mode = entry.stat().st_mode
+            if not (stat.S_ISREG(mode) if index == len(parts) - 1 else stat.S_ISDIR(mode)):
+                return None
+            candidate = Path(entry.path)
+    found = candidate.resolve(strict=True)
+    if lexical is not None:
+        lexical.append((candidate.absolute(), found))
+    return found
 
 
 # Shadow probe for the include-closure memo.  ``_find_in_dirs`` resolves one
 # include against its search dirs in order, so a later winner can be shadowed
 # by a header created in an earlier dir; that creation bumps only the earlier
 # *subdirectory's* mtime, which no key or reached-header stat records.  Each
-# probe keeps the resolver mode, the include spelling, and the directories
-# searched before the winner.  A probe that now resolves means the closure
-# must be recomputed.
+# probe keeps the resolver mode, the include spelling, and either earlier
+# directories or the selected path followed by its ordered search roots.
 _ShadowProbe = tuple[str, str, tuple[str, ...]]
 
 # Include-closure memo for :func:`_resolve_include_paths`:
@@ -888,15 +891,12 @@ def _resolve_escaping_include(
     directory is scanned — so nothing here widens what the include search reads.
     """
     for d in dirs:
-        try:
-            candidate = Path(os.path.normpath(str(d / name)))
-            if candidate.is_file():
-                found = resolved_path(candidate)
-                if lexical is not None:
-                    lexical.append((candidate.absolute(), found))
-                return found
-        except OSError:
-            continue
+        if name.is_absolute():
+            found = _walk_include_path(Path(name.anchor), name.parts[1:], lexical=lexical)
+        else:
+            found = _walk_include_path(d, name.parts, lexical=lexical)
+        if found is not None:
+            return found
     return None
 
 
@@ -971,7 +971,7 @@ def unresolved_still_missing(
 
 
 def shadow_unchanged(shadows: Sequence[_ShadowProbe]) -> bool:
-    """True while every earlier-than-the-winner search dir still misses.
+    """True while earlier roots still miss and every selected path stays unique.
 
     A header created in an earlier dir (at any depth) shadows the one the
     closure recorded, but only that subdirectory's mtime moves, so neither the
@@ -980,11 +980,24 @@ def shadow_unchanged(shadows: Sequence[_ShadowProbe]) -> bool:
     records none.
     """
     for mode, name, dirs in shadows:
+        if mode in {"winner", "escape-winner"}:
+            expected, *search = dirs
+            roots = [Path(d) for d in search]
+            found = (
+                _resolve_escaping_include(Path(name), roots)
+                if mode == "escape-winner"
+                else _find_in_dirs(Path(name), roots)
+            )
+            if found != Path(expected):
+                return False
+            continue
         roots = [Path(d) for d in dirs]
         if mode == "escape":
             found = _resolve_escaping_include(Path(name), roots)
-        else:
+        elif mode == "find":
             found = _find_in_dirs(Path(name), roots)
+        else:
+            raise ValueError("unknown include lookup proof")
         if found is not None:
             return False
     return True
@@ -1185,8 +1198,8 @@ def scan_include_closure(
     *unresolved* as ``(name, directories searched)``, so the caller can
     revalidate the memo when one of those headers is created later. Optional
     *probes* also records absent candidates for include-next invalidation.
-    *shadow* records the earlier search dirs each found include skipped, so a
-    header created there re-resolves instead of leaving a stale closure.
+    *shadow* records both earlier missing search dirs and selected paths, so
+    new shadowing or case-colliding entries invalidate the closure.
     *contents* captures the exact bytes parsed for each reached header; callers
     needing content proof must use these bytes rather than the stat-only memo.
     *lexical* records each found spelling and resolved target before deduplication.
@@ -1220,6 +1233,13 @@ def scan_include_closure(
             if kind == "nonliteral" or not name:
                 fallback = True
                 return
+            if msvc_include_parents:
+                if name.startswith(("\\", "/")) or ":" in name:
+                    raise ValueError("unsupported rooted or drive-qualified MSVC include")
+                if "\\" in name:
+                    name = name.replace("\\", "/")
+                    if ".." in Path(name).parts:
+                        raise ValueError("ambiguous MSVC include path traversal")
             # Quote includes search the including file's directory first,
             # then the /I dirs; angle includes search the /I dirs only.
             if kind == "quote" and base_dir is not None:
@@ -1296,6 +1316,14 @@ def scan_include_closure(
                     )
                     if prefix:
                         shadow.append(("escape" if escaped else "find", name, prefix))
+                if shadow is not None:
+                    shadow.append(
+                        (
+                            "escape-winner" if escaped else "winner",
+                            name,
+                            (str(found), *(str(directory) for directory in dirs)),
+                        )
+                    )
                 found_str = str(found)
                 lexical_parent = spelling[0][0].parent
                 next_parents = parents

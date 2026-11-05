@@ -102,6 +102,17 @@ class TestNeComparison:
 
 
 class TestPublishedMethods:
+    def test_first_fixup_can_recover_table_with_later_unfixed_pointer(self) -> None:
+        from rebrew.formats.ne_analysis import published_method_candidates
+
+        raw = b"\x08TExample\x02\x00\x17\x00\x00\x00\x010\x01\x00\x00\x00\x010"
+        assert published_method_candidates(raw, "TExample") == []
+        assert published_method_candidates(raw, "TExample", fixups={(0, 11): (0, 0)}) == [
+            ("0", 0),
+            ("0", 1),
+        ]
+        assert published_method_candidates(raw, "TExample", fixups={(0, 11): (1, 0)}) == []
+
     def test_complete_same_segment_pointer_and_rejecting_controls(self) -> None:
         from rebrew.formats.ne_analysis import published_method_candidates
 

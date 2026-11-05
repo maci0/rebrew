@@ -625,14 +625,15 @@ class TestIncludePathResolution:
         shadow.write_text("#define VALUE 20000\n")
         assert header_dependency_hash(source, str(source_dir), [str(include_dir)]) == second
 
-    def test_exact_component_spelling_precedes_casefold(self, tmp_path: Path) -> None:
+    def test_casefold_collision_is_rejected_even_for_exact_spelling(self, tmp_path: Path) -> None:
         from rebrew.compiler.cache import _find_in_dirs
 
         for directory in ("DIR", "dir"):
             (tmp_path / directory).mkdir()
             (tmp_path / directory / "api.h").write_text(directory)
-        assert _find_in_dirs(Path("dir/api.h"), [tmp_path]) == tmp_path / "dir" / "api.h"
-        assert _find_in_dirs(Path("dir/API.H"), [tmp_path]) == tmp_path / "dir" / "api.h"
+        for name in ("dir/api.h", "dir/API.H"):
+            with pytest.raises(ValueError, match="ambiguous case-insensitive"):
+                _find_in_dirs(Path(name), [tmp_path])
 
     def test_deep_casefold_and_unicode_normalization(self, tmp_path: Path) -> None:
         from rebrew.compiler.cache import _find_in_dirs
@@ -650,7 +651,7 @@ class TestIncludePathResolution:
         (tmp_path / "DIR").mkdir()
         assert _find_in_dirs(Path(name), [tmp_path / "absent", tmp_path]) is None
 
-    def test_unreadable_directory_tries_next_root(
+    def test_unreadable_directory_refuses_later_root(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from rebrew.compiler.cache import _find_in_dirs
@@ -668,7 +669,165 @@ class TestIncludePathResolution:
             return scandir(path)
 
         monkeypatch.setattr(os, "scandir", _unreadable)
-        assert _find_in_dirs(Path("dir/api.h"), [first, later]) == header
+        with pytest.raises(ValueError, match="cannot inspect an include search path") as exc:
+            _find_in_dirs(Path("dir/api.h"), [first, later])
+        assert isinstance(exc.value.__cause__, PermissionError)
+
+    def test_unreadable_earlier_root_does_not_select_later_header(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        early, late = tmp_path / "early", tmp_path / "late"
+        early.mkdir()
+        late.mkdir()
+        (early / "api.h").write_text("#define VALUE 1\n")
+        (late / "api.h").write_text("#define VALUE 2\n")
+        scandir = os.scandir
+        is_file = Path.is_file
+
+        def unreadable(path: Any) -> Any:
+            if not isinstance(path, int) and Path(path) == early:
+                raise PermissionError("unreadable earlier root")
+            return scandir(path)
+
+        def cannot_stat(path: Path) -> bool:
+            return False if path == early / "api.h" else is_file(path)
+
+        monkeypatch.setattr(os, "scandir", unreadable)
+        monkeypatch.setattr(Path, "is_file", cannot_stat)
+        with pytest.raises(ValueError, match="cannot inspect an include search path") as exc:
+            cache_module.scan_include_closure("#include <api.h>\n", None, (str(early), str(late)))
+        assert isinstance(exc.value.__cause__, PermissionError)
+        with pytest.raises(ValueError, match="cannot inspect an include search path"):
+            cache_module.shadow_unchanged([("find", "api.h", (str(early),))])
+
+    def test_stat_error_is_not_treated_as_missing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        early, late = tmp_path / "early", tmp_path / "late"
+        early.mkdir()
+        late.mkdir()
+        (late / "api.h").write_text("int later;\n")
+        original = Path.stat
+
+        def denied(path: Path, *args: Any, **kwargs: Any) -> Any:
+            if path == early:
+                raise PermissionError("stat denied")
+            return original(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "stat", denied)
+        with pytest.raises(ValueError, match="cannot inspect an include search path") as exc:
+            cache_module.scan_include_closure("#include <api.h>\n", None, (str(early), str(late)))
+        assert isinstance(exc.value.__cause__, PermissionError)
+        with pytest.raises(ValueError, match="cannot inspect an include search path"):
+            cache_module.unresolved_still_missing([("api.h", (str(early),))])
+
+    @pytest.mark.parametrize("name", ["api.h", "nest/api.h"])
+    def test_winning_directory_collision_is_rejected_even_with_equal_bytes(
+        self, tmp_path: Path, name: str
+    ) -> None:
+        from rebrew.compiler.cache import scan_include_closure
+
+        header = tmp_path / name
+        header.parent.mkdir(parents=True, exist_ok=True)
+        header.write_text("int value;\n")
+        content = f"#include <{name}>\n"
+        assert scan_include_closure(content, None, (str(tmp_path),))[0] == (str(header),)
+        header.with_name(header.name.upper()).write_text("int value;\n")
+        with pytest.raises(ValueError, match="ambiguous case-insensitive"):
+            scan_include_closure(content, None, (str(tmp_path),))
+
+    def test_nested_directory_case_collision_is_rejected(self, tmp_path: Path) -> None:
+        (tmp_path / "nest").mkdir()
+        (tmp_path / "NEST").mkdir()
+        (tmp_path / "nest" / "api.h").write_text("int value;\n")
+        with pytest.raises(ValueError, match="ambiguous case-insensitive"):
+            cache_module.scan_include_closure("#include <nest/api.h>\n", None, (str(tmp_path),))
+
+    def test_cached_winner_rechecks_new_case_collision(self, tmp_path: Path) -> None:
+        directory = tmp_path / "nested"
+        directory.mkdir()
+        header = directory / "Api.h"
+        header.write_text("int value;\n")
+        source = "#include <nested/api.h>\n"
+        header_dependency_hash(source, None, [str(tmp_path)])
+        (directory / "API.h").write_text("int value;\n")
+        with pytest.raises(ValueError, match="ambiguous case-insensitive"):
+            header_dependency_hash(source, None, [str(tmp_path)])
+
+    def test_cached_winner_rechecks_new_nested_directory_collision(self, tmp_path: Path) -> None:
+        parent = tmp_path / "prefix"
+        directory = parent / "nested"
+        directory.mkdir(parents=True)
+        (directory / "api.h").write_text("int value;\n")
+        source = "#include <prefix/nested/api.h>\n"
+        header_dependency_hash(source, None, [str(tmp_path)])
+        collision = parent / "NESTED"
+        collision.mkdir()
+        (collision / "api.h").write_text("int value;\n")
+        with pytest.raises(ValueError, match="ambiguous case-insensitive"):
+            header_dependency_hash(source, None, [str(tmp_path)])
+
+    def test_msvc_backslash_include_tracks_winner_and_earlier_probes(self, tmp_path: Path) -> None:
+        early, late = tmp_path / "early", tmp_path / "late"
+        early.mkdir()
+        (late / "sub").mkdir(parents=True)
+        header = late / "sub" / "header.h"
+        header.write_text("int value;\n")
+        shadows = []
+        paths, fallback, _, consistent = cache_module.scan_include_closure(
+            "#include <sub\\header.h>\n",
+            None,
+            (str(early), str(late)),
+            shadow=shadows,
+            msvc_include_parents=True,
+        )
+        assert paths == (str(header),) and not fallback and consistent
+        assert all(name == "sub/header.h" for _, name, _ in shadows)
+        assert cache_module.shadow_unchanged(shadows)
+        (early / "sub").mkdir()
+        (early / "sub" / "header.h").write_text("int value;\n")
+        assert not cache_module.shadow_unchanged(shadows)
+
+    def test_msvc_backslash_missing_probe_rechecks_normalized_path(self, tmp_path: Path) -> None:
+        misses = []
+        paths, _, _, _ = cache_module.scan_include_closure(
+            "#include <sub\\header.h>\n",
+            None,
+            (str(tmp_path),),
+            unresolved=misses,
+            msvc_include_parents=True,
+        )
+        assert not paths and misses[0][0] == "sub/header.h"
+        assert cache_module.unresolved_still_missing(misses)
+        (tmp_path / "sub").mkdir()
+        (tmp_path / "sub" / "header.h").write_text("int value;\n")
+        assert not cache_module.unresolved_still_missing(misses)
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            r"C:\header.h",
+            "C:header.h",
+            r"\\server\share\header.h",
+            r"\root.h",
+            r"sub\..\header.h",
+            "//server/share/header.h",
+        ],
+    )
+    def test_msvc_unsafe_include_spellings_are_rejected(self, tmp_path: Path, name: str) -> None:
+        with pytest.raises(ValueError, match="MSVC include"):
+            cache_module.scan_include_closure(
+                f"#include <{name}>\n", None, (str(tmp_path),), msvc_include_parents=True
+            )
+
+    def test_cache_tracks_msvc_backslash_header(self, tmp_path: Path) -> None:
+        (tmp_path / "sub").mkdir()
+        header = tmp_path / "sub" / "header.h"
+        header.write_text("int value;\n")
+        source = "#include <sub\\header.h>\n"
+        before = header_dependency_hash(source, None, [str(tmp_path)])
+        header.write_text("int changed;\n")
+        assert header_dependency_hash(source, None, [str(tmp_path)]) != before
 
     @pytest.mark.parametrize("name", ["../outside.h", "dir/../../outside.h", "/outside.h"])
     def test_traversal_still_rejected(self, tmp_path: Path, name: str) -> None:
