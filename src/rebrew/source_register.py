@@ -51,10 +51,11 @@ def plan_registration(
     }
     for path in paths:
         text, _ = read_source_text(path)
-        forbidden = metadata_comments(text)
+        syntax = getattr(cfg, "address_comments", None)
+        forbidden = metadata_comments(text, syntax=syntax)
         if forbidden:
             raise ValueError(f"{path}:{forbidden[0][0]}: source metadata tags are not supported")
-        anchors = parse_address_anchors(text)
+        anchors = parse_address_anchors(text, syntax=syntax)
         variables = (
             {v.name: v for v in find_extern_variables(text, include_definitions=True)}
             if any(a.kind == "DATA" for a in anchors)

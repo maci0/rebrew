@@ -14,7 +14,8 @@ Source annotations and the locked metadata stores: every read and write of `rebr
 | `locking.py` | Reentrant project and physical-storage locks |
 | `document.py` | Qualified-key algebra and backend-neutral document cache |
 | `model.py` | `MetadataEntry`: typed view and validation of a function entry |
-| `anchors.py` | Optional ADDRESS comments bound to the next C declaration through the AST |
+| `anchors.py` | Configurable address comments bound to the next declaration; C stays AST-based |
+| `pascal.py` | Delphi string/comment masking and implementation routine headings, no ABI inference |
 | `bindings.py` | `SourceBinding`, joining current addresses with canonical metadata |
 | `binding_history.py` | Reviewed source-identity changes without discarding native comparison evidence |
 | `native_identity.py` | Locked publication of reviewed native names, separate from source providers |

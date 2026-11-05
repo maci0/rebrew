@@ -778,6 +778,7 @@ def move_data_entry(
     before moving the canonical row).  Returns the move as
     ``{module, from, to, name, status_was}``; *dry_run* checks without writing.
     """
+    from rebrew.config import address_comments_for_file
     from rebrew.metadata.bindings import address_pairs
 
     module = unicodedata.normalize("NFC", module)
@@ -810,7 +811,10 @@ def move_data_entry(
             entry.get("file")
             and source.is_file()
             and (module, old_va)
-            in address_pairs(source.read_text(encoding="utf-8", errors="replace"))
+            in address_pairs(
+                source.read_text(encoding="utf-8", errors="replace"),
+                syntax=address_comments_for_file(source, module=module),
+            )
         ):
             raise ValueError(
                 f"{entry['file']} still binds {module} 0x{old_va:x}; "

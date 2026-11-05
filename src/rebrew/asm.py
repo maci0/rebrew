@@ -1513,7 +1513,13 @@ def generate_inline_c(
     lines.append("")
     from rebrew.metadata.anchors import add_address_anchor
 
-    return add_address_anchor("\n".join(lines), cfg.module or "TARGET", va, func_name)
+    return add_address_anchor(
+        "\n".join(lines),
+        cfg.module or "TARGET",
+        va,
+        func_name,
+        syntax=getattr(cfg, "address_comments", None),
+    )
 
 
 def _record_inline_c_identity(

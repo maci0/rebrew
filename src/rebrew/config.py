@@ -478,6 +478,121 @@ def profile_flags_style(profile: str) -> FlagsStyle | None:
     return getattr(spec, "flags_style", None)
 
 
+DEFAULT_ADDRESS_COMMENT_REGEX = r"ADDRESS:\s+(?P<module>\S+)\s+(?P<va>0x[0-9a-fA-F]+)\s*"
+_ADDRESS_COMMENT_TEMPLATES = {
+    "c89": "/* ADDRESS: $module $va */",
+    "cpp": "// ADDRESS: $module $va",
+    "delphi": "{ ADDRESS: $module $va }",
+}
+
+
+@dataclass(frozen=True)
+class AddressCommentFormat:
+    """Comment dialect, body regex and rendering template for source addresses."""
+
+    style: str = "c89"
+    regex: str = DEFAULT_ADDRESS_COMMENT_REGEX
+    template: str = ""
+
+    def __post_init__(self) -> None:
+        from string import Template
+
+        if self.style not in _ADDRESS_COMMENT_TEMPLATES:
+            raise ConfigError("address_comments.style must be c89, cpp or delphi")
+        try:
+            pattern = re.compile(self.regex)
+        except re.error as exc:
+            raise ConfigError(f"invalid address_comments.regex: {exc}") from exc
+        if not {"module", "va"} <= pattern.groupindex.keys():
+            raise ConfigError("address_comments.regex needs named module and va groups")
+        template = self.render_template
+        parsed = Template(template)
+        if not parsed.is_valid() or set(parsed.get_identifiers()) != {"module", "va"}:
+            raise ConfigError("address_comments.template needs $module and $va only")
+        if "\n" in template or "\r" in template:
+            raise ConfigError("address_comments.template must be one line")
+        pairs = (("{", "}"), ("(*", "*)")) if self.style == "delphi" else (("/*", "*/"), ("//", ""))
+        for opening, closing in pairs:
+            if template.startswith(opening) and (not closing or template.endswith(closing)):
+                body = template[len(opening) : -len(closing) if closing else None]
+                if closing and closing in body:
+                    break
+                sample = Template(body).substitute(module="TARGET", va="0x00001000").strip()
+                match = pattern.fullmatch(sample)
+                if match and match["module"] == "TARGET" and match["va"] == "0x00001000":
+                    return
+        raise ConfigError("address_comments.template must round-trip through its dialect and regex")
+
+    @property
+    def render_template(self) -> str:
+        """The explicit template or the dialect's built-in default."""
+        return self.template or _ADDRESS_COMMENT_TEMPLATES[self.style]
+
+
+DEFAULT_ADDRESS_COMMENTS = AddressCommentFormat()
+
+
+def parse_address_comment_format(project: Any, target: Any = None) -> AddressCommentFormat:
+    """Resolve project defaults and per-target overrides without reading a binary."""
+    values: dict[str, str] = {}
+    for table in (project, target):
+        if table is None:
+            continue
+        if not isinstance(table, dict) or set(table) - {"style", "regex", "template"}:
+            raise ConfigError("address_comments accepts only style, regex and template")
+        if any(not isinstance(v, str) or not v for v in table.values()):
+            raise ConfigError("address_comments values must be non-empty strings")
+        values.update(table)
+    return AddressCommentFormat(**values) if values else DEFAULT_ADDRESS_COMMENTS
+
+
+def address_comments_for_file(
+    filepath: Path, *, module: str | None = None, project_root: Path | None = None
+) -> AddressCommentFormat:
+    """Read source-comment settings for metadata APIs that have a path, not a config.
+
+    Shared files must have compatible target dialects. This reads configuration
+    only: source discovery must not load the reference binary or a toolchain.
+    """
+    from rebrew.workspace.config import walk_up_to_root
+
+    root = project_root or walk_up_to_root(filepath.parent)
+    if root is None or not (root / "rebrew-project.toml").is_file():
+        return DEFAULT_ADDRESS_COMMENTS
+    raw = load_tomllib(root / "rebrew-project.toml")
+    project = _as_table(raw.get("project", {}), "project")
+    targets = _normalized_targets(_as_table(raw.get("targets", {}), "targets"))
+    selected = []
+    for name, target in targets.items():
+        target_module_name = str(target.get("module") or re.sub(r"[^A-Za-z0-9_]", "", name.upper()))
+        if module and preset_module_key(target_module_name) != preset_module_key(module):
+            continue
+        source_root = _required_path(
+            root, target.get("reversed_dir"), f"src/{name}", "reversed_dir"
+        )
+        shared = project.get("shared_dir", "src/shared")
+        if (
+            module
+            or filepath.resolve().is_relative_to(source_root.resolve())
+            or (
+                shared
+                and filepath.resolve().is_relative_to(
+                    _required_path(root, shared, "src/shared", "shared_dir").resolve()
+                )
+            )
+        ):
+            selected.append(
+                parse_address_comment_format(
+                    project.get("address_comments"), target.get("address_comments")
+                )
+            )
+    if len(set(selected)) > 1:
+        raise ConfigError(f"{filepath}: shared source has incompatible address_comments settings")
+    return (
+        selected[0] if selected else parse_address_comment_format(project.get("address_comments"))
+    )
+
+
 @dataclass
 class ProjectConfig:
     """Parsed project configuration with computed paths."""
@@ -506,6 +621,7 @@ class ProjectConfig:
     """
     bin_dir: Path = field(default_factory=lambda: Path())
     module: str = ""  # prefix in /* ADDRESS: SERVER 0x... */ (default: target_name.upper())
+    address_comments: AddressCommentFormat = field(default_factory=AddressCommentFormat)
     r2_bogus_vas: list[int] = field(default_factory=list)  # VAs with known-bad r2 size data
     check_known_bindings: bool = False  # reject contradictory mapped native operands
 
@@ -863,6 +979,11 @@ class ProjectConfig:
             "binsync_user": self.binsync_user,
             "inventory_file": self.inventory_file,
             "source_ext": self.source_ext,
+            "address_comments": {
+                "style": self.address_comments.style,
+                "regex": self.address_comments.regex,
+                "template": self.address_comments.template,
+            },
             "lint_naming_convention": self.lint_naming_convention,
             "lint_brace_style": self.lint_brace_style,
             "lint_indent_style": self.lint_indent_style,
@@ -2208,6 +2329,7 @@ _KNOWN_LINK_KEYS = {
 }
 
 KNOWN_TARGET_KEYS = {
+    "address_comments",
     "binary",
     "arch",
     "format",
@@ -2266,6 +2388,7 @@ _KNOWN_COMPILER_KEYS = {
 }
 
 KNOWN_PROJECT_KEYS = {
+    "address_comments",
     "name",
     "jobs",
     "output_dir",
@@ -2669,6 +2792,9 @@ def load_config(
         # which matches no identifier-shaped annotation module and silently
         # filters every function out of verify/todo/status.
         module=modules_by_target[target],
+        address_comments=parse_address_comment_format(
+            project_raw.get("address_comments"), tgt.get("address_comments")
+        ),
         r2_bogus_vas=_parse_int_list(tgt.get("r2_bogus_vas", []), "r2_bogus_vas"),
         check_known_bindings=_as_bool(
             tgt.get("check_known_bindings"), f"targets.{target}.check_known_bindings"
@@ -2914,6 +3040,8 @@ def load_config(
 __all__ = [
     "ARCH_PRESETS",
     "DECOMPME_API_ENV",
+    "DEFAULT_ADDRESS_COMMENTS",
+    "DEFAULT_ADDRESS_COMMENT_REGEX",
     "DEFAULT_COMPILE_TIMEOUT",
     "DEFAULT_LINT_MAX_LINE_LENGTH",
     "DEFAULT_PROJECT_JOBS",
@@ -2930,6 +3058,7 @@ __all__ = [
     "REBREW_SKILLS_DIR_ENV",
     "TOOLCHAIN_OVERLAY_ENV",
     "XVFB_DISPLAY_ENV",
+    "AddressCommentFormat",
     "ConfigError",
     "ConfigKeyError",
     "ConfigNotFoundError",
@@ -2937,6 +3066,7 @@ __all__ = [
     "LinkConfig",
     "ProjectConfig",
     "RebrewError",
+    "address_comments_for_file",
     "arch_byte_order",
     "arch_is_big_endian",
     "arch_padding_bytes",
@@ -2960,6 +3090,7 @@ __all__ = [
     "llm_timeout",
     "load_compile_cache_config",
     "load_config",
+    "parse_address_comment_format",
     "parse_bool",
     "parse_env_bool",
     "parse_env_log_level",

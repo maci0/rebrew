@@ -1202,20 +1202,23 @@ def source_bindings(
     preloaded_data_rows: list[tuple[str, int, dict[str, Any]]] | None = None,
 ) -> list[SourceBinding]:
     """Join the pre-read source's address bindings with both metadata stores."""
+    from rebrew.config import address_comments_for_file
     from rebrew.metadata.data import load_data_metadata
     from rebrew.metadata.functions import apply_metadata_entry, load_metadata, resolve_metadata_dir
+
+    syntax = address_comments_for_file(filepath, module=target_name, project_root=project_root)
 
     if metadata_dir is not None:
         metadata_dir = resolve_metadata_dir(metadata_dir)
 
-    forbidden = metadata_comments(text)
+    forbidden = metadata_comments(text, syntax=syntax)
     if forbidden:
         line, forbidden_key = forbidden[0]
         raise ValueError(
             f"{filepath}:{line}: {forbidden_key} is not a source field; use dedicated metadata"
         )
     try:
-        anchors = parse_address_anchors(text)
+        anchors = parse_address_anchors(text, syntax=syntax)
     except ValueError as exc:
         raise ValueError(f"{filepath}: {exc}") from exc
     rows = _annotations_from_metadata(
@@ -1225,7 +1228,7 @@ def source_bindings(
         metadata_dir,
         text=text,
         project_root=project_root,
-        prototypes_needed=with_prototypes,
+        prototypes_needed=with_prototypes and syntax.style != "delphi",
         anchored_prototypes={
             anchor.name: anchor.prototype for anchor in anchors if anchor.kind == "FUNCTION"
         },
@@ -1518,9 +1521,9 @@ def library_bindings_for_file(
     ]
 
 
-def split_address_sections(text: str) -> tuple[str, list[str]]:
+def split_address_sections(text: str, *, syntax: Any = None) -> tuple[str, list[str]]:
     """Split source at declaration-bound address groups, preserving stacked targets."""
-    anchors = parse_address_anchors(text)
+    anchors = parse_address_anchors(text, syntax=syntax)
     if not anchors:
         return text, []
     starts: dict[int, int] = {}
@@ -1536,9 +1539,9 @@ def split_address_sections(text: str) -> tuple[str, list[str]]:
     ]
 
 
-def address_pairs(block: str) -> list[tuple[str, int]]:
+def address_pairs(block: str, *, syntax: Any = None) -> list[tuple[str, int]]:
     """Return the target/address pairs of declaration-bound address anchors."""
-    return [(a.module, a.va) for a in parse_address_anchors(block)]
+    return [(a.module, a.va) for a in parse_address_anchors(block, syntax=syntax)]
 
 
 __all__ = [

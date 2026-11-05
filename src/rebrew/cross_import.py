@@ -514,25 +514,27 @@ def _extract_function_text(text: str, name: str) -> str | None:
     )
 
 
-def _rewrite_address(text: str, module: str, va: int, *, name: str) -> str:
+def _rewrite_address(
+    text: str, module: str, va: int, *, name: str, syntax: Any = None, source_syntax: Any = None
+) -> str:
     """A copied definition receives only the destination address."""
     from rebrew.metadata.anchors import add_address_anchor, parse_address_anchors
 
-    anchors = parse_address_anchors(text)
+    anchors = parse_address_anchors(text, syntax=source_syntax)
     removed = {a.line for a in anchors if a.kind == "FUNCTION" and a.name == name}
     body = "".join(
         line for i, line in enumerate(text.splitlines(keepends=True), 1) if i not in removed
     )
-    return add_address_anchor(body, module, va, name)
+    return add_address_anchor(body, module, va, name, syntax=syntax)
 
 
-def _strip_claim(block: str, claim: tuple[str, int]) -> str:
+def _strip_claim(block: str, claim: tuple[str, int], *, syntax: Any = None) -> str:
     """Remove one superseded address while preserving the declaration and other targets."""
     from rebrew.metadata.anchors import parse_address_anchors
 
     removed = {
         a.line
-        for a in parse_address_anchors(block)
+        for a in parse_address_anchors(block, syntax=syntax)
         if preset_module_key(a.module) == preset_module_key(claim[0]) and a.va == claim[1]
     }
     return "".join(
@@ -557,8 +559,9 @@ def _retire_shared_stub(cfg: ProjectConfig, path: Path, claim: tuple[str, int]) 
         *load_metadata(cfg.metadata_dir).values(),
         *load_data_metadata(cfg.metadata_dir).values(),
     ]
-    kept = _strip_claim(text, claim)
-    indexes = parse_address_anchors(kept)
+    syntax = getattr(cfg, "address_comments", None)
+    kept = _strip_claim(text, claim, syntax=syntax)
+    indexes = parse_address_anchors(kept, syntax=syntax)
     definitions, _declarations, _uses = find_variable_roles(text)
     remaining = any(stored_file_matches(str(row.get("file") or ""), rel) for row in owners)
     if remaining or indexes or definitions or len(find_c_function_definitions(text)) != 1:
@@ -799,14 +802,17 @@ def import_shared_function(
     )
     src_module = target_module(cfg_src) or cfg_src.target_name
     superseded = any(e.va == dst_va for e in existing)
-    _preamble, blocks = split_address_sections(text)
+    syntax = getattr(cfg_src, "address_comments", None)
+    if syntax != getattr(cfg_dst, "address_comments", None):
+        raise ValueError("shared imports require compatible address_comments settings")
+    _preamble, blocks = split_address_sections(text, syntax=syntax)
     already_on_source = False
     dst_elsewhere = False
     has_src = False
     for block in blocks:
         from rebrew.metadata.anchors import parse_address_anchors
 
-        claims = [(a.module, a.va) for a in parse_address_anchors(block)]
+        claims = [(a.module, a.va) for a in parse_address_anchors(block, syntax=syntax)]
         if (src_module, src_va) in claims:
             has_src = True
             if (module, dst_va) in claims:
@@ -822,7 +828,7 @@ def import_shared_function(
     from rebrew.metadata.functions import get_entry
 
     # Managed identities can bind another definition in this same file.
-    name, symbol = _symbol_for_va(text, src_module, src_va, target_path.stem)
+    name, symbol = _symbol_for_va(text, src_module, src_va, target_path.stem, syntax=syntax)
     if name == target_path.stem:
         for ann in read_source_bindings(
             target_path, target_name=src_module, metadata_dir=getattr(cfg_src, "metadata_dir", None)
@@ -883,7 +889,7 @@ def import_shared_function(
     )
     # Removing a superseded address preserves physical lines and C semantics.
     # Compare the exact candidate bytes so the stored input hash names that source.
-    candidate = _strip_claim(text, (module, dst_va)) if needs_move else text
+    candidate = _strip_claim(text, (module, dst_va), syntax=syntax) if needs_move else text
     from rebrew.utils import SOURCE_BACKUP_DIRNAME, source_backup
 
     with source_backup(
@@ -1056,7 +1062,14 @@ def import_function(
         )
     copied_name = donor.name
     copied_symbol = donor.symbol or ("_" + donor.name)
-    rewritten = _rewrite_address(extracted, module, dst_va, name=copied_name)
+    rewritten = _rewrite_address(
+        extracted,
+        module,
+        dst_va,
+        name=copied_name,
+        syntax=getattr(cfg_dst, "address_comments", None),
+        source_syntax=getattr(cfg_src, "address_comments", None),
+    )
     if dst_file is None:
         # Keep the source's path relative to its own reversed_dir: it gives
         # one destination file per source file (two imports out of one
@@ -1241,12 +1254,14 @@ def import_function(
     )
 
 
-def _symbol_for_va(text: str, module: str, va: int, fallback: str) -> tuple[str, str]:
+def _symbol_for_va(
+    text: str, module: str, va: int, fallback: str, *, syntax: Any = None
+) -> tuple[str, str]:
     """The C definition attached to a target address, with native symbol decoration."""
     from rebrew.metadata.anchors import parse_address_anchors
     from rebrew.metadata.bindings import derive_c_symbol
 
-    for anchor in parse_address_anchors(text):
+    for anchor in parse_address_anchors(text, syntax=syntax):
         if preset_module_key(anchor.module) == preset_module_key(module) and anchor.va == va:
             return anchor.name, derive_c_symbol(anchor.name, anchor.prototype)
     return fallback, "_" + fallback

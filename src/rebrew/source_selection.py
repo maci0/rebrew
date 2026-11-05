@@ -89,7 +89,7 @@ def collect_target_sources(
             # shared helper, or it drags that target's unbound callees in.
             from rebrew.metadata.anchors import parse_address_anchors
 
-            raw = parse_address_anchors(_read(src))
+            raw = parse_address_anchors(_read(src), syntax=getattr(cfg, "address_comments", None))
             modules_named = {preset_module_key(a.module) for a in raw if a.va}
             if modules_named and target_key not in modules_named:
                 foreign.append(resolved)

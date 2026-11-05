@@ -155,6 +155,55 @@ Use `rebrew cfg set module NAME` for later edits. In Python use
 
 The `module` field is the module name in `MODULE.0xVA` metadata keys and optional `ADDRESS: MODULE 0xVA` comments.
 
+### Address comment syntax
+
+`[project.address_comments]` sets source-address comment defaults;
+`[targets.<name>.address_comments]` overrides individual fields for a target.
+Omitting both tables retains C89 output and existing C comment parsing.
+
+```toml
+[project.address_comments]
+style = "delphi"
+```
+
+| Style | Generated comment | Binding syntax |
+|---|---|---|
+| `c89` (default) | `/* ADDRESS: MAIN 0x00001000 */` | C declarations through tree-sitter |
+| `cpp` | `// ADDRESS: MAIN 0x00001000` | C declarations through tree-sitter |
+| `delphi` | `{ ADDRESS: MAIN 0x00001000 }` | Delphi implementation routine headings |
+
+C styles read both block and line comments. Delphi reads `{ ... }`,
+`(* ... *)`, and line comments; its default output uses braces for Delphi 1
+compatibility. Delphi interface prototypes, forward/external declarations and
+strings do not establish bindings. Delphi data declarations and type/ABI
+inference are outside this routine-anchor parser. Selecting a comment style
+does not turn C-only generation or mutation commands into Pascal tools.
+
+For a different address marker, configure the body regex and writer together:
+
+```toml
+[project.address_comments]
+style = "c89"
+regex = 'NATIVE (?P<module>\S+)@(?P<va>0x[0-9a-fA-F]+)'
+template = "/* NATIVE $module@$va */"
+```
+
+The regex is full-matched against the stripped body of an actual lexical
+comment, excluding delimiters. It must provide named `module` and `va` groups;
+`va` captures a `0x` hexadecimal address. The template is a Python
+`string.Template` with only `$module` and `$va` placeholders, including the
+comment delimiters. Invalid patterns, unknown fields, incompatible delimiters
+and templates that cannot round-trip are configuration errors. Nonmatching
+ordinary comments are ignored; malformed `ADDRESS:` comments remain errors.
+Comments must occupy one complete line and immediately precede exactly one
+declaration, allowing intervening blank lines and ordinary comments but no
+code or compiler directives. Shared files require compatible target settings.
+
+Python callers pass `syntax=cfg.address_comments` to `address_comment`,
+`add_address_anchor`, `parse_address_anchors` and `metadata_comments` in
+`rebrew.metadata.anchors`. Source registration uses the selected target's
+settings; path-based metadata readers resolve the owning source configuration.
+
 ```toml
 ["SERVER.0x10008880"]
 file = "shared/MyFunc.c"

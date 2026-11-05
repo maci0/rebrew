@@ -240,7 +240,13 @@ def generate_skeleton(
     from rebrew.metadata.anchors import add_address_anchor
 
     address_module = module or target_module(cfg) or cfg.target_name
-    return add_address_anchor(content, address_module, va, func_name) if address_module else content
+    return (
+        add_address_anchor(
+            content, address_module, va, func_name, syntax=getattr(cfg, "address_comments", None)
+        )
+        if address_module
+        else content
+    )
 
 
 def _convention_stub(

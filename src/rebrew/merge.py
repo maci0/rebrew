@@ -192,7 +192,7 @@ def _ends_declaration(line: str) -> bool:
     return code.rstrip().endswith(";")
 
 
-def consolidate_declarations(text: str) -> tuple[str, ExternReport]:
+def consolidate_declarations(text: str, *, syntax: Any = None) -> tuple[str, ExternReport]:
     """Hoist unique includes/externs/typedefs/intrinsics to the top of *text*.
 
     Each merged function block carries its own declarations, which conflict
@@ -211,7 +211,9 @@ def consolidate_declarations(text: str) -> tuple[str, ExternReport]:
     from rebrew.metadata.anchors import parse_address_anchors
 
     address_bound_lines = {
-        a.definition_line - 1 for a in parse_address_anchors(text) if a.kind == "DATA"
+        a.definition_line - 1
+        for a in parse_address_anchors(text, syntax=syntax)
+        if a.kind == "DATA"
     }
     lines_to_remove: set[int] = set()
 
@@ -304,17 +306,17 @@ def consolidate_declarations(text: str) -> tuple[str, ExternReport]:
     return out, report
 
 
-def normalize_body(block: str) -> str:
+def normalize_body(block: str, *, syntax: Any = None) -> str:
     """The same C body across targets, excluding only its address anchors."""
-    removed = {a.line for a in parse_address_anchors(block)}
+    removed = {a.line for a in parse_address_anchors(block, syntax=syntax)}
     return "\n".join(
         line.rstrip() for i, line in enumerate(block.splitlines(), 1) if i not in removed
     ).strip()
 
 
-def block_metadata(block: str) -> dict[str, Any] | None:
+def block_metadata(block: str, *, syntax: Any = None) -> dict[str, Any] | None:
     """The first address group in a declaration-bound block."""
-    anchors = parse_address_anchors(block)
+    anchors = parse_address_anchors(block, syntax=syntax)
     return {"module": anchors[0].module, "va": anchors[0].va} if anchors else None
 
 
@@ -677,6 +679,9 @@ def _read_layouts(
     out_encoding = "utf-8"
     input_eol = "\n"
     for file_path in input_files:
+        from rebrew.config import address_comments_for_file
+
+        syntax = address_comments_for_file(file_path)
         try:
             text, enc = read_source_text(file_path)
         except OSError as exc:
@@ -689,7 +694,7 @@ def _read_layouts(
             validation_lines = text.splitlines(keepends=True)
             if prior_output:
                 # --force explicitly reuses inputs whose rows moved to this output.
-                for anchor in parse_address_anchors(text):
+                for anchor in parse_address_anchors(text, syntax=syntax):
                     store = data_entries if anchor.kind == "DATA" else entries
                     row = store.get((anchor.module, anchor.va), {})
                     if stored_file_matches(str(row.get("file") or ""), prior_output) and (
@@ -836,6 +841,7 @@ def _compose_definitions(
     func_out: list[_Piece],
     *,
     input_eol: str,
+    syntax: Any = None,
 ) -> str:
     parts: list[str] = []
     preamble = merge_preambles([layout.preamble for layout in layouts])
@@ -844,7 +850,7 @@ def _compose_definitions(
     for piece in [*store_out, *func_out]:
         text = piece.text
         for module, va, _ in piece.rows:
-            text = add_address_anchor(text, module, va, piece.name)
+            text = add_address_anchor(text, module, va, piece.name, syntax=syntax)
         if text.strip():
             parts.append(text.strip("\r\n"))
     merged_text = "\n\n".join(parts) + "\n"
@@ -1137,10 +1143,13 @@ def _merge_definitions(
     store_out, func_out = _assemble_pieces(
         layouts, shared=shared, target_module_name=str(cfg.module), json_output=json_output
     )
-    merged_text = _compose_definitions(layouts, store_out, func_out, input_eol=input_eol)
+    syntax = getattr(cfg, "address_comments", None)
+    merged_text = _compose_definitions(
+        layouts, store_out, func_out, input_eol=input_eol, syntax=syntax
+    )
     extern_report: ExternReport | None = None
     if consolidate:
-        merged_text, extern_report = consolidate_declarations(merged_text)
+        merged_text, extern_report = consolidate_declarations(merged_text, syntax=syntax)
         _warn_externs(extern_report)
     payload = _merge_payload(
         output_path=output_path,

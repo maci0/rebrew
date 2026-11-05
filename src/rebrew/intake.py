@@ -234,13 +234,20 @@ def classify_all(
     field_updates: list[dict[str, Any]] = []
     status_updates: list[dict[str, Any]] = []
     identity_rows: list[dict[str, Any]] = []
+    from rebrew.config import address_comments_for_file
+    from rebrew.metadata.anchors import address_comment
+
+    syntax = address_comments_for_file(src_dir / "fcn.c", module=target_module_name)
+    if syntax.style == "delphi":
+        raise ValueError("C stub generation requires c89 or cpp address_comments.style")
     for va, size, _name in funcs:
         reason = blocker_reason(family, size, hint)
         # Pure C. The ADDRESS anchor binds the identity; the blocker reason is
         # an ordinary comment.
         stub = (
-            f"/* ADDRESS: {target_module_name} 0x{va:08x} */\n\n"
-            f"void fcn_{va:08x}(void)\n{{\n    /* {reason} */\n}}\n"
+            address_comment(target_module_name, va, syntax=syntax)
+            + "\n\n"
+            + f"void fcn_{va:08x}(void)\n{{\n    /* {reason} */\n}}\n"
         )
         out = src_dir / f"fcn_{va:08x}.c"
         if (va in existing_vas or out.exists()) and (target_module_name, va) in existing:
@@ -312,9 +319,8 @@ def classify_all(
 #: signature, the generated body comment, and the closing brace. A stub the
 #: user has written into (a filled-in body, extra lines, a trailing newline of
 #: their own) no longer matches, so the prune cannot delete real work.
-_AUTO_STUB_RE = re.compile(
-    r"\A/\* ADDRESS: ([A-Za-z0-9_]+) 0x([0-9a-fA-F]{8}) \*/\n\n"
-    r"void fcn_\2\(void\)\n\{\n    /\*.*?\*/\n\}\n?\Z",
+_AUTO_STUB_BODY_RE = re.compile(
+    r"\Avoid fcn_([0-9a-fA-F]{8})\(void\)\n\{\n    /\*.*?\*/\n\}\n?\Z",
     re.DOTALL,
 )
 
@@ -386,10 +392,17 @@ def prune_stale_stubs(
             # which leaves a partial prune with no report.
             logger.warning("skipping unreadable stub %s during prune: %s", path, exc)
             continue
-        m = _AUTO_STUB_RE.match(text)
-        if m is None or m.group(1) != target_module_name:
+        from rebrew.config import address_comments_for_file
+        from rebrew.metadata.anchors import address_comment
+
+        header, separator, body = text.partition("\n\n")
+        m = _AUTO_STUB_BODY_RE.fullmatch(body)
+        if not separator or m is None:
             continue
-        va = int(m.group(2), 16)
+        va = int(m.group(1), 16)
+        syntax = address_comments_for_file(path, module=target_module_name)
+        if header != address_comment(target_module_name, va, syntax=syntax):
+            continue
         entry = get_entry(meta_base, va, target_module_name)
         if va in valid_vas or entry.get("status_history") or entry.get("binding_history"):
             continue

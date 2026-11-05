@@ -1265,7 +1265,9 @@ def _plan_annotations(
                 section=section,
                 detail=row.detail or (f"from {source}" if source else ""),
                 path=rel,
-                declaration=_source_declaration(module, row.va, declaration),
+                declaration=_source_declaration(
+                    module, row.va, declaration, syntax=getattr(cfg, "address_comments", None)
+                ),
                 state=state,
             )
         )
@@ -1446,7 +1448,7 @@ def _locate(cfg_splat: SplatConfig, va: int) -> tuple[str, str] | None:
     return None
 
 
-def _source_declaration(module: str, va: int, declaration: str) -> str:
+def _source_declaration(module: str, va: int, declaration: str, *, syntax: Any = None) -> str:
     """Emit a declaration-bound address, or no text for an inventory-only identity."""
     from rebrew.c_parser import find_c_function_definitions, find_extern_variables
     from rebrew.metadata.anchors import add_address_anchor
@@ -1461,7 +1463,7 @@ def _source_declaration(module: str, va: int, declaration: str) -> str:
     )
     if len(names) != 1:
         raise ValueError("one source declaration is required for an address anchor")
-    return add_address_anchor(declaration.rstrip() + "\n", module, va, names[0])
+    return add_address_anchor(declaration.rstrip() + "\n", module, va, names[0], syntax=syntax)
 
 
 def _same_name(existing: str, name: str) -> bool:

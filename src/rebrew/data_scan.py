@@ -245,7 +245,15 @@ def _source_visible_to_target(
     """Target visibility follows stored identities and address-only source bindings."""
     from rebrew.metadata.anchors import parse_address_anchors
 
-    modules = {*stored_modules, *(a.module for a in parse_address_anchors("\n".join(lines)))}
+    modules = {
+        *stored_modules,
+        *(
+            a.module
+            for a in parse_address_anchors(
+                "\n".join(lines), syntax=getattr(cfg, "address_comments", None)
+            )
+        ),
+    }
     return cfg is None or not modules or any(module_visible_to_target(m, cfg) for m in modules)
 
 
@@ -360,7 +368,11 @@ def _store_names_the_file(
     and no data row contributes none. A comment whose address is already
     stored does not need another C parse to repeat the name.
     """
+    from rebrew.config import DEFAULT_ADDRESS_COMMENT_REGEX, address_comments_for_file
     from rebrew.metadata.data import data_rows_for_path
+
+    if address_comments_for_file(cfile).regex != DEFAULT_ADDRESS_COMMENT_REGEX:
+        return False
 
     rows = data_rows_for_path(metadata_dir, cfile)
     if any(not (entry.get("name") or entry.get("link_symbol")) for _, _, entry in rows):
@@ -431,11 +443,17 @@ def _store_stamp(metadata_dir: Path) -> list[list[object]]:
     from rebrew.config import METADATA_FILENAME
     from rebrew.metadata.data import DATA_METADATA_FILENAME
     from rebrew.metadata.storage import metadata_store
+    from rebrew.workspace.config import walk_up_to_root
 
     stamp: list[list[object]] = []
     for name in (METADATA_FILENAME, DATA_METADATA_FILENAME):
         for part in metadata_store(metadata_dir / name).fingerprint():
             stamp.append(list(part))
+    root = walk_up_to_root(metadata_dir)
+    if root is not None:
+        stamp.append(
+            [str(root / "rebrew-project.toml"), _source_stamp(root / "rebrew-project.toml")]
+        )
     return stamp
 
 

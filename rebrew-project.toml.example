@@ -14,6 +14,12 @@
 # -----------------------------------------------------------------------------
 
 [project]
+# Optional address_comments table, shared by readers and source generators:
+# [project.address_comments]
+# style = "c89"                       # c89, cpp, delphi
+# regex = 'ADDRESS:\s+(?P<module>\S+)\s+(?P<va>0x[0-9a-fA-F]+)\s*'
+# template = "/* ADDRESS: $module $va */" # Delphi default: { ADDRESS: $module $va }
+# Override individual fields under [targets.<name>.address_comments].
 # Informational project name.
 name = "example-project"
 

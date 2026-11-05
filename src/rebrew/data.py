@@ -154,7 +154,12 @@ def _generate_bss_fix(
     # file.  Already-declared offsets keep their existing arrays untouched.
     new_gaps = [g for g in report.gaps if g.offset not in existing_decls]
 
+    from rebrew.config import address_comments_for_file
     from rebrew.metadata.anchors import address_comment
+
+    syntax = address_comments_for_file(src_dir / "bss_padding.c", module=origin)
+    if syntax.style == "delphi":
+        raise ValueError("C data generation requires c89 or cpp address_comments.style")
 
     lines = [
         _BSS_PADDING_HEADER,
@@ -164,13 +169,13 @@ def _generate_bss_fix(
     for offset in sorted(existing_decls):
         size = existing_decls[offset]
         if size > 0:
-            lines.append(address_comment(origin, offset))
+            lines.append(address_comment(origin, offset, syntax=syntax))
             lines.append(f"char gap_{offset:08x}[{size}];")
     # Then the newly detected gaps.
     for gap in sorted(new_gaps, key=lambda g: g.offset):
         if gap.size <= 0:
             continue
-        lines.append(address_comment(origin, gap.offset))
+        lines.append(address_comment(origin, gap.offset, syntax=syntax))
         lines.append(f"char gap_{gap.offset:08x}[{gap.size}];")
 
     if dry_run:

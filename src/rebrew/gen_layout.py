@@ -430,13 +430,17 @@ def fmt_layout_toml(
     return tomlkit.dumps(doc)
 
 
-def gen_data_restore(data: bytes, target_module_name: str, raw_start: int) -> str:
+def gen_data_restore(
+    data: bytes, target_module_name: str, raw_start: int, *, syntax: Any = None
+) -> str:
     """The ``.data`` gap TU: the reference's raw ``.data`` bytes ``[raw_start : raw_end]``.
 
     This copies a caller-selected range; it does not inspect project objects
     or establish that they lack those bytes. The blob can duplicate native
     contributions and preserves reference pointer values without relocations.
     """
+    if syntax is not None and syntax.style == "delphi":
+        raise ValueError("C data generation requires c89 or cpp address_comments.style")
     layout = pe_layout(data)
     if layout is None:
         raise ValueError("reference binary is not a PE")
@@ -463,7 +467,7 @@ def gen_data_restore(data: bytes, target_module_name: str, raw_start: int) -> st
         " * Regenerate with: rebrew build layout --data-gap <raw-size>",
         " */",
         "#pragma pack(push, 1)",
-        address_comment(target_module_name, image_base + data_va + raw_start),
+        address_comment(target_module_name, image_base + data_va + raw_start, syntax=syntax),
         f"unsigned char g_data_restore_gap[0x{len(blob):x}] = {{",
     ]
     for i in range(0, len(blob), 16):
@@ -630,7 +634,12 @@ def main(
         if data_gap:
             write(
                 Path("crt_region/data_restore.c"),
-                gen_data_restore(data, target_module_name, int(data_gap, 0)),
+                gen_data_restore(
+                    data,
+                    target_module_name,
+                    int(data_gap, 0),
+                    syntax=getattr(cfg, "address_comments", None),
+                ),
             )
 
     result = {

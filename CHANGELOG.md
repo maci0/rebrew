@@ -1,5 +1,13 @@
 ## [Unreleased]
 
+### Added
+
+- Configurable source address comments: C89, C++ and Delphi defaults, project/target body regex and rendering templates, and declaration-bound Delphi routine anchors. Source registration and metadata readers honor the selected syntax without changing comparison verdicts.
+
+### Changed
+
+- **Breaking:** `config.KNOWN_PROJECT_KEYS`, `config.KNOWN_TARGET_KEYS`, `cfg.KNOWN_PROJECT_KEYS` and `cfg.KNOWN_TARGET_KEYS` now include `address_comments`; consumers validating exact key sets must accept the new table.
+
 ## [6.22.0] - 2026-11-05
 
 ### Added

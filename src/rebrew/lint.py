@@ -1340,8 +1340,11 @@ def _retired_leftover(
     except OSError:
         return False
     from rebrew.c_parser import find_c_function_definitions
+    from rebrew.config import address_comments_for_file
 
-    anchors = parse_address_anchors(source)
+    anchors = parse_address_anchors(
+        source, syntax=address_comments_for_file(filepath, project_root=project_root)
+    )
     if anchors:
         for anchor in anchors:
             entry = entries.get((preset_module_key(anchor.module), anchor.va))
@@ -2158,7 +2161,10 @@ def lint_file(
     lines = text.splitlines()
     result._lines = lines
 
-    for line, key in metadata_comments(text):
+    from rebrew.config import address_comments_for_file
+
+    syntax = address_comments_for_file(filepath, project_root=getattr(cfg, "root", None))
+    for line, key in metadata_comments(text, syntax=syntax):
         result.error(
             line, "E024", f"{key} belongs in metadata; source accepts ADDRESS anchors only"
         )
