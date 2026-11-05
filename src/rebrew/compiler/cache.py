@@ -887,8 +887,8 @@ def _resolve_escaping_include(
     :func:`_find_in_dirs` rejects both, so without this resolution those
     includes resolve nowhere and stay untracked: an edit to the header leaves
     the cache key unmoved and serves the stale object.  The compiler resolves
-    them, so the closure must too.  Only the named file is probed — no
-    directory is scanned — so nothing here widens what the include search reads.
+    them, so the closure must too. Each component is checked for ambiguous
+    case-insensitive matches before its bytes can be trusted.
     """
     for d in dirs:
         if name.is_absolute():
