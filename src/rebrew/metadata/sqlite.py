@@ -132,7 +132,7 @@ class SqliteStore:
 
     def write(self, doc: dict[str, Any], description: str) -> None:
         """Replace a document atomically, advancing its revision only on change."""
-        content = tomlkit.dumps(doc)
+        content = tomlkit.dumps(doc) or "\n"
         with self.transaction():
             connection = _connections()[self.location]
             connection.execute(
@@ -215,9 +215,7 @@ class SqliteStore:
                             raise MetadataStorageError(
                                 f"{self.location}: not a Rebrew metadata database"
                             )
-                        connection.execute(
-                            "CREATE TABLE metadata_documents(path TEXT NOT NULL PRIMARY KEY, revision INTEGER NOT NULL CHECK (revision > 0), content TEXT NOT NULL)"
-                        )
+                        connection.execute(_EXPECTED_DDL)
                         connection.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
                     self._check_schema(connection)
                     connections[self.location] = connection
@@ -323,13 +321,7 @@ def _extra_durable_sources(root: Path) -> list[Path]:
         sources.append(uploads)
     sync_dir = root / _SYNC_DIR_REL
     if sync_dir.is_dir():
-        sources.extend(
-            sorted(
-                p
-                for p in sync_dir.iterdir()
-                if p.suffix == ".toml" and p.is_file()
-            )
-        )
+        sources.extend(sorted(p for p in sync_dir.iterdir() if p.suffix == ".toml" and p.is_file()))
     return sources
 
 
@@ -498,21 +490,15 @@ def restore_metadata_toml(bundle: Path, root: Path) -> tuple[Path, ...]:
                 raw = source.read_bytes()
             except OSError as exc:
                 raise MetadataStorageError(f"{source}: corrupt backup: {exc}") from exc
-            for lineno, line in enumerate(
-                raw.decode("utf-8", errors="replace").splitlines(), 1
-            ):
+            for lineno, line in enumerate(raw.decode("utf-8", errors="replace").splitlines(), 1):
                 if not line.strip():
                     continue
                 try:
                     parsed = _json.loads(line)
                 except _json.JSONDecodeError as exc:
-                    raise MetadataStorageError(
-                        f"{source}: corrupt backup line {lineno}"
-                    ) from exc
+                    raise MetadataStorageError(f"{source}: corrupt backup line {lineno}") from exc
                 if not isinstance(parsed, dict):
-                    raise MetadataStorageError(
-                        f"{source}: corrupt backup line {lineno}"
-                    )
+                    raise MetadataStorageError(f"{source}: corrupt backup line {lineno}")
         planned.append(rel)
     if not planned:
         raise FileNotFoundError(f"no metadata stores in backup bundle at {bundle}")
@@ -558,7 +544,7 @@ def backup_metadata_database(root: Path, backup_dir: Path) -> Path:
     A plain file copy of a live SQLite database can capture a torn page
     image if a writer is mid-transaction; ``sqlite3``'s online backup API
     copies a transactionally consistent snapshot instead.  The copy is
-    then opened read-only and its schema version and row count checked,
+    then opened read-only and its schema version and table checked,
     so a backup that cannot be restored raises here rather than at
     restore time.  A missing database raises ``FileNotFoundError``.
 
@@ -665,9 +651,7 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
             _candidates = [_src_dir] if _src_dir.is_file() else []
         else:
             _candidates = (
-                sorted(
-                    x for x in _src_dir.iterdir() if x.suffix == ".toml" and x.is_file()
-                )
+                sorted(x for x in _src_dir.iterdir() if x.suffix == ".toml" and x.is_file())
                 if _src_dir.is_dir()
                 else []
             )
@@ -687,18 +671,14 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
                             f"{_src}: corrupt backup line {_lineno}"
                         ) from _exc
                     if not isinstance(_parsed, dict):
-                        raise MetadataStorageError(
-                            f"{_src}: corrupt backup line {_lineno}"
-                        )
+                        raise MetadataStorageError(f"{_src}: corrupt backup line {_lineno}")
             else:
                 try:
                     from rebrew.utils import load_tomllib as _lt
 
                     _lt(_src)
                 except (ValueError, OSError) as _exc:
-                    raise MetadataStorageError(
-                        f"{_src}: corrupt backup: {_exc}"
-                    ) from _exc
+                    raise MetadataStorageError(f"{_src}: corrupt backup: {_exc}") from _exc
             _siblings.append((_src, _dest))
     location = root / DATABASE_FILENAME
     location.parent.mkdir(parents=True, exist_ok=True)
