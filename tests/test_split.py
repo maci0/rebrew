@@ -11,6 +11,16 @@ from typer.testing import CliRunner
 
 from rebrew.split import app
 
+
+def test_source_layout_preserves_closing_brace_after_inline_asm() -> None:
+    from rebrew.source_layout import source_layout
+
+    raw, spans = source_layout("int f(void) { __asm mov eax, 1 }\nint g(void) { return 2; }\n")
+    functions = [span for span in spans if span.kind == "function"]
+    assert [span.name for span in functions] == ["f", "g"]
+    assert raw[functions[0].start : functions[0].end].endswith(b"}")
+
+
 runner = CliRunner()
 
 

@@ -5,7 +5,7 @@
 ### Added
 
 - Opt-in pinned-MSVC preprocessing capture with scoped source inputs, SDK/image receipts, deterministic timestamp controls and conservative dependency checks.
-
+- Offset-preserving MSVC preprocessed-source parsing and exact reported-path function inventories, with explicit unknown-syntax and provenance limits.
 - Guarded source merge, rehome and anchor operations with reviewed binding plans, compiler/include context checks, and coordinated source/metadata rollback.
 - Retained named decompilation and security-scan operations over verified source snapshots, plus a captured inventory/report for fresh analysis.
 - Independent metadata `read_backends`/`write_backends` lists, ordered read failover, durable queued writes and `rebrew metadata reconcile`, with document timestamps, causal conflict detection and deletion tombstones.
@@ -23,6 +23,7 @@
 
 - Match Recompile’s 12-character idempotency key contract for remote compiles.
 - Preserve compile-cache correctness across include search order, forced includes, archive/image header changes and source contract checks.
+- Preserve a function's closing brace after single-line inline assembly when finding source spans.
 - Run Go race checks with CGO enabled, and refresh the pinned dependency metadata for reproducible CI installs.
 
 ## [6.22.0] - 2026-11-05

@@ -233,6 +233,13 @@ def mask_for_parse(raw: bytes) -> bytes:
         if m.group(1) is None:
             end = out.find(b"\n", m.end())
             end = len(out) if end < 0 else end
+            statement = bytes(out[m.end() : end])
+            if not any(token in statement for token in (b'"', b"'", b"//", b"/*")):
+                suffix = len(statement.rstrip(b" \t\r"))
+                while suffix and statement[suffix - 1] == ord("}"):
+                    suffix -= 1
+                if suffix < len(statement.rstrip(b" \t\r")):
+                    end = m.end() + suffix
             _blank(out, m.start(), end)
             out[m.start()] = 0x3B  # `;` keeps the statement well formed
             pos = end
