@@ -575,6 +575,25 @@ class FlagSearchFile:
 
 
 @dataclass(frozen=True)
+class DecompileSnapshotRequest:
+    project_dir: str
+    sha256: str
+    va: int
+    backend: str
+    rebrew_target: str
+    source_revision: str
+    source_snapshot_sha256: str
+    source_manifest: str
+    files: list[FlagSearchFile]
+    generation: str
+    analysis_manifest_sha256: str
+    analysis_manifest: str
+    analysis_files: list[FlagSearchFile]
+    binary_key: str = ""
+    binary_url: str = ""
+
+
+@dataclass(frozen=True)
 class FlagSearchRequest:
     source: str
     source_sha256: str
@@ -2569,6 +2588,13 @@ def retained_source_operation(config: WorkerConfig, req: SnapshotMutationRequest
     return snapshot_mutation(config, req)
 
 
+def decompile_snapshot(config: WorkerConfig, req: DecompileSnapshotRequest) -> dict[str, Any]:
+    """Decompile with names from a verified retained source snapshot."""
+    from rebrew.named_snapshot import decompile_retained
+
+    return decompile_retained(config, req)
+
+
 #: Every op of the backend's rebrew contract, by wire name.
 OPS: dict[str, Op] = {
     "rebrew.disassemble": Op(DisassembleRequest, disassemble),
@@ -2578,6 +2604,7 @@ OPS: dict[str, Op] = {
     "rebrew.call_references": Op(ProjectRequest, call_references),
     "rebrew.describe": Op(AddressRequest, describe),
     "rebrew.decompile": Op(DecompileRequest, decompile),
+    "rebrew.decompile_snapshot": Op(DecompileSnapshotRequest, decompile_snapshot),
     "rebrew.identify_library": Op(ProjectRequest, identify_library),
     "rebrew.structs": Op(StructsRequest, structs),
     "rebrew.binary_operand_locations": Op(OperandLocationsRequest, binary_operand_locations),
@@ -2622,8 +2649,13 @@ def _answer(config: WorkerConfig, name: str, body: bytes) -> Mapping[str, Any]:
         detail = f"request exceeds {MAX_REQUEST_BYTES} bytes"
         raise OpsError(detail, code=INVALID_REQUEST, status=413)
     try:
-        raw = json.loads(body)
-    except json.JSONDecodeError, UnicodeDecodeError:
+        if name == "rebrew.decompile_snapshot":
+            from rebrew.named_snapshot import _unique_object
+
+            raw = json.loads(body, object_pairs_hook=_unique_object)
+        else:
+            raw = json.loads(body)
+    except ValueError:
         raise _invalid("request is not JSON") from None
     request: Any = parse_request(op.request, raw)
     try:
