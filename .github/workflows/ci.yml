@@ -426,7 +426,7 @@ jobs:
       # sdist are subjects: the SBOM/buildinfo are generated beside them and
       # verified by `make verify-dist`, not consumers.
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: |
             dist/*.whl
@@ -436,7 +436,7 @@ jobs:
       # Subject added here (not on the step above) so the wheel/sdist
       # subjects stay exactly the two package globs.
       - name: Attest SBOM provenance
-        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: |
             dist/rebrew.cdx.json
