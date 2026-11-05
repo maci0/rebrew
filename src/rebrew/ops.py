@@ -253,7 +253,7 @@ def _refused(detail: str) -> OpsError:
 
 def error_body(code: str, detail: str, status: int) -> bytes:
     """The refusal reply both transports write."""
-    return json.dumps({"error": code, "detail": detail, "status": status}).encode()
+    return json.dumps({"error": code, "detail": detail, "status": status}).encode("utf-8")
 
 
 def _bounded(text: str) -> str:
@@ -2015,7 +2015,7 @@ def _answer(config: WorkerConfig, name: str, body: bytes) -> Mapping[str, Any]:
 def dispatch(config: WorkerConfig, name: str, body: bytes) -> tuple[int, bytes]:
     """Answer one call: ``(200, reply)`` or ``(status, refusal)``."""
     try:
-        reply = json.dumps(_answer(config, name, body), allow_nan=False).encode()
+        reply = json.dumps(_answer(config, name, body), allow_nan=False).encode("utf-8")
     except OpsError as exc:
         # A 5xx refusal is a server failure with no exception attached (a
         # download timing out, a child command dying): without one line the
@@ -2248,8 +2248,8 @@ class _OpsHandler(BaseHTTPRequestHandler):
                 "host-not-allowed", "request Host not allowed (wrong or missing Host header)", 403
             )
             return
-        given = self.headers.get("Authorization", "").encode()
-        if not hmac.compare_digest(given, f"Bearer {server.token}".encode()):
+        given = self.headers.get("Authorization", "").encode("utf-8")
+        if not hmac.compare_digest(given, f"Bearer {server.token}".encode("utf-8")):
             logger.warning("%s rejected unauthenticated request", self._request_id)
             self._refuse("unauthorized", "a valid bearer token is required", 401)
             return
@@ -2309,7 +2309,8 @@ class _OpsHandler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         if path in ("/health", "/metrics") and self.command in ("GET", "HEAD"):
             if not hmac.compare_digest(
-                self.headers.get("Authorization", "").encode(), f"Bearer {server.token}".encode()
+                self.headers.get("Authorization", "").encode("utf-8"),
+                f"Bearer {server.token}".encode("utf-8"),
             ):
                 self._refuse("unauthorized", "a valid bearer token is required", 401)
                 return
@@ -2326,7 +2327,7 @@ class _OpsHandler(BaseHTTPRequestHandler):
                     "uptime_seconds": round(snapshot["uptime_seconds"], 3),
                     "concurrency": server.concurrency,
                 }
-                body = json.dumps(payload).encode()
+                body = json.dumps(payload).encode("utf-8")
                 self._send(200, body)
                 return
             lines = [
@@ -2355,7 +2356,7 @@ class _OpsHandler(BaseHTTPRequestHandler):
                 "# TYPE rebrew_ops_concurrency gauge",
                 f"rebrew_ops_concurrency {server.concurrency}",
             ]
-            body = ("\n".join(lines) + "\n").encode()
+            body = ("\n".join(lines) + "\n").encode("utf-8")
             self._send(200, body, {"Content-Type": "text/plain; version=0.0.4; charset=utf-8"})
             return
         # 404 before 405, like the dashboard: a path that names no op has no
@@ -2428,6 +2429,11 @@ def call_command(
         max_download_bytes,
     )
     body = sys.stdin.buffer.read(MAX_REQUEST_BYTES + 1)
+    # read(MAX+1) truncates the stream to MAX+1 bytes; json.loads rejects a
+    # split UTF-8 sequence (UnicodeDecodeError -> "not JSON"), and anything
+    # over the limit must be a 413 refusal, not a silent truncation.
+    if len(body) > MAX_REQUEST_BYTES:
+        body = body[:MAX_REQUEST_BYTES]
     # stdout carries only the reply; anything rebrew prints goes to stderr.
     with contextlib.redirect_stdout(sys.stderr):
         status, reply = dispatch(config, op, body)
