@@ -20,6 +20,8 @@
 - **Breaking:** `rebrew.config.RebrewError` is restored as a re-export of `rebrew.errors.RebrewError` (ConfigError and friends moved to `rebrew.errors`); import `RebrewError` from `rebrew.errors`.
 - **Breaking:** `rebrew.formats.dfm.Int16.encode` and `Int32.encode` now raise `DfmError` (a `RebrewError` and `ValueError`) on an out-of-range value instead of `struct.error`; catch `DfmError` alongside the existing `Int8` range check.
 - **Breaking:** `rebrew.metadata.sqlite.SqliteStore` now rejects a database whose stored `CREATE TABLE` for `metadata_documents` no longer matches the expected DDL (raised as `MetadataStorageError` "unsupported metadata schema") instead of trusting `user_version` alone. Rebuild a drifted store with `rebrew metadata migrate` or restore a backup.
+- **Breaking:** `rebrew.ops.serve_command` now refuses `REBREW_OPS_TOKEN` values shorter than 32 bytes at startup instead of accepting any non-empty token. Set `REBREW_OPS_TOKEN` to a token of at least 32 bytes.
+- **Breaking:** Every local `docker run` of a toolchain image now goes through `rebrew.compiler.toolchain.docker_hardening_args()`, adding `--cap-drop=ALL`, `--pids-limit=256`, `--memory=2g`, and `--cpus=2` (previously only `--network=none`, `--pull=never`, and `--security-opt=no-new-privileges`). A compile that needs more than 2 GiB, more than 256 processes, or a dropped capability now fails inside the container instead of running unbounded.
 
 ### Fixed
 
