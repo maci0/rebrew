@@ -89,7 +89,7 @@ class TestBackendContract:
                 [(SimpleNamespace(origin="test"), {"custom": CustomStore, "toml": CustomStore})]
             ),
         )
-        assert set(storage.refresh_metadata_backends()) == {"toml", "sqlite", "custom"}
+        assert set(storage.refresh_metadata_backends()) == {"toml", "sqlite", "pgsql", "custom"}
         _project(tmp_path, "custom")
         update_field(tmp_path, 0x1000, "NOTE", "plugin", "GAME")
         assert get_entry(tmp_path, 0x1000, "GAME")["note"] == "plugin"
@@ -385,7 +385,11 @@ class TestStorageBoundary:
         root = Path(__file__).resolve().parents[1] / "src/rebrew"
         violations = []
         for path in root.rglob("*.py"):
-            if path.relative_to(root).as_posix() in {"metadata/files.py", "metadata/storage.py"}:
+            if path.relative_to(root).as_posix() in {
+                "metadata/files.py",
+                "metadata/storage.py",
+                "metadata/replication.py",
+            }:
                 continue
             for node in ast.walk(ast.parse(path.read_text())):
                 if isinstance(node, ast.ImportFrom) and node.module == "rebrew.metadata.files":

@@ -11,6 +11,8 @@ Source annotations and the locked metadata stores: every read and write of `rebr
 | `storage.py` | `MetadataStore` protocol, backend selection, discovery and review-input API |
 | `files.py` | Default TOML backend, `.d/*.toml` discovery and ownership-preserving writes |
 | `sqlite.py` | Experimental project-wide SQLite backend and cross-store transactions |
+| `pgsql.py` | Optional PostgreSQL backend, project namespaces and cross-client transactions |
+| `replication.py` | Ordered readers, durable write journal, tombstones and causal reconciliation |
 | `locking.py` | Reentrant project and physical-storage locks |
 | `document.py` | Qualified-key algebra and backend-neutral document cache |
 | `model.py` | `MetadataEntry`: typed view and validation of a function entry |
@@ -31,7 +33,7 @@ Externals (the only packages this one may import): `c_parser`, `compiler.toolcha
   Resolved consumers use `rebrew.config.target_module(cfg)`.
 
 - **Drop-ins partition records.** Each main TOML also reads direct TOMLs in its sibling `.d` directory. Reject duplicates, update existing records in their owning file, and put new records in the main TOML. The main filename owns the collection lock.
-- **Persist through storage.** All four managed stores use `storage.metadata_store`; keep validation and provenance in the domain owners. Project configuration remains TOML. No consumer reads inactive backend files as a fallback.
+- **Persist through storage.** All four managed stores use `storage.metadata_store`; keep validation and provenance in the domain owners. Project configuration remains TOML. Read fallback uses only explicitly configured readers and only on unavailability; missing or corrupt data does not trigger it.
 - **Writers lock and write 0444.** Domain edits use `storage.metadata_write_lock` around the complete read/modify/write. Acquire the project-config lock before storage locks so migration cannot race a writer. Backends own atomic writes and mode 0444 at rest; SQLite transactions span its logical documents.
 - **Identity can share a STATUS write.** `update_statuses_batch` accepts `identity` (the same keys and empty-value rules as `record_function_rows`) in that locked edit. `overwrite_name` defaults off, so a verdict does not replace a stored name unless the caller asks.
 - **Commands live outside.** `rebrew source register` (`source_register.py`), `rebrew blocker` and the other commands that edit metadata stay at the package root.

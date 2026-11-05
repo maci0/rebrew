@@ -104,7 +104,7 @@ def _license_field(source_kind: str, name: str, version: str) -> dict[str, Any]:
 # a notice that has to survive redistribution.  Expressions were read from the
 # locked artifacts: m2c 708d2d2 ``License-Expression: GPL-3.0-only``, pyvex
 # 9.3.4 ``License-Expression: BSD-2-Clause AND GPL-2.0-or-later``, and the
-# MPL-2.0 packages below.  resembl 3.12.0 declares
+# MPL-2.0 packages below.  resembl 4.0.0 declares
 # ``License-Expression: GPL-3.0-only``, so the emitted component carries that
 # expression.  certifi 2026.7.22 and hypothesis
 # 6.168.0 declare ``MPL-2.0`` and every resolve pulls them in; tqdm 4.70.1
@@ -121,6 +121,7 @@ def _license_field(source_kind: str, name: str, version: str) -> dict[str, Any]:
 # bump cannot drop the attribution silently.  Only the names are load-bearing:
 # the emitted license always comes from ``tools/licenses.py``.
 _NOTICE_EXPRESSIONS = {
+    "psycopg": "LGPL-3.0-only",
     "resembl": "GPL-3.0-only",
     "m2c": "GPL-3.0-only",
     "pyvex": "BSD-2-Clause AND GPL-2.0-or-later",

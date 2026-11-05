@@ -27,13 +27,14 @@ from __future__ import annotations
 PATH_OR_GIT_LICENSES = {
     "m2c": "GPL-3.0-only",
     "python-flirt": "License :: OSI Approved :: Apache Software License",
-    # resembl 3.12.0 declares License-Expression: GPL-3.0-only (PEP 639).
+    # resembl 4.0.0 declares License-Expression: GPL-3.0-only (PEP 639).
     # There is no free-text License field on that artifact.
     "resembl": "GPL-3.0-only",
 }
 
 # ``name==version`` -> the artifact's own declared license string.
 REGISTRY_LICENSES: dict[str, str] = {
+    "psycopg==3.3.8": "LGPL-3.0-only",
     "angr==10.0.5": "BSD-2-Clause",
     "angr-data==0.2.0": "BSD-2-Clause",
     "annotated-doc==0.0.5": "MIT",
@@ -59,7 +60,7 @@ REGISTRY_LICENSES: dict[str, str] = {
     "diskcache==5.6.3": "Apache 2.0",
     "distlib==0.4.4": "PSF-2.0",
     "execnet==2.1.2": "MIT",
-    "filelock==4.2.6": "MIT",
+    "filelock==4.2.9": "MIT",
     "future==1.0.0": "MIT",
     "gitdb==4.0.12": "BSD License",
     "gitpython==3.2.1": "BSD-3-Clause",
@@ -81,14 +82,14 @@ REGISTRY_LICENSES: dict[str, str] = {
     "msgspec==0.22.0": "BSD-3-Clause",
     "mulpyplexer==0.9": "BSD",
     "mypy==2.4.1": "MIT",
-    "mypy-extensions==1.1.0": "MIT",
+    "mypy-extensions==1.2.0": "MIT",
     "networkx==3.7": "BSD-3-Clause",
     "nodeenv==1.12.0": "BSD",
     "numpy==2.5.4": "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0",
     "packaging==26.3": "Apache-2.0 OR BSD-2-Clause",
     "pathspec==1.1.1": "OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)",
     "pefile==2024.8.26": "MIT",
-    "platformdirs==4.14.3": "MIT",
+    "platformdirs==4.14.5": "MIT",
     "pluggy==1.7.0": "MIT",
     "ply==3.11": "BSD",
     "pg8000==1.31.6": "BSD 3-Clause License",
@@ -97,7 +98,7 @@ REGISTRY_LICENSES: dict[str, str] = {
     "protobuf==7.36.2": "3-Clause BSD License",
     "psutil==7.2.2": "BSD-3-Clause",
     "pycparser==3.11": "BSD-3-Clause",
-    "pycryptodome==4.2.0": "BSD-2-Clause AND Unlicense AND MIT",
+    "pycryptodome==4.3.0": "BSD-2-Clause AND Unlicense AND MIT",
     "pydantic==2.14.2": "MIT",
     "pydantic-core==2.50.2": "MIT",
     "pydemumble==0.1.3": "OSI Approved :: BSD License",
@@ -109,7 +110,7 @@ REGISTRY_LICENSES: dict[str, str] = {
     "pytest==9.2.0": "MIT",
     "pytest-xdist==3.8.0": "MIT",
     "python-dateutil==4.0.0": "BSD-3-Clause",
-    "python-discovery==1.9.0": "MIT",
+    "python-discovery==1.9.4": "MIT",
     "pyvex==10.0.5": "BSD-2-Clause AND GPL-2.0-or-later",
     "pyxbe==1.0.4": "MIT",
     "pyxdia==0.1.1": "NOASSERTION",  # full MIT text in a multi-line License field, no classifier
@@ -124,7 +125,7 @@ REGISTRY_LICENSES: dict[str, str] = {
     "slipcover==1.1.0": "OSI Approved :: Apache Software License",
     "smmap==5.0.3": "BSD-3-Clause",
     "sortedcontainers==2.4.0": "Apache 2.0",
-    "sqlalchemy==2.1.6": "MIT",
+    "sqlalchemy==2.1.8": "MIT",
     "sqlmodel==0.0.48": "MIT",
     "strictyaml==1.7.3": "MIT",
     "tabulate==0.10.0": "MIT",
@@ -138,9 +139,9 @@ REGISTRY_LICENSES: dict[str, str] = {
     "typer==0.27.3": "MIT",
     "tzdata==2026.6": "Apache-2.0",
     "typing-extensions==4.16.0": "PSF-2.0",
-    "typing-inspection==0.4.4": "MIT",
+    "typing-inspection==0.4.5": "MIT",
     "uefi-firmware==1.16": "BSD-3-Clause",
-    "virtualenv==21.15.2": "MIT",
+    "virtualenv==21.15.5": "MIT",
     "wcwidth==0.9.4": "License :: OSI Approved :: MIT License",
     "z3-solver==5.3.1.0": "MIT License",
     "zstandard==0.25.0": "BSD-3-Clause",

@@ -38,6 +38,30 @@ def _project(tmp_path: Path) -> ProjectConfig:
 
 
 class TestContracts:
+    def test_msvc_context_searches_nested_parent_directories(self, tmp_path: Path) -> None:
+        cfg = _project(tmp_path)
+        source = cfg.reversed_dir / "user.c"
+        nested = cfg.reversed_dir / "nested"
+        sdk = tmp_path / "sdk"
+        nested.mkdir()
+        sdk.mkdir()
+        source.write_text('#include "nested/top.h"\n')
+        (nested / "top.h").write_text("#include <mid.h>\n")
+        (sdk / "mid.h").write_text('#include "target.h"\n')
+        (nested / "target.h").write_text("int chosen;\n")
+        (cfg.reversed_dir / "target.h").write_text("int wrong;\n")
+        cfg.base_cflags = f'/I"{sdk}"'
+        contexts, unknown = contract_contexts(cfg, selected_sources={source.resolve()})
+        assert not unknown
+        assert (nested / "target.h").resolve() in contexts
+        assert (cfg.reversed_dir / "target.h").resolve() not in contexts
+
+    def test_unknown_compiler_keeps_include_order_unknown(self, tmp_path: Path) -> None:
+        cfg = _project(tmp_path)
+        cfg.compiler_profile = "unknown-compiler"
+        _, unknown = contract_contexts(cfg)
+        assert any("unknown compiler profile" in item["reason"] for item in unknown)
+
     @pytest.mark.parametrize("name", [None, "queue", "g"])
     def test_shared_header_is_extracted_once_with_each_context_preserved(
         self, tmp_path: Path, name: str | None

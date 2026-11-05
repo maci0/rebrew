@@ -32,7 +32,11 @@ lazy from rebrew.coverage_db import import_verify_rows
 lazy from rebrew.data_ownership import ownership_inputs
 lazy from rebrew.formats.binary_loader import load_binary
 lazy from rebrew.metadata.functions import load_status_history
-lazy from rebrew.metadata.storage import metadata_inputs, metadata_store
+lazy from rebrew.metadata.storage import (
+    metadata_inputs,
+    metadata_store,
+    project_metadata_stores,
+)
 lazy from rebrew.sources import scan_files
 lazy from rebrew.verify_cache import CACHE_FILENAME, cache_path_for
 lazy from rebrew.workspace import read_config, targets_table
@@ -130,7 +134,21 @@ def coverage_inputs(
             paths.update(metadata_store(library).inputs())
     if cfg.raw_link is not None:
         paths.update((cfg.raw_link, cfg.raw_link.with_suffix(".map")))
-    return tuple((str(path), *_stat(path)) for path in sorted(paths))
+    remote = {}
+    if "pgsql" in getattr(
+        cfg, "metadata_read_backends", (getattr(cfg, "metadata_backend", "toml"),)
+    ):
+        remote = {
+            store.path: store for store in project_metadata_stores(cfg.metadata_dir, recursive=True)
+        }
+        for path in paths:
+            if path.name == "rebrew-libraries.toml":
+                store = metadata_store(path)
+                if store.name == "pgsql":
+                    remote[path] = store
+    return tuple((str(path), *_stat(path)) for path in sorted(paths)) + tuple(
+        part for path in sorted(remote) for part in remote[path].fingerprint()
+    )
 
 
 _inputs = coverage_inputs

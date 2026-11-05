@@ -410,7 +410,7 @@ def compile_source(
             sort_keys=True,
             separators=(",", ":"),
         ).encode("utf-8")
-    ).hexdigest()
+    ).hexdigest()[:12]
     post_headers: dict[str, str] = {"Idempotency-Key": _idem_digest}
     if auth_headers:
         post_headers = {**auth_headers, "Idempotency-Key": _idem_digest}

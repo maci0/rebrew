@@ -4462,3 +4462,190 @@ Replay: in guild-rebrew, `rebrew test src/Develop/DieGildeAddOn/game/GOLDTL.fcn_
 --va 0x00499a80 --json` writes `GOLDTL.0x00499a80` with no file and status STUB;
 `rebrew orphans list --json` then reports it among 1342 orphans, and `orphans prune`
 offers no way to select only it.
+
+
+## Source consolidation tooling follow-up (2026-11-05)
+
+### Materialize optional ADDRESS anchors from canonical bindings
+
+`source register` reads anchors into managed bindings; it does not add anchors
+for existing metadata-only definitions. `metadata.anchors.add_address_anchor`
+already supplies an idempotent AST-backed primitive, and `source merge` uses it
+for moved definitions. Add a focused CLI preview/apply operation for selected
+existing bindings, with all-target identity resolution, exact source edits and
+an input digest. Refuse ambiguous declarations, conflicting anchors and retired
+claims. Do not change verdicts or infer names. This is a missing convenience
+operation, not evidence that metadata-only bindings are invalid. Evidence:
+Guild consolidation `slot-5/register-help.txt`, merge `_compose_definitions`,
+and the existing `metadata.anchors.add_address_anchor` public primitive.
+
+### Include closure for image-provided headers
+
+Guild `source organize review` of
+`src/Develop/Units/vfs/GOLDTL.fcn_0042ed00.c` and
+`src/Develop/Units/vfs/GOLDTL.fcn_00430870.c` has no reported structural problems
+but remains unsafe because `string.h` is unresolved for both clients. The
+Aemter consolidation similarly reports `stdio.h`. These headers are supplied
+by the immutable compiler image during compilation; `contract_contexts` only
+passes host include directories to `scan_include_closure`. The public
+`image_msvc_env` describes image INCLUDE paths but does not expose a host
+snapshot to the scanner. Do not suppress unresolved headers or treat them as
+empty. Provide a read-only, image-ID-pinned header snapshot/resolver shared by
+contract and organization audits, preserving include search order, transitive
+closure, target toolchain overrides and snapshot hashes. Report unavailable
+images and parse uncertainty explicitly. The Guild PP image is
+`sha256:26514f1867f8ba011cf7d6dd664f77c9df52f3162f535a788e2219bd07ff4712`;
+the experimental unshare rootfs is writable, so its cached headers are not
+authenticated solely by `image.json`. Preserve ordered project and image include
+search without a host fallback. Replay:
+`rebrew source organize review src/Develop/Units/vfs/GOLDTL.fcn_0042ed00.c
+src/Develop/Units/vfs/GOLDTL.fcn_00430870.c --destination
+src/Develop/Units/vfs/vfs_paths_streams.c --json`; retained receipt is Guild
+`.scratch/consolidation-2026-11-05/review-vfs-leaves.json`.
+
+Image-backed VFS discovery also reaches `character.c` but conservatively scans
+all SDK conditional branches and reports missing legacy headers including
+`macwin32.h`, `rpcmac.h` and `macname1.h`. Add compiler-evidenced target macro
+and branch modeling or a pinned compiler-produced include trace, retaining
+unresolved branches instead of guessing `_MAC` or `_WIN32`. Replay Guild
+`.scratch/consolidation-2026-11-05/slashes-planner/discover-image.py`.
+
+### Additional guarded-merge replay
+
+The existing “Guarded, interleaved source organization (2026-11-02)” proposal
+also blocks `aemter.c` plus `Units/vfs/GOLDTL.fcn_004ec410.c`: a read-only
+`source merge --shared --dry-run` refuses `amt_ValidateOfficeCandidate` inside
+a conditional before collision analysis. Guild receipt:
+`.scratch/consolidation-2026-11-05/slot-2/aemter-merge-dry-run.json`.
+This explicit unsupported capability is a feature gap, not a confirmed bug;
+retain guards and all-target storage/compiler contexts in any future plan.
+
+
+### Implemented anchor generation and native-order refusal (2026-11-05)
+
+`source anchors FILE... --dry-run --json` now materializes optional function
+anchors from all canonical module bindings; guarded apply uses the preview's
+`--expected-digest`. It reuses the AST anchor primitive and the existing
+source/provenance transaction, preserves encoding/EOL, refuses ambiguous,
+conflicting or retired claims, and does not change function verdicts. Data
+anchors and image-header snapshots remain separate work.
+
+A second confirmed safety defect: `_assemble_pieces` sorts whole files by
+minimum VA, then emits every definition in each file before the next file.
+Guild `.scratch/consolidation-2026-11-05/slot-3/ORDER-COUNTEREXAMPLE.md` shows
+`msx.c` spanning TL 0x41fc10–0x420840 with loose 0x41fc80/0x420530 appended
+last, contrary to the organization review's common native order. Merge now
+refuses an assembled order that decreases VA in any bound module before
+publication. It does not automatically interleave definitions or traverse
+guards. Two regression tests fail on the original implementation and pass
+with the refusal; the complete merge suite passes. Guarded/interleaved merge
+support remains open. Slot 2's minimal guard specification is retained in
+Guild `.scratch/consolidation-2026-11-05/slot-2/guard-fixture/`.
+
+
+### Incremental scaffold additions and declaration-kind repair (2026-11-05)
+
+Follow-up to reviewed selected-symbol scaffold updates: `_update_selected_stubs`
+requires exactly one existing top-level declaration and the replacement node
+kind must match it. It cannot add a reviewed missing definition or replace a
+misclassified data stub with an evidenced callable. Regenerating only from a
+new linker error log drops previously resolved scaffold definitions; combining
+historical and fresh logs can expose aliases and stale duplicate owners that
+must be reviewed rather than guessed around.
+
+Guild's pre-existing `stubs/gold/symbol_stubs.c` defines `int fcn_0040c090 = 0`,
+while selected character sources use it as a callback through a conditional
+alias. Native GOLD 0x40c4f0 pushes code address 0x40c090 at 0x40c590; a linked
+data address does not implement that callback. Slot 2 retained native/provider
+research under `.scratch/consolidation-2026-11-05/slot-2/`; the fresh GOLD link
+error corpus is `slot-5/build.log`. Extend digest-guarded selected scaffold
+updates with explicit additions and reviewed declaration-to-function repair,
+validating target selection, duplicate owners, aliases and ABI evidence. Never
+infer a callable's signature from successful symbol resolution or silently
+carry forward data scaffolds as real code. No production scaffold change was
+made by the tooling repair slot.
+
+
+### Repaired merge target-participation expansion (2026-11-05)
+
+Slot 2's `.scratch/consolidation-2026-11-05/slot-2/UPSTREAM-ORDER-REVIEW.md`
+identified a second correctness defect: merging a SERVER-selected input with
+a separate CLIENT-only input emits the client function into SERVER after the
+metadata selects the merged output. A monotonic native-order check cannot
+catch a definition with no row in the affected module.
+
+Merge now obtains actual source selection for every configured target through
+`organization_configs` and `collect_target_sources`. Each function, rowless
+helper and file-scope object retains its original input provider set. Shared
+identical definitions union those sets; publication refuses any definition's
+expansion into a new target. Regression tests include non-dry `--force --delete`
+refusal with an existing output and unchanged source/metadata snapshots, plus a
+valid identical-body cross-target share. Both participation regressions fail on
+the original implementation. This preserves supported sharing and explicitly
+refuses unsupported foreign-provider merges without inventing target macros.
+It does not prove header/ABI compatibility, static instance ownership or native
+placement, and guarded/interleaved source assembly remains open.
+
+
+The provider union includes storage-only inputs, not just function-bearing
+pieces. A real ProjectConfig regression checks support storage selected for
+SERVER+CLIENT alongside CLIENT-only functions, then verifies publication
+refuses before deletes or metadata writes. Input scopes with no retained
+piece are also refused rather than silently discarded. Final targeted suite:
+138 passed, with clean changed-file Ruff and anchor/merge mypy checks.
+
+
+### Guard context inspection and remaining assembly work (2026-11-05)
+
+`source organize guards` now exposes original source and AST-derived exact
+preprocessor directive/definition byte ranges, preserving nested if/elif/else
+chains and original line endings. It compares parseable declarations and
+function definitions, reports conflicting types and incomplete organization
+inputs, and accepts `--expected-digest` from all-target review. It is a
+read-only inspected plan; it does not evaluate guard macros or assemble, move,
+apply, interleave, or verify any source. Headers are not directly checked by
+this declaration scan. Unknown syntax is rejected. Regression cases cover
+nested branches, CRLF, source preservation, unsigned/signed prototype and
+prototype/definition conflicts, MSVC convention offsets and stale digests.
+
+Slot 2's real `ch_script.c` case has conflicting `fcn_00425bf0` declarations
+(`unsigned int` vs `int`) and its unguarded loose providers have distinct source
+contexts. Slot 3's Msx candidate contains file-scope storage and unresolved
+system-header closure; other native contributors interleave. An automatic
+rewrite requires explicit all-target macro/branch context evaluation, exact
+preamble/comment ownership, compatible declarations and storage/header
+instances, a reviewed common ordering and a digest-guarded atomic apply.
+Raw-link verification remains independent. Do not turn this inspection into an
+implicit endorsement or suppress these issues.
+
+### Coordinated reviewed local and contract changes (2026-11-05)
+
+Guild slot 3 BIO caller `src/Develop/Units/m_alloc/GOLDTL.fcn_00447e30.c`
+needs one `bio_rd_array_quick` declaration updated from `int(char*,int,int*)`
+to `int(void*,int,void**)`, four local declarations changed to `void*`, and
+four now-redundant casts removed together. Existing `types reconcile` requires
+a canonical header and complete include contexts and does not edit caller
+locals; `types apply` handles signature types. Its scratch-only candidate and
+exact diff are `.scratch/consolidation-2026-11-05/slot-3/bio-contract-candidate/`;
+source SHA-256 `fe6b63322fbc47ee6cd30ca472084a91534eb56fca0c0c70e571213ace04fe73`,
+candidate SHA-256 `21a24ef55d4bf533583ff89eade58d5176096c986ae7cff8ec79ebbf3d138913`.
+
+Provide a reviewed atomic AST edit plan for explicitly selected declaration,
+local declarators and expressions, with exact before/after source, all-target
+call/contract context, locked metadata/input snapshot and expected digest;
+reject ambiguous scopes, changed inputs, aliases or conflicting declarations.
+Preserve source encoding, comments and anchors, roll back all touched files on
+failure, and require separate affected function verification. This must not
+infer ABI, create a header, promote verdicts, or assume a source edit is a
+native match. Tests must cover mixed declarators, shadowed locals, stale digest,
+rollback and cross-target differences. No candidate was applied here.
+
+
+Guard-inspection follow-up: declaration reports now include original byte
+spans and exact guard chains; incompatible signatures mark branch overlap
+`unassessed` rather than asserting simultaneous activity. AST comments are
+masked only for prototype comparison, preserving original bytes in reports;
+multiple declarators containing functions are rejected instead of silently
+missing later declarators. Real candidate direct inspection retains three
+scoped declarations of `fcn_00425bf0`. The related upstream suite passes
+147 tests; guarded assembly/apply is still not implemented.

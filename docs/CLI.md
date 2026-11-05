@@ -1,6 +1,6 @@
 # CLI Reference
 
-The CLI exposes 238 surfaces: 204 leaf commands and 34 groups, including the
+The CLI exposes 241 surfaces: 207 leaf commands and 34 groups, including the
 root. They are registered under the unified `rebrew` entry point in `app/main.py`
 (`CliComponent` rows in `app/builtins.py`).
 Only `rebrew` is installed. Invoke tools as subcommands:
@@ -1115,6 +1115,7 @@ Use `rebrew source <operation> --help` for exact arguments and examples.
 | `rebrew source findings` | Find prior documented findings mentioning a native address or address range. |
 | `rebrew source clear-cflags` | Clear a saved per-function CFLAGS override through the locked writer (`--dry-run`, `--json`, `--va`, `--target`); use `diagnose config` to inspect effective flags. |
 | `rebrew source register` | Register address-only source bindings, or a support file purpose, in metadata. |
+| `rebrew source anchors` | Materialize ADDRESS comments for existing canonical bindings. |
 | `rebrew source rename` | Rename a function, global, type or struct member and update every reference. |
 | `rebrew source fix` | Make raw decompiler output compilable (DecBench-style fixup). |
 | `rebrew source inline-strings` | Inline string-literal globals (s_<hint>_<ADDR>) from the reference binary. |
@@ -1130,6 +1131,12 @@ Use `rebrew source <operation> --help` for exact arguments and examples.
 | `rebrew source document-assembly` | Record target-scoped original assembly evidence for a named C definition. |
 | `rebrew source binding` | Review and apply target-scoped source retirement or rebinding. |
 | `rebrew source organize` | Review all-target TU organization and compare complete PE raw artifacts. |
+
+### `rebrew source anchors`
+
+`rebrew source anchors FILE... --dry-run --json` previews optional address
+comments for existing canonical bindings across all modules. Apply only the
+reviewed input digest with `--expected-digest`; ambiguous definitions are refused.
 
 ### `rebrew source units`
 
@@ -1566,6 +1573,8 @@ A piped answer does not approve the prompt.
 | `--delete` | flag | `False` | Delete input files after successful merge |
 | `--consolidate` | flag | `False` | Hoist unique includes/externs/typedefs/intrinsics to the top of the merged TU |
 | `--shared` | flag | `False` | Combine identical bodies across targets into one definition with stacked ADDRESS anchors; retarget all input metadata rows. Different bodies are refused |
+| `--guarded-interleave` | flag | `False` | Interleave the supported bounded guarded functions after all-target review; requires `--delete` and an expected digest to apply |
+| `--expected-digest` | sha256 | none | Require the digest from the reviewed preview |
 | `--output` / `-o` | path | required | Output merged source file |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
@@ -3089,6 +3098,11 @@ experimental SQLite backend stores the same logical documents in one
 in `rebrew-project.toml`. Transfers are reviewed: the command verifies every
 store before writing, and `--expected-digest` refuses a store that changed
 since its transfer was reviewed.
+
+### `rebrew metadata reconcile`
+
+`rebrew metadata reconcile --dry-run --json` previews queued metadata replication;
+use the command help for conflict handling and apply options.
 
 ### `rebrew metadata migrate`
 
@@ -6995,6 +7009,9 @@ canonical-header reconciliation. Whole-header matching include guards are kept;
 comments and disabled includes cannot suppress insertion of a real declaration.
 
 ### Link-aware source organization
+
+`rebrew source organize guards FILE... --json` inspects exact conditional
+contexts and declaration conflicts; it is read-only and does not approve a merge.
 
 `rebrew source organize review src/a.c src/b.c --destination src/merged.c --json`
 is a read-only preflight across every configured target. Explicit source and

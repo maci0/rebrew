@@ -2,11 +2,21 @@
 
 ### Added
 
+- Independent metadata `read_backends`/`write_backends` lists, ordered read failover, durable queued writes and `rebrew metadata reconcile`, with document timestamps, causal conflict detection and deletion tombstones.
+
 - Configurable source address comments: C89, C++ and Delphi defaults, project/target body regex and rendering templates, and declaration-bound Delphi routine anchors. Source registration and metadata readers honor the selected syntax without changing comparison verdicts.
+- Experimental PostgreSQL metadata backend (`rebrew[pgsql]`), configured through `[metadata.pgsql]` in `rebrew-project.toml`, with project namespaces, cross-checkout transactions, remote cache invalidation and reviewed migrations.
 
 ### Changed
 
+- **Breaking:** `app.builtins.DOMAIN_COMPONENTS` includes `source anchors`.
+- **Breaking:** Source span implementation moved to `source_layout.SourceSpan`; `split.SourceSpan` remains an import alias. Its fields `split.SourceSpan.name`, `split.SourceSpan.static`, `split.SourceSpan.inside_pp`, `split.SourceSpan.proto`, `split.SourceSpan.extern_line` and `split.SourceSpan.names` remain available.
+- **Breaking:** `compiler.cache.CACHE_SCHEMA_VERSION` is 14; older compile-cache entries are invalidated after include discovery fixes.
 - **Breaking:** `config.KNOWN_PROJECT_KEYS`, `config.KNOWN_TARGET_KEYS`, `cfg.KNOWN_PROJECT_KEYS` and `cfg.KNOWN_TARGET_KEYS` now include `address_comments`; consumers validating exact key sets must accept the new table.
+
+### Fixed
+
+- Match Recompile’s 12-character idempotency key contract for remote compiles.
 
 ## [6.22.0] - 2026-11-05
 

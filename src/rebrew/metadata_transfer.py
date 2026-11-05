@@ -65,12 +65,26 @@ def _stores(cfg: ProjectConfig, backend: str | None = None) -> tuple[MetadataSto
     return project_metadata_stores(cfg.root.resolve(), backend=backend, recursive=True)
 
 
+def reconcile_metadata(cfg: ProjectConfig, *, dry_run: bool = False) -> dict[str, Any]:
+    """Reconcile configured read/write replicas without changing backend selection."""
+    from rebrew.metadata.replication import RoutedStore
+
+    selected = metadata_store(cfg.root.resolve() / "rebrew-functions.toml")
+    if not isinstance(selected, RoutedStore):
+        raise ValueError("configure multiple metadata read_backends/write_backends to reconcile")
+    return selected.reconcile(dry_run=dry_run, validate=validate_store_document)
+
+
 def migrate_metadata(
     cfg: ProjectConfig, backend: str, *, dry_run: bool = False, expected_digest: str | None = None
 ) -> dict[str, Any]:
     """Copy validated documents, then select the destination; retain the source unchanged."""
     if backend not in available_metadata_backends():
         raise ValueError(f"unknown metadata backend {backend!r}")
+    from rebrew.metadata.replication import RoutedStore
+
+    if isinstance(metadata_store(cfg.root / "rebrew-functions.toml"), RoutedStore):
+        raise ValueError("use metadata reconcile for a project with multiple configured backends")
     root = cfg.root.resolve()
     config_path = root / "rebrew-project.toml"
 
@@ -103,7 +117,7 @@ def migrate_metadata(
             {
                 "source": source,
                 "backend": backend,
-                "experimental": backend == "sqlite",
+                "experimental": backend in {"sqlite", "pgsql"},
                 "stores": [str(path.relative_to(root)) for path, _doc in documents],
                 "removed_destination_stores": [
                     str(store.path.relative_to(root))
@@ -134,8 +148,11 @@ def migrate_metadata(
         # and without this copy the previous destination bytes exist nowhere
         # once the writes below land.  The copy is written atomically and
         # verified; a failed copy aborts the transfer before any write.
-        _snapshot_destination(root, backend, _stores(cfg, backend))
+        if backend != "pgsql":
+            _snapshot_destination(root, backend, _stores(cfg, backend))
         with destination.transaction():
+            if backend == "pgsql":
+                _snapshot_destination(root, backend, _stores(cfg, backend))
             current_paths = {path for path, _doc in documents}
             for obsolete in _stores(cfg, backend):
                 if obsolete.path not in current_paths:
@@ -181,7 +198,11 @@ def _snapshot_destination(
         data = store.snapshot()
         if data is None:
             continue
-        target = store.location.with_name(store.location.name + DESTINATION_SNAPSHOT_SUFFIX)
+        target = (
+            root / ".rebrew" / "pgsql-before-transfer" / store.path.relative_to(root)
+            if backend == "pgsql"
+            else store.location.with_name(store.location.name + DESTINATION_SNAPSHOT_SUFFIX)
+        )
         atomic_write_bytes(target, data, mode=0o444)
         if target.read_bytes() != data:
             raise ValueError(f"metadata destination snapshot verification failed for {target}")

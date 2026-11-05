@@ -39,10 +39,27 @@ def test_authenticated_retry_replays_exact_original_and_fetches_same_origin(monk
         )
     assert result.obj_bytes == b"OBJ"
     assert len(seen) == 3 and seen[0].content == seen[1].content
-    assert re.fullmatch("[0-9a-f]{64}", seen[0].headers["idempotency-key"])
+    assert re.fullmatch("[0-9a-f]{12}", seen[0].headers["idempotency-key"])
     assert seen[0].headers["idempotency-key"] == seen[1].headers["idempotency-key"]
     assert json.loads(seen[0].content)["source"] == "int f(void){return 1;}"
     assert seen[2].url.host == "compiler.test" and "idempotency-key" not in seen[2].headers
+
+
+
+def test_idempotency_key_tracks_compile_inputs(monkeypatch):
+    monkeypatch.delenv("REBREW_RECOMPILE_API_KEY", raising=False)
+    monkeypatch.delenv("REBREW_JOB_COMPILE_SOCKET", raising=False)
+    keys = []
+
+    def handler(req):
+        keys.append(req.headers["idempotency-key"])
+        return httpx.Response(200, json={"status": "error", "log": "fixture"})
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        for source in ("int a;", "int a;", "int b;"):
+            compile_source("http://compiler.test", "gcc-14.2.0", source, [], client=client)
+    assert keys[0] == keys[1] != keys[2]
+    assert all(re.fullmatch("[0-9a-f]{12}", key) for key in keys)
 
 
 def test_foreign_redirect_is_not_followed_with_credential(monkeypatch):

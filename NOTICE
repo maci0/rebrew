@@ -18,7 +18,7 @@ only for the copyleft entries below.
 similarity group — resembl
 --------------------------
 
-resembl 3.12.0 (sibling checkout ``../resembl``,
+resembl 4.0.0 (sibling checkout ``../resembl``,
 https://github.com/maci0/resembl) declares
 ``License-Expression: GPL-3.0-only``. ``make setup`` installs this group
 through the path dependency in ``[dependency-groups]`` /
@@ -134,3 +134,11 @@ credits Paul Ganssle and the dateutil contributors for contributions since
 2017 and retains the terms and credits for earlier contributions. Rebrew
 installs the upstream distribution unmodified with that LICENSE; the SBOM
 records the declared ``BSD-3-Clause`` expression.
+
+pgsql extra — Psycopg
+----------------------
+
+psycopg 3.3.8 declares License-Expression: LGPL-3.0-only.
+Rebrew uses the unmodified upstream Python driver through the optional pgsql
+extra. The driver dynamically loads the system PostgreSQL libpq library.
+Source and license: https://github.com/psycopg/psycopg/tree/3.3.8

@@ -45,6 +45,113 @@ transaction can cover all four stores in that database. This experimental
 backend adds no relational query API or performance promise. See
 [ADR 034](adr/034-metadata-storage-backends.md).
 
+### PostgreSQL
+
+Install the optional `rebrew[pgsql]` extra and the system `libpq` client library.
+Connection settings belong in `rebrew-project.toml`:
+
+```toml
+[metadata]
+backend = "pgsql"
+
+[metadata.pgsql]
+dsn = "service=rebrew"
+project = "my-game"
+```
+
+`dsn` accepts a libpq connection string or PostgreSQL URI. A libpq service and
+password file keep credentials outside the committed project configuration.
+`project` is a required stable namespace: checkouts with the same database and
+project key share documents; different keys remain separate. The database must
+already exist. The database role needs access to `public.rebrew_metadata_documents`
+and permission to create it on the first write. Reads and previews create nothing.
+
+For existing TOML or SQLite metadata, add `[metadata.pgsql]` while retaining the
+current `backend`, then run `rebrew metadata migrate pgsql --dry-run --json` and
+`rebrew metadata migrate pgsql --expected-digest <input_digest-from-preview>`.
+Setting `backend = "pgsql"` directly selects it without importing local documents.
+Migration back to TOML or SQLite uses the same command. Before replacing an
+inactive PostgreSQL destination, migration saves its documents under
+`.rebrew/pgsql-before-transfer/`.
+
+This experimental backend preserves TOML types and comments. Transactions span
+all documents for a project; PostgreSQL advisory locks serialize participating
+writers across checkouts. Cache fingerprints detect remote document edits,
+including in the live coverage dashboard. Single-backend connection failures raise
+an error without falling back to inactive local files or printing credentials.
+
+Use PostgreSQL's `pg_dump` and `pg_restore`/`psql` for database backups and restores,
+and back up sources, project configuration, GA logs and BinSync baselines separately.
+`rebrew metadata backup` and `restore` reject the PostgreSQL backend rather than
+copying inactive local metadata. Database permissions and backups replace local
+file modes as the protection for this backend.
+
+### Multiple read and write backends
+
+Use separate lists to read from a database while also maintaining files:
+
+```toml
+[metadata]
+read_backends = ["sqlite", "pgsql", "toml"]
+write_backends = ["sqlite", "pgsql", "toml"]
+
+[metadata.pgsql]
+dsn = "service=rebrew"
+project = "my-game"
+```
+
+`read_backends` is ordered. A read tries the next configured source only when
+one is unavailable. An empty document, missing record, malformed metadata or an
+incompatible schema does not cause fallback. The sources are not merged during
+ordinary reads. `write_backends` lists every destination to update. The lists
+are independent, nonempty, and reject duplicate or unknown names. Omit
+`write_backends` to write to all configured readers. Existing single-backend
+projects can keep `backend = "toml"` or `"sqlite"`/`"pgsql"`; do not combine
+`backend` with `read_backends`.
+
+All domain owners still use `MetadataStore` operations. Routing is below that
+interface, including discovery, snapshots, fingerprints, writes and removals.
+SQL stores remain document-based; selecting them does not introduce indexed
+queries over individual metadata records or guarantee faster workloads.
+
+A successful replicated write first commits its complete operation to
+`.rebrew/metadata-journal.toml`, then publishes to the configured writers.
+An unavailable or failed writer is reported and remains queued. The journal
+survives process exit and keeps reads from returning an older replica value
+for an operation already committed locally. Metadata payloads, earned verdicts,
+verification receipts and history are copied unchanged. An exception before
+the operation commits discards its staged metadata edits.
+
+Each backend stores document timestamps and causal revision clocks in a
+separate `.rebrew/metadata-replication.toml` logical document. Its rows are
+internal state and are excluded from managed-document discovery. Tombstones
+represent removed documents, so an older offline copy cannot resurrect them.
+Clocks distinguish a later version from an independently edited copy; a larger
+wall-clock timestamp alone cannot safely resolve an offline conflict. Conflicting
+independent changes, including differing pre-existing unstamped documents, stop
+reconciliation and preserve both copies for review. Reconciliation is per logical
+document; it does not merge independently changed rows within a document.
+
+Recovered destinations catch up during the next metadata write, or explicitly:
+
+```bash
+rebrew metadata reconcile --dry-run --json
+rebrew metadata reconcile --json
+```
+
+Preview and ordinary reads do not create storage or perform repair writes.
+Reconciliation validates document schemas, catches up reachable writers and
+reports unavailable ones as `pending`; it does not change the configured lists.
+There is no background retry daemon. Use `metadata migrate` to prepare a single
+backend before enabling the lists; use `metadata reconcile` after enabling them.
+
+Back up the local recovery journal and the TOML replication sidecar along with
+the chosen durable stores. The TOML and SQLite backup commands include these
+local files; PostgreSQL backups additionally need the project files. Independent
+backends do not share one atomic commit. A replica may lag after a failure or
+crash; recovery depends on retaining the journal and replication state. Their
+local files use mode 0444 at rest. See [ADR 035](adr/035-metadata-replication.md).
+
 ## Backup and restore
 
 Durable, must-back-up state: the C sources under `src/` (and any other

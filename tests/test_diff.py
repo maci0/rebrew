@@ -139,12 +139,12 @@ class TestDiffSourceResolution:
             "/* ADDRESS: GAME 0x1000 */\n\nint f(void) { return 0; }\n",
             encoding="utf-8",
             metadata_fields={"GAME.0x1000": {"kind": "FUNCTION"}},
-            metadata_dir=tmp_path.parent,
+            metadata_dir=tmp_path,
         )
         cfg = SimpleNamespace(
             root=tmp_path,
             reversed_dir=tmp_path,
-            metadata_dir=tmp_path.parent,
+            metadata_dir=tmp_path,
             module="GAME",
             source_ext=".c",
             compile_timeout=30,
@@ -193,7 +193,7 @@ class TestDiffSourceResolution:
         cfg = SimpleNamespace(
             root=tmp_path,
             reversed_dir=tmp_path,
-            metadata_dir=tmp_path.parent,
+            metadata_dir=tmp_path,
             module="GAME",
             source_ext=".c",
             compile_timeout=30,

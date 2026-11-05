@@ -627,6 +627,8 @@ class ProjectConfig:
 
     # --- project-level defaults ---
     metadata_backend: str = "toml"
+    metadata_read_backends: tuple[str, ...] = ("toml",)
+    metadata_write_backends: tuple[str, ...] = ("toml",)
     project_name: str = ""
     default_jobs: int = DEFAULT_PROJECT_JOBS  # see DEFAULT_PROJECT_JOBS
     output_dir: Path = field(default_factory=lambda: Path())
@@ -969,6 +971,8 @@ class ProjectConfig:
             "llm_timeout": self.llm_timeout,
             "cache_backend": self.cache_backend,
             "metadata_backend": self.metadata_backend,
+            "metadata_read_backends": list(self.metadata_read_backends),
+            "metadata_write_backends": list(self.metadata_write_backends),
             # The resolved cap, not the raw field: 0 means "unset" and falls
             # back to the backend default, which is the value that matters.
             "cache_size_limit_mib": self.cache_size_limit_mib or DEFAULT_CACHE_SIZE_LIMIT_MIB,
@@ -3026,10 +3030,13 @@ def load_config(
     # --- [cache] section: compile-cache backend selection ---
     _apply_compile_cache_config(cfg, raw)
 
-    from rebrew.metadata.storage import validate_backend_settings
+    from rebrew.metadata.storage import backend_routes
 
     try:
-        cfg.metadata_backend = validate_backend_settings(raw.get("metadata", {}))
+        cfg.metadata_read_backends, cfg.metadata_write_backends = backend_routes(
+            raw.get("metadata", {})
+        )
+        cfg.metadata_backend = cfg.metadata_read_backends[0]
     except ValueError as exc:
         raise ConfigError(str(exc)) from exc
 

@@ -32,7 +32,7 @@ def main() -> None:
     epilog="[bold]Examples:[/bold]\n\n  rebrew metadata migrate sqlite --dry-run\n\n  rebrew metadata migrate toml --json",
 )
 def migrate_cmd(
-    backend: str = typer.Argument(..., help="Destination backend: toml or experimental sqlite"),
+    backend: str = typer.Argument(..., help="Destination backend: toml, sqlite or pgsql"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     expected_digest: str | None = typer.Option(
         None, "--expected-digest", help=EXPECTED_DIGEST_HELP
@@ -58,6 +58,37 @@ def migrate_cmd(
 
 
 @app.command(
+    "reconcile",
+    epilog="[bold]Examples:[/bold]\n\n  rebrew metadata reconcile --dry-run --json\n\n  rebrew metadata reconcile",
+)
+def reconcile_cmd(
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Catch up recovered metadata replicas and report unavailable destinations."""
+    from rebrew.metadata_transfer import reconcile_metadata
+
+    cfg = require_config(target=target, json_mode=json_output)
+    try:
+        report = reconcile_metadata(cfg, dry_run=dry_run)
+    except (OSError, ValueError) as exc:
+        error_exit(str(exc), json_mode=json_output)
+    if json_output:
+        json_print(report)
+    else:
+        for item in report["items"]:
+            state = (
+                "unavailable; queued"
+                if item["pending"]
+                else "previewed"
+                if dry_run
+                else "reconciled"
+            )
+            console.print(f"{item['backend']}: {state} ({item['documents']} documents)")
+
+
+@app.command(
     "backup",
     epilog="[bold]Examples:[/bold]\n\n  rebrew metadata backup --dir /off-tree/backups\n\n  rebrew metadata backup --dir /off-tree/backups --json",
 )
@@ -75,6 +106,10 @@ def backup_cmd(
 
     cfg = require_config(target=target, json_mode=json_output)
     try:
+        if cfg.metadata_backend == "pgsql":
+            raise ValueError(
+                "PostgreSQL backups require pg_dump; include the project files separately"
+            )
         if getattr(cfg, "metadata_backend", "toml") == "sqlite":
             dest = backup_metadata_database(Path(cfg.root), dest_dir)
         else:
@@ -101,6 +136,8 @@ def restore_cmd(
 
     cfg = require_config(target=target, json_mode=json_output)
     try:
+        if cfg.metadata_backend == "pgsql":
+            raise ValueError("PostgreSQL restores require pg_restore or psql")
         if file.is_dir():
             dests = restore_metadata_toml(file, Path(cfg.root))
             dest: str = str(dests[0]) if len(dests) == 1 else f"{len(dests)} stores"

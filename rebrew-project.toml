@@ -18,3 +18,4 @@ reversed_dir = ".scratch/reversed"
 
 [compiler]
 profile = "msvc-6.0"
+cflags = "/O2 /Gd /MT"

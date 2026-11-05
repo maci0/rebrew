@@ -73,12 +73,12 @@ lazy from pathlib import Path
 
 import diskcache
 
-from rebrew.utils import BYTES_PER_MIB, resolved_path, split_source_lines
+from rebrew.utils import BYTES_PER_MIB, path_identity, resolved_path, split_source_lines
 
 logger = logging.getLogger(__name__)
 
 # Bump on key semantics changes to invalidate stale entries.
-CACHE_SCHEMA_VERSION = 13
+CACHE_SCHEMA_VERSION = 14
 
 # Warn once per process *and per operation*: a corrupt/contended store
 # degrades every get/put, and one line per lookup would flood a GA batch's
@@ -673,24 +673,68 @@ def source_digest(source_content: str) -> str:
 _INCLUDE_RE = re.compile(r"include(?:_next)?\b")
 
 
-def _strip_leading_comments(line: str) -> str:
-    """Return *line* with leading whitespace and C comments removed.
-
-    ``#include`` directives can follow a ``/* comment */`` on the same line
-    (``/* c */ #include <x.h>``); skipping the comment prefix keeps those
-    from being missed (an under-approximation would risk a stale cache hit).
-    """
-    s = line.lstrip()
-    while True:
-        if s.startswith("/*"):
-            end = s.find("*/")
-            if end == -1:
-                return ""
-            s = s[end + 2 :].lstrip()
-        elif s.startswith("//"):
-            return ""
+def _mask_include_comments(text: str) -> str:
+    """Replace comments with whitespace while retaining literals and newlines."""
+    trigraphs = {
+        "=": "#",
+        "/": "\\",
+        "'": "^",
+        "(": "[",
+        ")": "]",
+        "!": "|",
+        "<": "{",
+        ">": "}",
+        "-": "~",
+    }
+    text = re.sub(r"\?\?([=/'()!<>-])", lambda m: trigraphs[m.group(1)], text)
+    text = text.replace("\\\r\n", "").replace("\\\n", "")
+    result: list[str] = []
+    block = False
+    quote = ""
+    line_start = 0
+    i = 0
+    while i < len(text):
+        char = text[i]
+        pair = text[i : i + 2]
+        if block:
+            if pair == "*/":
+                result.extend("  ")
+                block = False
+                i += 2
+                continue
+            result.append(char if char in "\r\n" else " ")
+        elif quote:
+            result.append(char)
+            if char == "\\" and quote != ">" and i + 1 < len(text):
+                result.append(text[i + 1])
+                i += 2
+                continue
+            if char == quote:
+                quote = ""
+        elif pair == "/*":
+            result.extend("  ")
+            block = True
+            i += 2
+            continue
+        elif pair == "//":
+            end = text.find("\n", i)
+            if end < 0:
+                end = len(text)
+            result.extend(" " * (end - i))
+            i = end
+            continue
         else:
-            return s
+            if char in {'"', "'"}:
+                quote = char
+            elif char == "<" and re.fullmatch(
+                r"\s*#\s*include(?:_next)?\s*", "".join(result[line_start:])
+            ):
+                quote = ">"
+            result.append(char)
+        if char == "\n":
+            line_start = len(result)
+        i += 1
+    return "".join(result)
 
 
 def _iter_include_specs(text: str) -> Iterator[tuple[str, str]]:
@@ -703,12 +747,12 @@ def _iter_include_specs(text: str) -> Iterator[tuple[str, str]]:
     comments and ``#include``-shaped text outside directives are not matched
     (lines are scanned only at directive position).
     """
-    if "#" not in text:
+    if "#" not in text and "??=" not in text and "%:" not in text:
         return
-    for raw in split_source_lines(text):
-        if "#" not in raw:
-            continue
-        line = _strip_leading_comments(raw)
+    for raw in split_source_lines(_mask_include_comments(text)):
+        line = raw.lstrip()
+        if line.startswith("%:"):
+            line = "#" + line[2:]
         if not line.startswith("#"):
             continue
         rest = line[1:].lstrip()
@@ -736,7 +780,9 @@ def include_specs(text: str) -> Iterator[tuple[str, str]]:
     yield from _iter_include_specs(text)
 
 
-def _find_in_dirs(name: Path, dirs: list[Path]) -> Path | None:
+def _find_in_dirs(
+    name: Path, dirs: list[Path], *, lexical: list[tuple[Path, Path]] | None = None
+) -> Path | None:
     """Locate *name* in the first of *dirs* that contains it.
 
     Exact match first; falls back to a case-insensitive scan per path component
@@ -750,9 +796,12 @@ def _find_in_dirs(name: Path, dirs: list[Path]) -> Path | None:
         return None
     for d in dirs:
         try:
-            candidate = resolved_path(d / name)
+            candidate = d / name
             if candidate.is_file():
-                return candidate
+                found = resolved_path(candidate)
+                if lexical is not None:
+                    lexical.append((candidate.absolute(), found))
+                return found
         except OSError:
             continue
         try:
@@ -783,7 +832,10 @@ def _find_in_dirs(name: Path, dirs: list[Path]) -> Path | None:
                 candidate = match
             else:
                 if candidate.is_file():
-                    return resolved_path(candidate)
+                    found = resolved_path(candidate)
+                    if lexical is not None:
+                        lexical.append((candidate.absolute(), found))
+                    return found
         except OSError:
             continue
     return None
@@ -824,7 +876,9 @@ _include_closure_memo_chars = 0
 _INCLUDE_CLOSURE_LOCK = threading.Lock()
 
 
-def _resolve_escaping_include(name: Path, dirs: Sequence[Path]) -> Path | None:
+def _resolve_escaping_include(
+    name: Path, dirs: Sequence[Path], *, lexical: list[tuple[Path, Path]] | None = None
+) -> Path | None:
     """Resolve an include that carries ``..`` or is absolute.
 
     :func:`_find_in_dirs` rejects both, so without this resolution those
@@ -837,7 +891,10 @@ def _resolve_escaping_include(name: Path, dirs: Sequence[Path]) -> Path | None:
         try:
             candidate = Path(os.path.normpath(str(d / name)))
             if candidate.is_file():
-                return resolved_path(candidate)
+                found = resolved_path(candidate)
+                if lexical is not None:
+                    lexical.append((candidate.absolute(), found))
+                return found
         except OSError:
             continue
     return None
@@ -897,7 +954,7 @@ def _search_dir_mtimes(source_dir: str | None, include_dirs: tuple[str, ...]) ->
     return tuple(mtimes)
 
 
-def _unresolved_still_missing(
+def unresolved_still_missing(
     unresolved: Sequence[tuple[str, tuple[str, ...]]],
 ) -> bool:
     """True while every include that missed on the last scan still misses.
@@ -913,7 +970,7 @@ def _unresolved_still_missing(
     return True
 
 
-def _shadow_unchanged(shadows: Sequence[_ShadowProbe]) -> bool:
+def shadow_unchanged(shadows: Sequence[_ShadowProbe]) -> bool:
     """True while every earlier-than-the-winner search dir still misses.
 
     A header created in an earlier dir (at any depth) shadows the one the
@@ -965,8 +1022,8 @@ def _resolve_include_paths(
     if (
         cached is not None
         and _header_stats(cached[0]) == cached[2]
-        and _unresolved_still_missing(cached[3])
-        and _shadow_unchanged(cached[4])
+        and unresolved_still_missing(cached[3])
+        and shadow_unchanged(cached[4])
     ):
         return cached[0], cached[1]
     misses: list[tuple[str, tuple[str, ...]]] = []
@@ -979,11 +1036,29 @@ def _resolve_include_paths(
         probes=misses,
         shadow=shadows,
     )
+    msvc_paths, msvc_fallback, msvc_observed, msvc_consistent = scan_include_closure(
+        source_content,
+        source_dir,
+        include_dirs,
+        unresolved=misses,
+        probes=misses,
+        shadow=shadows,
+        msvc_include_parents=True,
+    )
+    observations = dict(zip(paths, observed, strict=True))
+    for path, observation in zip(msvc_paths, msvc_observed, strict=True):
+        if path in observations and observations[path] != observation:
+            consistent = False
+        observations[path] = observation
+    paths = tuple(sorted(observations))
+    observed = tuple(observations[path] for path in paths)
+    fallback = fallback or msvc_fallback
+    consistent = consistent and msvc_consistent
     if (
         not consistent
         or _header_stats(paths) != observed
-        or not _unresolved_still_missing(misses)
-        or not _shadow_unchanged(shadows)
+        or not unresolved_still_missing(misses)
+        or not shadow_unchanged(shadows)
     ):
         return paths, True
     with _INCLUDE_CLOSURE_LOCK:
@@ -991,14 +1066,14 @@ def _resolve_include_paths(
         if (
             existing is not None
             and _header_stats(existing[0]) == existing[2]
-            and _unresolved_still_missing(existing[3])
-            and _shadow_unchanged(existing[4])
+            and unresolved_still_missing(existing[3])
+            and shadow_unchanged(existing[4])
         ):
             return existing[0], existing[1]
         if (
             _header_stats(paths) != observed
-            or not _unresolved_still_missing(misses)
-            or not _shadow_unchanged(shadows)
+            or not unresolved_still_missing(misses)
+            or not shadow_unchanged(shadows)
         ):
             return paths, True
         _store_include_closure_locked(key, paths, fallback, observed, tuple(misses), tuple(shadows))
@@ -1096,6 +1171,9 @@ def scan_include_closure(
     probes: list[tuple[str, tuple[str, ...]]] | None = None,
     contents: dict[str, bytes] | None = None,
     shadow: list[_ShadowProbe] | None = None,
+    lexical: list[tuple[Path, Path]] | None = None,
+    identities: dict[Path, dict[str, Any]] | None = None,
+    msvc_include_parents: bool = False,
 ) -> tuple[tuple[str, ...], bool, tuple[tuple[int, int, int, int, str], ...], bool]:
     """Uncached body of :func:`_resolve_include_paths`.
 
@@ -1111,6 +1189,9 @@ def scan_include_closure(
     header created there re-resolves instead of leaving a stale closure.
     *contents* captures the exact bytes parsed for each reached header; callers
     needing content proof must use these bytes rather than the stat-only memo.
+    *lexical* records each found spelling and resolved target before deduplication.
+    *identities* pins each symlink chain around its read; differing lexical
+    and resolved parents with nested quoted includes are refused for review.
     """
     search_dirs: list[Path] = []
     if source_dir:
@@ -1123,11 +1204,17 @@ def scan_include_closure(
     misses: list[tuple[str, tuple[str, ...]]] = [] if unresolved is None else unresolved
 
     reached: set[str] = set()
+    visited: set[tuple[str, str, tuple[str, ...]]] = set()
     observed: dict[str, tuple[int, int, int, int, str]] = {}
     fallback = False
     consistent = True
 
-    def _scan(text: str, base_dir: Path | None, current: Path | None = None) -> None:
+    def _scan(
+        text: str,
+        base_dir: Path | None,
+        current: Path | None = None,
+        parents: tuple[Path, ...] = (),
+    ) -> None:
         nonlocal fallback, consistent
         for kind, name in _iter_include_specs(text):
             if kind == "nonliteral" or not name:
@@ -1136,7 +1223,11 @@ def scan_include_closure(
             # Quote includes search the including file's directory first,
             # then the /I dirs; angle includes search the /I dirs only.
             if kind == "quote" and base_dir is not None:
-                dirs = [base_dir, *search_dirs]
+                dirs = (
+                    [base_dir, *parents, *(Path(d) for d in include_dirs)]
+                    if msvc_include_parents
+                    else [base_dir, *search_dirs]
+                )
             else:
                 dirs = [Path(d) for d in include_dirs]
             # Include-next may select any later search root; track them all.
@@ -1152,12 +1243,13 @@ def scan_include_closure(
             )
             for index, dirs in enumerate(searches):
                 escaped = False
-                found = _find_in_dirs(Path(name), dirs)
+                spelling: list[tuple[Path, Path]] = []
+                found = _find_in_dirs(Path(name), dirs, lexical=spelling)
                 if found is None and (Path(name).is_absolute() or ".." in Path(name).parts):
                     # `#include "../../game_types.h"`: _find_in_dirs refuses the
                     # traversal, so resolve it here or the header joins nothing
                     # and its edit never invalidates the entry.
-                    found = _resolve_escaping_include(Path(name), dirs)
+                    found = _resolve_escaping_include(Path(name), dirs, lexical=spelling)
                     escaped = found is not None
                     if found is None:
                         # Unresolvable on the host (lives in the toolchain image,
@@ -1178,6 +1270,22 @@ def scan_include_closure(
                     elif probes is not None:
                         probes.append((name, tuple(str(d) for d in dirs)))
                     continue
+                if lexical is not None:
+                    lexical.extend(spelling)
+                current_identity = None
+                observed_path = None
+                if identities is not None:
+                    observed_path = spelling[0][0]
+                    current_identity = path_identity(observed_path)
+                    if current_identity["resolved"] != str(found):
+                        raise ValueError(
+                            f"{observed_path}: include identity changed while resolving"
+                        )
+                    previous = identities.setdefault(observed_path, current_identity)
+                    if previous != current_identity:
+                        raise ValueError(
+                            f"{observed_path}: include identity changed while scanning"
+                        )
                 if kind == "next" and index > current_root:
                     next_found = True
                 if shadow is not None and kind != "next":
@@ -1189,8 +1297,14 @@ def scan_include_closure(
                     if prefix:
                         shadow.append(("escape" if escaped else "find", name, prefix))
                 found_str = str(found)
-                if found_str in reached:
+                lexical_parent = spelling[0][0].parent
+                next_parents = parents
+                if msvc_include_parents and base_dir is not None:
+                    next_parents = (base_dir, *(p for p in parents if p != base_dir))
+                visit = (found_str, str(lexical_parent), tuple(str(p) for p in next_parents))
+                if visit in visited:
                     continue
+                visited.add(visit)
                 reached.add(found_str)
                 try:
                     before = found.stat()
@@ -1205,6 +1319,8 @@ def scan_include_closure(
                     consistent = False
                     reached.discard(found_str)
                     return
+                if observed_path is not None and path_identity(observed_path) != current_identity:
+                    raise ValueError(f"{observed_path}: include identity changed while reading")
                 if (before.st_mtime_ns, before.st_size, before.st_ino, before.st_ctime_ns) != (
                     after.st_mtime_ns,
                     after.st_size,
@@ -1212,17 +1328,32 @@ def scan_include_closure(
                     after.st_ctime_ns,
                 ):
                     consistent = False
-                observed[found_str] = (
+                current_observation = (
                     after.st_mtime_ns,
                     after.st_size,
                     after.st_ino,
                     after.st_ctime_ns,
                     hashlib.sha256(raw).hexdigest(),
                 )
+                if found_str in observed and observed[found_str] != current_observation:
+                    consistent = False
+                observed[found_str] = current_observation
                 if contents is not None:
+                    if found_str in contents and contents[found_str] != raw:
+                        consistent = False
                     contents[found_str] = raw
                 header_text = raw.decode("utf-8", errors="surrogateescape")
-                _scan(header_text, found.parent, found)
+                if (
+                    identities is not None
+                    and lexical_parent.resolve() != found.parent
+                    and any(
+                        kind in {"quote", "next"} for kind, _ in _iter_include_specs(header_text)
+                    )
+                ):
+                    raise ValueError(f"{spelling[0][0]}: ambiguous symlinked include parent")
+                _scan(header_text, lexical_parent, found, next_parents)
+                if lexical_parent.resolve() != found.parent:
+                    _scan(header_text, found.parent, found, next_parents)
                 if fallback:
                     return
             if kind == "next" and not next_found:

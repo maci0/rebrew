@@ -1,11 +1,12 @@
 """Target-scoped original-assembly evidence for source definitions without VAs."""
 
-from functools import lru_cache
+import threading
 lazy import hashlib
 lazy import os
 lazy from collections.abc import Sequence
 lazy from contextlib import nullcontext
 lazy from copy import deepcopy
+lazy from dataclasses import replace
 lazy from pathlib import Path
 lazy from typing import Any
 
@@ -32,7 +33,7 @@ lazy from rebrew.metadata.source_schema import (
     validate_source_files,
     validate_source_metadata,
 )
-lazy from rebrew.metadata.storage import metadata_store, metadata_write_lock
+lazy from rebrew.metadata.storage import MetadataStore, metadata_store, metadata_write_lock
 lazy from rebrew.utils import (
     preset_module_key,
     read_source_text,
@@ -47,6 +48,7 @@ __all__ = [
     "function_definition_hashes",
     "load_source_files",
     "load_source_provenance",
+    "plan_source_rehome",
     "rename_source_provenance",
     "replace_source_metadata",
     "set_source_file",
@@ -84,16 +86,35 @@ def function_definition_hashes(source: str) -> dict[str, str]:
     return {name: digest for name, digest in hashes.items() if name not in ambiguous}
 
 
-@lru_cache(maxsize=16)
+_READ_CACHE: dict[
+    tuple[Path, str, Path, tuple[tuple[str, int, int, int, int], ...]],
+    tuple[tuple[AssemblyProvenance, ...], tuple[SourceFilePurpose, ...]],
+] = {}
+_READ_CACHE_LOCK = threading.Lock()
+
+
 def _read(
-    path: Path, backend: str, root: Path, fingerprint: tuple[tuple[str, int, int, int, int], ...]
+    store: MetadataStore, fingerprint: tuple[tuple[str, int, int, int, int], ...]
 ) -> tuple[tuple[AssemblyProvenance, ...], tuple[SourceFilePurpose, ...]]:
-    document = metadata_store(path, backend=backend, root=root).read("source metadata")
+    key = (store.path, store.name, store.root, fingerprint)
+    with _READ_CACHE_LOCK:
+        cached = _READ_CACHE.get(key)
+    if cached is not None:
+        return cached
+    document = store.read("source metadata")
     parse_metadata_doc(
-        document, known_fields=_FUNCTION_FIELDS, source=str(path), version=FUNCTION_FORMAT_VERSION
+        document,
+        known_fields=_FUNCTION_FIELDS,
+        source=str(store.path),
+        version=FUNCTION_FORMAT_VERSION,
     )
     source = document.get("source", {"definitions": {}, "files": {}})
-    return validate_source_metadata(source), validate_source_files(source["files"])
+    result = validate_source_metadata(source), validate_source_files(source["files"])
+    with _READ_CACHE_LOCK:
+        if len(_READ_CACHE) >= 16:
+            _READ_CACHE.pop(next(iter(_READ_CACHE)))
+        _READ_CACHE[key] = result
+    return result
 
 
 def _resolved_store_path(directory: Path) -> Path:
@@ -116,7 +137,7 @@ def load_source_provenance(directory: Path) -> tuple[AssemblyProvenance, ...]:
     metadata_format(path)
     store = metadata_store(path)
     fingerprint = store.fingerprint()
-    return _read(path, store.name, store.root, fingerprint)[0] if fingerprint else ()
+    return _read(store, fingerprint)[0] if fingerprint else ()
 
 
 def document_assembly(
@@ -300,7 +321,7 @@ def load_source_files(directory: Path) -> tuple[SourceFilePurpose, ...]:
     metadata_format(path)
     store = metadata_store(path)
     fingerprint = store.fingerprint()
-    return _read(path, store.name, store.root, fingerprint)[1] if fingerprint else ()
+    return _read(store, fingerprint)[1] if fingerprint else ()
 
 
 def set_source_file(directory: Path, file: str, module: str, purpose: str) -> None:
@@ -317,6 +338,56 @@ def set_source_file(directory: Path, file: str, module: str, purpose: str) -> No
         modules[preset_module_key(module)] = {"purpose": purpose}
         validate_source_metadata(doc)
         metadata_store(path).write(store, "function metadata")
+
+
+def plan_source_rehome(
+    directory: Path,
+    source_texts: dict[str, str],
+    destination: str,
+    merged_text: str,
+) -> tuple[tuple[AssemblyProvenance, ...], tuple[SourceFilePurpose, ...]]:
+    """Plan rehoming reviewed source evidence without making stale records current.
+
+    Inputs are metadata-relative source identities and their exact source text.
+    Conflicting destination evidence or purposes are refused, never overwritten.
+    The returned full records can be published with ``replace_source_metadata``
+    under the same reviewed metadata transaction as source and binding edits.
+    """
+    validate_identity_file(destination)
+    for path in source_texts:
+        validate_identity_file(path)
+    definitions: dict[tuple[str, str, str], AssemblyProvenance] = {}
+    files: dict[tuple[str, str], SourceFilePurpose] = {}
+    new_hashes = function_definition_hashes(merged_text)
+    old_hashes = {path: function_definition_hashes(text) for path, text in source_texts.items()}
+    for record in load_source_provenance(directory):
+        if record.file == destination and destination not in source_texts:
+            raise ValueError(f"destination {destination} has unselected source evidence")
+        if record.file in source_texts:
+            if record.symbol not in new_hashes:
+                raise ValueError(f"merged output has no unique definition for {record.symbol}")
+            source_hash = record.source_hash
+            if old_hashes[record.file].get(record.symbol) == source_hash:
+                source_hash = new_hashes[record.symbol]
+            record = replace(record, file=destination, source_hash=source_hash)
+        key = (record.file, record.symbol, record.module)
+        if key in definitions and definitions[key] != record:
+            raise ValueError(
+                f"conflicting source evidence for {record.file}:{record.symbol}:{record.module}"
+            )
+        definitions[key] = record
+    for file_record in load_source_files(directory):
+        if file_record.file == destination and destination not in source_texts:
+            raise ValueError(f"destination {destination} has an unselected support purpose")
+        if file_record.file in source_texts:
+            file_record = replace(file_record, file=destination)
+        file_key = (file_record.file, file_record.module)
+        if file_key in files and files[file_key] != file_record:
+            raise ValueError(
+                f"conflicting source purposes for {file_record.file}:{file_record.module}"
+            )
+        files[file_key] = file_record
+    return tuple(definitions.values()), tuple(files.values())
 
 
 def replace_source_metadata(

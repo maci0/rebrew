@@ -52,6 +52,10 @@ class MetadataStorageError(RebrewError, ValueError):
     """A metadata database is corrupt, incompatible, inaccessible or busy."""
 
 
+class MetadataUnavailableError(MetadataStorageError):
+    """A backend cannot currently be reached; another configured reader may be used."""
+
+
 def _connections() -> dict[Path, sqlite3.Connection]:
     connections: dict[Path, sqlite3.Connection] | None = getattr(_CONNECTIONS, "active", None)
     if connections is None:
@@ -84,7 +88,12 @@ class SqliteStore:
     def _reader(self) -> Iterator[sqlite3.Connection | None]:
         active = _connections().get(self.location)
         if active is not None:
-            yield active
+            try:
+                yield active
+            except sqlite3.OperationalError as exc:
+                raise MetadataUnavailableError(f"{self.location}: {exc}") from exc
+            except sqlite3.Error as exc:
+                raise MetadataStorageError(f"{self.location}: {exc}") from exc
             return
         try:
             self.location.stat()
@@ -97,6 +106,8 @@ class SqliteStore:
             ) as connection:
                 self._check_schema(connection)
                 yield connection
+        except sqlite3.OperationalError as exc:
+            raise MetadataUnavailableError(f"{self.location}: {exc}") from exc
         except sqlite3.Error as exc:
             raise MetadataStorageError(f"{self.location}: {exc}") from exc
 
@@ -192,7 +203,12 @@ class SqliteStore:
         ):
             connections = _connections()
             if self.location in connections:
-                yield
+                try:
+                    yield
+                except sqlite3.OperationalError as exc:
+                    raise MetadataUnavailableError(f"{self.location}: {exc}") from exc
+                except sqlite3.Error as exc:
+                    raise MetadataStorageError(f"{self.location}: {exc}") from exc
                 return
             self.location.parent.mkdir(parents=True, exist_ok=True)
             existed = self.location.exists()
@@ -228,6 +244,8 @@ class SqliteStore:
                         raise
                     finally:
                         connections.pop(self.location, None)
+            except sqlite3.OperationalError as exc:
+                raise MetadataUnavailableError(f"{self.location}: {exc}") from exc
             except sqlite3.Error as exc:
                 raise MetadataStorageError(f"{self.location}: {exc}") from exc
             finally:
@@ -250,6 +268,8 @@ class SqliteStore:
                 return ()
             result = []
             for (key,) in connection.execute("SELECT path FROM metadata_documents ORDER BY path"):
+                if key == ".rebrew/metadata-replication.toml":
+                    continue
                 path = self.root / key
                 if (
                     Path(key).is_absolute()
@@ -319,6 +339,10 @@ def _extra_durable_sources(root: Path) -> list[Path]:
     uploads = root / _UPLOADS_REL
     if uploads.is_file():
         sources.append(uploads)
+    for name in ("metadata-journal.toml", "metadata-replication.toml"):
+        state = root / ".rebrew" / name
+        if state.is_file():
+            sources.append(state)
     sync_dir = root / _SYNC_DIR_REL
     if sync_dir.is_dir():
         sources.extend(sorted(p for p in sync_dir.iterdir() if p.suffix == ".toml" and p.is_file()))
@@ -645,9 +669,14 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
     _sync_rel = _SYNC_DIR_REL
     _siblings: list[tuple[Path, Path]] = []
     _backup_root = backup.parent
-    for _rel, _kind in ((_ga_rel, "ga"), (_sync_rel, "sync")):
+    for _rel, _kind in (
+        (_ga_rel, "ga"),
+        (_sync_rel, "sync"),
+        (Path(".rebrew/metadata-journal.toml"), "state"),
+        (Path(".rebrew/metadata-replication.toml"), "state"),
+    ):
         _src_dir = _backup_root / _rel
-        if _kind == "ga":
+        if _kind in {"ga", "state"}:
             _candidates = [_src_dir] if _src_dir.is_file() else []
         else:
             _candidates = (

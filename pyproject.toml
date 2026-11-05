@@ -71,6 +71,9 @@ prove = [
 binsync = [
     "declib>=4.5.0,<5",
 ]
+pgsql = [
+    "psycopg>=3.3.8,<4",
+]
 
 [project.scripts]
 # One executable for people and build tools (ADR 027).
@@ -260,7 +263,7 @@ dev = [
 # scoring core + rapidfuzz.  Path-pinned via [tool.uv.sources] — never an
 # extra, so wheel METADATA cannot point pip at the unrelated PyPI `resembl`.
 # Install: `uv sync --group similarity` (needs ../resembl checked out).
-# resembl 3.12.0 declares License-Expression: GPL-3.0-only. See NOTICE.
+# resembl 4.0.0 declares License-Expression: GPL-3.0-only. See NOTICE.
 similarity = [
     "resembl",
     "rapidfuzz>=3.14.6,<4",  # direct import in matcher/scoring.py code_similarity

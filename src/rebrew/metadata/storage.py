@@ -16,6 +16,8 @@ lazy import hashlib
 
 lazy from rebrew.metadata.files import METADATA_FILENAMES, TomlStore
 lazy from rebrew.metadata.locking import project_transaction
+lazy from rebrew.metadata.pgsql import PgsqlStore, validate_pgsql_settings
+lazy from rebrew.metadata.replication import RoutedStore
 lazy from rebrew.metadata.sqlite import SqliteStore
 lazy from rebrew.registry import iter_optional_provider_dicts
 lazy from rebrew.utils import load_tomllib
@@ -86,7 +88,11 @@ logger = logging.getLogger(__name__)
 def refresh_metadata_backends() -> dict[str, BackendFactory]:
     """Publish built-in and optional entry-point backends as one snapshot."""
     global _BACKENDS
-    merged: dict[str, BackendFactory] = {"toml": TomlStore, "sqlite": SqliteStore}
+    merged: dict[str, BackendFactory] = {
+        "toml": TomlStore,
+        "sqlite": SqliteStore,
+        "pgsql": PgsqlStore,
+    }
     for registration, provided in iter_optional_provider_dicts(
         "rebrew.metadata_backends", logger, expected="dict[str, backend factory]"
     ):
@@ -113,26 +119,47 @@ def available_metadata_backends() -> tuple[str, ...]:
     return tuple(sorted(current))
 
 
+def backend_routes(raw: Any) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Validate independent ordered readers and replicated write destinations."""
+    if not isinstance(raw, dict) or set(raw) - {
+        "backend",
+        "read_backends",
+        "write_backends",
+        "pgsql",
+    }:
+        raise ValueError("[metadata] accepts backend, read_backends, write_backends and pgsql")
+    if "backend" in raw and "read_backends" in raw:
+        raise ValueError("choose backend or read_backends, not both")
+    reads = raw.get("read_backends", [raw.get("backend", "toml")])
+    writes = raw.get("write_backends", reads)
+    known = available_metadata_backends()
+    for key, names in (("read_backends", reads), ("write_backends", writes)):
+        if (
+            not isinstance(names, list)
+            or not names
+            or any(not isinstance(name, str) or name not in known for name in names)
+        ):
+            raise ValueError(
+                f"unknown metadata backend in {key}; expected a nonempty list from {known}"
+            )
+        if len(set(names)) != len(names):
+            raise ValueError(f"[metadata].{key} must not contain duplicates")
+    assert isinstance(reads, list) and isinstance(writes, list)
+    if "pgsql" in (*reads, *writes) or "pgsql" in raw:
+        validate_pgsql_settings(raw.get("pgsql"))
+    return tuple(reads), tuple(writes)
+
+
 def validate_backend_settings(raw: Any) -> str:
-    """Validate the explicit, project-wide [metadata].backend selection."""
-    if not isinstance(raw, dict) or set(raw) - {"backend"}:
-        raise ValueError(
-            "[metadata] accepts only backend = "
-            + " or ".join(repr(name) for name in available_metadata_backends())
-            + " (plus any module registered under the metadata_backends "
-            "entry-point group)"
-        )
-    backend = raw.get("backend", "toml")
-    if not isinstance(backend, str) or backend not in available_metadata_backends():
-        raise ValueError(
-            f"unknown metadata backend {backend!r}; known: {', '.join(available_metadata_backends())}"
-        )
-    return backend
+    """Return the preferred read backend after validating all routes."""
+    return backend_routes(raw)[0][0]
 
 
 @lru_cache(maxsize=64)
-def _configured_backend(path: Path, fingerprint: tuple[int, int, int, int]) -> str:
-    return validate_backend_settings(load_tomllib(path).get("metadata", {}))
+def _configured_routes(
+    path: Path, fingerprint: tuple[int, int, int, int]
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    return backend_routes(load_tomllib(path).get("metadata", {}))
 
 
 #: ``directory -> (project root, ancestor identities)``.  The walk lstats every
@@ -220,7 +247,10 @@ def _builtin_store(path: Path, backend: str, project: Path) -> MetadataStore:
     ``state``/``root`` are plain paths and the backend contract is stateless, so
     repeated resolution need not allocate a new object on every cached read.
     """
-    factories: dict[str, BackendFactory] = {"toml": TomlStore, "sqlite": SqliteStore}
+    factories: dict[str, BackendFactory] = {
+        "toml": TomlStore,
+        "sqlite": SqliteStore,
+    }
     return factories[backend](path, project)
 
 
@@ -252,7 +282,16 @@ def metadata_store(
             selected = _SELECTED_STORES.get(path)
         if selected is not None and selected[0] == config_identity:
             return selected[1]
-        backend = _configured_backend(config, config_identity)
+        reads, writes = _configured_routes(config, config_identity)
+        if len(reads) > 1 or len(writes) > 1 or reads != writes:
+            return RoutedStore(
+                path,
+                project,
+                reads,
+                writes,
+                {name: _backend_factory(name) for name in dict.fromkeys((*reads, *writes))},
+            )
+        backend = reads[0]
         factory = _backend_factory(backend)
         if factory in (TomlStore, SqliteStore):
             store = _builtin_store(path, backend, project)
@@ -266,9 +305,7 @@ def metadata_store(
             raise ValueError(f"metadata backend {backend!r} does not implement MetadataStore")
         return selected_store
     if backend is None:
-        backend = (
-            "toml" if config_identity is None else _configured_backend(config, config_identity)
-        )
+        backend = "toml"
     factory = _backend_factory(backend)
     if factory in (TomlStore, SqliteStore):
         return _builtin_store(path, backend, project)
@@ -298,7 +335,7 @@ def project_metadata_stores(
     paths = selected.documents(recursive=recursive)
     if any(path.name not in METADATA_FILENAMES for path in paths):
         raise ValueError(f"{selected.location}: unrecognized managed metadata document")
-    return tuple(metadata_store(path, backend=selected.name, root=selected.root) for path in paths)
+    return tuple(metadata_store(path, backend=backend, root=selected.root) for path in paths)
 
 
 def metadata_inputs(directory: Path) -> tuple[Path, ...]:
@@ -331,3 +368,17 @@ def input_exists(path: Path) -> bool:
 def metadata_store_paths(directory: Path) -> tuple[Path, ...]:
     """Logical metadata paths for backend-independent review snapshots."""
     return tuple(store.path for store in project_metadata_stores(directory))
+
+
+def toml_fragment_paths(store: MetadataStore) -> tuple[Path, ...]:
+    """Return physical fragments for owner-level exception rollback."""
+    if store.name != "toml":
+        raise ValueError("physical fragment paths require a TOML store")
+    from rebrew.metadata.files import metadata_paths
+
+    return metadata_paths(store.path)
+
+
+def managed_metadata_filenames() -> frozenset[str]:
+    """Return names of logical managed metadata collections."""
+    return METADATA_FILENAMES

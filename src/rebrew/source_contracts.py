@@ -22,6 +22,7 @@ lazy from rebrew.c_rename import ParsedSource, declarator_name, non_external_fun
 lazy from rebrew.compiler.cache import scan_include_closure
 lazy from rebrew.compiler.compile import effective_compile_flags, extract_include_dirs
 lazy from rebrew.compiler.overrides import resolve_compile_overrides_cached
+lazy from rebrew.compiler.toolchain import ToolchainError, get_toolchain
 lazy from rebrew.config import ProjectConfig, target_module
 lazy from rebrew.metadata.bindings import read_source_bindings
 lazy from rebrew.metadata.storage import (
@@ -148,9 +149,17 @@ def _functions(path: Path, context: Path, text: str) -> list[ContractSite]:
 
 
 def contract_contexts(
-    cfg: ProjectConfig, *, selected_sources: set[Path] | None = None
+    cfg: ProjectConfig,
+    *,
+    selected_sources: set[Path] | None = None,
+    observed_contents: dict[Path, bytes] | None = None,
+    lexical_includes: list[tuple[Path, Path]] | None = None,
+    observed_identities: dict[Path, dict[str, Any]] | None = None,
+    include_shadows: list[tuple[str, str, tuple[str, ...]]] | None = None,
+    include_probes: list[tuple[str, tuple[str, ...]]] | None = None,
+    image_headers: Any = None,
 ) -> tuple[dict[Path, set[Path]], list[dict[str, Any]]]:
-    """Read actual target providers and their include closure, reporting uncertainty."""
+    """Read target providers and include closure; optionally capture bytes and lookup evidence."""
     module_name = target_module(cfg)
     metadata_dir = cfg.metadata_dir
     sources, _foreign = collect_target_sources(cfg, module_name)
@@ -166,7 +175,14 @@ def contract_contexts(
     for source in sources:
         # read_source_text feeds the batch memo read_source_bindings uses, so
         # the source is read once instead of once here and once there.
-        text, _encoding = read_source_text(source)
+        source_bytes = source.read_bytes() if observed_contents is not None else None
+        text, encoding = read_source_text(source)
+        if source_bytes is not None and observed_contents is not None:
+            if source_bytes.decode(encoding, errors="replace") != text:
+                raise ValueError(f"{source}: source changed while scanning includes")
+            previous = observed_contents.setdefault(source.resolve(), source_bytes)
+            if previous != source_bytes:
+                raise ValueError(f"{source}: source changed while scanning includes")
         annotations = read_source_bindings(
             source,
             target_name=module_name,
@@ -177,25 +193,59 @@ def contract_contexts(
         flags = {
             resolve_compile_overrides_cached(
                 cfg, source.parent, a.toolchain or None, a.cflags or None, a.module
-            )[1]
+            )
             for a in annotations
             if a.kind in {"FUNCTION", "STUB", "LIBRARY"}
         }
         if not flags:
-            flags = {
-                resolve_compile_overrides_cached(cfg, source.parent, None, None, module_name)[1]
-            }
+            flags = {resolve_compile_overrides_cached(cfg, source.parent, None, None, module_name)}
         headers: set[Path] = set()
-        for cflags in flags:
-            includes = extract_include_dirs(
-                effective_compile_flags(cfg, None, cflags, source.parent)
-            )
+        for toolchain, cflags in flags:
+            profile = toolchain or cfg.compiler_profile
+            try:
+                msvc_include_parents = get_toolchain(profile).family == "msvc"
+            except ToolchainError:
+                msvc_include_parents = False
+                unknown.append(
+                    {
+                        "context": str(source),
+                        "reason": f"unknown compiler profile: {profile}",
+                        "missing": [],
+                    }
+                )
+            effective = effective_compile_flags(cfg, None, cflags, source.parent)
+            includes = extract_include_dirs(effective)
             if cfg.compiler_includes != Path():
                 includes.append(str(cfg.compiler_includes))
+            if image_headers is not None:
+                if any(
+                    flag.lower() in {"/x", "-x"}
+                    or flag.lower().startswith(("/fi", "-fi"))
+                    or flag.startswith("@")
+                    or flag.lower().startswith(("-include", "-imacros", "-isystem"))
+                    for flag in effective
+                ):
+                    raise ValueError(f"{source}: unsupported include-affecting compiler flag")
+                includes.append(str(image_headers.get(profile)))
             misses: list[tuple[str, tuple[str, ...]]] = []
+            contents: dict[str, bytes] = {}
             paths, fallback, _stats, consistent = scan_include_closure(
-                text, str(source.parent), tuple(includes), unresolved=misses
+                text,
+                str(source.parent),
+                tuple(includes),
+                unresolved=misses,
+                contents=contents if observed_contents is not None else None,
+                lexical=lexical_includes,
+                identities=observed_identities,
+                shadow=include_shadows,
+                probes=include_probes,
+                msvc_include_parents=msvc_include_parents,
             )
+            if observed_contents is not None:
+                for header_path, raw in contents.items():
+                    previous = observed_contents.setdefault(Path(header_path), raw)
+                    if previous != raw:
+                        raise ValueError(f"{header_path}: header changed while scanning includes")
             headers.update(Path(p) for p in paths)
             if fallback or not consistent or misses:
                 unknown.append(

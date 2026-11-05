@@ -16,6 +16,9 @@ input.  ``--dry-run`` writes nothing.
 
 import re
 from dataclasses import dataclass, field
+lazy import hashlib
+lazy import json
+lazy from collections.abc import Callable
 lazy from pathlib import Path
 lazy from typing import Any
 
@@ -23,6 +26,7 @@ import typer
 from typer.models import TyperPath
 
 from rebrew.cli import (
+    EXPECTED_DIGEST_HELP,
     TargetOption,
     confirm_abort,
     console,
@@ -432,6 +436,7 @@ class _Piece:
     norm: str
     rows: list[tuple[str, int, str]]
     va: int
+    providers: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -669,6 +674,8 @@ def _read_layouts(
     output_dir: Path,
     json_output: bool,
     prior_output: str,
+    readings: dict[Path, tuple[str, str]] | None = None,
+    guarded_masks: dict[Path, str] | None = None,
 ) -> tuple[list[_InputLayout], list[str], str, str]:
     """Read every input.  The last non-UTF-8 source encoding wins."""
     layouts: list[_InputLayout] = []
@@ -683,7 +690,11 @@ def _read_layouts(
 
         syntax = address_comments_for_file(file_path)
         try:
-            text, enc = read_source_text(file_path)
+            text, enc = (
+                readings[file_path.resolve()]
+                if readings is not None
+                else read_source_text(file_path)
+            )
         except OSError as exc:
             error_exit(f"Failed to read {file_path}: {exc}", json_mode=json_output)
         out_encoding = _note_encoding(enc, out_encoding, legacy_encodings)
@@ -702,7 +713,9 @@ def _read_layouts(
                     ):
                         validation_lines[anchor.line - 1] = "\n"
             source_bindings("".join(validation_lines), file_path, None, None, meta)
-            raw, spans = source_layout(text)
+            raw, spans = source_layout(
+                guarded_masks[file_path.resolve()] if guarded_masks is not None else text
+            )
         except (ImportError, ValueError) as exc:
             error_exit(f"{exc}. Nothing was written.", json_mode=json_output)
         layout, layout_problems = _layout_one(
@@ -727,6 +740,7 @@ def _read_layouts(
 
 
 def _union_rows(prior: _Piece, piece: _Piece) -> None:
+    prior.providers.update(piece.providers)
     seen_keys = {row[:2] for row in prior.rows}
     for row in piece.rows:
         if row[:2] not in seen_keys:
@@ -810,7 +824,12 @@ def _target_va(layout: _InputLayout, target_module_name: str) -> int:
 
 
 def _assemble_pieces(
-    layouts: list[_InputLayout], *, shared: bool, target_module_name: str, json_output: bool
+    layouts: list[_InputLayout],
+    *,
+    shared: bool,
+    target_module_name: str,
+    json_output: bool,
+    providers: dict[str, set[str]] | None = None,
 ) -> tuple[list[_Piece], list[_Piece]]:
     """Storage first, then functions.  Files are ordered by their lowest function VA.
 
@@ -818,6 +837,18 @@ def _assemble_pieces(
     targets, and a client VA below the server image would sort it ahead of code
     that precedes it in the linked order.
     """
+    for layout in layouts:
+        original = (
+            providers[layout.rel]
+            if providers is not None
+            else {
+                preset_module_key(module)
+                for piece in layout.functions
+                for module, _va, _file in piece.rows
+            }
+        )
+        for piece in [*layout.functions, *layout.stores]:
+            piece.providers = set(original)
     layouts.sort(key=lambda item: (_target_va(item, target_module_name), item.rel))
     store_out: list[_Piece] = []
     seen_store: dict[str, _Piece] = {}
@@ -832,6 +863,35 @@ def _assemble_pieces(
     _require_merged_functions(
         func_out, shared=shared, target_module_name=target_module_name, json_output=json_output
     )
+    expected = set().union(*(piece.providers for piece in [*store_out, *func_out]))
+    if providers is not None and set().union(*providers.values()) != expected:
+        error_exit(
+            "Merging would lose an input's target participation. "
+            "Preserve storage/support-only inputs separately. Nothing was written.",
+            json_mode=json_output,
+        )
+    for piece in [*store_out, *func_out] if providers is not None else []:
+        extra = expected - piece.providers
+        if extra:
+            error_exit(
+                f"Merging {piece.name} would change target participation: "
+                f"new provider in {', '.join(sorted(extra))}. "
+                "Review target guards before merging. Nothing was written.",
+                json_mode=json_output,
+            )
+    last: dict[str, tuple[int, str]] = {}
+    for piece in func_out:
+        for module, va, _row in piece.rows:
+            key = preset_module_key(module)
+            prior = last.get(key)
+            if prior is not None and va < prior[0]:
+                error_exit(
+                    f"Merged definition order contradicts {module} native order: "
+                    f"{piece.name} ({va:#x}) follows {prior[1]} ({prior[0]:#x}). "
+                    "Review an interleaved source organization plan. Nothing was written.",
+                    json_mode=json_output,
+                )
+            last[key] = (va, piece.name)
     return store_out, func_out
 
 
@@ -1036,13 +1096,17 @@ def _commit_definitions(
     function_rows: list[tuple[str, int, str]],
     data_rows: list[tuple[str, int, str]],
     json_output: bool,
+    publisher: Callable[[Path, bytes], None] | None = None,
 ) -> None:
     previous = output_path.read_bytes() if output_path.exists() else None
     functions_done = False
     data_done = False
     try:
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(output_path, merged_text, encoding=out_encoding)
+        if publisher is None:
+            atomic_write_text(output_path, merged_text, encoding=out_encoding)
+        else:
+            publisher(output_path, merged_text.encode(out_encoding))
         if function_rows:
             _retarget_rows(meta, function_rows, new_file=new_file)
             functions_done = True
@@ -1050,7 +1114,8 @@ def _commit_definitions(
             _retarget_data_rows(meta, data_rows, new_file=new_file)
             data_done = True
     except UnicodeEncodeError as exc:
-        _rollback_output(output_path, previous)
+        if publisher is None:
+            _rollback_output(output_path, previous)
         offending = exc.object[exc.start : exc.end]
         error_exit(
             f"merged source cannot be encoded as {out_encoding} "
@@ -1059,6 +1124,8 @@ def _commit_definitions(
             json_mode=json_output,
         )
     except Exception as exc:
+        if publisher is not None:
+            error_exit(f"Merge could not publish or retarget: {exc}", json_mode=json_output)
         _rollback_output(output_path, previous)
         _undo_retarget(
             meta,
@@ -1113,6 +1180,86 @@ def _destination(cfg: Any, output_path: Path, json_output: bool) -> tuple[Any, s
     return meta, new_file
 
 
+def _merge_include_inputs(
+    cfg: Any, input_files: list[Path]
+) -> tuple[list[Path], list[Any], dict[str, str], list[tuple[str, str, tuple[str, ...]]], list[tuple[str, tuple[str, ...]]]]:
+    """Pin every resolved include and per-directory compiler override across targets."""
+    from rebrew.metadata.coordinated import path_identity_digest
+    from rebrew.source_contracts import contract_contexts
+    from rebrew.source_organization import organization_configs
+
+    config_path = cfg.root / "rebrew-project.toml"
+    before = (config_path.read_bytes() if config_path.is_file() else None, path_identity_digest(config_path))
+    configurations = organization_configs(cfg)
+    if (config_path.read_bytes() if config_path.is_file() else None, path_identity_digest(config_path)) != before:
+        raise ValueError("project config changed while loading targets")
+    matching = [c for c in configurations if c.target_name == cfg.target_name]
+    if cfg.target_name and not matching:
+        raise ValueError("selected target disappeared; reload before review")
+    if matching and matching[0].as_dict() != cfg.as_dict():
+        raise ValueError("target configuration is stale; reload before review")
+    selected = {path.resolve() for path in input_files}
+    watched: set[Path] = set()
+    observed_inputs: dict[str, str] = {}
+    shadows: list[tuple[str, str, tuple[str, ...]]] = []
+    probes: list[tuple[str, tuple[str, ...]]] = []
+    for context in configurations:
+        observed: dict[Path, bytes] = {}
+        lexical: list[tuple[Path, Path]] = []
+        identities: dict[Path, dict[str, Any]] = {}
+        closure, unknown = contract_contexts(
+            context,
+            selected_sources=selected,
+            observed_contents=observed,
+            lexical_includes=lexical,
+            observed_identities=identities,
+            include_shadows=shadows,
+            include_probes=probes,
+        )
+        if unknown:
+            item = unknown[0]
+            raise ValueError(
+                f"{context.target_name}: include closure is incomplete or changed for "
+                f"{item['context']}: {', '.join(item.get('missing', []))}"
+            )
+        watched.update(path.resolve() for path in closure if path.resolve() not in selected)
+        for path, resolved in lexical:
+            if identities[path]["links"]:
+                raise ValueError(
+                    f"{path}: symlinked include search context requires manual review"
+                )
+            if (
+                path.resolve() != resolved
+                or resolved.read_bytes() != observed[resolved]
+                or path_identity_digest(path) != json.dumps(identities[path], sort_keys=True)
+            ):
+                raise ValueError(f"{path}: include changed while loading closure")
+            watched.add(path.absolute())
+            key = "path-identity:" + str(path.absolute())
+            identity = json.dumps(identities[path], sort_keys=True)
+            if key in observed_inputs and observed_inputs[key] != identity:
+                raise ValueError(f"{path}: include identity differs across target contexts")
+            observed_inputs[key] = identity
+        for path, content in observed.items():
+            if path.read_bytes() != content:
+                raise ValueError(f"{path}: include changed while loading closure")
+            key = str(path.resolve())
+            digest = hashlib.sha256(content).hexdigest()
+            if key in observed_inputs and observed_inputs[key] != digest:
+                raise ValueError(f"{path}: include differs across target contexts")
+            observed_inputs[key] = digest
+        for _, _, roots in shadows:
+            watched.update(Path(root).absolute() for root in roots)
+        for _, roots in probes:
+            watched.update(Path(root).absolute() for root in roots)
+        for source in selected:
+            for parent in (source.parent, *source.parents):
+                if parent == context.root.resolve().parent:
+                    break
+                watched.add(parent / "rebrew-libraries.toml")
+    return sorted(watched), configurations, observed_inputs, sorted(set(shadows)), sorted(set(probes))
+
+
 def _merge_definitions(
     *,
     cfg: Any,
@@ -1124,9 +1271,83 @@ def _merge_definitions(
     consolidate: bool,
     shared: bool,
     json_output: bool,
+    expected_digest: str | None = None,
+    guarded_interleave: bool = False,
 ) -> None:
     """Merge pure-C files from their rows.  ``error_exit`` does not return."""
     meta, new_file = _destination(cfg, output_path, json_output)
+    transaction_inputs = None
+    transaction_paths = [*input_files, output_path]
+    source_texts = {}
+    watched: list[Path] = []
+    observed_inputs: dict[str, str] = {}
+    shadows: list[tuple[str, str, tuple[str, ...]]] = []
+    probes: list[tuple[str, tuple[str, ...]]] = []
+    configurations: list[Any] = []
+    readings: dict[Path, tuple[str, str]] | None = None
+    if getattr(cfg, "root", None) is not None:
+        from rebrew.metadata.coordinated import coordinated_inputs, path_identity_digest
+
+        try:
+            config_path = cfg.root / "rebrew-project.toml"
+            config_before = (
+                config_path.read_bytes() if config_path.is_file() else None,
+                path_identity_digest(config_path),
+            )
+            watched, configurations, observed_inputs, shadows, probes = _merge_include_inputs(cfg, input_files)
+            transaction_inputs = coordinated_inputs(
+                Path(meta), transaction_paths, watched=watched, discovery_roots=[cfg.reversed_dir]
+            )
+            if any(transaction_inputs.get(k) != v for k, v in observed_inputs.items()):
+                raise ValueError("includes changed while planning merge")
+            if (
+                config_path.read_bytes() if config_path.is_file() else None,
+                path_identity_digest(config_path),
+            ) != config_before:
+                raise ValueError("project config changed while planning merge")
+            readings = {path.resolve(): read_source_text(path) for path in input_files}
+            for path, (text, encoding) in readings.items():
+                if (
+                    hashlib.sha256(text.encode(encoding)).hexdigest()
+                    != transaction_inputs[str(path)]
+                ):
+                    raise ValueError(f"{path} changed or cannot round-trip; review a new preview")
+            source_texts = {
+                identity_file(path, meta): readings[path.resolve()][0] for path in input_files
+            }
+        except (OSError, ValueError) as exc:
+            error_exit(str(exc), json_mode=json_output)
+    guarded_masks = None
+    guarded_parameters: set[str] = set()
+    guarded_preamble = ""
+    guarded_require_gd = False
+    review: dict[str, Any] = {}
+    wrappers: dict[Path, tuple[str, str]] = {}
+    if guarded_interleave:
+        if transaction_inputs is None or readings is None or not delete or consolidate or shared:
+            error_exit(
+                "guarded interleave requires a project, --delete and no --consolidate or --shared",
+                json_mode=json_output,
+            )
+        if not dry_run and expected_digest is None:
+            error_exit("guarded interleave apply requires --expected-digest", json_mode=json_output)
+        from rebrew.guarded_merge import prepare_guarded_inputs
+        from rebrew.source_organization import review_organization
+
+        try:
+            review = review_organization(
+                configurations,
+                [path.resolve() for path in input_files],
+                destination=output_path.resolve(),
+                shared=shared,
+            )
+            if review["problems"] or review["unknown"]:
+                raise ValueError(
+                    "guarded interleave requires complete, conflict-free organization review"
+                )
+            guarded_masks, wrappers, guarded_parameters, guarded_preamble, guarded_require_gd = prepare_guarded_inputs(readings)
+        except (OSError, ValueError) as exc:
+            error_exit(str(exc), json_mode=json_output)
     entries = load_metadata(meta)
     data_entries = load_data_metadata(meta)
     layouts, problems, out_encoding, input_eol = _read_layouts(
@@ -1137,16 +1358,69 @@ def _merge_definitions(
         output_path.parent,
         json_output,
         new_file if force and output_path.exists() else "",
+        readings,
+        guarded_masks,
     )
     if problems:
         error_exit(f"{problems[0]}. Nothing was written.", json_mode=json_output)
-    store_out, func_out = _assemble_pieces(
-        layouts, shared=shared, target_module_name=str(cfg.module), json_output=json_output
-    )
     syntax = getattr(cfg, "address_comments", None)
-    merged_text = _compose_definitions(
-        layouts, store_out, func_out, input_eol=input_eol, syntax=syntax
-    )
+    providers: dict[str, set[str]] | None = None
+    if getattr(cfg, "root", None) is not None:
+        from rebrew.source_selection import collect_target_sources
+
+        providers = {layout.rel: set() for layout in layouts}
+        for context in configurations:
+            selected, _foreign = collect_target_sources(context, context.module)
+            selected_paths = {path.resolve() for path in selected}
+            for layout in layouts:
+                if (Path(meta) / layout.rel).resolve() in selected_paths:
+                    providers[layout.rel].add(str(context.target_name or context.module))
+    if guarded_interleave:
+        from rebrew.guarded_merge import interleave_guarded, validate_guarded_flags
+
+        try:
+            assert providers is not None
+            wrapped = interleave_guarded(
+                layouts,
+                {layout.rel: wrappers[(Path(meta) / layout.rel).resolve()] for layout in layouts},
+                providers,
+                shared=shared,
+            )
+            store_out: list[_Piece] = []
+            func_out = [piece for piece, _guard in wrapped]
+            validate_guarded_flags(
+                {piece.name for piece in func_out} | guarded_parameters, configurations, review,
+                require_gd=guarded_require_gd,
+            )
+            parts = [guarded_preamble] if guarded_preamble else []
+            active = ("", "")
+            for piece, guard in wrapped:
+                if guard != active:
+                    if active[1]:
+                        parts.append(active[1])
+                    if guard[0]:
+                        parts.append(guard[0])
+                    active = guard
+                text = piece.text
+                for module, va, _old in piece.rows:
+                    text = add_address_anchor(text, module, va, piece.name, syntax=syntax)
+                parts.append(text if text.endswith(("\n", "\r")) else text + input_eol)
+            if active[1]:
+                parts.append(active[1])
+            merged_text = "".join(parts)
+        except (OSError, ValueError) as exc:
+            error_exit(str(exc), json_mode=json_output)
+    else:
+        store_out, func_out = _assemble_pieces(
+            layouts,
+            shared=shared,
+            target_module_name=str(cfg.module),
+            json_output=json_output,
+            providers=providers,
+        )
+        merged_text = _compose_definitions(
+            layouts, store_out, func_out, input_eol=input_eol, syntax=syntax
+        )
     extern_report: ExternReport | None = None
     if consolidate:
         merged_text, extern_report = consolidate_declarations(merged_text, syntax=syntax)
@@ -1161,6 +1435,50 @@ def _merge_definitions(
         consolidate=consolidate,
         extern_report=extern_report,
     )
+    if guarded_interleave:
+        payload["merged_source"] = merged_text
+        payload["guarded_interleave"] = True
+    definitions: tuple[Any, ...] = ()
+    files: tuple[Any, ...] = ()
+    if transaction_inputs is not None:
+        from rebrew.metadata.coordinated import coordinated_inputs
+        from rebrew.metadata.source_provenance import plan_source_rehome
+
+        try:
+            current_watched, _, current_observed, current_shadows, current_probes = _merge_include_inputs(cfg, input_files)
+            if current_watched != watched or current_observed != observed_inputs or current_shadows != shadows or current_probes != probes or (
+                coordinated_inputs(
+                    Path(meta),
+                    transaction_paths,
+                    watched=watched,
+                    discovery_roots=[cfg.reversed_dir],
+                )
+                != transaction_inputs
+            ):
+                raise ValueError("merge inputs changed during planning")
+            definitions, files = plan_source_rehome(Path(meta), source_texts, new_file, merged_text)
+            digest = hashlib.sha256(
+                json.dumps(
+                    {
+                        "inputs": transaction_inputs,
+                        "output": str(output_path.resolve()),
+                        "merged": hashlib.sha256(merged_text.encode(out_encoding)).hexdigest(),
+                        "delete": delete,
+                        "shared": shared,
+                        "consolidate": consolidate,
+                        "target": str(cfg.module),
+                        "guarded_interleave": guarded_interleave,
+                    },
+                    sort_keys=True,
+                ).encode()
+            ).hexdigest()
+            payload["input_digest"] = digest
+            if expected_digest is not None and expected_digest != digest:
+                raise ValueError("merge inputs changed; review a new preview")
+        except (OSError, ValueError, UnicodeError) as exc:
+            error_exit(str(exc), json_mode=json_output)
+    elif expected_digest is not None:
+        error_exit("digest-guarded merge requires a project configuration", json_mode=json_output)
     if _stop_before_write(
         dry_run=dry_run,
         force=force,
@@ -1172,19 +1490,91 @@ def _merge_definitions(
         payload=payload,
     ):
         return
-    _commit_definitions(
-        meta=meta,
-        new_file=new_file,
-        output_path=output_path,
-        merged_text=merged_text,
-        out_encoding=out_encoding,
-        function_rows=[row for piece in func_out for row in piece.rows],
-        data_rows=[row for piece in store_out for row in piece.rows]
-        + [row for layout in layouts for row in layout.carried],
-        json_output=json_output,
-    )
-    if delete:
-        _delete_inputs(input_files, output_path)
+    function_rows = [row for piece in func_out for row in piece.rows]
+    data_rows = [row for piece in store_out for row in piece.rows] + [
+        row for layout in layouts for row in layout.carried
+    ]
+    if transaction_inputs is None:
+        _commit_definitions(
+            meta=meta,
+            new_file=new_file,
+            output_path=output_path,
+            merged_text=merged_text,
+            out_encoding=out_encoding,
+            function_rows=function_rows,
+            data_rows=data_rows,
+            json_output=json_output,
+        )
+        if delete:
+            _delete_inputs(input_files, output_path)
+    else:
+        from rebrew.metadata.coordinated import coordinated_transaction
+        from rebrew.metadata.source_provenance import replace_source_metadata
+        from rebrew.metadata.storage import metadata_store
+
+        stage = transaction_paths if delete else [output_path]
+        try:
+            def validate_resolution() -> None:
+                current, contexts, observations, current_shadows, current_probes = _merge_include_inputs(cfg, input_files)
+                if (
+                    current != watched
+                    or observations != observed_inputs
+                    or current_shadows != shadows
+                    or current_probes != probes
+                    or [context.as_dict() for context in contexts]
+                    != [context.as_dict() for context in configurations]
+                ):
+                    raise ValueError("include resolution changed; review a new merge preview")
+
+            def validate_after_publication() -> None:
+                from rebrew.compiler.cache import shadow_unchanged, unresolved_still_missing
+                from rebrew.metadata.coordinated import path_identity_digest
+                from rebrew.metadata.storage import managed_metadata_filenames
+
+                if not shadow_unchanged(shadows) or not unresolved_still_missing(probes):
+                    raise ValueError("include resolution changed during merge")
+                for path in [*watched, cfg.root / "rebrew-project.toml"]:
+                    absolute = path.absolute()
+                    if path_identity_digest(path) != transaction_inputs.get("path-identity:" + str(absolute)):
+                        raise ValueError(f"{path}: include path changed during merge")
+                    resolved = path.resolve()
+                    digest = (
+                        metadata_store(resolved).digest()
+                        if resolved.name in managed_metadata_filenames()
+                        else hashlib.sha256(resolved.read_bytes()).hexdigest()
+                        if resolved.is_file()
+                        else None
+                    )
+                    if digest != transaction_inputs.get(str(resolved)):
+                        raise ValueError(f"{path}: include content changed during merge")
+
+            with coordinated_transaction(
+                Path(meta),
+                transaction_paths,
+                stage=stage,
+                expected_inputs=transaction_inputs,
+                watched=watched,
+                discovery_roots=[cfg.reversed_dir],
+                validate=validate_resolution,
+                validate_after=validate_after_publication,
+            ) as staged:
+                _commit_definitions(
+                    meta=meta,
+                    new_file=new_file,
+                    output_path=output_path,
+                    merged_text=merged_text,
+                    out_encoding=out_encoding,
+                    function_rows=function_rows,
+                    data_rows=data_rows,
+                    json_output=json_output,
+                    publisher=staged.publish,
+                )
+                store = metadata_store(Path(meta) / "rebrew-functions.toml")
+                replace_source_metadata(
+                    Path(meta), definitions, files, expected_hash=store.digest()
+                )
+        except (OSError, ValueError, UnicodeError) as exc:
+            error_exit(str(exc), json_mode=json_output)
     _report_merge(
         json_output=json_output,
         payload=payload,
@@ -1224,6 +1614,14 @@ def main(
         "ADDRESS anchors; retarget all input metadata rows. Different bodies are refused",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    expected_digest: str | None = typer.Option(
+        None, "--expected-digest", help=EXPECTED_DIGEST_HELP
+    ),
+    guarded_interleave: bool = typer.Option(
+        False,
+        "--guarded-interleave",
+        help="Review bounded simple guards and interleave by all-target native order",
+    ),
     target: str | None = TargetOption,
 ) -> None:
     """Merge multiple single-function files into one multi-function file."""
@@ -1253,6 +1651,8 @@ def main(
         consolidate=consolidate is True,
         shared=shared,
         json_output=json_output is True,
+        expected_digest=expected_digest if isinstance(expected_digest, str) else None,
+        guarded_interleave=guarded_interleave is True,
     )
 
 

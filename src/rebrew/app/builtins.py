@@ -57,6 +57,12 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
             panel="",
         ),
         CliComponent(
+            name="anchors",
+            module="rebrew.source_anchors",
+            help="Materialize ADDRESS anchors for existing canonical function bindings.",
+            panel="",
+        ),
+        CliComponent(
             name="register",
             module="rebrew.source_register",
             help="Register address-only source bindings, or a support file purpose, in metadata.",

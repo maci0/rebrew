@@ -1520,3 +1520,433 @@ class TestMarkerlessMerge:
         raw = out.read_bytes()
         assert b"\r\n" in raw
         assert raw.replace(b"\r\n", b"").count(b"\n") == 0
+
+
+class TestMergeNativeOrder:
+    @pytest.mark.parametrize("dry_run", [False, True])
+    def test_interleaving_required_refuses_before_any_write(
+        self, tmp_path: Path, monkeypatch: Any, dry_run: bool
+    ) -> None:
+        from tree_snapshot import snapshot_with_stat
+
+        first = _single(0x10001000, "_first")
+        last = _single(0x10003000, "_last")
+        a = _write(
+            tmp_path / "a.c",
+            SourceFixture(str(first) + str(last), first.metadata_fields | last.metadata_fields),
+        )
+        b = _write(tmp_path / "b.c", _single(0x10002000, "_middle"))
+        destination = tmp_path / "merged.c"
+        destination.write_text("/* existing output must survive refusal */\n")
+        before = snapshot_with_stat(tmp_path)
+        flags = ["--force", "--delete", *(["--dry-run"] if dry_run else [])]
+        result, out = _invoke(tmp_path, monkeypatch, *flags, str(a), str(b))
+        assert result.exit_code != 0
+        assert "native order" in result.output and "middle" in result.output
+        assert out == destination and before == snapshot_with_stat(tmp_path)
+
+    def test_other_target_order_is_checked(self, tmp_path: Path, monkeypatch: Any) -> None:
+        a = _write(
+            tmp_path / "a.c",
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x10001000 */\n/* ADDRESS: CLIENT 0x402000 */\n"
+                "int first(void) { return 1; }\n",
+                {
+                    "SERVER.0x10001000": {"kind": "FUNCTION"},
+                    "CLIENT.0x00402000": {"kind": "FUNCTION"},
+                },
+            ),
+        )
+        b = _write(
+            tmp_path / "b.c",
+            SourceFixture(
+                "/* ADDRESS: SERVER 0x10002000 */\n/* ADDRESS: CLIENT 0x401000 */\n"
+                "int second(void) { return 2; }\n",
+                {
+                    "SERVER.0x10002000": {"kind": "FUNCTION"},
+                    "CLIENT.0x00401000": {"kind": "FUNCTION"},
+                },
+            ),
+        )
+        result, out = _invoke(tmp_path, monkeypatch, "--force", "--dry-run", str(a), str(b))
+        assert result.exit_code != 0
+        assert "CLIENT native order" in result.output and not out.exists()
+
+
+class TestMergeTargetParticipation:
+    @pytest.mark.parametrize("dry_run", [False, True])
+    def test_foreign_function_and_helper_never_enter_selected_target(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, dry_run: bool
+    ) -> None:
+        from tree_snapshot import snapshot_with_stat
+
+        from rebrew.config import ProjectConfig
+
+        a = _write(tmp_path / "server.c", _single(0x10001000, "_server_only"))
+        b = _write(
+            tmp_path / "client.c",
+            _single(
+                0x402000,
+                "_client_only",
+                module="CLIENT",
+                preamble="static int client_helper(void) { return 2; }\n",
+            ),
+        )
+        cfg = ProjectConfig(
+            root=tmp_path, reversed_dir=tmp_path, module="SERVER", target_name="server"
+        )
+        monkeypatch.setattr("rebrew.merge.require_config", lambda **kwargs: cfg)
+        output = tmp_path / "merged.c"
+        output.write_text("/* retain existing output */\n")
+        before = snapshot_with_stat(tmp_path)
+        result = runner.invoke(
+            app,
+            [
+                "--output",
+                str(output),
+                "--force",
+                "--delete",
+                *(["--dry-run"] if dry_run else []),
+                str(a),
+                str(b),
+            ],
+        )
+        assert result.exit_code != 0
+        assert "target participation" in result.output
+        assert before == snapshot_with_stat(tmp_path)
+
+    def test_identical_shared_body_keeps_its_original_providers(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.config import ProjectConfig
+
+        (tmp_path / "rebrew-project.toml").write_text('[metadata]\nbackend = "toml"\n')
+        a = _write(tmp_path / "server.c", _single(0x10001000, "_same"))
+        b = _write(tmp_path / "client.c", _single(0x402000, "_same", module="CLIENT"))
+        cfgs = [
+            ProjectConfig(root=tmp_path, reversed_dir=tmp_path, module=m, target_name=m)
+            for m in ("SERVER", "CLIENT")
+        ]
+        monkeypatch.setattr("rebrew.merge.require_config", lambda **kwargs: cfgs[0])
+        monkeypatch.setattr("rebrew.source_organization.organization_configs", lambda cfg: cfgs)
+        result = runner.invoke(
+            app, ["--output", str(tmp_path / "shared.c"), "--force", "--shared", str(a), str(b)]
+        )
+        assert result.exit_code == 0, result.output
+        text = (tmp_path / "shared.c").read_text()
+        assert text.count("int same") == 1
+        assert "ADDRESS: SERVER" in text and "ADDRESS: CLIENT" in text
+
+    def test_storage_only_support_scope_is_not_lost_or_added_to_functions(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from tree_snapshot import snapshot_with_stat
+
+        from rebrew.config import ProjectConfig
+        from rebrew.metadata.source_provenance import set_source_file
+        from rebrew.source_selection import collect_target_sources
+
+        storage = _write(tmp_path / "storage.c", "int object;\n")
+        for module in ("SERVER", "CLIENT"):
+            set_source_file(tmp_path, "storage.c", module, "evidenced target storage")
+        first = _single(0x401000, "_a", module="CLIENT")
+        second = _single(0x402000, "_b", module="CLIENT")
+        functions = _write(tmp_path / "functions.c", first + second)
+        cfgs = [
+            ProjectConfig(root=tmp_path, reversed_dir=tmp_path, module=m, target_name=m)
+            for m in ("SERVER", "CLIENT")
+        ]
+        assert storage in collect_target_sources(cfgs[0], "SERVER")[0]
+        assert functions not in collect_target_sources(cfgs[0], "SERVER")[0]
+        assert {storage, functions} <= set(collect_target_sources(cfgs[1], "CLIENT")[0])
+        monkeypatch.setattr("rebrew.merge.require_config", lambda **kwargs: cfgs[1])
+        monkeypatch.setattr("rebrew.source_organization.organization_configs", lambda cfg: cfgs)
+        before = snapshot_with_stat(tmp_path)
+        result = runner.invoke(
+            app,
+            [
+                "--output",
+                str(tmp_path / "merged.c"),
+                "--force",
+                "--delete",
+                str(storage),
+                str(functions),
+            ],
+        )
+        assert result.exit_code != 0 and "target participation" in result.output
+        assert before == snapshot_with_stat(tmp_path)
+
+
+class TestTransactionalMerge:
+    @pytest.mark.parametrize("backend", ["toml", "sqlite"])
+    def test_merge_rehomes_provenance_and_uses_reviewed_digest(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str
+    ) -> None:
+        import json
+
+        from rebrew.config import ProjectConfig
+        from rebrew.metadata.source_provenance import (
+            document_assembly,
+            load_source_files,
+            load_source_provenance,
+            set_source_file,
+        )
+
+        (tmp_path / "rebrew-project.toml").write_text(f'[metadata]\nbackend = "{backend}"\n')
+        a = _write(tmp_path / "a.c", _single(0x10001000, "_first"))
+        b = _write(tmp_path / "b.c", _single(0x10002000, "_second"))
+        out = tmp_path / "merged.c"
+        document_assembly(tmp_path, a, "first", "SERVER", "original assembly evidence")
+        set_source_file(tmp_path, "a.c", "SERVER", "reviewed support reason")
+        cfg = ProjectConfig(
+            root=tmp_path, reversed_dir=tmp_path, module="SERVER", target_name="SERVER"
+        )
+        monkeypatch.setattr("rebrew.merge.require_config", lambda **kwargs: cfg)
+        base = ["--output", str(out), "--force", "--delete", "--json"]
+        preview = runner.invoke(app, [*base, "--dry-run", str(a), str(b)])
+        assert preview.exit_code == 0, preview.output
+        digest = json.loads(preview.output)["input_digest"]
+        applied = runner.invoke(app, [*base, "--expected-digest", digest, str(a), str(b)])
+        assert applied.exit_code == 0, applied.output
+        assert out.exists() and not a.exists() and not b.exists()
+        assert {r.file for r in load_source_provenance(tmp_path)} == {"merged.c"}
+        assert {r.file for r in load_source_files(tmp_path)} == {"merged.c"}
+
+    @pytest.mark.parametrize("backend", ["toml", "sqlite"])
+    def test_failure_after_retarget_restores_sources_and_stores(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str
+    ) -> None:
+        from rebrew.config import ProjectConfig
+        from rebrew.metadata.storage import metadata_store
+
+        (tmp_path / "rebrew-project.toml").write_text(f'[metadata]\nbackend = "{backend}"\n')
+        a = _write(tmp_path / "a.c", _single(0x10001000, "_first"))
+        b = _write(tmp_path / "b.c", _single(0x10002000, "_second"))
+        out = tmp_path / "merged.c"
+        out.write_text("/* existing output */\n")
+        cfg = ProjectConfig(
+            root=tmp_path, reversed_dir=tmp_path, module="SERVER", target_name="SERVER"
+        )
+        monkeypatch.setattr("rebrew.merge.require_config", lambda **kwargs: cfg)
+        stores = [
+            metadata_store(tmp_path / n) for n in ("rebrew-data.toml", "rebrew-functions.toml")
+        ]
+        before = [p.read_bytes() for p in (a, b, out)], [s.snapshot() for s in stores]
+
+        def fail(*args: Any, **kwargs: Any) -> None:
+            raise ValueError("injected provenance failure")
+
+        monkeypatch.setattr("rebrew.metadata.source_provenance.replace_source_metadata", fail)
+        result = runner.invoke(app, ["--output", str(out), "--force", "--delete", str(a), str(b)])
+        assert result.exit_code != 0 and "injected provenance failure" in result.output
+        assert ([p.read_bytes() for p in (a, b, out)], [s.snapshot() for s in stores]) == before
+        assert not list(tmp_path.glob(".rebrew-stage-*"))
+
+    @pytest.mark.parametrize("backend", ["toml", "sqlite"])
+    def test_stale_review_rejects_source_changes_without_writes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str
+    ) -> None:
+        import json
+
+        from rebrew.config import ProjectConfig
+        from rebrew.metadata.storage import metadata_store
+
+        (tmp_path / "rebrew-project.toml").write_text(f'[metadata]\nbackend = "{backend}"\n')
+        a = _write(tmp_path / "a.c", _single(0x10001000, "_first"))
+        b = _write(tmp_path / "b.c", _single(0x10002000, "_second"))
+        out = tmp_path / "merged.c"
+        cfg = ProjectConfig(
+            root=tmp_path, reversed_dir=tmp_path, module="SERVER", target_name="SERVER"
+        )
+        monkeypatch.setattr("rebrew.merge.require_config", lambda **kwargs: cfg)
+        base = ["--output", str(out), "--force", "--delete", "--json"]
+        preview = runner.invoke(app, [*base, "--dry-run", str(a), str(b)])
+        assert preview.exit_code == 0, preview.output
+        digest = json.loads(preview.output)["input_digest"]
+        a.write_bytes(a.read_bytes() + b"/* changed */\n")
+        before = (
+            a.read_bytes(),
+            b.read_bytes(),
+            metadata_store(tmp_path / "rebrew-functions.toml").snapshot(),
+        )
+        result = runner.invoke(app, [*base, "--expected-digest", digest, str(a), str(b)])
+        assert result.exit_code != 0 and "inputs changed" in result.output
+        assert (
+            a.read_bytes(),
+            b.read_bytes(),
+            metadata_store(tmp_path / "rebrew-functions.toml").snapshot(),
+        ) == before
+        assert not out.exists()
+
+
+@pytest.mark.parametrize("backend", ["toml", "sqlite"])
+def test_transactional_merge_rejects_stale_transitive_header(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str
+) -> None:
+    import json
+
+    from rebrew.config import ProjectConfig
+    from rebrew.metadata.storage import metadata_store
+
+    (tmp_path / "rebrew-project.toml").write_text(f'[metadata]\nbackend = "{backend}"\n')
+    a = _write(tmp_path / "a.c", _single(0x10001000, "_first", preamble='#include "shared.h"\n'))
+    b = _write(tmp_path / "b.c", _single(0x10002000, "_second"))
+    (tmp_path / "shared.h").write_text('#include "nested.h"\n')
+    nested = tmp_path / "nested.h"
+    nested.write_text("#define VALUE 1\n")
+    out = tmp_path / "merged.c"
+    cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path, module="SERVER", target_name="SERVER")
+    monkeypatch.setattr("rebrew.merge.require_config", lambda **kwargs: cfg)
+    base = ["--output", str(out), "--force", "--delete", "--json"]
+    preview = runner.invoke(app, [*base, "--dry-run", str(a), str(b)])
+    assert preview.exit_code == 0, preview.output
+    digest = json.loads(preview.output)["input_digest"]
+    nested.write_text("#define VALUE 2\n")
+    before = (
+        a.read_bytes(),
+        b.read_bytes(),
+        metadata_store(tmp_path / "rebrew-functions.toml").snapshot(),
+    )
+    result = runner.invoke(app, [*base, "--expected-digest", digest, str(a), str(b)])
+    assert result.exit_code != 0 and "inputs changed" in result.output
+    assert (
+        a.read_bytes(),
+        b.read_bytes(),
+        metadata_store(tmp_path / "rebrew-functions.toml").snapshot(),
+    ) == before
+    assert not out.exists()
+
+
+def test_transactional_merge_rejects_retargeted_header_alias(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from rebrew.config import ProjectConfig
+
+    (tmp_path / "rebrew-project.toml").write_text('[metadata]\nbackend = "toml"\n')
+    a = _write(tmp_path / "a.c", _single(0x10001000, "_first", preamble='#include "alias.h"\n'))
+    b = _write(tmp_path / "b.c", _single(0x10002000, "_second"))
+    (tmp_path / "actual.h").write_text("#define VALUE 1\n")
+    (tmp_path / "alias.h").symlink_to("actual.h")
+    out = tmp_path / "merged.c"
+    cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path, module="SERVER", target_name="SERVER")
+    monkeypatch.setattr("rebrew.merge.require_config", lambda **kwargs: cfg)
+    args = ["--output", str(out), "--force", "--delete", "--json"]
+    preview = runner.invoke(app, [*args, "--dry-run", str(a), str(b)])
+    assert preview.exit_code != 0 and "symlinked include search context" in preview.output
+    assert a.exists() and b.exists() and not out.exists()
+
+
+def test_transactional_merge_rejects_config_changed_while_loading_targets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from rebrew.config import ProjectConfig
+
+    config = tmp_path / "rebrew-project.toml"
+    config.write_text('[metadata]\nbackend = "toml"\n')
+    a = _write(tmp_path / "a.c", _single(0x10001000, "_first"))
+    b = _write(tmp_path / "b.c", _single(0x10002000, "_second"))
+    cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path, module="SERVER", target_name="SERVER")
+    monkeypatch.setattr("rebrew.merge.require_config", lambda **kwargs: cfg)
+
+    def change_config(context: ProjectConfig) -> list[ProjectConfig]:
+        config.write_text('[metadata]\nbackend = "toml"\n# changed\n')
+        return [context]
+
+    monkeypatch.setattr("rebrew.source_organization.organization_configs", change_config)
+    out = tmp_path / "merged.c"
+    result = runner.invoke(app, ["--output", str(out), "--dry-run", "--json", str(a), str(b)])
+    assert result.exit_code != 0 and "config changed" in result.output
+    assert a.exists() and b.exists() and not out.exists()
+
+
+def test_transactional_merge_rejects_alias_change_after_header_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import rebrew.merge as merge
+    from rebrew.config import ProjectConfig
+
+    (tmp_path / "rebrew-project.toml").write_text('[metadata]\nbackend = "toml"\n')
+    a = _write(tmp_path / "a.c", _single(0x10001000, "_first", preamble='#include "alias.h"\n'))
+    b = _write(tmp_path / "b.c", _single(0x10002000, "_second"))
+    (tmp_path / "actual.h").write_text("#define VALUE 1\n")
+    alias = tmp_path / "alias.h"
+    alias.write_text("#define VALUE 1\n")
+    cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path, module="SERVER", target_name="SERVER")
+    monkeypatch.setattr(merge, "require_config", lambda **kwargs: cfg)
+    load = merge._merge_include_inputs
+
+    def change_after_read(*args: object) -> object:
+        result = load(*args)
+        alias.unlink()
+        alias.symlink_to("actual.h")
+        return result
+
+    monkeypatch.setattr(merge, "_merge_include_inputs", change_after_read)
+    out = tmp_path / "merged.c"
+    result = runner.invoke(app, ["--output", str(out), "--dry-run", "--json", str(a), str(b)])
+    assert result.exit_code != 0 and "includes changed" in result.output
+    assert a.exists() and b.exists() and not out.exists()
+
+
+@pytest.mark.parametrize("timing", ["before_lock", "after_publication"])
+def test_transactional_merge_rejects_earlier_include_created_before_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, timing: str
+) -> None:
+    import json
+
+    import rebrew.metadata.coordinated as coordinated
+    from rebrew.config import ProjectConfig
+
+    (tmp_path / "rebrew-project.toml").write_text('[metadata]\nbackend = "toml"\n')
+    src, early, late = (tmp_path / name for name in ("src", "early", "late"))
+    for directory in (src, early, late):
+        directory.mkdir()
+    (late / "api.h").write_text("#define VALUE 1\n")
+    a = _write(src / "a.c", _single(0x10001000, "_first", preamble="#include <api.h>\n"))
+    b = _write(src / "b.c", _single(0x10002000, "_second"))
+    out = src / "merged.c"
+    cfg = ProjectConfig(
+        root=tmp_path, reversed_dir=src, module="SERVER", target_name="SERVER",
+        base_cflags=f"/I{early} /I{late}",
+    )
+    monkeypatch.setattr("rebrew.merge.require_config", lambda **kwargs: cfg)
+    args = ["--output", str(out), "--force", "--delete", "--json"]
+    preview = runner.invoke(app, [*args, "--dry-run", str(a), str(b)])
+    assert preview.exit_code == 0, preview.output
+    digest = json.loads(preview.output)["input_digest"]
+    if timing == "before_lock":
+        original = coordinated.coordinated_transaction
+
+        def create_shadow(*args: object, **kwargs: object) -> object:
+            (early / "api.h").write_text("#define VALUE 1\n")
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(coordinated, "coordinated_transaction", create_shadow)
+    else:
+        publish = coordinated.CoordinatedStage.publish
+
+        def publish_then_shadow(stage: object, path: Path, content: bytes) -> None:
+            publish(stage, path, content)
+            (early / "api.h").write_text("#define VALUE 1\n")
+
+        monkeypatch.setattr(coordinated.CoordinatedStage, "publish", publish_then_shadow)
+    result = runner.invoke(app, [*args, "--expected-digest", digest, str(a), str(b)])
+    assert result.exit_code != 0 and "resolution changed" in result.output
+    assert a.exists() and b.exists() and not out.exists()
+
+
+def test_transactional_merge_refuses_unresolved_header(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from rebrew.config import ProjectConfig
+
+    (tmp_path / "rebrew-project.toml").write_text('[metadata]\nbackend = "toml"\n')
+    a = _write(tmp_path / "a.c", _single(0x10001000, "_first", preamble='#include "missing.h"\n'))
+    b = _write(tmp_path / "b.c", _single(0x10002000, "_second"))
+    cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path, module="SERVER", target_name="SERVER")
+    monkeypatch.setattr("rebrew.merge.require_config", lambda **kwargs: cfg)
+    result = runner.invoke(
+        app, ["--output", str(tmp_path / "merged.c"), "--force", "--delete", str(a), str(b)]
+    )
+    assert result.exit_code != 0 and "include closure is incomplete" in result.output
+    assert a.exists() and b.exists() and not (tmp_path / "merged.c").exists()

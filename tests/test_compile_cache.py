@@ -41,20 +41,42 @@ def _compile_cfg(tmp_path: Path) -> Any:
 
 
 class TestIncludeScanWork:
-    def test_only_lines_with_markers_need_comment_scanning(
+    def test_cache_tracks_msvc_and_non_msvc_nested_lookup(self, tmp_path: Path) -> None:
+        source = tmp_path / "src"
+        nested = source / "sub"
+        sdk = tmp_path / "sdk"
+        nested.mkdir(parents=True)
+        sdk.mkdir()
+        (nested / "top.h").write_text("#include <mid.h>\n")
+        (sdk / "mid.h").write_text('#include "target.h"\n')
+        first = source / "target.h"
+        second = nested / "target.h"
+        first.write_text("int posix;\n")
+        second.write_text("int msvc;\n")
+        content = '#include "sub/top.h"\n'
+        before = header_dependency_hash(content, str(source), [str(sdk)])
+        first.write_text("int posix_changed;\n")
+        after_first = header_dependency_hash(content, str(source), [str(sdk)])
+        second.write_text("int msvc_changed;\n")
+        after_second = header_dependency_hash(content, str(source), [str(sdk)])
+        assert len({before, after_first, after_second}) == 3
+
+    def test_comment_scanning_is_skipped_without_directive_markers(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        original = cache_module._strip_leading_comments
+        original = cache_module._mask_include_comments
         visited = []
 
-        def strip(line: str) -> str:
-            visited.append(line)
-            return original(line)
+        def strip(text: str) -> str:
+            visited.append(text)
+            return original(text)
 
-        monkeypatch.setattr(cache_module, "_strip_leading_comments", strip)
+        monkeypatch.setattr(cache_module, "_mask_include_comments", strip)
+        assert list(cache_module.include_specs("int f; /* comment */\n")) == []
+        assert not visited
         text = 'int f;\n/* prefix */ #include "a.h"\nint g;\n#include NAME\n'
         assert list(cache_module.include_specs(text)) == [("quote", "a.h"), ("nonliteral", "")]
-        assert len(visited) == 2
+        assert visited == [text]
 
 
 class TestCompileCache:

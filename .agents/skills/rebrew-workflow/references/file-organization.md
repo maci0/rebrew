@@ -23,6 +23,25 @@ Object matches and a common order do not prove raw-link agreement. This check ea
 no source STATUS and does not establish reference equality: verify functions and
 data as well. The review is read-only and never automatically reorders definitions.
 
+## Add optional anchors to existing bindings
+
+`rebrew source anchors src/unit.c --dry-run --json` previews ADDRESS comments
+for every canonical function binding on the selected files, across modules.
+Apply the reviewed plan with `--expected-digest DIGEST` without `--dry-run`.
+It preserves source encoding, line endings and reviewed assembly provenance;
+ambiguous definitions, conflicting anchors and retired claims are refused.
+It does not add data anchors, create identities or earn byte verdicts.
+
+## Inspect conditional contexts
+
+`rebrew source organize guards a.c b.c --json` reports exact original source,
+byte ranges and nested preprocessor directives for function definitions,
+alongside conflicting parseable prototypes and the all-target review digest.
+Pass `--expected-digest DIGEST` to reject changed review inputs. It preserves
+input bytes and performs no source rewrite. Parse errors, declaration conflicts,
+and unresolved organization review inputs remain explicit; it does not
+establish guard evaluation, compatible headers or a safe merged TU.
+
 ## Split / merge / rename
 
 ```bash
@@ -44,6 +63,9 @@ rebrew recommend --json                   # all lanes: TU layout + hygiene + nex
   in the original file. A static dependency is refused. A non-terminal stdin
   is refused, and `--json` requires `--force`. Pass `--force` to skip the
   prompt. A piped answer does not approve. `--dry-run` writes nothing.
+- `rebrew source merge` checks actual all-target source selection and refuses to expose a definition or file-scope object in an additional target. Identical shared bodies retain the union of their original provider contexts; rowless helpers follow their original input scope. This does not verify static-instance ownership, header/ABI compatibility or linked placement.
+- `rebrew source merge` refuses output whose definition order contradicts any bound module’s native VA order. `--guarded-interleave --delete --dry-run --json` can preview interleaving of a narrow, complete set of externally bound scalar functions with simple outer `#ifdef` or `#ifndef` guards. It supports named `int` and `float` parameters and one identical no-argument scalar prototype across all inputs. It refuses unresolved or symlinked includes, incompatible contexts, other preambles, local declarations, storage, unknown identifiers and unsupported guards. Apply only the reviewed preview using `--expected-digest`; target participation and full raw-link comparisons still require review.
+- Coordinated merge stages source files and restores metadata and source on ordinary exceptions. It detects edits during staging and publishes outputs without overwriting newly created files. This is not crash recovery or a general lock on outside editors; if an editor recreates a staged path, its file and the staged original are retained for manual recovery.
 - `rebrew source merge` combines C definitions from their function rows.
   Definitions move to the output and every row that names an input moves
   with them. `--shared` keeps one copy when the bodies match and refuses

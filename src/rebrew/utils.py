@@ -576,6 +576,36 @@ def resolved_path(path: Path) -> Path:
     return resolved
 
 
+def path_identity(path: Path) -> dict[str, Any]:
+    """Capture the resolved path and every raw symlink target in its chain."""
+    from collections import deque
+
+    path = path.absolute()
+    remaining = deque(path.parts[1:])
+    current = Path(path.anchor)
+    links: list[tuple[str, str]] = []
+    while remaining:
+        part = remaining.popleft()
+        if part == "..":
+            current = current.parent
+            continue
+        candidate = current / part
+        if candidate.is_symlink():
+            target_text = os.readlink(candidate)  # noqa: PTH115
+            target = Path(target_text)
+            links.append((str(candidate), target_text))
+            if len(links) > 40:
+                raise ValueError(f"{path}: symlink chain is too deep")
+            if target.is_absolute():
+                current = Path(target.anchor)
+                remaining.extendleft(reversed(target.parts[1:]))
+            else:
+                remaining.extendleft(reversed(target.parts))
+        else:
+            current = candidate
+    return {"resolved": str(path.resolve()), "links": links}
+
+
 def path_is_relative_to(path: Path, other: Path) -> bool:
     """Whether *path* is *other* or a path under it.
 
