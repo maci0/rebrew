@@ -230,18 +230,21 @@ class TestCiPins:
             for name, spec in jobs.items():
                 uses = [step.get("uses") for step in spec["steps"]]
                 if path == CI_YML and name == "jobs-service":
-                    install = next(
-                        step
-                        for step in spec["steps"]
-                        if step.get("name") == "Install the pinned Go release"
-                    )
-                    assert install["env"] == {
+                    # Job-level env carries the pin so the cache keys and the
+                    # check step share it; the install step declares no env.
+                    assert spec["env"] == {
                         "GO_VERSION": "1.27.3",
                         "GO_SHA256": "65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40",
                         # Refuse the on-demand toolchain download so the
                         # SHA-256 verified release is the only Go that runs.
                         "GOTOOLCHAIN": "local",
                     }
+                    install = next(
+                        step
+                        for step in spec["steps"]
+                        if step.get("name") == "Install the pinned Go release"
+                    )
+                    assert "env" not in install
                     script = install["run"]
                     assert "https://go.dev/dl/go$GO_VERSION.linux-amd64.tar.gz" in script
                     assert '"$GO_SHA256  $RUNNER_TEMP/go.tar.gz" | sha256sum -c -' in script
@@ -252,6 +255,7 @@ class TestCiPins:
                         if step.get("name") == "Check the jobs service"
                     )
                     assert check["working-directory"] == "services/jobs"
+                    # CGO off; GOTOOLCHAIN comes from the job-level env.
                     assert check["env"] == {"CGO_ENABLED": "0"}
                     assert all(
                         command in check["run"]
