@@ -294,25 +294,33 @@ _PROJECT_CONFIG_NAME = "rebrew-project.toml"
 #: baselines hold the three-way reconciliation sidecars.  The metadata
 #: backup bundle carries both so one off-tree backup covers the whole
 #: project; the GA log also keeps its own ``rebrew match solutions
-#: --backup`` spelling.
+#: --backup`` spelling.  The decomp.me upload ledger holds claim tokens
+#: whose loss re-uploads scratches already claimed on decomp.me; it is
+#: durable for the same reason (90-day dedup window) and rides in the
+#: same bundle.
 _GA_RUNS_REL = Path(".rebrew") / "ga_runs.jsonl"
 _SYNC_DIR_REL = Path(".rebrew") / "sync"
+_UPLOADS_REL = Path(".rebrew") / "decompme-uploads.json"
 
 
 def _extra_durable_sources(root: Path) -> list[Path]:
-    """GA log plus BinSync baseline sidecars, when present.
+    """GA log, BinSync baseline sidecars, and upload ledger, when present.
 
-    Both live under the gitignored ``.rebrew/`` directory, so a backup
-    that only walks the TOML store trees silently drops them both: the
-    GA wins have no regenerating command, and losing the baselines
-    loses the three-way decisions a later push/pull relied on.  Peer
-    worktrees under ``.rebrew/sync/peers/`` are transient snapshots and
-    stay out.
+    All live under the gitignored ``.rebrew/`` directory, so a backup
+    that only walks the TOML store trees silently drops them: the
+    GA wins have no regenerating command, losing the baselines
+    loses the three-way decisions a later push/pull relied on, and
+    losing the upload ledger re-uploads scratches already claimed on
+    decomp.me.  Peer worktrees under ``.rebrew/sync/peers/`` are
+    transient snapshots and stay out.
     """
     sources = []
     ga_runs = root / _GA_RUNS_REL
     if ga_runs.is_file():
         sources.append(ga_runs)
+    uploads = root / _UPLOADS_REL
+    if uploads.is_file():
+        sources.append(uploads)
     sync_dir = root / _SYNC_DIR_REL
     if sync_dir.is_dir():
         sources.extend(
