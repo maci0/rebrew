@@ -16,6 +16,7 @@ lazy from rebrew.config import ProjectConfig
 lazy from rebrew.metadata.functions import validate_identity_file
 lazy from rebrew.metadata.storage import metadata_store, metadata_write_lock
 lazy from rebrew.utils import (
+    path_identity,
     preset_module_key,
     read_source_text,
 )
@@ -47,6 +48,7 @@ _FIELDS = frozenset(
         "binary_hash",
     }
 )
+_HASH_FIELDS = ("source_hash", "headers_hash", "context_hash", "binary_hash")
 
 
 def struct_definition_names(source: str) -> set[str]:
@@ -109,7 +111,9 @@ def validate_type_document(doc: Any) -> list[dict[str, Any]]:
                 or not module
                 or preset_module_key(module) != module
                 or not isinstance(entry, dict)
-                or set(entry) != _FIELDS
+                or not _FIELDS
+                <= set(entry)
+                <= _FIELDS | {"path_history", "path_revalidation_required"}
             ):
                 raise ValueError(f"invalid type record {identity!r}:{module!r}")
             file, symbol = entry["file"], entry["symbol"]
@@ -154,11 +158,32 @@ def validate_type_document(doc: Any) -> list[dict[str, Any]]:
                 for k, v in offsets.items()
             ):
                 raise ValueError("type offsets require member identifiers within the C view")
-            for field in ("source_hash", "headers_hash", "context_hash", "binary_hash"):
+            for field in _HASH_FIELDS:
                 if not isinstance(entry[field], str) or not re.fullmatch(
                     r"[0-9a-f]{64}", entry[field]
                 ):
                     raise ValueError(f"invalid type {field}")
+            if (
+                "path_revalidation_required" in entry
+                and entry["path_revalidation_required"] is not True
+            ):
+                raise ValueError("type path revalidation marker must be true")
+            history = entry.get("path_history")
+            if history is not None:
+                if not isinstance(history, list) or not history:
+                    raise ValueError("type path history must be a nonempty list")
+                for prior in history:
+                    if (
+                        not isinstance(prior, dict)
+                        or set(prior) != _FIELDS | {"freshness"}
+                        or prior["freshness"] != "unassessed"
+                    ):
+                        raise ValueError("invalid type path history")
+                    validate_type_document(
+                        {"format": 1, "types": {"prior": {module: {k: prior[k] for k in _FIELDS}}}}
+                    )
+            if entry.get("path_revalidation_required") and not history:
+                raise ValueError("type path revalidation requires path history")
             binding = (module, file, symbol)
             if binding in seen:
                 raise ValueError(
@@ -176,6 +201,57 @@ def load_types(directory: Path) -> list[dict[str, Any]]:
     if not store.exists():
         return []
     return validate_type_document(store.read("type metadata", validate=validate_type_document))
+
+
+def rehome_type_bindings(
+    directory: Path,
+    old: str,
+    new: str,
+    *,
+    dry_run: bool = False,
+    expected_digest: str | None = None,
+) -> dict[str, Any]:
+    """Retarget type owners while retaining prior evidence as explicitly unassessed history.
+
+    This does not move a source or prove the destination compile context. Use
+    inside the same coordinated transaction as source and other owner changes.
+    """
+    if old == new or any(
+        validate_identity_file(path) != path or Path(path).suffix.lower() not in {".c", ".h"}
+        for path in (old, new)
+    ):
+        raise ValueError("type rehome requires distinct contained C source paths")
+    path = directory / TYPE_METADATA_FILENAME
+    if not dry_run:
+        from rebrew.metadata.coordinated import require_staged_source_move
+
+        require_staged_source_move(directory, old, new)
+    with metadata_write_lock(directory, TYPE_METADATA_FILENAME):
+        store = metadata_store(path)
+        before = store.digest()
+        if before is None:
+            return {"input_digest": None, "rows": [], "written": False}
+        doc = store.read("type metadata", validate=validate_type_document, roundtrip=True)
+        records = validate_type_document(doc)
+        rows = [r for r in records if r["file"] == old]
+        if any(r.get("path_revalidation_required") for r in rows):
+            raise ValueError("rebind invalidated type evidence before moving it again")
+        digest = hashlib.sha256(json.dumps([before, old, new], sort_keys=True).encode()).hexdigest()
+        for row in rows:
+            entry = doc["types"][row["id"]][row["module"]]
+            history = list(entry.get("path_history", []))
+            history.append({"freshness": "unassessed", **{k: row[k] for k in _FIELDS}})
+            entry["file"] = new
+            entry["path_history"] = history
+            entry["path_revalidation_required"] = True
+        validate_type_document(doc)
+        if store.digest() != before:
+            raise ValueError("type metadata changed while planning rehome")
+        if not dry_run and rows:
+            if expected_digest != digest:
+                raise ValueError("type rehome digest does not match preview")
+            store.write(doc, "type metadata")
+        return {"input_digest": digest, "rows": rows, "written": bool(rows) and not dry_run}
 
 
 def _inputs(
@@ -288,6 +364,21 @@ def bind_type(
 ) -> dict[str, Any]:
     """Bind or refresh one stable identity after compiler validation, atomically."""
     directory = cfg.metadata_dir.resolve()
+    root = Path(
+        getattr(cfg, "root", None) or metadata_store(directory / TYPE_METADATA_FILENAME).root
+    )
+    config = root / "rebrew-project.toml"
+
+    def config_snapshot() -> tuple[bytes | None, dict[str, Any]]:
+        return (config.read_bytes() if config.is_file() else None, path_identity(config))
+
+    initial_config = config_snapshot()
+    if initial_config[0] is not None and isinstance(cfg, ProjectConfig):
+        from rebrew.config import load_config
+
+        current = load_config(cfg.root, target=cfg.target_name)
+        if config_snapshot() != initial_config or current.as_dict() != cfg.as_dict():
+            raise ValueError("type target configuration changed; reload and review")
     file = (directory / file).resolve()
     relative = file.relative_to(directory).as_posix()
     module = preset_module_key(cfg.module)
@@ -305,22 +396,51 @@ def bind_type(
     }
     record = validate_type_document({"format": 1, "types": {identity: {module: entry}}})[0]
     path = directory / TYPE_METADATA_FILENAME
-    preview = metadata_store(path).read(
-        "type metadata", validate=validate_type_document, roundtrip=True
-    )
+    selected_store = metadata_store(path)
+    before_digest = selected_store.digest()
+    preview = selected_store.read("type metadata", validate=validate_type_document, roundtrip=True)
     if metadata_store(path).exists():
         validate_type_document(preview)
     else:
         preview["format"] = 1
         preview["types"] = tomlkit.table()
+    previous = preview["types"].get(identity, {}).get(module, {})
+    if previous.get("path_history"):
+        entry["path_history"] = previous["path_history"]
     preview["types"].setdefault(identity, {})[module] = entry
     validate_type_document(preview)
     if not dry_run:
+        if selected_store.name not in {"toml", "sqlite"}:
+            raise ValueError("type binding requires the TOML or SQLite backend")
         compile_type(cfg, record)
     report = {**record, "dry_run": dry_run, "compiler_checked": not dry_run}
     if dry_run:
         return report
-    with metadata_write_lock(directory, TYPE_METADATA_FILENAME):
+    from rebrew.metadata.coordinated import coordinated_inputs, coordinated_transaction
+
+    if config_snapshot() != initial_config:
+        raise ValueError("type project configuration changed during compilation")
+    watched = [file]
+    binary = getattr(cfg, "target_binary", None)
+    if binary is not None and Path(binary).is_file():
+        watched.append(Path(binary))
+    expected = coordinated_inputs(directory, [], watched=watched)
+
+    def validate_inputs() -> None:
+        if config_snapshot() != initial_config:
+            raise ValueError("type project configuration changed during compilation")
+        if _inputs(cfg, file, symbol, flags) != {key: entry[key] for key in _HASH_FIELDS}:
+            raise ValueError("type inputs changed during compilation; retry after reviewing them")
+
+    with coordinated_transaction(
+        directory,
+        [],
+        expected_inputs=expected,
+        watched=watched,
+        validate=validate_inputs,
+        validate_after=validate_inputs,
+        allow_unconfigured=True,
+    ):
         doc = metadata_store(path).read(
             "type metadata", validate=validate_type_document, roundtrip=True
         )
@@ -329,11 +449,8 @@ def bind_type(
         else:
             doc["format"] = 1
             doc["types"] = tomlkit.table()
-        if _inputs(cfg, file, symbol, flags) != {
-            key: entry[key]
-            for key in ("source_hash", "headers_hash", "context_hash", "binary_hash")
-        }:
-            raise ValueError("type inputs changed during compilation; retry after reviewing them")
+        if metadata_store(path).digest() != before_digest:
+            raise ValueError("type metadata changed during compilation; retry after reviewing it")
         if doc["types"].get(identity, {}).get(module) == entry:
             return report
         doc["types"].setdefault(identity, {})[module] = entry
@@ -359,6 +476,8 @@ def check_types(cfg: ProjectConfig, *, compile_layouts: bool = False) -> list[di
             issue = "unknown target module"
         elif record["module"] != preset_module_key(cfg.module):
             continue
+        elif record.get("path_revalidation_required"):
+            issue = "stale type evidence: source path changed; review and rebind"
         else:
             try:
                 file = (cfg.metadata_dir / record["file"]).resolve()

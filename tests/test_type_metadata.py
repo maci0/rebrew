@@ -27,7 +27,260 @@ def _project(root: Path) -> Any:
     )
 
 
+def _move_type(root: Path, digest: str) -> None:
+    from rebrew.metadata.coordinated import coordinated_inputs, coordinated_transaction
+    from rebrew.type_metadata import rehome_type_bindings
+
+    old, new = root / "types.h", root / "moved.h"
+    raw = old.read_bytes()
+    inputs = coordinated_inputs(root, [old, new])
+    with coordinated_transaction(root, [old, new], expected_inputs=inputs) as stage:
+        stage.publish(new, raw)
+        rehome_type_bindings(root, "types.h", "moved.h", expected_digest=digest)
+
+
 class TestTypeMetadata:
+    @pytest.mark.parametrize("backend", ["toml", "sqlite"])
+    def test_type_rehome_preserves_an_existing_unbound_destination(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str
+    ) -> None:
+        from rebrew.type_metadata import bind_type, load_types, rehome_type_bindings
+
+        cfg = _project(tmp_path)
+        (tmp_path / "rebrew-project.toml").write_text(f'[metadata]\nbackend = "{backend}"\n')
+        monkeypatch.setattr("rebrew.type_metadata.compile_type", lambda *args: None)
+        bind_type(cfg, "engine.item", Path("types.h"), "ITEM", 4, 4, "allocation", "native", {})
+        old, new = tmp_path / "types.h", tmp_path / "moved.h"
+        original = old.read_bytes()
+        new.write_bytes(b"/* unrelated destination */\n")
+        before = load_types(tmp_path)
+        preview = rehome_type_bindings(tmp_path, "types.h", "moved.h", dry_run=True)
+        with pytest.raises(ValueError, match="selected byte-preserving"):
+            _move_type(tmp_path, preview["input_digest"])
+        assert old.read_bytes() == original
+        assert new.read_bytes() == b"/* unrelated destination */\n"
+        assert load_types(tmp_path) == before
+
+    def test_type_rehome_requires_the_selected_staged_byte_preserving_move(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.metadata.coordinated import coordinated_inputs, coordinated_transaction
+        from rebrew.metadata.storage import metadata_store, pin_metadata_stores
+        from rebrew.type_metadata import bind_type, rehome_type_bindings
+
+        cfg = _project(tmp_path)
+        (tmp_path / "rebrew-project.toml").write_text('[metadata]\nbackend = "toml"\n')
+        monkeypatch.setattr("rebrew.type_metadata.compile_type", lambda *args: None)
+        bind_type(cfg, "engine.item", Path("types.h"), "ITEM", 4, 4, "allocation", "native", {})
+        preview = rehome_type_bindings(tmp_path, "types.h", "moved.h", dry_run=True)
+        args = (tmp_path, "types.h", "moved.h")
+        with (
+            pin_metadata_stores([metadata_store(tmp_path / "rebrew-types.toml")]),
+            pytest.raises(ValueError, match="active coordinated"),
+        ):
+            rehome_type_bindings(*args, expected_digest=preview["input_digest"])
+        with (
+            coordinated_transaction(tmp_path, [], expected_inputs=coordinated_inputs(tmp_path, [])),
+            pytest.raises(ValueError, match="selected byte-preserving"),
+        ):
+            rehome_type_bindings(*args, expected_digest=preview["input_digest"])
+        old, new = tmp_path / "types.h", tmp_path / "moved.h"
+        with (
+            pytest.raises(ValueError, match="selected byte-preserving"),
+            coordinated_transaction(
+                tmp_path, [old, new], expected_inputs=coordinated_inputs(tmp_path, [old, new])
+            ) as stage,
+        ):
+            stage.publish(new, b"different\n")
+            rehome_type_bindings(*args, expected_digest=preview["input_digest"])
+        assert old.exists() and not new.exists()
+
+    def test_type_rehome_rejects_destination_binding_collision(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.type_metadata import bind_type, load_types, rehome_type_bindings
+
+        cfg = _project(tmp_path)
+        (tmp_path / "moved.h").write_bytes((tmp_path / "types.h").read_bytes())
+        monkeypatch.setattr("rebrew.type_metadata.compile_type", lambda *args: None)
+        bind_type(cfg, "engine.one", Path("types.h"), "ITEM", 4, 4, "allocation", "one", {})
+        bind_type(cfg, "engine.two", Path("moved.h"), "ITEM", 4, 4, "allocation", "two", {})
+        before = load_types(tmp_path)
+        with pytest.raises(ValueError, match="already bound"):
+            rehome_type_bindings(tmp_path, "types.h", "moved.h", dry_run=True)
+        assert load_types(tmp_path) == before
+
+    def test_type_rehome_preserves_fragment_owner(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.type_metadata import bind_type, load_types, rehome_type_bindings
+
+        cfg = _project(tmp_path)
+        (tmp_path / "rebrew-project.toml").write_text('[metadata]\nbackend = "toml"\n')
+        monkeypatch.setattr("rebrew.type_metadata.compile_type", lambda *args: None)
+        bind_type(cfg, "engine.item", Path("types.h"), "ITEM", 4, 4, "allocation", "native", {})
+        fragment_dir = tmp_path / "rebrew-types.d"
+        fragment_dir.mkdir()
+        (tmp_path / "rebrew-types.toml").rename(fragment_dir / "owner.toml")
+        preview = rehome_type_bindings(tmp_path, "types.h", "moved.h", dry_run=True)
+        _move_type(tmp_path, preview["input_digest"])
+        assert not (tmp_path / "rebrew-types.toml").exists()
+        assert (fragment_dir / "owner.toml").exists()
+        assert load_types(tmp_path)[0]["path_revalidation_required"] is True
+
+    @pytest.mark.parametrize("backend", ["toml", "sqlite"])
+    def test_rebind_backend_change_during_owner_write_rolls_back(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str
+    ) -> None:
+        import rebrew.type_metadata as types
+        from rebrew.metadata.storage import metadata_store
+
+        cfg = _project(tmp_path)
+        config = tmp_path / "rebrew-project.toml"
+        config.write_text(f'[metadata]\nbackend = "{backend}"\n')
+        monkeypatch.setattr(types, "compile_type", lambda *args: None)
+        types.bind_type(
+            cfg, "engine.item", Path("types.h"), "ITEM", 4, 4, "allocation", "native", {}
+        )
+        preview = types.rehome_type_bindings(tmp_path, "types.h", "moved.h", dry_run=True)
+        _move_type(tmp_path, preview["input_digest"])
+        store = metadata_store(tmp_path / "rebrew-types.toml", backend=backend, root=tmp_path)
+        before = store.snapshot()
+        inputs = types._inputs
+        calls = 0
+
+        def change_backend(*args: Any, **kwargs: Any) -> Any:
+            nonlocal calls
+            result = inputs(*args, **kwargs)
+            calls += 1
+            if calls == 2:
+                other = "sqlite" if backend == "toml" else "toml"
+                config.write_text(f'[metadata]\nbackend = "{other}"\n')
+            return result
+
+        monkeypatch.setattr(types, "_inputs", change_backend)
+        with pytest.raises(ValueError, match="configuration changed"):
+            types.bind_type(
+                cfg, "engine.item", Path("moved.h"), "ITEM", 4, 4, "allocation", "native", {}
+            )
+        assert store.snapshot() == before
+        other = "sqlite" if backend == "toml" else "toml"
+        assert not metadata_store(
+            tmp_path / "rebrew-types.toml", backend=other, root=tmp_path
+        ).exists()
+
+    def test_rebind_keeps_invalidation_when_config_changes_during_compile(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.type_metadata import bind_type, load_types, rehome_type_bindings
+
+        cfg = _project(tmp_path)
+        config = tmp_path / "rebrew-project.toml"
+        config.write_text('[metadata]\nbackend = "toml"\n')
+        monkeypatch.setattr("rebrew.type_metadata.compile_type", lambda *args: None)
+        bind_type(cfg, "engine.item", Path("types.h"), "ITEM", 4, 4, "allocation", "native", {})
+        preview = rehome_type_bindings(tmp_path, "types.h", "moved.h", dry_run=True)
+        _move_type(tmp_path, preview["input_digest"])
+        before = load_types(tmp_path)
+
+        def change_config(*args: Any) -> None:
+            config.write_text('[metadata]\nbackend = "toml"\n# changed flags\n')
+
+        monkeypatch.setattr("rebrew.type_metadata.compile_type", change_config)
+        with pytest.raises(ValueError, match="configuration changed"):
+            bind_type(cfg, "engine.item", Path("moved.h"), "ITEM", 4, 4, "allocation", "native", {})
+        assert load_types(tmp_path) == before
+        assert before[0]["path_revalidation_required"] is True
+
+    @pytest.mark.parametrize("backend", ["toml", "sqlite"])
+    def test_type_rehome_rolls_back_with_other_owner_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str
+    ) -> None:
+        from rebrew.metadata.coordinated import coordinated_inputs, coordinated_transaction
+        from rebrew.metadata.data import set_data_fields_batch
+        from rebrew.metadata.functions import record_function_identity
+        from rebrew.metadata.storage import metadata_store
+        from rebrew.type_metadata import bind_type, rehome_type_bindings
+
+        cfg = _project(tmp_path)
+        (tmp_path / "rebrew-project.toml").write_text(f'[metadata]\nbackend = "{backend}"\n')
+        old, new = tmp_path / "types.h", tmp_path / "moved.h"
+        original = old.read_bytes()
+        monkeypatch.setattr("rebrew.type_metadata.compile_type", lambda *args: None)
+        bind_type(cfg, "engine.item", Path("types.h"), "ITEM", 4, 4, "allocation", "native", {})
+        record_function_identity(
+            tmp_path,
+            module="A",
+            va=0x1000,
+            file="types.h",
+            name="f",
+            symbol="_f",
+            kind="FUNCTION",
+            size=4,
+        )
+        stores = [
+            metadata_store(tmp_path / name)
+            for name in ("rebrew-functions.toml", "rebrew-data.toml", "rebrew-types.toml")
+        ]
+        before = [store.snapshot() for store in stores]
+        preview = rehome_type_bindings(tmp_path, "types.h", "moved.h", dry_run=True)
+        inputs = coordinated_inputs(tmp_path, [old, new])
+        with (
+            pytest.raises(RuntimeError, match="injected"),
+            coordinated_transaction(tmp_path, [old, new], expected_inputs=inputs) as stage,
+        ):
+            stage.publish(new, original)
+            rehome_type_bindings(
+                tmp_path, "types.h", "moved.h", expected_digest=preview["input_digest"]
+            )
+            set_data_fields_batch(
+                tmp_path, [{"module": "A", "va": 0x2000, "fields": {"name": "g", "size": 4}}]
+            )
+            raise RuntimeError("injected")
+        assert old.read_bytes() == original and not new.exists()
+        assert [store.snapshot() for store in stores] == before
+
+    @pytest.mark.parametrize("backend", ["toml", "sqlite"])
+    def test_rehome_keeps_history_and_requires_reviewed_rebind(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str
+    ) -> None:
+        from rebrew.type_metadata import bind_type, check_types, load_types, rehome_type_bindings
+
+        cfg = _project(tmp_path)
+        (tmp_path / "rebrew-project.toml").write_text(f'[metadata]\nbackend = "{backend}"\n')
+        monkeypatch.setattr("rebrew.type_metadata.compile_type", lambda *args: None)
+        bind_type(cfg, "engine.item", Path("types.h"), "ITEM", 4, 4, "allocation", "native", {})
+        original = load_types(tmp_path)[0]
+        preview = rehome_type_bindings(tmp_path, "types.h", "moved.h", dry_run=True)
+        with pytest.raises(ValueError, match="coordinated"):
+            rehome_type_bindings(
+                tmp_path, "types.h", "moved.h", expected_digest=preview["input_digest"]
+            )
+        with pytest.raises(ValueError, match="digest"):
+            _move_type(tmp_path, "stale")
+        _move_type(tmp_path, preview["input_digest"])
+        moved = load_types(tmp_path)[0]
+        assert moved["file"] == "moved.h" and moved["path_revalidation_required"] is True
+        assert all(
+            moved[k] == original[k]
+            for k in ("source_hash", "headers_hash", "context_hash", "binary_hash")
+        )
+        assert moved["path_history"][0]["file"] == "types.h"
+        assert moved["path_history"][0]["freshness"] == "unassessed"
+        assert moved["path_history"][0]["evidence"] == "native"
+        monkeypatch.setattr(
+            "rebrew.type_metadata.compile_type", lambda *args: pytest.fail("stale type compiled")
+        )
+        assert "stale type evidence" in check_types(cfg, compile_layouts=True)[0]["issue"]
+        with pytest.raises(ValueError, match="rebind invalidated"):
+            rehome_type_bindings(tmp_path, "moved.h", "later.h", dry_run=True)
+        monkeypatch.setattr("rebrew.type_metadata.compile_type", lambda *args: None)
+        bind_type(cfg, "engine.item", Path("moved.h"), "ITEM", 4, 4, "allocation", "new review", {})
+        rebound = load_types(tmp_path)[0]
+        assert not rebound.get("path_revalidation_required")
+        assert rebound["path_history"] == moved["path_history"]
+        assert check_types(cfg) == []
+
     def test_tag_and_typedef_spelling_both_identify_the_definition(self) -> None:
         from rebrew.type_metadata import struct_definition_names
 

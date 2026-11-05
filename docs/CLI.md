@@ -1216,6 +1216,13 @@ member (`--field`) across every source and header, and the metadata rows bound
 to it. The whole rename is planned first; nothing is written when any part is
 refused.
 
+Moves and owner-row updates use a coordinated TOML or SQLite transaction;
+other metadata backends are refused for those operations. A move of a file
+with type bindings is refused until the type bindings can be reviewed and
+revalidated at the new path. A concurrent source replacement is preserved,
+with any staged original retained for reconciliation if necessary. This is
+exception recovery, not crash recovery or isolation from open editor handles.
+
 
 Choosing the symbol:
 

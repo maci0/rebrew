@@ -1,5 +1,14 @@
 ## [Unreleased]
 
+## [6.23.1] - 2026-11-05
+
+### Fixed
+
+- Publish source renames and metadata owner updates in coordinated transactions, preserving concurrent edits and refusing unsupported backend or type-bound moves.
+- Keep metadata owner operations on the transaction's selected store when project configuration changes.
+- Preserve prior type-binding evidence during reviewed path changes, require revalidation, and reject moves over existing destination files.
+- Reject type-binding commits when source, metadata, compiler context or project configuration changes during compilation.
+
 ## [6.23.0] - 2026-11-05
 
 ### Added

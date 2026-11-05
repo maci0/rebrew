@@ -370,22 +370,26 @@ class TestLinkerReferences:
     def test_linker_write_failure_rolls_back_sources(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew import rename_ops
+        from rebrew.metadata.coordinated import CoordinatedStage
 
         root = _project(tmp_path)
         rsp = _response(root, "server.dll", "/INCLUDE:_lb_SendLobbyConfig\n")
         before = _snapshot(root)
-        write = rename_ops.atomic_write_text
+        publish = CoordinatedStage.publish
 
-        def fail_response(path: Path, text: str, *, encoding: str) -> None:
+        def fail_response(
+            self: CoordinatedStage, path: Path, content: bytes, *, mode: int | None = None
+        ) -> None:
             if path == rsp:
                 raise OSError("blocked linker write")
-            write(path, text, encoding=encoding)
+            publish(self, path, content, mode=mode)
 
-        monkeypatch.setattr(rename_ops, "atomic_write_text", fail_response)
+        monkeypatch.setattr(CoordinatedStage, "publish", fail_response)
         result = _run(root, monkeypatch, "lb_SendLobbyConfig", "lb_Ready")
         assert result.exit_code == 2, result.output
-        assert _snapshot(root) == before
+        assert {
+            p: raw for p, raw in _snapshot(root).items() if p.suffix != ".lock" or p in before
+        } == before
 
 
 class TestCounterpartNameReuse:
@@ -1059,22 +1063,26 @@ class TestStaticAndRollback:
     def test_failed_write_restores_sources_and_keeps_rows(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.rename_ops as rename_ops
+        from rebrew.metadata.coordinated import CoordinatedStage
 
         root = _project(tmp_path)
         before = _snapshot(root)
-        real_write = rename_ops.atomic_write_text
+        publish = CoordinatedStage.publish
 
-        def write(path: Path, text: str, *, encoding: str = "utf-8") -> None:
-            if path.name == "server.c" and "lb_ExPlayerReadyStatus" in text:
+        def write(
+            self: CoordinatedStage, path: Path, content: bytes, *, mode: int | None = None
+        ) -> None:
+            if path.name == "server.c" and b"lb_ExPlayerReadyStatus" in content:
                 raise PermissionError(13, "read-only")
-            real_write(path, text, encoding=encoding)
+            publish(self, path, content, mode=mode)
 
-        monkeypatch.setattr(rename_ops, "atomic_write_text", write)
+        monkeypatch.setattr(CoordinatedStage, "publish", write)
         result = _run(root, monkeypatch, "lb_SendLobbyConfig", "lb_ExPlayerReadyStatus")
         assert result.exit_code != 0
-        assert "restored" in result.output
-        assert _snapshot(root) == before
+        assert "transaction failed" in result.output
+        assert {
+            p: raw for p, raw in _snapshot(root).items() if p.suffix != ".lock" or p in before
+        } == before
 
 
 class TestSelectedFunctionAliases:

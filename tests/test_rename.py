@@ -27,6 +27,219 @@ def _patch_sources(monkeypatch: pytest.MonkeyPatch, files: list[Path]) -> None:
     monkeypatch.setattr("rebrew.rename_ops.iter_sources_and_headers", lambda _d, _c: files)
 
 
+@pytest.mark.parametrize("backend", ["toml", "sqlite"])
+@pytest.mark.parametrize("failure", ["function", "data"])
+def test_move_owner_failure_restores_source_and_all_stores(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str, failure: str
+) -> None:
+    from rebrew.metadata import data, functions
+    from rebrew.metadata.source_provenance import set_source_file
+    from rebrew.metadata.storage import metadata_store
+
+    (tmp_path / "rebrew-project.toml").write_text(f'[metadata]\nbackend = "{backend}"\n')
+    old, new = tmp_path / "old.c", tmp_path / "new.c"
+    old.write_bytes(b"int f(void) { return 1; }\nint g = 0;\n")
+    functions.record_function_identity(
+        tmp_path,
+        module="GOLD",
+        va=0x1234,
+        file="old.c",
+        name="f",
+        symbol="_f",
+        kind="FUNCTION",
+        size=8,
+    )
+    data.set_data_fields_batch(
+        tmp_path,
+        [{"module": "GOLD", "va": 0x2000, "fields": {"file": "old.c", "name": "g", "size": 4}}],
+    )
+    set_source_file(tmp_path, "old.c", "GOLD", "support evidence")
+    stores = [metadata_store(tmp_path / n) for n in ("rebrew-functions.toml", "rebrew-data.toml")]
+    before = [s.snapshot() for s in stores]
+    plan = rename_ops.RenamePlan("function", "f", "f", move=(old, new))
+    plan.rows = [
+        rename_ops.RowChange("function", "GOLD", 0x1234, {"file": "old.c"}, {"file": "new.c"}),
+        rename_ops.RowChange("data", "GOLD", 0x2000, {"file": "old.c"}, {"file": "new.c"}),
+    ]
+
+    def fail(*args: Any, **kwargs: Any) -> None:
+        raise OSError("injected owner failure")
+
+    monkeypatch.setattr(
+        functions if failure == "function" else data,
+        "record_function_rows" if failure == "function" else "set_data_fields_batch",
+        fail,
+    )
+    with pytest.raises(rename_ops.RenameError, match="injected owner failure"):
+        rename_ops.apply_rename_plan(_cfg(tmp_path), plan)
+    assert old.read_bytes() == b"int f(void) { return 1; }\nint g = 0;\n"
+    assert not new.exists()
+    assert [s.snapshot() for s in stores] == before
+
+
+@pytest.mark.parametrize("change", ["existing", "new", "response"])
+def test_guarded_rename_rechecks_other_sources_during_publication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, change: str
+) -> None:
+    from rebrew.metadata.coordinated import CoordinatedStage
+    from rebrew.metadata.functions import save_metadata
+
+    (tmp_path / "rebrew-project.toml").write_text('[metadata]\nbackend = "toml"\n')
+    old = _src(tmp_path, "old.c", "int old(void) { return 1; }\n")
+    other = _src(tmp_path, "other.c", "int unrelated(void) { return 0; }\n")
+    save_metadata(
+        tmp_path,
+        {
+            ("CLIENT", 0x1000): {
+                "file": "old.c",
+                "kind": "FUNCTION",
+                "name": "old",
+                "symbol": "_old",
+                "size": 6,
+                "status": "EXACT",
+            }
+        },
+    )
+    cfg = SimpleNamespace(
+        reversed_dir=tmp_path,
+        metadata_dir=tmp_path,
+        root=tmp_path,
+        module="CLIENT",
+        source_ext=".c",
+    )
+    plan = rename_ops.plan_symbol_rename(
+        cfg,
+        "old",
+        "new",
+        store="function",
+        definition_file=old,
+        require_ack=False,
+        rename_file=True,
+        guarded=True,
+    )
+    publish = CoordinatedStage.publish
+    if change == "response":
+        (tmp_path / "layout").mkdir()
+    changed = (
+        other
+        if change == "existing"
+        else tmp_path / "layout" / "new.rsp"
+        if change == "response"
+        else tmp_path / "new-collision.c"
+    )
+
+    def concurrent(
+        self: CoordinatedStage, path: Path, content: bytes, *, mode: int | None = None
+    ) -> None:
+        changed.write_text("int new(void) { return 2; }\n")
+        publish(self, path, content, mode=mode)
+
+    monkeypatch.setattr(CoordinatedStage, "publish", concurrent)
+    with pytest.raises(rename_ops.RenameError, match="changed during publication"):
+        rename_ops.apply_rename_plan(cfg, plan)
+    assert old.read_text() == "int old(void) { return 1; }\n"
+    assert not (tmp_path / "new.c").exists()
+    assert changed.read_text() == "int new(void) { return 2; }\n"
+
+
+def test_unconfigured_rename_rejects_config_created_during_publication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from rebrew.metadata.coordinated import CoordinatedStage
+
+    old = _src(tmp_path, "old.c", "int old(void) { return 1; }\n")
+    new = tmp_path / "new.c"
+    config = tmp_path / "rebrew-project.toml"
+    plan = rename_ops.RenamePlan("function", "old", "new", move=(old, new))
+    publish = CoordinatedStage.publish
+
+    def concurrent(
+        self: CoordinatedStage, path: Path, content: bytes, *, mode: int | None = None
+    ) -> None:
+        config.write_text('[metadata]\nbackend = "sqlite"\n')
+        publish(self, path, content, mode=mode)
+
+    monkeypatch.setattr(CoordinatedStage, "publish", concurrent)
+    with pytest.raises(rename_ops.RenameError, match="config changed during publication"):
+        rename_ops.apply_rename_plan(_cfg(tmp_path), plan)
+    assert old.read_text() == "int old(void) { return 1; }\n"
+    assert not new.exists()
+    assert config.is_file()
+
+
+@pytest.mark.parametrize("backend", ["toml", "sqlite"])
+def test_backend_change_during_owner_write_uses_pinned_transaction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str
+) -> None:
+    from rebrew.metadata import functions
+    from rebrew.metadata.storage import metadata_store
+
+    (tmp_path / "rebrew-project.toml").write_text(f'[metadata]\nbackend = "{backend}"\n')
+    old = _src(tmp_path, "old.c", "int old(void) { return 1; }\n")
+    functions.save_metadata(
+        tmp_path,
+        {
+            ("CLIENT", 0x1000): {
+                "file": "old.c",
+                "kind": "FUNCTION",
+                "name": "old",
+                "symbol": "_old",
+                "size": 6,
+                "status": "EXACT",
+            }
+        },
+    )
+    cfg = SimpleNamespace(
+        reversed_dir=tmp_path,
+        metadata_dir=tmp_path,
+        root=tmp_path,
+        module="CLIENT",
+        source_ext=".c",
+    )
+    plan = rename_ops.plan_symbol_rename(
+        cfg,
+        "old",
+        "new",
+        store="function",
+        definition_file=old,
+        require_ack=False,
+        rename_file=True,
+        guarded=True,
+    )
+    selected = metadata_store(tmp_path / "rebrew-functions.toml", backend=backend, root=tmp_path)
+    before = selected.snapshot()
+    record = functions.record_function_rows
+
+    def concurrent(*args: Any, **kwargs: Any) -> Any:
+        other = "sqlite" if backend == "toml" else "toml"
+        (tmp_path / "rebrew-project.toml").write_text(f'[metadata]\nbackend = "{other}"\n')
+        return record(*args, **kwargs)
+
+    monkeypatch.setattr(functions, "record_function_rows", concurrent)
+    with pytest.raises(rename_ops.RenameError, match="config changed during publication"):
+        rename_ops.apply_rename_plan(cfg, plan)
+    assert old.exists() and not (tmp_path / "new.c").exists()
+    assert selected.snapshot() == before
+    other = "sqlite" if backend == "toml" else "toml"
+    assert not metadata_store(
+        tmp_path / "rebrew-functions.toml", backend=other, root=tmp_path
+    ).exists()
+
+
+def test_move_refuses_to_strand_type_binding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import rebrew.type_metadata as types
+
+    old = _src(tmp_path, "old.c", "typedef struct { int x; } T;\n")
+    new = tmp_path / "new.c"
+    monkeypatch.setattr(types, "load_types", lambda _directory: [{"file": "old.c"}])
+    plan = rename_ops.RenamePlan("function", "f", "f", move=(old, new))
+    with pytest.raises(rename_ops.RenameError, match="type-bound source move"):
+        rename_ops.apply_rename_plan(_cfg(tmp_path), plan)
+    assert old.exists() and not new.exists()
+
+
 class TestRenameFunctionEverywhere:
     def test_decorated_symbol_renames_when_the_name_is_empty(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

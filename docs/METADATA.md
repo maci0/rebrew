@@ -274,6 +274,16 @@ control and ignore its `.lock`. `types check`/lint W031 report stale evidence;
 reviewing a changed definition/context. A type has no instance address and
 these records create no game progress or function/data verdict.
 
+The type owner can record a reviewed source-path change inside a coordinated
+transaction. It retains each prior full type record in `path_history`, labels
+its freshness unassessed, and sets `path_revalidation_required`. Type checks
+report that binding stale without compiling it. A successful reviewed rebind
+clears the marker and retains the history. `rehome_type_bindings` is a metadata
+owner API: it does not move files or establish include and target equivalence.
+Older Rebrew versions with strict
+format-1 field validation do not understand these optional fields; do not write
+them in a project that still relies on such a version.
+
 The format-3 `rebrew-functions.toml` includes addressless source evidence under
 `source.definitions."metadata-relative/file.c".C_symbol.MODULE`, with
 `source_hash` and `evidence` fields. `source.files.FILE.MODULE` records support

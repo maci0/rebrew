@@ -21,6 +21,18 @@ def _setup(root: Path, backend: str) -> tuple[Path, Path, list]:
     return a, out, stores
 
 
+def test_pinned_store_scope_restores_backend_selection_on_error(tmp_path: Path) -> None:
+    from rebrew.metadata.storage import pin_metadata_stores
+
+    path = tmp_path / "rebrew-functions.toml"
+    selected = metadata_store(path)
+    with pytest.raises(RuntimeError, match="injected"), pin_metadata_stores([selected]):
+        (tmp_path / "rebrew-project.toml").write_text('[metadata]\nbackend = "sqlite"\n')
+        assert metadata_store(path).name == "toml"
+        raise RuntimeError("injected")
+    assert metadata_store(path).name == "sqlite"
+
+
 @pytest.mark.parametrize("backend", ["toml", "sqlite"])
 def test_failed_publication_preserves_concurrent_replacement(tmp_path: Path, backend: str) -> None:
     a, _, stores = _setup(tmp_path, backend)

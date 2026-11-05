@@ -1,5 +1,6 @@
 """Coordinated metadata and source-file edits with failure rollback."""
 
+import contextvars
 from contextlib import ExitStack, contextmanager
 lazy import hashlib
 lazy import json
@@ -13,6 +14,7 @@ lazy from rebrew.metadata.locking import file_transaction
 lazy from rebrew.metadata.storage import (
     managed_metadata_filenames,
     metadata_store,
+    pin_metadata_stores,
     toml_fragment_paths,
 )
 lazy from rebrew.utils import atomic_write_bytes, path_identity
@@ -157,6 +159,31 @@ class CoordinatedStage(dict[Path, Path]):
             raise
 
 
+_ACTIVE_STAGE: contextvars.ContextVar[tuple[Path, CoordinatedStage] | None] = (
+    contextvars.ContextVar("rebrew_active_source_stage", default=None)
+)
+
+
+def require_staged_source_move(directory: Path, old: str, new: str) -> None:
+    """Require an active byte-preserving old-to-new staged source move."""
+    active = _ACTIVE_STAGE.get()
+    if active is None or active[0] != directory.resolve():
+        raise ValueError("type rehome requires an active coordinated source move")
+    stage = active[1]
+    source, destination = (directory / old).absolute(), (directory / new).absolute()
+    if (
+        source not in stage
+        or destination in stage
+        or destination not in stage.stage_paths
+        or destination not in stage.published
+        or source.exists()
+        or source.is_symlink()
+        or not stage.is_unchanged_publication(destination)
+        or stage[source].read_bytes() != destination.read_bytes()
+    ):
+        raise ValueError("type rehome requires the selected byte-preserving source move")
+
+
 @contextmanager
 def coordinated_transaction(
     directory: Path,
@@ -168,6 +195,8 @@ def coordinated_transaction(
     discovery_roots: list[Path] | None = None,
     validate: Callable[[], None] | None = None,
     validate_after: Callable[[], None] | None = None,
+    allow_unconfigured: bool = False,
+    extra_suffixes: frozenset[str] = frozenset(),
 ) -> Iterator[CoordinatedStage]:
     """Lock stores, stage existing sources and restore inputs on exceptions.
 
@@ -180,6 +209,9 @@ def coordinated_transaction(
     ``discovery_roots`` also fingerprints discovered C/C++ path names. The
     caller publishes outputs using the yielded mapping's ``publish`` method;
     staged originals remain available through its original-to-backup mapping.
+    ``allow_unconfigured`` admits a config-less project and callers must guard
+    config creation themselves. ``extra_suffixes`` admits named additional file
+    kinds needed by the calling operation.
     Metadata writes must use their normal owner APIs. SQL backends use a shared
     transaction; TOML fragments are journaled byte-for-byte while the store locks
     are held. This is exception rollback, not a crash recovery journal.
@@ -206,7 +238,7 @@ def coordinated_transaction(
     )
     stores = [metadata_store(path) for path in store_paths]
     for path in paths:
-        if path.suffix.lower() not in {".c", ".h", ".cc", ".cpp", ".cxx", ".hpp"}:
+        if path.suffix.lower() not in {".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", *extra_suffixes}:
             raise ValueError(f"only C/C++ source files can be staged: {path}")
         if path.is_symlink() or not path.resolve().is_relative_to(project_root):
             raise ValueError(f"source must be a non-symlink inside the project: {path}")
@@ -218,7 +250,7 @@ def coordinated_transaction(
         "pgsql",
     }:
         raise ValueError("coordinated edits require one supported metadata backend")
-    if not (project_root / "rebrew-project.toml").is_file():
+    if not allow_unconfigured and not (project_root / "rebrew-project.toml").is_file():
         raise ValueError("coordinated edits require a project configuration")
     staged = CoordinatedStage(stage_paths)
     absent: set[Path] = set()
@@ -234,6 +266,7 @@ def coordinated_transaction(
             raise ValueError("metadata backend changed; review a new plan")
         try:
             with ExitStack() as locks:
+                locks.enter_context(pin_metadata_stores(stores))
                 for store in stores:
                     locks.enter_context(store.transaction())
                 if (
@@ -286,7 +319,11 @@ def coordinated_transaction(
                         raise FileExistsError(
                             f"source reappeared during staging; edit preserved: {path}"
                         )
-                yield staged
+                active_token = _ACTIVE_STAGE.set((directory, staged))
+                try:
+                    yield staged
+                finally:
+                    _ACTIVE_STAGE.reset(active_token)
                 if validate_after is not None:
                     validate_after()
                 for path, backup in staged.items():

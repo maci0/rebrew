@@ -1736,13 +1736,179 @@ def plan_field_rename(
 # ---------------------------------------------------------------------------
 
 
-def apply_rename_plan(cfg: ProjectConfig, plan: RenamePlan) -> int:
-    """Write *plan*: sources, the optional file move, then the metadata rows.
+def _apply_coordinated_rename(cfg: ProjectConfig, plan: RenamePlan, metadata_dir: Path) -> int:
+    """Publish a move and its owner rows in one exception-safe transaction."""
+    from rebrew.metadata.coordinated import (
+        coordinated_inputs,
+        coordinated_transaction,
+        path_identity_digest,
+    )
+    from rebrew.metadata.data import set_data_fields_batch
+    from rebrew.metadata.functions import identity_file, record_function_rows
+    from rebrew.metadata.source_provenance import rename_source_provenance
+    from rebrew.metadata.storage import input_digest, managed_metadata_filenames, metadata_store
+    from rebrew.type_metadata import load_types
 
-    Returns the number of source files rewritten. A failed source write or
-    move restores every source already written and raises
-    :class:`RenameError`; the stores are written only after every source
-    landed.
+    if metadata_store(metadata_dir / "rebrew-functions.toml").name not in {"toml", "sqlite"}:
+        raise RenameError("coordinated rename requires the TOML or SQLite backend", files=[])
+
+    changes = {c.path.absolute(): c for c in plan.files}
+    if len(changes) != len(plan.files):
+        raise RenameError("rename contains duplicate source paths", files=[])
+    move = tuple(path.absolute() for path in plan.move) if plan.move else None
+    paths = set(changes)
+    if move:
+        paths.update(move)
+        if move[0] == move[1] or move[1].exists() or move[1].is_symlink():
+            raise RenameError("rename destination already exists or is unchanged", files=[move[1]])
+        if any(
+            row["file"] == identity_file(move[0], metadata_dir) for row in load_types(metadata_dir)
+        ):
+            raise RenameError(
+                "type-bound source move requires reviewed type rehoming", files=[move[0]]
+            )
+    originals = {path: path.read_bytes() for path in paths if path.is_file()}
+    for path, change in changes.items():
+        if originals.get(path) != change.old_text.encode(change.encoding):
+            raise RenameError("rename input changed; review a new preview", files=[path])
+    if move and move[0] not in originals:
+        raise RenameError("rename source does not exist", files=[move[0]])
+    watched = sorted(
+        Path(name)
+        for name in plan.input_hashes
+        if Path(name).absolute() not in paths
+        and Path(name).name not in managed_metadata_filenames()
+    )
+    discovered = (
+        {p.resolve() for p in iter_sources_and_headers(cfg.reversed_dir, cfg)}
+        if plan.input_hashes
+        else set()
+    )
+    root = _root(cfg)
+    response_files = (
+        {p.resolve() for p in (root / "layout").rglob("*.rsp")}
+        if plan.input_hashes and root is not None
+        else set()
+    )
+    expected = coordinated_inputs(metadata_dir, sorted(paths), watched=watched)
+    config_path = (
+        metadata_store(metadata_dir / "rebrew-functions.toml").root / "rebrew-project.toml"
+    )
+    if any(
+        expected.get(str(path.resolve())) != hashlib.sha256(raw).hexdigest()
+        for path, raw in originals.items()
+    ):
+        raise RenameError("rename input changed; review a new preview", files=[])
+    edits = {c.path: (c.old_text, c.new_text) for c in plan.files}
+    if move and move[0] not in {p.absolute() for p in edits}:
+        text, _ = read_source_text(move[0])
+        edits[move[0]] = (text, text)
+    function_rows = [
+        {
+            "module": r.module,
+            "va": r.va,
+            "identity": {k: v for k, v in r.new.items() if k in ("name", "symbol", "file")},
+            "fields": {k: v for k, v in r.new.items() if k not in ("name", "symbol", "file")},
+        }
+        for r in plan.rows
+        if r.store == "function"
+    ]
+    data_rows = [
+        {"module": r.module, "va": r.va, "fields": dict(r.new), "updated_by": "rename"}
+        for r in plan.rows
+        if r.store == "data"
+    ]
+
+    def validate() -> None:
+        if metadata_store(metadata_dir / "rebrew-functions.toml").name not in {"toml", "sqlite"}:
+            raise ValueError("coordinated rename requires the TOML or SQLite backend")
+        if move and any(
+            row["file"] == identity_file(move[0], metadata_dir) for row in load_types(metadata_dir)
+        ):
+            raise ValueError("type-bound source move requires reviewed type rehoming")
+        if plan.input_hashes:
+            _check_rename_inputs(cfg, plan)
+            if {p.resolve() for p in iter_sources_and_headers(cfg.reversed_dir, cfg)} != discovered:
+                raise ValueError("rename source discovery changed; review a new preview")
+            if (
+                root is not None
+                and {p.resolve() for p in (root / "layout").rglob("*.rsp")} != response_files
+            ):
+                raise ValueError("rename linker response discovery changed; review a new preview")
+
+    def validate_after() -> None:
+        config_digest = (
+            hashlib.sha256(config_path.read_bytes()).hexdigest() if config_path.is_file() else None
+        )
+        if config_digest != expected.get(str(config_path)) or path_identity_digest(
+            config_path
+        ) != expected.get("path-identity:" + str(config_path.absolute())):
+            raise ValueError("rename project config changed during publication")
+        for path in watched:
+            if input_digest(path) != plan.input_hashes[str(path)] or path_identity_digest(
+                path
+            ) != expected.get("path-identity:" + str(path.absolute())):
+                raise ValueError(f"rename input changed during publication: {path}")
+        if plan.input_hashes:
+            after = set(discovered)
+            if move and move[0].resolve() in after:
+                after.remove(move[0].resolve())
+                after.add(move[1].resolve())
+            if {p.resolve() for p in iter_sources_and_headers(cfg.reversed_dir, cfg)} != after:
+                raise ValueError("rename source discovery changed during publication")
+            if (
+                root is not None
+                and {p.resolve() for p in (root / "layout").rglob("*.rsp")} != response_files
+            ):
+                raise ValueError("rename linker response discovery changed during publication")
+
+    try:
+        with coordinated_transaction(
+            metadata_dir,
+            sorted(paths),
+            expected_inputs=expected,
+            watched=watched,
+            validate=validate,
+            validate_after=validate_after,
+            allow_unconfigured=True,
+            extra_suffixes=frozenset({".rsp"}),
+        ) as staged:
+            for path, change in changes.items():
+                destination = move[1] if move and path == move[0] else path
+                staged.publish(
+                    destination,
+                    change.new_text.encode(change.encoding),
+                    mode=staged[path].stat().st_mode & 0o777,
+                )
+            if move and move[0] not in changes:
+                staged.publish(
+                    move[1], originals[move[0]], mode=staged[move[0]].stat().st_mode & 0o777
+                )
+            validate_after()
+            rename_source_provenance(
+                metadata_dir,
+                edits,
+                symbol_rename=(plan.old_name, plan.new_name)
+                if plan.kind == KIND_FUNCTION
+                else None,
+                move=plan.move,
+            )
+            if function_rows:
+                record_function_rows(
+                    metadata_dir, function_rows, overwrite_name=True, updated_by="rename"
+                )
+            if data_rows:
+                set_data_fields_batch(metadata_dir, data_rows)
+    except (OSError, ValueError, UnicodeError) as exc:
+        raise RenameError(f"rename transaction failed: {exc}", files=[]) from exc
+    return len(changes)
+
+
+def apply_rename_plan(cfg: ProjectConfig, plan: RenamePlan) -> int:
+    """Apply a rename and return the number of source files rewritten.
+
+    Moves and owner-row changes use coordinated exception rollback. Concurrent
+    replacements may require manual reconciliation; crash recovery is not implied.
     """
     if plan.input_hashes:
         _check_rename_inputs(cfg, plan)
@@ -1767,6 +1933,9 @@ def apply_rename_plan(cfg: ProjectConfig, plan: RenamePlan) -> int:
         )
     except (OSError, ValueError) as exc:
         raise RenameError(f"source provenance prevents rename: {exc}", files=[]) from exc
+
+    if plan.rows or plan.move:
+        return _apply_coordinated_rename(cfg, plan, Path(metadata_dir))
 
     written: list[FileChange] = []
     current: Path | None = None
@@ -1804,29 +1973,6 @@ def apply_rename_plan(cfg: ProjectConfig, plan: RenamePlan) -> int:
             files=[current] if current is not None else [],
         ) from exc
 
-    function_rows = [
-        {
-            "module": r.module,
-            "va": r.va,
-            "identity": {k: v for k, v in r.new.items() if k in ("name", "symbol", "file")},
-            "fields": {k: v for k, v in r.new.items() if k not in ("name", "symbol", "file")},
-        }
-        for r in plan.rows
-        if r.store == "function"
-    ]
-    data_rows = [
-        {"module": r.module, "va": r.va, "fields": dict(r.new), "updated_by": "rename"}
-        for r in plan.rows
-        if r.store == "data"
-    ]
-    if function_rows:
-        from rebrew.metadata.functions import record_function_rows
-
-        record_function_rows(metadata_dir, function_rows, overwrite_name=True, updated_by="rename")
-    if data_rows:
-        from rebrew.metadata.data import set_data_fields_batch
-
-        set_data_fields_batch(metadata_dir, data_rows)
     return len(written)
 
 

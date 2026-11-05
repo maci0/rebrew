@@ -5,6 +5,7 @@ verdicts; backends own persistence, input discovery, snapshots and transactions.
 """
 
 import contextlib
+import contextvars
 import logging
 import threading
 from collections import OrderedDict
@@ -77,6 +78,11 @@ class MetadataStore(Protocol):
     def remove(self) -> None:
         """Remove this logical document and its physical fragments."""
         ...
+
+
+_PINNED_STORES: contextvars.ContextVar[dict[Path, MetadataStore] | None] = contextvars.ContextVar(
+    "rebrew_pinned_metadata_stores", default=None
+)
 
 
 BackendFactory = Callable[[Path, Path], MetadataStore]
@@ -267,6 +273,9 @@ def metadata_store(
         path = path.absolute()
     if path.name not in METADATA_FILENAMES:
         return TomlStore(path, path.parent)
+    pinned = (_PINNED_STORES.get() or {}).get(path)
+    if pinned is not None and backend is None and (root is None or root.resolve() == pinned.root):
+        return pinned
     project = root.resolve() if root is not None else _project_root(path.parent)
     config = project / CONFIG_NAME
     try:
@@ -313,6 +322,23 @@ def metadata_store(
     if not isinstance(store, MetadataStore):
         raise ValueError(f"metadata backend {backend!r} does not implement MetadataStore")
     return store
+
+
+@contextlib.contextmanager
+def pin_metadata_stores(stores: list[MetadataStore]) -> Iterator[None]:
+    """Keep owner APIs on the transaction's already-selected stores."""
+    selected = dict(_PINNED_STORES.get() or {})
+    for store in stores:
+        path = store.path.absolute()
+        previous = selected.get(path)
+        if previous is not None and (previous.name != store.name or previous.root != store.root):
+            raise ValueError("conflicting pinned metadata stores")
+        selected[path] = store
+    token = _PINNED_STORES.set(selected)
+    try:
+        yield
+    finally:
+        _PINNED_STORES.reset(token)
 
 
 @contextlib.contextmanager
