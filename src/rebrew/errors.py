@@ -73,6 +73,7 @@ if TYPE_CHECKING:
     from rebrew.doctor import LibIndexUnavailable as LibIndexUnavailable
     from rebrew.fingerprints import FingerprintError as FingerprintError
     from rebrew.formats.binary_loader import ExportParseError as ExportParseError
+    from rebrew.formats.binary_loader import UnsupportedBinaryFormat as UnsupportedBinaryFormat
     from rebrew.formats.dfm import DfmError as DfmError
     from rebrew.formats.lzexe import NotLzexeError as NotLzexeError
     from rebrew.formats.ne_loader import NeParseError as NeParseError
@@ -298,6 +299,7 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "Tc16Error": ("rebrew.compiler.tc16", "Tc16Error"),
     "ToolchainError": ("rebrew.compiler.toolchain", "ToolchainError"),
     "UnshareError": ("rebrew.compiler.unshare", "UnshareError"),
+    "UnsupportedBinaryFormat": ("rebrew.formats.binary_loader", "UnsupportedBinaryFormat"),
     "UnresolvedSymbolError": ("rebrew.coff_reloc", "UnresolvedSymbolError"),
     "CoverageTomlError": ("rebrew.coverage_toml", "CoverageTomlError"),
     "ProjectCoverageError": ("rebrew.coverage_project", "ProjectCoverageError"),
@@ -403,6 +405,7 @@ __all__ = [
     "ToolchainErrorKind",
     "UnresolvedSymbolError",
     "UnshareError",
+    "UnsupportedBinaryFormat",
     "VendorError",
     "WorkspaceConfigError",
     "WorkspaceNotFound",

@@ -1399,14 +1399,31 @@ def capstone_config_for(info: BinaryInfo) -> tuple[int, int]:
     return capstone.CS_ARCH_X86, capstone_mode_for_arch(arch, getattr(info, "format", "") or "")
 
 
-def detect_format_and_arch(path: Path) -> tuple[str, str | None]:
-    """Detect binary format and architecture using LIEF.
+class UnsupportedBinaryFormat(RebrewError, ValueError):
+    """The file is none of the formats rebrew reads; ``magic`` is its first bytes, hex."""
 
-    Raises ``FileNotFoundError`` if *path* does not exist, or ``ValueError``
-    if the format cannot be identified.
+    def __init__(self, message: str, *, magic: str = "") -> None:
+        super().__init__(message)
+        self.magic = magic
+
+
+#: Bytes of a file's start named in an unsupported-format refusal.
+_MAGIC_BYTES = 8
+
+
+def detect_format_and_arch(path: Path) -> tuple[str, str | None]:
+    """Detect binary format and architecture: NE and MZ natively, PE/ELF/Mach-O with LIEF.
+
+    Raises ``FileNotFoundError`` if *path* does not exist, or
+    :class:`UnsupportedBinaryFormat` (a ``ValueError``) if the format cannot
+    be identified.
     """
     if not path.exists():
         raise FileNotFoundError(path)
+    if is_ne(path):
+        return "ne", "x86_16"
+    if is_mz(path):
+        return "mz", "x86_16"
     import lief
 
     spath = str(path)
@@ -1435,7 +1452,11 @@ def detect_format_and_arch(path: Path) -> tuple[str, str | None]:
                 return "macho", None
             return "macho", _arch_maps()[2].get(b.header.cpu_type)
         return "macho", None
-    raise ValueError(f"Cannot detect binary format: {path}")
+    with open(path, "rb") as f:
+        magic = f.read(_MAGIC_BYTES).hex()
+    raise UnsupportedBinaryFormat(
+        f"Cannot detect binary format (magic {magic or 'empty file'}): {path.name}", magic=magic
+    )
 
 
 def object_arch(obj_data: bytes) -> tuple[str, str] | None:

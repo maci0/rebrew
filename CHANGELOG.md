@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+### Fixed
+
+- Fresh analysis no longer refuses a binary with more than 1024 discovered functions: one limit set (`MAX_READSET_FILES` 32768 files, `MAX_READSET_BYTES` 32 MiB, `MAX_READSET_FILE_BYTES` 1 MiB) bounds the captured readset and every retained source manifest. A binary over it answers 422 `readset-too-large` naming the count and the limit.
+- A failed self-check of the fresh analysis capture (input changed, ambient input, symlink) answers 500 `analysis-capture-failed` instead of 400 `invalid-request`.
+- `rebrew.pe_info` and format detection read 16-bit NE and plain MZ executables (`ne`/`mz`, `x86_16`): module name, description, target OS, segments, entry point, imported modules and resource count for NE; DOS stub and code sizes for MZ.
+- A file of no supported format answers 422 `unsupported-binary-format` with its first bytes, not 500 `engine-error`.
+
 ## [6.23.1] - 2026-11-05
 
 ### Fixed

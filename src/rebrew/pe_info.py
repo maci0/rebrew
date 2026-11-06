@@ -43,7 +43,11 @@ lazy from typing import Any
 import typer
 
 from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, resolve_binary_arg
-lazy from rebrew.formats.binary_loader import decode_binary_name, detect_format_and_arch
+lazy from rebrew.formats.binary_loader import (
+    decode_binary_name,
+    detect_format_and_arch,
+    parse_mz_header,
+)
 lazy from rebrew.formats.pe_headers import PE32_PLUS_MAGIC
 lazy from rebrew.formats.pe_symbols import (
     PeDirectories,
@@ -292,6 +296,11 @@ def pe_info(path: str | Path) -> dict[str, object]:
     fmt, arch = detect_format_and_arch(target)
     size = target.stat().st_size
 
+    if fmt == "ne":
+        return _ne_payload(target, size, arch or "")
+    if fmt == "mz":
+        return _mz_payload(target, size, arch or "")
+
     if fmt == "pe":
         pe = lief.PE.parse(str(target))
         if pe is None:
@@ -311,6 +320,89 @@ def pe_info(path: str | Path) -> dict[str, object]:
         return _macho_payload(macho, size, arch or "")
 
     raise ValueError(f"Unsupported binary format: {target}")
+
+
+#: NE header "target operating system" byte (offset 0x36).
+_NE_TARGET_OS = {0: "unknown", 1: "os2", 2: "windows", 3: "dos4", 4: "windows386"}
+
+
+def _ne_payload(path: Path, size: int, arch: str) -> dict[str, object]:
+    """Identity block of a 16-bit NE executable: module, segments, entry, imports, resources."""
+    from rebrew.formats.ne_loader import (
+        parse_exports,
+        parse_imports,
+        parse_segments,
+        read_ne_header,
+    )
+
+    data = path.read_bytes()
+    ne_offset, header = read_ne_header(data)
+    segments = parse_segments(data, ne_offset, header)
+    names = parse_exports(data, ne_offset, header)
+    entry = int.from_bytes(data[ne_offset + 0x14 : ne_offset + 0x18], "little")
+    entry_segment, entry_offset = entry >> 16, entry & 0xFFFF
+    target_os = data[ne_offset + 0x36]
+    description_at = int.from_bytes(data[ne_offset + 0x2C : ne_offset + 0x30], "little")
+    description_size = int.from_bytes(data[ne_offset + 0x20 : ne_offset + 0x22], "little")
+    return {
+        "format": "ne",
+        "arch": arch,
+        "bits": 16,
+        "size": size,
+        "dos_stub_size": ne_offset,
+        "module_name": names[0].name if names else None,
+        "description": _ne_description(data, description_at, description_size),
+        "target_os": _NE_TARGET_OS.get(target_os, f"unknown-{target_os}"),
+        "image_base": 0,
+        "entry_point": ((entry_segment - 1) << 16) + entry_offset
+        if entry_segment
+        else entry_offset,
+        "entry_segment": entry_segment,
+        "entry_offset": entry_offset,
+        "segment_count": len(segments),
+        "segments": [
+            {
+                "index": seg.index,
+                "file_offset": seg.file_offset,
+                "size": seg.length,
+                "min_allocation": seg.min_allocation,
+                "flags": seg.flags,
+                "kind": "code" if seg.flags & _NE_SEG_DATA == 0 else "data",
+                "iterated": seg.is_iterated,
+            }
+            for seg in segments
+        ],
+        "imported_modules": [module.module for module in parse_imports(data, ne_offset, header)],
+        "resource_count": int.from_bytes(data[ne_offset + 0x34 : ne_offset + 0x36], "little"),
+    }
+
+
+#: NE segment flag: set for a data segment, clear for code (OS/2 NE spec).
+_NE_SEG_DATA = 0x0001
+
+
+def _ne_description(data: bytes, offset: int, size: int) -> str | None:
+    """First entry of the non-resident name table: the module description, when present."""
+    if size == 0 or offset + 1 > len(data):
+        return None
+    length = data[offset]
+    text = data[offset + 1 : offset + 1 + length]
+    return decode_binary_name(text) if text else None
+
+
+def _mz_payload(path: Path, size: int, arch: str) -> dict[str, object]:
+    """Identity block of a plain DOS MZ executable."""
+    header = parse_mz_header(path)
+    return {
+        "format": "mz",
+        "arch": arch,
+        "bits": 16,
+        "image_base": 0,
+        "size": size,
+        "dos_stub_size": header["code_offset"],
+        "code_size": header["code_size"],
+        "entry_point": header["entry_va"],
+    }
 
 
 def _pe_payload(pe: Any, path: Path, size: int, arch: str) -> dict[str, object]:

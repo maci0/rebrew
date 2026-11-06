@@ -276,8 +276,9 @@ def test_changed_input_during_report_refused(
         return result
 
     monkeypatch.setattr(ops, "project_report", mutate)
-    with pytest.raises(ops.OpsError, match="changed during reporting"):
+    with pytest.raises(ops.OpsError, match="changed during reporting") as raised:
         _capture(tmp_path)
+    assert (raised.value.code, raised.value.status) == ("analysis-capture-failed", 500)
 
 
 NOTEPAD = (

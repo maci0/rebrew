@@ -69,6 +69,7 @@ lazy import httpx
 
 from rebrew.errors import RebrewError
 lazy from rebrew.cli import EXIT_ERROR, console, error_exit
+lazy from rebrew.formats.binary_loader import UnsupportedBinaryFormat
 
 logger = logging.getLogger(__name__)
 
@@ -245,6 +246,44 @@ class OpsError(RebrewError):
 
 def _invalid(detail: str) -> OpsError:
     return OpsError(detail, code=INVALID_REQUEST, status=400)
+
+
+#: Bounds of one captured readset or retained source manifest, shared by every
+#: site that reads or accepts one.  Intake writes one stub per discovered
+#: function, so the file count is sized for binaries with tens of thousands of
+#: functions; the byte bounds are the resource limit that matters.
+MAX_READSET_FILES = 32768
+MAX_READSET_BYTES = 32 * 1024 * 1024
+MAX_READSET_FILE_BYTES = 1024 * 1024
+
+READSET_TOO_LARGE = "readset-too-large"
+ANALYSIS_CAPTURE_FAILED = "analysis-capture-failed"
+UNSUPPORTED_BINARY_FORMAT = "unsupported-binary-format"
+
+
+def _readset_limit(what: str, count: int, limit: int, unit: str = "files") -> OpsError:
+    """The binary's own analysis is larger than the engine bounds: not the caller's fault."""
+    return OpsError(
+        f"{what} has {count} {unit}, over the limit of {limit}",
+        code=READSET_TOO_LARGE,
+        status=422,
+    )
+
+
+def _check_manifest_size(files: Any) -> None:
+    """A retained source manifest is non-empty and within the shared readset bounds."""
+    if not files:
+        raise _invalid("invalid retained source manifest size")
+    if len(files) > MAX_READSET_FILES:
+        raise _readset_limit("retained source manifest", len(files), MAX_READSET_FILES)
+    size = sum(f.size for f in files)
+    if size > MAX_READSET_BYTES:
+        raise _readset_limit("retained source manifest", size, MAX_READSET_BYTES, "bytes")
+
+
+def _capture_failed(detail: str) -> OpsError:
+    """A self-check of the fresh analysis capture failed: the engine's fault, not the caller's."""
+    return OpsError(detail, code=ANALYSIS_CAPTURE_FAILED, status=500)
 
 
 def _refused(detail: str) -> OpsError:
@@ -1684,11 +1723,11 @@ def capture_fresh_analysis(
         _run_intake(binary, root, target)
         for path in root.rglob("*"):
             if path.is_symlink():
-                raise _invalid("fresh analysis capture contains a symlink")
+                raise _capture_failed("fresh analysis capture contains a symlink")
         cfg = load_config(root, target=target)
         confined_snapshot_config(cfg, root)
         if cfg.raw_link is not None:
-            raise _invalid("fresh analysis capture cannot include an unverified raw link")
+            raise _capture_failed("fresh analysis capture cannot include an unverified raw link")
         if not cfg.target_binary.is_file() or _file_sha256(cfg.target_binary) != sha256:
             raise _invalid("fresh analysis binary does not match the request")
         inventory = inventory_path_for(cfg.reversed_dir, cfg).resolve()
@@ -1697,24 +1736,27 @@ def capture_fresh_analysis(
         paths = {Path(entry[0]) for entry in coverage_inputs(cfg)}
         entries: list[dict[str, Any]] = []
         total = 0
+        captured_count = sum(1 for path in paths if path.resolve().is_relative_to(root))
+        if captured_count > MAX_READSET_FILES:
+            raise _readset_limit("fresh analysis capture", captured_count, MAX_READSET_FILES)
         for path in sorted(paths, key=lambda value: str(value).encode()):
             resolved = path.resolve()
             if not resolved.is_relative_to(root):
                 if path.exists() or path.is_symlink():
-                    raise _invalid("fresh analysis reads an ambient input")
+                    raise _capture_failed("fresh analysis reads an ambient input")
                 continue
             relative = resolved.relative_to(root).as_posix()
-            if path.is_symlink() or relative == "." or len(entries) >= 1024:
-                raise _invalid("invalid fresh analysis readset")
+            if path.is_symlink() or relative == ".":
+                raise _capture_failed("invalid fresh analysis readset")
             if not path.exists():
                 entries.append(
                     {"path": relative, "kind": "absent", "size": 0, "digest": "", "data": ""}
                 )
                 continue
             if not path.is_file():
-                raise _invalid("fresh analysis readset contains an unsupported directory")
+                raise _capture_failed("fresh analysis readset contains an unsupported directory")
             if "verify_cache" in path.name:
-                raise _invalid("fresh analysis capture must not contain verification cache")
+                raise _capture_failed("fresh analysis capture must not contain verification cache")
             if resolved == cfg.target_binary.resolve():
                 entries.append(
                     {
@@ -1728,11 +1770,15 @@ def capture_fresh_analysis(
                 continue
             size = path.stat().st_size
             total += size
-            if size > 1024 * 1024 or total > 8 * 1024 * 1024:
-                raise _invalid("fresh analysis capture exceeds its size limit")
+            if size > MAX_READSET_FILE_BYTES:
+                raise _readset_limit(
+                    f"fresh analysis input {relative}", size, MAX_READSET_FILE_BYTES, "bytes"
+                )
+            if total > MAX_READSET_BYTES:
+                raise _readset_limit("fresh analysis capture", total, MAX_READSET_BYTES, "bytes")
             data = path.read_bytes()
             if len(data) != size:
-                raise _invalid("fresh analysis input changed during capture")
+                raise _capture_failed("fresh analysis input changed during capture")
             entries.append(
                 {
                     "path": relative,
@@ -1750,7 +1796,7 @@ def capture_fresh_analysis(
         current_sources = {p.resolve() for p in iter_sources(cfg.reversed_dir, cfg)}
         current_sources.update(p.resolve() for p in iter_headers(cfg.reversed_dir, cfg))
         if current_paths != paths or current_sources != source_paths:
-            raise _invalid("fresh analysis input changed during reporting")
+            raise _capture_failed("fresh analysis input changed during reporting")
         for captured in entries:
             path = root / captured["path"]
             if any(
@@ -1758,16 +1804,16 @@ def capture_fresh_analysis(
                 for part in (path, *path.parents)
                 if part != root and part.is_relative_to(root)
             ):
-                raise _invalid("fresh analysis input changed during reporting")
+                raise _capture_failed("fresh analysis input changed during reporting")
             if captured["kind"] == "absent":
                 if path.exists():
-                    raise _invalid("fresh analysis input changed during reporting")
+                    raise _capture_failed("fresh analysis input changed during reporting")
             elif (
                 not path.is_file()
                 or path.stat().st_size != captured["size"]
                 or _file_sha256(path) != captured["digest"]
             ):
-                raise _invalid("fresh analysis input changed during reporting")
+                raise _capture_failed("fresh analysis input changed during reporting")
         selected = None
         if inventory.is_relative_to(root):
             relative_inventory = inventory.relative_to(root).as_posix()
@@ -1783,7 +1829,7 @@ def capture_fresh_analysis(
                 (entry for entry in entries if entry["path"] == "rebrew-project.toml"), None
             )
             if project_config is None or project_config["kind"] != "file":
-                raise _invalid("fresh analysis configuration is not captured")
+                raise _capture_failed("fresh analysis configuration is not captured")
             for captured in (project_config, selected):
                 path = root / captured["path"]
                 if (
@@ -1796,12 +1842,12 @@ def capture_fresh_analysis(
                     or path.stat().st_size != captured["size"]
                     or _file_sha256(path) != captured["digest"]
                 ):
-                    raise _invalid("fresh analysis input changed during reporting")
+                    raise _capture_failed("fresh analysis input changed during reporting")
             if not cfg.target_binary.is_file() or _file_sha256(cfg.target_binary) != sha256:
-                raise _invalid("fresh analysis input changed during reporting")
+                raise _capture_failed("fresh analysis input changed during reporting")
             current = load_config(root, target=target)
             if inventory_path_for(current.reversed_dir, current).resolve() != inventory:
-                raise _invalid("fresh analysis inventory changed during reporting")
+                raise _capture_failed("fresh analysis inventory changed during reporting")
         for item in report["targets"]:
             for field in ("document", "path"):
                 if item[field]:
@@ -1816,7 +1862,7 @@ def capture_fresh_analysis(
         if len(report["targets"]) == 1:
             item = report["targets"][0]
             if item["name"] != target or item["sha256"] != sha256:
-                raise _invalid("fresh analysis report has a different target")
+                raise _capture_failed("fresh analysis report has a different target")
             functions: list[dict[str, Any]] = []
             stubs: list[dict[str, Any]] = []
             seen: set[int] = set()
@@ -1834,12 +1880,12 @@ def capture_fresh_analysis(
                         or not name
                         or len(name.encode("utf-8")) > 4096
                     ):
-                        raise _invalid("invalid fresh analysis report identity")
+                        raise _capture_failed("invalid fresh analysis report identity")
                     entry = {"va": va, "name": name}
                     if size_field:
                         size = row["size"]
                         if type(size) is not int or not 0 <= size <= 2**63 - 1:
-                            raise _invalid("invalid fresh analysis report extent")
+                            raise _capture_failed("invalid fresh analysis report extent")
                         entry["size"] = size
                     seen.add(va)
                     result.append(entry)
@@ -1855,7 +1901,7 @@ def capture_fresh_analysis(
                 )
                 or any(e["path"] == report_path for e in entries)
             ):
-                raise _invalid("fresh analysis report path already exists")
+                raise _capture_failed("fresh analysis report path already exists")
             normalized = json.dumps(
                 {
                     "version": 1,
@@ -1870,9 +1916,9 @@ def capture_fresh_analysis(
                 allow_nan=False,
             ).encode("utf-8")
             if (
-                len(normalized) <= 1024 * 1024
-                and total + len(normalized) <= 8 * 1024 * 1024
-                and len(entries) < 1024
+                len(normalized) <= MAX_READSET_FILE_BYTES
+                and total + len(normalized) <= MAX_READSET_BYTES
+                and len(entries) < MAX_READSET_FILES
             ):
                 entries.append(
                     {
@@ -2127,8 +2173,7 @@ def verify_candidate(config: WorkerConfig, req: VerifyRequest) -> dict[str, Any]
         raise _invalid("candidate must contain one function and at most 2000000 bytes")
     if req.va < 0 or not 1 <= req.size <= 1048576:
         raise _invalid("invalid function extent")
-    if not req.files or len(req.files) > 1024 or sum(f.size for f in req.files) > 32 * 1024 * 1024:
-        raise _invalid("invalid retained source manifest size")
+    _check_manifest_size(req.files)
     paths = [f.path for f in req.files]
     if (
         len(set(paths)) != len(paths)
@@ -2244,13 +2289,9 @@ def retained_target_snapshot(
     from rebrew.config import inventory_path_for, load_config
     from rebrew.workspace import read_config, target_binary, targets_table
 
-    if (
-        not target_name
-        or not files
-        or len(files) > 1024
-        or sum(f.size for f in files) > 32 * 1024 * 1024
-    ):
+    if not target_name or not files:
         raise _invalid("invalid retained source manifest")
+    _check_manifest_size(files)
     if len({f.path for f in files}) != len(files) or any(
         "\\" in f.path or any(part in {"", ".", ".."} for part in f.path.split("/")) for f in files
     ):
@@ -2541,8 +2582,7 @@ def flag_search(config: WorkerConfig, req: FlagSearchRequest) -> dict[str, Any]:
     from rebrew.config import load_config
     from rebrew.workspace import read_config, target_binary, targets_table
 
-    if not req.files or len(req.files) > 1024 or sum(f.size for f in req.files) > 32 * 1024 * 1024:
-        raise _invalid("invalid retained source manifest size")
+    _check_manifest_size(req.files)
     paths = [f.path for f in req.files]
     if len(set(paths)) != len(paths) or req.source not in paths:
         raise _invalid("invalid retained source manifest paths")
@@ -2920,6 +2960,8 @@ def _answer(config: WorkerConfig, name: str, body: bytes) -> Mapping[str, Any]:
         raise
     except typer.Exit as exc:
         raise _refused(f"rebrew refused {name} (exit {exc.exit_code})") from None
+    except UnsupportedBinaryFormat as exc:
+        raise OpsError(str(exc), code=UNSUPPORTED_BINARY_FORMAT, status=422) from None
     except Exception:  # the engine is a trust boundary: log the cause, answer a fixed detail
         logger.exception("%s %s failed", _request_id(), name)
         raise _refused(f"{name} failed; the worker log has the cause") from None
