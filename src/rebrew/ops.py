@@ -68,6 +68,7 @@ import typer
 lazy import httpx
 
 from rebrew.errors import RebrewError
+lazy from rebrew import __version__, telemetry
 lazy from rebrew.cli import EXIT_ERROR, console, error_exit
 lazy from rebrew.formats.binary_loader import UnsupportedBinaryFormat
 
@@ -3148,6 +3149,11 @@ class _OpsHandler(BaseHTTPRequestHandler):
         with contextlib.suppress(AttributeError):
             typing.cast("OpsServer", self.server).record_request(code, elapsed_ms)
         self.log_request(code, getattr(self, "_response_size", "-"))
+        opened = telemetry.current()
+        if opened is not None and opened.kind == telemetry.KIND_SERVER:
+            opened.set("http.response.status_code", int(code))
+            if code >= 500:
+                opened.fail(f"status {code}")
         self.send_response_only(code, message)
         self.send_header("Date", self.date_time_string())
         self.send_header("X-Request-Id", self._request_id)
@@ -3213,6 +3219,19 @@ class _OpsHandler(BaseHTTPRequestHandler):
         return False
 
     def do_POST(self) -> None:  # (http.server API)
+        name = urlsplit(self.path).path.removeprefix("/")
+        route = f"/{name}" if name in OPS else "/unknown"  # the route is bounded by the op set
+        with telemetry.span(
+            f"POST {route}",
+            kind=telemetry.KIND_SERVER,
+            traceparent=self.headers.get("traceparent"),
+        ) as opened:
+            opened.set("http.request.method", "POST")
+            opened.set("http.route", route)
+            opened.set("rebrew.request_id", self._request_id)
+            self._post()
+
+    def _post(self) -> None:
         server = typing.cast("OpsServer", self.server)
         if not self._check_host(server):
             return
@@ -3464,6 +3483,10 @@ def serve_command(
     if any(not re.fullmatch(r"[a-z0-9][a-z0-9.-]*(?::[0-9]{1,5})?", item) for item in hosts):
         error_exit("--allowed-hosts must contain exact DNS names and optional ports")
     server = OpsServer((host, port), config, token, concurrency, hosts)
+    try:
+        stop_telemetry = telemetry.configure_from_env("relumea-rebrew", __version__)
+    except ValueError as exc:
+        error_exit(str(exc))
     if host not in ("127.0.0.1", "localhost", "::1"):
         console.print(
             f"serving rebrew ops on http://{host}:{server.server_port} (non-loopback bind: bearer auth required)"
@@ -3485,6 +3508,7 @@ def serve_command(
         with server.idle:
             server.draining = True
             server.idle.wait_for(lambda: server.active == 0, timeout=30)
+        stop_telemetry()
         signal.signal(signal.SIGTERM, previous)
 
 

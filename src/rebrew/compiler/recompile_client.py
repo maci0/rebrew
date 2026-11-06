@@ -34,6 +34,7 @@ from rebrew.utils import (
     retry_backoff_delay,
     retry_log_detail,
 )
+lazy from rebrew import telemetry
 
 log = logging.getLogger(__name__)
 
@@ -481,12 +482,19 @@ def compile_source(
             with cm as http:
                 if pending is None:
                     try:
-                        resp = http.post(
-                            f"{url}/api/v1/compile",
-                            json=payload,
-                            headers=post_headers,
-                            follow_redirects=False,
-                        )
+                        with telemetry.span(
+                            "recompile.compile", kind=telemetry.KIND_CLIENT
+                        ) as sent:
+                            sent.set("rebrew.compiler", compiler)
+                            resp = http.post(
+                                f"{url}/api/v1/compile",
+                                json=payload,
+                                headers={**post_headers, "traceparent": sent.traceparent},
+                                follow_redirects=False,
+                            )
+                            sent.set("http.response.status_code", resp.status_code)
+                            if resp.status_code >= 500:
+                                sent.fail(f"status {resp.status_code}")
                     except Exception as exc:
                         never_sent = isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout))
                         raise RecompileError(

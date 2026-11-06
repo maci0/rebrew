@@ -119,6 +119,7 @@ PACKAGE_EXTERNALS: dict[str, frozenset[str]] = {
             "metadata.functions",
             "registry",
             "sources",
+            "telemetry",
             "utils",
             "workspace",
         }

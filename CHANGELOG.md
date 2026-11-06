@@ -3,6 +3,7 @@
 ### Added
 
 - `REBREW_RECOMPILE_INSECURE_CLUSTER_HOST` names one in-cluster service host (`.svc` or `.svc.cluster.local`) that may receive `REBREW_RECOMPILE_API_KEY` over plain HTTP, on an exact host match. Every other HTTP URL still refuses the key.
+- `rebrew ops serve` exports OTLP/JSON spans when `REBREW_OTLP_ENDPOINT` is set: one server span per POST continuing the caller's `traceparent`, and a `recompile.compile` client span whose `traceparent` the recompile request carries.
 
 ### Fixed
 

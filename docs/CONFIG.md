@@ -601,6 +601,11 @@ rebrew receives.
 - `REBREW_OPS_ALLOWED_HOSTS`: comma-separated exact additional HTTP Host
   authorities (including optional ports) `rebrew ops serve` accepts beyond
   loopback binds.
+- `REBREW_OTLP_ENDPOINT`: OTLP/HTTP collector base URL (`http(s)://host:4318`, no
+  credentials). `rebrew ops serve` exports one server span per POST, named
+  `POST /<op>`, continuing the caller's `traceparent`, plus a client span
+  `recompile.compile` whose `traceparent` the recompile request carries. Unset
+  exports nothing; an invalid value stops `serve` at start.
 - `REBREW_CONTAINER_RUNTIME`: container CLI (`docker` default; `podman` or
   `nerdctl` also accepted). A bare name outside that set raises, so a typo
   fails at load rather than at exec; set a path to the binary to use another
