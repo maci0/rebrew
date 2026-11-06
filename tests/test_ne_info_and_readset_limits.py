@@ -70,6 +70,36 @@ def test_ne_headers_are_reported(tmp_path: Path) -> None:
     assert info["size"] == path.stat().st_size
 
 
+def test_ne_resource_table_is_counted(tmp_path: Path) -> None:
+    """Windows NE keeps its resources in a table at +0x24; the +0x34 field is not their count."""
+    data = bytearray(_holiday_shaped_ne(tmp_path).read_bytes())
+    table = bytearray(struct.pack("<H", 4))  # alignment shift
+    for resource_type, count in ((0x8001, 3), (0x8003, 2)):
+        table += struct.pack("<HHI", resource_type, count, 0) + b"\x00" * (12 * count)
+    table += struct.pack("<H", 0)
+    # Place the table after the 0x40-byte header and the segment table, where the resident names start.
+    start = struct.unpack_from("<H", data, NE_OFFSET + 0x26)[0]
+    struct.pack_into("<H", data, NE_OFFSET + 0x24, start)
+    struct.pack_into("<H", data, NE_OFFSET + 0x26, start + len(table))
+    names = bytes(data[NE_OFFSET + start : NE_OFFSET + 0x100])
+    data[NE_OFFSET + start : NE_OFFSET + start + len(table) + len(names)] = bytes(table) + names
+    path = tmp_path / "resources.exe"
+    path.write_bytes(bytes(data))
+    assert pe_info(path)["resource_count"] == 5
+
+
+def test_ne_resource_table_with_an_oversize_count_counts_what_fits(tmp_path: Path) -> None:
+    data = bytearray(_holiday_shaped_ne(tmp_path).read_bytes())
+    start = 0x50  # past the 0x40-byte header, inside the segment and name tables
+    table = struct.pack("<H", 4) + struct.pack("<HHI", 0x8001, 60000, 0) + b"\x00" * (12 * 2)
+    struct.pack_into("<H", data, NE_OFFSET + 0x24, start)
+    struct.pack_into("<H", data, NE_OFFSET + 0x26, start + len(table))
+    data[NE_OFFSET + start : NE_OFFSET + start + len(table)] = table
+    path = tmp_path / "damaged.exe"
+    path.write_bytes(bytes(data))
+    assert pe_info(path)["resource_count"] == 2
+
+
 def test_plain_mz_headers_are_reported(tmp_path: Path) -> None:
     path = _plain_mz(tmp_path)
     assert detect_format_and_arch(path) == ("mz", "x86_16")

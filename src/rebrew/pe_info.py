@@ -373,8 +373,50 @@ def _ne_payload(path: Path, size: int, arch: str) -> dict[str, object]:
             for seg in segments
         ],
         "imported_modules": [module.module for module in parse_imports(data, ne_offset, header)],
-        "resource_count": int.from_bytes(data[ne_offset + 0x34 : ne_offset + 0x36], "little"),
+        "resource_count": _ne_resource_count(data, ne_offset),
     }
+
+
+#: Offsets in the NE header of the resource table and the resident name table that follows it.
+_NE_RESOURCE_TABLE_AT = 0x24
+_NE_RESIDENT_NAMES_AT = 0x26
+#: One resource type entry before its resources (type, count, reserved) and one resource entry (NAMEINFO), in bytes.
+_NE_TYPEINFO_BYTES = 8
+_NE_NAMEINFO_BYTES = 12
+
+
+def _ne_resource_count(data: bytes, ne_offset: int) -> int:
+    """Resources in the Windows NE resource table (the table runs up to the resident names).
+
+    A table with no entries, or one whose counts run past the data or its own end, counts what fits: the
+    header facts must not fail on a damaged resource directory.
+    """
+    start = int.from_bytes(
+        data[ne_offset + _NE_RESOURCE_TABLE_AT : ne_offset + _NE_RESOURCE_TABLE_AT + 2], "little"
+    )
+    end = int.from_bytes(
+        data[ne_offset + _NE_RESIDENT_NAMES_AT : ne_offset + _NE_RESIDENT_NAMES_AT + 2], "little"
+    )
+    if start == 0 or end <= start:
+        return 0
+    pos, limit = (
+        ne_offset + start + 2,
+        min(ne_offset + end, len(data)),
+    )  # past the alignment shift word
+    total = 0
+    while pos + 2 <= limit:
+        if int.from_bytes(data[pos : pos + 2], "little") == 0:  # the table ends with a zero type
+            break
+        if pos + _NE_TYPEINFO_BYTES > limit:
+            break
+        # A count larger than the table has room for is damage: count what fits.
+        count = min(
+            int.from_bytes(data[pos + 2 : pos + 4], "little"),
+            (limit - pos - _NE_TYPEINFO_BYTES) // _NE_NAMEINFO_BYTES,
+        )
+        total += count
+        pos += _NE_TYPEINFO_BYTES + _NE_NAMEINFO_BYTES * count
+    return total
 
 
 #: NE segment flag: set for a data segment, clear for code (OS/2 NE spec).
