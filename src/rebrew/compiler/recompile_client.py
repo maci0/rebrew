@@ -183,7 +183,7 @@ class RecompileError(RebrewError, RuntimeError):
 #: Names the one in-cluster service host that may receive the API key over plain HTTP.
 #: Unset means HTTPS only. The compensating control is the cluster NetworkPolicy, which
 #: must let rebrew reach nothing but that service (docs/TOOLCHAIN.md).
-INSECURE_CLUSTER_HOST_ENV = "REBREW_RECOMPILE_INSECURE_CLUSTER_HOST"
+_INSECURE_CLUSTER_HOST_ENV = "REBREW_RECOMPILE_INSECURE_CLUSTER_HOST"
 
 #: Host suffixes of in-cluster Kubernetes Services; the configured host must end in one.
 _CLUSTER_HOST_SUFFIXES = (".svc", ".svc.cluster.local")
@@ -192,14 +192,14 @@ _CLUSTER_HOST_SUFFIXES = (".svc", ".svc.cluster.local")
 _MAX_HOST_CHARS = 253
 
 
-def insecure_cluster_host() -> str:
+def _insecure_cluster_host() -> str:
     """The configured in-cluster host allowed to take the API key over HTTP, or "".
 
     One host name of lowercase letters, digits, dots and hyphens, ending in ``.svc`` or
     ``.svc.cluster.local``. Anything else is a configuration error, so a typo cannot
     widen the exception.
     """
-    raw = os.environ.get(INSECURE_CLUSTER_HOST_ENV, "").strip()
+    raw = os.environ.get(_INSECURE_CLUSTER_HOST_ENV, "").strip()
     if not raw:
         return ""
     if (
@@ -209,7 +209,7 @@ def insecure_cluster_host() -> str:
         or not raw.endswith(_CLUSTER_HOST_SUFFIXES)
     ):
         raise RecompileError(
-            f"{INSECURE_CLUSTER_HOST_ENV} must be one in-cluster service host ending in "
+            f"{_INSECURE_CLUSTER_HOST_ENV} must be one in-cluster service host ending in "
             ".svc or .svc.cluster.local",
             kind="validation",
         )
@@ -415,7 +415,7 @@ def compile_source(
         api_key = ""
     if api_key and (not api_key.isascii() or any(not 33 <= ord(c) <= 126 for c in api_key)):
         raise RecompileError("invalid REBREW_RECOMPILE_API_KEY", kind="validation")
-    cluster_host = insecure_cluster_host() if api_key else ""
+    cluster_host = _insecure_cluster_host() if api_key else ""
     if (
         api_key
         and parsed.scheme != "https"
