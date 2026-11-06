@@ -12,7 +12,13 @@ routes every compile through the sibling [recompile](https://github.com/relumea/
 service instead: the same pinned images over `POST /api/v1/compile` plus an
 artifact download, with optional assembly output via `recompile_emit_assembly`.
 The client does not grant training consent.
-For an authenticated HTTPS service, set `REBREW_RECOMPILE_API_KEY` in the environment. The
+For an authenticated HTTPS service, set `REBREW_RECOMPILE_API_KEY` in the environment.
+Inside a Kubernetes cluster the service may be plain HTTP: set
+`REBREW_RECOMPILE_INSECURE_CLUSTER_HOST` to that one service host (it must end in `.svc` or
+`.svc.cluster.local`, for example `recompile.recompile.svc.cluster.local`) and rebrew sends the key
+over HTTP only when the URL host equals it exactly; any other HTTP URL still refuses. The
+compensating control is the cluster NetworkPolicy: rebrew's pods must be allowed to reach that
+service and nothing else on the network, or the key travels in clear text where others can read it. The
 key is sent as a bearer credential to the configured service and its
 same-origin artifact endpoint. Each authenticated compile uses one idempotency
 key for retries within that invocation. The request and key are not saved for

@@ -227,3 +227,81 @@ def test_key_is_redacted_before_error_detail_is_truncated(monkeypatch):
     ):
         compile_source("https://compiler.test", "gcc-14.2.0", "int f;", [], client=c)
     assert "rck_" not in str(error.value)
+
+
+def _post_with_key(monkeypatch, url, cluster_host=None):
+    monkeypatch.setenv("REBREW_RECOMPILE_API_KEY", "rck_synthetic")
+    monkeypatch.delenv("REBREW_JOB_COMPILE_SOCKET", raising=False)
+    if cluster_host is None:
+        monkeypatch.delenv("REBREW_RECOMPILE_INSECURE_CLUSTER_HOST", raising=False)
+    else:
+        monkeypatch.setenv("REBREW_RECOMPILE_INSECURE_CLUSTER_HOST", cluster_host)
+    seen = []
+
+    def handler(req):
+        seen.append(req)
+        if req.method == "POST":
+            return httpx.Response(
+                200, json={"status": "ok", "artifact_url": "/api/v1/artifacts/test.obj"}
+            )
+        return httpx.Response(200, content=b"OBJ")
+
+    with httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True) as c:
+        result = compile_source(url, "gcc-14.2.0", "int f;", [], client=c)
+    return result, seen
+
+
+def test_key_goes_over_http_to_the_exactly_configured_cluster_host(monkeypatch):
+    host = "recompile.recompile.svc.cluster.local"
+    result, seen = _post_with_key(monkeypatch, f"http://{host}:8001", host)
+    assert result.obj_bytes == b"OBJ"
+    assert [r.headers["authorization"] for r in seen] == ["Bearer rck_synthetic"] * 2
+
+
+def test_a_different_cluster_host_still_refuses_the_key_over_http(monkeypatch):
+    for url in (
+        "http://other.recompile.svc.cluster.local:8001",
+        "http://recompile.recompile.svc:8001",  # the short form is not configured
+        "http://recompile.recompile.svc.cluster.local.evil.test:8001",
+    ):
+        with pytest.raises(RecompileError, match="requires HTTPS"):
+            _post_with_key(monkeypatch, url, "recompile.recompile.svc.cluster.local")
+
+
+def test_the_short_service_form_is_allowed_only_when_configured_exactly(monkeypatch):
+    result, _ = _post_with_key(
+        monkeypatch, "http://recompile.recompile.svc:8001", "recompile.recompile.svc"
+    )
+    assert result.obj_bytes == b"OBJ"
+    with pytest.raises(RecompileError, match="requires HTTPS"):
+        _post_with_key(
+            monkeypatch,
+            "http://recompile.recompile.svc.cluster.local:8001",
+            "recompile.recompile.svc",
+        )
+
+
+def test_a_public_http_host_refuses_the_key_even_when_a_cluster_host_is_configured(monkeypatch):
+    with pytest.raises(RecompileError, match="requires HTTPS"):
+        _post_with_key(
+            monkeypatch, "http://recompile.online", "recompile.recompile.svc.cluster.local"
+        )
+
+
+def test_https_is_unchanged_by_the_cluster_host(monkeypatch):
+    result, seen = _post_with_key(monkeypatch, "https://compiler.test", "recompile.recompile.svc")
+    assert result.obj_bytes == b"OBJ" and len(seen) == 2
+
+
+def test_the_cluster_host_setting_must_name_an_in_cluster_service(monkeypatch):
+    for bad in (
+        "recompile.online",
+        "localhost",
+        "evil.svc.example.com",
+        "Recompile.SVC",
+        "a..svc",
+        "http://x.svc",
+        "x.svc:8001",
+    ):
+        with pytest.raises(RecompileError, match="in-cluster service host"):
+            _post_with_key(monkeypatch, "https://compiler.test", bad)

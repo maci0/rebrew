@@ -549,6 +549,9 @@ by the CLI layer and win for that invocation.
   host (invalid values fail at load / resolve time).
 - `REBREW_RECOMPILE_API_KEY`: bearer key for an authenticated recompile
   service; optional, HTTPS-only, set it in the environment and never commit it.
+- `REBREW_RECOMPILE_INSECURE_CLUSTER_HOST`: the one in-cluster service host (ending in `.svc` or
+  `.svc.cluster.local`) that may receive `REBREW_RECOMPILE_API_KEY` over plain HTTP; empty or unset
+  keeps the key HTTPS-only. See [TOOLCHAIN.md](TOOLCHAIN.md) for the NetworkPolicy it relies on.
 - `REBREW_JOB_COMPILE_SOCKET`: internal job-worker transport, set by the jobs owner
   to `/run/rebrew-job/owner.sock` together with `REBREW_RECOMPILE_URL=http://rebrew-job`.
   This selects a job-scoped Unix socket capability; the owner retains the caller credential

@@ -21,6 +21,7 @@ from typing import Any, Literal, Protocol, runtime_checkable
 lazy import hashlib
 lazy import json as _json
 lazy import os
+lazy import re
 lazy import time
 lazy from collections.abc import Callable, Mapping
 lazy from contextlib import nullcontext
@@ -177,6 +178,42 @@ class RecompileError(RebrewError, RuntimeError):
         self.kind = kind
         self.status_code = status_code
         self.retryable = retryable
+
+
+#: Names the one in-cluster service host that may receive the API key over plain HTTP.
+#: Unset means HTTPS only. The compensating control is the cluster NetworkPolicy, which
+#: must let rebrew reach nothing but that service (docs/TOOLCHAIN.md).
+INSECURE_CLUSTER_HOST_ENV = "REBREW_RECOMPILE_INSECURE_CLUSTER_HOST"
+
+#: Host suffixes of in-cluster Kubernetes Services; the configured host must end in one.
+_CLUSTER_HOST_SUFFIXES = (".svc", ".svc.cluster.local")
+
+#: Longest DNS name.
+_MAX_HOST_CHARS = 253
+
+
+def insecure_cluster_host() -> str:
+    """The configured in-cluster host allowed to take the API key over HTTP, or "".
+
+    One host name of lowercase letters, digits, dots and hyphens, ending in ``.svc`` or
+    ``.svc.cluster.local``. Anything else is a configuration error, so a typo cannot
+    widen the exception.
+    """
+    raw = os.environ.get(INSECURE_CLUSTER_HOST_ENV, "").strip()
+    if not raw:
+        return ""
+    if (
+        len(raw) > _MAX_HOST_CHARS
+        or not re.fullmatch(r"[a-z0-9]([a-z0-9.-]*[a-z0-9])?", raw)
+        or ".." in raw
+        or not raw.endswith(_CLUSTER_HOST_SUFFIXES)
+    ):
+        raise RecompileError(
+            f"{INSECURE_CLUSTER_HOST_ENV} must be one in-cluster service host ending in "
+            ".svc or .svc.cluster.local",
+            kind="validation",
+        )
+    return raw
 
 
 def _same_origin_artifact_url(base_url: str, artifact_url: str) -> str:
@@ -378,7 +415,12 @@ def compile_source(
         api_key = ""
     if api_key and (not api_key.isascii() or any(not 33 <= ord(c) <= 126 for c in api_key)):
         raise RecompileError("invalid REBREW_RECOMPILE_API_KEY", kind="validation")
-    if api_key and parsed.scheme != "https":
+    cluster_host = insecure_cluster_host() if api_key else ""
+    if (
+        api_key
+        and parsed.scheme != "https"
+        and not (parsed.hostname and parsed.hostname == cluster_host)
+    ):
         raise RecompileError("authenticated recompile service requires HTTPS", kind="validation")
     if api_key and (
         parsed.username is not None

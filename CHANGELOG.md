@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Added
+
+- `REBREW_RECOMPILE_INSECURE_CLUSTER_HOST` names one in-cluster service host (`.svc` or `.svc.cluster.local`) that may receive `REBREW_RECOMPILE_API_KEY` over plain HTTP, on an exact host match. Every other HTTP URL still refuses the key.
+
 ### Fixed
 
 - Fresh analysis no longer refuses a binary with more than 1024 discovered functions: one limit set (`MAX_READSET_FILES` 32768 files, `MAX_READSET_BYTES` 32 MiB, `MAX_READSET_FILE_BYTES` 1 MiB) bounds the captured readset and every retained source manifest. A binary over it answers 422 `readset-too-large` naming the count and the limit.
