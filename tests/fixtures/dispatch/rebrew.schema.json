@@ -3066,6 +3066,9 @@
           "candidate": {
             "type": "string"
           },
+          "cflags": {
+            "type": "string"
+          },
           "files": {
             "items": {
               "additionalProperties": false,

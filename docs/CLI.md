@@ -6419,6 +6419,17 @@ Op details the contract leaves open:
   header found under its directory or the project's `/I` directories, or
   computes an include: the service receives the source text alone. Local
   backends are unaffected.
+- `verify_function` takes an optional `cflags`: plain option tokens (each starts
+  with `/` or `-`, characters `A-Za-z0-9_:=.+-`, 256 characters at most) that
+  replace the project's compiler flags for that one comparison, passed to
+  `rebrew test --cflags`. A token that names a file, path or output or changes
+  the command (`/F*`, `/I`, `/Y*`, `/AI`, `/Tc`, `/Tp`, `/LD`, `/E`, `/EP`, `/P`,
+  `/link`, and `-o`, `-I`, `-L`, `-l`, `-B`, `-T`, `-x`, `-M*`, `-include`,
+  `-isystem`, `-iquote`, `-specs`, `-wrapper`, `-Xlinker`, `-fplugin`, `-dump*`)
+  answers 400 `invalid-request` naming it. Without `cflags` the project's flags
+  and the function's metadata apply. The reply carries `compile`: the flags the
+  last remote compile ran with and the service's `execution` provenance block
+  verbatim, or null when no remote compile ran or the service sent none.
 
 The backend selects a transport with `RELUMEA_DISPATCH_REBREW`:
 `exec:rebrew ops call --filestore DIR --workspace DIR` runs one process per

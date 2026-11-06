@@ -120,6 +120,9 @@ class RecompileResult:
     obj_bytes: bytes | None = None
     log: str = ""
     compiler_version: str | None = None
+    #: The service's ExecutionProvenance block for this compile, verbatim; None
+    #: when the service sent none (never a placeholder).
+    execution: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-safe dict, like :meth:`CompareResult.to_dict`.
@@ -302,11 +305,13 @@ def _download_artifact(
                 retryable=art.status_code in RETRYABLE_HTTP_STATUS,
             )
         version = body.get("compiler_version") or None
+        execution = body.get("execution")
         return RecompileResult(
             ok=True,
             obj_bytes=art.content,
             log=str(body.get("log", "")),
             compiler_version=str(version) if version else None,
+            execution=execution if isinstance(execution, dict) else None,
         )
     finally:
         close_response(art)
@@ -566,6 +571,7 @@ def compile_source(
                             if result.compiler_version is not None
                             else None
                         ),
+                        execution=result.execution,
                     )
                 return result
         except RecompileError as exc:

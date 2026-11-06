@@ -188,6 +188,20 @@ class TestCompileSource:
             ("get", "http://svc/api/v1/artifacts/x.obj"),
         ]
 
+    def test_execution_provenance_is_carried_verbatim_or_absent(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        execution = {"status": "admitted", "kind": "image", "digest": "sha256:abc"}
+        body = {"status": "ok", "artifact_url": "/api/v1/artifacts/x.obj", "execution": execution}
+        _patch(monkeypatch, _Resp(200, json_body=body), _Resp(200, content=b"OBJ"))
+        assert (
+            compile_source("http://svc/", "msvc-6.0", "int f(void){}", ["/c"]).execution
+            == execution
+        )
+        body = {"status": "ok", "artifact_url": "/api/v1/artifacts/x.obj"}
+        _patch(monkeypatch, _Resp(200, json_body=body), _Resp(200, content=b"OBJ"))
+        assert compile_source("http://svc/", "msvc-6.0", "int f(void){}", ["/c"]).execution is None
+
     def test_service_error_is_not_ok(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch(monkeypatch, _Resp(200, json_body={"status": "error", "log": "syntax error"}))
         res = compile_source("http://svc", "msvc-6.0", "bad", [])

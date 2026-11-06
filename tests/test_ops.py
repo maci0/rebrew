@@ -1152,6 +1152,26 @@ class TestReconstructionOps:
         assert status == 400
         request["source_sha256"] = hashlib.sha256(original).hexdigest()
 
+        # cflags reach `rebrew test` as one --cflags argument; none means the project's.
+        argv: list[list[str]] = []
+
+        def record(args: Any, root: Path, *unused: Any, **kwargs: Any) -> dict[str, Any]:
+            argv.append(list(args))
+            return {"status": "EXACT"}
+
+        monkeypatch.setattr(ops, "run_rebrew", record)
+        status, _ = dispatch(config, "rebrew.verify_function", json.dumps(request).encode())
+        assert status == 200 and not any(a.startswith("--cflags") for a in argv[-1])
+        flagged = {**request, "cflags": "/O1   /Gd"}
+        status, _ = dispatch(config, "rebrew.verify_function", json.dumps(flagged).encode())
+        assert status == 200 and "--cflags=/O1 /Gd" in argv[-1]
+        for bad in ("/Fo", "/O1 /Fdx.pdb", "-o", "@rsp", "/tmp/x", "/link"):
+            status, body = dispatch(
+                config, "rebrew.verify_function", json.dumps({**request, "cflags": bad}).encode()
+            )
+            assert status == 400 and "invalid-cflags" in body.decode(), (bad, body)
+        monkeypatch.setattr(ops, "run_rebrew", run)
+
         def mutate(_args: Any, root: Path, *unused: Any, **kwargs: Any) -> dict[str, Any]:
             (root / "rebrew-project.toml").write_text("changed")
             return {"status": "EXACT"}

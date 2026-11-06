@@ -249,6 +249,32 @@ def _invalid(detail: str) -> OpsError:
     return OpsError(detail, code=INVALID_REQUEST, status=400)
 
 
+#: A person-supplied compiler flag string reaches a compiler, so it is a
+#: bounded list of plain option tokens. Anything that names a file, a path or an
+#: output, or changes the command, is refused (the backend applies the same rule).
+CFLAGS_MAX_CHARS = 256
+_CFLAGS_TOKEN = re.compile(r"[/-][A-Za-z0-9_:=.+-]+")
+# Case-sensitive: /O1 and /MT are flags, /Fo names an output. MSVC-style options
+# first, then the GCC-style options that take a path or run another program.
+_CFLAGS_REFUSED = re.compile(
+    r"/(?:F|I|Y|AI|Tc|Tp|LD)|/(?:E|EP|P)$|/[Ll][Ii][Nn][Kk]"
+    r"|-(?:o|I|L|l|B|T|x|M|include|isystem|iquote|specs|wrapper|Xlinker|fplugin|dump)"
+)
+
+
+def checked_cflags(text: str) -> str:
+    """The flag string, normalized to single spaces, or a 400 naming the bad token."""
+    if len(text) > CFLAGS_MAX_CHARS:
+        raise _invalid(f"invalid-cflags: longer than {CFLAGS_MAX_CHARS} characters")
+    tokens = text.split()
+    for token in tokens:
+        if not _CFLAGS_TOKEN.fullmatch(token):
+            raise _invalid(f"invalid-cflags: {token[:40]!r} is not a plain option token")
+        if _CFLAGS_REFUSED.match(token):
+            raise _invalid(f"invalid-cflags: {token!r} names a file or changes the command")
+    return " ".join(tokens)
+
+
 #: Bounds of one captured readset or retained source manifest, shared by every
 #: site that reads or accepts one.  Intake writes one stub per discovered
 #: function, so the file count is sized for binaries with tens of thousands of
@@ -556,6 +582,7 @@ class VerifyRequest:
     source_sha256: str = ""
     binary_key: str = ""
     binary_url: str = ""
+    cflags: str = ""
 
 
 @dataclass(frozen=True)
@@ -2235,11 +2262,13 @@ def verify_candidate(config: WorkerConfig, req: VerifyRequest) -> dict[str, Any]
             cfg = load_config(root, target=req.rebrew_target)
             confined_snapshot_config(cfg, root)
             retained_compile_refusal(cfg, [source])
+            flags = checked_cflags(req.cflags)
             result = run_rebrew(
                 [
                     "test",
                     "--json",
                     "--no-promote",
+                    *([f"--cflags={flags}"] if flags else []),
                     f"--target={req.rebrew_target}",
                     f"--va=0x{req.va:x}",
                     f"--size={req.size}",

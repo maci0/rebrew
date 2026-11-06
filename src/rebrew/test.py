@@ -76,6 +76,7 @@ lazy from rebrew.compiler.compile import (
     compile_and_compare,
     compile_to_obj,
     is_matched,
+    last_remote_compile,
     matched_byte_count,
 )
 lazy from rebrew.compiler.context import CompileContext
@@ -802,6 +803,9 @@ def _result_dict_body(
         # null when the function was compiled without one.
         "context_hash": context_hash,
         "mismatches": mismatches,
+        # The flags and execution provenance of the remote compile that made
+        # obj_bytes; null when no remote compile ran or the service sent none.
+        "compile": last_remote_compile(),
     }
 
 

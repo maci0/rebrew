@@ -1521,7 +1521,22 @@ def _compile_via_recompile(
         obj_file.write_bytes(res.obj_bytes)
     except OSError as exc:
         return None, f"Failed to write recompile artifact: {exc}"
+    global _last_remote_compile
+    _last_remote_compile = {"flags": list(all_flags), "execution": res.execution}
     return str(obj_file), ""
+
+
+#: What the most recent successful remote compile of this process ran with,
+#: for the one-shot ``rebrew test --json`` run that reports it.
+_last_remote_compile: dict[str, Any] | None = None
+
+
+def last_remote_compile() -> dict[str, Any] | None:
+    """The flags and execution provenance of the last remote compile, or None.
+
+    None means no remote compile ran (local backend), so nothing is claimed.
+    """
+    return _last_remote_compile
 
 
 def contextualized_source(
@@ -3433,6 +3448,7 @@ __all__ = [
     "extract_linked_slice",
     "filter_wine_stderr",
     "is_matched",
+    "last_remote_compile",
     "linked_pad_size",
     "linked_shell_source",
     "matched_byte_count",

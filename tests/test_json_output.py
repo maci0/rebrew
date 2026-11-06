@@ -310,6 +310,7 @@ class TestBuildResultDict:
             "obj_size",
             "mismatches",
             "context_hash",
+            "compile",
         }
         assert required_keys == set(result.keys())
         # No --context on this path: the digest is honestly null, not a
