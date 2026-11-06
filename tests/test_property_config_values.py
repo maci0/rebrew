@@ -116,8 +116,9 @@ def test_hex_dict_keeps_only_int_keys_with_string_values(mapping: Any) -> None:
         assert type(addr) is int
         assert isinstance(name, str)
         if not name:
-            # An empty name would match nothing but look like a hit.
-            assert mapping.get(str(addr), mapping.get(addr)) == name
+            # An empty name would match nothing but look like a hit: it must come from the input,
+            # whatever spelling its key had ("00" and "0x0" are the address 0 as well).
+            assert name in mapping.values()
 
 
 @settings(max_examples=200, deadline=None)
