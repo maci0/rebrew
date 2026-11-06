@@ -313,7 +313,7 @@ These form a "dependency ceiling" that limits what can be matched regardless of 
 ## Color roles
 
 Status words and terminal output follow the shared
-[Relumea brand palette](https://github.com/relumea/relumea-brand/blob/36c575575f9186181664f73e320680af9c828246/docs/brand/BRAND.md#cli-standard).
+[Relumea brand palette](https://github.com/relumea/ai.relumea.brand/blob/36c575575f9186181664f73e320680af9c828246/docs/brand/BRAND.md#cli-standard).
 EXACT is emerald, RELOC cyan teal, PROVEN forest green (mint fills), NEAR_MATCHING steel blue,
 STUB neutral gray and SIZE_MISMATCH failure brick. LIBRARY is mulberry origin
 attribution, not a byte-verification result. LIVE is activity only; it does
