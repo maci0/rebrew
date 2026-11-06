@@ -353,10 +353,13 @@ def _ne_payload(path: Path, size: int, arch: str) -> dict[str, object]:
         "module_name": names[0].name if names else None,
         "description": _ne_description(data, description_at, description_size),
         "target_os": _NE_TARGET_OS.get(target_os, f"unknown-{target_os}"),
-        "image_base": 0,
+        # A segmented image has no single base: addresses are segment:offset, and the flat analysis space puts
+        # segment n at (n - 1) << 16 (NeSegment.base_va), which is what entry_point is in.
+        "image_base": None,
         "entry_point": ((entry_segment - 1) << 16) + entry_offset
         if entry_segment
         else entry_offset,
+        "entry_address": f"{entry_segment}:{entry_offset:04X}" if entry_segment else None,
         "entry_segment": entry_segment,
         "entry_offset": entry_offset,
         "segment_count": len(segments),

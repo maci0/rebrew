@@ -53,6 +53,8 @@ class NeHeader:
     module_ref_table_offset: int
     imported_names_offset: int
     alignment_shift: int
+    entry_segment: int = 0  # CS of the program entry (1-based segment), 0 for a library with none
+    entry_offset: int = 0  # IP of the program entry
 
     @property
     def sector_size(self) -> int:
@@ -266,6 +268,53 @@ def _is_epilog(mnemonic: str) -> bool:
     return mnemonic in ("ret", "retf", "retn", "jmp")
 
 
+#: Entry-table bundle segment indicators: 0 = unused slots, 0xFF = movable entries (6 bytes), 0xFE = constants.
+_ENTRY_UNUSED, _ENTRY_MOVABLE, _ENTRY_CONSTANT = 0x00, 0xFF, 0xFE
+_ENTRY_FIXED_SIZE, _ENTRY_MOVABLE_SIZE = 3, 6
+
+
+def parse_entry_table(data: bytes, ne_offset: int, header: NeHeader) -> list[tuple[int, int, int]]:
+    """Entry table as ``(ordinal, segment, offset)``: the program's exported and called-by-far entry points.
+
+    Ordinals count from 1 across the table.  Unused slots and constants (segment indicator 0xFE) carry no
+    code address and are skipped.  A table that runs past its declared length or the file ends the walk.
+    """
+    pos = ne_offset + header.entry_table_offset
+    end = min(pos + header.entry_table_length, len(data))
+    out: list[tuple[int, int, int]] = []
+    ordinal = 0
+    while pos + 2 <= end:
+        count, indicator = data[pos], data[pos + 1]
+        pos += 2
+        if count == 0:
+            break
+        if indicator == _ENTRY_UNUSED:
+            ordinal += count
+            continue
+        size = _ENTRY_MOVABLE_SIZE if indicator == _ENTRY_MOVABLE else _ENTRY_FIXED_SIZE
+        for _ in range(count):
+            if pos + size > end:
+                return out
+            ordinal += 1
+            if indicator == _ENTRY_CONSTANT:
+                pass
+            elif indicator == _ENTRY_MOVABLE:
+                out.append((ordinal, data[pos + 3], _u16(data, pos + 4)))
+            else:
+                out.append((ordinal, indicator, _u16(data, pos + 1)))
+            pos += size
+    return out
+
+
+def ne_entry_seeds(data: bytes, header: NeHeader) -> set[tuple[int, int]]:
+    """``(segment, offset)`` of the program entry and every entry-table entry: addresses that start functions."""
+    ne_offset = _u32(data, 0x3C)
+    seeds = {(seg, off) for _, seg, off in parse_entry_table(data, ne_offset, header)}
+    if header.entry_segment:
+        seeds.add((header.entry_segment, header.entry_offset))
+    return seeds
+
+
 def enumerate_ne_functions(info: BinaryInfo) -> list[NeFunction]:
     """Linear-sweep function discovery over an NE binary's code segments.
 
@@ -283,6 +332,8 @@ def enumerate_ne_functions(info: BinaryInfo) -> list[NeFunction]:
     data = info.data
     md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_16)
     funcs: list[NeFunction] = []
+    seeds = ne_entry_seeds(data, info.ne_header) if info.ne_header else set()
+    seeded_vas: set[int] = set()
     for seg in info.ne_segments:
         if not seg.is_code:
             continue
@@ -305,23 +356,35 @@ def enumerate_ne_functions(info: BinaryInfo) -> list[NeFunction]:
         # fixup table, and the real function only starts at its own prolog.
         if content_start == 0 and content_start < len(raw) - 3:
             candidates.add(content_start)
+        # The program entry and the entry-table entries start functions whatever their bytes look like.
+        for seg_no, off in seeds:
+            if seg_no == seg.index and 0 <= off < len(raw) - 3:
+                candidates.add(off)
+                seeded_vas.add(seg.base_va + off)
         if not candidates:
             continue
         # Disassemble from each candidate; the function ends at the first
         # ret/retf that terminates a balanced run (bounded to segment end
         # and to the segment's decode budget).
         budget = SWEEP_DECODE_BUDGET
+        warned = False
         for start in sorted(candidates):
-            if budget <= 0:
-                logger.warning(
-                    "NE segment %d: decode budget exhausted after offset 0x%x, "
-                    "later functions in this segment are not listed",
-                    seg.index,
-                    start,
-                )
-                break
-            body = raw[start : start + budget]
-            budget -= len(body)
+            # A seeded entry is decoded whatever the budget says: it is a known function start, and the
+            # sweep budget exists to bound the guessed prologs.
+            seeded = seg.base_va + start in seeded_vas
+            if budget <= 0 and not seeded:
+                if not warned:
+                    logger.warning(
+                        "NE segment %d: decode budget exhausted after offset 0x%x, "
+                        "later functions in this segment are not listed",
+                        seg.index,
+                        start,
+                    )
+                    warned = True
+                continue
+            body = raw[start : start + (len(raw) if seeded else budget)]
+            if not seeded:
+                budget -= len(body)
             va = seg.base_va + start
             size = 0
             insn_count = 0
@@ -335,7 +398,7 @@ def enumerate_ne_functions(info: BinaryInfo) -> list[NeFunction]:
             # Keep the function only when the body is credible: a real epilog
             # (ret/retf) or a long decoded run.  A lone `enter`/`push bp` in
             # data decodes to 1-2 instructions and is a false positive.
-            if not found_epilog and insn_count < 10:
+            if not found_epilog and insn_count < 10 and va not in seeded_vas:
                 continue
             if 3 <= size <= len(raw) - start:
                 funcs.append(
@@ -375,6 +438,11 @@ def enumerate_ne_functions(info: BinaryInfo) -> list[NeFunction]:
                     prev.size = new_size
                     deduped.append(f)
                     continue
+            # A seeded entry is a real function start: the outer span ends there.
+            if f.va in seeded_vas and f.va > prev.va:
+                prev.size = f.va - prev.va
+                deduped.append(f)
+                continue
             # False prolog / unclear boundary — keep the outer span, drop f.
             continue
         deduped.append(f)
@@ -440,6 +508,8 @@ def parse_ne_header(data: bytes, ne_offset: int) -> NeHeader:
             module_ref_table_offset=_u16(data, h + 0x28),
             imported_names_offset=_u16(data, h + 0x2A),
             alignment_shift=_u16(data, h + 0x32),
+            entry_offset=_u16(data, h + 0x14),
+            entry_segment=_u16(data, h + 0x16),
         )
     except (struct.error, IndexError) as exc:
         raise NeParseError("corrupt NE header") from exc

@@ -452,3 +452,22 @@ def test_enumerate_ne_functions_sweep_is_bounded(fill: bytes) -> None:
         assert fed <= SWEEP_DECODE_BUDGET * 2
     finally:
         capstone.Cs.disasm = real_disasm
+
+
+def test_entry_point_and_entry_table_start_functions(tmp_path: Path) -> None:
+    """The program entry (CS:IP) is a function even when no prolog opens it, mapped like every other VA."""
+    import struct
+
+    from rebrew.formats.ne_loader import enumerate_ne_functions, load_ne_binary
+
+    entry = 0x20
+    code = bytearray(b"\x90" * 0x60)
+    code[0:4] = b"\x55\x8b\xec\xc3"  # a prolog function at 0
+    code[entry : entry + 6] = b"\x90\x90\xb8\x01\x00\xc3"  # no prolog: only the header names it
+    data = bytearray(make_ne(segments=[(bytes(code), 0)], exports=[("MAIN", 1)]))
+    struct.pack_into("<I", data, 0x100 + 0x14, (1 << 16) | entry)
+    path = tmp_path / "entry.exe"
+    path.write_bytes(bytes(data))
+    functions = {f.va: f for f in enumerate_ne_functions(load_ne_binary(path))}
+    assert entry in functions
+    assert (functions[entry].segment, functions[entry].offset) == (1, entry)

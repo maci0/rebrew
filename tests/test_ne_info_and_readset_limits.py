@@ -59,7 +59,8 @@ def test_ne_headers_are_reported(tmp_path: Path) -> None:
     assert info["module_name"] == "HOLIDAY"
     assert info["target_os"] == "windows"
     assert (info["entry_segment"], info["entry_offset"], info["entry_point"]) == (1, 0x20, 0x20)
-    assert info["image_base"] == 0
+    assert info["entry_address"] == "1:0020"
+    assert info["image_base"] is None  # a segmented image has no single base
     assert info["imported_modules"] == ["KERNEL", "USER", "GDI"]
     assert info["segment_count"] == 2
     assert [(s["index"], s["size"], s["kind"]) for s in info["segments"]] == [
