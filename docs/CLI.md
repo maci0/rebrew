@@ -6430,6 +6430,11 @@ Op details the contract leaves open:
   and the function's metadata apply. The reply carries `compile`: the flags the
   last remote compile ran with and the service's `execution` provenance block
   verbatim, or null when no remote compile ran or the service sent none.
+- `apply_candidate` takes `verify_function`'s candidate fields (`cflags`, `project_cflags` included) and runs the
+  comparison in promote mode in the private snapshot: the candidate takes the function's `ADDRESS` anchor, the
+  registry entry moves to the candidate's name and derived symbol, `rebrew test` records STATUS, SIZE and the
+  explicit CFLAGS, and a result that is not EXACT or RELOC answers 400. The reply is `{result, files}`, the changed
+  source file and `rebrew-functions.toml` (path, size, sha256, base64); no other file leaves the op.
 - `verify_function`, `verify_target` and `build` take an optional `project_cflags` (the same rules as `cflags`),
   the target's flags: the private snapshot they run in gets them as its project `cflags`
   (`[compiler] cflags`, and the target's own compiler override when it sets cflags), so a function's own

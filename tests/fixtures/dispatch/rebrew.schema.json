@@ -245,6 +245,124 @@
         "type": "object"
       }
     },
+    "rebrew.apply_candidate": {
+      "request": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "binary_key": {
+            "type": "string"
+          },
+          "binary_url": {
+            "type": "string"
+          },
+          "candidate": {
+            "type": "string"
+          },
+          "cflags": {
+            "type": "string"
+          },
+          "files": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "digest": {
+                  "type": "string"
+                },
+                "key": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "integer"
+                },
+                "url": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "digest",
+                "size"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "project_cflags": {
+            "type": "string"
+          },
+          "project_dir": {
+            "type": "string"
+          },
+          "rebrew_target": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "source": {
+            "type": "string"
+          },
+          "source_sha256": {
+            "type": "string"
+          },
+          "va": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "project_dir"
+        ],
+        "type": "object"
+      },
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "files": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "data": {
+                  "type": "string"
+                },
+                "digest": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "path",
+                "size",
+                "digest",
+                "data"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "result": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "result",
+          "files"
+        ],
+        "type": "object"
+      }
+    },
     "rebrew.binary_function_digests": {
       "request": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",

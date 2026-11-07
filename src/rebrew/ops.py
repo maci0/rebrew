@@ -613,6 +613,25 @@ class VerifyRequest:
 
 
 @dataclass(frozen=True)
+class ApplyCandidateRequest:
+    """``verify_function`` in promote mode: the same retained inputs, and the files it changed come back."""
+
+    project_dir: str
+    source: str = ""
+    sha256: str = ""
+    candidate: str = ""
+    va: int = 0
+    size: int = 0
+    files: list[FlagSearchFile] = field(default_factory=list)
+    rebrew_target: str = ""
+    source_sha256: str = ""
+    binary_key: str = ""
+    binary_url: str = ""
+    cflags: str = ""
+    project_cflags: str = ""
+
+
+@dataclass(frozen=True)
 class VerifyTargetRequest:
     project_dir: str
     sha256: str = ""
@@ -2221,6 +2240,28 @@ def verify_function(config: WorkerConfig, req: VerifyRequest) -> dict[str, Any]:
 
 def verify_candidate(config: WorkerConfig, req: VerifyRequest) -> dict[str, Any]:
     """Compare candidate text in a private snapshot of retained inputs."""
+    return _run_candidate(config, req, apply=False)
+
+
+#: Files an applied candidate may change; nothing else in the snapshot leaves the op.
+APPLY_METADATA_FILE = "rebrew-functions.toml"
+
+
+def apply_candidate(config: WorkerConfig, req: ApplyCandidateRequest) -> dict[str, Any]:
+    """Promote an exact candidate in a private snapshot and return the files that changed.
+
+    The candidate takes the function's address anchor, ``rebrew test`` runs in promote mode with the attempt's
+    flags, so rebrew's own writers record STATUS, SIZE and CFLAGS, and the function's identity (symbol and
+    name) follows the candidate through rebrew's identity writer. A result that is not EXACT or RELOC is
+    refused: nothing is published from a candidate that no longer matches.
+    """
+    return _run_candidate(config, req, apply=True)
+
+
+def _run_candidate(
+    config: WorkerConfig, req: VerifyRequest | ApplyCandidateRequest, *, apply: bool
+) -> dict[str, Any]:
+    applying = req if isinstance(req, ApplyCandidateRequest) and apply else None
     from rebrew.c_parser import find_c_function_definitions
     from rebrew.config import load_config
     from rebrew.workspace import read_config, target_binary, targets_table
@@ -2287,22 +2328,40 @@ def verify_candidate(config: WorkerConfig, req: VerifyRequest) -> dict[str, Any]
                 or _file_sha256(destination) != req.sha256
             ):
                 raise _invalid("snapshot target binary does not match")
-            source.write_text(req.candidate, encoding="utf-8")
+            candidate = req.candidate
+            module = ""
+            if apply:
+                from rebrew.metadata.anchors import address_comment
+                from rebrew.metadata.bindings import module_for_va
+
+                module = module_for_va(source, req.va)
+                if not module:
+                    raise _invalid("the function has no address anchor in the retained source")
+                if f"0x{req.va:08x}" not in candidate.lower():
+                    candidate = address_comment(module, req.va) + "\n" + candidate
+            source.write_text(candidate, encoding="utf-8")
             rewritten = apply_project_cflags(root, req.rebrew_target, req.project_cflags)
             cfg = load_config(root, target=req.rebrew_target)
             confined_snapshot_config(cfg, root)
             retained_compile_refusal(cfg, [source])
+            symbol = definitions[0][0]
+            if applying is not None:
+                if cfg.metadata_dir.resolve() != root:
+                    raise _invalid(
+                        "the retained project keeps its function registry outside its root"
+                    )
+                symbol = _move_identity(cfg, applying, module, definitions[0][0])
             flags = checked_cflags(req.cflags)
             result = run_rebrew(
                 [
                     "test",
                     "--json",
-                    "--no-promote",
+                    *([] if apply else ["--no-promote"]),
                     *([f"--cflags={flags}"] if flags else []),
                     f"--target={req.rebrew_target}",
                     f"--va=0x{req.va:x}",
                     f"--size={req.size}",
-                    f"--symbol={definitions[0][0]}",
+                    f"--symbol={symbol}",
                     "--",
                     str(source),
                 ],
@@ -2310,13 +2369,12 @@ def verify_candidate(config: WorkerConfig, req: VerifyRequest) -> dict[str, Any]
                 COMMAND_TIMEOUT_SECONDS,
                 outcome_exit=True,
             )
-            if (
-                _file_sha256(destination) != req.sha256
-                or source.read_text(encoding="utf-8") != req.candidate
+            if _file_sha256(destination) != req.sha256 or (
+                not apply and source.read_text(encoding="utf-8") != req.candidate
             ):
                 raise _invalid("snapshot candidate or binary changed during verification")
             for entry in req.files:
-                if entry.path == req.source:
+                if entry.path == req.source or (apply and entry.path == APPLY_METADATA_FILE):
                     continue
                 path = _project_file(root, entry.path, "source file")
                 size, digest = (
@@ -2327,7 +2385,58 @@ def verify_candidate(config: WorkerConfig, req: VerifyRequest) -> dict[str, Any]
                 if path.stat().st_size != size or _file_sha256(path) != digest:
                     raise _invalid("snapshot source changed during verification")
             result["source"] = req.source
+            if applying is not None:
+                return _applied(root, applying, result)
             return result
+
+
+def _move_identity(cfg: Any, req: ApplyCandidateRequest, module: str, name: str) -> str:
+    """Point the function's registry entry at the candidate's name through rebrew's identity writer.
+
+    rebrew refuses to test a source whose address anchor names a function other than the registry's, so this
+    runs before the comparison. The symbol is the one rebrew derives from the candidate's prototype
+    (``_add@8`` for a stdcall ``add``): the comparison must name the same symbol to be allowed to record its
+    STATUS, and it is returned for that.
+    """
+    from rebrew.c_parser import function_signatures
+    from rebrew.metadata.bindings import derive_c_symbol
+    from rebrew.metadata.functions import record_function_rows
+
+    symbol = derive_c_symbol(name, function_signatures(req.candidate).get(name, ""))
+    record_function_rows(
+        cfg.metadata_dir,
+        [
+            {
+                "module": module,
+                "va": req.va,
+                "identity": {"symbol": symbol, "name": name},
+                "fields": {},
+            }
+        ],
+        overwrite_name=True,
+        updated_by="rename",
+    )
+    return symbol
+
+
+def _applied(root: Path, req: ApplyCandidateRequest, result: dict[str, Any]) -> dict[str, Any]:
+    """Finish an apply: refuse a result that is not a byte match, return the changed files."""
+    if result.get("status") not in {"EXACT", "RELOC"}:
+        raise _invalid(f"the candidate no longer matches: {result.get('status')}")
+    changed = []
+    for relative in (req.source, APPLY_METADATA_FILE):
+        data = _project_file(root, relative, "applied file").read_bytes()
+        if len(data) > 1024 * 1024:
+            raise _invalid("an applied file exceeds the 1 MiB limit")
+        changed.append(
+            {
+                "path": relative,
+                "size": len(data),
+                "digest": hashlib.sha256(data).hexdigest(),
+                "data": base64.b64encode(data).decode("ascii"),
+            }
+        )
+    return {"result": result, "files": changed}
 
 
 def confined_snapshot_config(cfg: Any, root: Path) -> None:
@@ -3016,6 +3125,7 @@ OPS: dict[str, Op] = {
     "rebrew.import-project": Op(ImportRequest, import_project),
     "rebrew.reference_flirt": Op(ReferenceFlirtRequest, reference_flirt),
     "rebrew.verify_function": Op(VerifyRequest, verify_function),
+    "rebrew.apply_candidate": Op(ApplyCandidateRequest, apply_candidate),
     "rebrew.verify_target": Op(VerifyTargetRequest, verify_target),
     "rebrew.build": Op(BuildRequest, build),
     "rebrew.skeleton": Op(SkeletonRequest, skeleton),
