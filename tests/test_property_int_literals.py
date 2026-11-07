@@ -177,7 +177,7 @@ class TestParseCIntegerLiteral:
         stripped = text.strip()
         sign = -1 if stripped.startswith("-") else 1
         is_hex = stripped.lstrip("+-")[:2].lower() == "0x"
-        digit_body = body[2:] if is_hex else body
+        digit_body = body  # _digit_body already dropped a 0x prefix
         if is_hex:
             expected = sign * int(digit_body, 16)
         elif (
