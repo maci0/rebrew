@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.24.0] - 2026-11-08
+
 ### Added
 
 - `rebrew.decompile_snapshot` and `rebrew.security_scan_snapshot` take an optional `attested_registry_digest`: a source snapshot may then carry its own `rebrew-functions.toml` over the captured one when its sha256 equals that digest. Without the field, or with any other digest, the captured registry path stays protected and the request is refused as before.
