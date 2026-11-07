@@ -11,7 +11,11 @@ component's declared service dependencies decide activation order.
 
 from __future__ import annotations
 
+import contextlib
+from typing import TYPE_CHECKING
 lazy import gc
+lazy import os
+lazy import sys
 
 import typer
 from rich.console import Console
@@ -25,6 +29,7 @@ from rebrew.cli import (
     console,
     run_cli,
 )
+lazy from rebrew import telemetry
 lazy from rebrew.app.builtins import BUILTIN_COMPONENTS
 lazy from rebrew.app.plugin import (
     CLI_SERVICE,
@@ -35,6 +40,9 @@ lazy from rebrew.app.plugin import (
     activate,
     entry_point_components,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 _stdout_console = Console()
 _OUTPUT_FORMATS = frozenset({"auto", "text", "json"})
@@ -213,6 +221,30 @@ def _freeze_startup_objects() -> None:
     gc.freeze()
 
 
+@contextlib.contextmanager
+def _traced_command() -> Iterator[None]:
+    """Run the command under the caller's trace when it handed one over (``TRACEPARENT``).
+
+    The ops server runs the commands that compile as child processes; the child exports a span of
+    its own, named after the command, so the remote compile's client span and the ``traceparent``
+    it sends stay in the caller's trace. Without ``TRACEPARENT`` and ``REBREW_OTLP_ENDPOINT``
+    nothing changes.
+    """
+    inbound = os.environ.get(telemetry.TRACEPARENT_ENV)
+    if not telemetry.valid_traceparent(inbound):
+        yield
+        return
+    from rebrew import __version__
+
+    stop = telemetry.configure_from_env("relumea-rebrew", __version__)
+    words = [word for word in sys.argv[1:3] if not word.startswith("-")]
+    try:
+        with telemetry.span(" ".join(["rebrew", *words]), traceparent=inbound):
+            yield
+    finally:
+        stop()
+
+
 def main() -> None:
     """Package entry point for the ``rebrew`` umbrella CLI."""
     # The import-time CLI graph (typer options, rich, registries) is live for
@@ -222,7 +254,8 @@ def main() -> None:
     # Objects created after this point (including lazy command imports) stay
     # collectable, so watch and server modes keep collecting their own garbage.
     _freeze_startup_objects()
-    run_cli(app)
+    with _traced_command():
+        run_cli(app)
 
 
 if __name__ == "__main__":

@@ -1708,6 +1708,8 @@ def run_rebrew(
     process = subprocess.Popen(
         [*command, *arguments],
         cwd=project,
+        # The child exports its own spans (the remote compile's client span) under this one.
+        env={**os.environ, **telemetry.child_environment()},
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

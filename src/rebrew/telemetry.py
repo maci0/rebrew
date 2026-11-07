@@ -33,6 +33,9 @@ logger = logging.getLogger(__name__)
 #: Environment variable holding the collector's OTLP/HTTP base URL; unset leaves export off.
 ENDPOINT_ENV = "REBREW_OTLP_ENDPOINT"
 
+#: Environment variable that hands the open span to a child process (the W3C trace context variable).
+TRACEPARENT_ENV = "TRACEPARENT"
+
 #: Finished spans waiting for the exporter before new ones are dropped.
 QUEUE_SIZE = 4096
 #: Most spans one export request carries.
@@ -102,6 +105,12 @@ def valid_traceparent(value: str | None) -> bool:
     """Whether ``value`` is a version-00 ``traceparent`` with non-zero trace and span ids."""
     match = _TRACEPARENT.match(value or "")
     return match is not None and match[1] != _ZERO_TRACE and match[2] != _ZERO_SPAN
+
+
+def child_environment() -> dict[str, str]:
+    """The environment a child process needs to continue the open span: empty outside one."""
+    opened = current()
+    return {} if opened is None else {TRACEPARENT_ENV: opened.traceparent}
 
 
 @contextmanager

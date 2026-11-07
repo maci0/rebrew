@@ -7,6 +7,7 @@ import http.server
 import json
 import os
 import subprocess
+import sys
 import threading
 import time
 from contextlib import contextmanager
@@ -233,3 +234,49 @@ def test_serve_refuses_an_invalid_endpoint_at_start(tmp_path: Path) -> None:
     )
     assert done.returncode != 0
     assert "REBREW_OTLP_ENDPOINT must be an http(s) URL" in done.stdout + done.stderr
+
+
+def _command(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "-P", "-m", "rebrew.app.main", "schema"],
+        env={**os.environ, **env},
+        capture_output=True,
+        text=True,
+        timeout=WAIT_SECONDS,
+        check=False,
+    )
+
+
+def test_a_command_continues_the_traceparent_it_was_handed(collector: _Collector) -> None:
+    done = _command({"TRACEPARENT": INBOUND, "REBREW_OTLP_ENDPOINT": collector.url})
+    assert done.returncode == 0, done.stderr
+    wire = collector.named("rebrew schema")
+    assert (wire["traceId"], wire["parentSpanId"]) == (TRACE_ID, PARENT_ID)
+    assert wire["kind"] == 1
+
+
+def test_a_command_without_a_traceparent_exports_nothing(collector: _Collector) -> None:
+    done = _command({"REBREW_OTLP_ENDPOINT": collector.url, "TRACEPARENT": ""})
+    assert done.returncode == 0, done.stderr
+    assert collector.spans == []
+
+
+def test_run_rebrew_hands_its_open_span_to_the_child(
+    tmp_path: Path, collector: _Collector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from rebrew import ops
+
+    monkeypatch.setenv("REBREW_OTLP_ENDPOINT", collector.url)
+    stop = telemetry.configure(collector.url, "relumea-rebrew", "1.2.3")
+    with telemetry.span("POST /rebrew.verify", kind=telemetry.KIND_SERVER, traceparent=INBOUND):
+        ops.run_rebrew(["schema"], tmp_path, WAIT_SECONDS)
+    stop()
+    server = collector.named("POST /rebrew.verify")
+    child = collector.named("rebrew schema")
+    assert (child["traceId"], child["parentSpanId"]) == (TRACE_ID, server["spanId"])
+
+
+def test_child_environment_is_empty_outside_a_span() -> None:
+    assert telemetry.child_environment() == {}
+    with telemetry.span("x", traceparent=INBOUND) as opened:
+        assert telemetry.child_environment() == {"TRACEPARENT": opened.traceparent}
