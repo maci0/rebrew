@@ -1591,6 +1591,16 @@ def update_statuses_batch(
                 or should_promote_status(current_status, new_status)
             )
             row_changed = bool(status_change) or identity_changed
+            if (
+                (status_change or current_status == new_status)
+                and new_status in EARNED_STATUSES
+                and entry.get("kind") == "STUB"
+                and "kind" not in (u.get("identity") or {})
+            ):
+                # A function an earned status describes is no longer a stub: left as STUB the row trips lint E017
+                # and reads as unreconstructed to status and todo. A kind the same update names is kept.
+                entry["kind"] = "FUNCTION"
+                row_changed = True
             if status_change:
                 if current_status and current_status != new_status:
                     event = _history_event(

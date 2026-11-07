@@ -11,6 +11,8 @@
 
 ### Fixed
 
+- A function promoted to an earned status (EXACT, RELOC, PROVEN) by `rebrew test`, `verify` or `rebrew.apply_candidate` no longer keeps the registry kind `STUB`: the same write sets it to `FUNCTION`, so `rebrew lint` stops reporting E017 ("status is EXACT but kind is STUB") on every promoted function. A kind named by the same update, a LIBRARY row and a status that is not earned are left as they are; a row already earned with a stale STUB kind is cleared by its next write.
+
 - `rebrew.apply_candidate` put the function's `ADDRESS` anchor on line 1 of the candidate, which `rebrew test` refuses ("address must precede exactly one declaration") when the candidate keeps includes or types above the function. The anchor now goes on the line directly above the function definition.
 
 - The `recompile.compile` client span and the `traceparent` sent to recompile were lost in `rebrew ops serve`: the commands that compile run as child processes, which had no trace context and exported nothing. `run_rebrew` now hands its open span to the child as `TRACEPARENT`, and a `rebrew` command that receives one exports a span named after the command (`rebrew test`) under it when `REBREW_OTLP_ENDPOINT` is set, so the compile's client span and recompile's own spans join the caller's trace. A command without `TRACEPARENT` is unchanged. The child's exit waits for its spans to be sent: when the collector hangs, every such command ends up to 5 s late (`SHUTDOWN_SECONDS`), and a call that runs several of them pays it for each.

@@ -127,9 +127,11 @@ def test_an_exact_candidate_returns_its_source_and_registry(
     registry = tomllib.loads(files["rebrew-functions.toml"].decode())
     entry = registry["MINI.0x00401000"]
     assert entry["status"] == "EXACT" and entry["cflags"] == "/O1 /Gd"
+    assert entry["kind"] == "FUNCTION"  # the promoted stub is no longer a stub (lint E017)
     assert entry["symbol"] == "_add@8" and entry["name"] == "add" and entry["file"] == "src/stub.c"
     other = registry["MINI.0x00401020"]
     assert other["symbol"] == "_other" and other["status"] == "STUB" and "cflags" not in other
+    assert other["kind"] == "STUB"
     for f in body["files"]:
         assert (
             f["size"] == len(base64.b64decode(f["data"]))
