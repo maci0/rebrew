@@ -11,6 +11,8 @@
 
 ### Fixed
 
+- `rebrew.apply_candidate` put the function's `ADDRESS` anchor on line 1 of the candidate, which `rebrew test` refuses ("address must precede exactly one declaration") when the candidate keeps includes or types above the function. The anchor now goes on the line directly above the function definition.
+
 - The `recompile.compile` client span and the `traceparent` sent to recompile were lost in `rebrew ops serve`: the commands that compile run as child processes, which had no trace context and exported nothing. `run_rebrew` now hands its open span to the child as `TRACEPARENT`, and a `rebrew` command that receives one exports a span named after the command (`rebrew test`) under it when `REBREW_OTLP_ENDPOINT` is set, so the compile's client span and recompile's own spans join the caller's trace. A command without `TRACEPARENT` is unchanged. The child's exit waits for its spans to be sent: when the collector hangs, every such command ends up to 5 s late (`SHUTDOWN_SECONDS`), and a call that runs several of them pays it for each.
 - Fresh analysis no longer refuses a binary with more than 1024 discovered functions: one limit set (`MAX_READSET_FILES` 32768 files, `MAX_READSET_BYTES` 32 MiB, `MAX_READSET_FILE_BYTES` 1 MiB) bounds the captured readset and every retained source manifest. A binary over it answers 422 `readset-too-large` naming the count and the limit.
 - A failed self-check of the fresh analysis capture (input changed, ambient input, symlink) answers 500 `analysis-capture-failed` instead of 400 `invalid-request`.

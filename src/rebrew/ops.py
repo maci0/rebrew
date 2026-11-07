@@ -2342,7 +2342,12 @@ def _run_candidate(
                 if not module:
                     raise _invalid("the function has no address anchor in the retained source")
                 if f"0x{req.va:08x}" not in candidate.lower():
-                    candidate = address_comment(module, req.va) + "\n" + candidate
+                    # rebrew wants the anchor directly above the one declaration it names, whatever
+                    # includes and types the candidate keeps above it.
+                    lines = candidate.splitlines(keepends=True)
+                    at = definitions[0][1] - 1
+                    lines.insert(at, address_comment(module, req.va) + "\n")
+                    candidate = "".join(lines)
             source.write_text(candidate, encoding="utf-8")
             rewritten = apply_project_cflags(root, req.rebrew_target, req.project_cflags)
             cfg = load_config(root, target=req.rebrew_target)

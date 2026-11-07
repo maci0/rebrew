@@ -138,6 +138,25 @@ def test_an_exact_candidate_returns_its_source_and_registry(
     assert not any(p.name == "applied" for p in tmp_path.rglob("*"))
 
 
+def test_the_anchor_goes_directly_above_the_function_not_above_the_includes(
+    tmp_path: Path, promote_in_process: list[list[str]]
+) -> None:
+    candidate = (
+        "#include <windows.h>\n\ntypedef int BOOL;\n\n"
+        "BOOL __stdcall add(int a, int b)\n{\n    return a + b;\n}\n"
+    )
+    config, entries = _stage(tmp_path)
+    status, reply = dispatch(
+        config, "rebrew.apply_candidate", _request(entries, candidate=candidate)
+    )
+    assert status == 200, reply
+    files = {f["path"]: base64.b64decode(f["data"]).decode() for f in json.loads(reply)["files"]}
+    lines = files["src/stub.c"].splitlines()
+    anchor = lines.index("/* ADDRESS: MINI 0x00401000 */")
+    assert lines[anchor - 1] == "" and lines[anchor + 1].startswith("BOOL __stdcall add")
+    assert lines[0] == "#include <windows.h>"
+
+
 def test_a_candidate_that_no_longer_matches_is_refused(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, promote_in_process: list[list[str]]
 ) -> None:
