@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import secrets
+import select
 import shutil
 import socket
 import ssl
@@ -1836,37 +1837,61 @@ class TestHttpTransport:
         )
         assert (status, reply["detail"]) == (400, "project_dir must be inside the worker workspace")
 
-    def test_a_full_worker_answers_503_with_retry_after(self, server: tuple[int, Path]) -> None:
-        port, _workspace = server
-        # The only slot is held while the worker waits for a body that never comes.
-        stalled = socket.create_connection(("127.0.0.1", port), timeout=WAIT_SECONDS)
-        try:
+    def _hold_the_only_slot(self, port: int) -> socket.socket:
+        """A connection whose call holds the worker's only slot while it waits for a body that never comes.
+
+        The worker refuses at once a call that finds the slot taken, even by a request in flight for a
+        millisecond, so the stalled call can itself be refused (503 on its own socket). It is sent again
+        until a probe finds the slot held and the stalled call was not the one refused.
+        """
+        deadline = time.monotonic() + WAIT_SECONDS
+        while time.monotonic() < deadline:
+            stalled = socket.create_connection(("127.0.0.1", port), timeout=WAIT_SECONDS)
             stalled.sendall(
                 f"POST /rebrew.fingerprint HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n".encode()
                 + f"Authorization: Bearer {TOKEN}\r\nContent-Type: application/json\r\nContent-Length: 10\r\n\r\n".encode()
             )
-            deadline = time.monotonic() + WAIT_SECONDS
-            while True:
-                connection = http.client.HTTPConnection("127.0.0.1", port, timeout=WAIT_SECONDS)
-                try:
-                    connection.request(
-                        "POST",
-                        "/rebrew.nope",
-                        body=b"{}",
-                        headers={
-                            "Authorization": f"Bearer {TOKEN}",
-                            "Content-Type": "application/json",
-                        },
-                    )
-                    response = connection.getresponse()
-                    reply = json.loads(response.read())
-                finally:
-                    connection.close()
-                if response.status == 503:
+            while time.monotonic() < deadline:
+                refused, _, _ = select.select([stalled], [], [], 0)
+                if refused:  # answered before its body: it lost the slot to another request
                     break
-                assert time.monotonic() < deadline, "the stalled call never took the slot"
+                status, reply = self._post(
+                    port,
+                    "/rebrew.nope",
+                    b"{}",
+                    {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"},
+                )
+                if status == 503:
+                    assert reply["error"] == "worker-busy"
+                    return stalled
                 time.sleep(0.05)
-            assert (reply["error"], response.getheader("Retry-After")) == ("worker-busy", "5")
+            stalled.close()
+        raise AssertionError("no stalled call ever held the slot")
+
+    def test_a_full_worker_answers_503_with_retry_after(self, server: tuple[int, Path]) -> None:
+        port, _workspace = server
+        stalled = self._hold_the_only_slot(port)
+        try:
+            connection = http.client.HTTPConnection("127.0.0.1", port, timeout=WAIT_SECONDS)
+            try:
+                connection.request(
+                    "POST",
+                    "/rebrew.nope",
+                    body=b"{}",
+                    headers={
+                        "Authorization": f"Bearer {TOKEN}",
+                        "Content-Type": "application/json",
+                    },
+                )
+                response = connection.getresponse()
+                reply = json.loads(response.read())
+            finally:
+                connection.close()
+            assert (response.status, reply["error"], response.getheader("Retry-After")) == (
+                503,
+                "worker-busy",
+                "5",
+            )
         finally:
             stalled.close()
         deadline = time.monotonic() + WAIT_SECONDS
@@ -1882,6 +1907,21 @@ class TestHttpTransport:
             assert time.monotonic() < deadline, "the slot was not released"
             time.sleep(0.05)
         assert (status, reply["error"]) == (404, "unknown-op")
+
+    def test_a_stalled_call_refused_for_a_busy_slot_is_sent_again(
+        self, server: tuple[int, Path]
+    ) -> None:
+        port, _workspace = server
+        # Another stalled call holds the slot first: a second one is refused at once.
+        first = self._hold_the_only_slot(port)
+        released = threading.Timer(1.0, first.close)
+        released.start()
+        try:
+            second = self._hold_the_only_slot(port)  # refused while `first` holds the slot
+            second.close()
+        finally:
+            released.join()
+            first.close()
 
     def test_access_line_and_header_share_a_request_id(self, server: tuple[int, Path]) -> None:
         port, _workspace = server
