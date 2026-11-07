@@ -1282,6 +1282,9 @@
           "analysis_manifest_sha256": {
             "type": "string"
           },
+          "attested_registry_digest": {
+            "type": "string"
+          },
           "backend": {
             "type": "string"
           },
@@ -2614,6 +2617,9 @@
             "type": "string"
           },
           "analysis_manifest_sha256": {
+            "type": "string"
+          },
+          "attested_registry_digest": {
             "type": "string"
           },
           "binary_key": {

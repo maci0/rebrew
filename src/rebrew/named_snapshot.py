@@ -17,6 +17,9 @@ if TYPE_CHECKING:
     from rebrew.ops import DecompileSnapshotRequest, SecuritySnapshotRequest, WorkerConfig
 
 
+_REGISTRY_FILE = "rebrew-functions.toml"
+
+
 def _valid_path(path: str) -> bool:
     parts = path.split("/")
     return (
@@ -231,7 +234,16 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
                 prior["kind"] == "file"
                 and (
                     (entry.path == "rebrew-project.toml" and prior.get("role") == "analysis")
-                    or (entry.path != "rebrew-project.toml" and prior.get("role") == "source")
+                    or (
+                        entry.path == _REGISTRY_FILE
+                        and prior.get("role") == "analysis"
+                        and bool(req.attested_registry_digest)
+                        and entry.digest == req.attested_registry_digest
+                    )
+                    or (
+                        entry.path not in ("rebrew-project.toml", _REGISTRY_FILE)
+                        and prior.get("role") == "source"
+                    )
                 )
             ):
                 raise ValueError("protected capture path")

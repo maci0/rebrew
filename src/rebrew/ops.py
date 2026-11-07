@@ -706,6 +706,7 @@ class DecompileSnapshotRequest:
     analysis_files: list[FlagSearchFile]
     binary_key: str = ""
     binary_url: str = ""
+    attested_registry_digest: str = ""
 
 
 @dataclass(frozen=True)
@@ -724,6 +725,7 @@ class SecuritySnapshotRequest:
     min_severity: str
     binary_key: str = ""
     binary_url: str = ""
+    attested_registry_digest: str = ""
 
 
 @dataclass(frozen=True)

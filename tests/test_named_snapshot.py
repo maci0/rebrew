@@ -131,6 +131,58 @@ def test_named_decompile_uses_only_snapshot(
     assert result["generation"] == request["generation"]
 
 
+def _request_with_source_registry(
+    config: WorkerConfig, original: dict, data: bytes
+) -> tuple[dict, str]:
+    """The request whose source snapshot carries its own ``rebrew-functions.toml`` of *data*."""
+    assert config.filestore is not None
+    request = copy.deepcopy(original)
+    capture = json.loads(request["analysis_manifest"])
+    captured = [e for e in capture["entries"] if e["path"] == "rebrew-functions.toml"]
+    assert captured and captured[0]["role"] == "analysis"
+    digest, key = _store(config.filestore, data)
+    request["files"].append(
+        {"path": "rebrew-functions.toml", "digest": digest, "size": len(data), "key": key}
+    )
+    request["files"].sort(key=lambda row: row["path"])
+    document = {
+        "complete": True,
+        "exclusions": [],
+        "files": [{k: f[k] for k in ("digest", "path", "size")} for f in request["files"]],
+        "origin": "files",
+        "version": 1,
+    }
+    request["source_manifest"] = _json(document)
+    request["source_snapshot_sha256"] = _digest(request["source_manifest"])
+    return request, digest
+
+
+def test_source_registry_is_accepted_only_with_its_attested_digest(
+    sample: tuple[WorkerConfig, dict], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config, original = sample
+    decompiled: list[str] = []
+
+    def decompile(*_args: object) -> tuple[str, str]:
+        decompiled.append("ran")
+        return "int a0;\n*(char *)(a0 + 0x10) = 1;\n", "kuna"
+
+    monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", decompile)
+    request, digest = _request_with_source_registry(config, original, b"format = 3\n")
+    status, result = _call(config, request)
+    assert status == 400, result
+    assert decompiled == []
+    status, result = _call(config, {**request, "attested_registry_digest": "0" * 64})
+    assert status == 400, result
+    assert decompiled == []
+    status, result = _call(config, {**request, "attested_registry_digest": digest})
+    assert status == 200, result
+    assert decompiled == ["ran"]
+    changed, _ = _request_with_source_registry(config, original, b"format = 3\n# edited\n")
+    status, result = _call(config, {**changed, "attested_registry_digest": digest})
+    assert status == 400, result
+
+
 def test_legacy_capture_without_selected_paths_remains_readable(
     sample: tuple[WorkerConfig, dict], monkeypatch: pytest.MonkeyPatch
 ) -> None:
