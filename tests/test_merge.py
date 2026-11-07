@@ -2030,9 +2030,9 @@ def test_merge_accept_unresolved_includes(tmp_path: Path, monkeypatch: pytest.Mo
 
     refused = run()
     assert refused.exit_code != 0 and "include closure is incomplete" in refused.output
-    wrong = run("--accept-unresolved-includes", "other.h")
+    wrong = run("--accept-include", "other.h")
     assert wrong.exit_code != 0 and "include closure is incomplete" in wrong.output
-    accepted = run("--accept-unresolved-includes", "missing.h")
+    accepted = run("--accept-include", "missing.h")
     assert accepted.exit_code == 0, accepted.output
     payload = json.loads(accepted.output)
     assert payload["accepted_unresolved_includes"] == ["missing.h"]
@@ -2051,7 +2051,7 @@ def test_merge_accept_unresolved_includes(tmp_path: Path, monkeypatch: pytest.Mo
             "--json",
             "--expected-digest",
             payload["input_digest"],
-            "--accept-unresolved-includes",
+            "--accept-include",
             "missing.h",
             str(a),
             str(b),
@@ -2068,14 +2068,14 @@ def test_merge_accept_unresolved_includes_digest_changes(
 
     a, b, out = _accept_project(tmp_path, monkeypatch)
     base = ["--output", str(out), "--force", "--dry-run", "--json"]
-    one = runner.invoke(app, [*base, "--accept-unresolved-includes", "missing.h", str(a), str(b)])
+    one = runner.invoke(app, [*base, "--accept-include", "missing.h", str(a), str(b)])
     two = runner.invoke(
         app,
         [
             *base,
-            "--accept-unresolved-includes",
+            "--accept-include",
             "missing.h",
-            "--accept-unresolved-includes",
+            "--accept-include",
             "stdio.h",
             str(a),
             str(b),
@@ -2099,11 +2099,11 @@ def test_merge_accept_unresolved_includes_rejects_paths(
             "--force",
             "--dry-run",
             "--json",
-            "--accept-unresolved-includes",
+            "--accept-include",
             name,
             str(a),
             str(b),
         ],
     )
-    assert result.exit_code != 0 and "accept-unresolved-includes" in result.output
+    assert result.exit_code != 0 and "accept-include" in result.output
     assert all(path.exists() for path in (a, b)) and not out.exists()

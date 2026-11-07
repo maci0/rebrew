@@ -909,7 +909,10 @@ def main(
     if not bin_path.exists():
         error_exit(f"reference binary not found: {bin_path}", json_mode=json_output)
 
-    orig = data_raw_from_binary(bin_path)
+    try:
+        orig = data_raw_from_binary(bin_path)
+    except (OSError, ValueError) as exc:
+        error_exit(str(exc), json_mode=json_output)
     # The selected target's layout package wins when its .data raw size
     # matches the selected binary; existence alone can describe another
     # target. Otherwise the base is the binary section that supplied orig.

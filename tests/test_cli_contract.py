@@ -64,6 +64,8 @@ VA_HELP_ALLOWED = frozenset(
         "Check a single function VA (hex) instead of the whole .text",
         "Check a single VA (hex) instead of every reversed function.",
         "Restrict to one destination VA (hex, e.g. 0x401000)",
+        # import-related: repeatable only with a read-only preview flag.
+        "Destination VA(s) to check: with --same-va-preview or --interior-preview, every hex VA may be repeated (e.g. 0x401000); otherwise one VA restricts the import to a single destination",
         "Extract a single function by VA (hex) into its own file",
     }
 )

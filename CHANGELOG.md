@@ -7,10 +7,15 @@
 - `rebrew.verify_function`, `rebrew.verify_target` and `rebrew.build` take an optional `project_cflags` (the same validated plain option tokens as `cflags`): a retained snapshot sets them as its project `cflags` (`[compiler] cflags`, and the target's own compiler override when that sets cflags) before it runs, so a function's own cflags metadata still overrides them and only `cflags` of `verify_function` overrides everything. A live (non-retained) project refuses `project_cflags`.
 - `rebrew.verify_function` takes an optional `cflags` (validated plain option tokens, 256 characters at most; nothing that names a file, path or output) that replaces the project's compiler flags for one comparison. The `rebrew test --json` result gains `compile`: the flags and the recompile service's `execution` provenance block of the remote compile that produced the object, null when none ran or none was sent.
 - `REBREW_RECOMPILE_INSECURE_CLUSTER_HOST` names one in-cluster service host (`.svc` or `.svc.cluster.local`) that may receive `REBREW_RECOMPILE_API_KEY` over plain HTTP, on an exact host match. Every other HTTP URL still refuses the key.
-- `rebrew ops serve` exports OTLP/JSON spans when `REBREW_OTLP_ENDPOINT` is set: one server span per POST continuing the caller's `traceparent`, and a `recompile.compile` client span whose `traceparent` the recompile request carries.- `rebrew source merge --accept-unresolved-includes NAME` (repeatable) accepts a reviewed unresolved include header from the include closure check. The sorted names are part of the reviewed input digest and appear in the JSON as `accepted_unresolved_includes` and `tolerated_unresolved_includes`.
+- `rebrew ops serve` exports OTLP/JSON spans when `REBREW_OTLP_ENDPOINT` is set: one server span per POST continuing the caller's `traceparent`, and a `recompile.compile` client span whose `traceparent` the recompile request carries.
+- `rebrew source merge --accept-include NAME` (repeatable) accepts a reviewed unresolved include header from the include closure check. The sorted names are part of the reviewed input digest and appear in the JSON as `accepted_unresolved_includes` and `tolerated_unresolved_includes`.
 - `rebrew source import-related` gains read-only `--same-va-preview` (byte comparison of the destination at the same VA against the source function, relocation-masked) and `--interior-preview` (containing inventory head, offset and external callers for an interior VA); `--va` repeats with either. Both print an inputs digest and write nothing.
 - `rebrew source inline-strings` also inlines `g_<hex>` literal rows (`storage_kind = "literal"`) from the reference binary; ambiguous rows and strings not NUL-terminated within the row size are skipped and named in `skipped`.
 - `rebrew build symbol-stubs --update-data-symbol NAME` appends a zero-init data definition derived from the unique owned managed data row.
+
+### Changed
+
+- **Breaking:** `rebrew.cross_import.main` takes `va` as `list[str] | None` (was `str | None`) and two new keyword parameters, `same_va_preview` and `interior_preview`. `--va` repeats only with one of those flags. `rebrew.app.builtins.DOMAIN_COMPONENTS` carries the new `source inline-strings` help text.
 
 ### Fixed
 

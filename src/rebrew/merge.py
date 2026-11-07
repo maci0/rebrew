@@ -1279,13 +1279,13 @@ def _validate_accepted_include(name: str) -> tuple[str, ...]:
     """Reject absolute, drive-qualified or traversing accepted include names."""
     if not name or name != name.strip() or name.startswith(("/", "\\")) or ":" in name:
         raise ValueError(
-            f"invalid --accept-unresolved-includes name {name!r}: use a bare header "
+            f"invalid --accept-include name {name!r}: use a bare header "
             "name or relative include path"
         )
     parts = name.replace("\\", "/").split("/")
     if any(part in {"", ".", ".."} for part in parts):
         raise ValueError(
-            f"invalid --accept-unresolved-includes name {name!r}: use a bare header "
+            f"invalid --accept-include name {name!r}: use a bare header "
             "name or relative include path"
         )
     return tuple(parts)
@@ -1823,7 +1823,7 @@ def main(
     ),
     accept_unresolved_includes: list[str] = typer.Option(
         [],
-        "--accept-unresolved-includes",
+        "--accept-include",
         help="Accept a reviewed unresolved include header name reported by the "
         "include closure check. Repeatable. Bare header names or relative "
         "include paths only; no absolute paths and no .. traversal. Accepted "

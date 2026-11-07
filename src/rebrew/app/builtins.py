@@ -83,7 +83,11 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
         CliComponent(
             name="inline-strings",
             module="rebrew.inline_strings",
-            help="Inline string-literal globals (s_<hint>_<ADDR>) from the reference binary.",
+            help=(
+                "Inline string-literal globals from the reference binary: "
+                "s_<hint>_<ADDR> placeholders and g_<hex> externs bound to "
+                'storage_kind = "literal" data rows.'
+            ),
             panel="",
         ),
         CliComponent(

@@ -4515,7 +4515,7 @@ src/Develop/Units/vfs/vfs_paths_streams.c --json`; retained receipt is Guild
 
 #### Reviewed override shipped (2026-11-05)
 
-`rebrew source merge --accept-unresolved-includes NAME` (repeatable) now
+`rebrew source merge --accept-include NAME` (repeatable) now
 tolerates a pure missing-header closure item when every name in its
 `missing` list is explicitly accepted. Names must be bare header names or
 relative include paths with no absolute path and no `..` traversal. The

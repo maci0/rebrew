@@ -1118,7 +1118,7 @@ Use `rebrew source <operation> --help` for exact arguments and examples.
 | `rebrew source anchors` | Materialize ADDRESS comments for existing canonical bindings. |
 | `rebrew source rename` | Rename a function, global, type or struct member and update every reference. |
 | `rebrew source fix` | Make raw decompiler output compilable (DecBench-style fixup). |
-| `rebrew source inline-strings` | Inline string-literal globals (s_<hint>_<ADDR> placeholders and g_<hex> literal rows) from the reference binary. |
+| `rebrew source inline-strings` | Inline string-literal globals from the reference binary: s_<hint>_<ADDR> placeholders and g_<hex> externs bound to storage_kind = "literal" data rows. |
 | `rebrew source document-unmatched` | Document unmatched functions as STUB skeletons + blockers. |
 | `rebrew source graph` | Generate function dependency graph from reversed .c files. |
 | `rebrew source security` | Scan C sources for unsafe API use (unbounded copies, format strings, command execution). |
@@ -1601,7 +1601,7 @@ wants the hoisted, conflict-resolving merge instead.
 | `--consolidate` | flag | `False` | Hoist unique includes/externs/typedefs/intrinsics to the top of the merged TU |
 | `--shared` | flag | `False` | Combine identical bodies across targets into one definition with stacked ADDRESS anchors; retarget all input metadata rows. Different bodies are refused |
 | `--guarded-interleave` | flag | `False` | Interleave the supported bounded guarded functions after all-target review; requires `--delete` and an expected digest to apply |
-| `--accept-unresolved-includes` | str (repeatable) | none | Accept a reviewed unresolved include header name reported by the include closure check; bare header names or relative include paths only, no absolute paths and no `..`; accepted names are sorted into the reviewed input digest and reported as `accepted_unresolved_includes` plus `tolerated_unresolved_includes` in the JSON payload; without this option unresolved includes still refuse |
+| `--accept-include` | str (repeatable) | none | Accept a reviewed unresolved include header name reported by the include closure check; bare header names or relative include paths only, no absolute paths and no `..`; accepted names are sorted into the reviewed input digest and reported as `accepted_unresolved_includes` plus `tolerated_unresolved_includes` in the JSON payload; without this option unresolved includes still refuse |
 | `--expected-digest` | sha256 | none | Require the digest from the reviewed preview |
 | `--output` / `-o` | path | required | Output merged source file |
 | `--dry-run` | flag | `False` | Preview changes without writing |
