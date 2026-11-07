@@ -1165,6 +1165,24 @@ class TestReconstructionOps:
         flagged = {**request, "cflags": "/O1   /Gd"}
         status, _ = dispatch(config, "rebrew.verify_function", json.dumps(flagged).encode())
         assert status == 200 and "--cflags=/O1 /Gd" in argv[-1]
+        # The target's flags become the snapshot's project cflags: no --cflags, and the check that the
+        # retained config is unchanged accepts the rewrite it made itself.
+        seen_project: list[str] = []
+
+        def project_run(args: Any, root: Path, *unused: Any, **kwargs: Any) -> dict[str, Any]:
+            seen_project.append((root / "rebrew-project.toml").read_text())
+            assert not any(a.startswith("--cflags") for a in args)
+            return {"status": "EXACT"}
+
+        monkeypatch.setattr(ops, "run_rebrew", project_run)
+        status, body = dispatch(
+            config,
+            "rebrew.verify_function",
+            json.dumps({**request, "project_cflags": "/O1 /Gd"}).encode(),
+        )
+        assert status == 200, body
+        assert 'cflags = "/O1 /Gd"' in seen_project[0]
+        monkeypatch.setattr(ops, "run_rebrew", record)
         for bad in ("/Fo", "/O1 /Fdx.pdb", "-o", "@rsp", "/tmp/x", "/link"):
             status, body = dispatch(
                 config, "rebrew.verify_function", json.dumps({**request, "cflags": bad}).encode()
@@ -1179,6 +1197,74 @@ class TestReconstructionOps:
         monkeypatch.setattr(ops, "run_rebrew", mutate)
         status, _ = dispatch(config, "rebrew.verify_function", json.dumps(request).encode())
         assert status == 400
+
+    def test_target_flags_become_the_snapshots_project_cflags(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        import tomllib
+
+        from rebrew import ops
+
+        monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://127.0.0.1:18953")
+        filestore, workspace = _worker_dirs(tmp_path)
+        live = workspace / "live"
+        live.mkdir()
+        project = b'[project]\ndefault_target="mini"\n[targets.mini]\nbinary="original/mini"\nformat="pe"\narch="x86_32"\nreversed_dir="src"\n[compiler]\ncflags="/O2 /Gd"\n'
+        (live / "rebrew-project.toml").write_bytes(project)
+        source = b"int add(int a, int b) { return a-b; }\n"
+        entries = []
+        for name, data in (
+            ("rebrew-project.toml", project),
+            ("src/add.c", source),
+            ("src/function_structure.json", b'{"functions": []}'),
+            ("rebrew-functions.toml", b""),
+        ):
+            digest, key = _store(filestore, data)
+            entries.append({"path": name, "digest": digest, "size": len(data), "key": key})
+        configs: list[str] = []
+
+        def run(args: Any, root: Path, *unused: Any, **kwargs: Any) -> dict[str, Any]:
+            configs.append(
+                tomllib.loads((root / "rebrew-project.toml").read_text())["compiler"]["cflags"]
+            )
+            assert not any(a.startswith("--cflags") for a in args)
+            return {"status": "ok"}
+
+        monkeypatch.setattr(ops, "run_rebrew", run)
+        monkeypatch.setattr(ops, "remote_header_refusal", lambda *args: None)
+        config = WorkerConfig(filestore.resolve(), workspace.resolve())
+        request = {
+            "project_dir": str(live),
+            "sha256": SHA256,
+            "files": entries,
+            "rebrew_target": "mini",
+            "binary_key": KEY,
+            "no_promote": True,
+        }
+        for op in ("rebrew.build", "rebrew.verify_target"):
+            body = {**request, "project_cflags": "/O1   /Gd"}
+            if op == "rebrew.build":
+                body.pop("no_promote")
+            status, reply = dispatch(config, op, json.dumps(body).encode())
+            assert status == 200, reply
+            status, reply = dispatch(
+                config, op, json.dumps({**body, "project_cflags": ""}).encode()
+            )
+            assert status == 200, reply
+        assert configs == ["/O1 /Gd", "/O2 /Gd", "/O1 /Gd", "/O2 /Gd"]
+        for bad in ("/Fo", "-o", "/tmp/x"):
+            refused = {k: v for k, v in request.items() if k != "no_promote"}
+            status, reply = dispatch(
+                config, "rebrew.build", json.dumps({**refused, "project_cflags": bad}).encode()
+            )
+            assert status == 400 and "invalid-cflags" in reply.decode(), (bad, reply)
+        live_only = {k: v for k, v in request.items() if k not in {"files", "binary_key"}}
+        status, reply = dispatch(
+            config,
+            "rebrew.verify_target",
+            json.dumps({**live_only, "project_cflags": "/O1"}).encode(),
+        )
+        assert status == 400 and "retained" in reply.decode()
 
     def test_target_operations_use_retained_snapshot(
         self, tmp_path: Path, monkeypatch: Any

@@ -443,6 +443,9 @@
           "fix_headers": {
             "type": "boolean"
           },
+          "project_cflags": {
+            "type": "string"
+          },
           "project_dir": {
             "type": "string"
           },
@@ -3101,6 +3104,9 @@
           "no_promote": {
             "type": "boolean"
           },
+          "project_cflags": {
+            "type": "string"
+          },
           "project_dir": {
             "type": "string"
           },
@@ -3175,6 +3181,9 @@
           },
           "no_promote": {
             "type": "boolean"
+          },
+          "project_cflags": {
+            "type": "string"
           },
           "project_dir": {
             "type": "string"

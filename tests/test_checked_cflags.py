@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+lazy from pathlib import Path
+
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
@@ -93,3 +95,39 @@ def test_a_remote_compile_reports_its_flags_and_execution_in_the_test_result() -
         assert result()["compile"] == record
     finally:
         compile_module._last_remote_compile = None
+
+
+def test_project_cflags_go_into_the_snapshot_config_and_a_target_override(tmp_path: Path) -> None:
+    import tomllib
+
+    from rebrew.ops import apply_project_cflags
+
+    config = tmp_path / "rebrew-project.toml"
+    config.write_text(
+        '[project]\nname = "p"\n[targets.mini]\nbinary = "b"\n[targets.mini.compiler]\ncflags = "/O2"\n'
+        '[compiler]\nprofile = "msvc-6.0"\ncflags = "/O2 /Gd"  # the project default\n',
+        encoding="utf-8",
+    )
+    rewritten = apply_project_cflags(tmp_path, "mini", "/O1   /Gd")
+    data = tomllib.loads(config.read_text(encoding="utf-8"))
+    assert data["compiler"]["cflags"] == "/O1 /Gd" and data["compiler"]["profile"] == "msvc-6.0"
+    assert data["targets"]["mini"]["compiler"]["cflags"] == "/O1 /Gd"
+    assert "# the project default" in config.read_text(encoding="utf-8")
+    assert rewritten is not None and rewritten[0] == config.stat().st_size
+
+
+def test_project_cflags_create_the_compiler_table_and_empty_flags_touch_nothing(
+    tmp_path: Path,
+) -> None:
+    import tomllib
+
+    from rebrew.ops import OpsError, apply_project_cflags
+
+    config = tmp_path / "rebrew-project.toml"
+    config.write_text('[project]\nname = "p"\n', encoding="utf-8")
+    assert apply_project_cflags(tmp_path, "mini", "  ") is None
+    assert config.read_text(encoding="utf-8") == '[project]\nname = "p"\n'
+    apply_project_cflags(tmp_path, "mini", "/Os")
+    assert tomllib.loads(config.read_text(encoding="utf-8"))["compiler"]["cflags"] == "/Os"
+    with pytest.raises(OpsError, match="invalid-cflags"):
+        apply_project_cflags(tmp_path, "mini", "/Fo")

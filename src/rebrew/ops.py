@@ -262,6 +262,32 @@ _CFLAGS_REFUSED = re.compile(
 )
 
 
+def apply_project_cflags(root: Path, target_name: str, flags: str) -> tuple[int, str] | None:
+    """Set the validated *flags* as the project cflags of the private snapshot at *root*.
+
+    ``[compiler] cflags`` takes the flags, and so does the target's own compiler override when it sets cflags,
+    which would otherwise shadow them. A function's own cflags metadata still overrides the project cflags, which
+    is why the target's flags go here and not through ``--cflags``. Returns the rewritten file's size and digest, or
+    None when *flags* is empty and nothing was touched.
+    """
+    import tomlkit
+
+    text = checked_cflags(flags)
+    if not text:
+        return None
+    path = root / "rebrew-project.toml"
+    doc = tomlkit.parse(path.read_text(encoding="utf-8-sig"))
+    if "compiler" not in doc:
+        doc["compiler"] = tomlkit.table()
+    doc["compiler"]["cflags"] = text
+    targets = doc.get("targets")
+    override = (targets.get(target_name) or {}).get("compiler") if targets is not None else None
+    if override is not None and "cflags" in override:
+        override["cflags"] = text
+    path.write_text(tomlkit.dumps(doc), encoding="utf-8")
+    return path.stat().st_size, _file_sha256(path)
+
+
 def checked_cflags(text: str) -> str:
     """The flag string, normalized to single spaces, or a 400 naming the bad token."""
     if len(text) > CFLAGS_MAX_CHARS:
@@ -583,6 +609,7 @@ class VerifyRequest:
     binary_key: str = ""
     binary_url: str = ""
     cflags: str = ""
+    project_cflags: str = ""
 
 
 @dataclass(frozen=True)
@@ -594,6 +621,7 @@ class VerifyTargetRequest:
     rebrew_target: str = ""
     binary_key: str = ""
     binary_url: str = ""
+    project_cflags: str = ""
 
 
 @dataclass(frozen=True)
@@ -605,6 +633,7 @@ class BuildRequest:
     rebrew_target: str = ""
     binary_key: str = ""
     binary_url: str = ""
+    project_cflags: str = ""
 
 
 @dataclass(frozen=True)
@@ -2259,6 +2288,7 @@ def verify_candidate(config: WorkerConfig, req: VerifyRequest) -> dict[str, Any]
             ):
                 raise _invalid("snapshot target binary does not match")
             source.write_text(req.candidate, encoding="utf-8")
+            rewritten = apply_project_cflags(root, req.rebrew_target, req.project_cflags)
             cfg = load_config(root, target=req.rebrew_target)
             confined_snapshot_config(cfg, root)
             retained_compile_refusal(cfg, [source])
@@ -2289,7 +2319,12 @@ def verify_candidate(config: WorkerConfig, req: VerifyRequest) -> dict[str, Any]
                 if entry.path == req.source:
                     continue
                 path = _project_file(root, entry.path, "source file")
-                if path.stat().st_size != entry.size or _file_sha256(path) != entry.digest:
+                size, digest = (
+                    rewritten
+                    if rewritten and entry.path == "rebrew-project.toml"
+                    else (entry.size, entry.digest)
+                )
+                if path.stat().st_size != size or _file_sha256(path) != digest:
                     raise _invalid("snapshot source changed during verification")
             result["source"] = req.source
             return result
@@ -2314,8 +2349,12 @@ def retained_target_snapshot(
     sha256: str,
     binary_key: str,
     binary_url: str,
+    project_cflags: str = "",
 ) -> Iterator[Path]:
-    """Stage a bounded retained source manifest and binary without touching the live project."""
+    """Stage a bounded retained source manifest and binary without touching the live project.
+
+    *project_cflags*, when set, become the project cflags of the private copy (``apply_project_cflags``).
+    """
     from rebrew.config import inventory_path_for, load_config
     from rebrew.workspace import read_config, target_binary, targets_table
 
@@ -2365,6 +2404,7 @@ def retained_target_snapshot(
                 or _file_sha256(destination) != sha256
             ):
                 raise _invalid("snapshot target binary does not match")
+            rewritten = apply_project_cflags(root, target_name, project_cflags)
             cfg = load_config(root, target=target_name)
             confined_snapshot_config(cfg, root)
             required = (
@@ -2382,7 +2422,12 @@ def retained_target_snapshot(
                 raise _invalid("snapshot target binary changed during operation")
             for entry in files:
                 path = _project_file(root, entry.path, "source file")
-                if path.stat().st_size != entry.size or _file_sha256(path) != entry.digest:
+                size, digest = (
+                    rewritten
+                    if rewritten and entry.path == "rebrew-project.toml"
+                    else (entry.size, entry.digest)
+                )
+                if path.stat().st_size != size or _file_sha256(path) != digest:
                     raise _invalid("snapshot source changed during operation")
 
 
@@ -2396,7 +2441,13 @@ def verify_target(config: WorkerConfig, req: VerifyTargetRequest) -> dict[str, A
         if not req.no_promote:
             raise _invalid("retained target verification requires no_promote")
         with retained_target_snapshot(
-            config, req.files, req.rebrew_target, req.sha256, req.binary_key, req.binary_url
+            config,
+            req.files,
+            req.rebrew_target,
+            req.sha256,
+            req.binary_key,
+            req.binary_url,
+            req.project_cflags,
         ) as snapshot:
             cfg = load_config(snapshot, target=req.rebrew_target)
             retained_compile_refusal(cfg, iter_sources(cfg.reversed_dir, cfg))
@@ -2406,6 +2457,8 @@ def verify_target(config: WorkerConfig, req: VerifyTargetRequest) -> dict[str, A
                 SEARCH_TIMEOUT_SECONDS,
                 outcome_exit=True,
             )
+    if req.project_cflags:
+        raise _invalid("project_cflags needs a retained source snapshot")
     cfg = target_config(root, req.sha256)
     remote_header_refusal(cfg, iter_sources(cfg.reversed_dir, cfg))
     arguments = ["verify", "--json", *_flag(req.no_promote, "--no-promote")]
@@ -2429,7 +2482,13 @@ def build(config: WorkerConfig, req: BuildRequest) -> dict[str, Any]:
     root = project_root(config, req.project_dir)
     if req.files:
         with retained_target_snapshot(
-            config, req.files, req.rebrew_target, req.sha256, req.binary_key, req.binary_url
+            config,
+            req.files,
+            req.rebrew_target,
+            req.sha256,
+            req.binary_key,
+            req.binary_url,
+            req.project_cflags,
         ) as snapshot:
             cfg = load_config(snapshot, target=req.rebrew_target)
             retained_compile_refusal(cfg, iter_sources(cfg.reversed_dir, cfg))
@@ -2445,6 +2504,8 @@ def build(config: WorkerConfig, req: BuildRequest) -> dict[str, Any]:
                 SEARCH_TIMEOUT_SECONDS,
                 outcome_exit=True,
             )
+    if req.project_cflags:
+        raise _invalid("project_cflags needs a retained source snapshot")
     cfg = target_config(root, req.sha256)
     remote_header_refusal(cfg, iter_sources(cfg.reversed_dir, cfg))
     arguments = ["build", "round-trip", "--json", *_flag(req.fix_headers, "--fix-headers")]
@@ -2538,7 +2599,12 @@ def coverage_report(config: WorkerConfig, req: CoverageReportRequest) -> dict[st
             verified_coverage_inputs_required()
         project_root(config, req.project_dir)
         with retained_target_snapshot(
-            config, req.files, req.rebrew_target, req.sha256, req.binary_key, req.binary_url
+            config,
+            req.files,
+            req.rebrew_target,
+            req.sha256,
+            req.binary_key,
+            req.binary_url,
         ) as snapshot:
             cfg = load_config(snapshot, target=req.rebrew_target)
             trusted = checked_coverage_input(snapshot, req)

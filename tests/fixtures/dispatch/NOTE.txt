@@ -1,6 +1,6 @@
 rebrew.schema.json is a verbatim copy of contracts/dispatch/rebrew.schema.json
 from the ai.relumea.app.backend-go working tree, generated with
 `go run ./cmd/surface-tracker` and copied before the backend change was committed.
-SHA-256: 3ac409328e2fe5a467f953c28fd5bf2fa7488a1341dfa2e57f8a88b5437665b2.
+SHA-256: c234171071d42a3a7421e92a13a6bc30050946b90579456bcfc6e0f8c99bbff4.
 Replace this copy when the backend contract changes; do not edit it here.
 tests/test_ops.py validates every op request and reply against it.
