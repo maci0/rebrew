@@ -4513,6 +4513,20 @@ src/Develop/Units/vfs/GOLDTL.fcn_00430870.c --destination
 src/Develop/Units/vfs/vfs_paths_streams.c --json`; retained receipt is Guild
 `.scratch/consolidation-2026-11-05/review-vfs-leaves.json`.
 
+#### Reviewed override shipped (2026-11-05)
+
+`rebrew source merge --accept-unresolved-includes NAME` (repeatable) now
+tolerates a pure missing-header closure item when every name in its
+`missing` list is explicitly accepted. Names must be bare header names or
+relative include paths with no absolute path and no `..` traversal. The
+sorted accepted set is mixed into the reviewed input digest and reported
+in the JSON payload as `accepted_unresolved_includes` and
+`tolerated_unresolved_includes`, so a different set needs a new preview.
+Items with any other key, a different reason, or an unaccepted name still
+refuse with the original message. This is a reviewed override for headers
+known to live in the pinned toolchain image; it does not supply the real
+image closure. The image-ID-pinned snapshot/resolver above remains open.
+
 Image-backed VFS discovery also reaches `character.c` but conservatively scans
 all SDK conditional branches and reports missing legacy headers including
 `macwin32.h`, `rpcmac.h` and `macname1.h`. Add compiler-evidenced target macro
@@ -4704,3 +4718,73 @@ Provide a digest-guarded reviewed binding plan that accepts an explicit placehol
 A path-only relocation of Guild's GOLD `0x0041c830` source needs to preserve its one function identity, thirteen data rows, two type bindings (`dd.device_record` and `dd.driver_record`), any support/provenance records, target participation, header resolution, six storage definitions and linker placement. No translation units are merged. From the Guild project root, `rebrew source rename GOLD.0x0041c830 fcn_0041c830 --file src/Develop/Units/dd_vesa/GOLD.fcn_0041c830.c --target Europa1400Gold.exe --dry-run --json` refuses because the unchanged definition name already exists. `rebrew source rehome --from src/Develop/Units/d3/GOLD.fcn_0041c830.c --to src/Develop/Units/dd_vesa/GOLD.fcn_0041c830.c --target Europa1400Gold.exe --dry-run --json` refuses while the destination does not yet exist and exposes no expected-digest option; previewing a scratch copy lists the function and data rows but not the two type bindings. The project has not moved the source. Review receipts are in Guild `.scratch/consolidation-2026-11-05/slot-2/gold-link-fresh-kcqK85/`.
 
 Provide a reviewed, digest-guarded pure-path move that previews and atomically updates the source, affected function/data/type/support and current provenance records while preserving historical evidence, detects concurrent source and destination changes, and reports target selection and source-directory-sensitive include observations. Refuse unverified collisions or incomplete context, preserve concurrent edits on rollback, and require callers to verify compiler and linked placement separately; a path change can reorder externally visible storage even without merging TUs.
+
+### Cross-target same-VA adopt without destination byte check (2026-11-05)
+
+Guild pilot: four TL functions (0x0047a040, 0x00405180, 0x00469880, tail 0x0046b2b0) were classified as adoptable GOLD providers because each has an existing GOLDTL function source and no GOLD row. Direct GOLD disassembly shows GOLD bytes at all four VAs are different code (different sizes, first instructions and shapes; GOLD inventory has no rows at these VAs at all, so dumps used stale extents). Two tool gaps block a safe adopt:
+
+1. `rebrew source import-related --from Europa1400Gold_TL.exe --target Europa1400Gold.exe --va 0x0047a040 --dry-run --json` (and the other three VAs) exits 2 with "no unmatched functions in target 'Europa1400Gold.exe' (or the function catalog is empty)". It only matches against destination inventory rows, so a destination VA absent from the GOLD inventory can never be considered, even for a same-VA byte comparison.
+2. `rebrew source register <TL source file> --target Europa1400Gold.exe --dry-run --json` previews {"functions":1,"data":0,"dry_run":true} for all four files. It registers the ADDRESS anchor under GOLD without comparing GOLD binary bytes at that VA against the TL function, so applying it would create a GOLD claim the GOLD bytes contradict.
+
+Provide a digest-guarded cross-target adopt preview that, per candidate, disassembles the destination binary at the VA (or at a structurally matched destination VA when the destination has no same-VA row), compares it with the source function body, and refuses or clearly warns on mismatch before any register/import apply. It should also be able to propose the destination VA for a source function when no same-VA destination row exists, using structural similarity plus byte evidence, and require independent re-verification after apply. Receipts: Guild `.scratch/consolidation-2026-11-05/slot-2/gold-pilot-progress.md`, `gold-0x*.json`, `tl-0x*.json`, `imp-0x*.json`.
+
+### Interior entry point alias for a merged head function (2026-11-05)
+
+Status: preview shipped; the writer and link resolution remain open.
+
+The read-only preview shipped as `rebrew source import-related --interior-preview --va <VA>`: for each VA it reports the containing inventory head (greatest function start at or below the VA), head offset, head end, external call/jmp callers outside the head, whether the VA bytes open with a function prologue, and an inputs digest. It writes nothing and records no alias. The reviewed, digest-guarded writer that records an interior alias as head identity plus byte offset in metadata, and the build/link resolution of `_fcn_<VA>` to head plus offset, remain to be built.
+
+In the Guild project, 112 of 114 unresolved GOLD `_fcn_<VA>` link references target retired rows whose VA lies strictly inside a merged head function, from a reviewed extent merge in a declared library band. Examples: 0x00402480 at offset 272 inside GOLDTL fcn_00402370, 0x00404c20 inside fcn_00404b60, and 0x00406c60 inside ch_DroppingObject. The retired row is no longer an inventory function start, so rename and rebind cannot resolve the reference: rebind of a retired row is refused by design, and binding the interior VA would contradict the reviewed merge. The link therefore has no symbol for a real secondary entry point, even though the head function bytes cover the target.
+
+Proposed capability: a reviewed, digest-guarded way to record an interior entry-point alias as head identity plus byte offset in metadata, and have the build/link or stub generator resolve `_fcn_<VA>` to head plus offset. Verification should compare the call-site target in the raw link against the alias target, so resolution is proved at the linked image rather than assumed from source text. The record should preserve the retired row and its history, refuse an alias that falls outside the head extent or contradicts the reviewed merge, and require independent verification after apply.
+
+Evidence: Guild `.scratch/consolidation-2026-11-05/slot-2/gold-114-summary.md` and `.scratch/consolidation-2026-11-05/slot-2/gold-114-retired.jsonl`. The summary classifies 112 rows as extent merge into a head in a declared library band, with the head strictly below the VA and a GOLDTL source file for every head; the 2 remaining rows are duplicate-symbol retire cases.
+
+Replay, run in the guild-rebrew project (expect 112):
+
+```
+rg -c '"category": "a_extent_merge_library_band"' .scratch/consolidation-2026-11-05/slot-2/gold-114-retired.jsonl
+```
+
+### Data scaffold --update-data-symbol (2026-11-06)
+
+Status: shipped. `rebrew build symbol-stubs --update-data-symbol NAME` (repeatable) appends a zero-init definition derived from the unique managed data row via `build_data_definition`; alias, literal, span and import rows refuse, and a name the scaffold already defines refuses ("already defined"). Preview is digest-bound (`--expected-digest` now also applies to this option); the digest covers the original bytes, specials spec, both symbol lists and the sorted (name, type, size, storage_kind) row tuples. Existing file bytes are preserved.
+
+Remaining: rows whose name collides across modules with no file distinction still refuse as ambiguous (the refusal lists candidate keys); literal rows still have no scaffold path by design; data definitions are not yet generated in the default (non-selected) `symbol-stubs` flow. Rows bound to another stub file are ignored: `--update-data-symbol` skips any row whose `file` fields resolves to a different scaffold than `--output`, while rows without a file remain candidates.
+
+### inline-strings g_ literal rows (2026-11-06)
+
+Status: shipped. `rebrew source inline-strings` now also inlines
+`extern char g_<hex>[]` (or `char *g_<hex>`) uses when the name has exactly
+one managed data row for the selected target with
+`storage_kind = "literal"`. The literal is decoded from the reference binary
+at the row VA, bounded to the row size, and the extern is removed once every
+use is inlined. Rows bound to a different file are ignored; ambiguous
+cross-module lookups and bytes not NUL-terminated within the row size are
+skipped and named in the JSON `skipped` field. The selected target layout
+package supplies the data base only when its `.data` raw size matches the
+selected binary; otherwise the binary `.data` section supplies both the
+base and raw bytes. Existence of a package alone does not prove it
+describes the selected target.
+
+Remaining: rows with no file distinction that collide across modules still
+refuse as ambiguous; rows whose bytes are not a NUL-terminated printable or
+escapable string still skip; the placeholder path still requires an
+`s_<hint>_<ADDR>` name.
+
+Extern removal now builds line offsets cumulatively, so leading blank lines
+no longer shift extern spans; the previous per-extern sum omitted newline
+bytes and corrupted the head. Regression tests cover a three-blank-line
+head with three g_ externs plus a retained int extern, in LF and CRLF.
+
+### source merge extern conflict detection (2026-11-06)
+
+Status: shipped. `rebrew source merge` now reports `extern_conflicts` for
+file-scope prototype declarations that name one symbol with different
+prototype types, including forms with and without `extern`; parameter
+names alone do not conflict, and object declarations are out of scope. The
+dry run shows the conflict in `--json`; a plain (non-dry-run) apply
+refuses to write when a conflict is present, since the plain output would
+not compile, and names each symbol with its variants. Use `--consolidate`
+for the hoisted conflict-resolving merge. Identical declarations stay
+clean.

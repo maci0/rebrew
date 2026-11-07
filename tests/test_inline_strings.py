@@ -236,6 +236,261 @@ class TestEncodingSafety:
         assert not f.read_bytes().endswith(b"\n")
 
 
+class TestGLiteralNames:
+    """``extern char g_x[]`` bound to a ``storage_kind = "literal"`` data row."""
+
+    def _project(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        from test_data_layout import _make_pe, _write_layout
+
+        _write_layout(tmp_path, 0x10027000, 6, 6)
+        raw = b"hello\x00"
+        (tmp_path / "original").mkdir()
+        (tmp_path / "original" / "x.dll").write_bytes(
+            _make_pe(raw, image_base=0x10000000, data_va=0x18000)
+        )
+        src = tmp_path / "src"
+        src.mkdir()
+        monkeypatch.chdir(tmp_path)
+        return src
+
+    def _run(self, *args: str) -> dict[str, object]:
+        from rebrew.inline_strings import app
+
+        result = CliRunner().invoke(app, ["--json", *args])
+        assert result.exit_code == 0, result.output
+        payload = cli_payload(result)
+        assert isinstance(payload, dict)
+        return payload
+
+    def _set_row(
+        self, tmp_path: Path, module: str, va: int, name: str, size: int, **extra: object
+    ) -> None:
+        from rebrew.metadata.data import set_data_fields_batch
+
+        set_data_fields_batch(
+            tmp_path,
+            [
+                {
+                    "module": module,
+                    "va": va,
+                    "fields": {
+                        "name": name,
+                        "type": "char[]",
+                        "size": size,
+                        "section": ".data",
+                        "storage_kind": "literal",
+                        **extra,
+                    },
+                }
+            ],
+        )
+
+    def test_g_literal_inlined_and_extern_removed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        src = self._project(tmp_path, monkeypatch)
+        a = src / "a.c"
+        write_source(
+            a,
+            "extern char g_6a8428[];\n/* ADDRESS: TEST 0x1000 */\nint f(void) { return g_6a8428[0]; }\n",
+            encoding="utf-8",
+            metadata_fields={"TEST.0x1000": {"kind": "FUNCTION"}},
+        )
+        self._set_row(tmp_path, "TEST", 0x10027000, "g_6a8428", 6, file="src/a.c")
+        payload = self._run("--dry-run")
+        assert payload["inlined"] == 1
+        assert "g_6a8428" in a.read_text(encoding="utf-8")
+        payload = self._run()
+        assert payload["inlined"] == 1
+        text = a.read_text(encoding="utf-8")
+        assert '"hello"[0]' in text
+        assert "extern char g_6a8428" not in text
+
+    def test_char_star_extern_also_inlined(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        src = self._project(tmp_path, monkeypatch)
+        a = src / "a.c"
+        write_source(
+            a,
+            "extern char *g_6a8428;\n/* ADDRESS: TEST 0x1000 */\nint f(void) { return g_6a8428[0]; }\n",
+            encoding="utf-8",
+            metadata_fields={"TEST.0x1000": {"kind": "FUNCTION"}},
+        )
+        self._set_row(tmp_path, "TEST", 0x10027000, "g_6a8428", 6, file="src/a.c")
+        payload = self._run()
+        assert payload["inlined"] == 1
+        assert '"hello"[0]' in a.read_text(encoding="utf-8")
+
+    def test_non_terminated_bytes_skipped(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from test_data_layout import _make_pe, _write_layout
+
+        _write_layout(tmp_path, 0x10027000, 5, 5)
+        raw = b"hellx"  # no NUL within row size
+        (tmp_path / "original").mkdir(exist_ok=True)
+        (tmp_path / "original" / "x.dll").write_bytes(
+            _make_pe(raw, image_base=0x10000000, data_va=0x18000)
+        )
+        src = tmp_path / "src"
+        src.mkdir(exist_ok=True)
+        monkeypatch.chdir(tmp_path)
+        a = src / "a.c"
+        write_source(
+            a,
+            "extern char g_6a8428[];\n/* ADDRESS: TEST 0x1000 */\nint f(void) { return g_6a8428[0]; }\n",
+            encoding="utf-8",
+            metadata_fields={"TEST.0x1000": {"kind": "FUNCTION"}},
+        )
+        self._set_row(tmp_path, "TEST", 0x10027000, "g_6a8428", 5, file="src/a.c")
+        payload = self._run("--dry-run")
+        assert payload["inlined"] == 0
+        skipped = payload["skipped"]
+        assert isinstance(skipped, dict)
+        assert "g_6a8428" in skipped
+        assert a.read_text(encoding="utf-8").count("g_6a8428") == 2
+
+    def test_selected_target_uses_its_own_binary_sections_not_fallback_layout(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Regression: selected target binary .data base differs from layout geometry.
+
+        The layout package describes another target, so reading through it
+        maps the row VA to wrong bytes and reports a false skip. The CLI must
+        map through the selected target binary section table instead.
+        """
+        from test_data_layout import _make_pe, _write_layout
+
+        _write_layout(tmp_path, 0x10027000, 0x1000, 0x1000)
+        raw = b"\x00" * 0x100 + b"FTInitMainIntro\x00"
+        (tmp_path / "original").mkdir(exist_ok=True)
+        (tmp_path / "original" / "x.dll").write_bytes(
+            _make_pe(raw, image_base=0x10000000, data_va=0x25000)
+        )
+        src = tmp_path / "src"
+        src.mkdir(exist_ok=True)
+        monkeypatch.chdir(tmp_path)
+        a = src / "a.c"
+        write_source(
+            a,
+            "extern char g_6a8428[];\n/* ADDRESS: TEST 0x1000 */\nint f(void) { return g_6a8428[0]; }\n",
+            encoding="utf-8",
+            metadata_fields={"TEST.0x1000": {"kind": "FUNCTION"}},
+        )
+        self._set_row(tmp_path, "TEST", 0x10025100, "g_6a8428", 16, file="src/a.c")
+        payload = self._run("--dry-run")
+        assert payload["inlined"] == 1, payload
+        assert not payload.get("skipped"), payload
+
+    def test_head_blank_lines_and_extern_removal_exact(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Regression: extern spans must use true offsets, not line lengths.
+
+        Head is three blank lines, three g_ externs, one int extern that
+        must stay. Only the three char extern lines are deleted.
+        """
+        from test_data_layout import _make_pe, _write_layout
+
+        _write_layout(tmp_path, 0x10027000, 9, 9)
+        raw = b"aa\x00bb\x00cc\x00"
+        (tmp_path / "original").mkdir(exist_ok=True)
+        (tmp_path / "original" / "x.dll").write_bytes(
+            _make_pe(raw, image_base=0x10000000, data_va=0x18000)
+        )
+        src = tmp_path / "src"
+        src.mkdir(exist_ok=True)
+        monkeypatch.chdir(tmp_path)
+        a = src / "a.c"
+        write_source(
+            a,
+            "\n\n\n"
+            "extern char g_6a8428[];\n"
+            "extern char g_6a840c[];\n"
+            "extern char g_6a83f8[];\n"
+            "extern int g_7749f8[];\n"
+            "\n"
+            "/* ADDRESS: TEST 0x1000 */\n"
+            "int f(void) { return g_6a8428[0] + g_6a840c[0] + g_6a83f8[0]; }\n",
+            encoding="utf-8",
+            metadata_fields={"TEST.0x1000": {"kind": "FUNCTION"}},
+        )
+        self._set_row(tmp_path, "TEST", 0x10027000, "g_6a8428", 4, file="src/a.c")
+        self._set_row(tmp_path, "TEST", 0x10027003, "g_6a840c", 4, file="src/a.c")
+        self._set_row(tmp_path, "TEST", 0x10027006, "g_6a83f8", 4, file="src/a.c")
+        payload = self._run()
+        assert payload["inlined"] == 3, payload
+        assert a.read_text(encoding="utf-8") == (
+            "\n\n\n"
+            "extern int g_7749f8[];\n"
+            "\n"
+            "/* ADDRESS: TEST 0x1000 */\n"
+            'int f(void) { return "aa"[0] + "bb"[0] + "cc"[0]; }\n'
+        )
+
+    def test_head_blank_lines_and_extern_removal_exact_crlf(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """CRLF variant: extern removal must keep CRLF terminators exact."""
+        from test_data_layout import _make_pe, _write_layout
+
+        _write_layout(tmp_path, 0x10027000, 9, 9)
+        raw = b"aa\x00bb\x00cc\x00"
+        (tmp_path / "original").mkdir(exist_ok=True)
+        (tmp_path / "original" / "x.dll").write_bytes(
+            _make_pe(raw, image_base=0x10000000, data_va=0x18000)
+        )
+        src = tmp_path / "src"
+        src.mkdir(exist_ok=True)
+        monkeypatch.chdir(tmp_path)
+        a = src / "a.c"
+        write_source(
+            a,
+            "\r\n\r\n\r\n"
+            "extern char g_6a8428[];\r\n"
+            "extern char g_6a840c[];\r\n"
+            "extern char g_6a83f8[];\r\n"
+            "extern int g_7749f8[];\r\n"
+            "\r\n"
+            "/* ADDRESS: TEST 0x1000 */\r\n"
+            "int f(void) { return g_6a8428[0] + g_6a840c[0] + g_6a83f8[0]; }\r\n",
+            encoding="utf-8",
+            metadata_fields={"TEST.0x1000": {"kind": "FUNCTION"}},
+        )
+        self._set_row(tmp_path, "TEST", 0x10027000, "g_6a8428", 4, file="src/a.c")
+        self._set_row(tmp_path, "TEST", 0x10027003, "g_6a840c", 4, file="src/a.c")
+        self._set_row(tmp_path, "TEST", 0x10027006, "g_6a83f8", 4, file="src/a.c")
+        payload = self._run()
+        assert payload["inlined"] == 3, payload
+        assert a.read_bytes() == (
+            b"\r\n\r\n\r\n"
+            b"extern int g_7749f8[];\r\n"
+            b"\r\n"
+            b"/* ADDRESS: TEST 0x1000 */\r\n"
+            b'int f(void) { return "aa"[0] + "bb"[0] + "cc"[0]; }\r\n'
+        )
+
+    def test_ambiguous_row_across_modules_skipped(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        src = self._project(tmp_path, monkeypatch)
+        a = src / "a.c"
+        write_source(
+            a,
+            "extern char g_6a8428[];\n/* ADDRESS: TEST 0x1000 */\nint f(void) { return g_6a8428[0]; }\n",
+            encoding="utf-8",
+            metadata_fields={"TEST.0x1000": {"kind": "FUNCTION"}},
+        )
+        self._set_row(tmp_path, "TEST", 0x10027000, "g_6a8428", 6, file="src/a.c")
+        self._set_row(tmp_path, "OTHER", 0x10027000, "g_6a8428", 6)
+        payload = self._run("--dry-run")
+        assert payload["inlined"] == 0
+        skipped = payload["skipped"]
+        assert isinstance(skipped, dict)
+        assert "g_6a8428" in skipped
+
+
 class TestNamedMode:
     """``--named`` inlines same-file ``char s_x[] = "...";`` definitions."""
 

@@ -1118,7 +1118,7 @@ Use `rebrew source <operation> --help` for exact arguments and examples.
 | `rebrew source anchors` | Materialize ADDRESS comments for existing canonical bindings. |
 | `rebrew source rename` | Rename a function, global, type or struct member and update every reference. |
 | `rebrew source fix` | Make raw decompiler output compilable (DecBench-style fixup). |
-| `rebrew source inline-strings` | Inline string-literal globals (s_<hint>_<ADDR>) from the reference binary. |
+| `rebrew source inline-strings` | Inline string-literal globals (s_<hint>_<ADDR> placeholders and g_<hex> literal rows) from the reference binary. |
 | `rebrew source document-unmatched` | Document unmatched functions as STUB skeletons + blockers. |
 | `rebrew source graph` | Generate function dependency graph from reversed .c files. |
 | `rebrew source security` | Scan C sources for unsafe API use (unbounded copies, format strings, command execution). |
@@ -1423,6 +1423,18 @@ asm-referenced `extern char s_x[];` into real `char s_x[N] = "...";`
 definitions in the owning TU (most-referencing file), so the string gets
 content AND lands in the owning translation unit's `.data` slot.
 
+The same use-site rewrite also covers `extern char g_<hex>[]` (or
+`char *g_<hex>`) declarations whose name has exactly one managed data row
+for the selected target with `storage_kind = "literal"`. Uses are replaced
+with the C string literal decoded from the reference binary at the row VA,
+bounded to the row size; the extern is removed once every use is inlined.
+Rows bound to a different file are ignored; a lookup that is ambiguous
+across modules, or bytes not NUL-terminated within the row size, is skipped
+and named in the JSON `skipped` field. The selected target's layout
+package supplies the data base when its `.data` raw size matches the
+selected binary; otherwise the binary `.data` section supplies the base so
+rows map through the same section that supplied the raw bytes.
+
 `--named` reads no binary. For each file-scope `[static] [const] char
 <prefix>name[] = "...";` in a selected file, it replaces every use in that
 file with the initializer, copied byte-for-byte so escapes and concatenated
@@ -1573,6 +1585,14 @@ stacked ADDRESS anchors and one metadata row per target. Different bodies are
 refused. Preview with `--dry-run`; `--force` permits noninteractive application.
 A piped answer does not approve the prompt.
 
+The plain merge reports `extern_conflicts` for file-scope prototype
+declarations that name one symbol with different prototype types (including
+forms with and without `extern`; parameter names alone do not conflict).
+The dry run shows the conflict in `--json`; the apply step refuses to
+write when a conflict is present, since the plain output would not compile.
+Identical declarations stay clean. Use `--consolidate` when the caller
+wants the hoisted, conflict-resolving merge instead.
+
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `SOURCES` | path… | required | Input source files (or directories) |
@@ -1581,6 +1601,7 @@ A piped answer does not approve the prompt.
 | `--consolidate` | flag | `False` | Hoist unique includes/externs/typedefs/intrinsics to the top of the merged TU |
 | `--shared` | flag | `False` | Combine identical bodies across targets into one definition with stacked ADDRESS anchors; retarget all input metadata rows. Different bodies are refused |
 | `--guarded-interleave` | flag | `False` | Interleave the supported bounded guarded functions after all-target review; requires `--delete` and an expected digest to apply |
+| `--accept-unresolved-includes` | str (repeatable) | none | Accept a reviewed unresolved include header name reported by the include closure check; bare header names or relative include paths only, no absolute paths and no `..`; accepted names are sorted into the reviewed input digest and reported as `accepted_unresolved_includes` plus `tolerated_unresolved_includes` in the JSON payload; without this option unresolved includes still refuse |
 | `--expected-digest` | sha256 | none | Require the digest from the reviewed preview |
 | `--output` / `-o` | path | required | Output merged source file |
 | `--dry-run` | flag | `False` | Preview changes without writing |
@@ -1608,11 +1629,13 @@ A destination inventory entry can merge two functions (discovery joins them acro
 | `--from` | str | required | Source target to import matched functions from |
 | `--min-score` | float | `95.0` | Minimum similarity score (0-100) to import (identical code scores 100, structural siblings with a shared prologue score high 80s-low 90s) |
 | `--min-gap` | float | `5.0` | Best match must beat the runner-up by at least this |
-| `--va` | str | — | Restrict to one destination VA (hex, e.g. 0x401000) |
+| `--va` | str | — | Restrict to one destination VA (hex, e.g. 0x401000); repeatable only with `--same-va-preview` or `--interior-preview` |
 | `--source-va` | str | — | Restrict to one matched source VA (hex); score, gap and verification still apply |
 | `--limit` | int | — | Import at most N functions (0 = none; omitted = unlimited) |
 | `--shared` | flag | `False` | Record the destination MODULE.0xVA row on the shared source file instead of copying into the destination tree (one file, one row per target). Promotes the source into src/shared first when needed |
 | `--promote` | flag | `False` | Move the source file into src/shared (preserving relative path) without importing — the manual step before --shared |
+| `--same-va-preview` | flag | `False` | Read-only byte check only: report exact/reloc-equal/differ/unreadable/unavailable per `--va` against the `--from` target's matched function at the same VA (or `--source-va`), relocation-masked from the linked image's own base-relocation table, with an inputs digest. Writes nothing, never registers or imports. A same-VA row missing from the destination inventory is still compared directly; structural search for a destination VA is out of scope |
+| `--interior-preview` | flag | `False` | Read-only interior-entry evidence only: report the containing inventory head (greatest function start at or below the VA), offset, head end, external call/jmp callers outside the head and prologue per `--va`, with an inputs digest. Writes nothing and records no alias |
 | `--candidates-only` | flag | `False` | Report only destination functions with a match: the per-function 'no match' rows for the whole inventory are hidden (use with --dry-run to answer 'is this code already reversed in another target, and where?') |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
@@ -4065,8 +4088,12 @@ existing definition from `--specials`; repeat the option for multiple symbols.
 To append an absent function, supply its complete reviewed `impl` and
 `kind = "function"` in its `[specials.NAME]` table. Additions do not infer or
 verify the ABI, external provider, target participation, or macro context in
-other files; review those independently. Data additions are not supported.
-An empty `impl` removes an existing definition. The preview labels each action;
+other files; review those independently. Use `--update-data-symbol NAME` to
+append a zero-init data definition derived from the unique owned managed data row
+(refuses alias, literal, span and import rows, and names the scaffold already
+defines). Rows bound to a different stub file are ignored, so a name shared
+across modules resolves to the row owned by this scaffold; rows without a file
+stay candidates. The uniqueness refusal lists candidate keys. An empty `impl` removes an existing definition. The preview labels each action;
 run with `--dry-run`, then pass its digest with `--expected-digest` to apply.
 Existing file bytes are preserved. If an error occurs after publication and the
 output path is occupied, the error names a retained original backup for manual

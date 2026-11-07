@@ -1498,6 +1498,52 @@ def test_selected_update_removes_only_the_requested_function() -> None:
         )
 
 
+class TestBuildDataDefinition:
+    def test_scalar(self) -> None:
+        row = {"name": "g_6b7ec8", "type": "int", "size": 4, "storage_kind": "object"}
+        assert gen_stubs.build_data_definition(row) == "int g_6b7ec8 = 0;"
+
+    def test_pointer_array(self) -> None:
+        row = {"name": "g_14c9320", "type": "char *[0x20]", "size": 128, "storage_kind": "object"}
+        assert gen_stubs.build_data_definition(row) == "char* g_14c9320[0x20] = {0};"
+
+    def test_char_array(self) -> None:
+        row = {"name": "g_buf", "type": "unsigned char[3]", "size": 3}
+        assert gen_stubs.build_data_definition(row) == "unsigned char g_buf[3] = {0};"
+
+    def test_literal_refused(self) -> None:
+        row = {"name": "g_lit", "type": "char[]", "size": 19, "storage_kind": "literal"}
+        with pytest.raises(
+            ValueError, match="compiler literal, linker-owned by its string use in source"
+        ):
+            gen_stubs.build_data_definition(row)
+
+    def test_alias_refused(self) -> None:
+        row = {"name": "g_alias", "type": "int", "size": 4, "storage_kind": "alias"}
+        with pytest.raises(ValueError, match="view without a backing object definition"):
+            gen_stubs.build_data_definition(row)
+
+    def test_layout_span_refused(self) -> None:
+        row = {"name": "g_span", "type": "int", "size": 4, "storage_kind": "span"}
+        with pytest.raises(ValueError, match="view without a backing object definition"):
+            gen_stubs.build_data_definition(row)
+
+    def test_missing_type_refused(self) -> None:
+        row = {"name": "g_missing", "type": "", "size": 4}
+        with pytest.raises(ValueError, match="missing type"):
+            gen_stubs.build_data_definition(row)
+
+    def test_missing_size_refused(self) -> None:
+        row = {"name": "g_missing", "type": "int", "size": 0}
+        with pytest.raises(ValueError, match="missing or invalid size"):
+            gen_stubs.build_data_definition(row)
+
+    def test_inconsistent_size_refused(self) -> None:
+        row = {"name": "g_bad", "type": "int", "size": 8}
+        with pytest.raises(ValueError, match="does not equal type size"):
+            gen_stubs.build_data_definition(row)
+
+
 def test_selected_function_addition_preserves_bytes_and_requires_digest(tmp_path: Path) -> None:
     out = tmp_path / "stubs.c"
     original = b"/* \xff historical */\r\nint keep = 0;\r\n"
@@ -1518,6 +1564,158 @@ def test_selected_function_addition_preserves_bytes_and_requires_digest(tmp_path
     applied = runner.invoke(gen_stubs.app, [*args, "--expected-digest", payload["digest"]])
     assert applied.exit_code == 0, applied.output
     assert out.read_bytes() == original + b"int missing(void) { return 0; }\n"
+
+
+def test_selected_data_symbol_dry_run_apply_and_refusals(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from rebrew.metadata.data import record_data_rows, set_data_fields_batch
+
+    monkeypatch.chdir(tmp_path)
+    record_data_rows(
+        tmp_path,
+        [
+            {
+                "module": "GOLD",
+                "va": 0x1000,
+                "identity": {"name": "g_data", "kind": "GLOBAL"},
+                "fill": {"section": ".data", "size": 4, "type": "int"},
+            },
+            {
+                "module": "GOLD",
+                "va": 0x1004,
+                "identity": {"name": "g_alias", "kind": "GLOBAL"},
+                "fill": {"section": ".data", "size": 4, "type": "int"},
+            },
+        ],
+    )
+    set_data_fields_batch(
+        tmp_path, [{"module": "GOLD", "va": 0x1004, "fields": {"storage_kind": "alias"}}]
+    )
+    out = tmp_path / "stubs.c"
+    original = b"/* \xff historical */\r\nint keep = 0;\r\n"
+    out.write_bytes(original)
+    args = ["--output", str(out), "--update-data-symbol", "g_data", "--json"]
+    runner = CliRunner()
+    preview = runner.invoke(gen_stubs.app, [*args, "--dry-run"])
+    assert preview.exit_code == 0, preview.output
+    payload = cli_payload(preview)
+    assert payload["changes"][0]["action"] == "add"
+    assert payload["changes"][0]["after"] == "int g_data = 0;"
+    assert runner.invoke(gen_stubs.app, [*args, "--expected-digest", "stale"]).exit_code != 0
+    assert out.read_bytes() == original
+    applied = runner.invoke(gen_stubs.app, [*args, "--expected-digest", payload["digest"]])
+    assert applied.exit_code == 0, applied.output
+    assert out.read_bytes() == original + b"int g_data = 0;\n"
+    alias = runner.invoke(
+        gen_stubs.app,
+        ["--output", str(out), "--update-data-symbol", "g_alias", "--json", "--dry-run"],
+    )
+    assert alias.exit_code != 0
+    assert "view without a backing object definition" in alias.output
+    existing = runner.invoke(gen_stubs.app, [*args, "--dry-run"])
+    assert existing.exit_code != 0
+    assert "already defined" in existing.output
+
+
+def test_selected_data_symbol_skips_rows_bound_to_another_stub_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from rebrew.metadata.data import record_data_rows, set_data_fields_batch
+
+    monkeypatch.chdir(tmp_path)
+    record_data_rows(
+        tmp_path,
+        [
+            {
+                "module": "GOLDTL",
+                "va": 0x14C9320,
+                "identity": {"name": "g_shared", "kind": "GLOBAL"},
+                "fill": {"section": ".data", "size": 128, "type": "char *[0x20]"},
+            },
+            {
+                "module": "GOLD",
+                "va": 0x145E1E0,
+                "identity": {"name": "g_shared", "kind": "GLOBAL"},
+                "fill": {"section": ".data", "size": 128, "type": "char *[0x20]"},
+            },
+        ],
+    )
+    set_data_fields_batch(
+        tmp_path,
+        [
+            {
+                "module": "GOLDTL",
+                "va": 0x14C9320,
+                "fields": {"file": "stubs/goldtl/symbol_stubs.c", "storage_kind": "object"},
+            },
+            {
+                "module": "GOLD",
+                "va": 0x145E1E0,
+                "fields": {"storage_kind": "object"},
+            },
+        ],
+    )
+    out = tmp_path / "stubs/gold/symbol_stubs.c"
+    out.parent.mkdir(parents=True)
+    out.write_text("int keep = 0;\n", encoding="utf-8")
+    preview = CliRunner().invoke(
+        gen_stubs.app,
+        [
+            "--output",
+            "stubs/gold/symbol_stubs.c",
+            "--update-data-symbol",
+            "g_shared",
+            "--json",
+            "--dry-run",
+        ],
+    )
+    assert preview.exit_code == 0, preview.output
+    payload = cli_payload(preview)
+    assert payload["written"] is False
+    assert payload["changes"][0]["after"] == "char* g_shared[0x20] = {0};"
+
+
+def test_selected_data_symbol_ambiguous_rows_list_keys(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from rebrew.metadata.data import record_data_rows
+
+    monkeypatch.chdir(tmp_path)
+    record_data_rows(
+        tmp_path,
+        [
+            {
+                "module": "GOLD",
+                "va": 0x1000,
+                "identity": {"name": "g_ambiguous", "kind": "GLOBAL"},
+                "fill": {"section": ".data", "size": 4, "type": "int"},
+            },
+            {
+                "module": "GOLD",
+                "va": 0x1004,
+                "identity": {"name": "g_ambiguous", "kind": "GLOBAL"},
+                "fill": {"section": ".data", "size": 4, "type": "int"},
+            },
+        ],
+    )
+    out = tmp_path / "stubs.c"
+    out.write_text("int keep = 0;\n", encoding="utf-8")
+    preview = CliRunner().invoke(
+        gen_stubs.app,
+        [
+            "--output",
+            str(out),
+            "--update-data-symbol",
+            "g_ambiguous",
+            "--json",
+            "--dry-run",
+        ],
+    )
+    assert preview.exit_code != 0
+    assert "expected one unique data row: g_ambiguous" in preview.output
+    assert "GOLD.0x00001000" in preview.output
+    assert "GOLD.0x00001004" in preview.output
 
 
 def test_selected_addition_refuses_ambiguous_or_unreviewed_code() -> None:

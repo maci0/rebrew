@@ -3088,3 +3088,285 @@ class TestSourceVA:
         )
         assert result.exit_code == 0, result.output
         assert cli_payload(result)["results"][0]["action"] == "skipped"
+
+
+class TestSameVaPreview:
+    """The read-only same-VA byte preview at the CLI boundary."""
+
+    def _project(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        (tmp_path / "rebrew-project.toml").write_text(
+            "[project]\nname = 'probe'\ndefault_target = 'DST'\n"
+            "[compiler]\nprofile = 'msvc-6.0'\ncommand = 'CL.EXE'\n"
+            "[targets.SRC]\nbinary = 'a.exe'\n"
+            "[targets.DST]\nbinary = 'b.exe'\n",
+            encoding="utf-8",
+        )
+        fixture = Path(__file__).parent / "fixtures" / "mini_pe.exe"
+        data = fixture.read_bytes()
+        (tmp_path / "a.exe").write_bytes(data)
+        (tmp_path / "b.exe").write_bytes(data)
+        monkeypatch.chdir(tmp_path)
+
+    def test_requires_va(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.app.main import app as umbrella
+
+        self._project(tmp_path, monkeypatch)
+        monkeypatch.setattr("rebrew.cross_import.matched_source_bytes", lambda cfg: {A_F1: F1})
+        result = CliRunner().invoke(
+            umbrella,
+            ["source", "import-related", "--from", "SRC", "--same-va-preview", "--json"],
+        )
+        assert result.exit_code == 2, result.output
+
+    def test_exact_and_differ(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.app.main import app as umbrella
+
+        self._project(tmp_path, monkeypatch)
+        from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary
+
+        info = load_binary(tmp_path / "a.exe")
+        raw = extract_bytes_at_va(info, A_F1, len(F1), trim_padding=False)
+        assert raw is not None and len(raw) == len(F1)
+        monkeypatch.setattr("rebrew.cross_import.matched_source_bytes", lambda cfg: {A_F1: raw})
+        result = CliRunner().invoke(
+            umbrella,
+            [
+                "source",
+                "import-related",
+                "--from",
+                "SRC",
+                "--same-va-preview",
+                "--va",
+                hex(A_F1),
+                "--json",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        payload = cli_payload(result)
+        assert payload["mode"] == "same-va-preview"
+        assert payload["results"][0]["verdict"] == "exact"
+        assert payload["inputs_digest"]
+
+        differ = bytes([raw[0] ^ 0xFF]) + raw[1:]
+        monkeypatch.setattr("rebrew.cross_import.matched_source_bytes", lambda cfg: {A_F1: differ})
+        result = CliRunner().invoke(
+            umbrella,
+            [
+                "source",
+                "import-related",
+                "--from",
+                "SRC",
+                "--same-va-preview",
+                "--va",
+                hex(A_F1),
+                "--json",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert cli_payload(result)["results"][0]["verdict"] == "differ"
+
+    def test_reloc_equal(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        import lief
+        from typer.testing import CliRunner
+
+        from rebrew.app.main import app as umbrella
+
+        self._project(tmp_path, monkeypatch)
+        # mini_pe.exe has no base relocations; build a HIGHLOW one at
+        # image_base + 0x1004 exactly as tests/test_relocations.py does.
+        binary = lief.PE.parse(tmp_path / "b.exe")
+        assert binary is not None
+        section = binary.get_section(".text")
+        assert section is not None
+        section.virtual_size = 16
+        block = lief.PE.Relocation()
+        block.virtual_address = 0x1000
+        block.add_entry(lief.PE.RelocationEntry(4, lief.PE.RelocationEntry.BASE_TYPES.HIGHLOW))
+        binary.add_relocation(block)
+        binary.write(tmp_path / "b.exe")
+
+        from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary
+        from rebrew.formats.relocations import relocation_spans
+
+        info = load_binary(tmp_path / "b.exe")
+        spans = relocation_spans(info)
+        assert spans and spans[0][1] == 4
+        site_va, width = spans[0]
+        base_va = info.image_base + 0x1000
+        size = (site_va - base_va) + width
+        assert size > width
+        raw = extract_bytes_at_va(info, site_va, size, trim_padding=False)
+        assert raw is not None and len(raw) == size
+        donor = bytearray(raw)
+        donor[:width] = b"\xde\xad\xbe\xef"
+        monkeypatch.setattr(
+            "rebrew.cross_import.matched_source_bytes", lambda cfg: {site_va: bytes(donor)}
+        )
+        result = CliRunner().invoke(
+            umbrella,
+            [
+                "source",
+                "import-related",
+                "--from",
+                "SRC",
+                "--same-va-preview",
+                "--va",
+                hex(site_va),
+                "--json",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        row = cli_payload(result)["results"][0]
+        assert row["verdict"] == "reloc-equal", row
+        assert row["reloc_offsets"]
+
+    def test_unavailable_when_no_donor(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.app.main import app as umbrella
+
+        self._project(tmp_path, monkeypatch)
+        monkeypatch.setattr("rebrew.cross_import.matched_source_bytes", lambda cfg: {})
+        result = CliRunner().invoke(
+            umbrella,
+            [
+                "source",
+                "import-related",
+                "--from",
+                "SRC",
+                "--same-va-preview",
+                "--va",
+                hex(A_F1),
+                "--json",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert cli_payload(result)["results"][0]["verdict"] == "unavailable"
+
+
+class TestInteriorPreview:
+    """The read-only interior-entry preview at the CLI boundary."""
+
+    def _project(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, code: bytes) -> None:
+        (tmp_path / "rebrew-project.toml").write_text(
+            "[project]\nname = 'probe'\ndefault_target = 'DST'\n"
+            "[compiler]\nprofile = 'msvc-6.0'\ncommand = 'CL.EXE'\n"
+            "[targets.SRC]\nbinary = 'a.exe'\n"
+            "[targets.DST]\nbinary = 'b.exe'\n",
+            encoding="utf-8",
+        )
+        data = make_pe(code)
+        (tmp_path / "a.exe").write_bytes(data)
+        (tmp_path / "b.exe").write_bytes(data)
+        monkeypatch.chdir(tmp_path)
+
+    def _inventory(self, tmp_path: Path, entries: list[dict[str, Any]]) -> None:
+        import json
+
+        for target in ("SRC", "DST"):
+            rev = tmp_path / "src" / target
+            rev.mkdir(parents=True, exist_ok=True)
+            (rev / "function_structure.json").write_text(json.dumps(entries), encoding="utf-8")
+
+    def test_requires_va(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.app.main import app as umbrella
+
+        self._project(tmp_path, monkeypatch, F1)
+        self._inventory(tmp_path, [{"va": A_F1, "size": len(F1), "name": "f1"}])
+        result = CliRunner().invoke(
+            umbrella,
+            ["source", "import-related", "--from", "SRC", "--interior-preview", "--json"],
+        )
+        assert result.exit_code == 2, result.output
+
+    def test_external_caller(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        import struct
+
+        from typer.testing import CliRunner
+
+        from rebrew.app.main import app as umbrella
+
+        # Head at A_F1 covers 0x20 bytes; interior VA at A_F1+0x10 holds a
+        # prologue and is called from a second function at 0x401030 (outside head).
+        interior = A_F1 + 0x10
+        call_site = A_F1 + 0x30
+        rel = interior - (call_site + 5)
+        caller = b"\xe8" + struct.pack("<i", rel) + b"\xc3"
+        head_body = F1 + b"\x90" * (0x10 - len(F1))
+        code = _place({0x00: head_body, 0x10: F3, 0x30: caller}, 0x40)
+        self._project(tmp_path, monkeypatch, code)
+        self._inventory(
+            tmp_path,
+            [
+                {"va": A_F1, "size": 0x20, "name": "head"},
+                {"va": call_site, "size": len(caller), "name": "caller"},
+            ],
+        )
+        result = CliRunner().invoke(
+            umbrella,
+            [
+                "source",
+                "import-related",
+                "--from",
+                "SRC",
+                "--interior-preview",
+                "--va",
+                hex(interior),
+                "--json",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        payload = cli_payload(result)
+        assert payload["mode"] == "interior-preview"
+        row = payload["results"][0]
+        assert row["va"] == f"0x{interior:08x}"
+        assert row["head_va"] == f"0x{A_F1:08x}"
+        assert row["head_offset"] == 0x10
+        assert row["head_end"] == f"0x{A_F1 + 0x20:08x}"
+        assert row["external_callers"] == 1, row
+        assert row["prologue"] is True, row
+        assert payload["inputs_digest"]
+
+    def test_no_external_caller(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.app.main import app as umbrella
+
+        interior = A_F1 + 0x04
+        head_body = F1 + b"\x90" * (0x20 - len(F1))
+        code = _place({0x00: head_body, 0x20: F3}, 0x30)
+        self._project(tmp_path, monkeypatch, code)
+        self._inventory(
+            tmp_path,
+            [
+                {"va": A_F1, "size": 0x20, "name": "head"},
+                {"va": A_F2, "size": len(F3), "name": "other"},
+            ],
+        )
+        result = CliRunner().invoke(
+            umbrella,
+            [
+                "source",
+                "import-related",
+                "--from",
+                "SRC",
+                "--interior-preview",
+                "--va",
+                hex(interior),
+                "--json",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        row = cli_payload(result)["results"][0]
+        assert row["head_va"] == f"0x{A_F1:08x}"
+        assert row["head_offset"] == 0x04
+        assert row["external_callers"] == 0, row
+        assert row["prologue"] is False, row

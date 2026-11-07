@@ -46,8 +46,19 @@ import typer
 
 from rebrew.cli import TargetOption, console, json_print, require_config
 lazy from rebrew.c_parser import parse_c_source
-lazy from rebrew.data_layout import data_raw_from_binary, layout_geometry
-lazy from rebrew.metadata.data import data_rows_for_path, set_data_fields_batch
+lazy from rebrew.config import target_module
+lazy from rebrew.data_layout import (
+    data_raw_from_binary,
+    data_raw_size,
+    data_section_base,
+    layout_geometry,
+)
+lazy from rebrew.metadata.data import (
+    data_rows_for_path,
+    load_data_metadata,
+    module_visible_to_target,
+    set_data_fields_batch,
+)
 lazy from rebrew.sources import files_with_ext
 lazy from rebrew.utils import (
     atomic_write_text,
@@ -57,6 +68,11 @@ lazy from rebrew.utils import (
 )
 
 _EXTERN_CHAR_RE = re.compile(r"^(\s*)extern\s+(?:char|unsigned char)\s+")
+
+_G_EXTERN_RE = re.compile(
+    r"^(\s*)extern\s+(?:const\s+)?char\s*\*?\s*([A-Za-z_]\w*)\s*(?:\[\s*\])?\s*;"
+)
+_G_NAME_RE = re.compile(r"^g_[0-9a-fA-F]{6,}$")
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
@@ -72,7 +88,11 @@ _EPILOG = (
 
 
 app = typer.Typer(
-    help="Inline string-literal globals (s_<hint>_<ADDR>) from the reference binary.",
+    help=(
+        "Inline string-literal globals from the reference binary: "
+        "s_<hint>_<ADDR> placeholders and g_<hex> externs bound to "
+        'storage_kind = "literal" data rows.'
+    ),
     rich_markup_mode="rich",
     epilog=_EPILOG,
 )
@@ -190,6 +210,190 @@ def _string_at(orig: bytes, va: int, data_base: int) -> bytes | None:
     if end < 0:
         return None
     return orig[off:end]
+
+
+def _string_at_bounded(orig: bytes, va: int, data_base: int, size: int | None) -> bytes | None:
+    """NUL-terminated bytes at *va*, bounded to *size* bytes when given.
+
+    Returns None when the string is not NUL-terminated within *size* bytes
+    of *va*.  Escapability is left to :func:`c_literal`, which octal-escapes
+    every non-printable byte.
+    """
+    off = va - data_base
+    if off < 0 or off >= len(orig):
+        return None
+    end = orig.find(b"\x00", off)
+    if end < 0:
+        return None
+    if size is not None and end - off >= size:
+        return None
+    return orig[off:end]
+
+
+@dataclass
+class GLiteralResult:
+    """Outcome of :func:`inline_g_literal_uses` for one file."""
+
+    inlined: dict[str, int] = field(default_factory=dict)  # name -> use sites rewritten
+    skipped: dict[str, str] = field(default_factory=dict)  # name -> reason
+
+
+def _rel_of(metadata_dir: Any, path: Path) -> str:
+    """Metadata-root-relative POSIX path for *path* (matches data_rows_for_path)."""
+    import os
+
+    dir_path = Path(metadata_dir)
+    try:
+        return path.resolve().relative_to(dir_path.resolve()).as_posix()
+    except Exception:
+        return Path(os.path.relpath(path, dir_path)).as_posix()
+
+
+def inline_g_literal_uses(
+    path: Path,
+    orig: bytes,
+    data_base: int,
+    metadata_dir: Any,
+    cfg: Any,
+    dry_run: bool,
+    *,
+    cache: dict[tuple[int, int | None], bytes | None] | None = None,
+) -> GLiteralResult:
+    """Inline ``extern char g_x[]`` uses bound to ``storage_kind = "literal"`` rows.
+
+    A name qualifies when the file declares ``extern char NAME[]`` (or
+    ``char *NAME``), NAME matches ``g_<hex>``, and exactly one managed data
+    row for the selected target has ``name == NAME`` and
+    ``storage_kind == "literal"``.  Rows bound to a different file are
+    ignored (same scoping idea as ``gen_stubs``); rows in other modules that
+    are visible to the target make the lookup ambiguous and are skipped with
+    a reason.  Uses are replaced with the C string literal decoded from the
+    reference binary at the row VA, bounded to the row size.  The extern
+    declaration is removed only when every use was inlined.
+    """
+    result = GLiteralResult()
+    text, encoding = read_source_text(path)
+    lines = split_source_lines(text)
+    externs: dict[str, list[int]] = {}
+    for idx, line in enumerate(lines):
+        m = _G_EXTERN_RE.match(line.strip())
+        if m and _G_NAME_RE.match(m.group(2)):
+            externs.setdefault(m.group(2), []).append(idx)
+    if not externs:
+        return result
+
+    rows = load_data_metadata(metadata_dir, deepcopy=False)
+    by_name: dict[str, list[tuple[str, int, dict[str, Any]]]] = {}
+    for (row_module, va), row in rows.items():
+        name = row.get("name")
+        if not isinstance(name, str) or name not in externs:
+            continue
+        if row.get("storage_kind") != "literal":
+            continue
+        if not module_visible_to_target(row_module, cfg):
+            # Another target's row is not visible here, but it still counts
+            # for ambiguity when the active target has no row of its own.
+            # Keep it tagged so resolution can decide.
+            by_name.setdefault(name, []).append((row_module, va, row))
+            continue
+        by_name.setdefault(name, []).append((row_module, va, row))
+
+    if cache is None:
+        cache = {}
+
+    resolved: dict[str, tuple[int, str] | str] = {}
+    rel = _rel_of(metadata_dir, path)
+    active = target_module(cfg) if cfg is not None else ""
+    for name in externs:
+        candidates = by_name.get(name, [])
+        # Prefer the active target's row; other modules' rows count only
+        # for ambiguity when no active row exists.
+        visible = [
+            (mod, va, row) for mod, va, row in candidates if module_visible_to_target(mod, cfg)
+        ]
+        if visible:
+            scoped = [
+                (mod, va, row)
+                for mod, va, row in visible
+                if not row.get("file") or str(row["file"]).replace("\\", "/") == rel
+            ]
+        elif not active:
+            scoped = [
+                (mod, va, row)
+                for mod, va, row in candidates
+                if not row.get("file") or str(row["file"]).replace("\\", "/") == rel
+            ]
+        else:
+            scoped = []
+        if not scoped:
+            # Fall back to any module's row when the active target has none.
+            fallback = [
+                (mod, va, row)
+                for mod, va, row in candidates
+                if not row.get("file") or str(row["file"]).replace("\\", "/") == rel
+            ]
+            if fallback and not visible:
+                scoped = fallback
+            else:
+                continue
+        if len(scoped) > 1:
+            resolved[name] = "ambiguous data rows across modules"
+            continue
+        _mod, va, row = scoped[0]
+        size = row.get("size")
+        size_int = size if isinstance(size, int) and size > 0 else None
+        key = (va, size_int)
+        if key not in cache:
+            cache[key] = _string_at_bounded(orig, va, data_base, size_int)
+        data = cache[key]
+        if data is None:
+            resolved[name] = (
+                "bytes not NUL-terminated within row size"
+                if size_int is not None
+                else "no NUL-terminated string at row address"
+            )
+            continue
+        resolved[name] = (va, c_literal(data))
+
+    mask = _mask_keep_regions(text)
+    edits: list[tuple[int, int, str]] = []
+    name_uses: dict[str, int] = defaultdict(int)
+    for name, res in resolved.items():
+        if isinstance(res, str):
+            result.skipped[name] = res
+            continue
+        _va, literal = res
+        word = re.compile(r"\b" + re.escape(name) + r"\b")
+        for m in word.finditer(text):
+            s, e = m.span()
+            if b"0" in mask[s:e]:
+                continue
+            edits.append((s, e, literal))
+            name_uses[name] += 1
+    for name, uses in name_uses.items():
+        if uses:
+            result.inlined[name] = uses
+
+    if edits:
+        offsets = [0]
+        for ln in lines:
+            offsets.append(offsets[-1] + len(ln) + 1)
+        for name in list(result.inlined):
+            for idx in externs.get(name, []):
+                start = offsets[idx]
+                end = min(start + len(lines[idx]) + 1, len(text))
+                edits.append((start, end, ""))
+        edits.sort(reverse=True)
+        out = text
+        for s, e, repl in edits:
+            out = out[:s] + repl + out[e:]
+        if not dry_run:
+            atomic_write_text(path, out, encoding=encoding)
+        for name, n in result.inlined.items():
+            console.print(f"  {path}: {name} inlined at {n} use(s)")
+    for name, why in result.skipped.items():
+        console.print(f"  [yellow]{path}: {name} skipped: {why}[/yellow]")
+    return result
 
 
 def inline_string_uses(
@@ -705,11 +909,27 @@ def main(
     if not bin_path.exists():
         error_exit(f"reference binary not found: {bin_path}", json_mode=json_output)
 
-    try:
-        data_base, _raw_end, _section_end = layout_geometry(cfg.root / "rebrew-project.toml")
-    except ValueError as exc:
-        error_exit(str(exc), json_mode=json_output)
     orig = data_raw_from_binary(bin_path)
+    # The selected target's layout package wins when its .data raw size
+    # matches the selected binary; existence alone can describe another
+    # target. Otherwise the base is the binary section that supplied orig.
+    data_base: int | None = None
+    binary_raw_size = data_raw_size(bin_path)
+    try:
+        layout_base, layout_raw_end, _section_end = layout_geometry(
+            cfg.root / "rebrew-project.toml", cfg.target_name
+        )
+        if binary_raw_size is None or layout_raw_end - layout_base == binary_raw_size:
+            data_base = layout_base
+    except OSError, ValueError:
+        data_base = None
+    if data_base is None:
+        data_base = data_section_base(bin_path)
+    if data_base is None:
+        error_exit(
+            f"neither a layout package nor a .data section was found for {bin_path}",
+            json_mode=json_output,
+        )
     token_re = re.compile(rf"\b{re.escape(token_prefix)}[A-Za-z0-9_]+_([0-9a-fA-F]{{6,8}})\b")
 
     cache: dict[int, bytes | None] = {}
@@ -717,12 +937,32 @@ def main(
     for f in targets:
         total += inline_string_uses(f, orig, data_base, token_re, cache, dry_run)
 
+    g_cache: dict[tuple[int, int | None], bytes | None] = {}
+    g_inlined: dict[str, int] = {}
+    g_skipped: dict[str, str] = {}
+    for f in targets:
+        res = inline_g_literal_uses(
+            f, orig, data_base, cfg.metadata_dir, cfg, dry_run, cache=g_cache
+        )
+        g_inlined.update(res.inlined)
+        g_skipped.update(res.skipped)
+    total += sum(g_inlined.values())
+
     defined = 0
     if not inline_only:
         defined = define_remaining_strings(targets, orig, data_base, token_re, dry_run)
 
     if json_output:
-        json_print({"inlined": total, "defined": defined, "files": len(targets)})
+        payload: dict[str, Any] = {
+            "inlined": total,
+            "defined": defined,
+            "files": len(targets),
+        }
+        if g_inlined:
+            payload["g_inlined"] = g_inlined
+        if g_skipped:
+            payload["skipped"] = g_skipped
+        json_print(payload)
     else:
         console.print(
             f"[green]inline-strings:[/green] {total} use-site(s) inlined, "

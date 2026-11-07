@@ -219,6 +219,45 @@ class TestMergeBasic:
         assert result.exit_code == 0
         assert "helper" in payloads[0]["extern_conflicts"]
 
+    def test_extern_conflict_across_inputs_dry_run_and_apply_refuses(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        a = _write(
+            tmp_path / "a.c",
+            _single(0x10001000, "_a", preamble="extern int fcn_005356e0(void);\n"),
+        )
+        b = _write(
+            tmp_path / "b.c",
+            _single(0x10002000, "_b", preamble="void fcn_005356e0(void);\n"),
+        )
+        payloads: list[dict[str, Any]] = []
+        monkeypatch.setattr("rebrew.merge.json_print", lambda data: payloads.append(data))
+        dry, out = _invoke(tmp_path, monkeypatch, "--dry-run", "--json", str(a), str(b))
+        assert dry.exit_code == 0, dry.output
+        assert len(payloads) == 1
+        conflicts = payloads[0]["extern_conflicts"]
+        assert "fcn_005356e0" in conflicts
+        assert len(conflicts["fcn_005356e0"]) == 2
+        assert not out.exists()
+
+        apply, out = _invoke(tmp_path, monkeypatch, "--force", str(a), str(b))
+        assert apply.exit_code != 0
+        assert "Nothing was written" in apply.output
+        assert not out.exists()
+
+    def test_identical_extern_across_inputs_stays_clean(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        decl = "extern int fcn_005356e0(void);\n"
+        a = _write(tmp_path / "a.c", _single(0x10001000, "_a", preamble=decl))
+        b = _write(tmp_path / "b.c", _single(0x10002000, "_b", preamble=decl))
+        payloads: list[dict[str, Any]] = []
+        monkeypatch.setattr("rebrew.merge.json_print", lambda data: payloads.append(data))
+        result, out = _invoke(tmp_path, monkeypatch, "--force", "--json", str(a), str(b))
+        assert result.exit_code == 0, result.output
+        assert payloads[0]["extern_conflicts"] == {}
+        assert out.read_text(encoding="utf-8").count("extern int fcn_005356e0") == 1
+
     def test_consolidate_keeps_a_multiline_extern_whole(self) -> None:
         """A parameter list split across lines must not glue onto the next extern."""
         from rebrew.merge import consolidate_declarations
@@ -1953,3 +1992,118 @@ def test_transactional_merge_refuses_unresolved_header(
     )
     assert result.exit_code != 0 and "include closure is incomplete" in result.output
     assert a.exists() and b.exists() and not (tmp_path / "merged.c").exists()
+
+
+def _accept_project(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, preamble: str = '#include "missing.h"\n'
+) -> tuple[Path, Path, Path]:
+    from rebrew.config import ProjectConfig
+
+    (tmp_path / "rebrew-project.toml").write_text('[metadata]\nbackend = "toml"\n')
+    a = _write(tmp_path / "a.c", _single(0x10001000, "_first", preamble=preamble))
+    b = _write(tmp_path / "b.c", _single(0x10002000, "_second"))
+    cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path, module="SERVER", target_name="SERVER")
+    monkeypatch.setattr("rebrew.merge.require_config", lambda **kwargs: cfg)
+    return a, b, tmp_path / "merged.c"
+
+
+def test_merge_accept_unresolved_includes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+
+    a, b, out = _accept_project(tmp_path, monkeypatch)
+
+    def run(*flags: str) -> Any:
+        return runner.invoke(
+            app,
+            [
+                "--output",
+                str(out),
+                "--force",
+                "--delete",
+                "--dry-run",
+                "--json",
+                *flags,
+                str(a),
+                str(b),
+            ],
+        )
+
+    refused = run()
+    assert refused.exit_code != 0 and "include closure is incomplete" in refused.output
+    wrong = run("--accept-unresolved-includes", "other.h")
+    assert wrong.exit_code != 0 and "include closure is incomplete" in wrong.output
+    accepted = run("--accept-unresolved-includes", "missing.h")
+    assert accepted.exit_code == 0, accepted.output
+    payload = json.loads(accepted.output)
+    assert payload["accepted_unresolved_includes"] == ["missing.h"]
+    tolerated = payload["tolerated_unresolved_includes"]
+    assert len(tolerated) == 1 and tolerated[0]["missing"] == ["missing.h"]
+    assert tolerated[0]["target"] == "SERVER"
+    assert all(path.exists() for path in (a, b)) and not out.exists()
+
+    applied = runner.invoke(
+        app,
+        [
+            "--output",
+            str(out),
+            "--force",
+            "--delete",
+            "--json",
+            "--expected-digest",
+            payload["input_digest"],
+            "--accept-unresolved-includes",
+            "missing.h",
+            str(a),
+            str(b),
+        ],
+    )
+    assert applied.exit_code == 0, applied.output
+    assert out.exists() and not a.exists() and not b.exists()
+
+
+def test_merge_accept_unresolved_includes_digest_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    a, b, out = _accept_project(tmp_path, monkeypatch)
+    base = ["--output", str(out), "--force", "--dry-run", "--json"]
+    one = runner.invoke(app, [*base, "--accept-unresolved-includes", "missing.h", str(a), str(b)])
+    two = runner.invoke(
+        app,
+        [
+            *base,
+            "--accept-unresolved-includes",
+            "missing.h",
+            "--accept-unresolved-includes",
+            "stdio.h",
+            str(a),
+            str(b),
+        ],
+    )
+    assert one.exit_code == 0 and two.exit_code == 0, (one.output, two.output)
+    assert json.loads(one.output)["input_digest"] != json.loads(two.output)["input_digest"]
+    assert json.loads(two.output)["accepted_unresolved_includes"] == ["missing.h", "stdio.h"]
+
+
+@pytest.mark.parametrize("name", ["/etc/passwd", "../secret.h", "C:\\win.h", ""])
+def test_merge_accept_unresolved_includes_rejects_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    a, b, out = _accept_project(tmp_path, monkeypatch)
+    result = runner.invoke(
+        app,
+        [
+            "--output",
+            str(out),
+            "--force",
+            "--dry-run",
+            "--json",
+            "--accept-unresolved-includes",
+            name,
+            str(a),
+            str(b),
+        ],
+    )
+    assert result.exit_code != 0 and "accept-unresolved-includes" in result.output
+    assert all(path.exists() for path in (a, b)) and not out.exists()

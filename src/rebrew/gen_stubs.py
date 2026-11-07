@@ -1377,6 +1377,82 @@ def _run_build(
                     error_exit(f"restore of {renamed[0].name} failed: {exc}", json_mode=json_mode)
 
 
+def build_data_definition(row: dict[str, typing.Any]) -> str:
+    """One zero-initialised C definition for a managed data row.
+
+    Pure scaffold helper: ``name``, ``type``, ``size`` and ``storage_kind``
+    decide the text. Literals are linker-owned by their string use, aliases
+    and layout spans are views without a backing object definition, so
+    neither gets a definition. Size is checked only when the element size
+    is known (``int``, ``char``, pointers, arrays of them and the other
+    integer widths); an unknown type emits its scalar spelling.
+    """
+    storage_kind = row.get("storage_kind") or "object"
+    name = row.get("name")
+    type_text = row.get("type")
+    size = row.get("size")
+    if not isinstance(name, str) or not is_safe_c_ident(name):
+        raise ValueError(f"missing or invalid data name: {name!r}")
+    if storage_kind == "literal":
+        raise ValueError(f"{name} is a compiler literal, linker-owned by its string use in source")
+    if storage_kind in {"alias", "span"}:
+        raise ValueError(
+            f"{name} is a view without a backing object definition (storage_kind={storage_kind})"
+        )
+    if storage_kind == "import":
+        raise ValueError(f"{name} is a linker-owned import slot, not a definition")
+    if storage_kind != "object":
+        raise ValueError(f"{name}: invalid storage_kind {storage_kind!r}")
+    if not isinstance(type_text, str) or not type_text.strip():
+        raise ValueError(f"{name}: missing type")
+    if not isinstance(size, int) or isinstance(size, bool) or size <= 0:
+        raise ValueError(f"{name}: missing or invalid size {size!r}")
+    type_text = " ".join(type_text.split())
+    from rebrew.c_parser import array_type_shape
+
+    base, dims = array_type_shape(type_text)
+    if "[" in type_text and not dims:
+        raise ValueError(f"{name}: missing or inconsistent type {type_text!r}")
+    if any(not isinstance(d, int) or d <= 0 for d in dims):
+        raise ValueError(f"{name}: missing or inconsistent type {type_text!r}")
+    elem_size: int | None = 4 if "*" in base else _KNOWN_ELEM_SIZES.get(base)
+    if elem_size is None:
+        if dims:
+            raise ValueError(f"{name}: missing or inconsistent type {type_text!r} for size {size}")
+        return f"{base} {name} = 0;"
+    dims_int: list[int] = [d for d in dims if isinstance(d, int)]
+    total = elem_size
+    for d in dims_int:
+        total *= d
+    if total != size:
+        raise ValueError(f"{name}: size {size} does not equal type size {total} for {type_text!r}")
+    bounds = "".join(f"[0x{d:x}]" if d >= 16 else f"[{d}]" for d in dims_int)
+    if dims:
+        return f"{base} {name}{bounds} = {{0}};"
+    return f"{base} {name} = 0;"
+
+
+# Elem sizes 32-bit target knows well enough to check a row against.
+_KNOWN_ELEM_SIZES = {
+    "char": 1,
+    "signed char": 1,
+    "unsigned char": 1,
+    "short": 2,
+    "short int": 2,
+    "signed short": 2,
+    "unsigned short": 2,
+    "unsigned short int": 2,
+    "int": 4,
+    "signed int": 4,
+    "unsigned int": 4,
+    "long": 4,
+    "long int": 4,
+    "unsigned long": 4,
+    "unsigned long int": 4,
+    "signed long int": 4,
+}
+
+
 def _update_selected_stubs(
     content: str, specs: dict[str, typing.Any], symbols: list[str]
 ) -> tuple[str, list[dict[str, str]]]:
@@ -1429,7 +1505,7 @@ def _update_selected_stubs(
             )
         return found
 
-    if not symbols or len(symbols) != len(set(symbols)):
+    if len(symbols) != len(set(symbols)):
         raise ValueError("selected symbols must be distinct")
     existing = definitions(content)
     raw = content.encode("utf-8", errors="surrogateescape")
@@ -1603,6 +1679,11 @@ def main(
         "--update-symbol",
         help="Update a definition or add a reviewed function from specials (repeatable)",
     ),
+    update_data_symbol: list[str] | None = typer.Option(
+        None,
+        "--update-data-symbol",
+        help="Append a zero-init data definition from the managed data row (repeatable)",
+    ),
     expected_digest: str | None = typer.Option(
         None, "--expected-digest", help=EXPECTED_DIGEST_HELP
     ),
@@ -1612,12 +1693,14 @@ def main(
     """Generate a stub TU for unresolved linker symbols."""
     root = Path.cwd()
 
-    if update_symbol:
+    if update_symbol or update_data_symbol:
         import hashlib
         import json
 
+        from rebrew.metadata.data import load_data_metadata
+
         if (
-            specials is None
+            (update_symbol and specials is None)
             or build_cmd
             or log
             or source_dir
@@ -1635,15 +1718,72 @@ def main(
         target = output if output.is_absolute() else root / output
         try:
             original = target.read_bytes().decode("utf-8", errors="surrogateescape")
-            if specials.is_symlink():
-                raise ValueError("specials must not be a symlink")
-            spec_bytes = specials.read_bytes()
-            selected_spec = load_tomllib(specials)
-            if specials.is_symlink() or specials.read_bytes() != spec_bytes:
-                raise ValueError("specials changed while loading")
-            content, changes = _update_selected_stubs(original, selected_spec, update_symbol)
+            selected_spec: dict[str, typing.Any] = {}
+            spec_bytes = b""
+            if specials is not None:
+                if specials.is_symlink():
+                    raise ValueError("specials must not be a symlink")
+                spec_bytes = specials.read_bytes()
+                selected_spec = load_tomllib(specials)
+                if specials.is_symlink() or specials.read_bytes() != spec_bytes:
+                    raise ValueError("specials changed while loading")
+            content, changes = _update_selected_stubs(original, selected_spec, update_symbol or [])
+            data_rows: list[tuple[str, typing.Any, typing.Any, typing.Any]] = []
+            if update_data_symbol:
+                if len(update_data_symbol) != len(set(update_data_symbol)):
+                    raise ValueError("selected data symbols must be distinct")
+                if set(update_data_symbol) & set(update_symbol or []):
+                    raise ValueError("selected symbols must be distinct across options")
+                rows_by_name: dict[str, list[tuple[tuple[str, int], dict[str, typing.Any]]]] = {}
+                for key, row in load_data_metadata(root, deepcopy=False).items():
+                    row_name = row.get("name")
+                    if not isinstance(row_name, str):
+                        continue
+                    stored_file = row.get("file")
+                    if isinstance(stored_file, str) and stored_file:
+                        row_path = Path(stored_file)
+                        if not row_path.is_absolute():
+                            row_path = root / row_path
+                        if row_path.resolve() != target.resolve():
+                            continue
+                    rows_by_name.setdefault(row_name, []).append((key, row))
+                defined = _defined_symbols(content)
+                for symbol in update_data_symbol:
+                    if not is_safe_c_ident(symbol):
+                        raise ValueError(f"invalid symbol: {symbol}")
+                    matches = rows_by_name.get(symbol, [])
+                    if len(matches) != 1:
+                        keys = ", ".join(
+                            sorted(f"{module}.0x{va:08x}" for (module, va), _ in matches)
+                        )
+                        raise ValueError(
+                            f"expected one unique data row: {symbol} (candidates: {keys})"
+                        )
+                    row = matches[0][1]
+                    definition = build_data_definition(row)
+                    if symbol in defined:
+                        raise ValueError(f"already defined: {symbol}")
+                    defined.add(symbol)
+                    data_rows.append(
+                        (symbol, row.get("type"), row.get("size"), row.get("storage_kind"))
+                    )
+                    suffix = ("" if not content or content.endswith("\n") else "\n") + definition
+                    if not suffix.endswith("\n"):
+                        suffix += "\n"
+                    content += suffix
+                    changes.append(
+                        {
+                            "symbol": symbol,
+                            "action": "add",
+                            "before": "",
+                            "after": definition,
+                        }
+                    )
             digest = hashlib.sha256(
-                json.dumps([original, selected_spec, update_symbol], sort_keys=True).encode()
+                json.dumps(
+                    [original, selected_spec, update_symbol, sorted(data_rows), update_data_symbol],
+                    sort_keys=True,
+                ).encode()
             ).hexdigest()
             if not dry_run:
                 if expected_digest != digest:
@@ -1652,7 +1792,7 @@ def main(
                     target,
                     original.encode("utf-8", errors="surrogateescape"),
                     content.encode("utf-8", errors="surrogateescape"),
-                    specials,
+                    specials if specials is not None else Path("/dev/null"),
                     spec_bytes,
                 )
         except (OSError, ValueError) as exc:
@@ -1669,7 +1809,10 @@ def main(
             console.print(result)
         return
     if expected_digest:
-        error_exit("--expected-digest requires --update-symbol", json_mode=json_output)
+        error_exit(
+            "--expected-digest requires --update-symbol or --update-data-symbol",
+            json_mode=json_output,
+        )
 
     # 1. Collect linker output.
     if build_cmd:

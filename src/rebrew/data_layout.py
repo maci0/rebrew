@@ -441,6 +441,23 @@ def data_raw_from_binary(bin_path: Path) -> bytes:
     return info.data[sec.file_offset : sec.file_offset + sec.raw_size]
 
 
+def data_section_base(bin_path: Path) -> int | None:
+    """The reference binary's .data section VA, or None without one.
+
+    Same loader and section as :func:`data_raw_from_binary`, so the base and
+    the raw bytes it indexes always describe the same selected binary even
+    when the project layout package belongs to another target.
+    """
+    sec = load_binary(bin_path).sections.get(".data")
+    return sec.va if sec is not None else None
+
+
+def data_raw_size(bin_path: Path) -> int | None:
+    """The reference binary's .data raw size, or None without the section."""
+    sec = load_binary(bin_path).sections.get(".data")
+    return sec.raw_size if sec is not None else None
+
+
 def data_byte_order(bin_path: Path) -> str:
     """The reference's ``struct`` byte-order prefix (``">"`` for big-endian targets)."""
     return ">" if load_binary(bin_path).endian == "big" else "<"

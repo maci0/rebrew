@@ -24,6 +24,7 @@ are left untouched and reported.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
+lazy import hashlib
 lazy import heapq
 lazy import shutil
 lazy from dataclasses import replace
@@ -1294,6 +1295,304 @@ def _source_flags(cfg_src: ProjectConfig, src_path: Path, src_va: int) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Same-VA byte preview (read-only; no register/import apply)
+# ---------------------------------------------------------------------------
+
+
+def _masked_digest(code: bytes, reloc_offsets: list[int]) -> str:
+    """SHA-256 of *code* with the relocation slots zeroed.
+
+    Uses ``normalize_with_reloc_offsets`` (the same normaliser
+    ``ops.binary_function_digests`` digests with), so the same function
+    linked at another base digests alike."""
+    from rebrew.matcher.scoring import normalize_with_reloc_offsets
+
+    normalized = normalize_with_reloc_offsets(code, reloc_offsets, pointer_size=1)
+    return hashlib.sha256(normalized).hexdigest()
+
+
+def same_va_preview_rows(
+    cfg_src: ProjectConfig,
+    cfg_dst: ProjectConfig,
+    vas: list[int],
+    *,
+    source_vas: dict[int, int] | None = None,
+) -> tuple[list[dict[str, Any]], str]:
+    """Per-VA verdict: destination binary bytes at the same VA vs the source
+    function reference bytes.
+
+    *vas* are the destination VAs to check; the source function is the one at
+    the same VA in *cfg_src* unless *source_vas* maps ``dst_va -> src_va``.
+    The source extent is the matched-source size (``matched_source_bytes``);
+    a VA with no matched source donor is ``unavailable`` — never inferred.
+
+    Returns ``(rows, inputs_digest)`` where *inputs_digest* is the SHA-256
+    over the sorted ``dst_va|src_va|src_digest|dst_digest`` lines, the
+    digest-guarded "inputs" of this preview.  The relocation mask comes from
+    the linked image's own base-relocation table via
+    :func:`rebrew.formats.relocations.relocation_spans` — the same loaders
+    ``ops.binary_function_digests`` uses; no new PE parser, no invented
+    fixups.  Read-only: touches no store, writes no file, and never proves
+    an adopt — a ``reloc-equal``/``exact`` row is byte evidence only;
+    re-verification after any apply is still required."""
+    from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary
+
+    source_vas = dict(source_vas or {})
+    src_bytes = matched_source_bytes(cfg_src)
+    rows: list[dict[str, Any]] = []
+    digest_lines: list[str] = []
+    try:
+        dst_info = load_binary(cfg_dst.target_binary)
+    except (OSError, ValueError) as exc:
+        for va in sorted(vas):
+            rows.append(
+                {
+                    "dst_va": f"0x{va:08x}",
+                    "src_va": None,
+                    "size": None,
+                    "verdict": "unreadable",
+                    "message": f"destination binary unreadable: {exc}",
+                }
+            )
+        return rows, hashlib.sha256(b"").hexdigest()
+    from rebrew.formats.relocations import relocation_spans
+
+    try:
+        spans = relocation_spans(dst_info)
+    except NotImplementedError, ValueError:
+        spans = []
+    for va in sorted(set(vas)):
+        src_va = source_vas.get(va, va)
+        src_code = src_bytes.get(src_va)
+        if src_code is None:
+            rows.append(
+                {
+                    "dst_va": f"0x{va:08x}",
+                    "src_va": f"0x{src_va:08x}",
+                    "size": None,
+                    "verdict": "unavailable",
+                    "message": (
+                        "no matched EXACT/RELOC source function at this VA "
+                        "in the source target; extent not inferred"
+                    ),
+                }
+            )
+            continue
+        size = len(src_code)
+        dst_code = extract_bytes_at_va(dst_info, va, size, trim_padding=False)
+        offsets: list[int] = []
+        if dst_code is None:
+            rows.append(
+                {
+                    "dst_va": f"0x{va:08x}",
+                    "src_va": f"0x{src_va:08x}",
+                    "size": size,
+                    "verdict": "unreadable",
+                    "message": "destination VA is outside file-backed image bytes",
+                }
+            )
+            continue
+        if len(dst_code) != size:
+            verdict = "differ"
+            message = f"destination extent is {len(dst_code)}B, source is {size}B"
+        elif dst_code == src_code:
+            verdict = "exact"
+            message = "byte-identical at the same VA"
+        else:
+            offsets = sorted(
+                {
+                    off - va
+                    for address, width in spans
+                    for off in range(max(va, address), min(va + size, address + width))
+                }
+            )
+            if (
+                spans
+                and offsets
+                and _masked_digest(dst_code, offsets) == _masked_digest(src_code, offsets)
+            ):
+                verdict = "reloc-equal"
+                message = (
+                    "equal after masking linked-image relocation spans "
+                    f"({len(offsets)} offset(s)); base-relocation evidence only, "
+                    "not a compile proof"
+                )
+            else:
+                mismatches = sum(1 for a, b in zip(src_code, dst_code, strict=True) if a != b)
+                verdict = "differ"
+                message = f"{mismatches}/{size} byte(s) differ at the same VA"
+        if verdict == "reloc-equal":
+            src_masked = _masked_digest(src_code, offsets)
+            dst_masked = _masked_digest(dst_code, offsets)
+        else:
+            src_masked = hashlib.sha256(src_code).hexdigest()
+            dst_masked = hashlib.sha256(dst_code).hexdigest()
+        row: dict[str, Any] = {
+            "dst_va": f"0x{va:08x}",
+            "src_va": f"0x{src_va:08x}",
+            "size": size,
+            "verdict": verdict,
+            "message": message,
+            "src_sha256": hashlib.sha256(src_code).hexdigest(),
+            "dst_sha256": hashlib.sha256(dst_code).hexdigest(),
+            "src_masked_sha256": src_masked,
+            "dst_masked_sha256": dst_masked,
+        }
+        if verdict == "reloc-equal":
+            row["reloc_offsets"] = offsets
+        rows.append(row)
+        digest_lines.append(
+            f"{row['dst_va']}|{row['src_va']}|{row['src_masked_sha256']}|{row['dst_masked_sha256']}"
+        )
+    inputs_digest = hashlib.sha256("\n".join(digest_lines).encode()).hexdigest()
+    return rows, inputs_digest
+
+
+def _looks_like_prologue(code: bytes | None) -> bool:
+    """Whether *code* opens with a function prologue the discoverer accepts.
+
+    Mirrors the opener shapes in :func:`rebrew.discover._function_start`
+    (and its ``verify._looks_like_inventory_merge`` copy) on raw bytes
+    after optional nop/int3 padding, without a loader handle.  Deliberately
+    narrow: this is evidence for a secondary entry point, not a boundary
+    proof, so a false positive would invent a head alias.
+    """
+    if not code:
+        return False
+    i = 0
+    while i < len(code) and code[i] in (0x90, 0xCC):
+        i += 1
+    body = code[i:]
+    if body.startswith(
+        (
+            b"\x55\x8b\xec",
+            b"\x81\xec",
+            b"\x83\xec",
+            b"\x6a\xff\x68",
+            b"\x64\xa1\x00\x00\x00\x00",
+            b"\xa1",
+            b"\x8b\x44\x24\x04",
+            b"\x8b\x4c\x24\x04",
+        )
+    ):
+        return True
+    if len(body) >= 6 and body[0] == 0xB8 and body[5] == 0xC3:
+        return True
+    return (
+        len(body) >= 4
+        and 0x50 <= body[0] <= 0x57
+        and body[1] == 0x8B
+        and body[3] == 0x24
+        and (body[2] & 0xC0) == 0x40
+        and (body[2] & 0x07) == 0x04
+        and ((body[2] >> 3) & 7) == (body[0] - 0x50)
+    )
+
+
+def interior_preview_rows(
+    cfg_dst: ProjectConfig,
+    vas: list[int],
+) -> tuple[list[dict[str, Any]], str]:
+    """Per-VA interior-entry evidence against the destination inventory head.
+
+    For each VA, the containing function start is the greatest inventory
+    start at or below the VA.  ``head_end`` is that head plus its inventory
+    size (falling back to the next inventory start, then the VA itself, when
+    the head size is zero or missing).  ``external_callers`` counts
+    ``call``/``jmp`` sites the existing disassembly/xref helper
+    (:func:`rebrew.analysis.scan_references`) finds outside
+    ``[head_va, head_end)`` whose target is the VA exactly.  ``prologue``
+    reports whether the bytes at the VA open with a function prologue.
+
+    Returns ``(rows, inputs_digest)`` with a SHA-256 over the sorted
+    ``va|head_va|head_offset|head_end|external_callers|prologue`` lines,
+    mirroring :func:`same_va_preview_rows`.  Read-only: touches no store,
+    writes no file, records no alias; a VA with no inventory head below it
+    reports null head fields and zero external callers.
+    """
+    from rebrew.analysis import scan_references
+    from rebrew.catalog.loaders import load_function_structure
+    from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary
+
+    rows: list[dict[str, Any]] = []
+    digest_lines: list[str] = []
+    inventory: list[tuple[int, int]] = sorted(
+        {
+            (int(e.va), int(e.size))
+            for e in load_function_structure(inventory_path_for(cfg_dst.reversed_dir, cfg_dst))
+        }
+    )
+    starts = [va for va, _size in inventory]
+    sizes = dict(inventory)
+    try:
+        info = load_binary(cfg_dst.target_binary)
+    except (OSError, ValueError) as exc:
+        for va in sorted(set(vas)):
+            rows.append(
+                {
+                    "va": f"0x{va:08x}",
+                    "head_va": None,
+                    "head_offset": None,
+                    "head_end": None,
+                    "external_callers": 0,
+                    "prologue": False,
+                    "message": f"destination binary unreadable: {exc}",
+                }
+            )
+        return rows, hashlib.sha256(b"").hexdigest()
+    for va in sorted(set(vas)):
+        head_va: int | None = None
+        for start in starts:
+            if start > va:
+                break
+            head_va = start
+        if head_va is None:
+            rows.append(
+                {
+                    "va": f"0x{va:08x}",
+                    "head_va": None,
+                    "head_offset": None,
+                    "head_end": None,
+                    "external_callers": 0,
+                    "prologue": _looks_like_prologue(
+                        extract_bytes_at_va(info, va, 16, trim_padding=False)
+                    ),
+                    "message": "no inventory function start at or below this VA",
+                }
+            )
+            continue
+        head_size = sizes.get(head_va, 0)
+        if head_size > 0:
+            head_end = head_va + head_size
+        else:
+            following = [s for s in starts if s > head_va]
+            head_end = following[0] if following else va
+        head_offset = va - head_va
+        refs = scan_references(info, target_va=va)
+        external_callers = sum(
+            1
+            for ref in refs
+            if ref.kind in ("call", "jmp") and not (head_va <= ref.from_va < head_end)
+        )
+        prologue = _looks_like_prologue(extract_bytes_at_va(info, va, 16, trim_padding=False))
+        row: dict[str, Any] = {
+            "va": f"0x{va:08x}",
+            "head_va": f"0x{head_va:08x}",
+            "head_offset": head_offset,
+            "head_end": f"0x{head_end:08x}",
+            "external_callers": external_callers,
+            "prologue": prologue,
+        }
+        rows.append(row)
+        digest_lines.append(
+            f"{row['va']}|{row['head_va']}|{row['head_offset']}|{row['head_end']}"
+            f"|{row['external_callers']}|{row['prologue']}"
+        )
+    inputs_digest = hashlib.sha256("\n".join(digest_lines).encode()).hexdigest()
+    return rows, inputs_digest
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -1306,8 +1605,12 @@ app = typer.Typer(
         "  # Import v1.1's matched functions\n"
         "  rebrew source import-related --from v1.1\n"
         "  rebrew source import-related --from game.exe --min-score 90\n"
-        "  rebrew source import-related --from v1.1 --dry-run --json  # Preview\n\n"
-        "[dim]Matches the source target's EXACT/RELOC functions against this target's unmatched functions structurally (no compile needed to match); imported sources are verified against this target before STATUS promotion.[/dim]"
+        "  rebrew source import-related --from v1.1 --dry-run --json  # Preview\n"
+        "  rebrew source import-related --from GOLD --same-va-preview --va 0x401000 --json  # Byte check only\n"
+        "  rebrew source import-related --from GOLD --interior-preview --va 0x401000 --json  # Interior alias evidence only\n\n"
+        "[dim]Matches the source target's EXACT/RELOC functions against this target's unmatched functions structurally (no compile needed to match); imported sources are verified against this target before STATUS promotion.[/dim]\n\n"
+        "[dim]--same-va-preview is read-only: it compares the destination binary bytes at each --va against the source target's matched function reference bytes at the same VA (or --source-va), relocation-masked from the linked image's own base-relocation table, and reports exact/reloc-equal/differ per VA with an inputs digest. It writes nothing and never registers or imports; a same-VA row that does not exist in the destination inventory is still compared directly (unavailable when the source has no matched donor). Structural search for a destination VA is out of scope.[/dim]\n\n"
+        "[dim]--interior-preview is read-only: for each --va it reports the containing inventory head (greatest function start at or below the VA), the offset and head end, external call/jmp callers outside the head, and whether the VA bytes open with a function prologue, with an inputs digest. It writes nothing and records no alias.[/dim]"
     ),
 )
 
@@ -1327,8 +1630,13 @@ def main(
     min_gap: float = typer.Option(
         5.0, "--min-gap", help="Best match must beat the runner-up by at least this"
     ),
-    va: str | None = typer.Option(
-        None, "--va", help="Restrict to one destination VA (hex, e.g. 0x401000)"
+    va: list[str] | None = typer.Option(
+        None,
+        "--va",
+        help="Destination VA(s) to check: with --same-va-preview or "
+        "--interior-preview, every "
+        "hex VA may be repeated (e.g. 0x401000); otherwise one VA "
+        "restricts the import to a single destination",
     ),
     source_va: str | None = typer.Option(
         None,
@@ -1352,6 +1660,20 @@ def main(
         "without importing, the manual step before --shared",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    same_va_preview: bool = typer.Option(
+        False,
+        "--same-va-preview",
+        help="Read-only byte check only: report exact/reloc-equal/differ per --va "
+        "against the --from target's matched function at the same VA (or "
+        "--source-va), with an inputs digest. Writes nothing.",
+    ),
+    interior_preview: bool = typer.Option(
+        False,
+        "--interior-preview",
+        help="Read-only interior-entry evidence only: report the containing "
+        "inventory head, offset, head end, external call/jmp callers and "
+        "prologue per --va, with an inputs digest. Writes nothing.",
+    ),
     candidates_only: bool = typer.Option(
         False,
         "--candidates-only",
@@ -1371,8 +1693,99 @@ def main(
     if cfg_src.target_name == cfg.target_name:
         error_exit("--from must name a different target", json_mode=json_output)
 
-    only_va = parse_va(va, json_mode=json_output) if va else None
+    if va and len(va) > 1 and not same_va_preview and not interior_preview:
+        error_exit(
+            "--va may be repeated only with --same-va-preview or --interior-preview "
+            "(the import flow takes one destination VA)",
+            json_mode=json_output,
+        )
+    if same_va_preview and interior_preview:
+        error_exit(
+            "--same-va-preview and --interior-preview are mutually exclusive",
+            json_mode=json_output,
+        )
+    only_vas = [parse_va(v, json_mode=json_output) for v in (va or [])]
+    only_va = only_vas[0] if only_vas else None
     only_source_va = parse_va(source_va, json_mode=json_output) if source_va else None
+
+    if same_va_preview:
+        if not only_vas:
+            error_exit(
+                "--same-va-preview requires --va (repeatable; one or more hex VAs)",
+                json_mode=json_output,
+            )
+        if only_source_va is not None and len(only_vas) != 1:
+            error_exit(
+                "--source-va with --same-va-preview requires exactly one --va",
+                json_mode=json_output,
+            )
+        source_vas = {only_vas[0]: only_source_va} if only_source_va is not None else None
+        rows, inputs_digest = same_va_preview_rows(cfg_src, cfg, only_vas, source_vas=source_vas)
+        payload: dict[str, Any] = {
+            "target": cfg.target_name,
+            "from": from_target,
+            "mode": "same-va-preview",
+            "dry_run": True,
+            "results": rows,
+            "inputs_digest": inputs_digest,
+        }
+        if json_output:
+            json_print(payload)
+            return
+        table = TerminalTable(
+            title=f"source import-related --same-va-preview {from_target} → {cfg.target_name}",
+            header_style="bold",
+        )
+        for col in ("Dest VA", "Src VA", "Size", "Verdict", "Message"):
+            table.add_column(col)
+        for row in rows:
+            table.add_row(
+                row["dst_va"],
+                row.get("src_va") or "-",
+                str(row["size"]) if row.get("size") is not None else "-",
+                row["verdict"],
+                row["message"],
+            )
+        console.print(table)
+        console.print(f"[dim]inputs_digest {inputs_digest}[/dim]")
+        return
+
+    if interior_preview:
+        if not only_vas:
+            error_exit(
+                "--interior-preview requires --va (repeatable; one or more hex VAs)",
+                json_mode=json_output,
+            )
+        rows, inputs_digest = interior_preview_rows(cfg, only_vas)
+        payload = {
+            "target": cfg.target_name,
+            "from": from_target,
+            "mode": "interior-preview",
+            "dry_run": True,
+            "results": rows,
+            "inputs_digest": inputs_digest,
+        }
+        if json_output:
+            json_print(payload)
+            return
+        table = TerminalTable(
+            title=f"source import-related --interior-preview {from_target} \u2192 {cfg.target_name}",
+            header_style="bold",
+        )
+        for col in ("VA", "Head VA", "Offset", "Head End", "External Callers", "Prologue"):
+            table.add_column(col)
+        for row in rows:
+            table.add_row(
+                row["va"],
+                row.get("head_va") or "-",
+                str(row["head_offset"]) if row.get("head_offset") is not None else "-",
+                row.get("head_end") or "-",
+                str(row["external_callers"]),
+                str(row["prologue"]),
+            )
+        console.print(table)
+        console.print(f"[dim]inputs_digest {inputs_digest}[/dim]")
+        return
 
     try:
         dest_bytes = unmatched_dest_bytes(cfg, only_va)
@@ -1633,7 +2046,7 @@ def main(
         results = [r for r in results if not r["action"].startswith("skipped")]
 
     if json_output:
-        payload: dict[str, Any] = {
+        payload = {
             "target": cfg.target_name,
             "from": from_target,
             "results": results,

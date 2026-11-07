@@ -429,3 +429,20 @@ def test_guarded_interleave_refuses_line_sensitive_macro_alias(
     result = _invoke(paths, out, "--dry-run")
     assert result.exit_code != 0 and "macro or unresolved identifier" in result.output
     assert all(path.exists() for path in paths) and not out.exists()
+
+
+def test_guarded_interleave_accept_unresolved_includes_passes_closure_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    paths, out, _ = _project(tmp_path, monkeypatch)
+    p = paths[1]
+    p.write_text('#include "missing.h"\n' + p.read_text())
+    refused = _invoke(paths, out, "--dry-run")
+    assert refused.exit_code != 0 and "include closure is incomplete" in refused.output
+    wrong = _invoke(paths, out, "--dry-run", "--accept-unresolved-includes", "other.h")
+    assert wrong.exit_code != 0 and "include closure is incomplete" in wrong.output
+    accepted = _invoke(paths, out, "--dry-run", "--accept-unresolved-includes", "missing.h")
+    assert accepted.exit_code != 0 and "include closure is incomplete" not in accepted.output
+    assert "include closure is incomplete" not in accepted.output
+    assert "conflict-free organization review" in accepted.output
+    assert all(path.exists() for path in paths) and not out.exists()

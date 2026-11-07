@@ -94,6 +94,10 @@ app = typer.Typer(
 
 _INCLUDE_RE = re.compile(r"^\s*#\s*include\s+")
 _EXTERN_RE = re.compile(r"^\s*extern\s+")
+# A bare function prototype (`int f(void);`) is the same declaration kind as an
+# `extern` one. The merged TU cannot carry two different spellings of the
+# same symbol, so both forms feed the same conflict check.
+_DECL_RE = re.compile(r"^\s*(?:extern\s+)?(?:[A-Za-z_]\w*[\s\*]+)+[A-Za-z_]\w*\s*\([^;{]*\)\s*;")
 _TYPEDEF_RE = re.compile(r"^\s*typedef\s+")
 _PRAGMA_INTRINSIC_RE = re.compile(r"^\s*#\s*pragma\s+intrinsic\s*\(")
 _BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/")
@@ -105,6 +109,13 @@ _EXTERN_NAME_BRACKET_RE = re.compile(r"(\w+)\s*[\[\(]")
 _EXTERN_NAME_TAIL_RE = re.compile(r"(\w+)\s*$")
 _ARG_NAME_RE = re.compile(r"\b[a-z_]\w*(?=\s*[,)])")
 _INTRINSIC_ARGS_RE = re.compile(r"intrinsic\s*\(([^)]+)\)")
+
+
+def _extern_key(decl: str) -> str:
+    """Whitespace and ``extern`` insensitive form, for identity comparison."""
+    d = _BLOCK_COMMENT_RE.sub("", decl.strip().rstrip(";").strip())
+    d = re.sub(r"^\s*extern\s+", "", d)
+    return re.sub(r"\s+", " ", d).strip()
 
 
 def _extract_extern_name(decl: str) -> str | None:
@@ -174,7 +185,8 @@ def _resolve_externs(externs: list[str]) -> ExternReport:
     conflicts: dict[str, list[str]] = {}
     for name in order:
         unique = list(dict.fromkeys(by_name[name]))
-        if len(unique) > 1:
+        keys = {_extern_key(decl) for decl in unique}
+        if len(keys) > 1:
             conflicts[name] = unique
         out.append(max(unique, key=_extern_specificity) if len(unique) > 1 else unique[0])
     return ExternReport(resolved=out, dropped=dropped, conflicts=conflicts)
@@ -335,6 +347,9 @@ def merge_preambles(preambles: list[str]) -> str:
     Deduplicate includes, externs, complete one-line typedefs and intrinsics.
     Multiline typedef openings must stay: identical opening lines can begin
     different declarations. The compiler arbitrates conflicting declarations.
+    Line-level deduplication uses ``_extern_key`` so declarations that differ
+    only in whitespace or the ``extern`` keyword collapse; distinct spellings
+    are preserved and reported through ``extern_conflicts``.
     """
     seen_decl: set[str] = set()
     merged_lines: list[str] = []
@@ -345,7 +360,7 @@ def merge_preambles(preambles: list[str]) -> str:
                 if merged_lines and merged_lines[-1]:
                     merged_lines.append("")
                 continue
-            if (
+            is_decl = (
                 _INCLUDE_RE.match(line)
                 or _EXTERN_RE.match(line)
                 or (
@@ -354,10 +369,12 @@ def merge_preambles(preambles: list[str]) -> str:
                     and line.count("{") == line.count("}")
                 )
                 or _PRAGMA_INTRINSIC_RE.match(line)
-            ):
-                if line in seen_decl:
+            )
+            if is_decl:
+                key = _extern_key(line) if _DECL_RE.match(line) else line
+                if key in seen_decl:
                     continue
-                seen_decl.add(line)
+                seen_decl.add(key)
             merged_lines.append(line)
 
     while merged_lines and not merged_lines[-1]:
@@ -962,6 +979,84 @@ def _merge_payload(
     }
 
 
+def _collect_file_scope_prototypes(text: str) -> list[str]:
+    """File-scope prototype declarations in *text*, without bodies.
+
+    Uses the C parser's declaration nodes so a call site, a cast and a
+    function definition never read as a conflicting prototype, and so an
+    unparseable line is skipped instead of misread.  Only declarations
+    whose text names a plain function prototype are returned; object
+    declarations (``extern int g_value;``) go through the extern rules in
+    :func:`_resolve_externs` instead, since a prototype type key is None
+    for them.
+    """
+    from rebrew.c_parser import parse_c_source, prototype_type_key
+    from rebrew.utils import strip_body
+
+    try:
+        # Call sites, casts, definitions and object declarations are not
+        # declarations, and an unparseable line is skipped instead of misread.
+        # The tree-sitter grammar still parses MSVC calling conventions, so
+        # the original text can be parsed directly: masking would blank
+        # __cdecl out and the reported declaration would no longer match the
+        # source the user must fix.
+        tree, _source = parse_c_source(text)
+    except Exception:
+        return []
+    prototypes: list[str] = []
+    for child in tree.root_node.children:
+        if child.type != "declaration":
+            continue
+        decl = strip_body(child.text.decode("utf-8", errors="replace")).strip()
+        if decl and prototype_type_key(decl) is not None:
+            prototypes.append(decl if decl.endswith(";") else decl + ";")
+    return prototypes
+
+
+def _prototype_conflicts(text: str) -> dict[str, list[str]]:
+    """Conflicting file-scope prototype spellings in merged *text*, by symbol.
+
+    Two declarations conflict when they name one symbol with different
+    prototype type keys (return type, convention, or parameter types).
+    Identical spellings and parameter-name-only differences are not
+    conflicts.  Declarations are reported verbatim, in merged order, so the
+    caller can name them without rewriting the output.
+    """
+    from rebrew.c_parser import prototype_name_span, prototype_type_key
+
+    by_name: dict[str, list[tuple[str, str]]] = {}
+    for decl in _collect_file_scope_prototypes(text):
+        span = prototype_name_span(decl)
+        key = prototype_type_key(decl)
+        if span is None or key is None:
+            continue
+        by_name.setdefault(span[0], []).append((key, decl))
+    conflicts: dict[str, list[str]] = {}
+    for name, variants in by_name.items():
+        keys = {key for key, _decl in variants}
+        if len(keys) > 1:
+            conflicts[name] = list(dict.fromkeys(decl for _key, decl in variants))
+    return conflicts
+
+
+def _refuse_prototype_conflicts(conflicts: dict[str, list[str]], *, json_output: bool) -> None:
+    """Refuse a plain merge whose output carries incompatible prototypes.
+
+    The plain path neither hoists nor deduplicates declarations, so two
+    spellings for one symbol reach the compiler verbatim and the output
+    cannot compile.  The caller names each conflicting symbol and its
+    variants; nothing is written.
+    """
+    detail = "; ".join(f"{name}: {' vs '.join(variants)}" for name, variants in conflicts.items())
+    error_exit(
+        f"Cannot merge: conflicting extern/prototype declarations for {detail}. "
+        "Nothing was written. Fix the declarations or merge with --consolidate.",
+        json_mode=json_output,
+        kind="conflicting_externs",
+        hint="Fix one declaration per symbol, then rerun the dry run.",
+    )
+
+
 def _stop_before_write(
     *,
     dry_run: bool,
@@ -1180,14 +1275,33 @@ def _destination(cfg: Any, output_path: Path, json_output: bool) -> tuple[Any, s
     return meta, new_file
 
 
+def _validate_accepted_include(name: str) -> tuple[str, ...]:
+    """Reject absolute, drive-qualified or traversing accepted include names."""
+    if not name or name != name.strip() or name.startswith(("/", "\\")) or ":" in name:
+        raise ValueError(
+            f"invalid --accept-unresolved-includes name {name!r}: use a bare header "
+            "name or relative include path"
+        )
+    parts = name.replace("\\", "/").split("/")
+    if any(part in {"", ".", ".."} for part in parts):
+        raise ValueError(
+            f"invalid --accept-unresolved-includes name {name!r}: use a bare header "
+            "name or relative include path"
+        )
+    return tuple(parts)
+
+
 def _merge_include_inputs(
-    cfg: Any, input_files: list[Path]
+    cfg: Any,
+    input_files: list[Path],
+    accepted_includes: tuple[str, ...] = (),
 ) -> tuple[
     list[Path],
     list[Any],
     dict[str, str],
     list[tuple[str, str, tuple[str, ...]]],
     list[tuple[str, tuple[str, ...]]],
+    list[dict[str, str | list[str]]],
 ]:
     """Pin every resolved include and per-directory compiler override across targets."""
     from rebrew.metadata.coordinated import path_identity_digest
@@ -1215,6 +1329,8 @@ def _merge_include_inputs(
     observed_inputs: dict[str, str] = {}
     shadows: list[tuple[str, str, tuple[str, ...]]] = []
     probes: list[tuple[str, tuple[str, ...]]] = []
+    tolerated: list[dict[str, str | list[str]]] = []
+    accepted = set(accepted_includes)
     for context in configurations:
         observed: dict[Path, bytes] = {}
         lexical: list[tuple[Path, Path]] = []
@@ -1228,8 +1344,24 @@ def _merge_include_inputs(
             include_shadows=shadows,
             include_probes=probes,
         )
-        if unknown:
-            item = unknown[0]
+        for item in unknown:
+            missing = list(item.get("missing", []))
+            # Tolerate only a pure missing-header item: no changed evidence,
+            # no other keys, and every missing name explicitly accepted.
+            if (
+                set(item) == {"context", "reason", "missing"}
+                and item.get("reason") == "include closure is incomplete or changed"
+                and missing
+                and set(missing) <= accepted
+            ):
+                tolerated.append(
+                    {
+                        "target": str(context.target_name),
+                        "context": str(item["context"]),
+                        "missing": sorted(set(missing)),
+                    }
+                )
+                continue
             raise ValueError(
                 f"{context.target_name}: include closure is incomplete or changed for "
                 f"{item['context']}: {', '.join(item.get('missing', []))}"
@@ -1273,6 +1405,7 @@ def _merge_include_inputs(
         observed_inputs,
         sorted(set(shadows)),
         sorted(set(probes)),
+        tolerated,
     )
 
 
@@ -1289,6 +1422,7 @@ def _merge_definitions(
     json_output: bool,
     expected_digest: str | None = None,
     guarded_interleave: bool = False,
+    accepted_includes: tuple[str, ...] = (),
 ) -> None:
     """Merge pure-C files from their rows.  ``error_exit`` does not return."""
     meta, new_file = _destination(cfg, output_path, json_output)
@@ -1299,6 +1433,7 @@ def _merge_definitions(
     observed_inputs: dict[str, str] = {}
     shadows: list[tuple[str, str, tuple[str, ...]]] = []
     probes: list[tuple[str, tuple[str, ...]]] = []
+    tolerated: list[dict[str, str | list[str]]] = []
     configurations: list[Any] = []
     readings: dict[Path, tuple[str, str]] | None = None
     if getattr(cfg, "root", None) is not None:
@@ -1310,9 +1445,14 @@ def _merge_definitions(
                 config_path.read_bytes() if config_path.is_file() else None,
                 path_identity_digest(config_path),
             )
-            watched, configurations, observed_inputs, shadows, probes = _merge_include_inputs(
-                cfg, input_files
-            )
+            (
+                watched,
+                configurations,
+                observed_inputs,
+                shadows,
+                probes,
+                tolerated,
+            ) = _merge_include_inputs(cfg, input_files, accepted_includes)
             transaction_inputs = coordinated_inputs(
                 Path(meta), transaction_paths, watched=watched, discovery_roots=[cfg.reversed_dir]
             )
@@ -1447,6 +1587,13 @@ def _merge_definitions(
     if consolidate:
         merged_text, extern_report = consolidate_declarations(merged_text, syntax=syntax)
         _warn_externs(extern_report)
+    else:
+        # Report only: a plain merge keeps every declaration verbatim, so the
+        # output itself is never rewritten here. The report carries the
+        # conflicts into the dry-run payload, and the apply step below
+        # refuses when this plain path would emit an uncompilable file.
+        extern_report = ExternReport(conflicts=_prototype_conflicts(merged_text))
+        _warn_externs(extern_report)
     payload = _merge_payload(
         output_path=output_path,
         func_out=func_out,
@@ -1467,14 +1614,20 @@ def _merge_definitions(
         from rebrew.metadata.source_provenance import plan_source_rehome
 
         try:
-            current_watched, _, current_observed, current_shadows, current_probes = (
-                _merge_include_inputs(cfg, input_files)
-            )
+            (
+                current_watched,
+                _,
+                current_observed,
+                current_shadows,
+                current_probes,
+                current_tolerated,
+            ) = _merge_include_inputs(cfg, input_files, accepted_includes)
             if (
                 current_watched != watched
                 or current_observed != observed_inputs
                 or current_shadows != shadows
                 or current_probes != probes
+                or current_tolerated != tolerated
                 or (
                     coordinated_inputs(
                         Path(meta),
@@ -1498,17 +1651,22 @@ def _merge_definitions(
                         "consolidate": consolidate,
                         "target": str(cfg.module),
                         "guarded_interleave": guarded_interleave,
+                        "accepted_unresolved_includes": sorted(set(accepted_includes)),
                     },
                     sort_keys=True,
                 ).encode()
             ).hexdigest()
             payload["input_digest"] = digest
+            payload["accepted_unresolved_includes"] = sorted(set(accepted_includes))
+            payload["tolerated_unresolved_includes"] = tolerated
             if expected_digest is not None and expected_digest != digest:
                 raise ValueError("merge inputs changed; review a new preview")
         except (OSError, ValueError, UnicodeError) as exc:
             error_exit(str(exc), json_mode=json_output)
     elif expected_digest is not None:
         error_exit("digest-guarded merge requires a project configuration", json_mode=json_output)
+    if not dry_run and not consolidate and extern_report is not None and extern_report.conflicts:
+        _refuse_prototype_conflicts(extern_report.conflicts, json_output=json_output)
     if _stop_before_write(
         dry_run=dry_run,
         force=force,
@@ -1546,14 +1704,20 @@ def _merge_definitions(
         try:
 
             def validate_resolution() -> None:
-                current, contexts, observations, current_shadows, current_probes = (
-                    _merge_include_inputs(cfg, input_files)
-                )
+                (
+                    current,
+                    contexts,
+                    observations,
+                    current_shadows,
+                    current_probes,
+                    current_tolerated,
+                ) = _merge_include_inputs(cfg, input_files, accepted_includes)
                 if (
                     current != watched
                     or observations != observed_inputs
                     or current_shadows != shadows
                     or current_probes != probes
+                    or current_tolerated != tolerated
                     or [context.as_dict() for context in contexts]
                     != [context.as_dict() for context in configurations]
                 ):
@@ -1640,7 +1804,7 @@ def main(
     consolidate: bool = typer.Option(
         False,
         "--consolidate",
-        help="Hoist unique includes/externs/typedefs/intrinsics to the top of the merged TU",
+        help="Hoist unique includes/externs/typedefs/intrinsics to the top of the merged TU. Without it, a conflicting extern/prototype pair is reported in extern_conflicts and a non-dry-run apply is refused, since the plain output would not compile",
     ),
     shared: bool = typer.Option(
         False,
@@ -1657,6 +1821,15 @@ def main(
         "--guarded-interleave",
         help="Review bounded simple guards and interleave by all-target native order",
     ),
+    accept_unresolved_includes: list[str] = typer.Option(
+        [],
+        "--accept-unresolved-includes",
+        help="Accept a reviewed unresolved include header name reported by the "
+        "include closure check. Repeatable. Bare header names or relative "
+        "include paths only; no absolute paths and no .. traversal. Accepted "
+        "names are sorted into the reviewed input digest and reported in the "
+        "JSON payload. Without this option unresolved includes still refuse.",
+    ),
     target: str | None = TargetOption,
 ) -> None:
     """Merge multiple single-function files into one multi-function file."""
@@ -1668,6 +1841,19 @@ def main(
     # of real bools (every option param is affected, not just this one) —
     # coerce so a sentinel never enables the shared path by truthiness.
     shared = shared is True
+    try:
+        raw_names = accept_unresolved_includes or []
+        if isinstance(raw_names, str):
+            raw_names = [raw_names]
+        try:
+            raw_names = list(raw_names)
+        except TypeError:
+            raw_names = []
+        for name in raw_names:
+            _validate_accepted_include(name)
+        accepted = tuple(sorted({name.replace("\\", "/") for name in raw_names}))
+    except ValueError as exc:
+        error_exit(str(exc), json_mode=json_output is True)
     output_path = Path(output)
     input_files = _collect_input_files(sources, cfg, exclude=output_path)
     if len(input_files) < 2:
@@ -1688,6 +1874,7 @@ def main(
         json_output=json_output is True,
         expected_digest=expected_digest if isinstance(expected_digest, str) else None,
         guarded_interleave=guarded_interleave is True,
+        accepted_includes=accepted,
     )
 
 
