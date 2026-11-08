@@ -94,6 +94,7 @@ _C_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
 #: into the header body, so a member declared ``int; int evil(`` would
 #: otherwise compile as the next build's code.
 _C_TYPE_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_ ]*\*?\Z")
+_IDENT_RE = re.compile(r"[A-Za-z_]\w*")
 
 app = typer.Typer(
     help="Import a BinSync state directory into rebrew metadata.",
@@ -1566,7 +1567,7 @@ def _local_type_names(cfg: ProjectConfig, *, files: list[Path] | None = None) ->
                 if match:
                     names.add(match.group(1))
             for text in extract_type_definitions(path):
-                identifiers = re.findall(r"[A-Za-z_]\w*", text.rstrip().rstrip(";"))
+                identifiers = _IDENT_RE.findall(text.rstrip().rstrip(";"))
                 if identifiers:
                     names.add(identifiers[-1])
         except OSError:

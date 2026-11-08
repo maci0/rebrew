@@ -473,6 +473,7 @@ def data_byte_order(bin_path: Path) -> str:
 #: stay on the alternation scan below.
 _WORD_RE = re.compile(r"\b\w+\b")
 _WORD_NAME_RE = re.compile(r"\w+\Z")
+_C_TYPE_WORDS_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|__int64")
 
 
 def _read_sources_or_fail(files: list[Path]) -> list[tuple[Path, str]]:
@@ -1101,7 +1102,7 @@ def c_type_size(ctype: str) -> int:
     # drop storage-class/qualifier words: `extern short g_s;` -> `short`.
     # A bare trailing word with no type before it (`g_thing;`) is unknown.
     text = _ARRAY_SUFFIX_RE.sub("", ctype).strip().rstrip(";").strip()
-    words = re.findall(r"[A-Za-z_][A-Za-z0-9_]*|__int64", text)
+    words = _C_TYPE_WORDS_RE.findall(text)
     while words and words[0] in _NON_TYPE_WORDS:
         words.pop(0)
     while words and words[-1] not in _TYPE_SIZES and " ".join(words[-2:]) not in _TYPE_PHRASES:

@@ -94,6 +94,10 @@ _FIELDS: list[tuple[str, str, str, int]] = [
 ]
 
 
+_OUT_RE = re.compile(r"/out:[^ ]+", re.IGNORECASE)
+_PDB_RE = re.compile(r"/pdb:[^ ]+", re.IGNORECASE)
+
+
 def _read_fields(path: Path) -> dict[str, int]:
     d = path.read_bytes()
     layout = pe_layout(d)
@@ -122,8 +126,8 @@ def _discover_link_cmd() -> tuple[Path, str] | None:
     # redirect /out: to {out}; strip /pdb: (wine link may reject a dup pdb).
     # Case-insensitive — calibrate_bss.find_link_cmd matches /OUT: and /PDB:
     # with IGNORECASE and the two parsers must agree on the same link line.
-    txt = re.sub(r"/out:[^ ]+", "/out:{out}", txt, flags=re.IGNORECASE)
-    txt = re.sub(r"/pdb:[^ ]+", "/pdb:{out}.pdb", txt, flags=re.IGNORECASE)
+    txt = _OUT_RE.sub("/out:{out}", txt)
+    txt = _PDB_RE.sub("/pdb:{out}.pdb", txt)
     txt = f"{txt} {{options}}"
     return Path("build"), txt
 

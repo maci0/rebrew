@@ -1246,6 +1246,7 @@ _SIMPLE_TYPE_RE = re.compile(r"[A-Za-z_][\w ]*[\s*]*\Z")
 _ALIAS_DEPTH = 4
 
 _WORD_RE = re.compile(r"\b[A-Za-z_]\w*\b")
+_IDENT_RE = re.compile(r"[A-Za-z_]\w*")
 
 #: Hot-path patterns compiled once at module load; previously raw string
 #: patterns recompiled per struct/enum/typedef inside loops.
@@ -1645,7 +1646,7 @@ def _typedef_name_and_type(definition: str) -> tuple[str, str] | None:
     if not text.startswith("typedef"):
         return None
     body = text[len("typedef") :].rstrip().rstrip(";").rstrip()
-    identifiers = re.findall(r"[A-Za-z_]\w*", body)
+    identifiers = _IDENT_RE.findall(body)
     if not identifiers:
         return None
     name = identifiers[-1]

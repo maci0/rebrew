@@ -222,7 +222,7 @@ def parse_unresolved_symbols(linker_output: str) -> set[str]:
     """Parse MSVC LNK2001/LNK2019 errors to extract unresolved symbol names."""
     symbols: set[str] = set()
     for line in linker_output.splitlines():
-        m = re.search(r"error LNK20(?:01|19): unresolved external symbol (\S+)", line)
+        m = _UNRESOLVED_SYMBOL_RE.search(line)
         if m:
             symbols.add(m.group(1).strip('"'))
     return symbols
@@ -768,6 +768,14 @@ _C_PRIMITIVES = {
 
 
 _DECLSPEC_RE = re.compile(r"\b(?:__declspec|_declspec|spec)\s*\([^()]*\)")
+_WS_RUN_RE = re.compile(r"\s+")
+_UINT_RE = re.compile(r"\buint\b")
+_USHORT_RE = re.compile(r"\bushort\b")
+_ULONG_RE = re.compile(r"\bulong\b")
+_UCHAR_RE = re.compile(r"\buchar\b")
+_STRUCT_PTR_RE = re.compile(r"struct\s+\w+\*")
+_STRUCT_RE = re.compile(r"struct\s+\w+")
+_UNRESOLVED_SYMBOL_RE = re.compile(r"error LNK20(?:01|19): unresolved external symbol (\S+)")
 _TYPE_WORDS = _C_PRIMITIVES | {"volatile"}
 
 
@@ -780,16 +788,16 @@ def simplify_type_for_stub(type_str: str) -> str:
     ``void*`` when the declarator is a pointer.
     """
     type_str = _DECLSPEC_RE.sub(" ", type_str)
-    type_str = re.sub(r"\s+", " ", type_str).strip()
+    type_str = _WS_RUN_RE.sub(" ", type_str).strip()
     if not type_str:
         return "int"
-    type_str = re.sub(r"\buint\b", "unsigned int", type_str)
-    type_str = re.sub(r"\bushort\b", "unsigned short", type_str)
-    type_str = re.sub(r"\bulong\b", "unsigned long", type_str)
-    type_str = re.sub(r"\buchar\b", "unsigned char", type_str)
-    if re.match(r"struct\s+\w+\*", type_str):
+    type_str = _UINT_RE.sub("unsigned int", type_str)
+    type_str = _USHORT_RE.sub("unsigned short", type_str)
+    type_str = _ULONG_RE.sub("unsigned long", type_str)
+    type_str = _UCHAR_RE.sub("unsigned char", type_str)
+    if _STRUCT_PTR_RE.match(type_str):
         return "void*"
-    if re.match(r"struct\s+\w+", type_str):
+    if _STRUCT_RE.match(type_str):
         return "int"
     if type_str in _KNOWN_TYPES:
         return _KNOWN_TYPES[type_str]

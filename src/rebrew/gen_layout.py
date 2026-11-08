@@ -554,7 +554,7 @@ def main(
         return
     if layout_config:
         layout_toml = fmt_layout_toml(
-            extract_layout(cfg.target_binary.read_bytes(), cfg.target_name),
+            extract_layout(data, cfg.target_name),
             imports,
             link_options,
         )

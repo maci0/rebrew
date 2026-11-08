@@ -58,6 +58,10 @@ app = typer.Typer(
 )
 
 
+_OUT_RE = re.compile(r"/out:[^ ]+", re.IGNORECASE)
+_PDB_RE = re.compile(r"/pdb:[^ ]+", re.IGNORECASE)
+
+
 def _layout_data_vs(root: Path, target: str | None = None) -> int | None:
     """Reference ``.data`` VirtualSize from the layout package.
 
@@ -100,8 +104,8 @@ def find_link_cmd(root: Path, *, json_mode: bool = False) -> tuple[Path, str, Pa
             json_mode=json_mode,
         )
     txt = hits[0].read_text(encoding="utf-8").strip()
-    txt = re.sub(r"/out:[^ ]+", "/out:{out}", txt, flags=re.IGNORECASE)
-    txt = re.sub(r"/pdb:[^ ]+", "/pdb:{out}.pdb", txt, flags=re.IGNORECASE)
+    txt = _OUT_RE.sub("/out:{out}", txt)
+    txt = _PDB_RE.sub("/pdb:{out}.pdb", txt)
     txt = f"{txt} {{options}}"
     return root / "build", txt, hits[0].parent
 
