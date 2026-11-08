@@ -154,7 +154,7 @@ No `conftest.py`: use `tmp_path` + inline helpers. Group by class; helpers `_`-p
 - **STATUS is earned**: only the byte comparison writes it. `PROVEN` (from `rebrew prove`) is not a byte match and not protected: the next test/verify records the byte result over it. `SKIP` stays parked, and a `STUB` is not replaced by `SIZE_MISMATCH` or `MISSING_SIZE`, unless the writer is called with `force=True`
 - **Evidence and integrations**: `METADATA_FIELD_TYPES` owns function field shapes; data validation derives its shared shapes. `origins` records accepted external fields, `verification` records comparison inputs/time, and `updated_by` / `updated_at` describe ordinary edits. Keep those independent. BinSync push/pull/diff share `SYNC_FIELD_RULES` and a binary-scoped baseline; previews/failures never advance it. See [metadata ownership](docs/METADATA.md) and [BinSync reconciliation](docs/BINSYNC_INTEGRATION.md).
 - **Live coverage**: dashboards use `coverage_project.load_project_coverage`; no
-  project `db_dir` or generated snapshot is required. `coverage export --output`
+  generated snapshot is required. `coverage export --output`
   creates optional portable documents. Comparison writers own `status_history`;
   preserve older exports with `coverage import-history` before retiring them.
 - **Accounting**: status/todo share one frame. File agreement, accounted `.text`, and stored initialized-data verdict bytes have separate denominators; library/padding contributions are visible, data overlaps count once, and BSS is not file bytes. See [status accounting](docs/CLI.md#rebrew-status).

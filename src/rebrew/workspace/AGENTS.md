@@ -17,4 +17,4 @@ Externals (the only package this one may import): `errors`, the leaf module that
 - **This package resolves projects, it does not store coverage.** `find_root` /
   `targets_table` own workspace lookup. Live coverage belongs to
   `rebrew.coverage_project`; portable export directories are explicit caller inputs.
-- **An absent config is a default; a broken one is an error.** `read_config` returns `{}` when there is no `rebrew-project.toml` and raises `WorkspaceConfigError` when the file is present but is not readable UTF-8 TOML. The defaults it would otherwise fall back to (`db/`, the first target, `src/<name>`) name a different workspace, so a parse failure has to stop the command rather than read as an empty one.
+- **An absent config is a default; a broken one is an error.** `read_config` returns `{}` when there is no `rebrew-project.toml` and raises `WorkspaceConfigError` when the file is present but is not readable UTF-8 TOML. The defaults it would otherwise fall back to (the first target, `src/<name>`) name a different workspace, so a parse failure has to stop the command rather than read as an empty one.
