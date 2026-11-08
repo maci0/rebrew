@@ -21,15 +21,14 @@ _REGISTRY_FILE = "rebrew-functions.toml"
 
 
 def _valid_path(path: str) -> bool:
-    parts = path.split("/")
+    from rebrew.utils import portable_path_parts
+
+    parts = portable_path_parts(path)
     return (
-        bool(path)
+        bool(parts)
         and len(path.encode("utf-8")) <= 1024
         and len(parts) <= 32
         and unicodedata.normalize("NFC", path) == path
-        and "\\" not in path
-        and all(ord(c) >= 32 and ord(c) != 127 for c in path)
-        and all(part not in ("", ".", "..") for part in parts)
     )
 
 

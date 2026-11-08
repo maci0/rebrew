@@ -2384,6 +2384,7 @@ def _run_candidate(
     applying = req if isinstance(req, ApplyCandidateRequest) and apply else None
     from rebrew.c_parser import find_c_function_definitions
     from rebrew.config import load_config
+    from rebrew.utils import portable_path_parts
 
     definitions = find_c_function_definitions(req.candidate)
     if len(definitions) != 1 or len(req.candidate.encode()) > 2_000_000:
@@ -2395,10 +2396,7 @@ def _run_candidate(
     if (
         len(set(paths)) != len(paths)
         or req.source not in paths
-        or any(
-            "\\" in path or any(part in {"", ".", ".."} for part in path.split("/"))
-            for path in paths
-        )
+        or any(not portable_path_parts(path) for path in paths)
     ):
         raise _invalid("invalid retained source manifest paths")
     scratch = config.require_workspace() / SCRATCH_DIR
@@ -2560,12 +2558,13 @@ def retained_target_snapshot(
     *project_cflags*, when set, become the project cflags of the private copy (``apply_project_cflags``).
     """
     from rebrew.config import inventory_path_for, load_config
+    from rebrew.utils import portable_path_parts
 
     if not target_name or not files:
         raise _invalid("invalid retained source manifest")
     _check_manifest_size(files)
     if len({f.path for f in files}) != len(files) or any(
-        "\\" in f.path or any(part in {"", ".", ".."} for part in f.path.split("/")) for f in files
+        not portable_path_parts(f.path) for f in files
     ):
         raise _invalid("duplicate retained source path")
     scratch = config.require_workspace() / SCRATCH_DIR

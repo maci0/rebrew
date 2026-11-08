@@ -12,6 +12,7 @@ can reach them without importing a Typer command.
 from __future__ import annotations
 
 import logging
+lazy import os
 lazy import subprocess
 lazy from pathlib import Path
 
@@ -32,7 +33,7 @@ GIT_NETWORK_TIMEOUT = 600
 #: ``.git/config``. ``GIT_SSH_COMMAND``, when set, still outranks ``core.sshCommand``.
 _GIT_EXEC_OVERRIDES: tuple[str, ...] = (
     "core.fsmonitor=",
-    "core.hooksPath=/dev/null",
+    f"core.hooksPath={os.devnull}",
     "protocol.ext.allow=never",
     "core.sshCommand=ssh",
     "gpg.program=gpg",

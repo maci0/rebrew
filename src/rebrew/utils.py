@@ -120,6 +120,39 @@ RESERVED_WINDOWS_STEMS = frozenset(
     {"CON", "PRN", "AUX", "NUL"}
     | {f"{prefix}{n}" for prefix in ("COM", "LPT") for n in range(1, 10)}
 )
+#: Characters Win32 forbids in a file name part (``:`` opens an NTFS ADS or a
+#: drive spec; ``< > " | ? *`` are rejected outright).  A retained-snapshot
+#: path is written to disk verbatim, so a part carrying one cannot round-trip
+#: on a Windows checkout and is refused at validation instead.
+_WINDOWS_FORBIDDEN_NAME_CHARS = frozenset('<>:"|?*')
+
+
+def portable_path_parts(path: str) -> tuple[str, ...]:
+    """Split a ``/``-joined retained path into parts, rejecting unportable names.
+
+    Returns the parts when *path* is a relative ``/``-joined path whose every
+    part is portable, else an empty tuple.  A part is portable when it is not
+    ``""``/``"."``/``".."``, carries no control character or backslash, does
+    not end in a space or dot (Win32 strips both, so ``"foo "`` and ``"foo."``
+    address ``"foo"``), carries no ``< > : " | ? *`` character, and its stem
+    before the first dot is not a DOS device name (:data:`RESERVED_WINDOWS_STEMS`).
+    Callers that also bound depth/length/NFC check those separately.
+    """
+    if not path or "\\" in path:
+        return ()
+    parts = path.split("/")
+    for part in parts:
+        if (
+            part in ("", ".", "..")
+            or part.endswith((" ", "."))
+            or any(ord(c) < 32 or ord(c) == 127 for c in part)
+            or not _WINDOWS_FORBIDDEN_NAME_CHARS.isdisjoint(part)
+            or part.partition(".")[0].upper() in RESERVED_WINDOWS_STEMS
+        ):
+            return ()
+    return tuple(parts)
+
+
 #: Mode :func:`atomic_write_text` creates its temp file with, and therefore
 #: installs at the target path.  Owner read/write only for a non-secret file
 #: rebrew owns; a writer holding a credential passes something tighter.

@@ -78,12 +78,11 @@ def confined_snapshot_config(cfg: Any, root: Path) -> None:
 
 
 def _path(value: Any) -> str:
+    from rebrew.utils import portable_path_parts
+
     if (
         type(value) is not str
-        or not value
-        or "\\" in value
-        or "\x00" in value
-        or any(part in {"", ".", ".."} for part in value.split("/"))
+        or not portable_path_parts(value)
         or len(value.split("/")) > 32
         or unicodedata.normalize("NFC", value) != value
     ):

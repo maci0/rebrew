@@ -48,11 +48,14 @@ def test_cross_engine_canonical_vector():
         == "16c6bceb08f19082905aafe9dcbdd6f59f05ef3d9cb26caaaab972d8aa201fff"
     )
     assert verification_records_digest([]) == hashlib.sha256(b"[]").hexdigest()
-    value["readset"][0]["path"] = "src/<&é\u2028.c"
+    value["readset"][0]["path"] = "src/&é\u2028.c"
     assert (
         coverage_input_digest(value)
-        == "c48c80a624439e1401f06c6b3dcf2faef39b2dad7a800ead041ad32e6b2c0574"
+        == "5c3ba9e424a3aa380fc5457e53aa9ba8a34729e40d15de7d13a768060f99e72c"
     )
+    value["readset"][0]["path"] = "src/<.c"
+    with pytest.raises(CoverageInputError):
+        canonical_coverage_input(value)
     value["readset"][0]["path"] = "src/e\u0301.c"
     with pytest.raises(CoverageInputError):
         canonical_coverage_input(value)

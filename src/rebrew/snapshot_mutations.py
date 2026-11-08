@@ -23,7 +23,9 @@ def snapshot_mutation(config: Any, req: Any) -> dict[str, Any]:
             return hashlib.file_digest(handle, "sha256").hexdigest()
 
     def checked_path(root: Path, value: str, *, existing: bool = True) -> Path:
-        if not value or "\\" in value or any(p in {"", ".", ".."} for p in value.split("/")):
+        from rebrew.utils import portable_path_parts
+
+        if not portable_path_parts(value):
             raise invalid("invalid proposal path")
         path = root / value
         if path.resolve() != path:
