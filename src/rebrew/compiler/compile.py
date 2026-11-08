@@ -115,6 +115,7 @@ lazy from rebrew.metadata.functions import canonical_status
 lazy from rebrew.sources import contained_path, source_roots
 lazy from rebrew.utils import (
     container_runtime,
+    fold_ident,
     interruptible_pool,
     read_source_text,
     safe_shlex_split,
@@ -2114,8 +2115,10 @@ def compile_batch_objs(
     # Objects land in the workdir root by stem, so same-stem sources from
     # different dirs would overwrite each other (case-insensitive: CL runs
     # on a Windows filesystem).  Leave them out; callers compile them singly.
-    stem_counts = Counter(Path(s).stem.lower() for s in src_names)
-    src_names = [s for s in src_names if stem_counts[Path(s).stem.lower()] == 1]
+    # The stem is folded (NFC + casefold): NFD and NFC spellings of one
+    # source, and ``straße.c`` vs ``STRASSE.c``, are the same object name.
+    stem_counts = Counter(fold_ident(Path(s).stem) for s in src_names)
+    src_names = [s for s in src_names if stem_counts[fold_ident(Path(s).stem)] == 1]
     if not src_names:
         return {}, ""
     # A source name is a path from the annotation's ``file`` field, so it can

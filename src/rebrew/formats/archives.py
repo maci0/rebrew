@@ -4,6 +4,8 @@ import re
 lazy from collections.abc import Iterator
 lazy from pathlib import Path
 
+from rebrew.utils import fold_ident
+
 _LONG_NAME_END = re.compile(b"\0|/\n")
 
 
@@ -70,8 +72,13 @@ def stock_lib_cache(root: Path, name: str, profile: str) -> Path:
     archive — ``todo`` filtered its work list against another toolchain's
     library code, and ``assert_library_is_stock`` compared the image's copy
     against a file from a different image.
+
+    The stem is folded with :func:`rebrew.utils.fold_ident` (NFC + casefold),
+    not ``str.lower``: NFD and NFC spellings of one library, and ``straße`` vs
+    ``STRASSE``, must land on one cache path or the same archive is extracted
+    twice under two names and later runs read the wrong copy.
     """
-    return root / ".scratch" / f"{profile}_{Path(name).stem.lower()}_stock{Path(name).suffix}"
+    return root / ".scratch" / f"{profile}_{fold_ident(Path(name).stem)}_stock{Path(name).suffix}"
 
 
 def stock_lib_valid(path: Path) -> bool:

@@ -31,6 +31,7 @@ from rebrew.cli import TargetOption, console, error_exit, json_print, require_co
 lazy from rebrew.rename_ops import c_name_from_symbol
 lazy from rebrew.utils import (
     atomic_write_text,
+    fold_ident,
     library_header_name,
     pe_name_token,
 )
@@ -180,10 +181,15 @@ def _module_from_sig_file(filename: str, default: str) -> str:
     ``_vcN`` suffixes are stripped; known stems map to canonical modules
     (libcmt/msvcrt → MSVCRT, zlib → ZLIB); unknown stems become the uppercased
     stem (a ``foo_vc6.pat`` from a custom .lib → ``FOO``).
+
+    The stem is folded with :func:`rebrew.utils.fold_ident` (NFC + casefold),
+    not ``str.lower``: an NFD sig-file name from a decomposing volume and an
+    NFC name from config must attribute to the same module, and ``straße``
+    must match ``STRASSE``.
     """
     import re
 
-    stem = Path(filename).stem.lower()
+    stem = fold_ident(Path(filename).stem)
     stem = re.sub(r"_vc\d+$", "", stem)
     if stem in _SIG_FILE_MODULES:
         return _SIG_FILE_MODULES[stem]
@@ -521,7 +527,7 @@ def build_flirt_sigs(cfg: Any, lib_dir: Path | None = None) -> int:
     skipped = 0
     empty = 0
     for lib in _iter_libs(libs_dir):
-        out_path = out_dir / f"{lib.stem.lower()}_vc6.pat"
+        out_path = out_dir / f"{fold_ident(lib.stem)}_vc6.pat"
         try:
             stats = generate_pat(lib, out_path)
         except (ValueError, OSError) as exc:

@@ -24,7 +24,7 @@ from typer.models import TyperPath
 lazy from rebrew.cli import console, error_exit, json_print
 lazy from rebrew.formats.archives import parse_archive as parse_archive
 lazy from rebrew.formats.coff import load_coff
-lazy from rebrew.utils import atomic_write_text
+lazy from rebrew.utils import atomic_write_text, fold_ident
 
 logger = logging.getLogger(__name__)
 
@@ -535,7 +535,7 @@ def main(
     if not lib_file.exists():
         error_exit(f"{lib_file} not found", json_mode=json_output)
 
-    lib_name = lib_file.stem.lower()
+    lib_name = fold_ident(lib_file.stem)
     out_path = Path(output) if output else Path(f"flirt_sigs/{lib_name}.pat")
 
     stats = generate_pat(lib_file, out_path)
