@@ -1402,6 +1402,8 @@ def capstone_config_for(info: BinaryInfo) -> tuple[int, int]:
 class UnsupportedBinaryFormat(RebrewError, ValueError):
     """The file is none of the formats rebrew reads; ``magic`` is its first bytes, hex."""
 
+    _STRUCTURED_FIELDS = (*RebrewError._STRUCTURED_FIELDS, "magic")
+
     def __init__(self, message: str, *, magic: str = "") -> None:
         super().__init__(message)
         self.magic = magic
