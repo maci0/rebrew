@@ -39,6 +39,7 @@ lazy from rebrew.metadata.data import iter_data_symbols, load_data_document
 lazy from rebrew.sources import files_with_ext
 lazy from rebrew.utils import atomic_write_text as atomic_write_text
 lazy from rebrew.utils import (
+    fold_ident,
     join_source_lines,
     load_tomllib,
     parse_c_integer_literal,
@@ -266,12 +267,12 @@ def _cmake_rsp_objects(build_dir: Path, target: str | None = None) -> list[Path]
         return None
     chosen = rsp_dirs[0]
     if target:
-        wanted = f"/out:{target}".lower()
+        wanted = fold_ident(f"/out:{target}")
         for candidate in rsp_dirs:
             link_txt = candidate / "link.txt"
             if not link_txt.is_file():
                 continue
-            if wanted in link_txt.read_text(encoding="utf-8", errors="replace").lower():
+            if wanted in fold_ident(link_txt.read_text(encoding="utf-8", errors="replace")):
                 chosen = candidate
                 break
     text = "\n".join(

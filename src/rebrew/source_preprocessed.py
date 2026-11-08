@@ -6,6 +6,7 @@ lazy import bisect
 lazy import hashlib
 lazy import posixpath
 lazy import re
+lazy import unicodedata
 lazy from pathlib import Path
 lazy from typing import Any
 
@@ -146,7 +147,7 @@ def reported_source_functions(
         path = path.replace("\\", "/")
         if path.lower().startswith("z:/"):
             path = path[2:]
-        return posixpath.normpath(path).casefold()
+        return unicodedata.normalize("NFC", posixpath.normpath(path)).casefold()
 
     wanted = normalize(str(source.resolve()))
     markers = report["markers"]
