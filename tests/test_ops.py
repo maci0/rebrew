@@ -694,6 +694,15 @@ class TestRefusals:
                 "invalid-request",
                 400,
             ),
+            # A JSON string may carry an unpaired surrogate as an escape;
+            # every downstream .encode("utf-8") would raise and surface as
+            # a 500, so the boundary rejects it with a 400.
+            (
+                "rebrew.import-project",
+                b'{"project_dir": "x\\ud800y"}',
+                "invalid-request",
+                400,
+            ),
         ],
     )
     def test_malformed_requests(self, op: str, body: bytes, code: str, status: int) -> None:

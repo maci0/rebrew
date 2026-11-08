@@ -847,6 +847,10 @@ class SnapshotMutationRequest:
     dry_run: bool = False
 
 
+def _has_lone_surrogate(value: str) -> bool:
+    return any(0xD800 <= ord(char) <= 0xDFFF for char in value)
+
+
 def _decode(value: Any, hint: Any, where: str) -> Any:
     """Check one JSON value against the field type *hint*; bytes arrive base64."""
     origin = typing.get_origin(hint)
@@ -861,6 +865,14 @@ def _decode(value: Any, hint: Any, where: str) -> Any:
     if hint is str:
         if type(value) is not str:
             raise _invalid(f"{where} must be a string")
+        # JSON accepts a lone surrogate as an escaped ``\\uXXXX``; every
+        # downstream ``.encode("utf-8")`` (project_id bound, candidate byte
+        # bound, sort keys, file writes) then raises UnicodeEncodeError and
+        # surfaces as a 500 instead of a 400. Reject it at the boundary.
+        # Paired surrogates never survive json.loads as separate code
+        # points (they arrive combined), so any surrogate here is lone.
+        if _has_lone_surrogate(value):
+            raise _invalid(f"{where} contains an unpaired surrogate")
         return value
     if hint is bytes:
         if type(value) is not str:
