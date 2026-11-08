@@ -250,7 +250,14 @@ plugin cache backends or remove the open upstream diskcache advisory.
   `GH_TOKEN`-bearing GitHub commit lookup pass `trust_env=False`, so their
   httpx calls ignore `HTTPS_PROXY`, `SSL_CERT_FILE`, and
   `REQUESTS_CA_BUNDLE`. The other httpx clients (recompile, decomp.me, LLM,
-  MCP, ops `_download`) still honour them. The wibo asset is capped at
+  MCP, ops `_download`) still honour them. The OTLP span exporter
+  (`src/rebrew/telemetry.py`) is not an httpx client: its `urllib.request`
+  POST now goes through an opener built with `ProxyHandler({})`, so ambient
+  `*_proxy` variables cannot reroute it either; `REBREW_OTLP_ENDPOINT`
+  admits plain `http`, so a non-loopback collector still receives spans
+  (trace/span ids, op names, status codes — no source or credentials) in
+  cleartext, and the endpoint is operator env, not project configuration.
+  The wibo asset is capped at
   64 MiB (`_MAX_WIBO_DOWNLOAD_BYTES` in `src/rebrew/wibo.py`) and the
   toolchain media at 2 GiB (`_MAX_PINNED_DOWNLOAD_BYTES` in
   `src/rebrew/toolchain_cli.py`); the release-metadata JSON and the commit

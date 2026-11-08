@@ -101,6 +101,22 @@ def test_invalid_traceparent_starts_a_new_trace_and_failure_is_an_error(
     assert wire["status"] == {"code": 2, "message": "RuntimeError"}
 
 
+def test_export_ignores_ambient_proxy_env(
+    collector: _Collector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A dead proxy in the environment must not reroute the span POST: the collector
+    # is operator-configured, so `*_proxy` must not apply (cf. `trust_env=False`).
+    monkeypatch.setenv("https_proxy", "http://127.0.0.1:9")
+    monkeypatch.setenv("http_proxy", "http://127.0.0.1:9")
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:9")
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:9")
+    stop = telemetry.configure(collector.url, "relumea-rebrew", "1.2.3")
+    with telemetry.span("proxy-bypass"):
+        pass
+    stop()
+    collector.named("proxy-bypass")
+
+
 def test_configure_refuses_a_bad_endpoint() -> None:
     for bad in ("file:///x", "collector:4318", "http://user:pw@host:4318"):
         with pytest.raises(ValueError, match="REBREW_OTLP_ENDPOINT"):

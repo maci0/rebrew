@@ -235,8 +235,12 @@ class _Exporter:
         request = urllib.request.Request(  # noqa: S310  # configure() admits http(s) only
             self._url, body, {"Content-Type": "application/json"}, method="POST"
         )
+        # An opener with no ProxyHandler: the collector is operator-configured, so
+        # ambient `*_proxy` / `SSL_CERT_FILE` / `REQUESTS_CA_BUNDLE` must not reroute
+        # or re-TLS the span POST (matching the pinned downloaders' `trust_env=False`).
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         try:
-            with urllib.request.urlopen(request, timeout=EXPORT_TIMEOUT_SECONDS):  # noqa: S310
+            with opener.open(request, timeout=EXPORT_TIMEOUT_SECONDS):
                 pass
         except OSError as exc:
             logger.warning("trace export failed: %s", type(exc).__name__)
