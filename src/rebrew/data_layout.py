@@ -73,6 +73,17 @@ def scan_files(src_dir: Path, shared_dir: Path | None = None) -> list[Path]:
 # ---------------------------------------------------------------------------
 
 _OBJ_RE = re.compile(r'"([^"]+\.obj)"|(?:^|\s)(\S+\.obj)(?=\s|$)')
+_WS_RE = re.compile(r"\s+")
+_INDENT_RE = re.compile(r"[ \t]*")
+_CMAKE_DIR_RE = re.compile(r"^.*?CMakeFiles/[^/]+\.dir/")
+_EXTERN_WORD_RE = re.compile(r"\bextern\b\s*")
+_EXTERN_AT_START_RE = re.compile(r"extern\b")
+_INIT_RE = re.compile(r"=\s*(\{[^;]*\}|[^;]+);?$")
+_ARRAY_SIZE_RE = re.compile(r"\[(\d+)\]")
+_DLEAD_PAD_RE = re.compile(r"^([ \t]*)unsigned char\s+(_dlead_\w+)\s*\[\s*(\d+)\s*\]")
+_NON_WORD_RE = re.compile(r"\W")
+_C_IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|__int64")
+_OBJ_SECTION_RE = re.compile(r"^\s+(\d+)\s+(\S+)\s+([0-9a-fA-F]+)\s", re.M)
 # Brackets may be hex, an expression, several dimensions, or one nested
 # pair. A decimal-only ``[4]`` missed ``g[0x10]``. Stopping at the first
 # ``]`` missed ``g[sizeof(wchar_t[3])]``.
@@ -282,7 +293,7 @@ def link_objects_in(build_dir: Path, target: str | None = None) -> list[Path]:
 def _obj_section_sizes(obj: Path) -> tuple[dict[int, str], dict[str, int]]:
     """``(section index → name, {section name: size})`` from ``objdump -h``."""
     h = _run_objdump(obj, "-h")
-    secs = re.findall(r"^\s+(\d+)\s+(\S+)\s+([0-9a-fA-F]+)\s", h, re.M)
+    secs = _OBJ_SECTION_RE.findall(h)
     secname = {int(a): b for a, b, _ in secs}
     sizes: dict[str, int] = {}
     for _a, b, c in secs:
@@ -653,7 +664,7 @@ def _declared_base_types(text: str, name: str) -> set[str]:
     found: set[str] = set()
     pattern = _declared_base_re(name)
     for match in pattern.finditer(text):
-        base = re.sub(r"\s+", " ", match.group(1)).strip()
+        base = _WS_RE.sub(" ", match.group(1)).strip()
         base = base.replace("extern", "").replace("static", "").strip()
         if base:
             found.add(base)
@@ -697,7 +708,7 @@ def insert_definition(
     found = _find_definition(text, name)
     if found is not None:
         start, end, _typ, _sz = found
-        indent_m = re.match(r"[ \t]*", text[start:])
+        indent_m = _INDENT_RE.match(text[start:])
         indent = indent_m.group(0) if indent_m else ""
         replacement = indent + def_line
         if text[start:end] == replacement:
@@ -1102,7 +1113,7 @@ def c_type_size(ctype: str) -> int:
     # drop storage-class/qualifier words: `extern short g_s;` -> `short`.
     # A bare trailing word with no type before it (`g_thing;`) is unknown.
     text = _ARRAY_SUFFIX_RE.sub("", ctype).strip().rstrip(";").strip()
-    words = _C_TYPE_WORDS_RE.findall(text)
+    words = _C_IDENT_RE.findall(text)
     while words and words[0] in _NON_TYPE_WORDS:
         words.pop(0)
     while words and words[-1] not in _TYPE_SIZES and " ".join(words[-2:]) not in _TYPE_PHRASES:
@@ -1413,7 +1424,7 @@ def _obj_to_source(obj: Path, root: Path, src_dir: Path) -> Path | None:
     # ``str(Path)`` on POSIX keeps them as one component so the CMakeFiles
     # strip never matches.
     s = config_path(obj).as_posix()
-    s = re.sub(r"^.*?CMakeFiles/[^/]+\.dir/", "", s)
+    s = _CMAKE_DIR_RE.sub("", s)
     if s.endswith(".obj"):
         s = s[:-4]
     rel = config_path(s)
@@ -1496,7 +1507,7 @@ def _definition_to_extern(span: str) -> str:
             cut = index
             break
     body = body[:cut].rstrip()
-    if re.match(r"extern\b", body) is None:
+    if _EXTERN_AT_START_RE.match(body) is None:
         body = f"extern {body}"
     return f"{body};"
 
@@ -1597,15 +1608,15 @@ def _merged_definition_line(dtyp: str, dsize: int | None, name: str, def_line: s
     initializer needs the array form: an unsized ``extern char g_buf[];`` used
     to produce ``extern char g_buf = { … };`` — uncompilable C.
     """
-    dtyp = re.sub(r"\bextern\b\s*", "", dtyp).strip() or dtyp
-    init_m = re.search(r"=\s*(\{[^;]*\}|[^;]+);?$", def_line)
+    dtyp = _EXTERN_WORD_RE.sub("", dtyp).strip() or dtyp
+    init_m = _INIT_RE.search(def_line)
     init = init_m.group(1) if init_m else "0"
     if not init.startswith("{"):
         return f"{dtyp} {name} = {init};"
     if dsize is not None:
         size = str(dsize)
     else:
-        size_m = re.search(r"\[(\d+)\]", def_line)
+        size_m = _ARRAY_SIZE_RE.search(def_line)
         size = size_m.group(1) if size_m else str(init.count(",") + 1)
     return f"{dtyp} {name}[{size}] = {init};"
 
@@ -1812,7 +1823,7 @@ def _find_dlead_pad(text: str) -> tuple[int, int, str, int, str] | None:
     any immediate trailing newline).  Returns ``None`` when absent.
     """
     for pos, ln in _iter_line_spans(text):
-        m = re.match(r"^([ \t]*)unsigned char\s+(_dlead_\w+)\s*\[\s*(\d+)\s*\]", ln)
+        m = _DLEAD_PAD_RE.match(ln)
         if m:
             indent = m.group(1)
             pad_name = m.group(2)
@@ -1966,7 +1977,7 @@ def converge_layout(
                 # No lead pad to shrink: the TU starts too late for a pad to
                 # fix.  Inserting an empty line here grew the TU on every run.
                 continue
-            pad_name = pad_info[2] if pad_info else "_dlead_" + re.sub(r"\W", "_", f.stem)
+            pad_name = pad_info[2] if pad_info else "_dlead_" + _NON_WORD_RE.sub("_", f.stem)
             indent = pad_info[4] if pad_info else ""
             if new_size > 0 and exp - new_size >= data_base:
                 off = (exp - new_size) - data_base

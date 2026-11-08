@@ -672,22 +672,23 @@ def source_digest(source_content: str) -> str:
 # ---------------------------------------------------------------------------
 
 _INCLUDE_RE = re.compile(r"include(?:_next)?\b")
+_TRIGRAPH_RE_CACHE = re.compile(r"\?\?([=/'()!<>-])")
+_TRIGRAPHS = {
+    "=": "#",
+    "/": "\\",
+    "'": "^",
+    "(": "[",
+    ")": "]",
+    "!": "|",
+    "<": "{",
+    ">": "}",
+    "-": "~",
+}
 
 
 def mask_preprocessor_comments(text: str) -> str:
     """Apply trigraphs and line splicing, then mask comments while retaining literals."""
-    trigraphs = {
-        "=": "#",
-        "/": "\\",
-        "'": "^",
-        "(": "[",
-        ")": "]",
-        "!": "|",
-        "<": "{",
-        ">": "}",
-        "-": "~",
-    }
-    text = re.sub(r"\?\?([=/'()!<>-])", lambda m: trigraphs[m.group(1)], text)
+    text = _TRIGRAPH_RE_CACHE.sub(lambda m: _TRIGRAPHS[m.group(1)], text)
     text = text.replace("\\\r\n", "").replace("\\\n", "")
     result: list[str] = []
     block = False

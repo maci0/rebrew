@@ -777,6 +777,13 @@ _STRUCT_PTR_RE = re.compile(r"struct\s+\w+\*")
 _STRUCT_RE = re.compile(r"struct\s+\w+")
 _UNRESOLVED_SYMBOL_RE = re.compile(r"error LNK20(?:01|19): unresolved external symbol (\S+)")
 _TYPE_WORDS = _C_PRIMITIVES | {"volatile"}
+_WS_RUN_RE = re.compile(r"\s+")
+_UINT_RE = re.compile(r"\buint\b")
+_USHORT_RE = re.compile(r"\bushort\b")
+_ULONG_RE = re.compile(r"\bulong\b")
+_UCHAR_RE = re.compile(r"\buchar\b")
+_STRUCT_PTR_RE = re.compile(r"struct\s+\w+\*")
+_STRUCT_RE = re.compile(r"struct\s+\w+")
 
 
 def simplify_type_for_stub(type_str: str) -> str:
