@@ -240,7 +240,12 @@ def rehome_type_bindings(
         for row in rows:
             entry = doc["types"][row["id"]][row["module"]]
             history = list(entry.get("path_history", []))
-            history.append({"freshness": "unassessed", **{k: row[k] for k in _FIELDS}})
+            prior = {"freshness": "unassessed", **{k: row[k] for k in _FIELDS}}
+            # Idempotent: a retry (e.g. crash after the metadata write but
+            # before the coordinated file publish committed) must not append
+            # the same prior-file record again.
+            if prior not in history:
+                history.append(prior)
             entry["file"] = new
             entry["path_history"] = history
             entry["path_revalidation_required"] = True
