@@ -679,6 +679,77 @@ class TestUrlBinaries:
             assert refusal["detail"] == "url host cannot be resolved"
             assert time.monotonic() - started < 1.0
 
+    def test_private_dns_answer_is_refused(self, tmp_path: Path) -> None:
+        from unittest import mock
+
+        def _private(*args: Any, **kwargs: Any) -> Any:
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 443))]
+
+        with mock.patch.object(socket, "getaddrinfo", _private):
+            refusal = _refusal(
+                self._config(tmp_path),
+                "rebrew.fingerprint",
+                json.dumps(self._url_file("https://evil.example.com/mini.exe")).encode(),
+            )
+            assert refusal["detail"] == "url host must be a public address"
+
+    def test_download_fetches_the_validated_address_not_a_second_lookup(
+        self, tmp_path: Path
+    ) -> None:
+        from unittest import mock
+
+        import httpx
+
+        seen: dict[str, Any] = {}
+        mini = BINARY.read_bytes()
+
+        class _PinnedResponse:
+            status_code: int = 200
+            headers: dict[str, str]
+
+            def __init__(self) -> None:
+                self.headers = {"Content-Length": str(len(mini))}
+
+            def iter_bytes(self, size: int) -> Any:
+                yield mini
+
+            def __enter__(self) -> Any:
+                return self
+
+            def __exit__(self, *args: Any) -> None:
+                return None
+
+        def _fake_client(*args: Any, **kwargs: Any) -> Any:
+            class _Client:
+                def __init__(self, **kw: Any) -> None:
+                    pass
+
+                def stream(self, method: str, url: str, **kw: Any) -> Any:
+                    seen["url"] = url
+                    seen["headers"] = kw.get("headers") or {}
+                    seen["extensions"] = kw.get("extensions") or {}
+                    return _PinnedResponse()
+
+            return _Client()
+
+        def _public(*args: Any, **kwargs: Any) -> Any:
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))]
+
+        with (
+            mock.patch.object(socket, "getaddrinfo", _public),
+            mock.patch.object(httpx, "Client", _fake_client),
+            mock.patch.dict("os.environ", {"REBREW_OPS_ALLOW_PRIVATE_DOWNLOAD": "0"}),
+        ):
+            result = _call(
+                self._config(tmp_path),
+                "rebrew.fingerprint",
+                self._url_file("https://example.com/mini.exe"),
+            )
+            assert result["sha256"] == SHA256
+            assert seen["url"].startswith("https://93.184.216.34/")
+            assert seen["headers"]["Host"] == "example.com"
+            assert seen["extensions"]["sni_hostname"] == "example.com"
+
 
 class TestRefusals:
     @pytest.mark.parametrize(

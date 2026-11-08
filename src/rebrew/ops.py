@@ -989,13 +989,17 @@ def stored_file(config: WorkerConfig, key: str, sha256: str) -> Path:
     return path
 
 
-def _check_download_host(hostname: str) -> None:
-    """Refuse a presigned-URL host that resolves to a non-public address.
+def _check_download_host(hostname: str) -> str:
+    """Resolve *hostname* and return a public address to fetch from.
 
     A bearer holder must not turn the worker into an SSRF probe of the
     loopback/private network: an IP literal is checked directly, and a DNS
     name is resolved and every address refused when it is not globally
     routable.  A resolution failure is refused rather than attempted.
+
+    The returned address is pinned by :func:`_download` so the fetch cannot
+    re-resolve to a different (private) address between check and connect
+    (DNS-rebinding TOCTOU): the check's answer is the fetch's destination.
     """
     import ipaddress
     import socket as _socket
@@ -1023,6 +1027,7 @@ def _check_download_host(hostname: str) -> None:
     infos = _result[0]
     if not infos:
         raise _invalid("url host cannot be resolved")
+    pinned = ""
     for info in infos:
         address = info[4][0]
         try:
@@ -1031,6 +1036,9 @@ def _check_download_host(hostname: str) -> None:
             raise _invalid("url host cannot be resolved") from None
         if not ip.is_global:
             raise _invalid("url host must be a public address")
+        if not pinned:
+            pinned = address
+    return pinned
 
 
 def _download(config: WorkerConfig, url: str, wanted: str, into: Path) -> None:
@@ -1040,17 +1048,36 @@ def _download(config: WorkerConfig, url: str, wanted: str, into: Path) -> None:
     hashing to *wanted* is refused.  Details never carry the URL: its query
     string is a credential.
     """
+    from urllib.parse import urlunsplit
+
     parts = urlsplit(url)
     if parts.scheme != "https" or not parts.hostname:
         raise _invalid("url must be an https URL")
     from rebrew.config import ALLOW_PRIVATE_DOWNLOAD_ENV, parse_env_bool
 
+    fetch_url = url
+    fetch_headers: dict[str, str] = {}
+    fetch_extensions: dict[str, Any] = {}
     if not parse_env_bool(
         ALLOW_PRIVATE_DOWNLOAD_ENV,
         os.environ.get(ALLOW_PRIVATE_DOWNLOAD_ENV, ""),
         default=False,
     ):
-        _check_download_host(parts.hostname)
+        hostname = parts.hostname
+        pinned = _check_download_host(hostname)
+        # Pin the validated address: fetch the IP literal, keep the original
+        # Host header and TLS SNI so the certificate still verifies against
+        # the DNS name.  Without this the HTTP client would re-resolve the
+        # name and could land on a private address the check never saw.
+        if pinned != hostname:
+            authority = f"[{pinned}]" if ":" in pinned else pinned
+            if parts.port is not None:
+                authority = f"{authority}:{parts.port}"
+            fetch_url = urlunsplit(
+                (parts.scheme, authority, parts.path, parts.query, parts.fragment)
+            )
+            fetch_headers["Host"] = parts.netloc
+            fetch_extensions["sni_hostname"] = hostname
     limit = config.max_download_bytes
     digest = hashlib.sha256()
     received = 0
@@ -1070,13 +1097,16 @@ def _download(config: WorkerConfig, url: str, wanted: str, into: Path) -> None:
         _verify = _ssl.create_default_context(capath=_capath)
     try:
         with (
-            httpx.stream(
-                "GET",
-                url,
+            httpx.Client(
                 timeout=DOWNLOAD_TIMEOUT_SECONDS,
                 follow_redirects=False,
                 trust_env=False,
                 verify=_verify,
+            ).stream(
+                "GET",
+                fetch_url,
+                headers=fetch_headers or None,
+                extensions=fetch_extensions or None,
             ) as response,
             into.open("wb") as out,
         ):
