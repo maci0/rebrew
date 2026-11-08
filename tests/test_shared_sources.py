@@ -334,7 +334,7 @@ class TestDefinesCompile:
             compiler_includes=tmp_path,
             base_cflags="",
             compile_timeout=3,
-            msvc_env=lambda: {},
+            msvc_env=dict,
             compiler_command="CL.EXE",
             compiler_libs=tmp_path,
             compiler_runner="",

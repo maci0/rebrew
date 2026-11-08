@@ -293,7 +293,7 @@ def classify_all(
         # Record the disassembly-derived size in metadata: a documented stub
         # without a SIZE is untestable (rebrew test refuses "Invalid SIZE: 0",
         # verify reports MISSING_SIZE, and the vacuous 0-byte diff pollutes
-        # todo as a fake "0B diff" quick-win).  Never clobber a user-corrected
+        # TODO as a fake "0B diff" quick-win).  Never clobber a user-corrected
         # size.
         if size > 0 and existing_sizes.get((target_module_name, va)) is None:
             fields["size"] = size

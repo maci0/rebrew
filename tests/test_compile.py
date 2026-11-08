@@ -149,7 +149,7 @@ class TestCompileToObj:
             compiler_includes=tmp_path,
             base_cflags="/nologo",
             compile_timeout=3,
-            msvc_env=lambda: {},
+            msvc_env=dict,
             compiler_command="CL.EXE",
             compiler_runner="",
             root=tmp_path,
@@ -188,7 +188,7 @@ class TestCompileToObj:
             compiler_libs=tmp_path,
             compiler_profile="msvc-6.0",
             posix_style=False,
-            msvc_env=lambda: {},
+            msvc_env=dict,
         )
         src_dir = tmp_path / "src"
         src_dir.mkdir()
@@ -237,7 +237,7 @@ class TestCompileToObj:
             compiler_libs=tmp_path,
             compiler_profile="msvc-6.0",
             posix_style=False,
-            msvc_env=lambda: {},
+            msvc_env=dict,
         )
         src_dir = tmp_path / "src"
         src_dir.mkdir()
@@ -298,7 +298,7 @@ class TestCompileToObj:
             compiler_libs=tmp_path,
             compiler_profile="msvc-6.0",
             posix_style=False,
-            msvc_env=lambda: {},
+            msvc_env=dict,
         )
         src_dir = tmp_path / "src"
         src_dir.mkdir()
@@ -353,7 +353,7 @@ class TestCompileToObj:
             compiler_libs=tmp_path,
             compiler_profile="msvc-6.0",
             posix_style=False,
-            msvc_env=lambda: {},
+            msvc_env=dict,
         )
         src_dir = tmp_path / "src"
         src_dir.mkdir()
@@ -417,7 +417,7 @@ class TestCompileToObj:
             compiler_libs=tmp_path,
             compiler_profile="msvc-6.0",
             posix_style=False,
-            msvc_env=lambda: {},
+            msvc_env=dict,
             recompile_url="http://svc",
         )
         src_dir = tmp_path / "src"
@@ -472,7 +472,7 @@ class TestCompileToObj:
             compiler_libs=tmp_path,
             compiler_profile="msvc-6.0",
             posix_style=False,
-            msvc_env=lambda: {},
+            msvc_env=dict,
             recompile_url="http://svc",
         )
         src_dir = tmp_path / "src"
@@ -518,7 +518,7 @@ class TestCompileToObjPosix:
             compiler_runner="",
             compiler_profile=profile,
             posix_style=True,
-            msvc_env=lambda: {},
+            msvc_env=dict,
             recompile_url="http://svc",
         )
         source = tmp_path / "source.c"
@@ -554,7 +554,7 @@ class TestCompileToObjPosix:
             compiler_libs=tmp_path,
             compiler_profile="mingw-16.2.0",
             posix_style=True,
-            msvc_env=lambda: {},
+            msvc_env=dict,
         )
         src_dir = tmp_path / "src"
         src_dir.mkdir()
@@ -601,7 +601,7 @@ class TestCompileToObjPosix:
             compiler_libs=tmp_path,
             compiler_profile="msvc-6.0",
             posix_style=False,
-            msvc_env=lambda: {},
+            msvc_env=dict,
         )
         src_dir = tmp_path / "src"
         src_dir.mkdir()
@@ -658,7 +658,7 @@ class TestSourceInWorkdir:
             compiler_libs=includes,
             compiler_profile=profile,
             posix_style=not profile.startswith("msvc"),
-            msvc_env=lambda: {},
+            msvc_env=dict,
         )
         obj, error = compile_to_obj(
             cast("ProjectConfig", cfg), source, [], workdir, use_cache=False
@@ -738,7 +738,7 @@ class TestCompileErrorExcerpt:
             compiler_libs=tmp_path,
             compiler_profile="mingw-16.2.0",
             posix_style=True,
-            msvc_env=lambda: {},
+            msvc_env=dict,
         )
         result = compile_and_compare(
             cast("ProjectConfig", cfg),
@@ -793,7 +793,7 @@ class TestCompileErrorExcerpt:
             compiler_libs=tmp_path,
             compiler_profile="msvc-6.0",
             posix_style=False,
-            msvc_env=lambda: {},
+            msvc_env=dict,
         )
         result = compile_and_compare(
             cast("ProjectConfig", cfg),
@@ -864,7 +864,7 @@ class TestPosixDropsMsvcBaseCflags:
             compiler_libs=tmp_path,
             compiler_profile="mingw-16.2.0",
             posix_style=True,
-            msvc_env=lambda: {},
+            msvc_env=dict,
         )
         result = compile_and_compare(
             cast("ProjectConfig", cfg),
@@ -919,7 +919,7 @@ class TestPosixDropsMsvcBaseCflags:
             compiler_libs=tmp_path,
             compiler_profile="msvc-6.0",
             posix_style=False,
-            msvc_env=lambda: {},
+            msvc_env=dict,
         )
         compile_and_compare(
             cast("ProjectConfig", cfg),
@@ -2018,7 +2018,7 @@ class TestPinnedImageExecution:
             compiler_libs=tmp_path,
             compiler_profile="msvc-6.0",
             posix_style=False,
-            msvc_env=lambda: {},
+            msvc_env=dict,
         )
 
     def _source(self, tmp_path: Path) -> Path:

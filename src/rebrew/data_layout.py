@@ -1553,7 +1553,7 @@ def _decl_re(name: str) -> re.Pattern[str]:
     )
     glued = r"^[ \t]*([\w\s]+?)\s*(\*+)\s*" + re.escape(name) + brackets + r"\s*(?:=|;)"
     bare = r"^[ \t]*([\w\s\*]+?)\s+" + re.escape(name) + brackets + r"\s*(?:=|;)"
-    return re.compile("|".join((pointer, paren, glued, bare)), re.M)
+    return re.compile(f"{pointer}|{paren}|{glued}|{bare}", re.M)
 
 
 def _declared_element_count(suffix: str) -> int | None:

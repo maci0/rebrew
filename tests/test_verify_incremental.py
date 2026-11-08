@@ -269,7 +269,7 @@ class TestResolvedOverridesMemo:
 
         cfg = _make_cfg(tmp_path)
         (tmp_path / "rebrew-libraries.toml").write_text('library = "REB_TEST_LIB"\n', "utf-8")
-        monkeypatch.setattr(metadata_mod, "_merged_library_presets", lambda: {})
+        monkeypatch.setattr(metadata_mod, "_merged_library_presets", dict)
         try:
             metadata_mod.refresh_library_presets()
             from rebrew.compiler.overrides import resolve_compile_overrides

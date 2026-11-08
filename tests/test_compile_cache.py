@@ -30,7 +30,7 @@ def _compile_cfg(tmp_path: Path) -> Any:
         compiler_includes=tmp_path,
         base_cflags="/nologo /c",
         compile_timeout=3,
-        msvc_env=lambda: {},
+        msvc_env=dict,
         compiler_command="CL.EXE",
         compiler_libs=tmp_path,
         compiler_runner="",
@@ -1615,7 +1615,7 @@ class TestGetCompileCache:
             assert get_compile_cache(tmp_path, "plugin") is new
             # Outstanding users keep their committed instance until cleanup.
             assert old.is_open()
-            monkeypatch.setattr(cc, "_discover_cache_backends", lambda: {})
+            monkeypatch.setattr(cc, "_discover_cache_backends", dict)
             cc.refresh_cache_backends()
             with pytest.raises(ValueError, match="unknown cache backend"):
                 get_compile_cache(tmp_path, "plugin")

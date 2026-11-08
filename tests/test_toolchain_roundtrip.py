@@ -57,7 +57,7 @@ def _cfg(root: Path, toolchain: str) -> SimpleNamespace:
         compiler_profile=profile,
         base_cflags="/nologo /c /MT",
         compile_timeout=180,
-        msvc_env=lambda: {},
+        msvc_env=dict,
         posix_style=False,
     )
 

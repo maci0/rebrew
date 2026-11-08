@@ -281,18 +281,7 @@ class TestRequireConfig:
 
     def test_explicit_root_loads_project(self, tmp_path: Path) -> None:
         (tmp_path / "rebrew-project.toml").write_text(
-            "\n".join(
-                [
-                    "[project]",
-                    'default_target = "main"',
-                    "",
-                    "[targets.main]",
-                    'binary = "test.exe"',
-                    'format = "pe"',
-                    'arch = "x86_32"',
-                    'reversed_dir = "src"',
-                ]
-            ),
+            '[project]\ndefault_target = "main"\n\n[targets.main]\nbinary = "test.exe"\nformat = "pe"\narch = "x86_32"\nreversed_dir = "src"',
             encoding="utf-8",
         )
 

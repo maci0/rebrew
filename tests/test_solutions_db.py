@@ -74,13 +74,7 @@ class TestCollect:
     def test_collect_best_from_ga_runs(self, tmp_path: Path) -> None:
         (tmp_path / ".rebrew").mkdir(exist_ok=True)
         (tmp_path / ".rebrew" / "ga_runs.jsonl").write_text(
-            "\n".join(
-                [
-                    '{"ts": "t1", "target": "SERVER", "va": "0x1000", "symbol": "_f", "matched": false, "score": 5.0}',
-                    '{"ts": "t2", "target": "SERVER", "va": "0x1000", "symbol": "_f", "matched": true, "score": 0.0}',
-                    '{"ts": "t3", "target": "SERVER", "va": "0x2000", "symbol": "_g", "matched": false, "score": 9.0}',
-                ]
-            ),
+            '{"ts": "t1", "target": "SERVER", "va": "0x1000", "symbol": "_f", "matched": false, "score": 5.0}\n{"ts": "t2", "target": "SERVER", "va": "0x1000", "symbol": "_f", "matched": true, "score": 0.0}\n{"ts": "t3", "target": "SERVER", "va": "0x2000", "symbol": "_g", "matched": false, "score": 9.0}',
             encoding="utf-8",
         )
         best = _collect_best(_cfg(tmp_path))

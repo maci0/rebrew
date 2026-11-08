@@ -205,7 +205,7 @@ class TestEnsureXvfb:
         from rebrew.compiler import headless
 
         monkeypatch.setattr(headless, "_display_alive", lambda d: True)
-        monkeypatch.setattr(headless, "_running_xvfb_displays", lambda: {})
+        monkeypatch.setattr(headless, "_running_xvfb_displays", dict)
         monkeypatch.setenv("REBREW_XVFB_DISPLAY", ":99")
         monkeypatch.setenv("DISPLAY", "")
         # No live displays, so ensure_xvfb would spawn; with no Xvfb binary
@@ -261,7 +261,7 @@ class TestEnsureXvfb:
 
         monkeypatch.delenv("REBREW_XVFB_DISPLAY", raising=False)
         monkeypatch.delenv("DISPLAY", raising=False)
-        monkeypatch.setattr(headless, "_running_xvfb_displays", lambda: {})
+        monkeypatch.setattr(headless, "_running_xvfb_displays", dict)
         monkeypatch.setattr(
             headless.shutil, "which", lambda name: "/usr/bin/Xvfb" if name == "Xvfb" else None
         )
@@ -303,7 +303,7 @@ class TestEnsureXvfb:
 
         monkeypatch.delenv("REBREW_XVFB_DISPLAY", raising=False)
         monkeypatch.delenv("DISPLAY", raising=False)
-        monkeypatch.setattr(headless, "_running_xvfb_displays", lambda: {})
+        monkeypatch.setattr(headless, "_running_xvfb_displays", dict)
         monkeypatch.setattr(headless.shutil, "which", lambda name: None)
         assert ensure_xvfb() is None
 
@@ -313,7 +313,7 @@ class TestEnsureXvfb:
 
         monkeypatch.delenv("REBREW_XVFB_DISPLAY", raising=False)
         monkeypatch.delenv("DISPLAY", raising=False)
-        monkeypatch.setattr(headless, "_running_xvfb_displays", lambda: {})
+        monkeypatch.setattr(headless, "_running_xvfb_displays", dict)
         monkeypatch.setattr(
             headless.shutil, "which", lambda name: "/usr/bin/Xvfb" if name == "Xvfb" else None
         )
@@ -332,7 +332,7 @@ class TestEnsureXvfb:
 
         monkeypatch.delenv("REBREW_XVFB_DISPLAY", raising=False)
         monkeypatch.delenv("DISPLAY", raising=False)
-        monkeypatch.setattr(headless, "_running_xvfb_displays", lambda: {})
+        monkeypatch.setattr(headless, "_running_xvfb_displays", dict)
         monkeypatch.setattr(
             headless.shutil, "which", lambda name: "/usr/bin/Xvfb" if name == "Xvfb" else None
         )
@@ -363,7 +363,7 @@ class TestEnsureXvfb:
 
         monkeypatch.delenv("REBREW_XVFB_DISPLAY", raising=False)
         monkeypatch.delenv("DISPLAY", raising=False)
-        monkeypatch.setattr(headless, "_running_xvfb_displays", lambda: {})
+        monkeypatch.setattr(headless, "_running_xvfb_displays", dict)
         monkeypatch.setattr(
             headless.shutil, "which", lambda name: "/usr/bin/Xvfb" if name == "Xvfb" else None
         )
@@ -425,7 +425,7 @@ class TestEnsureXvfb:
 
         monkeypatch.delenv("REBREW_XVFB_DISPLAY", raising=False)
         monkeypatch.delenv("DISPLAY", raising=False)
-        monkeypatch.setattr(headless, "_running_xvfb_displays", lambda: {})
+        monkeypatch.setattr(headless, "_running_xvfb_displays", dict)
         monkeypatch.setattr(
             headless.shutil, "which", lambda name: "/usr/bin/Xvfb" if name == "Xvfb" else None
         )
@@ -468,7 +468,7 @@ class TestEnsureXvfb:
 
         monkeypatch.delenv("REBREW_XVFB_DISPLAY", raising=False)
         monkeypatch.delenv("DISPLAY", raising=False)
-        monkeypatch.setattr(headless, "_running_xvfb_displays", lambda: {})
+        monkeypatch.setattr(headless, "_running_xvfb_displays", dict)
         monkeypatch.setattr(
             headless.shutil, "which", lambda name: "/usr/bin/Xvfb" if name == "Xvfb" else None
         )
