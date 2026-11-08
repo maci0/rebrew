@@ -32,6 +32,13 @@ prune src/rebrew.egg-info
 # [project] license-files.
 include CHANGELOG.md
 include SECURITY.md
+# The Go jobs owner (services/jobs) is a shipped service, not dev-only code:
+# its README and security docs point users at it, and a source install must be
+# able to build rebrew-jobs.  setuptools' default filelist only carries the
+# Python package, so graft the module explicitly (runtime source only — the
+# *_test.go files stay out via global-exclude below).
+graft services/jobs
+global-exclude *_test.go
 global-exclude *.py[cod]
 global-exclude __pycache__
 global-exclude .coverage
