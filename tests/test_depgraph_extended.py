@@ -226,7 +226,7 @@ class TestDepgraphCli:
         def _cu_map(json_output=False, target=None):
             calls["n"] += 1
 
-        monkeypatch.setattr("rebrew.cu_map.main", _cu_map)
+        monkeypatch.setattr("rebrew.cu_map.run_cu_map", _cu_map)
         result = CliRunner().invoke(app, ["--cu-map"])
         assert result.exit_code == 0
         assert calls["n"] == 1

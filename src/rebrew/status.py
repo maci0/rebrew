@@ -38,9 +38,7 @@ from rebrew.status_style import DISPLAY_STATUSES, STATUS_COLORS
 lazy from rebrew.config import ProjectConfig
 lazy from rebrew.formats.binary_model import BinaryInfo
 lazy from rebrew.formats.pe_symbols import as_list
-lazy from rebrew.present import BAR_WIDTH as _BAR_WIDTH
-lazy from rebrew.present import filled_cells as _filled
-lazy from rebrew.present import ratio_bar as _bar
+lazy from rebrew.present import BAR_WIDTH, filled_cells, ratio_bar
 lazy from rebrew.sources import iter_sources
 lazy from rebrew.utils import (
     TerminalTable,
@@ -1463,7 +1461,7 @@ def span_is_copied(va: int, size: int, copied: list[tuple[int, int]]) -> bool:
 
 def _ticks(part: float, whole: float) -> str:
     """Proportional tick marks for a table row. No empty trail."""
-    return "█" * _filled(part, whole, _TICK_WIDTH)
+    return "█" * filled_cells(part, whole, _TICK_WIDTH)
 
 
 def _breakdown_table(*, byte_counts: bool = False, percent: bool = True) -> TerminalTable:
@@ -1522,7 +1520,7 @@ def _data_block(report: StatusReport) -> list[Any]:
             style="dim",
         )
         block.append(headline)
-        block.append(_bar(report.data_verified_bytes, report.data_total_bytes, _BAR_WIDTH))
+        block.append(ratio_bar(report.data_verified_bytes, report.data_total_bytes, BAR_WIDTH))
         if report.data_bytes:
             block.append(
                 Text(
@@ -1639,7 +1637,7 @@ def _file_rows(report: StatusReport) -> list[Any]:
     )
     if report.file_built:
         text.append(f"    {report.file_built}", style="dim")
-    rows: list[Any] = [text, _bar(report.file_matched_bytes, report.file_total_bytes, _BAR_WIDTH)]
+    rows: list[Any] = [text, ratio_bar(report.file_matched_bytes, report.file_total_bytes, BAR_WIDTH)]
     gap = report.file_total_bytes - report.file_matched_bytes
     rows.append(Text(f"{gap:,}B differ or are missing", style="dim"))
     if report.file_sections:
@@ -1694,14 +1692,14 @@ def _headline(report: StatusReport) -> tuple[Text, Text | None]:
         )
         text.append(label, style="bold green")
         text.append(amounts, style="dim")
-        return text, _bar(accounted, report.total_text_bytes, _BAR_WIDTH)
+        return text, ratio_bar(accounted, report.total_text_bytes, BAR_WIDTH)
     text = Text(
         f"{report.matched_functions}/{report.total_functions} functions  ({report.matched_pct}%)",
         style="bold green",
     )
     bar = None
     if report.total_functions > 0:
-        bar = _bar(report.matched_functions, report.total_functions, _BAR_WIDTH)
+        bar = ratio_bar(report.matched_functions, report.total_functions, BAR_WIDTH)
     return text, bar
 
 

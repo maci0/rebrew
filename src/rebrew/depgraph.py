@@ -811,7 +811,7 @@ def main(
     depth = require_non_negative(depth, "--depth", json_mode=json_output)
 
     if cu_map:
-        from rebrew.cu_map import main as _cu_map_main
+        from rebrew.cu_map import run_cu_map
 
         if output is not None:
             error_exit(
@@ -819,7 +819,7 @@ def main(
                 "report prints to stdout; redirect it instead)",
                 json_mode=json_output,
             )
-        _cu_map_main(json_output=json_output, target=target)
+        run_cu_map(json_output=json_output, target=target)
         return
 
     reversed_dir = cfg.reversed_dir

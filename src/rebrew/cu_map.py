@@ -395,14 +395,11 @@ def _cluster_to_dict(
 
 
 # ---------------------------------------------------------------------------
-# CLI
+# Library entry point (also used by the depgraph command)
 # ---------------------------------------------------------------------------
 
 
-def main(
-    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
-    target: str | None = TargetOption,
-) -> None:
+def run_cu_map(json_output: bool = False, target: str | None = None) -> None:
     """Cluster target binary functions into inferred translation units.
 
     Uses inter-function gap analysis and call-graph signals to identify
@@ -492,3 +489,11 @@ def main(
         )
 
     console.print(table)
+
+
+def main(
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Cluster target binary functions into inferred translation units."""
+    run_cu_map(json_output=json_output, target=target)
