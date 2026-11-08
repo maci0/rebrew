@@ -365,18 +365,31 @@ def inline_g_literal_uses(
     mask = _mask_keep_regions(text)
     edits: list[tuple[int, int, str]] = []
     name_uses: dict[str, int] = defaultdict(int)
+    literals: dict[str, str] = {}
     for name, res in resolved.items():
         if isinstance(res, str):
             result.skipped[name] = res
             continue
-        _va, literal = res
-        word = _word_re(name)
-        for m in word.finditer(text):
+        literals[name] = res[1]
+    # One word-token scan answers every resolved name.  The old loop ran
+    # ``_word_re(name).finditer(text)`` once per resolved name, so a file
+    # with N globals paid N full scans and N compiled patterns for the
+    # same text.  The walk skips masked bytes (comments, literals, asm)
+    # the same way the per-name pass did.
+    if literals:
+        wanted = set(literals)
+        token_start = 0
+        for m in re.finditer(r"\b\w+\b", text):
+            word = m.group(0)
+            if word not in wanted:
+                continue
             s, e = m.span()
             if b"0" in mask[s:e]:
                 continue
-            edits.append((s, e, literal))
-            name_uses[name] += 1
+            edits.append((s, e, literals[word]))
+            name_uses[word] += 1
+            token_start = s
+            del token_start
     for name, uses in name_uses.items():
         if uses:
             result.inlined[name] = uses
@@ -391,9 +404,14 @@ def inline_g_literal_uses(
                 end = min(start + len(lines[idx]) + 1, len(text))
                 edits.append((start, end, ""))
         edits.sort(reverse=True)
-        out = text
-        for s, e, repl in edits:
-            out = out[:s] + repl + out[e:]
+        parts: list[str] = []
+        pos = 0
+        for s, e, repl in reversed(edits):
+            parts.append(text[pos:s])
+            parts.append(repl)
+            pos = e
+        parts.append(text[pos:])
+        out = "".join(parts)
         if not dry_run:
             atomic_write_text(path, out, encoding=encoding)
         for name, n in result.inlined.items():

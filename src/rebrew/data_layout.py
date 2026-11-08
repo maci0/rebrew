@@ -335,16 +335,61 @@ def obj_section_symbols(obj: Path, *sections: str) -> tuple[dict[str, int], dict
 
     secname, sizes = _obj_section_sizes(obj)
     buckets: dict[str, set[str]] = {s: set() for s in sections}
-    for sec_idx, _value, raw_sym in _iter_obj_symbols(obj):
+    table_secname, rows = _obj_symbol_table(obj)
+    for sec_idx, _value, raw_sym in rows:
         # Section and fastcall-shaped locals stay out. ``lstrip`` then
         # stored both ``__g_foo`` and ``_g_foo`` as ``g_foo``.
         bare = raw_sym.lstrip("_")
         if not bare or bare.startswith((".", "@")):
             continue
-        sname = secname.get(sec_idx - 1)
+        sname = table_secname.get(sec_idx - 1)
         if sname in buckets:
             buckets[sname].add(c_name_from_symbol(raw_sym))
     return {s: sizes.get(s, 0) for s in sections}, buckets
+
+
+_OBJ_SYMBOL_TABLE: dict[tuple[str, int, int, int, int], tuple[dict[int, str], tuple[tuple[int, int, str], ...]]] = {}
+_OBJ_SYMBOL_TABLE_LOCK = Lock()
+
+
+def _obj_symbol_table(obj: Path) -> tuple[dict[int, str], tuple[tuple[int, int, str], ...]]:
+    """One parse per object, reused by the per-section inventory readers.
+
+    ``_run_objdump`` already caches the objdump stdout by stat fingerprint,
+    but every accessor re-split that text and re-ran the two symbol regexes
+    per line.  A 200-TU project pays thousands of lines of regex work per run
+    for tables that never change.  Keyed exactly like ``_run_objdump`` so a
+    rebuilt object reseeds and a caller-grown copy (the returned dict/tuple
+    must not be mutated) filters from a shared tuple.
+    """
+    try:
+        st = obj.stat()
+        key = (str(obj), st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns)
+    except OSError:
+        return _obj_symbol_table_uncached(obj)
+    with _OBJ_SYMBOL_TABLE_LOCK:
+        hit = _OBJ_SYMBOL_TABLE.get(key)
+        if hit is not None:
+            return hit
+    table = _obj_symbol_table_uncached(obj)
+    if len(_OBJ_SYMBOL_TABLE) >= 1024:
+        _OBJ_SYMBOL_TABLE.clear()
+    _OBJ_SYMBOL_TABLE[key] = table
+    return table
+
+
+def _obj_symbol_table_uncached(obj: Path) -> tuple[dict[int, str], tuple[tuple[int, int, str], ...]]:
+    secname, _sizes = _obj_section_sizes(obj)
+    rows: list[tuple[int, int, str]] = []
+    for line in _run_objdump(obj, "-t").splitlines():
+        m = _OBJ_SEC_RE.match(line)
+        if not m:
+            continue
+        vm = _OBJ_VALUE_RE.search(line[m.end() :])
+        if not vm:
+            continue
+        rows.append((int(m.group(1)), int(vm.group(1), 16), vm.group(2)))
+    return secname, tuple(rows)
 
 
 def obj_data_symbol_offsets(obj: Path) -> tuple[int, dict[str, int]]:
@@ -358,8 +403,9 @@ def obj_data_symbol_offsets(obj: Path) -> tuple[int, dict[str, int]]:
     secname, sizes = _obj_section_sizes(obj)
     dsize = sizes.get(".data", 0)
     syms: dict[str, int] = {}
-    for sec_idx, value, raw_sym in _iter_obj_symbols(obj):
-        if secname.get(sec_idx - 1) == ".data":
+    table_secname, rows = _obj_symbol_table(obj)
+    for sec_idx, value, raw_sym in rows:
+        if table_secname.get(sec_idx - 1) == ".data":
             syms[c_name_from_symbol(raw_sym)] = value
     return dsize, syms
 
@@ -376,8 +422,9 @@ def obj_text_symbol_offsets(obj: Path) -> tuple[int, dict[str, int]]:
 
     secname, sizes = _obj_section_sizes(obj)
     syms: dict[str, int] = {}
-    for sec_idx, value, raw_sym in _iter_obj_symbols(obj):
-        if secname.get(sec_idx - 1) == ".text":
+    table_secname, rows = _obj_symbol_table(obj)
+    for sec_idx, value, raw_sym in rows:
+        if table_secname.get(sec_idx - 1) == ".text":
             syms[c_name_from_symbol(raw_sym)] = value
     return sizes.get(".text", 0), syms
 
