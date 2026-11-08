@@ -26,9 +26,11 @@ __all__ = [
     "backup_metadata_database",
     "backup_metadata_toml",
     "extra_durable_sources",
+    "metadata_paths",
     "restore_metadata_database",
     "restore_metadata_toml",
     "toml_store_trees",
+    "verify_backup_manifest",
 ]
 
 DATABASE_FILENAME = "rebrew-metadata.sqlite3"
