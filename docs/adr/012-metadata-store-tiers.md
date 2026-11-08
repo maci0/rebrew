@@ -132,8 +132,9 @@ Single-source rules enforced by code where cheap:
   demotions aren't masked; its overlay precedence is documented.
 
 *(Amended: the `coverage.db` tier named above is gone.  Tier 3's coverage entry
-is one clear-text document per target, `db/coverage-<target>.toml`, written
-wholesale by `rebrew build-db` and read directly by the dashboards: no schema
+is one clear-text document per target, `coverage-<target>.toml`, written
+wholesale by `rebrew coverage export --output <dir>` for offline use (normal
+dashboards read live metadata per [ADR-031](031-live-coverage-views.md)): no schema
 migration, no `--force` unlink, and no derived cache table between the catalog
 and a reader.  The document still stamps `version`; a previous document carrying
 any other value contributes nothing, so the stamp bounds what an older document

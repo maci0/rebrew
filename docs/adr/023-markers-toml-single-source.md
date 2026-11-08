@@ -96,7 +96,7 @@ identity and state. A migrated `.c` file is pure C.**
 *(Amended: the export half of this decision is superseded. `catalog/export.py`
 is deleted, so `data.json`, the reccmp CSV and `rebrew catalog --csv` /
 `--data-json` no longer exist; the registry feeds one writer,
-`rebrew build-db` → `db/coverage-<target>.toml` (see
+`rebrew coverage export --output <dir>` → `coverage-<target>.toml` (see
 [COVERAGE_DOCUMENT.md](../COVERAGE_DOCUMENT.md)). The marker half stands: reccmp-compatible
 inline markers remain the input contract, and community round-trips re-enter
 through the source tree or a re-annotated copy.)*

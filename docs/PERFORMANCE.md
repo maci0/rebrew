@@ -788,7 +788,7 @@ Every offline `--json` command is deterministic across runs: enforced by
 step; see `docs/CI.md`.
 
 The same tool runs each of its 24 mutating commands (`source register`,
-`source document-unmatched`, `build link-stubs`, both `skeleton` forms, `coverage export`, `export symbols`,
+`source document-unmatched`, `build link-stubs`, both `skeleton` forms, `coverage export`, `coverage import-history`, `export symbols`,
 `build cmake-toolchain`, `source fix`, `export context`, both `blocker set` forms, both
 `library set` forms, `coverage report`, the three `data` forms: `header`,
 `set --type`, `set --section`, and the five `cfg` forms that write

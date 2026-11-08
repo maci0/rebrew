@@ -10,7 +10,7 @@
 `rebrew prove` writes STATUS `PROVEN` when angr/Z3 shows a function
 semantically equivalent to the target while its compiled bytes still differ.
 Rebrew counted PROVEN with EXACT and RELOC in `MATCHED_STATUSES`, so status,
-todo, report, catalog, build-db and verify's `passed` all treated it as done
+todo, report, catalog, coverage export and verify's `passed` all treated it as done
 work.  `rebrew verify` also overlaid metadata PROVEN onto its byte results
 (turning a NEAR_MATCHING compile into a pass), and the promotion gate refused
 to demote PROVEN except to EXACT/RELOC.  A byte-identical goal read those
