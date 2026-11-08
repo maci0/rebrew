@@ -201,6 +201,10 @@ def _write_extra_durable(root: Path) -> None:
     (root / ".rebrew" / "sync" / "baseline.toml").write_text(
         "format = 1\nrecords = {}\n", encoding="utf-8"
     )
+    (root / ".rebrew" / "decompme-uploads.json").write_text(
+        json.dumps({"digest1": {"slug": "abc", "claim_token": "tok", "api": "x", "at": "123"}}),
+        encoding="utf-8",
+    )
 
 
 def _write_uploads_ledger(root: Path) -> Path:
@@ -250,6 +254,9 @@ class TestTomlBackup:
         bundle = backup_metadata_toml(tmp_path, tmp_path / "off-tree")
         assert (bundle / ".rebrew" / "ga_runs.jsonl").read_text() == ('{"ts":"r","matched":true}\n')
         assert (bundle / ".rebrew" / "sync" / "baseline.toml").is_file()
+        uploads = bundle / ".rebrew" / "decompme-uploads.json"
+        assert json.loads(uploads.read_text())["digest1"]["claim_token"] == "tok"  # noqa: S105
+        assert uploads.stat().st_mode & 0o777 == 0o600
 
     def test_restore_roundtrips_ga_log_and_baselines(self, tmp_path: Path) -> None:
         (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")
@@ -257,6 +264,7 @@ class TestTomlBackup:
         bundle = backup_metadata_toml(tmp_path, tmp_path / "off-tree")
         (tmp_path / ".rebrew" / "ga_runs.jsonl").unlink()
         (tmp_path / ".rebrew" / "sync" / "baseline.toml").unlink()
+        (tmp_path / ".rebrew" / "decompme-uploads.json").unlink()
         installed = restore_metadata_toml(bundle, tmp_path)
         assert tmp_path / ".rebrew" / "ga_runs.jsonl" in installed
         assert (tmp_path / ".rebrew" / "ga_runs.jsonl").read_text() == (
@@ -265,6 +273,9 @@ class TestTomlBackup:
         assert (tmp_path / ".rebrew" / "sync" / "baseline.toml").read_text() == (
             "format = 1\nrecords = {}\n"
         )
+        uploads = tmp_path / ".rebrew" / "decompme-uploads.json"
+        assert json.loads(uploads.read_text())["digest1"]["claim_token"] == "tok"  # noqa: S105
+        assert uploads.stat().st_mode & 0o777 == 0o600
 
     def test_restore_roundtrips_uploads_ledger_owner_only(self, tmp_path: Path) -> None:
         (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")
@@ -303,6 +314,34 @@ class TestTomlBackup:
         assert (tmp_path / ".rebrew" / "ga_runs.jsonl").read_text() == (
             '{"ts":"r","matched":true}\n'
         )
+
+    def test_restore_rejects_corrupt_uploads_and_leaves_stores_alone(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")
+        _write_extra_durable(tmp_path)
+        bundle = backup_metadata_toml(tmp_path, tmp_path / "off-tree")
+        uploads = bundle / ".rebrew" / "decompme-uploads.json"
+        uploads.chmod(0o644)
+        uploads.write_text('{"a": 5}', encoding="utf-8")
+        with pytest.raises(MetadataStorageError, match="corrupt backup"):
+            restore_metadata_toml(bundle, tmp_path)
+        assert json.loads((tmp_path / ".rebrew" / "decompme-uploads.json").read_text())[
+            "digest1"
+        ]["claim_token"] == "tok"  # noqa: S105
+
+    def test_sqlite_backup_roundtrips_uploads(self, tmp_path: Path) -> None:
+        _project(tmp_path)
+        store = metadata_store(tmp_path / "rebrew-functions.toml", backend="sqlite", root=tmp_path)
+        store.write({"format": 2}, "test")
+        _write_extra_durable(tmp_path)
+        dest = backup_metadata_database(tmp_path, tmp_path / "off-tree")
+        uploads = tmp_path / ".rebrew" / "decompme-uploads.json"
+        uploads.unlink()
+        restore_metadata_database(dest, tmp_path)
+        ledger = json.loads(uploads.read_text())
+        assert ledger["digest1"]["claim_token"] == "tok"  # noqa: S105
+        assert uploads.stat().st_mode & 0o777 == 0o600
 
     def test_corrupt_bundle_leaves_stores_alone(self, tmp_path: Path) -> None:
         (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")

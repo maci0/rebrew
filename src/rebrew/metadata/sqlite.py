@@ -347,6 +347,13 @@ def _validate_uploads_ledger(source: Path) -> None:
         raise MetadataStorageError(f"{source}: corrupt backup: {exc}") from exc
     if not isinstance(parsed, dict):
         raise MetadataStorageError(f"{source}: corrupt backup: not a JSON object")
+    for digest, entry in parsed.items():
+        if not isinstance(entry, dict) or not all(
+            isinstance(entry.get(k), str) for k in ("slug", "claim_token", "api", "at")
+        ):
+            raise MetadataStorageError(
+                f"{source}: corrupt backup: entry {digest!r} is incomplete"
+            )
 
 
 def _validate_extra(source: Path) -> None:
@@ -384,7 +391,7 @@ def _validate_extra(source: Path) -> None:
 
 def _extra_mode(source: Path) -> int:
     """Write mode for one ``.rebrew/`` extra, owner-only for the ledger."""
-    return _UPLOADS_MODE if source.suffix == ".json" else 0o444
+    return _UPLOADS_MODE if source.name == "decompme-uploads.json" else 0o444
 
 
 def _extra_durable_sources(root: Path) -> list[Path]:
@@ -468,7 +475,7 @@ def metadata_paths(path: Path) -> tuple[Path, ...]:
         paths = [path]
     try:
         members = list(path.with_suffix(".d").iterdir())
-    except FileNotFoundError, NotADirectoryError:
+    except (FileNotFoundError, NotADirectoryError):
         members = []
     paths.extend(sorted(p for p in members if p.suffix == ".toml" and p.is_file()))
     return tuple(paths)
@@ -731,7 +738,10 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
         for _src in _candidates:
             _raw = _src.read_bytes()
             _dest = root / _src.relative_to(_backup_root)
-            if _kind == "extra":
+            # All kinds except "sync" (the TOML directory) are single
+            # .rebrew/ files dispatched by _validate_extra: GA log as
+            # JSONL, uploads ledger as a JSON object, the rest as TOML.
+            if _kind in {"extra", "state"}:
                 _validate_extra(_src)
             else:
                 try:
