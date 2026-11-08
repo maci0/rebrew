@@ -199,6 +199,21 @@ class TestSqliteBackup:
         assert _tgt_baseline.read_text(encoding="utf-8") == "target = 'game'\n"
         assert _ghidra.read_text(encoding="utf-8") == '{"a": "b"}\n'
 
+    def test_sqlite_backup_roundtrips_pgsql_before_transfer_snapshots(self, tmp_path: Path) -> None:
+        # The before-transfer snapshot is the only copy of the destination
+        # a migrate pgsql replaced; the metadata bundle must carry it.
+        _project(tmp_path)
+        _store = metadata_store(tmp_path / "rebrew-functions.toml", backend="sqlite", root=tmp_path)
+        _store.write({"format": 2}, "test")
+        _snapshot = tmp_path / ".rebrew" / "pgsql-before-transfer" / "rebrew-functions.toml"
+        _snapshot.parent.mkdir(parents=True, exist_ok=True)
+        _snapshot.write_text("format = 2\n", encoding="utf-8")
+        _snapshot.chmod(0o444)
+        _dest = backup_metadata_database(tmp_path, tmp_path / "off-tree")
+        _snapshot.unlink()
+        restore_metadata_database(_dest, tmp_path)
+        assert _snapshot.read_text(encoding="utf-8") == "format = 2\n"
+
     def test_restore_clears_stale_journal_and_verify_sidecar(self, tmp_path: Path) -> None:
         # A killed writer's rollback journal belongs to the pre-restore
         # database; left beside the restored file SQLite would replay it

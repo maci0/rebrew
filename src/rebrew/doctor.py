@@ -1074,10 +1074,22 @@ def check_backup_readiness(cfg: ProjectConfig) -> CheckResult:
     """
     backend = getattr(cfg, "metadata_backend", "toml")
     if backend == "pgsql":
+        # Any `.rebrew/pgsql-before-transfer/` snapshot is the only copy
+        # of the destination a migrate replaced; the pgsql WARN must not
+        # swallow that the snapshots themselves ride in the metadata
+        # backup bundle (extra_durable_sources covers them).
+        snapshot_dir = Path(cfg.root) / ".rebrew" / "pgsql-before-transfer"
+        snapshot_note = (
+            " + "
+            + str(len([p for p in snapshot_dir.rglob('*.toml') if p.is_file()]))
+            + " before-transfer snapshot(s) carried by the metadata backup"
+            if snapshot_dir.is_dir()
+            else ""
+        )
         return CheckResult(
             name="Backup readiness",
             status=_WARN,
-            message="PostgreSQL backend has no rebrew-side backup command",
+            message="PostgreSQL backend has no rebrew-side backup command" + snapshot_note,
             fix="Back up with pg_dump (see the rebrew repo's docs/METADATA.md#postgresql-backup-and-restore) "
             "plus `rebrew metadata backup` for the project files.",
         )

@@ -357,6 +357,7 @@ _VERIFY_CACHE_REL = Path(".rebrew") / "verify_cache.toml"
 _VERIFY_BASELINE_REL = Path(".rebrew") / "verify_baseline.toml"
 _VERIFY_TARGETS_REL = Path(".rebrew") / "targets"
 _GHIDRA_SYNC_STATE_REL = Path(".rebrew") / "ghidra_sync_state.json"
+_PGSQL_SNAPSHOT_DIR_REL = Path(".rebrew") / "pgsql-before-transfer"
 
 #: Mode the uploads ledger must keep in backups and on restore: it holds
 #: decomp.me claim tokens, so no group/other access, matching
@@ -532,7 +533,10 @@ def extra_durable_sources(root: Path) -> list[Path]:
     re-pushes.  Backing up and restoring call this one function on
     the live tree and on the backup bundle respectively, so the two
     lists cannot drift.  Peer worktrees under ``.rebrew/sync/peers/``
-    are transient snapshots and stay out.
+    are transient snapshots and stay out.  The ``pgsql-before-transfer``
+    snapshots are the only copy of the destination a ``metadata migrate
+    pgsql`` replaced, so they ride along too; they are ``.toml`` only
+    (nested paths are possible via ``metadata_dir``).
     """
     sources = []
     ga_runs = root / _GA_RUNS_REL
@@ -564,6 +568,9 @@ def extra_durable_sources(root: Path) -> list[Path]:
     sync_dir = root / _SYNC_DIR_REL
     if sync_dir.is_dir():
         sources.extend(sorted(p for p in sync_dir.iterdir() if p.suffix == ".toml" and p.is_file()))
+    pgsql_snapshots = root / _PGSQL_SNAPSHOT_DIR_REL
+    if pgsql_snapshots.is_dir():
+        sources.extend(sorted(p for p in pgsql_snapshots.rglob("*.toml") if p.is_file()))
     return sources
 
 
