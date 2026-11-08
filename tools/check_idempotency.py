@@ -400,6 +400,10 @@ WRITE_COMMANDS = [
     # `rebrew coverage catalog` left this list when it stopped writing: it reports the
     # catalog and nothing else, so it is a read-only command now.
     "coverage export --output snapshots/",
+    # Imports portable history into function metadata without changing verdicts.
+    # The fixture setup in _write_sweep_dir seeds one history row, so a second
+    # import that appended a duplicate would change the tree on the re-run.
+    "coverage import-history --snapshots snapshots/",
     # Rewrites the splat-style symbol_addrs file from source bindings.
     "export symbols",
     # The CL/LINK/LIB bridge needs MSVC; this fixture defaults to MinGW.
@@ -476,6 +480,28 @@ def _write_sweep_dir(base: Path, index: int, cmd: str) -> Path:
     project_dir = write_fixture_project(base / f"write{index}")
     if any(cmd.startswith(c) for c in _DATA_METADATA_COMMANDS):
         (project_dir / "src" / "rebrew-data.toml").write_text(_DATA_TOML, encoding="utf-8")
+    if cmd.startswith("coverage import-history"):
+        # coverage export renders the snapshot the import then reads back.
+        from rebrew.utils import run_process_group as _run_group
+
+        _run_group(
+            ["rebrew", "coverage", "export", "--output", "snapshots/"],
+            cwd=str(project_dir),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=600,
+        )
+        snap = project_dir / "snapshots" / "coverage-SERVER.toml"
+        snap.write_text(
+            snap.read_text(encoding="utf-8").replace(
+                "history = []",
+                'history = [{va = 4198400, old_status = "UNKNOWN", new_status = "EXACT", '
+                'changed_at = "2020-01-01T00:00:00+00:00", updated_by = "test"}]',
+            ),
+            encoding="utf-8",
+        )
     return project_dir
 
 
