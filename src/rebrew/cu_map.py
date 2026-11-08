@@ -14,80 +14,24 @@ non-padding) and split at large gaps.
 **Pass 2 – Call-graph refinement**: disassemble each function, extract call
 targets, and boost confidence for clusters containing functions that are only
 called from within the same cluster (static-function signal).
-
-Optional weighted signals
--------------------------
-Two further signals are available but **off by default**; a caller that
-supplies one is asking for its evidence and its cost:
-
-- ``jump_table_alignment`` (int): successive jump tables inside one object
-  file sit at a constant alignment remainder; a change implies a new object
-  file.  This is splat's ``vram_diff % 8`` heuristic, whose modulus is a
-  PSX/GCC assumption.  The alignment is a required parameter rather than a
-  guessed default, because measurement on the MSVC targets here falsifies
-  the premise: in smygb-rebrew (MSVC 6.0, ``/O1``) all 22 detected tables are
-  4-byte aligned (the pointer width, and the only invariant that holds) while
-  the ``% 8`` remainder is ``{0, 4}`` and ``% 16`` takes every value, and a
-  single function's own six tables change their ``% 8`` remainder five times.
-  So ``alignment=4`` never fires (no signal), and 8 or 16 fire on noise: on
-  smygb-rebrew the modulus 8 signal splits one cluster off at 0x40f2f0, and
-  nothing in the binary establishes that boundary.  Treat the signal as a
-  hypothesis generator, not evidence.
-- ``single_ref_data`` (bool): a ``.rdata``/``.data`` object referenced by
-  exactly one function belongs to that function's compilation unit.  Two
-  consecutive functions whose exclusively-owned objects run contiguously in
-  the data section are therefore likely one object file, which vetoes a
-  contiguity split and raises confidence.  It only ever merges: a bond never
-  creates a boundary, so it cannot contradict the contiguity pass.
-
-Both disassemble more than the default path does (one per-function
-disassembly for the data signal, one per-function scan for tables in the
-alignment signal), so neither runs unless asked for.
 """
 
 from dataclasses import dataclass
-lazy from itertools import pairwise
 lazy from typing import Any
 
 import typer
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
-lazy from rebrew.analysis import data_references, direct_call_target, section_range
+lazy from rebrew.analysis import direct_call_target
 lazy from rebrew.catalog import (
     RegistryEntry,
     build_function_registry,
     is_jump_table,
 )
-lazy from rebrew.config import ProjectConfig, arch_pointer_size, inventory_path_for
+lazy from rebrew.config import ProjectConfig, inventory_path_for
 lazy from rebrew.formats.binary_loader import capstone_config_for, extract_bytes_at_va, load_binary
 lazy from rebrew.formats.binary_model import BinaryInfo
 lazy from rebrew.utils import TerminalTable
-
-# ---------------------------------------------------------------------------
-# Optional-signal constants
-# ---------------------------------------------------------------------------
-
-#: Window (bytes) tested at each 4-byte step of a function's extent when
-#: locating jump-table starts, capped to the function's own size.
-_JUMP_TABLE_WINDOW = 32
-
-#: Smallest window that can hold the two pointers
-#: :func:`rebrew.catalog.is_jump_table` requires.
-_JUMP_TABLE_MIN_WINDOW = 8
-
-#: Confidence added when a cluster is internally consistent with the
-#: jump-table alignment signal (no discontinuity inside it).
-JUMP_TABLE_ALIGN_BOOST = 0.05
-
-#: Confidence added when a cluster contains a single-reference-data bond.
-SINGLE_REF_DATA_BOOST = 0.05
-
-#: Maximum byte distance between the last exclusively-owned data object of
-#: one function and the first of the next for the pair to count as bonded.
-SINGLE_REF_DATA_MAX_GAP = 16
-
-#: Sections whose objects participate in the single-reference-data signal.
-_DATA_SECTIONS = (".rdata", ".data", ".rodata")
 
 # ---------------------------------------------------------------------------
 # Data types
@@ -167,7 +111,6 @@ def _contiguity_score(gap_classes: list[str]) -> tuple[float, list[str]]:
     n_jt = 0
     n_small = 0
     n_unknown = 0
-    n_bond = 0
 
     for gc in gap_classes:
         if gc == "padding":
@@ -180,11 +123,6 @@ def _contiguity_score(gap_classes: list[str]) -> tuple[float, list[str]]:
             n_small += 1
         elif gc == "unknown":
             n_unknown += 1
-        elif gc == "data_bond":
-            # Single-reference-data evidence (optional signal): a gap the
-            # contiguity pass would have split on, held together by the data
-            # layout.  Neutral here; its boost is applied by the caller.
-            n_bond += 1
 
     if n_padding == len(gap_classes):
         evidence.append("all gaps are padding")
@@ -198,8 +136,6 @@ def _contiguity_score(gap_classes: list[str]) -> tuple[float, list[str]]:
             parts.append(f"{n_small} small non-padding")
         if n_unknown:
             parts.append(f"{n_unknown} unknown")
-        if n_bond:
-            parts.append(f"{n_bond} single-reference data bond")
         evidence.append("gaps: " + ", ".join(parts))
 
     score = max(score, 0.40)
@@ -295,201 +231,6 @@ def _call_graph_boost(
 
 
 # ---------------------------------------------------------------------------
-# Optional signals
-# ---------------------------------------------------------------------------
-
-
-def _validate_alignment(alignment: int) -> int:
-    """Validate a jump-table alignment modulus (a positive power of two).
-
-    An alignment is a power of two by definition; ``0`` would divide by zero
-    and a non-power-of-two is a caller mistake, so both fail loud instead of
-    producing a meaningless remainder comparison.
-    """
-    if alignment < 1 or (alignment & (alignment - 1)) != 0:
-        raise ValueError(f"jump_table_alignment must be a positive power of two, got {alignment}")
-    return alignment
-
-
-def _find_jump_tables(
-    info: BinaryInfo,
-    functions: list[tuple[int, int]],
-    arch: str = "x86_32",
-    endian: str = "",
-) -> list[int]:
-    """VAs of jump-table starts found inside *functions* (``(va, size)`` pairs).
-
-    A jump table is an aligned run of at least two pointers into ``.text``
-    (the same test :func:`rebrew.catalog.is_jump_table` applies to gaps).  It
-    is located by testing a :data:`_JUMP_TABLE_WINDOW`-byte window (capped to
-    the function's size) at every pointer-aligned absolute address of each
-    function's extent and keeping the first offset of each run of consecutive
-    detections: inside a table every step starts on an entry, so one table
-    contributes one run.  The window length is a multiple of the pointer
-    width, so a 64-bit table followed by a 4-byte tail is not rejected for
-    being 4 bytes short of the next slot.  Because :func:`~rebrew.catalog.is_jump_table` skips
-    a leading NOP/``INT3`` alignment prefix, a reported start is the first
-    skippable byte before the table when one is present.  Best-effort: a code
-    region whose bytes happen to be pointer-shaped is reported as a table.
-
-    Returns the starts in ascending order.
-    """
-    tables: list[int] = []
-    for va, size in functions:
-        code = extract_bytes_at_va(info, va, size, trim_padding=False)
-        if code is None or len(code) < _JUMP_TABLE_MIN_WINDOW:
-            continue
-        # Slots are one pointer wide, so candidate starts are aligned to that
-        # width in absolute VA even when the function itself is not.  The
-        # tested slice is a whole number of slots: a 4-byte tail after a
-        # 64-bit table used to leave a 20-byte window, which is not a
-        # multiple of 8, and the pointer check rejected it unopened.
-        ptr = arch_pointer_size(arch)
-        run_start: int | None = None
-        for offset in range((-va) % ptr, len(code) - _JUMP_TABLE_MIN_WINDOW + 1, ptr):
-            tail = min(_JUMP_TABLE_WINDOW, len(code) - offset)
-            usable = tail - (tail % ptr)
-            if usable < _JUMP_TABLE_MIN_WINDOW:
-                continue
-            window = code[offset : offset + usable]
-            if is_jump_table(window, info.text_va, info.text_size, arch, endian):
-                if run_start is None:
-                    run_start = offset
-            elif run_start is not None:
-                tables.append(va + run_start)
-                run_start = None
-        if run_start is not None:
-            tables.append(va + run_start)
-    return sorted(set(tables))
-
-
-def _owner_of(va: int, functions: list[tuple[int, int]]) -> int | None:
-    """VA of the function whose extent contains *va*, or None.
-
-    *functions* must be sorted by VA (the eligible list is); the search is a
-    linear walk bounded by the caller's list size.
-    """
-    for start, size in functions:
-        if start <= va < start + size:
-            return start
-    return None
-
-
-def _jump_table_split_vas(
-    tables: list[int],
-    alignment: int,
-    functions: list[tuple[int, int]],
-) -> dict[int, str]:
-    """Function VAs that must start a new object file, with the evidence.
-
-    Successive jump tables emitted by one compiler invocation were assumed to
-    share the same alignment remainder, so a change implies the tables came
-    from different object files.  Only the FIRST table of each owning function
-    is compared: two tables of one function are in one object file by
-    construction, so a remainder change between them cannot indicate a
-    boundary (measured on smygb-rebrew: a single MSVC 6 function's own six
-    tables change their ``% 8`` remainder five times).
-    """
-    if alignment <= 0:
-        return {}
-    first_by_owner: dict[int, int] = {}
-    for table in tables:
-        owner = _owner_of(table, functions)
-        if owner is not None:
-            first_by_owner.setdefault(owner, table)
-
-    ordered = sorted(first_by_owner.items())
-    splits: dict[int, str] = {}
-    for (prev_owner, prev), (owner, curr) in pairwise(ordered):
-        if prev % alignment == curr % alignment:
-            continue
-        splits[owner] = (
-            f"jump-table alignment change: 0x{prev:08x} (function 0x{prev_owner:08x}, "
-            f"%{alignment}={prev % alignment}) -> 0x{curr:08x} "
-            f"(%{alignment}={curr % alignment})"
-        )
-    return splits
-
-
-def _data_ranges(info: BinaryInfo) -> list[tuple[str, int, int]]:
-    """``(name, start_va, size)`` of the data sections a reference can target."""
-    ranges: list[tuple[str, int, int]] = []
-    for name in _DATA_SECTIONS:
-        rng = section_range(info, name)
-        if rng is not None:
-            ranges.append((name, rng[0], rng[1]))
-    if not ranges:
-        # 16-bit NE: the data lives in non-code segments, not named sections.
-        for seg in getattr(info, "ne_segments", []) or []:
-            if not getattr(seg, "is_code", True):
-                ranges.append((f"SEG{seg.index}", seg.base_va, seg.length))
-    return ranges
-
-
-def _exclusive_data_owners(
-    info: BinaryInfo,
-    functions: list[tuple[int, int]],
-) -> dict[int, list[int]]:
-    """``{function_va: [data_va, ...]}`` for objects it alone references.
-
-    Each function's own bytes are decoded (:func:`rebrew.analysis.data_references`),
-    so filler between functions cannot desynchronize the stream; every
-    absolute reference into a data range is attributed to the function
-    containing it, and a data VA referenced by exactly one function is that
-    function's own object.
-    """
-    if not functions:
-        return {}
-    ranges = _data_ranges(info)
-    if not ranges:
-        return {}
-
-    def _in_data(va: int) -> bool:
-        return any(start <= va < start + size for _name, start, size in ranges)
-
-    owners: dict[int, set[int]] = {}
-    for func_va, size in functions:
-        for xref in data_references(info, func_va, size):
-            if not _in_data(xref.to_va):
-                continue
-            owners.setdefault(xref.to_va, set()).add(func_va)
-
-    owned: dict[int, list[int]] = {}
-    for data_va, funcs in owners.items():
-        if len(funcs) == 1:
-            owned.setdefault(next(iter(funcs)), []).append(data_va)
-    for vas in owned.values():
-        vas.sort()
-    return owned
-
-
-def _single_ref_data_bonds(
-    info: BinaryInfo,
-    functions: list[tuple[int, int]],
-) -> dict[int, int]:
-    """``{function_va: predecessor_va}`` for functions bonded by data layout.
-
-    A function's exclusively-owned objects are emitted into its object
-    file's data, so two consecutive functions whose owned objects run
-    contiguously (the second's first object starting within
-    :data:`SINGLE_REF_DATA_MAX_GAP` bytes of the first's last) are likely
-    one object file.  Weak evidence on its own: the bond vetoes a split and
-    adds confidence, it never creates a boundary.
-    """
-    owned = _exclusive_data_owners(info, functions)
-    bonds: dict[int, int] = {}
-    for (prev_va, _), (curr_va, _) in pairwise(functions):
-        prev_owned = owned.get(prev_va)
-        curr_owned = owned.get(curr_va)
-        if not prev_owned or not curr_owned:
-            continue
-        gap = curr_owned[0] - prev_owned[-1]
-        if 0 <= gap <= SINGLE_REF_DATA_MAX_GAP:
-            bonds[curr_va] = prev_va
-    return bonds
-
-
-# ---------------------------------------------------------------------------
 # Main algorithm
 # ---------------------------------------------------------------------------
 
@@ -498,9 +239,6 @@ def cluster_functions(
     registry: dict[int, RegistryEntry],
     info: BinaryInfo,
     cfg: ProjectConfig | None,
-    *,
-    jump_table_alignment: int | None = None,
-    single_ref_data: bool = False,
 ) -> list[TUCluster]:
     """Cluster functions into inferred translation units.
 
@@ -516,17 +254,7 @@ def cluster_functions(
         registry: Function VA → registry entry.
         info: Loaded target binary.
         cfg: Project config (padding bytes, capstone arch/mode, ``arch``).
-        jump_table_alignment: Enable the jump-table alignment signal with
-            this modulus (a positive power of two).  ``None`` (the default)
-            leaves it off; the value is deliberately not defaulted, because
-            splat's 8 is a PSX/GCC figure that does not transfer to MSVC; see
-            the module docstring.
-        single_ref_data: Enable the single-reference-data signal (off by
-            default).  Costs one linear reference scan of the code sections.
     """
-    alignment = (
-        _validate_alignment(jump_table_alignment) if jump_table_alignment is not None else None
-    )
     padding_bytes = tuple(cfg.padding_bytes) if cfg else (0xCC, 0x90)
     text_va = info.text_va
     text_size = info.text_size
@@ -548,24 +276,13 @@ def cluster_functions(
     if not eligible:
         return []
 
-    extents = [(va, int(entry.get("canonical_size", 0))) for va, entry in eligible]
     configured = getattr(cfg, "arch", "") if cfg is not None else ""
     arch = configured or getattr(info, "arch", "") or "x86_32"
     endian = getattr(info, "endian", "") or ""
 
-    # Optional signals, each computed only when asked for.
-    signal_splits: dict[int, str] = {}
-    if alignment is not None:
-        signal_splits = _jump_table_split_vas(
-            _find_jump_tables(info, extents, arch, endian), alignment, extents
-        )
-    bonds: dict[int, int] = _single_ref_data_bonds(info, extents) if single_ref_data else {}
-
     # --- Pass 1: contiguity clustering ---
     clusters_raw: list[list[tuple[int, RegistryEntry]]] = [[eligible[0]]]
     gap_classes_raw: list[list[str]] = [[]]
-    # Signal-driven split evidence, keyed by the cluster the split STARTED.
-    split_evidence: dict[int, str] = {}
 
     for i in range(1, len(eligible)):
         prev_va, prev_entry = eligible[i - 1]
@@ -596,18 +313,10 @@ def cluster_functions(
             else:
                 gc = classify_gap(gap_data, text_va, text_size, padding_bytes, arch, endian)
 
-        if gc == "large_nonpadding" and curr_va in bonds:
-            # Single-reference data says this function's objects and its
-            # predecessor's are one object file's data layout, so the
-            # non-padding gap between the functions is not a TU boundary.
-            clusters_raw[-1].append((curr_va, curr_entry))
-            gap_classes_raw[-1].append("data_bond")
-        elif gc == "large_nonpadding" or curr_va in signal_splits:
+        if gc == "large_nonpadding":
             # TU boundary — start new cluster
             clusters_raw.append([(curr_va, curr_entry)])
             gap_classes_raw.append([])
-            if curr_va in signal_splits:
-                split_evidence[len(clusters_raw) - 1] = signal_splits[curr_va]
         else:
             clusters_raw[-1].append((curr_va, curr_entry))
             gap_classes_raw[-1].append(gc)
@@ -626,19 +335,6 @@ def cluster_functions(
             boost, call_evidence = _call_graph_boost(set(vas), caller_map)
             score = min(round(score + boost, 2), 1.0)
             evidence.extend(call_evidence)
-
-        if alignment is not None and len(vas) > 1 and cid not in split_evidence:
-            # Every table inside this cluster agrees on the alignment
-            # remainder: consistent with one object file.
-            score = min(round(score + JUMP_TABLE_ALIGN_BOOST, 2), 1.0)
-            evidence.append(f"jump tables agree on % {alignment} alignment")
-        if split_evidence.get(cid):
-            evidence.append(split_evidence[cid])
-
-        n_bonds = sum(1 for gc in gaps if gc == "data_bond")
-        if n_bonds:
-            evidence.append(f"{n_bonds} single-reference data bond{'s' if n_bonds != 1 else ''}")
-            score = min(round(score + n_bonds * SINGLE_REF_DATA_BOOST, 2), 1.0)
 
         result.append(
             TUCluster(
@@ -711,11 +407,6 @@ def main(
 
     Uses inter-function gap analysis and call-graph signals to identify
     which functions were likely compiled from the same .c/.cpp source file.
-
-    Runs with both optional signals off; the only CLI entry to this module is
-    ``rebrew source graph --cu-map``, whose forwarder (``rebrew.depgraph``) passes
-    the target and JSON options only.  Enable a signal through
-    :func:`cluster_functions` directly.
     """
     cfg = require_config(target=target, json_mode=json_output)
 
