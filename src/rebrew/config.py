@@ -1842,6 +1842,27 @@ def check_env_ops_allowed_hosts(raw: str) -> None:
             )
 
 
+def check_env_ops_positive_int(raw: str, name: str) -> None:
+    value = raw.strip()
+    if not value:
+        return
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise ConfigError(f"{name}={value!r} is not an int") from exc
+    if parsed < 1:
+        raise ConfigError(f"{name}={value!r} must be >= 1")
+
+
+def check_env_ops_existing_dir(raw: str, name: str) -> None:
+    value = raw.strip()
+    if not value:
+        return
+    path = Path(value).expanduser()
+    if not path.is_absolute() or not path.is_dir():
+        raise ConfigError(f"{name}={value!r} must be an absolute path to an existing directory")
+
+
 def check_env_wineprefix(raw: str) -> None:
     """Raise when ``REBREW_WINEPREFIX`` is set to a relative path.
 
@@ -1968,6 +1989,22 @@ def _env_knob_parsers() -> tuple[tuple[str, Callable[[str], Any]], ...]:
         ("REBREW_RECOMPILE_INSECURE_CLUSTER_HOST", check_env_insecure_cluster_host),
         ("REBREW_OPS_TOKEN", check_env_ops_token),
         ("REBREW_OPS_ALLOWED_HOSTS", check_env_ops_allowed_hosts),
+        (
+            "REBREW_OPS_MAX_DOWNLOAD",
+            partial(check_env_ops_positive_int, name="REBREW_OPS_MAX_DOWNLOAD"),
+        ),
+        (
+            "REBREW_OPS_CONCURRENCY",
+            partial(check_env_ops_positive_int, name="REBREW_OPS_CONCURRENCY"),
+        ),
+        (
+            "REBREW_OPS_FILESTORE",
+            partial(check_env_ops_existing_dir, name="REBREW_OPS_FILESTORE"),
+        ),
+        (
+            "REBREW_OPS_WORKSPACE",
+            partial(check_env_ops_existing_dir, name="REBREW_OPS_WORKSPACE"),
+        ),
     )
 
 
@@ -3182,6 +3219,8 @@ __all__ = [
     "check_env_display",
     "check_env_insecure_cluster_host",
     "check_env_ops_allowed_hosts",
+    "check_env_ops_existing_dir",
+    "check_env_ops_positive_int",
     "check_env_ops_token",
     "check_env_recompile_api_key",
     "check_env_source_date_epoch",
