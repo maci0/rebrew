@@ -724,6 +724,12 @@ class TestUrlBinaries:
                 def __init__(self, **kw: Any) -> None:
                     pass
 
+                def __enter__(self) -> Any:
+                    return self
+
+                def __exit__(self, *args: Any) -> None:
+                    return None
+
                 def stream(self, method: str, url: str, **kw: Any) -> Any:
                     seen["url"] = url
                     seen["headers"] = kw.get("headers") or {}

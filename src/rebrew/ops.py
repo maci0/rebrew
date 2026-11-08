@@ -1102,7 +1102,8 @@ def _download(config: WorkerConfig, url: str, wanted: str, into: Path) -> None:
                 follow_redirects=False,
                 trust_env=False,
                 verify=_verify,
-            ).stream(
+            ) as _http,
+            _http.stream(
                 "GET",
                 fetch_url,
                 headers=fetch_headers or None,
