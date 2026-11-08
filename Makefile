@@ -704,7 +704,7 @@ cli-contract: ensure-uv
 # mismatch and happy paths alike, but a SIGKILL or a lost terminal skips the
 # trap and leaves a full copy of the tree (and its dist/) behind.
 clean:
-	rm -rf dist build rebrew.egg-info src/rebrew.egg-info .sdist-check .coverage htmlcov .coverage.* .pytest_cache .ruff_cache .mypy_cache .scratch/rebrew-idem .scratch/rebuild .venv-pkg .hypothesis
+	rm -rf dist build rebrew.egg-info src/rebrew.egg-info .sdist-check .coverage htmlcov .coverage.* .pytest_cache .ruff_cache .mypy_cache .scratch/rebrew-idem .scratch/rebrew-idem-write .scratch/rebuild .venv-pkg .hypothesis
 	find src tests tools -type d -name __pycache__ -prune -exec rm -rf {} +
 
 # Build sdist + wheel under a pinned umask/locale/timezone. umask 022 is set
@@ -1122,7 +1122,11 @@ jobs-check: ensure-go
 # import-cycle and import-layering hooks that the CI pre-commit job also
 # runs).  For full hook parity (hygiene + skills validate) also run
 # `make check` before a PR.
-all: format-check lint mypy audit coverage gen-fixtures-check cycles-check layering-check idempotency-check cli-contract jobs-check
+# `all` runs gen-skills-check too: the CI test job runs make coverage (which
+# covers test_skills_sync.py) and the pre-commit job runs test_skills_sync.py
+# through the pytest hook only on push, so a local `make all` without it
+# could miss a stale .agents/skills/ that passes every gate above.
+all: format-check lint mypy audit coverage gen-fixtures-check gen-skills-check cycles-check layering-check idempotency-check cli-contract jobs-check
 
 # Full local verification: single runnable step mirroring every CI gate
 # (all non-mutating gates + pre-commit hook parity + reproducible build +
