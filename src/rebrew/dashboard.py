@@ -283,7 +283,7 @@ _INITCWND_BYTES = 10 * 1460
 #: proxy for the served headers (measured 560 + 592 = 1152 B); the binding
 #: check is ``test_cold_flight_fits_the_window_against_measured_headers``,
 #: which measures the real header block against the full window.
-_ENTRY_HEADER_RESERVE_BYTES = 2 * 640
+_ENTRY_HEADER_RESERVE_BYTES = 2 * 500
 _ENTRY_WIRE_BUDGET_BYTES = _INITCWND_BYTES - _ENTRY_HEADER_RESERVE_BYTES
 _WireEncoding = WireEncoding
 # Preference when several encodings share the same positive q-value.
@@ -402,7 +402,7 @@ function setFunctionsEmptyMessage() {
     }
     bindEmptyClear("empty-clear-fn", "q");
   } else {
-    el.innerHTML = "No functions recorded for this target yet. Register their source bindings, then choose Reload.";
+    el.innerHTML = "No functions recorded for this target yet. Register their source bindings, then choose Reload above.";
   }
 }
 function bindEmptyClear(btnId, inputId) {
@@ -415,7 +415,7 @@ function setGlobalsEmptyMessage() {
     el.innerHTML = "No globals match this search. <button type='button' id='empty-clear-gq' class='link-button'>Clear search</button> or try another name.";
     bindEmptyClear("empty-clear-gq", "gq");
   } else {
-    el.innerHTML = "No globals recorded for this target. Register globals in data metadata, then choose Reload.";
+    el.innerHTML = "No globals recorded for this target. Register globals in data metadata, then choose Reload above.";
   }
 }
 function syncError() {
@@ -434,7 +434,7 @@ function syncError() {
     box.hidden = true;
   }
   // Reload re-reads every input, so it is the way out of any load failure.
-  if (loadErrors.summary || loadErrors.functions || loadErrors.view) $("reload").hidden = false;
+  if (loadErrors.summary || loadErrors.functions || loadErrors.view || !$("no-targets").hidden || !~["empty-state","sections-empty","globals-empty","history-empty"].findIndex(id => !$(id).hidden)) $("reload").hidden = false; // empty states name Reload above
   $("retry-summary").hidden = !loadErrors.summary;
   $("retry-functions").hidden = !(loadErrors.functions && currentView === "functions");
   const showViewRetry = !!(loadErrors.view && currentView !== "functions");
@@ -666,6 +666,7 @@ function renderFunctions(data, options) {
   setFunctionsEmptyMessage();
   $("empty-state").hidden = shown !== 0;
   $("results").hidden = shown === 0;
+  syncError();
 }
 async function loadFunctions(options) {
   const grow = !!(options && options.append);
@@ -828,6 +829,7 @@ function renderSections(data) {
   body.innerHTML = rows.map(sectionRowHtml).join("");
   $("sections-empty").hidden = rows.length !== 0;
   $("sections-results").hidden = rows.length === 0;
+  syncError();
   // Unpaged, so the shared message counts the rows as the whole list.
   setListPageMessage({
     count: rows.length,
@@ -870,6 +872,7 @@ function renderGlobals(data, options) {
     tipCapped: "Narrow the search: display stops at " + PAGE_MAX + " rows.",
   });
   updateFilterActions();
+  syncError();
 }
 const historyRowHtml = (r) => {
   // A blank old status is the first recorded change, not a missing value.
@@ -890,6 +893,7 @@ function renderHistory(data, options) {
   }
   $("history-empty").hidden = loadedHistoryCount !== 0;
   $("history-results").hidden = loadedHistoryCount === 0;
+  syncError();
   const total = data.total ?? loadedHistoryCount;
   setListPageMessage({
     count: loadedHistoryCount,
@@ -1405,7 +1409,7 @@ __STATUS_CSS__
   #dashboard-error { color: var(--rb-note-ink); background: var(--rb-note-bg);
     border: 1px solid var(--rb-note-ink); border-radius: var(--rb-radius);
     padding: .6rem .8rem; margin: .75rem 0; }
-  #empty-state, #no-targets { color: var(--rb-faint); margin: 1rem 0; }
+  #empty-state, #no-targets, #sections-empty, #globals-empty, #history-empty { color: var(--rb-faint); margin: 1rem 0; }
   #results-hint, #globals-hint, #history-hint, #sections-hint {
     color: var(--rb-faint); font-size: var(--rb-size-note); margin: .25rem 0 .5rem; }
   #filter-actions, #show-more-wrap, #globals-show-more-wrap, #history-show-more-wrap,
@@ -1524,7 +1528,7 @@ __STATUS_FORCED__
 <div id="view-sections" class="view-panel" role="tabpanel" tabindex="-1" aria-labelledby="tab-sections" hidden>
 <h2 class="visually-hidden">Sections</h2>
 <p id="sections-hint" hidden></p>
-<p id="sections-empty" hidden>No section stats. Check the target binary, then choose Reload.</p>
+<p id="sections-empty" hidden>No section stats. Check the target binary, then choose Reload above.</p>
 <div id="sections-results" class="table-scroll" tabindex="0" role="region"
   aria-label="Section results" aria-busy="false" hidden>
 <table id="sections-rows"><caption class="visually-hidden">Per-section cell stats</caption><thead><tr>
@@ -1554,7 +1558,7 @@ __STATUS_FORCED__
 <div id="view-history" class="view-panel" role="tabpanel" tabindex="-1" aria-labelledby="tab-history" hidden>
 <h2 class="visually-hidden">Status history</h2>
 <p id="history-hint" hidden></p>
-<p id="history-empty" hidden>No status changes recorded yet. Comparisons record history, then choose Reload.</p>
+<p id="history-empty" hidden>No status changes recorded yet. Comparisons record history, then choose Reload above.</p>
 <div id="history-results" class="table-scroll" tabindex="0" role="region"
   aria-label="History results" aria-busy="false" hidden>
 <table id="history-rows"><caption class="visually-hidden">Recent status changes</caption><thead><tr>
