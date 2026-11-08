@@ -9,12 +9,15 @@
 # tools/ci_apt_install.sh (retry a flaky mirror) and
 # tools/ci_clone_resembl.sh (verify a fetched artifact against a pin).
 #
-# The validator ships as a release asset under a single moving `latest`
-# tag, so the pin is the archive's sha256 rather than a version in the
-# URL: a republished or tampered archive fails the check instead of
-# changing what the gate validates. `VNU_VERSION` is a second assertion
-# on the same bytes, so the failure names the version the pin expects
-# rather than a digest mismatch with nothing to compare it against.
+# The validator ships as a release asset. The pin is both the version in the
+# URL and the archive's sha256: a republished or tampered archive fails the
+# check instead of changing what the gate validates. `VNU_VERSION` is a second
+# assertion on the same bytes, so the failure names the version the pin
+# expects rather than a digest mismatch with nothing to compare it against.
+# The URL itself is version-pinned (not the moving `latest` tag): a digest
+# pin alone still lets a republished asset under a new version silently swap
+# the tool the gate runs, and a `latest` download is not reproducible — two
+# runs on different days can fetch different bytes and neither names which.
 #
 # The archive bundles its own JRE, so the job needs no `java` install
 # (same reasoning as the nasm assertion in ci.yml).
@@ -27,7 +30,7 @@ set -euo pipefail
 
 VNU_VERSION="26.10.12"
 VNU_SHA256="d255011cb0b287ee59f547dd6c1b290bc71adfe76a3c28ac13c20fa0d892c7de"
-VNU_URL="https://github.com/validator/validator/releases/download/latest/vnu.linux.zip"
+VNU_URL="https://github.com/validator/validator/releases/download/${VNU_VERSION}/vnu.linux.zip"
 
 MAX_ATTEMPTS=3
 RETRY_BASE_DELAY_SECONDS=5
@@ -86,7 +89,7 @@ while [[ ${attempt} -lt ${MAX_ATTEMPTS} ]]; do
     got="$(sha256_of "${archive}")"
     if [[ "${got}" != "${VNU_SHA256}" ]]; then
       echo "vnu archive sha256 ${got}, expected ${VNU_SHA256}" >&2
-      echo "Upstream republished the 'latest' release asset; update VNU_VERSION" >&2
+      echo "Upstream republished the ${VNU_VERSION} release asset; update VNU_VERSION" >&2
       echo "and VNU_SHA256 in tools/ci_install_vnu.sh together." >&2
       exit 1
     fi

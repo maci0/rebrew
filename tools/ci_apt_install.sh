@@ -99,6 +99,18 @@ retry "apt-get update" run_root apt-get update -qq
 retry "apt-get install ${missing[*]}" run_root env DEBIAN_FRONTEND=noninteractive \
   apt-get install -y --no-install-recommends "${missing[@]}"
 
+# Record what was actually installed, so a rebuild that resolves different
+# package versions can be told apart from the run that shipped.  dpkg-query
+# reads the installed set; a package apt installed but dpkg does not report
+# fails the helper rather than shipping an unrecorded tool.
+# shellcheck disable=SC2016,SC2310
+if command -v dpkg-query >/dev/null 2>&1; then
+  run_root dpkg-query -W -f='${Package}=${Version}\n' "${missing[@]}" || {
+    echo "installed but dpkg-query cannot report versions for: ${missing[*]}" >&2
+    exit 1
+  }
+fi
+
 for pkg in "${missing[@]}"; do
   # This predicate intentionally returns false for an unavailable capability.
   # shellcheck disable=SC2310

@@ -619,11 +619,13 @@ class TestCiPins:
     def test_vnu_install_helper_pins_and_verifies(self) -> None:
         """The validator archive is verified before it can run the gate.
 
-        The release asset sits under a moving ``latest`` tag, so the pin is
-        the archive's sha256: a republished or tampered archive fails the
-        job instead of changing what the HTML is validated against.  The
-        reported version is a second check on the same bytes, so a digest
-        match with an unexpected version still fails.
+        The release asset is fetched from a version-pinned URL and verified
+        by sha256: a republished or tampered archive fails the job instead
+        of changing what the HTML is validated against.  The reported
+        version is a second check on the same bytes, so a digest match with
+        an unexpected version still fails.  The URL must not use the moving
+        ``latest`` tag: two runs on different days could then fetch
+        different bytes and neither names which.
         """
         helper = ROOT / "tools" / "ci_install_vnu.sh"
         assert helper.is_file()
@@ -632,7 +634,8 @@ class TestCiPins:
         assert digest is not None, "VNU_SHA256 must be a 64-hex-char pin"
         version = re.search(r'(?m)^VNU_VERSION="(\d+\.\d+\.\d+)"$', text)
         assert version is not None
-        assert "releases/download/latest/vnu.linux.zip" in text
+        assert "releases/download/latest/vnu.linux.zip" not in text
+        assert 'VNU_URL="https://github.com/validator/validator/releases/download/${VNU_VERSION}/vnu.linux.zip"' in text
         assert f'VNU_SHA256="{digest.group(1)}"' in text
         # Retry policy named, not a bare literal: the apt and clone helpers
         # state the same two values and their docstrings point at each other.
