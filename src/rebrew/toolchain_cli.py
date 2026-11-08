@@ -93,6 +93,13 @@ _HTTP_RETRY_BACKOFF_S = 0.5
 #: media is a few hundred MiB at most; 2 GiB leaves generous headroom.
 _MAX_PINNED_DOWNLOAD_BYTES = 2 * 1024**3
 
+#: Cap on the `_live_commit_sha` GitHub API reply.  `resp.json()` buffers the
+#: whole body before parsing, so without a cap a compromised/MITM'd
+#: `api.github.com` reply (or a proxy serving a huge error page) could OOM
+#: the process before parsing runs.  The reply is a few KiB; 1 MiB is
+#: generous (same bound as wibo release metadata).
+_MAX_LIVE_SHA_BYTES = 1024**2
+
 #: Tracked repo metadata kept when a vendored host tree is cleared or
 #: refreshed.  Docker build inputs, wrapper scripts, the pinned media and the
 #: per-toolchain docs are repo content, never vendored payload.
@@ -3674,12 +3681,39 @@ def _live_commit_sha(
             )
             try:
                 resp.raise_for_status()
-                try:
-                    body = resp.json()
-                except ValueError as exc:
+                declared = getattr(resp, "headers", {}).get("content-length", "")
+                if declared.isdigit() and int(declared) > _MAX_LIVE_SHA_BYTES:
                     raise ToolchainError(
-                        f"GitHub API returned non-JSON for {owner}/{repo}@{branch}: {exc}"
-                    ) from exc
+                        f"GitHub API reply for {owner}/{repo}@{branch} exceeds "
+                        f"{_MAX_LIVE_SHA_BYTES} bytes"
+                    )
+                # Prefer the already-buffered ``content`` when present (httpx
+                # replies and test doubles that supply it); fall back to
+                # ``json()`` for stand-ins that only implement ``json()``.
+                # Without a cap, ``json()`` buffering a huge body OOMs before
+                # any parsing runs (same DoS class as wibo metadata).
+                raw = getattr(resp, "content", None)
+                if raw is not None:
+                    if len(raw) > _MAX_LIVE_SHA_BYTES:
+                        raise ToolchainError(
+                            f"GitHub API reply for {owner}/{repo}@{branch} exceeds "
+                            f"{_MAX_LIVE_SHA_BYTES} bytes"
+                        )
+                    try:
+                        import json as _json
+
+                        body = _json.loads(raw)
+                    except ValueError as exc:
+                        raise ToolchainError(
+                            f"GitHub API returned non-JSON for {owner}/{repo}@{branch}: {exc}"
+                        ) from exc
+                else:
+                    try:
+                        body = resp.json()
+                    except ValueError as exc:
+                        raise ToolchainError(
+                            f"GitHub API returned non-JSON for {owner}/{repo}@{branch}: {exc}"
+                        ) from exc
                 if not isinstance(body, dict):
                     raise ToolchainError(
                         f"GitHub API returned {type(body).__name__} for {owner}/{repo}@{branch}, "
