@@ -1615,7 +1615,7 @@ changed_at = "2026-01-01T00:00:00Z"
             status, _, body = dashboard.handle(method, "/api/nope", {})
             assert status == 404, method
             assert json.loads(body) == {
-                "error": "no such endpoint '/api/nope'",
+                "error": "no such endpoint",
                 "code": "not_found",
             }
 

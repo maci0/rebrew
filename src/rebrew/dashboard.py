@@ -2385,7 +2385,7 @@ class Dashboard:
         # path advertises a resource that does not exist.  A GET of the same
         # unknown path already answers ``not_found``.
         if parsed.path not in _KNOWN_ROUTES:
-            return self._error(404, "not_found", f"no such endpoint {parsed.path!r}")
+            return self._error(404, "not_found", "no such endpoint")
         if method not in ("GET", "HEAD"):
             return self._error(
                 405, "method_not_allowed", "method not allowed (read-only; GET, HEAD only)"
@@ -2512,7 +2512,7 @@ class Dashboard:
             # does not serve, which is exactly what the 404 above the 405
             # answers, and an exception here would surface as 500
             # ``internal_error`` for a client-side mistake.
-            return self._error(404, "not_found", f"no such endpoint {parsed.path!r}")
+            return self._error(404, "not_found", "no such endpoint")
 
     @staticmethod
     def _json(status: int, payload: dict[str, Any]) -> tuple[int, str, str]:
