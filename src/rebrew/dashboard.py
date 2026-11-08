@@ -38,7 +38,7 @@ Retry-After. Request bodies are never read and force connection closure.
 Successful responses negotiate zstd then gzip with quality weights. ETags key
 on the live input version or portable file state plus the exact route/query;
 health is no-store. Static assets are content-hashed and precompressed. The
-entry checkpoint measured 12757 B zstd / 13390 B gzip against a 13600 B budget;
+entry checkpoint measured 12766 B zstd / 13399 B gzip against a 13600 B budget;
 host zlib versions can change gzip size. Tests enforce the wire budget.
 Reload re-reads the live view; view/target/filter navigation is stored in the
 URL hash. Details, API schema and transfer measurements live in
@@ -1357,7 +1357,7 @@ _INDEX_HTML = """<!doctype html>
 <title>Rebrew coverage dashboard</title>
 <link rel="preload" href="/api/bootstrap" as="fetch" crossorigin fetchpriority="high">
 <link rel="preload" href="__APP_JS_URL__" as="script" fetchpriority="high">
-<link rel="icon" href="__FAVICON__" type="image/svg+xml" fetchpriority="low">
+<link rel="icon" href="__FAVICON__" type="image/svg+xml" sizes="16x16" fetchpriority="low">
 <style>
   [hidden] { display: none !important; }
   body { font-family: var(--rb-sans); line-height: var(--rb-leading-body); margin: 1.5rem;

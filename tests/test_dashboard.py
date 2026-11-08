@@ -2430,7 +2430,7 @@ class TestEncodingNegotiation:
 
     @pytest.mark.parametrize(
         ("accept", "expected_body"),
-        [("zstd", 12757), ("gzip", None)],
+        [("zstd", 12766), ("gzip", None)],
     )
     def test_the_documented_entry_flight_matches_the_wire(
         self, accept: str, expected_body: int | None
@@ -2975,7 +2975,7 @@ class TestHostValidation:
         _, _, html = dashboard.handle("GET", "/", {})
         assert (
             f'<link rel="icon" href="/favicon.svg?v={_FAVICON_VERSION}" type="image/svg+xml"'
-            ' fetchpriority="low">' in html
+            ' sizes="16x16" fetchpriority="low">' in html
         )
         assert "data:image/svg+xml" not in html
 

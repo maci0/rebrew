@@ -483,7 +483,7 @@ def _page(title: str, target: str, active: str, body: str) -> str:
         # every page the browser downloads, and a linked file is fetched once
         # and served from cache for the rest of the walk.  Same trade the
         # dashboard shell makes, for the same reason.
-        "<link rel='icon' href='favicon.svg' type='image/svg+xml' fetchpriority='low'>\n"
+        "<link rel='icon' href='favicon.svg' type='image/svg+xml' sizes='16x16' fetchpriority='low'>\n"
         f"<title>{html.escape(title)} - {html.escape(target)}</title>\n"
         f"<style>{_CSS}</style>\n"
         "</head>\n<body>\n"
