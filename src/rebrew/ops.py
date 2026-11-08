@@ -3539,7 +3539,8 @@ class _OpsHandler(BaseHTTPRequestHandler):
             self.wfile.write(body)
 
     def _refuse(self, code: str, detail: str, status: int) -> None:
-        self._send(status, error_body(code, detail, status))
+        headers = {"WWW-Authenticate": 'Bearer realm="rebrew-ops"'} if status == 401 else None
+        self._send(status, error_body(code, detail, status), headers)
 
     def _check_host(self, server: OpsServer) -> bool:
         if fold_host(self.headers.get("Host", "").strip()) in server.allowed_hosts:

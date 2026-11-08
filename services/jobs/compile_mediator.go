@@ -456,7 +456,9 @@ func (m *CompileMediator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != 200 {
-			apiError(w, "artifact unavailable", resp.StatusCode)
+			// Upstream failures are server/upstream faults, not client
+			// mistakes: forwarding a 4xx verbatim would mislabel them.
+			apiError(w, "artifact unavailable", http.StatusBadGateway)
 			return
 		}
 		body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024*1024+1))
