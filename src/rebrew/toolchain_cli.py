@@ -9,6 +9,7 @@ invoked (docker image vs vendored path vs PATH binary).
 
 from __future__ import annotations
 
+import threading
 from typing import TYPE_CHECKING, Any
 lazy import logging
 lazy import re
@@ -3620,14 +3621,16 @@ def _image_smoke_hash(tool: str, workdir: Path) -> str | None:
 
 _CODELOAD_RE = r"https://codeload\.github\.com/([^/]+)/([^/]+)/tar\.gz/refs/heads/([A-Za-z0-9._-]+)"
 _CODELOAD_PATTERN: re.Pattern[str] | None = None
+_CODELOAD_PATTERN_LOCK = threading.Lock()
 
 
 def _codeload_pattern() -> re.Pattern[str]:
     """Compiled codeload pattern (module import lazily loads ``re``)."""
-    global _CODELOAD_PATTERN
-    if _CODELOAD_PATTERN is None:
-        _CODELOAD_PATTERN = re.compile(_CODELOAD_RE)
-    return _CODELOAD_PATTERN
+    with _CODELOAD_PATTERN_LOCK:
+        global _CODELOAD_PATTERN
+        if _CODELOAD_PATTERN is None:
+            _CODELOAD_PATTERN = re.compile(_CODELOAD_RE)
+        return _CODELOAD_PATTERN
 
 
 _MOVING_RELEASE = "Last-CI-build"

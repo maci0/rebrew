@@ -20,6 +20,7 @@ Usage in a tool::
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any, Literal, NoReturn, override
 lazy import json
 lazy import os
@@ -737,11 +738,13 @@ def _print_version(ctx: TyperContext, param: TyperParameter, value: bool) -> Non
 #: other to its default.
 _verbosity: dict[str, int] = {"verbose": 0, "quiet": 0}
 _log_level: int = DEFAULT_LOG_LEVEL
+_verbosity_lock = threading.Lock()
 
 
 def effective_log_level() -> int:
     """The level the last :func:`configure_logging` call resolved to."""
-    return _log_level
+    with _verbosity_lock:
+        return _log_level
 
 
 def reset_verbosity() -> None:
@@ -752,36 +755,38 @@ def reset_verbosity() -> None:
     first command's ``-v`` into the second.
     """
     global _log_level
-    _verbosity["verbose"] = 0
-    _verbosity["quiet"] = 0
-    _log_level = DEFAULT_LOG_LEVEL
+    with _verbosity_lock:
+        _verbosity["verbose"] = 0
+        _verbosity["quiet"] = 0
+        _log_level = DEFAULT_LOG_LEVEL
 
 
 def configure_logging(verbose: int = 0, *, quiet: bool = False) -> None:
     """Set the root log level from the verbosity flags, in UTC."""
     global _log_level
-    if quiet:
-        _verbosity["quiet"] = 1
-    if verbose > 0:
-        _verbosity["verbose"] = verbose
-    if _verbosity["quiet"]:
-        level = logging.WARNING
-    elif _verbosity["verbose"] >= 2:
-        level = logging.DEBUG
-    elif _verbosity["verbose"] == 1:
-        level = logging.INFO
-    else:
-        try:
-            level = parse_env_log_level(
-                os.environ.get("REBREW_LOG_LEVEL", ""), default=DEFAULT_LOG_LEVEL
-            )
-        except ConfigError as exc:
-            # Warn and keep the default rather than exit: `rebrew cfg effective`
-            # is the command that names the bad knob, and it is unusable while
-            # every run aborts on one.
-            console.print(f"[yellow]warning:[/yellow] {exc}")
-            level = DEFAULT_LOG_LEVEL
-    _log_level = level
+    with _verbosity_lock:
+        if quiet:
+            _verbosity["quiet"] = 1
+        if verbose > 0:
+            _verbosity["verbose"] = verbose
+        if _verbosity["quiet"]:
+            level = logging.WARNING
+        elif _verbosity["verbose"] >= 2:
+            level = logging.DEBUG
+        elif _verbosity["verbose"] == 1:
+            level = logging.INFO
+        else:
+            try:
+                level = parse_env_log_level(
+                    os.environ.get("REBREW_LOG_LEVEL", ""), default=DEFAULT_LOG_LEVEL
+                )
+            except ConfigError as exc:
+                # Warn and keep the default rather than exit: `rebrew cfg effective`
+                # is the command that names the bad knob, and it is unusable while
+                # every run aborts on one.
+                console.print(f"[yellow]warning:[/yellow] {exc}")
+                level = DEFAULT_LOG_LEVEL
+        _log_level = level
     logging.basicConfig(format=LOG_FORMAT, datefmt=LOG_DATE_FORMAT, level=level)
     # basicConfig is a no-op when root already has handlers; still force UTC
     # on whatever formatter is installed so a prior localtime config cannot

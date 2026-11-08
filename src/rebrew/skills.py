@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from pathlib import Path
 lazy import os
 lazy import unicodedata
@@ -47,6 +48,7 @@ _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 #: Warn once per process when REBREW_SKILLS_DIR points at a missing dir (a
 #: typo'd env var otherwise silently yields packaged-only skills).
 _missing_dir_warned = False
+_missing_dir_warned_lock = threading.Lock()
 
 
 def read_skill_md(path: Path) -> str:
@@ -149,13 +151,14 @@ def user_skills_dir() -> Path | None:
     try:
         return env_dir_path(REBREW_SKILLS_DIR_ENV, env)
     except ConfigError:
-        if not _missing_dir_warned:
-            _missing_dir_warned = True
-            logger.warning(
-                "%s=%s is not a directory — community skills are disabled until it exists",
-                REBREW_SKILLS_DIR_ENV,
-                env,
-            )
+        with _missing_dir_warned_lock:
+            if not _missing_dir_warned:
+                _missing_dir_warned = True
+                logger.warning(
+                    "%s=%s is not a directory — community skills are disabled until it exists",
+                    REBREW_SKILLS_DIR_ENV,
+                    env,
+                )
         return None
 
 

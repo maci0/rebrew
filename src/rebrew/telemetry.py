@@ -143,7 +143,7 @@ def span(name: str, *, kind: int = KIND_INTERNAL, traceparent: str | None = None
         # OTLP requires epoch nanos, so the wall clock is correct here; clamp
         # against an NTP step-back so end never precedes start on the wire.
         opened.end_ns = max(opened.start_ns, time.time_ns())
-        exporter = _exporter
+        exporter = _current_exporter()
         if exporter is not None:
             exporter.submit(opened)
 
@@ -252,6 +252,12 @@ class _Exporter:
 
 
 _exporter: _Exporter | None = None
+_exporter_lock = threading.Lock()
+
+
+def _current_exporter() -> _Exporter | None:
+    with _exporter_lock:
+        return _exporter
 
 
 def configure(endpoint: str, service: str, version: str) -> Callable[[], None]:
@@ -259,16 +265,19 @@ def configure(endpoint: str, service: str, version: str) -> Callable[[], None]:
 
     Raises :class:`ValueError` for an endpoint that is not an ``http(s)`` URL with a host.
     """
-    global _exporter
     parts = urlsplit(endpoint)
     if parts.scheme not in ("http", "https") or not parts.hostname or parts.username:
         raise ValueError(f"{ENDPOINT_ENV} must be an http(s) URL without credentials")
     exporter = _Exporter(endpoint.rstrip("/"), service, version)
-    _exporter = exporter
+    with _exporter_lock:
+        global _exporter
+        _exporter = exporter
 
     def shutdown() -> None:
         global _exporter
-        _exporter = None
+        with _exporter_lock:
+            if _exporter is exporter:
+                _exporter = None
         exporter.close()
 
     return shutdown

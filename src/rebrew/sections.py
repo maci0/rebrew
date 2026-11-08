@@ -7,6 +7,7 @@ utilities (back-jump detection, padding trimming).
 
 import logging
 import re
+import threading
 from typing import TYPE_CHECKING, Any
 lazy from pathlib import Path
 
@@ -16,16 +17,18 @@ lazy from rebrew.config import ProjectConfig
 logger = logging.getLogger(__name__)
 
 _DEFAULT_PADDING: bytes | None = None
+_DEFAULT_PADDING_LOCK = threading.Lock()
 
 
 def _default_padding() -> bytes:
     """``PADDING_BYTES`` as one ``bytes``, built once."""
-    global _DEFAULT_PADDING
-    if _DEFAULT_PADDING is None:
-        from rebrew.formats.binary_loader import PADDING_BYTES
+    with _DEFAULT_PADDING_LOCK:
+        global _DEFAULT_PADDING
+        if _DEFAULT_PADDING is None:
+            from rebrew.formats.binary_loader import PADDING_BYTES
 
-        _DEFAULT_PADDING = bytes(PADDING_BYTES)
-    return _DEFAULT_PADDING
+            _DEFAULT_PADDING = bytes(PADDING_BYTES)
+        return _DEFAULT_PADDING
 
 
 def trim_trailing_padding(data: bytes, padding: tuple[int, ...] | None = None) -> int:
