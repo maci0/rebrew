@@ -84,7 +84,7 @@ LEAF_ALLOWED_IMPORTS = frozenset({"rebrew.errors"})
 #: may read.  A package's own submodules are always allowed and are not
 #: listed.
 PACKAGE_EXTERNALS: dict[str, frozenset[str]] = {
-    "app": frozenset({"cli", "errors", "registry", "telemetry"}),
+    "app": frozenset({"cli", "errors", "registry", "telemetry", "utils"}),
     "matcher": frozenset(
         {
             "coff_reloc",

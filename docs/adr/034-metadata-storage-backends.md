@@ -1,6 +1,6 @@
 # ADR-034: Managed metadata storage backends
 
-- **Status**: Amended by 035
+- **Status**: Amended by [ADR-035](035-metadata-replication.md)
 - **Date**: 2026-10
 
 ## Context

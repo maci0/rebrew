@@ -10,7 +10,7 @@ The umbrella `rebrew` CLI composition layer (ADR 014, ADR 026): the only code th
 | `builtins.py` | `DOMAIN_COMPONENTS` / `BUILTIN_COMPONENTS`: one `CliComponent` row per packaged command, by domain |
 | `plugin.py` | `CliComponent`, `Context`, `activate`: the component runtime and the `rebrew.commands` / `rebrew.multicommands` entry-point groups |
 
-Externals (the only packages this one may import): `cli`, `errors`, `registry`, `telemetry`. Command modules are named as strings in `builtins.py` and imported when a command runs, so they are not edges here. `tools/check_layering.py` enforces `PACKAGE_EXTERNALS`; this line follows it.
+Externals (the only packages this one may import): `cli`, `errors`, `registry`, `telemetry`, `utils`. Command modules are named as strings in `builtins.py` and imported when a command runs, so they are not edges here. `tools/check_layering.py` enforces `PACKAGE_EXTERNALS`; this line follows it.
 
 ## Contracts
 
