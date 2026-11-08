@@ -35,6 +35,11 @@ withheld from remote clients. There is no authentication. Connections have a
 30-second keep-alive deadline and a 64-handler cap; overload returns 503 with
 Retry-After. Request bodies are never read and force connection closure.
 
+Every request runs under one W3C trace-context span, continuing a caller's
+``traceparent`` when it sends one; the access and error log lines carry the
+span's trace id, and ``REBREW_OTLP_ENDPOINT`` exports the spans over OTLP/HTTP
+(see ``rebrew.telemetry``, mirroring ``rebrew ops serve``).
+
 Successful responses negotiate zstd then gzip with quality weights. ETags key
 on the live input version or portable file state plus the exact route/query;
 health is no-store. Static assets are content-hashed and precompressed. The
@@ -78,6 +83,7 @@ import typer
 lazy import zstandard
 lazy from rich.markup import escape
 
+from rebrew import __version__, telemetry
 from rebrew.cli import RootOption, console, error_exit, json_print, option_default, require_root
 from rebrew.theme import FAVICON_SVG, inline
 lazy from rebrew.compression import WireEncoding, precompress
@@ -127,6 +133,18 @@ def _stamp_request(request_id: str, line: str) -> None:
     _REQUEST_LOCAL.request_line = line
 
 
+def _trace_id() -> str:
+    """Trace id of the open span, so logs join the MELT investigative path.
+
+    Mirrors ``ops._trace_id``: the access line and every error line of one
+    request carry it, so an operator can pivot from a log line to the trace
+    that explains it (and back) when the OTLP exporter is configured; ``"-"``
+    off the HTTP transport or before the span is opened.
+    """
+    opened = telemetry.current()
+    return opened.trace_id if opened is not None else "-"
+
+
 def _request_context() -> tuple[str, str]:
     """The stamped ``(request_id, request_line)``, escaped for the log stream."""
     request_id = getattr(_REQUEST_LOCAL, "request_id", "-")
@@ -148,8 +166,8 @@ def _warn_request(message: str, *args: Any) -> None:
     # template with its arguments lazy; a literal ``+`` in the call is the
     # eager-format rule (G003), and the id is the one part of the line that
     # cannot be a caller-supplied placeholder.
-    template = "%s " + message
-    log.warning(template, _request_context()[0], *args)
+    template = "%s trace_id=%s " + message
+    log.warning(template, _request_context()[0], _trace_id(), *args)
 
 
 #: Both log streams (access lines on ``console``, errors on ``log``) start with
@@ -2878,7 +2896,12 @@ def _send_over_capacity(
     if not isinstance(request, socket.socket):
         # A non-socket get_request (a UNIX-family server sharing this code)
         # has no HTTP response to write; the caller still closes the request.
-        log.info("%s cannot write a refusal to a %s", request_id, type(request).__name__)
+        log.info(
+            "%s cannot write a refusal to a %s trace_id=%s",
+            request_id,
+            type(request).__name__,
+            _trace_id(),
+        )
         return
     # A 5xx is a 5xx wherever it is written: ``log_request`` counts one for a
     # routed response, and a run that is being shed is a run the error total on
@@ -2906,7 +2929,12 @@ def _send_over_capacity(
     try:
         request.sendall(("\r\n".join(lines) + "\r\n\r\n").encode("ascii") + body)
     except OSError as exc:
-        log.info("%s client vanished before the refusal reached it: %s", request_id, exc)
+        log.info(
+            "%s client vanished before the refusal reached it trace_id=%s: %s",
+            request_id,
+            _trace_id(),
+            exc,
+        )
 
 
 def _escape_log_text(text: str) -> str:
@@ -2949,7 +2977,13 @@ class _CorrelatedFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         request_id, _ = _request_context()
         line = _escape_log_text(super().format(record))
-        return line if request_id == "-" else f"{request_id} {line}"
+        if request_id == "-":
+            return line
+        # The trace id rides the same prefix as the request id, so a library
+        # warning raised inside a request (the coverage loader skipping a
+        # document) joins the access line in both correlations.
+        trace_id = _trace_id()
+        return f"{request_id} {trace_id} {line}" if trace_id != "-" else f"{request_id} {line}"
 
 
 def _attach_server_log_handler() -> Callable[[], None]:
@@ -3056,7 +3090,12 @@ def _log_failed_request(reason: str, path: str, exc: BaseException, request_id: 
     """
     frames = "".join(traceback.format_exception(exc)).rstrip()
     log.error(
-        "%s %s for %s\n%s", request_id, reason, _escape_log_text(path), _escape_log_text(frames)
+        "%s %s for %s trace_id=%s\n%s",
+        request_id,
+        reason,
+        _escape_log_text(path),
+        _trace_id(),
+        _escape_log_text(frames),
     )
 
 
@@ -3137,10 +3176,11 @@ class _Handler(BaseHTTPRequestHandler):
             # socket (tests) has no peer to name.
             peer = getattr(self, "client_address", None)
             log.warning(
-                "%s rejected request with Host %r from %s",
+                "%s rejected request with Host %r from %s trace_id=%s",
                 self._request_id,
                 _escape_log_text(self.headers.get("Host", "")) or "-",
                 _escape_log_text(str(peer[0]) if peer else "-"),
+                _trace_id(),
             )
             status, content_type, body = self.dashboard._error(
                 403, "host_not_allowed", "request Host not allowed (wrong or missing Host header)"
@@ -3212,11 +3252,12 @@ class _Handler(BaseHTTPRequestHandler):
             # a server-side failure with no exception to attach: the request
             # line names the path and the caller's own log explains the row.
             log.error(
-                "%s dashboard %s %s returned %d",
+                "%s dashboard %s %s returned %d trace_id=%s",
                 self._request_id,
                 method,
                 _escape_log_text(self.path),
                 status,
+                _trace_id(),
             )
         if status == HTTPStatus.NOT_MODIFIED:
             self._send_not_modified(etag, _success_cache_control(parsed.path, query))
@@ -3325,10 +3366,34 @@ class _Handler(BaseHTTPRequestHandler):
         super().end_headers()
 
     def do_GET(self) -> None:  # (http.server API)
-        self._respond("GET")
+        self._traced_respond("GET")
 
-    def do_HEAD(self) -> None:
-        self._respond("HEAD")
+    def do_HEAD(self) -> None:  # (http.server API)
+        self._traced_respond("HEAD")
+
+    def _traced_respond(self, method: str) -> None:
+        """Answer under one span per request, continuing the caller's trace.
+
+        The dashboard is the second long-running server beside ``ops serve``;
+        without a span its access and error lines carry a correlation id but
+        no trace id, so the MELT investigative path breaks at the dashboard
+        (a metric anomaly cannot pivot to the trace).  Mirrors ``ops``:
+        a ``KIND_SERVER`` span named ``<method> <route>`` (the route is
+        bounded by the served set, never the raw path), carrying the request
+        id and the response status, and failing the span on a 5xx.  The span
+        closes only after the access line is written, so that line carries
+        the same trace id as the span it describes.
+        """
+        route = urlparse(self.path).path
+        with telemetry.span(
+            f"{method} {route if route in _KNOWN_ROUTES else '/unknown'}",
+            kind=telemetry.KIND_SERVER,
+            traceparent=self.headers.get("traceparent"),
+        ) as opened:
+            opened.set("http.request.method", method)
+            opened.set("http.route", route if route in _KNOWN_ROUTES else "/unknown")
+            opened.set("rebrew.request_id", self._request_id)
+            self._respond(method)
 
     @override
     def send_response(self, code: int, message: str | None = None) -> None:
@@ -3344,6 +3409,11 @@ class _Handler(BaseHTTPRequestHandler):
         lines use, so a caller holding a 500 can hand the operator one token.
         """
         self.log_request(code, self._response_size)
+        opened = telemetry.current()
+        if opened is not None and opened.kind == telemetry.KIND_SERVER:
+            opened.set("http.response.status_code", int(code))
+            if code >= 500:
+                opened.fail(f"status {code}")
         self.send_response_only(code, message)
         self.send_header("Date", self.date_time_string())
         self.send_header("X-Request-Id", self._request_id)
@@ -3368,11 +3438,12 @@ class _Handler(BaseHTTPRequestHandler):
         # client's, a 5xx is ours), instead of a bare INFO line with no id.
         log.log(
             logging.ERROR if code >= 500 else logging.WARNING,
-            "%s rejected %s: code %d, message %s",
+            "%s rejected %s: code %d, message %s trace_id=%s",
             self._request_id,
             _escape_log_text(getattr(self, "requestline", "")) or "-",
             code,
             _escape_log_text(message or status.phrase),
+            _trace_id(),
         )
         # Scrub like every routed body (``Dashboard._json``): http.server's own
         # messages quote the request line, so an RLO in a crafted request would
@@ -3426,9 +3497,10 @@ class _Handler(BaseHTTPRequestHandler):
         with self._stats_lock:
             type(self)._timeouts += 1
         log.warning(
-            "%s %s: %s",
+            "%s %s trace_id=%s: %s",
             self._request_id,
             _escape_log_text(format),
+            _trace_id(),
             _escape_log_text(" ".join(str(arg) for arg in args)),
         )
 
@@ -3479,18 +3551,20 @@ class _Handler(BaseHTTPRequestHandler):
             # the problem.  The request line is remote text, so it is escaped
             # like every other request-derived string on this stream.
             log.warning(
-                "%s slow request %.1fms: %s",
+                "%s slow request %.1fms trace_id=%s: %s",
                 self._request_id,
                 elapsed_ms,
+                _trace_id(),
                 _escape_log_text(getattr(self, "requestline", "-")),
             )
         self.log_message(
-            '%s "%s" %s %s %.1fms',
+            '%s "%s" %s %s %.1fms trace_id=%s',
             self._request_id,
             self.requestline,
             str(code),
             str(size),
             elapsed_ms,
+            _trace_id(),
         )
 
 
@@ -3603,9 +3677,10 @@ class _DashboardServer(ThreadingHTTPServer):
             request_id = f"r{next(_REQUEST_IDS)}"
             _stamp_request(request_id, "")
             log.warning(
-                "%s refusing connection from %s: %d already in flight (cap %d)",
+                "%s refusing connection from %s trace_id=%s: %d already in flight (cap %d)",
                 request_id,
                 _escape_log_text(str(client_address)),
+                _trace_id(),
                 active,
                 self._max_active_connections,
             )
@@ -3644,7 +3719,13 @@ class _DashboardServer(ThreadingHTTPServer):
             # ConnectionAbortedError — the one a peer that closes rather than
             # resets raises — reported as an unhandled fault with a traceback
             # and counted against the 5xx total a probe reads.
-            log.info("%s client disconnected serving %s: %s", request_id, line, type(exc).__name__)
+            log.info(
+                "%s client disconnected serving %s trace_id=%s: %s",
+                request_id,
+                line,
+                _trace_id(),
+                type(exc).__name__,
+            )
             return
         if isinstance(exc, TimeoutError):
             # A write that ran past the per-handler timeout: the client
@@ -3655,20 +3736,22 @@ class _DashboardServer(ThreadingHTTPServer):
             with _Handler._stats_lock:
                 _Handler._timeouts += 1
             log.warning(
-                "%s client stopped reading serving %s: %s",
+                "%s client stopped reading serving %s trace_id=%s: %s",
                 request_id,
                 line,
+                _trace_id(),
                 type(exc).__name__,
             )
             return
         with _Handler._stats_lock:
             _Handler._server_errors += 1
         log.error(
-            "%s unhandled %s from %s serving %s\n%s",
+            "%s unhandled %s from %s serving %s trace_id=%s\n%s",
             request_id,
             type(exc).__name__,
             _escape_log_text(str(client_address)),
             line,
+            _trace_id(),
             _escape_log_text(traceback.format_exc().rstrip()),
         )
 
@@ -3788,6 +3871,10 @@ def main(
 
     previous = signal.signal(signal.SIGTERM, _stop)
     try:
+        stop_telemetry = telemetry.configure_from_env("relumea-rebrew", __version__)
+    except ValueError as exc:
+        error_exit(str(exc), json_mode=json_output)
+    try:
         restore_log = _attach_server_log_handler()
         server.serve_forever()
     except KeyboardInterrupt:
@@ -3820,6 +3907,7 @@ def main(
         # shares is restored only once the run has said everything.
         if restore_log is not None:
             restore_log()
+        stop_telemetry()
         signal.signal(signal.SIGTERM, previous)
 
 

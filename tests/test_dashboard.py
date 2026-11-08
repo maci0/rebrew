@@ -55,6 +55,51 @@ class _NullWFile:
         return len(data)
 
 
+class _Collector:
+    """An OTLP/HTTP collector: keeps every span posted to /v1/traces."""
+
+    def __init__(self) -> None:
+        import http.server
+
+        self.spans: list[dict[str, Any]] = []
+        outer = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                length = self.headers.get("Content-Length", "0")
+                body = json.loads(self.rfile.read(int(length)))
+                for resource in body["resourceSpans"]:
+                    for scope in resource["scopeSpans"]:
+                        outer.spans.extend(scope["spans"])
+                assert self.path == "/v1/traces"
+                self.send_response(200)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+            def log_message(self, fmt: str, *args: Any) -> None:
+                return
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.url = f"http://127.0.0.1:{self.server.server_port}"
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def named(self, name: str) -> dict[str, Any]:
+        deadline = time.monotonic() + 10.0
+        while time.monotonic() < deadline:
+            for found in self.spans:
+                if found["name"] == name:
+                    return found
+            time.sleep(0.05)
+        raise AssertionError(f"no span {name!r}; saw {[s['name'] for s in self.spans]}")
+
+
+@pytest.fixture
+def collector() -> Any:
+    sink = _Collector()
+    yield sink
+    sink.server.shutdown()
+
+
 def _run_script(script: str, **env: str) -> None:
     """Run a tests/dashboard_*.mjs interaction script against the dashboard JS."""
     bun = shutil.which("bun")
@@ -387,8 +432,8 @@ cells = []
         assert summary["coverage_pct"] == 100.0
         # One line per byte count the summary divides by, both named.
         assert [r.getMessage() for r in caplog.records] == [
-            "- function_stats for 'cap': matched_bytes is 64, past the 32-byte .text; capping",
-            "- function_stats for 'cap': covered_bytes is 64, past the 32-byte .text; capping",
+            "- trace_id=- function_stats for 'cap': matched_bytes is 64, past the 32-byte .text; capping",
+            "- trace_id=- function_stats for 'cap': covered_bytes is 64, past the 32-byte .text; capping",
         ]
 
     def test_summary_no_text_section_is_zero_percent_not_hundred(self, tmp_path: Path) -> None:
@@ -3760,7 +3805,7 @@ class TestHostValidation:
 
         errors = [r for r in caplog.records if r.levelno == logging.ERROR]
         assert [r.getMessage() for r in errors] == [
-            "- dashboard GET /api/summary?target=server_dll returned 500"
+            "- dashboard GET /api/summary?target=server_dll returned 500 trace_id=-"
         ]
 
     def test_failed_request_log_escapes_control_chars(
@@ -3872,7 +3917,7 @@ class TestParseRejectionLog:
         assert [(r.levelname, r.getMessage()) for r in caplog.records] == [
             (
                 "WARNING",
-                "r51 rejected GET /x\\x1b HTTP/1.1: code 400, message Bad request syntax",
+                "r51 rejected GET /x\\x1b HTTP/1.1: code 400, message Bad request syntax trace_id=-",
             )
         ]
 
@@ -4086,6 +4131,7 @@ class TestSlowRequestLine:
         assert len(caplog.records) == 1
         message = caplog.records[0].getMessage()
         assert message.startswith("r51 slow request ")
+        assert " trace_id=-:" in message
         assert "/api/summary?target=server_dll HTTP/1.1\\x1b" in message
         assert "\x1b" not in message
 
@@ -4162,6 +4208,7 @@ class TestConnectionTimeoutLine:
         assert caplog.records[0].levelno == logging.WARNING
         message = caplog.records[0].getMessage()
         assert message.startswith("r77 Request timed out:")
+        assert " trace_id=-:" in message
         assert "timed out" in message
 
     def test_timeout_is_counted_where_the_probe_reads_it(
@@ -4240,8 +4287,8 @@ cells = []
 
         assert status == 200
         assert [r.getMessage() for r in caplog.records] == [
-            "r52 function_stats for 'broken': matched_bytes is 64, past the 32-byte .text; capping",
-            "r52 function_stats for 'broken': covered_bytes is 64, past the 32-byte .text; capping",
+            "r52 trace_id=- function_stats for 'broken': matched_bytes is 64, past the 32-byte .text; capping",
+            "r52 trace_id=- function_stats for 'broken': covered_bytes is 64, past the 32-byte .text; capping",
         ]
 
     def test_off_the_server_the_id_is_a_dash(
@@ -4256,7 +4303,9 @@ cells = []
             status, _, _ = dashboard.handle("GET", "/api/summary", {"target": ["broken"]})
 
         assert status == 200
-        assert caplog.records[-1].getMessage().startswith("- function_stats for 'broken'")
+        assert (
+            caplog.records[-1].getMessage().startswith("- trace_id=- function_stats for 'broken'")
+        )
 
 
 class TestThreadFaults:
@@ -4285,6 +4334,7 @@ class TestThreadFaults:
         assert len(errors) == 1
         text = errors[0].getMessage()
         assert text.startswith("r42 unhandled RuntimeError from ('127.0.0.1', 51234) serving ")
+        assert " trace_id=-\n" in text
         assert "/api/targets HTTP/1.1\\x1b" in text
         assert "RuntimeError: boom" in text
         assert _Handler._server_errors == 1
@@ -4303,7 +4353,7 @@ class TestThreadFaults:
                 self._server().handle_error(None, ("127.0.0.1", 51235))  # type: ignore[arg-type]
 
         assert [r.getMessage() for r in caplog.records] == [
-            "r43 client disconnected serving GET /api/functions HTTP/1.1: BrokenPipeError"
+            "r43 client disconnected serving GET /api/functions HTTP/1.1 trace_id=-: BrokenPipeError"
         ]
         assert _Handler._server_errors == 0
 
@@ -4327,7 +4377,7 @@ class TestThreadFaults:
                 self._server().handle_error(None, ("127.0.0.1", 51237))  # type: ignore[arg-type]
 
         assert [r.getMessage() for r in caplog.records] == [
-            "r45 client disconnected serving GET /api/summary HTTP/1.1: ConnectionAbortedError"
+            "r45 client disconnected serving GET /api/summary HTTP/1.1 trace_id=-: ConnectionAbortedError"
         ]
         assert _Handler._server_errors == 0
 
@@ -4352,7 +4402,7 @@ class TestThreadFaults:
                         None, ("127.0.0.1", 51238)
                     )
             assert [r.getMessage() for r in caplog.records] == [
-                "r46 client stopped reading serving GET /api/globals HTTP/1.1: TimeoutError"
+                "r46 client stopped reading serving GET /api/globals HTTP/1.1 trace_id=-: TimeoutError"
             ]
             assert served_totals()["timeouts"] == 1
             assert served_totals()["server_errors"] == 0
@@ -4378,7 +4428,7 @@ class TestThreadFaults:
                 self._server().handle_error(None, ("127.0.0.1", 51236))  # type: ignore[arg-type]
         text = caplog.records[-1].getMessage()
         assert text.startswith(f"{handler._request_id} unhandled RuntimeError")
-        assert "serving -\n" in text
+        assert "serving - trace_id=-\n" in text
 
     def test_fault_on_a_live_connection_names_its_request(
         self, dashboard: Dashboard, caplog: pytest.LogCaptureFixture
@@ -4419,8 +4469,150 @@ class TestThreadFaults:
         errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
         assert len(errors) == 1
         assert "unhandled RuntimeError" in errors[0]
-        assert "serving GET / HTTP/1.1\n" in errors[0]
+        assert "serving GET / HTTP/1.1 trace_id=-\n" in errors[0]
         assert "RuntimeError: boom after the response" in errors[0]
+
+
+class TestRequestSpans:
+    """One span per dashboard request, continuing the caller's trace.
+
+    The dashboard is the second long-running server beside ``rebrew ops serve``;
+    without a span its log lines carry a correlation id but no trace id, so the
+    MELT investigative path breaks at the dashboard.  Mirrors ``test_telemetry``:
+    a ``KIND_SERVER`` span named ``<method> <route>``, carrying the request id
+    and the response status, failing the span on a 5xx, and exported over
+    OTLP/HTTP when ``REBREW_OTLP_ENDPOINT`` is configured.
+    """
+
+    TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736"
+    PARENT_ID = "00f067aa0ba902b7"
+
+    @staticmethod
+    def _attributes(wire: dict[str, Any]) -> dict[str, Any]:
+        return {a["key"]: next(iter(a["value"].values())) for a in wire["attributes"]}
+
+    def test_request_is_a_span_in_the_callers_trace(
+        self, dashboard: Dashboard, collector: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import http.client
+
+        from rebrew import telemetry
+        from rebrew.dashboard import _Handler, allowed_hosts_for
+
+        stop = telemetry.configure(collector.url, "relumea-rebrew", "1.2.3")
+        server = _DashboardServer(("127.0.0.1", 0), _Handler)
+        server.daemon_threads = True
+        monkeypatch.setattr(_Handler, "dashboard", dashboard, raising=False)
+        monkeypatch.setattr(
+            _Handler, "allowed_hosts", allowed_hosts_for("127.0.0.1", server.server_port)
+        )
+        serve = threading.Thread(target=server.serve_forever, daemon=True)
+        serve.start()
+        inbound = f"00-{self.TRACE_ID}-{self.PARENT_ID}-01"
+        request_id: str = ""
+        try:
+            conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+            conn.request(
+                "GET",
+                "/api/health",
+                headers={
+                    "Host": f"127.0.0.1:{server.server_port}",
+                    "traceparent": inbound,
+                },
+            )
+            response = conn.getresponse()
+            assert response.status == 200
+            request_id = response.getheader("X-Request-Id") or ""
+            response.read()
+            conn.close()
+        finally:
+            server.shutdown()
+            serve.join(timeout=5)
+            server.server_close()
+            stop()
+        wire = collector.named("GET /api/health")
+        assert (wire["traceId"], wire["parentSpanId"], wire["kind"]) == (
+            self.TRACE_ID,
+            self.PARENT_ID,
+            2,
+        )
+        attributes = self._attributes(wire)
+        assert attributes["http.response.status_code"] == "200"
+        assert attributes["http.route"] == "/api/health"
+        assert attributes["rebrew.request_id"] == request_id
+        assert request_id.startswith("r")
+
+    def test_route_failure_is_an_error_span(
+        self, empty_dashboard: Dashboard, collector: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import http.client
+
+        from rebrew import telemetry
+        from rebrew.dashboard import _Handler, allowed_hosts_for
+
+        stop = telemetry.configure(collector.url, "relumea-rebrew", "1.2.3")
+        server = _DashboardServer(("127.0.0.1", 0), _Handler)
+        server.daemon_threads = True
+        monkeypatch.setattr(_Handler, "dashboard", empty_dashboard, raising=False)
+        monkeypatch.setattr(
+            _Handler, "allowed_hosts", allowed_hosts_for("127.0.0.1", server.server_port)
+        )
+        serve = threading.Thread(target=server.serve_forever, daemon=True)
+        serve.start()
+        try:
+            conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+            conn.request(
+                "GET",
+                "/api/health",
+                headers={"Host": f"127.0.0.1:{server.server_port}"},
+            )
+            response = conn.getresponse()
+            assert response.status == 500
+            response.read()
+            conn.close()
+        finally:
+            server.shutdown()
+            serve.join(timeout=5)
+            server.server_close()
+            stop()
+        wire = collector.named("GET /api/health")
+        assert wire.get("status") == {"code": 2, "message": "status 500"}
+        assert self._attributes(wire)["http.response.status_code"] == "500"
+
+    def test_an_unknown_path_is_not_a_route_label(
+        self, dashboard: Dashboard, collector: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import http.client
+
+        from rebrew import telemetry
+        from rebrew.dashboard import _Handler, allowed_hosts_for
+
+        stop = telemetry.configure(collector.url, "relumea-rebrew", "1.2.3")
+        server = _DashboardServer(("127.0.0.1", 0), _Handler)
+        server.daemon_threads = True
+        monkeypatch.setattr(_Handler, "dashboard", dashboard, raising=False)
+        monkeypatch.setattr(
+            _Handler, "allowed_hosts", allowed_hosts_for("127.0.0.1", server.server_port)
+        )
+        serve = threading.Thread(target=server.serve_forever, daemon=True)
+        serve.start()
+        try:
+            conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+            conn.request(
+                "GET",
+                "/no/such/route",
+                headers={"Host": f"127.0.0.1:{server.server_port}"},
+            )
+            assert conn.getresponse().status == 404
+            conn.close()
+        finally:
+            server.shutdown()
+            serve.join(timeout=5)
+            server.server_close()
+            stop()
+        wire = collector.named("GET /unknown")
+        assert self._attributes(wire)["http.route"] == "/unknown"
+        assert self._attributes(wire)["http.response.status_code"] == "404"
 
 
 class TestHealthRoute:
