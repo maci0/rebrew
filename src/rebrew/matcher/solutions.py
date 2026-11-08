@@ -26,7 +26,7 @@ lazy import hashlib
 lazy import json
 lazy import math
 lazy import os
-lazy from collections.abc import Iterator
+lazy from collections.abc import Generator, Iterator
 lazy from datetime import UTC, datetime
 lazy from pathlib import Path
 lazy from typing import Any
@@ -243,7 +243,7 @@ def load_solutions(project_root: Path) -> list[SolutionEntry]:
     return _wins_from_records(_runs_path(project_root))
 
 
-def _iter_run_records(path: Path) -> Iterator[dict[str, Any]]:
+def _iter_run_records(path: Path) -> Generator[dict[str, Any]]:
     """Yield dict records from a JSONL file (skips malformed lines).
 
     The file handle is closed when this generator is closed (``close()`` /
@@ -887,7 +887,7 @@ def load_ga_runs(
     return out
 
 
-def iter_ga_runs(project_root: Path, *, target: str = "") -> Iterator[dict[str, Any]]:
+def iter_ga_runs(project_root: Path, *, target: str = "") -> Generator[dict[str, Any]]:
     """Yield every GA run record in *project_root*'s log, oldest first.
 
     Streams the append-only log, so a consumer that folds the records into

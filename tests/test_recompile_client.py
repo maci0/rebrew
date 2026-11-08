@@ -48,11 +48,13 @@ class _Resp:
         json_body: Any = None,
         content: bytes = b"",
         text: str = "",
+        headers: Any = None,
     ) -> None:
         self.status_code = status_code
         self._json = json_body
         self.content = content
         self.text = text
+        self.headers = dict(headers or {})
         self.closed = False
 
     def json(self) -> Any:

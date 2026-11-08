@@ -146,8 +146,14 @@ def coverage_input_digest(value: Any) -> str:
 
 def _lstat_confined(root: Path, name: str) -> os.stat_result | None:
     """``lstat`` ``name`` under ``root``, refusing any symlink component."""
+    from rebrew.utils import portable_path_parts
+
+    parts = portable_path_parts(name)
+    if not parts:
+        raise CoverageInputError("coverage input contains a symlink")
     path = root
-    for part in name.split("/"):
+    info: os.stat_result | None = None
+    for part in parts:
         path = path / part
         try:
             info = path.lstat()

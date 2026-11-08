@@ -3432,22 +3432,24 @@ class OpsServer(ThreadingHTTPServer):
                 self._client_error_count += 1
                 self._error_count += 1
 
-    def metrics_snapshot(self) -> dict[str, float | int]:
+    def metrics_snapshot(self) -> tuple[dict[str, float | int], list[int]]:
         with self._metrics_lock:
-            return {
-                "request_count": self._request_count,
-                "error_count": self._error_count,
-                "server_error_count": self._server_error_count,
-                "client_error_count": self._client_error_count,
-                "latency_ms_total": self._latency_ms_total,
-                "latency_ms_max": self._latency_ms_max,
-                "latency_ms_avg": (self._latency_ms_total / self._request_count)
-                if self._request_count
-                else 0.0,
-                "latency_ms_buckets": list(self._latency_ms_buckets),
-                "in_flight": self.active,
-                "uptime_seconds": time.monotonic() - self._started_at,
-            }
+            return (
+                {
+                    "request_count": self._request_count,
+                    "error_count": self._error_count,
+                    "server_error_count": self._server_error_count,
+                    "client_error_count": self._client_error_count,
+                    "latency_ms_total": self._latency_ms_total,
+                    "latency_ms_max": self._latency_ms_max,
+                    "latency_ms_avg": (self._latency_ms_total / self._request_count)
+                    if self._request_count
+                    else 0.0,
+                    "in_flight": self.active,
+                    "uptime_seconds": time.monotonic() - self._started_at,
+                },
+                list(self._latency_ms_buckets),
+            )
 
 
 class _OpsHandler(BaseHTTPRequestHandler):
@@ -3687,7 +3689,7 @@ class _OpsHandler(BaseHTTPRequestHandler):
             ):
                 self._refuse("unauthorized", "a valid bearer token is required", 401)
                 return
-            snapshot = server.metrics_snapshot()
+            snapshot, latency_buckets = server.metrics_snapshot()
             if path == "/health":
                 payload = {
                     "status": "up",
@@ -3734,7 +3736,7 @@ class _OpsHandler(BaseHTTPRequestHandler):
                 "# HELP rebrew_ops_latency_bucket Latency of answered ops requests, in milliseconds (cumulative).",
                 "# TYPE rebrew_ops_latency_bucket histogram",
                 *(
-                    f'rebrew_ops_latency_bucket{{le="{bound}"}} {sum(snapshot["latency_ms_buckets"][: i + 1])}'
+                    f'rebrew_ops_latency_bucket{{le="{bound}"}} {sum(latency_buckets[: i + 1])}'
                     for i, bound in enumerate(_LATENCY_BUCKETS_MS)
                 ),
                 f'rebrew_ops_latency_bucket{{le="+Inf"}} {snapshot["request_count"]}',

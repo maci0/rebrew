@@ -1144,9 +1144,10 @@ class TestDocumentedTransportInjection:
         """The same reply covers both HTTP transports, as the README says.
 
         ``rebrew.compiler.recompile_client`` additionally reads ``content`` (the
-        artifact bytes); ``rebrew.decompme`` does not, but its module-level
-        ``httpx`` calls hand back a reply that owns a connection, so it
-        releases ``close()``.  A reply carrying all five members serves both.
+        artifact bytes) and ``headers`` (the Content-Length bound); ``rebrew.decompme``
+        does not, but its module-level ``httpx`` calls hand back a reply that
+        owns a connection, so it releases ``close()``.  A reply carrying all
+        six members serves both.
         """
         from rebrew.compiler.recompile_client import HttpResponse
         from rebrew.decompme import HttpResponse as DecompmeHttpResponse
@@ -1155,6 +1156,9 @@ class TestDocumentedTransportInjection:
             status_code = 200
             text = ""
             content = b"\x90" * 8
+
+            def __init__(self) -> None:
+                self.headers = {"content-length": "8"}
 
             def json(self) -> object:
                 return {"status": "ok"}

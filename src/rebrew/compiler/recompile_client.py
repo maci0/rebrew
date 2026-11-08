@@ -79,9 +79,10 @@ class HttpResponse(Protocol):
     """Reply members :func:`compile_source` reads off an :class:`HttpClient`.
 
     An ``httpx.Response`` satisfies it.  A consumer test double has to
-    supply these four members (and nothing else): the transport reads the
-    status, the body text for the error message, the decoded JSON body, and
-    the artifact bytes.  ``close()`` is absent on purpose —
+    supply these five members (and nothing else): the transport reads the
+    status, the body text for the error message, the decoded JSON body, the
+    artifact bytes, and the response headers (for the Content-Length bound
+    on the artifact).  ``close()`` is absent on purpose —
     :func:`rebrew.utils.close_response` probes for it, so a stand-in holding
     no connection is still a valid reply.
     """
@@ -94,6 +95,9 @@ class HttpResponse(Protocol):
 
     @property
     def content(self) -> bytes: ...
+
+    @property
+    def headers(self) -> Mapping[str, str]: ...
 
     def json(self) -> Any: ...
 
