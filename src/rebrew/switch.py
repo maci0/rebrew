@@ -264,8 +264,6 @@ def _read_table(
         return []
     import struct
 
-    fmt = {2: "<H", 4: "<I", 8: "<Q"}.get(entry_width, "<I")
-
     try:
         info = load_binary(cfg.target_binary)
     except Exception:  # unreadable binary → no table
@@ -273,6 +271,18 @@ def _read_table(
             "switch table load failed for %s", cfg.target_binary, exc_info=True
         )
         return []
+
+    # x86 tables are little-endian, but read the image's own byte order (via
+    # arch_byte_order, the same helper data_scan/registry use) so a big-endian
+    # image is not byte-reversed.  The arch comes from the image; fall back to
+    # the cfg arch, then little-endian (x86 default).
+    from rebrew.config import arch_byte_order
+
+    image_arch = str(getattr(info, "arch", "") or "") or str(getattr(cfg, "arch", "") or "")
+    image_endian = getattr(info, "endian", "") or ""
+    order = arch_byte_order(image_arch, image_endian)
+    fmt_char = {2: "H", 4: "I", 8: "Q"}.get(entry_width, "I")
+    fmt = f"{order}{fmt_char}"
 
     entries: list[tuple[int, int]] = []
     for i in range(count):

@@ -1794,7 +1794,7 @@ def safe_shlex_split(command: str) -> list[str]:
         return command.split()
 
 
-def _kill_process_group(proc: subprocess.Popen[Any]) -> None:
+def kill_process_group(proc: subprocess.Popen[Any]) -> None:
     """Terminate the process group (POSIX) or process (Windows) safely."""
     if hasattr(os, "killpg") and hasattr(signal, "SIGKILL"):
         with contextlib.suppress(ProcessLookupError):
@@ -1874,7 +1874,7 @@ def release_captured_pipes(proc: subprocess.Popen[Any]) -> None:
 def stop_process_tree(proc: subprocess.Popen[Any]) -> None:
     """Kill *proc*'s session and descendants snapshotted before the signal."""
     descendants = _descendant_pids(proc.pid)
-    _kill_process_group(proc)
+    kill_process_group(proc)
     _kill_pids(descendants)
     with contextlib.suppress(ProcessLookupError, OSError):
         proc.kill()
