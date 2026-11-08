@@ -71,6 +71,7 @@ from rebrew.errors import RebrewError
 lazy from rebrew import __version__, telemetry
 lazy from rebrew.cli import EXIT_ERROR, console, error_exit
 lazy from rebrew.formats.binary_loader import UnsupportedBinaryFormat
+lazy from rebrew.utils import fold_host
 
 logger = logging.getLogger(__name__)
 
@@ -3269,9 +3270,9 @@ def _allowed_hosts_for(host: str, port: int) -> frozenset[str]:
     hosts: set[str] = set()
     for name in names:
         display = f"[{name}]" if ":" in name else name
-        hosts.add(f"{display}:{port}".lower())
+        hosts.add(fold_host(f"{display}:{port}"))
         if port == 80:
-            hosts.add(display.lower())
+            hosts.add(fold_host(display))
     return frozenset(hosts)
 
 
@@ -3480,7 +3481,7 @@ class _OpsHandler(BaseHTTPRequestHandler):
         self._send(status, error_body(code, detail, status))
 
     def _check_host(self, server: OpsServer) -> bool:
-        if self.headers.get("Host", "").strip().lower() in server.allowed_hosts:
+        if fold_host(self.headers.get("Host", "").strip()) in server.allowed_hosts:
             return True
         peer = getattr(self, "client_address", None)
         logger.warning(
@@ -3786,7 +3787,7 @@ def serve_command(
         _existing_dir(workspace, "--workspace"),
         max_download_bytes,
     )
-    hosts = frozenset(item.strip().lower() for item in allowed_hosts.split(",") if item.strip())
+    hosts = frozenset(item.strip().casefold() for item in allowed_hosts.split(",") if item.strip())
     if any(not re.fullmatch(r"[a-z0-9][a-z0-9.-]*(?::[0-9]{1,5})?", item) for item in hosts):
         error_exit("--allowed-hosts must contain exact DNS names and optional ports")
     server = OpsServer((host, port), config, token, concurrency, hosts)

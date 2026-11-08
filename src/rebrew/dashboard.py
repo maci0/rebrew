@@ -94,7 +94,7 @@ lazy from rebrew.coverage_toml import (
 lazy from rebrew.metadata.bindings import FUNCTION_KINDS
 lazy from rebrew.metadata.functions import canonical_status
 lazy from rebrew.status_style import status_text_css
-lazy from rebrew.utils import floor_pct, preset_module_key, remove_identity, strip_bidi_format
+lazy from rebrew.utils import floor_pct, fold_host, preset_module_key, remove_identity, strip_bidi_format
 lazy from rebrew.workspace import VA_MAX
 lazy from rebrew.workspace.status import COVERAGE_DB_STATUSES
 
@@ -2628,15 +2628,15 @@ def allowed_hosts_for(host: str, port: int) -> frozenset[str]:
     hosts: set[str] = set()
     for name in names:
         display = f"[{name}]" if ":" in name else name
-        hosts.add(f"{display}:{port}".lower())
+        hosts.add(fold_host(f"{display}:{port}"))
         if port == 80:  # default port may be omitted in a Host header
-            hosts.add(display.lower())
+            hosts.add(fold_host(display))
     return frozenset(hosts)
 
 
 def _host_allowed(host_header: str, allowed: frozenset[str]) -> bool:
     """True when the request's Host header matches one of *allowed* exactly."""
-    return host_header.strip().lower() in allowed
+    return fold_host(host_header.strip()) in allowed
 
 
 def _parse_accept_encoding(accept_encoding: str) -> dict[str, float]:

@@ -1445,6 +1445,23 @@ def fold_ident(value: str) -> str:
     return unicodedata.normalize("NFC", value).casefold()
 
 
+def fold_host(value: str) -> str:
+    """Case-insensitive identity of a DNS host name: NFC, casefold, then IDNA.
+
+    ``str.lower`` misses sharp-s folding (``"STRASSE.de"`` vs ``"straße.de"``)
+    and leaves an IDN in Unicode form, so a Host header carrying the U-label
+    never equals the punycode form the allowed set stores.  Encoding to IDNA
+    canonicalises both spellings to the same ASCII wire form; a name that is
+    not IDNA-encodable falls back to the casefolded NFC text so a bad value
+    simply fails to match rather than raising.
+    """
+    folded = unicodedata.normalize("NFC", value).casefold().rstrip(".")
+    try:
+        return folded.encode("idna").decode("ascii")
+    except UnicodeError:
+        return folded
+
+
 def ascii_slug(value: str) -> str:
     """*value* reduced to the ASCII a C identifier, path, or target name can hold.
 

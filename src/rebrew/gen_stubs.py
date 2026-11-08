@@ -1469,7 +1469,9 @@ def _update_selected_stubs(
             if node.type in {"preproc_def", "preproc_function_def"}:
                 name_node = node.child_by_field_name("name")
                 if name_node is not None:
-                    name = data[name_node.start_byte : name_node.end_byte].decode("utf-8")
+                    name = data[name_node.start_byte : name_node.end_byte].decode(
+                        "utf-8", errors="surrogateescape"
+                    )
                     found.setdefault(name, []).append((node, False, 1))
                 continue
             if node.type in {"type_definition", "enumerator"}:

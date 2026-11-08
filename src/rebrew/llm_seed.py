@@ -108,7 +108,7 @@ from rebrew.config import (
     validate_llm_model,
 )
 lazy from rebrew.c_parser import normalize_function_prototype
-lazy from rebrew.utils import retry_backoff_delay, strip_bidi_format
+lazy from rebrew.utils import retry_backoff_delay, strip_bidi_format, truncate_text
 
 # Cost / injection caps at the single LLM call site.
 _MAX_SOURCE_CHARS = 16_000  # ~4k tokens of C; larger functions truncate
@@ -288,7 +288,7 @@ def sanitize_log_value(value: Any, *, max_len: int = 256, secrets: Sequence[str]
             if escaped != secret:
                 text = text.replace(escaped, _REDACTED)
     if len(text) > max_len:
-        text = text[:max_len] + "…"
+        text = truncate_text(text, max_len) + "…"
     return text
 
 
@@ -454,7 +454,7 @@ def _sanitize_source(source: str) -> str:
     # variant of our delimiters can fake the end of the data block.
     text = _ANGLE_RUN_RE.sub(lambda m: " ".join(m.group(0)), text)
     if len(text) > _MAX_SOURCE_CHARS:
-        text = text[:_MAX_SOURCE_CHARS] + "\n/* ... truncated for LLM seed request ... */\n"
+        text = truncate_text(text, _MAX_SOURCE_CHARS) + "\n/* ... truncated for LLM seed request ... */\n"
     return text
 
 
@@ -890,7 +890,7 @@ def extract_seeds(text: str) -> list[str]:
     :data:`_MAX_SEED_ATTEMPTS` tree-sitter parses the response budget allows.
     """
     if len(text) > _MAX_RESPONSE_CHARS:
-        text = text[:_MAX_RESPONSE_CHARS]
+        text = truncate_text(text, _MAX_RESPONSE_CHARS)
     seeds = []
     for block in _fenced_c_blocks(text):
         seed = block.strip()
@@ -987,16 +987,16 @@ def _parse_response(data: Any) -> str:
             return ""
         content = msg.get("content")
         if isinstance(content, str):
-            return content[:_MAX_RESPONSE_CHARS]
+            return truncate_text(content, _MAX_RESPONSE_CHARS)
         if isinstance(content, list):  # OpenAI-style content parts
             parts = "".join(
                 p["text"] for p in content if isinstance(p, dict) and isinstance(p.get("text"), str)
             )
-            return parts[:_MAX_RESPONSE_CHARS]
+            return truncate_text(parts, _MAX_RESPONSE_CHARS)
         return ""
     # Plain-string bodies (some local stubs); never stringify arbitrary JSON.
     if isinstance(data, str):
-        return data[:_MAX_RESPONSE_CHARS]
+        return truncate_text(data, _MAX_RESPONSE_CHARS)
     return ""
 
 

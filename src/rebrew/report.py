@@ -77,6 +77,7 @@ lazy from rebrew.utils import (
     atomic_write_text,
     floor_pct,
     rel_display_path,
+    truncate_text,
 )
 
 # ---------------------------------------------------------------------------
@@ -938,7 +939,7 @@ def _string_row(s: StringEntry, xrefs: list[Xref] | None) -> str:
     rather than a count of 0.
     """
     if len(s.text) > _STRING_CELL_CHARS:
-        text = _disclosure(s.text[:_STRING_CELL_CHARS] + "\u2026", s.text)
+        text = _disclosure(truncate_text(s.text, _STRING_CELL_CHARS) + "\u2026", s.text)
     else:
         text = html.escape(s.text)
     if xrefs is None:
