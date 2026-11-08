@@ -650,6 +650,27 @@ class TestUpload:
             decompme.upload_scratch({"data": {}, "files": {}}, retries=2)
         assert len(calls) == 3  # retries counts re-attempts, not the first try
 
+    @pytest.mark.parametrize("status", [500, 502, 504])
+    def test_does_not_retry_a_may_have_committed_status(
+        self, monkeypatch: pytest.MonkeyPatch, status: int
+    ) -> None:
+        """500/502/504 can arrive after the scratch was created.
+
+        decomp.me has no idempotency key, so a second POST would orphan a
+        public scratch nobody can claim; the run must fail instead.
+        """
+        calls: list[int] = []
+
+        def _fake_post(url, **kwargs):
+            calls.append(1)
+            return SimpleNamespace(status_code=status, text="may have committed", close=lambda: None)
+
+        monkeypatch.setattr("httpx.post", _fake_post)
+        monkeypatch.setattr("time.sleep", lambda _s: None)
+        with pytest.raises(RuntimeError, match="may have committed"):
+            decompme.upload_scratch({"data": {}, "files": {}}, retries=3)
+        assert len(calls) == 1
+
     def test_injected_client_replaces_the_transport(self) -> None:
         """A consumer test injects a client and never reaches decomp.me."""
         calls: list[tuple[str, dict]] = []

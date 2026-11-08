@@ -68,7 +68,6 @@ from rebrew.errors import RebrewError
 lazy from rebrew.config import DECOMPME_API_ENV, validate_http_url
 lazy from rebrew.rename_ops import c_name_from_symbol
 lazy from rebrew.utils import (
-    RETRYABLE_HTTP_STATUS,
     atomic_write_text,
     close_response,
     file_lock,
@@ -347,6 +346,15 @@ def _never_delivered(exc: BaseException) -> bool:
     )
 
 
+#: HTTP statuses that prove the create never ran: the service rejected the
+#: request before committing a scratch (queue-full / rate-limit / backpressure),
+#: so re-POSTing cannot orphan a duplicate. Unlike RETRYABLE_HTTP_STATUS,
+#: 500/502/504 are excluded: they can arrive after the service committed the
+#: scratch, and decomp.me has no idempotency key to dedup the second POST.
+#: Same distinction as recompile_client's _UNPROCESSED_HTTP.
+_UNPROCESSED_HTTP = frozenset({408, 425, 429, 503})
+
+
 def _post_scratch(
     post_fn: Any,
     url: str,
@@ -369,7 +377,7 @@ def _post_scratch(
                 f"{(resp.text or '')[:500]}",
                 kind="http",
                 status_code=resp.status_code,
-                retryable=resp.status_code in RETRYABLE_HTTP_STATUS,
+                retryable=resp.status_code in _UNPROCESSED_HTTP,
             )
         try:
             data = resp.json()
@@ -420,8 +428,8 @@ def upload_scratch(
     *client*, when given, must provide a ``.post(...)`` method.
 
     *retries* re-attempts a :class:`DecompmeError` with ``retryable=True``
-    (connect-stage failures and the transient HTTP statuses in
-    ``RETRYABLE_HTTP_STATUS``), sleeping :func:`rebrew.utils.retry_backoff_delay`
+    (connect-stage failures and the unprocessed HTTP statuses in
+    ``_UNPROCESSED_HTTP``), sleeping :func:`rebrew.utils.retry_backoff_delay`
     between attempts.  A rejection decomp.me explained (validation, other
     4xx) fails immediately; ``retries=0`` (default) is a single attempt.
     A transport failure after the request was sent (read timeout, dropped
