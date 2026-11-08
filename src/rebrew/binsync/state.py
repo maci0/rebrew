@@ -519,7 +519,7 @@ def normalize_prototype(proto: str) -> str:
             "utf-8", errors="surrogateescape"
         )
     text = " ".join(text.split())
-    return re.sub(r"\s*([(),;*])\s*", r"\1", text)
+    return _PUNCT_SPACE_RE.sub(r"\1", text)
 
 
 def normalize_comment_text(text: Any) -> str:
@@ -1247,6 +1247,17 @@ _ALIAS_DEPTH = 4
 
 _WORD_RE = re.compile(r"\b[A-Za-z_]\w*\b")
 
+#: Hot-path patterns compiled once at module load; previously raw string
+#: patterns recompiled per struct/enum/typedef inside loops.
+_STRUCT_TRAILING_NAME_RE = re.compile(r"\}\s*([A-Za-z_][A-Za-z0-9_]*)\s*;\s*\Z")
+_STRUCT_TAG_RE = re.compile(r"struct\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{")
+_ENUM_TRAILING_NAME_RE = re.compile(r"\}\s*([A-Za-z_]\w*)\s*;")
+_ENUM_TAG_RE = re.compile(r"enum\s+([A-Za-z_]\w*)\s*\{")
+_ENUM_BODY_RE = re.compile(r"\{(.*)\}", flags=re.DOTALL)
+_ENUM_IDENT_RE = re.compile(r"[A-Za-z_]\w*")
+_PUNCT_SPACE_RE = re.compile(r"\s*([(),;*])\s*")
+_STRUCT_OR_ENUM_RE = re.compile(r"\b(?:struct|enum)\b")
+
 
 def type_aliases(cfg: ProjectConfig) -> dict[str, str]:
     """``{alias: underlying}`` for simple typedefs, Win32 spellings included."""
@@ -1355,10 +1366,10 @@ def _struct_name(typedef_text: str) -> str:
     The alias follows the outermost ``}``; a nested member aggregate
     (``struct { ... } check;``) closes earlier and is not the type's name.
     """
-    name_match = re.search(r"\}\s*([A-Za-z_][A-Za-z0-9_]*)\s*;\s*\Z", typedef_text.strip())
+    name_match = _STRUCT_TRAILING_NAME_RE.search(typedef_text.strip())
     if name_match:
         return name_match.group(1)
-    sm = re.search(r"struct\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{", typedef_text)
+    sm = _STRUCT_TAG_RE.search(typedef_text)
     return sm.group(1) if sm else ""
 
 
@@ -1555,10 +1566,10 @@ def _split_top_level(text: str) -> list[str]:
 
 def _enum_name(definition: str) -> str:
     """Enum name: the trailing typedef identifier, else the ``enum Tag`` name."""
-    match = re.search(r"\}\s*([A-Za-z_]\w*)\s*;", definition)
+    match = _ENUM_TRAILING_NAME_RE.search(definition)
     if match:
         return match.group(1)
-    match = re.search(r"enum\s+([A-Za-z_]\w*)\s*\{", definition)
+    match = _ENUM_TAG_RE.search(definition)
     return match.group(1) if match else ""
 
 
@@ -1568,7 +1579,7 @@ def _enum_members(definition: str) -> dict[str, int]:
     A bare ``IDENT`` takes the previous value + 1, starting at 0.
     An unknown explicit value invalidates the complete projection.
     """
-    match = re.search(r"\{(.*)\}", definition, flags=re.DOTALL)
+    match = _ENUM_BODY_RE.search(definition)
     if not match:
         return {}
     members: dict[str, int] = {}
@@ -1587,7 +1598,7 @@ def _enum_members(definition: str) -> dict[str, int]:
         else:
             ident = entry
             value = next_value
-        if not re.fullmatch(r"[A-Za-z_]\w*", ident):
+        if not _ENUM_IDENT_RE.fullmatch(ident):
             return {}
         members[ident] = value
         next_value = value + 1
@@ -1660,7 +1671,7 @@ def collect_typedef_definitions(
             source, _ = read_source_text(path)
             unsafe = _unsafe_type_names(source)
             for text in extract_type_definitions(path):
-                if re.search(r"\b(?:struct|enum)\b", text) or "{" in text:
+                if _STRUCT_OR_ENUM_RE.search(text) or "{" in text:
                     continue
                 parsed = _typedef_name_and_type(text)
                 if parsed is None:

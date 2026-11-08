@@ -185,7 +185,7 @@ def _global_changes(record: dict[str, Any], bs_entry: dict[str, Any]) -> dict[st
 def _member_key(member_type: object) -> str:
     """A member type with canonical spacing, for layout comparison."""
     text = " ".join(str(member_type or "").split())
-    return re.sub(r"\s*([*\[\]()])\s*", r"\1", text)
+    return _MEMBER_PUNCT_RE.sub(r"\1", text)
 
 
 def _member_renames(
@@ -335,6 +335,16 @@ def _inside_project(fp: Path, cfg: Any) -> bool:
 #: Ghidra's size-only placeholder types (``undefined``, ``undefined4``).
 _PLACEHOLDER_TYPE_RE = re.compile(r"\bundefined\d*\b")
 
+#: Hot-path patterns compiled once at module load; previously raw string
+#: patterns recompiled per member/prototype inside loops.
+_MEMBER_PUNCT_RE = re.compile(r"\s*([*\[\]()])\s*")
+_KEY_PUNCT_RE = re.compile(r"\s*([(),*\[\]])\s*")
+_LINE_COMMENT_RE = re.compile(r"//[^\n]*")
+_PREPROC_LINE_RE = re.compile(r"^[ \t\f\v]*#", re.MULTILINE)
+_ENUM_WORD_RE = re.compile(r"\benum\b")
+_ENUM_NAME_RE = re.compile(r"\}\s*([A-Za-z_]\w*)\s*;")
+_ENUM_TAG_RE = re.compile(r"enum\s+([A-Za-z_]\w*)\s*\{")
+
 
 def _expanded_type_key(prototype: str, aliases: dict[str, str]) -> str | None:
     """:func:`rebrew.c_parser.prototype_type_key` with aliases substituted."""
@@ -344,7 +354,7 @@ def _expanded_type_key(prototype: str, aliases: dict[str, str]) -> str | None:
     if key is None:
         return None
     key = " ".join(expand_type_aliases(key, aliases).split())
-    return re.sub(r"\s*([(),*\[\]])\s*", r"\1", key)
+    return _KEY_PUNCT_RE.sub(r"\1", key)
 
 
 def prototypes_equivalent(left: str, right: str, aliases: dict[str, str]) -> bool:
@@ -1552,9 +1562,7 @@ def _local_type_names(cfg: ProjectConfig, *, files: list[Path] | None = None) ->
             for text in extract_structs_from_file(path):
                 names.update(parse_structs(text))
             for text in extract_enums_from_file(path):
-                match = re.search(r"\}\s*([A-Za-z_]\w*)\s*;", text) or re.search(
-                    r"enum\s+([A-Za-z_]\w*)\s*\{", text
-                )
+                match = _ENUM_NAME_RE.search(text) or _ENUM_TAG_RE.search(text)
                 if match:
                     names.add(match.group(1))
             for text in extract_type_definitions(path):
@@ -1621,8 +1629,8 @@ def _has_preprocessor_line(definition: str) -> bool:
     ``#`` is not the first character of the line.
     """
     stripped = _C_COMMENT_RE.sub(" ", definition)
-    stripped = re.sub(r"//[^\n]*", " ", stripped)
-    return bool(re.search(r"^[ \t\f\v]*#", stripped, re.MULTILINE))
+    stripped = _LINE_COMMENT_RE.sub(" ", stripped)
+    return bool(_PREPROC_LINE_RE.search(stripped))
 
 
 def _definition_is_valid(definition: str, name: str, entry: dict[str, object]) -> bool:
@@ -1644,7 +1652,7 @@ def _definition_is_valid(definition: str, name: str, entry: dict[str, object]) -
     kind = _definition_kind(entry)
     text = definition.strip()
     if kind == "enum":
-        return bool(re.search(r"\benum\b", text)) and "{" in text and text.endswith(";")
+        return bool(_ENUM_WORD_RE.search(text)) and "{" in text and text.endswith(";")
     if kind == "typedef":
         return text.startswith("typedef") and text.endswith(";")
     return False

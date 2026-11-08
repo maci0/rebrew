@@ -36,6 +36,9 @@ _DECLIB_MISSING_MSG = (
 #: ``metadata.toml`` version string rebrew writes.
 REBREW_STATE_VERSION = "rebrew"
 
+#: Compiled once; sanitize_name runs per artifact in a state directory.
+_SANITIZE_RE = re.compile(r"[^a-zA-Z0-9_]")
+
 FUNCTIONS_DIR = "functions"
 STRUCTS_DIR = "structs"
 COMMENTS_FILE = "comments.toml"
@@ -98,7 +101,7 @@ def _class_for(kind: str) -> Any:
 
 def sanitize_name(name: str) -> str:
     """C-style name sanitization (matches upstream ``State.sanitize_name``)."""
-    return re.sub(r"[^a-zA-Z0-9_]", "_", name)
+    return _SANITIZE_RE.sub("_", name)
 
 
 # ---------------------------------------------------------------------------
