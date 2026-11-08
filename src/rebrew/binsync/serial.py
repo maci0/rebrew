@@ -100,8 +100,15 @@ def _class_for(kind: str) -> Any:
 
 
 def sanitize_name(name: str) -> str:
-    """C-style name sanitization (matches upstream ``State.sanitize_name``)."""
-    return _SANITIZE_RE.sub("_", name)
+    """C-style name sanitization (matches upstream ``State.sanitize_name``).
+
+    NFC first, like every other name sanitizer in the tree: without it an
+    NFD struct name (``cafe\\u0301``) and its NFC spelling sanitize to
+    different file names, splitting one struct across two artifacts.
+    """
+    import unicodedata
+
+    return _SANITIZE_RE.sub("_", unicodedata.normalize("NFC", name))
 
 
 # ---------------------------------------------------------------------------
