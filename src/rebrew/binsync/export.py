@@ -50,7 +50,7 @@ lazy from rebrew.binsync.state import (
 lazy from rebrew.catalog import scan_reversed_dir
 lazy from rebrew.config import ProjectConfig, inventory_path_for
 lazy from rebrew.metadata.bindings import span_contains_factory
-lazy from rebrew.utils import is_safe_c_ident, md5_file, strip_body
+lazy from rebrew.utils import is_safe_c_ident, md5_file, parse_int_literal, strip_body
 
 app = typer.Typer(
     help="Export Rebrew symbols and types to a BinSync state directory.",
@@ -109,8 +109,8 @@ def _as_int(value: object, default: int = 0) -> int:
             return int(value)
         return default
     try:
-        return int(str(value), 0)
-    except TypeError, ValueError:
+        return parse_int_literal(str(value))
+    except Exception:
         return default
 
 
