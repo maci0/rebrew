@@ -17,7 +17,6 @@ it belongs to rather than starting another.
   (with the LRU memo and its ``clear_source_text_memo`` reset),
   ``resolved_path`` (a stat-keyed ``Path.resolve`` memo),
   ``last_change_ns`` (the later of a file's mtime and ctime),
-  ``path_is_relative_to`` (``Path.is_relative_to`` without a ``parents`` walk),
   ``split_source_lines`` / ``join_source_lines``,
   ``detect_source_encoding``, ``read_toml_text``, ``load_tomllib``,
   ``load_toml_for_write`` / ``load_toml_for_write_strict``, ``read_json_text``
@@ -59,7 +58,6 @@ lazy import concurrent.futures
 lazy import hashlib
 lazy import math
 lazy import os
-lazy import posixpath
 
 try:
     import fcntl
@@ -669,16 +667,15 @@ def path_identity(path: Path) -> dict[str, Any]:
 def path_is_relative_to(path: Path, other: Path) -> bool:
     """Whether *path* is *other* or a path under it.
 
-    Same answer as ``Path.is_relative_to`` for one flavour of path. That
-    method walks ``parents`` and builds a path per ancestor. A verify of a
-    few hundred sources asks this of every source directory, and the walk
-    is the cost. Comparing ``parts`` does not build those paths. An empty
-    ``other`` is ``.``: every relative path sits under it, and an absolute
-    path does not. Windows compares through ``normcase``, so ``C:/Foo``
-    still sits under ``c:/foo``.
+    Compares ``parts`` instead of walking ``parents`` and building a path
+    per ancestor; a verify of a few hundred sources asks this of every
+    source directory, and the walk is the cost.  A caller passing a
+    ``str`` gets *other* reinterpreted in *path*'s flavour, so its case
+    rules apply; a caller passing a path of another flavour gets it
+    converted first.  An empty *other* is ``.``: every relative path sits
+    under it, and an absolute path does not.
     """
-    parser = path.parser
-    if getattr(other, "parser", None) is not parser:
+    if getattr(other, "parser", None) is not path.parser:
         other = path.with_segments(os.fspath(other))
     path_parts = path.parts
     other_parts = other.parts
@@ -690,9 +687,7 @@ def path_is_relative_to(path: Path, other: Path) -> bool:
     head = path_parts[:count]
     if head == other_parts:
         return True
-    if parser is posixpath:
-        return False
-    fold = parser.normcase
+    fold = path.parser.normcase
     return all(fold(left) == fold(right) for left, right in zip(head, other_parts, strict=True))
 
 
@@ -2054,13 +2049,6 @@ RETRYABLE_HTTP_STATUS = frozenset({408, 425, 429, 500, 502, 503, 504})
 RETRY_BACKOFF_BASE = 0.25
 RETRY_BACKOFF_CAP = 8.0
 
-#: First exponent whose delay already reaches ``RETRY_BACKOFF_CAP``.  Every
-#: attempt past it waits the cap, so clamping the exponent there keeps a large
-#: attempt from overflowing the float exponentiation before ``min`` can cap it.
-RETRY_BACKOFF_CAP_EXPONENT = next(
-    n for n in range(64) if RETRY_BACKOFF_BASE * (2.0**n) >= RETRY_BACKOFF_CAP
-)
-
 
 def retry_backoff_delay(attempt: int) -> float:
     """Seconds to wait before retry *attempt* (zero-based) of a retryable call.
@@ -2072,8 +2060,7 @@ def retry_backoff_delay(attempt: int) -> float:
     would otherwise shrink the wait below the base, hammering a recovering
     service harder than the first retry does.
     """
-    exponent = min(max(attempt, 0), RETRY_BACKOFF_CAP_EXPONENT)
-    return min(RETRY_BACKOFF_BASE * (2.0**exponent), RETRY_BACKOFF_CAP)
+    return min(RETRY_BACKOFF_BASE * (2.0 ** min(max(attempt, 0), 10)), RETRY_BACKOFF_CAP)
 
 
 #: How much of a failed attempt's message reaches a retry log line.  The
