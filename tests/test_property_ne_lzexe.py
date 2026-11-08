@@ -239,6 +239,29 @@ def test_ne_tables_robust_on_structured_blobs(data: tuple[bytes, int, NeSpec]) -
 
 
 @settings(max_examples=300, deadline=None)
+@given(ne_blob())
+def test_ne_entry_table_is_ordinal_contiguous(data: tuple[bytes, int, NeSpec]) -> None:
+    """Fuzz: entry table on linker-shaped NE. Ordinals are 1-based and
+    strictly increasing, segments and offsets fit u16, and re-parsing
+    the same bytes yields the same table (pair assertion)."""
+    from rebrew.formats.ne_loader import parse_entry_table, parse_ne_header
+
+    blob, ne_offset, _spec = data
+    header = parse_ne_header(blob, ne_offset)
+    entries = parse_entry_table(blob, ne_offset, header)
+    assert entries == parse_entry_table(blob, ne_offset, header)
+    seen: set[int] = set()
+    previous = 0
+    for ordinal, segment, offset in entries:
+        assert ordinal > previous
+        assert ordinal not in seen
+        seen.add(ordinal)
+        previous = ordinal
+        assert 0 <= segment <= 0xFFFF
+        assert 0 <= offset <= 0xFFFF
+
+
+@settings(max_examples=300, deadline=None)
 @given(st.binary(max_size=512), st.integers(min_value=0, max_value=64))
 def test_ne_tables_robust_on_random_bytes(blob: bytes, ne_offset: int) -> None:
     """Fuzz: arbitrary bytes at an arbitrary offset.  Anything the loader
@@ -276,6 +299,17 @@ def test_ne_tables_robust_on_random_bytes(blob: bytes, ne_offset: int) -> None:
         for exp in exports:
             assert isinstance(exp, NeExport)
             assert isinstance(exp.name, str)
+    with suppress(NeParseError):
+        from rebrew.formats.ne_loader import parse_entry_table
+
+        entries = parse_entry_table(blob, ne_offset, header)
+        assert entries == parse_entry_table(blob, ne_offset, header)
+        previous = 0
+        for ordinal, segment, offset in entries:
+            assert ordinal > previous
+            previous = ordinal
+            assert 0 <= segment <= 0xFFFF
+            assert 0 <= offset <= 0xFFFF
 
 
 # ---------------------------------------------------------------------------

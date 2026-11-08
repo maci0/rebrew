@@ -14,7 +14,14 @@ import struct
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from rebrew.formats.omf16 import Omf16Error, Omf16Module, _match_symbol, is_omf16, parse_omf16
+from rebrew.formats.omf16 import (
+    Omf16Error,
+    Omf16Module,
+    _match_symbol,
+    is_omf16,
+    parse_obj_omf16,
+    parse_omf16,
+)
 
 _RECORD_TYPES = (0xA0, 0xC2, 0x90, 0x96, 0xCA, 0x80, 0x88, 0x8A)
 _NEAR_C2_HEADER = 9
@@ -136,6 +143,28 @@ class TestParseOmf16Decode:
         mod = parse_omf16(data)
         assert mod.names == [n.decode() for n, _ in funcs]
         assert mod.code_records == [code for _, code in funcs]
+
+    @settings(deadline=None)
+    @given(_omf_stream(), _ascii_name)
+    def test_parse_obj_omf16_never_crashes(self, data: bytes, symbol: bytes) -> None:
+        """The file-path entry point (with data=) must surface only
+        Omf16Error, and a hit's reloc offsets lie inside the returned
+        code — the same code _match_symbol would report."""
+        from pathlib import Path
+
+        name = symbol.decode()
+        try:
+            code, relocs = parse_obj_omf16(Path("fuzz.obj"), name, data=data)
+        except Omf16Error:
+            return
+        if code is None:
+            assert relocs == {}
+            return
+        assert isinstance(code, bytes)
+        assert all(0 <= off < max(len(code), 1) for off in relocs)
+        # Pair: the memoized decode of the same bytes agrees.
+        again, again_relocs = parse_obj_omf16(Path("fuzz.obj"), name, data=data)
+        assert again == code and again_relocs == relocs
 
     @given(st.binary(min_size=1, max_size=32), st.integers(0, 0x100), st.booleans())
     def test_unoptimized_dialect_places_code_at_offset(

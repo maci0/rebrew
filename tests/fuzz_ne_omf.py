@@ -23,6 +23,7 @@ import atheris
 
 from rebrew.formats.ne_loader import (
     NeParseError,
+    parse_entry_table,
     parse_exports,
     parse_imports,
     parse_ne_header,
@@ -30,7 +31,7 @@ from rebrew.formats.ne_loader import (
     read_ne_header,
     segment_file_ranges,
 )
-from rebrew.formats.omf16 import Omf16Error, is_omf16, parse_omf16
+from rebrew.formats.omf16 import Omf16Error, is_omf16, parse_obj_omf16, parse_omf16
 
 
 def TestOneInput(data: bytes) -> None:
@@ -90,6 +91,14 @@ def TestOneInput(data: bytes) -> None:
         # The direct header entry point agrees with read_ne_header.
         direct = parse_ne_header(data, ne_offset)
         assert direct.segment_count == header.segment_count
+        entries = parse_entry_table(data, ne_offset, header)
+        assert entries == parse_entry_table(data, ne_offset, header)
+        previous = 0
+        for ordinal, segment, offset in entries:
+            assert ordinal > previous
+            previous = ordinal
+            assert 0 <= segment <= 0xFFFF
+            assert 0 <= offset <= 0xFFFF
 
     # OMF surface on the raw input: is_omf16 and parse_omf16 must agree,
     # and a decoded module's code must end with its own code records.
@@ -106,6 +115,18 @@ def TestOneInput(data: bytes) -> None:
         again = parse_omf16(data)
         assert again.code == mod.code and again.publics == mod.publics
         assert again.names == mod.names and again.code_records == mod.code_records
+        # File-path entry point agrees on the same bytes.
+        try:
+            code, relocs = parse_obj_omf16("fuzz.obj", "_main", data=data)
+        except Omf16Error:
+            code, relocs = None, {}
+        if code is None:
+            assert relocs == {}
+        else:
+            assert isinstance(code, bytes)
+            assert all(0 <= off < max(len(code), 1) for off in relocs)
+            again_code, again_relocs = parse_obj_omf16("fuzz.obj", "_main", data=data)
+            assert (again_code, again_relocs) == (code, relocs)
 
 
 if __name__ == "__main__":
