@@ -59,11 +59,11 @@ class TrustedCoverage:
             raise ValueError("ambiguous trusted verification binding")
         for record in self.records:
             if (
-                record.status not in {"EXACT", "SIZE_MISMATCH", "STUB", "NEAR_MATCHING"}
+                record.status not in {"EXACT", "RELOC", "SIZE_MISMATCH", "STUB", "NEAR_MATCHING"}
                 or record.size <= 0
                 or inventory.get(record.va) != record.size
                 or not 0 <= record.match_count <= record.size
-                or (record.status == "EXACT" and record.match_count != record.size)
+                or (record.status in {"EXACT", "RELOC"} and record.match_count != record.size)
                 or (
                     record.status in {"STUB", "NEAR_MATCHING"} and record.match_count == record.size
                 )

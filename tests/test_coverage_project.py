@@ -132,6 +132,11 @@ class TestLiveProjectCoverage:
         assert collect_status(cfg, trusted=mismatch).matched_functions == 0
         generate_decomp_dev_report(cfg, out, trusted=mismatch)
         assert json.loads(out.read_text())["measures"]["matched_functions"] == 0
+        reloc = TrustedCoverage(
+            (TrustedVerification("src/function.c", 0x401000, 1, "RELOC", 1),)
+        )
+        assert trusted_project_coverage(cfg, reloc).functions[0].status == "RELOC"
+        assert collect_status(cfg, trusted=reloc).matched_functions == 1
         with pytest.raises(ValueError, match="source binding"):
             trusted_project_coverage(
                 cfg, TrustedCoverage((TrustedVerification("src/other.c", 0x401000, 1, "EXACT", 1),))
