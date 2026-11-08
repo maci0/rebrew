@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -148,11 +149,8 @@ class TestBytesField:
         if isinstance(code, str):
             return
         raw = {"code": code, "va": 0, "arch": ""}
-        try:
+        with pytest.raises(OpsError):
             parse_request(DisassembleBytesRequest, raw)
-        except OpsError:
-            return
-        raise AssertionError(f"non-string {code!r} accepted as bytes")
 
 
 _ARCHES = st.sampled_from(

@@ -151,9 +151,14 @@ class TestCanonicalEnvelopeNeverCrashes:
         except ValueError:
             return
         try:
-            canonical_coverage_input(value)
+            canonical = canonical_coverage_input(value)
         except CoverageInputError:
             return
+        # Accepted: the canonical bytes must round-trip, or any wrong
+        # non-canonical output would pass on the exception path alone.
+        assert isinstance(canonical, bytes)
+        assert canonical_coverage_input(json.loads(canonical)) == canonical
+        assert coverage_input_digest(json.loads(canonical)) == hashlib.sha256(canonical).hexdigest()
 
 
 class TestCanonicalRecordsNeverCrashes:
