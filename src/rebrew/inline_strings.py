@@ -80,6 +80,7 @@ def _word_re(name: str) -> re.Pattern[str]:
     """Whole-word pattern for *name*; cached because a file inlines many names."""
     return re.compile(r"\b" + re.escape(name) + r"\b")
 
+
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
     "  # Preview the globals, write nothing\n"

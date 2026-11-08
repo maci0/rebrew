@@ -258,7 +258,9 @@ def _plan_binding_replacement(
 
     references: list[dict[str, Any]] = []
     expected_keys: set[str] = set()
-    configured_names = {define.split("=", 1)[0] for candidate in configs for define in candidate.defines}
+    configured_names = {
+        define.split("=", 1)[0] for candidate in configs for define in candidate.defines
+    }
     header_text_cache: dict[Path, str] = {}
 
     def header_text(header: Path) -> str:

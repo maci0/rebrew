@@ -648,7 +648,10 @@ class TestCiPins:
         version = re.search(r'(?m)^VNU_VERSION="(\d+\.\d+\.\d+)"$', text)
         assert version is not None
         assert "releases/download/latest/vnu.linux.zip" not in text
-        assert 'VNU_URL="https://github.com/validator/validator/releases/download/${VNU_VERSION}/vnu.linux.zip"' in text
+        assert (
+            'VNU_URL="https://github.com/validator/validator/releases/download/${VNU_VERSION}/vnu.linux.zip"'
+            in text
+        )
         assert f'VNU_SHA256="{digest.group(1)}"' in text
         # Retry policy named, not a bare literal: the apt and clone helpers
         # state the same two values and their docstrings point at each other.

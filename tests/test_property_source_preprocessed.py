@@ -64,7 +64,7 @@ def _preprocessed(draw: st.DrawFn) -> bytes:
                 b"_inline int __cdecl g(void) { return 2; }\n",
                 b"struct S { int :7; int x; };\n",
                 b'const char *s = "_inline __cdecl";\n',
-                b"/* #line 5 \"fake.c\" */\n",
+                b'/* #line 5 "fake.c" */\n',
                 b"// _inline __stdcall\n",
                 b"char c = 'x';\n",
                 b"__asm mov eax, 1\n",
@@ -122,7 +122,9 @@ class TestParseMsvcPreprocessedRobust:
         # anything outside an allowed span that changed is a bug.
         for i, (a, b) in enumerate(zip(raw, view, strict=True)):
             if a != b:
-                assert allowed[i], f"byte {i} changed outside markers/modifiers: {raw!r} -> {view!r}"
+                assert allowed[i], (
+                    f"byte {i} changed outside markers/modifiers: {raw!r} -> {view!r}"
+                )
 
     @given(_preprocessed())
     @settings(max_examples=100, deadline=None)

@@ -159,7 +159,8 @@ class TestReportCli:
         # blank icon.  Linked, not inlined: a data URI would put 443 B of
         # percent-encoded payload in every page and could not be cached apart.
         assert (
-            "<link rel='icon' href='favicon.svg' type='image/svg+xml' sizes='16x16' fetchpriority='low'>" in index
+            "<link rel='icon' href='favicon.svg' type='image/svg+xml' sizes='16x16' fetchpriority='low'>"
+            in index
         )
         assert "data:image/svg+xml," not in index
         assert (site / "favicon.svg").read_text(encoding="utf-8") == FAVICON_SVG

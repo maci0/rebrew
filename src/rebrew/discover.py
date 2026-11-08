@@ -1146,7 +1146,7 @@ def main(
         else None
     )
     total = len(d.functions)
-    paged = d.functions[offset_val :]
+    paged = d.functions[offset_val:]
     if limit_val is not None:
         paged = paged[:limit_val]
     truncated = total - offset_val - len(paged) > 0

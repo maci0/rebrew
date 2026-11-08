@@ -171,7 +171,10 @@ class TestCanonicalRecordsNeverCrashes:
             return
         assert isinstance(canonical, bytes)
         assert canonical_verification_records(json.loads(canonical)) == canonical
-        assert verification_records_digest(json.loads(canonical)) == hashlib.sha256(canonical).hexdigest()
+        assert (
+            verification_records_digest(json.loads(canonical))
+            == hashlib.sha256(canonical).hexdigest()
+        )
 
     @given(_mutated_records())
     @settings(max_examples=_MAX_EXAMPLES)
@@ -181,7 +184,10 @@ class TestCanonicalRecordsNeverCrashes:
         except CoverageInputError:
             return
         assert canonical_verification_records(json.loads(canonical)) == canonical
-        assert verification_records_digest(json.loads(canonical)) == hashlib.sha256(canonical).hexdigest()
+        assert (
+            verification_records_digest(json.loads(canonical))
+            == hashlib.sha256(canonical).hexdigest()
+        )
 
 
 class TestCanonicalInvariants:

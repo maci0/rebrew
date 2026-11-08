@@ -1433,7 +1433,11 @@ class TestReSessionReuse:
         calls, binary = self._setup(tmp_path, monkeypatch)
         unsafe = tmp_path / "tmp; rm -rf ~"
         unsafe.mkdir()
-        monkeypatch.setattr(dc.tempfile, "mkdtemp", lambda prefix="", dir=None, suffix="": str(unsafe / f"{prefix}x"))
+        monkeypatch.setattr(
+            dc.tempfile,
+            "mkdtemp",
+            lambda prefix="", dir=None, suffix="": str(unsafe / f"{prefix}x"),  # noqa: A006
+        )
         try:
             assert dc._re_init_project(binary, "rz", tmp_path) is None
             assert not list(unsafe.iterdir()), "refused project dir leaked"

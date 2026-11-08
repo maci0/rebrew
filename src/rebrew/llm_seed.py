@@ -454,7 +454,10 @@ def _sanitize_source(source: str) -> str:
     # variant of our delimiters can fake the end of the data block.
     text = _ANGLE_RUN_RE.sub(lambda m: " ".join(m.group(0)), text)
     if len(text) > _MAX_SOURCE_CHARS:
-        text = truncate_text(text, _MAX_SOURCE_CHARS) + "\n/* ... truncated for LLM seed request ... */\n"
+        text = (
+            truncate_text(text, _MAX_SOURCE_CHARS)
+            + "\n/* ... truncated for LLM seed request ... */\n"
+        )
     return text
 
 

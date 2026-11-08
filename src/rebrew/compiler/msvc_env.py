@@ -91,9 +91,7 @@ def msvc_env_from_config(cfg: ProjectConfig) -> dict[str, str]:
     existing_winepath = env.get("WINEPATH", "")
     if bin_dir:
         env["WINEPATH"] = f"{bin_dir};{existing_winepath}" if existing_winepath else bin_dir
-        env["PATH"] = os.pathsep.join(
-            part for part in (bin_dir, env.get("PATH", "")) if part
-        )
+        env["PATH"] = os.pathsep.join(part for part in (bin_dir, env.get("PATH", "")) if part)
     elif existing_winepath:
         env["WINEPATH"] = existing_winepath
 

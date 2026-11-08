@@ -106,7 +106,8 @@ class TestPgsqlConfig:
                     self._rows = rows
 
                 def fetchone(self) -> Any:
-                    r=self._rows; return r[0]
+                    r = self._rows
+                    return r[0]
 
                 def fetchall(self) -> Any:
                     return self._rows
@@ -126,9 +127,10 @@ class TestPgsqlConfig:
         store = pgsql.PgsqlStore.__new__(pgsql.PgsqlStore)
         assert store._present(make_connection(1, 2)) is True
         for pk, checks in ((0, 2), (1, 1), (1, 0), (2, 2)):
-            with pytest.raises(MetadataStorageError, match="unsupported PostgreSQL metadata schema"):
+            with pytest.raises(
+                MetadataStorageError, match="unsupported PostgreSQL metadata schema"
+            ):
                 store._present(make_connection(pk, checks))
-
 
     @pytest.mark.parametrize("command", ["backup", "restore"])
     def test_file_backup_commands_reject_postgresql(

@@ -433,9 +433,7 @@ class TestRunToolchain:
             assert calls[0][index + 1] == "/dev/kvm"
             assert index < calls[0].index(spec.image)
 
-    def test_kvm_device_omitted_without_host_device(
-        self, tmp_path: Path, monkeypatch
-    ) -> None:
+    def test_kvm_device_omitted_without_host_device(self, tmp_path: Path, monkeypatch) -> None:
         """A dosemu2 compile on a host without /dev/kvm must not pass
         --device: docker fails the run outright for a missing device node,
         so the profile would error instead of compiling."""

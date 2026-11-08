@@ -34,6 +34,7 @@ def _syntax_re(regex: str) -> re.Pattern[str]:
     """Compiled ADDRESS pattern for *regex*; cached per format, not per file."""
     return re.compile(regex)
 
+
 #: Metadata tags that may not appear as ``KEY: value`` comments.  Module scope
 #: keeps the ~40-entry set out of every per-file call; ``metadata_comments``
 #: runs once per source in anchor discovery.

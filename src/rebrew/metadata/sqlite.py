@@ -779,6 +779,7 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
     with file_transaction(location.parent, location.name):
         if location.is_file():
             preserved = location.with_name(location.name + ".before-restore")
+
             # Re-running a restore must not overwrite the preserved copy
             # with the live database's current (already-restored) bytes:
             # the sidecar is the only copy of what the first restore

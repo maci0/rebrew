@@ -781,9 +781,7 @@ def test_fix_ownership_sees_array_of_pointers_to_array(tmp_path: Path) -> None:
     """
     from rebrew.data_layout import fix_ownership
 
-    meta, binp = _fix_ownership_two_tu(
-        tmp_path, "int g_a = 1;\nint (*table[2])[3] = {0};\n"
-    )
+    meta, binp = _fix_ownership_two_tu(tmp_path, "int g_a = 1;\nint (*table[2])[3] = {0};\n")
     fix_ownership(tmp_path, meta, binp, tmp_path / "src", dry_run=False)
     a_text = (tmp_path / "src" / "a.c").read_text(encoding="utf-8")
     b_text = (tmp_path / "src" / "b.c").read_text(encoding="utf-8")
@@ -801,9 +799,7 @@ def test_fix_ownership_keeps_pointer_array_extern(tmp_path: Path) -> None:
     """
     from rebrew.data_layout import fix_ownership
 
-    meta, binp = _fix_ownership_two_tu(
-        tmp_path, "int g_a = 1;\nint (*table[2])[3] = {0};\n"
-    )
+    meta, binp = _fix_ownership_two_tu(tmp_path, "int g_a = 1;\nint (*table[2])[3] = {0};\n")
     fix_ownership(tmp_path, meta, binp, tmp_path / "src", dry_run=False)
     a_text = (tmp_path / "src" / "a.c").read_text(encoding="utf-8")
     assert "extern int (*table[2])[3];" in a_text
@@ -817,9 +813,7 @@ def test_fix_ownership_keeps_const_pointer_array_extern(tmp_path: Path) -> None:
     """
     from rebrew.data_layout import fix_ownership
 
-    meta, binp = _fix_ownership_two_tu(
-        tmp_path, "int g_a = 1;\nint (* const table[2])[3] = {0};\n"
-    )
+    meta, binp = _fix_ownership_two_tu(tmp_path, "int g_a = 1;\nint (* const table[2])[3] = {0};\n")
     fix_ownership(tmp_path, meta, binp, tmp_path / "src", dry_run=False)
     a_text = (tmp_path / "src" / "a.c").read_text(encoding="utf-8")
     assert "extern int (* const table[2])[3];" in a_text
