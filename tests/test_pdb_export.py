@@ -233,6 +233,49 @@ class TestRefusals:
 # ---------------------------------------------------------------------------
 
 
+class TestReadBackIdentity:
+    def test_nonzero_dump_fails_even_when_stdout_has_identity(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import subprocess
+
+        from rebrew.pdb_export import PdbExportError, read_back_identity
+
+        pdb = tmp_path / "x.pdb"
+        pdb.write_bytes(b"")
+        monkeypatch.setattr(pdb_export.shutil, "which", lambda _name: "/usr/bin/llvm-pdbutil")
+
+        def _run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+            return subprocess.CompletedProcess(
+                args,
+                1,
+                stdout=f"GUID: {GUID_TEXT}\nAge: {AGE}\nSignature: 0\n",
+                stderr="llvm-pdbutil: truncated PDB",
+            )
+
+        monkeypatch.setattr(pdb_export.subprocess, "run", _run)
+        with pytest.raises(PdbExportError, match=r"dump -summary exited 1.*truncated PDB"):
+            read_back_identity(pdb)
+
+    def test_parse_failure_message_stays(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import subprocess
+
+        from rebrew.pdb_export import PdbExportError, read_back_identity
+
+        pdb = tmp_path / "x.pdb"
+        pdb.write_bytes(b"")
+        monkeypatch.setattr(pdb_export.shutil, "which", lambda _name: "/usr/bin/llvm-pdbutil")
+
+        def _run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+            return subprocess.CompletedProcess(args, 0, stdout="no identity here\n", stderr="")
+
+        monkeypatch.setattr(pdb_export.subprocess, "run", _run)
+        with pytest.raises(PdbExportError, match="cannot read back"):
+            read_back_identity(pdb)
+
+
 def _identity(image: bytes) -> pdb_export.DebugIdentity:
     pe = lief.PE.parse(list(image))
     assert pe is not None

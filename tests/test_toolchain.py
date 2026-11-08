@@ -954,6 +954,26 @@ class TestPullToolchain:
         pulls = [c for c in seen if c[1] == "pull"]
         assert pulls and all(c[0] == "podman" for c in pulls)
 
+    def test_pull_timeout_wraps_as_toolchain_error(self, monkeypatch) -> None:
+        import subprocess
+
+        from rebrew.compiler.toolchain import ToolchainError, pull_toolchain
+
+        monkeypatch.setattr("rebrew.compiler.toolchain.docker_available", lambda: True)
+        monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: False)
+
+        def _run(cmd, **kwargs):
+            if cmd[1] == "pull":
+                raise subprocess.TimeoutExpired(cmd, timeout=1200)
+            return type("R", (), {"returncode": 1, "stdout": "", "stderr": ""})()
+
+        monkeypatch.setattr("rebrew.compiler.toolchain.subprocess.run", _run)
+        with pytest.raises(ToolchainError) as exc_info:
+            pull_toolchain("msvc-6.0")
+        assert exc_info.value.kind == "docker"
+        assert exc_info.value.retryable is True
+        assert "pull" in str(exc_info.value)
+
     def test_every_wine_image_spec_declares_tool_root(self) -> None:
         """Every image-backed MSVC wine spec carries tool_root, so the CMake
         bridge and INCLUDE/LIB derivation work for all of them.  (mingw-16.2.0's

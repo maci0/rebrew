@@ -1081,7 +1081,7 @@ def check_backup_readiness(cfg: ProjectConfig) -> CheckResult:
         snapshot_dir = Path(cfg.root) / ".rebrew" / "pgsql-before-transfer"
         snapshot_note = (
             " + "
-            + str(len([p for p in snapshot_dir.rglob('*.toml') if p.is_file()]))
+            + str(len([p for p in snapshot_dir.rglob("*.toml") if p.is_file()]))
             + " before-transfer snapshot(s) carried by the metadata backup"
             if snapshot_dir.is_dir()
             else ""

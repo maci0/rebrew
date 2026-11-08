@@ -1578,14 +1578,25 @@ def pull_toolchain(name: str, timeout: int = 1200) -> tuple[str, bool]:
         return image, True
 
     def _pull() -> None:
-        r = subprocess.run(
-            [container_runtime(), "pull", image],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout,
-        )
+        try:
+            r = subprocess.run(
+                [container_runtime(), "pull", image],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=timeout,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            # Same wrap as the docker inspect/tag paths: a raw timeout or
+            # OSError here would escape the swap's rollback as an unrelated
+            # type, losing the operation, image and retryability context.
+            raise ToolchainError(
+                f"{container_runtime()} pull {spec.image} failed: {exc}",
+                kind="docker",
+                name=name,
+                retryable=True,
+            ) from exc
         if r.returncode != 0:
             raise ToolchainError(
                 f"{container_runtime()} pull {spec.image} failed: {r.stderr[-400:]}.  "

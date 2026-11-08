@@ -2182,9 +2182,7 @@ class Dashboard:
             # not 100% coverage, so substituting the count for the
             # denominator there would read a missing section as complete.
             "coverage_pct": floor_pct(min(matched_b, total_b) if total_b else 0, total_b),
-            "identified_pct": floor_pct(
-                min(identified_b, total_b) if total_b else 0, total_b
-            ),
+            "identified_pct": floor_pct(min(identified_b, total_b) if total_b else 0, total_b),
         }
 
     def functions(

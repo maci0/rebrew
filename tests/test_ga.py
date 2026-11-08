@@ -2175,9 +2175,7 @@ class TestGABuildCacheKey:
         from rebrew.match_ga import _ga_cache_key
 
         src = "int f(void) { return 0; }"
-        base = _ga_cache_key(
-            src, "/O2", "cl", "inc", link_mode=("libA", "/L libA", "link", ())
-        )
+        base = _ga_cache_key(src, "/O2", "cl", "inc", link_mode=("libA", "/L libA", "link", ()))
         assert base == _ga_cache_key(
             src, "/O2", "cl", "inc", link_mode=("libA", "/L libA", "link", ())
         )

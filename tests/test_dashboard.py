@@ -391,9 +391,7 @@ cells = []
             "- function_stats for 'cap': covered_bytes is 64, past the 32-byte .text; capping",
         ]
 
-    def test_summary_no_text_section_is_zero_percent_not_hundred(
-        self, tmp_path: Path
-    ) -> None:
+    def test_summary_no_text_section_is_zero_percent_not_hundred(self, tmp_path: Path) -> None:
         """Matched bytes with no ``.text`` size are 0%, not total.
 
         ``total_bytes`` is 0 when the document records no ``.text`` section:
