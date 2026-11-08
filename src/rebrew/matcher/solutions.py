@@ -504,6 +504,15 @@ _VOLATILE_RECORD_FIELDS = frozenset({"ts", "solved_at"})
 #: was meant to avoid.
 _TAIL_READ_BYTES = 1024 * 1024
 
+#: Bounded check for *wins* only. The 1 MiB tail window above is sized for a
+#: batch replay; a win older than that window (or left behind by a prune of
+#: the losses ahead of it) would otherwise append a second copy on replay,
+#: and ``load_solutions`` derives the newest win per ``(target, symbol)``
+#: from the log. Wins are never pruned, so a whole-file scan that stops at
+#: the first match closes that gap; losses keep the tail window, where a
+#: miss costs only one extra history row.
+_WIN_SCAN_CHUNK_BYTES = 64 * 1024
+
 #: How far before the window the tail read reaches to cover the record the
 #: window opens inside.  A record is a few hundred bytes; this is the slack
 #: that keeps one oversized line from putting the whole tail out of reach.
@@ -559,6 +568,47 @@ def _recent_run_keys(path: Path) -> set[str]:
     return {_run_key(r) for r in _tail_records(path)}
 
 
+def _win_present(path: Path, key: str) -> bool:
+    """True when a *win* with run key *key* is anywhere in *path*.
+
+    Streams the log in chunks (keeping the last partial line across a
+    chunk), so the check stays bounded on an unbounded log and stops at
+    the first match. Only wins are scanned this way: they are never
+    pruned, and a replayed win past the tail window is the case the tail
+    check misses. A torn or malformed line is skipped, never fatal.
+    """
+    try:
+        with path.open("rb") as fh:
+            pending = b""
+            while chunk := fh.read(_WIN_SCAN_CHUNK_BYTES):
+                lines = (pending + chunk).splitlines(keepends=True)
+                pending = lines.pop() if lines and not lines[-1].endswith(b"\n") else b""
+                for raw in lines:
+                    stripped = raw.decode("utf-8", errors="replace").strip()
+                    if not stripped:
+                        continue
+                    try:
+                        record = json.loads(stripped)
+                    except json.JSONDecodeError:
+                        continue
+                    if (
+                        isinstance(record, dict)
+                        and record.get("matched")
+                        and _run_key(record) == key
+                    ):
+                        return True
+            if pending.strip():
+                try:
+                    record = json.loads(pending.decode("utf-8", errors="replace").strip())
+                except json.JSONDecodeError:
+                    record = None
+                if isinstance(record, dict) and record.get("matched") and _run_key(record) == key:
+                    return True
+    except OSError:
+        return False
+    return False
+
+
 def _recent_records(path: Path) -> list[dict[str, Any]]:
     """Return the well-formed records in the tail window of *path*, oldest first."""
     return _tail_records(path)
@@ -568,12 +618,18 @@ def _run_key(record: dict[str, Any]) -> str:
     """Identity of the run a record describes, clock fields aside.
 
     Sorted, so two records differing only in JSON key order compare equal.
+    ``va`` is normalized to its integer value: callers pass it as an int,
+    a ``0x…`` string or a decimal string for the same address, and those
+    spellings must not look like different runs (or the same run twice).
     """
-    return json.dumps(
-        {k: v for k, v in record.items() if k not in _VOLATILE_RECORD_FIELDS},
-        sort_keys=True,
-        default=str,
-    )
+    fields = {k: v for k, v in record.items() if k not in _VOLATILE_RECORD_FIELDS}
+    va = fields.get("va")
+    if isinstance(va, str) and va:
+        with contextlib.suppress(ValueError):
+            fields["va"] = str(int(va.strip(), 0))
+    elif isinstance(va, int) and not isinstance(va, bool):
+        fields["va"] = str(va)
+    return json.dumps(fields, sort_keys=True, default=str)
 
 
 def record_ga_run(
@@ -601,10 +657,13 @@ def record_ga_run(
     *rng_seed* is the seed the GA ran from; replay the stub with
     ``rebrew match run --seed <rng_seed>``.
 
-    A record identical to one already in the log's tail window apart from
+    A record identical to one already in the log apart from
     *ts* / *solved_at* is a replay of a run already recorded, so it is
     dropped: re-running a seed, alone or as a batch, must not inflate the
-    count ``--skip-recent`` and ``match history`` read.
+    count ``--skip-recent`` and ``match history`` read. Losses are
+    checked against the tail window; wins against the whole log, since
+    they are never pruned and a replay past the window would otherwise
+    duplicate the fingerprint later runs seed from.
 
     The record is on disk before this returns (see :func:`_append_durable`):
     the log is the only copy of a run that cost hours to produce.
@@ -644,8 +703,11 @@ def record_ga_run(
         record["solved_at"] = _normalise_ts(solved_at or finished)
     p = _ensure_runs_dir(project_root)
     line = json.dumps(record) + "\n"
+    key = _run_key(record)
     with _ga_runs_append_lock(p):
-        if _run_key(record) in _recent_run_keys(p):
+        if key in _recent_run_keys(p):
+            return p
+        if matched and _win_present(p, key):
             return p
         _append_durable(p, line)
         _prune_loss_records(p)

@@ -399,6 +399,7 @@ files = [
     "tests/test_skills_extended.py",
     "tests/test_skills_sync.py",
     "tests/test_solutions.py",
+    "tests/test_solutions_replay.py",
     "tests/test_source_ext.py",
     "tests/test_span_contains.py",
     "tests/test_split.py",
