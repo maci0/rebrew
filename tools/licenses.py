@@ -25,6 +25,12 @@ from __future__ import annotations
 # Non-registry sources have no version-independent identity: a path checkout
 # and a commit-pinned git dependency are recorded by name.
 PATH_OR_GIT_LICENSES = {
+    # The maci0 fork wheel/sdist: PEP 639 metadata ships only License-File
+    # entries (LICENSE Apache-2.0, NOTICE, compiler-rt/LICENSE.TXT
+    # Apache-2.0 with LLVM exceptions) — no License-Expression, License, or
+    # classifier to quote. Apache-2.0 is the grant the bundled LICENSE text
+    # declares; recorded verbatim from that file's first line pattern.
+    "atheris": "Apache-2.0",
     "m2c": "GPL-3.0-only",
     "python-flirt": "License :: OSI Approved :: Apache Software License",
     # resembl 4.0.0 declares License-Expression: GPL-3.0-only (PEP 639).
