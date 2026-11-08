@@ -160,13 +160,17 @@ _DEFAULT_FILE_MODE = 0o644
 
 #: Invisible reordering / hiding characters: the bidi embeddings, overrides and
 #: isolates, the left-to-right and right-to-left marks, the zero-width
-#: space/joiners, the word joiner, the soft hyphen, and the BOM.  They occupy
-#: no glyph, so ``sub_A\u202etxt`` renders as ``sub_txt_A`` and a status column
-#: beside a hostile symbol name can be made to read as something else.  Symbol
-#: names reach a display surface from a target binary, BinSync state, or an
-#: import table, so every surface that prints one drops them.
+#: space/joiners, the word joiner, the soft hyphen, the BOM, the Arabic
+#: letter mark, and the tag characters.  They occupy no glyph, so
+#: ``sub_A\u202etxt`` renders as ``sub_txt_A`` and a status column beside a
+#: hostile symbol name can be made to read as something else.  Symbol names
+#: reach a display surface from a target binary, BinSync state, or an import
+#: table, so every surface that prints one drops them.  U+061C is a bidi
+#: mark like U+200E/U+200F; the tag characters (U+E0001, U+E0020-U+E007F)
+#: are invisible like the zero-width set.
 _BIDI_FORMAT_CHARS = frozenset(
     "\u00ad"  # soft hyphen
+    "\u061c"  # Arabic letter mark (bidi)
     "\u180e"  # mongolian vowel separator
     "\u200b\u200c\u200d"  # zero-width space / non-joiner / joiner
     "\u200e\u200f"  # left-to-right / right-to-left mark
@@ -174,6 +178,9 @@ _BIDI_FORMAT_CHARS = frozenset(
     "\u2060\u2061\u2062\u2063\u2064"  # word joiner, invisible operators
     "\u2066\u2067\u2068\u2069"  # isolates
     "\ufeff"  # zero-width no-break space (BOM)
+    "\U000e0001"  # language tag (invisible, Cf)
+    # Tag characters U+E0020-U+E007F: invisible, category Cf.
+    + "".join(chr(code) for code in range(0xE0020, 0xE0080))
 )
 _BIDI_FORMAT_TABLE = {ord(char): None for char in _BIDI_FORMAT_CHARS}
 #: Every stripped character is non-ASCII, so a regex scan over ordinary text
@@ -214,11 +221,15 @@ def untrusted_literal(value: object) -> str:
 #: Line separators and tab, rendered as ``\xNN`` on top of
 #: :data:`_TERMINAL_CONTROL_CHARS`.  An identifier is one line, so a name
 #: carrying a newline would otherwise print a second line of its own into a
-#: verdict block, where it reads as another result row.
+#: verdict block, where it reads as another result row.  U+2028/U+2029 are
+#: line/paragraph separators (``str.splitlines`` splits on them too), so a
+#: name carrying one would do the same; they escape like ``\n``.
 _LINE_BREAK_CHARS = {
     ord("\n"): r"\x0a",
     ord("\r"): r"\x0d",
     ord("\t"): r"\x09",
+    0x2028: r"\u2028",
+    0x2029: r"\u2029",
 }
 
 
@@ -390,7 +401,11 @@ def truncate_text(text: str, max_chars: int) -> str:
     combining mark) continue a cluster too, as do tag characters
     (U+E0020-U+E007F, subdivision flags), so a cut there backs off as
     well rather than leaving a lone regional indicator or a bare base.
+    A non-positive *max_chars* yields the empty string: ``text[:max_chars]``
+    with a negative bound would silently drop the tail instead.
     """
+    if max_chars <= 0:
+        return ""
     if len(text) <= max_chars:
         return text
     cut = text[:max_chars]
@@ -1082,7 +1097,9 @@ def toml_safe(value: Any) -> Any:
     runs on both: :func:`rebrew.metadata.document.build_metadata_doc` sends every
     qualified key through it too, because a target name carrying a control
     character writes a key no reader can parse back.  Tab/newline survive
-    (valid TOML escapes); other C0/C1 controls are dropped.
+    (valid TOML escapes); other C0 controls are dropped.  C1 controls
+    (U+0080-U+009F) survive too: TOML does not forbid them, and tomllib
+    reads them back unchanged.
 
     A surrogate is replaced with U+FFFD, not dropped.  A legacy cp1252 or
     Shift-JIS source read by :func:`read_compile_source` yields lone

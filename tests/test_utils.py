@@ -1747,6 +1747,29 @@ class TestIsSafeCIdent:
         assert not is_safe_c_ident('ok; system("x")')
 
 
+class TestUntrustedIdent:
+    """An identifier printed in a one-line verdict stays one line."""
+
+    def test_escapes_line_separators(self) -> None:
+        from rebrew.utils import untrusted_ident
+
+        assert untrusted_ident("sub_\u2028FAKE") == r"sub_\u2028FAKE"
+        assert untrusted_ident("sub_\u2029FAKE") == r"sub_\u2029FAKE"
+
+    def test_escapes_newline(self) -> None:
+        from rebrew.utils import untrusted_ident
+
+        assert untrusted_ident("sub_\nFAKE") == r"sub_\x0aFAKE"
+
+
+class TestTruncateText:
+    def test_nonpositive_limit_yields_empty(self) -> None:
+        from rebrew.utils import truncate_text
+
+        assert truncate_text("abc", 0) == ""
+        assert truncate_text("abc", -1) == ""
+
+
 class TestStripBidiFormat:
     """Invisible reordering characters must not reach a status column or DOM."""
 
@@ -1762,6 +1785,15 @@ class TestStripBidiFormat:
     def test_keeps_ordinary_unicode(self) -> None:
         """Scrubbing targets invisible formatting, not every non-ASCII char."""
         assert strip_bidi_format("café") == "café"
+
+    def test_removes_arabic_letter_mark(self) -> None:
+        """U+061C is a bidi mark like U+200E/U+200F, so it goes with them."""
+        assert strip_bidi_format("a\u061cb") == "ab"
+
+    def test_removes_tag_characters(self) -> None:
+        """Tag characters are invisible (Cf) like the zero-width set."""
+        assert strip_bidi_format("sub_\U000e0061txt") == "sub_txt"
+        assert strip_bidi_format("a\U000e0001b") == "ab"
 
 
 class TestInterruptiblePool:
