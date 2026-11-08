@@ -376,15 +376,19 @@ def _reap_dead_xvfb() -> None:
     file is a per-run temp artefact, not an access-control credential (see the
     module docstring), so it should not outlive the server it belongs to.
     """
-    for entry in [entry for entry in _owned_xvfb if entry[0].poll() is not None]:
-        _owned_xvfb.remove(entry)
+    dead = [entry for entry in _owned_xvfb if entry[0].poll() is not None]
+    if dead:
+        _owned_xvfb[:] = [entry for entry in _owned_xvfb if entry not in dead]
+    for entry in dead:
         _drop_cookie(entry[1])
 
 
 def _release_owned_xvfb() -> None:
     """atexit hook: shut down every Xvfb this process still owns."""
-    while _owned_xvfb:
-        proc, cookie = _owned_xvfb.pop()
+    with _XVFB_INIT_LOCK:
+        pending = list(_owned_xvfb)
+        _owned_xvfb.clear()
+    for proc, cookie in reversed(pending):
         _shutdown_xvfb(proc)
         _drop_cookie(cookie)
 

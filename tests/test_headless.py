@@ -498,6 +498,69 @@ class TestEnsureXvfb:
         headless._release_owned_xvfb()
         assert headless._owned_xvfb == []
 
+    def test_release_is_atomic_against_concurrent_owner(self, tmp_path: Path) -> None:
+        """``_release_owned_xvfb`` must not race ``ensure_xvfb``'s append.
+
+        The atexit hook previously popped ``_owned_xvfb`` without
+        ``_XVFB_INIT_LOCK`` while ``ensure_xvfb`` appended under it: two
+        hooks (or a hook racing a late compile) could both pop the same
+        entry, and a spawn arriving mid-release could be silently dropped
+        without its Xvfb ever being shut down.  The wake window is closed
+        by snapshotting the list under the lock and shutting down after
+        releasing it.
+        """
+        from rebrew.compiler import headless
+
+        shut_down: list[Any] = []
+
+        class _Proc:
+            def __init__(self) -> None:
+                self.terminated = False
+
+            def terminate(self) -> None:
+                self.terminated = True
+
+            def wait(self, timeout: float = 2) -> int:
+                return 0
+
+            def kill(self) -> None:
+                pass
+
+            def poll(self) -> None:
+                return None
+
+        first, second = _Proc(), _Proc()
+        headless._owned_xvfb.extend([(first, tmp_path / "a"), (second, tmp_path / "b")])
+        in_shutdown = threading.Event()
+        proceed = threading.Event()
+        original = headless._shutdown_xvfb
+
+        def _slow_shutdown(proc: Any) -> None:
+            shut_down.append(proc)
+            in_shutdown.set()
+            proceed.wait(timeout=5)
+            original(proc)
+
+        headless._shutdown_xvfb = _slow_shutdown  # type: ignore[assignment]
+        try:
+            releaser = threading.Thread(target=headless._release_owned_xvfb, daemon=True)
+            releaser.start()
+            assert in_shutdown.wait(timeout=5)
+            # A spawn landing while the first shutdown is in flight must
+            # survive: it landed after the snapshot, under the lock.
+            late = _Proc()
+            with headless._XVFB_INIT_LOCK:
+                headless._owned_xvfb.append((late, tmp_path / "late"))
+            proceed.set()
+            releaser.join(timeout=5)
+            assert not releaser.is_alive()
+            assert first.terminated and second.terminated
+            assert not late.terminated
+            assert [cookie for _, cookie in headless._owned_xvfb] == [tmp_path / "late"]
+        finally:
+            headless._shutdown_xvfb = original  # type: ignore[assignment]
+            proceed.set()
+
     def test_concurrent_callers_spawn_one_server(self, tmp_path: Path, monkeypatch) -> None:
         """Parallel compile workers calling ensure_xvfb must not double-spawn.
 
