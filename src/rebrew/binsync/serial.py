@@ -215,24 +215,25 @@ def dump_artifact(path: Path, artifact: Any) -> None:
     write_state_text(path, artifact.dumps())
 
 
-def load_artifact(path: Path, kind: str) -> Any | None:
-    """Load one artifact of *kind*, or ``None`` when absent/unreadable."""
+def load_artifact(path: Path, kind: str) -> Any:
+    """Load one artifact of *kind*.
+
+    Missing file returns ``None``.  Unreadable/unparseable input raises
+    :class:`ValueError` naming the file and kind — never conflated with a
+    missing artifact, which made a corrupt export look like an empty one.
+    """
     if not path.exists():
         return None
     try:
         # utf-8-sig: Windows editors may prefix EF BB BF; plain utf-8 leaves
         # U+FEFF and declib's TOML loader then rejects the file.
         text = path.read_text(encoding="utf-8-sig")
-    except OSError:
-        # Same visibility as the unparseable path: an I/O failure must not
-        # look like a missing artifact on import/pull.
-        log.warning("unreadable BinSync %s at %s", kind, path, exc_info=True)
-        return None
+    except OSError as exc:
+        raise ValueError(f"unreadable BinSync {kind} at {path}: {exc}") from exc
     try:
         return _class_for(kind).loads(text)
-    except Exception:
-        log.warning("unparseable BinSync %s at %s", kind, path, exc_info=True)
-        return None
+    except Exception as exc:
+        raise ValueError(f"unparseable BinSync {kind} at {path}: {exc}") from exc
 
 
 def dump_many(path: Path, kind: str, artifacts: list[Any], *, key: str = "addr") -> None:
@@ -242,19 +243,21 @@ def dump_many(path: Path, kind: str, artifacts: list[Any], *, key: str = "addr")
 
 
 def load_many(path: Path, kind: str) -> list[Any]:
-    """Load every artifact of *kind*; ``[]`` when absent or unparseable."""
+    """Load every artifact of *kind*; ``[]`` when absent.
+
+    As :func:`load_artifact`, unreadable/unparseable input raises
+    :class:`ValueError` — never an empty list.
+    """
     if not path.exists():
         return []
     try:
         text = path.read_text(encoding="utf-8-sig")
-    except OSError:
-        log.warning("unreadable BinSync %s at %s", kind, path, exc_info=True)
-        return []
+    except OSError as exc:
+        raise ValueError(f"unreadable BinSync {kind} at {path}: {exc}") from exc
     try:
         return list(_class_for(kind).loads_many(text))
-    except Exception:
-        log.warning("unparseable BinSync %s at %s", kind, path, exc_info=True)
-        return []
+    except Exception as exc:
+        raise ValueError(f"unparseable BinSync {kind} at {path}: {exc}") from exc
 
 
 # ---------------------------------------------------------------------------

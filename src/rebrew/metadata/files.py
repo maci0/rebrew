@@ -301,11 +301,26 @@ def write_metadata_collection(path: Path, doc: dict[str, Any], description: str)
             written.append(member)
             atomic_write_locked(member, content)
     except BaseException:
+        # Restore every written member even if one restore fails: a failed
+        # restore must not mask the original error or leave later members
+        # half-written.  Collect restore failures and chain them.
+        restore_errors: list[Exception] = []
         for member in reversed(written):
-            if member in before:
-                atomic_write_bytes(member, before[member], mode=0o444)
-            else:
-                member.unlink(missing_ok=True)
+            try:
+                if member in before:
+                    atomic_write_bytes(member, before[member], mode=0o444)
+                else:
+                    member.unlink(missing_ok=True)
+            except Exception as exc:  # rollback must not mask the original error
+                restore_errors.append(exc)
+        if restore_errors:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "metadata rollback incomplete for %s: %s",
+                [str(m) for m in written],
+                "; ".join(str(e) for e in restore_errors),
+            )
         raise
 
 

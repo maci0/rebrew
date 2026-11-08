@@ -2310,7 +2310,7 @@ def precompile_batch(
     except Exception:
         # Batch is an optimization; degrade to the per-function path, but
         # log the broken profile lookup.
-        log.debug("batch precompile skipped: toolchain lookup failed", exc_info=True)
+        log.warning("batch precompile skipped: toolchain lookup failed", exc_info=True)
         return {}
     if base_spec is not None and base_spec.effective_arg_style not in ("posix", "msvc"):
         return {}
@@ -2394,10 +2394,10 @@ def precompile_batch(
                     if key is not None and cache.get(key) is not None:
                         continue
                 except Exception as exc:
-                    log.debug("batch cache check skipped %s: %s", getattr(e, "name", "?"), exc)
+                    log.warning("batch cache check skipped %s: %s", getattr(e, "name", "?"), exc)
             groups.setdefault(_batch_group_key(toolchain or "", cflags), []).append(e)
         except Exception as exc:
-            log.debug("batch grouping skipped %s: %s", getattr(e, "name", "?"), exc)
+            log.warning("batch grouping skipped %s: %s", getattr(e, "name", "?"), exc)
     import concurrent.futures as _futures
 
     def _compile_group(toolchain: str, group_flags: str, members: list[Any]) -> dict[int, str]:
@@ -2656,7 +2656,7 @@ def precompile_batch(
                         )
             return group_out
         except Exception as exc:
-            log.debug("batch group skipped: %s", exc)
+            log.warning("batch group skipped: %s", exc)
             return group_out
         finally:
             if workdir is not None:
@@ -2678,7 +2678,7 @@ def precompile_batch(
     try:
         lasting_root = writable_temp_dir("rebrew_batch_objs_")
     except OSError as exc:
-        log.debug("batch obj dir unavailable, falling back to per-file compile: %s", exc)
+        log.warning("batch obj dir unavailable, falling back to per-file compile: %s", exc)
         return out
     with _BATCH_OBJ_DIRS_LOCK:
         _BATCH_OBJ_DIRS.append(lasting_root)
@@ -2694,7 +2694,7 @@ def precompile_batch(
             try:
                 out.update(future.result())
             except Exception as exc:
-                log.debug("batch group skipped: %s", exc)
+                log.warning("batch group skipped: %s", exc)
     return out
 
 
