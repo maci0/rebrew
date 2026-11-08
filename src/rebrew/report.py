@@ -158,13 +158,15 @@ header { background: var(--rb-ink); color: var(--rb-surface); padding: 0.75rem 1
          display: flex; flex-wrap: wrap; align-items: baseline; gap: 1rem 2rem; }
 header h1 { font-size: var(--rb-size-title); letter-spacing: var(--rb-track-display); margin: 0; }
 header h1 .mark { font-family: var(--rb-mono); color: var(--rb-mark); }
-header nav { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; }
-header nav a { color: var(--rb-nav); text-decoration: underline; min-height: 2.75rem; padding: 0.5rem 0.35rem;
+header nav, footer nav { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; }
+header nav a, footer nav a { color: var(--rb-nav); text-decoration: underline; min-height: 2.75rem; padding: 0.5rem 0.35rem;
         display: inline-flex; align-items: center; }
-header nav a:hover { color: var(--rb-surface); }
-header nav a.active { color: var(--rb-surface); font-weight: 600; text-decoration-thickness: 2px; }
+header nav a:hover, footer nav a:hover { color: var(--rb-surface); }
+header nav a.active, footer nav a.active { color: var(--rb-surface); font-weight: 600; text-decoration-thickness: 2px; }
 :focus-visible { outline: 3px solid var(--rb-accent); outline-offset: 2px; }
-header nav a:focus-visible { outline-color: var(--rb-accent-soft); }
+header nav a:focus-visible, footer nav a:focus-visible { outline-color: var(--rb-accent-soft); }
+footer { background: var(--rb-ink); color: var(--rb-surface); padding: 0.75rem 1.5rem;
+         display: flex; flex-wrap: wrap; align-items: baseline; gap: 1rem 2rem; margin-top: 1.5rem; }
 main { max-width: 1100px; margin: 1.5rem auto; padding: 0 1.5rem; }
 h2 { font-size: var(--rb-size-heading); letter-spacing: var(--rb-track-display); margin: 1.5rem 0 .5rem; }
 .cards { display: flex; flex-wrap: wrap; gap: 1rem; margin: 0 0 1.5rem; }
@@ -211,7 +213,7 @@ td summary { cursor: pointer; padding: 0.35rem 0; min-height: 2.75rem; display: 
 __STATUS_TEXT_CSS__
 @media (forced-colors: active) {
 __STATUS_FORCED__ { color: CanvasText; font-weight: 700; }
-  header nav a.active { text-decoration: underline; }
+  header nav a.active, footer nav a.active { text-decoration: underline; }
   :focus-visible { outline-color: Highlight; }
   .note { border-color: CanvasText; color: CanvasText; background: Canvas; }
 }
@@ -491,6 +493,7 @@ def _page(title: str, target: str, active: str, body: str) -> str:
         f"<header><h1><span class='mark' aria-hidden='true'>0x</span> {html.escape(target)} - Rebrew report</h1>"
         f"<nav aria-label='Report pages'>{nav}</nav></header>\n"
         f"<main id='main' tabindex='-1'>\n{body}\n</main>\n"
+        f"<footer><nav aria-label='Report pages'>{nav}</nav></footer>\n"
         "</body>\n</html>\n"
     )
 
