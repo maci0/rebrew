@@ -115,14 +115,26 @@ class PgsqlStore:
         # dropped apart from the one this store creates — the SQLite backend
         # rejects that by exact DDL comparison, so mirror it here: the
         # (project, path) primary key backing ON CONFLICT, and the two
-        # revision/schema_version CHECKs, must all be present.
-        (pk, checks) = connection.execute(
-            "SELECT count(*) FILTER (WHERE contype = 'p'), "
-            "count(*) FILTER (WHERE contype = 'c') FROM pg_constraint "
-            "WHERE conrelid = to_regclass(%s)",
+        # revision/schema_version CHECKs, must all be present with exactly
+        # the definitions this store creates.  Counts alone would accept a
+        # PK on the wrong columns or a CHECK like ``revision < 0``.
+        pk_columns = connection.execute(
+            "SELECT a.attname FROM pg_index i "
+            "JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY (i.indkey) "
+            "WHERE i.indrelid = to_regclass(%s) AND i.indisprimary ORDER BY a.attnum",
             (_TABLE,),
-        ).fetchone()
-        if int(pk) != 1 or int(checks) != 2:
+        ).fetchall()
+        if [str(name) for (name,) in pk_columns] != ["project", "path"]:
+            raise MetadataStorageError("unsupported PostgreSQL metadata schema")
+        check_defs = connection.execute(
+            "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+            "WHERE conrelid = to_regclass(%s) AND contype = 'c' ORDER BY pg_get_constraintdef(oid)",
+            (_TABLE,),
+        ).fetchall()
+        if sorted(str(defn) for (defn,) in check_defs) != [
+            "CHECK ((revision > 0))",
+            "CHECK ((schema_version = 1))",
+        ]:
             raise MetadataStorageError("unsupported PostgreSQL metadata schema")
         return True
 

@@ -100,7 +100,7 @@ class TestPgsqlConfig:
             ("schema_version", "integer", True),
         ]
 
-        def make_connection(pk: int, checks: int) -> Any:
+        def make_connection(pk_columns: Any, check_defs: Any) -> Any:
             class _Cursor:
                 def __init__(self, rows: Any) -> None:
                     self._rows = rows
@@ -116,21 +116,32 @@ class TestPgsqlConfig:
                 def execute(self, sql: str, params: Any = None) -> Any:
                     if sql.startswith("SELECT to_regclass"):
                         return _Cursor([("public.rebrew_metadata_documents",)])
+                    if "FROM pg_index" in sql:
+                        return _Cursor([(name,) for name in pk_columns])
                     if "pg_attribute" in sql:
                         return _Cursor(columns)
                     if "pg_constraint" in sql:
-                        return _Cursor([(pk, checks)])
+                        return _Cursor([(defn,) for defn in check_defs])
                     raise AssertionError(sql)
 
             return _Connection()
 
         store = pgsql.PgsqlStore.__new__(pgsql.PgsqlStore)
-        assert store._present(make_connection(1, 2)) is True
-        for pk, checks in ((0, 2), (1, 1), (1, 0), (2, 2)):
+        ok_pk = ["project", "path"]
+        ok_checks = ["CHECK ((revision > 0))", "CHECK ((schema_version = 1))"]
+        assert store._present(make_connection(ok_pk, ok_checks)) is True
+        for pk_columns, check_defs in (
+            ([], ok_checks),
+            (["content"], ok_checks),
+            (ok_pk, []),
+            (ok_pk, ["CHECK ((revision < 0))"]),
+            (ok_pk, ["CHECK ((schema_version = 1))"]),
+            (ok_pk, ok_checks + ["CHECK ((content > ''))"]),
+        ):
             with pytest.raises(
                 MetadataStorageError, match="unsupported PostgreSQL metadata schema"
             ):
-                store._present(make_connection(pk, checks))
+                store._present(make_connection(pk_columns, check_defs))
 
     @pytest.mark.parametrize("command", ["backup", "restore"])
     def test_file_backup_commands_reject_postgresql(
