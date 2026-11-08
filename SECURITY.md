@@ -263,6 +263,28 @@ plugin cache backends or remove the open upstream diskcache advisory.
   toolchain media at 2 GiB (`_MAX_PINNED_DOWNLOAD_BYTES` in
   `src/rebrew/toolchain_cli.py`); the release-metadata JSON and the commit
   lookup reply are not capped.
+- No claim that the ops worker's presigned-URL download is SSRF-proof.
+  `_download` in `src/rebrew/ops.py` refuses a `url` host that resolves to a
+  non-public address: `_check_download_host` resolves the hostname and
+  refuses any non-`is_global` address (IP literals checked the same way)
+  and any resolution failure. The refusal is bypassed only by the operator
+  env `REBREW_OPS_ALLOW_PRIVATE_DOWNLOAD=1`, parsed strictly by
+  `parse_env_bool` (`src/rebrew/config.py` `ALLOW_PRIVATE_DOWNLOAD_ENV`)
+  and validated at startup by `env_knob_errors`, so `0`/`false`/`no`/`off`
+  keep the refusal and a typo is a `ConfigError` rather than a silent
+  bypass; the opt-in is worker env, never request data, so a bearer holder
+  cannot grant it. The check is resolve-then-fetch with no pinned
+  connection, so a DNS name that flips from public to private between the
+  check and the `httpx` GET (TOCTOU), or a proxy resolving the name itself
+  (ops `_download` still honours `HTTPS_PROXY`/`SSL_CERT_FILE`), can still
+  reach a private host.
+- No claim that `REBREW_OTLP_ENDPOINT` is validated only at export time.
+  The knob is now validated at startup: `OTLP_ENDPOINT_ENV` in
+  `src/rebrew/config.py` is `validate_http_url`-checked in
+  `_env_knob_parsers` / `env_knob_errors` (reported by `rebrew cfg
+  effective`), and `src/rebrew/telemetry.py` `ENDPOINT_ENV` aliases that
+  single source. The endpoint still admits plain `http` (above), and the
+  startup check does not change that.
 - No claim that a hostile splat config can escape the foreign project through
   a path entry. `splat_config._rel` (`splat_config.py:517-531`) resolves every
   `splat.yaml` path against the operator's base and raises `ValueError` on any
