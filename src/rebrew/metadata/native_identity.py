@@ -51,9 +51,14 @@ def validate_native_identity(value: Any) -> dict[str, Any]:
         or len(value["reason"]) > 2000
     ):
         raise ValueError("native identity reason must contain 1–2000 characters")
+    if not isinstance(value["reviewed_at"], str):
+        raise ValueError("native identity review time requires a timezone")
     stamp = datetime.fromisoformat(value["reviewed_at"])
     if stamp.tzinfo is None or stamp.utcoffset() is None:
         raise ValueError("native identity review time requires a timezone")
+    # Normalize to UTC like status_history / binding_history, so one instant
+    # has one spelling regardless of the offset it was reviewed in.
+    value = {**value, "reviewed_at": stamp.astimezone(UTC).isoformat()}
     if not isinstance(value["bindings"], dict) or any(
         not isinstance(k, str) or type(v) is not int or v < 0 for k, v in value["bindings"].items()
     ):

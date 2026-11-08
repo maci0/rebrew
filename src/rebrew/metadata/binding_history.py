@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 lazy import copy
-lazy from datetime import datetime
+lazy from datetime import UTC, datetime
 lazy from pathlib import Path
 lazy from typing import Any
 
@@ -43,6 +43,7 @@ def validate_binding_history(value: Any) -> list[dict[str, Any]]:
     """Validate complete events; generic metadata edits cannot write this field."""
     if not isinstance(value, list):
         raise ValueError("binding_history must be an array")
+    events: list[dict[str, Any]] = []
     for event in value:
         if not isinstance(event, dict) or set(event) != {
             "action",
@@ -58,9 +59,16 @@ def validate_binding_history(value: Any) -> list[dict[str, Any]]:
         reason = event["reason"]
         if not isinstance(reason, str) or not reason.strip() or len(reason) > 2000:
             raise ValueError("binding reason must contain 1–2000 characters")
+        if not isinstance(event["changed_at"], str):
+            raise ValueError("binding history changed_at requires a timezone")
         stamp = datetime.fromisoformat(event["changed_at"])
         if stamp.tzinfo is None or stamp.utcoffset() is None:
             raise ValueError("binding history changed_at requires a timezone")
+        # Normalize to UTC like status_history, so lexicographic ordering of
+        # changed_at is chronological and Z/+02:00 spellings of one instant
+        # don't sort as different times.
+        event = {**event, "changed_at": stamp.astimezone(UTC).isoformat()}
+        events.append(event)
         previous, replacement = event["previous"], event["replacement"]
         if not isinstance(previous, dict) or set(previous) - _PREVIOUS_FIELDS:
             raise ValueError("invalid previous binding claim")
@@ -77,7 +85,7 @@ def validate_binding_history(value: Any) -> list[dict[str, Any]]:
         counterpart = event["counterpart_va"]
         if not isinstance(counterpart, int) or isinstance(counterpart, bool) or counterpart < 0:
             raise ValueError("binding history counterpart_va must be non-negative")
-    return copy.deepcopy(value)
+    return copy.deepcopy(events)
 
 
 def retired_binding(entry: dict[str, Any]) -> bool:
