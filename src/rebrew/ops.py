@@ -245,6 +245,8 @@ class OpsError(RebrewError):
     code: str = ENGINE_ERROR
     status: int = 500
 
+    _STRUCTURED_FIELDS = (*RebrewError._STRUCTURED_FIELDS, "code", "status")
+
     def __init__(self, detail: str, *, code: str = ENGINE_ERROR, status: int = 500) -> None:
         super().__init__(detail)
         self.code = code
