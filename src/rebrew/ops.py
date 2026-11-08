@@ -3320,13 +3320,37 @@ def _allowed_hosts_for(host: str, port: int) -> frozenset[str]:
     if loopback:
         names |= {"127.0.0.1", "localhost", "::1"}
     if wildcard:
-        try:
-            import socket as _socket
+        # getaddrinfo blocks with no timeout: a hung resolver would pin server
+        # startup for the kernel timeout, so resolve on a thread and fall back
+        # to loopback aliases (see DNS_TIMEOUT_SECONDS).
+        _result: list[Any] = []
+        _error: list[BaseException] = []
 
-            infos = _socket.getaddrinfo(_socket.gethostname(), None)
-            names |= {str(info[4][0]) for info in infos if info[4]}
-        except OSError:
-            pass
+        def _resolve() -> None:
+            try:
+                import socket as _socket
+
+                _result.append(_socket.getaddrinfo(_socket.gethostname(), None))
+            except BaseException as exc:
+                _error.append(exc)
+
+        _thread = threading.Thread(target=_resolve, daemon=True)
+        _thread.start()
+        _thread.join(DNS_TIMEOUT_SECONDS)
+        if _thread.is_alive():
+            logger.warning(
+                "ops: local interface resolution timed out after %ss; "
+                "host allow-list falls back to loopback aliases",
+                DNS_TIMEOUT_SECONDS,
+            )
+        elif _error:
+            logger.warning(
+                "ops: local interface resolution failed (%s); "
+                "host allow-list falls back to loopback aliases",
+                _error[0],
+            )
+        else:
+            names |= {str(info[4][0]) for info in _result[0] if info[4]}
     hosts: set[str] = set()
     for name in names:
         display = f"[{name}]" if ":" in name else name

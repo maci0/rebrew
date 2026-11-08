@@ -342,13 +342,17 @@ class RoutedStore:
         return self.store(name, STATE_PATH)
 
     def _read_from[T](self, operation: Callable[[MetadataStore, dict[str, _Record]], T]) -> T:
+        errors: list[str] = []
         for name in self.read_backends:
             try:
                 records, _ = _load(self.state(name))
                 return operation(self.store(name, self.key), records)
-            except OSError, MetadataUnavailableError:
+            except (OSError, MetadataUnavailableError) as exc:
+                errors.append(f"{name}: {exc}")
                 continue
-        raise MetadataUnavailableError("all configured metadata read backends are unavailable")
+        raise MetadataUnavailableError(
+            f"all configured metadata read backends are unavailable: {'; '.join(errors)}"
+        )
 
     def _view(self) -> _Record | None:
         session: _Session | None = getattr(_ACTIVE, "sessions", {}).get(self.root)

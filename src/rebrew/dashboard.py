@@ -2612,11 +2612,34 @@ def _local_interface_ips() -> set[str]:
     every real request was 403'd.  Resolver-based (no netlink walk): an
     unresolvable hostname just yields an empty set.
     """
-    try:
-        infos = socket.getaddrinfo(socket.gethostname(), None)
-    except OSError:
+    # getaddrinfo blocks with no timeout: a hung resolver would pin server
+    # startup for the kernel timeout, so resolve on a thread with a bound join.
+    _result: list[Any] = []
+    _error: list[BaseException] = []
+
+    def _resolve() -> None:
+        try:
+            _result.append(socket.getaddrinfo(socket.gethostname(), None))
+        except BaseException as exc:
+            _error.append(exc)
+
+    _thread = threading.Thread(target=_resolve, daemon=True)
+    _thread.start()
+    _thread.join(10)
+    if _thread.is_alive():
+        log.warning(
+            "dashboard: local interface resolution timed out; host allow-list "
+            "falls back to loopback aliases"
+        )
         return set()
-    return {str(info[4][0]) for info in infos if info[4]}
+    if _error:
+        log.warning(
+            "dashboard: local interface resolution failed (%s); host allow-list "
+            "falls back to loopback aliases",
+            _error[0],
+        )
+        return set()
+    return {str(info[4][0]) for info in _result[0] if info[4]}
 
 
 def allowed_hosts_for(host: str, port: int) -> frozenset[str]:
