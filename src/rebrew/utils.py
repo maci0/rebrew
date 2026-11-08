@@ -1513,26 +1513,38 @@ def strip_body(prototype: str) -> str:
 
     ``annotation.prototype`` includes the full C definition including its body.
     BinSync's ``[header].type`` expects only the declaration/signature line.
-    Brace detection is quote-aware — a ``{`` inside a string literal (e.g.
-    ``const char *s = "{"``) must not be mistaken for the body delimiter.
+    Brace detection is quote- and comment-aware — a ``{`` inside a string
+    literal (``"{"``), a char literal (``'{'``), or a ``/* */`` / ``//``
+    comment must not be mistaken for the body delimiter.
     """
     if "{" not in prototype:
         return prototype.strip()
-    in_str = False
+    quote = ""
     escaped = False
-    for i, ch in enumerate(prototype):
-        if in_str:
+    i = 0
+    while i < len(prototype):
+        ch = prototype[i]
+        if quote:
             if escaped:
                 escaped = False
             elif ch == "\\":
                 escaped = True
-            elif ch == '"':
-                in_str = False
+            elif ch == quote:
+                quote = ""
+            i += 1
             continue
-        if ch == '"':
-            in_str = True
+        if prototype.startswith("//", i):
+            i = len(prototype)
+            continue
+        if prototype.startswith("/*", i):
+            end = prototype.find("*/", i + 2)
+            i = len(prototype) if end == -1 else end + 2
+            continue
+        if ch in ('"', "'"):
+            quote = ch
         elif ch == "{":
             return prototype[:i].strip()
+        i += 1
     return prototype.strip()
 
 
@@ -2098,14 +2110,14 @@ def strip_comment_blocks(text: str) -> str:
     in_string_global = ""  # the open quote character, "" outside a literal
     for line in (ln.removesuffix("\r") for ln in split_source_lines(text)):
         stripped = line.strip()
-        if stripped == "*/":
+        if stripped == "*/" and not in_string_global:
             # Closes an open comment block (or a harmless orphan).
             # Also reset global string state — we are outside any string on a new line
             # after a block comment close; the per-line scanner handles the rest.
             in_block = False
             in_string_global = ""
             continue
-        if stripped.startswith("* ") and not in_block:
+        if stripped.startswith("* ") and not in_block and not in_string_global:
             # Orphaned comment-continuation lines (malformed /* */ nesting).
             # Inside a block, a `* ` prefix is just comment content — the line
             # must still go through the scanner so a trailing `*/` (possibly

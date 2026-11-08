@@ -567,6 +567,32 @@ class TestStripCommentBlocks:
         src = 'const char *s = "a//b";\nint c;\n'
         assert strip_comment_blocks(src) == 'const char *s = "a//b";\nint c;'
 
+    def test_multiline_string_close_marker_line_survives(self) -> None:
+        """A ``*/`` on its own line inside a multi-line string is string content,
+        not a comment close; the early ``stripped == "*/"`` check must not drop it."""
+        from rebrew.utils import strip_comment_blocks
+
+        src = 'const char *s = "foo\n*/\nbar";\nint x;\n'
+        assert strip_comment_blocks(src) == 'const char *s = "foo\n*/\nbar";\nint x;'
+
+    def test_multiline_string_star_line_survives(self) -> None:
+        from rebrew.utils import strip_comment_blocks
+
+        src = 'const char *s = "foo\n* note\nbar";\nint x;\n'
+        assert strip_comment_blocks(src) == 'const char *s = "foo\n* note\nbar";\nint x;'
+
+
+class TestStripBody:
+    def test_char_literal_brace_is_not_the_body(self) -> None:
+        from rebrew.utils import strip_body
+
+        assert strip_body("int f(char c = '{') { return 1; }") == "int f(char c = '{')"
+
+    def test_comment_brace_is_not_the_body(self) -> None:
+        from rebrew.utils import strip_body
+
+        assert strip_body("int f(void) /* { */ { return 1; }") == "int f(void) /* { */"
+
 
 class TestAtomicWriteParents:
     def test_creates_missing_parent_dirs(self, tmp_path: Path) -> None:
