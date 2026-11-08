@@ -52,6 +52,9 @@ type Owner struct {
 	root, dir, executable string
 	lock                  *os.File
 	workers               sync.WaitGroup
+	cancel                context.CancelFunc
+	runCtx                context.Context
+	runTimeout            time.Duration
 	closed                bool
 	reconciling           bool
 	occupied              bool
@@ -130,7 +133,8 @@ func Open(root, dir, executable string) (*Owner, error) {
 		f.Close()
 		return nil, err
 	}
-	owner := &Owner{root: root, dir: dir, executable: executable, lock: f, listeners: make(map[string]map[chan struct{}]bool), queued: make(map[string]bool)}
+	ownerCtx, ownerCancel := context.WithCancel(context.Background())
+	owner := &Owner{root: root, dir: dir, executable: executable, lock: f, cancel: ownerCancel, runCtx: ownerCtx, runTimeout: 10 * time.Minute, listeners: make(map[string]map[chan struct{}]bool), queued: make(map[string]bool)}
 	paths, err := filepath.Glob(filepath.Join(dir, "*.json"))
 	if err != nil {
 		f.Close()
@@ -159,7 +163,11 @@ func Open(root, dir, executable string) (*Owner, error) {
 func (o *Owner) Close() error {
 	o.mu.Lock()
 	o.closed = true
+	cancel := o.cancel
 	o.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 	o.workers.Wait()
 	o.mu.Lock()
 	mediator := o.stopManagedCompile()
@@ -167,6 +175,21 @@ func (o *Owner) Close() error {
 	waitManagedCompileIdle(mediator)
 	return o.lock.Close()
 }
+
+func (o *Owner) runContext() context.Context {
+	if o.runCtx != nil {
+		return o.runCtx
+	}
+	return context.Background()
+}
+
+func (o *Owner) runTimeoutOrDefault() time.Duration {
+	if o.runTimeout > 0 {
+		return o.runTimeout
+	}
+	return 10 * time.Minute
+}
+
 func (o *Owner) path(id string) string { return filepath.Join(o.dir, id+".json") }
 func (o *Owner) read(id string) (Receipt, error) {
 	var r Receipt
@@ -411,8 +434,17 @@ func (o *Owner) run(r Receipt) error {
 	if saved.Provider == "docker" {
 		return o.runDocker(saved, workspace)
 	}
-	cmd := exec.Command(o.executable, jobArguments(saved.Kind, saved.Seed, saved.Generations, saved.Population)...)
+	runCtx, runCancel := context.WithTimeout(o.runContext(), o.runTimeoutOrDefault())
+	defer runCancel()
+	cmd := exec.CommandContext(runCtx, o.executable, jobArguments(saved.Kind, saved.Seed, saved.Generations, saved.Population)...)
 	cmd.Dir = workspace
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return nil
+		}
+		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
 	outputFile, outputErr := os.OpenFile(filepath.Join(o.dir, saved.ID+".output"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if outputErr != nil {
 		return outputErr
@@ -547,11 +579,13 @@ func (o *Owner) runDocker(saved Receipt, workspace string) error {
 	startCancel()
 	o.mu.Unlock()
 	if startErr == nil {
-		if err := provider.Follow(context.Background(), id, output); err != nil {
+		followCtx, followCancel := context.WithTimeout(o.runContext(), o.runTimeoutOrDefault())
+		if err := provider.Follow(followCtx, id, output); err != nil {
 			// Lost-attached logs are already surfaced as incomplete output
 			// via InspectStop; record loss here for operators watching logs.
 			log.Printf("level=error msg=job_follow_error job_id=%q error=%q", saved.ID, err.Error())
 		}
+		followCancel()
 	}
 	digest, outputErr := output.finish()
 	if outputErr != nil {
