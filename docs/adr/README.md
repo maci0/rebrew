@@ -32,7 +32,7 @@ itself, and the consequences (including trade-offs accepted).
 | 005 | Toolchain detection: backend order + NE marker family + linker fallback |
 | 006 | Standardized toolchain invocation (docker-first, host fallback) *(amended by 007, 008, 011, 016)* |
 | 007 | Complete containerization + unified byte-reproducibility gate *(amended by 011, 016)* |
-| 008 | Docker-only toolchain execution (no host wine/dosbox) *(amended by 016)* |
+| 008 | Docker-only toolchain execution (no host wine/dosbox) *(amended by 016, 032)* |
 | 009 | Cross-target function import (`rebrew cross-import`) *(amended by 022, 024)* |
 | 010 | Shared multi-version sources (`src/shared` + per-target defines) |
 | 011 | Toolchain build source moves to the sibling recompile-toolchains checkout |

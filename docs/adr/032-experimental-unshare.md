@@ -1,6 +1,6 @@
 # ADR-032: Explicit local execution and experimental rootless namespaces
 
-- **Status**: Accepted
+- **Status**: Accepted. Amends [ADR-008](008-docker-only-execution.md) (adds Podman/unshare backends beside Docker; no-host-fallback stands).
 - **Date**: 2026-10
 
 ## Context

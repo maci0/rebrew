@@ -96,8 +96,8 @@ you what to attack next.
 ### `rebrew test`
 
 - Compiles a single `.c` (or every `.c` with `--all`) with the target's
-  configured compiler profile (default `msvc-6.0`) via its docker image
-  (execution is docker-only, ADR-008 and ADR-016), extracts the named COFF
+  configured compiler profile (default `msvc-6.0`) via its image
+  (Docker default; Podman/unshare via ADR-032), extracts the named COFF
   symbol, and byte-compares against the target.
 - Resolves symbol and declaration from C/metadata bindings; VA, STATUS, SIZE,
   and CFLAGS come from dedicated metadata/configuration.

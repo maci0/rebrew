@@ -301,9 +301,10 @@ rebrew build round-trip [OPTIONS]
   (`.rebrew/verify_baseline.toml`, with target/compiler/binary identity
   guards; first run warns + skips); branching workflows may need
   per-branch artifacts (left to CI to manage).
-- `status` percentages are computed from `function_structure.json` if
-  available, else from the function list. With neither, the denominator is
-  zero and every percentage reports `0.0` (headline `0/0 functions (0%)`).
+- `status` percentages are computed from the catalog inventory (function rows
+  plus Ghidra/discovery entries) and the virtual `.text` size; with neither,
+  the denominator is zero and every percentage reports `0.0` (headline
+  `0/0 functions (0%)`).
 - `graph` direct call edges rely on identifier matching; macros and inline
   assembly are not resolved. (Partially fixed: function-pointer targets are
   now recoverable via `--include-dispatch` dispatch-table scanning of the

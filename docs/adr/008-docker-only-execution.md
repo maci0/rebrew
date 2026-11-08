@@ -3,7 +3,10 @@
 - **Status**: Amended by [ADR-016](016-image-backed-native-profiles.md)
   (the remaining native-Linux exceptions named below (`mingw-16.2.0`,
   `watcom-2.0-win16`) are image-backed now; every shipped profile runs
-  through its docker image). Amends [ADR-006](006-toolchain-standardization.md).
+  through its docker image) and [ADR-032](032-experimental-unshare.md)
+  (the `execution_backend` selector adds Podman and the experimental
+  unshare backend beside Docker; the no-host-fallback decision stands).
+  Amends [ADR-006](006-toolchain-standardization.md).
 - **Date**: 2026-08
 
 ## Context

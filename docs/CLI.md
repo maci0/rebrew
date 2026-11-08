@@ -5646,8 +5646,9 @@ Exit 1 means drift, invalid manifest or patch failure; missing files or tools ex
 
 `rebrew toolchain [OPTIONS] COMMAND [ARGS]…`
 
-Standardized toolchain management: docker-only for every shipped profile
-(one image per toolchain-version, uniform `docker run <image> <compiler> <args>`; a
+Standardized toolchain management: image-backed for every shipped profile
+(Docker default; Podman or experimental unshare via `compiler.execution_backend`,
+ADR-032; one image per toolchain-version; a
 plugin toolchain registered without an `image` may still run as a
 host binary).  See [TOOLCHAIN.md](TOOLCHAIN.md) for the full model.
 
@@ -5681,7 +5682,8 @@ List known toolchains and how each is invoked.
 
 Show how one toolchain resolves (image built? vendored tree present?).
 
-Execution is Docker-only for every shipped toolchain, so the image
+Execution is image-backed for every shipped toolchain (Docker default;
+Podman or experimental unshare via `compiler.execution_backend`), so the image
 state is the primary signal; the vendored tree is informational (it is
 the byte-identical source the image builds from).
 

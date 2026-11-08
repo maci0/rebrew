@@ -19,10 +19,11 @@ users repeatedly fail during their first hour because:
 - They have multiple binaries (DLL + EXE) and the relationship between "target",
   "binary", and "module" is unclear.
 - The period-correct toolchain is a docker image: every Windows/DOS compiler
-  executes docker-only (wine runs inside the image; there is no host wine/wibo
-  fallback), and a missing image, a profile that contradicts the detected
-  compiler family, or wrong flags surface deep inside a compile far from the
-  cause.
+  executes image-backed (Docker by default; Podman or experimental unshare via
+  `compiler.execution_backend`, ADR-032; wine runs inside the image; there is
+  no host wine/wibo fallback), and a missing image, a profile that contradicts
+  the detected compiler family, or wrong flags surface deep inside a compile
+  far from the cause.
 - TOML edits get clobbered (formatting, comments, indentation) when scripted.
 
 Project Onboarding solves all of this with `rebrew init`, `rebrew intake`
@@ -52,8 +53,9 @@ commands that round-trip TOML.
 - Doctor command that validates:
   - The configuration file parses.
   - The target binary exists, loads, and has a known format/arch.
-  - The compiler is ready: the profile's docker image is built (execution is
-    docker-only for every shipped profile per ADR-008 and ADR-016; native
+  - The compiler is ready: the profile's image is built (execution is
+    image-backed for every shipped profile per ADR-008, ADR-016 and ADR-032;
+    Docker is the default backend, Podman/unshare are opt-in; native
     binaries run only for image-less plugin toolchains).
   - Include and lib paths exist (docker-backed profiles get them from the image).
   - The function list (`function_structure.json` / Ghidra JSON) is parseable.
@@ -71,7 +73,7 @@ commands that round-trip TOML.
   into `original/<filename>` themselves.
 - `rebrew init` does not download or build the toolchain. Every shipped
   compiler profile (`msvc-*`, `borland-*`, `watcom-*`, `delphi-1.0`, `ido-*`,
-  `gcc-*`, `clang-*`, `mingw-*`) runs docker-only: build or pull the image
+  `gcc-*`, `clang-*`, `mingw-*`) runs image-backed: build or pull the image
   with `rebrew toolchain build <name>` / `rebrew toolchain pull <name>`.
   Only a plugin/overlay toolchain registered without an `image` may exec a
   host PATH/vendored binary. The legacy `--install-wibo` host runner is
@@ -140,7 +142,8 @@ commands that round-trip TOML.
 - Exits non-zero on any failure (CI gate).
 - `--json` mode emits the full check list with per-check `status` + `message`.
 - Host runner installation is a separate `rebrew toolchain install-wibo`
-  operation. Shipped profiles remain Docker-only.
+  operation. Shipped profiles remain image-backed (Docker default; Podman or
+  experimental unshare via `compiler.execution_backend`).
 
 ### `rebrew cfg`
 
