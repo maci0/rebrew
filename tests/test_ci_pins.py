@@ -617,17 +617,34 @@ class TestCiPins:
         assert "vnu.linux.zip" not in ci
 
     def test_go_release_cache_restores_before_install(self) -> None:
-        """The pinned-Go cache must restore before the install that reads it.
+        """The pinned-Go cache must look up before the install that reads it.
 
         ``actions/cache`` restores in step order: a cache step after the
         install step can only save, never hit, so the install always
-        downloads the ~65 MB tarball. The install's own comment states the
-        restore must precede it.
+        downloads the ~65 MB tarball. The cache step is ``lookup-only`` so a
+        poisoned entry can never be restored as the toolchain; the install
+        always downloads and SHA-256-verifies the pinned tarball. A warm
+        cache therefore only records the key was seen before - see the
+        poisoning rationale on the step itself.
         """
         ci = CI_YML.read_text(encoding="utf-8")
         assert ci.index("- name: Cache the pinned Go release") < ci.index(
             "- name: Install the pinned Go release"
         )
+        cache = ci.split("- name: Cache the pinned Go release", 1)[1].split(
+            "- name: Install the pinned Go release", 1
+        )[0]
+        assert "lookup-only: true" in cache
+        install = ci.split("- name: Install the pinned Go release", 1)[1].split(
+            "- name:", 1
+        )[0]
+        assert "sha256sum -c -" in install
+        assert install.index("sha256sum -c -") < install.index("tar -xzf")
+        # The install must not trust a pre-existing tree: it removes the
+        # directory before extracting, so a restored tree can never run
+        # unverified.
+        assert 'rm -rf -- "$go_root"' in install
+        assert install.index('rm -rf -- "$go_root"') < install.index("tar -xzf")
 
     def test_vnu_install_helper_pins_and_verifies(self) -> None:
         """The validator archive is verified before it can run the gate.

@@ -69,21 +69,28 @@ jobs:
         with:
           path: ${{ runner.temp }}/jobs-go
           key: go-release-${{ runner.os }}-${{ env.GO_VERSION }}-${{ env.GO_SHA256 }}
+          # The release install below re-verifies the tarball by SHA-256; the
+          # cache is a warm-tree fast path, never a trust boundary.  A poisoned
+          # cache entry (write access to the scope) that wins the race would
+          # otherwise serve a tampered toolchain without ever re-checking it.
+          # lookup-only restores nothing; the install step always runs the
+          # pinned download, and the save below is the only write.
+          lookup-only: true
       - name: Install the pinned Go release
-        # The tarball (~65 MB) is pinned by sha256; cache the installed tree
-        # under RUNNER_TEMP (keyed on version+digest) so a warm cache skips
-        # both the download and the extract.  The cache key names GO_VERSION
-        # and GO_SHA256, so a pin bump misses and the SHA is re-verified.
-        # RUNNER_TEMP is per-job, so the cache restore must precede the
-        # install and the save must follow it; actions/cache does both.
+        # The tarball (~65 MB) is pinned by sha256; the cache step above is
+        # lookup-only, so this step always downloads and re-verifies it.
+        # The cache key names GO_VERSION and GO_SHA256, so a pin bump misses
+        # and the SHA is re-verified.  RUNNER_TEMP is per-job, so the
+        # lookup-only check precedes the install and the save follows it.
         run: |
           set -euo pipefail
           go_root="$RUNNER_TEMP/jobs-go"
-          if [[ -x "$go_root/go/bin/go" ]]; then
-            "$go_root/go/bin/go" version
-            echo "$go_root/go/bin" >> "$GITHUB_PATH"
-            exit 0
-          fi
+          # Never trust a restored tree: a cache hit could be a poisoned entry
+          # written by anyone with cache write scope.  The lookup-only cache
+          # step above restores nothing, so this dir is fresh unless a
+          # previous step in this job wrote it; remove it defensively so a
+          # future restore cannot serve a tampered toolchain unverified.
+          rm -rf -- "$go_root"
           curl --proto '=https' --tlsv1.2 -fsSL --retry 2 -o "$RUNNER_TEMP/go.tar.gz" \
             "https://go.dev/dl/go$GO_VERSION.linux-amd64.tar.gz"
           echo "$GO_SHA256  $RUNNER_TEMP/go.tar.gz" | sha256sum -c -
