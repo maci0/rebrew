@@ -276,9 +276,9 @@ plugin cache backends or remove the open upstream diskcache advisory.
   `src/rebrew/wibo.py`, declared-length and buffered-body checked before
   `json` parsing), and the toolchain media at 2 GiB
   (`_MAX_PINNED_DOWNLOAD_BYTES` in `src/rebrew/toolchain_cli.py`), and the
-  commit lookup reply at 1 MiB (`_MAX_LIVE_SHA_BYTES` in
-  `src/rebrew/toolchain_cli.py`, declared-length and buffered-body checked
-  before parsing).
+  GitHub commit lookup reply (`_live_commit_sha`) at 1 MiB
+  (`_MAX_LIVE_SHA_BYTES` in `src/rebrew/toolchain_cli.py`,
+  declared-length and buffered-body checked before `json` parsing).
 - No claim that the ops worker's presigned-URL download is SSRF-proof.
   `_download` in `src/rebrew/ops.py` refuses a `url` host that resolves to a
   non-public address: `_check_download_host` resolves the hostname and
