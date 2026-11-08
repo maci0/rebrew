@@ -391,6 +391,38 @@ cells = []
             "- function_stats for 'cap': covered_bytes is 64, past the 32-byte .text; capping",
         ]
 
+    def test_summary_no_text_section_is_zero_percent_not_hundred(
+        self, tmp_path: Path
+    ) -> None:
+        """Matched bytes with no ``.text`` size are 0%, not total.
+
+        ``total_bytes`` is 0 when the document records no ``.text`` section:
+        there is no denominator in which the matched bytes fill the program,
+        so the ratio is floor_pct's no-denominator answer (0.0) rather than
+        ``matched/matched`` = 100%.  The previous fallback substituted the
+        count for its own denominator, so a document with functions but no
+        ``.text`` row reported a complete binary.
+        """
+        db_dir = tmp_path / "db"
+        _write_document(
+            db_dir,
+            "cap",
+            """
+[[functions]]
+va = 4096
+name = "func_big"
+status = "EXACT"
+markerType = "FUNCTION"
+size = 64
+""",
+        )
+        dashboard = Dashboard(db_dir, snapshots=True)
+        summary = dashboard._summary_lookup("cap")
+        assert summary is not None
+        assert summary["function_stats"]["total_bytes"] == 0
+        assert summary["coverage_pct"] == 0.0
+        assert summary["identified_pct"] == 0.0
+
     def test_functions_all(self, dashboard: Dashboard) -> None:
         data = dashboard.functions("server_dll")
         assert data["total"] == 2

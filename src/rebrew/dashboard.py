@@ -2172,9 +2172,13 @@ class Dashboard:
         return {
             "target": target,
             "function_stats": stats,
-            "coverage_pct": floor_pct(min(matched_b, total_b) if total_b else matched_b, total_b),
+            # 0.0 when there is no .text size to divide by (floor_pct's own
+            # "no denominator" answer): matched bytes with no section are
+            # not 100% coverage, so substituting the count for the
+            # denominator there would read a missing section as complete.
+            "coverage_pct": floor_pct(min(matched_b, total_b) if total_b else 0, total_b),
             "identified_pct": floor_pct(
-                min(identified_b, total_b) if total_b else identified_b, total_b
+                min(identified_b, total_b) if total_b else 0, total_b
             ),
         }
 

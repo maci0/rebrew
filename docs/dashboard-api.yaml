@@ -988,10 +988,10 @@ components:
           additionalProperties: true
         coverage_pct:
           type: number
-          description: Byte-matched bytes (`EXACT`/`RELOC`) over total bytes, floored.
+          description: Byte-matched bytes (`EXACT`/`RELOC`) over total bytes, floored. 0.0 when total is 0.
         identified_pct:
           type: number
-          description: Identified bytes, stubs included, over total bytes, floored.
+          description: Identified bytes, stubs included, over total bytes, floored. 0.0 when total is 0.
 
     Functions:
       allOf:
