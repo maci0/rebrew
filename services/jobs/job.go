@@ -17,7 +17,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -129,7 +128,7 @@ func Open(root, dir, executable string) (*Owner, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if err = tryLockOwner(f); err != nil {
 		f.Close()
 		return nil, err
 	}
@@ -438,13 +437,7 @@ func (o *Owner) run(r Receipt) error {
 	defer runCancel()
 	cmd := exec.CommandContext(runCtx, o.executable, jobArguments(saved.Kind, saved.Seed, saved.Generations, saved.Population)...)
 	cmd.Dir = workspace
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error {
-		if cmd.Process == nil {
-			return nil
-		}
-		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-	}
+	configureJobProcess(cmd)
 	outputFile, outputErr := os.OpenFile(filepath.Join(o.dir, saved.ID+".output"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if outputErr != nil {
 		return outputErr
