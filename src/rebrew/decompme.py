@@ -330,7 +330,9 @@ def _never_delivered(exc: BaseException) -> bool:
     """
     import httpx
 
-    return isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout))
+    return isinstance(
+        exc, (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout, httpx.ProxyError)
+    )
 
 
 def _post_scratch(
