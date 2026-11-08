@@ -1120,7 +1120,7 @@ class TestChromeTokens:
         from rebrew.report import _CSS
 
         assert (
-            "td summary { cursor: pointer; padding: 0.25rem 0; min-height: 1.5rem; display: flex;"
+            "td summary { cursor: pointer; padding: 0.35rem 0; min-height: 2.75rem; display: flex;"
             in (_CSS)
         )
 
