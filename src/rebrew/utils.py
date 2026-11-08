@@ -143,7 +143,7 @@ def portable_path_parts(path: str) -> tuple[str, ...]:
         if (
             part in ("", ".", "..")
             or part.endswith((" ", "."))
-            or any(ord(c) < 32 or ord(c) == 127 for c in part)
+            or any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in part)
             or not _WINDOWS_FORBIDDEN_NAME_CHARS.isdisjoint(part)
             or part.partition(".")[0].upper() in RESERVED_WINDOWS_STEMS
         ):

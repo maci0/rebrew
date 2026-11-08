@@ -31,6 +31,7 @@ from rebrew.utils import (
     load_tomllib,
     merged_span_bytes,
     path_is_relative_to,
+    portable_path_parts,
     preset_module_key,
     read_compile_source,
     read_source_text,
@@ -2132,6 +2133,16 @@ class TestPathIsRelativeTo:
         monkeypatch.setattr(Path, "is_relative_to", refuse)
         for child, parent, answer in expected:
             assert path_is_relative_to(child, parent) is answer
+
+
+class TestPortablePathParts:
+    def test_c1_controls_are_not_portable(self) -> None:
+        # Doc: a part "carries no control character". C1 controls (U+0080-
+        # U+009F) are controls too, so a retained path carrying one must be
+        # rejected like C0/DEL already are.
+        for code in (0x80, 0x85, 0x9F):
+            assert portable_path_parts(f"src/b{chr(code)}c") == ()
+        assert portable_path_parts("src/b\xa0c") == ("src", "b\xa0c")
 
 
 class TestSourceMemoPreservedMtime:

@@ -1819,9 +1819,11 @@ def check_env_ops_token(raw: str) -> None:
 
 
 def check_env_ops_allowed_hosts(raw: str) -> None:
+    from rebrew.utils import fold_host
+
     for item in raw.split(","):
         item = item.strip()
-        if item and not re.fullmatch(r"[a-z0-9][a-z0-9.-]*(?::[0-9]{1,5})?", item):
+        if item and not re.fullmatch(r"[a-z0-9][a-z0-9.-]*(?::[0-9]{1,5})?", fold_host(item)):
             raise ConfigError(
                 "REBREW_OPS_ALLOWED_HOSTS must contain exact DNS names and optional ports"
             )

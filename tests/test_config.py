@@ -2828,6 +2828,11 @@ class TestEnvKnobValidators:
         assert not env_knob_errors({"REBREW_RECOMPILE_INSECURE_CLUSTER_HOST": "a.svc"})
         assert not env_knob_errors({"REBREW_OPS_TOKEN": "x" * 32})
         assert not env_knob_errors({"REBREW_OPS_ALLOWED_HOSTS": "example.com:8080"})
+        # serve folds hosts (casefold + IDNA via fold_host) before the same
+        # regex, so mixed-case and IDN names serve fine and must not be
+        # reported as config errors.
+        assert not env_knob_errors({"REBREW_OPS_ALLOWED_HOSTS": "EXAMPLE.COM"})
+        assert not env_knob_errors({"REBREW_OPS_ALLOWED_HOSTS": "MiXeD.Example.COM:8080"})
         assert not env_knob_errors({"REBREW_RECOMPILE_API_KEY": "abc123"})
         assert not env_knob_errors({"REBREW_RECOMPILE_URL": "http://localhost:8000"})
         assert not env_knob_errors({"REBREW_LLM_ENDPOINT": "https://example.com/v1"})
