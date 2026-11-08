@@ -197,19 +197,8 @@ def imphash_from_pairs(pairs: Iterable[tuple[str, str]]) -> str:
     return hashlib.md5(",".join(records).encode("utf-8"), usedforsecurity=False).hexdigest()
 
 
-def imphash(path: str | Path) -> str | None:
-    """Mandiant import hash of a PE, or ``None``.
-
-    Parses the import table directly (LIEF) instead of
-    :func:`rebrew.formats.import_table.parse_imports`, which drops ordinal imports:
-    every entry keeps its declaration order and ordinals become
-    ``dll.ord<N>``.  Returns ``None`` for a missing, non-PE, or import-less
-    binary.  Raises :class:`FingerprintError` for a PE that cannot be
-    parsed, rather than reporting it as import-less.
-    """
-    pe = _parse_pe_or_raise(Path(path))
-    if pe is None:
-        return None
+def _imphash_from_pe(pe: Any) -> str | None:
+    """Mandiant import hash from an already-parsed LIEF PE, or ``None``."""
     pairs: list[tuple[str, str]] = []
     for entry in pe.imports:
         dll = str(entry.name)
@@ -226,6 +215,22 @@ def imphash(path: str | Path) -> str | None:
     return imphash_from_pairs(pairs)
 
 
+def imphash(path: str | Path) -> str | None:
+    """Mandiant import hash of a PE, or ``None``.
+
+    Parses the import table directly (LIEF) instead of
+    :func:`rebrew.formats.import_table.parse_imports`, which drops ordinal imports:
+    every entry keeps its declaration order and ordinals become
+    ``dll.ord<N>``.  Returns ``None`` for a missing, non-PE, or import-less
+    binary.  Raises :class:`FingerprintError` for a PE that cannot be
+    parsed, rather than reporting it as import-less.
+    """
+    pe = _parse_pe_or_raise(Path(path))
+    if pe is None:
+        return None
+    return _imphash_from_pe(pe)
+
+
 def export_hash_from_pairs(pairs: Iterable[tuple[int, str]]) -> str:
     """SHA-256 over a PE export table's ``ordinal:name`` records.
 
@@ -240,20 +245,8 @@ def export_hash_from_pairs(pairs: Iterable[tuple[int, str]]) -> str:
     return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
 
 
-def export_hash(path: str | Path) -> str | None:
-    """SHA-256 over the PE export table of *path*, or ``None``.
-
-    ``None`` means the file is missing, is not a PE, or carries an export
-    directory LIEF reports but cannot expose; a readable PE without exports
-    hashes the empty string.  An ordinal-only export keeps its ordinal and an
-    empty name; a forwarded export keeps its record too, since the entry
-    identifies the export regardless of the address resolving in another
-    module.  Raises :class:`FingerprintError` for a PE that cannot be
-    parsed.
-    """
-    pe = _parse_pe_or_raise(Path(path))
-    if pe is None:
-        return None
+def _export_hash_from_pe(pe: Any) -> str | None:
+    """Export hash from an already-parsed LIEF PE, or ``None``."""
     try:
         table = pe.get_export()
     except AttributeError, TypeError, ValueError, RuntimeError:
@@ -273,6 +266,23 @@ def export_hash(path: str | Path) -> str | None:
         name = str(getattr(entry, "name", "") or "")
         pairs.append((ordinal, name))
     return export_hash_from_pairs(pairs)
+
+
+def export_hash(path: str | Path) -> str | None:
+    """SHA-256 over the PE export table of *path*, or ``None``.
+
+    ``None`` means the file is missing, is not a PE, or carries an export
+    directory LIEF reports but cannot expose; a readable PE without exports
+    hashes the empty string.  An ordinal-only export keeps its ordinal and an
+    empty name; a forwarded export keeps its record too, since the entry
+    identifies the export regardless of the address resolving in another
+    module.  Raises :class:`FingerprintError` for a PE that cannot be
+    parsed.
+    """
+    pe = _parse_pe_or_raise(Path(path))
+    if pe is None:
+        return None
+    return _export_hash_from_pe(pe)
 
 
 def rich_header_bytes_from_parts(key: int, entries: Iterable[tuple[int, int]]) -> bytes:
@@ -481,13 +491,16 @@ def fingerprint_bundle(path: str | Path) -> dict[str, object]:
     except OSError, ValueError:
         fmt, arch = None, None
 
+    # Parse the PE once for imphash + export_hash: the two public helpers
+    # each re-parse via LIEF, which re-reads the file from disk.
+    pe = _parse_pe_or_raise(p)
     bundle: dict[str, object] = {
         **file_hashes(p),
         "format": fmt,
         "arch": arch,
         "size": p.stat().st_size,
-        "imphash": imphash(p),
-        "export_hash": export_hash(p),
+        "imphash": None if pe is None else _imphash_from_pe(pe),
+        "export_hash": None if pe is None else _export_hash_from_pe(pe),
         "rich_header_hash": rich_header_hash(p),
         "section_entropies": section_entropies(p),
     }
