@@ -198,10 +198,13 @@ plugin cache backends or remove the open upstream diskcache advisory.
   [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) §5 covers separately.
 - No claim that `REBREW_CONTAINER_RUNTIME` is restricted to a container
   runtime rebrew trusts. `container_runtime` (`src/rebrew/utils.py`) rejects
-  characters outside `^[a-zA-Z0-9_\-\./]+$` and, for a value with no path
-  separator, any name outside `docker` / `podman` / `nerdctl`. That is a typo
-  guard: a value containing `/` is spawned as a path to the binary, so the
-  knob remains a full redirection of every container run.
+  characters outside `^[a-zA-Z0-9_\-\./]+$`, any name outside
+  `docker` / `podman` / `nerdctl` when the value carries no path separator,
+  and any relative path (a value containing `/` must start with `/`, so
+  `./evil` resolving against the project cwd is refused). That is a typo
+  guard: an absolute path is spawned as the binary, so
+  `REBREW_CONTAINER_RUNTIME=/tmp/evil` remains a full redirection of every
+  container run.
 - No claim that the project tree cannot redirect outbound traffic. A
   project's `[compiler] recompile_url` applies unless `REBREW_RECOMPILE_URL`
   is set, and its `[llm] endpoint` overrides `REBREW_LLM_ENDPOINT`, so a
@@ -227,7 +230,10 @@ plugin cache backends or remove the open upstream diskcache advisory.
   COFF parser, or host `objconv` on an OMF profile). It is not published into
   the compile cache: the service response has no image id, so a later run
   compiles again instead of replaying those bytes (`_cache_key_for` in
-  `src/rebrew/compiler/compile.py`). The response body has no size cap. The compile
+  `src/rebrew/compiler/compile.py`). The artifact body is capped at 30 MiB
+  (`_MAX_ARTIFACT_BYTES` in `src/rebrew/compiler/recompile_client.py`,
+  declared-length and buffered-length checked before the object is written to
+  disk and parsed). The compile
   cache `size_limit` still bounds locally compiled objects only, and that
   limit is project-supplied: the 500 MiB default (`_DEFAULT_SIZE_LIMIT` in
   `src/rebrew/compiler/cache.py`) is replaced by `[cache] size_limit_mib` from
@@ -261,10 +267,12 @@ plugin cache backends or remove the open upstream diskcache advisory.
   (trace/span ids, op names, status codes — no source or credentials) in
   cleartext, and the endpoint is operator env, not project configuration.
   The wibo asset is capped at
-  64 MiB (`_MAX_WIBO_DOWNLOAD_BYTES` in `src/rebrew/wibo.py`) and the
-  toolchain media at 2 GiB (`_MAX_PINNED_DOWNLOAD_BYTES` in
-  `src/rebrew/toolchain_cli.py`); the release-metadata JSON and the commit
-  lookup reply are not capped.
+  64 MiB (`_MAX_WIBO_DOWNLOAD_BYTES` in `src/rebrew/wibo.py`), the
+  release-metadata JSON at 1 MiB (`_MAX_WIBO_METADATA_BYTES` in
+  `src/rebrew/wibo.py`, declared-length and buffered-body checked before
+  `json` parsing), and the toolchain media at 2 GiB
+  (`_MAX_PINNED_DOWNLOAD_BYTES` in `src/rebrew/toolchain_cli.py`); the
+  commit lookup reply is not capped.
 - No claim that the ops worker's presigned-URL download is SSRF-proof.
   `_download` in `src/rebrew/ops.py` refuses a `url` host that resolves to a
   non-public address: `_check_download_host` resolves the hostname and
