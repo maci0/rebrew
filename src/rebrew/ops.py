@@ -958,6 +958,33 @@ def stored_file(config: WorkerConfig, key: str, sha256: str) -> Path:
     return path
 
 
+def _check_download_host(hostname: str) -> None:
+    """Refuse a presigned-URL host that resolves to a non-public address.
+
+    A bearer holder must not turn the worker into an SSRF probe of the
+    loopback/private network: an IP literal is checked directly, and a DNS
+    name is resolved and every address refused when it is not globally
+    routable.  A resolution failure is refused rather than attempted.
+    """
+    import ipaddress
+    import socket as _socket
+
+    try:
+        infos = _socket.getaddrinfo(hostname, 443, type=_socket.SOCK_STREAM)
+    except OSError:
+        raise _invalid("url host cannot be resolved") from None
+    if not infos:
+        raise _invalid("url host cannot be resolved")
+    for info in infos:
+        address = info[4][0]
+        try:
+            ip = ipaddress.ip_address(address)
+        except ValueError:
+            raise _invalid("url host cannot be resolved") from None
+        if not ip.is_global:
+            raise _invalid("url host must be a public address")
+
+
 def _download(config: WorkerConfig, url: str, wanted: str, into: Path) -> None:
     """Write the body of a GET of the presigned HTTPS *url* to *into*.
 
@@ -968,6 +995,8 @@ def _download(config: WorkerConfig, url: str, wanted: str, into: Path) -> None:
     parts = urlsplit(url)
     if parts.scheme != "https" or not parts.hostname:
         raise _invalid("url must be an https URL")
+    if not os.environ.get("REBREW_OPS_ALLOW_PRIVATE_DOWNLOAD"):
+        _check_download_host(parts.hostname)
     limit = config.max_download_bytes
     digest = hashlib.sha256()
     received = 0

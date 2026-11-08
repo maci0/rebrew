@@ -561,6 +561,7 @@ def https_origin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _OriginHandler)
     server.socket = context.wrap_socket(server.socket, server_side=True)
     monkeypatch.setenv("SSL_CERT_FILE", str(cert))
+    monkeypatch.setenv("REBREW_OPS_ALLOW_PRIVATE_DOWNLOAD", "1")
     monkeypatch.setenv("NO_PROXY", "127.0.0.1")
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
