@@ -74,9 +74,9 @@ def apply_xtensa_relocation(
         raise NotImplementedError(f"unsupported Xtensa relocation type {kind}")
     word = int.from_bytes(buf[offset : offset + 3], "little")
     pc = section_va + offset
-    if word & 15 == 1:  # L32R: aligned PC plus an implicit negative 18-bit offset.
+    if word & 15 == 1:  # L32R: aligned PC plus a signed 16-bit word offset.
         displacement = destination - ((pc + 3) & ~3)
-        if displacement % 4 or not -262144 <= displacement <= -4:
+        if displacement % 4 or not -131072 <= displacement <= -4:
             raise ValueError("Xtensa L32R destination is unaligned or out of range")
         word = (word & 255) | ((displacement // 4) & 65535) << 8
     elif word & 15 == 5:  # CALL0/4/8/12 share the 18-bit word displacement.

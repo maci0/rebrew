@@ -666,9 +666,9 @@ def json_print(data: dict[str, Any] | list[Any]) -> None:
     if isinstance(data, list):
         data = {"items": data, "total": len(data)}
     if sys.stdout.isatty():
-        text = json.dumps(data, indent=2)
+        text = json.dumps(data, indent=2, allow_nan=False)
     else:
-        text = json.dumps(data, separators=(",", ":"))
+        text = json.dumps(data, separators=(",", ":"), allow_nan=False)
     print(text)
 
 
