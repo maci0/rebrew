@@ -157,6 +157,9 @@ _PARSED_MEMBERS: OrderedDict[tuple[Path, tuple[int, int, int, int]], dict[str, A
 _PARSED_MEMBERS_LOCK = threading.Lock()
 
 
+_PARSED_MEMBERS_MAX = 8
+
+
 def _parsed_member(path: Path, fingerprint: tuple[int, int, int, int]) -> dict[str, Any]:
     """Reuse parsed input; callers receive copies and still run every validator."""
     key = (path, fingerprint)
@@ -166,9 +169,20 @@ def _parsed_member(path: Path, fingerprint: tuple[int, int, int, int]) -> dict[s
             return _PARSED_MEMBERS[key]
     document = load_tomllib(path)
     with _PARSED_MEMBERS_LOCK:
+        # Re-check: a peer may have stored the same fingerprint while this
+        # thread parsed, and a writer may have stored a newer fingerprint.
+        # Keep only the newest fingerprint per path, so an edit that lands
+        # in the same stat tick cannot leave a stale parse as the served
+        # entry, and older fingerprints do not accumulate.
+        existing = _PARSED_MEMBERS.get(key)
+        if existing is not None:
+            _PARSED_MEMBERS.move_to_end(key)
+            return existing
+        for old in [k for k in _PARSED_MEMBERS if k[0] == path]:
+            del _PARSED_MEMBERS[old]
         _PARSED_MEMBERS[key] = document
         _PARSED_MEMBERS.move_to_end(key)
-        while len(_PARSED_MEMBERS) > 8:
+        while len(_PARSED_MEMBERS) > _PARSED_MEMBERS_MAX:
             _PARSED_MEMBERS.popitem(last=False)
     return document
 
