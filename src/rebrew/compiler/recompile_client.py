@@ -45,6 +45,15 @@ _MAX_FLAGS = 64
 #: Single-flag length cap mirrored from the service (``_MAX_FLAG_LEN``).
 _MAX_FLAG_LEN = 256
 
+#: Hard cap on a recompile artifact body. The response is fully buffered
+#: in memory (``art.content``) before it is written to disk and parsed,
+#: so without a cap a compromised/mitm'd recompile service (or a
+#: misconfigured one) could force an OOM by returning an oversized
+#: ``.obj``. A single-function COFF object is at most a few MiB for
+#: MSVC/Watcom/DOS toolchains; 30 MiB is generous headroom while bounding
+#: the allocation.
+_MAX_ARTIFACT_BYTES = 30 * 1024**2
+
 #: How a :class:`RecompileError` arose — callers branch on this instead of
 #: matching message substrings.
 RecompileErrorKind = Literal[
@@ -304,11 +313,30 @@ def _download_artifact(
                 status_code=art.status_code,
                 retryable=art.status_code in RETRYABLE_HTTP_STATUS,
             )
+        # Bound the buffered artifact before it is handed to the caller
+        # (who writes it to disk and parses it). Both the declared
+        # Content-Length and the actual buffered length are checked.
+        declared = ""
+        try:
+            declared = str(art.headers.get("content-length", "") or "").strip()
+        except (AttributeError, TypeError):
+            declared = ""
+        if declared.isdigit() and int(declared) > _MAX_ARTIFACT_BYTES:
+            raise RecompileError(
+                f"recompile artifact exceeds {_MAX_ARTIFACT_BYTES} bytes",
+                kind="protocol",
+            )
+        obj_bytes = art.content
+        if len(obj_bytes) > _MAX_ARTIFACT_BYTES:
+            raise RecompileError(
+                f"recompile artifact exceeds {_MAX_ARTIFACT_BYTES} bytes",
+                kind="protocol",
+            )
         version = body.get("compiler_version") or None
         execution = body.get("execution")
         return RecompileResult(
             ok=True,
-            obj_bytes=art.content,
+            obj_bytes=obj_bytes,
             log=str(body.get("log", "")),
             compiler_version=str(version) if version else None,
             execution=execution if isinstance(execution, dict) else None,

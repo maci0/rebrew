@@ -74,6 +74,12 @@ _NETWORK_TIMEOUT_S = 30  # Fail fast rather than hang indefinitely in CI/automat
 #: process before the digest ever runs (DoS).  A wibo binary is a few MiB.
 _MAX_WIBO_DOWNLOAD_BYTES = 64 * 1024**2
 
+#: Cap on the release metadata JSON body. ``resp.json()`` buffers the whole
+#: body before parsing, so a compromised/MITM'd ``api.github.com`` reply
+#: could OOM the process before any parsing runs. The metadata is a few
+#: KiB; 1 MiB is generous.
+_MAX_WIBO_METADATA_BYTES = 1024**2
+
 
 def _trusted_wibo_download_url(url: str) -> str:
     """Return *url* when it is an https GitHub release asset URL; else raise.
@@ -158,12 +164,35 @@ def _read_release_metadata() -> dict[str, Any]:
                 current = _trusted_wibo_metadata_url(urljoin(current, location))
                 continue
             resp.raise_for_status()
-            try:
-                data = resp.json()
-            except ValueError as exc:
+            declared = resp.headers.get("content-length", "")
+            if declared.isdigit() and int(declared) > _MAX_WIBO_METADATA_BYTES:
                 raise RuntimeError(
-                    f"Invalid JSON in wibo release metadata from {current!r}: {exc}"
-                ) from exc
+                    f"wibo release metadata exceeds {_MAX_WIBO_METADATA_BYTES} bytes"
+                )
+            # Prefer the already-buffered ``content`` when present (httpx
+            # replies and test doubles that supply it); fall back to
+            # ``json()`` for stand-ins that only implement ``json()``.
+            body = getattr(resp, "content", None)
+            if body is None:
+                try:
+                    data = resp.json()
+                except ValueError as exc:
+                    raise RuntimeError(
+                        f"Invalid JSON in wibo release metadata from {current!r}: {exc}"
+                    ) from exc
+            else:
+                if len(body) > _MAX_WIBO_METADATA_BYTES:
+                    raise RuntimeError(
+                        f"wibo release metadata exceeds {_MAX_WIBO_METADATA_BYTES} bytes"
+                    )
+                try:
+                    import json as _json
+
+                    data = _json.loads(body)
+                except ValueError as exc:
+                    raise RuntimeError(
+                        f"Invalid JSON in wibo release metadata from {current!r}: {exc}"
+                    ) from exc
         finally:
             close_response(resp)
         if not isinstance(data, dict):
