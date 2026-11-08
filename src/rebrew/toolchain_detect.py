@@ -49,6 +49,7 @@ Usage::
 
 from __future__ import annotations
 
+import bisect
 import json
 import logging
 import os
@@ -792,19 +793,29 @@ def _count_const_hoists(text: bytes) -> int:
     """
     n = 0
     reg_field = {0xBB: 3, 0xBD: 5, 0xBE: 6, 0xBF: 7}  # opcode -> 89 /r reg field
+    get_reg = reg_field.get
+    # Precompute 89 store sites once; each hoist candidate then bisects its
+    # 32-byte window instead of rescanning it (was O(n * window)).
+    store_sites: list[tuple[int, int]] = []
+    for j in range(len(text) - 1):
+        if text[j] == 0x89:
+            rm = text[j + 1]
+            if (rm >> 6) != 3:
+                store_sites.append((j, (rm >> 3) & 7))
+    if not store_sites:
+        return 0
+    site_pos = [p for p, _ in store_sites]
+    bisect_left = bisect.bisect_left
     for i in range(len(text) - 5):
-        op = text[i]
-        reg = reg_field.get(op)
+        reg = get_reg(text[i])
         if reg is None or text[i + 3] != 0 or text[i + 4] != 0:
             continue
-        # look ahead for a `mov [mem], reg` (89) using this same register
-        window = min(i + 5 + 32, len(text) - 1)
-        for j in range(i + 5, window):
-            if text[j] == 0x89:
-                rm = text[j + 1]
-                if (rm >> 6) != 3 and ((rm >> 3) & 7) == reg:
-                    n += 1
-                    break
+        lo = bisect_left(site_pos, i + 5)
+        hi = bisect_left(site_pos, i + 5 + 32)
+        for k in range(lo, hi):
+            if store_sites[k][1] == reg:
+                n += 1
+                break
     return n
 
 

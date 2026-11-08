@@ -139,6 +139,7 @@ def match_bytes(index: Index, data: bytes) -> list[tuple[str, str]]:
     fread/fwrite wrappers. A match alone does not settle their origin or name.
     """
     matches: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
     if len(data) < MIN_BYTES:
         return matches
     for sym, entries in index.items():
@@ -146,7 +147,8 @@ def match_bytes(index: Index, data: bytes) -> list[tuple[str, str]]:
             if len(body) < len(data):
                 continue
             if not relocs:
-                if body[: len(data)] == data and (sym, obj_name) not in matches:
+                if body[: len(data)] == data and (sym, obj_name) not in seen:
+                    seen.add((sym, obj_name))
                     matches.append((sym, obj_name))
                 continue
             # Only reloc offsets inside the compared window mask a byte here;
@@ -160,7 +162,8 @@ def match_bytes(index: Index, data: bytes) -> list[tuple[str, str]]:
             if fixed_count < MIN_FIXED_FRACTION * len(data):
                 continue  # a mostly-relocation table trivially matches anything
             candidate = (sym, obj_name)
-            if candidate not in matches:
+            if candidate not in seen:
+                seen.add(candidate)
                 matches.append(candidate)
     return matches
 
@@ -197,6 +200,7 @@ def match_leading_body(index: Index, data: bytes) -> list[tuple[str, str]]:
     """
     best_size = 0
     matches: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
     for sym, entries in index.items():
         for obj_name, body, relocs in entries:
             n = len(body)
@@ -214,8 +218,10 @@ def match_leading_body(index: Index, data: bytes) -> list[tuple[str, str]]:
                 if n > best_size:
                     best_size = n
                     matches.clear()
+                    seen.clear()
                 candidate = (sym, obj_name)
-                if candidate not in matches:
+                if candidate not in seen:
+                    seen.add(candidate)
                     matches.append(candidate)
     return matches
 
