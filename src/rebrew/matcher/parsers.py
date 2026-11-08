@@ -240,6 +240,8 @@ def _parse_coff(
     func_end = _next_symbol_end(sec_offsets, func_start, len(content))
 
     code = content[func_start:func_end].rstrip(_PADDING_STRIP)
+    if not code:
+        return None, None, []
     reloc_offsets, records = _collect_relocs(section.relocations, func_start, func_end)
     return code, reloc_offsets, records
 
@@ -572,6 +574,8 @@ def _parse_macho_symbol_bytes(
     func_end = _next_symbol_end(sec_offsets, func_start, len(content))
 
     code = content[func_start:func_end].rstrip(_PADDING_STRIP)
+    if not code:
+        return None, None
     reloc_offsets, _records = _collect_relocs(section.relocations, func_start, func_end)
     return code, reloc_offsets
 
