@@ -616,6 +616,19 @@ class TestCiPins:
         # workflow that would drift from the pin beside it.
         assert "vnu.linux.zip" not in ci
 
+    def test_go_release_cache_restores_before_install(self) -> None:
+        """The pinned-Go cache must restore before the install that reads it.
+
+        ``actions/cache`` restores in step order: a cache step after the
+        install step can only save, never hit, so the install always
+        downloads the ~65 MB tarball. The install's own comment states the
+        restore must precede it.
+        """
+        ci = CI_YML.read_text(encoding="utf-8")
+        assert ci.index("- name: Cache the pinned Go release") < ci.index(
+            "- name: Install the pinned Go release"
+        )
+
     def test_vnu_install_helper_pins_and_verifies(self) -> None:
         """The validator archive is verified before it can run the gate.
 

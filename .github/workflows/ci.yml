@@ -64,6 +64,11 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Cache the pinned Go release
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/jobs-go
+          key: go-release-${{ runner.os }}-${{ env.GO_VERSION }}-${{ env.GO_SHA256 }}
       - name: Install the pinned Go release
         # The tarball (~65 MB) is pinned by sha256; cache the installed tree
         # under RUNNER_TEMP (keyed on version+digest) so a warm cache skips
@@ -85,11 +90,6 @@ jobs:
           mkdir -p "$go_root"
           tar -xzf "$RUNNER_TEMP/go.tar.gz" -C "$go_root"
           echo "$go_root/go/bin" >> "$GITHUB_PATH"
-      - name: Cache the pinned Go release
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/jobs-go
-          key: go-release-${{ runner.os }}-${{ env.GO_VERSION }}-${{ env.GO_SHA256 }}
       - name: Cache Go build cache
         # The Go release install above is pinned by digest, but the build
         # cache under ~/.cache/go-build is not: a cold runner recompiles the
