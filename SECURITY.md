@@ -114,13 +114,14 @@ plugin cache backends or remove the open upstream diskcache advisory.
   runs share `docker_hardening_args()` in
   `src/rebrew/compiler/toolchain.py`: `--network=none` (no egress),
   `--cap-drop=ALL`, `--security-opt=no-new-privileges`,
-  `--pids-limit=256`, `--memory=2g`, `--cpus=2`, plus `--pull=never`
-  where the call site passes `pull=True` (the cmake bridge passes
-  `pull=False`). `--read-only` is deliberately absent: toolchain images
-  write a wineprefix under `/opt/wineprefix` and `$HOME` on every
-  compile. None of that implies escape resistance. The compile path
-  passes no `--user`, so the compiler runs as the image's default user;
-  it mounts the project root read-only but can read all of it. The cmake
+  `--pids-limit=256`, `--memory=2g`, `--cpus=2`, plus `--user uid:gid`
+  where the host exposes unix ids, plus `--pull=never` where the call
+  site passes `pull=True` (the cmake bridge passes `pull=False`).
+  `--read-only` is deliberately absent: toolchain images write a
+  wineprefix under `/opt/wineprefix` and `$HOME` on every compile. None
+  of that implies escape resistance. The compile path runs as the host
+  uid:gid where available (the image's default user otherwise); it
+  mounts the project root read-only but can read all of it. The cmake
   bridge mounts the project root and wineprefix read-write.
 - No claim that "docker-only" covers toolchains registered by an entry point
   or a `REBREW_TOOLCHAIN_OVERLAY_DIR` TOML file: a spec without `image` runs

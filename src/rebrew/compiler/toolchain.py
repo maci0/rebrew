@@ -1233,13 +1233,14 @@ def bind_mount(host: str | Path, container: str | Path, *, readonly: bool = Fals
 def docker_hardening_args(*, pull: bool = True) -> list[str]:
     """Shared ``docker run`` isolation flags for every compile-only container.
 
-    One place so a new ``docker run`` call cannot ship without the cap drop
-    and resource bounds the Go jobs service already enforces.  ``--read-only``
-    is deliberately absent: toolchain images write a wineprefix under
-    ``/opt/wineprefix`` and ``$HOME`` on every compile, and a read-only rootfs
-    would need a per-image tmpfs exception for each.  The writable surface is
-    the bind mounts (workdir, wineprefix, include trees); the cap drop and
-    ``no-new-privileges`` keep the rest of the image from escalating.
+    One place so a new ``docker run`` call cannot ship without the cap drop,
+    the non-root user, and resource bounds the Go jobs service already
+    enforces.  ``--read-only`` is deliberately absent: toolchain images
+    write a wineprefix under ``/opt/wineprefix`` and ``$HOME`` on every
+    compile, and a read-only rootfs would need a per-image tmpfs exception
+    for each.  The writable surface is the bind mounts (workdir, wineprefix,
+    include trees); the cap drop, ``no-new-privileges``, and the host
+    uid:gid keep the rest of the image from escalating.
     """
     args: list[str] = [
         "--network=none",
@@ -1249,6 +1250,10 @@ def docker_hardening_args(*, pull: bool = True) -> list[str]:
         "--memory=2g",
         "--cpus=2",
     ]
+    # Capability probe rather than an OS-name check: docker-desktop hosts
+    # without unix uid/gid just omit the flag and use the daemon default.
+    if hasattr(os, "getuid") and hasattr(os, "getgid"):
+        args += ["--user", f"{os.getuid()}:{os.getgid()}"]
     if pull:
         args.append("--pull=never")
     return args
