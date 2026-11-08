@@ -6,7 +6,7 @@ This file is hand-maintained for this repo. `src/rebrew/AGENTS.md.template` is t
 
 **Rebrew** is a compiler-in-the-loop decompilation workbench for binary-matching game reversing. Python package (`src/rebrew/`) with CLI tools to compile, compare, and match C source against target binary functions.
 
-Contributor install: `make setup` (`uv sync --locked --all-extras --group similarity`); needs sibling `../resembl` whose version is `RESEMBL_REF` and whose HEAD is `RESEMBL_SHA` (both in the `Makefile`; a moved tag fails the SHA check) and **nasm** and **bun** on `PATH` for the test suite (nasm for the asm round-trip tests, bun for the `tests/dashboard_*.mjs` interaction tests, vnu for the W3C validation of the two HTML surfaces, each skipping without it; the test job installs the last one through `tools/ci_install_vnu.sh`, so it never skips there). `make help` lists targets.
+Contributor install: `make setup` (`uv sync --locked --all-extras --group similarity`); needs sibling `../resembl` whose version is `RESEMBL_REF` and whose HEAD is `RESEMBL_SHA` (both in the `Makefile`; a moved tag fails the SHA check), JDK + Ant + cc/make (JPype sdist build for the binsync extra), and the Rust toolchain (cargo + rustc, for the python-flirt sdist build). The test suite also needs **nasm** and **bun** on `PATH` (nasm for the asm round-trip tests, bun for the `tests/dashboard_*.mjs` interaction tests, vnu for the W3C validation of the two HTML surfaces, each skipping without it; the test job installs the last one through `tools/ci_install_vnu.sh`, so it never skips there). `make help` lists targets.
 
 ## Never
 
@@ -39,9 +39,9 @@ Docker build source lives in the sibling **recompile-toolchains** checkout (`REB
 ## Build & Test Commands
 
 ```bash
-make doctor                               # report every missing prerequisite (uv, the pinned uv version, ../resembl, bash, nasm, bun, JDK/ant, go, patch, cc/pkg-config/json-c, shellcheck, yamllint, vnu, venv extras) and its fix
+make doctor                               # report every missing prerequisite (uv, the pinned uv version, ../resembl, bash, nasm, bun, JDK/ant, go, patch, rust (cargo+rustc), cc/pkg-config/json-c, shellcheck, yamllint, vnu, venv extras) and its fix
 make test-one T=tests/test_source_bindings.py  # edit-test loop; T takes a node id (::TestClass), FLAGS= takes any pytest flag
-make test                                 # full suite (needs nasm + bun + patch + the setup extras; vnu skips if absent)
+make test                                 # full suite (needs nasm + bun + cc/pkg-config/json-c + patch + the setup extras; vnu skips if absent)
 make lint / make format / make mypy
 make gen-fixtures                         # regenerate tests/fixtures/ after editing the generator
 make pr-check                             # before a PR: CI gates, pre-commit, build, sdist/wheel equality, wheel smoke, reproducible rebuild, dist provenance, SBOM
