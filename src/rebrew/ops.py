@@ -3391,9 +3391,18 @@ class _OpsHandler(BaseHTTPRequestHandler):
         self.send_header("X-Request-Id", self._request_id)
 
     @override
-    def send_error(self, code: int, message: str | None = None, explain: str | None = None) -> None:
-        # http.server's own errors (400/414/431/505/501) must not leak the
+    def send_error(  # (http.server API)
+        self, code: int, message: str | None = None, explain: str | None = None
+    ) -> None:
+        # http.server's own errors (400/414/431/505) must not leak the
         # stdlib HTML page or the request line; answer with the JSON envelope.
+        # 501 means a method with no do_* handler (e.g. TRACE): route it
+        # through _not_post so a known op answers 405 with Allow and an
+        # unknown path 404, matching the GET/HEAD path instead of a 501
+        # that no client of an ops endpoint can act on.
+        if code == 501 and self.command:  # NOT_IMPLEMENTED
+            self._not_post()
+            return
         logger.log(
             logging.ERROR if code >= 500 else logging.WARNING,
             "%s rejected %s: code %d",
@@ -3417,9 +3426,16 @@ class _OpsHandler(BaseHTTPRequestHandler):
         if self.command != "HEAD":
             self.wfile.write(body)
 
-    def _send(self, status: int, body: bytes, headers: Mapping[str, str] | None = None) -> None:
+    def _send(
+        self,
+        status: int,
+        body: bytes,
+        headers: Mapping[str, str] | None = None,
+        *,
+        content_type: str = "application/json",
+    ) -> None:
         self.send_response(status)
-        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
@@ -3466,6 +3482,17 @@ class _OpsHandler(BaseHTTPRequestHandler):
     def _post(self) -> None:
         server = typing.cast("OpsServer", self.server)
         if not self._check_host(server):
+            return
+        # /health and /metrics are GET/HEAD on this server: a POST is a
+        # wrong method for a served resource (405), not an unknown op (404).
+        # Other paths fall through to dispatch, which answers 404 for a name
+        # outside OPS.
+        if urlsplit(self.path).path in ("/health", "/metrics"):
+            self._send(
+                405,
+                error_body("method-not-allowed", "health and metrics are served with GET, HEAD", 405),
+                {"Allow": "GET, HEAD"},
+            )
             return
         given = self.headers.get("Authorization", "").encode("utf-8")
         if not hmac.compare_digest(given, f"Bearer {server.token}".encode()):
@@ -3579,11 +3606,25 @@ class _OpsHandler(BaseHTTPRequestHandler):
                 ),
             ]
             body = ("\n".join(lines) + "\n").encode("utf-8")
-            self._send(200, body, {"Content-Type": "text/plain; version=0.0.4; charset=utf-8"})
+            self._send(
+                200,
+                body,
+                content_type="text/plain; version=0.0.4; charset=utf-8",
+            )
             return
         # 404 before 405, like the dashboard: a path that names no op has no
         # resource to list methods for.  POST on the same unknown name
-        # already answers 404 unknown-op, so a non-POST must too.
+        # already answers 404 unknown-op, so a non-POST must too.  The
+        # /health and /metrics branches above already answered a non-GET/HEAD
+        # on those served resources, so a POST there never reaches here, and
+        # any other non-POST here is 405 only for a known op.
+        if path in ("/health", "/metrics"):
+            self._send(
+                405,
+                error_body("method-not-allowed", "health and metrics are served with GET, HEAD", 405),
+                {"Allow": "GET, HEAD"},
+            )
+            return
         name = path.removeprefix("/")
         if name not in OPS:
             self._refuse(UNKNOWN_OP, f"unknown op: {_bounded(name)}", 404)

@@ -1729,8 +1729,46 @@ class TestHttpTransport:
                 405,
                 "method-not-allowed",
             )
+            assert response.getheader("Allow") == "POST"
         finally:
             connection.close()
+
+    def test_unknown_method_is_refused_like_get(self, server: tuple[int, Path]) -> None:
+        """A method with no do_* handler (TRACE/FOO) is 405/404, not 501."""
+        port, _workspace = server
+        for method, path, status, allow in (
+            ("TRACE", "/rebrew.fingerprint", 405, "POST"),
+            ("FOO", "/rebrew.fingerprint", 405, "POST"),
+            ("TRACE", "/nope", 404, None),
+        ):
+            connection = http.client.HTTPConnection("127.0.0.1", port, timeout=WAIT_SECONDS)
+            try:
+                connection.request(method, path)
+                response = connection.getresponse()
+                response.read()
+                assert (response.status, response.getheader("Allow")) == (status, allow), (
+                    method,
+                    path,
+                )
+            finally:
+                connection.close()
+
+    def test_post_to_health_and_metrics_is_refused(self, server: tuple[int, Path]) -> None:
+        port, _workspace = server
+        auth = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
+        for path in ("/health", "/metrics"):
+            connection = http.client.HTTPConnection("127.0.0.1", port, timeout=WAIT_SECONDS)
+            try:
+                connection.request("POST", path, body=b"{}", headers=auth)
+                response = connection.getresponse()
+                body = json.loads(response.read())
+                assert (response.status, body["error"], response.getheader("Allow")) == (
+                    405,
+                    "method-not-allowed",
+                    "GET, HEAD",
+                )
+            finally:
+                connection.close()
 
     def test_health_and_metrics(self, server: tuple[int, Path]) -> None:
         port, _workspace = server
@@ -1755,6 +1793,7 @@ class TestHttpTransport:
             resp = conn.getresponse()
             text = resp.read().decode()
             assert resp.status == 200
+            assert resp.getheader("Content-Type") == "text/plain; version=0.0.4; charset=utf-8"
             assert "rebrew_ops_requests_total" in text
             assert "rebrew_ops_errors_total" in text
             assert "rebrew_ops_latency_ms_total" in text
