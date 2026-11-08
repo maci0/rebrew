@@ -95,6 +95,25 @@ class PgsqlStore:
             raise MetadataStorageError("PostgreSQL metadata operation failed") from None
 
     def _present(self, connection: Any) -> bool:
+        # Schema validation runs four catalog queries; cache the verdict per
+        # connection so every _row() does not re-validate. Within a
+        # transaction the advisory lock serializes DDL, so the verdict
+        # cannot go stale mid-transaction; outside one, a fresh connection
+        # re-validates. Keyed by connection id to avoid pinning objects.
+        cache: dict[int, bool] | None = getattr(connection, "_rebrew_present_cache", None)
+        if cache is None:
+            try:
+                connection._rebrew_present_cache = {}
+                cache = getattr(connection, "_rebrew_present_cache", None)
+            except (AttributeError, TypeError):
+                cache = {}
+        if id(connection) in cache:
+            return cache[id(connection)]
+        result = self._present_uncached(connection)
+        cache[id(connection)] = result
+        return result
+
+    def _present_uncached(self, connection: Any) -> bool:
         if connection.execute("SELECT to_regclass(%s)", (_TABLE,)).fetchone()[0] is None:
             return False
         columns = connection.execute(
