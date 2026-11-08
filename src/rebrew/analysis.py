@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import re
 import threading
+from bisect import bisect_right
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Protocol
@@ -393,8 +394,6 @@ def _inside_ranges(starts: list[int], ends: list[int], va: int) -> bool:
     """Whether *va* falls in the merged ranges (binary search)."""
     if va < 0:
         return False
-    from bisect import bisect_right
-
     index = bisect_right(starts, va) - 1
     return index >= 0 and va < ends[index]
 
