@@ -1,0 +1,6 @@
+# Rust toolchain pin for the python-flirt sdist build (`make setup` builds
+# python-flirt from source via maturin). Keep in step with RUST_VERSION in
+# the Makefile; `ensure-rust` warns on drift, like the uv/bun checks.
+[toolchain]
+channel = "1.99.1"
+components = []

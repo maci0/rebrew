@@ -63,6 +63,19 @@ GO_VERSION ?= 1.27.3
 # Match the CI bun pin (.github/workflows/ci.yml bun-version). Presence is
 # hard for `make test`, version drift only warns, like uv above.
 BUN_VERSION ?= 1.4.4
+# Rust toolchain pin for the python-flirt sdist build (README Development).
+# Keep in step with rust-toolchain.toml at the repo root; `ensure-rust`
+# warns (never hard-fails) on drift, like the uv/bun checks, so a newer
+# toolchain that still builds the sdist does not block `make setup`.
+RUST_VERSION ?= 1.99.1
+# Maturin pin for the same sdist build. python-flirt's own build backend
+# range is `maturin>=1.7.4` (uv.lock), so without this pin a fresh PyPI
+# maturin release could change the wheel the sdist build produces.
+MATURIN_VERSION ?= 1.15.0
+# JDK floor for the JPype sdist build (binsync extra). CI installs
+# `default-jdk` on ubuntu-24.04 (JDK 17+); the check warns below the floor
+# rather than hard-failing, mirroring the Rust/uv drift posture.
+JDK_VERSION ?= 21
 
 # Single-file / nodeid override for the edit-test loop:
 #   make test-one T=tests/test_annotation_roundtrip.py
@@ -323,7 +336,13 @@ ensure-jpype-build:
 	  echo "Install them, then re-run: e.g. apt install default-jdk ant build-essential / pacman -S jdk-openjdk ant make / dnf install java-21-openjdk-devel ant make"; \
 	  echo "Or sync without the binsync extra: make setup UV_SYNC_FLAGS='--locked --group similarity'"; \
 	  exit 1; \
-	fi
+	fi; \
+	jdk_ver=$$(javac -version 2>&1 | sed 's/^javac //;s/\..*//'); \
+	if [ -z "$$jdk_ver" ] || [ "$$jdk_ver" -lt "$(JDK_VERSION)" ]; then \
+	  echo "WARNING: javac $$jdk_ver is below the JPype build floor JDK_VERSION=$(JDK_VERSION) (CI installs default-jdk on ubuntu-24.04). JPype 1.7.1 usually still builds on older JDKs; upgrade when you can."; \
+	fi; \
+	jdk_full=$$(javac -version 2>&1); \
+	echo "JDK: $$jdk_full; Ant: $$(ant -version 2>&1 | head -n 1)"
 
 # Go jobs service (CI jobs-service job).  jobs-check used to check this
 # inline; as a named preflight `make doctor` can report it alongside the
@@ -352,18 +371,28 @@ ensure-patch:
 
 # python-flirt ships sdist-only in uv.lock (a direct URL tarball with no
 # wheels), so `make setup` builds it from source and needs a Rust toolchain
-# (qualified with Rust 1.99.1 and maturin 1.15.0 — README Development).
-# Without cargo the build fails inside the maturin invoke with an
-# unactionable error, so gate it here like the JPype build above.  Only
-# presence is checked, not the version: any newer Rust still builds it.
+# (qualified with Rust $(RUST_VERSION) and maturin $(MATURIN_VERSION) —
+# README Development).  Without cargo the build fails inside the maturin
+# invoke with an unactionable error, so gate it here like the JPype build
+# above.  Presence is hard; version drift only warns (like uv/bun), so a
+# newer toolchain that still builds the sdist does not block `make setup`.
 ensure-rust:
 	@set -eu; \
 	if ! command -v cargo >/dev/null 2>&1 || ! command -v rustc >/dev/null 2>&1; then \
 	  echo "ERROR: Rust toolchain (cargo + rustc) not on PATH (required to build python-flirt from sdist on `make setup`, same as README Development)."; \
 	  echo "python-flirt ships sdist-only in uv.lock, so uv sync compiles it with maturin and needs cargo."; \
-	  echo "Install it, then re-run: e.g. apt install cargo rustc / pacman -S rust / dnf install cargo rustc"; \
-	  echo "Qualified with Rust 1.99.1 (README Development)."; \
+	  echo "Install Rust $(RUST_VERSION) + maturin $(MATURIN_VERSION), then re-run: e.g. rustup toolchain install $(RUST_VERSION) / pacman -S rust"; \
 	  exit 1; \
+	fi; \
+	rust_ver=$$(rustc --version | awk '{print $$2}'); \
+	if [ "$$rust_ver" != "$(RUST_VERSION)" ]; then \
+	  echo "WARNING: rustc $$rust_ver differs from pin RUST_VERSION=$(RUST_VERSION) (rust-toolchain.toml). python-flirt usually still builds; upgrade when you can."; \
+	fi; \
+	if command -v maturin >/dev/null 2>&1; then \
+	  maturin_ver=$$(maturin --version | awk '{print $$2}'); \
+	  if [ "$$maturin_ver" != "$(MATURIN_VERSION)" ]; then \
+	    echo "WARNING: maturin $$maturin_ver differs from pin MATURIN_VERSION=$(MATURIN_VERSION). python-flirt usually still builds; upgrade when you can."; \
+	  fi; \
 	fi
 
 # tests/dashboard_*.mjs drive the dashboard's JS through a stub DOM; the
@@ -375,7 +404,7 @@ ensure-bun:
 	@set -eu; \
 	if ! command -v bun >/dev/null 2>&1; then \
 	  echo "ERROR: bun not on PATH (required by the dashboard interaction tests, same as CI)."; \
-	  echo "Install bun $(BUN_VERSION) (CI bun-version), then re-run: e.g. pacman -S bun, or curl -fsSL https://bun.sh/install | bash"; \
+	  echo "Install bun $(BUN_VERSION) (CI bun-version), then re-run: e.g. pacman -S bun (packagers pin it; https://bun.sh/docs/installation for the upstream installer — verify its checksum before piping it to a shell)"; \
 	  echo "Or iterate without it: make test-one T=tests/test_foo.py (dashboard_*.mjs tests skip)."; \
 	  exit 1; \
 	fi; \
@@ -388,7 +417,7 @@ warn-bun:
 	@set -eu; \
 	if ! command -v bun >/dev/null 2>&1; then \
 	  echo "WARNING: bun not on PATH (required by the dashboard interaction tests, same as CI; they skip in make test-one)."; \
-	  echo "Install bun $(BUN_VERSION) (CI bun-version) before running the full suite: e.g. pacman -S bun, or curl -fsSL https://bun.sh/install | bash"; \
+	  echo "Install bun $(BUN_VERSION) (CI bun-version) before running the full suite: e.g. pacman -S bun (packagers pin it; https://bun.sh/docs/installation for the upstream installer — verify its checksum before piping it to a shell)"; \
 	else \
 	  bun_ver=$$(bun --version); \
 	  if [ "$$bun_ver" != "$(BUN_VERSION)" ]; then \

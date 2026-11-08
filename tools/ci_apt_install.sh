@@ -95,6 +95,16 @@ if [[ ${#missing[@]} -eq 0 ]]; then
   exit 0
 fi
 
+# Log the Ubuntu archive snapshot the mirror serves so a second run on a
+# different day that resolves different package versions can be told apart.
+# apt is the one build input that floats: every other CI pin (Go, bun, uv,
+# Python) is a fixed version, while `apt-get install <name>` tracks the
+# mirror's current build.  The snapshot URI is not pinned (mirrors vary),
+# but recording it in the log makes the drift visible in the job output.
+snapshot="$(awk '/^deb / && /ubuntu\.com/ {print $2; exit}' /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null || true)"
+if [[ -n "${snapshot}" ]]; then
+  echo "apt snapshot: ${snapshot} (floating; package versions may drift between runs)"
+fi
 retry "apt-get update" run_root apt-get update -qq
 retry "apt-get install ${missing[*]}" run_root env DEBIAN_FRONTEND=noninteractive \
   apt-get install -y --no-install-recommends "${missing[@]}"
