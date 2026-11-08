@@ -132,6 +132,21 @@ class TestSqliteBackup:
         assert store.read("test")["GAME.0x1000"]["size"] == 4
         assert (tmp_path / (DATABASE_FILENAME + ".before-restore")).is_file()
 
+    def test_backup_carries_uploads_ledger_owner_only(self, tmp_path: Path) -> None:
+        _project(tmp_path)
+        _store = metadata_store(tmp_path / "rebrew-functions.toml", backend="sqlite", root=tmp_path)
+        _store.write({"format": 2}, "test")
+        _ledger = _write_uploads_ledger(tmp_path)
+        _dest = backup_metadata_database(tmp_path, tmp_path / "off-tree")
+        _backed = tmp_path / "off-tree" / ".rebrew" / "decompme-uploads.json"
+        assert _backed.read_bytes() == _ledger.read_bytes()
+        assert _backed.stat().st_mode & 0o777 == 0o600
+        _ledger.unlink()
+        restore_metadata_database(_dest, tmp_path)
+        _restored = tmp_path / ".rebrew" / "decompme-uploads.json"
+        assert _restored.read_bytes() == _backed.read_bytes()
+        assert _restored.stat().st_mode & 0o777 == 0o600
+
     def test_missing_database_raises(self, tmp_path: Path) -> None:
         _project(tmp_path)
         with pytest.raises(FileNotFoundError):
@@ -188,6 +203,22 @@ def _write_extra_durable(root: Path) -> None:
     )
 
 
+def _write_uploads_ledger(root: Path) -> Path:
+    """The decomp.me claim-token ledger, as record_upload writes it: one JSON object."""
+    path = root / ".rebrew" / "decompme-uploads.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {"abc": {"slug": "xyz", "claim_token": "secret-token-123", "api": "https://decomp.me", "at": "123.0"}},
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
 class TestTomlBackup:
     def test_round_trip_covers_all_stores_and_dropins(self, tmp_path: Path) -> None:
         (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")
@@ -234,6 +265,31 @@ class TestTomlBackup:
         assert (tmp_path / ".rebrew" / "sync" / "baseline.toml").read_text() == (
             "format = 1\nrecords = {}\n"
         )
+
+    def test_restore_roundtrips_uploads_ledger_owner_only(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")
+        ledger = _write_uploads_ledger(tmp_path)
+        bundle = backup_metadata_toml(tmp_path, tmp_path / "off-tree")
+        backed = bundle / ".rebrew" / "decompme-uploads.json"
+        assert backed.read_bytes() == ledger.read_bytes()
+        assert backed.stat().st_mode & 0o777 == 0o600
+        ledger.unlink()
+        installed = restore_metadata_toml(bundle, tmp_path)
+        assert tmp_path / ".rebrew" / "decompme-uploads.json" in installed
+        restored = tmp_path / ".rebrew" / "decompme-uploads.json"
+        assert restored.read_bytes() == backed.read_bytes()
+        assert restored.stat().st_mode & 0o777 == 0o600
+
+    def test_restore_rejects_corrupt_uploads_ledger_and_leaves_stores_alone(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")
+        _write_uploads_ledger(tmp_path)
+        bundle = backup_metadata_toml(tmp_path, tmp_path / "off-tree")
+        bad = bundle / ".rebrew" / "decompme-uploads.json"
+        bad.chmod(0o644)
+        bad.write_text('{"abc": {"slug": "xyz"}\n', encoding="utf-8")
+        with pytest.raises(MetadataStorageError, match="corrupt backup"):
+            restore_metadata_toml(bundle, tmp_path)
+        assert (tmp_path / "rebrew-functions.toml").read_text(encoding="utf-8") == "format=3\n"
 
     def test_restore_rejects_corrupt_ga_log_and_leaves_stores_alone(self, tmp_path: Path) -> None:
         (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")

@@ -315,10 +315,76 @@ _PROJECT_CONFIG_NAME = "rebrew-project.toml"
 #: --backup`` spelling.  The decomp.me upload ledger holds claim tokens
 #: whose loss re-uploads scratches already claimed on decomp.me; it is
 #: durable for the same reason (90-day dedup window) and rides in the
-#: same bundle.
+#: same bundle.  The ledger is a single JSON object (not JSONL) and holds
+#: credentials, so backups must keep it owner-only (0600): the writer in
+#: ``rebrew.decompme.record_upload`` seals it 0600, and a 0444 bundle copy
+#: would both broaden its exposure and strand the next in-place update.
 _GA_RUNS_REL = Path(".rebrew") / "ga_runs.jsonl"
 _SYNC_DIR_REL = Path(".rebrew") / "sync"
 _UPLOADS_REL = Path(".rebrew") / "decompme-uploads.json"
+
+#: Mode the uploads ledger must keep in backups and on restore: it holds
+#: decomp.me claim tokens, so no group/other access, matching
+#: ``rebrew.decompme._UPLOADS_FILE_MODE``.
+_UPLOADS_MODE = 0o600
+
+
+def _validate_uploads_ledger(source: Path) -> None:
+    """Validate the uploads ledger as one JSON object, or raise.
+
+    The ledger is a single JSON document (``json.dumps`` of a dict in
+    ``rebrew.decompme.record_upload``), not JSONL: validating it line by
+    line as the GA log is would reject every real ledger, so a backup
+    holding one could never be restored.  Only parseability as a JSON
+    object is required here; entry shape stays ``read_uploads``' job,
+    which filters fields and token format on each read.
+    """
+    import json as _json
+
+    try:
+        parsed = _json.loads(source.read_bytes())
+    except (ValueError, OSError) as exc:
+        raise MetadataStorageError(f"{source}: corrupt backup: {exc}") from exc
+    if not isinstance(parsed, dict):
+        raise MetadataStorageError(f"{source}: corrupt backup: not a JSON object")
+
+
+def _validate_extra(source: Path) -> None:
+    """Validate one ``.rebrew/`` extra durable file before it is installed."""
+    if source == _GA_RUNS_REL or source.name == _GA_RUNS_REL.name:
+        # The GA log is JSONL; validate every non-blank line parses as a
+        # JSON object so a corrupt log cannot be installed.
+        import json as _json
+
+        try:
+            raw = source.read_bytes()
+        except OSError as exc:
+            raise MetadataStorageError(f"{source}: corrupt backup: {exc}") from exc
+        for lineno, line in enumerate(
+            raw.decode("utf-8", errors="replace").splitlines(), 1
+        ):
+            if not line.strip():
+                continue
+            try:
+                parsed = _json.loads(line)
+            except _json.JSONDecodeError as exc:
+                raise MetadataStorageError(f"{source}: corrupt backup line {lineno}") from exc
+            if not isinstance(parsed, dict):
+                raise MetadataStorageError(f"{source}: corrupt backup line {lineno}")
+    elif source.suffix == ".json":
+        _validate_uploads_ledger(source)
+    else:
+        from rebrew.utils import load_tomllib as _lt
+
+        try:
+            _lt(source)
+        except (ValueError, OSError) as exc:
+            raise MetadataStorageError(f"{source}: corrupt backup: {exc}") from exc
+
+
+def _extra_mode(source: Path) -> int:
+    """Write mode for one ``.rebrew/`` extra, owner-only for the ledger."""
+    return _UPLOADS_MODE if source.suffix == ".json" else 0o444
 
 
 def _extra_durable_sources(root: Path) -> list[Path]:
@@ -461,7 +527,7 @@ def backup_metadata_toml(root: Path, backup_dir: Path) -> Path:
     for source in sources:
         dest = bundle / source.relative_to(root)
         payload = source.read_bytes()
-        atomic_write_bytes(dest, payload, mode=0o444)
+        atomic_write_bytes(dest, payload, mode=_extra_mode(source))
         if dest.read_bytes() != payload:
             raise MetadataStorageError(f"{dest}: backup verification failed")
     return bundle
@@ -500,29 +566,7 @@ def restore_metadata_toml(bundle: Path, root: Path) -> tuple[Path, ...]:
     extras = _extra_durable_sources(bundle)
     for source in extras:
         rel = source.relative_to(bundle)
-        if source.suffix == ".toml":
-            try:
-                load_tomllib(source)
-            except (ValueError, OSError) as exc:
-                raise MetadataStorageError(f"{source}: corrupt backup: {exc}") from exc
-        else:
-            # The GA log is JSONL; validate every non-blank line parses
-            # as a JSON object so a corrupt log cannot be installed.
-            import json as _json
-
-            try:
-                raw = source.read_bytes()
-            except OSError as exc:
-                raise MetadataStorageError(f"{source}: corrupt backup: {exc}") from exc
-            for lineno, line in enumerate(raw.decode("utf-8", errors="replace").splitlines(), 1):
-                if not line.strip():
-                    continue
-                try:
-                    parsed = _json.loads(line)
-                except _json.JSONDecodeError as exc:
-                    raise MetadataStorageError(f"{source}: corrupt backup line {lineno}") from exc
-                if not isinstance(parsed, dict):
-                    raise MetadataStorageError(f"{source}: corrupt backup line {lineno}")
+        _validate_extra(source)
         planned.append(rel)
     if not planned:
         raise FileNotFoundError(f"no metadata stores in backup bundle at {bundle}")
@@ -545,9 +589,9 @@ def restore_metadata_toml(bundle: Path, root: Path) -> tuple[Path, ...]:
                 atomic_write_bytes(
                     dest.with_name(dest.name + ".before-restore"),
                     dest.read_bytes(),
-                    mode=0o444,
+                    mode=_extra_mode(dest),
                 )
-            atomic_write_bytes(dest, raw, mode=0o444)
+            atomic_write_bytes(dest, raw, mode=_extra_mode(dest))
             if dest.read_bytes() != raw:
                 raise MetadataStorageError(f"{dest}: restored copy verification failed")
             installed.append(dest)
@@ -621,7 +665,7 @@ def backup_metadata_database(root: Path, backup_dir: Path) -> Path:
     for extra in _extra_durable_sources(root):
         payload = extra.read_bytes()
         copied = backup_dir / extra.relative_to(root)
-        atomic_write_bytes(copied, payload, mode=0o444)
+        atomic_write_bytes(copied, payload, mode=_extra_mode(extra))
         if copied.read_bytes() != payload:
             raise MetadataStorageError(f"{copied}: backup verification failed")
     return dest
@@ -663,44 +707,32 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
         check.close()
     if integrity != "ok":
         raise MetadataStorageError(f"{backup}: integrity check failed: {integrity}")
-    import json as _json
-
     _ga_rel = _GA_RUNS_REL
+    _uploads_rel = _UPLOADS_REL
     _sync_rel = _SYNC_DIR_REL
     _siblings: list[tuple[Path, Path]] = []
     _backup_root = backup.parent
     for _rel, _kind in (
-        (_ga_rel, "ga"),
+        (_ga_rel, "extra"),
+        (_uploads_rel, "extra"),
         (_sync_rel, "sync"),
         (Path(".rebrew/metadata-journal.toml"), "state"),
         (Path(".rebrew/metadata-replication.toml"), "state"),
     ):
         _src_dir = _backup_root / _rel
-        if _kind in {"ga", "state"}:
-            _candidates = [_src_dir] if _src_dir.is_file() else []
-        else:
+        if _kind == "sync":
             _candidates = (
                 sorted(x for x in _src_dir.iterdir() if x.suffix == ".toml" and x.is_file())
                 if _src_dir.is_dir()
                 else []
             )
+        else:
+            _candidates = [_src_dir] if _src_dir.is_file() else []
         for _src in _candidates:
             _raw = _src.read_bytes()
             _dest = root / _src.relative_to(_backup_root)
-            if _kind == "ga":
-                for _lineno, _line in enumerate(
-                    _raw.decode("utf-8", errors="replace").splitlines(), 1
-                ):
-                    if not _line.strip():
-                        continue
-                    try:
-                        _parsed = _json.loads(_line)
-                    except _json.JSONDecodeError as _exc:
-                        raise MetadataStorageError(
-                            f"{_src}: corrupt backup line {_lineno}"
-                        ) from _exc
-                    if not isinstance(_parsed, dict):
-                        raise MetadataStorageError(f"{_src}: corrupt backup line {_lineno}")
+            if _kind == "extra":
+                _validate_extra(_src)
             else:
                 try:
                     from rebrew.utils import load_tomllib as _lt
@@ -737,9 +769,9 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
                 _awb(
                     _dest.with_name(_dest.name + ".before-restore"),
                     _dest.read_bytes(),
-                    mode=0o444,
+                    mode=_extra_mode(_dest),
                 )
-            _awb(_dest, _raw, mode=0o444)
+            _awb(_dest, _raw, mode=_extra_mode(_dest))
             if _dest.read_bytes() != _raw:
                 raise MetadataStorageError(f"{_dest}: restored copy verification failed")
 
