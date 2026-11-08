@@ -164,13 +164,18 @@ extend-exclude = [".hypothesis", ".scratch"]
 # (PLR1701->SIM101, RUF011->B035, RUF035->S704, TRY200->B904).
 #
 # D100/D104/D106 enforce the module-docstring rule; TID252 gives the layering
-# rule teeth. B904 is enforced, not ignored.
+# rule teeth. B904 is enforced, not ignored. ANN204/ANN205/ANN206 cover the
+# self/cls-only signature shapes; ANN001/ANN002/ANN003 stay off because
+# --strict mypy verifies the same annotations with better errors (ruff ANN
+# reports no useful message on a strict-mypy tree).
 #
 # Deliberately off: D203/D213 (conflict with D211), D300 (formatter),
 # ISC001/ISC002 (ruff format), PT004/PT005 (deprecated upstream), and RET504
 # (a named intermediate reads better than an inlined comprehension).
 # PERF403, C416 and C402 disagree on `{k: v for k, v in it}`: index the parsed
-# rows instead (layout_meta).
+# rows instead (layout_meta). The pylint PLR*/PLW*/PLC* rows below are the
+# zero-finding subset of the preview-only pylint rules; C4/TRY*/S*/PT*/PTH*
+# families stay off where they still fire (see the ratchet note above).
 select = [
     "E", "F", "W", "I", "UP", "B", "SIM", "C4", "DTZ", "RSE", "EXE", "Q",
     "NPY", "ICN", "G", "PGH", "YTT", "ASYNC", "FA", "SLOT", "PLE",
