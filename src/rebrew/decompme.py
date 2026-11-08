@@ -36,8 +36,10 @@ Usage:
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import re
+import threading
 from typing import Any, Literal, Protocol, runtime_checkable
 lazy import hashlib
 lazy import json
@@ -78,6 +80,16 @@ lazy from rebrew.utils import (
 )
 
 log = logging.getLogger(__name__)
+
+#: Serializes in-process check-upload-record for the upload ledger.
+#: ``file_lock`` is cross-process only (flock does not exclude other threads
+#: on their own fd), so a concurrent duplicate in one process needs this
+#: thread lock; the ledger ``.lock`` sidecar covers concurrent processes.
+#: ``record_upload`` re-acquires the same flock, so the outer section must
+#: be reentrant: ``_uploads_transaction`` tracks depth like
+#: ``rebrew.metadata.locking.file_transaction`` and only flocks once.
+_UPLOADS_LOCK = threading.RLock()
+_UPLOADS_LOCK_DEPTH: dict[str, int] = {}
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
@@ -495,6 +507,38 @@ _UPLOADS_MAX_ENTRIES = 500
 _UPLOADS_FILE_MODE = 0o600
 
 
+def _uploads_lock_path(root: Path) -> Path:
+    """Ledger lock sidecar for the check-upload-record critical section."""
+    return _uploads_path(root).with_suffix(".lock")
+
+
+@contextlib.contextmanager
+def _uploads_transaction(root: Path):  # type: ignore[no-untyped-def]
+    """Thread + cross-process lock around check-upload-record.
+
+    Reentrant: ``record_upload`` takes the same flock, so a nested
+    acquisition on the same sidecar must not re-flock (a second fd would
+    deadlock against the first) — depth is tracked per resolved path,
+    like ``rebrew.metadata.locking.file_transaction``.
+    """
+    lock_path = _uploads_lock_path(root).resolve()
+    key = str(lock_path)
+    with _UPLOADS_LOCK:
+        if _UPLOADS_LOCK_DEPTH.get(key, 0):
+            _UPLOADS_LOCK_DEPTH[key] += 1
+            try:
+                yield
+            finally:
+                _UPLOADS_LOCK_DEPTH[key] -= 1
+            return
+        _UPLOADS_LOCK_DEPTH[key] = 1
+        try:
+            with file_lock(lock_path):
+                yield
+        finally:
+            _UPLOADS_LOCK_DEPTH.pop(key, None)
+
+
 def scratch_digest(payload: dict[str, Any], api: str) -> str:
     """Content digest of a scratch payload, the ledger's idempotency key.
 
@@ -618,7 +662,7 @@ def record_upload(
     if now is None:
         now = time.time()
     try:
-        with file_lock(path.with_suffix(".lock")):
+        with _uploads_transaction(root):
             entries = read_uploads(root)
             entries[digest] = {"slug": slug, "claim_token": claim_token, "api": api, "at": str(now)}
             fresh = {k: v for k, v in entries.items() if _is_recent(v, now)}
@@ -907,12 +951,13 @@ def main(
 
     root = Path(getattr(cfg, "root", ".") or ".")
     digest = scratch_digest(payload, api)
-    reused = None if reupload else recorded_upload(root, digest, api)
-
-    if reused is not None:
-        slug = reused["slug"]
-        token = reused["claim_token"]
-    else:
+    # Hold the ledger lock across check-upload-record: ``record_upload``
+    # locks only its own write, so without this a concurrent duplicate
+    # (double-click, two terminals, a retried worker) passes the
+    # ``recorded_upload`` check before the first upload is recorded and
+    # creates a second scratch, orphaning the first claim token.
+    # ``--reupload`` deliberately skips the check, so it stays unlocked.
+    if reupload:
         try:
             result = upload_scratch(payload, api=api)
         except RuntimeError as exc:
@@ -920,6 +965,21 @@ def main(
         slug = str(result.get("slug", ""))
         token = str(result.get("claim_token", ""))
         record_upload(root, digest, slug, token, api)
+        reused = None
+    else:
+        with _uploads_transaction(root):
+            reused = recorded_upload(root, digest, api)
+            if reused is not None:
+                slug = reused["slug"]
+                token = reused["claim_token"]
+            else:
+                try:
+                    result = upload_scratch(payload, api=api)
+                except RuntimeError as exc:
+                    error_exit(str(exc), json_mode=json_output)
+                slug = str(result.get("slug", ""))
+                token = str(result.get("claim_token", ""))
+                record_upload(root, digest, slug, token, api)
 
     url = scratch_url(slug, token, api=api)
     if json_output:
