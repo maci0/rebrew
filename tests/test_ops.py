@@ -189,6 +189,14 @@ class TestContract:
     def test_every_contract_op_is_served(self) -> None:
         assert set(OPS) == set(_CONTRACT["ops"])
 
+    def test_request_fields_match_contract(self) -> None:
+        import dataclasses
+
+        for name, op in OPS.items():
+            code = {f.name for f in dataclasses.fields(op.request)}
+            contract = set(_CONTRACT["ops"][name]["request"].get("properties", {}))
+            assert code == contract, name
+
 
 class TestCallReferences:
     def test_binary_call_scan(self, world: tuple[WorkerConfig, Path]) -> None:

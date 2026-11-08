@@ -591,6 +591,19 @@ class TargetRequest:
 
 
 @dataclass(frozen=True)
+class DataListRequest:
+    project_dir: str
+    sha256: str = ""
+    files: list[FlagSearchFile] = field(default_factory=list)
+    rebrew_target: str = ""
+    binary_key: str = ""
+    binary_url: str = ""
+    coverage_input: CoverageInput = field(default_factory=CoverageInput)
+    coverage_input_digest: str = ""
+    verification_records: list[CoverageVerification] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class CoverageReportRequest(TargetRequest):
     files: list[FlagSearchFile] = field(default_factory=list)
     rebrew_target: str = ""
@@ -2974,9 +2987,28 @@ def decompme_export(config: WorkerConfig, req: DecompmeRequest) -> dict[str, Any
     )
 
 
-def data_list(config: WorkerConfig, req: TargetRequest) -> dict[str, Any]:
+def data_list(config: WorkerConfig, req: DataListRequest) -> dict[str, Any]:
     """The target's global data inventory and section summary (``rebrew data list --json``)."""
+    from rebrew.config import load_config
+
     root = project_root(config, req.project_dir)
+    if req.files:
+        with retained_target_snapshot(
+            config,
+            req.files,
+            req.rebrew_target,
+            req.sha256,
+            req.binary_key,
+            req.binary_url,
+        ) as snapshot:
+            load_config(snapshot, target=req.rebrew_target)
+            return run_rebrew(
+                ["data", "list", "--json", f"--target={req.rebrew_target}"],
+                snapshot,
+                COMMAND_TIMEOUT_SECONDS,
+            )
+    if req.coverage_input.version or req.coverage_input_digest or req.verification_records:
+        raise _invalid("coverage input requires a retained snapshot")
     return run_rebrew(
         ["data", "list", "--json", *_target_options(root, req.sha256)],
         root,
@@ -3223,7 +3255,7 @@ OPS: dict[str, Op] = {
     "rebrew.source_variants": Op(SourceVariantsRequest, source_variants),
     "rebrew.flag_search": Op(FlagSearchRequest, flag_search),
     "rebrew.decompme_export": Op(DecompmeRequest, decompme_export),
-    "rebrew.data_list": Op(TargetRequest, data_list),
+    "rebrew.data_list": Op(DataListRequest, data_list),
     "rebrew.data_set": Op(DataSetRequest, data_set),
     "rebrew.source_rename": Op(RenameRequest, source_rename),
     "rebrew.source_split": Op(SplitRequest, source_split),
