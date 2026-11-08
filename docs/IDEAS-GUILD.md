@@ -4862,3 +4862,20 @@ creating a new file that a naive restore leaves behind).
 Wanted: `rebrew txn run -- <command>` that snapshots sources and stores, runs the
 command, reports a before and after status map for the touched files, and rolls
 back on a mismatch or a failed check.
+
+### library bind-source on vendored zlib with conditional or K&R definitions (2026-11-09)
+
+Status: open. In guild-rebrew eight loose zlib functions (`zError`, `zcfree`,
+`deflate_fast`, `deflateCopy`, `inflate_blocks`, `inflate`,
+`inflate_blocks_sync_point`, `inflate_set_dictionary`) match the compiled vendored
+objects byte for byte, but `library bind-source` stops with "source must contain one
+complete definition with matching C symbol". Probe on `references/zlib/zutil.c`
+(`rebrew.c_parser.function_signatures` and
+`rebrew.source_binding.has_unique_source_definition`): `zError` is absent from the
+signature map (K&R definition `zError(err) int err;` under `const char * ZEXPORT`),
+and `zcfree` and `zcalloc` are in the map but `has_unique_source_definition` is false
+because the file holds three alternative definitions of each under `#ifdef __TURBOC__`,
+`#if defined(M_I86)` and `#ifndef MY_ZCALLOC`. The other five functions were not probed.
+Wanted: evaluate the target's preprocessor defines when counting definitions, or accept
+the bind when the compiled object defines the symbol exactly once, and parse K&R
+parameter lists. The vendored source is pinned, so editing it is not an option.
