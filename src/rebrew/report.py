@@ -475,7 +475,7 @@ def _page(title: str, target: str, active: str, body: str) -> str:
         # in a report can ask for one.
         "<meta http-equiv='Content-Security-Policy' "
         "content=\"default-src 'none'; style-src 'unsafe-inline'; "
-        "img-src 'self' file:;\">\n"
+        "img-src 'self' file:; frame-ancestors 'none'; form-action 'none'; base-uri 'none';\">\n"
         "<meta name='viewport' content='width=device-width, initial-scale=1'>\n"
         # The mark is linked, not inlined as a data URI: 443 B of
         # percent-encoded, near-incompressible payload would otherwise ride in
