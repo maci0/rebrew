@@ -10,6 +10,12 @@ import (
 
 const outputLimit = 4 * 1024 * 1024
 
+// maxEventListeners caps concurrent /events SSE streams per job. Each stream
+// holds a goroutine and a buffered channel for its lifetime; without a cap a
+// client opening many streams drains goroutines unboundedly (one job only,
+// but a single host can still exhaust the process).
+const maxEventListeners = 64
+
 // outputSaveInterval bounds how often a running job's receipt is rewritten.
 // A chatty child delivers many pipe chunks, and each receipt write is a temp
 // file plus two directory/file syncs; doing that per chunk stalls the child on

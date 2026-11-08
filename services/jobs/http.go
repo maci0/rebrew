@@ -420,6 +420,12 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 			apiError(w, "job unavailable", 404)
 			return
 		}
+		if len(o.listeners[id]) >= maxEventListeners {
+			o.mu.Unlock()
+			w.Header().Set("Retry-After", "5")
+			apiError(w, "too many event streams", http.StatusTooManyRequests)
+			return
+		}
 		ch := make(chan struct{}, 1)
 		if o.listeners[id] == nil {
 			o.listeners[id] = map[chan struct{}]bool{}
