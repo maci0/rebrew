@@ -9,7 +9,7 @@ lazy from typing import Any
 
 lazy from rebrew.config import ProjectConfig, inventory_path_for
 lazy from rebrew.formats.binary_loader import load_binary
-lazy from rebrew.utils import atomic_write_text, file_lock
+lazy from rebrew.utils import atomic_write_text, file_lock, parse_int_literal
 
 
 def _validate_merges(merges: list[tuple[int, int]]) -> list[tuple[int, int]]:
@@ -130,8 +130,8 @@ def repair_inventory_extents(
         rows: dict[int, dict[str, Any]] = {}
         row_vas: list[int] = []
         for row in document:
-            va = int(row["va"]) if isinstance(row["va"], int) else int(str(row["va"]), 0)
-            size = int(row["size"]) if isinstance(row["size"], int) else int(str(row["size"]), 0)
+            va = int(row["va"]) if isinstance(row["va"], int) else parse_int_literal(str(row["va"]))
+            size = int(row["size"]) if isinstance(row["size"], int) else parse_int_literal(str(row["size"]))
             if va in rows or va < 0 or size < 0:
                 raise ValueError("native inventory has duplicate addresses or negative extents")
             rows[va] = row
@@ -178,12 +178,12 @@ def repair_inventory_extents(
             head_size = (
                 int(head_row["size"])
                 if isinstance(head_row["size"], int)
-                else int(str(head_row["size"]), 0)
+                else parse_int_literal(str(head_row["size"]))
             )
             tail_size = (
                 int(tail_row["size"])
                 if isinstance(tail_row["size"], int)
-                else int(str(tail_row["size"]), 0)
+                else parse_int_literal(str(tail_row["size"]))
             )
             if head_size <= 0 or tail_size <= 0:
                 raise ValueError("merge requires positive head and tail extents")
@@ -259,7 +259,7 @@ def repair_inventory_extents(
                     else:
                         raw_size = other["size"]
                         other_size = (
-                            int(raw_size) if isinstance(raw_size, int) else int(str(raw_size), 0)
+                            int(raw_size) if isinstance(raw_size, int) else parse_int_literal(str(raw_size))
                         )
                     if other_va != va and va < other_va + other_size and other_va < va + size:
                         raise ValueError(
@@ -269,7 +269,7 @@ def repair_inventory_extents(
                 None
                 if va in unknown
                 else (
-                    int(row["size"]) if isinstance(row["size"], int) else int(str(row["size"]), 0)
+                    int(row["size"]) if isinstance(row["size"], int) else parse_int_literal(str(row["size"]))
                 )
             )
             if old_size == size:

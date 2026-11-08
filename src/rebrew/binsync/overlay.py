@@ -78,7 +78,7 @@ lazy from rebrew.cross_import import (
     unmatched_dest_bytes,
 )
 lazy from rebrew.sources import contained_path, source_roots
-lazy from rebrew.utils import TerminalTable, fold_ident, preset_module_key, strip_body
+lazy from rebrew.utils import TerminalTable, fold_ident, parse_int_literal, preset_module_key, strip_body
 
 log = logging.getLogger(__name__)
 
@@ -274,7 +274,7 @@ def _apply_global_entry(
     if entry.get("type"):
         fields["type"] = str(entry["type"]).strip()
     if entry.get("size"):
-        fields["size"] = int(str(entry["size"]), 0)
+        fields["size"] = parse_int_literal(str(entry["size"]))
     set_data_fields_batch(
         cfg.metadata_dir,
         [

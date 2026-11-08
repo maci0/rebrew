@@ -73,7 +73,7 @@ lazy from rebrew.metadata.bindings import (
 )
 lazy from rebrew.prove_simprocs import get_win32_simprocs
 lazy from rebrew.sources import iter_sources
-lazy from rebrew.utils import safe_shlex_split, untrusted_ident
+lazy from rebrew.utils import parse_int_literal, safe_shlex_split, untrusted_ident
 lazy from rebrew.workspace.status import NEAR_MATCH_CANDIDATE_STATUSES
 
 log = logging.getLogger(__name__)
@@ -262,7 +262,7 @@ def _apply_arg_constraints(
             fields = spec.get("fields")
             if fields and isinstance(fields, dict):
                 for off_str, field_spec in fields.items():
-                    off = int(str(off_str), 0)  # parse "0x04" or "4"
+                    off = parse_int_literal(str(off_str))
                     if not isinstance(field_spec, dict):
                         continue
                     ftype = field_spec.get("type", "dword")
@@ -303,7 +303,7 @@ def _apply_arg_constraints(
                         state.solver.add(claripy.ULE(r, hi))
                         state.memory.store(addr, r, endness="Iend_LE")
                     elif ftype == "concrete":
-                        val = int(str(field_spec.get("value", 0)), 0)
+                        val = parse_int_literal(str(field_spec.get("value", 0)))
                         state.memory.store(addr, claripy.BVV(val, 32), endness="Iend_LE")
                     # "dword" is already handled by the generic fill above
 
@@ -314,7 +314,7 @@ def _apply_arg_constraints(
             state.solver.add(claripy.ULE(arg, hi))
 
         elif constraint_type == "bitmask":
-            mask = int(str(spec.get("mask", "0xFFFFFFFF")), 0)
+            mask = parse_int_literal(str(spec.get("mask", "0xFFFFFFFF")))
             state.solver.add((arg & ~mask) == 0)
 
         elif constraint_type == "null":

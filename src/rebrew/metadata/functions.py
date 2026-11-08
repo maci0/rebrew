@@ -44,6 +44,7 @@ lazy from rebrew.metadata.document import (
 lazy from rebrew.metadata.source_schema import validate_identity_file
 lazy from rebrew.metadata.storage import metadata_store, metadata_write_lock
 lazy from rebrew.utils import (
+    parse_int_literal,
     resolved_path,
     toml_safe,
 )
@@ -1830,7 +1831,7 @@ def as_metadata_int(value: Any) -> int:
             raise ValueError(f"expected int, got {value!r}")
         return int(value)
     if isinstance(value, str):
-        return int(value.strip(), 0)
+        return parse_int_literal(value)
     raise ValueError(f"expected int, got {value!r}")
 
 

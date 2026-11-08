@@ -76,6 +76,7 @@ lazy from rebrew.utils import (
     atomic_write_bytes,
     atomic_write_text,
     floor_pct,
+    parse_int_literal,
     rel_display_path,
     truncate_text,
 )
@@ -1537,7 +1538,7 @@ def generate_decomp_dev_report(
                 if mp is None:
                     continue
                 try:
-                    va_key = int(str(key), 0)
+                    va_key = parse_int_literal(str(key))
                     pct = float(mp)
                 except TypeError, ValueError:
                     continue

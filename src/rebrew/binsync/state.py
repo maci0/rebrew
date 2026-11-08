@@ -25,7 +25,7 @@ lazy import tomlkit
 lazy from rebrew.catalog import build_function_registry, cached_function_list, scan_reversed_dir
 lazy from rebrew.config import ProjectConfig, inventory_path_for
 lazy from rebrew.types import StructDef
-lazy from rebrew.utils import is_safe_c_ident, preset_module_key
+lazy from rebrew.utils import is_safe_c_ident, parse_int_literal, preset_module_key
 
 log = logging.getLogger(__name__)
 
@@ -498,7 +498,7 @@ def locals_map(entry: object) -> dict[int, dict[str, object]]:
         if not isinstance(value, dict):
             continue
         try:
-            offset = int(str(key), 0)
+            offset = parse_int_literal(str(key))
         except TypeError, ValueError:
             continue
         out[offset] = value
@@ -563,7 +563,7 @@ def normalize_sync_value(field: str, value: Any, *, kind: str = "function") -> A
         return as_metadata_int(value) if value not in (None, "") else 0
     if field == "stack_vars":
         return {
-            str(int(str(k), 0)): {
+            str(parse_int_literal(str(k))): {
                 "name": v.get("name") or "",
                 "type": v.get("type") or "",
                 "size": v.get("size") or 0,
@@ -573,7 +573,7 @@ def normalize_sync_value(field: str, value: Any, *, kind: str = "function") -> A
         }
     if field == "comments":
         return {
-            f"0x{int(str(k), 0):08x}": (
+            f"0x{parse_int_literal(str(k)):08x}": (
                 {**v, "comment": normalize_comment_text(v.get("comment"))}
                 if isinstance(v, dict)
                 else v

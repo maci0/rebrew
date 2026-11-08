@@ -75,6 +75,7 @@ lazy from rebrew.utils import (
     c_comment_safe,
     fold_ident,
     is_safe_c_ident,
+    parse_int_literal,
     preset_module_key,
     strip_body,
 )
@@ -171,7 +172,7 @@ def _global_changes(record: dict[str, Any], bs_entry: dict[str, Any]) -> dict[st
             continue
         if field == "size":
             try:
-                value = int(str(value), 0)
+                value = parse_int_literal(str(value))
             except ValueError:
                 raise ValueError(f"BinSync size {value!r} is not an integer") from None
             if value <= 0:
