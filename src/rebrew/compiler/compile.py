@@ -803,7 +803,7 @@ def maybe_headless_wine(
 
     When the first command token is ``wine`` (or a path to it), the
     ``DISPLAY`` env is pointed at a persistent ``Xvfb`` (see
-    ``rebrew.compiler.headless.ensure_xvfb``) so the compile runs on an invisible
+    ``rebrew.compiler.headless.ensure_xvfb_session``) so the compile runs on an invisible
     virtual display.  ``wibo`` is already headless and is left untouched.
     Set ``REBREW_WINE_HEADLESS=0`` (or ``false``/``no``/``off``) in the
     environment to force bare wine (e.g. when you genuinely want the window).

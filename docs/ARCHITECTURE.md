@@ -109,7 +109,7 @@ flowchart LR
 | `rebrew/near_diag.py` | The `rebrew diagnose near` CLI over `near_analysis.py`: argument parsing, Rich output, BLOCKER metadata writes, `--catalog` |
 | `rebrew/stack_analysis.py` | Stack-frame derivation and diff (frame size, ebp-vs-esp, `ret N` popping, `[ebp±N]` slots) from disassembly on both sides; the library half |
 | `rebrew/stack_cmp.py` | The `rebrew diagnose stack` CLI over `stack_analysis.py` |
-| `rebrew/compiler/headless.py` | Persistent per-process Xvfb for headless wine compiles (no window, no DISPLAY needed) |
+| `rebrew/compiler/headless.py` | Persistent Xvfb for headless wine compiles (plugin toolchains without an `image`; no window, no DISPLAY needed) |
 | `rebrew/toolchain_detect.py` | Layered compiler-family detector: Detect It Easy (diec) → PDB → PE metadata (Rich header/linker version) → codegen heuristics; feeds init's CRT/opt seeding and doctor's alignment check. Its four tables (profile compat, Rich-build and linker-era profiles, plugin detectors) are one generation: read them through `detection_tables()` |
 | `rebrew/wibo.py` | Locate + SHA256-verify the wibo runner (`toolchain install-wibo`); a legacy host-runner fallback for toolchains registered without an `image`, not a shipped compile path (ADR 008) |
 | `rebrew/binsync/` (`export.py` / `importer.py` / `diff.py` / `git.py` / `init.py` / `overlay.py`, plus `serial.py`, `cli.py`, `state.py`) | BinSync state export/import/diff/init/overlay, the `rebrew binsync` umbrella (git automation), and the shared state readers/reconciliation baseline and freshness projection; artifact TOML serialized with declib (the `binsync` extra) |

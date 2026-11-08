@@ -9,7 +9,7 @@ compiles it wraps.  Instead we keep **one persistent Xvfb per process**
 (reusing any live Xvfb left by an earlier rebrew run), so the startup cost
 is paid once and amortized across every compile in a verify/GA batch.
 
-Process lifecycle: the first ``ensure_xvfb()`` call spawns ``Xvfb`` on a
+Process lifecycle: the first ``ensure_xvfb_session()`` call spawns ``Xvfb`` on a
 free display (or reuses an existing one), registers an atexit handler to
 shut it down, and remembers the display in ``REBREW_XVFB_DISPLAY`` so
 child processes and later calls agree on the same server.  A SIGKILLed

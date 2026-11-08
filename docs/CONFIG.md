@@ -611,14 +611,16 @@ rebrew receives.
   fails at load rather than at exec; set a path to the binary to use another
   runtime.
 
-### Host-wine / cmake (dormant under docker-only profiles)
+### Host-wine / cmake (host-only plugin toolchains and the cmake bridge)
 
 - `REBREW_WINE_HEADLESS`: set to `0` (or `false`/`no`/`off`) to disable
   headless wine (run bare wine, e.g. if you genuinely want the window).
   Any other non-empty value except `1`/`true`/`yes`/`on` is a
   `ValueError`.  Default: wine compiles
   against a persistent `Xvfb` virtual display whenever the `Xvfb` binary
-  is on PATH.
+  is on PATH. Shipped image-backed profiles never reach this path; only a
+  plugin toolchain registered without an `image` whose command is `wine`
+  does (`rebrew/compiler/headless.py` stays live for that case).
 - `REBREW_XVFB_DISPLAY`: display (e.g. `:99`) of the virtual X server
   headless wine uses.  Set by rebrew itself on first use; override to pin
   a specific display, which must be a local `:N` (or `:N.S`) one that hosts
