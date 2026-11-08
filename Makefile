@@ -1138,10 +1138,13 @@ smoke-wheel: require-dist ensure-uv
 # not the pinned tarball CI installs, so a newer/older Go still runs the
 # same checks.
 jobs-check: ensure-go
+	@set -eu; \
 	cd services/jobs; \
 	GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off test -z "$$(gofmt -l .)"; \
 	GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off CGO_ENABLED=0 go vet ./...; \
 	GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags=-buildid= ./...; \
+	GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off GOOS=windows CGO_ENABLED=0 go vet ./...; \
+	GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off GOOS=windows CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags=-buildid= ./...; \
 	GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off CGO_ENABLED=1 go test -count=1 -race ./...
 
 # Run all non-mutating verification gates (mirrors CI lint + test +

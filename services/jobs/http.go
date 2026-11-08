@@ -34,10 +34,10 @@ type jobMetrics struct {
 	startedAt      time.Time
 	// per-op availability for the two money/burn paths: a bare global error
 	// counter cannot tell "compiles are failing" from "admission is busy".
-	compileRequests int64
-	compileErrors   int64
-	jobRequests     int64
-	jobErrors       int64
+	compileRequests     int64
+	compileErrors       int64
+	jobRequests         int64
+	jobErrors           int64
 	compileLatencyTotal float64
 	compileLatencyMax   float64
 }
