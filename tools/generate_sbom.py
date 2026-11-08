@@ -102,14 +102,14 @@ def _license_field(source_kind: str, name: str, version: str) -> dict[str, Any]:
 # Pinned distributions whose grant obliges a consumer to do more than rely on
 # the wheel's own MIT licence file: reciprocal clauses, source availability, or
 # a notice that has to survive redistribution.  Expressions were read from the
-# locked artifacts: m2c 708d2d2 ``License-Expression: GPL-3.0-only``, pyvex
-# 9.3.4 ``License-Expression: BSD-2-Clause AND GPL-2.0-or-later``, and the
+# locked artifacts: m2c c632946b ``License-Expression: GPL-3.0-only``, pyvex
+# 10.0.5 ``License-Expression: BSD-2-Clause AND GPL-2.0-or-later``, and the
 # MPL-2.0 packages below.  resembl 4.0.0 declares
 # ``License-Expression: GPL-3.0-only``, so the emitted component carries that
-# expression.  certifi 2026.7.22 and hypothesis
-# 6.168.0 declare ``MPL-2.0`` and every resolve pulls them in; tqdm 4.70.1
+# expression.  certifi 2026.10.23 and hypothesis
+# 6.170.14 declare ``MPL-2.0`` and every resolve pulls them in; tqdm 4.70.1
 # declares ``License-Expression: MPL-2.0 AND MIT`` and arrives with the
-# ``binsync`` extra (declib's progress bars).  lmdb 2.1.1 declares
+# ``binsync`` extra (declib's progress bars).  lmdb 3.0.0 declares
 # ``OLDAP-2.8``, which is not reciprocal but does require a modified
 # distribution to mark the change and keep the upstream notice, so it is
 # listed here for the attribution rather than for a copyleft effect.  See

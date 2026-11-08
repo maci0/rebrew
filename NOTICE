@@ -69,7 +69,7 @@ artifact does not state. ``rebrew[binsync]`` installs this tree.
 binsync extra — python-discovery and pyxdia
 -------------------------------------------
 
-``python-discovery`` 1.9.0 declares ``License-Expression: MIT``, which the
+``python-discovery`` 1.9.4 declares ``License-Expression: MIT``, which the
 SBOM records verbatim. ``pyxdia`` 0.1.1 publishes its licence as a multi-line
 free-text ``License`` header with no single-line grant or trove classifier,
 so its SBOM component reads ``NOASSERTION`` rather than a grant guessed from
@@ -110,7 +110,7 @@ Project: https://github.com/python/tzdata
 prove extra — pycryptodome (via angr)
 ------------------------------------
 
-pycryptodome 4.2.0 declares ``License-Expression: BSD-2-Clause AND Unlicense AND MIT``.
+pycryptodome 4.3.0 declares ``License-Expression: BSD-2-Clause AND Unlicense AND MIT``.
 Rebrew installs the unchanged upstream distribution, which includes its license
 files; the component grant is recorded verbatim in the SBOM.
 
