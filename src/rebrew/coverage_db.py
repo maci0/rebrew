@@ -86,6 +86,10 @@ def _coerce_int(value: Any) -> int | None:
     for ``12.9``, or ``0`` after clamping a truncated ``-1``).  A value outside
     the signed 64-bit range the retired SQLite writer enforced (see
     :data:`_SQLITE_INT_MAX`) is out of range for every field it feeds.
+    Underscore and non-ASCII digit spellings are rejected too: ``int()``
+    reads ``1_0`` as ten and any Unicode decimal digit as its value, which
+    is what :func:`rebrew.utils.parse_int_literal` refuses, so a string
+    spelling has one meaning across the codebase.
     """
     if value is None or isinstance(value, bool):
         return None
@@ -97,7 +101,7 @@ def _coerce_int(value: Any) -> int | None:
         parsed = int(value)
     elif isinstance(value, str):
         s = value.strip()
-        if not s:
+        if not s or "_" in s or not s.isascii():
             return None
         try:
             parsed = int(s, 0)
@@ -153,7 +157,7 @@ def _as_finite_float(value: Any) -> float | None:
     if not isinstance(value, str):
         return None
     text = value.strip()
-    if not text:
+    if not text or "_" in text or not text.isascii():
         return None
     try:
         parsed = float(text)

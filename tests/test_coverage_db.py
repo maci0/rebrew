@@ -46,6 +46,15 @@ class TestParseInt:
         assert parse_int(-(2**63) - 1, default=7) == 7
         assert parse_int(2**63 - 1) == 2**63 - 1
 
+    def test_rejects_underscore_and_non_ascii_digit_spellings(self) -> None:
+        """``int(str, 0)`` reads ``1_0`` as ten and any Unicode decimal digit
+        as its value; the other integer parsers in this codebase refuse both,
+        so a catalog string spelling is one meaning everywhere."""
+        assert parse_int("1_0", default=7) == 7
+        assert parse_int("0x1_0", default=7) == 7
+        assert parse_int("١٢", default=7) == 7
+        assert parse_int("１２", default=7) == 7
+
 
 class TestClampNonnegInt:
     def test_rejects_nonfinite_floats(self) -> None:
@@ -84,6 +93,12 @@ class TestClampUnitInterval:
         assert clamp_unit_interval("NaN") is None
         assert clamp_unit_interval("inf") is None
         assert clamp_unit_interval("-inf") is None
+
+    def test_rejects_underscore_and_non_ascii_digit_spellings(self) -> None:
+        """``float()`` reads ``1_0`` as ten and any Unicode decimal digit as
+        its value; as with the integer parsers both spellings are refused."""
+        assert clamp_unit_interval("1_0") is None
+        assert clamp_unit_interval("١٢") is None
 
     def test_clamps_finite_out_of_range(self) -> None:
         assert clamp_unit_interval(1.5) == 1.0
