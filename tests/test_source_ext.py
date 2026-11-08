@@ -434,6 +434,16 @@ class TestContainedPath:
         rev.mkdir()
         assert contained_path(rev, tmp_path / "other.c") is None
 
+    def test_absolute_inside_root_refused(self, tmp_path: Path) -> None:
+        """Host code must not splice an absolute path into a project join."""
+        from rebrew.sources import contained_path
+
+        rev = tmp_path / "src_SERVER"
+        rev.mkdir()
+        # A candidate inside the root is still refused: an absolute input is
+        # not a project-relative path.
+        assert contained_path(rev, (rev / "f.c").as_posix()) is None
+
     def test_empty_refused(self, tmp_path: Path) -> None:
         from rebrew.sources import contained_path
 
