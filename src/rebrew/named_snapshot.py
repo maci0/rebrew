@@ -46,6 +46,8 @@ def _validate_manifest(req: Any) -> None:
     from rebrew import ops
 
     try:
+        if type(req.source_manifest) is not str:
+            raise ValueError("manifest must be a string")
         encoded = req.source_manifest.encode("utf-8")
         if len(encoded) > 2 * 1024 * 1024:
             raise ValueError("manifest too large")
@@ -108,6 +110,8 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
     from rebrew import ops
 
     try:
+        if type(req.analysis_manifest) is not str:
+            raise ValueError("capture must be a string")
         raw = req.analysis_manifest.encode("utf-8")
         if (
             len(raw) > 2 * 1024 * 1024
