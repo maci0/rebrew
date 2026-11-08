@@ -270,7 +270,16 @@ def _import_lib_symbols_from_image(dll_stem: str) -> set[str]:
 
         kill_container(name)
         raise
-    return set(r.stdout.split()) if r.returncode == 0 else set()
+    if r.returncode != 0:
+        log.warning(
+            "container %s exited %d listing symbols for %s: %s",
+            name,
+            r.returncode,
+            dll_stem,
+            (r.stderr or "").strip()[:200],
+        )
+        return set()
+    return set(r.stdout.split())
 
 
 def _imp_suffix(name: str, lib_symbols: set[str], ordinal_map: dict[str, int]) -> str | None:

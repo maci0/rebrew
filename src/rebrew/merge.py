@@ -999,7 +999,13 @@ def _collect_file_scope_prototypes(text: str) -> list[str]:
         # __cdecl out and the reported declaration would no longer match the
         # source the user must fix.
         tree, _source = parse_c_source(text)
-    except Exception:
+    except Exception as exc:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "merge: prototype conflict scan skipped — merged source did not parse: %s",
+            exc,
+        )
         return []
     prototypes: list[str] = []
     for child in tree.root_node.children:
