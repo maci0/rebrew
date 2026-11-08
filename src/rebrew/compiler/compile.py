@@ -2398,10 +2398,20 @@ def precompile_batch(
                     if key is not None and cache.get(key) is not None:
                         continue
                 except Exception as exc:
-                    log.warning("batch cache check skipped %s: %s", getattr(e, "name", "?"), exc)
+                    log.warning(
+                        "batch cache check failed for %s (%s); compiling live",
+                        getattr(e, "name", "?"),
+                        exc,
+                        exc_info=True,
+                    )
             groups.setdefault(_batch_group_key(toolchain or "", cflags), []).append(e)
         except Exception as exc:
-            log.warning("batch grouping skipped %s: %s", getattr(e, "name", "?"), exc)
+            log.warning(
+                "batch grouping failed for %s (%s); leaving it to the per-file path",
+                getattr(e, "name", "?"),
+                exc,
+                exc_info=True,
+            )
     import concurrent.futures as _futures
 
     def _compile_group(toolchain: str, group_flags: str, members: list[Any]) -> dict[int, str]:
@@ -2660,7 +2670,13 @@ def precompile_batch(
                         )
             return group_out
         except Exception as exc:
-            log.warning("batch group skipped: %s", exc)
+            log.warning(
+                "batch group %s (%d files) aborted (%s); falling back to the per-file path",
+                toolchain or "(default)",
+                len(members),
+                exc,
+                exc_info=True,
+            )
             return group_out
         finally:
             if workdir is not None:
@@ -2702,10 +2718,17 @@ def precompile_batch(
             pool.submit(_compile_group, tc, gf, ms): (tc, gf) for (tc, gf), ms in batchable.items()
         }
         for future in _futures.as_completed(future_map):
+            group_tc, group_flags = future_map[future]
             try:
                 out.update(future.result())
             except Exception as exc:
-                log.warning("batch group skipped: %s", exc)
+                log.warning(
+                    "batch group %s (%s) aborted (%s); falling back to the per-file path",
+                    group_tc or "(default)",
+                    group_flags,
+                    exc,
+                    exc_info=True,
+                )
     return out
 
 

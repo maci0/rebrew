@@ -249,8 +249,15 @@ def run_cached_cl(
                     if _snapshot(root, spec, args, source, includes, image) == key:
                         candidate.replace(output)
                         replay = (saved["stdout"], saved["stderr"])
-        except OSError, ValueError, KeyError, TypeError, binascii.Error:
-            pass
+        except (OSError, ValueError, KeyError, TypeError, binascii.Error) as exc:
+            # Corrupt cache record: fall through to a live compile, but say
+            # so — a silent pass makes "cache hit, wrong object" and "cache
+            # corrupt, recompiled" indistinguishable in the build log.
+            log.warning(
+                "cmake object cache record for %s ignored (%s); compiling live",
+                output,
+                exc,
+            )
     if replay is not None:
         sys.stdout.write(replay[0])
         sys.stderr.write(replay[1])
@@ -291,5 +298,5 @@ def run_cached_cl(
             # failure (read-only cache dir) silently disables caching for
             # every later compile — log it so the operator can tell
             # "no cache hits" from "cache unwritable".
-            log.debug("cmake object cache write skipped for %s: %s", output, exc, exc_info=True)
+            log.warning("cmake object cache write skipped for %s: %s", output, exc)
     return rc
