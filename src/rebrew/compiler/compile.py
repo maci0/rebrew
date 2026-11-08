@@ -1522,13 +1522,15 @@ def _compile_via_recompile(
     except OSError as exc:
         return None, f"Failed to write recompile artifact: {exc}"
     global _last_remote_compile
-    _last_remote_compile = {"flags": list(all_flags), "execution": res.execution}
+    with _last_remote_compile_lock:
+        _last_remote_compile = {"flags": list(all_flags), "execution": res.execution}
     return str(obj_file), ""
 
 
 #: What the most recent successful remote compile of this process ran with,
 #: for the one-shot ``rebrew test --json`` run that reports it.
 _last_remote_compile: dict[str, Any] | None = None
+_last_remote_compile_lock = threading.Lock()
 
 
 def last_remote_compile() -> dict[str, Any] | None:
@@ -1536,7 +1538,8 @@ def last_remote_compile() -> dict[str, Any] | None:
 
     None means no remote compile ran (local backend), so nothing is claimed.
     """
-    return _last_remote_compile
+    with _last_remote_compile_lock:
+        return _last_remote_compile
 
 
 def contextualized_source(
