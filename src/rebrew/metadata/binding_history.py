@@ -250,6 +250,8 @@ def _apply_change(
             return None
         raise ValueError("native row has no current source binding to retire")
     if identity is not None and all(entry.get(k) == v for k, v in identity.items()):
+        if history and history[-1]["action"] == "rebind":
+            return None
         raise ValueError("replacement is already the current source binding")
     if counterpart_va is not None:
         other_key = resolve_metadata_key(doc, module, counterpart_va)
@@ -371,11 +373,11 @@ def change_source_binding(
                 "module": module,
                 "va": f"0x{va:x}",
                 "already_applied": True,
-                "action": "retire",
+                "action": "rebind" if identity is not None else "retire",
                 "reason": reason.strip(),
                 "changed_at": stamp_now(now),
                 "previous": {},
-                "replacement": {},
+                "replacement": identity or {},
                 "counterpart_va": counterpart_va or 0,
             }
         return doc, {
@@ -500,11 +502,11 @@ def change_source_bindings_batch(
                 "module": change["module"],
                 "va": f"0x{change['va']:x}",
                 "already_applied": True,
-                "action": "retire",
+                "action": "rebind" if change["identity"] is not None else "retire",
                 "reason": change["reason"].strip(),
                 "changed_at": stamp_now(now),
                 "previous": {},
-                "replacement": {},
+                "replacement": change["identity"] or {},
                 "counterpart_va": change["counterpart_va"] or 0,
             }
             for change, event in zip(prepared, raw_events, strict=True)

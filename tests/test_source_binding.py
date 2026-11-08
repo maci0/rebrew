@@ -165,6 +165,36 @@ class TestSourceBindingHistory:
             == "_replacement"
         )
 
+    def test_rebind_replay_is_idempotent(self, tmp_path: Path) -> None:
+        from rebrew.metadata.binding_history import change_source_bindings_batch
+
+        cfg = _project(tmp_path)
+        (cfg.reversed_dir / "replacement.c").write_text("int replacement(void) { return 2; }\n")
+        identity = {
+            "file": "src/replacement.c",
+            "name": "replacement",
+            "symbol": "_replacement",
+            "kind": "FUNCTION",
+        }
+        first = change_source_binding(
+            cfg.metadata_dir, "GAME", 0x401000, reason="proof", identity=identity
+        )
+        assert not first.get("already_applied")
+        before = (cfg.metadata_dir / "rebrew-functions.toml").read_bytes()
+        second = change_source_binding(
+            cfg.metadata_dir, "GAME", 0x401000, reason="proof", identity=identity
+        )
+        assert second["already_applied"] is True
+        assert second["action"] == "rebind"
+        assert (cfg.metadata_dir / "rebrew-functions.toml").read_bytes() == before
+        assert len(get_entry(cfg.metadata_dir, 0x401000, "GAME")["binding_history"]) == 1
+        batch = change_source_bindings_batch(
+            cfg.metadata_dir,
+            [{"module": "GAME", "va": 0x401000, "reason": "proof", "identity": identity}],
+        )
+        assert batch["already_applied"] is True
+        assert (cfg.metadata_dir / "rebrew-functions.toml").read_bytes() == before
+
     @pytest.mark.parametrize("field", ["binding_history", "status_history"])
     def test_generic_writer_cannot_forge_history(self, tmp_path: Path, field: str) -> None:
         cfg = _project(tmp_path)
