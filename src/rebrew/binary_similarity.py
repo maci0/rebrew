@@ -74,10 +74,14 @@ def _pair_ratio(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """Element-wise min/max ratio matching :func:`rebrew.similar._ratio`.
 
     ``a`` is ``(N, 1)``, ``b`` is ``(1, M)``.  Equal values (including both
-    zero) → 1.0; one side zero → 0.0; otherwise min/max.
+    zero) → 1.0; one side zero → 0.0; otherwise min/max.  Negative counts
+    are clamped to zero, matching :func:`rebrew.similar._ratio`: unclamped,
+    -5/10 is -0.5 and -2/-10 is 5.0, pushing the 0-100 score out of range.
     """
     import numpy as np  # deferred: ~60 ms of startup for non-similarity commands
 
+    a = np.maximum(a, 0)
+    b = np.maximum(b, 0)
     denom = np.maximum(a, b)
     out = np.divide(np.minimum(a, b), denom, out=np.zeros_like(denom), where=denom > 0)
     return np.where(a == b, 1.0, out)
@@ -180,12 +184,18 @@ def aggregate_similarity(
     sig_a: list[dict[str, Any]] = []
     meta_a: list[tuple[int, int, str]] = []  # (va, size, name)
     for f in funcs_a:
-        if f.get("signature") is not None:
+        if f.get("signature") is not None and int(f.get("size") or 0) > 0:
             sig_a.append(f["signature"])
-            meta_a.append((f["va"], f["size"], f["name"]))
-    sig_b = [f["signature"] for f in funcs_b if f.get("signature") is not None]
+            meta_a.append((f["va"], int(f["size"]), f["name"]))
+    sig_b = [
+        f["signature"]
+        for f in funcs_b
+        if f.get("signature") is not None and int(f.get("size") or 0) > 0
+    ]
     meta_b: list[tuple[int, int, str]] = [
-        (f["va"], f["size"], f["name"]) for f in funcs_b if f.get("signature") is not None
+        (f["va"], int(f["size"]), f["name"])
+        for f in funcs_b
+        if f.get("signature") is not None and int(f.get("size") or 0) > 0
     ]
 
     n_a, n_b = len(sig_a), len(sig_b)

@@ -212,6 +212,15 @@ class TestFindSimilarEdgeCases:
         assert _ratio(0, 0) == 1.0  # a == b
         assert _ratio(4, 2) == 0.5
 
+    def test_ratio_negative_count_stays_in_unit_interval(self) -> None:
+        from rebrew.similar import _ratio
+
+        # A negative count is not a count: -5/10 was -0.5 and -2/-10 was
+        # 5.0, pushing the 0-100 similarity score out of range.
+        assert _ratio(-5, 10) == 0.0
+        assert _ratio(-2, -10) == 1.0
+        assert 0.0 <= _ratio(-5, 10) <= 1.0
+
 
 class TestDisasmSignatureIntConstants:
     def test_accepts_int_constants(self) -> None:

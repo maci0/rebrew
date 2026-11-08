@@ -97,7 +97,14 @@ def _cosine(hist_a: dict[str, int], hist_b: dict[str, int]) -> float:
 
 
 def _ratio(a: int, b: int) -> float:
-    """1.0 when equal (including both zero), min/max otherwise, 0.0 when exactly one side is zero."""
+    """1.0 when equal (including both zero), min/max otherwise, 0.0 when exactly one side is zero.
+
+    A negative count is not a count: treating it as zero keeps the term
+    in 0-1, where min/max of opposite-signed operands is negative and
+    of two negatives exceeds 1 (e.g. -2/-10 = 5.0).
+    """
+    a = max(a, 0)
+    b = max(b, 0)
     if a == b:
         return 1.0
     if a == 0 or b == 0:

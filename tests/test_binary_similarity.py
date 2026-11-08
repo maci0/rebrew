@@ -97,6 +97,23 @@ class TestAggregateSimilarity:
         assert r["low"][0]["name"] == "f2"
         assert r["low"][0]["matches"] == {"va": "0x00002000", "size": 10, "name": "g1"}
 
+    def test_negative_size_skipped(self) -> None:
+        # A negative byte size is not a weight: it made the byte-weighted
+        # overall 0.0 and the bucket bytes negative while mean stayed 100.
+        a = [_fn(0x1000, -10, "f1", MOV_RET, calls=1, branches=2)]
+        b = [_fn(0x2000, 100, "g1", MOV_RET, calls=1, branches=2)]
+        r = aggregate_similarity(a, b)
+        assert r["functions_a"] == 0
+        assert r["overall"] == 0.0
+        assert r["buckets"] == []
+
+    def test_negative_count_stays_in_score_range(self) -> None:
+        a = _sig(MOV_RET, calls=-5, branches=2)
+        b = _sig(MOV_RET, calls=10, branches=2)
+        m = score_matrix([a], [b])
+        assert 0.0 <= m[0][0] <= 100.0
+        assert m[0][0] == 0.6 * 100.0 + 0.2 * 0.0 * 100.0 + 0.2 * 100.0
+
     def test_undecodable_skipped(self) -> None:
         a = [
             _fn(0x1000, 100, "f1", MOV_RET),
