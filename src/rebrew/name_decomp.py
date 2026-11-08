@@ -33,9 +33,11 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import typer
+from typer.models import TyperPath
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, parse_va, require_config
 from rebrew.decompiler import BACKEND_HELP_CHOICES, complete_backends
@@ -574,6 +576,13 @@ def main(
         autocompletion=complete_backends,
     ),
     named: bool = typer.Option(False, "--named", help="Apply known struct names to the output"),
+    output: Path | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Write decompilation to this file (default: stdout)",
+        click_type=TyperPath(path_type=Path),
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -632,7 +641,12 @@ def main(
 
     if named and not applied:
         console.print("[dim]no known struct matched this function's pointer accesses[/dim]")
-    print(code)
+    if output is not None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(code if code.endswith("\n") else code + "\n", encoding="utf-8")
+        console.print(f"  wrote {output}")
+    else:
+        print(code)
 
 
 def main_entry() -> None:

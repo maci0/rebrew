@@ -34,6 +34,8 @@ from rebrew.cli import (
     console,
     error_exit,
     json_print,
+    option_default,
+    require_non_negative,
     resolve_binary_arg,
     untrusted_ident,
 )
@@ -165,11 +167,21 @@ def main(
         None, "--filter", help="Case-insensitive regex filter on string text"
     ),
     xref: bool = typer.Option(False, "--xref", help="Show referencing code addresses"),
+    limit: int | None = typer.Option(
+        None, "--limit", help="Maximum strings to list (0 = none; omitted = unlimited)"
+    ),
+    offset: int = typer.Option(0, "--offset", help="Skip this many strings before listing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Scan a binary for printable strings and, with --xref, their code references."""
     binary = resolve_binary_arg(binary, target=target, json_mode=json_output)
+    offset_val = require_non_negative(option_default(offset, 0), "--offset", json_mode=json_output)
+    limit_val = (
+        require_non_negative(option_default(limit, 0), "--limit", json_mode=json_output)
+        if limit is not None
+        else None
+    )
 
     try:
         payload = collect_strings(
@@ -188,8 +200,24 @@ def main(
         # analysis.py surfaces a missing capstone as RuntimeError.
         error_exit(f"string analysis failed: {exc}", json_mode=json_output, code=EXIT_ERROR)
 
+    total = payload["count"]
+    all_strings = payload["strings"]
+    paged = all_strings[offset_val:]
+    if limit_val is not None:
+        paged = paged[:limit_val]
+    truncated = total - offset_val - len(paged) > 0
+
     if json_output:
-        json_print(payload)
+        json_print(
+            {
+                "binary": payload["binary"],
+                "count": total,
+                "offset": offset_val,
+                "limit": limit_val,
+                "truncated": truncated,
+                "strings": paged,
+            }
+        )
         return
 
     if payload["count"] == 0:
@@ -205,7 +233,12 @@ def main(
     table.add_column("Text")
     if xref:
         table.add_column("Xrefs")
-    for s in payload["strings"]:
+    if truncated:
+        console.print(
+            f"[dim]showing {len(paged)} of {total} (offset {offset_val}, limit {limit_val}); "
+            "increase --limit or use --json for all[/dim]"
+        )
+    for s in paged:
         row = [
             f"0x{s['va']:08x}",
             untrusted_ident(s["section"]),

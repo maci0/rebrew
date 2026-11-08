@@ -571,6 +571,44 @@ class TestCli:
         assert data["applied"][0]["var"] == "a0"
         assert data["applied"][0]["struct"] == "command_s"
 
+    def test_decompile_output_writes_file_not_stdout(self, tmp_path, monkeypatch) -> None:
+        from types import SimpleNamespace
+
+        from typer.testing import CliRunner
+
+        import rebrew.app.main as main_mod
+
+        src = tmp_path / "src" / "SERVER"
+        src.mkdir(parents=True)
+        write_source(
+            src / "f.c",
+            "/* ADDRESS: SERVER 0x401000 */\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x401000": {"kind": "FUNCTION"}},
+            metadata_dir=tmp_path,
+        )
+        cfg = SimpleNamespace(
+            target_name="SERVER",
+            target_binary=tmp_path / "x.exe",
+            reversed_dir=src,
+            metadata_dir=tmp_path,
+            module="SERVER",
+            source_ext=".c",
+            root=tmp_path,
+        )
+        monkeypatch.setattr("rebrew.name_decomp.require_config", lambda **kw: cfg)
+
+        def _fake_fetch(backend, binary, va, root):
+            return "int a0;\n*(char *)(a0 + 0x10) = 1;\n", backend
+
+        monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", _fake_fetch)
+        out = tmp_path / "decomp.c"
+        result = CliRunner().invoke(main_mod.app, ["decompile", "0x401000", "--output", str(out)])
+        assert result.exit_code == 0, result.output
+        assert out.read_text(encoding="utf-8") == "int a0;\n*(char *)(a0 + 0x10) = 1;\n"
+        assert "*(char *)(a0 + 0x10) = 1;" not in result.output
+        assert "wrote" in result.output
+
     def test_decompile_raw_without_named(self, tmp_path, monkeypatch) -> None:
         from types import SimpleNamespace
 

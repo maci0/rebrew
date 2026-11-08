@@ -144,6 +144,39 @@ class TestXrefs:
         assert cli_payload(result)["strings"][0]["xrefs"] == []
 
 
+class TestPagination:
+    def test_limit_offset_and_truncated(self, tmp_path: Path) -> None:
+        code = b"Hello World\x00" + b"Game Boy\x00" + b"Next One\x00" + b"\xc3"
+        path = _write_probe(tmp_path, code)
+        result = runner.invoke(
+            app, ["--json", "--limit", "1", "--offset", "1", "--section", ".text", str(path)]
+        )
+        assert result.exit_code == 0
+        data = cli_payload(result)
+        assert data["count"] == 3
+        assert data["offset"] == 1
+        assert data["limit"] == 1
+        assert data["truncated"] is True
+        assert [s["text"] for s in data["strings"]] == ["Game Boy"]
+
+    def test_unpaged_is_not_truncated(self, tmp_path: Path) -> None:
+        code = b"Hello World\x00" + b"\xc3"
+        path = _write_probe(tmp_path, code)
+        result = runner.invoke(app, ["--json", "--section", ".text", str(path)])
+        assert result.exit_code == 0
+        data = cli_payload(result)
+        assert data["truncated"] is False
+        assert data["offset"] == 0
+        assert data["limit"] is None
+
+    def test_negative_limit_is_usage_error(self, tmp_path: Path) -> None:
+        code = b"Hello World\x00" + b"\xc3"
+        path = _write_probe(tmp_path, code)
+        result = runner.invoke(app, ["--json", "--limit", "-1", "--section", ".text", str(path)])
+        assert result.exit_code == 2
+        assert "--limit" in cli_payload(result)["error"]
+
+
 class TestJsonOutput:
     def test_envelope_shape(self, tmp_path: Path) -> None:
         code = b"Hello World\x00" + b"Game Boy\x00" + b"\xc3"
@@ -151,7 +184,7 @@ class TestJsonOutput:
         result = runner.invoke(app, ["--json", "--section", ".text", str(path)])
         assert result.exit_code == 0
         data = cli_payload(result)
-        assert set(data) == {"binary", "count", "strings"}
+        assert set(data) == {"binary", "count", "offset", "limit", "truncated", "strings"}
         assert data["binary"] == str(path)
         assert data["count"] == 2
         assert data["strings"][0] == {
@@ -205,7 +238,12 @@ class TestCollectStrings:
         payload = collect_strings(path, section_names=[".text"], json_output=True)
         result = runner.invoke(app, ["--json", "--section", ".text", str(path)])
         assert result.exit_code == 0
-        assert payload == cli_payload(result)
+        cli = cli_payload(result)
+        # collect_strings is the unpaged payload; the CLI adds pagination fields.
+        assert {k: cli[k] for k in payload} == payload
+        assert cli["offset"] == 0
+        assert cli["limit"] is None
+        assert cli["truncated"] is False
         assert payload["count"] == 2
         assert payload["strings"][0]["text"] == "Hello World"
 

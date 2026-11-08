@@ -42,7 +42,15 @@ lazy from typing import Any
 import typer
 from typer.models import TyperPath
 
-from rebrew.cli import TargetOption, console, error_exit, json_print, resolve_binary_arg
+from rebrew.cli import (
+    TargetOption,
+    console,
+    error_exit,
+    json_print,
+    option_default,
+    require_non_negative,
+    resolve_binary_arg,
+)
 lazy from rebrew.analysis import direct_call_target, iter_instructions
 lazy from rebrew.formats.binary_loader import load_binary
 lazy from rebrew.utils import atomic_write_text, file_lock, read_json_text, run_process_group
@@ -53,7 +61,9 @@ _EPILOG = (
     "  # Write the inventory\n"
     "  rebrew binary functions mini.exe --output src/game/function_structure.json\n\n"
     "  # Machine-readable output\n"
-    "  rebrew binary functions mini.exe --min-size 32 --json\n"
+    "  rebrew binary functions mini.exe --min-size 32 --json\n\n"
+    "  # Page a large inventory\n"
+    "  rebrew binary functions mini.exe --limit 50 --offset 100 --json\n"
 )
 
 
@@ -1118,6 +1128,10 @@ def main(
         click_type=TyperPath(path_type=str),
     ),
     min_size: int = typer.Option(8, "--min-size", help="Drop functions smaller than this"),
+    limit: int | None = typer.Option(
+        None, "--limit", help="Maximum functions to list (0 = none; omitted = unlimited)"
+    ),
+    offset: int = typer.Option(0, "--offset", help="Skip this many functions before listing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -1125,7 +1139,18 @@ def main(
     bin_path = resolve_binary_arg(binary, target=target, json_mode=json_output)
 
     d = discover_functions(bin_path, min_size=min_size)
-    text = "".join(f"0x{va:08x} {name} {size}\n" for va, size, name in d.functions)
+    offset_val = require_non_negative(option_default(offset, 0), "--offset", json_mode=json_output)
+    limit_val = (
+        require_non_negative(option_default(limit, 0), "--limit", json_mode=json_output)
+        if limit is not None
+        else None
+    )
+    total = len(d.functions)
+    paged = d.functions[offset_val :]
+    if limit_val is not None:
+        paged = paged[:limit_val]
+    truncated = total - offset_val - len(paged) > 0
+    text = "".join(f"0x{va:08x} {name} {size}\n" for va, size, name in paged)
 
     if output:
         import json
@@ -1159,17 +1184,28 @@ def main(
         json_print(
             {
                 "binary": str(bin_path),
-                "functions": len(d.functions),
+                "functions": total,
                 "sources": d.sources,
                 "output": output,
+                "offset": offset_val,
+                "limit": limit_val,
+                "truncated": truncated,
+                "items": [
+                    {"va": f"0x{va:08x}", "size": size, "name": name} for va, size, name in paged
+                ],
                 "sample": [
                     {"va": f"0x{va:08x}", "size": size, "name": name}
-                    for va, size, name in d.functions[:10]
+                    for va, size, name in paged[:10]
                 ],
             }
         )
     else:
-        console.print(f"[green]{len(d.functions)} functions[/green] from {d.sources}")
+        console.print(f"[green]{total} functions[/green] from {d.sources}")
+        if truncated:
+            console.print(
+                f"[dim]showing {len(paged)} of {total} (offset {offset_val}, limit {limit_val}); "
+                "increase --limit or use --json for all[/dim]"
+            )
         if output:
             console.print(f"  wrote {output}")
         else:

@@ -846,6 +846,76 @@ class TestDiscoveryCliInputs:
         assert cli_payload(result)["binary"] == str(binary)
         assert json.loads(output.read_text()) == [{"va": 0x1000, "size": 12, "name": "func"}]
 
+    def test_limit_offset_and_truncated(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew import discover
+
+        monkeypatch.chdir(tmp_path)
+        binary = tmp_path / "standalone.bin"
+        binary.write_bytes(b"binary")
+        funcs = [(0x1000 + i * 0x10, 10, f"f{i}") for i in range(5)]
+
+        def _discover(path: Path, *, min_size: int) -> discover.Discovery:
+            return discover.Discovery(funcs, {"test": 1})
+
+        monkeypatch.setattr(discover, "discover_functions", _discover)
+        result = CliRunner().invoke(
+            discover.app, ["--json", "--limit", "2", "--offset", "1", str(binary)]
+        )
+        assert result.exit_code == 0, result.output
+        data = cli_payload(result)
+        assert data["functions"] == 5
+        assert data["offset"] == 1
+        assert data["limit"] == 2
+        assert data["truncated"] is True
+        assert [item["name"] for item in data["items"]] == ["f1", "f2"]
+        assert [item["name"] for item in data["sample"]] == ["f1", "f2"]
+
+    def test_unpaged_is_not_truncated(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew import discover
+
+        monkeypatch.chdir(tmp_path)
+        binary = tmp_path / "standalone.bin"
+        binary.write_bytes(b"binary")
+
+        def _discover(path: Path, *, min_size: int) -> discover.Discovery:
+            return discover.Discovery([(0x1000, 10, "f0")], {"test": 1})
+
+        monkeypatch.setattr(discover, "discover_functions", _discover)
+        result = CliRunner().invoke(discover.app, ["--json", str(binary)])
+        assert result.exit_code == 0, result.output
+        data = cli_payload(result)
+        assert data["truncated"] is False
+        assert data["offset"] == 0
+        assert data["limit"] is None
+        assert [item["name"] for item in data["items"]] == ["f0"]
+
+    def test_negative_limit_is_usage_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew import discover
+
+        monkeypatch.chdir(tmp_path)
+        binary = tmp_path / "standalone.bin"
+        binary.write_bytes(b"binary")
+
+        def _discover(path: Path, *, min_size: int) -> discover.Discovery:
+            return discover.Discovery([(0x1000, 10, "f0")], {"test": 1})
+
+        monkeypatch.setattr(discover, "discover_functions", _discover)
+        result = CliRunner().invoke(discover.app, ["--json", "--limit", "-1", str(binary)])
+        assert result.exit_code == 2, result.output
+        assert "--limit" in cli_payload(result)["error"]
+
     @pytest.mark.parametrize("target, expected", [(None, "server"), ("client", "client")])
     def test_project_target_is_resolved_before_discovery(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str | None, expected: str

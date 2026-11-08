@@ -72,15 +72,41 @@ _IDEMPOTENT = frozenset({"cfg target remove", "cfg module remove"})
 # cfg path/effective/raw, data bss/dispatch, and similarity binary only
 # report state; their leaves (path, effective, raw, bss, dispatch, binary)
 # are too generic to list globally.
+# Full paths whose commands only report state, have no --output/--dry-run
+# write path, and have no fix/write flag. verified against --help for each.
 _READ_ONLY_PATHS = frozenset(
     {
+        "binsync summary",
+        "build check-data-placement",
+        "build check-exports",
+        "build check-text-placement",
+        "build check-tu-data",
+        "build order-sources",
+        "build sweep-link-flags",
         "cfg effective",
         "cfg path",
         "cfg raw",
         "coverage serve",
+        "data audit-literals",
         "data bss",
         "data dispatch",
+        "data layout audit",
+        "dev refactor",
+        "diagnose config",
+        "diagnose drift",
+        "diagnose gap",
+        "diagnose probe",
+        "diagnose stack",
+        "library presence",
+        "match history",
+        "match solutions",
         "similarity binary",
+        "source organize guards",
+        "source security",
+        "source units",
+        "sync summary",
+        "toolchain detect",
+        "types contracts",
     }
 )
 
@@ -89,10 +115,12 @@ _READ_ONLY_PATHS = frozenset(
 # ``binary extract show`` writes a .bin file. ``binary asm show`` writes
 # when invoked as nasm --inline-c --output (the file, and the metadata
 # identity). ``binsync diff`` stays read_only: only the path ``diff`` writes.
-# ``binary analyze``, ``binary functions``, ``binary resource extract``
-# and ``binary unpack-lzexe`` write only when --output is given; the
-# default is stdout text/JSON. ``coverage serve`` only serves read-only
-# metadata, so it stays read_only despite its server name.
+# ``binary analyze``, ``binary functions``, ``binary resource extract``,
+# ``binary unpack-lzexe`` and ``decompile`` write only when --output is
+# given; the default is stdout text/JSON. ``coverage serve`` only serves
+# read-only metadata, so it stays read_only despite its server name.
+# ``diagnose near --fix-blocker`` and ``coverage catalog --fix-sizes``
+# write metadata; their --dry-run/--force modes are the preview/bypass.
 _WRITING_PATHS = frozenset(
     {
         "binary analyze",
@@ -101,6 +129,9 @@ _WRITING_PATHS = frozenset(
         "binary functions",
         "binary resource extract",
         "binary unpack-lzexe",
+        "coverage catalog",
+        "decompile",
+        "diagnose near",
         "diff",
         "lint",
     }
