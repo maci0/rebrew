@@ -1522,10 +1522,27 @@ def _find_definition(text: str, name: str) -> tuple[int, int, str, str] | None:
     n = len(text)
     while i < n:
         c = text[i]
+        if c in "\"'":
+            # Skip string/char literals: a brace inside one is not a
+            # brace in the source. Without this, ``char s[] = "}";``
+            # drives depth negative and the scan runs to EOF, swallowing
+            # the next definition.
+            quote = c
+            i += 1
+            while i < n:
+                if text[i] == "\\":
+                    i += 2
+                    continue
+                if text[i] == quote:
+                    i += 1
+                    break
+                i += 1
+            continue
         if c == "{":
             depth += 1
         elif c == "}":
-            depth -= 1
+            if depth > 0:
+                depth -= 1
         elif c == ";" and depth == 0:
             return start, i + 1, typ, sz
         i += 1
@@ -1883,10 +1900,23 @@ def _find_dlead_pad(text: str) -> tuple[int, int, str, int, str] | None:
             n = len(text)
             while i < n:
                 c = text[i]
+                if c in "\"'":
+                    quote = c
+                    i += 1
+                    while i < n:
+                        if text[i] == "\\":
+                            i += 2
+                            continue
+                        if text[i] == quote:
+                            i += 1
+                            break
+                        i += 1
+                    continue
                 if c == "{":
                     depth += 1
                 elif c == "}":
-                    depth -= 1
+                    if depth > 0:
+                        depth -= 1
                 elif c == ";" and depth == 0:
                     end = i + 1
                     if end < n and text[end] == "\n":
