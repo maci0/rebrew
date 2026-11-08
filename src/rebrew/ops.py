@@ -1957,12 +1957,16 @@ def run_rebrew(
             release_captured_pipes(process)
         raise _refused(f"rebrew {name} did not finish within {timeout} s") from None
     if process.returncode != 0 and not (outcome_exit and process.returncode == 1):
-        logger.error("rebrew %s exited %d: %s", name, process.returncode, stderr.strip())
+        logger.error(
+            "rebrew %s exited %d: %s", name, process.returncode, _escape_log_text(stderr.strip())
+        )
         raise _refused(f"rebrew {name} failed: {_command_refusal(stderr)}")
     try:
         report = json.loads(stdout)
     except json.JSONDecodeError:
-        logger.exception("rebrew %s printed no JSON report: %s", name, stderr.strip())
+        logger.exception(
+            "rebrew %s printed no JSON report: %s", name, _escape_log_text(stderr.strip())
+        )
         raise _refused(f"rebrew {name} printed no JSON report") from None
     if not isinstance(report, dict):
         raise _refused(f"rebrew {name} answered a report that is not an object")

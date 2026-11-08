@@ -20,6 +20,26 @@ import (
 	"time"
 )
 
+// logEscape renders attacker-controlled text as one terminal-safe line:
+// %q alone leaves \n verbatim when the probe sends it, forging a second
+// log record. Escape controls and backslash, then quote.
+func logEscape(s string) string {
+	var b strings.Builder
+	b.Grow(len(s) + 2)
+	for _, r := range s {
+		switch {
+		case r == '\\', r == '"':
+			b.WriteByte('\\')
+			b.WriteRune(r)
+		case r < 0x20 || (r >= 0x7f && r < 0xa0):
+			fmt.Fprintf(&b, "\\x%02x", r)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return strconv.Quote(b.String())
+}
+
 var latencyBucketsMS = [4]float64{100, 1000, 10000, 60000}
 
 type jobMetrics struct {
@@ -317,7 +337,7 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 			return
 		}
 		if !hostAllowed(r.Host) {
-			log.Printf("level=warning msg=http_host_rejected host=%q path=%q", r.Host, r.URL.Path)
+			log.Printf("level=warning msg=http_host_rejected host=%s path=%s", logEscape(r.Host), logEscape(r.URL.Path))
 			apiError(w, "host not allowed", http.StatusForbidden)
 			return
 		}
@@ -354,10 +374,10 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 			elapsed := float64(time.Since(start).Microseconds()) / 1000.0
 			globalMetrics.recordFor(metricsRouteOp(r), s, elapsed)
 			log.Printf("level=%s msg=http_request method=%s path=%s status=%d duration_ms=%d request_id=%q job_id=%q trace_id=%q",
-				level, r.Method, r.URL.Path, s, time.Since(start).Milliseconds(), requestID, jobID, traceID(r.Header.Get("traceparent")))
+				level, logEscape(r.Method), logEscape(r.URL.Path), s, time.Since(start).Milliseconds(), requestID, jobID, traceID(r.Header.Get("traceparent")))
 		}()
 		if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+token)) != 1 {
-			log.Printf("level=warning msg=http_unauthorized method=%s path=%s request_id=%q", r.Method, r.URL.Path, requestID)
+			log.Printf("level=warning msg=http_unauthorized method=%s path=%s request_id=%q", logEscape(r.Method), logEscape(r.URL.Path), requestID)
 			apiError(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}

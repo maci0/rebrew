@@ -313,7 +313,7 @@ func (m *CompileMediator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// RED view, separate from job-admission counters, so an upstream burn-rate
 		// spike does not hide inside a global error total.
 		globalMetrics.recordFor("compile", s, float64(time.Since(start).Microseconds())/1000.0)
-		log.Printf("level=%s msg=http_request method=%s path=%s status=%d duration_ms=%d intent=%q trace_id=%q", level, r.Method, r.URL.Path, s, time.Since(start).Milliseconds(), intent, traceID(r.Header.Get("traceparent")))
+		log.Printf("level=%s msg=http_request method=%s path=%s status=%d duration_ms=%d intent=%q trace_id=%q", level, logEscape(r.Method), logEscape(r.URL.Path), s, time.Since(start).Milliseconds(), intent, traceID(r.Header.Get("traceparent")))
 	}()
 	if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Rebrew-Job-Capability")), []byte(m.capability)) != 1 {
 		apiError(w, "unauthorized", 401)
