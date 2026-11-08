@@ -32,12 +32,31 @@ type jobMetrics struct {
 	latencyMsMax   float64
 	buckets        [4]int64
 	startedAt      time.Time
+	// per-op availability for the two money/burn paths: a bare global error
+	// counter cannot tell "compiles are failing" from "admission is busy".
+	compileRequests int64
+	compileErrors   int64
+	jobRequests     int64
+	jobErrors       int64
+	compileLatencyTotal float64
+	compileLatencyMax   float64
 }
 
 var globalMetrics = &jobMetrics{startedAt: time.Now()}
 var inFlight atomic.Int64
 
+func metricsRouteOp(r *http.Request) string {
+	if strings.HasPrefix(r.URL.Path, "/api/v1/compile") || strings.HasPrefix(r.URL.Path, "/api/v1/artifacts") {
+		return "compile"
+	}
+	return "job"
+}
+
 func (m *jobMetrics) record(code int, ms float64) {
+	m.recordFor("job", code, ms)
+}
+
+func (m *jobMetrics) recordFor(op string, code int, ms float64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.requests++
@@ -54,6 +73,21 @@ func (m *jobMetrics) record(code int, ms float64) {
 			m.buckets[i]++
 		}
 	}
+	if op == "compile" {
+		m.compileRequests++
+		m.compileLatencyTotal += ms
+		if ms > m.compileLatencyMax {
+			m.compileLatencyMax = ms
+		}
+		if code >= 400 {
+			m.compileErrors++
+		}
+	} else {
+		m.jobRequests++
+		if code >= 400 {
+			m.jobErrors++
+		}
+	}
 	if code >= 500 {
 		m.serverErrors++
 		m.errors++
@@ -66,12 +100,13 @@ func (m *jobMetrics) record(code int, ms float64) {
 func (m *jobMetrics) snapshot() (req, err, srv, cli int64, total, maxv, uptime float64, buckets [4]int64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	avg := 0.0
-	if m.requests > 0 {
-		avg = m.latencyMsTotal / float64(m.requests)
-	}
-	_ = avg
 	return m.requests, m.errors, m.serverErrors, m.clientErrors, m.latencyMsTotal, m.latencyMsMax, time.Since(m.startedAt).Seconds(), m.buckets
+}
+
+func (m *jobMetrics) perOp() (compileReq, compileErr, jobReq, jobErr, compileTotal, compileMax float64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return float64(m.compileRequests), float64(m.compileErrors), float64(m.jobRequests), float64(m.jobErrors), m.compileLatencyTotal, m.compileLatencyMax
 }
 
 // requestID returns the client's X-Request-ID when it is a well-formed single
@@ -250,6 +285,13 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 			fmt.Fprintf(&b, "rebrew_jobs_latency_bucket{le=\"+Inf\"} %d\n", req)
 			fmt.Fprintf(&b, "rebrew_jobs_latency_count %d\n", req)
 			fmt.Fprintf(&b, "rebrew_jobs_latency_sum %.3f\n", total)
+			cReq, cErr, jReq, jErr, cTotal, cMax := globalMetrics.perOp()
+			fmt.Fprintf(&b, "# HELP rebrew_jobs_compile_requests_total Compile-mediator requests answered.\n# TYPE rebrew_jobs_compile_requests_total counter\nrebrew_jobs_compile_requests_total %v\n", cReq)
+			fmt.Fprintf(&b, "# HELP rebrew_jobs_compile_errors_total Compile-mediator requests answered with an error status.\n# TYPE rebrew_jobs_compile_errors_total counter\nrebrew_jobs_compile_errors_total %v\n", cErr)
+			fmt.Fprintf(&b, "# HELP rebrew_jobs_job_requests_total Job lifecycle requests answered.\n# TYPE rebrew_jobs_job_requests_total counter\nrebrew_jobs_job_requests_total %v\n", jReq)
+			fmt.Fprintf(&b, "# HELP rebrew_jobs_job_errors_total Job lifecycle requests answered with an error status.\n# TYPE rebrew_jobs_job_errors_total counter\nrebrew_jobs_job_errors_total %v\n", jErr)
+			fmt.Fprintf(&b, "# HELP rebrew_jobs_compile_latency_ms_total Total latency of compile-mediator requests, in milliseconds.\n# TYPE rebrew_jobs_compile_latency_ms_total counter\nrebrew_jobs_compile_latency_ms_total %.3f\n", cTotal)
+			fmt.Fprintf(&b, "# HELP rebrew_jobs_compile_latency_ms_max Maximum latency of a compile-mediator request, in milliseconds.\n# TYPE rebrew_jobs_compile_latency_ms_max gauge\nrebrew_jobs_compile_latency_ms_max %.3f\n", cMax)
 			w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 			w.Header().Set("Cache-Control", "no-store")
 			w.WriteHeader(http.StatusOK)
@@ -294,7 +336,7 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 				level = "warning"
 			}
 			elapsed := float64(time.Since(start).Microseconds()) / 1000.0
-			globalMetrics.record(s, elapsed)
+			globalMetrics.recordFor(metricsRouteOp(r), s, elapsed)
 			log.Printf("level=%s msg=http_request method=%s path=%s status=%d duration_ms=%d request_id=%q job_id=%q trace_id=%q",
 				level, r.Method, r.URL.Path, s, time.Since(start).Milliseconds(), requestID, jobID, traceID(r.Header.Get("traceparent")))
 		}()
@@ -364,17 +406,17 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 			}
 			if err != nil {
 				if errors.Is(err, ErrIdempotencyConflict) {
-					log.Printf("job_admission_conflict key=%q error=%q", in.Key, err.Error())
+					log.Printf("level=warning msg=job_admission_conflict request_id=%q trace_id=%q key=%q error=%q", requestID, traceID(r.Header.Get("traceparent")), in.Key, err.Error())
 					apiError(w, "idempotency conflict", http.StatusConflict)
 					return
 				}
 				if errors.Is(err, ErrOccupied) {
-					log.Printf("job_admission_busy key=%q error=%q", in.Key, err.Error())
+					log.Printf("level=warning msg=job_admission_busy request_id=%q trace_id=%q key=%q error=%q", requestID, traceID(r.Header.Get("traceparent")), in.Key, err.Error())
 					w.Header().Set("Retry-After", "5")
 					apiError(w, "workspace has unresolved work", http.StatusConflict)
 					return
 				}
-				log.Printf("job_admission_refused key=%q kind=%q error=%q", in.Key, in.Kind, err.Error())
+				log.Printf("level=warning msg=job_admission_refused request_id=%q trace_id=%q key=%q kind=%q error=%q", requestID, traceID(r.Header.Get("traceparent")), in.Key, in.Kind, err.Error())
 				apiError(w, "admission refused", 400)
 				return
 			}
@@ -469,7 +511,7 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 					apiError(w, "job unavailable", http.StatusNotFound)
 					return
 				}
-				log.Printf("job_cancel_refused job_id=%q error=%q", id, err.Error())
+				log.Printf("level=warning msg=job_cancel_refused request_id=%q trace_id=%q job_id=%q error=%q", requestID, traceID(r.Header.Get("traceparent")), id, err.Error())
 				apiError(w, "cancel refused", 400)
 				return
 			}

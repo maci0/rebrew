@@ -50,6 +50,11 @@ func TestMetricsRequiresBearerToken(t *testing.T) {
 	if w := get("/metrics", token); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "rebrew_jobs_requests_total") {
 		t.Fatalf("authenticated metrics: %d %q", w.Code, w.Body.String())
 	}
+	for _, want := range []string{"rebrew_jobs_compile_requests_total", "rebrew_jobs_job_requests_total", "rebrew_jobs_compile_errors_total"} {
+		if w := get("/metrics", token); !strings.Contains(w.Body.String(), want) {
+			t.Fatalf("metrics missing per-op counter %s in %q", want, w.Body.String())
+		}
+	}
 	if w := get("/healthz", ""); w.Code != http.StatusOK {
 		t.Fatalf("healthz stays unauthenticated: %d", w.Code)
 	}

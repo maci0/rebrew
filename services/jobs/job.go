@@ -377,7 +377,7 @@ func (o *Owner) admit(key, seed, expectedWorkspaceSHA256, credential string, opt
 	o.occupied = true
 	o.queued[r.ID] = true
 	o.notify(r.ID)
-	log.Printf("job_admitted job_id=%q kind=%q provider=%q state=%q", r.ID, r.Kind, r.Provider, r.State)
+	log.Printf("level=info msg=job_admitted job_id=%q kind=%q provider=%q state=%q", r.ID, r.Kind, r.Provider, r.State)
 	o.workers.Add(1)
 	go func() {
 		defer o.workers.Done()
@@ -428,7 +428,7 @@ func (o *Owner) run(r Receipt) error {
 		return err
 	}
 	o.notify(saved.ID)
-	log.Printf("job_started job_id=%q kind=%q provider=%q", saved.ID, saved.Kind, saved.Provider)
+	log.Printf("level=info msg=job_started job_id=%q kind=%q provider=%q", saved.ID, saved.Kind, saved.Provider)
 	o.mu.Unlock()
 	if saved.Provider == "docker" {
 		return o.runDocker(saved, workspace)
@@ -501,7 +501,7 @@ func (o *Owner) run(r Receipt) error {
 	if current.NeverStarted {
 		o.occupied = false
 	}
-	log.Printf("job_finished job_id=%q state=%q exit_code=%d provider=%q", current.ID, current.State, code, current.Provider)
+	log.Printf("level=info msg=job_finished job_id=%q state=%q exit_code=%d provider=%q", current.ID, current.State, code, current.Provider)
 	o.notify(current.ID)
 	return nil
 }
@@ -626,9 +626,9 @@ func (o *Owner) runDocker(saved Receipt, workspace string) error {
 	if stopErr == nil {
 		o.occupied = false
 	} else {
-		log.Printf("job_stop_error job_id=%q error=%q", saved.ID, stopErr.Error())
+		log.Printf("level=error msg=job_stop_error job_id=%q error=%q", saved.ID, stopErr.Error())
 	}
-	log.Printf("job_finished job_id=%q state=%q exit_code=%d provider=%q", current.ID, current.State, stop.ExitCode, current.Provider)
+	log.Printf("level=info msg=job_finished job_id=%q state=%q exit_code=%d provider=%q", current.ID, current.State, stop.ExitCode, current.Provider)
 	o.notify(saved.ID)
 	return stopErr
 }

@@ -173,7 +173,7 @@ func (m *CompileMediator) exchange(ctx context.Context, v compileOriginal) (comp
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := m.client.Do(req)
 	if err != nil {
-		log.Printf("compile_upstream_error intent=%q duration_ms=%d error=%q", v.Intent, time.Since(start).Milliseconds(), err.Error())
+		log.Printf("level=error msg=compile_upstream_error intent=%q duration_ms=%d error=%q", v.Intent, time.Since(start).Milliseconds(), err.Error())
 		return v, errors.New("compile outcome unresolved")
 	}
 	defer resp.Body.Close()
@@ -181,7 +181,7 @@ func (m *CompileMediator) exchange(ctx context.Context, v compileOriginal) (comp
 	if err != nil || len(b) > 1024*1024 || resp.StatusCode != http.StatusOK {
 		v.LastHTTPStatus = resp.StatusCode
 		_ = m.writeOriginal(v)
-		log.Printf("compile_upstream_error intent=%q status=%d duration_ms=%d", v.Intent, resp.StatusCode, time.Since(start).Milliseconds())
+		log.Printf("level=error msg=compile_upstream_error intent=%q status=%d duration_ms=%d", v.Intent, resp.StatusCode, time.Since(start).Milliseconds())
 		return v, errors.New("compile outcome unresolved")
 	}
 	var result struct {
@@ -189,7 +189,7 @@ func (m *CompileMediator) exchange(ctx context.Context, v compileOriginal) (comp
 		Artifact string `json:"artifact_url"`
 	}
 	if json.Unmarshal(b, &result) != nil || (result.Status != "ok" && result.Status != "error") {
-		log.Printf("compile_upstream_error intent=%q status=%d duration_ms=%d", v.Intent, resp.StatusCode, time.Since(start).Milliseconds())
+		log.Printf("level=error msg=compile_upstream_error intent=%q status=%d duration_ms=%d", v.Intent, resp.StatusCode, time.Since(start).Milliseconds())
 		return v, errors.New("compile outcome unresolved")
 	}
 	if result.Status == "ok" && !validArtifact(result.Artifact) {
@@ -209,7 +209,7 @@ func (m *CompileMediator) exchange(ctx context.Context, v compileOriginal) (comp
 	if err = m.writeOriginal(v); err != nil {
 		return v, errors.New("compile result retention unresolved")
 	}
-	log.Printf("compile_upstream_ok intent=%q status=%d result=%q duration_ms=%d", v.Intent, resp.StatusCode, result.Status, time.Since(start).Milliseconds())
+	log.Printf("level=info msg=compile_upstream_ok intent=%q status=%d result=%q duration_ms=%d", v.Intent, resp.StatusCode, result.Status, time.Since(start).Milliseconds())
 	return v, nil
 }
 func validArtifact(p string) bool {
@@ -309,6 +309,10 @@ func (m *CompileMediator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		} else if s >= 400 {
 			level = "warning"
 		}
+		// Upstream compile is the only billable path; an operator needs its own
+		// RED view, separate from job-admission counters, so an upstream burn-rate
+		// spike does not hide inside a global error total.
+		globalMetrics.recordFor("compile", s, float64(time.Since(start).Microseconds())/1000.0)
 		log.Printf("level=%s msg=http_request method=%s path=%s status=%d duration_ms=%d intent=%q trace_id=%q", level, r.Method, r.URL.Path, s, time.Since(start).Milliseconds(), intent, traceID(r.Header.Get("traceparent")))
 	}()
 	if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Rebrew-Job-Capability")), []byte(m.capability)) != 1 {
@@ -398,7 +402,7 @@ func (m *CompileMediator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write(old.Result)
-			log.Printf("compile_replayed intent=%q", id)
+			log.Printf("level=info msg=compile_replayed intent=%q", id)
 			return
 		} else if !errors.Is(e, os.ErrNotExist) {
 			apiError(w, "ledger unavailable", 503)
@@ -473,7 +477,7 @@ func (m *CompileMediator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Type", "application/octet-stream")
 		_, _ = w.Write(body)
-		log.Printf("compile_artifact_ok intent=%q bytes=%d", id, len(body))
+		log.Printf("level=info msg=compile_artifact_ok intent=%q bytes=%d", id, len(body))
 		return
 	}
 	// Known path with wrong method: 405 with Allow, like the jobs API /
