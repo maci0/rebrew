@@ -78,7 +78,13 @@ lazy from rebrew.cross_import import (
     unmatched_dest_bytes,
 )
 lazy from rebrew.sources import contained_path, source_roots
-lazy from rebrew.utils import TerminalTable, fold_ident, parse_int_literal, preset_module_key, strip_body
+lazy from rebrew.utils import (
+    TerminalTable,
+    fold_ident,
+    parse_int_literal,
+    preset_module_key,
+    strip_body,
+)
 
 log = logging.getLogger(__name__)
 
