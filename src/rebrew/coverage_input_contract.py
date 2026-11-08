@@ -147,6 +147,9 @@ def coverage_input_digest(value: Any) -> str:
 def _lstat_confined(root: Path, name: str) -> os.stat_result | None:
     """``lstat`` ``name`` under ``root``, refusing any symlink component."""
     path = root
+    info: os.stat_result | None = (
+        None  # str.split always yields a part, so the loop always assigns it
+    )
     for part in name.split("/"):
         path = path / part
         try:

@@ -41,7 +41,7 @@ import logging
 from dataclasses import MISSING, dataclass, field, fields
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import override  # decorator: definition-time use
+from typing import TypedDict, override  # decorator and base class: definition-time use
 lazy import base64
 lazy import binascii
 lazy import dataclasses
@@ -322,6 +322,24 @@ def checked_cflags(text: str) -> str:
 MAX_READSET_FILES = 32768
 #: Latency histogram upper bounds in ms for the ops request metric.
 _LATENCY_BUCKETS_MS = (100.0, 1000.0, 10000.0, 60000.0, float("inf"))
+
+
+class _MetricsSnapshot(TypedDict):
+    """The ops server's counters at one instant, behind ``/health`` and ``/metrics``."""
+
+    request_count: int
+    error_count: int
+    server_error_count: int
+    client_error_count: int
+    latency_ms_total: float
+    latency_ms_max: float
+    latency_ms_avg: float
+    #: Per-bucket (not cumulative) counts, one per ``_LATENCY_BUCKETS_MS`` bound.
+    latency_ms_buckets: list[int]
+    in_flight: int
+    uptime_seconds: float
+
+
 MAX_READSET_BYTES = 32 * 1024 * 1024
 MAX_READSET_FILE_BYTES = 1024 * 1024
 
@@ -982,7 +1000,9 @@ def _check_download_host(hostname: str) -> None:
     A bearer holder must not turn the worker into an SSRF probe of the
     loopback/private network: an IP literal is checked directly, and a DNS
     name is resolved and every address refused when it is not globally
-    routable.  A resolution failure is refused rather than attempted.
+    routable.  A resolution failure (timeout, resolver error, no answer) is
+    refused rather than attempted, as an engine error (500): retryable, as a
+    failed connection is; only a non-public address is a bad request (400).
     """
     import ipaddress
     import socket as _socket
@@ -1002,20 +1022,20 @@ def _check_download_host(hostname: str) -> None:
     _thread.start()
     _thread.join(DNS_TIMEOUT_SECONDS)
     if _thread.is_alive():
-        raise _invalid("url host cannot be resolved")
+        raise _refused("url host cannot be resolved")
     if _error:
         if isinstance(_error[0], OSError):
-            raise _invalid("url host cannot be resolved") from None
+            raise _refused("url host cannot be resolved") from None
         raise _error[0]
     infos = _result[0]
     if not infos:
-        raise _invalid("url host cannot be resolved")
+        raise _refused("url host cannot be resolved")
     for info in infos:
         address = info[4][0]
         try:
             ip = ipaddress.ip_address(address)
         except ValueError:
-            raise _invalid("url host cannot be resolved") from None
+            raise _refused("url host cannot be resolved") from None
         if not ip.is_global:
             raise _invalid("url host must be a public address")
 
@@ -3395,7 +3415,7 @@ class OpsServer(ThreadingHTTPServer):
                 self._client_error_count += 1
                 self._error_count += 1
 
-    def metrics_snapshot(self) -> dict[str, float | int]:
+    def metrics_snapshot(self) -> _MetricsSnapshot:
         with self._metrics_lock:
             return {
                 "request_count": self._request_count,
@@ -3694,13 +3714,14 @@ class _OpsHandler(BaseHTTPRequestHandler):
                 "# HELP rebrew_ops_in_flight Calls currently holding a worker slot.",
                 "# TYPE rebrew_ops_in_flight gauge",
                 f"rebrew_ops_in_flight {snapshot['in_flight']}",
-                "# HELP rebrew_ops_latency_bucket Latency of answered ops requests, in milliseconds (cumulative).",
-                "# TYPE rebrew_ops_latency_bucket histogram",
+                "# HELP rebrew_ops_latency Latency of answered ops requests, in milliseconds.",
+                "# TYPE rebrew_ops_latency histogram",
+                # The last bound is infinity, written +Inf as the exposition format spells it: one +Inf bucket.
                 *(
-                    f'rebrew_ops_latency_bucket{{le="{bound}"}} {sum(snapshot["latency_ms_buckets"][: i + 1])}'
+                    f'rebrew_ops_latency_bucket{{le="{"+Inf" if bound == float("inf") else bound}"}} '
+                    f"{sum(snapshot['latency_ms_buckets'][: i + 1])}"
                     for i, bound in enumerate(_LATENCY_BUCKETS_MS)
                 ),
-                f'rebrew_ops_latency_bucket{{le="+Inf"}} {snapshot["request_count"]}',
                 f"rebrew_ops_latency_count {snapshot['request_count']}",
                 f"rebrew_ops_latency_sum {snapshot['latency_ms_total']:.3f}",
             ]

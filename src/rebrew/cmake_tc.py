@@ -130,10 +130,8 @@ _WINE = "/usr/bin/wine"  # the rebrew base image installs wine here
 def _docker_user_args() -> list[str]:
     """``--user uid:gid`` on hosts that expose unix ids (POSIX).
 
-    Thin wrapper over :func:`docker_hardening_args`'s user flag, kept for
-    call sites that build their own flag list. Capability probe rather
-    than an OS-name check: docker desktop hosts without unix uid/gid just
-    omit the flag and use the daemon default.
+    Capability probe rather than an OS-name check: docker desktop hosts
+    without unix uid/gid just omit the flag and use the daemon default.
     """
     if hasattr(os, "getuid") and hasattr(os, "getgid"):
         return ["--user", f"{os.getuid()}:{os.getgid()}"]
@@ -340,6 +338,7 @@ def _ensure_wineprefix(prefix: Path, spec: ToolchainSpec, *, runtime: str | None
                     *docker_hardening_args(pull=False),
                     "--name",
                     name,
+                    *_docker_user_args(),
                     "-e",
                     f"WINEPREFIX={prefix}",
                     "-v",
@@ -432,6 +431,7 @@ def _docker_run(
         *docker_hardening_args(pull=False),
         "--name",
         f"rebrew-{spec.name}-{mode}-{uuid.uuid4().hex[:12]}",
+        *_docker_user_args(),
         "-e",
         f"WINEPREFIX={prefix}",
         "-e",

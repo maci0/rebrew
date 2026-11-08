@@ -9,6 +9,9 @@
 
 ### Fixed
 
+- Toolchain compiles run as the image's own user again (revert of "run toolchain containers as host uid:gid by default"): the images' `rebrew` user (uid 1000) owns the baked `/opt/wineprefix`, and Wine refuses a prefix another uid owns, so `--user <host uid>` failed every compile on a host whose uid is not 1000 (`'/opt/wineprefix' is not owned by you` under uid 1001, as on a CI runner). The cmake bridge, which mounts a host wineprefix, keeps its host-uid `--user`.
+- A presigned-URL host that cannot be resolved (resolver timeout, resolver error, no answer) answers `engine-error` 500 again, retryable as a failed connection is; the host check had made it `invalid-request` 400, so a client retrying only server errors stopped at a transient DNS failure. A non-public address stays 400.
+- `rebrew ops serve`'s `/metrics` latency histogram is one valid Prometheus family: `# TYPE rebrew_ops_latency histogram` (the TYPE line named `rebrew_ops_latency_bucket`), and one `le="+Inf"` bucket (the loop also wrote Python's `le="inf"`, so a scrape held two infinity buckets).
 - A coverage read of a project whose configured `shared_dir` does not exist no longer logs "skipping unreadable source directory" once per input scan. The absent directory still enters the input fingerprint, so creating it invalidates the cached view.
 
 ## [6.24.0] - 2026-11-08
