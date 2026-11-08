@@ -23,6 +23,23 @@ import (
 // non-empty correlation id in the access log that an operator can pivot on
 // (a missing header previously logged request_id="" and could not be
 // correlated with anything).
+
+// traceID extracts the trace id from a W3C traceparent, or "" if absent/invalid.
+func traceID(tp string) string {
+	parts := strings.Split(tp, "-")
+	if len(parts) != 4 || parts[0] != "00" || len(parts[1]) != 32 || len(parts[2]) != 16 {
+		return ""
+	}
+	for _, p := range parts[1:3] {
+		for _, c := range p {
+			if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+				return ""
+			}
+		}
+	}
+	return parts[1]
+}
+
 func requestID(r *http.Request) string {
 	id := r.Header.Get("X-Request-ID")
 	if id == "" || len(id) > 128 || strings.ContainsAny(id, " \t\r\n") {
@@ -164,8 +181,8 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 			} else if s >= 400 {
 				level = "warning"
 			}
-			log.Printf("level=%s msg=http_request method=%s path=%s status=%d duration_ms=%d request_id=%q job_id=%q",
-				level, r.Method, r.URL.Path, s, time.Since(start).Milliseconds(), requestID, jobID)
+			log.Printf("level=%s msg=http_request method=%s path=%s status=%d duration_ms=%d request_id=%q job_id=%q trace_id=%q",
+				level, r.Method, r.URL.Path, s, time.Since(start).Milliseconds(), requestID, jobID, traceID(r.Header.Get("traceparent")))
 		}()
 		if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+token)) != 1 {
 			log.Printf("level=warning msg=http_unauthorized method=%s path=%s request_id=%q", r.Method, r.URL.Path, requestID)

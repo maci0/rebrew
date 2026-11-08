@@ -303,7 +303,13 @@ func (m *CompileMediator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if !validHex(intent, 64) {
 			intent = ""
 		}
-		log.Printf("http_request method=%s path=%s status=%d duration_ms=%d intent=%q", r.Method, r.URL.Path, s, time.Since(start).Milliseconds(), intent)
+		level := "info"
+		if s >= 500 {
+			level = "error"
+		} else if s >= 400 {
+			level = "warning"
+		}
+		log.Printf("level=%s msg=http_request method=%s path=%s status=%d duration_ms=%d intent=%q trace_id=%q", level, r.Method, r.URL.Path, s, time.Since(start).Milliseconds(), intent, traceID(r.Header.Get("traceparent")))
 	}()
 	if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Rebrew-Job-Capability")), []byte(m.capability)) != 1 {
 		apiError(w, "unauthorized", 401)
@@ -427,7 +433,7 @@ func (m *CompileMediator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(v.Result)
-		log.Printf("compile_admitted intent=%q compiler=%q key=%q", v.Intent, payload.Compiler, v.Key)
+		log.Printf("level=info msg=compile_admitted intent=%q compiler=%q key=%q", v.Intent, payload.Compiler, v.Key)
 		return
 	}
 	if r.Method == http.MethodGet && validArtifact(r.URL.Path) {

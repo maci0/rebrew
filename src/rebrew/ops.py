@@ -110,6 +110,12 @@ def _request_id() -> str:
     return getattr(_REQUEST_LOCAL, "request_id", "-")
 
 
+def _trace_id() -> str:
+    """Trace id of the open span, so logs join the MELT investigative path."""
+    opened = telemetry.current()
+    return opened.trace_id if opened is not None else "-"
+
+
 # ---------------------------------------------------------------------------
 # Limits and wire constants
 # ---------------------------------------------------------------------------
@@ -306,6 +312,8 @@ def checked_cflags(text: str) -> str:
 #: function, so the file count is sized for binaries with tens of thousands of
 #: functions; the byte bounds are the resource limit that matters.
 MAX_READSET_FILES = 32768
+#: Latency histogram upper bounds in ms for the ops request metric.
+_LATENCY_BUCKETS_MS = (100.0, 1000.0, 10000.0, 60000.0, float("inf"))
 MAX_READSET_BYTES = 32 * 1024 * 1024
 MAX_READSET_FILE_BYTES = 1024 * 1024
 
@@ -3178,7 +3186,7 @@ def _answer(config: WorkerConfig, name: str, body: bytes) -> Mapping[str, Any]:
     except UnsupportedBinaryFormat as exc:
         raise OpsError(str(exc), code=UNSUPPORTED_BINARY_FORMAT, status=422) from None
     except Exception:  # the engine is a trust boundary: log the cause, answer a fixed detail
-        logger.exception("%s %s failed", _request_id(), name)
+        logger.exception("%s %s failed trace_id=%s", _request_id(), name, _trace_id())
         raise _refused(f"{name} failed; the worker log has the cause") from None
 
 
@@ -3192,13 +3200,13 @@ def dispatch(config: WorkerConfig, name: str, body: bytes) -> tuple[int, bytes]:
         # operator holding the refusal has only the fixed detail to go on.
         # 4xx refusals are the caller's diagnosis, already in the wire body.
         if exc.status >= 500:
-            logger.exception("%s %s refused (%d)", _request_id(), name, exc.status)
+            logger.exception("%s %s refused (%d) trace_id=%s", _request_id(), name, exc.status, _trace_id())
         return exc.status, error_body(exc.code, str(exc), exc.status)
     except TypeError, ValueError:
-        logger.exception("%s %s produced a reply that is not JSON", _request_id(), name)
+        logger.exception("%s %s produced a reply that is not JSON trace_id=%s", _request_id(), name, _trace_id())
         return 500, error_body(ENGINE_ERROR, f"{name} produced a reply that is not JSON", 500)
     if len(reply) > MAX_REPLY_BYTES:
-        logger.error("%s %s produced a reply over %d bytes", _request_id(), name, MAX_REPLY_BYTES)
+        logger.error("%s %s produced a reply over %d bytes trace_id=%s", _request_id(), name, MAX_REPLY_BYTES, _trace_id())
         return 500, error_body(ENGINE_ERROR, f"reply exceeds {MAX_REPLY_BYTES} bytes", 500)
     return 200, reply
 
@@ -3282,6 +3290,7 @@ class OpsServer(ThreadingHTTPServer):
         self._client_error_count = 0
         self._latency_ms_total = 0.0
         self._latency_ms_max = 0.0
+        self._latency_ms_buckets = [0] * len(_LATENCY_BUCKETS_MS)
         self._started_at = time.time()
         self.concurrency = concurrency
 
@@ -3290,6 +3299,12 @@ class OpsServer(ThreadingHTTPServer):
             self._request_count += 1
             self._latency_ms_total += elapsed_ms
             self._latency_ms_max = max(self._latency_ms_max, elapsed_ms)
+            for index, bound in enumerate(_LATENCY_BUCKETS_MS):
+                if elapsed_ms <= bound:
+                    self._latency_ms_buckets[index] += 1
+                    break
+            else:
+                self._latency_ms_buckets[-1] += 1
             if code >= 500:
                 self._server_error_count += 1
                 self._error_count += 1
@@ -3309,6 +3324,7 @@ class OpsServer(ThreadingHTTPServer):
                 "latency_ms_avg": (self._latency_ms_total / self._request_count)
                 if self._request_count
                 else 0.0,
+                "latency_ms_buckets": list(self._latency_ms_buckets),
                 "uptime_seconds": time.time() - self._started_at,
             }
 
@@ -3344,7 +3360,7 @@ class _OpsHandler(BaseHTTPRequestHandler):
             _escape_log_text(urlsplit(getattr(self, "path", "") or "").path.removeprefix("/"))
             or "-"
         )
-        logger.info("%s %s %s %s %.1fms", self._request_id, op, code, size, elapsed_ms)
+        logger.info("%s %s %s %s %.1fms trace_id=%s", self._request_id, op, code, size, elapsed_ms, _trace_id())
 
     @override
     def log_message(self, fmt: str, *args: Any) -> None:  # (http.server API)
@@ -3553,6 +3569,12 @@ class _OpsHandler(BaseHTTPRequestHandler):
                 "# HELP rebrew_ops_concurrency Configured number of calls answered at once.",
                 "# TYPE rebrew_ops_concurrency gauge",
                 f"rebrew_ops_concurrency {server.concurrency}",
+                "# HELP rebrew_ops_latency_bucket Latency of answered ops requests, in milliseconds (cumulative).",
+                "# TYPE rebrew_ops_latency_bucket histogram",
+                *(
+                    f'rebrew_ops_latency_bucket{{le="{bound}"}} {sum(snapshot["latency_ms_buckets"][: i + 1])}'
+                    for i, bound in enumerate(_LATENCY_BUCKETS_MS)
+                ),
             ]
             body = ("\n".join(lines) + "\n").encode("utf-8")
             self._send(200, body, {"Content-Type": "text/plain; version=0.0.4; charset=utf-8"})
