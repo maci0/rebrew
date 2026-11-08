@@ -1,0 +1,4 @@
+addr = 0x1000
+func_addr = 0x1000
+comment = "hi"
+decompiled = false

@@ -1,0 +1,11 @@
+addr = 0x1000
+size = 0x10
+name = "_f"
+type = "int f()"
+
+[header]
+name = "_f"
+addr = 0x1000
+type = "int f()"
+
+[header.args]

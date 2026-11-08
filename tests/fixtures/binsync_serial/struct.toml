@@ -1,0 +1,8 @@
+name = "S"
+size = 0x8
+
+[members.0x0]
+name = "a"
+offset = 0x0
+type = "int"
+size = 0x4

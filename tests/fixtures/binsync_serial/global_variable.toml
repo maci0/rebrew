@@ -1,0 +1,4 @@
+addr = 0x2000
+name = "g"
+type = "int"
+size = 0x4
