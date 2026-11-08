@@ -628,12 +628,14 @@ def restore_metadata_toml(bundle: Path, root: Path) -> tuple[Path, ...]:
         for rel in planned:
             raw = (bundle / rel).read_bytes()
             dest = root / rel
-            if dest.is_file():
-                atomic_write_bytes(
-                    dest.with_name(dest.name + ".before-restore"),
-                    dest.read_bytes(),
-                    mode=_extra_mode(dest),
-                )
+            original = before[dest]
+            if original is not None and original != raw:
+                preserved = dest.with_name(dest.name + ".before-restore")
+                # Keep the first preserved copy across a re-run: overwriting
+                # it with the already-restored bytes would discard the only
+                # copy of what the restore displaced (see restore_ga_runs).
+                if not preserved.is_file() or preserved.read_bytes() != original:
+                    atomic_write_bytes(preserved, original, mode=_extra_mode(dest))
             atomic_write_bytes(dest, raw, mode=_extra_mode(dest))
             if dest.read_bytes() != raw:
                 raise MetadataStorageError(f"{dest}: restored copy verification failed")
@@ -792,19 +794,44 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
     with file_transaction(location.parent, location.name):
         if location.is_file():
             preserved = location.with_name(location.name + ".before-restore")
-            # As in backup_metadata_database: a previous restore left the
-            # preserved copy read-only (0444), and the backup API would
-            # refuse to write it on a second restore.
-            with contextlib.suppress(OSError):
-                if preserved.exists():
-                    preserved.chmod(0o644)
-            source = sqlite3.connect(location.as_uri() + "?mode=ro", uri=True, timeout=30)
-            try:
-                with contextlib.closing(sqlite3.connect(preserved, timeout=30)) as target:
-                    source.backup(target)
-            finally:
-                source.close()
-            os.chmod(preserved, 0o444)
+            # Re-running a restore must not overwrite the preserved copy
+            # with the live database's current (already-restored) bytes:
+            # the sidecar is the only copy of what the first restore
+            # displaced.  Compare logical snapshots so a re-run is a no-op
+            # for the sidecar even if the physical file was rewritten.
+            def _snapshot(db: Path) -> list[tuple[str, str]] | None:
+                try:
+                    conn = sqlite3.connect(db.as_uri() + "?mode=ro", uri=True, timeout=30)
+                    try:
+                        return conn.execute(
+                            "SELECT path, content FROM metadata_documents ORDER BY path"
+                        ).fetchall()
+                    finally:
+                        conn.close()
+                except sqlite3.Error:
+                    return None
+
+            current_content = _snapshot(location)
+            preserved_content = _snapshot(preserved) if preserved.is_file() else None
+            backup_content = _snapshot(backup)
+            # A re-run of the same restore finds the live database already
+            # carrying the backup's content; preserving again would replace
+            # the sidecar with the restored bytes, discarding what the first
+            # restore displaced.
+            if current_content not in (backup_content, preserved_content):
+                # As in backup_metadata_database: a previous restore left the
+                # preserved copy read-only (0444), and the backup API would
+                # refuse to write it on a second restore.
+                with contextlib.suppress(OSError):
+                    if preserved.exists():
+                        preserved.chmod(0o644)
+                source = sqlite3.connect(location.as_uri() + "?mode=ro", uri=True, timeout=30)
+                try:
+                    with contextlib.closing(sqlite3.connect(preserved, timeout=30)) as target:
+                        source.backup(target)
+                finally:
+                    source.close()
+                os.chmod(preserved, 0o444)
         import time
 
         from rebrew.utils import atomic_write_bytes as _awb
@@ -812,11 +839,13 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
         for _src, _dest in _siblings:
             _raw = _src.read_bytes()
             if _dest.is_file():
-                _awb(
-                    _dest.with_name(_dest.name + ".before-restore"),
-                    _dest.read_bytes(),
-                    mode=_extra_mode(_dest),
-                )
+                _current = _dest.read_bytes()
+                if _current != _raw:
+                    _preserved = _dest.with_name(_dest.name + ".before-restore")
+                    # Keep the first preserved copy across a re-run (see the
+                    # database preservation above and restore_ga_runs).
+                    if not _preserved.is_file() or _preserved.read_bytes() != _current:
+                        _awb(_preserved, _current, mode=_extra_mode(_dest))
             _awb(_dest, _raw, mode=_extra_mode(_dest))
             if _dest.read_bytes() != _raw:
                 raise MetadataStorageError(f"{_dest}: restored copy verification failed")

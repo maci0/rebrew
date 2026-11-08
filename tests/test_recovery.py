@@ -132,6 +132,27 @@ class TestSqliteBackup:
         assert store.read("test")["GAME.0x1000"]["size"] == 4
         assert (tmp_path / (DATABASE_FILENAME + ".before-restore")).is_file()
 
+    def test_restore_twice_keeps_first_preserved_copy(self, tmp_path: Path) -> None:
+        _project(tmp_path)
+        store = metadata_store(tmp_path / "rebrew-functions.toml", backend="sqlite", root=tmp_path)
+        store.write({"format": 2, "GAME.0x1000": {"size": 4}}, "test")
+        dest = backup_metadata_database(tmp_path, tmp_path / "off-tree")
+        store.write({"format": 2, "GAME.0x1000": {"size": 8}}, "test")
+        restore_metadata_database(dest, tmp_path)
+        restore_metadata_database(dest, tmp_path)
+        assert store.read("test")["GAME.0x1000"]["size"] == 4
+        import sqlite3
+
+        preserved = tmp_path / (DATABASE_FILENAME + ".before-restore")
+        con = sqlite3.connect(f"file:{preserved}?mode=ro", uri=True)
+        try:
+            content = con.execute(
+                "SELECT content FROM metadata_documents WHERE path = 'rebrew-functions.toml'"
+            ).fetchone()[0]
+        finally:
+            con.close()
+        assert "size = 8" in content
+
     def test_backup_carries_uploads_ledger_owner_only(self, tmp_path: Path) -> None:
         _project(tmp_path)
         _store = metadata_store(tmp_path / "rebrew-functions.toml", backend="sqlite", root=tmp_path)
@@ -242,6 +263,20 @@ class TestTomlBackup:
         assert (
             dest.with_name(dest.name + ".before-restore").read_text(encoding="utf-8")
             == "format=3\nchanged=1\n"
+        )
+
+    def test_restore_twice_keeps_first_preserved_copy(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text("format=3\norig=1\n", encoding="utf-8")
+        bundle = backup_metadata_toml(tmp_path, tmp_path / "off-tree")
+        dest = tmp_path / "rebrew-functions.toml"
+        dest.chmod(0o644)
+        dest.write_text("format=3\norig=2\n", encoding="utf-8")
+        restore_metadata_toml(bundle, tmp_path)
+        restore_metadata_toml(bundle, tmp_path)
+        assert dest.read_text(encoding="utf-8") == "format=3\norig=1\n"
+        assert (
+            dest.with_name(dest.name + ".before-restore").read_text(encoding="utf-8")
+            == "format=3\norig=2\n"
         )
 
     def test_missing_stores_raise_not_empty_bundle(self, tmp_path: Path) -> None:
