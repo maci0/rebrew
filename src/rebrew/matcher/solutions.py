@@ -221,12 +221,16 @@ def _wins_from_records(path: Path) -> list[SolutionEntry]:
     last entry for a key win.
     """
     wins: dict[tuple[str, str], SolutionEntry] = {}
-    for rec in _iter_run_records(path):
-        if not rec.get("matched"):
-            continue
-        entry = _entry_from_record(rec)
-        if entry is not None:
-            wins[(entry.target, entry.symbol)] = entry
+    records = _iter_run_records(path)
+    try:
+        for rec in records:
+            if not rec.get("matched"):
+                continue
+            entry = _entry_from_record(rec)
+            if entry is not None:
+                wins[(entry.target, entry.symbol)] = entry
+    finally:
+        _close_run_records(records)
     return sorted(wins.values(), key=lambda e: (e.target, e.symbol))
 
 
@@ -240,7 +244,14 @@ def load_solutions(project_root: Path) -> list[SolutionEntry]:
 
 
 def _iter_run_records(path: Path) -> Iterator[dict[str, Any]]:
-    """Yield dict records from a JSONL file (skips malformed lines)."""
+    """Yield dict records from a JSONL file (skips malformed lines).
+
+    The file handle is closed when this generator is closed (``close()`` /
+    garbage collection / a ``break`` in the caller), so a caller that stops
+    early does not pin the descriptor until the iterator is collected.  The
+    ``with`` spans the yields: ``GeneratorExit`` from ``close()`` unwinds
+    through it and the ``__exit__`` runs.
+    """
     if not path.exists():
         return
     try:
@@ -269,6 +280,19 @@ def _iter_run_records(path: Path) -> Iterator[dict[str, Any]]:
             bad_lines,
             path,
         )
+
+
+def _close_run_records(records: Iterator[dict[str, Any]]) -> None:
+    """Close a run-record iterator so its file handle is released promptly.
+
+    A consumer that stops early (a ``break``, an exception) leaves the
+    generator suspended at its ``yield`` with the file open; ``close()``
+    unwinds it through the ``with`` and frees the descriptor without
+    waiting for the garbage collector.
+    """
+    close = getattr(records, "close", None)
+    if close is not None:
+        close()
 
 
 def load_solutions_file(path: Path) -> list[SolutionEntry]:
@@ -859,11 +883,19 @@ def iter_ga_runs(project_root: Path, *, target: str = "") -> Iterator[dict[str, 
     instead of a newest-N window that silently drops an older, better run
     once the log grows past that N.  The filter is per record, so a
     targeted consumer never pays to decode another target's records.
+
+    The underlying file handle closes when this generator is closed, so a
+    consumer that stops early releases the descriptor without waiting for
+    collection.
     """
-    for record in _iter_run_records(_runs_path(project_root)):
-        if target and record.get("target") != target:
-            continue
-        yield record
+    records = _iter_run_records(_runs_path(project_root))
+    try:
+        for record in records:
+            if target and record.get("target") != target:
+                continue
+            yield record
+    finally:
+        _close_run_records(records)
 
 
 GA_BACKUP_FILENAME = "ga_runs.backup.jsonl"

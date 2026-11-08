@@ -660,6 +660,30 @@ class TestGaRunHistory:
     def test_iter_ga_runs_missing_file_is_empty(self, project_root: Path) -> None:
         assert list(iter_ga_runs(project_root)) == []
 
+    def test_closing_iter_ga_runs_releases_the_log_handle(self, project_root: Path) -> None:
+        # A consumer that stops early (break) must free the descriptor
+        # without waiting for the generator to be garbage-collected.
+        record_ga_run(project_root, target="S", va=0x1000, symbol="_a", matched=True)
+        record_ga_run(project_root, target="S", va=0x1001, symbol="_b", matched=True)
+        records = iter_ga_runs(project_root)
+        fd_dir = Path("/proc/self/fd")
+
+        def _open_targets() -> set[str]:
+            targets: set[str] = set()
+            for entry in fd_dir.iterdir():
+                try:
+                    targets.add(str(entry.readlink()))
+                except OSError:
+                    continue
+            return targets
+
+        try:
+            assert next(records)["symbol"] == "_a"
+            assert any(str(project_root) in target for target in _open_targets())
+        finally:
+            records.close()
+        assert not any(str(project_root) in target for target in _open_targets())
+
     def test_the_log_stays_bounded_and_keeps_every_win(
         self, project_root: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
