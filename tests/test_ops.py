@@ -648,6 +648,29 @@ class TestUrlBinaries:
         refusal = _refusal(WorkerConfig(), "rebrew.fingerprint", json.dumps(request).encode())
         assert refusal["detail"] == "the rebrew worker has no workspace configured (--workspace)"
 
+    def test_hung_dns_does_not_pin_the_worker(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from unittest import mock
+
+        import rebrew.ops as ops
+
+        monkeypatch.setattr(ops, "DNS_TIMEOUT_SECONDS", 0.2)
+
+        def _hung(*args: Any, **kwargs: Any) -> Any:
+            time.sleep(2)
+            return []
+
+        with mock.patch.object(socket, "getaddrinfo", _hung):
+            started = time.monotonic()
+            refusal = _refusal(
+                self._config(tmp_path),
+                "rebrew.fingerprint",
+                json.dumps(self._url_file("https://example.com")).encode(),
+            )
+            assert refusal["detail"] == "url host cannot be resolved"
+            assert time.monotonic() - started < 1.0
+
 
 class TestRefusals:
     @pytest.mark.parametrize(

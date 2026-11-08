@@ -160,6 +160,11 @@ DEFAULT_MAX_DOWNLOAD_BYTES = 256 << 20
 #: Seconds a ``url`` download may stall connecting or between reads.
 DOWNLOAD_TIMEOUT_SECONDS = 60
 
+#: Seconds a DNS resolution for a ``url`` host may stall.  ``getaddrinfo``
+#: has no timeout of its own, so without this a hung resolver pins a
+#: worker slot for the kernel timeout and later requests queue behind it.
+DNS_TIMEOUT_SECONDS = 10
+
 #: Bytes read per chunk of a ``url`` download.
 DOWNLOAD_CHUNK_BYTES = 1 << 20
 
@@ -970,10 +975,27 @@ def _check_download_host(hostname: str) -> None:
     import ipaddress
     import socket as _socket
 
-    try:
-        infos = _socket.getaddrinfo(hostname, 443, type=_socket.SOCK_STREAM)
-    except OSError:
-        raise _invalid("url host cannot be resolved") from None
+    # getaddrinfo blocks with no timeout: a hung resolver would pin this
+    # request thread (and its worker slot) for the kernel timeout.
+    _result: list[Any] = []
+    _error: list[BaseException] = []
+
+    def _resolve() -> None:
+        try:
+            _result.append(_socket.getaddrinfo(hostname, 443, type=_socket.SOCK_STREAM))
+        except BaseException as exc:  # propagated below; resolve runs on a thread
+            _error.append(exc)
+
+    _thread = threading.Thread(target=_resolve, daemon=True)
+    _thread.start()
+    _thread.join(DNS_TIMEOUT_SECONDS)
+    if _thread.is_alive():
+        raise _invalid("url host cannot be resolved")
+    if _error:
+        if isinstance(_error[0], OSError):
+            raise _invalid("url host cannot be resolved") from None
+        raise _error[0]
+    infos = _result[0]
     if not infos:
         raise _invalid("url host cannot be resolved")
     for info in infos:
@@ -3531,7 +3553,9 @@ class _OpsHandler(BaseHTTPRequestHandler):
         if urlsplit(self.path).path in ("/health", "/metrics"):
             self._send(
                 405,
-                error_body("method-not-allowed", "health and metrics are served with GET, HEAD", 405),
+                error_body(
+                    "method-not-allowed", "health and metrics are served with GET, HEAD", 405
+                ),
                 {"Allow": "GET, HEAD"},
             )
             return
@@ -3668,7 +3692,9 @@ class _OpsHandler(BaseHTTPRequestHandler):
         if path in ("/health", "/metrics"):
             self._send(
                 405,
-                error_body("method-not-allowed", "health and metrics are served with GET, HEAD", 405),
+                error_body(
+                    "method-not-allowed", "health and metrics are served with GET, HEAD", 405
+                ),
                 {"Allow": "GET, HEAD"},
             )
             return
