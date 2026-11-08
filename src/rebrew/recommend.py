@@ -932,7 +932,9 @@ def _collect_hygiene(
 
         cmake = cfg.root / "CMakeLists.txt"
         if cmake.is_file():
-            text = cmake.read_text(encoding="utf-8")
+            from rebrew.utils import read_source_text
+
+            text, _ = read_source_text(cmake)
             ordered, _ = order_sources(list(sources), target_module_name=cfg.module)
             by_key = {
                 str(p.resolve()): rel_display_path(p, cfg.root) for p in ordered if p.is_absolute()

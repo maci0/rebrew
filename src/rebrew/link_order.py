@@ -29,7 +29,7 @@ from rebrew.cli import EXIT_MISMATCH, TargetOption, console, error_exit, json_pr
 lazy from rebrew.config import target_module
 lazy from rebrew.metadata.bindings import FUNCTION_KINDS, read_source_bindings
 lazy from rebrew.sources import iter_sources, source_exts
-lazy from rebrew.utils import atomic_write_text, preset_module_key
+lazy from rebrew.utils import atomic_write_text, preset_module_key, read_source_text
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
@@ -429,7 +429,7 @@ def main(
     cmake = cfg.root / _CMAKE_LISTS
     if not cmake.is_file():
         error_exit(f"{_CMAKE_LISTS} not found: {cmake}", json_mode=json_output)
-    text = cmake.read_text(encoding="utf-8")
+    text, cmake_encoding = read_source_text(cmake)
     block = find_sources_block(text, {ext.lower() for ext in source_exts(cfg)})
     if block is None:
         error_exit(
@@ -460,7 +460,7 @@ def main(
         if in_sync:
             console.print(f"[green]{_CMAKE_LISTS} SOURCES already in VA order[/green]")
         else:
-            atomic_write_text(cmake, render_block(text, block, computed))
+            atomic_write_text(cmake, render_block(text, block, computed), encoding=cmake_encoding)
             console.print(
                 f"[green]rewrote {block.label} in {cmake.name}: "
                 f"{len(computed)} sources in VA order[/green]"
