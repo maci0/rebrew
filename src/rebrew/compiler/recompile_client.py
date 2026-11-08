@@ -138,12 +138,14 @@ class RecompileResult:
 
         ``obj_bytes`` is the one field left out: it is the compiled object, not
         a JSON value.  A consumer that stores a remote compile's verdict
-        writes ``log`` and ``compiler_version`` and keeps the bytes itself.
+        writes ``log``, ``compiler_version`` and ``execution`` and keeps the
+        bytes itself.
         """
         return {
             "ok": self.ok,
             "log": self.log,
             "compiler_version": self.compiler_version,
+            **({"execution": self.execution} if self.execution is not None else {}),
         }
 
     @classmethod
@@ -162,10 +164,12 @@ class RecompileResult:
                 f"RecompileResult.from_dict needs a boolean 'ok', got {raw_ok!r}",
                 kind="protocol",
             )
+        execution = data.get("execution")
         return cls(
             ok=raw_ok,
             log=str(data.get("log", "")),
             compiler_version=data.get("compiler_version"),
+            execution=execution if isinstance(execution, dict) else None,
         )
 
 
