@@ -806,7 +806,7 @@ def _render_index(
             # Every page of the table prints the same coloured Status column,
             # so every page carries the key that explains it.  A reader who
             # opens index-pN.html from a link or the pager landed without one.
-            body = f"<h2>Function index (continued)</h2>{legend_html}{pager}{table}{pager_end}"
+            body = f"<h2>Function index (continued)</h2>{legend_html}{intro}{pager}{table}{pager_end}"
             title = f"Function index ({page_num}/{total_pages})"
         pages.append((_paged_href("index", page_num), _page(title, target, "index.html", body)))
     return pages
@@ -921,7 +921,7 @@ def _render_strings(cfg: ProjectConfig) -> list[tuple[str, str]]:
             body = f"<h2>Strings</h2>{intro}{refs_note}{pager}{table}{pager_end}"
             title = "Strings"
         else:
-            body = f"<h2>Strings (continued)</h2>{refs_note}{pager}{table}{pager_end}"
+            body = f"<h2>Strings (continued)</h2>{intro}{refs_note}{pager}{table}{pager_end}"
             title = f"Strings ({page_num}/{total_pages})"
         pages.append((_paged_href("strings", page_num), _page(title, target, "strings.html", body)))
     return pages
@@ -1017,7 +1017,7 @@ def _paginate_rows(
             body = f"{first_heading}{first_intro}{pager}{table}{pager_end}{extra_first}{extra_all}"
             page_title = title
         else:
-            body = f"{continued_heading}{pager}{table}{pager_end}{extra_all}"
+            body = f"{continued_heading}{first_intro}{pager}{table}{pager_end}{extra_all}"
             page_title = f"{title} ({page_num}/{total_pages})"
         pages.append((_paged_href(stem, page_num), _page(page_title, target, active, body)))
     return pages

@@ -612,6 +612,9 @@ class TestReportPayloadShape:
         assert index.count("class='legend'") == 1
         assert page2.count("class='legend'") == 1
         assert "A placeholder: no source, or a rewrite is needed." in page2
+        # A reader landing on page 2 from a link gets the same count intro
+        # as page 1, not just the pager line.
+        assert "reversed functions." in page2
 
     def test_pager_offers_first_and_last_on_middle_pages(self) -> None:
         from rebrew.report import _TABLE_PAGE_SIZE, _page_va_span, _pager_nav
