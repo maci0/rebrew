@@ -36,8 +36,10 @@ def precompress(raw: bytes, encoding: WireEncoding) -> bytes | None:
         import zstandard
 
         compressed = zstandard.ZstdCompressor(level=ZSTD_PRECOMPRESS_LEVEL).compress(raw)
-    else:
+    elif encoding == "gzip":
         compressed = gzip.compress(raw, compresslevel=GZIP_PRECOMPRESS_LEVEL, mtime=0)
+    else:
+        raise ValueError(f"unknown wire encoding {encoding!r}; expected 'zstd' or 'gzip'")
     return compressed if len(compressed) < len(raw) else None
 
 

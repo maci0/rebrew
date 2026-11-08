@@ -2700,7 +2700,9 @@ def _compress(body: bytes, encoding: _WireEncoding) -> bytes:
     """
     if encoding == "zstd":
         return zstandard.ZstdCompressor(level=_ZSTD_LEVEL).compress(body)
-    return gzip.compress(body, compresslevel=_GZIP_LEVEL, mtime=0)
+    if encoding == "gzip":
+        return gzip.compress(body, compresslevel=_GZIP_LEVEL, mtime=0)
+    raise ValueError(f"unknown wire encoding {encoding!r}; expected 'zstd' or 'gzip'")
 
 
 def _maybe_compress(
