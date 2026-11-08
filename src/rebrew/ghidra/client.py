@@ -16,7 +16,13 @@ lazy from collections.abc import Mapping
 
 from rebrew.errors import RebrewError
 lazy from rebrew.ghidra.models import JsonRpcResponse, McpToolResult
-lazy from rebrew.utils import RETRYABLE_HTTP_STATUS, close_response, console, untrusted_text
+lazy from rebrew.utils import (
+    RETRYABLE_HTTP_STATUS,
+    close_response,
+    console,
+    try_parse_int,
+    untrusted_text,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -618,13 +624,11 @@ def _paginate_mcp_list(
         # A metadata row without a usable ``totalCount`` reports no total, so
         # the count check below cannot stop the walk; the page runs until the
         # server sends a short or empty page, bounded by MAX_MCP_ITEMS.
-        try:
-            total = int(metadata["totalCount"])
-        except KeyError, ValueError, TypeError:
+        total = try_parse_int(metadata.get("totalCount"))
+        if total is None:
             total = -1
-        try:
-            next_start = int(metadata.get("nextStartIndex", start + batch_size))
-        except ValueError, TypeError:
+        next_start = try_parse_int(metadata.get("nextStartIndex"))
+        if next_start is None:
             next_start = start + batch_size
         # Stop on a server that echoes nextStartIndex without advancing,
         # which would otherwise loop forever.

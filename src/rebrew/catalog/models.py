@@ -6,10 +6,9 @@ labels exported from Ghidra.
 """
 
 from dataclasses import dataclass
-lazy import math
 lazy from typing import Any
 
-lazy from rebrew.utils import parse_int_literal
+lazy from rebrew.utils import try_parse_int
 
 
 def _coerce_str(value: Any) -> str:
@@ -48,19 +47,10 @@ def _parse_int(value: Any) -> int:
     Strings go through :func:`rebrew.utils.parse_int_literal`, so a ``0x``
     prefix selects hex and underscore / non-ASCII digit spellings are rejected.
     """
-    if isinstance(value, bool):
+    parsed = try_parse_int(value)
+    if parsed is None:
         raise ValueError(f"Cannot parse integer from {value!r}")
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        if not math.isfinite(value) or not value.is_integer():
-            raise ValueError(f"Cannot parse integer from {value!r}")
-        return int(value)
-    s = str(value).strip()
-    try:
-        return parse_int_literal(s)
-    except (ValueError, TypeError) as e:
-        raise ValueError(f"Cannot parse integer from {value!r}: {e}") from e
+    return parsed
 
 
 @dataclass
@@ -110,14 +100,8 @@ class GhidraDataLabel:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> GhidraDataLabel:
         """Build from a Ghidra export dict. All fields have safe defaults."""
-        try:
-            va = _parse_int(d["va"]) if "va" in d else 0
-        except ValueError, TypeError:
-            va = 0
-        try:
-            size = _parse_int(d["size"]) if "size" in d else 0
-        except ValueError, TypeError:
-            size = 0
+        va = try_parse_int(d.get("va")) or 0
+        size = try_parse_int(d.get("size")) or 0
         return cls(
             va=va,
             size=size,

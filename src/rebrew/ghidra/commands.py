@@ -33,8 +33,8 @@ lazy from rebrew.utils import (
     atomic_write_text,
     c_comment_safe,
     console,
-    parse_int_literal,
     strip_generated_timestamp,
+    try_parse_int,
 )
 
 # Matches non-identifier characters to remove from symbol names.
@@ -154,14 +154,7 @@ def validate_program_path(
 
 def parse_ghidra_va(va_raw: str | int | None) -> int | None:
     """Normalize a VA from hex string, decimal string, or int to int.  Returns None if invalid."""
-    if va_raw is None:
-        return None
-    if isinstance(va_raw, int):
-        return va_raw
-    try:
-        return parse_int_literal(va_raw)
-    except ValueError, TypeError:
-        return None
+    return try_parse_int(va_raw)
 
 
 def build_new_function_commands(

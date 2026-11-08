@@ -39,7 +39,7 @@ from rebrew.cli import (
 )
 from rebrew.errors import RebrewError
 lazy from rebrew.formats.pe_headers import pe_layout
-lazy from rebrew.utils import atomic_write_text, read_json_text, untrusted_ident
+lazy from rebrew.utils import atomic_write_text, read_json_text, try_parse_int, untrusted_ident
 
 #: Width of the function-name column in the residue table.
 _NAME_COLUMN = 40
@@ -210,10 +210,8 @@ def _nonmatching_from_cache(cfg: Any, image_base: int, text_rva: int) -> list[tu
         delta = entry.get("delta") or 0
         passed = entry.get("passed", False)
         if not passed or delta > 0 or status in ("STUB", "SIZE_MISMATCH"):
-            va_raw = entry.get("va", "0")
-            try:
-                va = int(str(va_raw), 0)
-            except ValueError, TypeError:
+            va = try_parse_int(entry.get("va", "0"))
+            if va is None:
                 continue
             out.append((va - image_base - text_rva, entry.get("size") or 0, entry.get("name", "?")))
     return out

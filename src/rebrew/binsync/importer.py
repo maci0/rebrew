@@ -509,21 +509,25 @@ def _inventory_size(cfg: Any, va: int) -> int:
     return 0
 
 
-def _queue_stub_identity(
-    rows: list[dict[str, Any]],
+def _queue_stub(
+    identities: list[dict[str, Any]],
+    statuses: list[dict[str, Any]],
+    field_updates: list[dict[str, Any]],
     *,
     cfg: Any,
     path: Path,
     module: str,
     va: int,
-    name: str,
+    bs_name: str,
     proto: str,
+    size_hint: int,
 ) -> None:
-    """Queue the identity row for a stub file. STATUS is queued separately."""
+    """Queue the identity row and STATUS/SIZE/NOTE for a created stub."""
     from rebrew.metadata.bindings import derive_c_symbol
     from rebrew.metadata.functions import identity_file
 
-    rows.append(
+    name = path.stem
+    identities.append(
         {
             "module": module,
             "va": va,
@@ -536,18 +540,6 @@ def _queue_stub_identity(
             "fields": {},
         }
     )
-
-
-def _queue_stub_metadata(
-    statuses: list[dict[str, Any]],
-    field_updates: list[dict[str, Any]],
-    *,
-    module: str,
-    va: int,
-    bs_name: str,
-    size_hint: int,
-) -> None:
-    """Record the STATUS/SIZE/NOTE a created stub still needs."""
     statuses.append(
         {
             "module": module,
@@ -755,21 +747,16 @@ def import_state(
                         # metadata write leaves the new source for the next
                         # import, which repairs a stub whose STATUS is missing.
                         _awt(out_path, stub, encoding="utf-8")
-                        _queue_stub_identity(
+                        _queue_stub(
                             stub_identities,
+                            stub_statuses,
+                            stub_field_updates,
                             cfg=cfg,
                             path=out_path,
                             module=mod,
                             va=va,
-                            name=out_path.stem,
-                            proto=bs_proto or "",
-                        )
-                        _queue_stub_metadata(
-                            stub_statuses,
-                            stub_field_updates,
-                            module=mod,
-                            va=va,
                             bs_name=bs_name,
+                            proto=bs_proto or "",
                             size_hint=size_hint,
                         )
                         applied_names += 1
@@ -809,21 +796,16 @@ def import_state(
                     size_hint = int(getattr(local, "size", 0) or 0)
                     if size_hint <= 0:
                         size_hint = _inventory_size(cfg, va)
-                    _queue_stub_identity(
+                    _queue_stub(
                         stub_identities,
+                        stub_statuses,
+                        stub_field_updates,
                         cfg=cfg,
                         path=out_path,
                         module=mod,
                         va=va,
-                        name=out_path.stem,
-                        proto=bs_proto or "",
-                    )
-                    _queue_stub_metadata(
-                        stub_statuses,
-                        stub_field_updates,
-                        module=mod,
-                        va=va,
                         bs_name=bs_name,
+                        proto=bs_proto or "",
                         size_hint=size_hint,
                     )
                     applied_names += 1
