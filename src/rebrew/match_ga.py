@@ -333,7 +333,8 @@ def _ga_cache_key(
     symbol: str = "",
     profile: str = "",
     *,
-    link_mode: tuple[str, str | None, str | None, tuple[tuple[str, str], ...] | None] | None = None,
+    link_mode: tuple[str | None, str | None, str | None, tuple[tuple[str, str], ...] | None]
+    | None = None,
 ) -> str:
     """Cache key for a GA compile result.
 

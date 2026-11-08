@@ -1896,7 +1896,7 @@ def check_env_toolchain_pin(raw: str) -> None:
 #: inside a compile.  Each parser takes the raw value and returns ``None``; it
 #: raises when the value is unusable.  Kept as data so ``rebrew config
 #: effective`` can report them without re-deciding what a valid value is.
-def _env_knob_parsers() -> tuple[tuple[str, Callable[[str], None]], ...]:
+def _env_knob_parsers() -> tuple[tuple[str, Callable[[str], Any]], ...]:
     """(name, parser) pairs for the lazily-read env knobs.
 
     Imports are deferred: ``rebrew.utils`` imports this module, so a

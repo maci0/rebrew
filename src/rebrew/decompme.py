@@ -46,7 +46,7 @@ lazy import json
 lazy import math
 lazy import os
 lazy import time
-lazy from collections.abc import Callable, Mapping
+lazy from collections.abc import Callable, Iterator, Mapping
 lazy from pathlib import Path
 
 import typer
@@ -521,7 +521,7 @@ def _uploads_lock_path(root: Path) -> Path:
 
 
 @contextlib.contextmanager
-def _uploads_transaction(root: Path):  # type: ignore[no-untyped-def]
+def _uploads_transaction(root: Path) -> Iterator[None]:
     """Thread + cross-process lock around check-upload-record.
 
     Reentrant: ``record_upload`` takes the same flock, so a nested
