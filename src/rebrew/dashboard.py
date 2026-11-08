@@ -38,7 +38,7 @@ Retry-After. Request bodies are never read and force connection closure.
 Successful responses negotiate zstd then gzip with quality weights. ETags key
 on the live input version or portable file state plus the exact route/query;
 health is no-store. Static assets are content-hashed and precompressed. The
-entry checkpoint measured 12772 B zstd / 13404 B gzip against a 13600 B budget;
+entry checkpoint measured 12781 B zstd / 13421 B gzip against a 13600 B budget;
 host zlib versions can change gzip size. Tests enforce the wire budget.
 Reload re-reads the live view; view/target/filter navigation is stored in the
 URL hash. Details, API schema and transfer measurements live in
@@ -410,7 +410,7 @@ function setFunctionsEmptyMessage() {
     }
     bindEmptyClear("empty-clear-fn", "q");
   } else {
-    el.innerHTML = "No functions recorded for this target yet. Register their source bindings, then choose Reload above.";
+    el.innerHTML = "No functions recorded for this target yet. Register their source bindings, then <button id='empty-r-fn' class='link-button'>Reload</button>.";
   }
 }
 function bindEmptyClear(btnId, inputId) {
@@ -423,7 +423,7 @@ function setGlobalsEmptyMessage() {
     el.innerHTML = "No globals match this search. <button type='button' id='empty-clear-gq' class='link-button'>Clear search</button> or try another name.";
     bindEmptyClear("empty-clear-gq", "gq");
   } else {
-    el.innerHTML = "No globals recorded for this target yet. Register globals in data metadata, then choose Reload above.";
+    el.innerHTML = "No globals recorded for this target yet. Register globals in data metadata, then <button id='empty-r-gq' class='link-button'>Reload</button>.";
   }
 }
 function syncError() {
@@ -442,7 +442,7 @@ function syncError() {
     box.hidden = true;
   }
   // Reload re-reads every input, so it is the way out of any load failure.
-  if (loadErrors.summary || loadErrors.functions || loadErrors.view || !$("no-targets").hidden || !~["empty-state","sections-empty","globals-empty","history-empty"].findIndex(id => !$(id).hidden)) $("reload").hidden = false; // empty states name Reload above
+  if (loadErrors.summary || loadErrors.functions || loadErrors.view) $("reload").hidden = false;
   $("retry-summary").hidden = !loadErrors.summary;
   $("retry-functions").hidden = !(loadErrors.functions && currentView === "functions");
   const showViewRetry = !!(loadErrors.view && currentView !== "functions");
@@ -1051,7 +1051,7 @@ function setView(name) {
 }
 function bindControls() {
   // One document holds every view, so Back returns to the previous one:
-  // assignment (not addEventListener) keeps re-binding idempotent.
+  // assignment keeps re-binding idempotent.
   // Back rebuilds every control, so the focused one is gone and the browser
   // drops focus to <body> (WCAG 2.4.3).
   globalThis.onpopstate = () => { void start().then(() => restoreFocus(["main"])); };
@@ -1138,6 +1138,11 @@ function bindControls() {
     }
     restoreFocus(["target", "main"]);
   };
+  // Empty-state reload.
+  document.addEventListener?.("click", (ev) => {
+    const b = ev.target.closest && ev.target.closest("button[id^='empty-r-']");
+    if (b) $("reload").click();
+  });
   $("retry-summary").onclick = async () => {
     await loadSummary();
     restoreFocus(["retry-summary", "main"]);
@@ -1469,7 +1474,7 @@ __STATUS_FORCED__
 <p id="boot-status" role="status">Loading coverage…</p>
 <noscript><p id="no-script">The dashboard needs JavaScript to load coverage data.
   Enable it for this page, then reload.</p></noscript>
-<p id="no-targets" hidden>No readable targets. Check project inputs or the selected snapshots, then choose Reload above.</p>
+<p id="no-targets" hidden>No readable targets. Check project inputs or the selected snapshots, then <button id="empty-r-targets" class="link-button">Reload</button>.</p>
 <div id="views" class="views" hidden role="tablist" aria-label="Coverage views">
 <button type="button" role="tab" id="tab-functions" data-view="functions"
   aria-controls="view-functions" class="btn active" aria-selected="true" tabindex="0">Functions</button>
@@ -1536,7 +1541,7 @@ __STATUS_FORCED__
 <div id="view-sections" class="view-panel" role="tabpanel" tabindex="-1" aria-labelledby="tab-sections" hidden>
 <h2 class="visually-hidden">Sections</h2>
 <p id="sections-hint" hidden></p>
-<p id="sections-empty" hidden>No section stats for this target yet. Check the target binary, then choose Reload above.</p>
+<p id="sections-empty" hidden>No section stats for this target yet. Check the target binary, then <button id="empty-r-sections" class="link-button">Reload</button>.</p>
 <div id="sections-results" class="table-scroll" tabindex="0" role="region"
   aria-label="Section results" aria-busy="false" hidden>
 <table id="sections-rows"><caption class="visually-hidden">Per-section cell stats</caption><thead><tr>
@@ -1566,7 +1571,7 @@ __STATUS_FORCED__
 <div id="view-history" class="view-panel" role="tabpanel" tabindex="-1" aria-labelledby="tab-history" hidden>
 <h2 class="visually-hidden">Status history</h2>
 <p id="history-hint" hidden></p>
-<p id="history-empty" hidden>No status changes recorded for this target yet. Comparisons record history, then choose Reload above.</p>
+<p id="history-empty" hidden>No status changes recorded for this target yet. Comparisons record history, then <button id="empty-r-history" class="link-button">Reload</button>.</p>
 <div id="history-results" class="table-scroll" tabindex="0" role="region"
   aria-label="History results" aria-busy="false" hidden>
 <table id="history-rows"><caption class="visually-hidden">Recent status changes</caption><thead><tr>
