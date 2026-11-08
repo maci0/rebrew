@@ -1440,6 +1440,11 @@ def run_toolchain(
             raise ToolchainError(str(exc), kind="validation", name=spec.name) from exc
         if epoch is not None:
             cmd += ["-e", f"SOURCE_DATE_EPOCH={epoch}"]
+            # Pin the container clock to UTC so __DATE__/__TIME__ expansions
+            # match the epoch the cache key hashes; a host TZ is not
+            # forwarded by -e, but the image's own TZ default would
+            # otherwise shift the expanded date off the epoch's UTC day.
+            cmd += ["-e", "TZ=UTC0"]
         if spec.image_entrypoint is not None:
             cmd += ["--entrypoint", spec.image_entrypoint]
         cmd.append(target)
@@ -1482,6 +1487,20 @@ def run_toolchain(
         # executed directly.  No wine glue is involved.
         binary = _resolve_binary(spec)
         env = dict(os.environ)
+        # An ambient TZ reaches a native compiler and changes
+        # __DATE__/__TIME__/__TIMESTAMP__ expansion (local time), but the
+        # compile-cache key hashes only SOURCE_DATE_EPOCH — so two runs with
+        # different TZ would share a key and one would serve the other's
+        # .obj.  Pin TZ to UTC when an epoch is set, otherwise drop it so
+        # the compiler's clock matches the key's (epoch-less) assumption.
+        try:
+            native_epoch = source_date_epoch()
+        except ConfigError as exc:
+            raise ToolchainError(str(exc), kind="validation", name=spec.name) from exc
+        if native_epoch is not None:
+            env["TZ"] = "UTC0"
+        else:
+            env.pop("TZ", None)
         try:
             r = run_process_group(
                 [binary, *args],
