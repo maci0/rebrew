@@ -266,7 +266,11 @@ class TestCiPins:
                     assert check["env"] == {"CGO_ENABLED": "0"}
                     assert all(
                         command in check["run"]
-                        for command in ("gofmt -l .", "go vet ./...", "go test -count=1 -race ./...")
+                        for command in (
+                            "gofmt -l .",
+                            "go vet ./...",
+                            "go test -count=1 -race ./...",
+                        )
                     )
                     assert "go build -trimpath" in check["run"]
                     assert "-buildvcs=false" in check["run"]
@@ -635,9 +639,7 @@ class TestCiPins:
             "- name: Install the pinned Go release", 1
         )[0]
         assert "lookup-only: true" in cache
-        install = ci.split("- name: Install the pinned Go release", 1)[1].split(
-            "- name:", 1
-        )[0]
+        install = ci.split("- name: Install the pinned Go release", 1)[1].split("- name:", 1)[0]
         assert "sha256sum -c -" in install
         assert install.index("sha256sum -c -") < install.index("tar -xzf")
         # The install must not trust a pre-existing tree: it removes the

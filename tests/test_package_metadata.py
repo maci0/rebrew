@@ -180,7 +180,9 @@ def _unbounded(specs: list[str]) -> list[str]:
     return [
         s
         for s in specs
-        if ">=" in s.split(";", 1)[0] and "<" not in s.split(";", 1)[0] and "==" not in s.split(";", 1)[0]
+        if ">=" in s.split(";", 1)[0]
+        and "<" not in s.split(";", 1)[0]
+        and "==" not in s.split(";", 1)[0]
     ]
 
 

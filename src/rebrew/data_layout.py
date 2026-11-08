@@ -350,7 +350,9 @@ def obj_section_symbols(obj: Path, *sections: str) -> tuple[dict[str, int], dict
     return {s: sizes.get(s, 0) for s in sections}, buckets
 
 
-_OBJ_SYMBOL_TABLE: dict[tuple[str, int, int, int, int], tuple[dict[int, str], tuple[tuple[int, int, str], ...]]] = {}
+_OBJ_SYMBOL_TABLE: dict[
+    tuple[str, int, int, int, int], tuple[dict[int, str], tuple[tuple[int, int, str], ...]]
+] = {}
 _OBJ_SYMBOL_TABLE_LOCK = Lock()
 
 
@@ -380,7 +382,9 @@ def _obj_symbol_table(obj: Path) -> tuple[dict[int, str], tuple[tuple[int, int, 
     return table
 
 
-def _obj_symbol_table_uncached(obj: Path) -> tuple[dict[int, str], tuple[tuple[int, int, str], ...]]:
+def _obj_symbol_table_uncached(
+    obj: Path,
+) -> tuple[dict[int, str], tuple[tuple[int, int, str], ...]]:
     secname, _sizes = _obj_section_sizes(obj)
     rows: list[tuple[int, int, str]] = []
     for line in _run_objdump(obj, "-t").splitlines():

@@ -323,7 +323,7 @@ def _download_artifact(
         declared = ""
         try:
             declared = str(art.headers.get("content-length", "") or "").strip()
-        except (AttributeError, TypeError):
+        except AttributeError, TypeError:
             declared = ""
         if declared.isdigit() and int(declared) > _MAX_ARTIFACT_BYTES:
             raise RecompileError(

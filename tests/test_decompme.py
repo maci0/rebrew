@@ -663,7 +663,9 @@ class TestUpload:
 
         def _fake_post(url, **kwargs):
             calls.append(1)
-            return SimpleNamespace(status_code=status, text="may have committed", close=lambda: None)
+            return SimpleNamespace(
+                status_code=status, text="may have committed", close=lambda: None
+            )
 
         monkeypatch.setattr("httpx.post", _fake_post)
         monkeypatch.setattr("time.sleep", lambda _s: None)

@@ -85,10 +85,19 @@ def _split_bin_condition(s: str, rng: random.Random, op: bytes, *, nested: bool)
     body_str = b_source[body.start_byte : body.end_byte]
 
     if nested:
-        new_stmt = b"if (" + left_str + b") {\n        if (" + right_str + b") " + body_str + b"\n    }"
+        new_stmt = (
+            b"if (" + left_str + b") {\n        if (" + right_str + b") " + body_str + b"\n    }"
+        )
     else:
         new_stmt = (
-            b"if (" + left_str + b") " + body_str + b"\n    else if (" + right_str + b") " + body_str
+            b"if ("
+            + left_str
+            + b") "
+            + body_str
+            + b"\n    else if ("
+            + right_str
+            + b") "
+            + body_str
         )
 
     return decode_source(b_source[: stmt.start_byte] + new_stmt + b_source[stmt.end_byte :])

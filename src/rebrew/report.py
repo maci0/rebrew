@@ -806,7 +806,9 @@ def _render_index(
             # Every page of the table prints the same coloured Status column,
             # so every page carries the key that explains it.  A reader who
             # opens index-pN.html from a link or the pager landed without one.
-            body = f"<h2>Function index (continued)</h2>{legend_html}{intro}{pager}{table}{pager_end}"
+            body = (
+                f"<h2>Function index (continued)</h2>{legend_html}{intro}{pager}{table}{pager_end}"
+            )
             title = f"Function index ({page_num}/{total_pages})"
         pages.append((_paged_href("index", page_num), _page(title, target, "index.html", body)))
     return pages
