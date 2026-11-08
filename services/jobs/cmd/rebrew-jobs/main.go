@@ -17,6 +17,23 @@ import (
 	jobs "github.com/relumea/rebrew/services/jobs"
 )
 
+// isLoopbackAddr reports whether addr binds a loopback interface only:
+//
+//	127.0.0.1:<port>, [::1]:<port>, localhost:<port>
+func isLoopbackAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	host = strings.Trim(host, "[]")
+	switch strings.ToLower(host) {
+	case "127.0.0.1", "localhost", "::1":
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 func main() {
 	if len(os.Args) == 3 && os.Args[1] == "workspace-digest" {
 		digest, err := jobs.WorkspaceDigest(os.Args[2])
@@ -78,8 +95,8 @@ func main() {
 		log.Fatal(err)
 	}
 	addr := os.Getenv("REBREW_JOBS_ADDR")
-	if addr != "" && !strings.HasPrefix(addr, "127.0.0.1:") && !strings.HasPrefix(addr, "[::1]:") && !strings.HasPrefix(addr, "localhost:") {
-		log.Println("warning: rebrew-jobs bound to non-loopback address;", addr)
+	if addr != "" && !isLoopbackAddr(addr) {
+		log.Fatalf("refusing non-loopback REBREW_JOBS_ADDR %q: rebrew-jobs is a local-only owner", addr)
 	}
 	if addr == "" {
 		addr = "127.0.0.1:8089"
