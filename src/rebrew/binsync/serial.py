@@ -215,8 +215,8 @@ def dump_artifact(path: Path, artifact: Any) -> None:
     write_state_text(path, artifact.dumps())
 
 
-def load_artifact(path: Path, kind: str) -> Any:
-    """Load one artifact of *kind*.
+def load_artifact(path: Path, kind: str) -> Any | None:
+    """Load one artifact of *kind*, or ``None`` when absent.
 
     Missing file returns ``None``.  Unreadable/unparseable input raises
     :class:`ValueError` naming the file and kind — never conflated with a
