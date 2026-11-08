@@ -65,14 +65,31 @@ jobs:
         with:
           persist-credentials: false
       - name: Install the pinned Go release
+        # The tarball (~65 MB) is pinned by sha256; cache the installed tree
+        # under RUNNER_TEMP (keyed on version+digest) so a warm cache skips
+        # both the download and the extract.  The cache key names GO_VERSION
+        # and GO_SHA256, so a pin bump misses and the SHA is re-verified.
+        # RUNNER_TEMP is per-job, so the cache restore must precede the
+        # install and the save must follow it; actions/cache does both.
         run: |
           set -euo pipefail
+          go_root="$RUNNER_TEMP/jobs-go"
+          if [[ -x "$go_root/go/bin/go" ]]; then
+            "$go_root/go/bin/go" version
+            echo "$go_root/go/bin" >> "$GITHUB_PATH"
+            exit 0
+          fi
           curl --proto '=https' --tlsv1.2 -fsSL --retry 2 -o "$RUNNER_TEMP/go.tar.gz" \
             "https://go.dev/dl/go$GO_VERSION.linux-amd64.tar.gz"
           echo "$GO_SHA256  $RUNNER_TEMP/go.tar.gz" | sha256sum -c -
-          mkdir -p "$RUNNER_TEMP/jobs-go"
-          tar -xzf "$RUNNER_TEMP/go.tar.gz" -C "$RUNNER_TEMP/jobs-go"
-          echo "$RUNNER_TEMP/jobs-go/go/bin" >> "$GITHUB_PATH"
+          mkdir -p "$go_root"
+          tar -xzf "$RUNNER_TEMP/go.tar.gz" -C "$go_root"
+          echo "$go_root/go/bin" >> "$GITHUB_PATH"
+      - name: Cache the pinned Go release
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/jobs-go
+          key: go-release-${{ runner.os }}-${{ env.GO_VERSION }}-${{ env.GO_SHA256 }}
       - name: Cache Go build cache
         # The Go release install above is pinned by digest, but the build
         # cache under ~/.cache/go-build is not: a cold runner recompiles the

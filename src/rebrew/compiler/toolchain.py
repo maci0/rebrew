@@ -1230,7 +1230,9 @@ def bind_mount(host: str | Path, container: str | Path, *, readonly: bool = Fals
     return f"{Path(host).resolve()}:{container}{':ro' if readonly else ''}"
 
 
-def docker_hardening_args(*, pull: bool = True) -> list[str]:
+def docker_hardening_args(
+    *, pull: bool = True, kvm: bool = False, kvm_available: bool | None = None
+) -> list[str]:
     """Shared ``docker run`` isolation flags for every compile-only container.
 
     One place so a new ``docker run`` call cannot ship without the cap drop,
@@ -1241,6 +1243,12 @@ def docker_hardening_args(*, pull: bool = True) -> list[str]:
     for each.  The writable surface is the bind mounts (workdir, wineprefix,
     include trees); the cap drop, ``no-new-privileges``, and the host
     uid:gid keep the rest of the image from escalating.
+
+    *kvm* passes ``/dev/kvm`` through, but only when the host actually has
+    it: without the device node ``docker run --device /dev/kvm`` fails
+    outright, so a dosemu2 profile on a host without KVM would error
+    instead of compiling.  A readable character device at ``/dev/kvm`` is
+    the capability probe; *kvm_available* overrides it for tests.
     """
     args: list[str] = [
         "--network=none",
@@ -1254,6 +1262,10 @@ def docker_hardening_args(*, pull: bool = True) -> list[str]:
     # without unix uid/gid just omit the flag and use the daemon default.
     if hasattr(os, "getuid") and hasattr(os, "getgid"):
         args += ["--user", f"{os.getuid()}:{os.getgid()}"]
+    if kvm:
+        available = Path("/dev/kvm").exists() if kvm_available is None else kvm_available
+        if available:
+            args += ["--device", "/dev/kvm"]
     if pull:
         args.append("--pull=never")
     return args
@@ -1402,7 +1414,7 @@ def run_toolchain(
             # Docker's default is --pull=missing.  An admitted id skips the
             # tag presence check, so a vanished image would otherwise be
             # fetched.  Never pull on this path; build and pull stay explicit.
-            *docker_hardening_args(),
+            *docker_hardening_args(kvm=spec.runtime == "dosemu2"),
             # A stable name lets the timeout path kill the container: when the
             # docker CLI is killed, dockerd keeps the (attached) container
             # running, so a hung compile would linger forever and accumulate
@@ -1414,8 +1426,6 @@ def run_toolchain(
             "-w",
             "/work",
         ]
-        if spec.runtime == "dosemu2":
-            cmd += ["--device", "/dev/kvm"]
         for host_dir, container_dir in mounts or []:
             # Read-only: include trees are only read, and the compiler
             # must not be able to rewrite the project tree (e.g. .git/hooks).

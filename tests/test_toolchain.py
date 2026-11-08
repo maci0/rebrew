@@ -422,6 +422,9 @@ class TestRunToolchain:
     @pytest.mark.parametrize("runtime,kvm", [("dosemu2", True), ("daze", False), ("native", False)])
     def test_kvm_device_only_for_dosemu(self, tmp_path: Path, monkeypatch, runtime, kvm) -> None:
         calls = _monkey_docker(monkeypatch)
+        monkeypatch.setattr(
+            "rebrew.compiler.toolchain.Path.exists", lambda self: str(self) == "/dev/kvm"
+        )
         spec = ToolchainSpec(name="dos", image="rebrew/dos:1", runtime=runtime)
         assert run_toolchain(spec, ["-c", "f.c"], workdir=tmp_path).ok
         assert ("/dev/kvm" in calls[0]) is kvm
@@ -429,6 +432,19 @@ class TestRunToolchain:
             index = calls[0].index("--device")
             assert calls[0][index + 1] == "/dev/kvm"
             assert index < calls[0].index(spec.image)
+
+    def test_kvm_device_omitted_without_host_device(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """A dosemu2 compile on a host without /dev/kvm must not pass
+        --device: docker fails the run outright for a missing device node,
+        so the profile would error instead of compiling."""
+        calls = _monkey_docker(monkeypatch)
+        monkeypatch.setattr("rebrew.compiler.toolchain.Path.exists", lambda self: False)
+        spec = ToolchainSpec(name="dos", image="rebrew/dos:1", runtime="dosemu2")
+        assert run_toolchain(spec, ["-c", "f.c"], workdir=tmp_path).ok
+        assert "/dev/kvm" not in calls[0]
+        assert "--device" not in calls[0]
 
     def test_source_date_epoch_reaches_image(self, tmp_path: Path, monkeypatch) -> None:
         """The regular compile backend forwards the same epoch as CMake."""
