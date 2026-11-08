@@ -38,7 +38,7 @@ Retry-After. Request bodies are never read and force connection closure.
 Successful responses negotiate zstd then gzip with quality weights. ETags key
 on the live input version or portable file state plus the exact route/query;
 health is no-store. Static assets are content-hashed and precompressed. The
-entry checkpoint measured 12681 B zstd / 13308 B gzip against a 13320 B budget;
+entry checkpoint measured 12759 B zstd / 13392 B gzip against a 13600 B budget;
 host zlib versions can change gzip size. Tests enforce the wire budget.
 Reload re-reads the live view; view/target/filter navigation is stored in the
 URL hash. Details, API schema and transfer measurements live in
@@ -276,7 +276,7 @@ _BOOTSTRAP_WIRE_BUDGET_BYTES = 1024
 #: to fit it on a cold connection or first paint waits an extra round trip.
 _INITCWND_BYTES = 10 * 1460
 #: Header bytes held back from that window for the entry responses.  Each
-#: carries ~530 B as served, dominated by the shared security-header set; 640 B
+#: carries ~530 B as served, dominated by the shared security-header set; 500 B
 #: per response leaves room for a longer CSP or Cache-Control value.  Two
 #: static entry responses take part: the shell and ``/app.js``; the boot guard
 #: is inline in the shell, so it costs none of its own.  The reserve is a
@@ -1365,7 +1365,7 @@ _INDEX_HTML = """<!doctype html>
   .skip-link { position: absolute; left: -9999px; top: 0; z-index: 100;
     padding: .5rem 1rem; background: var(--rb-surface); color: var(--rb-accent);
     text-decoration: underline; }
-  .skip-link:focus { left: 1rem; top: 1rem; }
+  .skip-link:focus-visible { left: 1rem; top: 1rem; }
   .filters { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: end;
     margin-bottom: .5rem; }
   .filters > div { display: flex; flex-direction: column; gap: .25rem; font-size: var(--rb-size-note); }

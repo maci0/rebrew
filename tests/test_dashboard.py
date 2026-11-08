@@ -2374,7 +2374,7 @@ class TestEncodingNegotiation:
     ) -> None:
         """The window claim is checked against the headers actually sent.
 
-        The budget charges each entry response a fixed 640 B, so it cannot
+        The budget charges each entry response a fixed 500 B, so it cannot
         notice a security header growing.  This measures the status line and
         every header as
         served instead: the entry assets must fit RFC 6928's 10-segment
@@ -2430,7 +2430,7 @@ class TestEncodingNegotiation:
 
     @pytest.mark.parametrize(
         ("accept", "expected_body"),
-        [("zstd", 12681), ("gzip", None)],
+        [("zstd", 12759), ("gzip", None)],
     )
     def test_the_documented_entry_flight_matches_the_wire(
         self, accept: str, expected_body: int | None

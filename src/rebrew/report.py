@@ -152,7 +152,7 @@ body { font-family: var(--rb-sans); line-height: var(--rb-leading-body);
 .skip-link { position: absolute; inset-inline-start: -9999px; top: 0; z-index: 100;
              padding: 0.5rem 1rem; background: var(--rb-surface); color: var(--rb-accent);
              text-decoration: underline; }
-.skip-link:focus { inset-inline-start: 1rem; top: 1rem; }
+.skip-link:focus-visible { inset-inline-start: 1rem; top: 1rem; }
 header { background: var(--rb-ink); color: var(--rb-surface); padding: 0.75rem 1.5rem;
          display: flex; flex-wrap: wrap; align-items: baseline; gap: 1rem 2rem; }
 header h1 { font-size: var(--rb-size-title); letter-spacing: var(--rb-track-display); margin: 0; }
@@ -325,10 +325,10 @@ def _pager_nav(
     if span:
         shown += f" ({html.escape(span)})"
     return (
-        f"<nav class='{'pager pager-end' if bottom else 'pager'}'"
-        f" aria-label='{html.escape(label, quote=True)}'>"
+        f"<div class='{'pager pager-end' if bottom else 'pager'}'"
+        f" aria-label='{html.escape(label, quote=True)}' role='group'>"
         f"{shown}. "
-        f"{' · '.join(links)}</nav>"
+        f"{' · '.join(links)}</div>"
     )
 
 

@@ -590,7 +590,7 @@ class TestReportPayloadShape:
         assert "functions (0x10003f80\u20130x10003f90)" in page2
         assert "Next" in index
         assert "Previous" in page2
-        assert "<nav class='pager' aria-label='Table pages'>" in index
+        assert "<div class='pager' aria-label='Table pages' role='group'>" in index
         assert "aria-label='Next page of functions'" in index
         assert "aria-label='Previous page of functions'" in page2
         assert "index-p2.html" in result["pages"]
