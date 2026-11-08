@@ -1,7 +1,7 @@
 # Rebrew Architecture
 
 Compiler-in-the-loop decompilation workbench for binary-matching game
-reversing. C source is compiled in a pinned toolchain docker image
+reversing. C source is compiled in a pinned toolchain container image
 (MSVC6 runs wine inside its image; there is no host wine/wibo path),
 byte-compared against a target binary's functions, and the result drives
 STATUS promotion and the GA matching engine.
@@ -36,7 +36,7 @@ flowchart LR
     ANNOT --> MERGED["SourceBinding"]
     FACADE --> MERGED
 
-    CFG --> TOOLCHAIN["compiler/toolchain.py<br/>spec registry + docker-only runner"]
+    CFG --> TOOLCHAIN["compiler/toolchain.py<br/>spec registry + container-only runner"]
     RT["Configured compiler build source<br/>REBREW_TOOLCHAINS_DIR"] --> IMG[("docker images<br/>rebrew/msvc:6.0-win32 …")]
     TOOLCHAIN --> COMPILE["compiler/compile.py<br/>compile_and_compare"]
     IMG --> COMPILE
@@ -101,7 +101,7 @@ flowchart LR
 | `rebrew/compiler/delphi16.py` | Delphi 1.0 (16-bit) compile support: headless DOSBox sandbox + NE parse (ADR-001 foundation) |
 | `rebrew/compiler/msvc16.py` | MSVC 1.0 / 1.5 / 1.52 (16-bit) compile support: DOSBox + 16-bit OMF objects |
 | `rebrew/compiler/dosbox.py` | Shared headless DOSBox runner (mount sandbox as C:, FAT-uppercase reads) |
-| `rebrew/compiler/toolchain.py` | Toolchain abstraction: spec registry + docker-only runner for every shipped profile (plugin toolchains without `image` may run as a host binary), plus the project-side MSVC layout table (`resolve_msvc_toolchain` / `toolchain_link_candidates`) init and config resolve against |
+| `rebrew/compiler/toolchain.py` | Toolchain abstraction: spec registry + container-only runner for every shipped profile (plugin toolchains without `image` may run as a host binary), plus the project-side MSVC layout table (`resolve_msvc_toolchain` / `toolchain_link_candidates`) init and config resolve against |
 | `rebrew/toolchain_cli.py` | `rebrew toolchain` CLI (`list`/`status`/`detect`/`pull`/`build`/`vendor`/`smoke`/`update`/`check-updates`/`install-wibo`) |
 | `rebrew/round_trip.py` | Splice matched functions back into the target PE, verify byte equality |
 | `rebrew/similar.py` | Structural clone detection (mnemonic-histogram similarity) |
@@ -162,7 +162,7 @@ would be a second answer to that question. See
    reconstruction source and structural information. Source purposes and assembly
    evidence live in `rebrew-functions.toml` under `[source]`.
 3. `compile_and_compare()` compiles the source in the pinned toolchain
-   image (`compiler/toolchain.py`; docker-only for every shipped profile, including
+   image (`compiler/toolchain.py`; container-only for every shipped profile, including
    gcc/clang/mingw; images built from the configured toolchain source) and
    byte-compares against the target bytes → `CompareResult`.
 4. `update_source_status()` writes STATUS to the metadata file only: the

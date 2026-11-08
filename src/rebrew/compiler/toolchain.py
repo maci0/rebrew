@@ -1,13 +1,14 @@
-"""compiler/toolchain.py — standardized toolchain invocation (docker-only for Windows/DOS).
+"""compiler/toolchain.py — standardized toolchain invocation (container-only for Windows/DOS).
 
 Modeled on Godbolt / Compiler Explorer's convention: **one container image
 per toolchain-version**, with the compiler behind a wrapper inside the image
-so the host invocation is uniform — ``docker run <image> <compiler> <args>``.
+so the host invocation is uniform — ``<runtime> run <image> <compiler> <args>``.
 The image encapsulates the runtime quirks (MSVC under wine, DCC/TCC under
 DOSBox), so the host-side code never needs per-toolchain runner glue.
 
-Execution is **docker-only for every Windows/DOS toolchain** (all wine- and
-dosbox-runtime specs): the host never calls CL.EXE / DCC.EXE / TCC.EXE /
+Execution is **container-only for every Windows/DOS toolchain** (all wine- and
+dosbox-runtime specs, via the configured docker/podman backend or the
+experimental unshare backend): the host never calls CL.EXE / DCC.EXE / TCC.EXE /
 bcc32.exe directly, and there is no wine/wibo host fallback.  The docker
 build source (Dockerfiles, wrapper scripts, the shared ``base``) lives in
 the standalone **recompile-toolchains** checkout — the sibling repo
@@ -1282,9 +1283,10 @@ def run_toolchain(
     execution_backend: str | None = None,
     project_cwd: str | Path | None = None,
 ) -> RunResult:
-    """Invoke a toolchain's compiler through its docker image (uniform backend).
+    """Invoke a toolchain's compiler through its container image (uniform backend).
 
-    Execution is docker-only for every Windows/DOS toolchain: the images
+    Execution is container-only for every Windows/DOS toolchain (docker,
+    podman, or experimental unshare): the images
     encapsulate the runtime (MSVC under wine, DCC/TCC under DOSBox) and the
     host never calls CL.EXE / DCC.EXE / TCC.EXE / bcc32.exe directly.  A
     missing image is a hard error (run `rebrew toolchain build <name>`) —

@@ -1702,10 +1702,11 @@ def compile_to_obj(
     context: CompileContext | None = None,
     backend_errors: list[RebrewError] | None = None,
 ) -> tuple[str | None, str]:
-    """Compile a .c file to .obj through the toolchain's docker image.
+    """Compile a .c file to .obj through the toolchain's container image.
 
-    Execution is docker-only for every Windows/DOS toolchain (all MSVC
-    versions, Borland, Watcom, the 16-bit DOS compilers): the image
+    Execution is container-only for every Windows/DOS toolchain (all MSVC
+    versions, Borland, Watcom, the 16-bit DOS compilers, via docker, podman,
+    or experimental unshare): the image
     encapsulates the runtime (wine / DOSBox) and the host never calls
     CL.EXE / DCC.EXE / TCC.EXE / bcc32.exe directly - there is no host
     wine/wibo/dosbox fallback.  A spec registered without an image (a

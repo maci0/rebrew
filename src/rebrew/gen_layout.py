@@ -209,7 +209,7 @@ _IMAGE_LIB_GREP_SCRIPT = (
 def _import_lib_symbols_from_image(dll_stem: str) -> set[str]:
     """Collect the decorated import symbols from the toolchain image's own libs.
 
-    The project config's ``libs`` dir (host MSVC tree) is gone on docker-only
+    The project config's ``libs`` dir (host MSVC tree) is gone on container-only
     setups — the import libraries now live inside the toolchain image.  Grep
     the same ``__imp_`` thunk strings out of the image's ``Lib/<DLL>.LIB``.
     """
@@ -525,7 +525,7 @@ def main(
 
     # resolve import lib symbols for @N suffixes (readable list + the
     # crt_imports.c /include seed).  Host lib dir first (legacy); fall back
-    # to the toolchain image's own Lib dir (docker-only setups have no host
+    # to the toolchain image's own Lib dir (container-only setups have no host
     # MSVC tree anymore).
     lib_symbols: set[str] = set()
     libs_dir = Path(compiler_dir(cfg.compiler_libs))

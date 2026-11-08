@@ -1,6 +1,6 @@
 """Helpers for locating and downloading wibo runner binaries.
 
-Wibo is a lightweight Win32 PE loader.  Every shipped toolchain is docker-only
+Wibo is a lightweight Win32 PE loader.  Every shipped toolchain is container-only
 (ADR 008) and runs wine inside its image, so wibo is not a compile path for
 them: ``init --install-wibo`` drops the flag for an image-backed profile, and
 ``toolchain install-wibo`` downloads it but leaves the docker-backed config
