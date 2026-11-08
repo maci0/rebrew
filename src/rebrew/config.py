@@ -2081,7 +2081,10 @@ def _split_compiler_runner(compiler: dict[str, Any]) -> tuple[str, str]:
             spec = TOOLCHAINS.get(profile)
         except RegistryError:  # a plugin registration conflict is reported at load
             raise
-        except Exception:  # toolchain import is best-effort
+        except Exception as exc:  # toolchain import is best-effort
+            logging.getLogger(__name__).debug(
+                "toolchain registry unavailable for profile %r: %s", profile, exc, exc_info=True
+            )
             spec = None
         if spec is not None and spec.image is not None:
             return "", ""

@@ -469,7 +469,9 @@ def _begin_name_cover(metadata_dir: Path) -> dict[str, Any]:
     cache_path = metadata_dir / ".rebrew" / "name-map-cover.json"
     try:
         payload = json.loads(cache_path.read_text(encoding="utf-8"))
-    except OSError, UnicodeError, json.JSONDecodeError, TypeError:
+    except (OSError, UnicodeError, json.JSONDecodeError, TypeError) as exc:
+        if cache_path.exists():
+            log.warning("Ignoring unreadable name-map cover cache %s: %s", cache_path, exc)
         payload = None
     stored_files = payload.get("files") if isinstance(payload, dict) else None
     stamp_matches = (
@@ -615,7 +617,9 @@ def _begin_role_cache(metadata_dir: Path, cfg: ProjectConfig | None) -> dict[str
     cache_path = metadata_dir / ".rebrew" / "data-scan-roles.json"
     try:
         payload = json.loads(cache_path.read_text(encoding="utf-8"))
-    except OSError, UnicodeError, json.JSONDecodeError, TypeError:
+    except (OSError, UnicodeError, json.JSONDecodeError, TypeError) as exc:
+        if cache_path.exists():
+            log.warning("Ignoring unreadable data-scan role cache %s: %s", cache_path, exc)
         payload = None
     stored_files = payload.get("files") if isinstance(payload, dict) else None
     if (

@@ -7,6 +7,7 @@ shared Wine prefixes continue through the original uncached runner.
 
 from __future__ import annotations
 
+import logging
 import re
 lazy import base64
 lazy import binascii
@@ -34,6 +35,8 @@ lazy from rebrew.compiler.toolchain import ToolchainSpec
 lazy from rebrew.compiler.unshare import backend_identity
 lazy from rebrew.config import ConfigError, load_compile_cache_config, source_date_epoch
 lazy from rebrew.utils import atomic_write_bytes
+
+log = logging.getLogger(__name__)
 
 # Deliberately an eligibility whitelist, not another CL command-line parser.
 # Other switches still work, through the original uncached driver.
@@ -283,6 +286,10 @@ def run_cached_cl(
                     "stderr": stderr.getvalue(),
                 }
                 cache.put(key, json.dumps(saved).encode())
-        except OSError, ValueError:
-            pass
+        except (OSError, ValueError) as exc:
+            # Cache write is best-effort (run succeeded), but a persistent
+            # failure (read-only cache dir) silently disables caching for
+            # every later compile — log it so the operator can tell
+            # "no cache hits" from "cache unwritable".
+            log.debug("cmake object cache write skipped for %s: %s", output, exc, exc_info=True)
     return rc
