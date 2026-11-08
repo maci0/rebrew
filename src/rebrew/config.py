@@ -1792,6 +1792,41 @@ def check_env_display(raw: str) -> None:
         )
 
 
+def check_env_insecure_cluster_host(raw: str) -> None:
+    value = raw.strip()
+    if not value:
+        return
+    if (
+        len(value) > 253
+        or not re.fullmatch(r"[a-z0-9]([a-z0-9.-]*[a-z0-9])?", value)
+        or ".." in value
+        or not value.endswith((".svc", ".svc.cluster.local"))
+    ):
+        raise ConfigError(
+            f"REBREW_RECOMPILE_INSECURE_CLUSTER_HOST={value!r} must be one in-cluster "
+            "service host ending in .svc or .svc.cluster.local"
+        )
+
+
+def check_env_recompile_api_key(raw: str) -> None:
+    if raw and (not raw.isascii() or any(not 33 <= ord(c) <= 126 for c in raw)):
+        raise ConfigError("REBREW_RECOMPILE_API_KEY is not a printable ASCII header value")
+
+
+def check_env_ops_token(raw: str) -> None:
+    if raw.strip() and len(raw.strip()) < 32:
+        raise ConfigError("REBREW_OPS_TOKEN must contain at least 32 bytes")
+
+
+def check_env_ops_allowed_hosts(raw: str) -> None:
+    for item in raw.split(","):
+        item = item.strip()
+        if item and not re.fullmatch(r"[a-z0-9][a-z0-9.-]*(?::[0-9]{1,5})?", item):
+            raise ConfigError(
+                "REBREW_OPS_ALLOWED_HOSTS must contain exact DNS names and optional ports"
+            )
+
+
 def check_env_wineprefix(raw: str) -> None:
     """Raise when ``REBREW_WINEPREFIX`` is set to a relative path.
 
@@ -1878,6 +1913,18 @@ def _env_knob_parsers() -> tuple[tuple[str, Callable[[str], None]], ...]:
     def _allow_private_download(raw: str) -> None:
         parse_env_bool(ALLOW_PRIVATE_DOWNLOAD_ENV, raw, default=False)
 
+    def _recompile_url(raw: str) -> None:
+        if raw.strip():
+            validate_http_url(raw, "REBREW_RECOMPILE_URL")
+
+    def _llm_endpoint(raw: str) -> None:
+        if raw.strip():
+            validate_http_url(raw, "REBREW_LLM_ENDPOINT")
+
+    def _llm_model(raw: str) -> None:
+        if raw.strip():
+            validate_llm_model(raw.strip())
+
     return (
         (ALLOW_PRIVATE_DOWNLOAD_ENV, _allow_private_download),
         (OTLP_ENDPOINT_ENV, _otlp_endpoint),
@@ -1896,6 +1943,16 @@ def _env_knob_parsers() -> tuple[tuple[str, Callable[[str], None]], ...]:
         ("REBREW_TOOLCHAIN", check_env_toolchain_pin),
         ("REBREW_WINE_HEADLESS", _wine_headless),
         (XVFB_DISPLAY_ENV, check_env_display),
+        ("REBREW_RECOMPILE_URL", _recompile_url),
+        ("REBREW_LLM_ENDPOINT", _llm_endpoint),
+        ("REBREW_LLM_MODEL", _llm_model),
+        ("REBREW_LLM_MAX_REQUESTS", llm_max_requests),
+        ("REBREW_LLM_MAX_TOKENS", llm_max_tokens),
+        ("REBREW_LLM_TIMEOUT", llm_timeout),
+        ("REBREW_RECOMPILE_API_KEY", check_env_recompile_api_key),
+        ("REBREW_RECOMPILE_INSECURE_CLUSTER_HOST", check_env_insecure_cluster_host),
+        ("REBREW_OPS_TOKEN", check_env_ops_token),
+        ("REBREW_OPS_ALLOWED_HOSTS", check_env_ops_allowed_hosts),
     )
 
 
@@ -3108,6 +3165,10 @@ __all__ = [
     "arch_pointer_size",
     "check_env_dir",
     "check_env_display",
+    "check_env_insecure_cluster_host",
+    "check_env_ops_allowed_hosts",
+    "check_env_ops_token",
+    "check_env_recompile_api_key",
     "check_env_source_date_epoch",
     "check_env_toolchain_pin",
     "check_env_wineprefix",

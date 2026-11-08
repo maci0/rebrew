@@ -2812,6 +2812,29 @@ class TestEnvKnobValidators:
         assert env_knob_errors({"REBREW_TOOLCHAINS_DIR": "  "}) == {}
         assert env_knob_errors({}) == {}
 
+    def test_lazily_read_knobs_are_reported(self) -> None:
+        from rebrew.config import env_knob_errors
+
+        assert env_knob_errors({"REBREW_RECOMPILE_INSECURE_CLUSTER_HOST": "svc.example.com"})
+        assert env_knob_errors({"REBREW_OPS_TOKEN": "short"})
+        assert env_knob_errors({"REBREW_OPS_ALLOWED_HOSTS": "bad host!!"})
+        assert env_knob_errors({"REBREW_RECOMPILE_API_KEY": "has space"})
+        assert env_knob_errors({"REBREW_RECOMPILE_URL": "ftp://x"})
+        assert env_knob_errors({"REBREW_LLM_ENDPOINT": "ftp://x"})
+        assert env_knob_errors({"REBREW_LLM_MODEL": "latest"})
+        assert env_knob_errors({"REBREW_LLM_MAX_REQUESTS": "abc"})
+        assert env_knob_errors({"REBREW_LLM_MAX_TOKENS": "-5"})
+        assert env_knob_errors({"REBREW_LLM_TIMEOUT": "2"})
+        assert not env_knob_errors({"REBREW_RECOMPILE_INSECURE_CLUSTER_HOST": "a.svc"})
+        assert not env_knob_errors({"REBREW_OPS_TOKEN": "x" * 32})
+        assert not env_knob_errors({"REBREW_OPS_ALLOWED_HOSTS": "example.com:8080"})
+        assert not env_knob_errors({"REBREW_RECOMPILE_API_KEY": "abc123"})
+        assert not env_knob_errors({"REBREW_RECOMPILE_URL": "http://localhost:8000"})
+        assert not env_knob_errors({"REBREW_LLM_ENDPOINT": "https://example.com/v1"})
+        assert not env_knob_errors({"REBREW_LLM_MODEL": "gpt-4o-mini-2024-07-18"})
+        assert not env_knob_errors({"REBREW_LLM_MAX_REQUESTS": ""})
+        assert not env_knob_errors({"REBREW_LLM_TIMEOUT": ""})
+
 
 class TestBooleanVocabulary:
     """``parse_bool`` is the single boolean reader for env knobs and TOML
