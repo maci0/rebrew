@@ -3831,7 +3831,7 @@ def serve_command(
         _existing_dir(workspace, "--workspace"),
         max_download_bytes,
     )
-    hosts = frozenset(item.strip().casefold() for item in allowed_hosts.split(",") if item.strip())
+    hosts = frozenset(fold_host(item.strip()) for item in allowed_hosts.split(",") if item.strip())
     if any(not re.fullmatch(r"[a-z0-9][a-z0-9.-]*(?::[0-9]{1,5})?", item) for item in hosts):
         error_exit("--allowed-hosts must contain exact DNS names and optional ports")
     server = OpsServer((host, port), config, token, concurrency, hosts)
