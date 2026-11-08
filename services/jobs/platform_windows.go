@@ -56,4 +56,3 @@ func isRoot() bool {
 func isPrivateDir(info os.FileInfo) bool {
 	return info.IsDir()
 }
-
