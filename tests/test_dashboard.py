@@ -451,10 +451,12 @@ cells = []
             first = calls
             dashboard.functions("server_dll", q="FUNC")
             dashboard.functions("server_dll", q="nope")
+            second = calls
         finally:
             dash._fold = real
         assert first > 0
-        assert calls == first
+        # The needle fold now goes through _fold too (+1 per query).
+        assert second - first == 2
 
     def test_functions_search_by_address(self, dashboard: Dashboard) -> None:
         """A hex address finds the function when the name does not contain it."""

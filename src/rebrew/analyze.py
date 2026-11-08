@@ -26,7 +26,7 @@ import typer
 
 from rebrew.cli import MIN_STRING_LEN_HELP, TargetOption, console, json_print, untrusted_ident
 lazy from rebrew.config import load_config
-lazy from rebrew.utils import TerminalTable
+lazy from rebrew.utils import TerminalTable, truncate_text
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +126,7 @@ def _collect_strings(
                 "kind": s.kind,
                 "section": s.section,
                 "refs": ref_counts.get(s.va, 0),
-                "text": s.text[:120],
+                "text": truncate_text(s.text, 120),
             }
             for s in top
         ],

@@ -67,6 +67,7 @@ lazy import socket
 lazy import sys
 lazy import time
 lazy import traceback
+lazy import unicodedata
 lazy import weakref
 lazy from collections.abc import Callable, Iterator, Mapping, Sequence
 lazy from email.utils import formatdate
@@ -1851,8 +1852,16 @@ def _va_query(term: str) -> int | None:
 
 
 def _fold(text: str) -> str:
-    """ASCII fold of one search field. Empty stays empty (SQL NULL matched nothing)."""
-    return text.lower() if text and text.isascii() else (text or "").translate(_ASCII_FOLD)
+    """ASCII fold of one search field. Empty stays empty (SQL NULL matched nothing).
+
+    NFC first so an NFD spelling (macOS volume / NFD query) matches the NFC
+    stored name by byte equality after folding; ASCII folding alone leaves
+    ``CAFÉ`` (NFC) and ``CAFE\\u0301`` (NFD) distinct.
+    """
+    if not text:
+        return ""
+    normalized = unicodedata.normalize("NFC", text)
+    return normalized.lower() if normalized.isascii() else normalized.translate(_ASCII_FOLD)
 
 
 def _folded_match(needle: str, wanted_va: int | None, va: int, *texts: str) -> bool:
@@ -2183,7 +2192,7 @@ class Dashboard:
         rows: list[Function] = []
         if snapshot is not None:
             wanted_status = canonical_status(status) if status else None
-            needle = q.translate(_ASCII_FOLD) if q else ""
+            needle = _fold(q) if q else ""
             wanted_va = _va_query(q) if q else None
             folds = _folded_functions(snapshot) if q else ()
             for index, fn in enumerate(snapshot.functions):
@@ -2272,7 +2281,7 @@ class Dashboard:
         snapshot = self.snapshots().get(target)
         rows: list[Global] = []
         if snapshot is not None:
-            needle = q.translate(_ASCII_FOLD) if q else ""
+            needle = _fold(q) if q else ""
             wanted_va = _va_query(q) if q else None
             folds = _folded_globals(snapshot) if q else ()
             for index, item in enumerate(snapshot.globals):
