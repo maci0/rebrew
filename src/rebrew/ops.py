@@ -1010,7 +1010,11 @@ def _download(config: WorkerConfig, url: str, wanted: str, into: Path) -> None:
     try:
         with (
             httpx.stream(
-                "GET", url, timeout=DOWNLOAD_TIMEOUT_SECONDS, follow_redirects=False
+                "GET",
+                url,
+                timeout=DOWNLOAD_TIMEOUT_SECONDS,
+                follow_redirects=False,
+                trust_env=False,
             ) as response,
             into.open("wb") as out,
         ):
@@ -3246,6 +3250,7 @@ def dispatch(config: WorkerConfig, name: str, body: bytes) -> tuple[int, bytes]:
 
 
 _SECURITY_HEADERS: tuple[tuple[str, str], ...] = (
+    ("X-Content-Type-Options", "nosniff"),
     ("X-Frame-Options", "DENY"),
     ("Referrer-Policy", "no-referrer"),
     ("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()"),
