@@ -21,10 +21,16 @@ _SCHEMA_VERSION = 1
 #: The one DDL this store creates.  ``_check_schema`` compares the stored
 #: ``CREATE TABLE`` against it so a database whose table was hand-altered to
 #: drop the primary key or the revision check is rejected instead of being
-#: trusted — ``user_version`` alone cannot tell those apart.
+#: trusted — ``user_version`` alone cannot tell those apart.  The integer
+#: primary key makes SQLite pick a rowid alias (no ``sqlite_autoindex``
+#: table), so the no-extra-indexes clause of ``_check_schema`` can stay
+#: narrowly pinned; ``path`` keeps a UNIQUE constraint and every column
+#: keeps its NOT NULL/CHECK, so the store's own access by ``path`` still
+#: resolves on an index.
 _EXPECTED_DDL = (
-    "CREATE TABLE metadata_documents(path TEXT NOT NULL PRIMARY KEY, "
-    "revision INTEGER NOT NULL CHECK (revision > 0), content TEXT NOT NULL)"
+    "CREATE TABLE metadata_documents(id INTEGER NOT NULL PRIMARY KEY, "
+    "path TEXT NOT NULL UNIQUE, revision INTEGER NOT NULL CHECK (revision > 0), "
+    "content TEXT NOT NULL)"
 )
 _CONNECTIONS = threading.local()
 
