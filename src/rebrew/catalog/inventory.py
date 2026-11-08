@@ -46,6 +46,7 @@ def repair_inventory_extents(
     add_missing: bool = False,
     merges: list[tuple[int, int]] | None = None,
     retire: list[int] | None = None,
+    now: datetime | None = None,
 ) -> dict[str, Any]:
     """Repair selected sizes without replacing unrelated rows or earned measurements.
 
@@ -64,6 +65,9 @@ def repair_inventory_extents(
     """
     # Retirement receipts return complete original rows; source identity and
     # earned verdicts remain in their separate metadata owner.
+    # Single wall-clock seam: callers supplying *now* get byte-identical
+    # replays; default reads the clock once per invocation.
+    changed_at = (now or datetime.now(UTC)).isoformat()
     merge_list = _validate_merges(list(merges or []))
     retire_list = list(retire or [])
     if any(not isinstance(va, int) or isinstance(va, bool) or va < 0 for va in retire_list):
@@ -199,7 +203,7 @@ def repair_inventory_extents(
                 "new_size": new_size,
                 "reason": reason.strip(),
                 "binary_hash": binary_hash,
-                "changed_at": datetime.now(UTC).isoformat(),
+                "changed_at": changed_at,
                 "merged": {
                     "va": tail_va,
                     "size": tail_size,
@@ -275,7 +279,7 @@ def repair_inventory_extents(
                 "new_size": size,
                 "reason": reason.strip(),
                 "binary_hash": binary_hash,
-                "changed_at": datetime.now(UTC).isoformat(),
+                "changed_at": changed_at,
             }
             history = row.get("extent_history", [])
             if not isinstance(history, list) or any(not isinstance(item, dict) for item in history):
