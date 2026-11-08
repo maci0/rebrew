@@ -822,19 +822,35 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
 
         from rebrew.utils import atomic_write_bytes as _awb
 
+        # Snapshot the extras' current bytes first, so a failure while
+        # staging the database rolls the extras back instead of leaving a
+        # half-restored tree (database from before, extras from the backup).
+        _before: dict[Path, bytes | None] = {}
         for _src, _dest in _siblings:
-            _raw = _src.read_bytes()
-            if _dest.is_file():
-                _current = _dest.read_bytes()
-                if _current != _raw:
+            _before[_dest] = _dest.read_bytes() if _dest.is_file() else None
+        _installed: list[Path] = []
+        try:
+            for _src, _dest in _siblings:
+                _raw = _src.read_bytes()
+                _current = _before[_dest]
+                if _current is not None and _current != _raw:
                     _preserved = _dest.with_name(_dest.name + ".before-restore")
                     # Keep the first preserved copy across a re-run (see the
                     # database preservation above and restore_ga_runs).
                     if not _preserved.is_file() or _preserved.read_bytes() != _current:
                         _awb(_preserved, _current, mode=_extra_mode(_dest))
-            _awb(_dest, _raw, mode=_extra_mode(_dest))
-            if _dest.read_bytes() != _raw:
-                raise MetadataStorageError(f"{_dest}: restored copy verification failed")
+                _awb(_dest, _raw, mode=_extra_mode(_dest))
+                if _dest.read_bytes() != _raw:
+                    raise MetadataStorageError(f"{_dest}: restored copy verification failed")
+                _installed.append(_dest)
+        except BaseException:
+            for _dest in reversed(_installed):
+                _original = _before[_dest]
+                if _original is None:
+                    _dest.unlink(missing_ok=True)
+                else:
+                    _awb(_dest, _original, mode=_extra_mode(_dest))
+            raise
 
         tmp = location.with_name(f"{location.name}.{os.getpid()}.{time.monotonic_ns()}.tmp")
         try:
@@ -871,6 +887,20 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
             finally:
                 os.close(fd)
             os.chmod(tmp, 0o444)
+            # A stale rollback journal (or WAL sidecar) from a killed
+            # writer belongs to the pre-restore database; left beside the
+            # restored file SQLite would replay/rollback against the new
+            # page image.  Clear them before publishing.
+            for _suffix in ("-journal", "-wal", "-shm"):
+                with contextlib.suppress(OSError):
+                    location.with_name(location.name + _suffix).unlink(missing_ok=True)
+            # Restored verify caches make any pre-restore JSON sidecar
+            # stale; its fingerprint would miss anyway, but leaving it
+            # around invites a later stat-collision hit.
+            for _src, _dest in _siblings:
+                if _dest.name in ("verify_cache.toml", "verify_baseline.toml"):
+                    with contextlib.suppress(OSError):
+                        _dest.with_suffix(".json").unlink(missing_ok=True)
             os.replace(tmp, location)
             dir_fd = os.open(location.parent, os.O_RDONLY)
             try:

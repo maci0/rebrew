@@ -198,6 +198,29 @@ class TestSqliteBackup:
         assert _tgt_baseline.read_text(encoding="utf-8") == "target = 'game'\n"
         assert _ghidra.read_text(encoding="utf-8") == '{"a": "b"}\n'
 
+    def test_restore_clears_stale_journal_and_verify_sidecar(self, tmp_path: Path) -> None:
+        # A killed writer's rollback journal belongs to the pre-restore
+        # database; left beside the restored file SQLite would replay it
+        # against the new page image.  The verify-cache JSON sidecar is
+        # likewise stale once the TOML is replaced.
+        _project(tmp_path)
+        _store = metadata_store(tmp_path / "rebrew-functions.toml", backend="sqlite", root=tmp_path)
+        _store.write({"format": 2, "GAME.0x1000": {"size": 4}}, "test")
+        _cache = tmp_path / ".rebrew" / "verify_cache.toml"
+        _cache.parent.mkdir(parents=True, exist_ok=True)
+        _cache.write_text("entries = {}\n", encoding="utf-8")
+        _dest = backup_metadata_database(tmp_path, tmp_path / "off-tree")
+        _journal = tmp_path / (DATABASE_FILENAME + "-journal")
+        _journal.write_bytes(b"stale")
+        _sidecar = tmp_path / ".rebrew" / "verify_cache.json"
+        _sidecar.write_text('{"version": 1, "fingerprint": [1,2,3,4], "document": {}}')
+        _store.write({"format": 2, "GAME.0x1000": {"size": 8}}, "test")
+        _journal.write_bytes(b"stale2")
+        restore_metadata_database(_dest, tmp_path)
+        assert not _journal.exists()
+        assert not _sidecar.exists()
+        assert _store.read("test")["GAME.0x1000"]["size"] == 4
+
     def test_missing_database_raises(self, tmp_path: Path) -> None:
         _project(tmp_path)
         with pytest.raises(FileNotFoundError):
