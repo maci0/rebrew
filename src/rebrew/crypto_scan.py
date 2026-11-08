@@ -200,9 +200,9 @@ def constant_findings(sections: Sequence[tuple[str, int, bytes]]) -> list[dict[s
         for name, needle in _TABLE_NEEDLES:
             if not needle or len(needle) > len(blob):
                 continue
-            start = 0
-            while True:
-                offset = blob.find(needle, start)
+            search_from = 0
+            while search_from <= len(blob) - len(needle):
+                offset = blob.find(needle, search_from)
                 if offset < 0:
                     break
                 end = offset + len(needle)
@@ -217,7 +217,7 @@ def constant_findings(sections: Sequence[tuple[str, int, bytes]]) -> list[dict[s
                             "confidence": _HIGH_CONFIDENCE,
                         }
                     )
-                start = end
+                search_from = end
     out.sort(key=lambda finding: (finding["va"], finding["name"]))
     return out
 

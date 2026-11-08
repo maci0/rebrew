@@ -151,6 +151,10 @@ def find_float_consts(
                 continue
             single = inst.opcode in SINGLE_PRECISION_OPCODES
             size = 4 if single else 8
+            # VA space as checked by any region bound below excludes a
+            # wrap: pointer+size must not wrap past 2**32.
+            if pointer + size > 0x100000000:
+                continue
             if not any(start <= pointer and pointer + size <= end for start, end in const_regions):
                 continue
             raw = read_at(pointer, size)

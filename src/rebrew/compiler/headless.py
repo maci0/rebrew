@@ -369,8 +369,8 @@ def _shutdown_xvfb(proc: subprocess.Popen[bytes]) -> None:
 
             stop_process_tree(proc)
             return
-        except Exception:
-            pass
+        except Exception as exc:
+            log.debug("stop_process_tree failed for Xvfb pid %r: %s", pid, exc)
     with contextlib.suppress(Exception):
         proc.terminate()
     try:
@@ -392,7 +392,8 @@ def _reap_dead_xvfb() -> None:
     """
     dead = [entry for entry in _owned_xvfb if entry[0].poll() is not None]
     if dead:
-        _owned_xvfb[:] = [entry for entry in _owned_xvfb if entry not in dead]
+        retiring = set(dead)
+        _owned_xvfb[:] = [entry for entry in _owned_xvfb if entry not in retiring]
     for entry in dead:
         _drop_cookie(entry[1])
 
