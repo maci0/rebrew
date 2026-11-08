@@ -266,7 +266,7 @@ class TestCiPins:
                     assert check["env"] == {"CGO_ENABLED": "0"}
                     assert all(
                         command in check["run"]
-                        for command in ("gofmt -l .", "go vet ./...", "go test -race ./...")
+                        for command in ("gofmt -l .", "go vet ./...", "go test -count=1 -race ./...")
                     )
                     assert "go build -trimpath" in check["run"]
                     assert "-buildvcs=false" in check["run"]
@@ -1390,7 +1390,7 @@ class TestCiPins:
         sbom = text.split("\nsbom: warn-uv-version\n", 1)[1].split("\n\n", 1)[0]
         assert "\t@umask 022 && mkdir -p dist" in sbom
         assert (
-            "\tumask 022 && TZ=UTC LC_ALL=C PYTHONHASHSEED=0 $(UV_RUN_TOOLS) python tools/generate_sbom.py -o dist/rebrew.cdx.json"
+            "\tumask 022 && SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 $(UV_RUN_TOOLS) python tools/generate_sbom.py -o dist/rebrew.cdx.json"
             in sbom
         )
 

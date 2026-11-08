@@ -1009,7 +1009,7 @@ verify-dist: require-dist ensure-uv
 # than left to the caller's umask (Path.write_text applies it).
 sbom: warn-uv-version
 	@umask 022 && mkdir -p dist
-	umask 022 && TZ=UTC LC_ALL=C PYTHONHASHSEED=0 $(UV_RUN_TOOLS) python tools/generate_sbom.py -o dist/rebrew.cdx.json
+	umask 022 && SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 $(UV_RUN_TOOLS) python tools/generate_sbom.py -o dist/rebrew.cdx.json
 
 # Prove the sdist carries every runtime file the wheel ships.  The wheel is
 # smoke-installed; nothing else exercises the sdist, and its file list comes
@@ -1113,7 +1113,7 @@ jobs-check: ensure-go
 	GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off test -z "$$(gofmt -l .)"; \
 	GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off CGO_ENABLED=0 go vet ./...; \
 	GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags=-buildid= ./...; \
-	GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off CGO_ENABLED=1 go test -race ./...
+	GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off CGO_ENABLED=1 go test -count=1 -race ./...
 
 # Run all non-mutating verification gates (mirrors CI lint + test +
 # cli-contract + jobs-service jobs: ruff, mypy, uv audit, pytest under the
