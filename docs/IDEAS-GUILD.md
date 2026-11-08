@@ -4788,3 +4788,77 @@ refuses to write when a conflict is present, since the plain output would
 not compile, and names each symbol with its variants. Use `--consolidate`
 for the hoisted conflict-resolving merge. Identical declarations stay
 clean.
+
+### types reconcile cannot resolve caller contexts for TL placeholders (2026-11-08)
+
+Status: open. `rebrew types reconcile` refuses a reviewed canonical prototype
+when the callers use their own local declaration, and offers no way to say
+which source/include contexts to accept.
+
+Replay in guild-rebrew:
+
+```sh
+rebrew types reconcile d3_DestroyObject src/Develop/Units/d3/d3_object.h \
+  --prototype 'char __cdecl d3_DestroyObject(D3_OBJECT* object)' --dry-run --json
+# {"error":{"kind":"failure","message":"resolve incomplete source/include contexts before reconciliation"}}
+```
+
+Binding the placeholder with `rebrew source rename fcn_00442be0 GOLDTL.0x00442be0`
+previews cleanly, but the apply stops compiling the callers
+(`GOLDTL.fcn_005744c0.c`, `GOLDTL.fcn_00586c10.c`) because their local
+`void __cdecl d3_DestroyObject(int)` now conflicts with the header. Wanted: a
+reconcile mode that rewrites a caller's local prototype to the canonical one
+(or removes it and includes the header) and lists exactly which contexts are
+incomplete and why. The same three callers were edited by hand in guild-rebrew.
+
+### source split --force leaves .bak copies in src (2026-11-08)
+
+Status: open. `rebrew source split FILE --force` writes `FILE.bak` beside the
+source file. The copy is untracked noise under `src/` and never mentioned in the
+JSON output.
+
+```sh
+rebrew source split src/Develop/DieGildeAddOn/game/aemter_c/aemter.c --force --json
+ls src/Develop/DieGildeAddOn/game/aemter_c/aemter.c.bak
+```
+
+Wanted: no `.bak`, or list it in the JSON result and honor a `--no-backup` flag.
+
+### source rename --data needs a store row; extern-only globals cannot be named (2026-11-08)
+
+Status: open. Sources declare `extern int g_14ad0e8;` and use it, but the data
+store has no row at that address (the nearest rows are `0x014ad0d8` and
+`0x014ad0cc`). `rebrew source rename GOLDTL.0x014ad0e8 d2_X --data` has nothing to
+rename, so 49 globals with literal names (`contact_<TAG>` strings) stay as
+`g_<hex>`. Separately, a data rename whose preview rewrites
+`stubs/goldtl/symbol_stubs.c` is refused by guild-rebrew's transaction driver,
+because that generated file is outside `src/` and the metadata stores.
+
+Wanted: an adopt step that creates a data row for an extern-only global from the
+binary section, and a rename preview that regenerates or reports the generated
+stub file as part of the plan.
+
+### "function metadata changed while reading; retry" under concurrent tools (2026-11-08)
+
+Status: open. While a transaction driver held the store lock and a second process
+ran read-only previews, `rebrew source binding rebind --dry-run` and `rebrew
+source rename ... --expected-digest` failed with
+`{"error":{"kind":"failure","message":"function metadata changed while reading; retry"}}`
+(exit 2). Five dup-bind pairs were skipped or rolled back by it in guild-rebrew
+(`dupbind/driver/results-real7.jsonl`: `gm_SumProductPoints`, `gm_SumStoreCount`,
+`gm_GetStoreItemField`, `gm_ResolveEntitySlot`, `gm_EntitySetField`).
+Wanted: retry inside the tool with a bounded backoff, or take the store lock in
+shared mode for reads, instead of surfacing the race to callers.
+
+### transaction primitive for source plus stores (2026-11-08)
+
+Status: open. Every multi-file change in guild-rebrew needed the same
+hand-built wrapper: back up the touched sources and the three stores, apply,
+compare the byte status of every function in the touched files against the
+state before, run the canary, and restore on any difference
+(`names/driver/rename_txn.py`, `dup_bind_txn.py`, `split_txn.py`,
+`caller_edit_txn.py`; each had to learn the same failure cases, such as a rename
+creating a new file that a naive restore leaves behind).
+Wanted: `rebrew txn run -- <command>` that snapshots sources and stores, runs the
+command, reports a before and after status map for the touched files, and rolls
+back on a mismatch or a failed check.
