@@ -363,9 +363,7 @@ def _validate_uploads_ledger(source: Path) -> None:
         if not isinstance(entry, dict) or not all(
             isinstance(entry.get(k), str) for k in ("slug", "claim_token", "api", "at")
         ):
-            raise MetadataStorageError(
-                f"{source}: corrupt backup: entry {digest!r} is incomplete"
-            )
+            raise MetadataStorageError(f"{source}: corrupt backup: entry {digest!r} is incomplete")
 
 
 def _validate_extra(source: Path) -> None:
@@ -379,9 +377,7 @@ def _validate_extra(source: Path) -> None:
             raw = source.read_bytes()
         except OSError as exc:
             raise MetadataStorageError(f"{source}: corrupt backup: {exc}") from exc
-        for lineno, line in enumerate(
-            raw.decode("utf-8", errors="replace").splitlines(), 1
-        ):
+        for lineno, line in enumerate(raw.decode("utf-8", errors="replace").splitlines(), 1):
             if not line.strip():
                 continue
             try:
@@ -420,15 +416,23 @@ def _extra_mode(source: Path) -> int:
 
 
 def _extra_durable_sources(root: Path) -> list[Path]:
-    """GA log, BinSync baseline sidecars, and upload ledger, when present.
+    """GA log, BinSync baselines, upload ledger, journal, replication
+    sidecar, verify cache/baseline and Ghidra sync state, when present.
 
     All live under the gitignored ``.rebrew/`` directory, so a backup
     that only walks the TOML store trees silently drops them: the
     GA wins have no regenerating command, losing the baselines
     loses the three-way decisions a later push/pull relied on, and
     losing the upload ledger re-uploads scratches already claimed on
-    decomp.me.  Peer worktrees under ``.rebrew/sync/peers/`` are
-    transient snapshots and stay out.
+    decomp.me.  The verify cache and ``--compare`` baseline ride
+    along so a restored tree resumes verification without a full
+    re-verify (they carry compiler/binary identity guards, so a
+    stale copy degrades to a re-measure, not a wrong verdict).
+    ``ghidra_sync_state.json`` is the pushed-op dedup map; loss
+    re-pushes.  Backing up and restoring call this one function on
+    the live tree and on the backup bundle respectively, so the two
+    lists cannot drift.  Peer worktrees under ``.rebrew/sync/peers/``
+    are transient snapshots and stay out.
     """
     sources = []
     ga_runs = root / _GA_RUNS_REL
@@ -511,7 +515,7 @@ def metadata_paths(path: Path) -> tuple[Path, ...]:
         paths = [path]
     try:
         members = list(path.with_suffix(".d").iterdir())
-    except (FileNotFoundError, NotADirectoryError):
+    except FileNotFoundError, NotADirectoryError:
         members = []
     paths.extend(sorted(p for p in members if p.suffix == ".toml" and p.is_file()))
     return tuple(paths)
@@ -661,9 +665,12 @@ def backup_metadata_database(root: Path, backup_dir: Path) -> Path:
     so a backup that cannot be restored raises here rather than at
     restore time.  A missing database raises ``FileNotFoundError``.
 
-    The GA log (``.rebrew/ga_runs.jsonl``) and the BinSync baselines
-    (``.rebrew/sync/*.toml``) ride alongside the database when present:
-    neither survives under git and neither is regenerable.
+    The GA log (``.rebrew/ga_runs.jsonl``), the BinSync baselines
+    (``.rebrew/sync/*.toml``), the upload ledger, the journal and
+    replication sidecar, the verify cache/baseline and the Ghidra
+    sync state ride alongside the database when present, via
+    :func:`_extra_durable_sources`: none survives under git and
+    none is regenerable without loss.
     """
     from rebrew.metadata.locking import file_transaction
 
@@ -727,10 +734,11 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
     ``os.replace`` plus fsyncs, so a crash cannot leave a torn database
     at the live path.
 
-    The GA log and the BinSync baselines saved alongside the backup
-    (``.rebrew/ga_runs.jsonl``, ``.rebrew/sync/*.toml``) are installed
-    the same way, each preserved as ``.before-restore`` first; a corrupt
-    one raises and leaves everything alone.
+    The ``.rebrew/`` extras saved alongside the backup (GA log,
+    BinSync baselines, upload ledger, journal, replication sidecar,
+    verify cache/baseline, Ghidra sync state) are installed the same
+    way, each preserved as ``.before-restore`` first; a corrupt one
+    raises and leaves everything alone.
     """
     from rebrew.metadata.locking import file_transaction
 
@@ -752,43 +760,20 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
         check.close()
     if integrity != "ok":
         raise MetadataStorageError(f"{backup}: integrity check failed: {integrity}")
-    _ga_rel = _GA_RUNS_REL
-    _uploads_rel = _UPLOADS_REL
-    _sync_rel = _SYNC_DIR_REL
     _siblings: list[tuple[Path, Path]] = []
     _backup_root = backup.parent
-    for _rel, _kind in (
-        (_ga_rel, "extra"),
-        (_uploads_rel, "extra"),
-        (_sync_rel, "sync"),
-        (Path(".rebrew/metadata-journal.toml"), "state"),
-        (Path(".rebrew/metadata-replication.toml"), "state"),
-    ):
-        _src_dir = _backup_root / _rel
-        if _kind == "sync":
-            _candidates = (
-                sorted(x for x in _src_dir.iterdir() if x.suffix == ".toml" and x.is_file())
-                if _src_dir.is_dir()
-                else []
-            )
-        else:
-            _candidates = [_src_dir] if _src_dir.is_file() else []
-        for _src in _candidates:
-            _raw = _src.read_bytes()
-            _dest = root / _src.relative_to(_backup_root)
-            # All kinds except "sync" (the TOML directory) are single
-            # .rebrew/ files dispatched by _validate_extra: GA log as
-            # JSONL, uploads ledger as a JSON object, the rest as TOML.
-            if _kind in {"extra", "state"}:
-                _validate_extra(_src)
-            else:
-                try:
-                    from rebrew.utils import load_tomllib as _lt
-
-                    _lt(_src)
-                except (ValueError, OSError) as _exc:
-                    raise MetadataStorageError(f"{_src}: corrupt backup: {_exc}") from _exc
-            _siblings.append((_src, _dest))
+    # Restore exactly what the backup carries: _extra_durable_sources
+    # walks the backup root the same way it walks a live project, so
+    # the GA log, upload ledger, journal, replication sidecar, verify
+    # cache/baseline (root and per-target), Ghidra sync state and
+    # BinSync baselines all come back.  A hand-rolled sibling list
+    # here once drifted from the backup list and silently dropped the
+    # verify cache and Ghidra state on SQLite restore.
+    for _src in _extra_durable_sources(_backup_root):
+        # _validate_extra dispatches on suffix: GA log as JSONL,
+        # uploads ledger / Ghidra JSON as JSON objects, rest as TOML.
+        _validate_extra(_src)
+        _siblings.append((_src, root / _src.relative_to(_backup_root)))
     location = root / DATABASE_FILENAME
     location.parent.mkdir(parents=True, exist_ok=True)
     with file_transaction(location.parent, location.name):

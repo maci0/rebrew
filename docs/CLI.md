@@ -345,6 +345,10 @@ targets keeps that namespace selected. Existing target files are authoritative,
 even when stale or corrupt. Compiler, binary and per-entry freshness guards
 still apply. Switching targets does not
 erase another target's receipts or skip its comparison baseline.
+Both files are backed up by `rebrew metadata backup` and brought
+back by `rebrew metadata restore` (see
+[Backup and restore](METADATA.md#backup-and-restore)); without a
+backup they are mere caches, rebuilt by the next `rebrew verify`.
 
 `--experimental-unshare` opts one invocation into the experimental rootless
 MSVC/Wine backend. For a project default, set `[compiler] execution_backend =

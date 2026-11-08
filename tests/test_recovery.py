@@ -168,6 +168,36 @@ class TestSqliteBackup:
         assert _restored.read_bytes() == _backed.read_bytes()
         assert _restored.stat().st_mode & 0o777 == 0o600
 
+    def test_sqlite_backup_roundtrips_verify_cache_and_ghidra_state(self, tmp_path: Path) -> None:
+        # SQLite backup carries the verify cache/baseline (root and
+        # per-target) and the Ghidra sync state, and restore brings
+        # them back: a hand-rolled restore list once dropped them.
+        _project(tmp_path)
+        _store = metadata_store(tmp_path / "rebrew-functions.toml", backend="sqlite", root=tmp_path)
+        _store.write({"format": 2}, "test")
+        _cache = tmp_path / ".rebrew" / "verify_cache.toml"
+        _baseline = tmp_path / ".rebrew" / "verify_baseline.toml"
+        _tgt_cache = tmp_path / ".rebrew" / "targets" / "abc123" / "verify_cache.toml"
+        _tgt_baseline = tmp_path / ".rebrew" / "targets" / "abc123" / "verify_baseline.toml"
+        _ghidra = tmp_path / ".rebrew" / "ghidra_sync_state.json"
+        _tgt_cache.parent.mkdir(parents=True, exist_ok=True)
+        _cache.write_text("entries = {}\n", encoding="utf-8")
+        _baseline.write_text("target = 'game'\n", encoding="utf-8")
+        _tgt_cache.write_text("entries = {}\n", encoding="utf-8")
+        _tgt_baseline.write_text("target = 'game'\n", encoding="utf-8")
+        _ghidra.write_text('{"a": "b"}\n', encoding="utf-8")
+        for p in (_cache, _baseline, _tgt_cache, _tgt_baseline, _ghidra):
+            p.chmod(0o444)
+        _dest = backup_metadata_database(tmp_path, tmp_path / "off-tree")
+        for p in (_cache, _baseline, _tgt_cache, _tgt_baseline, _ghidra):
+            p.unlink()
+        restore_metadata_database(_dest, tmp_path)
+        assert _cache.read_text(encoding="utf-8") == "entries = {}\n"
+        assert _baseline.read_text(encoding="utf-8") == "target = 'game'\n"
+        assert _tgt_cache.read_text(encoding="utf-8") == "entries = {}\n"
+        assert _tgt_baseline.read_text(encoding="utf-8") == "target = 'game'\n"
+        assert _ghidra.read_text(encoding="utf-8") == '{"a": "b"}\n'
+
     def test_missing_database_raises(self, tmp_path: Path) -> None:
         _project(tmp_path)
         with pytest.raises(FileNotFoundError):
@@ -234,7 +264,14 @@ def _write_uploads_ledger(root: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(
-            {"abc": {"slug": "xyz", "claim_token": "secret-token-123", "api": "https://decomp.me", "at": "123.0"}},
+            {
+                "abc": {
+                    "slug": "xyz",
+                    "claim_token": "secret-token-123",
+                    "api": "https://decomp.me",
+                    "at": "123.0",
+                }
+            },
             indent=2,
             sort_keys=True,
         )
@@ -326,7 +363,9 @@ class TestTomlBackup:
         assert restored.read_bytes() == backed.read_bytes()
         assert restored.stat().st_mode & 0o777 == 0o600
 
-    def test_restore_rejects_corrupt_uploads_ledger_and_leaves_stores_alone(self, tmp_path: Path) -> None:
+    def test_restore_rejects_corrupt_uploads_ledger_and_leaves_stores_alone(
+        self, tmp_path: Path
+    ) -> None:
         (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")
         _write_uploads_ledger(tmp_path)
         bundle = backup_metadata_toml(tmp_path, tmp_path / "off-tree")
@@ -350,9 +389,7 @@ class TestTomlBackup:
             '{"ts":"r","matched":true}\n'
         )
 
-    def test_restore_rejects_corrupt_uploads_and_leaves_stores_alone(
-        self, tmp_path: Path
-    ) -> None:
+    def test_restore_rejects_corrupt_uploads_and_leaves_stores_alone(self, tmp_path: Path) -> None:
         (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")
         _write_extra_durable(tmp_path)
         bundle = backup_metadata_toml(tmp_path, tmp_path / "off-tree")
@@ -361,9 +398,12 @@ class TestTomlBackup:
         uploads.write_text('{"a": 5}', encoding="utf-8")
         with pytest.raises(MetadataStorageError, match="corrupt backup"):
             restore_metadata_toml(bundle, tmp_path)
-        assert json.loads((tmp_path / ".rebrew" / "decompme-uploads.json").read_text())[
-            "digest1"
-        ]["claim_token"] == "tok"  # noqa: S105
+        assert (
+            json.loads((tmp_path / ".rebrew" / "decompme-uploads.json").read_text())["digest1"][
+                "claim_token"
+            ]
+            == "tok"  # noqa: S105
+        )
 
     def test_sqlite_backup_roundtrips_uploads(self, tmp_path: Path) -> None:
         _project(tmp_path)

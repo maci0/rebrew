@@ -160,9 +160,19 @@ managed metadata stores (`rebrew-functions.toml`, `rebrew-data.toml`,
 `rebrew-types.toml`, `rebrew-libraries.toml`, including their `.d/`
 drop-ins) in the TOML backend, or `rebrew-metadata.sqlite3` in the
 SQLite backend, plus `.rebrew/ga_runs.jsonl` (GA win fingerprints;
-fsynced per record, never pruned for wins) and the BinSync
-baselines (`.rebrew/sync/*.toml`). Everything else is
-regenerable: verify/compile caches, coverage snapshots, `output/`,
+fsynced per record, never pruned for wins), the BinSync
+baselines (`.rebrew/sync/*.toml`), the decomp.me upload ledger
+(`.rebrew/decompme-uploads.json`, claim tokens), the replication
+journal and sidecar (`.rebrew/metadata-journal.toml`,
+`.rebrew/metadata-replication.toml`), the verify cache and
+`--compare` baseline (`.rebrew/verify_cache.toml` /
+`.rebrew/verify_baseline.toml`, or the same filenames under
+`.rebrew/targets/<sha256-of-exact-target-name>/`), and the Ghidra
+sync dedup state (`.rebrew/ghidra_sync_state.json`). The TOML and
+SQLite backup commands (`rebrew metadata backup`) carry the whole
+`.rebrew/` extras set; the manual copy procedure below must too.
+Everything else is
+regenerable: compile caches, coverage snapshots, `output/`,
 `bin/`, and toolchain images (re-pull via `rebrew toolchain pull`).
 The target binary under `original/` is the other input; it is not
 regenerable from anything rebrew holds.
@@ -183,9 +193,12 @@ without it is the last committed state. Take the copy when the writer
 is quiescent so the file is not mid-write. Keep the copy outside the
 project directory; the project `.gitignore` excludes the SQLite
 database, so git is not a backup for it. Commit the TOML stores and
-sources to git as usual. Copy `.rebrew/ga_runs.jsonl` out of the
-project as well: it lives under the gitignored `.rebrew/` directory,
-so by default it is lost with the host.
+sources to git as usual. Copy the `.rebrew/` extras listed above
+out of the project as well: they live under the gitignored
+`.rebrew/` directory, so by default they are lost with the host.
+Prefer `rebrew metadata backup --dir <off-tree>` to a manual copy:
+it gathers the extras and verifies every copied byte, and
+`rebrew metadata restore --file <backup>` installs them back.
 
 Restore procedure: stop all `rebrew` processes, unpack the backup,
 confirm `rebrew-project.toml` selects the backend matching the
