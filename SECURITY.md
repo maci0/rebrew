@@ -191,7 +191,11 @@ plugin cache backends or remove the open upstream diskcache advisory.
   resolve-and-compare. BinSync overlay also uses
   `contained_path` for source reads and signature/comment targets; prototype
   imports update the actual C signature through the AST and the importer's
-  source-tree check. What this does **not** claim: the shared validator's outer
+  source-tree check. A corrupt BinSync state file is never silently treated
+  as missing or empty: `load_artifact` / `load_many` in `binsync/serial.py`
+  raise `ValueError` on unreadable/unparseable input (a missing file still
+  returns `None` / `[]`), so export/import/pull fail closed instead of
+  proceeding with empty state. What this does **not** claim: the shared validator's outer
   bound is the project `root`, so project-internal paths such as `.git/hooks/`,
   `rebrew-project.toml`, or `.rebrew/` can pass that validator. It says nothing
   about a project running host commands, which
