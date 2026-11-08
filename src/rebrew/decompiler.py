@@ -675,6 +675,9 @@ def _kuna_spec_dirs() -> list[Path]:
                 versions = sorted(lib.glob("python*"), key=_python_dir_version, reverse=True)
                 candidates.extend(version / sla_tail for version in versions)
     candidates.extend(_rizin_sleigh_dirs())
+    # Kuna's own bundled specs (binary .sla): the rizin ones are XML and
+    # kuna rejects them, so this dir must win when no pypcode specs exist.
+    candidates.insert(0, Path("/usr/share/kuna/specs/Ghidra/Processors/x86/data/languages"))
     seen: set[Path] = set()
     out: list[Path] = []
     for d in candidates:
