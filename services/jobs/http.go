@@ -187,6 +187,10 @@ func hostAllowed(host string) bool {
 	return false
 }
 
+func metricsAuthorized(r *http.Request, token string) bool {
+	return subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+token)) == 1
+}
+
 // Handler exposes one configured owner's local API; it is not a tenant authorization boundary.
 func (o *Owner) Handler(token string) (http.Handler, error) {
 	if len(token) < 32 {
@@ -218,6 +222,10 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 			return
 		}
 		if r.URL.Path == "/metrics" {
+			if !metricsAuthorized(r, token) {
+				apiError(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
 			if r.Method != http.MethodGet && r.Method != http.MethodHead {
 				w.Header().Set("Allow", "GET, HEAD")
 				apiError(w, "method not allowed", http.StatusMethodNotAllowed)
