@@ -1049,11 +1049,17 @@ def _extern_path_key(path: Path) -> str:
 
 def _display_path(path: Path, base: Path, base_text: str) -> str:
     """``rel_display_path`` without a path walk for a plain descendant."""
+    # base_text is built with "/" and paths reach here from iter_sources
+    # (POSIX walk). On Windows str(Path) uses "\", so the fast prefix
+    # slice would miss; fall through to rel_display_path which normalizes
+    # via as_posix(). Keeping the slice only for POSIX spellings preserves
+    # the fast path where it is valid.
     text = str(path)
-    if text.startswith(base_text):
-        relative = text[len(base_text) :]
-        if relative and "//" not in relative and "/./" not in relative:
-            return relative
+    if text.startswith("/") and base_text.startswith("/"):
+        if text.startswith(base_text):
+            relative = text[len(base_text) :]
+            if relative and "//" not in relative and "/./" not in relative:
+                return relative
     from rebrew.utils import rel_display_path
 
     return rel_display_path(path, base)

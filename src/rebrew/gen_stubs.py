@@ -1792,7 +1792,7 @@ def main(
                     target,
                     original.encode("utf-8", errors="surrogateescape"),
                     content.encode("utf-8", errors="surrogateescape"),
-                    specials if specials is not None else Path("/dev/null"),
+                    specials if specials is not None else Path(os.devnull),
                     spec_bytes,
                 )
         except (OSError, ValueError) as exc:

@@ -796,7 +796,9 @@ def refresh_binding_evidence(
             if not _slot_in_prefix(offset, len(target_bytes)):
                 row["status"] = "OUT_OF_EXTENT"
             else:
-                actual = struct.unpack_from(f"{row['byte_order']}I", target_bytes, offset)[0]
+                order = row["byte_order"]
+                fmt = order + "I" if order in ("<", ">") else ("<" if str(order).lower() in ("little", "le", "little-endian") else ">")
+                actual = struct.unpack_from(fmt, target_bytes, offset)[0]
                 row["native_value"] = actual
                 if row["kind"] == "abs32" and iat_region and actual in iat_region:
                     row["status"] = "IAT_POLICY"
