@@ -15,8 +15,64 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 )
+
+var latencyBucketsMS = [4]float64{100, 1000, 10000, 60000}
+
+type jobMetrics struct {
+	mu             sync.Mutex
+	requests       int64
+	errors         int64
+	serverErrors   int64
+	clientErrors   int64
+	latencyMsTotal float64
+	latencyMsMax   float64
+	buckets        [4]int64
+	startedAt      time.Time
+}
+
+var globalMetrics = &jobMetrics{startedAt: time.Now()}
+var inFlight atomic.Int64
+
+func (m *jobMetrics) record(code int, ms float64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.requests++
+	m.latencyMsTotal += ms
+	if ms > m.latencyMsMax {
+		m.latencyMsMax = ms
+	}
+	for i, b := range latencyBucketsMS {
+		if ms <= b {
+			m.buckets[i]++
+			break
+		}
+		if i == len(latencyBucketsMS)-1 {
+			m.buckets[i]++
+		}
+	}
+	if code >= 500 {
+		m.serverErrors++
+		m.errors++
+	} else if code >= 400 {
+		m.clientErrors++
+		m.errors++
+	}
+}
+
+func (m *jobMetrics) snapshot() (req, err, srv, cli int64, total, maxv, uptime float64, buckets [4]int64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	avg := 0.0
+	if m.requests > 0 {
+		avg = m.latencyMsTotal / float64(m.requests)
+	}
+	_ = avg
+	return m.requests, m.errors, m.serverErrors, m.clientErrors, m.latencyMsTotal, m.latencyMsMax, time.Since(m.startedAt).Seconds(), m.buckets
+}
 
 // requestID returns the client's X-Request-ID when it is a well-formed single
 // token, and otherwise mints one. Every admitted request then carries a
@@ -142,10 +198,56 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 		// admission or credential is consulted; the owner already holds
 		// the workspace seal and the job directory lock.
 		if r.URL.Path == "/healthz" || r.URL.Path == "/health" {
+			if r.Method != http.MethodGet && r.Method != http.MethodHead {
+				w.Header().Set("Allow", "GET, HEAD")
+				apiError(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			req, errc, srv, cli, total, maxv, uptime, _ := globalMetrics.snapshot()
+			avg := 0.0
+			if req > 0 {
+				avg = total / float64(req)
+			}
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Cache-Control", "no-store")
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"status":"ok"}`))
+			if r.Method == http.MethodHead {
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "requests": req, "errors": errc, "server_errors": srv, "client_errors": cli, "latency_ms_avg": avg, "latency_ms_max": maxv, "uptime_seconds": uptime, "in_flight": inFlight.Load()})
+			return
+		}
+		if r.URL.Path == "/metrics" {
+			if r.Method != http.MethodGet && r.Method != http.MethodHead {
+				w.Header().Set("Allow", "GET, HEAD")
+				apiError(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			req, errc, srv, cli, total, maxv, uptime, buckets := globalMetrics.snapshot()
+			var b strings.Builder
+			fmt.Fprintf(&b, "# HELP rebrew_jobs_requests_total Total jobs requests answered.\n# TYPE rebrew_jobs_requests_total counter\nrebrew_jobs_requests_total %d\n", req)
+			fmt.Fprintf(&b, "# HELP rebrew_jobs_errors_total Total jobs requests answered with an error status.\n# TYPE rebrew_jobs_errors_total counter\nrebrew_jobs_errors_total %d\n", errc)
+			fmt.Fprintf(&b, "# HELP rebrew_jobs_server_errors_total Total jobs requests answered with a 5xx status.\n# TYPE rebrew_jobs_server_errors_total counter\nrebrew_jobs_server_errors_total %d\n", srv)
+			fmt.Fprintf(&b, "# HELP rebrew_jobs_client_errors_total Total jobs requests answered with a 4xx status.\n# TYPE rebrew_jobs_client_errors_total counter\nrebrew_jobs_client_errors_total %d\n", cli)
+			fmt.Fprintf(&b, "# HELP rebrew_jobs_latency_ms_total Total latency of answered jobs requests, in milliseconds.\n# TYPE rebrew_jobs_latency_ms_total counter\nrebrew_jobs_latency_ms_total %.3f\n", total)
+			fmt.Fprintf(&b, "# HELP rebrew_jobs_latency_ms_max Maximum latency of an answered jobs request, in milliseconds.\n# TYPE rebrew_jobs_latency_ms_max gauge\nrebrew_jobs_latency_ms_max %.3f\n", maxv)
+			fmt.Fprintf(&b, "# HELP rebrew_jobs_uptime_seconds Seconds since the server started.\n# TYPE rebrew_jobs_uptime_seconds gauge\nrebrew_jobs_uptime_seconds %.3f\n", uptime)
+			fmt.Fprintf(&b, "# HELP rebrew_jobs_in_flight Requests currently being handled.\n# TYPE rebrew_jobs_in_flight gauge\nrebrew_jobs_in_flight %d\n", inFlight.Load())
+			b.WriteString("# HELP rebrew_jobs_latency_bucket Latency of answered jobs requests, in milliseconds (cumulative).\n# TYPE rebrew_jobs_latency_bucket histogram\n")
+			var cum int64
+			for i, bound := range latencyBucketsMS {
+				cum += buckets[i]
+				fmt.Fprintf(&b, "rebrew_jobs_latency_bucket{le=\"%v\"} %d\n", bound, cum)
+			}
+			fmt.Fprintf(&b, "rebrew_jobs_latency_bucket{le=\"+Inf\"} %d\n", req)
+			fmt.Fprintf(&b, "rebrew_jobs_latency_count %d\n", req)
+			fmt.Fprintf(&b, "rebrew_jobs_latency_sum %.3f\n", total)
+			w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-store")
+			w.WriteHeader(http.StatusOK)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(b.String()))
+			}
 			return
 		}
 		if !hostAllowed(r.Host) {
@@ -154,6 +256,8 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 			return
 		}
 		start := time.Now()
+		inFlight.Add(1)
+		defer inFlight.Add(-1)
 		requestID := requestID(r)
 		if requestID != "" {
 			w.Header().Set("X-Request-ID", requestID)
@@ -181,6 +285,8 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 			} else if s >= 400 {
 				level = "warning"
 			}
+			elapsed := float64(time.Since(start).Microseconds()) / 1000.0
+			globalMetrics.record(s, elapsed)
 			log.Printf("level=%s msg=http_request method=%s path=%s status=%d duration_ms=%d request_id=%q job_id=%q trace_id=%q",
 				level, r.Method, r.URL.Path, s, time.Since(start).Milliseconds(), requestID, jobID, traceID(r.Header.Get("traceparent")))
 		}()

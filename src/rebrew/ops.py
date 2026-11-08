@@ -3359,6 +3359,7 @@ class OpsServer(ThreadingHTTPServer):
                 if self._request_count
                 else 0.0,
                 "latency_ms_buckets": list(self._latency_ms_buckets),
+                "in_flight": self.active,
                 "uptime_seconds": time.monotonic() - self._started_at,
             }
 
@@ -3638,12 +3639,18 @@ class _OpsHandler(BaseHTTPRequestHandler):
                 "# HELP rebrew_ops_concurrency Configured number of calls answered at once.",
                 "# TYPE rebrew_ops_concurrency gauge",
                 f"rebrew_ops_concurrency {server.concurrency}",
+                "# HELP rebrew_ops_in_flight Calls currently holding a worker slot.",
+                "# TYPE rebrew_ops_in_flight gauge",
+                f"rebrew_ops_in_flight {snapshot['in_flight']}",
                 "# HELP rebrew_ops_latency_bucket Latency of answered ops requests, in milliseconds (cumulative).",
                 "# TYPE rebrew_ops_latency_bucket histogram",
                 *(
                     f'rebrew_ops_latency_bucket{{le="{bound}"}} {sum(snapshot["latency_ms_buckets"][: i + 1])}'
                     for i, bound in enumerate(_LATENCY_BUCKETS_MS)
                 ),
+                f'rebrew_ops_latency_bucket{{le="+Inf"}} {snapshot["request_count"]}',
+                f"rebrew_ops_latency_count {snapshot['request_count']}",
+                f"rebrew_ops_latency_sum {snapshot['latency_ms_total']:.3f}",
             ]
             body = ("\n".join(lines) + "\n").encode("utf-8")
             self._send(
