@@ -62,6 +62,7 @@ from typing import Any, ClassVar, override
 lazy import errno
 lazy import gzip
 lazy import json
+lazy import signal
 lazy import socket
 lazy import sys
 lazy import time
@@ -3737,6 +3738,16 @@ def main(
         f"[dim]serving {escape(str(source))} (Ctrl+C to stop)[/dim]",
     )
     restore_log: Callable[[], None] | None = None
+
+    def _stop(_signum: int, _frame: Any) -> None:
+        # SIGTERM (docker stop, systemd) must run the same graceful path as
+        # Ctrl+C: without it the process dies without server_close(), the
+        # shutdown totals never print, and in-flight handler sockets are
+        # dropped mid-response.  shutdown() from a fresh thread, mirroring
+        # ops serve's stop handler.
+        threading.Thread(target=server.shutdown, daemon=True).start()
+
+    previous = signal.signal(signal.SIGTERM, _stop)
     try:
         restore_log = _attach_server_log_handler()
         server.serve_forever()
@@ -3770,6 +3781,7 @@ def main(
         # shares is restored only once the run has said everything.
         if restore_log is not None:
             restore_log()
+        signal.signal(signal.SIGTERM, previous)
 
 
 def main_entry() -> None:

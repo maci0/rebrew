@@ -185,7 +185,17 @@ def _re_init_project(binary: Path, tool: str, root: Path) -> str | None:
     """Run full ``aaa`` analysis once and persist the project; return its dir."""
     digest = _re_analysis_key(tool)
     try:
-        proj_dir = tempfile.mkdtemp(prefix="rebrew_re_")
+        # writable_temp_dir, not system mkdtemp: the XDG cache base is swept
+        # of stale sandboxes on the way in, so a hard-killed run's rizin
+        # project dirs (up to the 8-entry cache, plus any borrowed) do not
+        # accumulate in /tmp forever.  tempfile.mkdtemp stays the fallback
+        # when the cache bases are unwritable (sandboxed homes / CI).
+        from rebrew.compiler.temp_dirs import writable_temp_dir
+
+        try:
+            proj_dir = str(writable_temp_dir("rebrew_re_"))
+        except OSError:
+            proj_dir = tempfile.mkdtemp(prefix="rebrew_re_")
     except OSError as e:
         warnings.warn(f"{tool} could not create project dir: {e}", stacklevel=3)
         return None
