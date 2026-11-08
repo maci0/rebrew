@@ -137,7 +137,9 @@ def span(name: str, *, kind: int = KIND_INTERNAL, traceparent: str | None = None
         raise
     finally:
         _current.reset(token)
-        opened.end_ns = time.time_ns()
+        # OTLP requires epoch nanos, so the wall clock is correct here; clamp
+        # against an NTP step-back so end never precedes start on the wire.
+        opened.end_ns = max(opened.start_ns, time.time_ns())
         exporter = _exporter
         if exporter is not None:
             exporter.submit(opened)

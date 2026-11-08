@@ -3322,7 +3322,7 @@ class OpsServer(ThreadingHTTPServer):
         self._latency_ms_total = 0.0
         self._latency_ms_max = 0.0
         self._latency_ms_buckets = [0] * len(_LATENCY_BUCKETS_MS)
-        self._started_at = time.time()
+        self._started_at = time.monotonic()
         self.concurrency = concurrency
 
     def record_request(self, code: int, elapsed_ms: float) -> None:
@@ -3356,7 +3356,7 @@ class OpsServer(ThreadingHTTPServer):
                 if self._request_count
                 else 0.0,
                 "latency_ms_buckets": list(self._latency_ms_buckets),
-                "uptime_seconds": time.time() - self._started_at,
+                "uptime_seconds": time.monotonic() - self._started_at,
             }
 
 
