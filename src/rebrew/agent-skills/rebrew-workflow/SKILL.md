@@ -4,8 +4,10 @@ description: >-
   Reverse, decompile and byte-match functions on an onboarded Rebrew target:
   pick work with todo, generate skeletons, edit/test/diff C, verify progress,
   manage metadata, and reorganize sources. Covers status accounting, coverage
-  documents, and local recon. Use rebrew-matching for stalled byte matches,
-  rebrew-data-analysis for globals, and rebrew-ghidra-sync for integration sync.
+  documents, and local recon. Trigger: "reverse this function", "decompile
+  this function", "make this function byte-match", "rebrew test/diff/verify".
+  Use rebrew-matching for stalled byte matches, rebrew-data-analysis for
+  globals, and rebrew-ghidra-sync for integration sync.
 license: MIT
 ---
 
@@ -32,7 +34,7 @@ configured target and does not change item selection. It excludes `--target`.
 `--source-targets` repeats the command for targets bound to one source file.
 It excludes `--target` and `--all-targets`. `rebrew verify` covers every
 function in the selected target and reuses cached results. `--no-cache`
-rechecks them without saved verdicts; compiler objects may be cached. There is no verify `--full`.
+rechecks them without saved verdicts; compiler objects may be cached.
 `rebrew source rename --all-modules` renames module rows. It is not `--all`.
 Destructive commands (`rebrew cache clear`, `rebrew cfg target remove`,
 `rebrew cfg module remove`, `rebrew coverage catalog --fix-sizes`,

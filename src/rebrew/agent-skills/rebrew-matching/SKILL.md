@@ -4,8 +4,9 @@ description: >-
   Resolve stalled or near Rebrew byte matches (stuck, NEAR_MATCHING, make it
   EXACT) with structural diffs, compiler flag sweeps, GA, statement/qualifier
   search, symbolic proving, and library flag overrides. Trigger: "make this
-  function match", "run GA / flag sweep". Use after ordinary C edits stop
-  improving a match; use rebrew-workflow for the initial edit/test loop.
+  function match", "run GA / flag sweep", "function won't match", "prove this
+  function". Use after ordinary C edits stop improving a match; use
+  rebrew-workflow for the initial edit/test loop.
 license: MIT
 ---
 

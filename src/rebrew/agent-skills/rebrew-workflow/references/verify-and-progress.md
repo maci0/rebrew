@@ -32,7 +32,7 @@ rebrew build check-data-placement --built build/<target>
 ```
 
 `rebrew verify` checks every function in the selected target and reuses cached
-results. `--no-cache` recompiles those functions. There is no verify `--full`.
+results. `--no-cache` recompiles those functions.
 It syncs STATUS (SKIP preserved, PROVEN replaced by the byte result).
 EXACT/RELOC clears BLOCKER unless the source still has `__asm`, `_asm`, or `__emit`
 (kept; lint W020). Exit 1 if any function fails. `passed` counts EXACT/RELOC only.

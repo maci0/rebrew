@@ -3,8 +3,10 @@ name: rebrew-intake
 description: >-
   Onboard a new binary into Rebrew for the first time (intake, analyze a
   binary, compiler identification, discovery, library detection, and initial
-  catalog/coverage triage). Use rebrew-init for scaffolding alone and
-  rebrew-workflow for later reversing.
+  catalog/coverage triage). Trigger: "onboard this binary", "intake this
+  binary", "analyze this binary for the first time", "identify the compiler".
+  Use rebrew-init for scaffolding alone and rebrew-workflow for later
+  reversing.
 license: MIT
 ---
 

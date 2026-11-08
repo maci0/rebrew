@@ -9,7 +9,7 @@ Use `--tier thorough`, `--tier full`, or multi-hour `match batch` GA/sweep batch
 only within an explicitly authorized time/scope. Do not request it again
 when the session already provides that authorization. Prefer `--dry-run` / `match history`
 first. `thorough`/`full` product counts are huge; the engine stride-samples to a
-~100k combo bound (see rebrew repo `docs/FLAG_SWEEP_TIERS.md`).
+~100k combo bound (see `docs/FLAG_SWEEP_TIERS.md`).
 
 ## Single-function sweep
 
@@ -34,7 +34,7 @@ Axes are per-profile (MSVC `/` flags, Watcom `-os/-ot/…`, Borland `-O1/-O2`,
 16-bit MSVC). Fetch pinned images with `rebrew toolchain pull <profile>`; execution uses the
 configured backend. Try `/O2`
 or `/O1` by hand before a blind sweep; heuristics:
-`references/codegen-hints.md`. Counts: rebrew repo `docs/FLAG_SWEEP_TIERS.md`.
+`references/codegen-hints.md`. Counts: `docs/FLAG_SWEEP_TIERS.md`.
 
 ## Batch matching (`match batch`)
 

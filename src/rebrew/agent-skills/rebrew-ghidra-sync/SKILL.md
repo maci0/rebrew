@@ -5,7 +5,8 @@ description: >-
   globals, and types through BinSync state directories, including conflict
   resolution, provenance, git-backed state, and related-target overlays). Use
   ReVa only for live Ghidra structural operations: function creation,
-  bookmarks, and data-label pulls. Use rebrew-workflow for local C edits.
+  bookmarks, and data-label pulls. Trigger: "sync with Ghidra", "push/pull
+  to Ghidra", "BinSync", "ReVa". Use rebrew-workflow for local C edits.
 license: MIT
 ---
 

@@ -33,7 +33,7 @@ Manual inspection and linkage tools outside the main reverse loop. Run
 | `rebrew binsync pull` | Pull Git state and reconcile its fields. Preview with `--dry-run`. |
 | `rebrew binsync export` | Export local state; Git actions are opt-in. |
 | `rebrew binsync import` | Reconcile local state without pulling Git. |
-| `rebrew dev refactor` | Analyze Python files under `--repository` and suggest contributor refactoring opportunities. |
+| `rebrew dev refactor` | Analyze the rebrew source tree and suggest contributor refactoring opportunities. |
 | `rebrew recommend` | Deterministic advice lanes (TU layout, hygiene, next action); `--apply` fixes safe lanes. |
 | `rebrew binary analyze` | One-shot intelligence dossier for a target binary (layout, strings, imports, coverage, FLIRT). |
 | `rebrew decompile` | Decompile a function VA (`--decompiler`: auto, r2ghidra, r2dec, ghidra, kuna, m2c; default kuna). |
