@@ -2683,9 +2683,16 @@ def precompile_batch(
         return out
     with _BATCH_OBJ_DIRS_LOCK:
         _BATCH_OBJ_DIRS.append(lasting_root)
+        overflow = len(_BATCH_OBJ_DIRS) > _BATCH_OBJ_DIRS_MAX
     if lasting is not None:
         lasting.append(lasting_root)
     _register_batch_obj_atexit()
+    if overflow:
+        # Same bound as _discard_temp_dir: precompile_batch is called on every
+        # verify --watch pass and every GA/batch run, so without this drain
+        # _BATCH_OBJ_DIRS grows one entry per pass for the process lifetime.
+        # The drain drops the oldest entries to the stale sweep, as before.
+        cleanup_batch_obj_dirs()
     batch_jobs = max(1, min(getattr(cfg, "default_jobs", 4) or 4, len(batchable)))
     with interruptible_pool(batch_jobs) as pool:
         future_map = {
