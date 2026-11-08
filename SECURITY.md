@@ -251,7 +251,9 @@ plugin cache backends or remove the open upstream diskcache advisory.
   `GH_TOKEN`-bearing GitHub commit lookup pass `trust_env=False`, so their
   httpx calls ignore `HTTPS_PROXY`, `SSL_CERT_FILE`, and
   `REQUESTS_CA_BUNDLE`. The other httpx clients (recompile, decomp.me, LLM,
-  MCP, ops `_download`) still honour them. The OTLP span exporter
+  MCP) still honour them; ops `_download` now also passes `trust_env=False`
+  (proxy env ignored) with `SSL_CERT_FILE`/`SSL_CERT_DIR` re-applied
+  explicitly, so an operator-pinned CA bundle is not silently dropped. The OTLP span exporter
   (`src/rebrew/telemetry.py`) is not an httpx client: its `urllib.request`
   POST now goes through an opener built with `ProxyHandler({})`, so ambient
   `*_proxy` variables cannot reroute it either; `REBREW_OTLP_ENDPOINT`
@@ -275,9 +277,13 @@ plugin cache backends or remove the open upstream diskcache advisory.
   bypass; the opt-in is worker env, never request data, so a bearer holder
   cannot grant it. The check is resolve-then-fetch with no pinned
   connection, so a DNS name that flips from public to private between the
-  check and the `httpx` GET (TOCTOU), or a proxy resolving the name itself
-  (ops `_download` still honours `HTTPS_PROXY`/`SSL_CERT_FILE`), can still
-  reach a private host.
+  check and the `httpx` GET (TOCTOU) can still reach a private host. The
+  DNS resolution itself is bounded to 10 s (`DNS_TIMEOUT_SECONDS`, a
+  daemon thread in `_check_download_host`) so a hung resolver cannot pin a
+  worker slot; a proxy resolving the name itself is no longer a bypass,
+  because `_download` passes `trust_env=False` (ambient `*_proxy` ignored)
+  while re-applying an operator-pinned `SSL_CERT_FILE`/`SSL_CERT_DIR`
+  explicitly via `verify=`.
 - No claim that `REBREW_OTLP_ENDPOINT` is validated only at export time.
   The knob is now validated at startup: `OTLP_ENDPOINT_ENV` in
   `src/rebrew/config.py` is `validate_http_url`-checked in

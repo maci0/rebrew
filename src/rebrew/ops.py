@@ -1041,16 +1041,20 @@ def _download(config: WorkerConfig, url: str, wanted: str, into: Path) -> None:
     limit = config.max_download_bytes
     digest = hashlib.sha256()
     received = 0
-    # httpx with trust_env=False ignores SSL_CERT_FILE / SSL_CERT_DIR and
-    # falls back to certifi.  The test fixture and operators can point
-    # SSL_CERT_FILE at a custom CA bundle; honour it explicitly so a
-    # self-signed test origin verifies, while proxy env stays ignored.
-    _verify: object = True
-    _cafile = os.environ.get("SSL_CERT_FILE", "")
-    if _cafile:
-        import ssl as _ssl
+    # trust_env=False blocks ambient proxy redirection (a proxy could
+    # resolve the name itself and bypass _check_download_host), but it also
+    # makes httpx ignore SSL_CERT_FILE/SSL_CERT_DIR, so an operator-pinned
+    # CA bundle would silently fall back to certifi. Re-apply the operator
+    # CA explicitly when present so private-CA downloads keep working.
+    import ssl as _ssl
 
+    _cafile = os.environ.get("SSL_CERT_FILE")
+    _capath = os.environ.get("SSL_CERT_DIR")
+    _verify: Any = True
+    if _cafile:
         _verify = _ssl.create_default_context(cafile=_cafile)
+    elif _capath:
+        _verify = _ssl.create_default_context(capath=_capath)
     try:
         with (
             httpx.stream(
