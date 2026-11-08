@@ -710,6 +710,8 @@ def _declared_base_types(text: str, name: str) -> set[str]:
     emitting a second type for it: two definitions of one name with different
     types collide (C2371) in the rebuilt TU.
     """
+    if name not in text:
+        return set()
     found: set[str] = set()
     pattern = _declared_base_re(name)
     for match in pattern.finditer(text):
@@ -1502,6 +1504,11 @@ def _iter_line_spans(text: str) -> Iterator[tuple[int, str]]:
 
 def _find_definition(text: str, name: str) -> tuple[int, int, str, str] | None:
     """(start, end, type, size_suffix) of *name*'s definition in *text*, or None."""
+    # Fast reject: a definition line must contain the symbol as a name. When
+    # it does not occur anywhere in the translation unit the answer is
+    # definitely None without scanning every line against two regexes.
+    if name not in text:
+        return None
     pat, pat2 = _def_patterns(name)
     start = None
     typ = ""
@@ -1628,6 +1635,8 @@ def _declared_element_count(suffix: str) -> int | None:
 
 def _decl_info(text: str, name: str) -> tuple[str, int | None] | None:
     """(type, array size or None) of *name*'s existing declaration, or None."""
+    if name not in text:
+        return None
     m = _decl_re(name).search(text)
     if not m:
         return None
