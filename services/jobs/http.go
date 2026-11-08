@@ -150,7 +150,12 @@ type statusRecorder struct {
 	http.ResponseWriter
 	status *int
 	wrote  bool
+	method string
 }
+
+// RequestMethod reports the request method so apiError can suppress a HEAD
+// body; all other writers leave the method unknown and keep the body.
+func (r *statusRecorder) RequestMethod() string { return r.method }
 
 func (r *statusRecorder) WriteHeader(code int) {
 	if !r.wrote {
@@ -186,8 +191,16 @@ func (r *statusRecorder) SetWriteDeadline(t time.Time) error {
 // string because every documented client (and the tests) branch on the
 // status line, not on a code name; detail is a fixed string safe to log,
 // never an internal error.  http.Error is never used: it emits text/plain,
-// which no JSON client can branch on uniformly.
+// which no JSON client can branch on uniformly.  A HEAD response carries the
+// same headers as its GET but no body (RFC 9110 §9.3.2), matching the
+// dashboard and ops servers.
 func apiError(w http.ResponseWriter, detail string, status int) {
+	// A statusRecorder knows the request method; a plain writer (the compile
+	// mediator passes the recorder too) is probed for it.
+	method := ""
+	if r, ok := w.(interface{ RequestMethod() string }); ok {
+		method = r.RequestMethod()
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -195,6 +208,9 @@ func apiError(w http.ResponseWriter, detail string, status int) {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="rebrew-jobs"`)
 	}
 	w.WriteHeader(status)
+	if method == http.MethodHead {
+		return
+	}
 	_ = json.NewEncoder(w).Encode(map[string]any{"error": detail, "code": strconv.Itoa(status)})
 }
 
@@ -315,7 +331,7 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 		status := 0
 		// Instrument only the response status that a handler actually commits;
 		// the log line at the end is the single access log for the service.
-		rec := &statusRecorder{ResponseWriter: w, status: &status}
+		rec := &statusRecorder{ResponseWriter: w, status: &status, method: r.Method}
 		w = rec
 		defer func() {
 			// http.Error without WriteHeader leaves the implicit 200; handlers
@@ -444,19 +460,30 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 			return
 		}
 		id := parts[0]
-		// Known job paths: /jobs/{id} (GET), /jobs/{id}/events|output|compile-intents
-		// (GET), /jobs/{id}/cancel|reconcile|compile-reconcile (POST). Wrong method
-		// on a known shape is 405 with Allow, not 404.
-		if len(parts) == 1 && r.Method != http.MethodGet {
-			w.Header().Set("Allow", http.MethodGet)
+		// Known job paths: /jobs/{id} (GET, HEAD), /jobs/{id}/output and
+		// /jobs/{id}/compile-intents (GET, HEAD), /jobs/{id}/events (GET only:
+		// a stream has no HEAD representation), /jobs/{id}/cancel|reconcile|
+		// compile-reconcile (POST). Wrong method on a known shape is 405 with
+		// Allow, not 404. HEAD mirrors GET headers with no body, like the
+		// dashboard and ops servers.
+		isGet := r.Method == http.MethodGet || r.Method == http.MethodHead
+		head := r.Method == http.MethodHead
+		if len(parts) == 1 && !isGet {
+			w.Header().Set("Allow", "GET, HEAD")
 			apiError(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		if len(parts) == 2 {
 			switch parts[1] {
-			case "events", "output", "compile-intents":
+			case "events":
 				if r.Method != http.MethodGet {
 					w.Header().Set("Allow", http.MethodGet)
+					apiError(w, "method not allowed", http.StatusMethodNotAllowed)
+					return
+				}
+			case "output", "compile-intents":
+				if !isGet {
+					w.Header().Set("Allow", "GET, HEAD")
 					apiError(w, "method not allowed", http.StatusMethodNotAllowed)
 					return
 				}
@@ -471,13 +498,17 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 				return
 			}
 		}
-		if r.Method == http.MethodGet && len(parts) == 2 && parts[1] == "compile-intents" {
+		if isGet && len(parts) == 2 && parts[1] == "compile-intents" {
 			intents, err := o.CompileIntents(id)
 			if err != nil {
 				apiError(w, "managed job unavailable", 404)
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
+			if head {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
 			_ = json.NewEncoder(w).Encode(intents)
 			return
 		}
@@ -535,17 +566,21 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 			_ = json.NewEncoder(w).Encode(saved)
 			return
 		}
-		if r.Method == http.MethodGet && len(parts) == 1 {
+		if isGet && len(parts) == 1 {
 			saved, err := o.Get(id)
 			if err != nil {
 				apiError(w, "job unavailable", 404)
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
+			if head {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
 			_ = json.NewEncoder(w).Encode(saved)
 			return
 		}
-		if r.Method == http.MethodGet && len(parts) == 2 && parts[1] == "output" {
+		if isGet && len(parts) == 2 && parts[1] == "output" {
 			if _, err := o.Get(id); err != nil {
 				apiError(w, "job unavailable", 404)
 				return
@@ -557,6 +592,10 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 			}
 			defer file.Close()
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			if head {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
 			_, _ = io.Copy(w, io.LimitReader(file, outputLimit))
 			return
 		}

@@ -292,7 +292,7 @@ func (m *CompileMediator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// correlation key for the paid upstream call.
 	start := time.Now()
 	status := 0
-	rec := &statusRecorder{ResponseWriter: w, status: &status}
+	rec := &statusRecorder{ResponseWriter: w, status: &status, method: r.Method}
 	w = rec
 	defer func() {
 		s := status
