@@ -6,7 +6,7 @@ description: >-
   manage metadata, and reorganize sources. Covers status accounting, coverage
   documents, and local recon. Trigger: "reverse this function", "decompile
   this function", "make this function byte-match", "rebrew test/diff/verify".
-  Use rebrew-matching for stalled byte matches, rebrew-data-analysis for
+  Use rebrew-matching only for stalled byte matches, rebrew-data-analysis for
   globals, and rebrew-ghidra-sync for integration sync.
 license: MIT
 ---

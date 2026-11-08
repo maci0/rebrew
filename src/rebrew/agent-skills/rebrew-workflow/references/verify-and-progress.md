@@ -82,15 +82,17 @@ rebrew export decompme <file>.c                # uploads the function + context 
 
 `decompme` sends the function body, its context, and the target object bytes to a
 third-party site. Run it only when the user asks for a decomp.me scratch, and
-`--dry-run` first if they have not said where the source may go.
+`--dry-run` first if they have not said where the source may go. Without
+`--dry-run` it performs a network upload.
 
 `rebrew verify --compare` uses the selected baseline (`.rebrew/verify_baseline.toml`,
 or the per-target file under `.rebrew/targets/`; exit 1 on regression). First run
 warns and skips the diff.
 
 Local dashboards read canonical project metadata, inventory and binaries directly.
-Run `rebrew coverage serve` or `recoverage serve` inside the project; there is no
-`db_dir` setting or prerequisite export. Optional portable snapshots are generated
+Run `rebrew coverage serve` (or `recoverage serve` inside a Recoverage
+checkout) inside the project; there is no `db_dir` setting or prerequisite
+export. Optional portable snapshots are generated
 with `rebrew coverage export --output snapshots/`; serve them with
 `rebrew coverage serve --snapshots snapshots/` or set
 `RECOVERAGE_SNAPSHOTS` for Recoverage. Comparison writers record durable status
