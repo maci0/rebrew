@@ -94,7 +94,13 @@ lazy from rebrew.coverage_toml import (
 lazy from rebrew.metadata.bindings import FUNCTION_KINDS
 lazy from rebrew.metadata.functions import canonical_status
 lazy from rebrew.status_style import status_text_css
-lazy from rebrew.utils import floor_pct, fold_host, preset_module_key, remove_identity, strip_bidi_format
+lazy from rebrew.utils import (
+    floor_pct,
+    fold_host,
+    preset_module_key,
+    remove_identity,
+    strip_bidi_format,
+)
 lazy from rebrew.workspace import VA_MAX
 lazy from rebrew.workspace.status import COVERAGE_DB_STATUSES
 

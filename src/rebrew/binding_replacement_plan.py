@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 from typing import Any
 lazy from pathlib import Path
 
@@ -36,8 +35,7 @@ from rebrew.source_contracts import contract_contexts
 from rebrew.source_organization import organization_configs
 from rebrew.source_selection import collect_target_sources
 from rebrew.sources import iter_sources_and_headers
-from rebrew.utils import path_identity
-from rebrew.utils import read_source_text
+from rebrew.utils import path_identity, read_source_text
 
 
 def _parse(text: str) -> ParsedSource:

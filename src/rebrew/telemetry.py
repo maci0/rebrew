@@ -28,12 +28,13 @@ lazy from collections.abc import Callable, Iterator
 lazy from typing import Any
 lazy from urllib.parse import urlsplit
 
+from rebrew.config import OTLP_ENDPOINT_ENV as ENDPOINT_ENV
+
 logger = logging.getLogger(__name__)
 
 #: Environment variable holding the collector's OTLP/HTTP base URL; unset leaves export off.
 #: Single source is :data:`rebrew.config.OTLP_ENDPOINT_ENV`; this alias keeps
 #: the telemetry module's call sites short.
-from rebrew.config import OTLP_ENDPOINT_ENV as ENDPOINT_ENV
 
 #: Environment variable that hands the open span to a child process (the W3C trace context variable).
 TRACEPARENT_ENV = "TRACEPARENT"

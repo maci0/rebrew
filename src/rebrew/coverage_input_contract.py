@@ -144,6 +144,20 @@ def coverage_input_digest(value: Any) -> str:
     return hashlib.sha256(canonical_coverage_input(value)).hexdigest()
 
 
+def _lstat_confined(root: Path, name: str) -> os.stat_result | None:
+    """``lstat`` ``name`` under ``root``, refusing any symlink component."""
+    path = root
+    for part in name.split("/"):
+        path = path / part
+        try:
+            info = path.lstat()
+        except FileNotFoundError:
+            return None
+        if stat.S_ISLNK(info.st_mode):
+            raise CoverageInputError("coverage input contains a symlink")
+    return info
+
+
 def verify_coverage_readset(root: Path, value: Any, required_paths: set[str]) -> None:
     """Check exact path membership, presence, content and private-root confinement.
 
@@ -156,19 +170,8 @@ def verify_coverage_readset(root: Path, value: Any, required_paths: set[str]) ->
     if set(entries) != required_paths:
         raise CoverageInputError("coverage readset does not match reader inputs")
     for name, entry in entries.items():
-        path = root
-        missing = False
-        info: os.stat_result | None = None
-        for part in name.split("/"):
-            path = path / part
-            try:
-                info = path.lstat()
-            except FileNotFoundError:
-                missing = True
-                break
-            if stat.S_ISLNK(info.st_mode):
-                raise CoverageInputError("coverage input contains a symlink")
-        if missing or info is None:
+        info = _lstat_confined(root, name)
+        if info is None:
             if entry["present"]:
                 raise CoverageInputError("coverage input is missing")
             continue
@@ -177,7 +180,7 @@ def verify_coverage_readset(root: Path, value: Any, required_paths: set[str]) ->
         if not stat.S_ISREG(info.st_mode) or info.st_size != entry["size"]:
             raise CoverageInputError("coverage input size or type changed")
         digest = hashlib.sha256()
-        with path.open("rb") as handle:
+        with (root / name).open("rb") as handle:
             for chunk in iter(lambda: handle.read(1 << 20), b""):
                 digest.update(chunk)
         if digest.hexdigest() != entry["digest"]:
@@ -291,25 +294,14 @@ def plan_coverage_readset(root: Path, target: str) -> list[dict[str, Any]]:
     root = root.resolve(strict=True)
     result: list[dict[str, Any]] = []
     for name in sorted(rebrew_coverage_paths(root, target), key=lambda p: p.encode("utf-8")):
-        path = root
-        missing = False
-        info: os.stat_result | None = None
-        for part in name.split("/"):
-            path = path / part
-            try:
-                info = path.lstat()
-            except FileNotFoundError:
-                missing = True
-                break
-            if stat.S_ISLNK(info.st_mode):
-                raise CoverageInputError("coverage input contains a symlink")
-        if missing or info is None:
+        info = _lstat_confined(root, name)
+        if info is None:
             result.append({"path": name, "present": False, "digest": "", "size": 0})
             continue
         if not stat.S_ISREG(info.st_mode):
             raise CoverageInputError("coverage input is not a regular file")
         digest = hashlib.sha256()
-        with path.open("rb") as handle:
+        with (root / name).open("rb") as handle:
             for chunk in iter(lambda: handle.read(1 << 20), b""):
                 digest.update(chunk)
         result.append(
