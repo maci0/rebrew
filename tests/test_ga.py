@@ -2134,6 +2134,30 @@ class TestGABuildCacheKey:
         key = _ga_cache_key("int f(void){return 0;}", "/O2", "cl", weird, [weird])
         assert isinstance(key, str) and len(key) == 16
 
+    def test_key_partitions_by_link_inputs(self) -> None:
+        from rebrew.match_ga import _ga_cache_key
+
+        src = "int f(void) { return 0; }"
+        base = _ga_cache_key(
+            src, "/O2", "cl", "inc", link_mode=("libA", "/L libA", "link", ())
+        )
+        assert base == _ga_cache_key(
+            src, "/O2", "cl", "inc", link_mode=("libA", "/L libA", "link", ())
+        )
+        assert base != _ga_cache_key(
+            src, "/O2", "cl", "inc", link_mode=("libB", "/L libA", "link", ())
+        )
+        assert base != _ga_cache_key(
+            src, "/O2", "cl", "inc", link_mode=("libA", "/L libB", "link", ())
+        )
+        assert base != _ga_cache_key(
+            src, "/O2", "cl", "inc", link_mode=("libA", "/L libA", "link.exe", ())
+        )
+        assert base != _ga_cache_key(
+            src, "/O2", "cl", "inc", link_mode=("libA", "/L libA", "link", (("K", "1"),))
+        )
+        assert base != _ga_cache_key(src, "/O2", "cl", "inc")
+
     def test_same_instance_recompile_only_on_flag_change(
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:

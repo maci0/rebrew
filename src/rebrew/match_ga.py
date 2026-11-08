@@ -332,6 +332,8 @@ def _ga_cache_key(
     defines: list[str] | None = None,
     symbol: str = "",
     profile: str = "",
+    *,
+    link_mode: tuple[str, str | None, str | None, tuple[tuple[str, str], ...] | None] | None = None,
 ) -> str:
     """Cache key for a GA compile result.
 
@@ -364,6 +366,16 @@ def _ga_cache_key(
         h.update(b"\x00" + _enc(d))
     for d in sorted(defines or []):
         h.update(b"\x00defines=" + _enc(d))
+    if link_mode is not None:
+        # Linked-exe mode (compare_obj=False): lib_dir/ldflags/link_cmd/env
+        # change the linked bytes, so a cache shared across sweeps must not
+        # hand back a result linked with different link inputs.
+        lib_dir, ldflags, link_cmd, env = link_mode
+        h.update(b"\x00lib=" + _enc(lib_dir or ""))
+        h.update(b"\x00ldflags=" + _enc(ldflags or ""))
+        h.update(b"\x00link=" + _enc(link_cmd or ""))
+        for k, v in sorted(env or ()):
+            h.update(b"\x00env=" + _enc(k) + b"=" + _enc(v))
     return h.hexdigest()[:16]
 
 
@@ -634,6 +646,16 @@ class BinaryMatchingGA:
         ``_compute_fitness`` stores with it, so a successful build is reused
         across processes.
         """
+        link_mode = (
+            None
+            if self.compare_obj
+            else (
+                self.lib_dir,
+                self.ldflags,
+                self.link_cmd,
+                tuple(sorted((self.env or {}).items())),
+            )
+        )
         return _ga_cache_key(
             src,
             self.cflags,
@@ -643,6 +665,7 @@ class BinaryMatchingGA:
             getattr(self.cfg, "defines", None) or [],
             self.symbol,
             self.profile,
+            link_mode=link_mode,
         )
 
     def _lru_get(self, table: dict[str, Any], key: str) -> Any | None:
