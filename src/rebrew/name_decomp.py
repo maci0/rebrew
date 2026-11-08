@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -309,6 +310,12 @@ _CAST_PTR_RE = re.compile(r"\(\s*[A-Za-z_]\w*(?:\s+\w+)*?\s*\*\s*\)\s*(?P<var>[A
 #: ``var[i]`` / ``&var[i]`` uses — pointer evidence for item 15's gate.
 _INDEX_USE_RE = re.compile(r"&?\s*(?P<var>[A-Za-z_]\w*)\s*\[\s*(?:0x[0-9a-fA-F]+|\d+)\s*\]")
 
+@lru_cache(maxsize=64)
+def _word_count_re(var: str) -> re.Pattern[str]:
+    """Whole-word pattern for *var*; cached because ``re.escape(var)`` defeats
+    the module-level pattern cache and the cast-index loop rescans *text* per var."""
+    return re.compile(rf"\b{re.escape(var)}\b")
+
 
 def _pointer_vars(text: str) -> set[str]:
     """Vars with evidence of being a pointer: ``T *var`` decls/params,
@@ -399,7 +406,7 @@ def apply_known_names(
         matches = list(_CAST_INDEX_RE.finditer(text))
         for var in params:
             uses = [m for m in matches if m.group("xvar") == var]
-            if len(list(re.finditer(rf"\b{re.escape(var)}\b", text))) != len(uses) + 1:
+            if len(list(_word_count_re(var).finditer(text))) != len(uses) + 1:
                 continue
             for m in uses:
                 width = _CAST_INDEX_WIDTHS.get(" ".join(m.group("xtype").split()))

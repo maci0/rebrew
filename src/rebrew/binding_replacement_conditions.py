@@ -16,6 +16,11 @@ def macro_change_re(name: str) -> re.Pattern[str]:
     return re.compile(rf"(?m)^\s*#\s*(?:define|undef)\s+{re.escape(name)}\b")
 
 
+# Module-level: the guard shape is fixed, so compiling it per fragment was
+# repeated work on every ``target_structural_view`` call.
+_GUARD_RE = re.compile(r"#\s*(ifdef|ifndef)\s+([A-Za-z_]\w*)")
+
+
 def target_structural_view(text: str, macros: dict[str, bool]) -> tuple[bytes, list[str]]:
     """Select explicitly known simple fragment guards without changing offsets.
 
@@ -33,7 +38,7 @@ def target_structural_view(text: str, macros: dict[str, bool]) -> tuple[bytes, l
         directives = [raw[start:end].decode("ascii").strip() for start, end in fragment.directives]
         if len(directives) != 3 or directives[1:] != ["#else", "#endif"]:
             raise ValueError("unsupported conditional branch chain")
-        match = re.fullmatch(r"#\s*(ifdef|ifndef)\s+([A-Za-z_]\w*)", directives[0])
+        match = _GUARD_RE.fullmatch(directives[0])
         if match is None or len(fragment.branches) != 2:
             raise ValueError("unsupported conditional guard")
         operator, name = match.groups()

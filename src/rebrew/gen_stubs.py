@@ -140,6 +140,10 @@ def fastcall_arity(symbol: str) -> int | None:
 
 _WIDE_PARAM_RE = re.compile(r"\b(?:double|struct|union|__int64)\b|long\s+double|long\s+long")
 
+#: Module-level identifier match used by ``ensure_param_names``: the shape is
+#: fixed, so compiling it per parameter was repeated work.
+_IDENT_MATCH_RE = re.compile(r"^[a-zA-Z_]\w*$")
+
 
 def _stdcall_param_slots(params: str | None) -> int | None:
     """Top-level parameter count when each parameter is one 32-bit slot.
@@ -945,7 +949,7 @@ def ensure_param_names(params_str: str) -> str:
             # the pointer stars before the identifier check, otherwise
             # "int *p" was "named" with the garbage suffix "int *p a".
             last = tokens[-1].lstrip("*")
-            if re.match(r"^[a-zA-Z_]\w*$", last) and last not in _C_PRIMITIVES | {"struct"}:
+            if _IDENT_MATCH_RE.match(last) and last not in _C_PRIMITIVES | {"struct"}:
                 has_name = True
         if part.endswith("*"):
             has_name = False
