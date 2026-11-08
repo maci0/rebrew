@@ -1082,7 +1082,7 @@ def check_backup_readiness(cfg: ProjectConfig) -> CheckResult:
             "plus `rebrew metadata backup` for the project files.",
         )
     root = Path(cfg.root)
-    from rebrew.metadata.sqlite import _extra_durable_sources, _toml_store_trees
+    from rebrew.metadata.sqlite import extra_durable_sources, toml_store_trees
 
     if backend == "sqlite":
         database = root / "rebrew-metadata.sqlite3"
@@ -1093,14 +1093,14 @@ def check_backup_readiness(cfg: ProjectConfig) -> CheckResult:
                 message=f"Metadata database not found: {database}",
                 fix="Create it with `rebrew metadata migrate sqlite`.",
             )
-        extras = len(_extra_durable_sources(root))
+        extras = len(extra_durable_sources(root))
         return CheckResult(
             name="Backup readiness",
             status=_OK,
             message=f"SQLite database + {extras} .rebrew/ extra(s) back up with "
             "`rebrew metadata backup --dir <off-tree>`",
         )
-    trees = _toml_store_trees(root)
+    trees = toml_store_trees(root)
     if not trees:
         return CheckResult(
             name="Backup readiness",
@@ -1108,7 +1108,7 @@ def check_backup_readiness(cfg: ProjectConfig) -> CheckResult:
             message=f"No managed TOML stores under {root}",
             fix="Create them with `rebrew intake` or restore an existing backup.",
         )
-    extras = len(_extra_durable_sources(root))
+    extras = len(extra_durable_sources(root))
     return CheckResult(
         name="Backup readiness",
         status=_OK,

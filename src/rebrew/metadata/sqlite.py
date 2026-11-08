@@ -16,6 +16,21 @@ lazy from tomlkit.exceptions import ParseError
 from rebrew.errors import RebrewError
 lazy from rebrew.metadata.locking import file_transaction, project_transaction
 
+__all__ = [
+    "DATABASE_FILENAME",
+    "METADATA_TOML_BACKUP_DIRNAME",
+    "TOML_BACKUP_DIRNAME",
+    "MetadataStorageError",
+    "MetadataUnavailableError",
+    "SqliteStore",
+    "backup_metadata_database",
+    "backup_metadata_toml",
+    "extra_durable_sources",
+    "restore_metadata_database",
+    "restore_metadata_toml",
+    "toml_store_trees",
+]
+
 DATABASE_FILENAME = "rebrew-metadata.sqlite3"
 _SCHEMA_VERSION = 1
 #: The one DDL this store creates.  ``_check_schema`` compares the stored
@@ -499,7 +514,7 @@ def verify_backup_manifest(bundle: Path) -> list[str]:
     return checked
 
 
-def _extra_durable_sources(root: Path) -> list[Path]:
+def extra_durable_sources(root: Path) -> list[Path]:
     """GA log, BinSync baselines, upload ledger, journal, replication
     sidecar, verify cache/baseline, Ghidra sync state and the
     metadata-doc parsed-document caches, when present.
@@ -562,7 +577,7 @@ def _toml_store_tree(root: Path, name: str) -> list[Path]:
     return tree
 
 
-def _toml_store_trees(root: Path) -> list[tuple[Path, list[Path]]]:
+def toml_store_trees(root: Path) -> list[tuple[Path, list[Path]]]:
     """``(directory, tree)`` pairs for every managed store under *root*.
 
     Stores may sit in a nested ``metadata_dir`` (``cfg.metadata_dir``) rather
@@ -621,7 +636,7 @@ def _toml_stores_present(root: Path) -> list[tuple[str, list[Path]]]:
     """Non-empty ``(name, tree)`` pairs for the managed TOML stores.
 
     Kept for the flat layout and existing callers; the backup/restore pair
-    below uses :func:`_toml_store_trees` so a nested ``metadata_dir`` is
+    below uses :func:`toml_store_trees` so a nested ``metadata_dir`` is
     covered too.
     """
     present = []
@@ -649,9 +664,9 @@ def backup_metadata_toml(root: Path, backup_dir: Path) -> Path:
     """
     from rebrew.utils import atomic_write_bytes
 
-    trees = _toml_store_trees(root)
+    trees = toml_store_trees(root)
     config = _project_config(root)
-    extras = _extra_durable_sources(root)
+    extras = extra_durable_sources(root)
     if not trees and config is None and not extras:
         raise FileNotFoundError(f"no metadata stores at {root}")
     bundle = backup_dir / TOML_BACKUP_DIRNAME
@@ -690,7 +705,7 @@ def restore_metadata_toml(bundle: Path, root: Path) -> tuple[Path, ...]:
     verify_backup_manifest(bundle)
     planned: list[Path] = []
     config = bundle / _PROJECT_CONFIG_NAME
-    trees = _toml_store_trees(bundle)
+    trees = toml_store_trees(bundle)
     if config.is_file():
         try:
             load_tomllib(config)
@@ -704,7 +719,7 @@ def restore_metadata_toml(bundle: Path, root: Path) -> tuple[Path, ...]:
             except (ValueError, OSError) as exc:
                 raise MetadataStorageError(f"{source}: corrupt backup: {exc}") from exc
             planned.append(source.relative_to(bundle))
-    extras = _extra_durable_sources(bundle)
+    extras = extra_durable_sources(bundle)
     for source in extras:
         rel = source.relative_to(bundle)
         _validate_extra(source)
@@ -763,7 +778,7 @@ def backup_metadata_database(root: Path, backup_dir: Path) -> Path:
     (``.rebrew/sync/*.toml``), the upload ledger, the journal and
     replication sidecar, the verify cache/baseline and the Ghidra
     sync state ride alongside the database when present, via
-    :func:`_extra_durable_sources`: none survives under git and
+    :func:`extra_durable_sources`: none survives under git and
     none is regenerable without loss.
     """
     from rebrew.metadata.locking import file_transaction
@@ -809,7 +824,7 @@ def backup_metadata_database(root: Path, backup_dir: Path) -> Path:
     from rebrew.utils import atomic_write_bytes
 
     written: list[tuple[str, bytes]] = [(METADATA_BACKUP_FILENAME, dest.read_bytes())]
-    for extra in _extra_durable_sources(root):
+    for extra in extra_durable_sources(root):
         payload = extra.read_bytes()
         copied = backup_dir / extra.relative_to(root)
         atomic_write_bytes(copied, payload, mode=_extra_mode(extra))
@@ -860,14 +875,14 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
         raise MetadataStorageError(f"{backup}: integrity check failed: {integrity}")
     _siblings: list[tuple[Path, Path]] = []
     _backup_root = backup.parent
-    # Restore exactly what the backup carries: _extra_durable_sources
+    # Restore exactly what the backup carries: extra_durable_sources
     # walks the backup root the same way it walks a live project, so
     # the GA log, upload ledger, journal, replication sidecar, verify
     # cache/baseline (root and per-target), Ghidra sync state and
     # BinSync baselines all come back.  A hand-rolled sibling list
     # here once drifted from the backup list and silently dropped the
     # verify cache and Ghidra state on SQLite restore.
-    for _src in _extra_durable_sources(_backup_root):
+    for _src in extra_durable_sources(_backup_root):
         # _validate_extra dispatches on suffix: GA log as JSONL,
         # uploads ledger / Ghidra JSON as JSON objects, rest as TOML.
         _validate_extra(_src)

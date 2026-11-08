@@ -1,5 +1,6 @@
 """Tests for rebrew doctor diagnostic command."""
 
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -1009,6 +1010,11 @@ class TestCheckBinsyncState:
     def _check(self, tmp_path: Path, **cfg_overrides: object):
         from rebrew.doctor import check_binsync_state
 
+        # Gate on declib's presence: check_binsync_state reports FAIL before
+        # any of the state-dir checks when declib is missing, so the
+        # state-dir behaviour tests below only pin their expected WARN/OK
+        # when declib is actually installed.
+        pytest.importorskip("declib")
         return check_binsync_state(_make_cfg(tmp_path, **cfg_overrides))
 
     def test_no_config_warns(self, tmp_path: Path) -> None:
@@ -1019,10 +1025,13 @@ class TestCheckBinsyncState:
     def test_configured_without_declib_fails(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import sys
-
         monkeypatch.setitem(sys.modules, "declib", None)
-        r = self._check(tmp_path, binsync_state_dir=str(tmp_path / "state"))
+        # This test's subject is the missing-declib branch itself, so it
+        # must exercise _check's skip gate in reverse: declib is poisoned
+        # to None, so _check would skip.  Call check_binsync_state directly.
+        from rebrew.doctor import check_binsync_state
+
+        r = check_binsync_state(_make_cfg(tmp_path, binsync_state_dir=str(tmp_path / "state")))
         assert r.status == _FAIL
         assert "declib" in r.message
 
