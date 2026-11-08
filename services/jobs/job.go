@@ -117,7 +117,7 @@ func Open(root, dir, executable string) (*Owner, error) {
 		return nil, err
 	}
 	dirInfo, err := os.Stat(dir)
-	if err != nil || !dirInfo.IsDir() || dirInfo.Mode().Perm()&0077 != 0 {
+	if err != nil || !isPrivateDir(dirInfo) {
 		return nil, errors.New("job directory must be private")
 	}
 	rel, err := filepath.Rel(root, dir)

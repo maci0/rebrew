@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -68,7 +67,7 @@ func (p DockerProvider) Create(ctx context.Context, original, workspace, id, see
 	if err := p.check(); err != nil {
 		return "", err
 	}
-	if !validHex(id, 64) || seed == "" || filepath.IsAbs(seed) || strings.HasPrefix(filepath.Clean(seed), "..") || !filepath.IsAbs(workspace) || !filepath.IsAbs(original) || original == workspace || strings.ContainsAny(original+workspace, ",\n\r") || os.Getuid() == 0 {
+	if !validHex(id, 64) || seed == "" || filepath.IsAbs(seed) || strings.HasPrefix(filepath.Clean(seed), "..") || !filepath.IsAbs(workspace) || !filepath.IsAbs(original) || original == workspace || strings.ContainsAny(original+workspace, ",\n\r") || isRoot() {
 		return "", errors.New("invalid allocation")
 	}
 	originalInfo, originalErr := os.Stat(original)
@@ -79,10 +78,10 @@ func (p DockerProvider) Create(ctx context.Context, original, workspace, id, see
 	if err != nil || !info.IsDir() {
 		return "", errors.New("workspace unavailable")
 	}
-	args := []string{"create", "--name", "rebrew-job-" + id, "--label", "relumea.rebrew.job=" + id, "--network", "none", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--pids-limit", "128", "--ulimit", "nofile=1024:1024", "--memory", "1g", "--cpus", "1", "--user", fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()), "--tmpfs", "/tmp:rw,nosuid,nodev,noexec,size=64m", "--mount", "type=bind,src=" + workspace + ",dst=/workspace", "--mount", "type=bind,src=" + original + ",dst=/original,readonly"}
+	args := []string{"create", "--name", "rebrew-job-" + id, "--label", "relumea.rebrew.job=" + id, "--network", "none", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--pids-limit", "128", "--ulimit", "nofile=1024:1024", "--memory", "1g", "--cpus", "1", "--user", processUser(), "--tmpfs", "/tmp:rw,nosuid,nodev,noexec,size=64m", "--mount", "type=bind,src=" + workspace + ",dst=/workspace", "--mount", "type=bind,src=" + original + ",dst=/original,readonly"}
 	if p.CompileDir != "" {
 		info, err := os.Stat(p.CompileDir)
-		if err != nil || !info.IsDir() || info.Mode().Perm()&0077 != 0 {
+		if err != nil || !isPrivateDir(info) {
 			return "", errors.New("compile socket directory unavailable")
 		}
 		args = append(args, "--mount", "type=bind,src="+p.CompileDir+",dst=/run/rebrew-job,readonly", "--env", "REBREW_RECOMPILE_URL=http://rebrew-job", "--env", "REBREW_JOB_COMPILE_SOCKET=/run/rebrew-job/owner.sock")
@@ -204,7 +203,7 @@ func (p DockerProvider) inspect(ctx context.Context, id, job, original, workspac
 	if p.CompileDir != "" {
 		mountCount = 3
 	}
-	if v.ID != id || v.Image != p.Image || v.Config.Labels["relumea.rebrew.job"] != job || v.Config.User != fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()) || v.Config.WorkingDir != "/workspace" || len(v.Config.Entrypoint) != 1 || v.Config.Entrypoint[0] != "/opt/venv/bin/rebrew" || strings.Join(v.Config.Cmd, "\x00") != strings.Join(jobArguments(p.Kind, seed, p.Generations, p.Population), "\x00") || !stateOK || v.HostConfig.NetworkMode != "none" || v.HostConfig.PidMode == "host" || v.HostConfig.IpcMode == "host" || v.HostConfig.UsernsMode == "host" || !v.HostConfig.ReadonlyRootfs || v.HostConfig.Privileged || len(v.HostConfig.CapDrop) != 1 || v.HostConfig.CapDrop[0] != "ALL" || v.HostConfig.PidsLimit != 128 || v.HostConfig.Memory != 1073741824 || v.HostConfig.NanoCpus != 1000000000 || len(v.Mounts) != mountCount {
+	if v.ID != id || v.Image != p.Image || v.Config.Labels["relumea.rebrew.job"] != job || v.Config.User != processUser() || v.Config.WorkingDir != "/workspace" || len(v.Config.Entrypoint) != 1 || v.Config.Entrypoint[0] != "/opt/venv/bin/rebrew" || strings.Join(v.Config.Cmd, "\x00") != strings.Join(jobArguments(p.Kind, seed, p.Generations, p.Population), "\x00") || !stateOK || v.HostConfig.NetworkMode != "none" || v.HostConfig.PidMode == "host" || v.HostConfig.IpcMode == "host" || v.HostConfig.UsernsMode == "host" || !v.HostConfig.ReadonlyRootfs || v.HostConfig.Privileged || len(v.HostConfig.CapDrop) != 1 || v.HostConfig.CapDrop[0] != "ALL" || v.HostConfig.PidsLimit != 128 || v.HostConfig.Memory != 1073741824 || v.HostConfig.NanoCpus != 1000000000 || len(v.Mounts) != mountCount {
 		return DockerReceipt{}, errors.New("container stop or isolation is unproven")
 	}
 	noPrivileges := false

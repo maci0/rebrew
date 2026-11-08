@@ -35,7 +35,7 @@ type CompileMediator struct {
 // Closing the listener stops new requests; callers must also wait for active work.
 func (m *CompileMediator) ServeSocket(dir string) (*http.Server, net.Listener, error) {
 	info, err := os.Stat(dir)
-	if err != nil || !info.IsDir() || info.Mode().Perm()&0077 != 0 || !validHex(m.capability, 64) {
+	if err != nil || !isPrivateDir(info) || !validHex(m.capability, 64) {
 		return nil, nil, errors.New("invalid private socket directory")
 	}
 	capFile, err := os.OpenFile(filepath.Join(dir, "capability"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0400)
@@ -116,7 +116,7 @@ func NewCompileMediator(dir, upstream, credential, capability string, max int, a
 		return nil, errors.New("invalid compile mediator configuration")
 	}
 	info, err := os.Stat(dir)
-	if err != nil || !info.IsDir() || info.Mode().Perm()&0077 != 0 {
+	if err != nil || !isPrivateDir(info) {
 		return nil, errors.New("compile ledger must be private")
 	}
 	compilers := make(map[string]bool, len(allowed))

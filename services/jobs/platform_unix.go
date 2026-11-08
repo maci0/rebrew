@@ -3,6 +3,7 @@
 package jobs
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"syscall"
@@ -25,4 +26,18 @@ func configureJobProcess(cmd *exec.Cmd) {
 		}
 		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	}
+}
+
+func processUser() string {
+	return fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
+}
+
+func isRoot() bool {
+	return os.Getuid() == 0
+}
+
+// isPrivateDir reports whether info is a directory whose permission bits are
+// owner-only (no group/other access), as the job directory requires.
+func isPrivateDir(info os.FileInfo) bool {
+	return info.IsDir() && info.Mode().Perm()&0077 == 0
 }

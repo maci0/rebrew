@@ -39,3 +39,21 @@ func configureJobProcess(cmd *exec.Cmd) {
 		return nil
 	}
 }
+
+// processUser: Windows has no unix uid/gid; return the empty user for
+// docker (daemon default) instead of the -1 stub Getuid returns.
+func processUser() string {
+	return ""
+}
+
+// isRoot: Windows has no uid-0 notion; never claim root here.
+func isRoot() bool {
+	return false
+}
+
+// isPrivateDir: Windows has no POSIX permission bits; readability is the
+// only probe available, and the Job Objects / ACL story is out of scope.
+func isPrivateDir(info os.FileInfo) bool {
+	return info.IsDir()
+}
+
