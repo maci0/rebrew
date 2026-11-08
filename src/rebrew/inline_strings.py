@@ -74,6 +74,12 @@ _G_EXTERN_RE = re.compile(
 )
 _G_NAME_RE = re.compile(r"^g_[0-9a-fA-F]{6,}$")
 
+#: Word tokens in a source text (single scan answers every name).
+_WORD_TOKEN_RE = re.compile(r"\b\w+\b")
+
+#: Word tokens in raw bytes.
+_WORD_TOKEN_BYTES_RE = re.compile(rb"\b\w+\b")
+
 
 @lru_cache(maxsize=1024)
 def _word_re(name: str) -> re.Pattern[str]:
@@ -379,7 +385,7 @@ def inline_g_literal_uses(
     if literals:
         wanted = set(literals)
         token_start = 0
-        for m in re.finditer(r"\b\w+\b", text):
+        for m in _WORD_TOKEN_RE.finditer(text):
             word = m.group(0)
             if word not in wanted:
                 continue
@@ -598,7 +604,7 @@ def _code_occurrences(parsed: _ParsedSource, name: str) -> int:
         parsed.occurrence_queries += 1
         if parsed.code_counts is None and parsed.occurrence_queries >= 3:
             counts: dict[bytes, int] = {}
-            for match in re.finditer(rb"\b\w+\b", parsed.data):
+            for match in _WORD_TOKEN_BYTES_RE.finditer(parsed.data):
                 i = bisect_right(parsed.non_code_starts, match.start()) - 1
                 if i < 0 or match.start() >= parsed.non_code[i][1]:
                     token = match.group()

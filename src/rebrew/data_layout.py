@@ -2043,12 +2043,7 @@ def converge_layout(
                 start, end, _, _, _ = pad_info
                 text = text[:start] + decl_line + text[end:]
             else:
-                new_text = re.sub(
-                    r"(\n)(?=\s*(?:extern|static|__declspec|(?://|/\*) ADDRESS:))",
-                    r"\1" + decl_line,
-                    text,
-                    count=1,
-                )
+                new_text = _PAD_INSERT_RE.sub(r"\1" + decl_line, text, count=1)
                 if decl_line not in new_text:
                     new_text = decl_line + text
                 text = new_text

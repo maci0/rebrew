@@ -19,6 +19,11 @@ _SHARED_PROTOTYPE = re.compile(
     r"\A[ \t]*(int|float|void)[ \t]+([A-Za-z][A-Za-z_0-9]*)[ \t]*\(void\)[ \t]*;[ \t]*\r?\n"
 )
 
+#: Explicit calling conventions searched in a declarator head.
+_CALLING_CONVENTION_RE = re.compile(
+    rb"\b(?:__cdecl|__stdcall|__fastcall|_cdecl|_stdcall|_fastcall)\b"
+)
+
 
 def prepare_guarded_inputs(
     readings: dict[Path, tuple[str, str]],
@@ -116,9 +121,8 @@ def prepare_guarded_inputs(
                 body_node = node.child_by_field_name("body")
                 if body_node is None:
                     raise ValueError(f"{path}: guarded function has no body")
-                modifier = re.search(
-                    rb"\b(?:__cdecl|__stdcall|__fastcall|_cdecl|_stdcall|_fastcall)\b",
-                    raw[node.start_byte : body_node.start_byte],
+                modifier = _CALLING_CONVENTION_RE.search(
+                    raw[node.start_byte : body_node.start_byte]
                 )
                 if modifier:
                     explicit_conventions[name] = modifier.group().decode("ascii")

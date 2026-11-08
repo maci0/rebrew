@@ -10,6 +10,7 @@ lazy from collections.abc import Callable, Iterator
 lazy from typing import Any
 
 _DIRECTIVE = re.compile(rb"^[ \t]*#[ \t]*([A-Za-z_][A-Za-z_0-9]*)", re.M)
+_BRACE = re.compile(rb"[{}]")
 _MASK = bytes(byte if byte in (10, 13) else 32 for byte in range(256))
 
 
@@ -77,7 +78,7 @@ def conditional_fragments(
         directives.append((match.start(), end, match[1]))
         lexical[match.start() : end] = raw[match.start() : end].translate(_MASK)
 
-    events = [(match.start(), match.end(), match[0]) for match in re.finditer(rb"[{}]", lexical)]
+    events = [(match.start(), match.end(), match[0]) for match in _BRACE.finditer(lexical)]
     events.extend(directives)
     events.sort()
     stack: list[_Frame] = []

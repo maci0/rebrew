@@ -39,6 +39,9 @@ lazy from rebrew.metadata.storage import metadata_store
 lazy from rebrew.sources import scan_files
 lazy from rebrew.utils import TerminalTable, atomic_write_text, untrusted_ident
 
+#: ``char gap_XXXXXXXX[N];`` rows in a generated padding file.
+_GAP_DECL_RE = re.compile(r"char gap_([0-9a-fA-F]{8})\[(\d+)\];")
+
 app = typer.Typer(
     help="Inspect global data, edit metadata, and generate declarations and layout repairs.",
     rich_markup_mode="rich",
@@ -120,7 +123,7 @@ def _generate_bss_fix(
             console.print(f"[yellow]{message}[/yellow]")
             return
         # char gap_XXXXXXXX[N]; — recover the declared size
-        for m in re.finditer(r"char gap_([0-9a-fA-F]{8})\[(\d+)\];", text):
+        for m in _GAP_DECL_RE.finditer(text):
             existing_decls[int(m.group(1), 16)] = int(m.group(2))
 
     if not report.gaps and not existing_decls:

@@ -66,6 +66,10 @@ from rebrew.utils import SOURCE_CHECKOUT, fold_ident
 
 logger = logging.getLogger(__name__)
 
+#: Printable-ASCII runs used by ``_scan_strings`` (module-level so the
+#: pattern compiles once, not per call site).
+_ASCII_RUN_RE = re.compile(rb"[\x20-\x7e]{6,}")
+
 
 def __getattr__(name: str) -> Any:
     """Lazily import LIEF on first external attribute use (148ms native load).
@@ -675,7 +679,7 @@ def detect_with_die(path: Path, diec: Path | None = None) -> ToolchainInfo | Non
 def _scan_strings(data: bytes, limit: int = 256) -> list[str]:
     """Return printable ASCII strings from the bytes (best effort, capped)."""
     out: list[str] = []
-    for m in re.finditer(rb"[\x20-\x7e]{6,}", data):
+    for m in _ASCII_RUN_RE.finditer(data):
         out.append(m.group().decode("ascii", errors="replace"))
         if len(out) >= limit:
             break

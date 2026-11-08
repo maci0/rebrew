@@ -59,6 +59,15 @@ _C_TYPE_RE = re.compile(
 #: An array dimension: a decimal or ``0x`` integer, nothing else.
 _C_DIM_RE = re.compile(r"0[xX][0-9a-fA-F]+|[0-9]+")
 
+#: Ghidra ``undefined``/``undefinedN`` raw-bytes type names.
+_UNDEFINED_RE = re.compile(r"undefined(\d+)?")
+
+#: ``<base> *`` pointer type names.
+_POINTER_TYPE_RE = re.compile(r"(.+?)\s*\*")
+
+#: ``<base>[<dim>]`` array type names.
+_ARRAY_TYPE_RE = re.compile(r"(.+?)\[(.+)\]")
+
 #: Statuses that get a status bookmark: the user-visible classifications, the
 #: same set the report, dashboard and terminal paint.  Machine verdicts
 #: (COMPILE_ERROR, SIZE_MISMATCH, ...) and the parked SKIP are not
@@ -297,11 +306,11 @@ def pull_data(
         if lower in {"pointer", "pointer32"}:
             return f"extern void* {symbol_name};", ""
 
-        ptr_match = re.fullmatch(r"(.+?)\s*\*", dtype)
+        ptr_match = _POINTER_TYPE_RE.fullmatch(dtype)
         if ptr_match:
             base = ptr_match.group(1).strip()
             base_lower = base.lower()
-            if re.fullmatch(r"undefined(\d+)?", base_lower):
+            if _UNDEFINED_RE.fullmatch(base_lower):
                 return f"extern void* {symbol_name};", ""
             if not _C_TYPE_RE.fullmatch(_normalize_ghidra_type(base)):
                 return (
@@ -310,21 +319,21 @@ def pull_data(
                 )
             return f"extern {_normalize_ghidra_type(base)}* {symbol_name};", ""
 
-        undef_match = re.fullmatch(r"undefined(\d+)?", lower)
+        undef_match = _UNDEFINED_RE.fullmatch(lower)
         if undef_match:
             arr_len = max(length, int(undef_match.group(1) or "0"))
             if arr_len > 0:
                 return f"extern unsigned char {symbol_name}[{arr_len}];", ""
             return f"extern unsigned char {symbol_name}[];", "unknown size"
 
-        arr_match = re.fullmatch(r"(.+?)\[(.+)\]", dtype)
+        arr_match = _ARRAY_TYPE_RE.fullmatch(dtype)
         if arr_match:
             base = arr_match.group(1).strip()
             dim = arr_match.group(2).strip()
             # Ghidra's ``undefined``/``undefinedN`` are raw bytes in the scalar
             # branch below; the array branch must map them the same way, or the
             # header declares ``extern undefined g_blob[16];``.
-            if re.fullmatch(r"undefined(\d+)?", base.lower()):
+            if _UNDEFINED_RE.fullmatch(base.lower()):
                 base = "unsigned char"
             else:
                 base = _normalize_ghidra_type(base)

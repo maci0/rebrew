@@ -55,6 +55,10 @@ lazy from rebrew.analysis import direct_call_target, iter_instructions
 lazy from rebrew.formats.binary_loader import load_binary
 lazy from rebrew.utils import atomic_write_text, file_lock, read_json_text, run_process_group
 
+#: ``push bp/ebp; mov bp/ebp, sp/esp`` prologue bytes scanned for in the
+#: linear sweep (16-bit and 32-bit forms share the same opcode pair).
+_PROLOGUE_RE = re.compile(rb"\x55\x8b\xec")
+
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
     "  rebrew binary functions mini.exe  # List functions, sizes validated\n\n"
@@ -518,7 +522,7 @@ def _capstone_sweep(binary: Path) -> list[tuple[int, int, str]]:
         else:
             i += 1
     # 3. `push ebp; mov ebp, esp` prologue
-    for m in re.finditer(rb"\x55\x8b\xec", raw):
+    for m in _PROLOGUE_RE.finditer(raw):
         starts.add(va_base + m.start())
     # 4. direct-call targets (e8 rel32) via capstone
     text_end = text.va + text.size
@@ -897,7 +901,7 @@ def _mz_capstone_sweep(binary: Path) -> list[tuple[int, int, str]]:
         else:
             i += 1
     # 3. `push bp; mov bp,sp` prologue (16-bit cdecl)
-    for m in re.finditer(rb"\x55\x8b\xec", raw):
+    for m in _PROLOGUE_RE.finditer(raw):
         starts.add(va_base + m.start())
     # 4. direct-call targets (e8 rel16) inside the region
     try:
