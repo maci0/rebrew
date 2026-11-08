@@ -883,6 +883,43 @@ class TestRunAllParallel:
         ga2._write_pair(src, b"\x55\x8c", 3.0)  # different bytes → append
         assert pairs.read_text(encoding="utf-8").count("\n") == 2
 
+    def test_write_pair_fsyncs_before_return(self, tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+        """Collect-pairs append must fsync the fd before _write_pair returns.
+
+        The corpus is the only record of the collected pairs; without the
+        fsync a power cut loses records the run already counted as written.
+        """
+        import os
+
+        from rebrew.match_ga import BinaryMatchingGA
+
+        pairs = tmp_path / "pairs.jsonl"
+        ga = BinaryMatchingGA(
+            seed_source="int f(void){return 0;}",
+            target_bytes=b"\x90\x90",
+            cl_cmd="cl",
+            inc_dir=str(tmp_path),
+            cflags="/O2",
+            symbol="_f",
+            out_dir=tmp_path,
+            pop_size=2,
+            num_generations=1,
+            num_jobs=1,
+            collect_pairs_path=pairs,
+            verbose=0,
+        )
+        real_fsync = os.fsync
+        calls: list[int] = []
+
+        def _spy(fd: int) -> None:
+            calls.append(fd)
+            real_fsync(fd)
+
+        monkeypatch.setattr(os, "fsync", _spy)
+        ga._write_pair("int f(void){return 1;}", b"\x55\x8b", 1.0)
+        assert calls, "collect-pairs append returned without fsync"
+        assert pairs.read_text(encoding="utf-8").count("\n") == 1
+
     def test_write_pair_concurrent_dedup(self, tmp_path: Path) -> None:
         """Concurrent _write_pair calls must safely dedup without race or corruption."""
         import concurrent.futures

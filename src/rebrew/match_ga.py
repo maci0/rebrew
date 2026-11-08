@@ -907,8 +907,22 @@ class BinaryMatchingGA:
                 "cflags": self.cflags,
                 "symbol": self.symbol,
             }
-            with open(self.collect_pairs_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(record) + "\n")
+            line = (json.dumps(record) + "\n").encode("utf-8")
+            # Durable append: this corpus is the only record of the compile
+            # results a training run collected, so acking the write before
+            # it reaches disk loses the pair on a power cut.  fsync before
+            # the in-memory key/count advance; a crash mid-write can still
+            # leave a torn tail, which the JSONL readers skip line-wise.
+            import os
+
+            fd = os.open(self.collect_pairs_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+            try:
+                view = memoryview(line)
+                while view:
+                    view = view[os.write(fd, view) :]
+                os.fsync(fd)
+            finally:
+                os.close(fd)
             self._pair_keys.add(key)
             self._pairs_count += 1
             self._pair_keys_dirty = True

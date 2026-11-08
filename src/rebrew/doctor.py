@@ -1121,11 +1121,17 @@ def check_backup_readiness(cfg: ProjectConfig) -> CheckResult:
             fix="Create them with `rebrew intake` or restore an existing backup.",
         )
     extras = len(extra_durable_sources(root))
+    binsync_dir = getattr(cfg, "binsync_state_dir", "") or ""
+    binsync_note = (
+        f" + BinSync state dir {binsync_dir} (git-versioned; back it up with the project)"
+        if binsync_dir and Path(binsync_dir).expanduser().is_dir()
+        else ""
+    )
     return CheckResult(
         name="Backup readiness",
         status=_OK,
         message=f"{len(trees)} TOML store tree(s) + {extras} .rebrew/ extra(s) back up with "
-        "`rebrew metadata backup --dir <off-tree>`",
+        f"`rebrew metadata backup --dir <off-tree>`{binsync_note}",
     )
 
 

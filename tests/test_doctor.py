@@ -1003,6 +1003,16 @@ class TestBackupReadiness:
         result = check_backup_readiness(self._cfg(tmp_path, "sqlite"))
         assert result.status == _WARN, result.message
 
+    def test_binsync_state_dir_noted_in_backup_readiness(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")
+        binsync = tmp_path / "binsync_state"
+        binsync.mkdir()
+        cfg = self._cfg(tmp_path)
+        cfg.binsync_state_dir = str(binsync)
+        result = check_backup_readiness(cfg)
+        assert result.status == _OK, result.message
+        assert "BinSync" in result.message
+
 
 class TestCheckBinsyncState:
     """The BinSync field-sync relay health check."""
