@@ -20,7 +20,7 @@ lazy from collections.abc import Callable, Iterator
 lazy from itertools import pairwise
 lazy from typing import Any
 
-lazy from rebrew import c_conditionals
+lazy from rebrew.c_conditionals import conditional_fragments, structural_variants
 lazy from rebrew.utils import BYTES_PER_MIB, parse_c_integer_literal, strip_body
 
 logger = logging.getLogger(__name__)
@@ -217,11 +217,11 @@ def _structure_trees(tree: Any, raw: bytes) -> Iterator[tuple[Any, bytes, list[t
     if not parser_bytes or b"#" not in parser_bytes:
         yield tree, raw, []
         return
-    fragments, regions = c_conditionals.conditional_fragments(parser_bytes, parse_c_source)
+    fragments, regions = conditional_fragments(parser_bytes, parse_c_source)
     if not fragments:
         yield tree, raw, regions
         return
-    for variant in c_conditionals.structural_variants(parser_bytes, fragments):
+    for variant in structural_variants(parser_bytes, fragments):
         variant_tree, _ = parse_c_source(variant)
         yield variant_tree, raw, regions
 

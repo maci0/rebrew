@@ -34,7 +34,6 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
-lazy from rebrew import source_paths
 lazy from rebrew.c_parser import CALLING_CONVENTION
 lazy from rebrew.config import ProjectConfig
 lazy from rebrew.metadata.anchors import add_address_anchor, parse_address_anchors
@@ -49,6 +48,7 @@ lazy from rebrew.metadata.functions import (
     stored_file_matches,
     validate_identity_file,
 )
+lazy from rebrew.source_paths import rebase_includes
 lazy from rebrew.sources import (
     iter_sources,
     source_exts,
@@ -665,9 +665,7 @@ def _layout_one(
     ]
     layout = _InputLayout(
         rel=rel,
-        preamble=source_paths.rebase_includes(
-            shared_preamble(raw, spans, []), file_path.parent, output_dir
-        ),
+        preamble=rebase_includes(shared_preamble(raw, spans, []), file_path.parent, output_dir),
         va=min((piece.va for piece in func_pieces), default=_NO_VA),
         stores=store_pieces,
         functions=func_pieces,

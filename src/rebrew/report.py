@@ -45,7 +45,6 @@ lazy from typing import Any
 
 import typer
 
-from rebrew import theme
 from rebrew.cli import (
     TargetOption,
     console,
@@ -58,6 +57,7 @@ from rebrew.status_style import (
     status_legend_rows,
     status_text_css,
 )
+from rebrew.theme import FAVICON_SVG, inline
 lazy from rebrew.analysis import StringEntry, Xref, iter_strings, string_refs
 lazy from rebrew.compression import precompress
 lazy from rebrew.config import ProjectConfig, target_module
@@ -246,7 +246,7 @@ tbody tr { content-visibility: auto; contain-intrinsic-size: auto 2.2rem; }
 _CSS = _CSS.replace("__STATUS_TEXT_CSS__", status_text_css()).replace(
     "__STATUS_FORCED__", _status_forced_selectors()
 )
-_CSS = theme.inline(_CSS)
+_CSS = inline(_CSS)
 
 
 def _nav_link(href: str, label: str, active: bool) -> str:
@@ -1424,7 +1424,7 @@ def generate_report(cfg: ProjectConfig, out: Path, *, trusted: Any = None) -> di
     # The mark every page links, written once per site rather than inlined
     # into each document.  It is text, so the sidecars apply like any other
     # owned asset.
-    _write_static(out / "favicon.svg", theme.FAVICON_SVG)
+    _write_static(out / "favicon.svg", FAVICON_SVG)
     kept.add("favicon.svg")
     for name, content in page_files:
         _write_static(out / name, content)

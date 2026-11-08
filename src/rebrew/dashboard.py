@@ -77,8 +77,8 @@ import typer
 lazy import zstandard
 lazy from rich.markup import escape
 
-from rebrew import theme
 from rebrew.cli import RootOption, console, error_exit, json_print, option_default, require_root
+from rebrew.theme import FAVICON_SVG, inline
 lazy from rebrew.compression import WireEncoding, precompress
 lazy from rebrew.coverage_project import (
     ProjectCoverageError,
@@ -1603,7 +1603,7 @@ _ENTRY_PATHS = ("/", _APP_JS_URL)
 #: of near-incompressible payload in the document that has to fit the initial
 #: congestion window, and a tab icon is not first paint: linked, it costs the
 #: cold flight nothing.
-_FAVICON_SVG = theme.FAVICON_SVG
+_FAVICON_SVG = FAVICON_SVG
 _FAVICON_SVG_BYTES = _FAVICON_SVG.encode("utf-8")
 _FAVICON_VERSION = hashlib.sha256(_FAVICON_SVG_BYTES).hexdigest()[:16]
 _FAVICON_ETAG = f'"{_FAVICON_VERSION}"'
@@ -1644,7 +1644,7 @@ _INDEX_HTML = _INDEX_HTML.replace("__STATUS_CSS__", _dashboard_status_css()).rep
     "__STATUS_FORCED__", _dashboard_status_forced()
 )
 # Token references resolve to their theme values, so the shell is one file.
-_INDEX_HTML = theme.inline(_INDEX_HTML)
+_INDEX_HTML = inline(_INDEX_HTML)
 _INDEX_HTML = (
     _INDEX_HTML.replace("__APP_JS_URL__", _APP_JS_URL)
     .replace("__BOOT_GUARD_JS__", _BOOT_GUARD_JS)

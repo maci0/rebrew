@@ -28,7 +28,6 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
-lazy from rebrew import source_paths
 lazy from rebrew.c_parser import (
     declares_function as declares_function,
 )
@@ -67,6 +66,7 @@ lazy from rebrew.source_layout import (
 lazy from rebrew.source_layout import (
     span_extent as span_extent,
 )
+lazy from rebrew.source_paths import rebase_includes
 lazy from rebrew.sources import (
     source_exts,
 )
@@ -432,9 +432,7 @@ def _split_definitions(
         if parts[-1] and not parts[-1].endswith("\n"):
             parts.append(eol)
         parts.append(body)
-        content = source_paths.rebase_includes(
-            "".join(parts), source_path.parent, plan["path"].parent
-        )
+        content = rebase_includes("".join(parts), source_path.parent, plan["path"].parent)
         if not content.endswith("\n"):
             content += eol
         rendered.append((plan, content))

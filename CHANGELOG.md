@@ -2,6 +2,8 @@
 
 ### Changed
 
+- Internal imports now name the defining module directly instead of the package root: `rebrew.report.theme`, `rebrew.dashboard.theme`, `rebrew.merge.source_paths`, `rebrew.split.source_paths` and `rebrew.c_parser.c_conditionals` are no longer re-exported; the canonical paths are `rebrew.theme`, `rebrew.source_paths` and `rebrew.c_conditionals`.
+- **Breaking:** `rebrew.compiler.preprocessed_context.capture_msvc_context` now takes `execution_backend: str | None = None` (was `str = "docker"`); `None` inherits `REBREW_CONTAINER_RUNTIME` via `rebrew.utils.container_runtime`, and an explicit `nerdctl` is accepted. Callers passing an explicit `"docker"` / `"podman"` are unchanged.
 - **Breaking:** `rebrew.binsync.serial.load_artifact` now raises `ValueError` on an unreadable or unparseable BinSync file instead of logging a warning and returning `None`; `rebrew.binsync.serial.load_many` now raises `ValueError` instead of returning `[]` on the same conditions. A missing file still returns `None` / `[]`. Callers that relied on corrupt state looking like missing state must catch `ValueError` explicitly. The BinSync export/import paths that drive these loaders now fail closed on corrupt state instead of silently exporting or importing an empty state. `rebrew.telemetry.ENDPOINT_ENV` is now an alias of `rebrew.config.OTLP_ENDPOINT_ENV` (the literal `"REBREW_OTLP_ENDPOINT"` is unchanged), so `rebrew.config.OTLP_ENDPOINT_ENV` is the canonical name.
 - **Breaking:** `rebrew-jobs` now refuses to start on a non-loopback `REBREW_JOBS_ADDR` (`log.Fatalf`) instead of logging a warning and binding anyway. A deployment that intentionally bound `rebrew-jobs` off-loopback must now bind it on loopback or reverse-proxy it locally.
 
