@@ -1126,6 +1126,83 @@ def _target_options(root: Path, sha256: str) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
+def _stage_retained_files(config: WorkerConfig, root: Path, files: Any, *, exclusive: bool) -> None:
+    """Write a retained manifest into *root*, checking sizes and digests."""
+    for entry in files:
+        if (
+            entry.size < 0
+            or entry.size > 1024 * 1024
+            or not re.fullmatch(r"[0-9a-f]{64}", entry.digest)
+        ):
+            raise _invalid("invalid retained source manifest entry")
+        dest = _inside(root, entry.path, "source file", "snapshot")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if exclusive:
+            with (
+                binary_file(config, entry.key, entry.url, entry.digest, "key") as src,
+                src.open("rb") as inp,
+                dest.open("xb") as out,
+            ):
+                data = inp.read(entry.size + 1)
+                if len(data) != entry.size or hashlib.sha256(data).hexdigest() != entry.digest:
+                    raise _invalid("source does not match retained manifest")
+                out.write(data)
+        else:
+            with (
+                binary_file(config, entry.key, entry.url, entry.digest, "key") as src,
+                src.open("rb") as inp,
+            ):
+                data = inp.read(entry.size + 1)
+            if len(data) != entry.size or hashlib.sha256(data).hexdigest() != entry.digest:
+                raise _invalid("source does not match retained manifest")
+            dest.write_bytes(data)
+
+
+def _stage_retained_binary(
+    config: WorkerConfig, root: Path, target: Any, sha256: str, key: str, url: str
+) -> Path:
+    """Copy the target binary into *root*, refusing a snapshot conflict."""
+    from rebrew.workspace import target_binary
+
+    destination = _inside(root, target["binary"], "target binary", "snapshot")
+    with binary_file(config, key, url, sha256, "binary_key") as binary:
+        if destination.exists():
+            if not destination.is_file() or _file_sha256(destination) != sha256:
+                raise _invalid("retained target binary conflicts with snapshot")
+        else:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(binary, destination)
+        resolved = target_binary(root, target)
+        if (
+            resolved is None
+            or resolved.resolve() != destination
+            or _file_sha256(destination) != sha256
+        ):
+            raise _invalid("snapshot target binary does not match")
+    return destination
+
+
+def _stage_retained_snapshot(
+    config: WorkerConfig,
+    root: Path,
+    files: Any,
+    target_name: str,
+    sha256: str,
+    binary_key: str,
+    binary_url: str,
+    *,
+    exclusive: bool,
+) -> Path:
+    """Stage files and binary; return the destination."""
+    from rebrew.workspace import read_config, targets_table
+
+    _stage_retained_files(config, root, files, exclusive=exclusive)
+    target = targets_table(read_config(root)).get(target_name)
+    if not isinstance(target, dict) or not isinstance(target.get("binary"), str):
+        raise _invalid("retained project has no selected target binary")
+    return _stage_retained_binary(config, root, target, sha256, binary_key, binary_url)
+
+
 def _capstone_for(arch: str) -> tuple[int, int]:
     from rebrew.config import ARCH_PRESETS
     from rebrew.formats.binary_loader import capstone_config_for
@@ -2307,7 +2384,6 @@ def _run_candidate(
     applying = req if isinstance(req, ApplyCandidateRequest) and apply else None
     from rebrew.c_parser import find_c_function_definitions
     from rebrew.config import load_config
-    from rebrew.workspace import read_config, target_binary, targets_table
 
     definitions = find_c_function_definitions(req.candidate)
     if len(definitions) != 1 or len(req.candidate.encode()) > 2_000_000:
@@ -2329,113 +2405,84 @@ def _run_candidate(
     scratch.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="verify-candidate-", dir=scratch) as temp:
         root = Path(temp).resolve()
-        for entry in req.files:
-            if (
-                entry.size < 0
-                or entry.size > 1024 * 1024
-                or not re.fullmatch(r"[0-9a-f]{64}", entry.digest)
-            ):
-                raise _invalid("invalid retained source manifest entry")
-            dest = _inside(root, entry.path, "source file", "snapshot")
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            with (
-                binary_file(config, entry.key, entry.url, entry.digest, "key") as src,
-                src.open("rb") as inp,
-            ):
-                data = inp.read(entry.size + 1)
-            if len(data) != entry.size or hashlib.sha256(data).hexdigest() != entry.digest:
-                raise _invalid("source does not match retained manifest")
-            dest.write_bytes(data)
+        destination = _stage_retained_snapshot(
+            config,
+            root,
+            req.files,
+            req.rebrew_target,
+            req.sha256,
+            req.binary_key,
+            req.binary_url,
+            exclusive=False,
+        )
         source = _project_file(root, req.source, "source")
         if source.suffix.lower() != ".c":
             raise _invalid("candidate source must be a C file")
         if _file_sha256(source) != req.source_sha256:
             raise _invalid("source does not match its retained digest")
-        target = targets_table(read_config(root)).get(req.rebrew_target)
-        if not isinstance(target, dict) or not isinstance(target.get("binary"), str):
-            raise _invalid("retained project has no selected target binary")
-        destination = _inside(root, target["binary"], "target binary", "snapshot")
-        with binary_file(
-            config, req.binary_key, req.binary_url, req.sha256, "binary_key"
-        ) as binary:
-            if destination.exists():
-                if not destination.is_file() or _file_sha256(destination) != req.sha256:
-                    raise _invalid("retained target binary conflicts with snapshot")
-            else:
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(binary, destination)
-            resolved = target_binary(root, target)
-            if (
-                resolved is None
-                or resolved.resolve() != destination
-                or _file_sha256(destination) != req.sha256
-            ):
-                raise _invalid("snapshot target binary does not match")
-            candidate = req.candidate
-            module = ""
-            if apply:
-                from rebrew.metadata.anchors import address_comment
-                from rebrew.metadata.bindings import module_for_va
+        candidate = req.candidate
+        module = ""
+        if apply:
+            from rebrew.metadata.anchors import address_comment
+            from rebrew.metadata.bindings import module_for_va
 
-                module = module_for_va(source, req.va)
-                if not module:
-                    raise _invalid("the function has no address anchor in the retained source")
-                if f"0x{req.va:08x}" not in candidate.lower():
-                    # rebrew wants the anchor directly above the one declaration it names, whatever
-                    # includes and types the candidate keeps above it.
-                    lines = candidate.splitlines(keepends=True)
-                    at = definitions[0][1] - 1
-                    lines.insert(at, address_comment(module, req.va) + "\n")
-                    candidate = "".join(lines)
-            source.write_text(candidate, encoding="utf-8")
-            rewritten = apply_project_cflags(root, req.rebrew_target, req.project_cflags)
-            cfg = load_config(root, target=req.rebrew_target)
-            confined_snapshot_config(cfg, root)
-            retained_compile_refusal(cfg, [source])
-            symbol = definitions[0][0]
-            if applying is not None:
-                if cfg.metadata_dir.resolve() != root:
-                    raise _invalid(
-                        "the retained project keeps its function registry outside its root"
-                    )
-                symbol = _move_identity(cfg, applying, module, definitions[0][0])
-            flags = checked_cflags(req.cflags)
-            result = run_rebrew(
-                [
-                    "test",
-                    "--json",
-                    *([] if apply else ["--no-promote"]),
-                    *([f"--cflags={flags}"] if flags else []),
-                    f"--target={req.rebrew_target}",
-                    f"--va=0x{req.va:x}",
-                    f"--size={req.size}",
-                    f"--symbol={symbol}",
-                    "--",
-                    str(source),
-                ],
-                root,
-                COMMAND_TIMEOUT_SECONDS,
-                outcome_exit=True,
+            module = module_for_va(source, req.va)
+            if not module:
+                raise _invalid("the function has no address anchor in the retained source")
+            if f"0x{req.va:08x}" not in candidate.lower():
+                # rebrew wants the anchor directly above the one declaration it names, whatever
+                # includes and types the candidate keeps above it.
+                lines = candidate.splitlines(keepends=True)
+                at = definitions[0][1] - 1
+                lines.insert(at, address_comment(module, req.va) + "\n")
+                candidate = "".join(lines)
+        source.write_text(candidate, encoding="utf-8")
+        rewritten = apply_project_cflags(root, req.rebrew_target, req.project_cflags)
+        cfg = load_config(root, target=req.rebrew_target)
+        confined_snapshot_config(cfg, root)
+        retained_compile_refusal(cfg, [source])
+        symbol = definitions[0][0]
+        if applying is not None:
+            if cfg.metadata_dir.resolve() != root:
+                raise _invalid("the retained project keeps its function registry outside its root")
+            symbol = _move_identity(cfg, applying, module, definitions[0][0])
+        flags = checked_cflags(req.cflags)
+        result = run_rebrew(
+            [
+                "test",
+                "--json",
+                *([] if apply else ["--no-promote"]),
+                *([f"--cflags={flags}"] if flags else []),
+                f"--target={req.rebrew_target}",
+                f"--va=0x{req.va:x}",
+                f"--size={req.size}",
+                f"--symbol={symbol}",
+                "--",
+                str(source),
+            ],
+            root,
+            COMMAND_TIMEOUT_SECONDS,
+            outcome_exit=True,
+        )
+        if _file_sha256(destination) != req.sha256 or (
+            not apply and source.read_text(encoding="utf-8") != req.candidate
+        ):
+            raise _invalid("snapshot candidate or binary changed during verification")
+        for entry in req.files:
+            if entry.path == req.source or (apply and entry.path == APPLY_METADATA_FILE):
+                continue
+            path = _project_file(root, entry.path, "source file")
+            size, digest = (
+                rewritten
+                if rewritten and entry.path == "rebrew-project.toml"
+                else (entry.size, entry.digest)
             )
-            if _file_sha256(destination) != req.sha256 or (
-                not apply and source.read_text(encoding="utf-8") != req.candidate
-            ):
-                raise _invalid("snapshot candidate or binary changed during verification")
-            for entry in req.files:
-                if entry.path == req.source or (apply and entry.path == APPLY_METADATA_FILE):
-                    continue
-                path = _project_file(root, entry.path, "source file")
-                size, digest = (
-                    rewritten
-                    if rewritten and entry.path == "rebrew-project.toml"
-                    else (entry.size, entry.digest)
-                )
-                if path.stat().st_size != size or _file_sha256(path) != digest:
-                    raise _invalid("snapshot source changed during verification")
-            result["source"] = req.source
-            if applying is not None:
-                return _applied(root, applying, result)
-            return result
+            if path.stat().st_size != size or _file_sha256(path) != digest:
+                raise _invalid("snapshot source changed during verification")
+        result["source"] = req.source
+        if applying is not None:
+            return _applied(root, applying, result)
+        return result
 
 
 def _move_identity(cfg: Any, req: ApplyCandidateRequest, module: str, name: str) -> str:
@@ -2513,7 +2560,6 @@ def retained_target_snapshot(
     *project_cflags*, when set, become the project cflags of the private copy (``apply_project_cflags``).
     """
     from rebrew.config import inventory_path_for, load_config
-    from rebrew.workspace import read_config, target_binary, targets_table
 
     if not target_name or not files:
         raise _invalid("invalid retained source manifest")
@@ -2526,66 +2572,34 @@ def retained_target_snapshot(
     scratch.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="retained-target-", dir=scratch) as temp:
         root = Path(temp).resolve()
+        destination = _stage_retained_snapshot(
+            config, root, files, target_name, sha256, binary_key, binary_url, exclusive=False
+        )
+        rewritten = apply_project_cflags(root, target_name, project_cflags)
+        cfg = load_config(root, target=target_name)
+        confined_snapshot_config(cfg, root)
+        required = (
+            inventory_path_for(cfg.reversed_dir, cfg),
+            cfg.metadata_dir / "rebrew-functions.toml",
+        )
+        if cfg.metadata_backend != "toml" or any(
+            not path.is_file()
+            or path.relative_to(root).as_posix() not in {entry.path for entry in files}
+            for path in required
+        ):
+            raise _invalid("retained target requires its inventory and TOML function metadata")
+        yield root
+        if _file_sha256(destination) != sha256:
+            raise _invalid("snapshot target binary changed during operation")
         for entry in files:
-            if (
-                entry.size < 0
-                or entry.size > 1024 * 1024
-                or not re.fullmatch(r"[0-9a-f]{64}", entry.digest)
-            ):
-                raise _invalid("invalid retained source manifest entry")
-            dest = _inside(root, entry.path, "source file", "snapshot")
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            with (
-                binary_file(config, entry.key, entry.url, entry.digest, "key") as src,
-                src.open("rb") as inp,
-            ):
-                data = inp.read(entry.size + 1)
-            if len(data) != entry.size or hashlib.sha256(data).hexdigest() != entry.digest:
-                raise _invalid("source does not match retained manifest")
-            dest.write_bytes(data)
-        target = targets_table(read_config(root)).get(target_name)
-        if not isinstance(target, dict) or not isinstance(target.get("binary"), str):
-            raise _invalid("retained project has no selected target binary")
-        destination = _inside(root, target["binary"], "target binary", "snapshot")
-        with binary_file(config, binary_key, binary_url, sha256, "binary_key") as binary:
-            if destination.exists():
-                if not destination.is_file() or _file_sha256(destination) != sha256:
-                    raise _invalid("retained target binary conflicts with snapshot")
-            else:
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(binary, destination)
-            resolved = target_binary(root, target)
-            if (
-                resolved is None
-                or resolved.resolve() != destination
-                or _file_sha256(destination) != sha256
-            ):
-                raise _invalid("snapshot target binary does not match")
-            rewritten = apply_project_cflags(root, target_name, project_cflags)
-            cfg = load_config(root, target=target_name)
-            confined_snapshot_config(cfg, root)
-            required = (
-                inventory_path_for(cfg.reversed_dir, cfg),
-                cfg.metadata_dir / "rebrew-functions.toml",
+            path = _project_file(root, entry.path, "source file")
+            size, digest = (
+                rewritten
+                if rewritten and entry.path == "rebrew-project.toml"
+                else (entry.size, entry.digest)
             )
-            if cfg.metadata_backend != "toml" or any(
-                not path.is_file()
-                or path.relative_to(root).as_posix() not in {entry.path for entry in files}
-                for path in required
-            ):
-                raise _invalid("retained target requires its inventory and TOML function metadata")
-            yield root
-            if _file_sha256(destination) != sha256:
-                raise _invalid("snapshot target binary changed during operation")
-            for entry in files:
-                path = _project_file(root, entry.path, "source file")
-                size, digest = (
-                    rewritten
-                    if rewritten and entry.path == "rebrew-project.toml"
-                    else (entry.size, entry.digest)
-                )
-                if path.stat().st_size != size or _file_sha256(path) != digest:
-                    raise _invalid("snapshot source changed during operation")
+            if path.stat().st_size != size or _file_sha256(path) != digest:
+                raise _invalid("snapshot source changed during operation")
 
 
 def verify_target(config: WorkerConfig, req: VerifyTargetRequest) -> dict[str, Any]:
@@ -2833,7 +2847,6 @@ def flag_search(config: WorkerConfig, req: FlagSearchRequest) -> dict[str, Any]:
     ):
         raise _invalid("toolchain selectors must be at most 1024 characters")
     from rebrew.config import load_config
-    from rebrew.workspace import read_config, target_binary, targets_table
 
     _check_manifest_size(req.files)
     paths = [f.path for f in req.files]
@@ -2843,78 +2856,47 @@ def flag_search(config: WorkerConfig, req: FlagSearchRequest) -> dict[str, Any]:
     scratch.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="flag-search-", dir=scratch) as temp:
         root = Path(temp).resolve()
-        for entry in req.files:
-            if (
-                entry.size < 0
-                or entry.size > 1024 * 1024
-                or not re.fullmatch(r"[0-9a-f]{64}", entry.digest)
-            ):
-                raise _invalid("invalid retained source manifest entry")
-            dest = _inside(root, entry.path, "source file", "snapshot")
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            with (
-                binary_file(config, entry.key, entry.url, entry.digest, "key") as src,
-                src.open("rb") as inp,
-                dest.open("xb") as out,
-            ):
-                data = inp.read(entry.size + 1)
-                if len(data) != entry.size or hashlib.sha256(data).hexdigest() != entry.digest:
-                    raise _invalid("source does not match retained manifest")
-                out.write(data)
+        destination = _stage_retained_snapshot(
+            config,
+            root,
+            req.files,
+            req.rebrew_target,
+            req.sha256,
+            req.binary_key,
+            req.binary_url,
+            exclusive=True,
+        )
         source = _project_file(root, req.source, "source")
         if _file_sha256(source) != req.source_sha256:
             raise _invalid("source does not match its retained digest")
-        target = targets_table(read_config(root)).get(req.rebrew_target)
-        if not isinstance(target, dict):
-            raise _invalid("retained project has no selected target")
-        configured = target.get("binary")
-        if not isinstance(configured, str):
-            raise _invalid("target binary path is missing")
-        destination = _inside(root, configured, "target binary", "snapshot")
-        with binary_file(
-            config, req.binary_key, req.binary_url, req.sha256, "binary_key"
-        ) as binary:
-            if destination.exists():
-                if not destination.is_file() or _file_sha256(destination) != req.sha256:
-                    raise _invalid("retained target binary conflicts with snapshot")
-            else:
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(binary, destination)
-            resolved_binary = target_binary(root, target)
-            if (
-                resolved_binary is None
-                or resolved_binary.resolve() != destination
-                or _file_sha256(destination) != req.sha256
-            ):
-                raise _invalid("snapshot target binary does not match")
-            cfg = load_config(root, target=req.rebrew_target)
-            remote_header_refusal(cfg, [source])
-            arguments = [
-                "match",
-                "toolchains" if req.compare_toolchains else "flags",
-                "--json",
-                "--jobs=2",
-                f"--va=0x{req.va:x}",
-            ]
-            if not req.compare_toolchains or req.with_flags:
-                arguments.append(f"--tier={req.tier}")
-            if req.compare_toolchains:
-                if not req.with_flags:
-                    arguments.remove("--jobs=2")
-                arguments += _flag(req.with_flags, "--flags")
-                if req.toolchains:
-                    arguments.append(f"--toolchains={req.toolchains}")
-                if req.exclude_toolchains:
-                    arguments.append(f"--exclude-toolchains={req.exclude_toolchains}")
-            result = run_rebrew(
-                [*arguments, f"--target={req.rebrew_target}", "--", str(source)],
-                root,
-                SEARCH_TIMEOUT_SECONDS,
-                outcome_exit=True,
-            )
-            if _file_sha256(source) != req.source_sha256 or _file_sha256(destination) != req.sha256:
-                raise _invalid("snapshot source or binary changed during flag search")
-            return result
+        cfg = load_config(root, target=req.rebrew_target)
+        remote_header_refusal(cfg, [source])
+        arguments = [
+            "match",
+            "toolchains" if req.compare_toolchains else "flags",
+            "--json",
+            "--jobs=2",
+            f"--va=0x{req.va:x}",
+        ]
+        if not req.compare_toolchains or req.with_flags:
+            arguments.append(f"--tier={req.tier}")
+        if req.compare_toolchains:
+            if not req.with_flags:
+                arguments.remove("--jobs=2")
+            arguments += _flag(req.with_flags, "--flags")
+            if req.toolchains:
+                arguments.append(f"--toolchains={req.toolchains}")
+            if req.exclude_toolchains:
+                arguments.append(f"--exclude-toolchains={req.exclude_toolchains}")
+        result = run_rebrew(
+            [*arguments, f"--target={req.rebrew_target}", "--", str(source)],
+            root,
+            SEARCH_TIMEOUT_SECONDS,
+            outcome_exit=True,
+        )
+        if _file_sha256(source) != req.source_sha256 or _file_sha256(destination) != req.sha256:
+            raise _invalid("snapshot source or binary changed during flag search")
+        return result
 
 
 def decompme_export(config: WorkerConfig, req: DecompmeRequest) -> dict[str, Any]:
@@ -3231,13 +3213,23 @@ def dispatch(config: WorkerConfig, name: str, body: bytes) -> tuple[int, bytes]:
         # operator holding the refusal has only the fixed detail to go on.
         # 4xx refusals are the caller's diagnosis, already in the wire body.
         if exc.status >= 500:
-            logger.exception("%s %s refused (%d) trace_id=%s", _request_id(), name, exc.status, _trace_id())
+            logger.exception(
+                "%s %s refused (%d) trace_id=%s", _request_id(), name, exc.status, _trace_id()
+            )
         return exc.status, error_body(exc.code, str(exc), exc.status)
     except TypeError, ValueError:
-        logger.exception("%s %s produced a reply that is not JSON trace_id=%s", _request_id(), name, _trace_id())
+        logger.exception(
+            "%s %s produced a reply that is not JSON trace_id=%s", _request_id(), name, _trace_id()
+        )
         return 500, error_body(ENGINE_ERROR, f"{name} produced a reply that is not JSON", 500)
     if len(reply) > MAX_REPLY_BYTES:
-        logger.error("%s %s produced a reply over %d bytes trace_id=%s", _request_id(), name, MAX_REPLY_BYTES, _trace_id())
+        logger.error(
+            "%s %s produced a reply over %d bytes trace_id=%s",
+            _request_id(),
+            name,
+            MAX_REPLY_BYTES,
+            _trace_id(),
+        )
         return 500, error_body(ENGINE_ERROR, f"reply exceeds {MAX_REPLY_BYTES} bytes", 500)
     return 200, reply
 
@@ -3391,7 +3383,15 @@ class _OpsHandler(BaseHTTPRequestHandler):
             _escape_log_text(urlsplit(getattr(self, "path", "") or "").path.removeprefix("/"))
             or "-"
         )
-        logger.info("%s %s %s %s %.1fms trace_id=%s", self._request_id, op, code, size, elapsed_ms, _trace_id())
+        logger.info(
+            "%s %s %s %s %.1fms trace_id=%s",
+            self._request_id,
+            op,
+            code,
+            size,
+            elapsed_ms,
+            _trace_id(),
+        )
 
     @override
     def log_message(self, fmt: str, *args: Any) -> None:  # (http.server API)
