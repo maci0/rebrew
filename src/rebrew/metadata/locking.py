@@ -4,18 +4,21 @@ import contextlib
 import threading
 lazy from collections.abc import Iterator
 lazy from pathlib import Path
+lazy from typing import Any
 
 lazy from rebrew.utils import file_lock
 lazy from rebrew.workspace.config import CONFIG_NAME
 
 #: Per-file thread locks for :func:`file_transaction` (one lock per
-#: metadata filename so the function and data stores don't contend).  Public
-#: so a caller can assert the batch write gate publishes one lock per
-#: filename rather than re-creating it per acquisition.
+#: metadata filename so the function and data stores don't contend).
 #: Reentrant: a caller may hold the lock across a compound operation whose
 #: helpers take it again (the GA batch splices a stub and promotes its STATUS
 #: through ``update_source_status`` inside the same critical section).
-METADATA_WRITE_LOCKS: dict[str, threading.RLock] = {}
+#: ``filename -> [RLock, refcount]``: the refcount keeps the map bounded by
+#: the live metadata filenames.  A lock per filename ever written would pin
+#: one ``RLock`` per name for the life of a long-lived process (verify
+#: --watch, dashboard), long after that file left the tree.
+METADATA_WRITE_LOCKS: dict[str, list[Any]] = {}
 _METADATA_WRITE_LOCKS_LOCK = threading.Lock()
 
 #: Per-thread reentrancy depth per resolved metadata path, so a nested acquisition
@@ -62,9 +65,12 @@ def file_transaction(directory: Path, filename: str) -> Iterator[None]:
     # keeps concurrent creators safe.
     path.parent.mkdir(parents=True, exist_ok=True)
     with _METADATA_WRITE_LOCKS_LOCK:
-        if filename not in METADATA_WRITE_LOCKS:
-            METADATA_WRITE_LOCKS[filename] = threading.RLock()
-        lock = METADATA_WRITE_LOCKS[filename]
+        entry = METADATA_WRITE_LOCKS.get(filename)
+        if entry is None:
+            entry = [threading.RLock(), 0]
+            METADATA_WRITE_LOCKS[filename] = entry
+        entry[1] += 1
+        lock = entry[0]
     depth: dict[str, int] | None = getattr(_METADATA_WRITE_DEPTH, "depth", None)
     if depth is None:
         depth = {}
@@ -72,20 +78,26 @@ def file_transaction(directory: Path, filename: str) -> Iterator[None]:
     # Depth is per resolved path, not per filename: a nested lock on the
     # same-named file in another root must still take that root's flock.
     key = str(path)
-    with lock:
-        if depth.get(key, 0):
-            # Reentrant: this thread already holds the lock and the flock.
-            # Re-opening the sidecar and flocking a second fd would block
-            # against the first, so only track the depth here.
-            depth[key] += 1
+    try:
+        with lock:
+            if depth.get(key, 0):
+                # Reentrant: this thread already holds the lock and the flock.
+                # Re-opening the sidecar and flocking a second fd would block
+                # against the first, so only track the depth here.
+                depth[key] += 1
+                try:
+                    yield
+                finally:
+                    depth[key] -= 1
+                return
+            depth[key] = 1
             try:
-                yield
+                with file_lock(path.with_suffix(path.suffix + ".lock")):
+                    yield
             finally:
-                depth[key] -= 1
-            return
-        depth[key] = 1
-        try:
-            with file_lock(path.with_suffix(path.suffix + ".lock")):
-                yield
-        finally:
-            depth.pop(key, None)
+                depth.pop(key, None)
+    finally:
+        with _METADATA_WRITE_LOCKS_LOCK:
+            entry[1] -= 1
+            if entry[1] == 0:
+                del METADATA_WRITE_LOCKS[filename]

@@ -140,8 +140,13 @@ def _re_analysis_key(tool: str) -> str:
     return digest
 
 
+#: Project dirs a delete left behind (still busy).  Bounded like
+#: ``compiler.compile._BATCH_OBJ_DIRS``: without a ceiling a long-lived
+#: process whose rmtree keeps failing re-queues one full rizin DB dir per
+#: analysis and never retries any of them before exit.
 _re_unremoved: list[str] = []
 _re_unremoved_lock = threading.Lock()
+_RE_UNREMOVED_MAX = 64
 
 
 def _re_remove_project_dir(proj_dir: str | None) -> None:
@@ -153,6 +158,11 @@ def _re_remove_project_dir(proj_dir: str | None) -> None:
         with _re_unremoved_lock:
             if proj_dir not in _re_unremoved:
                 _re_unremoved.append(proj_dir)
+                # Past the cap, drop the oldest queued dirs: a dir still
+                # busy after a flush retry is handed to the stale sweep's
+                # eventual reclaim rather than pinned for the process life.
+                while len(_re_unremoved) > _RE_UNREMOVED_MAX:
+                    _re_unremoved.pop(0)
 
 
 def _re_flush_unremoved() -> None:

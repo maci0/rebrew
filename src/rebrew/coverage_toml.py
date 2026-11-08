@@ -639,10 +639,14 @@ def _read_previous(path: Path) -> dict[str, Any]:
         return {}
 
 
-#: One thread lock per target name; the cross-process half is the ``flock`` in
+#: Thread lock per target name (``target -> [Lock, refcount]``); cross-process
+#: half is the ``flock`` in
 #: :func:`_coverage_write_lock`.  Both dashboards regenerate from WSGI worker
-#: threads, so an in-process lock is not optional.
-_COVERAGE_WRITE_LOCKS: dict[str, threading.Lock] = {}
+#: threads, so an in-process lock is not optional.  The entry is refcounted
+#: so the map stays bounded by the live project: a lock per distinct target
+#: name ever written would pin one ``Lock`` object per name for the life of a
+#: long-lived dashboard/verify process, long after that target left the tree.
+_COVERAGE_WRITE_LOCKS: dict[str, list[Any]] = {}
 _COVERAGE_WRITE_LOCKS_LOCK = threading.Lock()
 
 
@@ -661,11 +665,20 @@ def _coverage_write_lock(root_dir: Path, target_name: str) -> Iterator[None]:
     ``rebrew-functions.toml`` or ``rebrew-data.toml``.
     """
     with _COVERAGE_WRITE_LOCKS_LOCK:
-        lock = _COVERAGE_WRITE_LOCKS.get(target_name)
-        if lock is None:
-            lock = _COVERAGE_WRITE_LOCKS[target_name] = threading.Lock()
-    with lock, file_lock(root_dir / ".rebrew" / f"coverage-{target_name}.toml.lock"):
-        yield
+        entry = _COVERAGE_WRITE_LOCKS.get(target_name)
+        if entry is None:
+            entry = [threading.Lock(), 0]
+            _COVERAGE_WRITE_LOCKS[target_name] = entry
+        entry[1] += 1
+        lock = entry[0]
+    try:
+        with lock, file_lock(root_dir / ".rebrew" / f"coverage-{target_name}.toml.lock"):
+            yield
+    finally:
+        with _COVERAGE_WRITE_LOCKS_LOCK:
+            entry[1] -= 1
+            if entry[1] == 0:
+                del _COVERAGE_WRITE_LOCKS[target_name]
 
 
 # ---------------------------------------------------------------------------

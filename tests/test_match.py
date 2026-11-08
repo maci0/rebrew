@@ -2339,8 +2339,10 @@ class TestBatchWriteLock:
             t.join(60)
         assert total == 200
         # Reentrant: the GA batch holds the lock across update_stub_to_matched,
-        # whose STATUS promotion locks the same file again.
-        assert isinstance(METADATA_WRITE_LOCKS[name], type(threading.RLock()))
+        # whose STATUS promotion locks the same file again.  The entry is
+        # [RLock, refcount] and drops when no writer holds it, so the map
+        # cannot grow one lock per filename for the life of the process.
+        assert name not in METADATA_WRITE_LOCKS
 
 
 class TestFlagSweepDeadline:
