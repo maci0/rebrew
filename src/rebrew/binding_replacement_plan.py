@@ -12,7 +12,7 @@ import re
 from typing import Any
 lazy from pathlib import Path
 
-from rebrew.binding_replacement_conditions import _macro_change_re, target_structural_view
+from rebrew.binding_replacement_conditions import macro_change_re, target_structural_view
 from rebrew.c_parser import mask_msvc_syntax, mask_va_arg_types, parse_c_source
 from rebrew.c_rename import (
     ORDINARY_ROLES,
@@ -335,7 +335,7 @@ def _plan_binding_replacement(
                                 f"{target}: forced compiler include has unknown macro effects"
                             )
                     for header in header_contexts[target].get(path, set()):
-                        if _macro_change_re(name).search(header_text(header)):
+                        if macro_change_re(name).search(header_text(header)):
                             raise ValueError(f"{header}: include changes guard macro {name}")
                 tree, _ = parse_c_source(masked_view)
                 if tree.root_node.has_error:

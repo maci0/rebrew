@@ -5259,6 +5259,7 @@ cflags = "/O2 /Gd /MT"       # compiler flags
 | `rebrew library set` | Declare (or update) the per-library toolchain/flags override. |
 | `rebrew library remove` | Remove a rebrew-libraries.toml (revert to project defaults). |
 | `rebrew library crt-match` | CRT source cross-reference matcher. |
+| `rebrew library presence` | Locate one COFF object's function bodies in the reference binary and report present/absent per symbol. |
 | `rebrew library match` | Byte-compare reversed functions against linked static libraries (.lib/.a). Flags code the linker supplies, so it is not worth reversing. |
 | `rebrew library scan-signatures` | FLIRT signature scanner for binaries. |
 | `rebrew library init-signatures` | Copy the shared signatures into flirt_sigs/; keep existing project files. |
