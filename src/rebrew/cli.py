@@ -479,7 +479,7 @@ def _argv_format_choice() -> str | None:
     return None
 
 
-def _json_mode_active() -> bool:
+def json_mode_active() -> bool:
     """True when this invocation asked for JSON.
 
     ``--output text`` wins over ``--json``. ``auto`` stays text, including
@@ -553,7 +553,7 @@ def _install_click_error_hook() -> None:
 
     def _make_show(original: Any, usage_original: Any, usage_error: type[Any]) -> Any:
         def show(self: Any, file: Any = None) -> None:
-            if _json_mode_active():
+            if json_mode_active():
                 kind = "usage" if isinstance(self, usage_error) else "failure"
                 _write_error(kind, self.format_message(), "")
                 return
@@ -591,7 +591,7 @@ def _install_click_error_hook() -> None:
         if not getattr(original_rich, "_rebrew_hook", False):
 
             def rich_show(self: _AnyClickException) -> None:
-                if _json_mode_active():
+                if json_mode_active():
                     kind = (
                         "usage"
                         if isinstance(self, (_ClickUsageError, _TyperUsageError))
@@ -641,7 +641,7 @@ def error_exit(
     interpreted as markup or escape sequences. The JSON branch carries *msg*
     verbatim, because the value is JSON-escaped and a consumer parses it.
     """
-    use_json = json_mode or _json_mode_active()
+    use_json = json_mode or json_mode_active()
     if code == EXIT_MISMATCH:
         _emit_outcome(msg, json_mode=use_json)
         raise typer.Exit(code=code)
@@ -723,7 +723,7 @@ def _print_version(ctx: TyperContext, param: TyperParameter, value: bool) -> Non
         return
     from rebrew import __version__
 
-    if _json_mode_active():
+    if json_mode_active():
         json_print({"name": "rebrew", "version": __version__})
     else:
         Console().print(f"rebrew {__version__}")
@@ -1099,7 +1099,7 @@ def run_cli(app: Callable[[], Any]) -> None:
         # error_exit() outside click's handler: the message is already out.
         raise SystemExit(e.exit_code) from None
     except (ValueError, OSError, KeyError, RuntimeError) as e:
-        if _json_mode_active():
+        if json_mode_active():
             _write_error("failure", str(e), "")
         else:
             console.print(
@@ -1486,6 +1486,7 @@ __all__ = [
     "effective_log_level",
     "error_exit",
     "exit_130_on_interrupt",
+    "json_mode_active",
     "json_print",
     "option_default",
     "parse_va",

@@ -104,9 +104,9 @@ def _version_callback(value: bool) -> None:
     """
     if value:
         from rebrew import __version__
-        from rebrew.cli import _json_mode_active, json_print
+        from rebrew.cli import json_mode_active, json_print
 
-        if _json_mode_active():
+        if json_mode_active():
             json_print({"name": "rebrew", "version": __version__})
         else:
             _stdout_console.print(f"rebrew {__version__}")
