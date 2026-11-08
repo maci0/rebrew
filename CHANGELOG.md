@@ -1,11 +1,18 @@
 ## [Unreleased]
 
+### Added
+
+- `rebrew config` env knobs `REBREW_OPS_ALLOW_PRIVATE_DOWNLOAD` (`rebrew.config.ALLOW_PRIVATE_DOWNLOAD_ENV`, strictly parsed by `parse_env_bool`) and `REBREW_OTLP_ENDPOINT` (`rebrew.config.OTLP_ENDPOINT_ENV`), both validated at startup by `env_knob_errors` via `validate_http_url` / `parse_env_bool`; the ops presigned-URL download (`src/rebrew/ops.py` `_download` / `_check_download_host`) now refuses a host resolving to a non-public address unless `REBREW_OPS_ALLOW_PRIVATE_DOWNLOAD=1`.
+- New `fuzz` extra (`pyproject.toml`, `uv sync --group fuzz`): hash-pinned `atheris` (the `maci0` fork wheel/sdist for cp315, mirroring `../resembl`) for the coverage-guided fuzz harnesses `tests/fuzz_obj_symbol.py` and `tests/fuzz_binsync_serial.py`.
+- Go jobs owner (`services/jobs/`): unauthenticated `GET`/`HEAD /healthz` and `/health` now return request/error/latency/uptime/in-flight aggregates and `GET`/`HEAD /metrics` exposes `rebrew_jobs_*` RED counters, latency histogram and in-flight gauge; non-`GET`/`HEAD` on those paths answers `405 Allow: GET, HEAD`.
+
 ### Changed
 
 - Internal imports now name the defining module directly instead of the package root: `rebrew.report.theme`, `rebrew.dashboard.theme`, `rebrew.merge.source_paths`, `rebrew.split.source_paths` and `rebrew.c_parser.c_conditionals` are no longer re-exported; the canonical paths are `rebrew.theme`, `rebrew.source_paths` and `rebrew.c_conditionals`.
 - **Breaking:** `rebrew.compiler.preprocessed_context.capture_msvc_context` now takes `execution_backend: str | None = None` (was `str = "docker"`); `None` inherits `REBREW_CONTAINER_RUNTIME` via `rebrew.utils.container_runtime`, and an explicit `nerdctl` is accepted. Callers passing an explicit `"docker"` / `"podman"` are unchanged.
 - **Breaking:** `rebrew.binsync.serial.load_artifact` now raises `ValueError` on an unreadable or unparseable BinSync file instead of logging a warning and returning `None`; `rebrew.binsync.serial.load_many` now raises `ValueError` instead of returning `[]` on the same conditions. A missing file still returns `None` / `[]`. Callers that relied on corrupt state looking like missing state must catch `ValueError` explicitly. The BinSync export/import paths that drive these loaders now fail closed on corrupt state instead of silently exporting or importing an empty state. `rebrew.telemetry.ENDPOINT_ENV` is now an alias of `rebrew.config.OTLP_ENDPOINT_ENV` (the literal `"REBREW_OTLP_ENDPOINT"` is unchanged), so `rebrew.config.OTLP_ENDPOINT_ENV` is the canonical name.
 - **Breaking:** `rebrew-jobs` now refuses to start on a non-loopback `REBREW_JOBS_ADDR` (`log.Fatalf`) instead of logging a warning and binding anyway. A deployment that intentionally bound `rebrew-jobs` off-loopback must now bind it on loopback or reverse-proxy it locally.
+- **Breaking:** the experimental SQLite metadata store (`src/rebrew/metadata/sqlite.py`) now creates `metadata_documents(id INTEGER NOT NULL PRIMARY KEY, path TEXT NOT NULL UNIQUE, revision INTEGER NOT NULL CHECK (revision > 0), content TEXT NOT NULL)` instead of `path TEXT NOT NULL PRIMARY KEY`; `_check_database_schema` rejects an existing database whose stored `CREATE TABLE` no longer matches the expected DDL (raised as `MetadataStorageError` "unsupported metadata schema"). Existing databases created by 6.24.0 or earlier keep the old DDL and are rejected on read — rebuild the store with `rebrew metadata migrate` or restore a backup to upgrade.
 
 ### Fixed
 
