@@ -1,5 +1,10 @@
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** `rebrew.binsync.serial.load_artifact` now raises `ValueError` on an unreadable or unparseable BinSync file instead of logging a warning and returning `None`; `rebrew.binsync.serial.load_many` now raises `ValueError` instead of returning `[]` on the same conditions. A missing file still returns `None` / `[]`. Callers that relied on corrupt state looking like missing state must catch `ValueError` explicitly. The BinSync export/import paths that drive these loaders now fail closed on corrupt state instead of silently exporting or importing an empty state. `rebrew.telemetry.ENDPOINT_ENV` is now an alias of `rebrew.config.OTLP_ENDPOINT_ENV` (the literal `"REBREW_OTLP_ENDPOINT"` is unchanged), so `rebrew.config.OTLP_ENDPOINT_ENV` is the canonical name.
+- **Breaking:** `rebrew-jobs` now refuses to start on a non-loopback `REBREW_JOBS_ADDR` (`log.Fatalf`) instead of logging a warning and binding anyway. A deployment that intentionally bound `rebrew-jobs` off-loopback must now bind it on loopback or reverse-proxy it locally.
+
 ### Fixed
 
 - A coverage read of a project whose configured `shared_dir` does not exist no longer logs "skipping unreadable source directory" once per input scan. The absent directory still enters the input fingerprint, so creating it invalidates the cached view.
