@@ -250,8 +250,9 @@ plugin cache backends or remove the open upstream diskcache advisory.
   The wibo asset and metadata fetches, the toolchain media download, and the
   `GH_TOKEN`-bearing GitHub commit lookup pass `trust_env=False`, so their
   httpx calls ignore `HTTPS_PROXY`, `SSL_CERT_FILE`, and
-  `REQUESTS_CA_BUNDLE`. The other httpx clients (recompile, decomp.me, LLM,
-  MCP, ops `_download`) still honour them. The OTLP span exporter
+  `REQUESTS_CA_BUNDLE`. Ops `_download` (`src/rebrew/ops.py`) also passes
+  `trust_env=False`. The other httpx clients (recompile, decomp.me, LLM,
+  MCP) still honour them. The OTLP span exporter
   (`src/rebrew/telemetry.py`) is not an httpx client: its `urllib.request`
   POST now goes through an opener built with `ProxyHandler({})`, so ambient
   `*_proxy` variables cannot reroute it either; `REBREW_OTLP_ENDPOINT`
@@ -276,8 +277,9 @@ plugin cache backends or remove the open upstream diskcache advisory.
   cannot grant it. The check is resolve-then-fetch with no pinned
   connection, so a DNS name that flips from public to private between the
   check and the `httpx` GET (TOCTOU), or a proxy resolving the name itself
-  (ops `_download` still honours `HTTPS_PROXY`/`SSL_CERT_FILE`), can still
-  reach a private host.
+  (`_download` passes `trust_env=False`, so `HTTPS_PROXY`/`SSL_CERT_FILE`
+  do not apply; the residual is the resolve-then-fetch TOCTOU alone), can
+  still reach a private host.
 - No claim that `REBREW_OTLP_ENDPOINT` is validated only at export time.
   The knob is now validated at startup: `OTLP_ENDPOINT_ENV` in
   `src/rebrew/config.py` is `validate_http_url`-checked in
