@@ -12,7 +12,7 @@ import re
 from typing import Any
 lazy from pathlib import Path
 
-from rebrew.binding_replacement_conditions import target_structural_view
+from rebrew.binding_replacement_conditions import _macro_change_re, target_structural_view
 from rebrew.c_parser import mask_msvc_syntax, mask_va_arg_types, parse_c_source
 from rebrew.c_rename import (
     ORDINARY_ROLES,
@@ -260,6 +260,14 @@ def _plan_binding_replacement(
 
     references: list[dict[str, Any]] = []
     expected_keys: set[str] = set()
+    configured_names = {define.split("=", 1)[0] for candidate in configs for define in candidate.defines}
+    header_text_cache: dict[Path, str] = {}
+
+    def header_text(header: Path) -> str:
+        if header not in header_text_cache:
+            header_text_cache[header] = read_source_text(header)[0]
+        return header_text_cache[header]
+
     for path in sorted(files):
         text, _ = read_source_text(path)
         parsed = _parse(text)
@@ -299,9 +307,6 @@ def _plan_binding_replacement(
                             f"{target}: guard state conflicts with target define {name}"
                         )
                 masked_view, names = target_structural_view(text, state)
-                configured_names = {
-                    define.split("=", 1)[0] for candidate in configs for define in candidate.defines
-                }
                 target_names = {define.split("=", 1)[0] for define in cfg.defines}
                 for name in names:
                     if name not in configured_names:
@@ -330,10 +335,7 @@ def _plan_binding_replacement(
                                 f"{target}: forced compiler include has unknown macro effects"
                             )
                     for header in header_contexts[target].get(path, set()):
-                        header_text, _ = read_source_text(header)
-                        if re.search(
-                            rf"(?m)^\s*#\s*(?:define|undef)\s+{re.escape(name)}\b", header_text
-                        ):
+                        if _macro_change_re(name).search(header_text(header)):
                             raise ValueError(f"{header}: include changes guard macro {name}")
                 tree, _ = parse_c_source(masked_view)
                 if tree.root_node.has_error:

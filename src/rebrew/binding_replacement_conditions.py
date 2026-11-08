@@ -3,9 +3,17 @@
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 
 from rebrew.c_conditionals import conditional_fragments, structural_variants
 from rebrew.c_parser import mask_msvc_syntax, mask_va_arg_types, parse_c_source
+
+
+@lru_cache(maxsize=256)
+def _macro_change_re(name: str) -> re.Pattern[str]:
+    # ``re.escape(name)`` defeats the module-level pattern cache, so without
+    # this cache every call recompiles the same escaped pattern.
+    return re.compile(rf"(?m)^\s*#\s*(?:define|undef)\s+{re.escape(name)}\b")
 
 
 def target_structural_view(text: str, macros: dict[str, bool]) -> tuple[bytes, list[str]]:
@@ -35,8 +43,7 @@ def target_structural_view(text: str, macros: dict[str, bool]) -> tuple[bytes, l
         choices.append(0 if value else 1)
         names.append(name)
     for name in names:
-        pattern = rf"(?m)^\s*#\s*(?:define|undef)\s+{re.escape(name)}\b"
-        if re.search(pattern, text):
+        if _macro_change_re(name).search(text):
             raise ValueError(f"source changes macro state: {name}")
     for candidate in structural_variants(raw, fragments):
         valid = True
