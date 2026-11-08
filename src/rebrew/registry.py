@@ -411,6 +411,31 @@ def merge_provider_dict(
 #: (this function) must not interleave with another such caller: two composites
 #: running at once could leave toolchains from one discovery beside mutations
 #: from the other, and a reader could observe that mixed system.
+
+#: Steps a registry module declares so :func:`refresh_all` composes them
+#: without importing every registry.  Each entry is
+#: ``(group, module, refresh_name, count_mode)``: *group* without the
+#: ``rebrew.`` prefix, *module* imported lazily, *refresh_name* the
+#: zero-argument refresh function, and *count_mode* how that refresh's
+#: return value maps to the reported count (``"len"`` for a mapping/list,
+#: ``"first_len"`` for a tuple whose first element is counted,
+#: ``"update"`` for a dict of counts, ``None`` for a memo invalidation).
+#: Adding a registry is one row here, not another import in
+#: ``refresh_all``.
+_REFRESH_STEPS: tuple[tuple[str, str, str, str | None], ...] = (
+    ("toolchains", "rebrew.compiler.toolchain", "refresh_toolchain_registry", "len"),
+    ("decompiler_backends", "rebrew.decompiler", "refresh_backends", "len"),
+    ("mutations", "rebrew.matcher.mutator", "refresh_mutations", "len"),
+    ("flag_sets", "rebrew.matcher.compiler", "refresh_flag_sets", "first_len"),
+    ("docker_backed_profiles", "rebrew.matcher.compiler", "refresh_docker_backed_profiles", None),
+    ("library_presets", "rebrew.metadata.functions", "refresh_library_presets", "len"),
+    ("metadata_backends", "rebrew.metadata.storage", "refresh_metadata_backends", "len"),
+    ("binary_detectors", "rebrew.toolchain_detect", "refresh_detection_tables", "update"),
+    ("binary_loaders", "rebrew.formats.binary_loader", "refresh_loaders", "len"),
+    ("cache_backends", "rebrew.compiler.cache", "refresh_cache_backends", "len"),
+    ("discoverers", "rebrew.discover", "refresh_discoverers", "len"),
+)
+
 _REFRESH_ALL_LOCK = threading.Lock()
 
 
@@ -440,29 +465,19 @@ def refresh_all() -> dict[str, int]:
     """
     global _entry_points_snapshot
 
-    from rebrew import decompiler, discover, toolchain_detect
-    from rebrew.compiler import cache as compile_cache
-    from rebrew.compiler import toolchain
-    from rebrew.formats import binary_loader
-    from rebrew.matcher import compiler, mutator
-    from rebrew.metadata import functions as metadata
-    from rebrew.metadata import storage as metadata_storage
-
     with _REFRESH_ALL_LOCK:
         with _entry_points_lock:
             _entry_points_snapshot = None
         counts: dict[str, int] = {}
-        counts["toolchains"] = len(toolchain.refresh_toolchain_registry())
-        counts["decompiler_backends"] = len(decompiler.refresh_backends())
-        counts["mutations"] = len(mutator.refresh_mutations())
-        counts["flag_sets"] = len(compiler.refresh_flag_sets()[0])
-        compiler.refresh_docker_backed_profiles()
-        counts["library_presets"] = len(metadata.refresh_library_presets())
-        counts["metadata_backends"] = len(metadata_storage.refresh_metadata_backends())
-        counts.update(toolchain_detect.refresh_detection_tables())
-        counts["binary_loaders"] = len(binary_loader.refresh_loaders())
-        counts["cache_backends"] = len(compile_cache.refresh_cache_backends())
-        counts["discoverers"] = len(discover.refresh_discoverers())
+        for group, module, refresh, how in _REFRESH_STEPS:
+            if how is None:
+                getattr(importlib.import_module(module), refresh)()
+            elif how == "update":
+                counts.update(getattr(importlib.import_module(module), refresh)())
+            elif how == "first_len":
+                counts[group] = len(getattr(importlib.import_module(module), refresh)()[0])
+            else:
+                counts[group] = len(getattr(importlib.import_module(module), refresh)())
         return counts
 
 
