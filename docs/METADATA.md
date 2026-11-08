@@ -168,7 +168,9 @@ journal and sidecar (`.rebrew/metadata-journal.toml`,
 `--compare` baseline (`.rebrew/verify_cache.toml` /
 `.rebrew/verify_baseline.toml`, or the same filenames under
 `.rebrew/targets/<sha256-of-exact-target-name>/`), and the Ghidra
-sync dedup state (`.rebrew/ghidra_sync_state.json`). The TOML and
+sync dedup state (`.rebrew/ghidra_sync_state.json`), and the
+metadata-doc parsed-document caches (`.rebrew/metadata-doc/*.json`,
+hand-reviewed fingerprints). The TOML and
 SQLite backup commands (`rebrew metadata backup`) carry the whole
 `.rebrew/` extras set; the manual copy procedure below must too.
 Everything else is
@@ -181,6 +183,20 @@ RPO is the last successful backup of the files above; RTO is a file
 copy restore plus `rebrew verify` for the touched target. There is no
 point-in-time recovery: logical corruption is recovered by restoring
 the whole backup set, not by replay.
+
+Every `rebrew metadata backup` bundle carries a manifest
+(`rebrew-backup.manifest.json`, beside the SQLite database or inside
+the TOML bundle directory) listing each backed-up file with its size
+and sha256. Restore verifies the whole manifest before installing
+anything and refuses a bundle with a missing or corrupted file, so a
+backup is re-opened and proven before it is trusted. Keep the most
+recent backup alongside the current one: the manifest detects a torn
+or truncated copy, and the previous backup is the only copy of the
+pre-restore state if a restore is pointed at the wrong bundle. A
+backup never restored is a hypothesis, not a backup: run the restore
+procedure against a scratch copy of the latest bundle (not the live
+tree) whenever the backup job, the backend, or the restore command
+changes, and after any incident in which the live tree was lost.
 
 Backup procedure: with no `rebrew` process running (the TOML writers
 hold `.lock` sidecars and the SQLite writer holds its own transaction),
@@ -211,6 +227,31 @@ an uncommitted transaction against a database that may already have
 been replaced. A corrupt or wrong-schema database is refused with
 `MetadataStorageError` and never silently replaced; restore it from
 the backup copy or migrate back to TOML from a TOML backup.
+
+### PostgreSQL backup and restore
+
+The PostgreSQL backend keeps its documents in the database, so there
+is no rebrew-side backup command: `rebrew metadata backup` and
+`restore` reject it rather than copying inactive local files. Back up
+the database and the project files as separate pieces, in this order:
+
+```bash
+# 1. Database (the durable documents). --format=custom keeps it
+#    restorable with pg_restore into a fresh cluster.
+pg_dump --format=custom --file=rebrew-metadata.backup.dump <dsn>
+# 2. Project files (sources, rebrew-project.toml, .rebrew/ extras).
+rebrew metadata backup --dir /off-tree/backups   # or the manual copy above
+```
+
+Restore in the same order: create the database and role, restore with
+`pg_restore --dbname=<dsn> rebrew-metadata.backup.dump`, then install
+the project files and run `rebrew doctor` and `rebrew verify` as
+above. The dump is the only copy of the PostgreSQL documents: keep it
+off-tree like any other backup, and keep the most recent dump
+alongside the current one (a restore pointed at a bad dump is itself
+recoverable only from the previous one). There is no point-in-time
+recovery here either: logical corruption is recovered by restoring
+the whole dump, not by replay.
 
 Assembly evidence on definitions without a VA and target-scoped support-file
 purposes live under `[source]` in format-3 `rebrew-functions.toml`, including

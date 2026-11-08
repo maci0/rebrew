@@ -1068,6 +1068,59 @@ def check_layout_package(cfg: ProjectConfig) -> CheckResult:
     )
 
 
+def check_backup_readiness(cfg: ProjectConfig) -> CheckResult:
+    """Report whether the durable stores can be backed up and restored.
+
+    Read-only: this never writes a backup.  A project whose durable
+    stores are missing, or whose active backend has no rebrew-side
+    backup command (PostgreSQL), is not restore-ready — the operator
+    must know that before the tree is lost, not after.
+    """
+    backend = getattr(cfg, "metadata_backend", "toml")
+    if backend == "pgsql":
+        return CheckResult(
+            name="Backup readiness",
+            status=_WARN,
+            message="PostgreSQL backend has no rebrew-side backup command",
+            fix="Back up with pg_dump (see docs/METADATA.md#postgresql-backup-and-restore) "
+            "plus `rebrew metadata backup` for the project files.",
+        )
+    root = Path(cfg.root)
+    from rebrew.metadata.sqlite import _extra_durable_sources, _toml_store_trees
+
+    if backend == "sqlite":
+        database = root / "rebrew-metadata.sqlite3"
+        if not database.is_file():
+            return CheckResult(
+                name="Backup readiness",
+                status=_WARN,
+                message=f"Metadata database not found: {database}",
+                fix="Create it with `rebrew metadata migrate sqlite`.",
+            )
+        extras = len(_extra_durable_sources(root))
+        return CheckResult(
+            name="Backup readiness",
+            status=_OK,
+            message=f"SQLite database + {extras} .rebrew/ extra(s) back up with "
+            "`rebrew metadata backup --dir <off-tree>`",
+        )
+    trees = _toml_store_trees(root)
+    if not trees:
+        return CheckResult(
+            name="Backup readiness",
+            status=_WARN,
+            message=f"No managed TOML stores under {root}",
+            fix="Create them with `rebrew intake` or restore an existing backup.",
+        )
+    extras = len(_extra_durable_sources(root))
+    return CheckResult(
+        name="Backup readiness",
+        status=_OK,
+        message=f"{len(trees)} TOML store tree(s) + {extras} .rebrew/ extra(s) back up with "
+        "`rebrew metadata backup --dir <off-tree>`",
+    )
+
+
 def run_doctor(target: str | None = None) -> DoctorReport:
     """Run all diagnostic checks and return a report."""
     report = DoctorReport()
@@ -1106,6 +1159,7 @@ def run_doctor(target: str | None = None) -> DoctorReport:
     report.checks.append(check_flirt_sigs(cfg))
     report.checks.append(check_ghidra_sync(cfg))
     report.checks.append(check_binsync_state(cfg))
+    report.checks.append(check_backup_readiness(cfg))
 
     return report
 

@@ -19,6 +19,7 @@ from rebrew.metadata.sqlite import (
     backup_metadata_toml,
     restore_metadata_database,
     restore_metadata_toml,
+    verify_backup_manifest,
 )
 from rebrew.metadata.storage import metadata_store
 from rebrew.metadata_transfer import migrate_metadata
@@ -304,6 +305,96 @@ def _write_uploads_ledger(root: Path) -> Path:
     return path
 
 
+def _reseal_manifest(bundle: Path) -> None:
+    """Recompute the manifest hashes for a bundle whose payload was corrupted.
+
+    Restore verifies the manifest before the payload validators, so a
+    test that corrupts a payload and expects the payload validator's
+    message must re-seal the manifest or the manifest check fires first.
+    """
+    import hashlib
+
+    manifest = bundle / "rebrew-backup.manifest.json"
+    manifest.chmod(0o644)
+    document = json.loads(manifest.read_text(encoding="utf-8"))
+    for entry in document["files"]:
+        target = bundle / entry["path"]
+        payload = target.read_bytes()
+        entry["size"] = len(payload)
+        entry["sha256"] = hashlib.sha256(payload).hexdigest()
+    manifest.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+class TestBackupManifest:
+    """The bundle manifest proves a backup is complete before restore."""
+
+    def test_toml_backup_writes_manifest_covering_every_file(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")
+        _write_extra_durable(tmp_path)
+        bundle = backup_metadata_toml(tmp_path, tmp_path / "off-tree")
+        checked = verify_backup_manifest(bundle)
+        assert "rebrew-functions.toml" in checked
+        assert ".rebrew/ga_runs.jsonl" in checked
+        assert ".rebrew/decompme-uploads.json" in checked
+        assert ".rebrew/sync/baseline.toml" in checked
+
+    def test_restore_refuses_bundle_with_corrupted_payload(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")
+        bundle = backup_metadata_toml(tmp_path, tmp_path / "off-tree")
+        bad = bundle / "rebrew-functions.toml"
+        bad.chmod(0o644)
+        bad.write_text("format=3\nchanged=1\n", encoding="utf-8")
+        with pytest.raises(MetadataStorageError, match="manifest verification failed"):
+            restore_metadata_toml(bundle, tmp_path)
+        assert (tmp_path / "rebrew-functions.toml").read_text(encoding="utf-8") == "format=3\n"
+
+    def test_restore_refuses_bundle_with_missing_file(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")
+        _write_extra_durable(tmp_path)
+        bundle = backup_metadata_toml(tmp_path, tmp_path / "off-tree")
+        (bundle / ".rebrew" / "ga_runs.jsonl").unlink()
+        with pytest.raises(MetadataStorageError, match="missing file"):
+            restore_metadata_toml(bundle, tmp_path)
+
+    def test_restore_refuses_bundle_without_manifest(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")
+        bundle = backup_metadata_toml(tmp_path, tmp_path / "off-tree")
+        (bundle / "rebrew-backup.manifest.json").unlink()
+        with pytest.raises(MetadataStorageError, match="no manifest"):
+            restore_metadata_toml(bundle, tmp_path)
+
+    def test_sqlite_backup_writes_manifest_and_restore_verifies_it(self, tmp_path: Path) -> None:
+        _project(tmp_path)
+        store = metadata_store(tmp_path / "rebrew-functions.toml", backend="sqlite", root=tmp_path)
+        store.write({"format": 2}, "test")
+        dest = backup_metadata_database(tmp_path, tmp_path / "off-tree")
+        checked = verify_backup_manifest(tmp_path / "off-tree")
+        assert "rebrew-metadata.backup.sqlite3" in checked
+        # A corrupted database copy (same size, flipped byte) is refused
+        # by the manifest before sqlite ever opens it.
+        bad = tmp_path / "off-tree" / "rebrew-metadata.backup.sqlite3"
+        bad.chmod(0o644)
+        payload = bytearray(bad.read_bytes())
+        payload[-1] ^= 0xFF
+        bad.write_bytes(bytes(payload))
+        with pytest.raises(MetadataStorageError, match="manifest verification failed"):
+            restore_metadata_database(dest, tmp_path)
+
+    def test_metadata_doc_cache_rides_along(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")
+        cache_dir = tmp_path / ".rebrew" / "metadata-doc"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        cached = cache_dir / "rebrew-functions.toml.json"
+        cached.write_text('{"version": 1, "fingerprint": []}\n', encoding="utf-8")
+        bundle = backup_metadata_toml(tmp_path, tmp_path / "off-tree")
+        backed = bundle / ".rebrew" / "metadata-doc" / "rebrew-functions.toml.json"
+        assert backed.read_text(encoding="utf-8") == '{"version": 1, "fingerprint": []}\n'
+        assert ".rebrew/metadata-doc/rebrew-functions.toml.json" in verify_backup_manifest(bundle)
+        cached.unlink()
+        restore_metadata_toml(bundle, tmp_path)
+        assert cached.read_text(encoding="utf-8") == '{"version": 1, "fingerprint": []}\n'
+
+
 class TestTomlBackup:
     def test_round_trip_covers_all_stores_and_dropins(self, tmp_path: Path) -> None:
         (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")
@@ -395,6 +486,7 @@ class TestTomlBackup:
         bad = bundle / ".rebrew" / "decompme-uploads.json"
         bad.chmod(0o644)
         bad.write_text('{"abc": {"slug": "xyz"}\n', encoding="utf-8")
+        _reseal_manifest(bundle)
         with pytest.raises(MetadataStorageError, match="corrupt backup"):
             restore_metadata_toml(bundle, tmp_path)
         assert (tmp_path / "rebrew-functions.toml").read_text(encoding="utf-8") == "format=3\n"
@@ -406,6 +498,7 @@ class TestTomlBackup:
         ga = bundle / ".rebrew" / "ga_runs.jsonl"
         ga.chmod(0o644)
         ga.write_text("not json\n", encoding="utf-8")
+        _reseal_manifest(bundle)
         with pytest.raises(MetadataStorageError, match="corrupt backup line 1"):
             restore_metadata_toml(bundle, tmp_path)
         assert (tmp_path / ".rebrew" / "ga_runs.jsonl").read_text() == (
@@ -419,6 +512,7 @@ class TestTomlBackup:
         uploads = bundle / ".rebrew" / "decompme-uploads.json"
         uploads.chmod(0o644)
         uploads.write_text('{"a": 5}', encoding="utf-8")
+        _reseal_manifest(bundle)
         with pytest.raises(MetadataStorageError, match="corrupt backup"):
             restore_metadata_toml(bundle, tmp_path)
         assert (
@@ -447,6 +541,7 @@ class TestTomlBackup:
         bad = bundle / "rebrew-functions.toml"
         bad.chmod(0o644)
         bad.write_text("not toml [[[\n", encoding="utf-8")
+        _reseal_manifest(bundle)
         with pytest.raises(MetadataStorageError):
             restore_metadata_toml(bundle, tmp_path)
         assert (tmp_path / "rebrew-functions.toml").read_text(encoding="utf-8") == "format=3\n"

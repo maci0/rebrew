@@ -314,6 +314,14 @@ TOML_BACKUP_DIRNAME = METADATA_TOML_BACKUP_DIRNAME
 #: ``metadata_dir`` would strand the restored stores.
 _PROJECT_CONFIG_NAME = "rebrew-project.toml"
 
+#: Manifest written into every backup bundle: the source-relative path of
+#: every file backed up with its byte count and sha256, so a later reader
+#: can confirm the bundle is complete and uncorrupted before restoring
+#: (a backup never re-opened is a hypothesis, not a backup).  The
+#: manifest is generated data, not durable state; restores ignore it.
+BACKUP_MANIFEST_FILENAME = "rebrew-backup.manifest.json"
+BACKUP_MANIFEST_VERSION = 1
+
 #: Durable state under ``.rebrew/`` that git never sees (``.rebrew/`` is
 #: gitignored) and that no regenerating command reproduces.  The GA log
 #: holds win fingerprints a re-run cannot reproduce, and the BinSync
@@ -415,9 +423,86 @@ def _extra_mode(source: Path) -> int:
     return _UPLOADS_MODE if source.name == "decompme-uploads.json" else 0o444
 
 
+def _write_backup_manifest(bundle: Path, files: list[tuple[str, bytes]]) -> None:
+    """Write the bundle manifest: relative path, size and sha256 per file.
+
+    The manifest lists every file the backup wrote (never the manifest
+    itself) so a later reader can confirm the bundle is complete before
+    restoring.  ``files`` is ``(relative_path, payload)`` in write order.
+    """
+    import json as _json
+
+    entries = [
+        {
+            "path": rel,
+            "size": len(payload),
+            "sha256": hashlib.sha256(payload).hexdigest(),
+        }
+        for rel, payload in files
+    ]
+    document = {"version": BACKUP_MANIFEST_VERSION, "files": entries}
+    from rebrew.utils import atomic_write_bytes
+
+    atomic_write_bytes(
+        bundle / BACKUP_MANIFEST_FILENAME,
+        (_json.dumps(document, indent=2, sort_keys=True) + "\n").encode("utf-8"),
+        mode=0o444,
+    )
+
+
+def verify_backup_manifest(bundle: Path) -> list[str]:
+    """Confirm every file the bundle manifest lists is present and intact.
+
+    Returns the manifest's relative paths on success.  A bundle with no
+    manifest (an older backup), a corrupt manifest, a missing file or a
+    size/sha256 mismatch raises ``MetadataStorageError`` — restore must
+    not trust a bundle it has not re-opened.  Extra files the manifest
+    does not list are allowed (the database backup carries the manifest
+    beside the ``.sqlite3`` file).
+    """
+    import json as _json
+
+    manifest = bundle / BACKUP_MANIFEST_FILENAME
+    if not manifest.is_file():
+        raise MetadataStorageError(
+            f"{manifest}: backup has no manifest; refusing unverified restore"
+        )
+    try:
+        document = _json.loads(manifest.read_bytes())
+    except (ValueError, OSError) as exc:
+        raise MetadataStorageError(f"{manifest}: corrupt backup manifest: {exc}") from exc
+    if not isinstance(document, dict) or document.get("version") != BACKUP_MANIFEST_VERSION:
+        raise MetadataStorageError(f"{manifest}: unsupported backup manifest version")
+    entries = document.get("files")
+    if not isinstance(entries, list):
+        raise MetadataStorageError(f"{manifest}: corrupt backup manifest: files is not a list")
+    checked: list[str] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise MetadataStorageError(
+                f"{manifest}: corrupt backup manifest: entry is not an object"
+            )
+        rel = entry.get("path")
+        size = entry.get("size")
+        digest = entry.get("sha256")
+        if not isinstance(rel, str) or not isinstance(size, int) or not isinstance(digest, str):
+            raise MetadataStorageError(f"{manifest}: corrupt backup manifest: entry is incomplete")
+        target = bundle / rel
+        if not target.is_file():
+            raise MetadataStorageError(f"{target}: backup manifest lists a missing file")
+        payload = target.read_bytes()
+        if len(payload) != size or hashlib.sha256(payload).hexdigest() != digest:
+            raise MetadataStorageError(f"{target}: backup manifest verification failed")
+        checked.append(rel)
+    if not checked:
+        raise MetadataStorageError(f"{manifest}: backup manifest lists no files")
+    return checked
+
+
 def _extra_durable_sources(root: Path) -> list[Path]:
     """GA log, BinSync baselines, upload ledger, journal, replication
-    sidecar, verify cache/baseline and Ghidra sync state, when present.
+    sidecar, verify cache/baseline, Ghidra sync state and the
+    metadata-doc parsed-document caches, when present.
 
     All live under the gitignored ``.rebrew/`` directory, so a backup
     that only walks the TOML store trees silently drops them: the
@@ -456,6 +541,11 @@ def _extra_durable_sources(root: Path) -> list[Path]:
     ghidra_state = root / _GHIDRA_SYNC_STATE_REL
     if ghidra_state.is_file():
         sources.append(ghidra_state)
+    doc_cache_dir = root / ".rebrew" / "metadata-doc"
+    if doc_cache_dir.is_dir():
+        # Parsed-document caches carry hand-reviewed fingerprints; a
+        # stale copy degrades to a re-parse, never a wrong verdict.
+        sources.extend(sorted(p for p in doc_cache_dir.iterdir() if p.is_file()))
     sync_dir = root / _SYNC_DIR_REL
     if sync_dir.is_dir():
         sources.extend(sorted(p for p in sync_dir.iterdir() if p.suffix == ".toml" and p.is_file()))
@@ -571,12 +661,15 @@ def backup_metadata_toml(root: Path, backup_dir: Path) -> Path:
     if config is not None:
         sources.append(config)
     sources.extend(extras)
+    written: list[tuple[str, bytes]] = []
     for source in sources:
         dest = bundle / source.relative_to(root)
         payload = source.read_bytes()
         atomic_write_bytes(dest, payload, mode=_extra_mode(source))
         if dest.read_bytes() != payload:
             raise MetadataStorageError(f"{dest}: backup verification failed")
+        written.append((str(source.relative_to(root)), payload))
+    _write_backup_manifest(bundle, written)
     return bundle
 
 
@@ -594,6 +687,7 @@ def restore_metadata_toml(bundle: Path, root: Path) -> tuple[Path, ...]:
 
     if not bundle.is_dir():
         raise FileNotFoundError(f"no metadata backup bundle at {bundle}")
+    verify_backup_manifest(bundle)
     planned: list[Path] = []
     config = bundle / _PROJECT_CONFIG_NAME
     trees = _toml_store_trees(bundle)
@@ -714,12 +808,15 @@ def backup_metadata_database(root: Path, backup_dir: Path) -> Path:
             raise MetadataStorageError(f"{dest}: backup is empty but source holds {src_count} rows")
     from rebrew.utils import atomic_write_bytes
 
+    written: list[tuple[str, bytes]] = [(METADATA_BACKUP_FILENAME, dest.read_bytes())]
     for extra in _extra_durable_sources(root):
         payload = extra.read_bytes()
         copied = backup_dir / extra.relative_to(root)
         atomic_write_bytes(copied, payload, mode=_extra_mode(extra))
         if copied.read_bytes() != payload:
             raise MetadataStorageError(f"{copied}: backup verification failed")
+        written.append((str(extra.relative_to(root)), payload))
+    _write_backup_manifest(backup_dir, written)
     return dest
 
 
@@ -744,6 +841,7 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
 
     if not backup.is_file():
         raise FileNotFoundError(f"no metadata database backup at {backup}")
+    verify_backup_manifest(backup.parent)
     check = sqlite3.connect(backup.as_uri() + "?mode=ro", uri=True, timeout=30)
     try:
         _check_database_schema(check, backup)

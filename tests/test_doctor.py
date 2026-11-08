@@ -14,6 +14,7 @@ from rebrew.doctor import (
     CheckResult,
     DoctorReport,
     check_arch_format,
+    check_backup_readiness,
     check_bin_dir,
     check_config_parse,
     check_function_list,
@@ -961,6 +962,45 @@ class TestRedundantCflagsMoved:
         import rebrew.doctor as _d
 
         assert not hasattr(_d, "check_redundant_cflags")
+
+
+class TestBackupReadiness:
+    """The doctor reports whether the durable stores can be backed up."""
+
+    def _cfg(self, tmp_path: Path, backend: str = "toml"):
+        (tmp_path / "src").mkdir(exist_ok=True)
+        extra = (
+            '\n[metadata.pgsql]\ndsn = "service=rebrew"\nproject = "game"\n'
+            if backend == "pgsql"
+            else ""
+        )
+        (tmp_path / "rebrew-project.toml").write_text(
+            '[project]\ndefault_target = "game"\nshared_dir = ""\n'
+            '[targets.game]\nbinary = "game.exe"\nreversed_dir = "src"\n'
+            'module = "GAME"\n'
+            f'[metadata]\nbackend = "{backend}"\n{extra}'
+        )
+        from rebrew.config import load_config
+
+        return load_config(tmp_path)
+
+    def test_toml_stores_present_is_ready(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")
+        result = check_backup_readiness(self._cfg(tmp_path))
+        assert result.status == _OK, result.message
+
+    def test_no_stores_warns(self, tmp_path: Path) -> None:
+        result = check_backup_readiness(self._cfg(tmp_path))
+        assert result.status == _WARN, result.message
+
+    def test_pgsql_warns_with_pg_dump_fix(self, tmp_path: Path) -> None:
+        result = check_backup_readiness(self._cfg(tmp_path, "pgsql"))
+        assert result.status == _WARN, result.message
+        assert "pg_dump" in result.fix
+
+    def test_missing_sqlite_database_warns(self, tmp_path: Path) -> None:
+        result = check_backup_readiness(self._cfg(tmp_path, "sqlite"))
+        assert result.status == _WARN, result.message
 
 
 class TestCheckBinsyncState:

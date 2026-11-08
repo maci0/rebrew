@@ -1096,10 +1096,15 @@ the managed TOML store trees, the project config, the GA log
 into `DIR/rebrew-metadata.backup.toml/`, verifying every copy; SQLite makes
 the database copy through its online backup API at
 `DIR/rebrew-metadata.backup.sqlite3` with the same `.rebrew/` sidecars beside
-it. It raises when there is nothing to back up. `rebrew metadata restore --file
-FILE` validates a backup (TOML bundle directory or SQLite file), preserves the
-live stores as `.before-restore` sidecars, and installs the backup, GA log,
-and baselines. Both support `--json` and `--target`.
+it. Both write a manifest (`rebrew-backup.manifest.json`) listing every
+backed-up file with its size and sha256. It raises when there is nothing to
+back up. `rebrew metadata restore --file FILE` verifies that manifest and
+refuses a bundle with a missing or corrupted file, preserves the live stores
+as `.before-restore` sidecars, and installs the backup, GA log, baselines
+and the rest of the `.rebrew/` extras. Both support `--json` and `--target`.
+The PostgreSQL backend has no rebrew-side backup: use `pg_dump` /
+`pg_restore` for the database and this command for the project files (see
+[PostgreSQL backup and restore](METADATA.md#postgresql-backup-and-restore)).
 
 ## Source
 
