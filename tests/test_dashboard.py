@@ -858,8 +858,8 @@ class TestHandle:
         assert 'timeZoneName: "short"' in body
         assert "Reload dashboard" in body
         assert 'retry-summary").focus()' in body
-        assert "No status changes recorded yet" in body
-        assert "No section stats" in body
+        assert "No status changes recorded for this target yet" in body
+        assert "No section stats for this target yet" in body
         # The unfiltered functions empty state names the command that fills it,
         # in one sentence ("No functions for this target yet. Match work, run
         # ..." read as two).
@@ -2430,7 +2430,7 @@ class TestEncodingNegotiation:
 
     @pytest.mark.parametrize(
         ("accept", "expected_body"),
-        [("zstd", 12766), ("gzip", None)],
+        [("zstd", 12773), ("gzip", None)],
     )
     def test_the_documented_entry_flight_matches_the_wire(
         self, accept: str, expected_body: int | None

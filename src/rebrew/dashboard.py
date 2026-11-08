@@ -38,7 +38,7 @@ Retry-After. Request bodies are never read and force connection closure.
 Successful responses negotiate zstd then gzip with quality weights. ETags key
 on the live input version or portable file state plus the exact route/query;
 health is no-store. Static assets are content-hashed and precompressed. The
-entry checkpoint measured 12766 B zstd / 13399 B gzip against a 13600 B budget;
+entry checkpoint measured 12773 B zstd / 13404 B gzip against a 13600 B budget;
 host zlib versions can change gzip size. Tests enforce the wire budget.
 Reload re-reads the live view; view/target/filter navigation is stored in the
 URL hash. Details, API schema and transfer measurements live in
@@ -415,7 +415,7 @@ function setGlobalsEmptyMessage() {
     el.innerHTML = "No globals match this search. <button type='button' id='empty-clear-gq' class='link-button'>Clear search</button> or try another name.";
     bindEmptyClear("empty-clear-gq", "gq");
   } else {
-    el.innerHTML = "No globals recorded for this target. Register globals in data metadata, then choose Reload above.";
+    el.innerHTML = "No globals recorded for this target yet. Register globals in data metadata, then choose Reload above.";
   }
 }
 function syncError() {
@@ -1528,7 +1528,7 @@ __STATUS_FORCED__
 <div id="view-sections" class="view-panel" role="tabpanel" tabindex="-1" aria-labelledby="tab-sections" hidden>
 <h2 class="visually-hidden">Sections</h2>
 <p id="sections-hint" hidden></p>
-<p id="sections-empty" hidden>No section stats. Check the target binary, then choose Reload above.</p>
+<p id="sections-empty" hidden>No section stats for this target yet. Check the target binary, then choose Reload above.</p>
 <div id="sections-results" class="table-scroll" tabindex="0" role="region"
   aria-label="Section results" aria-busy="false" hidden>
 <table id="sections-rows"><caption class="visually-hidden">Per-section cell stats</caption><thead><tr>
@@ -1558,7 +1558,7 @@ __STATUS_FORCED__
 <div id="view-history" class="view-panel" role="tabpanel" tabindex="-1" aria-labelledby="tab-history" hidden>
 <h2 class="visually-hidden">Status history</h2>
 <p id="history-hint" hidden></p>
-<p id="history-empty" hidden>No status changes recorded yet. Comparisons record history, then choose Reload above.</p>
+<p id="history-empty" hidden>No status changes recorded for this target yet. Comparisons record history, then choose Reload above.</p>
 <div id="history-results" class="table-scroll" tabindex="0" role="region"
   aria-label="History results" aria-busy="false" hidden>
 <table id="history-rows"><caption class="visually-hidden">Recent status changes</caption><thead><tr>
