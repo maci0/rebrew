@@ -547,7 +547,12 @@ def _warn_explicit_toolchain(binary: Path, profile: str, notes: list[str]) -> No
 
         tc = detect_toolchain(binary)
     except Exception:
-        log.debug("toolchain detection failed for %s", binary, exc_info=True)
+        log.warning(
+            "toolchain detection failed for %s; explicit profile %s still wins",
+            binary,
+            profile,
+            exc_info=True,
+        )
         return
     from rebrew.init import warn_profile_family_mismatch, warn_profile_mismatch
 

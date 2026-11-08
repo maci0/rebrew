@@ -1277,9 +1277,12 @@ def main(
             tc = detect_toolchain(binary_path)
             warn_profile_family_mismatch(compiler_profile, tc)
         except Exception:
-            logger.debug(
-                "toolchain detection failed for %s", binary_path, exc_info=True
-            )  # detection is best-effort; keep the profile default
+            logger.warning(
+                "toolchain detection failed for %s; keeping the profile default %s",
+                binary_path,
+                compiler_profile,
+                exc_info=True,
+            )
 
     # Auto-detect CRT linkage when the binary is already in place: a dynamic
     # CRT (msvcrt.dll import) requires /MD rather than the /MT default.

@@ -1220,6 +1220,10 @@ def _commit_definitions(
         )
     except Exception as exc:
         if publisher is not None:
+            # A custom publisher (the coordinated stage) owns rollback of
+            # the output bytes and of the metadata stores it journaled, so
+            # undoing the retarget here would double-restore under a lock
+            # the transaction no longer holds.  Just surface the failure.
             error_exit(f"Merge could not publish or retarget: {exc}", json_mode=json_output)
         _rollback_output(output_path, previous)
         _undo_retarget(

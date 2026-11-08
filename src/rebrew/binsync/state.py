@@ -437,7 +437,12 @@ def resolve_global_types(
             if ge.type_str and not ge.conflict and ge.name and ge.name != "unknown":
                 name_to_type[ge.name] = ge.type_str
     except Exception:
-        log.debug("scan_globals unavailable for type resolution", exc_info=True)
+        log.warning(
+            "scan_globals unavailable for type resolution in %s; "
+            "data types fall back to declaration parsing only",
+            cfg.reversed_dir,
+            exc_info=True,
+        )
 
     for e in global_entries:
         va = getattr(e, "va", 0)

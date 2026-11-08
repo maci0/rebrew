@@ -1029,6 +1029,16 @@ def _download(config: WorkerConfig, url: str, wanted: str, into: Path) -> None:
     limit = config.max_download_bytes
     digest = hashlib.sha256()
     received = 0
+    # httpx with trust_env=False ignores SSL_CERT_FILE / SSL_CERT_DIR and
+    # falls back to certifi.  The test fixture and operators can point
+    # SSL_CERT_FILE at a custom CA bundle; honour it explicitly so a
+    # self-signed test origin verifies, while proxy env stays ignored.
+    _verify: object = True
+    _cafile = os.environ.get("SSL_CERT_FILE", "")
+    if _cafile:
+        import ssl as _ssl
+
+        _verify = _ssl.create_default_context(cafile=_cafile)
     try:
         with (
             httpx.stream(
@@ -1037,6 +1047,7 @@ def _download(config: WorkerConfig, url: str, wanted: str, into: Path) -> None:
                 timeout=DOWNLOAD_TIMEOUT_SECONDS,
                 follow_redirects=False,
                 trust_env=False,
+                verify=_verify,
             ) as response,
             into.open("wb") as out,
         ):
