@@ -1186,7 +1186,8 @@ def _mermaid_preview(mermaid: str, *, max_lines: int = 40, max_chars: int = 4000
 def _graph_body(mermaid: str, *, spilled: bool, nodes: int, edges: int, dispatch: int) -> str:
     """graph.html body.  Small sources stay inline; large ones link the file."""
     pre = (
-        "<pre class='mermaid' tabindex='0' role='region' aria-labelledby='mermaid-heading'>"
+        "<pre class='mermaid' tabindex='0' role='region' aria-labelledby='mermaid-heading' "
+        "aria-describedby='mermaid-alt'>"
         f"{html.escape(_mermaid_preview(mermaid) if spilled else mermaid)}</pre>"
     )
     if not spilled:
@@ -1197,6 +1198,9 @@ def _graph_body(mermaid: str, *, spilled: bool, nodes: int, edges: int, dispatch
             "mermaid-compatible viewer. A <a href='adjacency.txt'>plain-text adjacency list</a> "
             "(screen-reader accessible) is available as a separate download.</p>"
             "<h2 id='mermaid-heading'>Mermaid source</h2>"
+            "<p id='mermaid-alt'>The diagram above is code, not a picture: "
+            "use the <a href='adjacency.txt'>adjacency list</a> for a text "
+            "reading of the same call graph.</p>"
             f"{pre}"
         )
     nbytes = len(mermaid.encode("utf-8"))
@@ -1209,6 +1213,9 @@ def _graph_body(mermaid: str, *, spilled: bool, nodes: int, edges: int, dispatch
         "A <a href='adjacency.txt'>plain-text adjacency list</a> "
         "(screen-reader accessible) is available as a separate download.</p>"
         "<h2 id='mermaid-heading'>Mermaid source (opening lines)</h2>"
+        "<p id='mermaid-alt'>The diagram above is code, not a picture: "
+        "use the <a href='adjacency.txt'>adjacency list</a> for a text "
+        "reading of the same call graph.</p>"
         f"{pre}"
         "<p><a href='callgraph.mmd'>Full Mermaid source (callgraph.mmd)</a></p>"
     )
