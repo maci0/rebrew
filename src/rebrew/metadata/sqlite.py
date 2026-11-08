@@ -328,6 +328,10 @@ _PROJECT_CONFIG_NAME = "rebrew-project.toml"
 _GA_RUNS_REL = Path(".rebrew") / "ga_runs.jsonl"
 _SYNC_DIR_REL = Path(".rebrew") / "sync"
 _UPLOADS_REL = Path(".rebrew") / "decompme-uploads.json"
+_VERIFY_CACHE_REL = Path(".rebrew") / "verify_cache.toml"
+_VERIFY_BASELINE_REL = Path(".rebrew") / "verify_baseline.toml"
+_VERIFY_TARGETS_REL = Path(".rebrew") / "targets"
+_GHIDRA_SYNC_STATE_REL = Path(".rebrew") / "ghidra_sync_state.json"
 
 #: Mode the uploads ledger must keep in backups and on restore: it holds
 #: decomp.me claim tokens, so no group/other access, matching
@@ -385,7 +389,20 @@ def _validate_extra(source: Path) -> None:
             if not isinstance(parsed, dict):
                 raise MetadataStorageError(f"{source}: corrupt backup line {lineno}")
     elif source.suffix == ".json":
-        _validate_uploads_ledger(source)
+        # The uploads ledger validates as one JSON object with claim-token
+        # entries; the Ghidra sync state is a plain dedup hash map where only
+        # JSON-object parseability is required to block a corrupt install.
+        if source.name == "decompme-uploads.json":
+            _validate_uploads_ledger(source)
+        else:
+            import json as _json
+
+            try:
+                parsed = _json.loads(source.read_bytes())
+            except (ValueError, OSError) as exc:
+                raise MetadataStorageError(f"{source}: corrupt backup: {exc}") from exc
+            if not isinstance(parsed, dict):
+                raise MetadataStorageError(f"{source}: corrupt backup: not a JSON object")
     else:
         from rebrew.utils import load_tomllib as _lt
 
@@ -422,6 +439,17 @@ def _extra_durable_sources(root: Path) -> list[Path]:
         state = root / ".rebrew" / name
         if state.is_file():
             sources.append(state)
+    for rel in (_VERIFY_CACHE_REL, _VERIFY_BASELINE_REL):
+        candidate = root / rel
+        if candidate.is_file():
+            sources.append(candidate)
+    targets_dir = root / _VERIFY_TARGETS_REL
+    if targets_dir.is_dir():
+        sources.extend(sorted(p for p in targets_dir.rglob("verify_cache.toml") if p.is_file()))
+        sources.extend(sorted(p for p in targets_dir.rglob("verify_baseline.toml") if p.is_file()))
+    ghidra_state = root / _GHIDRA_SYNC_STATE_REL
+    if ghidra_state.is_file():
+        sources.append(ghidra_state)
     sync_dir = root / _SYNC_DIR_REL
     if sync_dir.is_dir():
         sources.extend(sorted(p for p in sync_dir.iterdir() if p.suffix == ".toml" and p.is_file()))
