@@ -175,7 +175,13 @@ def _unbounded(specs: list[str]) -> list[str]:
     the next major of the package land in a user's environment the day it is
     publishes, with no review step in between.
     """
-    return [s for s in specs if ">=" in s and "<" not in s and "==" not in s]
+    # Check only the specifier part: a ``<`` in the environment marker
+    # (``python_version < '3.15'``) is not a version ceiling.
+    return [
+        s
+        for s in specs
+        if ">=" in s.split(";", 1)[0] and "<" not in s.split(";", 1)[0] and "==" not in s.split(";", 1)[0]
+    ]
 
 
 def _unpinned(specs: list[str]) -> list[str]:

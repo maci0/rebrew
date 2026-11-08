@@ -1351,7 +1351,7 @@ dev = [
     { name = "slipcover", specifier = ">=1.1.0,<2" },
 ]
 fuzz = [
-    { name = "atheris", marker = "python_full_version < '3.15'", specifier = ">=3.1.0" },
+    { name = "atheris", marker = "python_full_version < '3.15'", specifier = ">=3.1.0,<4" },
     { name = "atheris", marker = "python_full_version == '3.15.*' and platform_machine == 'x86_64' and platform_python_implementation == 'CPython' and sys_platform == 'linux'", url = "https://github.com/maci0/atheris/releases/download/atheris-v3.1.0-relumea.2/atheris-3.1.0%2Brelumea.2-cp315-cp315-linux_x86_64.whl" },
     { name = "atheris", marker = "(python_full_version >= '3.15' and platform_machine != 'x86_64') or (python_full_version >= '3.16' and platform_machine == 'x86_64' and platform_python_implementation == 'CPython' and sys_platform == 'linux') or (python_full_version >= '3.15' and platform_python_implementation != 'CPython') or (python_full_version >= '3.15' and sys_platform != 'linux')", url = "https://github.com/maci0/atheris/releases/download/atheris-v3.1.0-relumea.2/atheris-3.1.0%2Brelumea.2.tar.gz" },
 ]
