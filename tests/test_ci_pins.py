@@ -238,6 +238,8 @@ class TestCiPins:
                         # Refuse the on-demand toolchain download so the
                         # SHA-256 verified release is the only Go that runs.
                         "GOTOOLCHAIN": "local",
+                        # Refuse to mutate go.mod/go.sum during the check.
+                        "GOFLAGS": "-mod=readonly",
                         # Stdlib-only module: refuse the module proxy and
                         # checksum DB so a future dependency cannot be
                         # fetched silently outside go.sum.

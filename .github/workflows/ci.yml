@@ -51,6 +51,10 @@ jobs:
       # is the only Go that can run. Job-wide so the check step inherits
       # it; the install step re-declares nothing.
       GOTOOLCHAIN: local
+      # Refuse to mutate go.mod/go.sum during the check: a dependency
+      # change must land as an explicit go.mod edit, not a build side
+      # effect (mirrors the Makefile jobs-check pin).
+      GOFLAGS: "-mod=readonly"
       # Stdlib-only module: refuse the module proxy and checksum DB so a
       # future dependency cannot be fetched silently outside go.sum.
       GOPROXY: "off"
@@ -83,14 +87,14 @@ jobs:
       - name: Cache the Go module cache
         # The module cache (GOMODCACHE, ~/go/pkg/mod) is the Go analogue of
         # setup-uv's cache: without it every run re-fetches the module graph
-        # and recompiles the build cache from scratch. Keyed on go.mod and
-        # go.sum so a new dependency misses cleanly.
+        # and recompiles the build cache from scratch. Keyed on go.mod; the
+        # module is stdlib-only (no go.sum), so go.mod alone decides the key.
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/go/pkg/mod
           key: >-
             go-${{ runner.os }}-${{ env.GO_VERSION }}-
-            ${{ hashFiles('services/jobs/go.mod', 'services/jobs/go.sum') }}
+            ${{ hashFiles('services/jobs/go.mod') }}
           restore-keys: |
             go-${{ runner.os }}-${{ env.GO_VERSION }}-
       - name: Check the jobs service

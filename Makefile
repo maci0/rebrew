@@ -1110,10 +1110,10 @@ smoke-wheel: require-dist ensure-uv
 # same checks.
 jobs-check: ensure-go
 	cd services/jobs; \
-	GOTOOLCHAIN=local GOFLAGS=-mod=mod GONOSUMCHECK=1 GOSUMDB=off GOPROXY=off test -z "$$(gofmt -l .)"; \
-	GOTOOLCHAIN=local GOFLAGS=-mod=mod GOSUMDB=off GOPROXY=off CGO_ENABLED=0 go vet ./...; \
-	GOTOOLCHAIN=local GOFLAGS=-mod=mod GOSUMDB=off GOPROXY=off CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags=-buildid= ./...; \
-	GOTOOLCHAIN=local GOFLAGS=-mod=mod GOSUMDB=off GOPROXY=off CGO_ENABLED=1 go test -race ./...
+	GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off test -z "$$(gofmt -l .)"; \
+	GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off CGO_ENABLED=0 go vet ./...; \
+	GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags=-buildid= ./...; \
+	GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off CGO_ENABLED=1 go test -race ./...
 
 # Run all non-mutating verification gates (mirrors CI lint + test +
 # cli-contract + jobs-service jobs: ruff, mypy, uv audit, pytest under the
