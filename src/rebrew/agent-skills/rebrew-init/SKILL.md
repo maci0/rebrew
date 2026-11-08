@@ -3,7 +3,8 @@ name: rebrew-init
 description: >-
   Set up a new Rebrew project with rebrew init (scaffold, first setup, new
   project): choose target names and compiler profiles, and check scaffold
-  drift. Use rebrew-intake for one-shot binary onboarding and
+  drift. Trigger: "scaffold a new project", "set up rebrew for this binary".
+  Use rebrew-intake for one-shot binary onboarding and
   rebrew-workflow for an existing target.
 license: MIT
 ---
@@ -48,7 +49,7 @@ right for standard builds. Override with `--toolchain <profile>` when:
 - You already know the exact toolchain (matching SP-level profile matters:
   `msvc-6.0-sp6` vs `msvc-6.0` is a different code generator).
 - 16-bit DOS/NE binaries where the heuristic prefers wrong: use
-  `watcom-2.0-20261001-win16` for Open Watcom 2.0 wcc, `msvc-1.52` for MSVC 1.52
+  `watcom-2.0-win16` for Open Watcom 2.0 wcc, `msvc-1.52` for MSVC 1.52
   (16-bit DOSBox), `borland-3.1` for Turbo C++ 3.1. List shipped profiles
   with `rebrew toolchain list`.
 

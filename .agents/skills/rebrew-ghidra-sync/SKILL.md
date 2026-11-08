@@ -37,6 +37,7 @@ Config lives in `rebrew-project.toml` under `[targets.<name>]`:
 
 - `ghidra_program_path`: must match the program open in Ghidra for the MCP structural ops; a mismatch prints a yellow warning.
 - MCP endpoint: default `http://localhost:8080/mcp/message`, override per run with `--endpoint URL`.
+- `ghidra_backend`: `reva` (MCP, default) or `cli` (headless `ghidra-cli` subprocess); an unknown value is a config error.
 
 The BinSync state dir is a git-versioned directory (`functions/*.toml`,
 `global_vars.toml`, `structs/*.toml`) shared with collaborators and the

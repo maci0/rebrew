@@ -1,12 +1,11 @@
 ---
 name: rebrew-workflow
 description: >-
-  Reverse and decompile functions on an onboarded Rebrew target to make them
-  byte-match: select work with todo, generate skeletons, edit/test/diff C,
-  verify progress, manage metadata, and reorganize sources. Covers status
-  accounting, coverage documents, and local recon. Use rebrew-matching for
-  stalled byte matches, rebrew-data-analysis for globals, and
-  rebrew-ghidra-sync for integration sync.
+  Reverse, decompile and byte-match functions on an onboarded Rebrew target:
+  pick work with todo, generate skeletons, edit/test/diff C, verify progress,
+  manage metadata, and reorganize sources. Covers status accounting, coverage
+  documents, and local recon. Use rebrew-matching for stalled byte matches,
+  rebrew-data-analysis for globals, and rebrew-ghidra-sync for integration sync.
 license: MIT
 ---
 
