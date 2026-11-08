@@ -250,51 +250,6 @@ def rebrew_coverage_paths(root: Path, target: str) -> set[str]:
     return paths
 
 
-def verified_match_status(result: Any, va: int, size: int) -> str | None:
-    """Validate the matched part of a trusted single-function Rebrew result.
-
-    The caller must already have authenticated the result's producer, generation,
-    target and published source identity. Other outcomes carry no match credit.
-    """
-    if (
-        type(result) is not dict
-        or type(va) is not int
-        or type(size) is not int
-        or va < 0
-        or size <= 0
-    ):
-        raise CoverageInputError("invalid verification result")
-    status = result.get("status")
-    if status == "RELOC":
-        raise CoverageInputError("verification relocations are not yet qualified")
-    if status != "EXACT":
-        return None
-    raw_va = result.get("va")
-    if type(raw_va) is not str:
-        raise CoverageInputError("invalid verification address")
-    try:
-        result_va = int(raw_va, 0)
-    except ValueError:
-        raise CoverageInputError("invalid verification address") from None
-    counts = (
-        result.get("size"),
-        result.get("match_count"),
-        result.get("total"),
-        result.get("obj_size"),
-    )
-    if (
-        result_va != va
-        or any(type(n) is not int or n != size for n in counts)
-        or type(result.get("mismatches")) is not list
-        or result["mismatches"]
-    ):
-        raise CoverageInputError("verification result does not match target extent")
-    relocs = result.get("reloc_count")
-    if type(relocs) is not int or relocs < 0 or (status == "EXACT") != (relocs == 0):
-        raise CoverageInputError("verification relocation count does not match status")
-    return str(status)
-
-
 def plan_coverage_readset(root: Path, target: str) -> list[dict[str, Any]]:
     """Describe the staged paths discovered by Rebrew, without assigning custody."""
     root = root.resolve(strict=True)
@@ -450,48 +405,3 @@ def validate_coverage_execution(
     for record in records:
         if extents.get(record["va"]) != record["size"]:
             raise CoverageInputError("verified function disagrees with analysis inventory")
-
-
-def plan_coverage_config(root: Path, target: str) -> tuple[dict[str, Any], list[str]]:
-    """Describe the confined effective target mapping and scanned source identities."""
-    from rebrew.config import inventory_path_for, load_config
-    from rebrew.sources import iter_headers, iter_sources
-
-    root = root.resolve(strict=True)
-    cfg = load_config(root, target=target)
-    confined_snapshot_config(cfg, root)
-
-    def relative(path: Path | None) -> str:
-        if path is None or path == Path():
-            return ""
-        try:
-            return path.resolve().relative_to(root).as_posix()
-        except ValueError:
-            raise CoverageInputError("coverage config escapes snapshot") from None
-
-    config = {
-        "target": cfg.target_name,
-        "binary": relative(cfg.target_binary),
-        "reversed_dir": relative(cfg.reversed_dir),
-        "shared_dir": relative(cfg.shared_dir),
-        "inventory": relative(inventory_path_for(cfg.reversed_dir, cfg)),
-        "metadata_dir": relative(cfg.metadata_dir),
-        "compiler_includes": relative(cfg.compiler_includes),
-        "compiler_libs": relative(cfg.compiler_libs),
-        "raw_link": relative(cfg.raw_link),
-        "source_ext": cfg.source_ext,
-        "module": cfg.module,
-        "arch": cfg.arch,
-        "binary_format": cfg.binary_format,
-        "compiler_profile": cfg.compiler_profile,
-        "cflags": cfg.cflags,
-        "base_cflags": cfg.base_cflags,
-        "defines": cfg.defines,
-        "external_libs": cfg.external_libs,
-        "crt_sources": cfg.crt_sources,
-    }
-    source_paths = {
-        relative(path)
-        for path in (*iter_sources(cfg.reversed_dir, cfg), *iter_headers(cfg.reversed_dir, cfg))
-    }
-    return config, sorted(source_paths, key=lambda item: item.encode("utf-8"))

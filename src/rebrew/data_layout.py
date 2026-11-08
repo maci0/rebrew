@@ -307,19 +307,6 @@ _OBJ_SEC_RE = re.compile(r"\[ *\d+\]\(sec +(-?\d+)\)")
 _OBJ_VALUE_RE = re.compile(r"\s(?:0x)?([0-9a-fA-F]+)\s+(\S+)\s*$")
 
 
-def _iter_obj_symbols(obj: Path) -> Iterator[tuple[int, int, str]]:
-    """Yield ``(section index, value, raw name)`` for each ``objdump -t`` symbol line."""
-    t = _run_objdump(obj, "-t")
-    for line in t.splitlines():
-        m = _OBJ_SEC_RE.match(line)
-        if not m:
-            continue
-        vm = _OBJ_VALUE_RE.search(line[m.end() :])
-        if not vm:
-            continue
-        yield int(m.group(1)), int(vm.group(1), 16), vm.group(2)
-
-
 def obj_data_symbols(obj: Path) -> tuple[int, int, set[str], set[str]]:
     """``(dsize, bsize, .data symbols, .bss symbols)`` of one object file."""
     sizes, buckets = obj_section_symbols(obj, ".data", ".bss")
