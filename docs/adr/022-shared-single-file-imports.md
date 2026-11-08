@@ -1,4 +1,4 @@
-# ADR-022: Shared single-file imports (`cross-import --shared`)
+# ADR-022: Shared single-file imports (`source import-related --shared`)
 
 - **Status**: Accepted. Amends [ADR-009](009-cross-target-import.md) (adds the
   stacked-marker import beside the copy path).
@@ -19,12 +19,12 @@ rejected any marker not naming the linted target's own module, so a
 stacked `// FUNCTION: V1` block in a file linted under V2 was an error:
 even though each target's scan/verify already filters to its own marker
 and the metadata keys `(module, va)` already isolate per-target STATUS.
-And `cross-import` had no way to write the stacked form: it only knew the
+And `source import-related` had no way to write the stacked form: it only knew the
 copy.
 
 ## Decision
 
-- `rebrew cross-import --shared` stacks the destination marker block
+- `rebrew source import-related --shared` stacks the destination marker block
   (`// FUNCTION: <dst> <va>` + `// SIZE:`) onto the shared source in place
   (idempotent; an existing `<dst> <va>` block is left alone), then
   compiles + verifies against the destination binary through the standard

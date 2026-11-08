@@ -6,7 +6,7 @@
 ## Context
 
 A rebrew project can hold several targets (binary versions, or a DLL+EXE
-pair), and `rebrew cross-import` (ADR-009) propagates **identical** code
+pair), and `rebrew source import-related` (ADR-009, originally `cross-import`) propagates **identical** code
 between them by copying the `.c` per target.  But two scenarios need the
 *same source file* to serve multiple targets, not a copy:
 
@@ -64,8 +64,8 @@ per-target compile-time define.
   target exactly: a shared file whose marker names the wrong target is
   silently invisible to that target's scan (same contract as per-target
   files).  Functions that diverged beyond `#ifdef`-ability are left out of
-  the secondary target (or handled by `cross-import`'s copy flow; see
-  [ADR-022](022-shared-single-file-imports.md) for automated `cross-import --shared`
+  the secondary target (or handled by `source import-related`'s copy flow; see
+  [ADR-022](022-shared-single-file-imports.md) for automated `source import-related --shared`
   stacked-marker import and lint support).
 - **Contract notes**: `shared_dir` defaults to `src/shared` for NEW
   projects; existing projects that happen to have a `src/shared` directory

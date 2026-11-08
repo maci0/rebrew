@@ -1,6 +1,6 @@
 # ADR-035: Ordered metadata reads and durable replicated writes
 
-- **Status**: Accepted
+- **Status**: Accepted. Amends [ADR-034](034-metadata-storage-backends.md) (adds ordered multi-backend reads and replicated writes beside the single-backend selection).
 - **Date**: 2026-11-05
 
 ## Context

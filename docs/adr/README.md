@@ -33,7 +33,7 @@ itself, and the consequences (including trade-offs accepted).
 | 006 | Standardized toolchain invocation (docker-first, host fallback) *(amended by 007, 008, 011, 016)* |
 | 007 | Complete containerization + unified byte-reproducibility gate *(amended by 011, 016)* |
 | 008 | Docker-only toolchain execution (no host wine/dosbox) *(amended by 016, 032)* |
-| 009 | Cross-target function import (`rebrew cross-import`) *(amended by 022, 024)* |
+| 009 | Cross-target function import (`rebrew source import-related`) *(amended by 022, 024, 028)* |
 | 010 | Shared multi-version sources (`src/shared` + per-target defines) |
 | 011 | Toolchain build source moves to the sibling recompile-toolchains checkout |
 | 012 | Metadata store tiers: canonical vs derived vs cache (see [METADATA.md](../METADATA.md)) *(amended by 023, 031)* |
@@ -46,7 +46,7 @@ itself, and the consequences (including trade-offs accepted).
 | 019 | Todo blocked category (`rebrew todo -c blocked`) *(superseded by 025)* |
 | 020 | Init scaffolding skill (`rebrew-init`) |
 | 021 | Batch container compiles (`compile_batch_objs` / `precompile_batch`) |
-| 022 | Shared single-file imports (`cross-import --shared`) |
+| 022 | Shared single-file imports (`source import-related --shared`) |
 | 023 | Markers: TOML single source *(superseded by 030)* |
 | 024 | PROVEN is not matched and not sticky |
 | 025 | Remove the todo blocked lens |

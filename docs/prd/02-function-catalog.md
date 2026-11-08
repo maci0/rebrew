@@ -51,7 +51,7 @@ information lives in `rebrew-functions.toml`, served by `status`/`todo`/dashboar
   byte-level work (`rebrew binary extract`).
 - FLIRT signature scan that flags library functions in the binary
   (`rebrew library scan-signatures`).
-- CRT source cross-reference matcher that maps `LIBRARY:` markers to a
+- CRT source cross-reference matcher that maps `kind = "LIBRARY"` metadata rows to a
   specific MSVC CRT source file (`rebrew library crt-match`).
 - Clear-text coverage document build (`rebrew coverage export --output snapshots/`).
 
@@ -69,11 +69,13 @@ information lives in `rebrew-functions.toml`, served by `status`/`todo`/dashboar
 
 ### `rebrew coverage catalog`
 
-- Scans `reversed_dir` for `.c` files containing reccmp-style markers.
+- Scans `reversed_dir` for `.c` files and joins their C definitions with
+  canonical `rebrew-functions.toml` rows via optional declaration-bound
+  ADDRESS anchors (ADR-030; old reccmp-style inline marker blocks are rejected).
 - Loads optional `function_structure.json` (discovery inventory / Ghidra
   export).
 - Builds a unified registry merging:
-  - Local annotations
+  - Canonical function metadata rows (`rebrew-functions.toml`) bound to sources
   - Ghidra functions
   - Bare discovery entries (size-only, no name)
 - Resolves canonical sizes (catalog wins over the annotation). Ghidra's size
@@ -130,9 +132,9 @@ Output `.bin` files land in the configured `bin_dir`.
 ### `rebrew library crt-match`
 
 - Indexes the `crt_sources` target table (set via `cfg detect-crt` or manually) by symbol.
-- Matches `LIBRARY:` annotations (or a single VA) against the indexed
+- Matches `kind = "LIBRARY"` metadata rows (or a single VA) against the indexed
   symbols and ranks candidates.
-- `--all` runs across every LIBRARY marker.
+- `--all` runs across every LIBRARY row.
 - `--fix-source` records a match's `SOURCE` (`FILE:LINE`, or a bare `FILE` for
   asm-only entries) in the matched function's `rebrew-functions.toml` entry;
   the `.c` file is not edited. Only matches at confidence ≥ 0.85 with a known

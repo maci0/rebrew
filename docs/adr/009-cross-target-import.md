@@ -1,10 +1,11 @@
-# ADR-009: Cross-target function import (`rebrew cross-import`)
+# ADR-009: Cross-target function import (`rebrew source import-related`)
 
 - **Status**: Amended by [ADR-022](022-shared-single-file-imports.md)
   (`--shared` stacks a marker onto one `src/shared` file instead of
   copying; the copy import below stays the default) and
   [ADR-024](024-proven-is-not-matched.md) (PROVEN is neither a donor nor
-  excluded as a destination)
+  excluded as a destination) and [ADR-028](028-cli-domains-and-explicit-operations.md)
+  (command path `cross-import` becomes `source import-related`)
 - **Date**: 2026-08
 
 ## Context
@@ -28,7 +29,7 @@ another target and reuse the already-matched source.
 
 ## Decision
 
-Add a `rebrew cross-import` command.  The target the command runs against
+Add a `rebrew source import-related` command (originally `rebrew cross-import`, renamed by ADR-028).  The target the command runs against
 is the **destination**; `--from TARGET` names the **source**.  For each
 destination function whose metadata STATUS is not EXACT/RELOC/PROVEN
 *(amended by ADR-024: PROVEN is not matched and not sticky, so a PROVEN
