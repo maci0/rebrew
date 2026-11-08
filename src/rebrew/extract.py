@@ -57,11 +57,6 @@ def detect_reversed_vas(src_dir: Path, cfg: ProjectConfig | None = None) -> set[
     }
 
 
-# ---------------------------------------------------------------------------
-# Load function list
-# ---------------------------------------------------------------------------
-
-
 def load_functions(cfg: ProjectConfig) -> list[dict[str, int | str]]:
     """Load the discovery inventory (function_structure.json)."""
 

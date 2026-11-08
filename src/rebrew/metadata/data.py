@@ -383,11 +383,6 @@ def module_visible_to_target(module: str, cfg: Any) -> bool:
     return mod not in others
 
 
-# ---------------------------------------------------------------------------
-# Load / Save
-# ---------------------------------------------------------------------------
-
-
 def load_data_document(path: Path) -> dict[str, Any]:
     """Read a data store by filename, including its drop-ins, as a qualified-key document."""
     path = path.resolve()

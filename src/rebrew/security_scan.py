@@ -65,10 +65,6 @@ class SecurityScanUnavailable(RebrewError, RuntimeError):
     """
 
 
-# ---------------------------------------------------------------------------
-# Rule model
-# ---------------------------------------------------------------------------
-
 Level = Literal["high", "medium", "low"]
 
 CheckKind = Literal["always", "string-literal", "integer-literal", "value-source"]

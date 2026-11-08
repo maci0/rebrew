@@ -485,11 +485,6 @@ def unmatched_dest_bytes(cfg_dst: ProjectConfig, only_va: int | None = None) -> 
     return target_bytes_by_va(cfg_dst, vas)
 
 
-# ---------------------------------------------------------------------------
-# Import mechanics
-# ---------------------------------------------------------------------------
-
-
 def _extract_function_text(text: str, name: str) -> str | None:
     """Copy one C definition, its shared declarations and static dependencies."""
     from rebrew.split import shared_preamble, source_layout, span_extent

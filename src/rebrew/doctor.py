@@ -46,10 +46,6 @@ lazy from rebrew.utils import TerminalTable, md5_file, read_json_text
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Check result data
-# ---------------------------------------------------------------------------
-
 #: Status labels a CheckResult carries.  ``_OK`` is spelled without "pass"
 #: so ruff S105 (hardcoded credential) stays on for the tree.
 _OK = "pass"

@@ -2674,50 +2674,16 @@ def retained_target_snapshot(
                 raise _invalid("snapshot source changed during operation")
 
 
-def verify_target(config: WorkerConfig, req: VerifyTargetRequest) -> dict[str, Any]:
-    """Re-verify every source of the target (``rebrew verify --json``); a mismatch is a result."""
-    from rebrew.config import load_config
-    from rebrew.sources import iter_sources
+def _run_target_command(
+    config: WorkerConfig,
+    req: VerifyTargetRequest | BuildRequest,
+    arguments: list[str],
+) -> dict[str, Any]:
+    """Run a whole-target rebrew command live or against a retained snapshot.
 
-    root = project_root(config, req.project_dir)
-    if req.files:
-        if not req.no_promote:
-            raise _invalid("retained target verification requires no_promote")
-        with retained_target_snapshot(
-            config,
-            req.files,
-            req.rebrew_target,
-            req.sha256,
-            req.binary_key,
-            req.binary_url,
-            req.project_cflags,
-        ) as snapshot:
-            cfg = load_config(snapshot, target=req.rebrew_target)
-            retained_compile_refusal(cfg, iter_sources(cfg.reversed_dir, cfg))
-            return run_rebrew(
-                ["verify", "--json", "--no-promote", f"--target={req.rebrew_target}"],
-                snapshot,
-                SEARCH_TIMEOUT_SECONDS,
-                outcome_exit=True,
-            )
-    if req.project_cflags:
-        raise _invalid("project_cflags needs a retained source snapshot")
-    cfg = target_config(root, req.sha256)
-    remote_header_refusal(cfg, iter_sources(cfg.reversed_dir, cfg))
-    arguments = ["verify", "--json", *_flag(req.no_promote, "--no-promote")]
-    return run_rebrew(
-        [*arguments, *_target_options(root, req.sha256)],
-        root,
-        SEARCH_TIMEOUT_SECONDS,
-        outcome_exit=True,
-    )
-
-
-def build(config: WorkerConfig, req: BuildRequest) -> dict[str, Any]:
-    """Splice every matched function back into the target and compare the image.
-
-    ``rebrew build round-trip --json``; the rebuilt image is written beside the
-    target's binary as ``<binary>.reasm``.  A byte difference is a result.
+    Retained snapshots force the compile refusal; live runs refuse remote
+    compilation of header-reading sources.  ``project_cflags`` requires the
+    snapshot so the flags land on the private copy only.
     """
     from rebrew.config import load_config
     from rebrew.sources import iter_sources
@@ -2736,13 +2702,7 @@ def build(config: WorkerConfig, req: BuildRequest) -> dict[str, Any]:
             cfg = load_config(snapshot, target=req.rebrew_target)
             retained_compile_refusal(cfg, iter_sources(cfg.reversed_dir, cfg))
             return run_rebrew(
-                [
-                    "build",
-                    "round-trip",
-                    "--json",
-                    *_flag(req.fix_headers, "--fix-headers"),
-                    f"--target={req.rebrew_target}",
-                ],
+                [*arguments, f"--target={req.rebrew_target}"],
                 snapshot,
                 SEARCH_TIMEOUT_SECONDS,
                 outcome_exit=True,
@@ -2751,13 +2711,32 @@ def build(config: WorkerConfig, req: BuildRequest) -> dict[str, Any]:
         raise _invalid("project_cflags needs a retained source snapshot")
     cfg = target_config(root, req.sha256)
     remote_header_refusal(cfg, iter_sources(cfg.reversed_dir, cfg))
-    arguments = ["build", "round-trip", "--json", *_flag(req.fix_headers, "--fix-headers")]
     return run_rebrew(
         [*arguments, *_target_options(root, req.sha256)],
         root,
         SEARCH_TIMEOUT_SECONDS,
         outcome_exit=True,
     )
+
+
+def verify_target(config: WorkerConfig, req: VerifyTargetRequest) -> dict[str, Any]:
+    """Re-verify every source of the target (``rebrew verify --json``); a mismatch is a result."""
+    if req.files and not req.no_promote:
+        raise _invalid("retained target verification requires no_promote")
+    arguments = ["verify", "--json", *_flag(req.no_promote, "--no-promote")]
+    if req.files:
+        arguments.append("--no-promote")
+    return _run_target_command(config, req, arguments)
+
+
+def build(config: WorkerConfig, req: BuildRequest) -> dict[str, Any]:
+    """Splice every matched function back into the target and compare the image.
+
+    ``rebrew build round-trip --json``; the rebuilt image is written beside the
+    target's binary as ``<binary>.reasm``.  A byte difference is a result.
+    """
+    arguments = ["build", "round-trip", "--json", *_flag(req.fix_headers, "--fix-headers")]
+    return _run_target_command(config, req, arguments)
 
 
 def skeleton(config: WorkerConfig, req: SkeletonRequest) -> dict[str, Any]:

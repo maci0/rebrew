@@ -244,11 +244,6 @@ def _resolved_metadata_path(directory: str) -> Path:
     return Path(os.path.abspath(directory)) / METADATA_FILENAME  # noqa: PTH100
 
 
-# ---------------------------------------------------------------------------
-# Load / Save
-# ---------------------------------------------------------------------------
-
-
 def load_metadata(
     directory: Path | str | Any,
     *,

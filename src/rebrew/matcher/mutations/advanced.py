@@ -72,10 +72,9 @@ def _bin_cond_if_ops(b_source: bytes, op: bytes) -> list[tuple[Any, Any, Any, An
     return valid_ifs
 
 
-def mut_split_and_condition(s: str, rng: random.Random) -> str | None:
-    """Split an if(a && b) into nested if(a) { if(b) ... } blocks."""
+def _split_bin_condition(s: str, rng: random.Random, op: bytes, *, nested: bool) -> str | None:
     b_source = encode_source(s)
-    valid_ifs = _bin_cond_if_ops(b_source, b"&&")
+    valid_ifs = _bin_cond_if_ops(b_source, op)
     if not valid_ifs:
         return None
 
@@ -85,29 +84,24 @@ def mut_split_and_condition(s: str, rng: random.Random) -> str | None:
     right_str = b_source[right.start_byte : right.end_byte]
     body_str = b_source[body.start_byte : body.end_byte]
 
-    new_stmt = b"if (" + left_str + b") {\n        if (" + right_str + b") " + body_str + b"\n    }"
+    if nested:
+        new_stmt = b"if (" + left_str + b") {\n        if (" + right_str + b") " + body_str + b"\n    }"
+    else:
+        new_stmt = (
+            b"if (" + left_str + b") " + body_str + b"\n    else if (" + right_str + b") " + body_str
+        )
 
     return decode_source(b_source[: stmt.start_byte] + new_stmt + b_source[stmt.end_byte :])
+
+
+def mut_split_and_condition(s: str, rng: random.Random) -> str | None:
+    """Split an if(a && b) into nested if(a) { if(b) ... } blocks."""
+    return _split_bin_condition(s, rng, b"&&", nested=True)
 
 
 def mut_split_or_condition(s: str, rng: random.Random) -> str | None:
     """Split if(a || b) into separate if(a) ... else if(b) ... blocks."""
-    b_source = encode_source(s)
-    valid_ifs = _bin_cond_if_ops(b_source, b"||")
-    if not valid_ifs:
-        return None
-
-    stmt, left, right, body = rng.choice(valid_ifs)
-
-    left_str = b_source[left.start_byte : left.end_byte]
-    right_str = b_source[right.start_byte : right.end_byte]
-    body_str = b_source[body.start_byte : body.end_byte]
-
-    new_stmt = (
-        b"if (" + left_str + b") " + body_str + b"\n    else if (" + right_str + b") " + body_str
-    )
-
-    return decode_source(b_source[: stmt.start_byte] + new_stmt + b_source[stmt.end_byte :])
+    return _split_bin_condition(s, rng, b"||", nested=False)
 
 
 def mut_merge_nested_ifs(s: str, rng: random.Random) -> str | None:
