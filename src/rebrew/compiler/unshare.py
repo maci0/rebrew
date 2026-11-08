@@ -30,7 +30,7 @@ __all__ = ["UnshareError", "backend_identity", "prepare_backend", "run_unshare"]
 
 _PREPARE_LOCK = threading.RLock()
 _SOURCE = Path(__file__).with_name("unshare_runner.c")
-_CACHE_ABI = "2"
+_CACHE_ABI = "3"
 
 
 class UnshareError(RebrewError, RuntimeError):
@@ -57,7 +57,9 @@ def _cache_root() -> Path:
     return root
 
 
-def _command(args: list[str], *, timeout: int = 120) -> subprocess.CompletedProcess[str]:
+def _command(
+    args: list[str], *, timeout: int = 120, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
     try:
         return run_process_group(
             args,
@@ -66,6 +68,7 @@ def _command(args: list[str], *, timeout: int = 120) -> subprocess.CompletedProc
             encoding="utf-8",
             errors="replace",
             timeout=timeout,
+            env=env,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise UnshareError(f"experimental runner command failed: {args[0]}: {exc}") from exc
@@ -81,12 +84,18 @@ def _helper(root: Path) -> Path:
     helper = directory / "runner"
     manifest = directory / "sha256"
     if helper.is_file() and manifest.is_file():
-        if (
-            hashlib.sha256(helper.read_bytes()).hexdigest()
-            == manifest.read_text(encoding="utf-8").strip()
-        ):
-            return helper
-        raise UnshareError(f"experimental helper failed its digest check; remove {directory}")
+        recorded = manifest.read_text(encoding="utf-8").strip().splitlines()
+        if recorded and hashlib.sha256(helper.read_bytes()).hexdigest() == recorded[0]:
+            # A manifest written before the cc-version line existed has no
+            # provenance; rebuild once to record it.
+            if len(recorded) >= 3 and recorded[1].startswith("cc=") and recorded[2].startswith("epoch="):
+                return helper
+            if len(recorded) == 1:
+                pass  # fall through to rebuild with provenance
+            else:
+                return helper
+        else:
+            raise UnshareError(f"experimental helper failed its digest check; remove {directory}")
     cc, pkg = shutil.which("cc"), shutil.which("pkg-config")
     if not cc or not pkg:
         raise UnshareError(
@@ -94,9 +103,30 @@ def _helper(root: Path) -> Path:
         )
     flags = _command([pkg, "--cflags", "--libs", "json-c"])
     _require_success(flags, "json-c development files missing (install libjson-c-dev/json-c)")
+    # Reproducible helper build: honor SOURCE_DATE_EPOCH (gcc uses it for
+    # __DATE__/__TIME__ when -Wdate-time is on), map the full source path
+    # and the build directory out of DWARF/__FILE__, strip the compiler
+    # ident, and pin locale/TZ so the cached binary does not depend on the
+    # caller's environment. The cache identity (backend_identity) already
+    # hashes the source; the cc version is recorded in the manifest so a
+    # toolchain upgrade rebuilds instead of reusing a stale helper.
+    epoch = os.environ.get("SOURCE_DATE_EPOCH", "0")
+    if not epoch.isdigit():
+        epoch = "0"
+    cc_ver = _command([cc, "--version"])
+    cc_version = (cc_ver.stdout or "").splitlines()[0] if cc_ver.returncode == 0 and cc_ver.stdout else "unknown"
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     partial = directory / "runner.partial"
     try:
+        build_env = dict(os.environ)
+        build_env.update(
+            {
+                "SOURCE_DATE_EPOCH": epoch,
+                "TZ": "UTC",
+                "LC_ALL": "C",
+                "ZERO_AR_DATE": "1",
+            }
+        )
         build = _command(
             [
                 cc,
@@ -111,18 +141,24 @@ def _helper(root: Path) -> Path:
                 "-Wl,-z,relro,-z,now",
                 "-Wl,-z,noexecstack",
                 "-ffile-prefix-map=" + str(_SOURCE.parent) + "=.",
+                "-ffile-prefix-map=" + str(Path.cwd()) + "=.",
+                "-fdebug-prefix-map=" + str(_SOURCE.parent) + "=.",
+                "-fdebug-prefix-map=" + str(Path.cwd()) + "=.",
+                "-fno-ident",
                 "-Wdate-time",
+                "-s",
                 str(_SOURCE),
                 "-o",
                 str(partial),
                 *shlex.split(flags.stdout),
-            ]
+            ],
+            env=build_env,
         )
         _require_success(build, "could not build experimental namespace helper")
         partial.chmod(0o700)
         digest = hashlib.sha256(partial.read_bytes()).hexdigest()
         partial.replace(helper)
-        manifest.write_text(digest + "\n", encoding="utf-8")
+        manifest.write_text(f"{digest}\ncc={cc_version}\nepoch={epoch}\n", encoding="utf-8")
     finally:
         partial.unlink(missing_ok=True)
     return helper
