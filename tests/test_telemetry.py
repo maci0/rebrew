@@ -114,7 +114,11 @@ def test_export_ignores_ambient_proxy_env(
     with telemetry.span("proxy-bypass"):
         pass
     stop()
-    collector.named("proxy-bypass")
+    # `named` already fails when the span never arrives, but a span with
+    # the wrong trace context must not count as proof the dead proxy was
+    # bypassed: the surviving span must be this process's export.
+    wire = collector.named("proxy-bypass")
+    assert wire["name"] == "proxy-bypass" and wire.get("traceId") not in (None, "0" * 32)
 
 
 def test_configure_refuses_a_bad_endpoint() -> None:

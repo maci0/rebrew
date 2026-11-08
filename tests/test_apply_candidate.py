@@ -5,7 +5,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import os
 import shutil
 import tomllib
 from pathlib import Path
@@ -68,12 +67,12 @@ def promote_in_process(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
 
     def run(args: Any, root: Path, *unused: Any, **kwargs: Any) -> dict[str, Any]:
         seen.append(list(args))
-        previous = Path.cwd()
-        os.chdir(root)
-        try:
-            result = CliRunner().invoke(umbrella, [str(a) for a in args])
-        finally:
-            os.chdir(previous)
+        # monkeypatch.chdir restores the cwd even if CliRunner.invoke raises
+        # (a bare os.chdir/finally pair only restores when the block is
+        # entered; an exception before the try would leak the chdir into
+        # every later test in the worker).
+        monkeypatch.chdir(root)
+        result = CliRunner().invoke(umbrella, [str(a) for a in args])
         print("CLIOUT", result.output[:800], result.exception)
         return json.loads(result.stdout)  # type: ignore[no-any-return]
 

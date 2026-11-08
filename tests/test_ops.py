@@ -1957,10 +1957,30 @@ class TestHttpTransport:
         released.start()
         try:
             second = self._hold_the_only_slot(port)  # refused while `first` holds the slot
+            # The resent call must genuinely hold the slot (not merely be
+            # the refused socket `_hold_the_only_slot` retried past): a
+            # probe now must be the one refused with 503.
+            status, reply = self._post(
+                port,
+                "/rebrew.nope",
+                b"{}",
+                {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"},
+            )
+            assert (status, reply["error"]) == (503, "worker-busy")
             second.close()
         finally:
             released.join()
             first.close()
+        # Once both stalled sockets close, the slot must be free again:
+        # a leaked slot (refused call never resent, or close not releasing)
+        # would leave this at 503 instead of the dispatcher's 404.
+        status, reply = self._post(
+            port,
+            "/rebrew.nope",
+            b"{}",
+            {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"},
+        )
+        assert (status, reply["error"]) == (404, "unknown-op")
 
     def test_access_line_and_header_share_a_request_id(self, server: tuple[int, Path]) -> None:
         port, _workspace = server

@@ -132,8 +132,14 @@ def test_unknown_format_is_a_422_naming_the_magic(tmp_path: Path) -> None:
 
 
 def test_holiday_shaped_manifest_is_within_the_limits() -> None:
+    # Exact real-world manifest (2010 stubs, 1.79 MB): an off-by-one in
+    # either limit (32768 files / 32 MiB) must not refuse it; +1 over
+    # either limit must.
     files = [SimpleNamespace(size=HOLIDAY_BYTES // HOLIDAY_STUBS)] * HOLIDAY_STUBS
     ops._check_manifest_size(files)
+    assert len(files) == HOLIDAY_STUBS <= ops.MAX_READSET_FILES
+    assert sum(f.size for f in files) == HOLIDAY_STUBS * (HOLIDAY_BYTES // HOLIDAY_STUBS)
+    assert sum(f.size for f in files) <= ops.MAX_READSET_BYTES
 
 
 def test_manifest_over_the_file_limit_names_the_count_and_the_limit() -> None:
