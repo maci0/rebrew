@@ -1322,10 +1322,11 @@ def _merge_include_inputs(
         path_identity_digest(config_path),
     )
     configurations = organization_configs(cfg)
-    if (
+    after_config = (
         config_path.read_bytes() if config_path.is_file() else None,
         path_identity_digest(config_path),
-    ) != before:
+    )
+    if after_config != before:
         raise ValueError("project config changed while loading targets")
     matching = [c for c in configurations if c.target_name == cfg.target_name]
     if cfg.target_name and not matching:

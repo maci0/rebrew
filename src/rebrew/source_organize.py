@@ -37,7 +37,8 @@ def _review_configs(cfg: ProjectConfig) -> list[ProjectConfig]:
     path = cfg.root / "rebrew-project.toml"
     before = (path.read_bytes() if path.is_file() else None, path_identity_digest(path))
     configs = organization_configs(cfg)
-    if (path.read_bytes() if path.is_file() else None, path_identity_digest(path)) != before:
+    after = (path.read_bytes() if path.is_file() else None, path_identity_digest(path))
+    if after != before:
         raise ValueError("project config changed while loading targets")
     selected = [item for item in configs if item.target_name == cfg.target_name]
     if cfg.target_name and (not selected or selected[0].as_dict() != cfg.as_dict()):
