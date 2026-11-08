@@ -84,13 +84,23 @@ class TestSyncDate:
         monkeypatch.setenv("SOURCE_DATE_EPOCH", "0")
         assert sdf.sync_date() == "1970-01-01"
 
-    def test_falls_back_to_the_clock(self, monkeypatch: Any) -> None:
+    def test_missing_epoch_is_rejected(self, monkeypatch: Any) -> None:
         monkeypatch.delenv("SOURCE_DATE_EPOCH", raising=False)
-        assert len(sdf.sync_date()) == len("2026-08-07")
+        try:
+            sdf.sync_date()
+        except ValueError as exc:
+            assert "SOURCE_DATE_EPOCH" in str(exc)
+        else:
+            raise AssertionError("sync_date without SOURCE_DATE_EPOCH must raise")
 
-    def test_non_numeric_epoch_falls_back(self, monkeypatch: Any) -> None:
+    def test_non_numeric_epoch_is_rejected(self, monkeypatch: Any) -> None:
         monkeypatch.setenv("SOURCE_DATE_EPOCH", "not-a-number")
-        assert len(sdf.sync_date()) == len("2026-08-07")
+        try:
+            sdf.sync_date()
+        except ValueError as exc:
+            assert "SOURCE_DATE_EPOCH" in str(exc)
+        else:
+            raise AssertionError("sync_date with a non-numeric epoch must raise")
 
 
 class TestDriftedLines:

@@ -105,7 +105,18 @@ def clone_decomp_me(tmp_dir: str, ref: str | None = None) -> Path:
     explicit.
     """
     repo_dir = Path(tmp_dir) / "decomp.me"
-    command = ["git", "clone", "--depth", "1", "--filter=blob:none", "--sparse"]
+    command = [
+        "git",
+        "-c",
+        "protocol.allow=never",
+        "-c",
+        "protocol.https.allow=always",
+        "clone",
+        "--depth",
+        "1",
+        "--filter=blob:none",
+        "--sparse",
+    ]
     if ref:
         command += ["--branch", ref]
     subprocess.run(
@@ -115,7 +126,7 @@ def clone_decomp_me(tmp_dir: str, ref: str | None = None) -> Path:
         timeout=GIT_NETWORK_TIMEOUT,
     )
     subprocess.run(
-        ["git", "sparse-checkout", "set", "backend/coreapp"],
+        ["git", "-c", "protocol.allow=never", "sparse-checkout", "set", "backend/coreapp"],
         cwd=str(repo_dir),
         capture_output=True,
         check=True,
@@ -131,7 +142,7 @@ def resolved_commit(repo_dir: Path) -> str:
     generated file; the flag axes it wrote are only as stable as that commit.
     """
     result = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
+        ["git", "-c", "protocol.allow=never", "rev-parse", "HEAD"],
         cwd=str(repo_dir),
         capture_output=True,
         check=True,
@@ -153,7 +164,10 @@ def sync_date() -> str:
     epoch = os.environ.get("SOURCE_DATE_EPOCH", "").strip()
     if epoch.isdigit():
         return datetime.fromtimestamp(int(epoch), UTC).strftime("%Y-%m-%d")
-    return datetime.now(UTC).strftime("%Y-%m-%d")
+    raise ValueError(
+        "SOURCE_DATE_EPOCH must be set (decimal UTC seconds) for a reproducible sync; "
+        "the wall clock is not a reproducible timestamp"
+    )
 
 
 def load_flags_module(repo_dir: Path) -> ModuleType:

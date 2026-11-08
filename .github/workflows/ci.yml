@@ -51,6 +51,10 @@ jobs:
       # is the only Go that can run. Job-wide so the check step inherits
       # it; the install step re-declares nothing.
       GOTOOLCHAIN: local
+      # Stdlib-only module: refuse the module proxy and checksum DB so a
+      # future dependency cannot be fetched silently outside go.sum.
+      GOPROXY: "off"
+      GOSUMDB: "off"
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
