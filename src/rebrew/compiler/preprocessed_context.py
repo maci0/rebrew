@@ -23,6 +23,19 @@ _LINE_DIRECTIVE = re.compile(r"(?im)^[ \t]*(?:#|%:)[ \t]*(?:line\b|[0-9]+)")
 _INCLUDE_ALIAS = re.compile(r"(?im)^[ \t]*(?:#|%:)[ \t]*pragma[ \t]+include_alias\b")
 _VOLATILE = re.compile(r"\b__(?:DATE|TIME|TIMESTAMP)__\b")
 
+#: ``O_NOFOLLOW`` is absent on Windows (and older CPython builds in
+#: general); ``getattr`` with a 0 default keeps the open working there,
+#: mirroring :func:`rebrew.matcher.solutions._record_run`.  The resulting
+#: un-followed symlink stays a refused input because the identity check
+#: (``path_identity``/``is_symlink``) still runs before the open.
+_O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
+
+
+def _read_nofollow(path: Path) -> bytes:
+    """Read *path* bytes, refusing a final-component symlink where the OS allows it."""
+    with os.fdopen(os.open(path, os.O_RDONLY | _O_NOFOLLOW), "rb") as stream:
+        return stream.read()
+
 
 def _unsafe_source(raw: bytes, *, allow_token_paste: bool = False) -> bool:
     from rebrew.compiler.cache import mask_preprocessor_comments
@@ -116,8 +129,7 @@ def _closure(
 
     if _protected(source, root):
         raise ValueError("protected source path cannot be mounted into the compiler")
-    with os.fdopen(os.open(source, os.O_RDONLY | os.O_NOFOLLOW), "rb") as stream:
-        raw = stream.read()
+    raw = _read_nofollow(source)
     if _unsafe_source(raw, allow_token_paste=allow_token_paste):
         raise ValueError(
             "source line directives, token pasting or volatile builtins require review"
@@ -179,7 +191,7 @@ def _closure(
     for path, data in files.items():
         if path_identity(path)["links"]:
             raise ValueError("symlinked preprocessing inputs require review")
-        with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW), "rb") as stream:
+        with os.fdopen(os.open(path, os.O_RDONLY | _O_NOFOLLOW), "rb") as stream:
             before_stat = os.fstat(stream.fileno())
             current = stream.read()
             after_stat = os.fstat(stream.fileno())
