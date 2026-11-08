@@ -356,7 +356,21 @@ def _shutdown_xvfb(proc: subprocess.Popen[bytes]) -> None:
     A server that ignores SIGTERM must not survive this process holding
     its display socket, nor linger as an unreaped child for the rest of
     the batch — escalate to SIGKILL when the graceful wait times out.
+    The child leads its own session (``start_new_session=True``), so the
+    whole group is signalled rather than only the direct child.
     """
+    # Build the group kill lazily so the test stub (no pid) still exercises
+    # the terminate->kill escalation path; stop_process_tree needs a real
+    # pid to snapshot descendants.
+    pid = getattr(proc, "pid", None)
+    if isinstance(pid, int) and pid > 1:
+        try:
+            from rebrew.utils import stop_process_tree
+
+            stop_process_tree(proc)
+            return
+        except Exception:
+            pass
     with contextlib.suppress(Exception):
         proc.terminate()
     try:
@@ -511,6 +525,7 @@ def _ensure_xvfb_locked() -> str | None:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 env=child_env,
+                start_new_session=True,
             )
         except OSError as exc:
             _drop_cookie(cookie)

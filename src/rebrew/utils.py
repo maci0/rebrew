@@ -766,7 +766,16 @@ def container_runtime(runtime: str | None = None) -> str:
     runtime = runtime.strip() or DEFAULT_CONTAINER_RUNTIME
     if not _CONTAINER_RUNTIME_RE.fullmatch(runtime):
         raise ConfigError(f"REBREW_CONTAINER_RUNTIME={runtime!r} contains invalid characters")
-    if "/" not in runtime and runtime not in CONTAINER_RUNTIMES:
+    if "/" in runtime:
+        # A path must be absolute: a relative value like ./evil resolves
+        # against the project cwd and lets a cloned tree redirect every
+        # container run to a binary it ships.
+        if not runtime.startswith("/"):
+            raise ConfigError(
+                f"REBREW_CONTAINER_RUNTIME={runtime!r} must be an absolute path "
+                "or one of " + ", ".join(CONTAINER_RUNTIMES)
+            )
+    elif runtime not in CONTAINER_RUNTIMES:
         raise ConfigError(
             f"REBREW_CONTAINER_RUNTIME={runtime!r} is not a known container runtime "
             f"({', '.join(CONTAINER_RUNTIMES)}); set a path to the binary to use another one"
