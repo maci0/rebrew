@@ -151,6 +151,11 @@ def data_rows_for_path(
 
 DATA_METADATA_FILENAME = "rebrew-data.toml"
 
+#: Canonical ``storage_kind`` vocabulary for data rows.  Rows with another
+#: spelling are hand-written drift: every consumer switches on the exact
+#: lower-case string, so the writers normalise before validating.
+DATA_STORAGE_KINDS: frozenset[str] = frozenset({"object", "alias", "literal", "span", "import"})
+
 #: Fields owned by the data metadata.  Must match ``_CANONICAL_ORDER``: `type`
 #: is written by `rebrew data set --type` and the binsync import/overlay paths.
 #: ``UPDATED_BY`` / ``UPDATED_AT`` are the write provenance pair the gated
@@ -244,6 +249,7 @@ __all__ = [
     "DATA_METADATA_FIELDS",
     "DATA_METADATA_FIELD_TYPES",
     "DATA_METADATA_FILENAME",
+    "DATA_STORAGE_KINDS",
     "data_definition_hash",
     "data_file_index",
     "data_rows_for_path",
@@ -293,12 +299,24 @@ def validate_data_field(key: str, value: Any) -> Any:
         return size
     if not isinstance(value, str):
         raise ValueError(f"{key} must be a string, got {value!r}")
-    if key == "storage_kind" and value not in {"object", "alias", "literal", "span", "import"}:
-        raise ValueError(f"invalid storage_kind {value!r}")
-    if key == "status" and value not in DATA_STATUSES:
-        raise ValueError(
-            f"invalid data STATUS {value!r}: not one of {', '.join(sorted(DATA_STATUSES))}"
-        )
+    if key == "storage_kind":
+        # Canonical spellings are lower-case (see DATA_STORAGE_KINDS); a
+        # hand-written "Alias" is drift, not a new kind.  Normalise at this
+        # boundary instead of rejecting the row or letting it through to
+        # consumers that switch on the exact lower-case string.
+        value = value.strip().lower()
+        if value not in DATA_STORAGE_KINDS:
+            raise ValueError(f"invalid storage_kind {value!r}")
+        return value
+    if key == "status":
+        # Mirrors functions.canonical_status: persisted statuses are
+        # upper-case, and hand-written lower-case spellings are drift.
+        value = value.strip().upper()
+        if value not in DATA_STATUSES:
+            raise ValueError(
+                f"invalid data STATUS {value!r}: not one of {', '.join(sorted(DATA_STATUSES))}"
+            )
+        return value
     if key == "file":
         return validate_identity_file(value)
     if key == "kind":
@@ -306,8 +324,10 @@ def validate_data_field(key: str, value: Any) -> Any:
         # module-level import here would cycle at import time.
         from rebrew.metadata.bindings import DATA_KINDS
 
+        value = value.strip().upper()
         if value not in DATA_KINDS:
             raise ValueError(f"kind must be one of {', '.join(sorted(DATA_KINDS))}, got {value!r}")
+        return value
     return value
 
 

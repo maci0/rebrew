@@ -210,6 +210,34 @@ class TestSetDataField:
         with pytest.raises(ValueError, match="invalid data STATUS"):
             set_data_field(tmp_path, 0x10025000, "status", "RELOC", "SERVER")
 
+    @pytest.mark.parametrize(
+        ("key", "value", "stored"),
+        [
+            ("status", "exact", "EXACT"),
+            ("status", " Verified ", "VERIFIED"),
+            ("status", "drift", "DRIFT"),
+            ("status", "Unchecked", "UNCHECKED"),
+            ("storage_kind", "Alias", "alias"),
+            ("storage_kind", " LITERAL ", "literal"),
+            ("kind", "data", "DATA"),
+            ("kind", " Global ", "GLOBAL"),
+        ],
+    )
+    def test_enum_drift_is_normalised_to_canonical_spelling(
+        self, tmp_path: Path, key: str, value: str, stored: str
+    ) -> None:
+        """Hand-written casing is drift: writers store the canonical spelling."""
+        set_data_field(tmp_path, 0x10025000, key, value, "SERVER")
+        assert get_data_entry(tmp_path, 0x10025000, "SERVER")[key] == stored
+
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [("status", "STUB"), ("storage_kind", "view"), ("kind", "LIBRARY")],
+    )
+    def test_unknown_enum_value_still_rejected(self, tmp_path: Path, key: str, value: str) -> None:
+        with pytest.raises(ValueError):
+            set_data_field(tmp_path, 0x10025000, key, value, "SERVER")
+
 
 class TestSetDataFieldsBatch:
     @pytest.mark.parametrize("batch", [False, True])
