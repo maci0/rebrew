@@ -672,6 +672,22 @@ def record_upload(
     try:
         with _uploads_transaction(root):
             entries = read_uploads(root)
+            existing = entries.get(digest)
+            # Naturally idempotent: a repeat record for the same digest/api
+            # with the same slug/token leaves the ledger byte-identical
+            # (no at churn, no overwrite). A different slug/token for the
+            # same digest would orphan the first claim token, so keep the
+            # first entry unless it has expired.
+            if (
+                existing is not None
+                and existing.get("api") == api
+                and existing.get("slug") == slug
+                and existing.get("claim_token") == claim_token
+                and _is_recent(existing, now)
+            ):
+                return
+            if existing is not None and _is_recent(existing, now) and existing.get("api") == api:
+                return
             entries[digest] = {"slug": slug, "claim_token": claim_token, "api": api, "at": str(now)}
             fresh = {k: v for k, v in entries.items() if _is_recent(v, now)}
             if len(fresh) > _UPLOADS_MAX_ENTRIES:
