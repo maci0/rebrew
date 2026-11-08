@@ -86,6 +86,7 @@ class PgsqlStore:
                 yield active
                 return
             with driver.connect(self.dsn, connect_timeout=30, autocommit=True) as connection:
+                connection.execute("SET statement_timeout = '30s'")
                 yield connection
         except driver.OperationalError:
             raise MetadataUnavailableError("PostgreSQL metadata backend unavailable") from None
@@ -109,6 +110,19 @@ class PgsqlStore:
             ("revision", "bigint", True),
             ("schema_version", "integer", True),
         ]:
+            raise MetadataStorageError("unsupported PostgreSQL metadata schema")
+        # Columns alone cannot tell a table whose primary key or CHECKs were
+        # dropped apart from the one this store creates — the SQLite backend
+        # rejects that by exact DDL comparison, so mirror it here: the
+        # (project, path) primary key backing ON CONFLICT, and the two
+        # revision/schema_version CHECKs, must all be present.
+        (pk, checks) = connection.execute(
+            "SELECT count(*) FILTER (WHERE contype = 'p'), "
+            "count(*) FILTER (WHERE contype = 'c') FROM pg_constraint "
+            "WHERE conrelid = to_regclass(%s)",
+            (_TABLE,),
+        ).fetchone()
+        if int(pk) != 1 or int(checks) != 2:
             raise MetadataStorageError("unsupported PostgreSQL metadata schema")
         return True
 

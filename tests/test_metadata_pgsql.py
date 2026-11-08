@@ -89,6 +89,47 @@ class TestPgsqlConfig:
         with pytest.raises(MetadataStorageError, match=r"rebrew\[pgsql\]"):
             pgsql._driver()
 
+    def test_schema_check_rejects_table_without_constraints(self) -> None:
+        from rebrew.metadata import pgsql
+
+        columns = [
+            ("project", "text", True),
+            ("path", "text", True),
+            ("content", "text", True),
+            ("revision", "bigint", True),
+            ("schema_version", "integer", True),
+        ]
+
+        def make_connection(pk: int, checks: int) -> Any:
+            class _Cursor:
+                def __init__(self, rows: Any) -> None:
+                    self._rows = rows
+
+                def fetchone(self) -> Any:
+                    r=self._rows; return r[0]
+
+                def fetchall(self) -> Any:
+                    return self._rows
+
+            class _Connection:
+                def execute(self, sql: str, params: Any = None) -> Any:
+                    if sql.startswith("SELECT to_regclass"):
+                        return _Cursor([("public.rebrew_metadata_documents",)])
+                    if "pg_attribute" in sql:
+                        return _Cursor(columns)
+                    if "pg_constraint" in sql:
+                        return _Cursor([(pk, checks)])
+                    raise AssertionError(sql)
+
+            return _Connection()
+
+        store = pgsql.PgsqlStore.__new__(pgsql.PgsqlStore)
+        assert store._present(make_connection(1, 2)) is True
+        for pk, checks in ((0, 2), (1, 1), (1, 0), (2, 2)):
+            with pytest.raises(MetadataStorageError, match="unsupported PostgreSQL metadata schema"):
+                store._present(make_connection(pk, checks))
+
+
     @pytest.mark.parametrize("command", ["backup", "restore"])
     def test_file_backup_commands_reject_postgresql(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, command: str

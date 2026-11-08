@@ -110,6 +110,7 @@ class SqliteStore:
             with contextlib.closing(
                 sqlite3.connect(self.location.as_uri() + "?mode=ro", uri=True, timeout=30)
             ) as connection:
+                connection.execute("PRAGMA busy_timeout = 30000")
                 self._check_schema(connection)
                 yield connection
         except sqlite3.OperationalError as exc:
@@ -225,6 +226,7 @@ class SqliteStore:
                 with contextlib.closing(
                     sqlite3.connect(self.location, timeout=30, isolation_level=None)
                 ) as connection:
+                    connection.execute("PRAGMA busy_timeout = 30000")
                     connection.execute("PRAGMA journal_mode = DELETE")
                     connection.execute("PRAGMA synchronous = FULL")
                     connection.execute("BEGIN IMMEDIATE")
