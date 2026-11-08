@@ -20,6 +20,7 @@
 
 - A coverage read of a project whose configured `shared_dir` does not exist no longer logs "skipping unreadable source directory" once per input scan. The absent directory still enters the input fingerprint, so creating it invalidates the cached view.
 - Go jobs owner `GET`/`HEAD /metrics` now requires the bearer token (`metricsAuthorized` in `services/jobs/http.go`, 401 without it); `/healthz` and `/health` stay unauthenticated.
+- Metadata backup now carries coverage snapshots (`snapshots/coverage-*.toml`, the durable `history[]` log) and refuses a store-less bundle; `rebrew doctor` Backup readiness names the non-regenerable target binary when present.
 - `REBREW_CONTAINER_RUNTIME` now rejects relative paths (`./evil` refused in `rebrew.utils.container_runtime`; a path value must be absolute or one of `docker`/`podman`/`nerdctl`).
 - Recompile artifact bodies are capped at 30 MiB and wibo release-metadata JSON at 1 MiB (`compiler/recompile_client.py` `_MAX_ARTIFACT_BYTES`, `wibo.py` `_MAX_WIBO_METADATA_BYTES`).
 

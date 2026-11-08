@@ -360,6 +360,7 @@ _VERIFY_BASELINE_REL = Path(".rebrew") / "verify_baseline.toml"
 _VERIFY_TARGETS_REL = Path(".rebrew") / "targets"
 _GHIDRA_SYNC_STATE_REL = Path(".rebrew") / "ghidra_sync_state.json"
 _PGSQL_SNAPSHOT_DIR_REL = Path(".rebrew") / "pgsql-before-transfer"
+_SNAPSHOTS_DIR_REL = Path("snapshots")
 
 #: Mode the uploads ledger must keep in backups and on restore: it holds
 #: decomp.me claim tokens, so no group/other access, matching
@@ -519,8 +520,8 @@ def verify_backup_manifest(bundle: Path) -> list[str]:
 
 def extra_durable_sources(root: Path) -> list[Path]:
     """GA log, BinSync baselines, upload ledger, journal, replication
-    sidecar, verify cache/baseline, Ghidra sync state and the
-    metadata-doc parsed-document caches, when present.
+    sidecar, verify cache/baseline, Ghidra sync state, the
+    metadata-doc parsed-document caches, and coverage snapshots, when present.
 
     All live under the gitignored ``.rebrew/`` directory, so a backup
     that only walks the TOML store trees silently drops them: the
@@ -538,7 +539,11 @@ def extra_durable_sources(root: Path) -> list[Path]:
     are transient snapshots and stay out.  The ``pgsql-before-transfer``
     snapshots are the only copy of the destination a ``metadata migrate
     pgsql`` replaced, so they ride along too; they are ``.toml`` only
-    (nested paths are possible via ``metadata_dir``).
+    (nested paths are possible via ``metadata_dir``).  Coverage
+    snapshots (``snapshots/coverage-*.toml``) carry the durable
+    ``history[]`` status-transition log that ``coverage
+    import-history`` imports; losing them loses the audit trail that
+    cannot be regenerated without re-running every verification.
     """
     sources = []
     ga_runs = root / _GA_RUNS_REL
@@ -573,6 +578,15 @@ def extra_durable_sources(root: Path) -> list[Path]:
     pgsql_snapshots = root / _PGSQL_SNAPSHOT_DIR_REL
     if pgsql_snapshots.is_dir():
         sources.extend(sorted(p for p in pgsql_snapshots.rglob("*.toml") if p.is_file()))
+    snapshots = root / _SNAPSHOTS_DIR_REL
+    if snapshots.is_dir():
+        sources.extend(
+            sorted(
+                p
+                for p in snapshots.glob("coverage-*.toml")
+                if p.is_file() and not p.name.endswith(".before-restore")
+            )
+        )
     return sources
 
 
@@ -676,7 +690,7 @@ def backup_metadata_toml(root: Path, backup_dir: Path) -> Path:
     trees = toml_store_trees(root)
     config = _project_config(root)
     extras = extra_durable_sources(root)
-    if not trees and config is None and not extras:
+    if not trees:
         raise FileNotFoundError(f"no metadata stores at {root}")
     bundle = backup_dir / TOML_BACKUP_DIRNAME
     sources: list[Path] = []

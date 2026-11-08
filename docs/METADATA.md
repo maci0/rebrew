@@ -173,14 +173,17 @@ sync dedup state (`.rebrew/ghidra_sync_state.json`), the
 the only copy of the destination a `metadata migrate pgsql` replaced),
 and the
 metadata-doc parsed-document caches (`.rebrew/metadata-doc/*.json`,
-hand-reviewed fingerprints). The TOML and
+hand-reviewed fingerprints), and coverage snapshots
+(`snapshots/coverage-*.toml`, carrying the durable `history[]`
+status-transition log). The TOML and
 SQLite backup commands (`rebrew metadata backup`) carry the whole
-`.rebrew/` extras set; the manual copy procedure below must too.
+`.rebrew/` extras set plus coverage snapshots; the manual copy procedure below must too.
 Everything else is
-regenerable: compile caches, coverage snapshots, `output/`,
+regenerable: compile caches, `output/`,
 `bin/`, and toolchain images (re-pull via `rebrew toolchain pull`).
 The target binary under `original/` is the other input; it is not
-regenerable from anything rebrew holds.
+regenerable from anything rebrew holds — copy it off-tree with the
+backup. `rebrew doctor`'s Backup readiness check names it when present.
 
 RPO is the last successful backup of the files above; RTO is a file
 copy restore plus `rebrew verify` for the touched target. There is no

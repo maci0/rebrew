@@ -1106,18 +1106,36 @@ def check_backup_readiness(cfg: ProjectConfig) -> CheckResult:
                 fix="Create it with `rebrew metadata migrate sqlite`.",
             )
         extras = len(extra_durable_sources(root))
+        binary = getattr(cfg, "target_binary", None)
+        binary_note = (
+            f" Target binary {Path(binary).name} is not regenerable — "
+            "copy it off-tree with the backup."
+            if binary is not None and Path(binary).exists()
+            else ""
+        )
         return CheckResult(
             name="Backup readiness",
             status=_OK,
             message=f"SQLite database + {extras} .rebrew/ extra(s) back up with "
-            "`rebrew metadata backup --dir <off-tree>`",
+            "`rebrew metadata backup --dir <off-tree>`" + binary_note,
+        )
+    # The target binary is not regenerable from anything rebrew holds:
+    # an operator who loses it loses the reference the whole project
+    # verifies against.  Warn when it is not backed up alongside the
+    # stores so the gap is visible before the tree is lost.
+    binary = getattr(cfg, "target_binary", None)
+    binary_note = ""
+    if binary is not None and Path(binary).exists():
+        binary_note = (
+            f" Target binary {Path(binary).name} is not regenerable — "
+            "copy it off-tree with the backup."
         )
     trees = toml_store_trees(root)
     if not trees:
         return CheckResult(
             name="Backup readiness",
             status=_WARN,
-            message=f"No managed TOML stores under {root}",
+            message=f"No managed TOML stores under {root}" + binary_note,
             fix="Create them with `rebrew intake` or restore an existing backup.",
         )
     extras = len(extra_durable_sources(root))
@@ -1131,7 +1149,7 @@ def check_backup_readiness(cfg: ProjectConfig) -> CheckResult:
         name="Backup readiness",
         status=_OK,
         message=f"{len(trees)} TOML store tree(s) + {extras} .rebrew/ extra(s) back up with "
-        f"`rebrew metadata backup --dir <off-tree>`{binsync_note}",
+        f"`rebrew metadata backup --dir <off-tree>`{binsync_note}" + binary_note,
     )
 
 

@@ -560,3 +560,33 @@ class TestTomlBackup:
         with pytest.raises(MetadataStorageError):
             restore_metadata_toml(bundle, tmp_path)
         assert (tmp_path / "rebrew-functions.toml").read_text(encoding="utf-8") == "format=3\n"
+
+
+class TestRestoreDrill:
+    """A backup never restored is a hypothesis; pin the drill."""
+
+    def test_full_round_trip_covers_snapshots_and_extras(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")
+        (tmp_path / "rebrew-project.toml").write_text("[project]\nname='x'\n", encoding="utf-8")
+        snap = tmp_path / "snapshots" / "coverage-game.toml"
+        snap.parent.mkdir()
+        snap.write_text("version=1\ntarget='game'\n", encoding="utf-8")
+        (tmp_path / ".rebrew").mkdir(exist_ok=True)
+        (tmp_path / ".rebrew" / "ga_runs.jsonl").write_text('{"a":1}\n', encoding="utf-8")
+        bundle = backup_metadata_toml(tmp_path, tmp_path / "off-tree")
+        from rebrew.metadata.sqlite import verify_backup_manifest
+
+        assert "snapshots/coverage-game.toml" in verify_backup_manifest(bundle)
+        assert ".rebrew/ga_runs.jsonl" in verify_backup_manifest(bundle)
+        snap.unlink()
+        (tmp_path / ".rebrew" / "ga_runs.jsonl").unlink()
+        restore_metadata_toml(bundle, tmp_path)
+        assert snap.read_text(encoding="utf-8") == "version=1\ntarget='game'\n"
+        assert (tmp_path / ".rebrew" / "ga_runs.jsonl").read_text(encoding="utf-8") == '{"a":1}\n'
+
+    def test_store_less_backup_refused(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-project.toml").write_text("[project]\nname='x'\n", encoding="utf-8")
+        (tmp_path / ".rebrew").mkdir(exist_ok=True)
+        (tmp_path / ".rebrew" / "ga_runs.jsonl").write_text('{"a":1}\n', encoding="utf-8")
+        with pytest.raises(FileNotFoundError, match="no metadata stores"):
+            backup_metadata_toml(tmp_path, tmp_path / "off-tree")
