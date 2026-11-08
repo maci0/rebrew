@@ -230,8 +230,14 @@ def _apply_change(
     now: datetime | None,
     retired: dict[Any, bool],
     native_size: int | None = None,
-) -> dict[str, Any]:
-    """Apply one validated change to an open metadata document."""
+) -> dict[str, Any] | None:
+    """Apply one validated change to an open metadata document.
+
+    Returns ``None`` when the change is already in effect (a retirement whose
+    last event already retired the row, or identity already bound), so a
+    replayed apply — a retry after a lost response, a crash-restart of the
+    same reviewed change — converges instead of appending a duplicate event.
+    """
     key = resolve_metadata_key(doc, module, va)
     if key not in doc:
         raise ValueError(f"no native metadata row for {module}.0x{va:x}")
@@ -239,9 +245,9 @@ def _apply_change(
     history = validate_binding_history(entry.get("binding_history", []))
     if native_size is not None and entry.get("size") not in (None, 0, native_size):
         raise ValueError("native inventory extent conflicts with stored size")
-    if identity is None and (
-        (history and history[-1]["action"] == "retire") or not entry.get("file")
-    ):
+    if identity is None and not entry.get("file"):
+        if history and history[-1]["action"] == "retire":
+            return None
         raise ValueError("native row has no current source binding to retire")
     if identity is not None and all(entry.get(k) == v for k, v in identity.items()):
         raise ValueError("replacement is already the current source binding")
@@ -358,6 +364,20 @@ def change_source_binding(
             now=now,
             retired={},
         )
+        if event is None:
+            return doc, {
+                "dry_run": dry_run,
+                "input_digest": digest,
+                "module": module,
+                "va": f"0x{va:x}",
+                "already_applied": True,
+                "action": "retire",
+                "reason": reason.strip(),
+                "changed_at": stamp_now(now),
+                "previous": {},
+                "replacement": {},
+                "counterpart_va": counterpart_va or 0,
+            }
         return doc, {
             "dry_run": dry_run,
             "input_digest": digest,
@@ -371,8 +391,9 @@ def change_source_binding(
     else:
         with metadata_write_lock(directory, METADATA_FILENAME):
             doc, report = prepare()
-            stamp_format(doc)
-            metadata_store(path).write(doc, "metadata")
+            if not report.get("already_applied"):
+                stamp_format(doc)
+                metadata_store(path).write(doc, "metadata")
             # The normal reader's stat fingerprint notices the atomic replacement.
     return report
 
@@ -452,7 +473,7 @@ def change_source_bindings_batch(
         if metadata_store(path).snapshot() != before:
             raise ValueError("function metadata changed while reading; retry")
         retired: dict[Any, bool] = {}
-        events = [
+        raw_events = [
             _apply_change(
                 doc,
                 directory,
@@ -468,17 +489,40 @@ def change_source_bindings_batch(
             )
             for change in prepared
         ]
+        events = [
+            (change, event)
+            for change, event in zip(prepared, raw_events, strict=True)
+            if event is not None
+        ]
+        applied = len(events) != len(raw_events)
+        already = [
+            {
+                "module": change["module"],
+                "va": f"0x{change['va']:x}",
+                "already_applied": True,
+                "action": "retire",
+                "reason": change["reason"].strip(),
+                "changed_at": stamp_now(now),
+                "previous": {},
+                "replacement": {},
+                "counterpart_va": change["counterpart_va"] or 0,
+            }
+            for change, event in zip(prepared, raw_events, strict=True)
+            if event is None
+        ]
         return doc, {
             "dry_run": dry_run,
             "input_digest": digest,
+            "already_applied": applied and not events,
             "changes": [
                 {
                     "module": change["module"],
                     "va": f"0x{change['va']:x}",
                     **event,
                 }
-                for change, event in zip(prepared, events, strict=True)
+                for change, event in events
             ],
+            **({"already_applied_changes": already} if already else {}),
         }
 
     if dry_run:
@@ -486,6 +530,7 @@ def change_source_bindings_batch(
     else:
         with metadata_write_lock(directory, METADATA_FILENAME):
             doc, report = prepare()
-            stamp_format(doc)
-            metadata_store(path).write(doc, "metadata")
+            if not report.get("already_applied"):
+                stamp_format(doc)
+                metadata_store(path).write(doc, "metadata")
     return report
