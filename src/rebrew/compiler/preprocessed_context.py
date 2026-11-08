@@ -354,7 +354,7 @@ def capture_msvc_context(
     source: Path,
     *,
     output: str,
-    execution_backend: str = "docker",
+    execution_backend: str | None = None,
     timeout: int = 120,
     expected_digest: str | None = None,
     allow_token_paste: bool = False,
@@ -374,7 +374,14 @@ def capture_msvc_context(
     source = source.resolve()
     if not source.is_relative_to(root) or not database.is_relative_to(root):
         raise ValueError("source and compilation database must belong to the project")
-    if execution_backend not in {"docker", "podman"}:
+    # Resolve once so the gate, the header extraction and the compiler run
+    # all agree on one runtime: None inherits REBREW_CONTAINER_RUNTIME (with
+    # the docker default in container_runtime), and an explicit nerdctl is
+    # as valid here as it is in run_toolchain.
+    from rebrew.utils import container_runtime
+
+    resolved_backend = container_runtime(execution_backend)
+    if resolved_backend in {"", "unshare"}:
         raise ValueError("preprocessing requires a verified Docker or Podman image filesystem")
     raw_database = database.read_bytes()
     entries = json.loads(raw_database)
@@ -394,7 +401,7 @@ def capture_msvc_context(
     if spec.family != "msvc" or spec.runtime != "wine" or not spec.image or not spec.tool_root:
         raise ValueError("preprocessing requires an image-backed MSVC/Wine toolchain")
     environment = {"SOURCE_DATE_EPOCH": os.environ.get("SOURCE_DATE_EPOCH")}
-    with ImageHeaders(runtime=execution_backend) as images:
+    with ImageHeaders(runtime=resolved_backend) as images:
         sdk_root = images.get(profile)
         image_id = images.trees[profile]["id"]
         sdk_files = dict(images.trees[profile]["manifest"])
@@ -441,7 +448,7 @@ def capture_msvc_context(
                 workdir=workdir,
                 mounts=[(str(staged), str(root))],
                 image_id=image_id,
-                execution_backend=execution_backend,
+                execution_backend=resolved_backend,
                 timeout=timeout,
             )
             artifact = workdir / (source.stem + ".i")
