@@ -1072,6 +1072,14 @@ def _pdb_compile_record(path: Path) -> dict[str, str] | None:
     except (OSError, subprocess.TimeoutExpired) as exc:
         logger.warning("llvm-pdbutil dump -symbols failed on %s (%s)", pdb, exc)
         return None
+    if r.returncode != 0:
+        logger.warning(
+            "llvm-pdbutil dump -symbols exited %d on %s: %s",
+            r.returncode,
+            pdb,
+            (r.stderr or r.stdout or "").strip()[:200],
+        )
+        return None
     text = r.stdout + r.stderr
     m = _COMPILE3_BLOCK_RE.search(text)
     out: dict[str, str] = {}
@@ -1105,6 +1113,14 @@ def _pdb_zig_modules(pdb: Path) -> dict[str, str] | None:
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         logger.warning("llvm-pdbutil dump -modules failed on %s (%s)", pdb, exc)
+        return None
+    if r.returncode != 0:
+        logger.warning(
+            "llvm-pdbutil dump -modules exited %d on %s: %s",
+            r.returncode,
+            pdb,
+            (r.stderr or r.stdout or "").strip()[:200],
+        )
         return None
     if ".zig-cache" in (r.stdout + r.stderr):
         return {"zig": "1"}

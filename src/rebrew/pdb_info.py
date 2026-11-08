@@ -110,6 +110,15 @@ def _run_pdbutil(args: list[str], pdb: Path, timeout: int = 30) -> str:
         # and toolchain detection would proceed on the partial evidence.
         log.warning("llvm-pdbutil %s failed on %s: %s", " ".join(args), pdb, exc)
         return ""
+    if r.returncode != 0:
+        log.warning(
+            "llvm-pdbutil %s exited %d on %s: %s",
+            " ".join(args),
+            r.returncode,
+            pdb,
+            (r.stderr or r.stdout or "").strip()[:200],
+        )
+        return ""
     return (r.stdout or "") + (r.stderr or "")
 
 
