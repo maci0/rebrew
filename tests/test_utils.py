@@ -1818,9 +1818,39 @@ class TestSweepStaleTempDirs:
         lost = tmp_path / "rebrew_batch_abc"
         lost.mkdir()
         (lost / "toolchain.lib").write_bytes(b"x" * 32)
-        self._age(lost, temp_dirs.STALE_TEMP_DIR_AGE_S + 60)
+        self._age(lost, temp_dirs.STALE_TEMP_DIR_AGE_S + 4200)
         assert temp_dirs.sweep_stale_temp_dirs(tmp_path) == [lost]
         assert not lost.exists()
+
+    def test_forward_clock_step_does_not_delete_live_sandbox(self, tmp_path: Path) -> None:
+        """A one-hour forward NTP step must not make a live dir look abandoned.
+
+        The wall clock jumps forward by an hour after the sandbox was
+        touched: now - touched exceeds 24h by the step, but the dir is
+        still live.  The sweep's tolerance keeps it.
+        """
+        live = tmp_path / "rebrew_batch_live"
+        live.mkdir()
+        (live / "main.c").write_text("int main(){return 0;}\n", encoding="utf-8")
+        self._age(live, temp_dirs.STALE_TEMP_DIR_AGE_S - 3540)
+        now = time.time() + 3600  # one hour forward step
+        assert temp_dirs.sweep_stale_temp_dirs(tmp_path, now=now) == []
+        assert live.is_dir()
+
+    def test_future_mtime_is_not_swept(self, tmp_path: Path) -> None:
+        """A tree with a future mtime (backward clock step) is never swept.
+
+        Its true age is unknown — the file was written under a clock that
+        has since moved backward — so deleting it would be unsafe.
+        """
+        future_dir = tmp_path / "rebrew_batch_future"
+        future_dir.mkdir()
+        (future_dir / "main.c").write_text("x", encoding="utf-8")
+        future = time.time() + 86400
+        os.utime(future_dir / "main.c", (future, future))
+        os.utime(future_dir, (future, future))
+        assert temp_dirs.sweep_stale_temp_dirs(tmp_path) == []
+        assert future_dir.is_dir()
 
     def test_keeps_a_sandbox_whose_root_mtime_is_stale_but_work_is_live(
         self, tmp_path: Path
@@ -1874,20 +1904,20 @@ class TestSweepStaleTempDirs:
         os.utime(
             fresh,
             (
-                now - temp_dirs.STALE_TEMP_DIR_AGE_S + 60,
-                now - temp_dirs.STALE_TEMP_DIR_AGE_S + 60,
+                now - temp_dirs.STALE_TEMP_DIR_AGE_S - 3540,
+                now - temp_dirs.STALE_TEMP_DIR_AGE_S - 3540,
             ),
         )
         lost = tmp_path / "rebrew_batch_lost"
         lost.mkdir()
-        self._age(lost, temp_dirs.STALE_TEMP_DIR_AGE_S + 60)
+        self._age(lost, temp_dirs.STALE_TEMP_DIR_AGE_S + 4200)
         assert temp_dirs.sweep_stale_temp_dirs(tmp_path, now=now) == [lost]
         assert fresh.is_dir()
         # Two minutes later the fresh one has aged past the threshold, and the
         # removal order follows the names rather than the directory order.
         other = tmp_path / "rebrew_batch_other"
         other.mkdir()
-        self._age(other, temp_dirs.STALE_TEMP_DIR_AGE_S + 60)
+        self._age(other, temp_dirs.STALE_TEMP_DIR_AGE_S + 4200)
         assert temp_dirs.sweep_stale_temp_dirs(tmp_path, now=now + 120) == [fresh, other]
 
     def test_swept_once_per_base(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

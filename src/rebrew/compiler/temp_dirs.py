@@ -192,6 +192,15 @@ def sweep_stale_temp_dirs(
 
     if now is None:
         now = time.time()
+    # A forward NTP step makes every live sandbox look abandoned (now - touched
+    # exceeds age_s) while a backward step future-dates touched.  Neither is
+    # trustworthy on its own: require the wall-clock age to exceed age_s by
+    # more than the plausible step, and never sweep a tree whose newest mtime
+    # is in the future relative to *now* (that tree was written under a
+    # clock that has since moved backward, so its age is understated, not
+    # overstated — deleting it would be safe only if it were truly idle, which
+    # a future mtime contradicts).
+    _CLOCK_STEP_TOLERANCE_S = 3600.0
     removed: list[Path] = []
     try:
         # Sorted: iterdir yields readdir order, which the filesystem chooses,
@@ -208,7 +217,12 @@ def sweep_stale_temp_dirs(
             touched = _newest_mtime(entry)
         except OSError:
             continue
-        if touched is None or now - touched < age_s:
+        # touched > now: written under a clock that has since moved backward;
+        # true age unknown, so do not sweep.  age_s + tolerance: a forward
+        # NTP step inflates now - touched by the step size; the extra hour
+        # keeps a one-hour step from deleting a live sandbox (an abandoned
+        # dir is reclaimed an hour later than before, which is harmless).
+        if touched is None or touched > now or now - touched < age_s + _CLOCK_STEP_TOLERANCE_S:
             continue
         try:
             if entry.name.startswith("rebrew_unshare_"):

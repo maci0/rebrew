@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import io
 import json
 import os
@@ -668,7 +669,14 @@ class TestUnshareCleanup:
         outside.mkdir()
         outside.chmod(0o500)
         (bundle / "external-link").symlink_to(outside, target_is_directory=True)
-        assert sweep_stale_temp_dirs(tmp_path, age_s=0) == [bundle]
+        import os as _os
+        from pathlib import Path as _P
+
+        _stale = bundle.stat().st_mtime - 7200
+        for _p in (_P(str(bundle)), _P(str(bundle / "overlay-work")), _P(str(restricted))):
+            with contextlib.suppress(OSError):
+                _os.utime(_p, (_stale, _stale))
+        assert sweep_stale_temp_dirs(tmp_path, age_s=1) == [bundle]
         assert outside.stat().st_mode & 0o777 == 0o500
         outside.chmod(0o700)
 
