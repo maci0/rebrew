@@ -59,6 +59,12 @@ class Score:
         # though every component is finite; callers round a finite total and
         # store None for inf, silently dropping a real (terrible) candidate
         # from best-score tracking.  Saturate at float max instead.
+        # A NaN component (byte_score=NaN from a corrupt score) likewise
+        # slips past an isinf-only guard: NaN comparisons are always
+        # False, so the candidate would never win best-score tracking
+        # yet JSON-emit as bare NaN.  Treat it as worst-possible.
+        if math.isnan(total):
+            return sys.float_info.max
         if math.isinf(total):
             return math.copysign(sys.float_info.max, total)
         return total

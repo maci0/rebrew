@@ -101,10 +101,19 @@ def _ratio(a: int, b: int) -> float:
 
     A negative count is not a count: treating it as zero keeps the term
     in 0-1, where min/max of opposite-signed operands is negative and
-    of two negatives exceeds 1 (e.g. -2/-10 = 5.0).
+    of two negatives exceeds 1 (e.g. -2/-10 = 5.0).  A non-finite side
+    (NaN/inf from a corrupt signature) reads as zero for the same reason:
+    ``max(NaN, 0)`` is order-dependent and ``min(NaN, b) / max(NaN, b)``
+    is NaN, which then poisoned the score, its ``--min-score`` gate
+    (``NaN >= m`` is always False) and its JSON output (``NaN`` is not
+    valid JSON).
     """
-    a = max(a, 0)
-    b = max(b, 0)
+    if not math.isfinite(a) or not math.isfinite(b):
+        a = 0 if not math.isfinite(a) else max(a, 0)
+        b = 0 if not math.isfinite(b) else max(b, 0)
+    else:
+        a = max(a, 0)
+        b = max(b, 0)
     if a == b:
         return 1.0
     if a == 0 or b == 0:
@@ -136,8 +145,16 @@ def similarity_score(
     # A negative size is not a byte count; treating it as unknown keeps the
     # size term off, where a negative would score outside 0-100 (min/max of
     # two opposite-signed operands is negative).
-    size_a = max(0, int(sig_a.get("size") or 0)) if size_a is None else max(0, size_a)
-    size_b = max(0, int(sig_b.get("size") or 0)) if size_b is None else max(0, size_b)
+    size_a = (
+        max(0, int(sig_a.get("size") or 0))
+        if size_a is None and math.isfinite(sig_a.get("size") or 0)
+        else (0 if size_a is None else max(0, size_a))
+    )
+    size_b = (
+        max(0, int(sig_b.get("size") or 0))
+        if size_b is None and math.isfinite(sig_b.get("size") or 0)
+        else (0 if size_b is None else max(0, size_b))
+    )
     hist = _cosine(sig_a["histogram"], sig_b["histogram"]) * 100.0
     calls = _ratio(sig_a["calls"], sig_b["calls"]) * 100.0
     branches = _ratio(sig_a["branches"], sig_b["branches"]) * 100.0
