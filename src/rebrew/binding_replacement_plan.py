@@ -36,7 +36,7 @@ from rebrew.source_contracts import contract_contexts
 from rebrew.source_organization import organization_configs
 from rebrew.source_selection import collect_target_sources
 from rebrew.sources import iter_sources_and_headers
-from rebrew.utils import path_identity as _path_identity
+from rebrew.utils import path_identity
 from rebrew.utils import read_source_text
 
 
@@ -111,7 +111,7 @@ def _plan_binding_replacement(
 
     def config_snapshot() -> tuple[bytes | None, dict[str, Any]]:
         content = snapshot_input(config_path) if input_exists(config_path) else None
-        return content, _path_identity(config_path)
+        return content, path_identity(config_path)
 
     initial_config = config_snapshot()
     if initial_config[0] is not None:
@@ -215,7 +215,7 @@ def _plan_binding_replacement(
         lexical_paths.update(Path(directory).absolute() for directory in directories)
     for _name, directories in include_probes:
         lexical_paths.update(Path(directory).absolute() for directory in directories)
-    identities_before = {str(path): _path_identity(path) for path in sorted(lexical_paths)}
+    identities_before = {str(path): path_identity(path) for path in sorted(lexical_paths)}
     if any(
         identities_before[str(path)] != identity for path, identity in observed_identities.items()
     ):
@@ -473,7 +473,7 @@ def _plan_binding_replacement(
     if (
         rediscovered | {donor, replacement} != files
         or before != inputs()
-        or identities_before != {str(path): _path_identity(path) for path in sorted(lexical_paths)}
+        or identities_before != {str(path): path_identity(path) for path in sorted(lexical_paths)}
     ):
         raise ValueError("review inputs changed while planning")
     if image_headers is not None:
