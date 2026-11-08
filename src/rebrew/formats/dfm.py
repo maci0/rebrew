@@ -132,12 +132,17 @@ class Identifier(Str):
 class Bool(Value):
     """A boolean property; its wire type byte distinguishes False from True."""
 
-    def __init__(self, value: bool, type_byte: int) -> None:
+    def __init__(self, value: bool, type_byte: int | None = None) -> None:
         self.value = value
-        self.type_byte = type_byte
+        self.type_byte = (
+            _TYPE_TRUE if value else _TYPE_FALSE
+        ) if type_byte is None else type_byte
 
     @override
     def encode(self) -> bytes:
+        # The wire type byte is the value: keep it in sync so a mutated
+        # ``value`` re-encodes as the other boolean, not the old byte.
+        self.type_byte = _TYPE_TRUE if self.value else _TYPE_FALSE
         return b""
 
 
@@ -191,7 +196,7 @@ def render_value(value: Value, pad: str) -> str:
     if isinstance(value, Identifier):
         return value.value
     if isinstance(value, Bool):
-        return "True" if value.value else "False"
+        return "True" if value.type_byte == _TYPE_TRUE else "False"
     if isinstance(value, SetOfIdentifiers):
         return "[" + ", ".join(value.items) + "]"
     if isinstance(value, Binary):
