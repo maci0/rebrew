@@ -80,7 +80,9 @@ _COND_JUMPS = frozenset(
         "loopne",
     }
 )
-_JMP_TARGET_RE = re.compile(r"0x([0-9a-fA-F]+)")
+# Direct jumps only: op_str is a bare ``0x<addr>``.  An indirect jump's
+# ``dword ptr [0x<addr>]`` or ``eax`` operand must not become a direct edge.
+_JMP_TARGET_RE = re.compile(r"^0x([0-9a-fA-F]+)$")
 
 #: Cap on the blocks ``build_cfg_view`` returns for one function: a renderable
 #: graph, not an unbounded dump of a malformed extent.  The payload carries
@@ -212,26 +214,20 @@ def _segment_blocks(
     for idx, b in enumerate(blocks):
         count, start_idx = b["insn_count"], b["start_idx"]
         last = insns[start_idx + count - 1]
-        mnem = last.mnemonic
-        if mnem in _COND_JUMPS:
+        if last.mnemonic in _COND_JUMPS or last.mnemonic == "jmp":
             target_off = _jump_target_off(last, va)
             if target_off is not None:
                 _add_edge(edges, edge_set, idx, block_idx_of_offset, target_off)
-            # fallthrough to the next block
-            if start_idx + count < len(insns):
+            # Conditional jumps also fall through; unconditional jmp does not.
+            if last.mnemonic in _COND_JUMPS and start_idx + count < len(insns):
                 _add_edge(
                     edges, edge_set, idx, block_idx_of_offset, insns[start_idx + count].address - va
                 )
-        elif mnem == "jmp":
-            target_off = _jump_target_off(last, va)
-            if target_off is not None:
-                _add_edge(edges, edge_set, idx, block_idx_of_offset, target_off)
-        elif mnem not in _BLOCK_END_MNEMONICS:
+        elif last.mnemonic not in _BLOCK_END_MNEMONICS and start_idx + count < len(insns):
             # fallthrough
-            if start_idx + count < len(insns):
-                _add_edge(
-                    edges, edge_set, idx, block_idx_of_offset, insns[start_idx + count].address - va
-                )
+            _add_edge(
+                edges, edge_set, idx, block_idx_of_offset, insns[start_idx + count].address - va
+            )
 
     return blocks, edges
 
