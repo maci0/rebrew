@@ -173,6 +173,20 @@ XVFB_DISPLAY_ENV = "REBREW_XVFB_DISPLAY"
 :mod:`rebrew.compiler.headless`; an operator may pin it, and only a local ``:N`` /
 ``:N.S`` display can ever be adopted."""
 
+ALLOW_PRIVATE_DOWNLOAD_ENV = "REBREW_OPS_ALLOW_PRIVATE_DOWNLOAD"
+"""Env var opting ``rebrew ops`` downloads of presigned URLs to private hosts.
+
+Unset/empty keeps the SSRF refusal; a truthy value disables it.  Parsed
+strictly by :func:`parse_env_bool`, so ``0``/``false``/``no``/``off`` keep the
+refusal and a typo raises instead of silently granting the bypass."""
+
+OTLP_ENDPOINT_ENV = "REBREW_OTLP_ENDPOINT"
+"""Env var holding the OTLP/HTTP collector base URL for trace export.
+
+Unset/empty leaves export off.  A set value must be an ``http(s)`` URL with a
+host and no credentials; validated by :func:`validate_http_url` at telemetry
+setup and in ``env_knob_errors``."""
+
 #: A local X display, the only form :mod:`rebrew.compiler.headless` can resolve: the
 #: socket probe and the ``/proc`` scan both key on ``/tmp/.X11-unix/X<n>``.
 ENV_DISPLAY_RE = re.compile(r":\d+(?:\.\d+)?")
@@ -1857,7 +1871,16 @@ def _env_knob_parsers() -> tuple[tuple[str, Callable[[str], None]], ...]:
         if raw.strip():
             validate_http_url(raw, DECOMPME_API_ENV)
 
+    def _otlp_endpoint(raw: str) -> None:
+        if raw.strip():
+            validate_http_url(raw, OTLP_ENDPOINT_ENV)
+
+    def _allow_private_download(raw: str) -> None:
+        parse_env_bool(ALLOW_PRIVATE_DOWNLOAD_ENV, raw, default=False)
+
     return (
+        (ALLOW_PRIVATE_DOWNLOAD_ENV, _allow_private_download),
+        (OTLP_ENDPOINT_ENV, _otlp_endpoint),
         ("REBREW_CONTAINER_RUNTIME", _container_runtime),
         (DECOMPME_API_ENV, _decompme_api),
         (REBREW_FLIRT_SIGS_DIR_ENV, partial(check_env_dir, REBREW_FLIRT_SIGS_DIR_ENV)),
@@ -3048,6 +3071,7 @@ def load_config(
 
 
 __all__ = [
+    "ALLOW_PRIVATE_DOWNLOAD_ENV",
     "ARCH_PRESETS",
     "DECOMPME_API_ENV",
     "DEFAULT_ADDRESS_COMMENTS",
@@ -3063,6 +3087,7 @@ __all__ = [
     "KUNA_SPECS_ENV",
     "LLM_PROJECT_ENDPOINT_TRUST_ENV",
     "METADATA_FILENAME",
+    "OTLP_ENDPOINT_ENV",
     "REBREW_FLIRT_SIGS_DIR_ENV",
     "REBREW_PROJECTS_ROOT_ENV",
     "REBREW_SKILLS_DIR_ENV",

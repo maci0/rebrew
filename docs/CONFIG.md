@@ -601,6 +601,10 @@ rebrew receives.
 - `REBREW_OPS_ALLOWED_HOSTS`: comma-separated exact additional HTTP Host
   authorities (including optional ports) `rebrew ops serve` accepts beyond
   loopback binds.
+- `REBREW_OPS_ALLOW_PRIVATE_DOWNLOAD`: set to `1` to let `rebrew ops serve`
+  download a presigned `url` binary from a private/loopback host.  Unset or
+  `0`/`false`/`no`/`off` keeps the SSRF refusal; any other value is a
+  `ConfigError` reported by `rebrew cfg effective` before a request runs.
 - `REBREW_OTLP_ENDPOINT`: OTLP/HTTP collector base URL (`http(s)://host:4318`, no
   credentials). `rebrew ops serve` exports one server span per POST, named
   `POST /<op>`, continuing the caller's `traceparent`, plus a client span
@@ -862,7 +866,8 @@ under is visible in the same dump.
 `env_errors` covers the knobs no command reads until the moment of use
 (`REBREW_CONTAINER_RUNTIME`, `REBREW_FLIRT_SIGS_DIR`,
 `KUNA_SPECS`,
-`REBREW_LLM_ALLOW_PROJECT_ENDPOINT`, `REBREW_LOG_LEVEL`, `REBREW_PROJECTS_ROOT`,
+`REBREW_LLM_ALLOW_PROJECT_ENDPOINT`, `REBREW_LOG_LEVEL`, `REBREW_OPS_ALLOW_PRIVATE_DOWNLOAD`,
+`REBREW_OTLP_ENDPOINT`, `REBREW_PROJECTS_ROOT`,
 `REBREW_SKILLS_DIR`, `REBREW_TOOLCHAIN`, `REBREW_TOOLCHAIN_OVERLAY_DIR`,
 `REBREW_TOOLCHAINS_DIR`,
 `REBREW_WINE_HEADLESS`, `REBREW_WINEPREFIX`, `REBREW_XVFB_DISPLAY`), which a

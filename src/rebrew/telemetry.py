@@ -31,7 +31,9 @@ lazy from urllib.parse import urlsplit
 logger = logging.getLogger(__name__)
 
 #: Environment variable holding the collector's OTLP/HTTP base URL; unset leaves export off.
-ENDPOINT_ENV = "REBREW_OTLP_ENDPOINT"
+#: Single source is :data:`rebrew.config.OTLP_ENDPOINT_ENV`; this alias keeps
+#: the telemetry module's call sites short.
+from rebrew.config import OTLP_ENDPOINT_ENV as ENDPOINT_ENV
 
 #: Environment variable that hands the open span to a child process (the W3C trace context variable).
 TRACEPARENT_ENV = "TRACEPARENT"

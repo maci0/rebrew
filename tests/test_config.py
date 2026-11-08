@@ -2742,6 +2742,27 @@ class TestEnvKnobValidators:
         assert DECOMPME_API_ENV in errors
         assert "http(s) URL" in errors[DECOMPME_API_ENV]
 
+    def test_allow_private_download_knob_is_reported(self) -> None:
+        """The private-download opt-in is a strict boolean, reported before use."""
+        from rebrew.config import ALLOW_PRIVATE_DOWNLOAD_ENV, env_knob_errors
+
+        assert env_knob_errors({ALLOW_PRIVATE_DOWNLOAD_ENV: "false"}) == {}
+        assert env_knob_errors({ALLOW_PRIVATE_DOWNLOAD_ENV: "1"}) == {}
+        assert env_knob_errors({ALLOW_PRIVATE_DOWNLOAD_ENV: ""}) == {}
+        errors = env_knob_errors({ALLOW_PRIVATE_DOWNLOAD_ENV: "maybe"})
+        assert ALLOW_PRIVATE_DOWNLOAD_ENV in errors
+        assert "is not a boolean" in errors[ALLOW_PRIVATE_DOWNLOAD_ENV]
+
+    def test_otlp_endpoint_knob_is_reported(self) -> None:
+        """`REBREW_OTLP_ENDPOINT` is validated before telemetry setup."""
+        from rebrew.config import OTLP_ENDPOINT_ENV, env_knob_errors
+
+        assert env_knob_errors({OTLP_ENDPOINT_ENV: ""}) == {}
+        assert env_knob_errors({OTLP_ENDPOINT_ENV: "https://collector:4318"}) == {}
+        errors = env_knob_errors({OTLP_ENDPOINT_ENV: "ftp://collector"})
+        assert OTLP_ENDPOINT_ENV in errors
+        assert "http(s) URL" in errors[OTLP_ENDPOINT_ENV]
+
     def test_kuna_specs_knob_is_reported(self, tmp_path: Path) -> None:
         """`KUNA_SPECS` is checked like every other directory knob.
 

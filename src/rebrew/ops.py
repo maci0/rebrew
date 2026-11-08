@@ -996,7 +996,13 @@ def _download(config: WorkerConfig, url: str, wanted: str, into: Path) -> None:
     parts = urlsplit(url)
     if parts.scheme != "https" or not parts.hostname:
         raise _invalid("url must be an https URL")
-    if not os.environ.get("REBREW_OPS_ALLOW_PRIVATE_DOWNLOAD"):
+    from rebrew.config import ALLOW_PRIVATE_DOWNLOAD_ENV, parse_env_bool
+
+    if not parse_env_bool(
+        ALLOW_PRIVATE_DOWNLOAD_ENV,
+        os.environ.get(ALLOW_PRIVATE_DOWNLOAD_ENV, ""),
+        default=False,
+    ):
         _check_download_host(parts.hostname)
     limit = config.max_download_bytes
     digest = hashlib.sha256()
