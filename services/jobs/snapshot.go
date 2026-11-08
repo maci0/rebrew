@@ -89,13 +89,16 @@ func snapshot(root, dir string) (string, string, error) {
 		if e != nil {
 			return e
 		}
-		defer f.Close()
+		// Not deferred: this closure runs once per file within one walk,
+		// so defer would hold one fd per file until the walk ends.
 		before, e := f.Stat()
 		if e != nil || !os.SameFile(info, before) {
+			_ = f.Close()
 			return errors.New("workspace changed during snapshot")
 		}
 		out, e := os.OpenFile(dest, os.O_CREATE|os.O_EXCL|os.O_WRONLY, info.Mode().Perm()&0700|0600)
 		if e != nil {
+			_ = f.Close()
 			return e
 		}
 		hashField(h, []byte("f"))
@@ -113,12 +116,14 @@ func snapshot(root, dir string) (string, string, error) {
 		}
 		after, statErr := f.Stat()
 		if e != nil {
+			_ = f.Close()
 			return e
 		}
 		if statErr != nil || written != info.Size() || after.Size() != before.Size() || !after.ModTime().Equal(before.ModTime()) {
+			_ = f.Close()
 			return errors.New("workspace changed during snapshot")
 		}
-		return nil
+		return f.Close()
 	})
 	if err != nil {
 		return "", "", err
@@ -134,8 +139,11 @@ func snapshot(root, dir string) (string, string, error) {
 		if err != nil {
 			return err
 		}
-		defer f.Close()
-		return f.Sync()
+		if err := f.Sync(); err != nil {
+			_ = f.Close()
+			return err
+		}
+		return f.Close()
 	})
 	if err != nil {
 		return "", "", err
