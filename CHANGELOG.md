@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- A coverage read of a project whose configured `shared_dir` does not exist no longer logs "skipping unreadable source directory" once per input scan. The absent directory still enters the input fingerprint, so creating it invalidates the cached view.
+
 ## [6.24.0] - 2026-11-08
 
 ### Added

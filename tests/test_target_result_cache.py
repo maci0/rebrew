@@ -278,6 +278,21 @@ def test_one_target_cache_refresh_invalidates_only_its_coverage_inputs(tmp_path:
     assert _inputs(tl) == before_tl
 
 
+def test_absent_shared_dir_is_not_warned_about_and_still_invalidates(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    from rebrew.coverage_project import _inputs
+
+    gold = _cfg(tmp_path, "Gold")
+    gold.shared_dir = tmp_path / "src" / "shared"
+    with caplog.at_level("WARNING", logger="rebrew.sources"):
+        before = _inputs(gold)
+    assert "unreadable source directory" not in caplog.text
+    gold.shared_dir.mkdir()
+    (gold.shared_dir / "common.h").write_text("int x;\n")
+    assert _inputs(gold) != before
+
+
 @pytest.mark.parametrize("kind", ["cache", "baseline"])
 def test_dangling_selected_file_never_falls_back_to_legacy(tmp_path: Path, kind: str) -> None:
     gold = _cfg(tmp_path, "Gold")
