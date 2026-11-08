@@ -8,6 +8,7 @@ lazy import os
 lazy import re
 lazy import shlex
 lazy import tempfile
+lazy import unicodedata
 lazy from dataclasses import replace
 lazy from pathlib import Path
 lazy from typing import Any
@@ -35,9 +36,13 @@ def _unsafe_source(raw: bytes, *, allow_token_paste: bool = False) -> bool:
     )
 
 
+def _fold_name(part: str) -> str:
+    return unicodedata.normalize("NFC", part).casefold()
+
+
 def _protected(path: Path, root: Path) -> bool:
     for part in path.relative_to(root).parts:
-        folded = part.casefold()
+        folded = _fold_name(part)
         if folded in {".git", ".ssh", ".aws", ".gnupg", "credentials"} or folded.startswith(".env"):
             return True
     return False
@@ -69,7 +74,7 @@ def _check_missing_probes(probes: list[tuple[str, tuple[str, ...]]]) -> None:
                         matches = [
                             entry.name
                             for entry in entries
-                            if entry.name.casefold() == part.casefold()
+                            if _fold_name(entry.name) == _fold_name(part)
                         ]
                 except FileNotFoundError:
                     break
@@ -93,7 +98,7 @@ def _check_case_path(root: Path, path: Path) -> None:
         try:
             with os.scandir(current) as entries:
                 matches = [
-                    entry.name for entry in entries if entry.name.casefold() == part.casefold()
+                    entry.name for entry in entries if _fold_name(entry.name) == _fold_name(part)
                 ]
         except OSError:
             raise ValueError("cannot inspect a selected include path") from None
@@ -304,7 +309,7 @@ def _reported_inputs(
     """Validate compiler-reported paths and reject spoofing or volatile builtins."""
     markers = []
     sdk_prefix = sdk_include.replace("/", "\\").lower()
-    sdk_names = {name.casefold(): name for name in sdk_files}
+    sdk_names = {_fold_name(name): name for name in sdk_files}
     scanned: set[Path] = set()
     for match in _MARKER.finditer(expanded):
         marker = match.group(1).replace(b"\\\\", b"\\").decode("utf-8", "surrogateescape")
@@ -315,7 +320,7 @@ def _reported_inputs(
         else:
             raise ValueError(f"unverified preprocessor line marker: {marker}")
         if path.lower().startswith(sdk_prefix + "\\"):
-            relative = path[len(sdk_prefix) + 1 :].replace("\\", "/").casefold()
+            relative = _fold_name(path[len(sdk_prefix) + 1 :].replace("\\", "/"))
             if relative not in sdk_names:
                 raise ValueError(f"preprocessor named an unpinned SDK file: {marker}")
             inspected = sdk_root / sdk_names[relative]

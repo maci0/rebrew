@@ -263,7 +263,8 @@ def _cmake_rsp_objects(build_dir: Path, target: str | None = None) -> list[Path]
                 chosen = candidate
                 break
     text = "\n".join(
-        path.read_text(encoding="utf-8") for path in sorted(chosen.glob("objects*.rsp"))
+        path.read_text(encoding="utf-8", errors="surrogateescape")
+        for path in sorted(chosen.glob("objects*.rsp"))
     )
     # Wine/MSVC CMake rsp lines may use ``\\`` separators; on POSIX that
     # would become a single literal path component without normalization.
