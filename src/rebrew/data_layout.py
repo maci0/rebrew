@@ -113,6 +113,7 @@ _DEF_LINE_RE = re.compile(
 )
 #: Global name out of a generated definition line, e.g. ``"int g_table[4] = "``.
 _ADDED_NAME_RE = re.compile(r"\s(\w+)(?:\[|\s*=)")
+_PAD_INSERT_RE = re.compile(r"(\n)(?=\s*(?:extern|static|__declspec|(?://|/\*) ADDRESS:))")
 
 
 @functools.lru_cache(maxsize=256)

@@ -981,18 +981,18 @@ def make_return_value(ret_type: str) -> str | None:
 # --- generation ---------------------------------------------------------------
 
 
+_GUESS_FUNCTION_RE = re.compile(
+    r"(func_|FUN_|sub_|cleanup_|check_|compute_|create_|find_|free_|get_|"
+    r"search_|setup_|locked_|rand_|crt_|debug_|log_|assert_|game_|stream_|"
+    r"mem_|write_|entity_|another_|compress_|classify|RecvGameSavegame|"
+    r"FreeCommandBuffer|FreeHeapBlockWithRuntimeLock|WriteFileBufferLocked|"
+    r"RandomBelow)"
+)
+
+
 def _guess_function(name: str) -> bool:
     """No extern info: guess from naming conventions whether *name* is a function."""
-    return bool(
-        re.match(
-            r"(func_|FUN_|sub_|cleanup_|check_|compute_|create_|find_|free_|get_|"
-            r"search_|setup_|locked_|rand_|crt_|debug_|log_|assert_|game_|stream_|"
-            r"mem_|write_|entity_|another_|compress_|classify|RecvGameSavegame|"
-            r"FreeCommandBuffer|FreeHeapBlockWithRuntimeLock|WriteFileBufferLocked|"
-            r"RandomBelow)",
-            name,
-        )
-    )
+    return bool(_GUESS_FUNCTION_RE.match(name))
 
 
 def generate_stubs(

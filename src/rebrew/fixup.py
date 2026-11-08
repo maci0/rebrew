@@ -51,6 +51,8 @@ _UNDECLARED_TYPE_RE = re.compile(
     r"'(?P<name>[A-Za-z_]\w*)' undeclared|unknown type name '(?P<name2>[A-Za-z_]\w*)'"
 )
 _IMPLICIT_FN_RE = re.compile(r"implicit declaration of function '(?P<name>[A-Za-z_]\w*)'")
+_TYPEDEF_NAME_RE = re.compile(r"\b(?:typedef|struct|union|enum)\s+([A-Za-z_]\w*)")
+_PROTO_NAME_RE = re.compile(r"\b[A-Za-z_]\w*\s*\([^;]*\)\s*;")
 
 
 @dataclass
@@ -102,8 +104,8 @@ _MULTWORD_DECL_RE = re.compile(
 
 def _existing_identifiers(source: str) -> set[str]:
     """Type/function names already declared in *source* (never re-define)."""
-    out = set(re.findall(r"\b(?:typedef|struct|union|enum)\s+([A-Za-z_]\w*)", source))
-    out |= set(re.findall(r"\b[A-Za-z_]\w*\s*\([^;]*\)\s*;", source))
+    out = set(_TYPEDEF_NAME_RE.findall(source))
+    out |= set(_PROTO_NAME_RE.findall(source))
     out |= set(_MULTWORD_DECL_RE.findall(source))
     return out
 
