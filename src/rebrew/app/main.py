@@ -99,12 +99,17 @@ def _version_callback(value: bool) -> None:
     "rebrew.__version__"}``), but the *installed* metadata is baked when the
     package is installed, so in an editable checkout it drifts as soon as
     ``__init__.py`` changes and ``rebrew --version`` starts lying about the code
-    it is running.
+    it is running. An explicit ``-o json`` before the version flag selects one
+    JSON document on stdout, like every other command; text stays the default.
     """
     if value:
         from rebrew import __version__
+        from rebrew.cli import _json_mode_active, json_print
 
-        _stdout_console.print(f"rebrew {__version__}")
+        if _json_mode_active():
+            json_print({"name": "rebrew", "version": __version__})
+        else:
+            _stdout_console.print(f"rebrew {__version__}")
         raise typer.Exit
 
 

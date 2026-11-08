@@ -715,13 +715,18 @@ def _print_version(ctx: TyperContext, param: TyperParameter, value: bool) -> Non
 
     The module's ``__version__``, not ``importlib.metadata``: the installed
     metadata is baked at install time, so in an editable checkout it drifts
-    from the code that is actually running.
+    from the code that is actually running. An explicit ``-o json`` before
+    the subcommand selects one JSON document on stdout, like every other
+    command; the bare text stays the default.
     """
     if not value or ctx.resilient_parsing:
         return
     from rebrew import __version__
 
-    Console().print(f"rebrew {__version__}")
+    if _json_mode_active():
+        json_print({"name": "rebrew", "version": __version__})
+    else:
+        Console().print(f"rebrew {__version__}")
     ctx.exit(EXIT_OK)
 
 
