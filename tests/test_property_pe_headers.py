@@ -191,4 +191,7 @@ def test_image_base_matches_the_magic_selected_width(pe32_plus: bool) -> None:
     layout = pe_layout(data)
     assert layout is not None
     assert layout.magic == (0x20B if pe32_plus else 0x10B)
-    assert base in (0x400000, 0x140000000)
+    # make_pe writes the same 0x400000 at the magic-selected offset/width, so
+    # the value is exact: a PE32+ base read at the PE32 offset/width (the
+    # high half, 0) or a PE32 base read at the PE32+ width would not match.
+    assert base == 0x400000

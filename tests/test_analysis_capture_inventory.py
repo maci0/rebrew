@@ -181,6 +181,14 @@ def test_configured_inventory_override(tmp_path: Path, monkeypatch: pytest.Monke
     monkeypatch.setattr(ops, "_run_intake", run)
     capture, _ = _capture(tmp_path)
     _selected(capture, "src/mini/custom-functions.json")
+    # The default inventory path is not captured once the override is set:
+    # a capture that lists both would double-count one inventory (the
+    # input that triggers it: capture logic appending the default path
+    # alongside the configured one; the wrong value: a second
+    # function_structure.json entry).
+    assert all(
+        entry["path"] != "src/mini/function_structure.json" for entry in capture["entries"]
+    )
 
 
 def test_missing_selected_inventory_has_no_name_evidence(
