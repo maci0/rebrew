@@ -74,6 +74,12 @@ _G_EXTERN_RE = re.compile(
 )
 _G_NAME_RE = re.compile(r"^g_[0-9a-fA-F]{6,}$")
 
+
+@lru_cache(maxsize=1024)
+def _word_re(name: str) -> re.Pattern[str]:
+    """Whole-word pattern for *name*; cached because a file inlines many names."""
+    return re.compile(r"\b" + re.escape(name) + r"\b")
+
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
     "  # Preview the globals, write nothing\n"
@@ -363,7 +369,7 @@ def inline_g_literal_uses(
             result.skipped[name] = res
             continue
         _va, literal = res
-        word = re.compile(r"\b" + re.escape(name) + r"\b")
+        word = _word_re(name)
         for m in word.finditer(text):
             s, e = m.span()
             if b"0" in mask[s:e]:

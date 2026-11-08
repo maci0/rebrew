@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import re
 import threading
 from collections import OrderedDict
@@ -24,6 +25,14 @@ lazy from rebrew.config import (
 lazy from rebrew.metadata.pascal import pascal_syntax
 
 _COMMENT_MASK = bytes(byte if byte in (10, 13) else 32 for byte in range(256))
+
+_VA_RE = re.compile(r"0x[0-9a-fA-F]+")
+
+
+@functools.lru_cache(maxsize=64)
+def _syntax_re(regex: str) -> re.Pattern[str]:
+    """Compiled ADDRESS pattern for *regex*; cached per format, not per file."""
+    return re.compile(regex)
 
 #: Metadata tags that may not appear as ``KEY: value`` comments.  Module scope
 #: keeps the ~40-entry set out of every per-file call; ``metadata_comments``
@@ -173,7 +182,7 @@ def _parse_address_anchors(source: str, syntax: AddressCommentFormat) -> list[Ad
         comments = [(node.start_byte, node.end_byte) for node in comment_nodes(tree)]
         masked = bytearray(src)
         declarations = None
-    pattern = re.compile(syntax.regex)
+    pattern = _syntax_re(syntax.regex)
     pending: list[tuple[str, int, int]] = []
     for start_byte, end_byte in comments:
         comment = src[start_byte:end_byte].decode("utf-8", errors="surrogateescape")
@@ -202,7 +211,7 @@ def _parse_address_anchors(source: str, syntax: AddressCommentFormat) -> list[Ad
             not module
             or any(c.isspace() for c in module)
             or not address
-            or not re.fullmatch(r"0x[0-9a-fA-F]+", address)
+            or _VA_RE.fullmatch(address) is None
         ):
             raise ValueError(f"line {line}: expected module and hexadecimal va captures")
         pending.append((unicodedata.normalize("NFC", module), int(address, 16), line))

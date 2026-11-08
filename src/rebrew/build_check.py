@@ -92,6 +92,8 @@ _RECORDED = re.compile(
     re.M,
 )
 
+_COMPILER_RECORD_RE = re.compile(r'"([^"\n]*/CMakeCCompiler\.cmake)"')
+_COMPILER_ARG1_RE = re.compile(r'^set\(CMAKE_C_COMPILER_ARG1 "([^"\n]*)"\)', re.M)
 _OBJ_IN_LINE = re.compile(r"(CMakeFiles/[^ ]*?\.obj)\b")
 
 #: The source CMake compiles: the path following ``-c``.  Taking a bare ``*.c``
@@ -219,11 +221,9 @@ def _compiler_args(build_dir: Path) -> str:
     dependencies = build_dir / "CMakeFiles/Makefile.cmake"
     if not dependencies.exists():
         return ""
-    for record in re.findall(
-        r'"([^"\n]*/CMakeCCompiler\.cmake)"', dependencies.read_text(encoding="utf-8")
-    ):
+    for record in _COMPILER_RECORD_RE.findall(dependencies.read_text(encoding="utf-8")):
         text = (build_dir / record).read_text(encoding="utf-8")
-        match = re.search(r'^set\(CMAKE_C_COMPILER_ARG1 "([^"\n]*)"\)', text, re.M)
+        match = _COMPILER_ARG1_RE.search(text)
         if match:
             return match.group(1)
     return ""
