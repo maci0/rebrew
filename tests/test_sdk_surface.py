@@ -582,6 +582,9 @@ class TestUrlAndModelValidation:
             "http://example.com:0",
             "http://example .com",
             "http://example.com/path\x00evil",
+            "http://user:pass@example.com/path",
+            "http://user@example.com/path",
+            "https://user:pass@example.com/v1",
         ],
     )
     def test_validate_http_url_invalid(self, bad_url: str) -> None:
@@ -597,6 +600,8 @@ class TestUrlAndModelValidation:
             ("http://[::1]:8000", True),
             ("http://remote-api.com/v1", False),
             ("http://192.168.1.1:8000", False),
+            ("https://user:pass@example.com/v1", False),
+            ("http://user:pass@localhost:11434", False),
             ("not-a-url", False),
         ],
     )

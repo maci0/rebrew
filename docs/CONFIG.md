@@ -746,7 +746,10 @@ It emits warnings (and applies safe defaults) if:
 
 `[compiler] recompile_url`, `[llm] endpoint`, and the matching
 `REBREW_RECOMPILE_URL` / `REBREW_LLM_ENDPOINT` env values share URL validation:
-non-empty values must use `http(s)`, have a hostname, and use a numeric port in
+non-empty values must use `http(s)`, have a hostname, carry no credentials in
+the authority (`http://user:pass@host/` is refused — credentials belong in
+`REBREW_LLM_API_KEY` / `REBREW_RECOMPILE_API_KEY`, not in a committed URL),
+and use a numeric port in
 1–65535 if specified. Malformed IPv6 addresses, embedded whitespace, and control
 characters are rejected. Surrounding whitespace is trimmed; empty values remain
 unset. TOML values are validated at load; environment values are validated when

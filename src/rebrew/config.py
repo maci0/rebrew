@@ -1513,6 +1513,13 @@ def validate_http_url(value: str, field_name: str) -> str:
     Empty / whitespace-only input is treated as unset (returns ``""``) so
     optional URL knobs stay optional.  A non-empty garbage value must not
     reach compile/HTTP and fail later as a cryptic connection error.
+    Credentials in the authority (``http://user:pass@host/``) are refused:
+    they sit in config/logs/process listings, and the sibling validators
+    (telemetry's OTLP endpoint, the authenticated recompile base URL)
+    already refuse them — the shared gate must not be the one place they
+    pass.  ``parsed.port`` raises ``ValueError`` for a non-numeric or
+    out-of-range port on access, which the ``except`` below turns into
+    the same ``ConfigError``.
     """
     text = value.strip()
     if not text:
@@ -1523,6 +1530,8 @@ def validate_http_url(value: str, field_name: str) -> str:
         if (
             parsed.scheme not in ("http", "https")
             or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
             or any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in text)
             or (parsed.port is not None and not 1 <= parsed.port <= 65535)
         ):
@@ -1591,10 +1600,14 @@ def is_key_safe_endpoint(endpoint: str) -> bool:
 
     A malformed authority (``http://[::1``) makes ``urlparse`` raise, which
     ``validate_http_url`` converts to a ``ConfigError``. Callers that only
-    want the answer get ``False``: an unparseable endpoint is never key-safe.
+    want the answer get ``False``: an unparseable endpoint is never key-safe,
+    nor is one carrying credentials in its authority (``validate_http_url``
+    refuses those, so the gate must agree rather than call them safe).
     """
     try:
         parsed = urlparse(endpoint)
+        if parsed.username is not None or parsed.password is not None:
+            return False
     except ValueError:
         return False
     if parsed.scheme == "https":
