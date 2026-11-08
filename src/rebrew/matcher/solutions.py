@@ -430,7 +430,19 @@ def save_solutions(project_root: Path, entries: list[SolutionEntry]) -> None:
     # caller order, and the log keeps the later of the pair — so under -j N
     # thread timing, not the seed, decided which win was kept.
     for entry in sorted(
-        entries, key=lambda e: (e.target, e.symbol, e.source_file, e.score, e.source_sha)
+        entries,
+        key=lambda e: (
+            e.target,
+            e.symbol,
+            e.source_file,
+            e.score,
+            e.source_sha,
+            tuple(e.mutations),
+            e.cflags,
+            e.size,
+            e.generations,
+            e.solved_at,
+        ),
     ):
         save_solution(project_root, entry)
 
