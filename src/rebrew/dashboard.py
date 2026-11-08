@@ -58,7 +58,7 @@ from contextvars import ContextVar
 from functools import cache
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, ClassVar, Literal, override
+from typing import Any, ClassVar, override
 lazy import errno
 lazy import gzip
 lazy import json
@@ -78,7 +78,7 @@ lazy from rich.markup import escape
 
 from rebrew import theme
 from rebrew.cli import RootOption, console, error_exit, json_print, option_default, require_root
-lazy from rebrew.compression import precompress
+lazy from rebrew.compression import WireEncoding, precompress
 lazy from rebrew.coverage_project import (
     ProjectCoverageError,
     ProjectCoverageView,
@@ -285,7 +285,7 @@ _INITCWND_BYTES = 10 * 1460
 #: which measures the real header block against the full window.
 _ENTRY_HEADER_RESERVE_BYTES = 2 * 640
 _ENTRY_WIRE_BUDGET_BYTES = _INITCWND_BYTES - _ENTRY_HEADER_RESERVE_BYTES
-_WireEncoding = Literal["zstd", "gzip"]
+_WireEncoding = WireEncoding
 # Preference when several encodings share the same positive q-value.
 _ENCODING_PREFERENCE: tuple[_WireEncoding, ...] = ("zstd", "gzip")
 #: Filename shape :mod:`rebrew.coverage_toml` writes and reads: one document per
