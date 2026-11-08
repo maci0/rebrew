@@ -1078,7 +1078,7 @@ def check_backup_readiness(cfg: ProjectConfig) -> CheckResult:
             name="Backup readiness",
             status=_WARN,
             message="PostgreSQL backend has no rebrew-side backup command",
-            fix="Back up with pg_dump (see docs/METADATA.md#postgresql-backup-and-restore) "
+            fix="Back up with pg_dump (see the rebrew repo's docs/METADATA.md#postgresql-backup-and-restore) "
             "plus `rebrew metadata backup` for the project files.",
         )
     root = Path(cfg.root)
