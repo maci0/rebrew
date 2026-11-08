@@ -241,6 +241,15 @@ class PgsqlStore:
                     # Serialize first-use DDL across projects sharing the same database.
                     connection.execute("SELECT pg_advisory_xact_lock(%s)", (7354829341,))
                     connection.execute(_DDL)
+                    # The table now exists, but _present cached False for this
+                    # connection; drop the stale verdict so reads in this
+                    # transaction see the table they just created.
+                    try:
+                        cache = getattr(connection, "_rebrew_present_cache", None)
+                        if isinstance(cache, dict):
+                            cache.pop(id(connection), None)
+                    except (AttributeError, TypeError):
+                        pass
                 lock = int.from_bytes(
                     hashlib.sha256(self.project.encode()).digest()[:8], "big", signed=True
                 )
