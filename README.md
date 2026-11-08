@@ -6,7 +6,7 @@
 
 **Compiler-in-the-loop decompilation workbench for binary-matching game reversing.**
 
-Rebrew recompiles your C with the compiler that built the target and compares the bytes against the target, function by function; a function is done when they are identical. One Python CLI carries the compile-compare loop, a genetic-algorithm matcher, the function metadata store, and the verifier.
+Rebrew recompiles your C with the compiler that built the target and compares the bytes against the target, function by function; a function is done when they are identical (EXACT, or RELOC after masking relocations). One Python CLI carries the compile-compare loop, a genetic-algorithm matcher, the function metadata store, and the verifier.
 
 ## What it covers
 

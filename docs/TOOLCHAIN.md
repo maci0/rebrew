@@ -345,7 +345,7 @@ across runs).
 **Every registry toolchain with a pinned source has a verified containerized
 path.** The compile pipeline has no fallback to host-installed Wine/DOSBox;
 unshare uses the admitted image filesystem. Only the standalone
-`rebrew.compiler.msvc16`/`rebrew.compiler.tc16` research modules retain legacy
+`rebrew.compiler.msvc16`/`rebrew.compiler.tc16` 16-bit DOSBox drivers retain legacy
 sandbox helpers; the Delphi whole-program API uses Docker only.
 `rebrew toolchain smoke` gates byte-reproducibility for every image-backed
 profile with a golden object hash.
