@@ -392,6 +392,18 @@ def _ri_run(text: str) -> int:
     return run
 
 
+def remove_identity(items: list[Any], item: Any) -> None:
+    """Remove *item* from *items* by identity, not equality.
+
+    Dataclass and handler equality would match an equal-but-distinct entry,
+    so removal must be identity-based.
+    """
+    for index, candidate in enumerate(items):
+        if candidate is item:
+            del items[index]
+            return
+
+
 def clip_span(starts: list[int], va: int, size: int) -> int:
     """*size* cut so ``va + size`` does not pass the next of the sorted *starts*.
 

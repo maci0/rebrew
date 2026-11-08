@@ -53,6 +53,7 @@ lazy from rich.markup import escape
 from rebrew.errors import RebrewError
 lazy from rebrew.cli import EXIT_ERROR
 lazy from rebrew.registry import Registration, RegistryError, import_registration
+lazy from rebrew.utils import remove_identity
 
 Disposer = Callable[[], None]
 
@@ -398,7 +399,7 @@ class Context:
 
     def _forget(self, effect: _Effect) -> None:
         """Drop *effect* from the accumulator without running it."""
-        _remove_identity(self._effects, effect)
+        remove_identity(self._effects, effect)
 
     def fork(self) -> Context:
         """A derived context that resolves services through this one.
@@ -433,7 +434,7 @@ class Context:
         self._disposed = True
         if self._parent is not None:
             # A disposed fork must not stay reachable from its parent.
-            _remove_identity(self._parent._children, self)
+            remove_identity(self._parent._children, self)
             if self._parent_effect is not None:
                 self._parent._forget(self._parent_effect)
                 self._parent_effect.armed = False
@@ -643,7 +644,7 @@ class _ComponentContext(Context):
         self._committed.clear()
         self._effects.clear()
         if self._parent is not None:
-            _remove_identity(self._parent._children, self)
+            remove_identity(self._parent._children, self)
             self._parent = None
 
 
@@ -736,7 +737,7 @@ class CoeffectScope:
         self._guard_teardown((entry,))
         if entry.view is not None:
             entry.view._retired = True
-        _remove_identity(self._entries, entry)
+        remove_identity(self._entries, entry)
         try:
             self._deactivate(entry)
         except BaseException as exc:
@@ -780,7 +781,7 @@ class CoeffectScope:
                     break
                 try:
                     self._deactivate(entry)
-                    _remove_identity(self._entries, entry)
+                    remove_identity(self._entries, entry)
                     self._release(entry)
                 except BaseException as exc:
                     if self._cleanup_failure is None:
@@ -907,7 +908,7 @@ class CoeffectScope:
                         except BaseException as exc:
                             errors.append(exc)
                             if self._cleanup_failure is None:
-                                _remove_identity(self._entries, entry)
+                                remove_identity(self._entries, entry)
                                 self._release(entry)
                                 changed = True
                             else:
@@ -1073,18 +1074,6 @@ def activate(components: Iterable[Component], ctx: Context) -> CoeffectScope:
     return scope
 
 
-def _remove_identity(items: list[Any], item: Any) -> None:
-    """Remove *item* from *items* by identity, not equality.
-
-    Dataclass equality would match an equal-but-distinct registration (two
-    commands built from the same help text), so removal must be identity-based.
-    """
-    for index, candidate in enumerate(items):
-        if candidate is item:
-            del items[index]
-            return
-
-
 def _track_registration(app: typer.Typer, *, is_group: bool, registered: Any, ctx: Context) -> None:
     """Record an effect that unregisters *registered* from *app*.
 
@@ -1095,7 +1084,7 @@ def _track_registration(app: typer.Typer, *, is_group: bool, registered: Any, ct
 
     def dispose() -> None:
         items = app.registered_groups if is_group else app.registered_commands
-        _remove_identity(items, registered)
+        remove_identity(items, registered)
 
     ctx.effect(dispose)
 

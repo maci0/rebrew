@@ -94,7 +94,7 @@ lazy from rebrew.coverage_toml import (
 lazy from rebrew.metadata.bindings import FUNCTION_KINDS
 lazy from rebrew.metadata.functions import canonical_status
 lazy from rebrew.status_style import status_text_css
-lazy from rebrew.utils import floor_pct, preset_module_key, strip_bidi_format
+lazy from rebrew.utils import floor_pct, preset_module_key, remove_identity, strip_bidi_format
 lazy from rebrew.workspace import VA_MAX
 lazy from rebrew.workspace.status import COVERAGE_DB_STATUSES
 
@@ -2959,14 +2959,14 @@ def _attach_server_log_handler() -> Callable[[], None]:
             return
         disposed = True
         if log_swapped:
-            _remove_identity(log.handlers, handler)
+            remove_identity(log.handlers, handler)
             for existing in replaced:
                 log.addHandler(existing)
             log.setLevel(previous_level)
             log.propagate = previous_propagate
             log_swapped = False
         if package_swapped:
-            _remove_identity(package_log.handlers, package_handler)
+            remove_identity(package_log.handlers, package_handler)
             for existing in package_replaced:
                 package_log.addHandler(existing)
             package_log.propagate = package_previous_propagate
@@ -2988,19 +2988,6 @@ def _attach_server_log_handler() -> Callable[[], None]:
         restore()
         raise
     return restore
-
-
-def _remove_identity(items: list[Any], item: Any) -> None:
-    """Remove *item* from *items* by identity, not equality.
-
-    Two handlers compare equal (``Logger`` compares nothing, but ``Handler``
-    does not implement ``__eq__`` and a future subclass might), and removing
-    the wrong one would restore a stranger's handler.
-    """
-    for index, candidate in enumerate(items):
-        if candidate is item:
-            del items[index]
-            return
 
 
 def _log_failed_request(reason: str, path: str, exc: BaseException, request_id: str) -> None:
