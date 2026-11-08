@@ -3,7 +3,7 @@
 ### Added
 
 - `rebrew config` env knobs `REBREW_OPS_ALLOW_PRIVATE_DOWNLOAD` (`rebrew.config.ALLOW_PRIVATE_DOWNLOAD_ENV`, strictly parsed by `parse_env_bool`) and `REBREW_OTLP_ENDPOINT` (`rebrew.config.OTLP_ENDPOINT_ENV`), both validated at startup by `env_knob_errors` via `validate_http_url` / `parse_env_bool`; the ops presigned-URL download (`src/rebrew/ops.py` `_download` / `_check_download_host`) now refuses a host resolving to a non-public address unless `REBREW_OPS_ALLOW_PRIVATE_DOWNLOAD=1`.
-- New `fuzz` extra (`pyproject.toml`, `uv sync --group fuzz`): hash-pinned `atheris` (the `maci0` fork wheel/sdist for cp315, mirroring `../resembl`) for the coverage-guided fuzz harnesses `tests/fuzz_obj_symbol.py` and `tests/fuzz_binsync_serial.py`.
+- New `fuzz` extra (`pyproject.toml`, `uv sync --group fuzz`): hash-pinned `atheris` (the `maci0` fork wheel/sdist for cp315, mirroring `../resembl`) for the coverage-guided fuzz harnesses `tests/fuzz_obj_symbol.py`, `tests/fuzz_binsync_serial.py`, `tests/fuzz_ne_omf.py`, `tests/fuzz_arch_coff.py` and `tests/fuzz_lzexe_dfm.py` (the last covering the LZEXE unpacker and the Delphi 1 TPF0 form reader, the two highest-risk untrusted-input parsers without a libFuzzer target).
 - Go jobs owner (`services/jobs/`): unauthenticated `GET`/`HEAD /healthz` and `/health` now return request/error/latency/uptime/in-flight aggregates and bearer-gated `GET`/`HEAD /metrics` (401 without `REBREW_JOB_TOKEN`, `metricsAuthorized` in `services/jobs/http.go`) exposes `rebrew_jobs_*` RED counters, latency histogram and in-flight gauge; non-`GET`/`HEAD` on those paths answers `405 Allow: GET, HEAD`.
 
 ### Changed

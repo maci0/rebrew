@@ -283,7 +283,7 @@ similarity = [
 m2c = [
     "m2c @ git+https://github.com/matt-kempster/m2c.git@c632946b8cfbe8fce442b522dba92dfa72f1f317",
 ]
-# Coverage-guided fuzzing (tests/fuzz_obj_symbol.py, the libFuzzer entry point
+# Coverage-guided fuzzing (tests/fuzz_lzexe_dfm.py, the libFuzzer entry point
 # whose body tests/test_property_obj_symbol.py also drives under Hypothesis).
 # Resembl's own `fuzz` extra already carries the same atheris spec through the
 # `similarity` group, but rebrew's own harness import must be declared here:
