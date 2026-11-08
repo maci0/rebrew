@@ -1643,6 +1643,29 @@ class TestSeedCache:
         assert second == []
         assert client.calls == 2
 
+    def test_truncated_same_name_edit_is_resent(self) -> None:
+        """An edit past the truncation point must not be served stale seeds.
+
+        Same name and prototype, same truncated prompt, different tail: the
+        gate cannot tell them apart, so the key must.  Without the full-source
+        digest the second request would hit the first's cache entry.
+        """
+        monkey = pytest.MonkeyPatch()
+        monkey.setattr("rebrew.llm_seed._MAX_SOURCE_CHARS", 64)
+        client = self._client("int f(void) { int r = 0; return r; }")
+        try:
+            first = request_seeds(
+                _cfg("https://llm/v1"), _padded("int f(void) { return 0; }"), client=client
+            )
+            second = request_seeds(
+                _cfg("https://llm/v1"), _padded("int f(void) { return 1; }"), client=client
+            )
+        finally:
+            monkey.undo()
+        assert first == ["int f(void) { int r = 0; return r; }"]
+        assert second == ["int f(void) { int r = 0; return r; }"]
+        assert client.calls == 2
+
     def test_cached_seeds_are_rechecked_against_the_signature(self) -> None:
         """A cache hit is model output and gets the same gate a response does.
 

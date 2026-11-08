@@ -458,6 +458,23 @@ def _sanitize_source(source: str) -> str:
     return text
 
 
+def _sanitize_full(source: str) -> str:
+    """Sanitized source without the length cap, for cache-key identity.
+
+    The prompt text is capped at :data:`_MAX_SOURCE_CHARS`, so the key needs
+    the uncapped sanitized form to tell an edit past the cap from no edit at
+    all.  Sanitizing (not just truncating) keeps two sources that sanitize
+    to the same prompt — differing only in a neutralized fence or control
+    token — on one key, as they bill the same prompt.
+    """
+    text = strip_bidi_format(source.replace("\x00", ""))
+    text = _CONTROL_TOKENS_RE.sub("", text)
+    text = text.replace("```", "'''")
+    text = _DELIM_KEYWORD_RE.sub("C_DATA", text)
+    text = _ROLE_HEADER_RE.sub("[C_DATA]", text)
+    return _ANGLE_RUN_RE.sub(lambda m: " ".join(m.group(0)), text)
+
+
 def _clamp_count(count: int) -> int:
     """Requested seed count, clamped to :data:`_MIN_COUNT`..:data:`_MAX_COUNT`."""
     return max(_MIN_COUNT, min(int(count), _MAX_COUNT))
@@ -1091,9 +1108,18 @@ def _cache_key(
     The signature the response was gated against is part of the identity too.
     The user message is truncated at :data:`_MAX_SOURCE_CHARS`, so two
     different functions whose sources share that prefix (a long leading
-    comment block or data table) produce the same key, and a hit would then
-    hand one function's seeds to the other.
+    comment block or data table) would produce the same key on the sanitized
+    text alone, and a hit would then hand one function's seeds to the other —
+    including an edit to the same function past the truncation point, which
+    the prompt cannot see but the gate cannot catch either (name and
+    prototype are unchanged).  The digest of the full sanitized source —
+    before truncation — keeps each distinct source distinct.
     """
+    import hashlib
+
+    sanitized = _sanitize_source(source)
+    full = _sanitize_full(source)
+    full_digest = hashlib.sha256(full.encode("utf-8", errors="surrogateescape")).hexdigest()
     return "\x00".join(
         (
             conf["endpoint"],
@@ -1102,7 +1128,8 @@ def _cache_key(
             str(count),
             expect[0],
             normalize_function_prototype(expect[1]),
-            _sanitize_source(source),
+            sanitized,
+            full_digest,
         )
     )
 
