@@ -22,8 +22,14 @@ def main(
         None,
         help="Command path to include. Matching commands and their children are kept.",
     ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Output results as JSON (schema is always JSON; accepted for consistency)",
+    ),
 ) -> None:
     """Print the clispec 0.3 JSON document for this CLI."""
+    del json_output
     from rebrew.app.main import app as root
     from rebrew.cli import error_exit, json_print
     from rebrew.clispec import build_schema

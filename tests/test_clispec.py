@@ -166,7 +166,7 @@ def test_json_is_a_command_argument(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert "--verbose" not in skills
     assert "--version" not in skills
     schema_args = {arg["name"] for arg in commands["schema"].get("args", [])}
-    assert "--json" not in schema_args
+    assert "--json" in schema_args
     asm = {arg["name"]: arg for arg in commands["binary asm show"]["args"]}
     assert "file" in asm["--output"]["description"].lower()
     assert asm["--json"]["type"] == "boolean"
@@ -176,8 +176,8 @@ def test_json_is_a_command_argument(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     after = _invoke(["skills", "list", "--json"], tmp_path, monkeypatch)
     assert after.exit_code == 0, after.output
     assert isinstance(cli_payload(after)["items"], list)
-    rejected = _invoke(["schema", "--json"], tmp_path, monkeypatch)
-    assert rejected.exit_code == 2
+    accepted = _invoke(["schema", "--json"], tmp_path, monkeypatch)
+    assert accepted.exit_code == 0, accepted.output
     selected = _invoke(["-o", "json", "schema", "skills", "list"], tmp_path, monkeypatch)
     assert selected.exit_code == 0, selected.output
     assert list(_commands(cli_payload(selected))) == ["skills list"]
