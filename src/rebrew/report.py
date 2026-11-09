@@ -231,8 +231,10 @@ __STATUS_FORCED__ { color: CanvasText; font-weight: 700; }
 .pager a { color: var(--rb-accent); text-decoration: underline; min-height: 2.75rem; padding: 0.35rem 0.5rem;
            display: inline-flex; align-items: center; }
 .pager a:hover { color: var(--rb-accent-hi); }
+.mermaid-scroll { overflow-x: auto; }
+.mermaid-scroll:focus-visible { outline: 3px solid var(--rb-accent); outline-offset: 2px; }
 pre.mermaid { background: var(--rb-surface); border: 1px solid var(--rb-line);
-        border-radius: var(--rb-radius); padding: 1rem; overflow-x: auto;
+        border-radius: var(--rb-radius); padding: 1rem; margin: 0;
         font-family: var(--rb-mono);
         font-size: var(--rb-size-code); line-height: 1.4; }
 @media (max-width: 40rem) {
@@ -1202,11 +1204,16 @@ def _mermaid_preview(mermaid: str, *, max_lines: int = 40, max_chars: int = 4000
 
 
 def _graph_body(mermaid: str, *, spilled: bool, nodes: int, edges: int, dispatch: int) -> str:
-    """graph.html body.  Small sources stay inline; large ones link the file."""
+    """graph.html body.  Small sources stay inline; large ones link the file.
+
+    ``<div role='region'>`` (not ``<pre>``) so the heading/description
+    association and the scroll region are explicit: a screen reader maps
+    ``<pre>`` to a generic text block, which swallows the label.
+    """
     pre = (
-        "<pre class='mermaid' tabindex='0' role='region' aria-labelledby='mermaid-heading' "
+        "<div class='mermaid-scroll' tabindex='0' role='region' aria-labelledby='mermaid-heading' "
         "aria-describedby='mermaid-alt'>"
-        f"{html.escape(_mermaid_preview(mermaid) if spilled else mermaid)}</pre>"
+        f"<pre class='mermaid'>{html.escape(_mermaid_preview(mermaid) if spilled else mermaid)}</pre></div>"
     )
     if not spilled:
         return (
