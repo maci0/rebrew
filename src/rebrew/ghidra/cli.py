@@ -78,7 +78,7 @@ def _probe_program_path(endpoint: str, program_path: str, json_output: bool) -> 
     from rebrew.ghidra.client import end_mcp_session, init_mcp_session
 
     try:
-        with httpx.Client(timeout=10.0) as probe_client:
+        with httpx.Client(timeout=10.0, trust_env=False) as probe_client:
             session = init_mcp_session(probe_client, endpoint)
             try:
                 return validate_program_path(probe_client, endpoint, program_path, session)

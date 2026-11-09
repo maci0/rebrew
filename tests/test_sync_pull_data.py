@@ -10,8 +10,9 @@ from rebrew.ghidra.commands import pull_data
 
 
 class _FakeClient:
-    def __init__(self, timeout: float) -> None:
+    def __init__(self, timeout: float, trust_env: bool = False) -> None:
         self.timeout = timeout
+        self.trust_env = trust_env
 
     def __enter__(self) -> _FakeClient:
         return self
@@ -30,7 +31,7 @@ class _FakeClient:
 
 def _mock_httpx(monkeypatch: Any) -> None:
     fake_httpx = SimpleNamespace(
-        Client=lambda timeout: _FakeClient(timeout),
+        Client=lambda timeout, trust_env=False: _FakeClient(timeout, trust_env),
         RequestError=RuntimeError,
         HTTPError=RuntimeError,
     )

@@ -868,7 +868,9 @@ def apply_commands_via_mcp(
         unreported[key] = unreported.get(key, 0) + 1
 
     cm: Any = (
-        contextlib.nullcontext(client) if client is not None else httpx.Client(timeout=timeout)
+        contextlib.nullcontext(client)
+        if client is not None
+        else httpx.Client(timeout=timeout, trust_env=False)
     )
     with (
         cm as http,

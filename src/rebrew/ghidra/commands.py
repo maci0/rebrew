@@ -379,7 +379,7 @@ def pull_data(
         console.print(f"[yellow]warning:[/yellow] Could not load binary sections: {e}")
 
     with (
-        httpx.Client(timeout=MCP_REQUEST_TIMEOUT_S) as client,
+        httpx.Client(timeout=MCP_REQUEST_TIMEOUT_S, trust_env=False) as client,
         contextlib.ExitStack() as session_cleanup,
     ):
         try:

@@ -122,7 +122,7 @@ class TestFetchXrefContext:
         import rebrew.ghidra.client as client
 
         class _FakeClient:
-            def __init__(self, timeout: float = 30.0) -> None:
+            def __init__(self, timeout: float = 30.0, trust_env: bool = False) -> None:
                 pass
 
             def __enter__(self) -> _FakeClient:
@@ -198,7 +198,7 @@ class TestFetchXrefContext:
         import rebrew.ghidra.client as client
 
         class _FakeClient:
-            def __init__(self, timeout: float = 30.0) -> None:
+            def __init__(self, timeout: float = 30.0, trust_env: bool = False) -> None:
                 pass
 
             def __enter__(self) -> _FakeClient:
