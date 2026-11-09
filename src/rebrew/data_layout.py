@@ -209,7 +209,7 @@ def _run_objdump(obj: Path, flag: str) -> str:
 
 def _run_objdump_uncached(obj: Path, flag: str) -> str:
     try:
-        r = run_process_group(
+        r: subprocess.CompletedProcess[str] = run_process_group(
             ["objdump", flag, str(obj)],
             capture_output=True,
             text=True,

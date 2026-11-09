@@ -221,7 +221,10 @@ class TestReportCli:
         graph = (site / "graph.html").read_text(encoding="utf-8")
         assert "graph LR" in graph  # mermaid block
         # Wide source must be keyboard-scrollable and named by its heading.
-        assert "class='mermaid-scroll' tabindex='0' role='region' aria-labelledby='mermaid-heading'" in graph
+        assert (
+            "class='mermaid-scroll' tabindex='0' role='region' aria-labelledby='mermaid-heading'"
+            in graph
+        )
         assert "adjacency.txt" in graph  # sidecar link, not inlined
         # Two functions stay under the inline budget; the spill file is absent.
         assert "callgraph.mmd" not in graph

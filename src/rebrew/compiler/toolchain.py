@@ -989,7 +989,7 @@ def _image_id(tag: str) -> str | None:
     if not docker_available():
         return None
     try:
-        r = run_process_group(
+        r: subprocess.CompletedProcess[str] = run_process_group(
             [container_runtime(), "image", "inspect", "--format", "{{.Id}}", tag],
             capture_output=True,
             text=True,

@@ -2251,10 +2251,14 @@ class TestSourceBackupIdempotency:
         path = tmp_path / "fcn.c"
         path.write_text("v1\n", encoding="utf-8")
         backup_dir = tmp_path / "backups"
-        with source_backup(path, "v1\n", "utf-8", backup_dir, label="pre-skeleton", keep=True) as first:
+        with source_backup(
+            path, "v1\n", "utf-8", backup_dir, label="pre-skeleton", keep=True
+        ) as first:
             assert first is not None
             assert first.read_text(encoding="utf-8") == "v1\n"
-        with source_backup(path, "v1\n", "utf-8", backup_dir, label="pre-skeleton", keep=True) as second:
+        with source_backup(
+            path, "v1\n", "utf-8", backup_dir, label="pre-skeleton", keep=True
+        ) as second:
             assert second == first
         assert {entry.name for entry in backup_dir.iterdir()} == {first.name}  # type: ignore[union-attr]
 
@@ -2264,9 +2268,13 @@ class TestSourceBackupIdempotency:
         path = tmp_path / "fcn.c"
         path.write_text("v1\n", encoding="utf-8")
         backup_dir = tmp_path / "backups"
-        with source_backup(path, "v1\n", "utf-8", backup_dir, label="pre-skeleton", keep=True) as first:
+        with source_backup(
+            path, "v1\n", "utf-8", backup_dir, label="pre-skeleton", keep=True
+        ) as first:
             assert first is not None
-        with source_backup(path, "v2\n", "utf-8", backup_dir, label="pre-skeleton", keep=True) as second:
+        with source_backup(
+            path, "v2\n", "utf-8", backup_dir, label="pre-skeleton", keep=True
+        ) as second:
             assert second is not None
             assert second != first
             assert second.read_text(encoding="utf-8") == "v2\n"

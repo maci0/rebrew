@@ -152,9 +152,7 @@ def push(
         except ValueError as exc:
             error_exit(str(exc), json_mode=json_output)
         for ref in (ROOT_BRANCH, "HEAD"):
-            pushed = run_git(
-                state_dir, "push", "--", remote, ref, timeout=GIT_NETWORK_TIMEOUT
-            )
+            pushed = run_git(state_dir, "push", "--", remote, ref, timeout=GIT_NETWORK_TIMEOUT)
             if pushed.returncode != 0:
                 error_exit(_git_failure(f"git push {remote} {ref}", pushed), json_mode=json_output)
 

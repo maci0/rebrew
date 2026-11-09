@@ -507,9 +507,7 @@ def _utc_now(now: datetime | None) -> datetime:
         from rebrew.config import source_date_epoch
 
         epoch = source_date_epoch()
-        chosen = (
-            datetime.fromtimestamp(int(epoch), UTC) if epoch is not None else datetime.now(UTC)
-        )
+        chosen = datetime.fromtimestamp(int(epoch), UTC) if epoch is not None else datetime.now(UTC)
     return chosen.replace(tzinfo=UTC) if chosen.tzinfo is None else chosen.astimezone(UTC)
 
 
