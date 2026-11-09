@@ -694,6 +694,9 @@ def _kuna_spec_dirs() -> list[Path]:
     return out
 
 
+_KUNA_LANGUAGES_TAIL = ("Ghidra", "Processors", "x86", "data", "languages")
+
+
 def kuna_spec_dir() -> str | None:
     """Where kuna reads its SLEIGH specs: an explicit ``KUNA_SPECS``, else the
     first working dir :func:`_kuna_spec_dirs` finds, else None."""
@@ -701,7 +704,14 @@ def kuna_spec_dir() -> str | None:
     if explicit is not None:
         return explicit
     found = _kuna_spec_dirs()
-    return str(found[0]) if found else None
+    if not found:
+        return None
+    # kuna v1.993+ takes the root holding Ghidra/Processors (v1.160 takes either); the
+    # pypcode and rizin trees have no such root and are passed as the languages dir.
+    first = found[0]
+    if first.parts[-5:] == _KUNA_LANGUAGES_TAIL:
+        return str(first.parents[4])
+    return str(first)
 
 
 def _kuna_specs_override() -> str | None:

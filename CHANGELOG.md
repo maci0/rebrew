@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- `fetch_kuna` without `KUNA_SPECS` now injects the kuna specs root (the directory holding `Ghidra/Processors`) instead of its `x86/data/languages` subdirectory: kuna v1.993 and later refuse the subdirectory ("it holds no Ghidra/Processors tree", so every seed came back empty), v1.160 accepts both. pypcode and rizin trees, which have no such root, are still passed as the languages directory.
+
 ## [6.27.2] - 2026-11-09
 
 ### Fixed

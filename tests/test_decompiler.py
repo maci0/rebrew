@@ -931,6 +931,36 @@ class TestKunaBackend:
         assert dc.fetch_kuna(binary, 0x401000, tmp_path) is not None
         assert seen.get("env", {}).get("KUNA_SPECS") == str(spec)
 
+    def test_fetch_kuna_injects_the_specs_root_of_a_ghidra_layout(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """kuna v1.993+ rejects the languages dir; the root holding Ghidra/Processors serves every version."""
+        import rebrew.decompiler as dc
+
+        binary = tmp_path / "x.exe"
+        binary.write_bytes(b"MZ")
+        monkeypatch.setattr(dc.shutil, "which", lambda n: "/usr/bin/kuna")
+        monkeypatch.delenv("KUNA_SPECS", raising=False)
+        root = tmp_path / "specs"
+        languages = root / "Ghidra" / "Processors" / "x86" / "data" / "languages"
+        languages.mkdir(parents=True)
+        (languages / "x86.sla").write_bytes(b"sla\x04binary")
+        monkeypatch.setattr(dc, "_kuna_spec_dirs", lambda: [languages])
+        seen: dict = {}
+
+        class _R:
+            returncode = 0
+            stdout = "int f(void) { return 0; }\n"
+            stderr = ""
+
+        def _run(cmd, **kw):
+            seen.update(kw)
+            return _R()
+
+        monkeypatch.setattr(dc, "run_process_group", _run)
+        assert dc.fetch_kuna(binary, 0x401000, tmp_path) is not None
+        assert seen["env"]["KUNA_SPECS"] == str(root)
+
     def test_fetch_kuna_injects_specs_when_override_blank(
         self, tmp_path: Path, monkeypatch
     ) -> None:
