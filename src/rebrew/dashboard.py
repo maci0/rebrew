@@ -3886,10 +3886,13 @@ def main(
         # Ctrl+C: without it the process dies without server_close(), the
         # shutdown totals never print, and in-flight handler sockets are
         # dropped mid-response.  shutdown() from a fresh thread, mirroring
-        # ops serve's stop handler.
+        # ops serve's stop handler. On Windows SIGTERM is never delivered;
+        # Ctrl+C raises KeyboardInterrupt instead (see shutdown_windows.go
+        # in services/jobs), which is caught below.
         threading.Thread(target=server.shutdown, daemon=True).start()
 
-    previous = signal.signal(signal.SIGTERM, _stop)
+    sigterm = getattr(signal, "SIGTERM", None)
+    previous = signal.signal(sigterm, _stop) if sigterm is not None else None
     try:
         stop_telemetry = telemetry.configure_from_env("relumea-rebrew", __version__)
     except ValueError as exc:
@@ -3928,7 +3931,8 @@ def main(
         if restore_log is not None:
             restore_log()
         stop_telemetry()
-        signal.signal(signal.SIGTERM, previous)
+        if sigterm is not None:
+            signal.signal(sigterm, previous)
 
 
 def main_entry() -> None:

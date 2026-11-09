@@ -4150,7 +4150,12 @@ def serve_command(
             server.draining = True
         threading.Thread(target=server.shutdown, daemon=True).start()
 
-    previous = signal.signal(signal.SIGTERM, stop)
+    # SIGTERM is never delivered on Windows; Ctrl+C raises KeyboardInterrupt
+    # instead, which serve_forever propagates as the shutdown path. Mirror
+    # climb.py's getattr guard so a platform without SIGTERM does not raise
+    # AttributeError on startup.
+    sigterm = getattr(signal, "SIGTERM", None)
+    previous = signal.signal(sigterm, stop) if sigterm is not None else None
     restore_log = _attach_server_log_handler()
     try:
         server.serve_forever()
@@ -4161,7 +4166,8 @@ def serve_command(
             server.idle.wait_for(lambda: server.active == 0, timeout=30)
         restore_log()
         stop_telemetry()
-        signal.signal(signal.SIGTERM, previous)
+        if sigterm is not None:
+            signal.signal(sigterm, previous)
 
 
 def main_entry() -> None:
