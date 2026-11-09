@@ -182,6 +182,7 @@ def _wire(opened: Span) -> dict[str, Any]:
 
 class _Exporter:
     def __init__(self, endpoint: str, service: str, version: str) -> None:
+        self._closed = threading.Event()
         self._url = f"{endpoint}/v1/traces"
         self._resource = {
             "attributes": [
@@ -195,10 +196,19 @@ class _Exporter:
 
     def submit(self, opened: Span) -> None:
         # A full queue drops the span: a request never waits for the collector.
+        if self._closed.is_set():
+            return
         with contextlib.suppress(queue.Full):
             self._queue.put_nowait(opened)
 
     def close(self) -> None:
+        if self._closed.is_set():
+            self._thread.join(SHUTDOWN_SECONDS)
+            return
+        self._closed.set()
+        # Blocking put: a full queue at shutdown would silently drop the
+        # drain batch's sentinel and leave the thread parked on get(),
+        # so join() below would time out while the thread was still alive.
         self._queue.put(None)
         self._thread.join(SHUTDOWN_SECONDS)
 
@@ -269,9 +279,15 @@ def configure(endpoint: str, service: str, version: str) -> Callable[[], None]:
     if parts.scheme not in ("http", "https") or not parts.hostname or parts.username:
         raise ValueError(f"{ENDPOINT_ENV} must be an http(s) URL without credentials")
     exporter = _Exporter(endpoint.rstrip("/"), service, version)
+    old: _Exporter | None
     with _exporter_lock:
         global _exporter
+        old = _exporter
         _exporter = exporter
+    if old is not None:
+        # Orphan the previous exporter: its thread would otherwise keep
+        # posting spans forever, and its queue would fill and drop silently.
+        old.close()
 
     def shutdown() -> None:
         global _exporter

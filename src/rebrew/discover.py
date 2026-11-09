@@ -608,17 +608,14 @@ def _is_padding(info: Any, va: int, end: int) -> bool:
         # "not padding" are different facts and this returns False for both, so a
         # systematic read failure is indistinguishable from "no padding found".
         # Reported once per run rather than at DEBUG.
-        global _prologue_read_failed
-        if not _prologue_read_failed:
-            _prologue_read_failed = True
-            logger.warning(
-                "could not read %d bytes at 0x%x for a padding test (%s); "
-                "failures here are treated as 'not padding', so a systematic "
-                "read problem looks like a missing boundary",
-                end - va,
-                va,
-                exc,
-            )
+        _report_prologue_read_failed(
+            "could not read %d bytes at 0x%x for a padding test (%s); "
+            "failures here are treated as 'not padding', so a systematic "
+            "read problem looks like a missing boundary",
+            end - va,
+            va,
+            exc,
+        )
         return False
     i = 0
     while i < len(raw):
@@ -640,7 +637,21 @@ def _is_padding(info: Any, va: int, end: int) -> bool:
 #: have; the `except` turned every call into `False`, the fix compiled, ran, and
 #: changed nothing, and nothing said so.  A read failure is not "not a prologue",
 #: so it is reported once per run rather than logged at DEBUG and forgotten.
+#: Guarded by ``_prologue_lock``: the check-then-set is not atomic, so two
+#: capstone-sweep workers can both see False and both warn (or one reads a
+#: torn flag) without it.
 _prologue_read_failed = False
+_prologue_lock = threading.Lock()
+
+
+def _report_prologue_read_failed(message: str, *args: object) -> None:
+    """Warn once per process that a prologue/padding read failed."""
+    global _prologue_read_failed
+    with _prologue_lock:
+        if _prologue_read_failed:
+            return
+        _prologue_read_failed = True
+    logger.warning(message, *args)
 
 
 def _function_start(info: Any, va: int) -> int | None:
@@ -659,17 +670,14 @@ def _function_start(info: Any, va: int) -> int | None:
     try:
         window = extract_bytes(info, va, 16)
     except Exception as exc:
-        global _prologue_read_failed
-        if not _prologue_read_failed:
-            _prologue_read_failed = True
-            logger.warning(
-                "could not read 16 bytes at 0x%x for a prologue test (%s); "
-                "every such failure is treated as 'not a prologue', so a "
-                "systematic read problem looks exactly like 'no boundaries "
-                "found' -- which is how a fix that did nothing once shipped",
-                va,
-                exc,
-            )
+        _report_prologue_read_failed(
+            "could not read 16 bytes at 0x%x for a prologue test (%s); "
+            "every such failure is treated as 'not a prologue', so a "
+            "systematic read problem looks exactly like 'no boundaries "
+            "found' -- which is how a fix that did nothing once shipped",
+            va,
+            exc,
+        )
         return None
     if not window:
         return None
