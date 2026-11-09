@@ -168,7 +168,10 @@ journal and sidecar (`.rebrew/metadata-journal.toml`,
 `--compare` baseline (`.rebrew/verify_cache.toml` /
 `.rebrew/verify_baseline.toml`, or the same filenames under
 `.rebrew/targets/<sha256-of-exact-target-name>/`), and the Ghidra
-sync dedup state (`.rebrew/ghidra_sync_state.json`), the
+sync dedup state (`.rebrew/ghidra_sync_state.json`), the root scan
+caches (`.rebrew/name-map-cover.json`, `.rebrew/data-scan-roles.json`;
+store-fingerprint-guarded parse facts, a stale copy degrades to a
+re-parse), the
 `pgsql-before-transfer` snapshots (`.rebrew/pgsql-before-transfer/**/*.toml`;
 the only copy of the destination a `metadata migrate pgsql` replaced),
 and the

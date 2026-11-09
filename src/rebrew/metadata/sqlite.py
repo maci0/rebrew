@@ -359,6 +359,8 @@ _VERIFY_CACHE_REL = Path(".rebrew") / "verify_cache.toml"
 _VERIFY_BASELINE_REL = Path(".rebrew") / "verify_baseline.toml"
 _VERIFY_TARGETS_REL = Path(".rebrew") / "targets"
 _GHIDRA_SYNC_STATE_REL = Path(".rebrew") / "ghidra_sync_state.json"
+_NAME_COVER_REL = Path(".rebrew") / "name-map-cover.json"
+_DATA_SCAN_ROLES_REL = Path(".rebrew") / "data-scan-roles.json"
 _PGSQL_SNAPSHOT_DIR_REL = Path(".rebrew") / "pgsql-before-transfer"
 _SNAPSHOTS_DIR_REL = Path("snapshots")
 
@@ -520,8 +522,9 @@ def verify_backup_manifest(bundle: Path) -> list[str]:
 
 def extra_durable_sources(root: Path) -> list[Path]:
     """GA log, BinSync baselines, upload ledger, journal, replication
-    sidecar, verify cache/baseline, Ghidra sync state, the
-    metadata-doc parsed-document caches, and coverage snapshots, when present.
+    sidecar, verify cache/baseline, Ghidra sync state, the root
+    scan caches (``name-map-cover.json``, ``data-scan-roles.json``),
+    the metadata-doc parsed-document caches, and coverage snapshots, when present.
 
     All live under the gitignored ``.rebrew/`` directory, so a backup
     that only walks the TOML store trees silently drops them: the
@@ -544,6 +547,10 @@ def extra_durable_sources(root: Path) -> list[Path]:
     ``history[]`` status-transition log that ``coverage
     import-history`` imports; losing them loses the audit trail that
     cannot be regenerated without re-running every verification.
+    The root scan caches (``name-map-cover.json``,
+    ``data-scan-roles.json``) carry store-fingerprint-guarded parse
+    facts; a stale copy degrades to a re-parse, never a wrong verdict,
+    but losing them on restore forces a full re-scan.
     """
     sources = []
     ga_runs = root / _GA_RUNS_REL
@@ -567,6 +574,10 @@ def extra_durable_sources(root: Path) -> list[Path]:
     ghidra_state = root / _GHIDRA_SYNC_STATE_REL
     if ghidra_state.is_file():
         sources.append(ghidra_state)
+    for rel in (_NAME_COVER_REL, _DATA_SCAN_ROLES_REL):
+        candidate = root / rel
+        if candidate.is_file():
+            sources.append(candidate)
     doc_cache_dir = root / ".rebrew" / "metadata-doc"
     if doc_cache_dir.is_dir():
         # Parsed-document caches carry hand-reviewed fingerprints; a

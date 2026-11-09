@@ -395,6 +395,27 @@ class TestBackupManifest:
         with pytest.raises(MetadataStorageError, match="manifest verification failed"):
             restore_metadata_database(dest, tmp_path)
 
+    def test_root_scan_caches_ride_along(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")
+        (tmp_path / ".rebrew").mkdir(exist_ok=True)
+        cover = tmp_path / ".rebrew" / "name-map-cover.json"
+        roles = tmp_path / ".rebrew" / "data-scan-roles.json"
+        cover.write_text('{"version": 2, "stamp": [], "files": {}}\n', encoding="utf-8")
+        roles.write_text(
+            '{"version": 1, "stamp": [], "identity": "", "files": {}}\n', encoding="utf-8"
+        )
+        bundle = backup_metadata_toml(tmp_path, tmp_path / "off-tree")
+        checked = verify_backup_manifest(bundle)
+        assert ".rebrew/name-map-cover.json" in checked
+        assert ".rebrew/data-scan-roles.json" in checked
+        cover.unlink()
+        roles.unlink()
+        restore_metadata_toml(bundle, tmp_path)
+        assert cover.read_text(encoding="utf-8") == '{"version": 2, "stamp": [], "files": {}}\n'
+        assert roles.read_text(encoding="utf-8") == (
+            '{"version": 1, "stamp": [], "identity": "", "files": {}}\n'
+        )
+
     def test_metadata_doc_cache_rides_along(self, tmp_path: Path) -> None:
         (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")
         cache_dir = tmp_path / ".rebrew" / "metadata-doc"
