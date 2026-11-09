@@ -226,3 +226,36 @@ def test_recorded_relocation_is_qualified_as_matched():
     ):
         with pytest.raises(CoverageInputError):
             verification_records_digest([forged])
+
+
+def _project_without_shared(root):
+    (root / "rebrew-project.toml").write_text(
+        '[project]\ndefault_target = "A"\n[targets.A]\nbinary = "A.exe"\n', encoding="utf-8"
+    )
+    (root / "src").mkdir()
+    (root / "src" / "a.c").write_text("int a(void) { return 1; }\n", encoding="utf-8")
+
+
+def test_readset_of_a_project_without_shared_sources_ignores_the_absent_shared_dir(tmp_path):
+    from rebrew.coverage_input_contract import plan_coverage_readset, rebrew_coverage_paths
+
+    _project_without_shared(tmp_path)
+    required = rebrew_coverage_paths(tmp_path, "A")
+    assert "src/shared" not in required
+    # An envelope captured before the absent shared_dir was added to the inputs
+    # (rebrew 6.24.0) names exactly these paths and must still verify.
+    envelope = contract()
+    envelope["readset"] = [
+        {**row, "origin": "source"} for row in plan_coverage_readset(tmp_path, "A")
+    ]
+    verify_coverage_readset(tmp_path, envelope, required)
+
+
+def test_readset_gains_shared_sources_when_src_shared_appears(tmp_path):
+    from rebrew.coverage_input_contract import rebrew_coverage_paths
+
+    _project_without_shared(tmp_path)
+    before = rebrew_coverage_paths(tmp_path, "A")
+    (tmp_path / "src" / "shared").mkdir()
+    (tmp_path / "src" / "shared" / "common.h").write_text("int x;\n", encoding="utf-8")
+    assert rebrew_coverage_paths(tmp_path, "A") - before == {"src/shared/common.h"}

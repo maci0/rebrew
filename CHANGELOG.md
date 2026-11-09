@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- Regression in 6.26.0 (commit 1db9b34d): `coverage_inputs` added the absent `shared_dir` (`src/shared`) to the input set, so `rebrew_coverage_paths` required it and `verify_coverage_readset` refused every coverage input envelope captured without it ("coverage readset does not match reader inputs", `rebrew.coverage_report` 409 `coverage-input-unverified`). An absent `shared_dir` is again no input and is still not scanned; its files change the fingerprint once they exist.
+
 ## [6.26.0] - 2026-11-09
 
 ### Fixed

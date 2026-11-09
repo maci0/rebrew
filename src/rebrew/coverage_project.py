@@ -127,11 +127,11 @@ def coverage_inputs(
         if external != Path() and external.is_dir() and external.resolve() != cfg.root:
             paths.update(_scan(external))
     for root in roots:
-        if root == cfg.shared_dir and not root.is_dir():
-            # shared_dir defaults to src/shared and a project without shared sources has none;
-            # the stat of the absent path still changes the fingerprint when it appears.
-            paths.add(root)
-        else:
+        # shared_dir defaults to src/shared and a project without shared sources has none. The
+        # absent path is not an input: the coverage readset contract (rebrew_coverage_paths)
+        # is built from this set, and retained envelopes never name it. Its files enter the
+        # fingerprint once they exist.
+        if root != cfg.shared_dir or root.is_dir():
             paths.update(_scan(root))
         for parent in (root, *root.parents):
             library = parent / "rebrew-libraries.toml"
