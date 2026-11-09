@@ -1152,14 +1152,15 @@ def _header_stats(paths: tuple[str, ...]) -> tuple[tuple[int, int, int, int, str
     """
     out: list[tuple[int, int, int, int, str]] = []
     for p in paths:
+        path = Path(p)
         try:
-            st = Path(p).stat()
+            st = path.stat()
         except OSError:
             out.append((-1, -1, -1, -1, "unreadable"))
             continue
         try:
-            digest = hashlib.sha256(Path(p).read_bytes()).hexdigest()
-            after = Path(p).stat()
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            after = path.stat()
         except OSError:
             out.append((-1, -1, -1, -1, "unreadable"))
             continue
