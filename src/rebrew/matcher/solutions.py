@@ -540,13 +540,12 @@ _VOLATILE_RECORD_FIELDS = frozenset({"ts", "solved_at"})
 #: was meant to avoid.
 _TAIL_READ_BYTES = 1024 * 1024
 
-#: Bounded check for *wins* only. The 1 MiB tail window above is sized for a
-#: batch replay; a win older than that window (or left behind by a prune of
-#: the losses ahead of it) would otherwise append a second copy on replay,
-#: and ``load_solutions`` derives the newest win per ``(target, symbol)``
-#: from the log. Wins are never pruned, so a whole-file scan that stops at
-#: the first match closes that gap; losses keep the tail window, where a
-#: miss costs only one extra history row.
+#: Bounded check for *any* record. The 1 MiB tail window above is sized for a
+#: batch replay; a record older than that window (or pruned away) would
+#: otherwise append a second copy on replay, and ``load_solutions`` derives
+#: the newest win per ``(target, symbol)`` from the log. Wins are never
+#: pruned, so a whole-file scan that stops at the first match closes that
+#: gap; losses are retained (20k) so the scan stays bounded.
 _WIN_SCAN_CHUNK_BYTES = 64 * 1024
 
 #: How far before the window the tail read reaches to cover the record the
@@ -605,13 +604,14 @@ def _recent_run_keys(path: Path) -> set[str]:
 
 
 def _win_present(path: Path, key: str) -> bool:
-    """True when a *win* with run key *key* is anywhere in *path*.
+    """True when a record with run key *key* is anywhere in *path*.
 
     Streams the log in chunks (keeping the last partial line across a
     chunk), so the check stays bounded on an unbounded log and stops at
-    the first match. Only wins are scanned this way: they are never
-    pruned, and a replayed win past the tail window is the case the tail
-    check misses. A torn or malformed line is skipped, never fatal.
+    the first match. Every record is scanned this way: a replay past the
+    tail window is the case the tail check misses, and losses are capped
+    at ``_LOSS_RECORD_RETENTION`` so the scan is bounded. A torn or
+    malformed line is skipped, never fatal.
     """
     try:
         with path.open("rb") as fh:
@@ -627,18 +627,14 @@ def _win_present(path: Path, key: str) -> bool:
                         record = json.loads(stripped)
                     except json.JSONDecodeError:
                         continue
-                    if (
-                        isinstance(record, dict)
-                        and record.get("matched")
-                        and _run_key(record) == key
-                    ):
+                    if isinstance(record, dict) and _run_key(record) == key:
                         return True
             if pending.strip():
                 try:
                     record = json.loads(pending.decode("utf-8", errors="replace").strip())
                 except json.JSONDecodeError:
                     record = None
-                if isinstance(record, dict) and record.get("matched") and _run_key(record) == key:
+                if isinstance(record, dict) and _run_key(record) == key:
                     return True
     except OSError:
         return False
@@ -743,7 +739,7 @@ def record_ga_run(
     with _ga_runs_append_lock(p):
         if key in _recent_run_keys(p):
             return p
-        if matched and _win_present(p, key):
+        if _win_present(p, key):
             return p
         _append_durable(p, line)
         _prune_loss_records(p)
