@@ -16,7 +16,7 @@ the standalone **recompile-toolchains** checkout — the sibling repo
 build files in-repo; ``rebrew toolchain build``/``vendor`` read them from
 there, and the smoke gate verifies the image output is byte-reproducible.
 A toolchain registered without an image (a plugin/overlay spec) execs its
-vendored/PATH binary directly; every shipped profile compiles through its
+vendored binary directly; every shipped profile compiles through its
 docker image, so no host wine/dosbox glue is involved.
 
 A :class:`ToolchainSpec` describes how to invoke one compiler version:
@@ -1196,19 +1196,34 @@ def image_msvc_env(spec: ToolchainSpec) -> dict[str, str]:
 
 def _resolve_binary(spec: ToolchainSpec) -> str:
     """The host-side compiler path for a native-runtime spec (no image):
-    vendored dir / PATH binary.  Raises ToolchainError when nothing
-    resolvable exists.  Only an image-less spec (a plugin/overlay
-    toolchain) reaches this — every shipped profile is image-backed."""
+    vendored dir only.  Raises ToolchainError when nothing resolvable
+    exists.  Only an image-less spec (a plugin/overlay toolchain)
+    reaches this — every shipped profile is image-backed.
+
+    Security: PATH lookup is not used.  ``shutil.which`` on a bare
+    ``spec.binary`` would execute a same-named executable from any
+    directory on ``PATH`` — including the project cwd — even when a
+    vendored compiler is configured.  A hostile project could plant
+    ``cl`` there and gain host code execution when a native toolchain
+    is invoked.  Vendor lookup is confined to ``host_path`` under the
+    recompile-toolchains checkout; a spec with no vendored hit fails
+    closed.  A binary name containing a path separator or NUL is
+    rejected outright.
+    """
+    if not spec.binary or "/" in spec.binary or "\\" in spec.binary or "\x00" in spec.binary:
+        raise ToolchainError(
+            f"toolchain {spec.name!r}: bad binary name {spec.binary!r}",
+            kind="validation",
+            name=spec.name,
+        )
     hit = vendored_binary(spec)
     if hit is not None:
         return str(hit)
-    found = shutil.which(spec.binary)
-    if found:
-        return found
+    # No vendored hit: fail closed.  Do not fall back to PATH.
     raise ToolchainError(
         f"toolchain {spec.name!r}: no native binary ({spec.binary}) found — "
         "run `rebrew toolchain vendor <name>` into the recompile-toolchains "
-        "checkout or install it on PATH",
+        "checkout",
         kind="missing",
         name=spec.name,
     )
@@ -1293,7 +1308,7 @@ def run_toolchain(
     there is deliberately no wine/wibo/dosbox host fallback anymore.
 
     Image-less specs (a plugin toolchain with no image) exec the
-    vendored/PATH binary directly — no wine glue is involved.
+    vendored binary directly — no wine glue is involved.
 
     The container runs with ``--network=none`` and ``--pull=never``.
     Compilation is strictly local (source in, object out). A missing image
@@ -1490,7 +1505,7 @@ def run_toolchain(
         return RunResult(r.returncode, r.stdout, r.stderr, backend=runtime)
 
     if spec.runtime == "native":
-        # Image-less compiler (plugin/overlay spec) — vendored/PATH binary
+        # Image-less compiler (plugin/overlay spec) — vendored binary
         # executed directly.  No wine glue is involved.
         binary = _resolve_binary(spec)
         env = dict(os.environ)

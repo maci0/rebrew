@@ -55,7 +55,7 @@ class ToolchainSpec:
 
     name: str  # e.g. "msvc-6.0", "delphi-1.0", "watcom-2.0-win32"
     image: str | None  # docker image tag, e.g. "rebrew/msvc:6.0-win32"; None = host-only
-    binary: str = ""  # host executable name (vendored dir / PATH)
+    binary: str = ""  # host executable name (vendored dir)
     image_entrypoint: str | None = None  # absolute in-image wrapper the image
     # declares as ENTRYPOINT (e.g. "/usr/local/bin/cl"); the docker runner
     # passes it explicitly, so a consumer that overrides the image entrypoint
