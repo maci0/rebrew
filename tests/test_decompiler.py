@@ -1137,6 +1137,54 @@ class TestKunaBackend:
         with pytest.raises(ValueError, match="Kuna output rejected"):
             dc.kuna_seed_source(tmp_path / "x.exe", 0x401000, tmp_path)
 
+    def test_kuna_seed_drops_the_annotations_to_fit_the_budget(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """kuna v1.994's `// reg | stack` variable annotations are 1.6 KB of this seed.
+
+        The recorded v1.994 text of test_sse2.exe 0x401000 gave an 8992-char seed with them, over
+        MAX_SEED_CHARS (8000), and 7368 without.
+        """
+        import rebrew.decompiler as dc
+        from rebrew.llm_seed import MAX_SEED_CHARS
+
+        text = (
+            Path(__file__).parent / "fixtures/kuna/test_sse2_sub_401000_kuna_1.994.c"
+        ).read_text(encoding="utf-8")
+        monkeypatch.setattr(dc, "fetch_kuna", lambda b, va, root: text)
+        seed = dc.kuna_seed_source(tmp_path / "x.exe", 0x401000, tmp_path)
+        assert seed is not None
+        assert "//" not in seed
+        assert len(seed) <= MAX_SEED_CHARS
+        assert all(line == line.rstrip() for line in seed.splitlines())
+
+    def test_kuna_seed_keeps_slashes_inside_string_literals(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        import rebrew.decompiler as dc
+
+        text = (
+            "int sub_401000(void) // return-dupe\n{\n  char *v1; // eax\n"
+            '  v1 = "http://a.b/c"; // note\n  return 0;\n}\n'
+        )
+        monkeypatch.setattr(dc, "fetch_kuna", lambda b, va, root: text)
+        seed = dc.kuna_seed_source(tmp_path / "x.exe", 0x401000, tmp_path)
+        assert seed is not None
+        assert '"http://a.b/c"' in seed
+        assert "return-dupe" not in seed and "// eax" not in seed and "// note" not in seed
+
+    def test_kuna_seed_with_a_trigraph_literal_is_left_untouched(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """Comment masking also applies trigraphs, which would rewrite a `"??="` literal: skip it."""
+        import rebrew.decompiler as dc
+
+        text = 'int sub_401000(void)\n{\n  char *v1; // eax\n  v1 = "??=";\n  return 0;\n}\n'
+        monkeypatch.setattr(dc, "fetch_kuna", lambda b, va, root: text)
+        seed = dc.kuna_seed_source(tmp_path / "x.exe", 0x401000, tmp_path)
+        assert seed is not None
+        assert '"??="' in seed
+
     def test_kuna_seed_source_none_when_fetch_fails(self, tmp_path: Path, monkeypatch) -> None:
         import rebrew.decompiler as dc
 

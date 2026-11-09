@@ -957,6 +957,21 @@ def _kuna_declarations(source: str) -> list[str]:
     return out
 
 
+def _strip_kuna_comments(text: str) -> str:
+    """Drop kuna's ``//`` annotations (register and stack slot per variable) from a seed.
+
+    They are 1.6 KB of a typical v1.994 seed and count against ``MAX_SEED_CHARS``. The mask is
+    string-aware, so ``"http://x"`` survives. It also applies trigraphs and line splices, which
+    would rewrite a literal such as ``"??="``; text containing either is returned unchanged.
+    """
+    from rebrew.compiler.cache import mask_preprocessor_comments
+
+    if "??" in text or "\\\n" in text or "\\\r" in text:
+        return text
+    lines = [line.rstrip() for line in mask_preprocessor_comments(text).splitlines()]
+    return "\n".join(lines) + ("\n" if text.endswith("\n") else "")
+
+
 def kuna_seed_source(binary: Path, va: int, root: Path) -> str | None:
     """Fetch Kuna's decompilation of *va* and make it compilable (rebrew source fix).
 
@@ -964,6 +979,9 @@ def kuna_seed_source(binary: Path, va: int, root: Path) -> str | None:
     address labels (``s_``/``dat_``/``sub_``) must be declared, and its C99-isms
     (``bool``, ``NULL``, ``true``/``false``) must be spelled for msvc-6.0's C89.
     Without them the seed never compiles and is discarded from the GA.
+
+    The ``//`` annotations are dropped (:func:`_strip_kuna_comments`); full-text
+    output such as ``skeleton --decomp`` keeps them.
 
     Returns the fixup'd C — a GA seed candidate — or ``None`` when kuna is
     unavailable or fails. Invalid C raises ValueError with the rejection reason.
@@ -973,6 +991,8 @@ def kuna_seed_source(binary: Path, va: int, root: Path) -> str | None:
         return None
     from rebrew.c_parser import function_source_error
     from rebrew.pseudo_c import sanitize_tokens
+
+    raw = _strip_kuna_comments(raw)
 
     fixed, _ = sanitize_tokens(raw)
     fixed = _KUNA_BOOL_RE.sub("int", fixed)

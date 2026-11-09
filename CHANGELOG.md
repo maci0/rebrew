@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Changed
+
+- `kuna_seed_source` (the `--seed-kuna` seed) drops kuna's `//` per-variable annotations: with kuna v1.994 they are about 1.6 KB per large function and pushed `test_sse2.exe` 0x401000 over `MAX_SEED_CHARS` (8992 chars with them, 7368 without). The strip uses the string-aware comment mask, so `"http://x"` survives, and leaves text containing a trigraph (`??`) or a line splice unchanged because the mask would rewrite such a literal. `skeleton --decomp` and other full-text output keep the annotations.
+
 ## [6.28.1] - 2026-11-10
 
 ### Fixed
