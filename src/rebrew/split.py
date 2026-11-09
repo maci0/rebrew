@@ -282,7 +282,8 @@ def _split_definitions(
                 f"No C definition for VA 0x{target_va:08x} in {source_path.name}",
                 json_mode=json_output,
             )
-        if len(found) > 1 or len(names & {span.name for span in functions}) > 1:
+        function_names = {span.name for span in functions}
+        if len(found) > 1 or len(names & function_names) > 1:
             if occurrence is None:
                 error_exit(
                     f"Ambiguous C definition for VA 0x{target_va:08x} in {source_path.name}; "
@@ -319,17 +320,25 @@ def _split_definitions(
 
     extents = {id(span): span_extent(raw, span, spans) for span in selected}
     problems: list[str] = []
+    uses_cache: dict[int, set[str]] = {}
+
+    def _uses(span: SourceSpan) -> set[str]:
+        key = id(span)
+        if key not in uses_cache:
+            uses_cache[key] = _uses_at(raw, span)
+        return uses_cache[key]
+
     for span in selected:
         if span.inside_pp or not span.proto:
             problems.append(f"{span.name} is inside a preprocessor conditional or did not parse")
             continue
-        direct = _uses_at(raw, span)
+        direct = _uses(span)
         for other in functions:
             if other is span:
                 continue
             if other.static and other.name in direct:
                 problems.append(f"{span.name} depends on static {other.name}")
-            if span.static and span.name in _uses_at(raw, other):
+            if span.static and span.name in _uses(other):
                 problems.append(f"static {span.name} is used by {other.name}")
         for store in stores:
             if store.name not in direct:

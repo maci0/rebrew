@@ -320,7 +320,6 @@ def cfg_similarity(
     norms_c = [math.sqrt(sum(v * v for v in s.values())) for s in sigs_c]
     sizes_t = [s for _, s, _ in tb]
     total_weights = sum(sizes_t)
-    matched_t: set[int] = set()
     matched_c: set[int] = set()
     match_map: dict[int, int] = {}
     score_weight = 0.0
@@ -334,7 +333,6 @@ def cfg_similarity(
             if s > best_score:
                 best_score, best_c = s, ci
         if best_c >= 0 and best_score > 0.0:
-            matched_t.add(ti)
             matched_c.add(best_c)
             match_map[ti] = best_c
             score_weight += best_score * sizes_t[ti]
