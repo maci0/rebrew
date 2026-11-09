@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
@@ -19,6 +20,21 @@ import (
 // isLoopbackAddr reports whether addr binds a loopback interface only:
 //
 //	127.0.0.1:<port>, [::1]:<port>, localhost:<port>
+//
+// validateManagedUpstream mirrors compile_mediator.go NewCompileMediator's
+// upstream gate (https, or http to 127.0.0.1/::1, no path/query/fragment/
+// credentials) so a typo fails fast at startup, not at first compile.
+func validateManagedUpstream(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" {
+		return false
+	}
+	if u.Scheme == "https" {
+		return true
+	}
+	return u.Scheme == "http" && (u.Hostname() == "127.0.0.1" || u.Hostname() == "::1")
+}
+
 func isLoopbackAddr(addr string) bool {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
@@ -49,9 +65,22 @@ func main() {
 	// dir and token (≥32 bytes, checked in Handler) as required, and the
 	// token/workspaces are passed as empty strings to Open/OpenDocker if unset,
 	// which would otherwise surface as a confusing downstream error.
+	// REBREW_JOB_TOKEN is checked here (not deferred to Handler) so the
+	// owner error names the env var, mirroring the Python-side
+	// check_env_job_token; REBREW_MANAGED_RECOMPILE_URL is validated before
+	// Open/ConfigureManagedCompile so a typo fails at startup instead of at
+	// the first managed compile.
 	for _, name := range []string{"REBREW_WORKSPACE", "REBREW_JOB_DIR"} {
 		if os.Getenv(name) == "" {
 			log.Fatalf("%s is required", name)
+		}
+	}
+	if os.Getenv("REBREW_JOB_TOKEN") == "" {
+		log.Fatal("REBREW_JOB_TOKEN is required")
+	}
+	if upstream := os.Getenv("REBREW_MANAGED_RECOMPILE_URL"); upstream != "" {
+		if !validateManagedUpstream(upstream) {
+			log.Fatalf("invalid REBREW_MANAGED_RECOMPILE_URL %q", upstream)
 		}
 	}
 	var o *jobs.Owner
@@ -77,6 +106,9 @@ func main() {
 		max, err := strconv.Atoi(limitRaw)
 		if err != nil {
 			log.Fatalf("invalid REBREW_MANAGED_COMPILE_LIMIT %q: %v", limitRaw, err)
+		}
+		if max < 1 || max > 1000 {
+			log.Fatalf("invalid REBREW_MANAGED_COMPILE_LIMIT %q: must be in 1..1000", limitRaw)
 		}
 		compilers := strings.Split(compilersRaw, ",")
 		for i, c := range compilers {

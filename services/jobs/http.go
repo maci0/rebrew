@@ -330,18 +330,16 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 				apiError(w, "method not allowed", http.StatusMethodNotAllowed)
 				return
 			}
-			req, errc, srv, cli, total, maxv, uptime, _ := globalMetrics.snapshot()
-			avg := 0.0
-			if req > 0 {
-				avg = total / float64(req)
-			}
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Cache-Control", "no-store")
 			w.WriteHeader(http.StatusOK)
 			if r.Method == http.MethodHead {
 				return
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "requests": req, "errors": errc, "server_errors": srv, "client_errors": cli, "latency_ms_avg": avg, "latency_ms_max": maxv, "uptime_seconds": uptime, "in_flight": inFlight.Load()})
+			// Liveness probe: return only "ok".  Metrics (request counts,
+			// error rates, latency) live on bearer-gated /metrics; leaking
+			// them unauthenticated lets a local probe fingerprint the owner.
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok"})
 			return
 		}
 		if r.URL.Path == "/metrics" {
