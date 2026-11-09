@@ -2465,16 +2465,55 @@ class TestFlagSweepDeadline:
             )
         assert seen == [100.0 + 2 * 60]
 
-    def test_cli_passes_timeout_min_to_the_single_sweep(self) -> None:
-        """The single-function path must forward the flag, not drop it."""
-        import inspect
+    def test_cli_passes_timeout_min_to_the_single_sweep(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """The single-function path must forward the flag, not drop it.
 
+        Drives ``execute_search`` itself with a recorded sweep stub, so a
+        dropped or defaulted ``timeout_min`` fails on the value seen, not on
+        a reformatted call line.
+        """
         from rebrew import match as match_mod
 
-        src = inspect.getsource(match_mod)
-        assert (
-            "run_single_flag_sweep(params, tier, jobs, json_output, timeout_min=timeout_min)" in src
+        seed_c = tmp_path / "seed.c"
+        seed_c.write_text("int f(void) { return 1; }\n", encoding="utf-8")
+        params = SimpleNamespace(seed_c=seed_c, seed_src="int f(void) { return 1; }")
+
+        seen: dict[str, Any] = {}
+
+        def _record(*args: Any, **kwargs: Any) -> None:
+            seen["args"] = args
+            seen["kwargs"] = kwargs
+
+        fake_cfg = SimpleNamespace(
+            default_jobs=1,
+            target_name="T",
+            all_targets=[],
         )
+        monkeypatch.setattr(match_mod, "require_config", lambda **k: fake_cfg)
+        monkeypatch.setattr(match_mod, "resolve_arg_params", lambda *a, **k: params)
+        monkeypatch.setattr(match_mod, "run_single_flag_sweep", _record)
+
+        match_mod.execute_search(
+            seed_c=str(seed_c),
+            flag_sweep_only=True,
+            tier="quick",
+            timeout_min=7,
+            json_output=True,
+        )
+        assert seen["args"][1] == "quick"
+        assert seen["kwargs"]["timeout_min"] == 7
+
+        seen.clear()
+        match_mod.execute_search(
+            seed_c=str(seed_c),
+            flag_sweep_only=True,
+            tier="quick",
+            timeout_min=0,
+            json_output=True,
+        )
+        assert seen["kwargs"]["timeout_min"] == 0
 
     def test_clock_reaches_every_budgeted_stage(self) -> None:
         """The time source must reach the whole chain, not stop at the library.

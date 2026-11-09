@@ -291,16 +291,52 @@ class TestCallsFromInventory:
     1 where the truth is 10.
     """
 
-    def test_register_cached_import_is_attributed_to_its_callee(self) -> None:
-        import inspect
+    def test_register_cached_import_is_attributed_to_its_callee(self, tmp_path: Path) -> None:
+        """Behavioral pin for the held-register walk in ``build_calls_from_payload``.
+
+        msvc6 emits ONE ``mov ecx,[__imp__X]`` then any number of ``call ecx``;
+        counting relocations or grepping finds 1 call where there are N.
+        The payload must attribute every ``call reg`` to the import the
+        register last held — and a clobbering write must drop the attribution.
+        """
+        import struct
+
+        from bin_util import _resolve_probe_iat_slot
 
         from rebrew.xrefs import build_calls_from_payload
 
-        src = inspect.getsource(build_calls_from_payload)
-        # The resolution step is the whole point of the function: a call through
-        # a register must be attributed to whatever that register last held.
-        assert "held" in src
-        assert "call" in src
+        imports = [("KERNEL32.dll", ["HeapCreate"])]
+
+        def build(code_template: bytes, imm_off: int) -> tuple[Path, int]:
+            proto = make_pe(code_template, imports=imports)
+            slot = _resolve_probe_iat_slot(proto)
+            code = bytearray(code_template)
+            code[imm_off : imm_off + 4] = struct.pack("<I", slot)
+            final = make_pe(bytes(code), imports=imports)
+            # Same code length reads the same IAT VA back — the patch is final.
+            assert _resolve_probe_iat_slot(final) == slot
+            path = tmp_path / f"calls_{id(code_template)}.exe"
+            path.write_bytes(final)
+            return path, len(code)
+
+        # mov ecx,[slot]; call ecx; call ecx; ret — one load, two calls.
+        path, size = build(b"\x8b\x0d\x00\x00\x00\x00\xff\xd1\xff\xd1\xc3", 2)
+        payload = build_calls_from_payload(path, PROBE_TEXT_VA, size)
+        assert payload["total_calls"] == 2
+        assert payload["callees"] == [
+            {
+                "name": "HeapCreate",
+                "count": 2,
+                "sites": [PROBE_TEXT_VA + 6, PROBE_TEXT_VA + 8],
+            }
+        ]
+
+        # A clobbering write drops the held callee: the call is unattributed.
+        path, size = build(b"\x8b\x0d\x00\x00\x00\x00\xb9\x01\x00\x00\x00\xff\xd1\xc3", 2)
+        payload = build_calls_from_payload(path, PROBE_TEXT_VA, size)
+        assert payload["total_calls"] == 1
+        assert payload["callees"][0]["name"] == "reg:ecx"
+        assert payload["callees"][0]["count"] == 1
 
     def test_helper_is_exported_for_the_cli(self) -> None:
         from rebrew import xrefs
