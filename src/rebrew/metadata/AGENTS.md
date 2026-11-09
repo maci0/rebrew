@@ -23,6 +23,7 @@ Source annotations and the locked metadata stores: every read and write of `rebr
 | `native_identity.py` | Locked publication of reviewed native names, separate from source providers |
 | `source_schema.py` | Strict schemas for addressless definitions and support files in the function store |
 | `source_provenance.py` | Original-assembly evidence and target-scoped support file purposes |
+| `coordinated.py` | Coordinated metadata and source-file edits with failure rollback |
 
 Externals (the only packages this one may import): `c_parser`, `compiler.toolchain`, `config`, `errors`, `registry`, `rename_ops`, `utils`, `workspace`. `compiler.toolchain` is a lazy read of the toolchain table for `TOOLCHAIN` validation. `tools/check_layering.py` enforces `PACKAGE_EXTERNALS`; this line follows it.
 

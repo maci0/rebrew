@@ -20,6 +20,7 @@ Compile execution and the compile cache: resolve a toolchain profile, run its do
 | `msvc_env.py` / `headless.py` | Compiler environment and headless X for wine invocations |
 | `temp_dirs.py` | Compile sandbox placement that survives a hard-killed run |
 | `dosbox.py`, `msvc16.py`, `tc16.py`, `delphi16.py` | 16-bit DOSBox compile drivers |
+| `image_headers.py` | Fresh image-bound MSVC header trees for read-only include reviews |
 
 Externals (the only packages this one may import): `coff_reloc`, `config`, `errors`, `flag_data`, `flags`, `formats.binary_loader`, `formats.binary_model`, `formats.xtensa`, `formats.ne_loader`, `matcher.parsers`, `metadata.functions`, `registry`, `sources`, `telemetry`, `utils`, `workspace`. `matcher.parsers` is a lazy import inside `compile.py`; the matcher package imports this one, not the reverse. `tools/check_layering.py` enforces `PACKAGE_EXTERNALS`; this line follows it.
 
