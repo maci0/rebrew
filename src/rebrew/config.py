@@ -191,6 +191,8 @@ setup and in ``env_knob_errors``."""
 #: socket probe and the ``/proc`` scan both key on ``/tmp/.X11-unix/X<n>``.
 ENV_DISPLAY_RE = re.compile(r":\d+(?:\.\d+)?")
 
+_KEY_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]+")
+
 # ---------------------------------------------------------------------------
 # Canonical filename for the function structure cache
 # ---------------------------------------------------------------------------
@@ -1826,9 +1828,31 @@ def check_env_recompile_api_key(raw: str) -> None:
         raise ConfigError("REBREW_RECOMPILE_API_KEY is not a printable ASCII header value")
 
 
+def check_env_llm_api_key(raw: str) -> None:
+    """Raise when ``REBREW_LLM_API_KEY`` carries a control or bidi character.
+
+    Mirrors ``llm_seed._reject_control_chars_in_key`` so
+    ``rebrew cfg effective`` reports a CRLF-terminated key at config time
+    instead of at seed time.  Unset/empty stays valid (clears TOML key).
+    """
+    stripped = raw.strip()
+    if not stripped:
+        return
+    from rebrew.utils import strip_bidi_format
+
+    if _KEY_CONTROL_RE.search(stripped) or strip_bidi_format(stripped) != stripped:
+        raise ConfigError("REBREW_LLM_API_KEY contains a control or bidi-format character")
+
+
 def check_env_ops_token(raw: str, *, name: str = "REBREW_OPS_TOKEN") -> None:
-    if raw.strip() and len(raw.strip().encode("utf-8")) < 32:
+    stripped = raw.strip()
+    if stripped and len(stripped.encode("utf-8")) < 32:
         raise ConfigError(f"{name} must contain at least 32 bytes")
+    if stripped:
+        from rebrew.utils import strip_bidi_format
+
+        if _KEY_CONTROL_RE.search(stripped) or strip_bidi_format(stripped) != stripped:
+            raise ConfigError(f"{name} contains a control or bidi-format character")
 
 
 def check_env_job_token(raw: str) -> None:
@@ -1921,6 +1945,22 @@ def check_env_managed_recompile_url(raw: str) -> None:
         raise ConfigError(
             f"REBREW_MANAGED_RECOMPILE_URL={value!r} must have no path, query or fragment"
         )
+
+
+def check_env_managed_compilers(raw: str) -> None:
+    """Raise when ``REBREW_MANAGED_COMPILERS`` lists no compiler.
+
+    The Go owner requires this knob (comma-separated, non-empty entries)
+    with ``REBREW_MANAGED_RECOMPILE_URL`` and fails fast on an empty list;
+    without this check an empty or all-blank value is invisible to
+    ``rebrew cfg effective`` until the owner dies.  Unset stays valid:
+    the list is required only with ``REBREW_MANAGED_RECOMPILE_URL``.
+    """
+    value = raw.strip()
+    if not value:
+        return
+    if any(not entry.strip() for entry in value.split(",")):
+        raise ConfigError(f"REBREW_MANAGED_COMPILERS={value!r} must list at least one compiler")
 
 
 def check_env_absolute_executable(raw: str, *, name: str) -> None:
@@ -2107,6 +2147,7 @@ def _env_knob_parsers() -> tuple[tuple[str, Callable[[str], Any]], ...]:
         ("REBREW_LLM_MAX_TOKENS", llm_max_tokens),
         ("REBREW_LLM_TIMEOUT", llm_timeout),
         ("REBREW_RECOMPILE_API_KEY", check_env_recompile_api_key),
+        ("REBREW_LLM_API_KEY", check_env_llm_api_key),
         ("REBREW_RECOMPILE_INSECURE_CLUSTER_HOST", check_env_insecure_cluster_host),
         ("REBREW_OPS_TOKEN", check_env_ops_token),
         ("REBREW_OPS_ALLOWED_HOSTS", check_env_ops_allowed_hosts),
@@ -2130,6 +2171,7 @@ def _env_knob_parsers() -> tuple[tuple[str, Callable[[str], Any]], ...]:
         ("REBREW_JOBS_ADDR", check_env_jobs_addr),
         ("REBREW_MANAGED_COMPILE_LIMIT", check_env_managed_compile_limit),
         ("REBREW_MANAGED_RECOMPILE_URL", check_env_managed_recompile_url),
+        ("REBREW_MANAGED_COMPILERS", check_env_managed_compilers),
         ("REBREW_WORKSPACE", partial(check_env_ops_existing_dir, name="REBREW_WORKSPACE")),
         ("REBREW_JOB_DIR", partial(check_env_ops_existing_dir, name="REBREW_JOB_DIR")),
         ("REBREW_BINARY", partial(check_env_absolute_executable, name="REBREW_BINARY")),
@@ -3352,10 +3394,12 @@ __all__ = [
     "check_env_dir",
     "check_env_display",
     "check_env_insecure_cluster_host",
+    "check_env_llm_api_key",
     "check_env_job_docker_image",
     "check_env_job_token",
     "check_env_jobs_addr",
     "check_env_managed_compile_limit",
+    "check_env_managed_compilers",
     "check_env_managed_recompile_url",
     "check_env_ops_allowed_hosts",
     "check_env_ops_existing_dir",

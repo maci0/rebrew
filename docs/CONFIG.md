@@ -582,6 +582,9 @@ by the CLI layer and win for that invocation.
   path, query, fragment or credentials. Unset disables the managed path.
 - `REBREW_MANAGED_COMPILE_LIMIT`: per-owner managed-compile budget,
   required with `REBREW_MANAGED_RECOMPILE_URL`. Must be an int in `1..1000`.
+- `REBREW_MANAGED_COMPILERS`: allowed compilers for managed compile,
+  required with `REBREW_MANAGED_RECOMPILE_URL`. Comma-separated,
+  non-empty entries (e.g. `msvc-6.0,gcc-14.2.0`).
 - `REBREW_WORKSPACE` / `REBREW_JOB_DIR`: required by `rebrew-jobs`, the
   workspace it copies/seals and the private job directory outside it.
   Each must be an absolute path to an existing directory.
