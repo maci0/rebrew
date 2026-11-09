@@ -565,13 +565,18 @@ def _queue_stub_metadata(
 
 def _try_apply_binsync_name(
     cfg: Any, local: Any, bs_name: str, local_filepath: str | None, va: int
-) -> bool:
-    """Apply a BinSync rename. False when nothing was written."""
+) -> tuple[bool, str]:
+    """Apply a BinSync rename. False when nothing was written.
+
+    Returns ``(applied, reason)``; callers record *reason* in
+    ``skipped_details`` so a failed rename is visible in the import
+    result, not only in the log.
+    """
     try:
-        return apply_binsync_func_name(cfg, local, bs_name, local_filepath)
-    except Exception:
-        log.warning("rename apply failed for VA 0x%x", va, exc_info=True)
-        return False
+        return apply_binsync_func_name(cfg, local, bs_name, local_filepath), ""
+    except Exception as exc:
+        log.warning("rename apply failed for VA 0x%x: %s", va, exc, exc_info=True)
+        return False, str(exc)
 
 
 @app.callback(invoke_without_command=True)
@@ -971,11 +976,18 @@ def import_state(
                     {"va": f"0x{va:08x}", "field": "name", "local": local_name, "binsync": bs_name}
                 )
                 applied_names += 1
-            elif _try_apply_binsync_name(cfg, local, bs_stripped, local_filepath, va):
-                applied_names += 1
-                touched_vas.append(va)
             else:
-                skipped += 1
+                applied, name_reason = _try_apply_binsync_name(
+                    cfg, local, bs_stripped, local_filepath, va
+                )
+                if applied:
+                    applied_names += 1
+                    touched_vas.append(va)
+                else:
+                    skipped += 1
+                    skipped_details.append(
+                        {"va": f"0x{va:08x}", "field": "name", "reason": name_reason}
+                    )
             continue
 
         # Both meaningful and different → conflict
@@ -999,11 +1011,18 @@ def import_state(
                     }
                 )
                 applied_names += 1
-            elif _try_apply_binsync_name(cfg, local, bs_stripped, local_filepath, va):
-                applied_names += 1
-                touched_vas.append(va)
             else:
-                skipped += 1
+                applied, name_reason = _try_apply_binsync_name(
+                    cfg, local, bs_stripped, local_filepath, va
+                )
+                if applied:
+                    applied_names += 1
+                    touched_vas.append(va)
+                else:
+                    skipped += 1
+                    skipped_details.append(
+                        {"va": f"0x{va:08x}", "field": "name", "reason": name_reason}
+                    )
             continue
         if accept_local:
             if not dry_run:

@@ -463,3 +463,43 @@ def test_raw_reads_reuse_parsing_without_sharing_mutations(
     path.write_text("not valid TOML [")
     with pytest.raises(ValueError):
         store.read("test")
+
+
+def test_remove_rollback_failure_does_not_mask_original_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed remove restore chains both errors instead of masking the first."""
+    from rebrew.metadata import files
+
+    save_metadata(tmp_path, {("S", 1): {"size": 4}})
+    path = tmp_path / "rebrew-functions.toml"
+    directory = tmp_path / "rebrew-functions.d"
+    directory.mkdir()
+    shard_a = directory / "a.toml"
+    shard_b = directory / "b.toml"
+    shard_a.write_text('format = 3\n["S.0x2"]\nsize = 8\n')
+    shard_b.write_text('format = 3\n["S.0x3"]\nsize = 12\n')
+    store = files.TomlStore(path, tmp_path)
+
+    real_unlink = Path.unlink
+    calls = 0
+
+    def fail_second_unlink(self: Path, *, missing_ok: bool = False) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("simulated unlink failure")
+        real_unlink(self, missing_ok=missing_ok)
+
+    def fail_restore(member: Path, data: bytes, mode: int = 0o444, **kw: Any) -> None:
+        raise OSError("restore also fails")
+
+    monkeypatch.setattr(Path, "unlink", fail_second_unlink)
+    monkeypatch.setattr(files, "atomic_write_bytes", fail_restore)
+    with pytest.raises(BaseExceptionGroup) as exc_info:
+        store.remove()
+    group = exc_info.value
+    assert len(group.exceptions) == 2
+    assert "simulated unlink failure" in str(group.exceptions[0])
+    assert "restore also fails" in str(group.exceptions[1])
+    assert group.__cause__ is group.exceptions[0]
