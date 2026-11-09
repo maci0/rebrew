@@ -111,7 +111,7 @@ def _read(
     source = document.get("source", {"definitions": {}, "files": {}})
     result = validate_source_metadata(source), validate_source_files(source["files"])
     with _READ_CACHE_LOCK:
-        if len(_READ_CACHE) >= 16:
+        if key not in _READ_CACHE and len(_READ_CACHE) >= 16:
             _READ_CACHE.pop(next(iter(_READ_CACHE)))
         _READ_CACHE[key] = result
     return result

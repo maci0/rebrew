@@ -1370,6 +1370,13 @@ def run_toolchain(
             epoch = source_date_epoch()
             if epoch is not None:
                 env["SOURCE_DATE_EPOCH"] = epoch
+                # Same clock pin as the docker backend: the rootfs' own TZ
+                # default would shift __DATE__/__TIME__/__TIMESTAMP__ off the
+                # epoch's UTC day, and the compile-cache key hashes only
+                # SOURCE_DATE_EPOCH — so an unpinned unshare compile and a
+                # pinned one would share a key and one would serve the
+                # other's .obj.
+                env["TZ"] = "UTC0"
             workdir.mkdir(parents=True, exist_ok=True)
             result = run_unshare(
                 admitted,
