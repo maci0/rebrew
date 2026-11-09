@@ -31,7 +31,7 @@ lazy from datetime import UTC, datetime
 lazy from pathlib import Path
 lazy from typing import Any
 
-lazy from rebrew.utils import atomic_write_bytes, file_lock
+lazy from rebrew.utils import atomic_write_bytes, file_lock, parse_int_literal
 
 log = logging.getLogger(__name__)
 
@@ -667,7 +667,7 @@ def _run_key(record: dict[str, Any]) -> str:
     va = fields.get("va")
     if isinstance(va, str) and va:
         with contextlib.suppress(ValueError):
-            fields["va"] = str(int(va.strip(), 0))
+            fields["va"] = str(parse_int_literal(va.strip()))
     elif isinstance(va, int) and not isinstance(va, bool):
         fields["va"] = str(va)
     return json.dumps(fields, sort_keys=True, default=str)

@@ -1738,7 +1738,7 @@ def _prepare_prove_inputs(
     if isinstance(meta_vas, list):
         for _v in meta_vas:
             try:
-                _va = int(_v, 0) if not isinstance(_v, int) else _v
+                _va = _v if isinstance(_v, int) else parse_int_literal(str(_v))
             except (ValueError, TypeError) as exc:
                 raise _ProveError(
                     f"Invalid prove_constraints.watched_vas metadata value {_v!r} in "

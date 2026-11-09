@@ -11,7 +11,7 @@ lazy from pathlib import Path
 lazy from typing import Any
 
 lazy from rebrew.config import ProjectConfig
-lazy from rebrew.utils import atomic_write_text, console, preset_module_key
+lazy from rebrew.utils import atomic_write_text, console, parse_int_literal, preset_module_key
 
 
 def cflags_key(cflags: str) -> frozenset[str]:
@@ -51,7 +51,7 @@ def inline_equals_store(found_key: str, inline_value: str, store_value: str) -> 
         return codegen_cflags_key(inline) == codegen_cflags_key(store)
     if found_key == "SIZE":
         try:
-            return int(inline, 0) == int(store, 0)
+            return parse_int_literal(inline) == parse_int_literal(store)
         except ValueError:
             return inline == store
     return inline == store

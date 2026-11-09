@@ -57,4 +57,13 @@ def test_va_spelling_dedupes(project_root: Path) -> None:
     record_ga_run(project_root, target="SERVER", va=0x1000, symbol="_a", matched=True)
     record_ga_run(project_root, target="SERVER", va="0x1000", symbol="_a", matched=True)
     record_ga_run(project_root, target="SERVER", va="4096", symbol="_a", matched=True)
+    record_ga_run(project_root, target="SERVER", va="4096", symbol="_a", matched=True)
+    assert len(list(iter_ga_runs(project_root))) == 1
+
+
+def test_leading_zero_va_spelling_dedupes(project_root: Path) -> None:
+    """A leading-zero decimal spelling is the same address (010 is ten)."""
+    record_ga_run(project_root, target="SERVER", va=10, symbol="_a", matched=True)
+    record_ga_run(project_root, target="SERVER", va="010", symbol="_a", matched=True)
+    record_ga_run(project_root, target="SERVER", va="0xa", symbol="_a", matched=True)
     assert len(list(iter_ga_runs(project_root))) == 1

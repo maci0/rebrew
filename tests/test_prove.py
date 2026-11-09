@@ -1301,6 +1301,11 @@ class TestProveInputsWatchedVasMetadata:
         inputs = self._prepare(tmp_path, monkeypatch, [0x2000, "0x3000", 0x4000])  # type: ignore[arg-type]
         assert inputs.watched_vas == [0x2000, 0x3000, 0x4000]
 
+    def test_leading_zero_decimal_metadata_accepted(self, tmp_path: Path, monkeypatch: object) -> None:
+        """A leading-zero decimal string is decimal (010 is ten), not an error."""
+        inputs = self._prepare(tmp_path, monkeypatch, ["010"])  # type: ignore[arg-type]
+        assert inputs.watched_vas == [10]
+
     def test_garbage_metadata_raises(self, tmp_path: Path, monkeypatch: object) -> None:
         import pytest
 

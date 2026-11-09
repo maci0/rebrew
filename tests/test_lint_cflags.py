@@ -88,6 +88,12 @@ class TestInlineEqualsStore:
         assert inline_equals_store("SIZE", "32", "0x20") is True
         assert inline_equals_store("SIZE", "31", "0x20") is False
 
+    def test_size_compares_numerically_with_leading_zero_decimal(self) -> None:
+        """A leading zero is decimal, matching parse_int_literal (010 is ten)."""
+        assert inline_equals_store("SIZE", "010", "10") is True
+        assert inline_equals_store("SIZE", "010", "0xa") is True
+        assert inline_equals_store("SIZE", "08", "8") is True
+
 
 # ---------------------------------------------------------------------------
 # check_redundant_cflags
