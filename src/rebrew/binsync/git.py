@@ -61,6 +61,32 @@ def git_argv(directory: Path, *args: str) -> list[str]:
     return cmd
 
 
+def validate_remote(remote: str) -> str:
+    """Return *remote* when it is safe to pass to ``git fetch``/``git push``.
+
+    A leading ``-`` makes git parse the value as an option rather than a
+    remote: ``--upload-pack=<cmd>`` (fetch) and ``--receive-pack=<cmd>``
+    (push) run an arbitrary command.  ``--remote`` is operator input (a
+    wrapper script can also supply it), so the argv is built with a ``--``
+    separator as a backstop, but rejecting the shape here means a
+    mistyped option is a clear error instead of git's "strange pathname"
+    diagnostic.
+
+    Raises:
+        ValueError: the name is empty or starts with ``-``.
+    """
+    if not remote or not remote.strip():
+        raise ValueError("invalid git remote: it must be non-empty")
+    if remote.startswith("-"):
+        raise ValueError(
+            f"invalid git remote {remote!r}: a remote must not start with '-'; "
+            "pass a configured remote name or a URL"
+        )
+    if "\n" in remote or "\r" in remote:
+        raise ValueError(f"invalid git remote {remote!r}: it must be a single line")
+    return remote
+
+
 def run_git(
     directory: Path, *args: str, timeout: float = _GIT_TIMEOUT
 ) -> subprocess.CompletedProcess[str]:

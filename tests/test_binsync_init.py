@@ -19,7 +19,8 @@ from cli_json import cli_payload
 from typer.testing import CliRunner
 
 from rebrew.app.main import app
-from rebrew.binsync.git import git_argv, run_git
+from rebrew.binsync.git import git_argv, run_git, validate_remote
+from rebrew.binsync.repo import fetch_peers
 from rebrew.utils import md5_file
 
 runner = CliRunner()
@@ -374,3 +375,59 @@ class TestRunGitProcessGroup:
             start_file.read_text(encoding="utf-8").strip() or None if start_file.exists() else None
         )
         assert _wait_for_exit(grandchild, starttime)
+
+
+class TestValidateRemote:
+    """A ``--remote`` value starting with ``-`` is a git option, not a remote.
+
+    ``git fetch --upload-pack=<cmd>`` and ``git push --receive-pack=<cmd>``
+    run the command; ``--remote`` reaches the argv only after validation and a
+    ``--`` separator, so the shape is refused before any git process runs.
+    """
+
+    @pytest.mark.parametrize(
+        "remote",
+        ["--upload-pack=touch pwned", "--receive-pack=touch pwned", "-oProxyCommand=x", "", "  "],
+    )
+    def test_option_shaped_remote_is_refused(self, remote: str) -> None:
+        with pytest.raises(ValueError, match="invalid git remote"):
+            validate_remote(remote)
+
+    def test_newline_remote_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="invalid git remote"):
+            validate_remote("origin\n--receive-pack=touch pwned")
+
+    @pytest.mark.parametrize(
+        "remote",
+        ["origin", "upstream-2", "https://example.invalid/repo.git", "/srv/state.git"],
+    )
+    def test_plain_remotes_pass(self, remote: str) -> None:
+        assert validate_remote(remote) == remote
+
+    def test_fetch_peers_refuses_before_running_git(self, tmp_path: Path) -> None:
+        """The CLI-adjacent entry point raises, so no upload-pack executes."""
+        state = tmp_path / "state"
+        state.mkdir()
+        marker = tmp_path / "pwned"
+        with pytest.raises(ValueError, match="invalid git remote"):
+            fetch_peers(state, f"--upload-pack=touch {marker}")
+        assert not marker.exists()
+
+    def test_fetch_peers_separates_remote_from_options(self, tmp_path: Path) -> None:
+        """End to end: a normal configured remote still fetches."""
+        state = tmp_path / "state"
+        bare = tmp_path / "bare"
+        subprocess.run(["git", "init", "--bare", "-q", str(bare)], check=True)
+        subprocess.run(["git", "init", "-q", str(state)], check=True)
+        for key, value in (("user.email", "a@a.a"), ("user.name", "a")):
+            subprocess.run(["git", "-C", str(state), "config", key, value], check=True)
+        (state / "f").write_text("x\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(state), "add", "f"], check=True)
+        subprocess.run(["git", "-C", str(state), "commit", "-qm", "init"], check=True)
+        subprocess.run(["git", "-C", str(state), "branch", "-M", "main"], check=True)
+        subprocess.run(["git", "-C", str(state), "remote", "add", "origin", str(bare)], check=True)
+        result = fetch_peers(state, "origin")
+        assert result is not None
+        assert result.returncode == 0, result.stderr
+        with pytest.raises(ValueError, match="invalid git remote"):
+            fetch_peers(state, "--upload-pack=touch pwned")

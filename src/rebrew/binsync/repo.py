@@ -26,7 +26,7 @@ lazy from collections.abc import Iterator
 lazy from pathlib import Path
 lazy from typing import Any
 
-lazy from rebrew.binsync.git import GIT_NETWORK_TIMEOUT, one_line, run_git
+lazy from rebrew.binsync.git import GIT_NETWORK_TIMEOUT, one_line, run_git, validate_remote
 lazy from rebrew.config import ProjectConfig
 
 log = logging.getLogger(__name__)
@@ -194,12 +194,18 @@ def fetch_peers(state_dir: Path, remote: str) -> subprocess.CompletedProcess[str
     Returns ``None`` when the repo has no such remote (a local-only state
     repo), else git's result.  Only tracking refs move: no local branch,
     index or working tree changes.
+
+    Raises:
+        ValueError: *remote* is not safe to pass to ``git fetch``.
     """
+    remote = validate_remote(remote)
     remotes = run_git(state_dir, "remote")
     if remote not in remotes.stdout.split():
         return None
     refspec = f"+refs/heads/{BRANCH_PREFIX}*:refs/remotes/{remote}/{BRANCH_PREFIX}*"
-    return run_git(state_dir, "fetch", "--prune", remote, refspec, timeout=GIT_NETWORK_TIMEOUT)
+    return run_git(
+        state_dir, "fetch", "--prune", "--", remote, refspec, timeout=GIT_NETWORK_TIMEOUT
+    )
 
 
 def _peer_dir(cfg: ProjectConfig, state_dir: Path, peer: str) -> Path:
