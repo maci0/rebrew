@@ -2295,7 +2295,7 @@ class TestDockerAvailableCache:
             # First call: daemon down; second: recovered.
             return _FakeProc(1 if calls["n"] == 1 else 0)
 
-        monkeypatch.setattr(tc.subprocess, "run", _run)
+        monkeypatch.setattr(tc, "run_process_group", _run)
         assert tc.docker_available() is False
         assert tc.docker_available() is True
         assert calls["n"] == 2
@@ -2313,8 +2313,8 @@ class TestKillContainerReporting:
 
         monkeypatch.setattr(tc, "container_runtime", lambda: "docker")
         monkeypatch.setattr(
-            tc.subprocess,
-            "run",
+            tc,
+            "run_process_group",
             lambda cmd, **kw: _FakeProc(1, "", "Cannot connect to the Docker daemon"),
         )
         with caplog.at_level(logging.WARNING, logger="rebrew.compiler.toolchain"):
@@ -2327,8 +2327,8 @@ class TestKillContainerReporting:
 
         monkeypatch.setattr(tc, "container_runtime", lambda: "docker")
         monkeypatch.setattr(
-            tc.subprocess,
-            "run",
+            tc,
+            "run_process_group",
             lambda cmd, **kw: _FakeProc(1, "", "Error: No such container: gone"),
         )
         with caplog.at_level(logging.WARNING, logger="rebrew.compiler.toolchain"):
@@ -2339,7 +2339,7 @@ class TestKillContainerReporting:
         import rebrew.compiler.toolchain as tc
 
         monkeypatch.setattr(tc, "container_runtime", lambda: "docker")
-        monkeypatch.setattr(tc.subprocess, "run", lambda cmd, **kw: _FakeProc(0, "gone", ""))
+        monkeypatch.setattr(tc, "run_process_group", lambda cmd, **kw: _FakeProc(0, "gone", ""))
         with caplog.at_level(logging.WARNING, logger="rebrew.compiler.toolchain"):
             tc.kill_container("done")
         assert caplog.text == ""

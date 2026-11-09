@@ -425,7 +425,7 @@ def test_image_environment_requires_inspectable_admitted_id(
         calls.append(args)
         return SimpleNamespace(returncode=0, stdout=payload)
 
-    monkeypatch.setattr(cmake_cache.toolchain.subprocess, "run", inspect)
+    monkeypatch.setattr(cmake_cache.toolchain, "run_process_group", inspect)
     image = "sha256:" + "a" * 64
     assert cmake_cache.toolchain.image_environment(image) == expected
     assert calls[0][-1] == image

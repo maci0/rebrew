@@ -682,7 +682,7 @@ def docker_available(runtime: str | None = None) -> bool:
         ) or runtime in _runtime_availability:
             return True
     try:
-        r = subprocess.run(
+        r = run_process_group(
             [(container_runtime() if runtime is None else container_runtime(runtime)), "info"],
             capture_output=True,
             text=True,
@@ -804,7 +804,7 @@ def cached_image_digest(image: str, *, runtime: str | None = None) -> str:
         generation = _toolchain_digest_generation
     digest = ""
     try:
-        r = subprocess.run(
+        r = run_process_group(
             [
                 selected_runtime,
                 "image",
@@ -875,14 +875,13 @@ def kill_container(name: str, timeout: int = 30, *, runtime: str | None = None) 
     log = logging.getLogger(__name__)
     try:
         runtime = container_runtime() if runtime is None else container_runtime(runtime)
-        r = subprocess.run(
+        r = run_process_group(
             [runtime, "kill", name],
             capture_output=True,
             text=True,
             encoding="utf-8",
             errors="replace",
             timeout=timeout,
-            check=False,
         )
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         log.warning("failed to kill container %s after timeout: %s", name, exc)
@@ -911,7 +910,7 @@ def image_environment(image_id: str) -> dict[str, str] | None:
     if not image_content_id(image_id):
         return None
     try:
-        result = subprocess.run(
+        result = run_process_group(
             [container_runtime(), "image", "inspect", "--format", "{{json .Config.Env}}", image_id],
             capture_output=True,
             text=True,
@@ -947,7 +946,7 @@ def image_present(tag: str, use_cache: bool = True, *, runtime: str | None = Non
     if not (docker_available() if runtime is None else docker_available(runtime)):
         return False
     try:
-        r = subprocess.run(
+        r = run_process_group(
             [
                 selected_runtime,
                 "image",

@@ -610,7 +610,7 @@ class TestExecutionBackendConfig:
                 args, 0, "sha256:" + ("a" if args[0] == "docker" else "b") * 64, ""
             )
 
-        monkeypatch.setattr(tc.subprocess, "run", inspect)
+        monkeypatch.setattr(tc, "run_process_group", inspect)
         assert tc.cached_image_digest("same:tag", runtime="docker") == "sha256:" + "a" * 64
         assert tc.cached_image_digest("same:tag", runtime="podman") == "sha256:" + "b" * 64
         tc.invalidate_toolchain_digest("same:tag")
@@ -631,7 +631,7 @@ class TestExecutionBackendConfig:
                 args, 0 if "--format" in args or named else 1, digest, ""
             )
 
-        monkeypatch.setattr(tc.subprocess, "run", inspect)
+        monkeypatch.setattr(tc, "run_process_group", inspect)
         assert tc.cached_image_digest("docker:tag") == "sha256:" + "a" * 64
         assert tc.cached_image_digest("tag", runtime="docker") == "sha256:" + "b" * 64
         assert tc.image_present("docker:tag")
