@@ -2860,6 +2860,49 @@ class TestEnvKnobValidators:
         assert not env_knob_errors({"REBREW_LLM_MAX_REQUESTS": ""})
         assert not env_knob_errors({"REBREW_LLM_TIMEOUT": ""})
 
+    def test_go_jobs_knobs_are_reported(self, tmp_path: Path) -> None:
+        """Go ``rebrew-jobs`` env knobs are validated like the ops ones.
+
+        The owner reads ``REBREW_JOB_TOKEN`` / ``REBREW_JOBS_ADDR`` /
+        ``REBREW_MANAGED_*`` / ``REBREW_BINARY`` / ``REBREW_DOCKER_BINARY`` /
+        ``REBREW_JOB_DOCKER_IMAGE`` / ``REBREW_WORKSPACE`` / ``REBREW_JOB_DIR``
+        directly (``services/jobs/cmd/rebrew-jobs/main.go``) and fails
+        fatally on a bad value; without these parsers a ``0.0.0.0`` bind,
+        an out-of-range managed limit, or a relative binary was invisible
+        to ``rebrew config effective`` until the owner died.
+        """
+        from rebrew.config import env_knob_errors
+
+        assert env_knob_errors({"REBREW_JOB_TOKEN": "short"})
+        assert not env_knob_errors({"REBREW_JOB_TOKEN": "x" * 32})
+        assert env_knob_errors({"REBREW_JOBS_ADDR": "0.0.0.0:8089"})
+        assert env_knob_errors({"REBREW_JOBS_ADDR": "bad-addr"})
+        assert env_knob_errors({"REBREW_JOBS_ADDR": "127.0.0.1:0"})
+        assert not env_knob_errors({"REBREW_JOBS_ADDR": "127.0.0.1:8089"})
+        assert not env_knob_errors({"REBREW_JOBS_ADDR": "[::1]:8089"})
+        assert not env_knob_errors({"REBREW_JOBS_ADDR": "localhost:8089"})
+        assert env_knob_errors({"REBREW_MANAGED_COMPILE_LIMIT": "0"})
+        assert env_knob_errors({"REBREW_MANAGED_COMPILE_LIMIT": "1001"})
+        assert env_knob_errors({"REBREW_MANAGED_COMPILE_LIMIT": "abc"})
+        assert not env_knob_errors({"REBREW_MANAGED_COMPILE_LIMIT": "1000"})
+        assert env_knob_errors({"REBREW_MANAGED_RECOMPILE_URL": "http://example.com"})
+        assert env_knob_errors(
+            {"REBREW_MANAGED_RECOMPILE_URL": "https://example.com/path"}
+        )
+        assert not env_knob_errors({"REBREW_MANAGED_RECOMPILE_URL": "https://example.com"})
+        assert not env_knob_errors(
+            {"REBREW_MANAGED_RECOMPILE_URL": "http://127.0.0.1:9000"}
+        )
+        assert env_knob_errors({"REBREW_BINARY": "relative/bin"})
+        assert not env_knob_errors({"REBREW_BINARY": "/abs/bin"})
+        assert env_knob_errors({"REBREW_DOCKER_BINARY": "relative/bin"})
+        assert env_knob_errors({"REBREW_JOB_DOCKER_IMAGE": "not-sha-pinned"})
+        assert not env_knob_errors({"REBREW_JOB_DOCKER_IMAGE": "sha256:" + "a" * 64})
+        assert env_knob_errors({"REBREW_WORKSPACE": "relative/path"})
+        assert not env_knob_errors({"REBREW_WORKSPACE": str(tmp_path)})
+        assert env_knob_errors({"REBREW_JOB_DIR": "relative/path"})
+        assert not env_knob_errors({"REBREW_JOB_DIR": str(tmp_path)})
+
 
 class TestBooleanVocabulary:
     """``parse_bool`` is the single boolean reader for env knobs and TOML

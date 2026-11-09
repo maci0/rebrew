@@ -569,6 +569,27 @@ by the CLI layer and win for that invocation.
 - `REBREW_OPS_TOKEN`: bearer token `rebrew ops serve` requires on every
   request; the command refuses to start without it. Give the backend the
   same value (`RELUMEA_DISPATCH_REBREW_TOKEN` there).
+- `REBREW_JOB_TOKEN`: bearer token the Go `rebrew-jobs` owner
+  (`services/jobs/`) requires on every request except the liveness probes;
+  it refuses to start with a token shorter than 32 bytes. Distinct from
+  `REBREW_OPS_TOKEN`.
+- `REBREW_JOBS_ADDR`: bind `host:port` for `rebrew-jobs`. Default
+  `127.0.0.1:8089`. Only a loopback `host:port` (an IP-literal loopback
+  address or `localhost`) is accepted; a non-loopback or malformed value
+  is fatal at startup.
+- `REBREW_MANAGED_RECOMPILE_URL`: upstream for the owner-mediated managed
+  compile path. Must be `https`, or `http` to `127.0.0.1`/`::1`, with no
+  path, query, fragment or credentials. Unset disables the managed path.
+- `REBREW_MANAGED_COMPILE_LIMIT`: per-owner managed-compile budget,
+  required with `REBREW_MANAGED_RECOMPILE_URL`. Must be an int in `1..1000`.
+- `REBREW_WORKSPACE` / `REBREW_JOB_DIR`: required by `rebrew-jobs`, the
+  workspace it copies/seals and the private job directory outside it.
+  Each must be an absolute path to an existing directory.
+- `REBREW_BINARY` / `REBREW_DOCKER_BINARY`: absolute path to the `rebrew`
+  CLI for the direct / Docker job provider. A relative spelling is refused.
+- `REBREW_JOB_DOCKER_IMAGE`: Docker provider image, a `sha256:` image id
+  (`sha256:` followed by 64 lowercase hex digits). Required with
+  `REBREW_DOCKER_BINARY`.
 
 ### Paths / overlays
 

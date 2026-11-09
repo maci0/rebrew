@@ -1826,9 +1826,129 @@ def check_env_recompile_api_key(raw: str) -> None:
         raise ConfigError("REBREW_RECOMPILE_API_KEY is not a printable ASCII header value")
 
 
-def check_env_ops_token(raw: str) -> None:
+def check_env_ops_token(raw: str, *, name: str = "REBREW_OPS_TOKEN") -> None:
     if raw.strip() and len(raw.strip()) < 32:
-        raise ConfigError("REBREW_OPS_TOKEN must contain at least 32 bytes")
+        raise ConfigError(f"{name} must contain at least 32 bytes")
+
+
+def check_env_job_token(raw: str) -> None:
+    """Mirror :func:`check_env_ops_token` for the Go jobs owner, which
+    reads ``REBREW_JOB_TOKEN`` (not the ops token) and also requires at
+    least 32 bytes before it binds."""
+    check_env_ops_token(raw, name="REBREW_JOB_TOKEN")
+
+
+def check_env_jobs_addr(raw: str) -> None:
+    """Raise when ``REBREW_JOBS_ADDR`` is not a loopback ``host:port``.
+
+    The Go owner (``services/jobs/cmd/rebrew-jobs/main.go``
+    ``isLoopbackAddr``) refuses any non-loopback bind with a fatal log;
+    without this check a typo such as ``0.0.0.0:8089`` or ``bad-addr``
+    is invisible to ``rebrew config effective`` until the owner dies.
+    Unset stays valid: the owner then binds ``127.0.0.1:8089``.
+    """
+    value = raw.strip()
+    if not value:
+        return
+    host, sep, port = value.rpartition(":")
+    if not sep or not host or not port.isascii() or not port.isdecimal():
+        raise ConfigError(f"REBREW_JOBS_ADDR={value!r} must be a loopback host:port")
+    if not 1 <= int(port) <= 65535:
+        raise ConfigError(f"REBREW_JOBS_ADDR={value!r} must be a loopback host:port")
+    host = host.strip("[]")
+    if host == "localhost":
+        return
+    try:
+        addr = ipaddress.ip_address(host)
+    except ValueError:
+        raise ConfigError(
+            f"REBREW_JOBS_ADDR={value!r} must be a loopback host:port"
+        ) from None
+    if not addr.is_loopback:
+        raise ConfigError(
+            f"REBREW_JOBS_ADDR={value!r} must be a loopback host:port"
+        )
+
+
+def check_env_managed_compile_limit(raw: str) -> None:
+    """Raise when ``REBREW_MANAGED_COMPILE_LIMIT`` is outside 1..1000.
+
+    The Go mediator (``compile_mediator.go`` ``NewCompileMediator``)
+    accepts only ``1 <= max <= 1000``; a value such as ``0``, ``-5``
+    or ``1001`` would only fail when the managed path is configured.
+    Unset stays valid: the limit is required only with
+    ``REBREW_MANAGED_RECOMPILE_URL``.
+    """
+    value = raw.strip()
+    if not value:
+        return
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise ConfigError(f"REBREW_MANAGED_COMPILE_LIMIT={value!r} is not an int") from exc
+    if not 1 <= parsed <= 1000:
+        raise ConfigError(
+            f"REBREW_MANAGED_COMPILE_LIMIT={value!r} must be in 1..1000"
+        )
+
+
+def check_env_managed_recompile_url(raw: str) -> None:
+    """Raise when ``REBREW_MANAGED_RECOMPILE_URL`` is not a valid upstream.
+
+    The Go mediator pins the upstream to ``https`` (or ``http`` to a
+    loopback host) with no path, query, fragment or credentials
+    (``compile_mediator.go`` ``NewCompileMediator``); the Python-side
+    ``validate_http_url`` alone would accept an ``http`` URL to a public
+    host or one with a path, which the owner then refuses.  Unset stays
+    valid: the managed path is then disabled.
+    """
+    value = raw.strip()
+    if not value:
+        return
+    validate_http_url(value, "REBREW_MANAGED_RECOMPILE_URL")
+    parsed = urlparse(value)
+    host = (parsed.hostname or "")
+    # Mirror the Go gate exactly: https, or http to 127.0.0.1 / ::1 only
+    # (``localhost`` as a name is not accepted by the mediator, so it is
+    # not accepted here either).
+    loopback_http = parsed.scheme == "http" and host in ("127.0.0.1", "::1")
+    if parsed.scheme != "https" and not loopback_http:
+        raise ConfigError(
+            f"REBREW_MANAGED_RECOMPILE_URL={value!r} must be https, "
+            "or http to a loopback host (127.0.0.1 or ::1)"
+        )
+    if parsed.path or parsed.query or parsed.fragment:
+        raise ConfigError(
+            f"REBREW_MANAGED_RECOMPILE_URL={value!r} must have no path, query or fragment"
+        )
+
+
+def check_env_absolute_executable(raw: str, *, name: str) -> None:
+    """Raise when a binary-valued knob is not an absolute path.
+
+    The Go owner (``job.go`` ``Open`` / ``docker_provider.go``
+    ``check``) requires an absolute executable path and, for the Docker
+    provider, a ``sha256:``-pinned image; a relative spelling would
+    otherwise surface as a spawn failure inside a job.  Unset stays
+    valid.
+    """
+    value = raw.strip()
+    if not value:
+        return
+    if not Path(value).expanduser().is_absolute():
+        raise ConfigError(f"{name}={value!r} must be an absolute path")
+
+
+def check_env_job_docker_image(raw: str) -> None:
+    """Raise when ``REBREW_JOB_DOCKER_IMAGE`` is not a sha256-pinned id."""
+    value = raw.strip()
+    if not value:
+        return
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", value):
+        raise ConfigError(
+            f"REBREW_JOB_DOCKER_IMAGE={value!r} must be a sha256: image id "
+            "(sha256: followed by 64 lowercase hex digits)"
+        )
 
 
 def check_env_ops_allowed_hosts(raw: str) -> None:
@@ -2005,6 +2125,18 @@ def _env_knob_parsers() -> tuple[tuple[str, Callable[[str], Any]], ...]:
             "REBREW_OPS_WORKSPACE",
             partial(check_env_ops_existing_dir, name="REBREW_OPS_WORKSPACE"),
         ),
+        ("REBREW_JOB_TOKEN", check_env_job_token),
+        ("REBREW_JOBS_ADDR", check_env_jobs_addr),
+        ("REBREW_MANAGED_COMPILE_LIMIT", check_env_managed_compile_limit),
+        ("REBREW_MANAGED_RECOMPILE_URL", check_env_managed_recompile_url),
+        ("REBREW_WORKSPACE", partial(check_env_ops_existing_dir, name="REBREW_WORKSPACE")),
+        ("REBREW_JOB_DIR", partial(check_env_ops_existing_dir, name="REBREW_JOB_DIR")),
+        ("REBREW_BINARY", partial(check_env_absolute_executable, name="REBREW_BINARY")),
+        (
+            "REBREW_DOCKER_BINARY",
+            partial(check_env_absolute_executable, name="REBREW_DOCKER_BINARY"),
+        ),
+        ("REBREW_JOB_DOCKER_IMAGE", check_env_job_docker_image),
     )
 
 
@@ -3215,9 +3347,15 @@ __all__ = [
     "arch_is_big_endian",
     "arch_padding_bytes",
     "arch_pointer_size",
+    "check_env_absolute_executable",
     "check_env_dir",
     "check_env_display",
     "check_env_insecure_cluster_host",
+    "check_env_job_docker_image",
+    "check_env_job_token",
+    "check_env_jobs_addr",
+    "check_env_managed_compile_limit",
+    "check_env_managed_recompile_url",
     "check_env_ops_allowed_hosts",
     "check_env_ops_existing_dir",
     "check_env_ops_positive_int",
