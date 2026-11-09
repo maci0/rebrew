@@ -84,7 +84,8 @@ must never replace the Git dependency.
 
 - Module-scope imports are **`lazy`** (PEP 810) unless the module reads the
   name while loading (a decorator, base class, default value, class body, or
-  module statement) or imports only for side effects. Tests import eagerly.
+  module statement) or imports only for side effects. Tests import eagerly
+  except annotation-only stdlib imports, which ruff TC rules defer with `lazy`.
   Keep a dependency out of the static module graph with a function-local
   import (`from rebrew.compiler.compile import compile_and_compare` inside
   `verify_entry`); the cycle detector reads module-scope imports, so it cannot
