@@ -1425,6 +1425,10 @@ class TestCiPins:
         assert "python-version=" in text
         assert "source-commit=" in text
         assert "source-dirty=" in text
+        assert 'echo "PYTHONDONTWRITEBYTECODE=1"' in text, (
+            "buildinfo must record PYTHONDONTWRITEBYTECODE so a rebuild "
+            "from the manifest pins the same source-only build"
+        )
 
     def test_build_pins_umask_for_the_files_it_writes_itself(self) -> None:
         """Every shell ``build`` runs sets umask 022, not just the uv build lines.
@@ -1464,7 +1468,7 @@ class TestCiPins:
         sbom = text.split("\nsbom: warn-uv-version\n", 1)[1].split("\n\n", 1)[0]
         assert "\t@umask 022 && mkdir -p dist" in sbom
         assert (
-            "\tumask 022 && SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 $(UV_RUN_TOOLS) python tools/generate_sbom.py -o dist/rebrew.cdx.json"
+            "\tumask 022 && SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 PYTHONDONTWRITEBYTECODE=1 $(UV_RUN_TOOLS) python tools/generate_sbom.py -o dist/rebrew.cdx.json"
             in sbom
         )
 

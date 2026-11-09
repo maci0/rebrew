@@ -148,8 +148,10 @@ BUILD_INPUTS := Makefile pyproject.toml build-constraints.txt MANIFEST.in uv.loc
 # sdist and the wheel with tools/normalize_sdist.py (sorted entries, fixed
 # mtimes, fixed modes; sdist owner 0:0). Wheel modes otherwise follow the
 # checkout umask: setuptools copies each source file's mode, and git fills
-# the non-executable bits from umask.
-# `?=` alone would leave SOURCE_DATE_EPOCH a recursively expanded variable, so
+# the non-executable bits from umask.  Every `uv build` / normalizer line also
+# sets PYTHONDONTWRITEBYTECODE=1: with .pyc files already beside the sources
+# (a prior test run) setuptools would ship host-compiled bytecode a clean
+# checkout never produces.  `?=` alone would leave SOURCE_DATE_EPOCH a recursively expanded variable, so
 # every $(SOURCE_DATE_EPOCH) below re-ran git.  `override :=` collapses the
 # result to a simple variable: one git call, and an empty commit date (a
 # non-git tree) becomes 0.
@@ -383,6 +385,10 @@ ensure-go:
 	go_ver=$$(printf '%s' "$$go_ver" | cut -d- -f1); \
 	if [ -n "$$go_ver" ] && [ "$$go_ver" != "$(GO_VERSION)" ]; then \
 	  echo "WARNING: go $$go_ver differs from pin GO_VERSION=$(GO_VERSION) (services/jobs/go.mod). jobs-check usually still passes; upgrade when you can."; \
+	fi; \
+	mod_go=$$(awk '$$1 == "go" {print $$2; exit}' services/jobs/go.mod); \
+	if [ -n "$$mod_go" ] && [ "$$mod_go" != "$(GO_VERSION)" ]; then \
+	  echo "WARNING: services/jobs/go.mod declares go $$mod_go but Makefile GO_VERSION=$(GO_VERSION); one of them drifted."; \
 	fi
 
 # `rebrew vendor` / `rebrew library vendor` shells out to GNU patch to apply
@@ -851,11 +857,11 @@ build: warn-uv-version
 	  echo "ERROR: pyproject.toml [build-system] setuptools pin '$$st' missing or not in build-constraints.txt"; \
 	  exit 1; \
 	fi
-	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 \
+	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 PYTHONDONTWRITEBYTECODE=1 \
 		uv build --sdist --out-dir dist --build-constraints build-constraints.txt --require-hashes
-	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 \
+	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 PYTHONDONTWRITEBYTECODE=1 \
 		uv build --wheel --out-dir dist --build-constraints build-constraints.txt --require-hashes
-	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 $(UV_RUN_TOOLS) python tools/normalize_sdist.py dist/*.tar.gz dist/*.whl
+	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 PYTHONDONTWRITEBYTECODE=1 $(UV_RUN_TOOLS) python tools/normalize_sdist.py dist/*.tar.gz dist/*.whl
 	@rm -rf build rebrew.egg-info src/rebrew.egg-info
 	@umask 022; set -eu; \
 	st=$$(sed -n 's/^requires = \["setuptools==\([0-9.][0-9.]*\)"\]/\1/p' pyproject.toml | head -n 1); \
@@ -893,6 +899,7 @@ build: warn-uv-version
 	  echo "TZ=UTC"; \
 	  echo "LC_ALL=C"; \
 	  echo "PYTHONHASHSEED=0"; \
+	  echo "PYTHONDONTWRITEBYTECODE=1"; \
 	  echo "uv=$$uv_ver"; \
 	  echo "python=$$py_ver"; \
 	  echo "python-version=$(PYTHON_PIN)"; \
@@ -1098,7 +1105,7 @@ verify-dist: require-dist ensure-uv
 # than left to the caller's umask (Path.write_text applies it).
 sbom: warn-uv-version
 	@umask 022 && mkdir -p dist
-	umask 022 && SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 $(UV_RUN_TOOLS) python tools/generate_sbom.py -o dist/rebrew.cdx.json
+	umask 022 && SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 PYTHONDONTWRITEBYTECODE=1 $(UV_RUN_TOOLS) python tools/generate_sbom.py -o dist/rebrew.cdx.json
 
 # Prove the sdist carries every runtime file the wheel ships.  The wheel is
 # smoke-installed; nothing else exercises the sdist, and its file list comes
@@ -1149,10 +1156,10 @@ sdist-check: ensure-uv dist/rebrew.buildinfo
 	[ $$# -eq 1 ] && [ -f "$$1" ] || { echo "ERROR: expected exactly one wheel in dist/ (run 'make build')"; exit 1; }; \
 	wheel=$$1; \
 	rm -rf .sdist-check; mkdir .sdist-check; \
-	umask 022 && SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 \
+	umask 022 && SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 PYTHONDONTWRITEBYTECODE=1 \
 	  uv build --wheel --out-dir .sdist-check --build-constraints build-constraints.txt \
 	  --require-hashes "$$sdist"; \
-	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 $(UV_RUN_TOOLS) python tools/check_sdist_wheel.py "$$wheel" .sdist-check/*.whl; \
+	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 PYTHONDONTWRITEBYTECODE=1 $(UV_RUN_TOOLS) python tools/check_sdist_wheel.py "$$wheel" .sdist-check/*.whl; \
 	rm -rf .sdist-check
 
 # Install the built wheel into a throwaway venv and smoke-import it (CI
@@ -1196,18 +1203,21 @@ smoke-wheel: require-dist ensure-uv
 # Go jobs service (CI jobs-service job): gofmt, vet, race tests.  Needs Go
 # on PATH (services/jobs/go.mod toolchain pin; CI installs GO_VERSION);
 # not the pinned tarball CI installs, so a newer/older Go still runs the
-# same checks.
+# same checks.  GOTOOLCHAIN=local + GOFLAGS=-mod=readonly + GOPROXY/GOSUMDB=off
+# match CI's job env, so a local run never downloads a toolchain or mutates
+# go.mod/go.sum the way a plain `go build` on a drifted host would.
 jobs-check: ensure-go
 	@set -eu; \
 	cd services/jobs; \
 	JOBS_TMP=$$(mktemp -d); \
 	trap 'rm -rf "$$JOBS_TMP"' EXIT; \
-	GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off test -z "$$(gofmt -l .)"; \
-	GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off CGO_ENABLED=0 go vet ./...; \
-	GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" ./...; \
-	GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off GOOS=windows CGO_ENABLED=0 go vet ./...; \
-	GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off GOOS=windows CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -o "$$JOBS_TMP/rebrew-jobs.exe" ./cmd/rebrew-jobs; \
-	GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off CGO_ENABLED=1 go test -count=1 -race ./...
+	export GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOPROXY=off GOSUMDB=off; \
+	CGO_ENABLED=0 test -z "$$(gofmt -l .)"; \
+	CGO_ENABLED=0 go vet ./...; \
+	CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" ./...; \
+	GOOS=windows CGO_ENABLED=0 go vet ./...; \
+	GOOS=windows CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -o "$$JOBS_TMP/rebrew-jobs.exe" ./cmd/rebrew-jobs; \
+	CGO_ENABLED=1 go test -count=1 -race ./...
 
 # Run all non-mutating verification gates (mirrors CI lint + test +
 # cli-contract + jobs-service jobs: ruff, mypy, uv audit, pytest under the
