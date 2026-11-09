@@ -526,6 +526,15 @@ def data_byte_order(bin_path: Path) -> str:
 _WORD_RE = re.compile(r"\b\w+\b")
 _WORD_NAME_RE = re.compile(r"\w+\Z")
 _C_TYPE_WORDS_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|__int64")
+#: Bounded cache for the multi-name alternation fallback in ``owner_of``;
+#: the same name set is queried once per ownership pass.
+_OWNER_PAT_CACHE_MAX = 64
+
+
+@functools.lru_cache(maxsize=_OWNER_PAT_CACHE_MAX)
+def _owner_pat(names_key: tuple[str, ...]) -> re.Pattern[str]:
+    """Whole-word alternation for *names_key*; cached per name set."""
+    return re.compile(r"\b(?:" + "|".join(re.escape(n) for n in names_key) + r")\b")
 
 
 def _read_sources_or_fail(files: list[Path]) -> list[tuple[Path, str]]:
@@ -607,7 +616,7 @@ def owner_of(
     if references is not None and all(_WORD_NAME_RE.fullmatch(name) for name in names):
         return _owner_from_references(names, references)
     # One alternation instead of N separate compiles × findall passes.
-    pat = re.compile(r"\b(?:" + "|".join(re.escape(n) for n in names) + r")\b")
+    pat = _owner_pat(tuple(names))
     counts: dict[Path, int] = defaultdict(int)
     for f, t in _read_sources_or_fail(files):
         n = len(pat.findall(t))

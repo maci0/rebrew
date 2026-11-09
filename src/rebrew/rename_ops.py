@@ -1528,11 +1528,13 @@ def _plan_file_move(
 # Types and members
 # ---------------------------------------------------------------------------
 
+_TYPE_KEYWORD_RE = re.compile(rb"\b(?:struct|union|enum|typedef)\b")
+
 
 def _type_index(project: _Project) -> TypeIndex:
     """Records and typedefs of every project source that can define one."""
     index = TypeIndex()
-    keyword = re.compile(rb"\b(?:struct|union|enum|typedef)\b")
+    keyword = _TYPE_KEYWORD_RE
     for path in project.paths:
         if keyword.search(project.texts[path][2]):
             index.add_source(str(path), project.parsed(path))
