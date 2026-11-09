@@ -1743,7 +1743,7 @@ def _write_libraries(cfg: Any, plan: ImportPlan, planned: list[SourceBinding]) -
 _MAX_YAML_DEPTH = 64
 
 
-class _StrictLoader(yaml.SafeLoader):
+class _StrictLoader(yaml.SafeLoader):  # type: ignore[misc]
     """SafeLoader with the subset's scalar rules and duplicate-key refusal.
 
     Keys are always strings (splat keys never coerce). Values keep the old
@@ -1752,8 +1752,8 @@ class _StrictLoader(yaml.SafeLoader):
     dates would turn a config's string into a type the importer must reject.
     """
 
-    def construct_mapping(self, node, deep=False):
-        mapping = {}
+    def construct_mapping(self, node: Any, deep: bool = False) -> dict[str, Any]:
+        mapping: dict[str, Any] = {}
         for key_node, value_node in node.value:
             key = self.construct_yaml_str(key_node)
             if key in mapping:
@@ -1765,7 +1765,7 @@ class _StrictLoader(yaml.SafeLoader):
 
 # Subset implicit resolvers: drop the 1.1 ``yes``/``no``/``on``/``off`` bools,
 # timestamps and floats; keep null/int/bool only in the old subset's spellings.
-def _subset_implicit_resolvers():
+def _subset_implicit_resolvers() -> dict[str, list[tuple[str, Any]]]:
     bool_re = re.compile(r"^(?:true|True|TRUE|false|False|FALSE)$", re.VERBOSE)
     null_re = re.compile(r"^(?: ~|null|Null|NULL| )$", re.VERBOSE)
     int_re = re.compile(
@@ -1773,7 +1773,7 @@ def _subset_implicit_resolvers():
         re.VERBOSE,
     )
     base = yaml.resolver.Resolver.yaml_implicit_resolvers
-    out = {}
+    out: dict[str, list[tuple[str, Any]]] = {}
     for first in base:
         keep = []
         for tag, regex in base[first]:
@@ -1797,7 +1797,7 @@ def _subset_implicit_resolvers():
 _StrictLoader.yaml_implicit_resolvers = _subset_implicit_resolvers()
 
 
-def parse_yaml_subset(text: str):
+def parse_yaml_subset(text: str) -> Any:
     """Parse a splat config as YAML.
 
     PyYAML parses; this wrapper keeps the strictness the importer relies on
@@ -1846,7 +1846,7 @@ def parse_yaml_subset(text: str):
         loader.dispose()
 
 
-def _check_yaml_text_before_doc(text):
+def _check_yaml_text_before_doc(text: str) -> None:
     """Refuse ``...``/trailing-marker misuse before the root check.
 
     ``---`` opens one document; ``...`` anywhere in a file the importer reads
@@ -1858,7 +1858,7 @@ def _check_yaml_text_before_doc(text):
             raise ValueError(f"line {number}: multiple documents are not supported")
 
 
-def _check_yaml_text_doc(text):
+def _check_yaml_text_doc(text: str) -> None:
     """Refuse a second ``---`` and tab indentation the node walk cannot see."""
     seen_document = False
     for number, raw in enumerate(text.splitlines(), start=1):
@@ -1871,7 +1871,7 @@ def _check_yaml_text_doc(text):
             seen_document = True
 
 
-def _check_yaml_nodes(node, text):
+def _check_yaml_nodes(node: Any, text: str) -> None:
     """Refuse anchors, block scalars, and nesting deeper than the limit."""
     stack = [(node, 0)]
     seen = set()

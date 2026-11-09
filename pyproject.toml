@@ -487,5 +487,7 @@ module = [
     "flirt.*",  # python-flirt ships no type information
     "resembl",
     "resembl.*",  # sibling-checkout path dep (see `similarity` group); no stubs
+    "yaml",
+    "yaml.*",  # PyYAML ships no type information / py.typed
 ]
 ignore_missing_imports = true
