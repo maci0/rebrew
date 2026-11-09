@@ -29,7 +29,7 @@ re-render the scaffold after template changes.
 Run from the project root directory:
 
 ```bash
-mkdir -p original && cp /path/to/<binary> original/
+mkdir -p original && cp <path-to-binary> original/
 rebrew init --target <name> --binary <filename> --guess-compiler --no-wizard
 ```
 

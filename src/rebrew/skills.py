@@ -125,7 +125,9 @@ def _scan_skills_dir(skills_dir: Path, origin: str = "packaged") -> list[dict[st
         fm = parse_frontmatter(text)
         name = fm.get("name") or unicodedata.normalize("NFC", skill_dir.name)
         description = fm.get("description", "")
-        first_line = description.split(".")[0].strip() if description else ""
+        # First sentence, not first period: "rebrew init" triggers contain ".".
+        first = re.split(r"(?<=\. )", description, maxsplit=1)[0]
+        first_line = first.strip() if description else ""
         skills.append(
             {
                 "name": name,

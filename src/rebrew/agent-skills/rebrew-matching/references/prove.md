@@ -41,7 +41,7 @@ Rebrew. Install it when dependency setup is authorized; otherwise report this
 requirement and continue work that does not need proving:
 `uv tool install --reinstall 'rebrew[prove]'`
 From a checkout, install the extra into that same tool environment:
-`uv tool install --reinstall --editable '/path/to/rebrew[prove]'`.
+`uv tool install --reinstall --editable '<path-to-rebrew>[prove]'`.
 
 Limitations: float-heavy may not prove; raise `--timeout` / `--loop-bound` for
 loops. A proof is bounded by modeled calls, inputs, and loop limits; inspect

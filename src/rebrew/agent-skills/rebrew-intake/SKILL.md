@@ -92,7 +92,7 @@ is part of the authorized task. Otherwise clarify before a long build. Config fa
 Missing binary → place at configured path. Missing FLIRT →:
 
 ```bash
-rebrew library signatures /path/to/msvcrt.lib --output flirt_sigs/msvcrt_vc6.pat
+rebrew library signatures <path-to-msvcrt.lib> --output flirt_sigs/msvcrt_vc6.pat
 # .lib from a vendored toolchain/ tree, or extract Lib/ from the profile docker image
 rebrew cfg target add <name> --binary original/<filename> # --force skips the existence check (--binary is still required)
 ```
@@ -105,7 +105,7 @@ library code from game code:
 ```bash
 rebrew cfg detect-crt apply # auto-detect and register CRT source dirs (required before crt-match)
 rebrew library scan-signatures --json                     # scan binary against FLIRT signatures
-rebrew library crt-match --index --json         # verify CRT source directories are configured
+rebrew library crt-match --json                 # verify CRT source directories are configured
 rebrew library crt-match --all --fix-source --json # auto-annotate SOURCE references for library functions
 ```
 
@@ -121,13 +121,13 @@ Needs `rebrew cfg detect-crt apply` first or `rebrew library crt-match --all` fi
 
 ```bash
 rebrew coverage export --output snapshots/                         # optional portable snapshots for offline use
-rebrew coverage catalog --export-ghidra-labels   # write ghidra_data_labels.json (switch tables etc.)
-rebrew coverage catalog --fix-sizes              # backfill SIZE in rebrew-functions.toml from catalog
+rebrew coverage catalog --export-ghidra-labels --json   # write ghidra_data_labels.json (switch tables etc.)
+rebrew coverage catalog --fix-sizes --force              # backfill SIZE in rebrew-functions.toml from catalog
 ```
 
 Live coverage scans the tree itself; `function_structure.json` is used when a
 Ghidra export is present. `rebrew coverage catalog --fix-sizes` needs `--force` when stdin is not a
-terminal, and whenever `--json` is set. A piped answer does not approve.
+terminal, and remains required with `--json`. A piped answer does not approve.
 
 ### 4. Initial Triage
 

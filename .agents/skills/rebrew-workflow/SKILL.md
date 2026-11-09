@@ -86,7 +86,7 @@ function source counts do not measure matched bytes.
 > ```bash
 > rebrew library scan-signatures --va 0x<VA> --json
 > rebrew library crt-match 0x<VA> --json
-> rebrew library match --stock-lib LIBCMT.LIB --va 0x<VA>   # --lib takes a path to a local .lib
+> rebrew library match --stock-lib LIBCMT.LIB --va 0x<VA>   # --lib <path> for a local .lib
 > ```
 >
 > A miss is inconclusive. FLIRT can under-match across library builds;

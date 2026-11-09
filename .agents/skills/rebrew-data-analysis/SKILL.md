@@ -90,7 +90,7 @@ Run from the project root (config discovery walks up to `rebrew-project.toml`). 
 ```bash
 rebrew data list --link-map build/server.map --json # explicit MSVC map for library owners
 rebrew data list --json # full inventory: globals, data_annotations, type_conflicts, summary, sections
-rebrew data list --summary --json # per-section progress: JSON`summary` becomes {sections, conflicts}
+rebrew data list --summary --json # per-section progress: summary.sections + summary.conflicts
 rebrew data list --conflicts --json # only globals with type conflicts (same name, different types across files)
 rebrew data dispatch --json # detect dispatch tables / vtables in .data/.rdata
 rebrew data dispatch --min-table-len 5 --json # require >= 5 entries per table
@@ -102,7 +102,7 @@ rebrew data mark-literals --dry-run --json # rows at ??_C@/__real@ map VAs -> st
 rebrew build check-tu-data --json # per-object [data][literals] order: TU boundaries, s_* literal pools
 rebrew data header --dry-run # preview rebrew_globals.h contents
 rebrew data header # write rebrew_globals.h from scanned globals (address bindings and rebrew-data.toml rows)
-rebrew data header --output /path/to/my_globals.h # override output path
+rebrew data header --output my_globals.h # override output path
 rebrew data header --force # overwrite existing file without prompting
 rebrew data layout audit --section .rdata # per-TU span/order audit for .rdata (default .data)
 rebrew data set --type 0x10025000=unsigned_char_p --dry-run --json # preview: write type into rebrew-data.toml (repeatable)
