@@ -33,7 +33,7 @@ Operators should also treat operator-supplied backup/restore paths as trusted: `
 (recompile, LLM, ReVa MCP, decomp.me), GitHub release and toolchain-media
 downloads (wibo, SDK tarballs), docker/podman images (`REBREW_CONTAINER_RUNTIME`),
 cmake bridge wineprefix / profile pins (`REBREW_WINEPREFIX`, `REBREW_TOOLCHAIN`),
-`REBREW_SKILLS_DIR` overlays, BinSync state-repo git remotes (`rebrew binsync pull` (remote validated by `validate_remote()` in `binsync/git.py`: spaces/control chars, `..`, leading `-`/`+` refused, blocking git option injection)),
+`REBREW_SKILLS_DIR` overlays, BinSync state-repo git remotes (`rebrew binsync pull` (remote validated by `validate_remote()` in `binsync/git.py`: spaces/control chars, `..`, leading `-`/`+`, any `<transport>::` command transport such as `ext::`/`fd::` refused, blocking git option injection and command-transport execution)),
 fast-forwards and imports by default), a foreign splat project handed to
 `rebrew source import-splat` (its `splat.yaml` and `symbol_addrs` files are written into
 the local project as metadata, source markers, and `library_<module>.h` names;
