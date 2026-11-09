@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Removed
+
+- **Breaking:** `rebrew.metadata.functions` no longer re-exports `KNOWN_STATUSES` and `MATCHED_STATUSES`; import them from `rebrew.workspace.status`. No caller read them from `rebrew.metadata.functions` in any repo under `relumea/repos` except one test, now pointed at the owner.
+
 ## [6.26.1] - 2026-11-09
 
 ### Fixed

@@ -200,15 +200,15 @@ class TestVocabularyCoverage:
     """
 
     def test_colors_cover_known_statuses(self) -> None:
-        from rebrew.metadata.functions import KNOWN_STATUSES
         from rebrew.status_style import STATUS_COLORS
+        from rebrew.workspace.status import KNOWN_STATUSES
 
         missing = set(KNOWN_STATUSES) - set(STATUS_COLORS)
         assert not missing, f"statuses without display color: {missing}"
 
     def test_hex_marks_cover_known_statuses(self) -> None:
-        from rebrew.metadata.functions import KNOWN_STATUSES
         from rebrew.status_style import STATUS_HEX
+        from rebrew.workspace.status import KNOWN_STATUSES
 
         # report/dashboard render ``status-<STATUS>`` for whatever a row
         # carries, so a status with no STATUS_HEX mark is unstyled ink.
@@ -216,8 +216,8 @@ class TestVocabularyCoverage:
         assert not missing, f"statuses without page mark: {missing}"
 
     def test_gate_ranks_cover_known_statuses(self) -> None:
-        from rebrew.metadata.functions import KNOWN_STATUSES
         from rebrew.verify import _STATUS_ORDER, _STATUS_RANK
+        from rebrew.workspace.status import KNOWN_STATUSES
 
         # INTERNAL_ERROR is deliberately absent from metadata (verify never
         # persists tooling crashes) but must still rank in the gate tables.
@@ -234,18 +234,11 @@ class TestVocabularyCoverage:
         assert (*MATCHED_STATUSES, "PROVEN") == EARNED_STATUSES
         assert "PROVEN" not in MATCHED_STATUSES
 
-    def test_workspace_mirror_is_identical(self) -> None:
-        from rebrew.metadata import functions as _metadata
-        from rebrew.workspace import status as _workspace_status
-
-        assert _workspace_status.MATCHED_STATUSES == _metadata.MATCHED_STATUSES
-        assert _workspace_status.KNOWN_STATUSES == _metadata.KNOWN_STATUSES
-
     def test_compare_status_literal_matches_vocabulary(self) -> None:
         from typing import get_args
 
         from rebrew.compiler.compile import CompareStatus
-        from rebrew.metadata.functions import KNOWN_STATUSES
+        from rebrew.workspace.status import KNOWN_STATUSES
 
         # CompareResult.status is persisted verbatim by test/verify, so the
         # Literal must be exactly the persisted vocabulary plus the one

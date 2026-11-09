@@ -49,11 +49,12 @@ lazy from rebrew.utils import (
     resolved_path,
     toml_safe,
 )
-lazy from rebrew.workspace.status import EARNED_STATUSES as EARNED_STATUSES
-lazy from rebrew.workspace.status import INFRASTRUCTURE_STATUSES as INFRASTRUCTURE_STATUSES
-lazy from rebrew.workspace.status import KNOWN_STATUSES as KNOWN_STATUSES
-lazy from rebrew.workspace.status import MATCHED_STATUSES as MATCHED_STATUSES
-lazy from rebrew.workspace.status import STUB_PLACEHOLDER_STATUSES
+lazy from rebrew.workspace.status import (
+    EARNED_STATUSES,
+    INFRASTRUCTURE_STATUSES,
+    KNOWN_STATUSES,
+    STUB_PLACEHOLDER_STATUSES,
+)
 lazy from rebrew.workspace.status import canonical_status as workspace_canonical_status
 
 if TYPE_CHECKING:
@@ -112,10 +113,8 @@ METADATA_FIELDS: frozenset[str]
 __all__ = [
     "FUNCTION_IDENTITY_FIELDS",
     "GA_CEILING_PREFIX",
-    "KNOWN_STATUSES",
     "LIBRARY_METADATA_FILE",
     "LIBRARY_PRESET_ENTRY_POINT_GROUP",
-    "MATCHED_STATUSES",
     "METADATA_FIELDS",
     "METADATA_FIELD_TYPES",
     "METADATA_FILENAME",
@@ -1813,11 +1812,8 @@ def apply_metadata_entry(ann: SourceBinding, entry: dict[str, Any]) -> None:
 # The typed entry layer is ``metadata.model.MetadataEntry``; it is the only
 # entry model, so status checks go through it
 # rather than through a second facade here.
-# ``KNOWN_STATUSES`` / ``MATCHED_STATUSES`` are owned by
-# :mod:`rebrew.workspace.status` (stdlib-light vocabulary).  Import the
-# vocabulary from there (or ``rebrew.workspace``); this module re-exports
-# them only so metadata *writers* that already import ``rebrew.metadata.functions``
-# need not take a second import.  ``coerce_metadata_value`` below remains live:
+# The status vocabulary is owned by :mod:`rebrew.workspace.status`; import it
+# from there (or ``rebrew.workspace``).  ``coerce_metadata_value`` below remains live:
 # metadata.model validates against KNOWN_STATUSES, and lint --fix coerces
 # values through coerce_metadata_value.
 
