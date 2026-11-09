@@ -243,7 +243,7 @@ warn-uv-version: ensure-uv
 	@set -eu; \
 	uv_out=$$(uv --version); \
 	uv_ver=$$(printf '%s\n' "$$uv_out" | awk '{print $$2}'); \
-	lowest=$$(printf '%s\n%s\n' "$$uv_ver" "$(UV_VERSION)" | sort -t. -k1,1n -k2,2n -k3,3n | head -n 1); \
+	lowest=$$(printf '%s\n%s\n' "$$uv_ver" "$(UV_VERSION)" | LC_ALL=C sort -t. -k1,1n -k2,2n -k3,3n | head -n 1); \
 	if [ "$$lowest" != "$(UV_VERSION)" ]; then \
 	  echo "WARNING: uv $$uv_ver is older than CI pin UV_VERSION=$(UV_VERSION)."; \
 	  echo "Sync usually still works; upgrade when you can (https://docs.astral.sh/uv/)."; \
@@ -1178,11 +1178,13 @@ smoke-wheel: require-dist ensure-uv
 jobs-check: ensure-go
 	@set -eu; \
 	cd services/jobs; \
+	JOBS_TMP=$$(mktemp -d); \
+	trap 'rm -rf "$$JOBS_TMP"' EXIT; \
 	GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off test -z "$$(gofmt -l .)"; \
 	GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off CGO_ENABLED=0 go vet ./...; \
 	GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" ./...; \
 	GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off GOOS=windows CGO_ENABLED=0 go vet ./...; \
-	GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off GOOS=windows CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -o "$${TMPDIR:-/tmp}/rebrew-jobs.exe" ./cmd/rebrew-jobs; \
+	GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off GOOS=windows CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -o "$$JOBS_TMP/rebrew-jobs.exe" ./cmd/rebrew-jobs; \
 	GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off CGO_ENABLED=1 go test -count=1 -race ./...
 
 # Run all non-mutating verification gates (mirrors CI lint + test +

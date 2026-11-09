@@ -83,28 +83,46 @@ def _helper(root: Path) -> Path:
     directory = root / "helpers" / backend_identity()
     helper = directory / "runner"
     manifest = directory / "sha256"
-    if helper.is_file() and manifest.is_file():
-        recorded = manifest.read_text(encoding="utf-8").strip().splitlines()
-        if recorded and hashlib.sha256(helper.read_bytes()).hexdigest() == recorded[0]:
-            # A manifest written before the cc-version line existed has no
-            # provenance; rebuild once to record it.
-            if (
-                len(recorded) >= 3
-                and recorded[1].startswith("cc=")
-                and recorded[2].startswith("epoch=")
-            ):
-                return helper
-            if len(recorded) == 1:
-                pass  # fall through to rebuild with provenance
-            else:
-                return helper
-        else:
-            raise UnshareError(f"experimental helper failed its digest check; remove {directory}")
+    # Read the current toolchain provenance up front: the cached helper is
+    # only reusable when both the compiler identity and the epoch it was
+    # built with still match.  Comparing the recorded values in the hit
+    # path (instead of merely recording them) is what makes a toolchain
+    # upgrade rebuild instead of reusing a stale helper.
+    epoch = os.environ.get("SOURCE_DATE_EPOCH", "0")
+    if not epoch.isdigit():
+        epoch = "0"
     cc, pkg = shutil.which("cc"), shutil.which("pkg-config")
     if not cc or not pkg:
         raise UnshareError(
             "--experimental-unshare needs cc, pkg-config and json-c development files"
         )
+    cc_ver = _command([cc, "--version"])
+    cc_version = (
+        (cc_ver.stdout or "").splitlines()[0]
+        if cc_ver.returncode == 0 and cc_ver.stdout
+        else "unknown"
+    )
+    if helper.is_file() and manifest.is_file():
+        recorded = manifest.read_text(encoding="utf-8").strip().splitlines()
+        if recorded and hashlib.sha256(helper.read_bytes()).hexdigest() == recorded[0]:
+            # A manifest written before the cc-version line existed has no
+            # provenance; rebuild once to record it.  A manifest whose cc
+            # or epoch no longer matches the current toolchain is likewise
+            # stale: fall through to rebuild rather than reuse it.
+            if (
+                len(recorded) >= 3
+                and recorded[1] == f"cc={cc_version}"
+                and recorded[2] == f"epoch={epoch}"
+            ):
+                return helper
+            if len(recorded) == 1:
+                pass  # fall through to rebuild with provenance
+            elif len(recorded) >= 3:
+                pass  # stale compiler or epoch: rebuild below
+            else:
+                return helper
+        else:
+            raise UnshareError(f"experimental helper failed its digest check; remove {directory}")
     flags = _command([pkg, "--cflags", "--libs", "json-c"])
     _require_success(flags, "json-c development files missing (install libjson-c-dev/json-c)")
     # Reproducible helper build: honor SOURCE_DATE_EPOCH (gcc uses it for
@@ -112,17 +130,8 @@ def _helper(root: Path) -> Path:
     # and the build directory out of DWARF/__FILE__, strip the compiler
     # ident, and pin locale/TZ so the cached binary does not depend on the
     # caller's environment. The cache identity (backend_identity) already
-    # hashes the source; the cc version is recorded in the manifest so a
-    # toolchain upgrade rebuilds instead of reusing a stale helper.
-    epoch = os.environ.get("SOURCE_DATE_EPOCH", "0")
-    if not epoch.isdigit():
-        epoch = "0"
-    cc_ver = _command([cc, "--version"])
-    cc_version = (
-        (cc_ver.stdout or "").splitlines()[0]
-        if cc_ver.returncode == 0 and cc_ver.stdout
-        else "unknown"
-    )
+    # hashes the source; the cc/epoch comparison in the hit path above
+    # rebuilds when the toolchain or epoch changed since the cached build.
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     partial = directory / "runner.partial"
     try:
