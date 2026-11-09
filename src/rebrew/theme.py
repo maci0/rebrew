@@ -1,7 +1,7 @@
 """Chrome design tokens shared by the HTML surfaces (report pages, dashboard)
 and the exported call graph.
 
-Plain tool chrome: a system font stack, one link/focus blue, one 6px radius.
+Plain tool chrome: a mono font stack, one link/focus blue, one 2px radius.
 Deliberately not a component-library palette, and small on purpose: these
 surfaces are read for addresses and bytes, so nothing here competes with the
 data. A role named here is rendered the same way by every surface that uses it,
@@ -81,7 +81,7 @@ TOKENS: dict[str, str] = {
     "track-label": "0.04em",
     "leading-body": "1.5",
     # shape
-    "radius": "6px",
+    "radius": "2px",
 }
 
 #: The rebrew mark: the mascot's ``0x`` mug, in phosphor green on the harness
