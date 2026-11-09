@@ -494,6 +494,46 @@ class TestTomlBackup:
         with pytest.raises(FileNotFoundError):
             backup_metadata_toml(tmp_path, tmp_path / "off-tree")
 
+    def test_extern_and_name_map_caches_ride_along(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")
+        rebrew_dir = tmp_path / ".rebrew"
+        rebrew_dir.mkdir(exist_ok=True)
+        extern = rebrew_dir / "extern-names.json"
+        name_map = rebrew_dir / "name_to_va_cache.json"
+        extern.write_text(
+            '{"version": 1, "files": {"a.c": {"stamp": [1, 2, 3, 4], "names": ["f"]}}}\n',
+            encoding="utf-8",
+        )
+        name_map.write_text(
+            '{"version": 3, "key": "abc", "map": {"_helper": 1234}}\n', encoding="utf-8"
+        )
+        bundle = backup_metadata_toml(tmp_path, tmp_path / "off-tree")
+        checked = verify_backup_manifest(bundle)
+        assert ".rebrew/extern-names.json" in checked
+        assert ".rebrew/name_to_va_cache.json" in checked
+        extern.unlink()
+        name_map.unlink()
+        restore_metadata_toml(bundle, tmp_path)
+        assert extern.read_text(encoding="utf-8") == (
+            '{"version": 1, "files": {"a.c": {"stamp": [1, 2, 3, 4], "names": ["f"]}}}\n'
+        )
+        assert name_map.read_text(encoding="utf-8") == (
+            '{"version": 3, "key": "abc", "map": {"_helper": 1234}}\n'
+        )
+
+    def test_corrupt_new_caches_refuse_restore(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")
+        (tmp_path / ".rebrew").mkdir(exist_ok=True)
+        extern = tmp_path / ".rebrew" / "extern-names.json"
+        extern.write_text('{"version": 1, "files": {}}\n', encoding="utf-8")
+        bundle = backup_metadata_toml(tmp_path, tmp_path / "off-tree")
+        bad = bundle / ".rebrew" / "extern-names.json"
+        bad.chmod(0o644)
+        bad.write_text("not json\n", encoding="utf-8")
+        _reseal_manifest(bundle)
+        with pytest.raises(MetadataStorageError, match="corrupt backup"):
+            restore_metadata_toml(bundle, tmp_path)
+
     def test_backup_carries_ga_log_and_sync_baselines(self, tmp_path: Path) -> None:
         (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")
         _write_extra_durable(tmp_path)

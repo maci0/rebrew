@@ -442,6 +442,8 @@ _VERIFY_TARGETS_REL = Path(".rebrew") / "targets"
 _GHIDRA_SYNC_STATE_REL = Path(".rebrew") / "ghidra_sync_state.json"
 _NAME_COVER_REL = Path(".rebrew") / "name-map-cover.json"
 _DATA_SCAN_ROLES_REL = Path(".rebrew") / "data-scan-roles.json"
+_EXTERN_NAMES_REL = Path(".rebrew") / "extern-names.json"
+_NAME_TO_VA_CACHE_REL = Path(".rebrew") / "name_to_va_cache.json"
 _PGSQL_SNAPSHOT_DIR_REL = Path(".rebrew") / "pgsql-before-transfer"
 _SNAPSHOTS_DIR_REL = Path("snapshots")
 
@@ -617,7 +619,9 @@ def extra_durable_sources(root: Path) -> list[Path]:
     """GA log, BinSync baselines, upload ledger, journal, replication
     sidecar, verify cache/baseline, Ghidra sync state, the root
     scan caches (``name-map-cover.json``, ``data-scan-roles.json``),
-    the metadata-doc parsed-document caches, and coverage snapshots, when present.
+    the extern-name cache (``extern-names.json``) and the name-to-VA cache
+    (``name_to_va_cache.json``), the metadata-doc parsed-document caches,
+    and coverage snapshots, when present.
 
     All live under the gitignored ``.rebrew/`` directory, so a backup
     that only walks the TOML store trees silently drops them: the
@@ -644,6 +648,11 @@ def extra_durable_sources(root: Path) -> list[Path]:
     ``data-scan-roles.json``) carry store-fingerprint-guarded parse
     facts; a stale copy degrades to a re-parse, never a wrong verdict,
     but losing them on restore forces a full re-scan.
+    ``extern-names.json`` (``rebrew todo`` caller counts) and
+    ``name_to_va_cache.json`` (single-file ``rebrew test`` name map)
+    are the same kind: fingerprint-guarded, regenerable with a full
+    re-scan, but that scan is a whole-tree parse, so they ride along
+    to avoid paying it after a restore.
     """
     sources = []
     ga_runs = root / _GA_RUNS_REL
@@ -667,7 +676,7 @@ def extra_durable_sources(root: Path) -> list[Path]:
     ghidra_state = root / _GHIDRA_SYNC_STATE_REL
     if ghidra_state.is_file():
         sources.append(ghidra_state)
-    for rel in (_NAME_COVER_REL, _DATA_SCAN_ROLES_REL):
+    for rel in (_NAME_COVER_REL, _DATA_SCAN_ROLES_REL, _EXTERN_NAMES_REL, _NAME_TO_VA_CACHE_REL):
         candidate = root / rel
         if candidate.is_file():
             sources.append(candidate)

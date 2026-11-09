@@ -171,7 +171,10 @@ journal and sidecar (`.rebrew/metadata-journal.toml`,
 sync dedup state (`.rebrew/ghidra_sync_state.json`), the root scan
 caches (`.rebrew/name-map-cover.json`, `.rebrew/data-scan-roles.json`;
 store-fingerprint-guarded parse facts, a stale copy degrades to a
-re-parse), the
+re-parse), the extern-name cache (`.rebrew/extern-names.json`,
+`rebrew todo` caller counts) and the name-to-VA cache
+(`.rebrew/name_to_va_cache.json`, single-file `rebrew test`; both
+fingerprint-guarded, regenerable with a whole-tree re-scan), the
 `pgsql-before-transfer` snapshots (`.rebrew/pgsql-before-transfer/**/*.toml`;
 the only copy of the destination a `metadata migrate pgsql` replaced),
 and the
@@ -180,7 +183,8 @@ hand-reviewed fingerprints), and coverage snapshots
 (`snapshots/coverage-*.toml`, carrying the durable `history[]`
 status-transition log). The TOML and
 SQLite backup commands (`rebrew metadata backup`) carry the whole
-`.rebrew/` extras set plus coverage snapshots; the manual copy procedure below must too.
+`.rebrew/` extras set plus coverage snapshots; the manual copy
+procedure below must too.
 Everything else is
 regenerable: compile caches, `output/`,
 `bin/`, and toolchain images (re-pull via `rebrew toolchain pull`).
@@ -191,9 +195,26 @@ bundle is a complete recovery set; `rebrew doctor`'s Backup
 readiness check names it when present.
 
 RPO is the last successful backup of the files above; RTO is a file
-copy restore plus `rebrew verify` for the touched target. There is no
+copy restore plus `rebrew verify` for the touched target. No schedule
+or off-host copy is provisioned by rebrew itself: the operator owns
+the cadence (how often `rebrew metadata backup --dir <off-tree>`
+runs) and the off-tree store, which sets the actual RPO. There is no
 point-in-time recovery: logical corruption is recovered by restoring
 the whole backup set, not by replay.
+
+The GA log (`.rebrew/ga_runs.jsonl`) is the one append-only durable
+file with its own fast path: `rebrew match solutions --backup <dir>`
+copy-verifies it byte-for-byte off-tree, and `restore_ga_runs`
+validates every line and preserves the displaced log as
+`.before-restore`. GA records are fsynced before `rebrew match run`
+reports a win. Backup-adjacent staging that is deliberately *not*
+durable: `.rebrew/source-backups/*.orig` (in-flight climb/qualifier
+rewrite copies, removed on clean finish, kept only after a kill or a
+`--force` skeleton), `*.before-restore` sidecars (what the last
+restore displaced), and `*.before-transfer` snapshots (what the last
+backend migrate replaced) — their lifetime is one restore/migrate, and
+the runbook above assumes the operator keeps the prior bundle as the
+older copy.
 
 The configured BinSync state dir (`targets.<name>.binsync_state_dir`,
 or `--state-dir` on sync commands) is durable project state as well:
