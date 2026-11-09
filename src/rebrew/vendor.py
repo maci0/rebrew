@@ -119,8 +119,10 @@ def verify_pristine(root: Path, manifest: Manifest) -> None:
         listed[candidate] = digest
     if not manifest.pristine.is_dir():
         raise VendorError(f"{manifest.pristine}: pristine directory is missing")
+    walked: list[Path] = []
     for path in manifest.pristine.rglob("*"):
         _inside(root, path)
+        walked.append(path)
     errors = [
         f"{path.relative_to(root)}: sha256 differs from {manifest.checksums.relative_to(root)}"
         for path, digest in listed.items()
@@ -128,7 +130,7 @@ def verify_pristine(root: Path, manifest: Manifest) -> None:
     ]
     errors += [
         f"{path.relative_to(root)}: not in {manifest.checksums.relative_to(root)}"
-        for path in sorted(manifest.pristine.rglob("*"))
+        for path in sorted(walked)
         if path.is_file() and path not in listed
     ]
     errors += [
@@ -203,10 +205,12 @@ def output_files(manifest: Manifest) -> set[str]:
         raise VendorError(f"{manifest.output}: output must be a directory")
     if not manifest.output.is_dir():
         return set()
+    walked: list[Path] = []
     for path in manifest.output.rglob("*"):
         _inside(manifest.root, path)
+        walked.append(path)
     return {
-        p.relative_to(manifest.output).as_posix() for p in manifest.output.rglob("*") if p.is_file()
+        p.relative_to(manifest.output).as_posix() for p in walked if p.is_file()
     }
 
 
