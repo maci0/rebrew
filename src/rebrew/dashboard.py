@@ -2922,6 +2922,7 @@ def _send_over_capacity(
         "Content-Type: application/json; charset=utf-8",
         f"Content-Length: {len(body)}",
         "Connection: close",
+        "Vary: Accept-Encoding",
         f"X-Request-Id: {request_id}",
     ]
     lines += [f"{name}: {value}" for name, value in _security_headers("no-store")]
@@ -3189,6 +3190,7 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_response(403)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body_bytes)))
+            self.send_header("Vary", "Accept-Encoding")
             self._write_security_headers(cache_control="no-store")
             self.end_headers()
             if method != "HEAD":
@@ -3311,8 +3313,12 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_header("ETag", etag)
         if encoding:
             self.send_header("Content-Encoding", encoding)
+        # Every routed response varies on Accept-Encoding: a shared cache
+        # that stored a compressed 200 must not serve it to a client that
+        # cannot decode it.  Errors are no-store, but Vary costs nothing on
+        # a one-off body and keeps the contract uniform.
+        self.send_header("Vary", "Accept-Encoding")
         if status == 200:
-            self.send_header("Vary", "Accept-Encoding")
             if not entry_asset:
                 # Route cost, so the Network panel separates the query from
                 # the transfer.  The entry assets are excluded: their cold
@@ -3459,6 +3465,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Connection", "close")
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("Vary", "Accept-Encoding")
         self._write_security_headers(cache_control="no-store")
         self.end_headers()
         if self.command != "HEAD":
