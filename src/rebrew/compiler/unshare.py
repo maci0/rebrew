@@ -47,7 +47,7 @@ def backend_identity() -> str:
 def _cache_root() -> Path:
     root = xdg_cache_home() / "rebrew" / "experimental-unshare"
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
-    if root.is_symlink() or root.stat().st_uid != os.getuid():
+    if root.is_symlink() or (hasattr(os, "getuid") and root.stat().st_uid != os.getuid()):
         raise UnshareError(f"experimental cache must be an owned directory: {root}")
     root.chmod(0o700)
     if any(c in str(root.resolve()) for c in ",:\\\n\r"):

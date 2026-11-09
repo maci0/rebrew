@@ -273,10 +273,19 @@ def _display_alive(display: str) -> bool:
 
 
 def _running_xvfb_displays() -> dict[str, int]:
-    """Map ``:N`` -> pid for every live Xvfb process (cheap /proc scan)."""
+    """Map ``:N`` -> pid for every live Xvfb process (``/proc`` scan, empty off Linux).
+
+    The scan is a Linux-only probe: on macOS/BSD/Windows ``/proc`` does not
+    exist, so this returns ``{}`` and callers fall back to the socket check
+    without assuming a process list.  The claim is qualified Linux glibc /
+    macOS ARM64 / Windows AMD64 hosts, but only Linux has ``/proc``; the
+    socket probe is the portable path and the scan is an optimisation.
+    """
     out: dict[str, int] = {}
     try:
         proc_dir = Path("/proc")
+        if not proc_dir.is_dir():
+            return out
         for entry in proc_dir.iterdir():
             if not entry.name.isdigit():
                 continue

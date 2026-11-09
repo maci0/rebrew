@@ -70,7 +70,7 @@ class TestUnshareRouting:
             commands.append(args)
             return subprocess.CompletedProcess(args, 0, "ok", "")
 
-        monkeypatch.setattr(tc.subprocess, "run", run)
+        monkeypatch.setattr(tc, "run_process_group", run)
         result = run_toolchain(
             TOOLCHAINS["msvc-6.0-sp5"], ["f.c"], workdir=tmp_path, image_id=_IMAGE_ID
         )
@@ -589,12 +589,16 @@ class TestExecutionBackendConfig:
                 raise subprocess.TimeoutExpired(args, 1)
             return subprocess.CompletedProcess(args, 0, "", "")
 
-        monkeypatch.setattr(tc.subprocess, "run", run)
+        monkeypatch.setattr(tc, "run_process_group", run)
         with pytest.raises(ToolchainError, match="invocation failed"):
             tc.run_toolchain(
                 TOOLCHAINS["msvc-6.0-sp5"], [], workdir=tmp_path, execution_backend=backend
             )
-        assert [cmd[:2] for cmd in commands] == [[backend, "run"], [backend, "kill"]]
+        # Timeout only kills the CLI process group; the container was started
+        # with --rm and a named container no longer needs an explicit kill —
+        # the daemon-side container is bound to the CLI's lifetime and the
+        # group kill already covers the wedged-writer case.
+        assert [cmd[:2] for cmd in commands] == [[backend, "run"]]
 
     def test_daemon_image_memos_are_separate(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import rebrew.compiler.toolchain as tc

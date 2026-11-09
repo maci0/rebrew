@@ -63,7 +63,7 @@ lazy import subprocess
 lazy import uuid
 lazy from collections import Counter
 lazy from collections.abc import Iterator, Mapping
-lazy from pathlib import Path
+lazy from pathlib import Path, PurePosixPath
 
 from rebrew.errors import RebrewError
 from rebrew.workspace.status import MATCHED_STATUSES
@@ -3165,7 +3165,7 @@ def build_linked_link_cmd(
             kind="missing",
             name=spec.name,
         )
-    win_root = str(Path(spec.tool_root).parent).replace("/", "\\")
+    win_root = PurePosixPath(spec.tool_root).parent.as_posix().replace("/", "\\")
     # Every value travels as a docker `-e` variable, never spliced into the
     # script body: `tool_root` comes from a toolchain spec (a project-local
     # overlay can define it), so a path with a space broke the link and a
