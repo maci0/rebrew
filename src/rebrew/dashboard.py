@@ -43,7 +43,7 @@ span's trace id, and ``REBREW_OTLP_ENDPOINT`` exports the spans over OTLP/HTTP
 Successful responses negotiate zstd then gzip with quality weights. ETags key
 on the live input version or portable file state plus the exact route/query;
 health is no-store. Static assets are content-hashed and precompressed. The
-entry checkpoint measured 12732 B zstd / 13375 B gzip against a 13600 B budget;
+entry checkpoint measured 12759 B zstd / 13399 B gzip against a 13600 B budget;
 host zlib versions can change gzip size. Tests enforce the wire budget.
 Reload re-reads the live view; view/target/filter navigation is stored in the
 URL hash. Details, API schema and transfer measurements live in
@@ -1155,20 +1155,35 @@ function bindControls() {
     restoreFocus(["target", "main"]);
   };
   $("retry-summary").onclick = async () => {
-    await loadSummary();
+    $("retry-summary").disabled = true;
+    try {
+      await loadSummary();
+    } finally {
+      $("retry-summary").disabled = false;
+    }
     restoreFocus(["retry-summary", "main"]);
   };
   $("retry-functions").onclick = async () => {
-    await loadFunctions({ append: retryAppend });
+    $("retry-functions").disabled = true;
+    try {
+      await loadFunctions({ append: retryAppend });
+    } finally {
+      $("retry-functions").disabled = false;
+    }
     restoreFocus(["retry-functions", "results", "main"]);
   };
   $("retry-view").onclick = async () => {
-    if (currentView === "globals" && retryGlobalsAppend && loadedGlobalsCount > 0) {
-      await loadGlobals({ append: true });
-    } else if (currentView === "history" && retryHistoryAppend && loadedHistoryCount > 0) {
-      await loadHistory({ append: true });
-    } else {
-      await loadCurrentView(true);
+    $("retry-view").disabled = true;
+    try {
+      if (currentView === "globals" && retryGlobalsAppend && loadedGlobalsCount > 0) {
+        await loadGlobals({ append: true });
+      } else if (currentView === "history" && retryHistoryAppend && loadedHistoryCount > 0) {
+        await loadHistory({ append: true });
+      } else {
+        await loadCurrentView(true);
+      }
+    } finally {
+      $("retry-view").disabled = false;
     }
     restoreFocus(["retry-view", currentView + "-results", "results", "main"]);
   };
