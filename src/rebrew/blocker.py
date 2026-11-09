@@ -37,7 +37,7 @@ from rebrew.cli import (
 )
 lazy from rebrew.config import target_module
 lazy from rebrew.metadata.bindings import min_valid_va_for
-lazy from rebrew.utils import parse_int_literal
+lazy from rebrew.utils import try_parse_int
 
 #: Hex VA literal as a bare positional argument.
 _HEX_VA_RE = re.compile(r"^0[xX][0-9a-fA-F]+$")
@@ -178,9 +178,8 @@ def blocker_set(
         error_exit("BLOCKER text must be a single line", json_mode=json_output)
     delta_int: int | None = None
     if delta is not None:
-        try:
-            delta_int = parse_int_literal(delta.strip())
-        except ValueError, TypeError:
+        delta_int = try_parse_int(delta.strip())
+        if delta_int is None:
             error_exit(
                 f"Invalid --delta value: {delta!r} (expected integer)", json_mode=json_output
             )

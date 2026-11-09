@@ -2394,6 +2394,28 @@ def parse_int_literal(text: str, *, base: int = 10) -> int:
     return sign * _parse_ascii_int(s, base)
 
 
+def try_parse_int(value: Any, *, base: int = 10) -> int | None:
+    """Parse *value* as an int, or ``None`` when it is not a valid integer.
+
+    Ints and integral floats pass through; bools and non-integral floats
+    yield ``None``; strings go through :func:`parse_int_literal`.  Callers
+    that want a fallback use this instead of a ``try``/``except`` around
+    ``int()``.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value) if math.isfinite(value) and value.is_integer() else None
+    if value is None:
+        return None
+    try:
+        return parse_int_literal(str(value), base=base)
+    except ValueError:
+        return None
+
+
 def parse_c_integer_literal(text: str) -> int:
     """Parse one C integer constant.
 

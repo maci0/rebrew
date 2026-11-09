@@ -53,6 +53,7 @@ lazy from rebrew.utils import (
     load_tomllib,
     parse_int_literal,
     preset_module_key,
+    try_parse_int,
     untrusted_text,
 )
 lazy from rebrew.workspace import walk_up_to_root
@@ -1339,21 +1340,11 @@ def _safe_int(value: Any, default: int, field_name: str = "integer") -> int:
     """
     if value is None:
         return default
-    if isinstance(value, bool):
+    parsed = try_parse_int(value)
+    if parsed is None:
         _config_warn(f"Expected integer for {field_name}, got {value!r}; using default {default}")
         return default
-    if isinstance(value, float):
-        if not math.isfinite(value) or not value.is_integer():
-            _config_warn(
-                f"Expected integer for {field_name}, got {value!r}; using default {default}"
-            )
-            return default
-        return int(value)
-    try:
-        return int(value)
-    except ValueError, TypeError, OverflowError:
-        _config_warn(f"Expected integer for {field_name}, got {value!r}; using default {default}")
-        return default
+    return parsed
 
 
 def _positive_int(value: Any, default: int, field_name: str) -> int:

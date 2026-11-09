@@ -89,6 +89,7 @@ lazy from rebrew.utils import (
     interruptible_pool,
     preset_module_key,
     read_json_text,
+    try_parse_int,
     untrusted_ident,
 )
 lazy from rebrew.verify_cache import (
@@ -2075,9 +2076,8 @@ def _save_report(
             _, _secs = _pe_sections_for_merge_check(_bin)
             if _secs:
                 for d in under:
-                    try:
-                        _va = int(str(d["va"]), 16)
-                    except ValueError, TypeError:
+                    _va = try_parse_int(d.get("va"), base=16)
+                    if _va is None:
                         continue
                     for _sva, _soff, _sraw in _secs:
                         if _sva <= _va < _sva + _sraw:
@@ -2270,10 +2270,9 @@ def patch_cache_from_results(cfg: Any, v_results: list[dict[str, Any]]) -> None:
 
     patches: list[dict[str, Any]] = []
     for r in v_results:
-        try:
-            va_int = int(r["va"], 16)
-        except (ValueError, TypeError, KeyError) as exc:
-            log.warning("verify-cache patch skipped for malformed result %r: %s", r.get("va"), exc)
+        va_int = try_parse_int(r.get("va"), base=16)
+        if va_int is None:
+            log.warning("verify-cache patch skipped for malformed result %r", r.get("va"))
             continue
         if r.get("status") == "INTERNAL_ERROR":
             continue
