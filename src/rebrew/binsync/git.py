@@ -66,14 +66,21 @@ def validate_remote(remote: str) -> str:
 
     A leading ``-`` makes git parse the value as an option rather than a
     remote: ``--upload-pack=<cmd>`` (fetch) and ``--receive-pack=<cmd>``
-    (push) run an arbitrary command.  ``--remote`` is operator input (a
-    wrapper script can also supply it), so the argv is built with a ``--``
-    separator as a backstop, but rejecting the shape here means a
+    (push) run an arbitrary command.  A ``<scheme>::`` remote (``ext::``,
+    ``fd::``) is git's command-execution transport (``ext::sh -c …`` runs
+    the command).  Spaces and control characters enable option smuggling
+    and NUL truncation.  ``..`` enables refspec/path confusion.  A leading
+    ``+`` is a force-push refspec prefix.  A leading/trailing space would
+    let a wrapper split the value into an option.  ``--remote`` is operator
+    input (a wrapper script can also supply it), so the argv is built with a
+    ``--`` separator as a backstop, but rejecting the shape here means a
     mistyped option is a clear error instead of git's "strange pathname"
     diagnostic.
 
     Raises:
-        ValueError: the name is empty or starts with ``-``.
+        ValueError: the name is empty, starts with ``-`` or ``+``, contains
+            spaces or control characters, contains ``..``, or uses a
+            command transport.
     """
     if not remote or not remote.strip():
         raise ValueError("invalid git remote: it must be non-empty")
@@ -82,8 +89,26 @@ def validate_remote(remote: str) -> str:
             f"invalid git remote {remote!r}: a remote must not start with '-'; "
             "pass a configured remote name or a URL"
         )
-    if "\n" in remote or "\r" in remote:
-        raise ValueError(f"invalid git remote {remote!r}: it must be a single line")
+    if remote.startswith("+"):
+        raise ValueError(
+            f"invalid git remote {remote!r}: a remote must not start with '+'; "
+            "a leading '+' is a force-update refspec"
+        )
+    if remote != remote.strip():
+        raise ValueError(f"invalid git remote {remote!r}: no leading or trailing whitespace")
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in remote):
+        raise ValueError(f"invalid git remote {remote!r}: control characters are not allowed")
+    if " " in remote or "\t" in remote:
+        raise ValueError(f"invalid git remote {remote!r}: spaces are not allowed")
+    if ".." in remote:
+        raise ValueError(f"invalid git remote {remote!r}: '..' is not allowed")
+    # ``ext::`` / ``fd::`` and any other ``<transport>::`` command transport.
+    # The check runs after the space check so ``ext::sh -c …`` is caught
+    # as a transport even when it also contains spaces.
+    if "::" in remote:
+        raise ValueError(
+            f"invalid git remote {remote!r}: a '<transport>::' remote would run a command"
+        )
     return remote
 
 
