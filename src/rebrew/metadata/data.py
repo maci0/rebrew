@@ -353,7 +353,7 @@ def iter_data_symbols(
 
 
 _SCOPE_LOCK = threading.Lock()
-_scope_memo: tuple[Any, str, frozenset[str]] | None = None
+_scope_memo: tuple[tuple[str, str, tuple[str, ...]], str, frozenset[str]] | None = None
 
 
 def _target_scope(cfg: Any) -> tuple[str, frozenset[str]]:
@@ -362,19 +362,30 @@ def _target_scope(cfg: Any) -> tuple[str, frozenset[str]]:
     Both are config-constant for the process, but this predicate runs once per
     data row, so the derivation (including the ``target_modules`` set build) is
     memoised against the last config seen.  A single slot bounds the memory.
+    The memo key is every input to the derivation, not ``id(cfg)``: mutating
+    one field in place (a second target bound to the same namespace object)
+    must not keep serving the pre-edit scope.  ``target_module`` reads both
+    ``module`` and ``target_name``, and ``_target_scope`` reads
+    ``target_modules``.
     """
     global _scope_memo
     from rebrew.config import target_module
     from rebrew.utils import preset_module_key
 
+    modules = tuple(getattr(cfg, "target_modules", None) or ())
+    key = (
+        str(getattr(cfg, "module", "") or ""),
+        str(getattr(cfg, "target_name", "") or ""),
+        modules,
+    )
     with _SCOPE_LOCK:
         memo = _scope_memo
-        if memo is not None and memo[0] is cfg:
+        if memo is not None and memo[0] == key:
             return memo[1], memo[2]
     active = preset_module_key(target_module(cfg))
-    others = frozenset(preset_module_key(m) for m in (getattr(cfg, "target_modules", None) or ()))
+    others = frozenset(preset_module_key(m) for m in modules)
     with _SCOPE_LOCK:
-        _scope_memo = (cfg, active, others)
+        _scope_memo = (key, active, others)
     return active, others
 
 
