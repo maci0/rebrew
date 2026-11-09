@@ -681,7 +681,7 @@ class TestCiPins:
         # A missing curl/unzip fails every attempt identically, so the loop
         # would name a dead mirror for a host that cannot fetch at all.
         assert "not on PATH, so vnu cannot be installed" in text
-        assert text.index("not on PATH, so vnu cannot be installed") < text.index("curl -sSfL")
+        assert text.index("not on PATH, so vnu cannot be installed") < text.index("curl --proto")
         # The digest is checked before the archive is unpacked, and the
         # version after, so a mismatch never leaves a usable install behind.
         assert text.index('got="$(sha256_of') < text.index("unzip -q -o")

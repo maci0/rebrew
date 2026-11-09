@@ -85,7 +85,7 @@ trap cleanup EXIT
 attempt=0
 while [[ ${attempt} -lt ${MAX_ATTEMPTS} ]]; do
   attempt=$((attempt + 1))
-  if curl -sSfL --retry 2 -o "${archive}" "${VNU_URL}"; then
+  if curl --proto '=https' --tlsv1.2 -sSfL --retry 2 -o "${archive}" "${VNU_URL}"; then
     got="$(sha256_of "${archive}")"
     if [[ "${got}" != "${VNU_SHA256}" ]]; then
       echo "vnu archive sha256 ${got}, expected ${VNU_SHA256}" >&2

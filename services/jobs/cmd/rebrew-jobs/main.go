@@ -109,12 +109,11 @@ func main() {
 	// a slow or idle loopback client from holding a connection forever; the
 	// streaming /events handler sets its own write deadline per frame.
 	server := &http.Server{Handler: h, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 180 * time.Second}
-	// Graceful shutdown on SIGTERM/SIGINT (os.Interrupt) so Close() drains
-	// queued work instead of the process being killed mid-receipt.
-	// os.Interrupt is the cross-platform SIGINT; syscall.SIGTERM does
-	// not exist on Windows (where the process receives no SIGTERM).
+	// Graceful shutdown on SIGTERM/SIGINT so Close() drains queued work
+	// instead of killing the process mid-receipt. Unix registers both;
+	// Windows only os.Interrupt (see shutdown_unix.go / shutdown_windows.go).
 	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, os.Interrupt)
+	notifyShutdown(sig)
 	go func() {
 		<-sig
 		signal.Stop(sig)
