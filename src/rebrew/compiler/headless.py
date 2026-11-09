@@ -102,6 +102,7 @@ def _xvfb_socket_dir() -> Path:
         return _XVFB_SOCKET_DIR
     return Path(tempfile.gettempdir()) / ".X11-unix"
 
+
 #: The display is Xvfb's first argv token, so match it on the token boundary.
 #: A greedy ``[^\n]*:(\d+)`` would key the map on the LAST ``:N`` in the
 #: cmdline, and any later argument carrying one mis-keys the display.

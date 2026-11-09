@@ -981,12 +981,12 @@ def backup_metadata_database(root: Path, backup_dir: Path) -> Path:
         if dest.exists():
             dest.chmod(0o644)
     with file_transaction(location.parent, location.name):
-        source = sqlite3.connect(location.as_uri() + "?mode=ro", uri=True, timeout=30)
+        db_source = sqlite3.connect(location.as_uri() + "?mode=ro", uri=True, timeout=30)
         try:
             with contextlib.closing(sqlite3.connect(dest, timeout=30)) as target:
-                source.backup(target)
+                db_source.backup(target)
         finally:
-            source.close()
+            db_source.close()
     os.chmod(dest, 0o444)
     check = sqlite3.connect(dest.as_uri() + "?mode=ro", uri=True, timeout=30)
     try:
@@ -1018,18 +1018,18 @@ def backup_metadata_database(root: Path, backup_dir: Path) -> Path:
         written.append((str(rel), payload))
     for extra in extra_durable_sources(root):
         payload = extra.read_bytes()
-        copied = backup_dir / extra.relative_to(root)
-        atomic_write_bytes(copied, payload, mode=_extra_mode(extra))
-        if copied.read_bytes() != payload:
-            raise MetadataStorageError(f"{copied}: backup verification failed")
+        copied_extra = backup_dir / extra.relative_to(root)
+        atomic_write_bytes(copied_extra, payload, mode=_extra_mode(extra))
+        if copied_extra.read_bytes() != payload:
+            raise MetadataStorageError(f"{copied_extra}: backup verification failed")
         written.append((str(extra.relative_to(root)), payload))
     for rel in _binsync_state_relpaths(root):
         for source in sorted(p for p in (root / rel).rglob("*") if p.is_file()):
             payload = source.read_bytes()
-            copied = backup_dir / source.relative_to(root)
-            atomic_write_bytes(copied, payload, mode=_BINSYNC_MODE)
-            if copied.read_bytes() != payload:
-                raise MetadataStorageError(f"{copied}: backup verification failed")
+            copied_file = backup_dir / source.relative_to(root)
+            atomic_write_bytes(copied_file, payload, mode=_BINSYNC_MODE)
+            if copied_file.read_bytes() != payload:
+                raise MetadataStorageError(f"{copied_file}: backup verification failed")
             written.append((str(source.relative_to(root)), payload))
     _write_backup_manifest(backup_dir, written)
     return dest

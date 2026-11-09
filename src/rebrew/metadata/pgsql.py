@@ -100,17 +100,13 @@ class PgsqlStore:
         # transaction the advisory lock serializes DDL, so the verdict
         # cannot go stale mid-transaction; outside one, a fresh connection
         # re-validates. Keyed by connection id to avoid pinning objects.
-        cache: dict[int, bool] | None = getattr(connection, "_rebrew_present_cache", None)
-        if cache is None:
-            try:
-                connection._rebrew_present_cache = {}
-                cache = getattr(connection, "_rebrew_present_cache", None)
-            except AttributeError, TypeError:
-                cache = {}
+        cache: dict[int, bool] = getattr(connection, "_rebrew_present_cache", None) or {}
         if id(connection) in cache:
             return cache[id(connection)]
         result = self._present_uncached(connection)
         cache[id(connection)] = result
+        with contextlib.suppress(AttributeError, TypeError):
+            connection._rebrew_present_cache = cache
         return result
 
     def _present_uncached(self, connection: Any) -> bool:

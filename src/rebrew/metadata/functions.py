@@ -827,7 +827,7 @@ def _merge_status_history(old: Any, new: list[dict[str, str]]) -> list[dict[str,
     # a fresh wall-clock stamp (crash-retry / flap back-and-forth) is the same
     # logical event, not a second one. Keep the earliest stamp so the merged
     # row is stable across replays.
-    unique: dict[tuple, dict[str, str]] = {}
+    unique: dict[tuple[tuple[str, str], ...], dict[str, str]] = {}
     for row in events:
         key = tuple(sorted(row.items()))
         if key not in unique:

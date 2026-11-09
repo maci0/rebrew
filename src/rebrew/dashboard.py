@@ -3318,14 +3318,13 @@ class _Handler(BaseHTTPRequestHandler):
         # cannot decode it.  Errors are no-store, but Vary costs nothing on
         # a one-off body and keeps the contract uniform.
         self.send_header("Vary", "Accept-Encoding")
-        if status == 200:
-            if not entry_asset:
-                # Route cost, so the Network panel separates the query from
-                # the transfer.  The entry assets are excluded: their cold
-                # flight is budgeted against the initial congestion window
-                # and a constant reads the same in every request.
-                route_ms = (time.perf_counter() - route_started) * 1000.0
-                self.send_header("Server-Timing", f"route;dur={route_ms:.1f}")
+        if status == 200 and not entry_asset:
+            # Route cost, so the Network panel separates the query from
+            # the transfer.  The entry assets are excluded: their cold
+            # flight is budgeted against the initial congestion window
+            # and a constant reads the same in every request.
+            route_ms = (time.perf_counter() - route_started) * 1000.0
+            self.send_header("Server-Timing", f"route;dur={route_ms:.1f}")
         self._write_security_headers(
             cache_control=(
                 _success_cache_control(parsed.path, query) if status == 200 else "no-store"
