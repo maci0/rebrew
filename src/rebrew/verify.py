@@ -1775,7 +1775,13 @@ def build_report(
     UTC instant), so a report captured from a replayed run is byte-comparable
     with the run it replays instead of differing in that one field.
     """
-    _now = now or datetime.now(UTC)
+    if now is None:
+        from rebrew.config import source_date_epoch
+
+        epoch = source_date_epoch()
+        _now = datetime.fromtimestamp(int(epoch), UTC) if epoch is not None else datetime.now(UTC)
+    else:
+        _now = now
     _now = _now.replace(tzinfo=UTC) if _now.tzinfo is None else _now.astimezone(UTC)
     timestamp = _now.isoformat()
     # Single-pass status counting instead of 7 separate iterations.

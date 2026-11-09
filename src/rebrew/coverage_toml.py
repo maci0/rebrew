@@ -530,7 +530,13 @@ def _merge_history(
         else []
     )
 
-    _now = now or datetime.now(UTC)
+    if now is None:
+        from rebrew.config import source_date_epoch
+
+        epoch = source_date_epoch()
+        _now = datetime.fromtimestamp(int(epoch), UTC) if epoch is not None else datetime.now(UTC)
+    else:
+        _now = now
     _now = _now.replace(tzinfo=UTC) if _now.tzinfo is None else _now.astimezone(UTC)
     now_iso = _now.isoformat()
     for row in fn_rows:
@@ -833,7 +839,13 @@ def write_coverage_toml(
         target=target,
         json_output=json_output,
     )
-    _now = now or datetime.now(UTC)
+    if now is None:
+        from rebrew.config import source_date_epoch
+
+        epoch = source_date_epoch()
+        _now = datetime.fromtimestamp(int(epoch), UTC) if epoch is not None else datetime.now(UTC)
+    else:
+        _now = now
     _now = _now.replace(tzinfo=UTC) if _now.tzinfo is None else _now.astimezone(UTC)
     stamp = _now.isoformat()
     written: list[Path] = []
