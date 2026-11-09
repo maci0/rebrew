@@ -2231,4 +2231,7 @@ class TestPragmaAnchorOrdering:
     def test_no_anchor_still_prepends(self) -> None:
         source = "int f(void){\n    return 1;\n}\n"
         out = mut_toggle_check_stack_pragma(source, _rng())
-        assert out is not None and out.startswith("#pragma check_stack(off)")
+        assert out is not None
+        assert out.startswith("#pragma check_stack(off)")
+        assert out.splitlines()[1] == "int f(void){"
+        assert quick_validate(out)

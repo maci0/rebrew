@@ -70,7 +70,7 @@ class TestLoadCoffFuzz:
         raw = _coff_symbol_names(data)
         # load_coff falls back to raw names only when LIEF left a name
         # empty and the counts line up; otherwise it returns LIEF's names.
-        assert len(names) >= 0
+        assert len(names) == len(raw), "canonical names must count-match the raw table"
         for raw_name in raw:
             if raw_name:
                 assert raw_name in names or raw_name == ""

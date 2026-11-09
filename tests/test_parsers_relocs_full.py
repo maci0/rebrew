@@ -382,9 +382,13 @@ def test_omf16_failure_falls_through_to_objconv(monkeypatch) -> None:
     # AttributeError from the fall-through restructure.
     try:
         code, relocs, records = parse_obj_symbol_and_relocs(omf, "_callg")
-    except ValueError, OSError:
+    except (ValueError, OSError):
         return  # stock objconv: conversion failed loudly — acceptable
-    assert code is not None or relocs is None
+    if code is None:
+        assert relocs is None, "fall-through must not return code-less relocs"
+    else:
+        assert code == bytes.fromhex("9a 00 00 00 00 03 06 00 00 cb")
+        assert sorted(relocs) == [1, 7]
 
 
 def test_omf_to_coff_failed_conversion_raises(monkeypatch, tmp_path: Path) -> None:
