@@ -461,6 +461,18 @@ _UPLOADS_MODE = 0o600
 _BINSYNC_MODE = 0o644
 
 
+def _load_json_object(source: Path) -> dict[str, Any]:
+    import json as _json
+
+    try:
+        parsed = _json.loads(source.read_bytes())
+    except (ValueError, OSError) as exc:
+        raise MetadataStorageError(f"{source}: corrupt backup: {exc}") from exc
+    if not isinstance(parsed, dict):
+        raise MetadataStorageError(f"{source}: corrupt backup: not a JSON object")
+    return parsed
+
+
 def _validate_uploads_ledger(source: Path) -> None:
     """Validate the uploads ledger as one JSON object, or raise.
 
@@ -471,14 +483,7 @@ def _validate_uploads_ledger(source: Path) -> None:
     object is required here; entry shape stays ``read_uploads``' job,
     which filters fields and token format on each read.
     """
-    import json as _json
-
-    try:
-        parsed = _json.loads(source.read_bytes())
-    except (ValueError, OSError) as exc:
-        raise MetadataStorageError(f"{source}: corrupt backup: {exc}") from exc
-    if not isinstance(parsed, dict):
-        raise MetadataStorageError(f"{source}: corrupt backup: not a JSON object")
+    parsed = _load_json_object(source)
     for digest, entry in parsed.items():
         if not isinstance(entry, dict) or not all(
             isinstance(entry.get(k), str) for k in ("slug", "claim_token", "api", "at")
@@ -513,14 +518,7 @@ def _validate_extra(source: Path) -> None:
         if source.name == "decompme-uploads.json":
             _validate_uploads_ledger(source)
         else:
-            import json as _json
-
-            try:
-                parsed = _json.loads(source.read_bytes())
-            except (ValueError, OSError) as exc:
-                raise MetadataStorageError(f"{source}: corrupt backup: {exc}") from exc
-            if not isinstance(parsed, dict):
-                raise MetadataStorageError(f"{source}: corrupt backup: not a JSON object")
+            _load_json_object(source)
     else:
         from rebrew.utils import load_tomllib as _lt
 
@@ -607,6 +605,8 @@ def verify_backup_manifest(bundle: Path) -> list[str]:
         digest = entry.get("sha256")
         if not isinstance(rel, str) or not isinstance(size, int) or not isinstance(digest, str):
             raise MetadataStorageError(f"{manifest}: corrupt backup manifest: entry is incomplete")
+        if Path(rel).is_absolute() or ".." in Path(rel).parts:
+            raise MetadataStorageError(f"{manifest}: corrupt backup manifest: unsafe path {rel!r}")
         target = bundle / rel
         if not target.is_file():
             raise MetadataStorageError(f"{target}: backup manifest lists a missing file")
@@ -775,8 +775,13 @@ def _project_config(root: Path) -> Path | None:
     return candidate if candidate.is_file() else None
 
 
-def _binsync_state_relpaths(root: Path) -> list[Path]:
-    """Project-relative BinSync state-dir paths named by the project config."""
+def _config_relpaths(root: Path, key: str, *, want_dir: bool) -> list[Path]:
+    """Project-relative paths named by *key* under ``[targets.*]`` at *root*.
+
+    Only relative, in-tree entries that exist as the requested kind are
+    returned (directory for BinSync state dirs, file for target binaries).
+    A missing or unparseable config yields no paths.
+    """
     config = root / _PROJECT_CONFIG_NAME
     if not config.is_file():
         return []
@@ -791,44 +796,29 @@ def _binsync_state_relpaths(root: Path) -> list[Path]:
     for table in targets.values():
         if not isinstance(table, dict):
             continue
-        entry = table.get("binsync_state_dir")
+        entry = table.get(key)
         if not isinstance(entry, str) or not entry.strip():
             continue
         rel = Path(entry.strip())
         if rel.is_absolute() or ".." in rel.parts:
             continue
-        if not (root / rel).is_dir():
+        if want_dir:
+            if not (root / rel).is_dir():
+                continue
+        elif not (root / rel).is_file():
             continue
         rels.append(rel)
     return sorted(set(rels))
+
+
+def _binsync_state_relpaths(root: Path) -> list[Path]:
+    """Project-relative BinSync state-dir paths named by the project config."""
+    return _config_relpaths(root, "binsync_state_dir", want_dir=True)
 
 
 def _target_binary_relpaths(root: Path) -> list[Path]:
     """Project-relative target binaries named by the project config."""
-    config = root / _PROJECT_CONFIG_NAME
-    if not config.is_file():
-        return []
-    try:
-        raw = tomllib.loads(config.read_text(encoding="utf-8-sig"))
-    except ValueError, OSError:
-        return []
-    targets = raw.get("targets")
-    if not isinstance(targets, dict):
-        return []
-    rels: list[Path] = []
-    for table in targets.values():
-        if not isinstance(table, dict):
-            continue
-        binary = table.get("binary")
-        if not isinstance(binary, str) or not binary.strip():
-            continue
-        rel = Path(binary.strip())
-        if rel.is_absolute() or ".." in rel.parts:
-            continue
-        if not (root / rel).is_file():
-            continue
-        rels.append(rel)
-    return sorted(set(rels))
+    return _config_relpaths(root, "binary", want_dir=False)
 
 
 def backup_metadata_toml(root: Path, backup_dir: Path) -> Path:

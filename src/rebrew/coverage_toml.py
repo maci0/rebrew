@@ -499,6 +499,20 @@ def _section_document(target_name: str, sec_name: str, sec: dict[str, Any]) -> d
     return document
 
 
+def _utc_now(now: datetime | None) -> datetime:
+    """*now* normalized to UTC, or the current instant under ``SOURCE_DATE_EPOCH``."""
+    if now is not None:
+        chosen = now
+    else:
+        from rebrew.config import source_date_epoch
+
+        epoch = source_date_epoch()
+        chosen = (
+            datetime.fromtimestamp(int(epoch), UTC) if epoch is not None else datetime.now(UTC)
+        )
+    return chosen.replace(tzinfo=UTC) if chosen.tzinfo is None else chosen.astimezone(UTC)
+
+
 def _merge_history(
     previous_functions: Any,
     previous_history: Any,
@@ -537,15 +551,7 @@ def _merge_history(
         else []
     )
 
-    if now is None:
-        from rebrew.config import source_date_epoch
-
-        epoch = source_date_epoch()
-        _now = datetime.fromtimestamp(int(epoch), UTC) if epoch is not None else datetime.now(UTC)
-    else:
-        _now = now
-    _now = _now.replace(tzinfo=UTC) if _now.tzinfo is None else _now.astimezone(UTC)
-    now_iso = _now.isoformat()
+    now_iso = _utc_now(now).isoformat()
     for row in fn_rows:
         new_va, new_status, updated_by = row[1], row[6], row[24]
         old_status = old_statuses.get(new_va)
@@ -846,15 +852,7 @@ def write_coverage_toml(
         target=target,
         json_output=json_output,
     )
-    if now is None:
-        from rebrew.config import source_date_epoch
-
-        epoch = source_date_epoch()
-        _now = datetime.fromtimestamp(int(epoch), UTC) if epoch is not None else datetime.now(UTC)
-    else:
-        _now = now
-    _now = _now.replace(tzinfo=UTC) if _now.tzinfo is None else _now.astimezone(UTC)
-    stamp = _now.isoformat()
+    stamp = _utc_now(now).isoformat()
     written: list[Path] = []
     for target_name, data in datasets:
         path = db_directory / f"coverage-{target_name}.toml"

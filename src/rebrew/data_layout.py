@@ -1503,6 +1503,25 @@ def _iter_line_spans(text: str) -> Iterator[tuple[int, str]]:
         pos = nl + 1
 
 
+def _skip_string_literal(text: str, i: int, n: int) -> int:
+    """Index just past the quote literal starting at *i* (or *n* if unterminated).
+
+    A brace inside a string/char literal is not a brace in the source;
+    without this, ``char s[] = "}";`` drives depth negative and the scan
+    runs to EOF, swallowing the next definition.
+    """
+    quote = text[i]
+    i += 1
+    while i < n:
+        if text[i] == "\\":
+            i += 2
+            continue
+        if text[i] == quote:
+            return i + 1
+        i += 1
+    return n
+
+
 def _find_definition(text: str, name: str) -> tuple[int, int, str, str] | None:
     """(start, end, type, size_suffix) of *name*'s definition in *text*, or None."""
     # Fast reject: a definition line must contain the symbol as a name. When
@@ -1533,20 +1552,7 @@ def _find_definition(text: str, name: str) -> tuple[int, int, str, str] | None:
     while i < n:
         c = text[i]
         if c in "\"'":
-            # Skip string/char literals: a brace inside one is not a
-            # brace in the source. Without this, ``char s[] = "}";``
-            # drives depth negative and the scan runs to EOF, swallowing
-            # the next definition.
-            quote = c
-            i += 1
-            while i < n:
-                if text[i] == "\\":
-                    i += 2
-                    continue
-                if text[i] == quote:
-                    i += 1
-                    break
-                i += 1
+            i = _skip_string_literal(text, i, n)
             continue
         if c == "{":
             depth += 1
@@ -1911,16 +1917,7 @@ def _find_dlead_pad(text: str) -> tuple[int, int, str, int, str] | None:
             while i < n:
                 c = text[i]
                 if c in "\"'":
-                    quote = c
-                    i += 1
-                    while i < n:
-                        if text[i] == "\\":
-                            i += 2
-                            continue
-                        if text[i] == quote:
-                            i += 1
-                            break
-                        i += 1
+                    i = _skip_string_literal(text, i, n)
                     continue
                 if c == "{":
                     depth += 1
