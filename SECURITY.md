@@ -264,7 +264,9 @@ plugin cache backends or remove the open upstream diskcache advisory.
   `trust_env=False` on their own clients (`compiler/compile.py`
   `_shared_recompile_client`/`_job_recompile_client`,
   `compiler/recompile_client.py`, `decompiler.py`, `skeleton.py`,
-  commit dddc7deb), so ambient `*_proxy` is ignored there too; ops
+  commit dddc7deb; the MCP probe/client `httpx.Client` constructions in
+  `src/rebrew/ghidra/cli.py` and `src/rebrew/ghidra/client.py`, commit
+  4266f5ed), so ambient `*_proxy` is ignored there too; ops
   `_download` also passes `trust_env=False` (proxy env ignored) with
   `SSL_CERT_FILE`/`SSL_CERT_DIR` re-applied explicitly, so an
   operator-pinned CA bundle is not silently dropped. The OTLP span exporter
@@ -318,7 +320,11 @@ else refused, `src/rebrew/wibo.py`), the
   `splat.yaml` path against the operator's base and raises `ValueError` on any
   that escape it (`is_relative_to`), so an absolute, `../..`, or backslash-
   separated entry is refused before any read or `shutil.copy2` into the project.
-- No claim that `rebrew build check --objects` cannot be tricked by an included makefile. The probe refuses when `build.make` or any file it includes carries make function expansion: `_MAKE_INCLUDE_RE` in `src/rebrew/build_check.py` now matches `-s?include` (the `sinclude` variants the old regex missed) and `_probe_expansion` recurses the include graph depth-capped at 32 with cycle tracking, refusing a computed (`$`-bearing) include name outright (commit dddc7deb). A makefile naming its own programs without function expansion remains the disclosed residual — see `docs/THREAT_MODEL.md` §5.
+  The splat YAML reader is PyYAML `yaml.safe_load` via `_StrictLoader` with
+  `_MAX_YAML_DEPTH=64` (commit 2426e99b): nesting deeper than 64 levels is
+  refused with a line-numbered `ValueError`, duplicate keys are refused by
+  construction, and there is no file-size cap.
+- No claim that `rebrew build check --objects` cannot be tricked by an included makefile. The probe refuses when `build.make` or any file it includes carries make function expansion: `_MAKE_INCLUDE_RE` in `src/rebrew/build_check.py` now matches `-s?include` (the `sinclude` variants the old regex missed) and `_probe_expansion` recurses the include graph depth-capped at 32 with cycle tracking, refusing a computed (`$`-bearing) include name outright (commit dddc7deb); `_MAKE_EXPANSION_RE` now matches the full GNU make function set `(shell|info|warning|error|file|eval|abspath|…|version)` plus the recursive `$( $(` / `${ ${` forms (commit 5d64b506). A makefile naming its own programs without function expansion remains the disclosed residual — see `docs/THREAT_MODEL.md` §5.
 - No claim that a native toolchain binary is resolved from `PATH`. Image-less (plugin/overlay) toolchains now resolve vendored-only: `compiler/toolchain.py` `_resolve_binary` has no `shutil.which` fallback, and a binary name containing a path separator or NUL is rejected outright, so a hostile project cannot plant `cl` on `PATH` to hijack the lookup (commit ca4d6e52).
 - Backup bundles now carry the project target binary. `metadata/sqlite.py` `_target_binary_relpaths` (commit c8aa20ec) includes the binary named by `rebrew-project.toml` in every TOML/SQLite backup bundle — the one irreplaceable input rebrew cannot regenerate — so an off-tree copy is a complete recovery set; absolute/`..` entries are skipped.
   `--apply` is still the only opt-in.
