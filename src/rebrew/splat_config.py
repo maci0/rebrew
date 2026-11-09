@@ -637,7 +637,7 @@ def parse_splat_config(path: Path) -> SplatConfig:
     # them against the project root.
     path = path.resolve()
     try:
-        text = path.read_text(encoding="utf-8")
+        text = path.read_text(encoding="utf-8-sig")
     except UnicodeDecodeError as exc:
         raise ValueError(f"{path}: not readable as UTF-8: {exc}") from exc
     return parse_splat_text(text, path)

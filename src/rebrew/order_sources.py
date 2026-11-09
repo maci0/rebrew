@@ -84,7 +84,7 @@ def main(
             )
     if first_va_file is not None:
         try:
-            lines = first_va_file.read_text(encoding="utf-8").splitlines()
+            lines = first_va_file.read_text(encoding="utf-8-sig").splitlines()
         except OSError as exc:
             error_exit(f"--first-va-file: {exc}", json_mode=json_output)
         for lineno, line in enumerate(lines, start=1):
