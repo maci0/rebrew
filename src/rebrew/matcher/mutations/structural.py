@@ -90,17 +90,14 @@ def mut_while_to_goto_loop(s: str, rng: random.Random) -> str | None:
         return None
     body = b_source[body_node.start_byte : body_node.end_byte]
 
-    # Strip outer parens from cond
     cond_inner = cond
     if cond_inner.startswith(b"(") and cond_inner.endswith(b")"):
         cond_inner = cond_inner[1:-1]
 
-    # Use a unique suffix to avoid label collisions
     label_id = rng.randint(0, 999)
     loop_label = f"_loop_{label_id}".encode()
     end_label = f"_end_{label_id}".encode()
 
-    # Check for label collisions in existing source
     if loop_label in b_source or end_label in b_source:
         return None
 
@@ -367,14 +364,12 @@ def mut_swap_register_keywords(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
     tree = parse_c_ast(b_source)
 
-    # Find ALL declarations
     cursor_all = query_cursor(_QUERY_ALL_DECLARATIONS)
     all_decls = cursor_all.matches(tree.root_node)
 
     if len(all_decls) < 2:
         return None
 
-    # Separate into register and non-register declarations
     reg_decls = []
     non_reg_decls = []
     for m in all_decls:
@@ -402,18 +397,15 @@ def mut_swap_register_keywords(s: str, rng: random.Random) -> str | None:
     if not reg_decls or not non_reg_decls:
         return None
 
-    # Pick one register decl and one non-register decl
     reg_node = rng.choice(reg_decls)
     non_reg_node = rng.choice(non_reg_decls)
 
     reg_text = b_source[reg_node.start_byte : reg_node.end_byte]
     non_reg_text = b_source[non_reg_node.start_byte : non_reg_node.end_byte]
 
-    # Remove register from the register decl, add it to the non-register decl
     new_reg_text = reg_text.replace(b"register ", b"", 1)
     new_non_reg_text = b"register " + non_reg_text
 
-    # Apply replacements in order (later position first to preserve offsets)
     if reg_node.start_byte > non_reg_node.start_byte:
         result = (
             b_source[: non_reg_node.start_byte]
@@ -458,7 +450,6 @@ def mut_add_volatile_intermediate(s: str, rng: random.Random) -> str | None:
     if tmp_name in b_source:
         return None
 
-    # C89: hoist declaration to function body top
     insert_pos = find_function_body_insert_pos(b_source, stmt.start_byte)
     if insert_pos is None:
         return None
@@ -488,7 +479,6 @@ def mut_reorder_register_vars(s: str, rng: random.Random) -> str | None:
     cursor = query_cursor(QUERY_REGISTER_DECL)
     matches = cursor.matches(tree.root_node)
 
-    # Collect all register declarations
     reg_nodes: list[ts.Node] = []
     for m in matches:
         caps = first_caps(m[1])
@@ -497,7 +487,6 @@ def mut_reorder_register_vars(s: str, rng: random.Random) -> str | None:
     if len(reg_nodes) < 2:
         return None
 
-    # Pick two adjacent register declarations and swap them
     idx = rng.randint(0, len(reg_nodes) - 2)
     n1 = reg_nodes[idx]
     n2 = reg_nodes[idx + 1]
@@ -555,7 +544,6 @@ def mut_reorder_switch_cases(s: str, rng: random.Random) -> str | None:
 
     body_node = caps["body"][0]
 
-    # Collect case_statement children (skip default for reordering)
     case_nodes = [
         c
         for c in body_node.children
@@ -564,11 +552,9 @@ def mut_reorder_switch_cases(s: str, rng: random.Random) -> str | None:
     if len(case_nodes) < 2:
         return None
 
-    # Pick two random distinct cases and swap them
     i, j = rng.sample(range(len(case_nodes)), 2)
     n1 = case_nodes[i]
     n2 = case_nodes[j]
-    # Ensure n1 comes before n2 in the source
     if n1.start_byte > n2.start_byte:
         n1, n2 = n2, n1
 
@@ -681,7 +667,6 @@ def mut_split_switch(s: str, rng: random.Random) -> str | None:
 
     cond_text = b_source[cond_node.start_byte + 1 : cond_node.end_byte - 1].strip()
 
-    # Collect non-default case nodes with their original text
     case_nodes = []
     default_text: bytes | None = None
     for child in body_node.children:
@@ -697,7 +682,6 @@ def mut_split_switch(s: str, rng: random.Random) -> str | None:
     if len(case_nodes) < 3:
         return None
 
-    # Pick a split point (not the first or last)
     split_idx = rng.randint(1, len(case_nodes) - 1)
     left_cases = case_nodes[:split_idx]
     right_cases = case_nodes[split_idx:]
@@ -709,7 +693,6 @@ def mut_split_switch(s: str, rng: random.Random) -> str | None:
     left_body = b"\n    ".join(b_source[c.start_byte : c.end_byte] for c in left_cases)
     right_body = b"\n    ".join(b_source[c.start_byte : c.end_byte] for c in right_cases)
 
-    # Add default to the right switch (or left, randomly)
     if default_text is not None:
         if rng.random() < 0.5:
             left_body += b"\n    " + default_text
@@ -743,7 +726,6 @@ def mut_move_switch_default(s: str, rng: random.Random) -> str | None:
 
     body_node = caps["body"][0]
 
-    # Find default and non-default case nodes
     default_node: ts.Node | None = None
     case_nodes: list[ts.Node] = []
     for child in body_node.children:

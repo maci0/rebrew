@@ -1224,7 +1224,6 @@ def mut_introduce_local_alias(s: str, rng: random.Random) -> str | None:
     var_name = b_source[var_node.start_byte : var_node.end_byte]
     alias = b"_alias_" + var_name
     decl = b"int " + alias + b" = " + var_name + b"; "
-    # Replace the var usage with the alias
     result = (
         b_source[: stmt_node.start_byte]
         + decl

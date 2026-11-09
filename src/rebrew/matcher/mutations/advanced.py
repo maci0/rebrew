@@ -140,7 +140,6 @@ def mut_merge_nested_ifs(s: str, rng: random.Random) -> str | None:
         body = cap1(match, "body")
         outer_body = cap1(match, "outer_body")
 
-        # Ensure the outer_body only contains the inner_if statement
         block_nodes = [c for c in outer_body.children if c.type not in ("{", "}")]
         if len(block_nodes) != 1:
             continue
@@ -196,7 +195,6 @@ def mut_extract_condition_to_var(s: str, rng: random.Random) -> str | None:
     var_id = rng.randint(0, 999)
     var_name = f"_cond_{var_id}".encode()
 
-    # C89: hoist declaration to function body top, keep assignment inline
     insert_pos = find_function_body_insert_pos(b_source, stmt.start_byte)
     if insert_pos is None:
         return None
@@ -212,7 +210,6 @@ def mut_extract_condition_to_var(s: str, rng: random.Random) -> str | None:
     bin_start = bin_node.start_byte + offset
     bin_end = bin_node.end_byte + offset
 
-    # Replace the binary expression with the variable
     new_stmt_str = out[stmt_start:bin_start] + var_name + out[bin_end:stmt_end]
 
     return decode_source(out[:stmt_start] + inline_assign + new_stmt_str + out[stmt_end:])
@@ -245,33 +242,20 @@ def mut_loop_condition_extraction(s: str, rng: random.Random) -> str | None:
     cond_str = b_source[cond.start_byte + 1 : cond.end_byte - 1]
 
     if body.type == "compound_statement":
-        inner_body = b_source[body.start_byte + 1 : body.end_byte - 1].strip()
-        new_loop = (
-            b"while (1) {\n        if (!("
-            + cond_str
-            + b")) break;\n        "
-            + inner_body
-            + b"\n    }"
-        )
+        body_str = b_source[body.start_byte + 1 : body.end_byte - 1].strip()
     else:
         body_str = b_source[body.start_byte : body.end_byte]
-        new_loop = (
-            b"while (1) {\n        if (!("
-            + cond_str
-            + b")) break;\n        "
-            + body_str
-            + b"\n    }"
-        )
+    new_loop = (
+        b"while (1) {\n        if (!("
+        + cond_str
+        + b")) break;\n        "
+        + body_str
+        + b"\n    }"
+    )
 
     return decode_source(b_source[: stmt.start_byte] + new_loop + b_source[stmt.end_byte :])
 
 
-# ---------------------------------------------------------------------------
-# New MSVC6-targeted mutators (2026-03 GA improvements batch)
-# ---------------------------------------------------------------------------
-
-
-# Type widening/narrowing tables — MSVC6 generates different MOV widths
 _TYPE_WIDEN_MAP: dict[bytes, bytes] = {
     b"short": b"int",
     b"int": b"short",
@@ -332,7 +316,6 @@ def mut_toggle_dllimport(s: str, rng: random.Random) -> str | None:
     """
     b_source = encode_source(s)
 
-    # Try to remove existing dllimport first
     dllimport_matches = list(_DLLIMPORT_RE.finditer(b_source))
     if dllimport_matches:
         m = rng.choice(dllimport_matches)
@@ -340,7 +323,6 @@ def mut_toggle_dllimport(s: str, rng: random.Random) -> str | None:
         result = decode_source(res)
         return result if result != s else None
 
-    # Try to add dllimport to an extern declaration
     extern_matches = list(_EXTERN_DECL_RE.finditer(b_source))
     if extern_matches:
         m = rng.choice(extern_matches)
@@ -380,7 +362,6 @@ def mut_memcpy_to_loop(s: str, rng: random.Random) -> str | None:
     idx = rng.randint(0, 999)
     var = f"_ci_{idx}".encode()
 
-    # C89-safe: we need the loop var declared at function top
     insert_pos = find_function_body_insert_pos(b_source, m.start())
     if insert_pos is None:
         return None
@@ -409,7 +390,6 @@ def mut_memcpy_to_loop(s: str, rng: random.Random) -> str | None:
     out = b_source[:insert_pos] + hoisted_decl + b_source[insert_pos:]
     offset = len(hoisted_decl)
 
-    # Replace memcpy call
     res = out[: m.start() + offset] + loop + out[m.end() + offset :]
     return decode_source(res)
 
@@ -494,12 +474,10 @@ def mut_commute_float_operands(s: str, rng: random.Random) -> str | None:
         left_text = b_source[left.start_byte : left.end_byte]
         right_text = b_source[right.start_byte : right.end_byte]
 
-        # Only swap if it looks float-related
         context = b_source[max(0, left.start_byte - 30) : right.end_byte + 30]
         if not _FLOAT_HINTS.search(context):
             continue
 
-        # Don't swap if already identical
         if left_text == right_text:
             continue
 
@@ -512,7 +490,6 @@ def mut_commute_float_operands(s: str, rng: random.Random) -> str | None:
     left_text = b_source[left.start_byte : left.end_byte]
     right_text = b_source[right.start_byte : right.end_byte]
 
-    # Swap left and right operands
     res = (
         b_source[: left.start_byte]
         + right_text
@@ -550,7 +527,6 @@ def mut_register_param(s: str, rng: random.Random) -> str | None:
     cursor = query_cursor(_QUERY_FUNC_PARAM)
     matches = cursor.matches(tree.root_node)
 
-    # Collect params that don't already have 'register'
     valid = []
     for match in matches:
         caps = first_caps(match[1])
@@ -637,7 +613,6 @@ def mut_remove_loop_break(s: str, rng: random.Random) -> str | None:
     caps = first_caps(match[1])
     brk = caps["brk"]
 
-    # Remove the break statement and any trailing whitespace/newline
     end = brk.end_byte
     while end < len(b_source) and b_source[end : end + 1] in (b" ", b"\t", b"\n", b"\r"):
         end += 1
@@ -664,7 +639,6 @@ def mut_add_loop_break(s: str, rng: random.Random) -> str | None:
     caps = first_caps(match[1])
     body = caps["body"]
 
-    # Don't add if there's already a break as the last statement
     children = [c for c in body.children if c.type not in ("{", "}")]
     if children and children[-1].type == "break_statement":
         return None
@@ -717,7 +691,6 @@ def mut_if_else_call_to_ternary_arg(s: str, rng: random.Random) -> str | None:
         if fn1 != fn2:
             continue
 
-        # Get arg lists — check they have equal count and differ in exactly one position
         args1_node = caps["args1"]
         args2_node = caps["args2"]
         a1_children = [c for c in args1_node.children if c.type not in ("(", ")", ",")]
@@ -743,7 +716,6 @@ def mut_if_else_call_to_ternary_arg(s: str, rng: random.Random) -> str | None:
     caps, a1_children, a2_children, diff_idx, fn_name = rng.choice(valid)
     cond = b_source[caps["cond"].start_byte : caps["cond"].end_byte]
 
-    # Build the merged arg list: same args + ternary at the differing position
     merged_args = []
     for i, c1 in enumerate(a1_children):
         if i == diff_idx:
@@ -776,14 +748,12 @@ def mut_ternary_arg_to_if_else_call(s: str, rng: random.Random) -> str | None:
     ternary_node = caps["ternary"]
     call_node = caps["call"]
 
-    # Rebuild the arg list with the true value and the false value
     args_node = call_node.child_by_field_name("arguments")
     if not args_node:
         return None
 
     arg_children = [c for c in args_node.children if c.type not in ("(", ")", ",")]
 
-    # Build if-branch args and else-branch args
     if_args = []
     else_args = []
     for c in arg_children:
@@ -847,7 +817,6 @@ def mut_hoist_common_tail(s: str, rng: random.Random) -> str | None:
         if_body = caps["if_body"]
         else_body = caps["else_body"]
 
-        # Get actual statement children (skip braces)
         if_stmts = [c for c in if_body.children if c.type not in ("{", "}")]
         else_stmts = [c for c in else_body.children if c.type not in ("{", "}")]
         if not if_stmts or not else_stmts:
@@ -875,7 +844,6 @@ def mut_hoist_common_tail(s: str, rng: random.Random) -> str | None:
     # Work from the end of the source backwards to keep offsets valid
 
     # Remove from else branch (comes after if branch in source)
-    # Find whitespace before the statement to remove cleanly
     else_rm_start = last_else.start_byte
     while else_rm_start > else_body.start_byte and b_source[else_rm_start - 1 : else_rm_start] in (
         b" ",
@@ -935,7 +903,6 @@ def mut_sink_common_tail(s: str, rng: random.Random) -> str | None:
     else_close = else_body.end_byte - 1 + inserted_len
     result = result[:else_close] + b"    " + stmt_text + b"\n    " + result[else_close:]
 
-    # Remove the original next_stmt (adjusted for both insertions)
     total_inserted = inserted_len * 2
     orig_start = next_stmt.start_byte + total_inserted
     orig_end = next_stmt.end_byte + total_inserted
