@@ -13,10 +13,9 @@ license for every component instead of leaving 109 of 112 blank, and
 ``uv lock --upgrade`` cannot ship an unrecorded grant.
 
 ``NOASSERTION`` marks a package whose metadata did not name a grant this table
-could record verbatim: ``colorama`` sits behind a ``sys_platform == 'win32'``
-marker and this project is Linux-only, so it never installs, and ``pyxdia``
-puts the whole MIT text in a multi-line ``License`` field and ships no trove
-classifier, leaving no single-line field to quote.  It is the SPDX value for
+could record verbatim: ``pyxdia`` puts the whole MIT text in a multi-line
+``License`` field and ships no trove classifier, leaving no single-line field
+to quote.  It is the SPDX value for
 "not determined" and is a claim about this table, not about the package.
 """
 
@@ -60,7 +59,7 @@ REGISTRY_LICENSES: dict[str, str] = {
     "cfgv==3.5.0": "MIT",
     "cle==10.0.5": "BSD-2-Clause",
     "click==8.5.0": "BSD-3-Clause",
-    "colorama==0.4.6": "NOASSERTION",
+    "colorama==0.4.6": "OSI Approved :: BSD License",
     "cxxheaderparser==2.2.0": "BSD-3-Clause",
     "declib==4.5.0": "BSD-2-Clause",
     "diskcache==5.6.3": "Apache 2.0",

@@ -293,11 +293,6 @@ m2c = [
 # the qualified cp315 build is the maci0 fork wheel / sdist, hash-pinned.
 # Install: `uv sync --group fuzz`.
 fuzz = [
-    # The <3.15 line mirrors ../resembl verbatim: it is unreachable here
-    # (requires-python >=3.15) and tests/test_packaging.py exempts it from
-    # the floor-equals-lock check, because the lock's cp315 artifact is the
-    # fork version 3.1.0+relumea.2 and `>=` cannot name a local segment.
-    "atheris>=3.1.0,<4; python_version < '3.15'",
     "atheris @ https://github.com/maci0/atheris/releases/download/atheris-v3.1.0-relumea.2/atheris-3.1.0%2Brelumea.2-cp315-cp315-linux_x86_64.whl#sha256=6a1dd5169f6b9448d204164917da4749706c070efd0053120c22702d6c1dbd9c ; python_version == '3.15' and platform_python_implementation == 'CPython' and sys_platform == 'linux' and platform_machine == 'x86_64'",
     "atheris @ https://github.com/maci0/atheris/releases/download/atheris-v3.1.0-relumea.2/atheris-3.1.0%2Brelumea.2.tar.gz#sha256=f68bf1c9b2337df27578c89842eb32da6218efd3427a37ace0982693b907a1c6 ; python_version > '3.15' or python_version == '3.15' and platform_python_implementation != 'CPython' or python_version == '3.15' and platform_python_implementation == 'CPython' and sys_platform != 'linux' or python_version == '3.15' and platform_python_implementation == 'CPython' and sys_platform == 'linux' and platform_machine != 'x86_64'",
 ]

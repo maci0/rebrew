@@ -731,14 +731,6 @@ class TestPackagingMetadata:
         for decl in decls:
             if "git+" in decl or decl.strip() == "resembl":
                 continue
-            # Multi-artifact forks (atheris): the floor line is the upstream
-            # PyPI spec for the <3.15 marker, while the lock's cp315 artifact
-            # is the fork version 3.1.0+relumea.2. A `>=` floor cannot name a
-            # local-segment version, so comparing it to the fork lock entry
-            # would fail on a spec that is correct by construction. The
-            # hash-pinned direct references below it carry the real pin.
-            if decl.startswith("atheris>=") and "python_version < '3.15'" in decl:
-                continue
             m = floor_re.match(decl.split("#", 1)[0].strip())
             if m is None:
                 continue
