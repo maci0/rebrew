@@ -617,7 +617,7 @@ class TestGaRunHistory:
         trailing = solutions_module._TAIL_READ_BYTES - len(victim) + 1
         p.write_bytes(pad * 1000 + victim + b"\n" * trailing)
         assert p.stat().st_size - solutions_module._TAIL_READ_BYTES == len(pad) * 1000 + 1
-        records = solutions_module._recent_records(p)
+        records = solutions_module._tail_records(p)
         assert records[-1]["symbol"] == "_victim"
 
     def test_target_filter(self, project_root: Path) -> None:

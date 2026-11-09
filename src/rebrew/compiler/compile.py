@@ -3253,20 +3253,6 @@ def _section_for_va(info: BinaryInfo, va: int) -> SectionInfo | None:
     return None
 
 
-def _docker_run_name(cmd: list[str]) -> str | None:
-    """The ``--name`` value of a docker ``run`` argv, or None when unnamed.
-
-    The timeout and interrupt paths below can only kill a container that
-    docker named, so they need the name out of the argv the builder composed
-    rather than a second copy of the format string.
-    """
-    try:
-        idx = cmd.index("--name")
-    except ValueError:
-        return None
-    return cmd[idx + 1] if idx + 1 < len(cmd) else None
-
-
 def _link_obj_docker(
     cfg: ProjectConfig,
     spec: ToolchainSpec,

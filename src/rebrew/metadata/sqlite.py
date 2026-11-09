@@ -831,21 +831,6 @@ def _target_binary_relpaths(root: Path) -> list[Path]:
     return sorted(set(rels))
 
 
-def _toml_stores_present(root: Path) -> list[tuple[str, list[Path]]]:
-    """Non-empty ``(name, tree)`` pairs for the managed TOML stores.
-
-    Kept for the flat layout and existing callers; the backup/restore pair
-    below uses :func:`toml_store_trees` so a nested ``metadata_dir`` is
-    covered too.
-    """
-    present = []
-    for name in _TOML_STORE_NAMES:
-        tree = _toml_store_tree(root, name)
-        if tree:
-            present.append((name, tree))
-    return present
-
-
 def backup_metadata_toml(root: Path, backup_dir: Path) -> Path:
     """Copy every present managed TOML store tree to *backup_dir*.
 

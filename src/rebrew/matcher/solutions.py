@@ -655,11 +655,6 @@ def _win_present(path: Path, key: str) -> bool:
     return False
 
 
-def _recent_records(path: Path) -> list[dict[str, Any]]:
-    """Return the well-formed records in the tail window of *path*, oldest first."""
-    return _tail_records(path)
-
-
 def _run_key(record: dict[str, Any]) -> str:
     """Identity of the run a record describes, clock fields aside.
 
