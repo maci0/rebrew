@@ -790,6 +790,10 @@ _KNOWN_METADATA_FIELDS: frozenset[str] = METADATA_FIELDS | {
 
 # History is comparison-owned evidence, deliberately absent from generic setters.
 _HISTORY_RETENTION = 10000
+#: Same (old, new, updated_by) triple inside this window is one logical
+#: transition replayed by a retry/flap, not two events. Outside it a genuine
+#: return to an earlier status is a new event.
+_HISTORY_REPLAY_WINDOW_SECONDS = 300
 
 
 def _history_event(row: Any) -> dict[str, str]:
@@ -819,10 +823,29 @@ def _merge_status_history(old: Any, new: list[dict[str, str]]) -> list[dict[str,
     if not isinstance(old, list):
         raise ValueError("status_history must be an array")
     events = [_history_event(row) for row in [*old, *new]]
-    unique = {tuple(sorted(row.items())): row for row in events}
-    return sorted(unique.values(), key=lambda row: (row["changed_at"], tuple(sorted(row.items()))))[
-        -_HISTORY_RETENTION:
-    ]
+    # Exact dedup first, then replay-window dedup: a transition repeated with
+    # a fresh wall-clock stamp (crash-retry / flap back-and-forth) is the same
+    # logical event, not a second one. Keep the earliest stamp so the merged
+    # row is stable across replays.
+    unique: dict[tuple, dict[str, str]] = {}
+    for row in events:
+        key = tuple(sorted(row.items()))
+        if key not in unique:
+            unique[key] = row
+    deduped = sorted(
+        unique.values(), key=lambda row: (row["changed_at"], tuple(sorted(row.items())))
+    )
+    merged: list[dict[str, str]] = []
+    last_seen: dict[tuple[str, str, str], datetime] = {}
+    for row in deduped:
+        triple = (row["old_status"], row["new_status"], row["updated_by"])
+        moment = datetime.fromisoformat(row["changed_at"])
+        prev_moment = last_seen.get(triple)
+        if prev_moment is not None and 0 <= (moment - prev_moment).total_seconds() <= _HISTORY_REPLAY_WINDOW_SECONDS:
+            continue
+        last_seen[triple] = moment
+        merged.append(row)
+    return merged[-_HISTORY_RETENTION:]
 
 
 def load_status_history(directory: Path | str | Any, module: str) -> list[dict[str, Any]]:
