@@ -281,8 +281,6 @@ def build_graph(
     # Uses read_source_bindings to capture every annotation in multi-function files.
     from rebrew.utils import rel_display_path
 
-    # Cache file text so _extract_callees doesn't re-read from disk
-    _file_text_cache: dict[Path, str] = {}
     # Both loops below visit a whole tree; resolve the store root and module
     # once instead of per source and per library header.
     metadata_dir = cfg.metadata_dir if cfg else None
@@ -296,16 +294,18 @@ def build_graph(
 
     for cfile in iter_sources(reversed_dir, cfg):
         rel_name = rel_display_path(cfile, reversed_dir)
-        # Read file once and cache for both annotation parsing and callee extraction
-        if cfile not in _file_text_cache:
-            try:
-                from rebrew.utils import read_source_text
+        # Read file once; read_source_text already caches recently-read file
+        # text process-wide, so a second read for annotation parsing below
+        # does not re-read from disk.  A per-call dict here would retain
+        # every source's text until build_graph returned, which for a large
+        # reversed tree duplicates the process cache and peaks at ~2x the tree.
+        try:
+            from rebrew.utils import read_source_text
 
-                _file_text_cache[cfile] = read_source_text(cfile)[0]
-            except OSError as exc:
-                log.warning("skipping unreadable source %s: %s", cfile, exc)
-                continue
-        text = _file_text_cache[cfile]
+            text = read_source_text(cfile)[0]
+        except OSError as exc:
+            log.warning("skipping unreadable source %s: %s", cfile, exc)
+            continue
         from rebrew.c_parser import find_c_function_definitions, find_variable_roles
 
         lines_by_name = dict(find_c_function_definitions(text))

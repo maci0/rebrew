@@ -1450,6 +1450,9 @@ def run_toolchain(
         cmd.append(target)
         cmd.extend(args)
         try:
+            # start_new_session: this is the hot path (every compile), so a
+            # wedged pipe writer must not let a timed-out compile's process
+            # group escape the kill below the way run_process_group's does.
             r = subprocess.run(
                 cmd,
                 capture_output=True,
@@ -1457,6 +1460,7 @@ def run_toolchain(
                 encoding="utf-8",
                 errors="replace",
                 timeout=timeout,
+                start_new_session=True,
             )
         except subprocess.TimeoutExpired as exc:
             if "--name" in cmd:
@@ -1468,6 +1472,9 @@ def run_toolchain(
                 retryable=True,
             ) from exc
         except OSError as exc:
+            # The docker CLI failed to exec, so no container was started and
+            # there is nothing to kill; re-killing by name would be a no-op
+            # against a name that was never registered with dockerd.
             raise ToolchainError(
                 f"docker invocation failed: {exc}",
                 kind="invocation",
