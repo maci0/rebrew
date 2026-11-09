@@ -64,6 +64,10 @@ def _stage_unit_sources(source: Path, sandbox: Path) -> None:
         shutil.copy2(sibling, sandbox / sibling.name)
 
 
+def _discard_sandbox(path: Path) -> None:
+    shutil.rmtree(path, ignore_errors=True)
+
+
 def compile_ne(
     dpr_source: str | Path,
     workdir: str | Path | None = None,
@@ -159,17 +163,18 @@ def compile_ne(
             if map_path is None:
                 raise Delphi16Error(f"DCC produced no requested map:\n{log}")
     except BaseException:
-        # A failed compile must not leave a per-call build dir behind: this
-        # path can run per-candidate in a long-lived process, and a dir per
-        # failure is a temp-dir leak until exit.
-        shutil.rmtree(sandbox, ignore_errors=True)
+        _discard_sandbox(sandbox)
         raise
     from rebrew.formats.binary_loader import is_ne, load_binary
     from rebrew.formats.ne_loader import enumerate_ne_functions
 
-    if not is_ne(executable):
-        raise Delphi16Error(f"compiled output is not an NE executable: {executable}")
-    functions = list(enumerate_ne_functions(load_binary(executable)))
+    try:
+        if not is_ne(executable):
+            raise Delphi16Error(f"compiled output is not an NE executable: {executable}")
+        functions = list(enumerate_ne_functions(load_binary(executable)))
+    except BaseException:
+        _discard_sandbox(sandbox)
+        raise
     return Delphi16Result(executable, functions, log, map_path, [*flags, staged_name])
 
 

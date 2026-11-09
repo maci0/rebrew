@@ -1735,6 +1735,7 @@ _caches: dict[
 ] = {}
 _caches_lock = threading.Lock()
 _unclosed_caches: list[CacheBackend] = []
+_UNCLOSED_CACHES_MAX = 32
 #: Cap open backends so a long-lived process that touches many project roots
 #: does not retain every diskcache SQLite handle until atexit.
 _CACHES_MAX = 8
@@ -1835,6 +1836,9 @@ def get_compile_cache(
             if failed:
                 with _caches_lock:
                     _unclosed_caches.extend(failed)
+                    # A close that keeps failing pins the pool handle; above the bound the oldest unclosed handles are dropped instead of retained for the process lifetime.
+                    while len(_unclosed_caches) > _UNCLOSED_CACHES_MAX:
+                        _unclosed_caches.pop(0)
         return candidate
 
 
