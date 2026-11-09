@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.28.0] - 2026-11-10
+
 ### Fixed
 
 - `rebrew types recover` and `rebrew types name` (`parse_decomp_for_structs`, `name_decomp._pointer_vars`) no longer read the last word of a `// ...` comment as a C type: kuna v1.994 annotates every variable with `// <register>`, so `unsigned char v5; // dl` followed by `*dat_42c28c = 1;` was scanned as the declaration `dl *dat_42c28c`, adding false pointer variables and struct evidence. Both scan comment-masked text now.
