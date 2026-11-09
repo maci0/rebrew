@@ -24,7 +24,7 @@ channel. Acknowledgement and fix timing depend on maintainer availability.
 
 ## Security model (summary)
 
-Rebrew is a local compiler-in-the-loop reversing workbench (CLI). It is not a multi-tenant network service. Two bearer-token network listeners exist, both plain HTTP: rebrew ops serve (workspace-confined write ops plus bearer-gated GET/HEAD `/health` and `/metrics` aggregates, `src/rebrew/ops.py` `_not_post` / `OpsServer.metrics_snapshot`) and the Go jobs owner `rebrew-jobs` (`services/jobs/`, loopback `127.0.0.1:8089` by default, `REBREW_JOBS_ADDR` to override only to another loopback address (non-loopback is refused at startup, `isLoopbackAddr` in `services/jobs/cmd/rebrew-jobs/main.go`), `REBREW_WORKSPACE`/`REBREW_JOB_DIR`/`REBREW_JOB_TOKEN` required); the coverage dashboard is loopback by default and unauthenticated. The living attack-surface and trust-boundary
+Rebrew is a local compiler-in-the-loop reversing workbench (CLI). It is not a multi-tenant network service. Two bearer-token network listeners exist, both plain HTTP: rebrew ops serve (workspace-confined write ops plus bearer-gated GET/HEAD `/health` and `/metrics` aggregates, `src/rebrew/ops.py` `_not_post` / `OpsServer.metrics_snapshot`; a browser-origin POST with a non-empty `Origin`/`Referer` is refused 403 `cross-origin` before the bearer check, and `/metrics` carries bounded per-op RED counters) and the Go jobs owner `rebrew-jobs` (`services/jobs/`, loopback `127.0.0.1:8089` by default, `REBREW_JOBS_ADDR` to override only to another loopback address (non-loopback is refused at startup, `isLoopbackAddr` in `services/jobs/cmd/rebrew-jobs/main.go`), `REBREW_WORKSPACE`/`REBREW_JOB_DIR`/`REBREW_JOB_TOKEN` required); the coverage dashboard is loopback by default and unauthenticated. The living attack-surface and trust-boundary
 document is:
 
 - [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md)
@@ -275,7 +275,9 @@ plugin cache backends or remove the open upstream diskcache advisory.
   (trace/span ids, op names, status codes — no source or credentials) in
   cleartext, and the endpoint is operator env, not project configuration.
   The wibo asset is capped at
-  64 MiB (`_MAX_WIBO_DOWNLOAD_BYTES` in `src/rebrew/wibo.py`), the
+  64 MiB (`_MAX_WIBO_DOWNLOAD_BYTES` in `src/rebrew/wibo.py`), its release
+digest is shape-validated before the GET (exactly 64 hex, lowercased,
+else refused, `src/rebrew/wibo.py`), the
   release-metadata JSON at 1 MiB (`_MAX_WIBO_METADATA_BYTES` in
   `src/rebrew/wibo.py`, declared-length and buffered-body checked before
   `json` parsing), and the toolchain media at 2 GiB
