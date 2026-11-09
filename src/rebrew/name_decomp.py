@@ -442,14 +442,23 @@ def apply_known_names(
             var_structs[var] = struct
 
     # ``vN = a0;`` aliases inherit the match (fixpoint for chains).
-    changed = True
-    while changed:
-        changed = False
-        for m in _ALIAS_RE.finditer(text):
-            src = var_structs.get(m.group("src"))
-            if src is not None and m.group("alias") not in var_structs:
-                var_structs[m.group("alias")] = src
-                changed = True
+    # Scan once into an alias map, then resolve each chain with path
+    # compression: a reversed chain of N aliases cost N full-text rescans
+    # (O(N^2) over the text) under the old fixpoint loop.
+    alias_of: dict[str, str] = {}
+    for m in _ALIAS_RE.finditer(text):
+        alias_of.setdefault(m.group("alias"), m.group("src"))
+    for alias in list(alias_of):
+        # Walk to the root, compressing the path so later lookups are O(1).
+        path: list[str] = []
+        cur = alias
+        while cur not in var_structs and cur in alias_of and cur not in path:
+            path.append(cur)
+            cur = alias_of[cur]
+        src = var_structs.get(cur)
+        if src is not None:
+            for node in path:
+                var_structs[node] = src
 
     if not var_structs:
         return NamingResult(code=text, applied=[])
