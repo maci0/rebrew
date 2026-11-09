@@ -468,3 +468,22 @@ class TestSharedModelLayouts:
             {"Q": "typedef struct { int a; unsigned b : 3; } Q;"}
         )
         assert layouts["Q"].complete is False
+
+
+# Recorded from kuna v1.994 on test_sse2.exe 0x401580: its variable annotations end a line with a
+# register name, and the next line starts with `*dat_42c28c = 1;`, which read as `dl *dat_42c28c`.
+_KUNA_994_ANNOTATED = """unsigned int sub_401580(void)
+{
+  short v1; // dx
+  unsigned char v5; // dl
+
+  *dat_42c28c = 1;
+  *dat_42c290 = 1;
+}
+"""
+
+
+def test_line_comments_are_not_pointer_declaration_types() -> None:
+    from rebrew.name_decomp import _pointer_vars
+
+    assert _pointer_vars(_KUNA_994_ANNOTATED) == set()

@@ -392,6 +392,10 @@ def parse_decomp_for_structs(text: str, max_offset: int = _MAX_MEMBER_OFFSET) ->
     decides what to synthesize from those.  *max_offset* filters out offsets
     that are really absolute addresses (pass the image base when known).
     """
+    from rebrew.compiler.cache import mask_preprocessor_comments
+
+    # A comment's last word (kuna annotates variables with `// edx`) must not read as a type.
+    text = mask_preprocessor_comments(text)
     named: dict[str, StructEvidence] = {}
     anonymous: dict[str, StructEvidence] = {}
 

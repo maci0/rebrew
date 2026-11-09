@@ -331,6 +331,7 @@ def _pointer_vars(text: str) -> set[str]:
     ``var + N`` arithmetic has no such evidence and a bare ``var + N`` on it
     is integer math, not a member access.
     """
+    from rebrew.compiler.cache import mask_preprocessor_comments
     from rebrew.struct_recover import (
         ARRAY_DEREF_RE,
         ARRAY_IDX_RE,
@@ -340,6 +341,8 @@ def _pointer_vars(text: str) -> set[str]:
         FIELD_ACCESS_RE,
     )
 
+    # A comment's last word (kuna annotates variables with `// edx`) must not read as a type.
+    text = mask_preprocessor_comments(text)
     out: set[str] = set()
     for m in DECL_RE.finditer(text):
         out.add(m.group("var"))

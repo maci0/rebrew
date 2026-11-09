@@ -828,3 +828,10 @@ class TestStructRecoverFuzz:
         ev = parse_decomp_for_structs(mutated_text)
         assert isinstance(ev.named, dict)
         assert isinstance(ev.anonymous, dict)
+
+
+def test_a_line_comment_is_not_a_declared_type() -> None:
+    """kuna v1.994 annotates variables with `// reg`; the last word must not type the next line's `*p`."""
+    text = "void f(void)\n{\n  int v1; // Foo\n  *p = 1;\n  p->field_8 = 2;\n}\n"
+    result = parse_decomp_for_structs(text)
+    assert "Foo" not in result.named
