@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- `make audit` ignored `PYSEC-2026-2447until2028-01-27`, an id that matches nothing (uv matches by id and takes no date), so the unfixed diskcache advisory failed the gate; the ignore is `--ignore-until-fixed PYSEC-2026-2447` again.
 - `parse_msvc_preprocessed` no longer reads the quoted path of a `#line` marker as a string literal: a path ending in a backslash (`#line 0 "\"`) made the literal swallow the next marker and the body, which the view then masked as `x`.
 
 ## [6.25.1] - 2026-11-09

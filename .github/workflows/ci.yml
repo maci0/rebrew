@@ -185,9 +185,8 @@ jobs:
       - name: Dependency vulnerability audit
         # Blocking gate: `uv audit` exits 1 on known-vulnerable packages, so
         # --frozen CI cannot keep re-pinning a vulnerable lock.  diskcache's
-        # unsafe-pickle advisory (GHSA-w8v5-vhqr-4h9v) is ignored only while
-        # unfixed and only until 2028-01-27 (the Makefile command line
-        # date-pins the ignore): the cache
+        # unsafe-pickle advisory (PYSEC-2026-2447) is ignored only while
+        # unfixed (--ignore-until-fixed in the Makefile): the cache
         # stores only compiled .obj bytes, never untrusted input, and a
         # fixed release flips this step red to force the upgrade.
         run: make audit

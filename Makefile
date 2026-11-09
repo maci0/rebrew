@@ -187,7 +187,7 @@ help:
 		'  make format             # ruff format (writes)' \
 		'  make format-check       # ruff format --check' \
 		'  make mypy               # mypy (matches CI lint job)' \
-		'  make audit              # uv audit --locked --ignore-until-fixed PYSEC-2026-2447until2028-01-27 (CI lint job)' \
+		'  make audit              # uv audit --locked --ignore-until-fixed PYSEC-2026-2447 (CI lint job)' \
 		'  make check              # pre-commit run --all-files (CI pre-commit job)' \
 		'  make cli-contract       # high-value --help greps (CI cli-contract job)' \
 		'  make build              # reproducible sdist+wheel + dist/rebrew.buildinfo' \
@@ -1326,9 +1326,9 @@ mypy: ensure-extras ensure-uv
 	uv run --frozen mypy
 
 # Dependency advisory gate (CI lint job).  PYSEC-2026-2447 (diskcache
-# unsafe-pickle) is ignored here; the command line date-pins the ignore so a
-# fixed diskcache release keeps firing after 2028-01-27 instead of being
-# silently absorbed by an open-ended ignore.
+# unsafe-pickle) is ignored with --ignore-until-fixed, so a fixed diskcache
+# release makes the advisory fire again.  The id must be PYSEC-2026-2447
+# exactly: uv matches the ignore by id and takes no date suffix.
 # ensure-resembl, not just ensure-uv: `uv audit` resolves the project
 # workspace, and uv.lock carries resembl as a `../resembl` path
 # dependency, so a checkout without the sibling dies inside uv with a raw
@@ -1338,7 +1338,7 @@ mypy: ensure-extras ensure-uv
 # turns that into the named message and clone line.  CI always has the
 # checkout (the uv-env action clones it), so only local runs hit this.
 audit: ensure-resembl ensure-uv
-	uv audit --locked --ignore-until-fixed PYSEC-2026-2447until2028-01-27
+	uv audit --locked --ignore-until-fixed PYSEC-2026-2447
 
 # Release preflight: verify the version/changelog/tag contract from
 # CONTRIBUTING.md without mutating anything.  Passes only when a release is
