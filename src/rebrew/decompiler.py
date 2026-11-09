@@ -746,14 +746,28 @@ def _kuna_specs_override() -> str | None:
     return str(path)
 
 
+#: kuna v1.993+ refuses an address that is an IAT import slot (v1.160 printed an
+#: "external symbol" comment and exited 0).
+_KUNA_IMPORT_RE = re.compile(
+    r"identifies import (\S+) at 0x[0-9a-fA-F]+; the IAT slot contains a loader-written "
+    r"pointer, not a function body"
+)
+
+
+class KunaNoBodyError(ValueError):
+    """kuna reports that the address is an import slot, not a function body."""
+
+
 def fetch_kuna(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
     """Fetch decompilation from the Kuna decompiler (agent-first Ghidra port).
 
     Requires the ``kuna`` binary on PATH (github.com/Noelo-Lab/kuna — a
     single Rust binary).  Runs ``kuna decompile <binary> 0x<va> --addr``
     (Kuna's CLI takes an address with ``--addr``) and returns the cleaned C
-    printed to stdout.  Returns ``None`` when kuna is unavailable or fails,
-    exactly like the other optional backends.
+    printed to stdout.  Returns ``None`` when kuna is unavailable or fails (a
+    failure is reported as a warning carrying kuna's first stderr line), exactly
+    like the other optional backends.  Raises :class:`KunaNoBodyError` when the
+    address is an import slot.
 
     Kuna reads SLEIGH specs from ``KUNA_SPECS`` (default ``/specs/``); an
     explicit ``KUNA_SPECS`` is honored, otherwise the first working spec dir
@@ -781,6 +795,18 @@ def fetch_kuna(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
         )
         if result.returncode == 0 and result.stdout:
             return _clean_output(result.stdout)
+        if result.returncode != 0:
+            refusal = _KUNA_IMPORT_RE.search(result.stderr or "")
+            if refusal is not None:
+                raise KunaNoBodyError(
+                    f"kuna has no function body at 0x{va:08x}: import {refusal.group(1)}"
+                )
+            detail = (result.stderr or "").strip().splitlines()
+            warnings.warn(
+                f"kuna failed decompiling 0x{va:08x} (exit {result.returncode}): "
+                f"{detail[0] if detail else 'no message'}",
+                stacklevel=2,
+            )
     except subprocess.TimeoutExpired:
         warnings.warn(f"kuna timed out decompiling 0x{va:08x}", stacklevel=2)
     except (OSError, subprocess.SubprocessError) as e:
@@ -1322,7 +1348,9 @@ def fetch_decompilation(
         )
         return None, backend
 
-    return (
-        backend_fn(binary_path, va, root=root, endpoint=endpoint, program_path=program_path),
-        backend,
-    )
+    try:
+        code = backend_fn(binary_path, va, root=root, endpoint=endpoint, program_path=program_path)
+    except KunaNoBodyError as exc:
+        console.print(f"[yellow]note:[/yellow] decompiler: {untrusted_literal(str(exc))}")
+        return None, backend
+    return code, backend

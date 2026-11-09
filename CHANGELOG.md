@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- kuna v1.993+ exits 1 on an address that is an IAT import slot (v1.160 printed an "external symbol" comment): `rebrew.decompiler.fetch_kuna` raises the new `KunaNoBodyError` (a `ValueError`) for exactly that refusal, `kuna_seed_source` reports it as "kuna has no function body", and `fetch_decompilation` answers `(None, "kuna")` with a note. Every other non-zero kuna exit now warns with kuna's first stderr line instead of returning `None` silently.
 - `fetch_kuna` without `KUNA_SPECS` now injects the kuna specs root (the directory holding `Ghidra/Processors`) instead of its `x86/data/languages` subdirectory: kuna v1.993 and later refuse the subdirectory ("it holds no Ghidra/Processors tree", so every seed came back empty), v1.160 accepts both. pypcode and rizin trees, which have no such root, are still passed as the languages directory.
 
 ## [6.27.2] - 2026-11-09

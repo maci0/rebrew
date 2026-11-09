@@ -765,7 +765,67 @@ class TestKunaBackend:
 
         monkeypatch.setattr(dc.shutil, "which", lambda n: "/usr/bin/kuna")
         monkeypatch.setattr(dc, "run_process_group", lambda *a, **k: _R())
-        assert dc.fetch_kuna(binary, 0x401000, tmp_path) is None
+        with pytest.warns(UserWarning, match="boom"):
+            assert dc.fetch_kuna(binary, 0x401000, tmp_path) is None
+
+    # Recorded from `kuna decompile tests/fixtures/mini_pe.exe 0x40104c --addr` (the IAT slot of GetTickCount).
+    _KUNA_160_IMPORT = "// 0x40104c: external symbol -- no code at this address in this module\n"
+    _KUNA_993_IMPORT_STDERR = (
+        'error: selector "0x40104c" identifies import GetTickCount at 0x40104c; '
+        "the IAT slot contains a loader-written pointer, not a function body\n"
+    )
+
+    def _fake_kuna(self, monkeypatch, *, returncode: int, stdout: str, stderr: str):
+        import rebrew.decompiler as dc
+
+        class _R:
+            pass
+
+        _R.returncode, _R.stdout, _R.stderr = returncode, stdout, stderr
+        monkeypatch.setattr(dc.shutil, "which", lambda n: "/usr/bin/kuna")
+        monkeypatch.setattr(dc, "run_process_group", lambda *a, **k: _R())
+
+    def test_kuna_import_refusal_is_a_typed_no_body(self, tmp_path: Path, monkeypatch) -> None:
+        """v1.993+ exits 1 on an IAT import; that is 'no body here', not an unnamed failure."""
+        import rebrew.decompiler as dc
+
+        binary = tmp_path / "x.exe"
+        binary.write_bytes(b"MZ")
+        self._fake_kuna(monkeypatch, returncode=1, stdout="", stderr=self._KUNA_993_IMPORT_STDERR)
+        with pytest.raises(dc.KunaNoBodyError, match="GetTickCount"):
+            dc.fetch_kuna(binary, 0x40104C, tmp_path)
+        with pytest.raises(ValueError, match="no function body"):
+            dc.kuna_seed_source(binary, 0x40104C, tmp_path)
+
+    def test_kuna_import_refusal_is_no_decompilation_for_a_named_backend(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        import rebrew.decompiler as dc
+
+        binary = tmp_path / "x.exe"
+        binary.write_bytes(b"MZ")
+        self._fake_kuna(monkeypatch, returncode=1, stdout="", stderr=self._KUNA_993_IMPORT_STDERR)
+        assert dc.fetch_decompilation("kuna", binary, 0x40104C, tmp_path) == (None, "kuna")
+
+    def test_kuna_160_import_comment_is_still_rejected_as_a_seed(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        import rebrew.decompiler as dc
+
+        binary = tmp_path / "x.exe"
+        binary.write_bytes(b"MZ")
+        self._fake_kuna(monkeypatch, returncode=0, stdout=self._KUNA_160_IMPORT, stderr="")
+        with pytest.raises(ValueError, match="Kuna output rejected"):
+            dc.kuna_seed_source(binary, 0x40104C, tmp_path)
+
+    def test_a_real_kuna_error_is_reported_not_swallowed(self, tmp_path: Path, monkeypatch) -> None:
+        import rebrew.decompiler as dc
+
+        binary = tmp_path / "x.exe"
+        binary.write_bytes(b"MZ")
+        self._fake_kuna(monkeypatch, returncode=1, stdout="", stderr="error: out of memory\n")
+        with pytest.warns(UserWarning, match="out of memory"):
+            assert dc.fetch_kuna(binary, 0x401000, tmp_path) is None
 
     def test_kuna_spec_dirs_only_qualifies_sla_dirs(self, tmp_path: Path) -> None:
         """Only dirs containing x86.sla qualify as spec dirs."""
