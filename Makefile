@@ -347,14 +347,20 @@ ensure-jpype-build:
 # Go jobs service (CI jobs-service job).  jobs-check used to check this
 # inline; as a named preflight `make doctor` can report it alongside the
 # other host prerequisites instead of failing only at the last gate of
-# `make all`.  CI pins GO_VERSION via a SHA-256 verified tarball; this only
-# checks presence, not the version, so a newer Go still runs the checks.
+# `make all`.  CI pins GO_VERSION via a SHA-256 verified tarball; presence
+# is hard, version drift only warns (like uv/bun/rust above), so a newer Go
+# still runs the checks while the drift stays visible.
 ensure-go:
 	@set -eu; \
 	if ! command -v go >/dev/null 2>&1; then \
 	  echo "ERROR: go not on PATH (required for make jobs-check, same as CI jobs-service)."; \
 	  echo "Install Go $(GO_VERSION) (services/jobs/go.mod toolchain; CI pins GO_VERSION=$(GO_VERSION)), then re-run: make jobs-check"; \
 	  exit 1; \
+	fi; \
+	go_ver=$$(go version 2>/dev/null | awk '{print $$3}' | sed 's/^go//'); \
+	go_ver=$$(printf '%s' "$$go_ver" | cut -d- -f1); \
+	if [ -n "$$go_ver" ] && [ "$$go_ver" != "$(GO_VERSION)" ]; then \
+	  echo "WARNING: go $$go_ver differs from pin GO_VERSION=$(GO_VERSION) (services/jobs/go.mod). jobs-check usually still passes; upgrade when you can."; \
 	fi
 
 # `rebrew vendor` / `rebrew library vendor` shells out to GNU patch to apply
