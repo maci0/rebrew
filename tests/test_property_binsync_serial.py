@@ -119,12 +119,12 @@ def test_seed_roundtrip(seed: tuple[str, bytes], kind: str) -> None:
 
 
 @settings(max_examples=10, deadline=None)
-@given(st.binary(max_size=64))
-def test_missing_file_contract(data: bytes) -> None:
+@given(st.binary(max_size=64), st.sampled_from(_KINDS))
+def test_missing_file_contract(data: bytes, kind: str) -> None:
     """A missing file is None/[], never an error, regardless of kind."""
     missing = Path(tempfile.mkdtemp()) / "nope.toml"
-    assert serial.load_artifact(missing, "function") is None
-    assert serial.load_many(missing, "function") == []
+    assert serial.load_artifact(missing, kind) is None
+    assert serial.load_many(missing, kind) == []
 
 
 def test_unknown_kind_is_value_error(tmp_path: Path) -> None:

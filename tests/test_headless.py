@@ -829,12 +829,22 @@ class TestXvfbCookieFor:
         writer.start()
         try:
             assert in_window.wait(timeout=5.0)
-            reader = threading.Thread(
-                target=lambda: observed.append(headless.xvfb_cookie_for(":99")), daemon=True
-            )
+            started = threading.Event()
+
+            def read() -> None:
+                started.set()
+                observed.append(headless.xvfb_cookie_for(":99"))
+
+            reader = threading.Thread(target=read, daemon=True)
             reader.start()
-            # The reader is parked on the lock, so nothing is observed yet.
+            # The reader started and is parked on the lock, so nothing is
+            # observed yet.  started proves the thread was scheduled; the
+            # join below proves it cannot complete while the writer holds
+            # the lock (a plain ``join(timeout)`` without ``started`` would
+            # pass vacuously if the thread had not even run yet).
+            assert started.wait(timeout=5.0)
             reader.join(timeout=0.5)
+            assert reader.is_alive()
             assert observed == []
             proceed.set()
             reader.join(timeout=5.0)

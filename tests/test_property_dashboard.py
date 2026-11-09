@@ -488,7 +488,12 @@ class TestDocumentDerivedCellText:
     @given(files=st.lists(st.text(alphabet=_CHARS, max_size=30), max_size=5))
     @settings(max_examples=300)
     def test_files_display_is_always_text(self, files: list[str]) -> None:
-        assert isinstance(_files_display(files), str)
+        display = _files_display(files)
+        assert isinstance(display, str)
+        # The cell joins with ", " and stringifies each item: for plain
+        # strings the result must be exactly the join, so a regression that
+        # drops, truncates, or escapes a filename cannot pass on type alone.
+        assert display == ", ".join(files)
 
     @given(
         value=st.recursive(

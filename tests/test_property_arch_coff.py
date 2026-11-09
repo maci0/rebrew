@@ -21,6 +21,36 @@ from rebrew.formats.archives import parse_archive, stock_lib_valid
 from rebrew.formats.coff import _coff_symbol_names
 
 
+def _archive_bodies_fit(data: bytes) -> bool:
+    """Independent structural check mirroring ``stock_lib_valid``'s walk.
+
+    Deliberately recomputed from the bytes (not by calling the code under
+    test) so an always-True implementation fails the agreement check.
+    """
+    if not data.startswith(b"!<arch>\n"):
+        return False
+    size = len(data)
+    position = 8
+    while position < size:
+        if position % 2:
+            position += 1
+        if position >= size:
+            break
+        if position + 60 > size:
+            return False
+        try:
+            member_size = int(data[position + 48 : position + 58].strip())
+        except ValueError:
+            return False
+        if member_size < 0:
+            return False
+        position += 60
+        if position + member_size > size:
+            return False
+        position += member_size
+    return True
+
+
 def _parse_archive_bytes(data: bytes) -> list[tuple[str, bytes]]:
     """Run parse_archive on *data* via a temp file; only ValueError escapes."""
     fd, name = tempfile.mkstemp(suffix=".lib")
@@ -52,7 +82,17 @@ class TestParseArchiveRobust:
         try:
             with os.fdopen(fd, "wb") as fh:
                 fh.write(data)
-            assert isinstance(stock_lib_valid(Path(name)), bool)
+            valid = stock_lib_valid(Path(name))
+            assert isinstance(valid, bool)
+            # Agreement: a True must be structurally sound, not merely a
+            # bool.  Always-True would pass the isinstance check but accept
+            # truncated archives (the exact failure the cache guard exists
+            # to prevent); always-False would reject the known-good roundtrip.
+            if valid:
+                assert data.startswith(b"!<arch>\n")
+                assert valid == (len(data) == 8 or _archive_bodies_fit(data))
+            if not data.startswith(b"!<arch>\n"):
+                assert valid is False
         finally:
             os.unlink(name)
 
