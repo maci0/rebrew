@@ -3572,6 +3572,7 @@ class OpsServer(ThreadingHTTPServer):
         self._latency_ms_max = 0.0
         self._latency_ms_buckets = [0] * len(_LATENCY_BUCKETS_MS)
         self._started_at = time.monotonic()
+        self._busy_refusals = 0
         self.concurrency = concurrency
         # Per-op breakdown, bounded by the op set: one entry per known op
         # plus "/unknown" for paths outside it.  Without it a metric anomaly
@@ -3622,6 +3623,7 @@ class OpsServer(ThreadingHTTPServer):
                     if self._request_count
                     else 0.0,
                     "in_flight": self.active,
+                    "busy_refusals": self._busy_refusals,
                     "uptime_seconds": time.monotonic() - self._started_at,
                 },
                 list(self._latency_ms_buckets),
@@ -3714,10 +3716,11 @@ class _OpsHandler(BaseHTTPRequestHandler):
             return
         logger.log(
             logging.ERROR if code >= 500 else logging.WARNING,
-            "%s rejected %s: code %d",
+            "%s rejected %s: code %d trace_id=%s",
             self._request_id,
             _escape_log_text(getattr(self, "requestline", "") or "-"),
             code,
+            _trace_id(),
         )
         status = int(code)
         body = error_body(INVALID_REQUEST, "invalid request", status)
@@ -3830,6 +3833,8 @@ class _OpsHandler(BaseHTTPRequestHandler):
             if admitted:
                 server.active += 1
         if not admitted:
+            with server._metrics_lock:
+                server._busy_refusals += 1
             logger.warning(
                 "%s worker busy; returning 503 trace_id=%s", self._request_id, _trace_id()
             )
@@ -3918,6 +3923,7 @@ class _OpsHandler(BaseHTTPRequestHandler):
                     "latency_ms_max": round(snapshot["latency_ms_max"], 3),
                     "uptime_seconds": round(snapshot["uptime_seconds"], 3),
                     "concurrency": server.concurrency,
+                    "busy_refusals": snapshot.get("busy_refusals", 0),
                 }
                 body = json.dumps(payload).encode("utf-8")
                 self._send(200, body)
@@ -3950,6 +3956,9 @@ class _OpsHandler(BaseHTTPRequestHandler):
                 "# HELP rebrew_ops_in_flight Calls currently holding a worker slot.",
                 "# TYPE rebrew_ops_in_flight gauge",
                 f"rebrew_ops_in_flight {snapshot['in_flight']}",
+                "# HELP rebrew_ops_busy_refusals_total Calls refused with 503 because no worker slot was free.",
+                "# TYPE rebrew_ops_busy_refusals_total counter",
+                f"rebrew_ops_busy_refusals_total {snapshot.get('busy_refusals', 0)}",
                 "# HELP rebrew_ops_latency_bucket Latency of answered ops requests, in milliseconds (cumulative).",
                 "# TYPE rebrew_ops_latency_bucket histogram",
                 *(

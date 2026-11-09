@@ -192,6 +192,7 @@ class _Exporter:
         self._queue: queue.Queue[Span | None] = queue.Queue(QUEUE_SIZE)
         self._lock = threading.Lock()
         self._dropped = 0
+        self._export_failed = 0
         self._thread = threading.Thread(target=self._run, name="rebrew-otlp", daemon=True)
         self._thread.start()
 
@@ -218,6 +219,12 @@ class _Exporter:
         """How many finished spans were dropped because the queue was full."""
         with self._lock:
             return self._dropped
+
+    @property
+    def export_failed_spans(self) -> int:
+        """How many finished spans were lost to a failed export POST."""
+        with self._lock:
+            return self._export_failed
 
     def close(self) -> None:
         if self._closed.is_set():
@@ -276,7 +283,11 @@ class _Exporter:
             with opener.open(request, timeout=EXPORT_TIMEOUT_SECONDS):
                 pass
         except OSError as exc:
-            logger.warning("trace export failed: %s", type(exc).__name__)
+            with self._lock:
+                self._export_failed += len(batch)
+            logger.warning(
+                "trace export failed (%d spans): %s", len(batch), type(exc).__name__
+            )
 
 
 _exporter: _Exporter | None = None
