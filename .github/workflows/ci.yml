@@ -127,6 +127,11 @@ jobs:
           CGO_ENABLED: "0"
         run: |
           set -euo pipefail
+          # Reproducibility: pin the one timestamp the Go linker honors to
+          # the commit epoch, so a binary built here is byte-identical to a
+          # local `make jobs-build` (the Makefile jobs-check does the same).
+          SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct)"
+          export SOURCE_DATE_EPOCH
           test -z "$(gofmt -l .)"
           go vet ./...
           go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" ./...

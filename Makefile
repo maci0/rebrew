@@ -1,5 +1,5 @@
 .PHONY: help doctor setup clean test test-one lint format format-check check build sbom all pr-check \
-	gen-fixtures gen-fixtures-check gen-skills gen-skills-check gen-flags gen-flags-check jobs-check \
+	gen-fixtures gen-fixtures-check gen-skills gen-skills-check gen-flags gen-flags-check jobs-check jobs-build \
 	cycles-check idempotency-check mypy audit \
 	cli-contract release-check coverage ensure-uv ensure-resembl ensure-nasm warn-nasm ensure-bun warn-bun warn-shellcheck \
 	warn-yamllint warn-biome \
@@ -1206,18 +1206,46 @@ smoke-wheel: require-dist ensure-uv
 # same checks.  GOTOOLCHAIN=local + GOFLAGS=-mod=readonly + GOPROXY/GOSUMDB=off
 # match CI's job env, so a local run never downloads a toolchain or mutates
 # go.mod/go.sum the way a plain `go build` on a drifted host would.
+#
+# The build is the reproducibility recipe, shared with the durable
+# `jobs-build` target below and with CI's jobs-service step: CGO off (the
+# module is stdlib-only), -trimpath and -buildvcs=false so neither the
+# checkout path nor the VCS state reaches the binary, -buildid= so no
+# Go build id is embedded, and SOURCE_DATE_EPOCH set so the one timestamp
+# the Go linker honors is pinned to the same epoch `make build` uses for
+# the wheel and sdist.  A binary built any other way carries the builder's
+# path, VCS stamp or clock and cannot be rebuilt byte-identically by a
+# second party, which loses the build-and-compare verification the
+# rebrew-jobs owner (an authenticated loopback service) is deployed with.
+#
+# Go 1.27.3 has no CGO hardening analogue for binaries: the pure-Go binary
+# is external-link free (CGO_ENABLED=0), so PIE / full RELRO / stack
+# protector flags that apply to the C helper in src/rebrew/compiler/unshare.py
+# do not apply here; the binary is not shipped in the wheel, and the job
+# discards the Windows cross-compile after the CGO_ENABLED=0 check.
 jobs-check: ensure-go
 	@set -eu; \
 	cd services/jobs; \
 	JOBS_TMP=$$(mktemp -d); \
 	trap 'rm -rf "$$JOBS_TMP"' EXIT; \
-	export GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOPROXY=off GOSUMDB=off; \
-	CGO_ENABLED=0 test -z "$$(gofmt -l .)"; \
-	CGO_ENABLED=0 go vet ./...; \
-	CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" ./...; \
-	GOOS=windows CGO_ENABLED=0 go vet ./...; \
-	GOOS=windows CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -o "$$JOBS_TMP/rebrew-jobs.exe" ./cmd/rebrew-jobs; \
-	CGO_ENABLED=1 go test -count=1 -race ./...
+	GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off test -z "$$(gofmt -l .)"; \
+	GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off CGO_ENABLED=0 go vet ./...; \
+	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -o "$$JOBS_TMP/rebrew-jobs" ./cmd/rebrew-jobs; \
+	GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off GOOS=windows CGO_ENABLED=0 go vet ./...; \
+	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off GOOS=windows CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -o "$$JOBS_TMP/rebrew-jobs.exe" ./cmd/rebrew-jobs; \
+	GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off CGO_ENABLED=1 go test -count=1 -race ./...
+
+# Durable, verifiable build of the rebrew-jobs binary.  Lives outside
+# jobs-check so a deploy can `make jobs-build` and hash the result
+# without running the full vet/race gate.  Keeps the exact flags jobs-check
+# uses, so the binary one builds for deployment is byte-identical to the
+# binary CI builds: same module source, same GO_VERSION, same flags,
+# same SOURCE_DATE_EPOCH.
+jobs-build: ensure-go
+	@set -eu; \
+	cd services/jobs; \
+	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -o ../rebrew-jobs ./cmd/rebrew-jobs; \
+	chmod 0755 ../rebrew-jobs
 
 # Run all non-mutating verification gates (mirrors CI lint + test +
 # cli-contract + jobs-service jobs: ruff, mypy, uv audit, pytest under the

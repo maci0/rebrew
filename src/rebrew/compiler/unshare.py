@@ -163,6 +163,12 @@ def _helper(root: Path) -> Path:
                 "-fdebug-prefix-map=" + str(Path.cwd()) + "=.",
                 "-fno-ident",
                 "-Wdate-time",
+                # The binary carries no build-id: a GNU build-id is a hash of
+                # the ELF contents, which differ between machines only when a
+                # prefix map or a toolchain revision differs, and the digest
+                # recorded below already identifies this exact output.  A
+                # build-id therefore only varies the binary it indexes.
+                "-Wl,--build-id=none",
                 "-s",
                 str(_SOURCE),
                 "-o",

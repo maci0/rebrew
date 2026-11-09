@@ -158,3 +158,4 @@ rebrew-metadata.sqlite3.lock
 
 # Generated drawio PNG exports (drawio -x -f png -p N)
 /docs/architecture-pages/
+/services/rebrew-jobs
