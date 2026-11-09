@@ -21,7 +21,7 @@ lazy from rebrew.metadata.bindings import (
     read_source_bindings,
 )
 lazy from rebrew.sources import iter_library_headers, iter_sources, scan_files
-lazy from rebrew.utils import preset_module_key, read_json_text
+lazy from rebrew.utils import parse_int_literal, preset_module_key, read_json_text
 
 # ---------------------------------------------------------------------------
 # Ghidra function loader
@@ -340,7 +340,7 @@ def parse_rizin_afl(text: str) -> list[tuple[int, int, str]]:
         four_col_size: int | None = None
         if len(p) >= 4:
             try:
-                four_col_size = int(p[2], 0)
+                four_col_size = parse_int_literal(p[2])
             except ValueError:
                 four_col_size = None
         if four_col_size is not None:
@@ -348,9 +348,9 @@ def parse_rizin_afl(text: str) -> list[tuple[int, int, str]]:
         elif len(p) >= 3:
             try:
                 # Rizin versions differ on size radix (decimal vs 0x-prefixed
-                # hex); int(x, 0) tolerates both without misreading plain
+                # hex); parse_int_literal tolerates both without misreading plain
                 # decimal as hex.
-                size = int(p[1], 0)
+                size = parse_int_literal(p[1])
             except ValueError:
                 continue
             name = p[2]

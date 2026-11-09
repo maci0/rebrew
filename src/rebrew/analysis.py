@@ -194,7 +194,9 @@ def resolve_capstone(value: str | int) -> int:
         return int(getattr(capstone, value))
     except AttributeError, TypeError:
         # A numeric string ("3" or "0x3") is a valid capstone constant.
-        return int(value, 0)
+        from rebrew.utils import parse_int_literal
+
+        return parse_int_literal(value)
 
 
 def disasm_insns(

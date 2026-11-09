@@ -577,7 +577,9 @@ def _check_E008_size_value(result: LintResult, metadata_size: str | None) -> Non
     if not metadata_size:
         return
     try:
-        int(metadata_size, 0)
+        from rebrew.utils import parse_int_literal
+
+        parse_int_literal(metadata_size)
     except ValueError:
         result.error(
             result.binding_line, "E008", f"metadata SIZE {metadata_size!r} is not an integer"

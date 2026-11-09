@@ -163,20 +163,22 @@ def bind(
     from rebrew.type_metadata import bind_type
 
     cfg = require_config(target=target, json_mode=json_output)
+    from rebrew.utils import parse_int_literal
+
     try:
         offsets: dict[str, int] = {}
         for field in fields:
             name, offset = field.split("=", 1)
             if name in offsets:
                 raise ValueError(f"duplicate member offset {name!r}")
-            offsets[name] = int(offset, 0)
+            offsets[name] = parse_int_literal(offset)
         report = bind_type(
             cfg,
             identity,
             file,
             symbol,
-            int(size, 0),
-            int(native_size, 0),
+            parse_int_literal(size),
+            parse_int_literal(native_size),
             extent,
             evidence,
             offsets,

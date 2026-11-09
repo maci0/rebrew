@@ -1062,7 +1062,9 @@ def _render_m2c_asm(info: Any, va: int, raw: bytes) -> str | None:
             parts = [part.strip() for part in ops.split(",")]
             for i in range(len(parts) - 1, -1, -1):
                 try:
-                    val = int(parts[i], 0)
+                    from rebrew.utils import parse_int_literal
+
+                    val = parse_int_literal(parts[i])
                 except ValueError:
                     continue
                 if val in labels:

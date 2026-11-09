@@ -150,7 +150,9 @@ def main(
         target_vs_int = int(target_vs_int)
     else:
         try:
-            target_vs_int = int(target_vs, 0)
+            from rebrew.utils import parse_int_literal
+
+            target_vs_int = parse_int_literal(target_vs)
         except ValueError:
             error_exit(
                 f"--target-vs must be an integer-like value (got {target_vs!r})",

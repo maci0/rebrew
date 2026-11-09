@@ -63,18 +63,20 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Print files ordered by their first function's original VA."""
+    from rebrew.utils import parse_int_literal
+
     table: dict[str, int] = {}
     for entry in first_va:
         name, sep, va = entry.partition("=")
         if not sep or not name or not va:
             # "file=0xVA" without a '=' (or an empty side) would feed "" to
-            # int("", 0) → a raw ValueError.
+            # parse_int_literal → a raw ValueError.
             error_exit(
                 f"--first-va {entry!r}: expected FILE=0xVA (e.g. zlib/adler32.c=0x10001000)",
                 json_mode=json_output,
             )
         try:
-            table[name] = int(va, 0)
+            table[name] = parse_int_literal(va)
         except ValueError:
             error_exit(
                 f"--first-va {entry!r}: cannot parse VA {va!r} as an integer",
@@ -97,7 +99,7 @@ def main(
                     json_mode=json_output,
                 )
             try:
-                value = int(va, 0)
+                value = parse_int_literal(va)
             except ValueError:
                 error_exit(
                     f"--first-va-file {first_va_file}:{lineno}: cannot parse VA {va!r}",

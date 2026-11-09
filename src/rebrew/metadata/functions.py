@@ -503,7 +503,7 @@ def validate_metadata_field(key: str, value: Any) -> Any:
             return value
         if isinstance(value, str):
             try:
-                size = int(value.strip(), 0)
+                size = parse_int_literal(value.strip())
             except ValueError:
                 raise ValueError(f"size must be an int, got {value!r}") from None
             if size < 0:
@@ -512,7 +512,7 @@ def validate_metadata_field(key: str, value: Any) -> Any:
         raise ValueError(f"size must be an int, got {value!r}")
     if key == "blocker_delta" and isinstance(value, str):
         with contextlib.suppress(ValueError):
-            return int(value.strip(), 0)
+            return parse_int_literal(value.strip())
         return value
     if key in {"origins", "verification"}:
         return validate_provenance_table(key, value)

@@ -58,6 +58,8 @@ def main(
 ) -> None:
     """Repair selected inventory extents; source metadata and verdicts stay separate."""
     cfg = require_config(target=target, json_mode=json_output)
+    from rebrew.utils import parse_int_literal
+
     updates: dict[int, int] = {}
     merge_pairs: list[tuple[int, int]] = []
     try:
@@ -65,7 +67,7 @@ def main(
             address, separator, value = spec.partition("=")
             if not separator:
                 raise ValueError("extent repairs require 0xVA=SIZE")
-            va, size = parse_va(address, json_mode=json_output), int(value, 0)
+            va, size = parse_va(address, json_mode=json_output), parse_int_literal(value)
             if va in updates and updates[va] != size:
                 raise ValueError(f"conflicting sizes for 0x{va:x}")
             updates[va] = size

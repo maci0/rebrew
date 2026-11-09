@@ -298,7 +298,9 @@ def patch_data_fields(
                 raise ValueError(f"{option} wants 0xVA={placeholder}, got {spec!r}")
             va = int(va_s, 16)
             if field == "size":
-                value = int(value, 0)
+                from rebrew.utils import parse_int_literal
+
+                value = parse_int_literal(value)
                 if value <= 0:
                     raise ValueError(f"{option} wants a positive byte count, got {text!r}")
             elif field == "name" and not is_safe_c_ident(value):

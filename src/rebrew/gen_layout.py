@@ -641,12 +641,14 @@ def main(
             ),
         )
         if data_gap:
+            from rebrew.utils import parse_int_literal
+
             write(
                 Path("crt_region/data_restore.c"),
                 gen_data_restore(
                     data,
                     target_module_name,
-                    int(data_gap, 0),
+                    parse_int_literal(data_gap),
                     syntax=getattr(cfg, "address_comments", None),
                 ),
             )

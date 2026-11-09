@@ -176,8 +176,8 @@ def blocker_set(
     delta_int: int | None = None
     if delta is not None:
         try:
-            delta_int = parse_int_literal(delta)
-        except ValueError, TypeError:
+            delta_int = parse_int_literal(delta.strip())
+        except (ValueError, TypeError):
             error_exit(
                 f"Invalid --delta value: {delta!r} (expected integer)", json_mode=json_output
             )

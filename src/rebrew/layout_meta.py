@@ -496,7 +496,9 @@ def _parse_sparse(text: str) -> list[tuple[int, ...]]:
         line = line.strip()
         if not line or line.startswith("#"):
             continue
-        out.append(tuple(int(x, 0) for x in line.split()))
+        from rebrew.utils import parse_int_literal
+
+        out.append(tuple(parse_int_literal(x) for x in line.split()))
     return out
 
 

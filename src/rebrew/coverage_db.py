@@ -24,6 +24,7 @@ from rebrew.metadata.data import (
     DATA_STATUS_VERIFIED,
 )
 from rebrew.workspace.status import COVERAGE_DB_STATUSES, KNOWN_STATUSES
+from rebrew.utils import parse_int_literal as _parse_int_literal
 lazy from rebrew.cli import (
     console,
     error_exit,
@@ -104,7 +105,7 @@ def _coerce_int(value: Any) -> int | None:
         if not s or "_" in s or not s.isascii():
             return None
         try:
-            parsed = int(s, 0)
+            parsed = _parse_int_literal(s)
         except ValueError:
             return None
     else:
@@ -491,11 +492,11 @@ def import_verify_rows(
     for va_key, item in entries.items():
         if not isinstance(item, dict):
             continue
-        # int(str(...), 0), not parse_int: this spelling keeps a negative VA by
+        # parse_int_literal, not parse_int: this spelling keeps a negative VA by
         # clamping it to 0 below, where parse_int would drop the row, and it
         # rejects a float VA the same way it rejects a non-numeric one.
         try:
-            va_int = int(str(item.get("va", va_key)), 0)
+            va_int = _parse_int_literal(str(item.get("va", va_key)))
         except (ValueError, TypeError) as exc:
             # The whole-wipe guard below covers an entries table that yields
             # nothing; one unreadable VA would still silently drop that row

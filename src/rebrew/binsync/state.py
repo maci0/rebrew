@@ -1598,7 +1598,7 @@ def _enum_members(definition: str) -> dict[str, int]:
             ident, _, literal = entry.partition("=")
             ident = ident.strip()
             try:
-                value = int(literal.strip(), 0)
+                value = parse_int_literal(literal.strip())
             except ValueError:
                 return {}
         else:
