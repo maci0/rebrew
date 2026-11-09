@@ -1655,10 +1655,18 @@ def _promote_already_matched(cfg: Any, ann: Any, new_status: str) -> None:
         )
         return
 
-    patch_verify_cache_entries(
-        cfg,
-        [{"va": ann.va, "status": new_status, "match_percent": 100.0, "delta": 0}],
-    )
+    try:
+        patch_verify_cache_entries(
+            cfg,
+            [{"va": ann.va, "status": new_status, "match_percent": 100.0, "delta": 0}],
+        )
+    except Exception:  # metadata already promoted; a cache failure must not fail the prove flow
+        log.warning(
+            "verify-cache patch failed for %s 0x%x (status may be stale)",
+            ann.module,
+            ann.va,
+            exc_info=True,
+        )
 
 
 @dataclass

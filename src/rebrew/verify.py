@@ -2263,7 +2263,8 @@ def patch_cache_from_results(cfg: Any, v_results: list[dict[str, Any]]) -> None:
     for r in v_results:
         try:
             va_int = int(r["va"], 16)
-        except ValueError, TypeError, KeyError:
+        except (ValueError, TypeError, KeyError) as exc:
+            log.warning("verify-cache patch skipped for malformed result %r: %s", r.get("va"), exc)
             continue
         if r.get("status") == "INTERNAL_ERROR":
             continue

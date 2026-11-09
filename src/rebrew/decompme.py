@@ -597,7 +597,13 @@ def read_uploads(root: Path) -> dict[str, dict[str, str]]:
         return {}
     try:
         data = json.loads(raw)
-    except ValueError:
+    except ValueError as exc:
+        log.warning(
+            "decomp.me upload ledger %s is corrupt (%s); ignoring it — "
+            "the next upload will create a duplicate scratch",
+            _uploads_path(root),
+            exc,
+        )
         return {}
     if not isinstance(data, dict):
         return {}
