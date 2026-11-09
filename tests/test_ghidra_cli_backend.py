@@ -230,6 +230,37 @@ class TestApplyCommandsViaCli:
         assert ok == 0
         assert errs == 1
 
+    def test_unrelated_already_exists_counts_as_failure(self, monkeypatch) -> None:
+        def fake_run(argv, capture_output=False, text=False, timeout=None, **_kwargs):
+            return type(
+                "P",
+                (),
+                {"returncode": 1, "stdout": "", "stderr": "output file already exists on disk"},
+            )()
+
+        monkeypatch.setattr("rebrew.ghidra.cli_backend.run_process_group", fake_run)
+        ok, errs = apply_commands_via_cli(
+            [{"tool": "create-label", "args": {"addressOrSymbol": "0x1", "labelName": "x"}}],
+            program="",
+        )
+        assert ok == 0
+        assert errs == 1
+
+    def test_double_run_matches_single_run(self, monkeypatch) -> None:
+        def fake_run(argv, capture_output=False, text=False, timeout=None, **_kwargs):
+            return type(
+                "P",
+                (),
+                {"returncode": 1, "stdout": "", "stderr": "DuplicateNameException: already exists"},
+            )()
+
+        monkeypatch.setattr("rebrew.ghidra.cli_backend.run_process_group", fake_run)
+        ops = [{"tool": "create-label", "args": {"addressOrSymbol": "0x1", "labelName": "x"}}]
+        first = apply_commands_via_cli(ops, program="")
+        second = apply_commands_via_cli(ops, program="")
+        assert first == (1, 0)
+        assert second == first
+
     def test_timeout_kills_ghidra_cli_grandchildren(self, tmp_path: Path) -> None:
         """A timed-out op counts as an error and its JVM-like grandchild dies
         with it instead of outliving the sync loop."""
