@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.26.0] - 2026-11-09
+
 ### Fixed
 
 - `parse_msvc_preprocessed` no longer reads the quoted path of a `#line` marker as a string literal: a path ending in a backslash (`#line 0 "\"`) made the literal swallow the next marker and the body, which the view then masked as `x`.
