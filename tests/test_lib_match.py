@@ -543,6 +543,23 @@ class TestMatchBytesRelocGuard:
         }
         assert match_leading_body(index, CODE) == [("read", "r.obj"), ("write", "w.obj")]
 
+    @pytest.mark.parametrize("leading", [False, True])
+    def test_unmasked_mismatch_rejects_when_all_relocs_are_in_window(self, leading: bool) -> None:
+        """Relocation masks cover only their own offsets: a body that differs at an
+        unmasked byte is not a match even when every reloc lies inside the window."""
+        from rebrew.lib_match import match_bytes, match_leading_body
+
+        data = bytes(range(16))
+        body = bytearray(data)
+        body[12] ^= 0xFF
+        index = {"sym": [("obj", bytes(body), {0, 1, 2, 3})]}
+        match = match_leading_body if leading else match_bytes
+        assert match(index, data) == []
+        body[12] = data[12]
+        body[2] ^= 0xFF  # a differing byte under a mask is still a match
+        index = {"sym": [("obj", bytes(body), {0, 1, 2, 3})]}
+        assert match(index, data) == [("sym", "obj")]
+
     def test_relocs_beyond_window_do_not_reject_a_match(self) -> None:
         """Reloc offsets past the compared window must not tighten the
         mostly-relocation guard: only masks inside [0, len(data)) matter."""

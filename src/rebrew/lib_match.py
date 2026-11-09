@@ -45,6 +45,8 @@ a pre-commit or CI gate.
 
 from __future__ import annotations
 
+from itertools import compress, count
+from operator import ne
 from pathlib import Path
 lazy import json
 lazy import logging
@@ -132,6 +134,15 @@ def index_library(path: Path) -> Index:
     return index
 
 
+def _equal_under_mask(data: bytes, body: bytes, masked: set[int]) -> bool:
+    """True when *data* and *body* differ only at *masked* offsets.
+
+    Compares the shorter of the two; the scan stops at the first unmasked
+    mismatch.
+    """
+    return all(i in masked for i in compress(count(), map(ne, data, body, strict=False)))
+
+
 def match_bytes(index: Index, data: bytes) -> list[tuple[str, str]]:
     """Return candidate ``(symbol, object)`` pairs matching fixed bytes.
 
@@ -154,9 +165,7 @@ def match_bytes(index: Index, data: bytes) -> list[tuple[str, str]]:
             # Only reloc offsets inside the compared window mask a byte here;
             # relocs past len(data) (a longer library body) must not make the
             # mostly-relocation guard stricter than the comparison itself.
-            if not (relocs and min(relocs) >= 0 and max(relocs) < len(data)) and not all(
-                i in relocs or data[i] == body[i] for i in range(len(data))
-            ):
+            if not _equal_under_mask(data, body, relocs):
                 continue
             fixed_count = len(data) - sum(1 for i in relocs if 0 <= i < len(data))
             if fixed_count < MIN_FIXED_FRACTION * len(data):
@@ -207,9 +216,7 @@ def match_leading_body(index: Index, data: bytes) -> list[tuple[str, str]]:
             if n < MIN_BYTES or n > len(data) or n < best_size:
                 continue
             if relocs:
-                if (min(relocs) < 0 or max(relocs) >= n) and not all(
-                    i in relocs or data[i] == body[i] for i in range(n)
-                ):
+                if not _equal_under_mask(data, body, relocs):
                     continue
                 matched = n - sum(1 for i in relocs if 0 <= i < n) >= MIN_FIXED_FRACTION * n
             else:
