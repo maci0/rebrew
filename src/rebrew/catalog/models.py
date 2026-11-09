@@ -93,8 +93,8 @@ class FunctionEntry:
         return cls(
             va=va,
             size=size,
-            name=str(d.get("name") or d.get("ghidra_name") or d.get("tool_name", "")),
-            tool_name=str(d.get("tool_name") or d.get("ghidra_name", "")),
+            name=_coerce_str(d.get("name") or d.get("ghidra_name") or d.get("tool_name", "")),
+            tool_name=_coerce_str(d.get("tool_name") or d.get("ghidra_name", "")),
         )
 
 

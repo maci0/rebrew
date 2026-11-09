@@ -351,6 +351,8 @@ class StatusReport:
             }
         if self.file_missing_raw_link:
             d["missing_raw_link"] = self.file_missing_raw_link
+        if self.load_error:
+            d["load_error"] = self.load_error
         return d
 
 
