@@ -1550,12 +1550,16 @@ def describe(config: WorkerConfig, req: AddressRequest) -> dict[str, Any]:
 
 def decompile(config: WorkerConfig, req: DecompileRequest) -> dict[str, Any]:
     """Decompiled source of ``va``; ``named`` applies the project's known struct names."""
+    from rebrew.analysis import is_inside
     from rebrew.decompiler import fetch_decompilation
+    from rebrew.formats.binary_loader import load_binary
 
     if req.backend not in DECOMPILER_BACKENDS:
         raise _invalid(f"unsupported decompiler backend: {req.backend}")
     cfg = target_config(project_root(config, req.project_dir), req.sha256)
     va = _address(req.va)
+    if not is_inside(load_binary(cfg.target_binary), va):
+        raise _invalid(f"VA 0x{va:x} is outside the binary image")
     code, backend = fetch_decompilation(req.backend, cfg.target_binary, va, cfg.root)
     if not code:
         raise _refused(
@@ -3248,7 +3252,9 @@ def retained_source_operation(config: WorkerConfig, req: SnapshotMutationRequest
 
 def decompile_snapshot(config: WorkerConfig, req: DecompileSnapshotRequest) -> dict[str, Any]:
     """Run the operation over a verified retained snapshot."""
+    from rebrew.analysis import is_inside
     from rebrew.decompiler import fetch_decompilation
+    from rebrew.formats.binary_loader import load_binary
     from rebrew.name_decomp import apply_known_names
     from rebrew.named_snapshot import retained_snapshot
     from rebrew.sources import iter_library_headers, iter_sources
@@ -3258,6 +3264,8 @@ def decompile_snapshot(config: WorkerConfig, req: DecompileSnapshotRequest) -> d
         raise _invalid("invalid retained decompilation request")
     va = _address(req.va)
     with retained_snapshot(config, req) as (root, cfg, retained, verify_files):
+        if not is_inside(load_binary(cfg.target_binary), va):
+            raise _invalid(f"VA 0x{va:x} is outside the binary image")
         sources = [
             *iter_sources(cfg.reversed_dir, cfg),
             *iter_library_headers(cfg.reversed_dir, cfg),

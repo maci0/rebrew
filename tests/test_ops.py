@@ -318,6 +318,21 @@ class TestFunctionOps:
             "VA 0x10 is outside the binary image"
         )
 
+    def test_decompile_refuses_an_address_outside_the_image(
+        self, world: tuple[WorkerConfig, Path]
+    ) -> None:
+        # Same 400 the describe op gives for the same client mistake; the
+        # engine error (500) is reserved for a valid address the backend
+        # cannot decompile, not for an address outside the image.
+        config, project = world
+        request = {**self._address(project), "va": 0x10, "backend": "auto", "named": False}
+        refusal = _refusal(config, "rebrew.decompile", json.dumps(request).encode())
+        assert (refusal["error"], refusal["status"], refusal["detail"]) == (
+            "invalid-request",
+            400,
+            "VA 0x10 is outside the binary image",
+        )
+
     def test_decompile(self, world: tuple[WorkerConfig, Path]) -> None:
         config, project = world
         request = {**self._address(project), "backend": "auto", "named": True}
