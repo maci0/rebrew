@@ -143,6 +143,9 @@ def ga_runs_dir(cfg: ProjectConfig, rel: Path | None = None) -> Path:
 _MUTATION_FOCUS_CATEGORIES = ("register", "equivalent", "structural")
 MUTATION_FOCUS_WEIGHT = 6.0
 
+#: ``NEAR_MATCHING — <category> (`` marker in a BLOCKER string.
+_NEAR_MATCHING_RE = re.compile(r"NEAR_MATCHING — (REGISTER|EQUIVALENT|STRUCTURAL) \(")
+
 #: Generations between full-population checkpoint writes (an interrupted run
 #: redoes at most this many generations of deterministic work).
 _CHECKPOINT_INTERVAL = 5
@@ -207,7 +210,7 @@ def mutation_focus_weights(
     if focus == "auto":
         if not blocker:
             return None
-        m = re.search(r"NEAR_MATCHING — (REGISTER|EQUIVALENT|STRUCTURAL) \(", blocker)
+        m = _NEAR_MATCHING_RE.search(blocker)
         focus = m.group(1).lower() if m else None
     if focus not in _MUTATION_FOCUS_CATEGORIES:
         return None

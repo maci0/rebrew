@@ -109,13 +109,16 @@ _EXTERN_NAME_BRACKET_RE = re.compile(r"(\w+)\s*[\[\(]")
 _EXTERN_NAME_TAIL_RE = re.compile(r"(\w+)\s*$")
 _ARG_NAME_RE = re.compile(r"\b[a-z_]\w*(?=\s*[,)])")
 _INTRINSIC_ARGS_RE = re.compile(r"intrinsic\s*\(([^)]+)\)")
+_EXTERN_PREFIX_RE = re.compile(r"^\s*extern\s+")
+_WS_RUN_RE = re.compile(r"\s+")
+_NEWLINE_RE = re.compile(r"\r\n|\r|\n")
 
 
 def _extern_key(decl: str) -> str:
     """Whitespace and ``extern`` insensitive form, for identity comparison."""
     d = _BLOCK_COMMENT_RE.sub("", decl.strip().rstrip(";").strip())
-    d = re.sub(r"^\s*extern\s+", "", d)
-    return re.sub(r"\s+", " ", d).strip()
+    d = _EXTERN_PREFIX_RE.sub("", d)
+    return _WS_RUN_RE.sub(" ", d).strip()
 
 
 def _extract_extern_name(decl: str) -> str | None:
@@ -930,7 +933,7 @@ def _compose_definitions(
             parts.append(text.strip("\r\n"))
     merged_text = "\n\n".join(parts) + "\n"
     if input_eol == "\r\n":
-        merged_text = re.sub(r"\r\n|\r|\n", input_eol, merged_text)
+        merged_text = _NEWLINE_RE.sub(input_eol, merged_text)
     return merged_text
 
 

@@ -30,6 +30,12 @@ _VOLATILE = re.compile(r"\b__(?:DATE|TIME|TIMESTAMP)__\b")
 #: (``path_identity``/``is_symlink``) still runs before the open.
 _O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 
+#: Windows drive-letter prefix (``C:``) in an include spelling.
+_DRIVE_PREFIX_RE = re.compile(r"^[A-Za-z]:")
+
+#: MSVC ignored-option diagnostic ids (D4002/D4024/D4027/D9002).
+_MSVC_IGNORED_OPT_RE = re.compile(r"\bD(?:4002|4024|4027|9002)\b")
+
 
 def _read_nofollow(path: Path) -> bytes:
     """Read *path* bytes, refusing a final-component symlink where the OS allows it."""
@@ -67,7 +73,7 @@ def _check_include_spellings(raw: bytes) -> None:
     for _, name in include_specs(raw.decode("utf-8", "surrogateescape")):
         if "\\" in name:
             raise ValueError("backslash include spellings require compiler-specific review")
-        if name.startswith("/") or re.match(r"^[A-Za-z]:", name):
+        if name.startswith("/") or _DRIVE_PREFIX_RE.match(name):
             raise ValueError("rooted include spellings require compiler-specific review")
 
 
@@ -466,7 +472,7 @@ def capture_msvc_context(
             artifact = workdir / (source.stem + ".i")
             if result.returncode != 0 or not artifact.is_file():
                 raise ValueError(f"MSVC preprocessing failed: {result.stdout}\n{result.stderr}")
-            if re.search(r"\bD(?:4002|4024|4027|9002)\b", result.stdout + "\n" + result.stderr):
+            if _MSVC_IGNORED_OPT_RE.search(result.stdout + "\n" + result.stderr):
                 raise ValueError("MSVC ignored or rejected an input option during preprocessing")
             expanded = artifact.read_bytes()
             markers = _reported_inputs(

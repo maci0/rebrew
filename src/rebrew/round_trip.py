@@ -86,6 +86,9 @@ app = typer.Typer(
     epilog=_EPILOG,
 )
 
+#: Trailing hex run in a Ghidra auto-name (``_g_1003546c``).
+_TRAILING_HEX_RE = re.compile(r"([0-9a-fA-F]+)$")
+
 
 @app.callback(invoke_without_command=True)
 def main(
@@ -423,7 +426,7 @@ def _name_encoded_va(symbol: str) -> int | None:
     """
     if symbol.startswith("$"):
         return None
-    m = re.search(r"([0-9a-fA-F]+)$", symbol)
+    m = _TRAILING_HEX_RE.search(symbol)
     if not m:
         return None
     suffix = m.group(1)

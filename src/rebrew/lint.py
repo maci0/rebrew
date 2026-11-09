@@ -106,6 +106,8 @@ DEFAULT_FUNC_NAME_PATTERNS = [
 _FUNC_DEF_STYLE_RE = re.compile(
     r"([a-zA-Z_][a-zA-Z0-9_]*)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\([^)]*\)\s*\{"
 )
+_TYPE_SPELLING_RE = re.compile(r"\s*([^\w\s])\s*")
+_EXTERN_DECL_RE = re.compile(r"\s*extern\b")
 
 
 @dataclass
@@ -930,7 +932,7 @@ def _check_W036_stray_metadata_store(cfg: ProjectConfig) -> list[LintResult]:
 
 def _type_spelling(text: str) -> str:
     """*text* with whitespace collapsed and dropped beside punctuation."""
-    return re.sub(r"\s*([^\w\s])\s*", r"\1", " ".join(text.split()))
+    return _TYPE_SPELLING_RE.sub(r"\1", " ".join(text.split()))
 
 
 def _check_W037_data_definition(
@@ -995,7 +997,7 @@ def _check_W037_data_definition(
     def source_extent(name: str, *, span: bool) -> tuple[str, int, int] | None:
         """``(type, bytes, line)`` of *name*'s definition (or span view) here."""
         named = [v for v in variables if v.name == name]
-        externs = [v for v in named if re.match(r"\s*extern\b", v.declaration)]
+        externs = [v for v in named if _EXTERN_DECL_RE.match(v.declaration)]
         if name in defined:
             candidates = [v for v in named if v not in externs] or externs
         elif span:

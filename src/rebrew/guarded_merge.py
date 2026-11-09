@@ -24,6 +24,9 @@ _CALLING_CONVENTION_RE = re.compile(
     rb"\b(?:__cdecl|__stdcall|__fastcall|_cdecl|_stdcall|_fastcall)\b"
 )
 
+#: Leading identifier of a compiler macro flag value.
+_MACRO_NAME_RE = re.compile(r"[A-Za-z_]\w*")
+
 
 def prepare_guarded_inputs(
     readings: dict[Path, tuple[str, str]],
@@ -287,7 +290,7 @@ def validate_guarded_flags(
                                     "guarded interleave cannot parse compiler macro flags"
                                 )
                             value = flags[index]
-                        match = re.match(r"[A-Za-z_]\w*", value.strip("\"'"))
+                        match = _MACRO_NAME_RE.match(value.strip("\"'"))
                         if not match:
                             raise ValueError("guarded interleave cannot parse compiler macro flags")
                         if match.group() in names or (

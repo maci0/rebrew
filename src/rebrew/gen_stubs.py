@@ -145,6 +145,22 @@ _WIDE_PARAM_RE = re.compile(r"\b(?:double|struct|union|__int64)\b|long\s+double|
 #: fixed, so compiling it per parameter was repeated work.
 _IDENT_MATCH_RE = re.compile(r"^[a-zA-Z_]\w*$")
 
+#: Macro words needing a TU-local definition in generated stubs.
+_WINAPI_MACRO_RE = re.compile(r"\b(?:WINAPI|CALLBACK|APIENTRY)\b")
+
+#: ``static`` keyword on the prefix before a function body.
+_STATIC_PREFIX_RE = re.compile(r"\bstatic\b")
+
+#: Identifier scan (no anchors) for collecting used names in a parameter list.
+_IDENT_SCAN_RE = re.compile(r"\b[A-Za-z_]\w*\b")
+
+#: ``(*name[N])`` pointer-array declarator (``CALLING_CONVENTION`` is rebrew.c_parser's).
+_PAREN_ARRAY_DECL_RE = re.compile(
+    r"(.*?)\(\s*" + CALLING_CONVENTION + r"(\**)\s*((?:(?:const|volatile)\b\s*)*)(\w+)\s*"
+    r"((?:\[(?:[^\[\]]|\[[^\]]*\])*\])+)\)"
+    r"(?:\s*(?:\[(?:[^\[\]]|\[[^\]]*\])*\])+)?\s*(?:\(.*\))?\s*$",
+)
+
 
 def _stdcall_param_slots(params: str | None) -> int | None:
     """Top-level parameter count when each parameter is one 32-bit slot.
@@ -380,12 +396,7 @@ def parse_extern_decl(decl: str) -> dict[str, typing.Any] | None:
     # ``(* const name[N])`` keeps the qualifier on the pointer type.
     # ``(*name)[N]`` is a pointer to an array and does not match: the
     # brackets sit outside the parentheses, and none sit inside.
-    m = re.match(
-        r"(.*?)\(\s*" + CALLING_CONVENTION + r"(\**)\s*((?:(?:const|volatile)\b\s*)*)(\w+)\s*"
-        r"((?:\[(?:[^\[\]]|\[[^\]]*\])*\])+)\)"
-        r"(?:\s*(?:\[(?:[^\[\]]|\[[^\]]*\])*\])+)?\s*(?:\(.*\))?\s*$",
-        rest,
-    )
+    m = _PAREN_ARRAY_DECL_RE.match(rest)
     if m:
         var_type = m.group(1).strip()
         stars = m.group(2)
@@ -865,7 +876,7 @@ def _split_type_name(part: str) -> tuple[str, str | None]:
     while last.startswith("*"):
         stars += "*"
         last = last[1:]
-    if not last or not re.match(r"^[A-Za-z_]\w*$", last):
+    if not last or not _IDENT_MATCH_RE.match(last):
         return part, None
     if last in _C_PRIMITIVES | {"struct"}:
         return part, None
@@ -933,7 +944,7 @@ def ensure_param_names(params_str: str) -> str:
         return params_str
     parts = _split_params(params_str)
 
-    used_names = set(re.findall(r"\b[A-Za-z_]\w*\b", params_str))
+    used_names = set(_IDENT_SCAN_RE.findall(params_str))
     param_names = "abcdefghijklmnop"
     result_parts = []
     for i, part in enumerate(parts):
@@ -1214,7 +1225,7 @@ def generate_stubs(
             lines.append("}")
         lines.append("")
 
-    if any(re.search(r"\b(?:WINAPI|CALLBACK|APIENTRY)\b", line) for line in lines):
+    if any(_WINAPI_MACRO_RE.search(line) for line in lines):
         # Those words are macros. A definition that uses the bare word is a
         # syntax error unless this TU defines them.
         include_at = lines.index("#include <time.h>") + 1
@@ -1564,8 +1575,8 @@ def _update_selected_stubs(
                 or nodes[0].has_error
                 or (
                     node is None
-                    and re.search(
-                        r"\bstatic\b", impl[: nodes[0].child_by_field_name("body").start_byte]
+                    and _STATIC_PREFIX_RE.search(
+                        impl[: nodes[0].child_by_field_name("body").start_byte]
                     )
                 )
                 or impl.startswith("extern ")

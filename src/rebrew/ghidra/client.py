@@ -704,6 +704,9 @@ def fetch_all_functions(
     ]
 
 
+#: Hex address literal in error text / op args.
+_HEX_ADDR_RE = re.compile(r"0x[0-9a-fA-F]+")
+
 _ALREADY_EXISTS_PATTERNS: tuple[re.Pattern[str], ...] = (
     # ReVa/Ghidra "already exists" failures name the operation and the
     # address: never substring-match unrelated errors (e.g. a log line that
@@ -758,11 +761,11 @@ def is_idempotent_success(op: dict[str, Any] | None, error_msg: str) -> bool:
     op_addrs: set[int] = set()
     if isinstance(args, dict):
         for v in args.values():
-            if isinstance(v, str) and re.fullmatch(r"0x[0-9a-fA-F]+", v.strip()):
+            if isinstance(v, str) and _HEX_ADDR_RE.fullmatch(v.strip()):
                 op_addrs.add(int(v.strip(), 16))
     # Compare addresses numerically: the server may echo ``0x1000`` for an op
     # that carries ``0x00001000`` (and vice versa).
-    text_addrs = {int(a, 16) for a in re.findall(r"0x[0-9a-fA-F]+", text)}
+    text_addrs = {int(a, 16) for a in _HEX_ADDR_RE.findall(text)}
     # A different address named → the error is about something else.
     if not text_addrs <= op_addrs:
         return False

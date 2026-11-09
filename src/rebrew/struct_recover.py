@@ -346,10 +346,13 @@ _SEMANTIC_VAR_RE = re.compile(
     r"^(?:this|self|it|(?:p|lp)[A-Z][A-Za-z0-9_]*|[a-z]+[A-Z][A-Za-z0-9_]*)$"
 )
 
+#: Hungarian ``pX`` / ``lpX`` prefix (lookahead requires an uppercase letter).
+_HUNGARIAN_PREFIX_RE = re.compile(r"^(?:lp|p)(?=[A-Z])")
+
 
 def _type_name_from_var(var: str) -> str:
     """Strip a Hungarian pointer prefix (``pX`` / ``lpX``) from *var*."""
-    m = re.match(r"^(?:lp|p)(?=[A-Z])", var)
+    m = _HUNGARIAN_PREFIX_RE.match(var)
     return var[m.end() :] if m else var
 
 

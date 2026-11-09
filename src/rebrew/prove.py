@@ -238,7 +238,7 @@ def _apply_arg_constraints(
         return sym
 
     for key, spec in constraints.items():
-        m = re.match(r"arg(\d+)$", key)
+        m = _ARG_KEY_RE.match(key)
         if not m or int(m.group(1)) >= len(sym_args):
             continue
         idx = int(m.group(1))
@@ -347,6 +347,9 @@ _PROTO_RE = re.compile(
 _SPECIFIER_RE = re.compile(
     r"^(?:static|extern|inline|register|auto|const|volatile)\s+", re.IGNORECASE
 )
+
+#: ``arg<N>`` constraint key.
+_ARG_KEY_RE = re.compile(r"arg(\d+)$")
 
 
 def _strip_type_specifiers(type_text: str) -> str:

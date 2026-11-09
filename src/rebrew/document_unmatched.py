@@ -49,6 +49,9 @@ app = typer.Typer(
     ),
 )
 
+#: Trailing ``fcn_<8 hex>`` in a stub file stem.
+_FCN_STEM_RE = re.compile(r"fcn_([0-9a-fA-F]{8})$")
+
 #: compiler profile -> blocker family ("" = generic application code).
 _PROFILE_FAMILY: dict[str, str] = {
     "mingw-16.2.0": "mingw",
@@ -72,7 +75,7 @@ def _documented_vas(src_dir: Path, cfg: Any) -> set[int]:
     # A tree that names its files per target (``GOLDTL.fcn_0040e920.c``) must
     # count too, so match the trailing ``fcn_<8 hex>`` in either shape.
     for stub in (*src_dir.glob("fcn_*.c"), *src_dir.glob("*.fcn_*.c")):
-        m = re.search(r"fcn_([0-9a-fA-F]{8})$", stub.stem)
+        m = _FCN_STEM_RE.search(stub.stem)
         if m:
             documented.add(int(m.group(1), 16))
     return documented
