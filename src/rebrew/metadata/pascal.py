@@ -2,6 +2,13 @@
 
 lazy import re
 
+#: Hoisted token/ident patterns: compiled once at module load rather than per
+#: ``finditer``/``fullmatch`` call.  The per-byte scan below previously built
+#: 1-2 byte slices (``source[i:i+1]``) per byte plus a pattern per token.
+_TOKEN_RE = re.compile(rb"[A-Za-z_][A-Za-z_0-9]*|[^\s]")
+_IDENT_RE = re.compile(rb"[A-Za-z_][A-Za-z_0-9]*")
+_QUOTE = 0x27  # ord("'")
+
 
 def pascal_syntax(
     source: bytes,
@@ -15,14 +22,15 @@ def pascal_syntax(
     masked = bytearray(source)
     comments: list[tuple[int, int]] = []
     i = 0
-    while i < len(source):
+    n = len(source)
+    while i < n:
         start = i
-        if source[i : i + 1] == b"'":
+        if source[i] == _QUOTE:
             i += 1
-            while i < len(source):
-                if source[i : i + 1] == b"'":
+            while i < n:
+                if source[i] == _QUOTE:
                     i += 1
-                    if source[i : i + 1] != b"'":
+                    if i >= n or source[i] != _QUOTE:
                         break
                 i += 1
         elif source[i : i + 1] == b"{" or source[i : i + 2] in (b"(*", b"//"):
@@ -42,19 +50,19 @@ def pascal_syntax(
             if masked[j] not in (10, 13):
                 masked[j] = 32
 
-    tokens = list(re.finditer(rb"[A-Za-z_][A-Za-z_0-9]*|[^\s]", masked))
+    tokens = list(_TOKEN_RE.finditer(masked))
     words = [token[0].lower() for token in tokens]
     implementation = words.index(b"implementation") if b"implementation" in words else -1
     is_unit = bool(words and words[0] == b"unit")
     declarations: dict[int, list[tuple[str, str, str]]] = {}
-    for n, word in enumerate(words):
+    for idx, word in enumerate(words):
         if word not in (b"procedure", b"function", b"constructor", b"destructor"):
             continue
-        if is_unit and (implementation < 0 or n < implementation):
+        if is_unit and (implementation < 0 or idx < implementation):
             continue
-        j = n + 1
+        j = idx + 1
         name: list[bytes] = []
-        if j >= len(tokens) or not re.fullmatch(rb"[A-Za-z_][A-Za-z_0-9]*", tokens[j][0]):
+        if j >= len(tokens) or not _IDENT_RE.fullmatch(tokens[j][0]):
             continue
         name.append(tokens[j][0])
         j += 1
@@ -96,6 +104,6 @@ def pascal_syntax(
             b"function",
         ):
             continue
-        line = source.count(b"\n", 0, tokens[n].start()) + 1
+        line = source.count(b"\n", 0, tokens[idx].start()) + 1
         declarations.setdefault(line, []).append((b"".join(name).decode("ascii"), "FUNCTION", ""))
     return masked, comments, declarations

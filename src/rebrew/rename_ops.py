@@ -1787,6 +1787,11 @@ def _apply_coordinated_rename(cfg: ProjectConfig, plan: RenamePlan, metadata_dir
         else set()
     )
     root = _root(cfg)
+    # One snapshot; validators re-scan so a concurrent create/delete is seen.
+    # The win is avoiding three identical full walks for the unchanged case:
+    # validate() and validate_after() compare against the snapshot, and only
+    # re-walk when the snapshot would be stale — the snapshot itself is one
+    # rglob, not three.
     response_files = (
         {p.resolve() for p in (root / "layout").rglob("*.rsp")}
         if plan.input_hashes and root is not None

@@ -310,6 +310,10 @@ _CAST_PTR_RE = re.compile(r"\(\s*[A-Za-z_]\w*(?:\s+\w+)*?\s*\*\s*\)\s*(?P<var>[A
 #: ``var[i]`` / ``&var[i]`` uses — pointer evidence for item 15's gate.
 _INDEX_USE_RE = re.compile(r"&?\s*(?P<var>[A-Za-z_]\w*)\s*\[\s*(?:0x[0-9a-fA-F]+|\d+)\s*\]")
 
+#: Token scan for the cast-index word-count walk; hoisted so the inner loop
+#: does not recompile the pattern on every call.
+_WORD_TOKEN_RE = re.compile(r"\w+")
+
 
 @lru_cache(maxsize=64)
 def _word_count_re(var: str) -> re.Pattern[str]:
@@ -414,9 +418,9 @@ def apply_known_names(
             if word_counts is None:
                 # One token walk answers the \bvar\b count for every param
                 # var; the per-var regex scan was O(params x text).
-                if all(re.fullmatch(r"\w+", v) for v in params):
+                if all(_WORD_TOKEN_RE.fullmatch(v) for v in params):
                     word_counts = {}
-                    for wm in re.finditer(r"\w+", text):
+                    for wm in _WORD_TOKEN_RE.finditer(text):
                         w = wm.group()
                         if w in params:
                             word_counts[w] = word_counts.get(w, 0) + 1
