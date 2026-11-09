@@ -1214,7 +1214,11 @@ def _store_disk_name_map(
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_text(path, json.dumps(payload, sort_keys=True, separators=(",", ":")))
-    except OSError:
+    except OSError as exc:
+        # A cache that silently fails to persist is rebuilt on every run;
+        # log it so an unwritable cache dir is visible instead of a
+        # mysterious always-cold test run.
+        logging.getLogger(__name__).debug("test name-map cache write failed for %s: %s", path, exc)
         return
 
 

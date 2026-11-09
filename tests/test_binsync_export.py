@@ -520,6 +520,26 @@ class TestBinsyncWriters:
         assert struct.name == "NPSTATE"
 
 
+class TestAsIntLogging:
+    def test_unparseable_size_logs_warning_and_falls_back(self, caplog: Any) -> None:
+        import logging
+
+        from rebrew.binsync.export import _as_int
+
+        with caplog.at_level(logging.WARNING, logger="rebrew.binsync.export"):
+            assert _as_int("not-a-size", 0, field="function k size") == 0
+        assert "not-a-size" in caplog.text and "function k size" in caplog.text
+
+    def test_missing_value_is_silent_default(self, caplog: Any) -> None:
+        import logging
+
+        from rebrew.binsync.export import _as_int
+
+        with caplog.at_level(logging.WARNING, logger="rebrew.binsync.export"):
+            assert _as_int(None, 7, field="function k size") == 7
+        assert caplog.text == ""
+
+
 class TestBinsyncGhidraComment:
     def test_ghidra_comment_written(self, tmp_path: Path) -> None:
         from rebrew.binsync.export import _write_comments_toml

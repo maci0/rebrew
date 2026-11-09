@@ -3003,7 +3003,10 @@ def run_verification(
         # dirs) running; leave those dirs to the atexit sweep rather than
         # deleting them under a worker that still reads them.
         batch_dirs.clear()
-        log.debug("batch pre-compile skipped: %s", exc)
+        # Warning, not debug: pre-compile was asked for, and its absence
+        # changes wall time (per-function fallback).  A debug-only line
+        # leaves a slow run with no trace of why the optimization vanished.
+        log.warning("batch pre-compile skipped: %s", exc)
 
     try:
         with Progress(
