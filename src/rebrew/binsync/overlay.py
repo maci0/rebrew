@@ -610,6 +610,13 @@ def overlay_state(
             # One malformed received value must not lose the fields that
             # would have written, so fall back to the per-field path and
             # report exactly the failures it hits.
+            # Each deferred update carries exactly one field, so one
+            # set_fields per update is the per-field granularity that
+            # isolates the malformed value the batch aborted on.  (An earlier
+            # version passed update["fields"] — a dict of one — to
+            # set_fields, which writes every key at once; that was still
+            # correct per-update, but the misleading name invited a future
+            # caller to merge fields and re-break isolation.)
             log.warning("batched overlay write failed; writing each field", exc_info=True)
             for update, effect in zip(deferred, deferred_effects, strict=True):
                 try:
