@@ -31,6 +31,7 @@ Usage::
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 from pathlib import Path
@@ -39,6 +40,7 @@ lazy import argparse
 lazy import json
 lazy import tomllib
 lazy from collections.abc import Mapping
+lazy from datetime import UTC, datetime
 lazy from urllib.parse import quote
 
 # `make sbom` runs this file directly under `uv --no-project`, so the repo root
@@ -455,7 +457,9 @@ def validate_bom(bom: dict[str, Any]) -> None:
         )
 
 
-def build_bom(lock_text: str, project_version: str) -> dict[str, Any]:
+def build_bom(
+    lock_text: str, project_version: str, created_epoch: int | None = None
+) -> dict[str, Any]:
     graph = _parse_lock(lock_text)
     closure = _runtime_closure(graph.edges)
     components = graph.components
@@ -463,13 +467,22 @@ def build_bom(lock_text: str, project_version: str) -> dict[str, Any]:
         component["scope"] = (
             "required" if canonicalize(str(component["name"])) in closure else "optional"
         )
+    metadata: dict[str, Any] = {"component": _project_component(project_version)}
+    if created_epoch is not None:
+        # CycloneDX metadata.timestamp (RFC3339 UTC).  Derived from
+        # SOURCE_DATE_EPOCH by main(), so `make sbom` output is byte-identical
+        # across machines and dates (reproducible-builds.org).  A BOM without
+        # a timestamp is valid, but a release artifact should name when the
+        # inventory was taken; the build clock is not reproducible, so the
+        # caller supplies the epoch.
+        metadata["timestamp"] = datetime.fromtimestamp(created_epoch, UTC).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
     return {
         "bomFormat": "CycloneDX",
         "specVersion": "1.5",
         "version": 1,
-        "metadata": {
-            "component": _project_component(project_version),
-        },
+        "metadata": metadata,
         "components": components,
     }
 
@@ -493,8 +506,19 @@ def main(argv: list[str] | None = None) -> int:
     if not args.lock.is_file():
         print(f"error: lockfile not found: {args.lock}", file=sys.stderr)
         return 1
+    epoch_raw = os.environ.get("SOURCE_DATE_EPOCH", "0").strip()
+    if not epoch_raw.isdigit():
+        print(
+            f"error: SOURCE_DATE_EPOCH must be decimal UTC seconds, got {epoch_raw!r}",
+            file=sys.stderr,
+        )
+        return 1
     try:
-        bom = build_bom(args.lock.read_text(encoding="utf-8"), _project_version())
+        bom = build_bom(
+            args.lock.read_text(encoding="utf-8"),
+            _project_version(),
+            int(epoch_raw),
+        )
         validate_bom(bom)
     except ValueError as exc:
         print(f"error: generated SBOM is not scannable: {exc}", file=sys.stderr)

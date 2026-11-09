@@ -1235,7 +1235,7 @@ pr-check: all check build sdist-check smoke-wheel build-repro verify-dist sbom
 
 # Regenerate checked-in binary fixtures (run after editing tools/gen_fixtures.py).
 gen-fixtures: ensure-uv
-	uv run --frozen python tools/gen_fixtures.py
+	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 uv run --frozen python tools/gen_fixtures.py
 
 # Fixture freshness: checked-in fixtures match the generator (CI test job).
 gen-fixtures-check: ensure-uv
@@ -1246,7 +1246,7 @@ gen-fixtures-check: ensure-uv
 # and its failure names a file; a `cp -r` + `sed -i` pipeline depended on GNU
 # sed, on find's traversal order, and on nothing failing in between.
 gen-skills: ensure-uv
-	uv run --frozen python tools/render_skills.py
+	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 uv run --frozen python tools/render_skills.py
 
 # Verify rendered agent skills match packaged source (same as tests/test_skills_sync.py).
 gen-skills-check: ensure-uv

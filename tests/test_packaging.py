@@ -1020,6 +1020,25 @@ class TestCycloneDxSbom:
 
         validate_bom(build_bom((ROOT / "uv.lock").read_text(encoding="utf-8"), _project_version()))
 
+    def test_timestamp_comes_from_source_date_epoch(self) -> None:
+        """`make sbom` sets SOURCE_DATE_EPOCH; the BOM must honor it.
+
+        Without a timestamp the env var was inert and two builds of the same
+        commit produced indistinguishable SBOMs with no creation time.  The
+        timestamp is RFC3339 UTC derived from the epoch, so the output stays
+        byte-identical across machines and dates.  A direct build_bom() call
+        with no epoch omits the field (backward compatible).
+        """
+        from tools.generate_sbom import _project_version, build_bom, validate_bom
+
+        lock = (ROOT / "uv.lock").read_text(encoding="utf-8")
+        stamped = build_bom(lock, _project_version(), 0)
+        assert stamped["metadata"]["timestamp"] == "1970-01-01T00:00:00Z"
+        validate_bom(stamped)
+        unstamped = build_bom(lock, _project_version())
+        assert "timestamp" not in unstamped["metadata"]
+        validate_bom(unstamped)
+
     def test_validator_rejects_an_empty_inventory(self) -> None:
         """A BOM that inventories nothing reads to a scanner as a clean result."""
         from tools.generate_sbom import MIN_COMPONENTS, validate_bom
