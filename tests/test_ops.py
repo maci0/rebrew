@@ -2128,35 +2128,41 @@ class TestHttpTransport:
         self, server: tuple[int, Path]
     ) -> None:
         port, _workspace = server
-        # Another stalled call holds the slot first: a second one is refused at once.
+        headers = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
         first = self._hold_the_only_slot(port)
-        released = threading.Timer(1.0, first.close)
-        released.start()
         try:
-            second = self._hold_the_only_slot(port)  # refused while `first` holds the slot
-            # The resent call must genuinely hold the slot (not merely be
-            # the refused socket `_hold_the_only_slot` retried past): a
-            # probe now must be the one refused with 503.
-            status, reply = self._post(
-                port,
-                "/rebrew.nope",
-                b"{}",
-                {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"},
-            )
-            assert (status, reply["error"]) == (503, "worker-busy")
-            second.close()
+            # A second stalled call finds the slot taken and is refused at once: wait for
+            # that refusal on its own socket instead of for a fixed time.
+            second = socket.create_connection(("127.0.0.1", port), timeout=WAIT_SECONDS)
+            try:
+                second.sendall(
+                    f"POST /rebrew.fingerprint HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n".encode()
+                    + f"Authorization: Bearer {TOKEN}\r\nContent-Type: application/json\r\nContent-Length: 10\r\n\r\n".encode()
+                )
+                refused, _, _ = select.select([second], [], [], WAIT_SECONDS)
+                assert refused, "the second stalled call was not refused while the slot was held"
+                assert b" 503 " in second.recv(4096).split(b"\r\n", 1)[0]
+            finally:
+                second.close()
         finally:
-            released.join()
             first.close()
-        # Once both stalled sockets close, the slot must be free again:
-        # a leaked slot (refused call never resent, or close not releasing)
+        # The refused call is sent again once the slot is free: it must genuinely hold the
+        # slot, so a probe is the one refused with 503.
+        resent = self._hold_the_only_slot(port)
+        try:
+            status, reply = self._post(port, "/rebrew.nope", b"{}", headers)
+            assert (status, reply["error"]) == (503, "worker-busy")
+        finally:
+            resent.close()
+        # Once every stalled socket closes, the slot must be free again: a leaked slot
         # would leave this at 503 instead of the dispatcher's 404.
-        status, reply = self._post(
-            port,
-            "/rebrew.nope",
-            b"{}",
-            {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"},
-        )
+        deadline = time.monotonic() + WAIT_SECONDS
+        while True:
+            status, reply = self._post(port, "/rebrew.nope", b"{}", headers)
+            if status != 503:
+                break
+            assert time.monotonic() < deadline, "the slot was not released"
+            time.sleep(0.05)
         assert (status, reply["error"]) == (404, "unknown-op")
 
     def test_access_line_and_header_share_a_request_id(self, server: tuple[int, Path]) -> None:

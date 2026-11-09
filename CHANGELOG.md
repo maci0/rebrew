@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- `tests/test_ops.py::TestHttpTransport::test_a_stalled_call_refused_for_a_busy_slot_is_sent_again` no longer depends on wall-clock time: it waits for the second call's refusal on its own socket and polls for the slot to be freed (the worker releases the slot after the socket closes, so the single probe straight after `close()` could still see 503). With the slot release delayed by 0.5 s in the server the old test failed 10 of 10 runs and the new one 0 of 10.
+
 ## [6.27.1] - 2026-11-09
 
 ### Added
