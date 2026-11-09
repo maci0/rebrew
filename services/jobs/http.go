@@ -151,6 +151,54 @@ func traceID(tp string) string {
 	return parts[1]
 }
 
+// validTraceparent reports whether tp is a well-formed W3C traceparent a
+// downstream call may continue.  The trace id alone (traceID) is not enough
+// to forward: a truncated or non-hex header must not be re-emitted.
+func validTraceparent(tp string) bool {
+	parts := strings.Split(tp, "-")
+	if len(parts) != 4 || parts[0] != "00" || len(parts[2]) != 16 || len(parts[3]) != 2 {
+		return false
+	}
+	if traceID(tp) == "" || parts[1] == strings.Repeat("0", 32) || parts[2] == strings.Repeat("0", 16) {
+		return false
+	}
+	for _, c := range parts[3] {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+// jobLogContext carries the correlation ids of the HTTP request that
+// admitted a job, so the asynchronous worker's lifecycle lines (started,
+// finished, run errors) can be pivoted back to that request and trace.
+type jobLogContext struct {
+	requestID string
+	traceID   string
+}
+
+type jobLogContextKey struct{}
+
+func withJobLogContext(ctx context.Context, requestID, traceID string) context.Context {
+	return context.WithValue(ctx, jobLogContextKey{}, jobLogContext{requestID: requestID, traceID: traceID})
+}
+
+func jobLogContextFrom(ctx context.Context) (requestID, traceID string) {
+	if v, ok := ctx.Value(jobLogContextKey{}).(jobLogContext); ok {
+		return v.requestID, v.traceID
+	}
+	return "", ""
+}
+
+// jobLogFields renders the correlation fields for the job lifecycle log
+// lines: always request_id/trace_id keys (empty when the admission request
+// carried none) so one log query matches every line of a job's life.
+func jobLogFields(ctx context.Context) string {
+	requestID, traceID := jobLogContextFrom(ctx)
+	return fmt.Sprintf(" request_id=%q trace_id=%q", requestID, traceID)
+}
+
 func requestID(r *http.Request) string {
 	id := r.Header.Get("X-Request-ID")
 	if id == "" || len(id) > 128 || strings.ContainsAny(id, " \t\r\n") {
@@ -426,19 +474,20 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 			if in.Population != nil {
 				options.Population = *in.Population
 			}
+			admitCtx := withJobLogContext(r.Context(), requestID, traceID(r.Header.Get("traceparent")))
 			if in.Kind == "catalog" {
 				if in.Seed != "" || credential != "" || in.Generations != nil || in.Population != nil {
 					apiError(w, "invalid catalog request", 400)
 					return
 				}
-				saved, created, err = o.AdmitCatalog(in.Key, in.WorkspaceSHA256)
+				saved, created, err = o.admitContext(admitCtx, in.Key, "rebrew-project.toml", in.WorkspaceSHA256, "", defaultMatchOptions, "catalog")
 			} else if in.Kind != "" && in.Kind != "match" {
 				apiError(w, "invalid kind", 400)
 				return
 			} else if credential != "" {
-				saved, created, err = o.AdmitManagedTuned(in.Key, in.Seed, in.WorkspaceSHA256, credential, options)
+				saved, created, err = o.admitContext(admitCtx, in.Key, in.Seed, in.WorkspaceSHA256, credential, options, "")
 			} else {
-				saved, created, err = o.AdmitTuned(in.Key, in.Seed, in.WorkspaceSHA256, options)
+				saved, created, err = o.admitContext(admitCtx, in.Key, in.Seed, in.WorkspaceSHA256, "", options, "")
 			}
 			if err != nil {
 				if errors.Is(err, ErrIdempotencyConflict) {

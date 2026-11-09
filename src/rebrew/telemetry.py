@@ -12,7 +12,6 @@ protobuf and several packages to a worker that otherwise needs none.
 
 from __future__ import annotations
 
-import contextlib
 import contextvars
 import logging
 import queue
@@ -191,15 +190,32 @@ class _Exporter:
             ]
         }
         self._queue: queue.Queue[Span | None] = queue.Queue(QUEUE_SIZE)
+        self._lock = threading.Lock()
+        self._dropped = 0
         self._thread = threading.Thread(target=self._run, name="rebrew-otlp", daemon=True)
         self._thread.start()
 
     def submit(self, opened: Span) -> None:
         # A full queue drops the span: a request never waits for the collector.
+        # The drop is counted and logged once per exporter (not per span, so a
+        # saturated collector cannot spam the log): an operator whose traces
+        # silently vanish has no way to know the pipeline, not the service, is
+        # the blind spot.  See dropped_spans for the count.
         if self._closed.is_set():
             return
-        with contextlib.suppress(queue.Full):
+        try:
             self._queue.put_nowait(opened)
+        except queue.Full:
+            with self._lock:
+                self._dropped += 1
+                if self._dropped == 1:
+                    logger.warning("trace queue full (%d); spans dropped until it drains", QUEUE_SIZE)
+
+    @property
+    def dropped_spans(self) -> int:
+        """How many finished spans were dropped because the queue was full."""
+        with self._lock:
+            return self._dropped
 
     def close(self) -> None:
         if self._closed.is_set():

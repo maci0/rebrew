@@ -239,11 +239,11 @@ type MatchOptions struct {
 var defaultMatchOptions = MatchOptions{Generations: 100, Population: 64}
 
 func (o *Owner) Admit(key, seed, expectedWorkspaceSHA256 string) (Receipt, bool, error) {
-	return o.admit(key, seed, expectedWorkspaceSHA256, "", defaultMatchOptions, "")
+	return o.admit(context.Background(), key, seed, expectedWorkspaceSHA256, "", defaultMatchOptions, "")
 }
 
 func (o *Owner) AdmitTuned(key, seed, digest string, options MatchOptions) (Receipt, bool, error) {
-	return o.admit(key, seed, digest, "", options, "")
+	return o.admit(context.Background(), key, seed, digest, "", options, "")
 }
 
 // AdmitManaged keeps the caller credential in memory for the isolated job only.
@@ -251,21 +251,28 @@ func (o *Owner) AdmitManaged(key, seed, expectedWorkspaceSHA256, credential stri
 	if credential == "" {
 		return Receipt{}, false, errors.New("managed compile credential required")
 	}
-	return o.admit(key, seed, expectedWorkspaceSHA256, credential, defaultMatchOptions, "")
+	return o.admit(context.Background(), key, seed, expectedWorkspaceSHA256, credential, defaultMatchOptions, "")
 }
 
 func (o *Owner) AdmitManagedTuned(key, seed, digest, credential string, options MatchOptions) (Receipt, bool, error) {
 	if credential == "" {
 		return Receipt{}, false, errors.New("managed compile credential required")
 	}
-	return o.admit(key, seed, digest, credential, options, "")
+	return o.admit(context.Background(), key, seed, digest, credential, options, "")
 }
 
 func (o *Owner) AdmitCatalog(key, digest string) (Receipt, bool, error) {
-	return o.admit(key, "rebrew-project.toml", digest, "", defaultMatchOptions, "catalog")
+	return o.admit(context.Background(), key, "rebrew-project.toml", digest, "", defaultMatchOptions, "catalog")
 }
 
-func (o *Owner) admit(key, seed, expectedWorkspaceSHA256, credential string, options MatchOptions, kind string) (Receipt, bool, error) {
+// admitContext is admit with the admission request's correlation ids, so the
+// worker's lifecycle lines keep them.  The exported Admit* entry points carry
+// no request and pass a background context (empty ids).
+func (o *Owner) admitContext(ctx context.Context, key, seed, expectedWorkspaceSHA256, credential string, options MatchOptions, kind string) (Receipt, bool, error) {
+	return o.admit(ctx, key, seed, expectedWorkspaceSHA256, credential, options, kind)
+}
+
+func (o *Owner) admit(ctx context.Context, key, seed, expectedWorkspaceSHA256, credential string, options MatchOptions, kind string) (Receipt, bool, error) {
 	if options.Generations < 1 || options.Generations > 10000 || options.Population < 2 || options.Population > 4096 {
 		return Receipt{}, false, errors.New("invalid match bounds")
 	}
@@ -371,21 +378,28 @@ func (o *Owner) admit(key, seed, expectedWorkspaceSHA256, credential string, opt
 	o.occupied = true
 	o.queued[r.ID] = true
 	o.notify(r.ID)
-	log.Printf("level=info msg=job_admitted job_id=%q kind=%q provider=%q state=%q", r.ID, r.Kind, r.Provider, r.State)
+	log.Printf("level=info msg=job_admitted job_id=%q kind=%q provider=%q state=%q%s", r.ID, r.Kind, r.Provider, r.State, jobLogFields(ctx))
 	o.workers.Add(1)
 	go func() {
 		defer o.workers.Done()
-		if err := o.run(r); err != nil {
+		if err := o.runJob(ctx, r); err != nil {
 			// The job worker owns its lifecycle; do not swallow an outcome the
 			// receipt does not already carry.
-			log.Printf("level=error msg=job_run_error job_id=%q error=%q", r.ID, err.Error())
+			log.Printf("level=error msg=job_run_error job_id=%q error=%q%s", r.ID, err.Error(), jobLogFields(ctx))
 		}
 	}()
 	return r, true, nil
 }
 
-// Run executes an admitted job once in this process. A crash leaves uncertain custody.
+// run executes an admitted job once in this process. A crash leaves uncertain custody.
+//
+// runJob is run with the admission request's correlation ids (see
+// admitContext), so started/finished/error lines pivot to the request.
 func (o *Owner) run(r Receipt) error {
+	return o.runJob(context.Background(), r)
+}
+
+func (o *Owner) runJob(ctx context.Context, r Receipt) error {
 	o.mu.Lock()
 	saved, err := o.read(r.ID)
 	if err != nil {
@@ -422,10 +436,10 @@ func (o *Owner) run(r Receipt) error {
 		return err
 	}
 	o.notify(saved.ID)
-	log.Printf("level=info msg=job_started job_id=%q kind=%q provider=%q", saved.ID, saved.Kind, saved.Provider)
+	log.Printf("level=info msg=job_started job_id=%q kind=%q provider=%q%s", saved.ID, saved.Kind, saved.Provider, jobLogFields(ctx))
 	o.mu.Unlock()
 	if saved.Provider == "docker" {
-		return o.runDocker(saved, workspace)
+		return o.runDocker(ctx, saved, workspace)
 	}
 	runCtx, runCancel := context.WithTimeout(o.runContext(), o.runTimeoutOrDefault())
 	defer runCancel()
@@ -495,12 +509,12 @@ func (o *Owner) run(r Receipt) error {
 	if current.NeverStarted {
 		o.occupied = false
 	}
-	log.Printf("level=info msg=job_finished job_id=%q state=%q exit_code=%d provider=%q", current.ID, current.State, code, current.Provider)
+	log.Printf("level=info msg=job_finished job_id=%q state=%q exit_code=%d provider=%q%s", current.ID, current.State, code, current.Provider, jobLogFields(ctx))
 	o.notify(current.ID)
 	return nil
 }
 
-func (o *Owner) runDocker(saved Receipt, workspace string) error {
+func (o *Owner) runDocker(ctx context.Context, saved Receipt, workspace string) error {
 	if o.docker == nil || o.docker.Image != saved.Image {
 		return errors.New("container provider unavailable")
 	}
@@ -570,7 +584,7 @@ func (o *Owner) runDocker(saved Receipt, workspace string) error {
 		if err := provider.Follow(followCtx, id, output); err != nil {
 			// Lost-attached logs are already surfaced as incomplete output
 			// via InspectStop; record loss here for operators watching logs.
-			log.Printf("level=error msg=job_follow_error job_id=%q error=%q", saved.ID, err.Error())
+			log.Printf("level=error msg=job_follow_error job_id=%q error=%q%s", saved.ID, err.Error(), jobLogFields(ctx))
 		}
 		followCancel()
 	}
@@ -620,9 +634,9 @@ func (o *Owner) runDocker(saved Receipt, workspace string) error {
 	if stopErr == nil {
 		o.occupied = false
 	} else {
-		log.Printf("level=error msg=job_stop_error job_id=%q error=%q", saved.ID, stopErr.Error())
+		log.Printf("level=error msg=job_stop_error job_id=%q error=%q%s", saved.ID, stopErr.Error(), jobLogFields(ctx))
 	}
-	log.Printf("level=info msg=job_finished job_id=%q state=%q exit_code=%d provider=%q", current.ID, current.State, stop.ExitCode, current.Provider)
+	log.Printf("level=info msg=job_finished job_id=%q state=%q exit_code=%d provider=%q%s", current.ID, current.State, stop.ExitCode, current.Provider, jobLogFields(ctx))
 	o.notify(saved.ID)
 	return stopErr
 }

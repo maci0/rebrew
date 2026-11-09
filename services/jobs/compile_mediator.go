@@ -171,9 +171,16 @@ func (m *CompileMediator) exchange(ctx context.Context, v compileOriginal) (comp
 	req.GetBody = nil
 	req.Header.Set("Idempotency-Key", v.Key)
 	req.Header.Set("Content-Type", "application/json")
+	// Continue the caller's trace across the paid upstream hop: without the
+	// header the upstream span starts a new trace and the billable compile
+	// cannot be found from the trace that admitted it.  Only a well-formed
+	// inbound traceparent is forwarded (validTraceparent).
+	if tp, _ := ctx.Value(traceparentContextKey{}).(string); validTraceparent(tp) {
+		req.Header.Set("traceparent", tp)
+	}
 	resp, err := m.client.Do(req)
 	if err != nil {
-		log.Printf("level=error msg=compile_upstream_error intent=%q duration_ms=%d error=%q", v.Intent, time.Since(start).Milliseconds(), err.Error())
+		log.Printf("level=error msg=compile_upstream_error intent=%q duration_ms=%d trace_id=%q error=%q", v.Intent, time.Since(start).Milliseconds(), traceIDFromContext(ctx), err.Error())
 		return v, errors.New("compile outcome unresolved")
 	}
 	defer resp.Body.Close()
@@ -181,7 +188,7 @@ func (m *CompileMediator) exchange(ctx context.Context, v compileOriginal) (comp
 	if err != nil || len(b) > 1024*1024 || resp.StatusCode != http.StatusOK {
 		v.LastHTTPStatus = resp.StatusCode
 		_ = m.writeOriginal(v)
-		log.Printf("level=error msg=compile_upstream_error intent=%q status=%d duration_ms=%d", v.Intent, resp.StatusCode, time.Since(start).Milliseconds())
+		log.Printf("level=error msg=compile_upstream_error intent=%q status=%d duration_ms=%d trace_id=%q", v.Intent, resp.StatusCode, time.Since(start).Milliseconds(), traceIDFromContext(ctx))
 		return v, errors.New("compile outcome unresolved")
 	}
 	var result struct {
@@ -189,7 +196,7 @@ func (m *CompileMediator) exchange(ctx context.Context, v compileOriginal) (comp
 		Artifact string `json:"artifact_url"`
 	}
 	if json.Unmarshal(b, &result) != nil || (result.Status != "ok" && result.Status != "error") {
-		log.Printf("level=error msg=compile_upstream_error intent=%q status=%d duration_ms=%d", v.Intent, resp.StatusCode, time.Since(start).Milliseconds())
+		log.Printf("level=error msg=compile_upstream_error intent=%q status=%d duration_ms=%d trace_id=%q", v.Intent, resp.StatusCode, time.Since(start).Milliseconds(), traceIDFromContext(ctx))
 		return v, errors.New("compile outcome unresolved")
 	}
 	if result.Status == "ok" && !validArtifact(result.Artifact) {
@@ -209,9 +216,21 @@ func (m *CompileMediator) exchange(ctx context.Context, v compileOriginal) (comp
 	if err = m.writeOriginal(v); err != nil {
 		return v, errors.New("compile result retention unresolved")
 	}
-	log.Printf("level=info msg=compile_upstream_ok intent=%q status=%d result=%q duration_ms=%d", v.Intent, resp.StatusCode, result.Status, time.Since(start).Milliseconds())
+	log.Printf("level=info msg=compile_upstream_ok intent=%q status=%d result=%q duration_ms=%d trace_id=%q", v.Intent, resp.StatusCode, result.Status, time.Since(start).Milliseconds(), traceIDFromContext(ctx))
 	return v, nil
 }
+
+type traceparentContextKey struct{}
+
+// traceIDFromContext is the trace id of the inbound traceparent carried on
+// ctx, or "" when the caller sent none.  The compile mediator stashes the
+// inbound header on the context so the upstream hop and its log lines keep
+// the trace an operator pivots from.
+func traceIDFromContext(ctx context.Context) string {
+	tp, _ := ctx.Value(traceparentContextKey{}).(string)
+	return traceID(tp)
+}
+
 func validArtifact(p string) bool {
 	const prefix = "/api/v1/artifacts/"
 	if !strings.HasPrefix(p, prefix) {
@@ -340,6 +359,9 @@ func (m *CompileMediator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if r.Method == http.MethodPost && r.URL.Path == "/api/v1/compile" {
+		// The traceparent of this compile request rides the context so the
+		// upstream hop (exchange) and its log lines keep the inbound trace.
+		r = r.WithContext(context.WithValue(r.Context(), traceparentContextKey{}, r.Header.Get("traceparent")))
 		id := r.Header.Get("X-Rebrew-Compile-Intent")
 		if !validHex(id, 64) {
 			apiError(w, "invalid intent", 400)
@@ -454,6 +476,9 @@ func (m *CompileMediator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		req.Header.Set("Authorization", "Bearer "+m.credential)
+		if tp := r.Header.Get("traceparent"); validTraceparent(tp) {
+			req.Header.Set("traceparent", tp)
+		}
 		resp, err := m.client.Do(req)
 		if err != nil {
 			apiError(w, "artifact unavailable", 503)
