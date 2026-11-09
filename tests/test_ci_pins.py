@@ -618,7 +618,7 @@ class TestCiPins:
         assert "hashFiles('tools/ci_install_vnu.sh')" in cache
         # Only the helper may fetch it, so the URL is not restated in a
         # workflow that would drift from the pin beside it.
-        assert "vnu.linux.zip" not in ci
+        assert "registry.npmjs.org/vnu-jar" not in ci
 
     def test_go_release_cache_restores_before_install(self) -> None:
         """The pinned-Go cache must look up before the install that reads it.
@@ -651,12 +651,12 @@ class TestCiPins:
     def test_vnu_install_helper_pins_and_verifies(self) -> None:
         """The validator archive is verified before it can run the gate.
 
-        The release asset is fetched from a version-pinned URL and verified
-        by sha256: a republished or tampered archive fails the job instead
-        of changing what the HTML is validated against.  The reported
+        The ``vnu-jar`` npm tarball is fetched from a version-pinned URL and
+        verified by sha256: a republished or tampered archive fails the job
+        instead of changing what the HTML is validated against.  The reported
         version is a second check on the same bytes, so a digest match with
         an unexpected version still fails.  The URL must not use the moving
-        ``latest`` tag: two runs on different days could then fetch
+        ``latest`` release: two runs on different days could then fetch
         different bytes and neither names which.
         """
         helper = ROOT / "tools" / "ci_install_vnu.sh"
@@ -666,11 +666,8 @@ class TestCiPins:
         assert digest is not None, "VNU_SHA256 must be a 64-hex-char pin"
         version = re.search(r'(?m)^VNU_VERSION="(\d+\.\d+\.\d+)"$', text)
         assert version is not None
-        assert "releases/download/latest/vnu.linux.zip" not in text
-        assert (
-            'VNU_URL="https://github.com/validator/validator/releases/download/${VNU_VERSION}/vnu.linux.zip"'
-            in text
-        )
+        assert "releases/download/latest" not in text
+        assert 'VNU_URL="https://registry.npmjs.org/vnu-jar/-/vnu-jar-${VNU_VERSION}.tgz"' in text
         assert f'VNU_SHA256="{digest.group(1)}"' in text
         # Retry policy named, not a bare literal: the apt and clone helpers
         # state the same two values and their docstrings point at each other.
@@ -678,13 +675,13 @@ class TestCiPins:
         for name in ("MAX_ATTEMPTS", "RETRY_BASE_DELAY_SECONDS"):
             value = re.search(rf"(?m)^{name}=(\d+)$", text).group(1)
             assert re.search(rf"(?m)^{name}=(\d+)$", apt).group(1) == value, name
-        # A missing curl/unzip fails every attempt identically, so the loop
+        # A missing curl/tar/java fails every attempt identically, so the loop
         # would name a dead mirror for a host that cannot fetch at all.
         assert "not on PATH, so vnu cannot be installed" in text
         assert text.index("not on PATH, so vnu cannot be installed") < text.index("curl --proto")
         # The digest is checked before the archive is unpacked, and the
         # version after, so a mismatch never leaves a usable install behind.
-        assert text.index('got="$(sha256_of') < text.index("unzip -q -o")
+        assert text.index('got="$(sha256_of') < text.index("tar -xzf")
         assert 'have="$("${bin_dir}/vnu" --version' in text
         # Idempotent: a warm cache must not re-download, which is what makes
         # the actions/cache step in ci.yml worth having.
@@ -709,8 +706,12 @@ class TestCiPins:
         fake.chmod(0o755)
         env = {**os.environ, "REBREW_VNU_DIR": str(dest)}
         helper = str(ROOT / "tools" / "ci_install_vnu.sh")
-        if shutil.which("curl") is None or shutil.which("unzip") is None:
-            pytest.skip("curl and unzip are required to install the validator")
+        if (
+            shutil.which("curl") is None
+            or shutil.which("tar") is None
+            or shutil.which("java") is None
+        ):
+            pytest.skip("curl, tar and java are required to install the validator")
         # Network-dependent: a wrong-version install is replaced by a real
         # download.  Assert only that the stale tree is not accepted, which
         # holds whether the reinstall succeeds or the download fails.

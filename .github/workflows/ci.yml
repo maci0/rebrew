@@ -262,9 +262,9 @@ jobs:
         # image does not ship it, so without this step the dashboard shell and
         # the generated report pages were never parsed by a validator: the
         # job went green without opening the HTML the project rules require
-        # to pass W3C Nu.  The helper pins the archive by sha256 (the release
-        # asset lives under a moving `latest` tag) and bundles its own JRE,
-        # so this needs no java install.  The digest is a pin, not a cache
+        # to pass W3C Nu.  The helper pins the `vnu-jar` npm tarball by sha256
+        # (upstream release assets sit under a moving `latest` tag) and runs
+        # the jar with the runner's JDK.  The digest is a pin, not a cache
         # key: a republished asset fails the job rather than changing what
         # the gate validates, and the message names both fields to bump.
         # One matrix entry is enough, both like the gates below: the two

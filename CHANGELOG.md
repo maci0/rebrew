@@ -6,6 +6,7 @@
 
 - `uv.lock` is regenerated against the pinned resembl `v4.0.0` (uv 0.13.6); the 6.25.0 lock failed `uv sync --locked` in CI, so 6.25.0 was never released.
 - `make audit` ignores diskcache as `PYSEC-2026-2447` (the advisory the scanner now reports for the old `GHSA-w8v5-vhqr-4h9v` finding), still date-pinned to 2028-01-27; the `check-toml` pre-commit hook skips the deliberately truncated `tests/fixtures/metadata_doc/truncated.toml`.
+- `tools/ci_install_vnu.sh` installs the W3C validator from the sha256-pinned `vnu-jar` npm tarball and runs the jar with `java`, because upstream deleted the version-pinned release assets and now publishes only a rolling `latest` release (the pinned 26.10.12 URL returned 404).
 
 ## [6.25.0] - 2026-11-09
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install the W3C Nu HTML validator for a CI job, retrying transient
-# release-download failures.
+# download failures.
 #
 # tests/html_validate.py drives `vnu` over the dashboard shell and the
 # generated report pages and skips when it is absent, so without this
@@ -9,18 +9,19 @@
 # tools/ci_apt_install.sh (retry a flaky mirror) and
 # tools/ci_clone_resembl.sh (verify a fetched artifact against a pin).
 #
-# The validator ships as a release asset. The pin is both the version in the
-# URL and the archive's sha256: a republished or tampered archive fails the
-# check instead of changing what the gate validates. `VNU_VERSION` is a second
-# assertion on the same bytes, so the failure names the version the pin
-# expects rather than a digest mismatch with nothing to compare it against.
-# The URL itself is version-pinned (not the moving `latest` tag): a digest
-# pin alone still lets a republished asset under a new version silently swap
-# the tool the gate runs, and a `latest` download is not reproducible — two
-# runs on different days can fetch different bytes and neither names which.
+# The validator comes from the `vnu-jar` npm package, whose registry
+# tarball for a version is immutable and carries the self-contained vnu.jar.
+# Upstream (validator/validator) publishes only a rolling `latest` release
+# and deleted the version-pinned assets, so a release URL cannot be pinned.
+# The pin is both the version in the URL and the tarball's sha256: a
+# republished or tampered tarball fails the check instead of changing what
+# the gate validates. `VNU_VERSION` is a second assertion on the same
+# bytes, so the failure names the version the pin expects rather than a
+# digest mismatch with nothing to compare it against.
 #
-# The archive bundles its own JRE, so the job needs no `java` install
-# (same reasoning as the nasm assertion in ci.yml).
+# The jar needs `java` on PATH (the CI test job installs a JDK for the
+# JPype build). The helper writes a `vnu` launcher beside the jar so
+# callers keep invoking `vnu`.
 #
 # Usage: bin_dir="$(bash tools/ci_install_vnu.sh [dest])"
 # Prints the directory holding the `vnu` launcher for the caller to put
@@ -29,8 +30,9 @@
 set -euo pipefail
 
 VNU_VERSION="26.10.12"
-VNU_SHA256="d255011cb0b287ee59f547dd6c1b290bc71adfe76a3c28ac13c20fa0d892c7de"
-VNU_URL="https://github.com/validator/validator/releases/download/${VNU_VERSION}/vnu.linux.zip"
+VNU_SHA256="3925f07364f5e5a111cef54a7baefa575b22d05c70f8ced048f0616d4579b7ab"
+VNU_URL="https://registry.npmjs.org/vnu-jar/-/vnu-jar-${VNU_VERSION}.tgz"
+VNU_JAR_MEMBER="package/build/dist/vnu.jar"
 
 MAX_ATTEMPTS=3
 RETRY_BASE_DELAY_SECONDS=5
@@ -50,14 +52,14 @@ if [[ -x "${bin_dir}/vnu" ]]; then
 fi
 
 # Name a missing prerequisite instead of retrying it: every attempt fails
-# identically without curl or unzip, and the loop would report a mirror
+# identically without curl, tar or java, and the loop would report a mirror
 # diagnosis for a host that cannot fetch at all.  Same preflight shape as
 # tools/ci_apt_install.sh's apt-get check and the git check in
 # tools/ci_clone_resembl.sh.
-for tool in curl unzip; do
+for tool in curl tar java; do
   if ! command -v "${tool}" >/dev/null 2>&1; then
     echo "ERROR: ${tool} not on PATH, so vnu cannot be installed" >&2
-    echo "This helper is for Debian/Ubuntu runners (CI pins ubuntu-24.04)." >&2
+    echo "This helper is for Debian/Ubuntu runners (CI pins ubuntu-24.04); java comes from the JDK the test job installs." >&2
     exit 1
   fi
 done
@@ -74,7 +76,7 @@ sha256_of() {
 # checks pass, so a failed run leaves the previous install (if any) and
 # never a half-extracted tree that a later job would treat as installed.
 staging="${dest}.incoming.$$"
-archive="${staging}.zip"
+archive="${staging}.tgz"
 mkdir -p -- "$(dirname -- "${dest}")"
 cleanup() {
   rm -f -- "${archive}"
@@ -89,12 +91,17 @@ while [[ ${attempt} -lt ${MAX_ATTEMPTS} ]]; do
     got="$(sha256_of "${archive}")"
     if [[ "${got}" != "${VNU_SHA256}" ]]; then
       echo "vnu archive sha256 ${got}, expected ${VNU_SHA256}" >&2
-      echo "Upstream republished the ${VNU_VERSION} release asset; update VNU_VERSION" >&2
+      echo "The registry tarball for ${VNU_VERSION} changed; update VNU_VERSION" >&2
       echo "and VNU_SHA256 in tools/ci_install_vnu.sh together." >&2
       exit 1
     fi
-    mkdir -p -- "${staging}"
-    unzip -q -o "${archive}" -d "${staging}"
+    mkdir -p -- "${staging}/vnu-runtime-image/bin"
+    tar -xzf "${archive}" -C "${staging}/vnu-runtime-image" --strip-components=3 "${VNU_JAR_MEMBER}"
+    cat > "${staging}/vnu-runtime-image/bin/vnu" <<'LAUNCHER'
+#!/usr/bin/env bash
+exec java -jar "$(dirname -- "${BASH_SOURCE[0]}")/../vnu.jar" "$@"
+LAUNCHER
+    chmod +x "${staging}/vnu-runtime-image/bin/vnu"
     rm -f -- "${archive}"
     rm -rf -- "${dest}"
     mv -- "${staging}" "${dest}"

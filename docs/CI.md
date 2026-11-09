@@ -29,10 +29,10 @@ version-independent. The same job also installs the W3C validator through
 `tools/ci_install_vnu.sh`, because `tests/html_validate.py` skips when
 `vnu` is off PATH and the two HTML surfaces (the dashboard shell and
 every generated report page) would otherwise never be parsed by a
-validator in CI. The archive is pinned by sha256 (the release asset sits
-under a moving `latest` tag) and bundles its own JRE, so the step needs
-no `java` install. `make vnu` runs that same helper for a contributor and
-prints the PATH line for the directory it installed into, so a local
+validator in CI. The `vnu-jar` npm tarball is pinned by sha256 (the upstream
+release assets sit under a moving `latest` tag) and the helper runs its
+jar with the job's `default-jdk`. `make vnu` runs that same helper for a
+contributor and prints the PATH line for the directory it installed into, so a local
 `make test` can run the gate instead of skipping it; `make doctor` reports
 a missing `vnu` and `make test` warns. A pre-commit hook-parity job (`make check` with
 the two ruff hooks and the mypy hook skipped, since the lint job runs them; it installs
@@ -173,7 +173,7 @@ The test job installs Bun 1.4.4 (pinned `bun-version` on `oven-sh/setup-bun`):
 `tests/dashboard_*.mjs` need it, and `test_dashboard.py` skips those scripts
 when it is missing, so a job without it would go green without ever running
 the dashboard JS. The HTML validator is Nu 26.10.12, pinned by version and
-archive digest in `tools/ci_install_vnu.sh`.
+npm tarball digest in `tools/ci_install_vnu.sh`.
 The package job skips the sibling clone (`clone-resembl: "false"`): its
 lockfile sync uses
 `--no-dev --no-default-groups --no-install-project` (no path dep needed)
