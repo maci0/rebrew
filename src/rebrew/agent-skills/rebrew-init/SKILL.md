@@ -3,9 +3,9 @@ name: rebrew-init
 description: >-
   Set up a new Rebrew project with rebrew init (scaffold, first setup, new
   project): choose target names and compiler profiles, and check scaffold
-  drift. Trigger: "scaffold a new project", "set up rebrew for this binary",
-  "new rebrew project", "rebrew init". Use rebrew-intake for one-shot binary
-  onboarding and rebrew-workflow for an existing target.
+  drift. Trigger: "scaffold a new project", "new rebrew project", "rebrew
+  init". Use rebrew-intake for one-shot binary onboarding and rebrew-workflow
+  for an existing target.
 license: MIT
 ---
 

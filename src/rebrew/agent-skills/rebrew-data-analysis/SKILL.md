@@ -97,7 +97,7 @@ rebrew data dispatch --min-table-len 5 --json # require >= 5 entries per table
 rebrew data dispatch --max-pointer-stride 8 # allow 8-byte stride between slots (sparse tables)
 rebrew data bss --json # verify .bss layout, detect gaps from missing externs
 rebrew data fix-bss --dry-run # preview bss_padding.c + metadata changes, write nothing
-rebrew data fix-bss # generate bss_padding.c + write SIZE/SECTION/NOTE to metadata (run --dry-run first)
+rebrew data fix-bss # generate bss_padding.c; no SIZE/SECTION/NOTE metadata writes (run --dry-run first)
 rebrew data mark-literals --dry-run --json # rows at ??_C@/__real@ map VAs -> storage_kind=literal + link_symbol
 rebrew build check-tu-data --json # per-object [data][literals] order: TU boundaries, s_* literal pools
 rebrew data header --dry-run # preview rebrew_globals.h contents
@@ -105,8 +105,10 @@ rebrew data header # write rebrew_globals.h from scanned globals (address bindin
 rebrew data header --output /path/to/my_globals.h # override output path
 rebrew data header --force # overwrite existing file without prompting
 rebrew data layout audit --section .rdata # per-TU span/order audit for .rdata (default .data)
-rebrew data set --type 0x10025000='unsigned char *' # write type into rebrew-data.toml (repeatable)
-rebrew data set --section 0x10025000=.rdata # write section (.data / .rdata / .bss); this fixes W016
+rebrew data set --type 0x10025000=unsigned_char_p --dry-run --json # preview: write type into rebrew-data.toml (repeatable)
+rebrew data set --type 0x10025000=unsigned_char_p --expected-digest <digest from preview> # apply the previewed type write
+rebrew data set --section 0x10025000=.rdata --dry-run --json # preview: write section (.data / .rdata / .bss); this fixes W016
+rebrew data set --section 0x10025000=.rdata --expected-digest <digest from preview> # apply the previewed section write
 rebrew data layout fix-ownership --dry-run # re-partition defs; fixes layout-audit SPAN/ORDER
 rebrew data layout fill # emit _dpad_<addr>[N] for uncovered .data runs (preview with --dry-run first)
 rebrew data layout own --dry-run # materialize link_stubs.c globals into owner TUs

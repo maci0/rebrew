@@ -42,6 +42,7 @@ bounds and other architectures need explicit `size`. A matching prefix of
 an unknown-sized symbol cannot earn `VERIFIED`.
 
 > [!CAUTION]
-> **Never manually edit `rebrew-data.toml`.** `rebrew data set`, `rebrew data fix-bss`,
-> and `rebrew sync pull --state-dir <dir>` write it. `rebrew data list` only reads it.
+> **Never manually edit `rebrew-data.toml`.** `rebrew data set`, `rebrew data annotate`,
+> and `rebrew sync pull --state-dir <dir>` write it. `rebrew data list` and
+> `rebrew data fix-bss` do not write metadata.
 > Entries are keyed `"MODULE.0xVA"` (qualified, same scheme as `rebrew-functions.toml`).
