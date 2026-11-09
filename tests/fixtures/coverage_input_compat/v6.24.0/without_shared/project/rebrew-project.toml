@@ -1,0 +1,4 @@
+[project]
+default_target = "A"
+[targets.A]
+binary = "A.exe"

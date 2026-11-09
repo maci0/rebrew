@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Added
+
+- `tests/test_coverage_input_compat.py` verifies coverage input envelopes retained from earlier releases (`tests/fixtures/coverage_input_compat/v6.24.0/{without_shared,with_shared}`, built by running the v6.24.0 code on a tiny project) with `verify_coverage_readset` and the digest check under the current code. The v6.24.0 `without_shared` fixture fails under v6.26.0 with "coverage readset does not match reader inputs", the 6.26.0 regression. A deliberate readset contract change must add a migration note here and update the fixtures in the same commit.
+
 ## [6.27.0] - 2026-11-09
 
 ### Removed

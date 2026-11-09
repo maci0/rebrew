@@ -1,0 +1,112 @@
+{
+  "digest": "15eba69a29852d0b7fb93184c0db93b34bf9e4ffddaa3f9d1822f3b376b46f58",
+  "envelope": {
+    "analysis_manifest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "binary_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "generation": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "readset": [
+      {
+        "digest": "",
+        "origin": "analysis",
+        "path": ".rebrew/verify_cache.toml",
+        "present": false,
+        "size": 0
+      },
+      {
+        "digest": "",
+        "origin": "analysis",
+        "path": "A.exe",
+        "present": false,
+        "size": 0
+      },
+      {
+        "digest": "",
+        "origin": "analysis",
+        "path": "rebrew-functions.d",
+        "present": false,
+        "size": 0
+      },
+      {
+        "digest": "",
+        "origin": "analysis",
+        "path": "rebrew-functions.toml",
+        "present": false,
+        "size": 0
+      },
+      {
+        "digest": "",
+        "origin": "analysis",
+        "path": "rebrew-libraries.d",
+        "present": false,
+        "size": 0
+      },
+      {
+        "digest": "",
+        "origin": "analysis",
+        "path": "rebrew-libraries.toml",
+        "present": false,
+        "size": 0
+      },
+      {
+        "digest": "911c067cb212299cae96c450bdf8715395a062a789a1aa6e6015514c0a8697ed",
+        "origin": "source",
+        "path": "rebrew-project.toml",
+        "present": true,
+        "size": 60
+      },
+      {
+        "digest": "",
+        "origin": "source",
+        "path": "src/A/function_structure.json",
+        "present": false,
+        "size": 0
+      },
+      {
+        "digest": "",
+        "origin": "source",
+        "path": "src/A/rebrew-libraries.d",
+        "present": false,
+        "size": 0
+      },
+      {
+        "digest": "",
+        "origin": "source",
+        "path": "src/A/rebrew-libraries.toml",
+        "present": false,
+        "size": 0
+      },
+      {
+        "digest": "",
+        "origin": "source",
+        "path": "src/rebrew-libraries.d",
+        "present": false,
+        "size": 0
+      },
+      {
+        "digest": "",
+        "origin": "source",
+        "path": "src/rebrew-libraries.toml",
+        "present": false,
+        "size": 0
+      },
+      {
+        "digest": "",
+        "origin": "source",
+        "path": "src/shared/rebrew-libraries.d",
+        "present": false,
+        "size": 0
+      },
+      {
+        "digest": "",
+        "origin": "source",
+        "path": "src/shared/rebrew-libraries.toml",
+        "present": false,
+        "size": 0
+      }
+    ],
+    "source_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "target": "A",
+    "verification_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "version": 1
+  }
+}
