@@ -2234,3 +2234,35 @@ class TestPresetModuleKeyMemo:
     def test_empty_and_ascii_arguments(self) -> None:
         assert preset_module_key("") == ""
         assert preset_module_key("server") == "SERVER"
+
+
+class TestSourceBackupIdempotency:
+    """A kept pre-image converges on rerun instead of destroying the old one."""
+
+    def test_keep_same_bytes_reuses_path(self, tmp_path: Path) -> None:
+        from rebrew.utils import source_backup
+
+        path = tmp_path / "fcn.c"
+        path.write_text("v1\n", encoding="utf-8")
+        backup_dir = tmp_path / "backups"
+        with source_backup(path, "v1\n", "utf-8", backup_dir, label="pre-skeleton", keep=True) as first:
+            assert first is not None
+            assert first.read_text(encoding="utf-8") == "v1\n"
+        with source_backup(path, "v1\n", "utf-8", backup_dir, label="pre-skeleton", keep=True) as second:
+            assert second == first
+        assert {entry.name for entry in backup_dir.iterdir()} == {first.name}  # type: ignore[union-attr]
+
+    def test_keep_changed_bytes_keeps_both_preimages(self, tmp_path: Path) -> None:
+        from rebrew.utils import source_backup
+
+        path = tmp_path / "fcn.c"
+        path.write_text("v1\n", encoding="utf-8")
+        backup_dir = tmp_path / "backups"
+        with source_backup(path, "v1\n", "utf-8", backup_dir, label="pre-skeleton", keep=True) as first:
+            assert first is not None
+        with source_backup(path, "v2\n", "utf-8", backup_dir, label="pre-skeleton", keep=True) as second:
+            assert second is not None
+            assert second != first
+            assert second.read_text(encoding="utf-8") == "v2\n"
+        assert first.read_text(encoding="utf-8") == "v1\n"
+        assert len(list(backup_dir.iterdir())) == 2

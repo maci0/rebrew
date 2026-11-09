@@ -1714,9 +1714,13 @@ def source_backup(
     disk where the operator can put them back.
     A caller that can be killed without warning should print the
     yielded path before its first destructive write, since a recovery copy
-    nothing points at is not a recovery path.  The writer's pid is in the file
-    name, so two sweeps of one symbol cannot overwrite each other's copy and a
-    run that was killed leaves its predecessor's alone.
+    nothing points at is not a recovery path.  The writer's pid plus a short
+    content digest are in the file name, so two sweeps of one symbol cannot
+    overwrite each other's copy and a run that was killed leaves its
+    predecessor's alone.  The digest makes a re-run over the same bytes
+    converge on the same path (idempotent retry), while a changed source
+    lands beside the old copy instead of replacing it (a second forced
+    overwrite never destroys the first pre-image).
 
     Yields ``None`` when the backup cannot be written, so a caller that
     announces a recovery copy names a file that exists.  The failure is logged
@@ -1725,7 +1729,11 @@ def source_backup(
     """
     backup_dir.mkdir(parents=True, exist_ok=True)
     stem = filename_component(label or path.stem)
-    backup_path = backup_dir / f"{path.name}.{stem}.{os.getpid()}.orig"
+    if keep:
+        digest = hashlib.sha256(text.encode(encoding, errors="surrogateescape")).hexdigest()[:12]
+        backup_path = backup_dir / f"{path.name}.{stem}.{os.getpid()}.{digest}.orig"
+    else:
+        backup_path = backup_dir / f"{path.name}.{stem}.{os.getpid()}.orig"
     try:
         atomic_write_text(backup_path, text, encoding=encoding)
     except OSError:
