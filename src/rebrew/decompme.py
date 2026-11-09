@@ -709,6 +709,9 @@ def record_upload(
         log.warning("decomp.me upload ledger not written (%s); the next run will upload again", exc)
 
 
+_UPLOADS_CLOCK_SKEW_TOLERANCE_S = 24 * 3600.0
+
+
 def _is_recent(entry: dict[str, str], now: float) -> bool:
     try:
         at = float(entry.get("at", 0) or 0)
@@ -717,6 +720,11 @@ def _is_recent(entry: dict[str, str], now: float) -> bool:
     if not math.isfinite(at) or not math.isfinite(now):
         return False
     age = now - at
+    # A backward NTP/manual step makes age negative; treat a future stamp as
+    # newly recorded (within tolerance) instead of expiring the scratch forever.
+    # Beyond tolerance the stamp is implausible (corrupt/tampered) and not reused.
+    if age < 0.0:
+        age = 0.0 if -age <= _UPLOADS_CLOCK_SKEW_TOLERANCE_S else age
     return 0.0 <= age < _UPLOADS_RETENTION_SECONDS
 
 

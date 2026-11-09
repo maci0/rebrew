@@ -1026,6 +1026,14 @@ class TestUploadLedger:
             path.write_text(json.dumps(stale), encoding="utf-8")
             assert decompme.recorded_upload(tmp_path, digest, "https://decomp.me") is None, bad
 
+    def test_small_backward_clock_step_still_reuses(self, tmp_path: Path) -> None:
+        """A backward NTP/manual step must not pin a valid ledger as expired."""
+        digest = decompme.scratch_digest(self._payload(), "https://decomp.me")
+        recorded = 1_700_000_000.0
+        decompme.record_upload(tmp_path, digest, "abc", "tok", "https://decomp.me", now=recorded)
+        stepped_back = recorded - 3600.0
+        assert decompme.recorded_upload(tmp_path, digest, "https://decomp.me", now=stepped_back) is not None
+
 
 class TestVerifyCompiler:
     def test_known_compiler_passes(self, monkeypatch: pytest.MonkeyPatch) -> None:
