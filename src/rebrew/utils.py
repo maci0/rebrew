@@ -524,7 +524,20 @@ def floor_pct(part: float, whole: float, decimals: int = 1) -> float:
     Progress and match figures must not round up: to nearest, 2809 of 2810
     matched reads "100.0%" with one function still unmatched.
     """
-    if not whole or not math.isfinite(part) or not math.isfinite(whole) or part <= 0 or whole < 0:
+    if not whole:
+        return 0.0
+    # Reject non-finite floats without letting math.isfinite raise
+    # OverflowError on huge ints (e.g. byte counts > 2**1024 from a
+    # corrupt size field): int/int division is exact, so such inputs
+    # must still yield a correct percent instead of crashing a report.
+    try:
+        if not math.isfinite(part) or not math.isfinite(whole):
+            return 0.0
+    except OverflowError:
+        # part or whole is an int too large for float; the ratio below
+        # (int/int true division) stays finite and exact.
+        pass
+    if part <= 0 or whole < 0:
         return 0.0
     # *decimals* is a display precision, not a magnitude: only the
     # precisions every caller uses (0-2) are meaningful. A huge value

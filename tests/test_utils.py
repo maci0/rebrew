@@ -1647,6 +1647,13 @@ class TestFloorPct:
         assert floor_pct(1e308, 1.1e308) == 90.9
         assert floor_pct(1.7e308, 1.7e308) == 100.0
 
+    def test_huge_ints_do_not_raise_overflow_error(self) -> None:
+        # math.isfinite(10**400) raises OverflowError; a corrupt size field
+        # yielding such a count must not crash a report. int/int division
+        # is exact, so the percent is still correct.
+        assert floor_pct(10**400, 10**400) == 100.0
+        assert floor_pct(10**400, 2 * 10**400) == 50.0
+
 
 class TestClipSpan:
     def test_last_start_is_never_clipped(self) -> None:
