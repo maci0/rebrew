@@ -720,6 +720,61 @@ class TestCiPins:
         else:
             assert "replacing vnu 20.6.30" in result.stderr
 
+    def test_biome_install_helper_pins_and_verifies(self) -> None:
+        """The linter binary is verified before it can run the gate.
+
+        The release binary is fetched from a version-pinned URL and verified
+        by sha256: a republished or tampered binary fails the job instead of
+        changing what the dashboard JS is checked against.  The reported
+        version is a second check on the same bytes, so a digest match with
+        an unexpected version still fails.  The URL must not use the moving
+        ``latest`` tag: two runs on different days could then fetch
+        different bytes and neither names which.  npm is not an install
+        path: `npm install -g @biomejs/biome@<version>` resolved a
+        version-only pin fresh every run with no integrity check.
+        """
+        helper = ROOT / "tools" / "ci_install_biome.sh"
+        assert helper.is_file()
+        text = helper.read_text(encoding="utf-8")
+        digest = re.search(r'(?m)^BIOME_SHA256="([0-9a-f]{64})"$', text)
+        assert digest is not None, "BIOME_SHA256 must be a 64-hex-char pin"
+        version = re.search(r'(?m)^BIOME_VERSION="(\d+\.\d+\.\d+)"$', text)
+        assert version is not None
+        assert "releases/download/latest/" not in text
+        assert "biome-linux-x64" in text
+        assert f'BIOME_SHA256="{digest.group(1)}"' in text
+        # Retry policy named, not a bare literal: the apt and clone helpers
+        # state the same two values and their docstrings point at each other.
+        apt = (ROOT / "tools" / "ci_apt_install.sh").read_text(encoding="utf-8")
+        for name in ("MAX_ATTEMPTS", "RETRY_BASE_DELAY_SECONDS"):
+            value = re.search(rf"(?m)^{name}=(\d+)$", text).group(1)
+            assert re.search(rf"(?m)^{name}=(\d+)$", apt).group(1) == value, name
+        # A missing curl fails every attempt identically, so the loop would
+        # name a dead mirror for a host that cannot fetch at all.
+        assert "not on PATH, so biome cannot be installed" in text
+        assert text.index("not on PATH, so biome cannot be installed") < text.index("curl --proto")
+        # The digest is checked before the binary is installed, and the
+        # version after, so a mismatch never leaves a usable install behind.
+        assert text.index('got="$(sha256_of') < text.index("chmod +x")
+        assert 'have="$("${staging}/biome" --version' in text
+        # Idempotent: a warm cache must not re-download, which is what makes
+        # the actions/cache step in ci.yml worth having.
+        assert "Already installed and matching the pin" in text
+        assert 'rm -rf -- "${dest}"\n    mv -- "${staging}" "${dest}"' in text
+        # Prints the bin dir for the caller's PATH; the workflow depends on it.
+        assert 'echo "${bin_dir}"' in text
+        # The workflow installs through the helper and caches the result,
+        # keyed on the helper so a pin bump misses the cache.
+        ci = CI_YML.read_text(encoding="utf-8")
+        assert "bash tools/ci_install_biome.sh" in ci
+        assert '>> "$GITHUB_PATH"' in ci
+        assert ci.index("- name: Cache biome") < ci.index("- name: Install biome")
+        cache = ci.split("- name: Cache biome", 1)[1].split("- name:", 1)[0]
+        assert "hashFiles('tools/ci_install_biome.sh')" in cache
+        assert "npm install" not in ci
+        # The Makefile contributor path wraps the same helper.
+        assert "tools/ci_install_biome.sh" in MAKEFILE.read_text(encoding="utf-8")
+
     def test_clone_refuses_non_resembl_dest(self, tmp_path: Path) -> None:
         """``rm -rf`` must not run against a path that is not a resembl checkout."""
         victim = tmp_path / "other"
@@ -1741,17 +1796,18 @@ class TestCiPins:
         )
 
     def test_biome_pin_aligned_across_makefile_ci_and_schema(self) -> None:
-        """Biome version must match in Makefile, CI install, and biome.json.
+        """Biome version must match in Makefile, CI helper, and biome.json.
 
-        CI installs via npm; a contributor following warn-biome's hint
-        installs the Makefile pin.  Drift installs different linters.
+        CI installs via the pinned helper; a contributor following
+        warn-biome's hint installs the same pin.  Drift installs different
+        linters.
         """
         text = MAKEFILE.read_text(encoding="utf-8")
         m = re.search(r"(?m)^BIOME_VERSION\s*\?=\s*(\S+)\s*$", text)
         assert m is not None, "BIOME_VERSION missing from Makefile"
-        ci = CI_YML.read_text(encoding="utf-8")
-        ci_biome = re.search(r"@biomejs/biome@(\S+)", ci)
-        assert ci_biome is not None, "biome install missing from CI"
+        helper = (ROOT / "tools" / "ci_install_biome.sh").read_text(encoding="utf-8")
+        ci_biome = re.search(r'(?m)^BIOME_VERSION="(\d+\.\d+\.\d+)"$', helper)
+        assert ci_biome is not None, "biome install missing from CI helper"
         assert m.group(1) == ci_biome.group(1), (
             f"Makefile BIOME_VERSION={m.group(1)} != CI biome={ci_biome.group(1)}"
         )
@@ -1761,7 +1817,7 @@ class TestCiPins:
         assert m.group(1) == schema_v.group(1), (
             f"Makefile BIOME_VERSION={m.group(1)} != biome.json schema={schema_v.group(1)}"
         )
-        assert "npm install -g @biomejs/biome@" in text, "warn-biome must print pinned install"
+        assert "make biome" in text, "warn-biome must point at the helper target"
 
     def test_native_runner_prerequisites_cover_every_python_matrix_entry(self) -> None:
         import yaml

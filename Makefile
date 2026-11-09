@@ -4,7 +4,7 @@
 	cli-contract release-check coverage ensure-uv ensure-resembl ensure-nasm warn-nasm ensure-bun warn-bun warn-shellcheck \
 	warn-yamllint warn-biome \
 	warn-vnu \
-	vnu \
+	vnu biome \
 	ensure-bash ensure-unshare-build ensure-jpype-build ensure-go ensure-patch ensure-rust \
 	smoke-wheel \
 	require-dist \
@@ -176,6 +176,7 @@ help:
 		'  make add-dep ADD_DEP_SPEC=<spec>  # uv add <spec> (pyproject.toml + uv.lock), then the license-table step' \
 		'  make clone-resembl      # clone sibling resembl pin into ../resembl (required for uv sync)' \
 		'  make vnu                # install the pinned W3C validator and print the PATH line for it' \
+		'  make biome              # install the pinned Biome CLI and print the PATH line for it' \
 		'  make clean              # remove build/dist artifacts and caches' \
 		'  make test               # full pytest suite (needs nasm + bun on PATH; setup extras; warns without vnu)' \
 		'  make test-one T=<node>  # one file/nodeid, e.g. T=tests/test_foo.py::TestBar (nasm/bun/extras optional)' \
@@ -462,8 +463,19 @@ warn-biome:
 	if ! command -v biome >/dev/null 2>&1; then \
 	  echo "WARNING: biome not on PATH; the pre-commit biome hook skips itself locally."; \
 	  echo "CI installs it, so a clean 'make check' here can still fail after push:"; \
-	  echo "  npm install -g @biomejs/biome@$(BIOME_VERSION)"; \
+	  echo "  make biome    # then eval the line it prints"; \
 	fi
+
+# Install the pinned Biome CLI into the local cache and print the PATH line
+# that picks it up.  A thin wrapper over the CI helper: the version and
+# sha256 pins are asserted there, and a second copy of them here is the drift
+# the pin exists to prevent.  Nothing is installed implicitly — a contributor
+# opts in by running the target.
+biome: ensure-bash
+	@set -eu; \
+	dir=$$(bash tools/ci_install_biome.sh); \
+	echo "biome installed; add this to your shell to run the dashboard-JS gate:"; \
+	echo "  export PATH=\"$$dir:\$$PATH\""
 
 # Same warn-level shape, same consequence, for the W3C validator: the two
 # tests in tests/html_validate.py skip when `vnu` is off PATH, and the CI test

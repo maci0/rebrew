@@ -331,17 +331,26 @@ jobs:
         # Same reason as shellcheck: the yamllint hook skips itself when the
         # binary is missing, so the YAML gate exists only if this runs.
         run: bash tools/ci_apt_install.sh yamllint
+      - name: Cache biome
+        # The binary is ~92 MB and the helper is idempotent, so a warm cache
+        # turns the install step into a no-op.  Keyed on the helper rather
+        # than the workflow: the pin lives in the script, and a key that
+        # missed it would serve a linter the step never checked.
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/rebrew/biome
+          key: biome-${{ runner.os }}-${{ hashFiles('tools/ci_install_biome.sh') }}
       - name: Install biome
         # Same reason as shellcheck/yamllint: the biome hook skips itself
         # when the binary is missing, so the dashboard-JS gate exists only
-        # if this step runs.  Pinned release, installed via npm (biome has
-        # no apt package); the version must match biome.json's schema pin.
-        # `set -euo pipefail` so an npm failure fails the job instead of
-        # letting the pre-commit step below run without biome and pass.
+        # if this step runs.  The helper pins the release binary by version
+        # and sha256 and bundles no Node.js/npm (biome has no apt package);
+        # the version must match biome.json's schema pin.
         run: |
           set -euo pipefail
-          npm install -g @biomejs/biome@2.6.6
-          biome --version
+          bin_dir="$(bash tools/ci_install_biome.sh)"
+          printf '%s\n' "$bin_dir" >> "$GITHUB_PATH"
+          "$bin_dir/biome" --version
       - name: Run pre-commit hooks
         env:
           SKIP: ruff-check,ruff-format,mypy
