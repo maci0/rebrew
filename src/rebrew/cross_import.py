@@ -1871,13 +1871,11 @@ def main(
     # 0x6508a3 with 9- and 11-byte spans).  Import the best-scoring match per
     # source file; further destination VAs need a deliberate twin.
     imported_src_files: dict[str, str] = {}
+    non_skipped = sum(1 for r in results if not r["action"].startswith("skipped"))
     for dst_va in sorted(dest_bytes):
         # Check the budget BEFORE importing: the old post-import guard ran with
         # the first import already appended, so ``--limit 0`` still imported one.
-        if (
-            limit is not None
-            and len([r for r in results if not r["action"].startswith("skipped")]) >= limit
-        ):
+        if limit is not None and non_skipped >= limit:
             break
         if dst_va not in matched_vas:
             results.append(
@@ -2017,6 +2015,8 @@ def main(
         merge_sizeless_warning(res, disasm_size)
         if not res["action"].startswith("skipped") and res["action"] != "error":
             imported_src_files[src_file] = res["dst_va"]
+        if not res["action"].startswith("skipped"):
+            non_skipped += 1
         results.append(res)
 
     for refused_va in refused:

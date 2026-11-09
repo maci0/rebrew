@@ -405,9 +405,26 @@ def apply_known_names(
             and (m.group("base") in TYPE_WIDTHS or m.group("base") in PSEUDO_TYPES)
         }
         matches = list(_CAST_INDEX_RE.finditer(text))
+        uses_by_var: dict[str, list[Any]] = {}
+        for m in matches:
+            uses_by_var.setdefault(m.group("xvar"), []).append(m)
+        word_counts: dict[str, int] | None = None
         for var in params:
-            uses = [m for m in matches if m.group("xvar") == var]
-            if len(list(_word_count_re(var).finditer(text))) != len(uses) + 1:
+            uses = uses_by_var.get(var, [])
+            if word_counts is None:
+                # One token walk answers the \bvar\b count for every param
+                # var; the per-var regex scan was O(params x text).
+                if all(re.fullmatch(r"\w+", v) for v in params):
+                    word_counts = {}
+                    for wm in re.finditer(r"\w+", text):
+                        w = wm.group()
+                        if w in params:
+                            word_counts[w] = word_counts.get(w, 0) + 1
+                else:
+                    word_counts = {}
+                    for v in params:
+                        word_counts[v] = len(list(_word_count_re(v).finditer(text)))
+            if word_counts.get(var, 0) != len(uses) + 1:
                 continue
             for m in uses:
                 width = _CAST_INDEX_WIDTHS.get(" ".join(m.group("xtype").split()))

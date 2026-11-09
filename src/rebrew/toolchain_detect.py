@@ -1398,12 +1398,16 @@ def _detect_toolchain_core(
             delphi_hits = ["Borland Delphi"]
         else:
             delphi_hits = [m for m in _DELPHI_MARKERS if m.encode() in raw][:3]
-    msvc_hits = [m for m in _MSVC_MARKERS if any(m in s for s in strings)]
-    watcom_hits = [m for m in _WATCOM_MARKERS if any(m in s for s in strings)]
-    borlandc_hits = [m for m in _BORLANDC_MARKERS if any(m in s for s in strings)]
-    symantec_hits = [m for m in _SYMANTEC_MARKERS if any(m in s for s in strings)]
-    zortech_hits = [m for m in _ZORTECH_MARKERS if any(m in s for s in strings)]
-    icc_hits = [m for m in _ICC_MARKERS if any(m in s for s in strings)]
+    # One joined haystack for every marker family: each marker was
+    # any-marker-in-each-string, i.e. markers x strings substring scans.
+    joined_strings = "\x00".join(strings)
+    has_ms_chkstk_ms = "___chkstk_ms" in joined_strings
+    msvc_hits = [m for m in _MSVC_MARKERS if m in joined_strings]
+    watcom_hits = [m for m in _WATCOM_MARKERS if m in joined_strings]
+    borlandc_hits = [m for m in _BORLANDC_MARKERS if m in joined_strings]
+    symantec_hits = [m for m in _SYMANTEC_MARKERS if m in joined_strings]
+    zortech_hits = [m for m in _ZORTECH_MARKERS if m in joined_strings]
+    icc_hits = [m for m in _ICC_MARKERS if m in joined_strings]
     if delphi_hits:
         info.add(f"Delphi RTL strings: {', '.join(delphi_hits[:3])}")
     if msvc_hits:
@@ -1426,10 +1430,10 @@ def _detect_toolchain_core(
     # MSVC), __CHK (Watcom), __security_check_cookie (VC 8.0+ /GS).
     probe_hits: list[str] = []
     for sym in _PROBE_SYMBOLS:
-        if any(sym in s for s in strings):
+        if sym in joined_strings:
             # "___chkstk_ms" also contains "__chkstk" — prefer the longer,
             # more specific name when both match.
-            if sym == "__chkstk" and any("___chkstk_ms" in s for s in strings):
+            if sym == "__chkstk" and has_ms_chkstk_ms:
                 continue
             probe_hits.append(sym)
     for sym in probe_hits:
