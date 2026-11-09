@@ -118,7 +118,7 @@ class UnresolvedSymbolError(RebrewError, Exception):
     fixing a catalog does not have to parse it back out of the message.
     """
 
-    _STRUCTURED_FIELDS = (*RebrewError._STRUCTURED_FIELDS, "symbol")
+    STRUCTURED_FIELDS = (*RebrewError.STRUCTURED_FIELDS, "symbol")
 
     def __init__(self, symbol: str) -> None:
         super().__init__(symbol)

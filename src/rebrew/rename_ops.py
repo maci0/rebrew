@@ -188,7 +188,7 @@ class RenameError(RebrewError, RuntimeError):
     offending paths so the caller can name them.
     """
 
-    _STRUCTURED_FIELDS = (*RebrewError._STRUCTURED_FIELDS, "files")
+    STRUCTURED_FIELDS = (*RebrewError.STRUCTURED_FIELDS, "files")
 
     def __init__(self, message: str, *, files: Sequence[Path]) -> None:
         super().__init__(message)

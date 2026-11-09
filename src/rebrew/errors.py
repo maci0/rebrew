@@ -168,7 +168,7 @@ class RebrewError(Exception):
     #: field simply omits it from the payload.  A subclass holding more than
     #: the domain fields above extends the tuple, so its own data survives the
     #: round trip instead of reading back absent.
-    _STRUCTURED_FIELDS: tuple[str, ...] = ("kind", "name", "status_code", "group")
+    STRUCTURED_FIELDS: tuple[str, ...] = ("kind", "name", "status_code", "group")
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize the error's structured fields into a JSON-safe dict.
@@ -176,7 +176,7 @@ class RebrewError(Exception):
         The point is that a consumer can persist a failure and still branch
         on it afterwards.  ``type`` names the class, ``message`` is ``str(exc)``,
         ``retryable`` is the decision the caller needs, and whichever of
-        :attr:`_STRUCTURED_FIELDS` the instance carries come along (a
+        :attr:`STRUCTURED_FIELDS` the instance carries come along (a
         ``RecompileError`` brings ``kind`` and ``status_code``).
 
         :meth:`from_dict` reads the payload back, so the round trip preserves
@@ -194,7 +194,7 @@ class RebrewError(Exception):
             "message": str(self),
             "retryable": bool(self.retryable),
         }
-        for field_name in self._STRUCTURED_FIELDS:
+        for field_name in self.STRUCTURED_FIELDS:
             value = getattr(self, field_name, None)
             if value is not None:
                 payload[field_name] = _json_safe(value)

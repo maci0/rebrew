@@ -172,7 +172,7 @@ class CompareResultError(RebrewError, ValueError):
         self.matched = matched
         self.status = status
 
-    _STRUCTURED_FIELDS = (*RebrewError._STRUCTURED_FIELDS, "matched", "status")
+    STRUCTURED_FIELDS = (*RebrewError.STRUCTURED_FIELDS, "matched", "status")
 
 
 @dataclass
