@@ -673,7 +673,7 @@ class TestCLIAddRemoveTarget:
         )
         assert result.exit_code == 0
         data = cli_payload(result)
-        assert data == {"target": "server.dll", "added": False, "existed": True}
+        assert data == {"target": "server.dll", "added": False, "existed": True, "changed": False}
 
     def test_remove_target_json_requires_force(self, tmp_path: Path, monkeypatch) -> None:
         """--json without --force must not hang on an interactive confirm."""
@@ -749,10 +749,28 @@ class TestCLIAddRemoveTarget:
         assert result.exit_code == 0
         data = cli_payload(result)
         assert data["added"] is True
+        assert data["changed"] is True
         assert data["module"] == "CRYPTO"
         assert "CRYPTO" in data["origins"]
         doc, _ = load_toml(tmp_path)
         assert "CRYPTO" in doc["targets"]["server.dll"]["origins"]
+
+    def test_add_module_json_idempotent(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(
+            cfg_app, ["module", "add", "GAME", "--target", "server.dll", "--json"]
+        )
+        assert result.exit_code == 0
+        data = cli_payload(result)
+        assert data == {
+            "added": False,
+            "module": "GAME",
+            "target": "server.dll",
+            "origins": ["GAME", "ZLIB"],
+            "already_present": True,
+            "changed": False,
+        }
 
 
 class TestCLISet:

@@ -757,7 +757,9 @@ def _add_target_locked(
         (root / "src" / name).mkdir(parents=True, exist_ok=True)
         (root / "bin" / name).mkdir(parents=True, exist_ok=True)
         if json_output:
-            json_print({"target": name, "added": False, "existed": True})
+            json_print(
+                {"target": name, "added": False, "existed": True, "changed": False}
+            )
         else:
             console.print(f"[yellow]Target '{name}' already exists (no changes made).[/yellow]")
         return
@@ -873,6 +875,7 @@ def _add_target_locked(
         "existed": False,
         "dry_run": dry_run,
         "forced_missing_binary": forced_missing,
+        "changed": not dry_run,
     }
     if dry_run:
         if json_output:
@@ -1181,6 +1184,7 @@ def _add_module_locked(module: str, *, target: str | None, dry_run: bool, json_m
                     "target": target,
                     "origins": list(origins),
                     "already_present": True,
+                    "changed": False,
                 }
             )
         else:
@@ -1197,6 +1201,7 @@ def _add_module_locked(module: str, *, target: str | None, dry_run: bool, json_m
                     "target": target,
                     "origins": new_origins,
                     "dry_run": True,
+                    "changed": False,
                 }
             )
         else:
@@ -1217,6 +1222,7 @@ def _add_module_locked(module: str, *, target: str | None, dry_run: bool, json_m
                 "module": module_upper,
                 "target": target,
                 "origins": list(origins),
+                "changed": True,
             }
         )
         return

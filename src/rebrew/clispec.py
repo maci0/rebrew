@@ -65,7 +65,9 @@ _READ_ONLY_LEAVES = frozenset(
 
 # These edits already exit 0 when the requested state is in place and report
 # ``changed`` in JSON. Do not add a command here without that field.
-_IDEMPOTENT = frozenset({"cfg target remove", "cfg module remove"})
+_IDEMPOTENT = frozenset(
+    {"cfg target add", "cfg target remove", "cfg module add", "cfg module remove"}
+)
 
 # Full paths that are read-only even though their leaf is not in
 # _READ_ONLY_LEAVES: coverage serve only serves read-only metadata.
