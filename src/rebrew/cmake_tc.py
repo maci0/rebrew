@@ -43,7 +43,6 @@ lazy from rebrew.compiler.toolchain import (
     ToolchainSpec,
     bind_mount,
     docker_hardening_args,
-    kill_container,
 )
 lazy from rebrew.config import ConfigError, check_env_wineprefix, source_date_epoch
 lazy from rebrew.utils import (
@@ -52,6 +51,7 @@ lazy from rebrew.utils import (
     file_lock,
     load_tomllib,
     read_compile_source,
+    run_process_group,
 )
 lazy from rebrew.workspace import walk_up_to_root
 
@@ -321,7 +321,6 @@ def _wineprefix(spec: ToolchainSpec) -> Path:
 
 def _ensure_wineprefix(prefix: Path, spec: ToolchainSpec, *, runtime: str | None = None) -> None:
     """Initialize the shared prefix exactly once (parallel builds race)."""
-    runtime_options: dict[str, Any] = {"runtime": runtime} if runtime else {}
     if (prefix / ".update-timestamp").exists():
         return
     prefix.mkdir(parents=True, exist_ok=True)
@@ -332,7 +331,7 @@ def _ensure_wineprefix(prefix: Path, spec: ToolchainSpec, *, runtime: str | None
             return
         name = f"rebrew-{spec.name}-wineboot-{uuid.uuid4().hex[:12]}"
         try:
-            r = subprocess.run(
+            r = run_process_group(
                 [
                     container_runtime(runtime) if runtime else container_runtime(),
                     "run",
@@ -354,12 +353,7 @@ def _ensure_wineprefix(prefix: Path, spec: ToolchainSpec, *, runtime: str | None
                 timeout=300,
             )
         except subprocess.TimeoutExpired as exc:
-            kill_container(name, **runtime_options)
             error_exit(f"wineprefix init timed out after 300s ({prefix}): {exc}")
-        except BaseException:
-            # Ctrl+C kills the docker CLI but leaves the container running.
-            kill_container(name, **runtime_options)
-            raise
         if r.returncode != 0:
             # A half-initialized prefix makes every later compile fail with
             # confusing wine errors — fail here where the cause is visible.
@@ -459,23 +453,14 @@ def _docker_run(
     with tempfile.TemporaryDirectory(prefix="rebrew-rsp-", dir=root) as rsp_dir:
         cmd.extend(_rewrite_args(mode, _rewrite_response_files(mode, args, Path(rsp_dir))))
         with file_lock(prefix / ".run.lock"):
-            try:
-                r = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    timeout=3600,
-                )
-            except OSError:
-                # The docker CLI could not start, so there is nothing to kill.
-                raise
-            except BaseException:
-                # Timeout/Ctrl+C kills the CLI; dockerd may still be running
-                # Wine. Clean up before releasing the shared prefix lock.
-                kill_container(str(cmd[cmd.index("--name") + 1]), **runtime_options)
-                raise
+            r = run_process_group(
+                cmd,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=3600,
+            )
     sys.stdout.write((r.stdout + r.stderr).replace("\r", ""))
     sys.stdout.flush()
     return r.returncode

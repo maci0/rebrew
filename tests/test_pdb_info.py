@@ -90,7 +90,7 @@ class TestExtract:
                 return SimpleNamespace(returncode=0, stdout=mods, stderr="")
             return SimpleNamespace(returncode=0, stdout=syms, stderr="")
 
-        monkeypatch.setattr("rebrew.pdb_info.subprocess.run", _fake_run)
+        monkeypatch.setattr("rebrew.pdb_info.run_process_group", _fake_run)
 
     def test_no_pdb_returns_none(self, monkeypatch, tmp_path: Path) -> None:
         monkeypatch.setattr("shutil.which", lambda name: None)
@@ -133,7 +133,7 @@ class TestExtract:
         monkeypatch.setattr(
             "pathlib.Path.exists", lambda self: str(self).endswith(".pdb"), raising=False
         )
-        monkeypatch.setattr("rebrew.pdb_info.subprocess.run", _boom)
+        monkeypatch.setattr("rebrew.pdb_info.run_process_group", _boom)
         info = extract_pdb_info(tmp_path / "prog.exe")
         assert info is not None
         assert info.error  # reported unsupported, not raised

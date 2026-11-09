@@ -217,7 +217,7 @@ class TestDetectWithPdb:
                 return SimpleNamespace(returncode=0, stdout=modules, stderr="")
             return SimpleNamespace(returncode=0, stdout=output, stderr="")
 
-        monkeypatch.setattr("rebrew.toolchain_detect.subprocess.run", _fake_run)
+        monkeypatch.setattr("rebrew.toolchain_detect.run_process_group", _fake_run)
 
     def test_zig_pdb(self, monkeypatch, tmp_path: Path) -> None:
         self._mock_pdbutil(

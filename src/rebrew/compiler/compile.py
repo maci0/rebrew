@@ -118,6 +118,7 @@ lazy from rebrew.utils import (
     fold_ident,
     interruptible_pool,
     read_source_text,
+    run_process_group,
     safe_shlex_split,
 )
 lazy from rebrew.workspace.config import config_path
@@ -3264,7 +3265,6 @@ def _link_obj_docker(
     can validate).
     """
     backend = getattr(cfg, "execution_backend", "")
-    cleanup_options: dict[str, Any] = {"runtime": backend} if backend else {}
     if backend == "unshare":
         return False, "execution_backend = unshare does not support linked comparison yet"
     cmd, _script = build_linked_link_cmd(
@@ -3278,7 +3278,7 @@ def _link_obj_docker(
         cmd[0] = container_runtime(backend)
     timeout = getattr(cfg, "compile_timeout", DEFAULT_COMPILE_TIMEOUT) or DEFAULT_COMPILE_TIMEOUT
     try:
-        r = subprocess.run(
+        r = run_process_group(
             cmd,
             capture_output=True,
             text=True,
@@ -3287,24 +3287,9 @@ def _link_obj_docker(
             timeout=timeout,
         )
     except subprocess.TimeoutExpired:
-        container_name = _docker_run_name(cmd)
-        if container_name is not None:
-            from rebrew.compiler.toolchain import kill_container
-
-            # kill_container never raises: a failed kill is logged, so a
-            # timeout is still reported as the timeout.
-            kill_container(container_name, **cleanup_options)
         return False, f"LINK.EXE timed out after {timeout}s"
     except OSError as exc:
         return False, str(exc)
-    except BaseException:
-        # Ctrl+C kills only the docker CLI; the container would keep running.
-        container_name = _docker_run_name(cmd)
-        if container_name is not None:
-            from rebrew.compiler.toolchain import kill_container
-
-            kill_container(container_name, **cleanup_options)
-        raise
     if r.returncode != 0 or not Path(dll_path).exists():
         err = (r.stdout + "\n" + r.stderr).strip()
         return False, err[-400:] if err else f"LINK.EXE exited {r.returncode} with no output"

@@ -693,7 +693,7 @@ class TestStockLib:
             (dest.parent / argv[-1]).write_bytes(b"!<arch>\n")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr(lm.subprocess, "run", fake_run)
+        monkeypatch.setattr(lm, "run_process_group", fake_run)
         assert lm.ensure_stock_lib(dest, profile="msvc-6.0-sp6", name="LIBCMT.LIB") is True
         argv = seen[0]
         assert "rebrew/msvc:6.0-sp6-win32" in argv
@@ -721,7 +721,7 @@ class TestStockLib:
             (dest.parent / argv[-1]).write_bytes(complete)
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr(lm.subprocess, "run", fake_run)
+        monkeypatch.setattr(lm, "run_process_group", fake_run)
         assert lm.ensure_stock_lib(dest, profile="msvc-6.0-sp6", name="LIBCMT.LIB") is True
         assert dest.read_bytes() == complete
         assert lm.stock_lib_valid(dest) is True
@@ -742,7 +742,7 @@ class TestStockLib:
             (dest.parent / argv[-1]).write_bytes(b"!<arch>\n" + header)
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr(lm.subprocess, "run", fake_run)
+        monkeypatch.setattr(lm, "run_process_group", fake_run)
         with pytest.raises(ToolchainError, match="complete archive"):
             lm.ensure_stock_lib(dest, profile="msvc-6.0-sp6", name="LIBCMT.LIB")
         assert not dest.exists()
@@ -761,7 +761,7 @@ class TestStockLib:
             seen.append(list(argv))
             return SimpleNamespace(returncode=0, stdout="aaaa  stock\naaaa  /out/x\n", stderr="")
 
-        monkeypatch.setattr(lm.subprocess, "run", fake_run)
+        monkeypatch.setattr(lm, "run_process_group", fake_run)
         lm.assert_library_is_stock(path, profile="msvc-6.0-sp6", name="LIBCMT.LIB")
         assert "--network=none" in seen[0]
         assert f"{tmp_path.resolve()}:/out:ro" in seen[0]
@@ -777,8 +777,8 @@ class TestStockLib:
         path = tmp_path / "libcmt_stock.LIB"
         path.write_bytes(b"EDITED")
         monkeypatch.setattr(
-            lm.subprocess,
-            "run",
+            lm,
+            "run_process_group",
             lambda argv, **kw: SimpleNamespace(
                 returncode=0, stdout="aaaa  stock\nbbbb  /out/x\n", stderr=""
             ),
@@ -799,8 +799,8 @@ class TestStockLib:
         path = tmp_path / "libcmt_stock.LIB"
         path.write_bytes(b"STOCK")
         monkeypatch.setattr(
-            lm.subprocess,
-            "run",
+            lm,
+            "run_process_group",
             lambda argv, **kw: SimpleNamespace(returncode=0, stdout="aaaa  stock\n", stderr=""),
         )
         with pytest.raises(typer.Exit) as exc:

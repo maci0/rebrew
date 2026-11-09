@@ -63,7 +63,7 @@ from typing import Any, cast
 lazy from collections.abc import Iterator
 
 from rebrew.formats.binary_loader import REAL_MODE_ADDRESS_MASK, load_binary
-from rebrew.utils import SOURCE_CHECKOUT, fold_ident
+from rebrew.utils import SOURCE_CHECKOUT, fold_ident, run_process_group
 
 logger = logging.getLogger(__name__)
 
@@ -503,7 +503,7 @@ def _run_diec(path: Path, diec: Path | None = None) -> list[dict[str, object]] |
     if diec is None:
         return None
     try:
-        r = subprocess.run(
+        r = run_process_group(
             [str(diec), "-j", "--heuristicscan", str(path)],
             capture_output=True,
             text=True,
@@ -1076,7 +1076,7 @@ def _pdb_compile_record(path: Path) -> dict[str, str] | None:
     if not pdb.exists():
         return None
     try:
-        r = subprocess.run(
+        r = run_process_group(
             ["llvm-pdbutil", "dump", "-symbols", str(pdb)],
             capture_output=True,
             text=True,
@@ -1118,7 +1118,7 @@ def _pdb_compile_record(path: Path) -> dict[str, str] | None:
 def _pdb_zig_modules(pdb: Path) -> dict[str, str] | None:
     """Check the PDB module list for a .zig-cache path (Zig marker)."""
     try:
-        r = subprocess.run(
+        r = run_process_group(
             ["llvm-pdbutil", "dump", "-modules", str(pdb)],
             capture_output=True,
             text=True,

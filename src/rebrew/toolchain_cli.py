@@ -217,7 +217,7 @@ def status_cmd(
     image_ok: bool | None = None
     if spec.image is not None and docker_available():
         try:
-            r = subprocess.run(
+            r = run_process_group(
                 [container_runtime(), "image", "inspect", spec.image],
                 capture_output=True,
                 text=True,
@@ -3508,41 +3508,36 @@ def _run_smoke_container(
 ) -> subprocess.CompletedProcess[str]:
     """Compile *flags* in *image* with *workdir* mounted at /work, offline.
 
-    The container gets a unique name so the timeout path can kill it (a killed
-    docker CLI leaves the container under dockerd); a fixed name collided under
-    parallel runs and a timed-out orphan blocked retries.  Re-raises
-    :class:`subprocess.TimeoutExpired` after the kill.
+    The container gets a unique name (a fixed name collided under parallel
+    runs); group-killed on timeout (a killed docker CLI leaves the container
+    under dockerd).  Re-raises :class:`subprocess.TimeoutExpired`.
     """
     import uuid
 
-    from rebrew.compiler.toolchain import bind_mount, docker_hardening_args, kill_container
+    from rebrew.compiler.toolchain import bind_mount, docker_hardening_args
 
     container = f"{name_prefix}-{uuid.uuid4().hex[:12]}"
-    try:
-        return subprocess.run(
-            [
-                container_runtime(),
-                "run",
-                "--rm",
-                *docker_hardening_args(kvm=kvm),
-                "--name",
-                container,
-                "-v",
-                bind_mount(workdir, "/work"),
-                "-w",
-                "/work",
-                image,
-                *flags,
-            ],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=_SMOKE_TIMEOUT_S,
-        )
-    except BaseException:
-        kill_container(container)
-        raise
+    return run_process_group(
+        [
+            container_runtime(),
+            "run",
+            "--rm",
+            *docker_hardening_args(kvm=kvm),
+            "--name",
+            container,
+            "-v",
+            bind_mount(workdir, "/work"),
+            "-w",
+            "/work",
+            image,
+            *flags,
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=_SMOKE_TIMEOUT_S,
+    )
 
 
 def _masked_obj_sha256(obj: Path, mask: tuple[int, int] | list[tuple[int, int]] | None) -> str:

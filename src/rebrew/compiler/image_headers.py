@@ -16,9 +16,8 @@ from rebrew.compiler.toolchain import (
     get_toolchain,
     image_content_id,
     image_msvc_env,
-    kill_container,
 )
-from rebrew.utils import container_runtime
+from rebrew.utils import container_runtime, run_process_group
 
 
 class ImageHeaders:
@@ -37,7 +36,7 @@ class ImageHeaders:
 
     def _image_id(self, image: str) -> str:
         try:
-            result = subprocess.run(
+            result = run_process_group(
                 [self.runtime, "image", "inspect", "--format", "{{.Id}}", image],
                 capture_output=True,
                 timeout=30,
@@ -61,7 +60,7 @@ class ImageHeaders:
         include = str(Path(spec.tool_root).parent / "Include")
         name = "rebrew-headers-" + uuid.uuid4().hex[:12]
         try:
-            result = subprocess.run(
+            result = run_process_group(
                 [
                     self.runtime,
                     "run",
@@ -84,7 +83,6 @@ class ImageHeaders:
                 check=True,
             )
         except (OSError, subprocess.SubprocessError) as exc:
-            kill_container(name, runtime=self.runtime)
             raise ValueError(f"cannot extract headers from compiler image {image_id}") from exc
         root = (
             Path(self.temp.name)

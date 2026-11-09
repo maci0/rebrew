@@ -38,6 +38,7 @@ from typer.models import TyperPath
 lazy import tomlkit
 
 lazy from rebrew.cli import console, error_exit, json_print, untrusted_ident
+lazy from rebrew.utils import run_process_group
 
 log = logging.getLogger(__name__)
 
@@ -96,7 +97,9 @@ def _run_pdbutil(args: list[str], pdb: Path, timeout: int = 30) -> str:
     if shutil.which("llvm-pdbutil") is None:
         return ""
     try:
-        r = subprocess.run(
+        # Group-killed: a hung pdbutil on a wedged pipe would otherwise
+        # orphan its helper past the timeout (see run_process_group).
+        r = run_process_group(
             ["llvm-pdbutil", *args, str(pdb)],
             capture_output=True,
             text=True,

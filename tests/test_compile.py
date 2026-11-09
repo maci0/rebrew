@@ -2351,7 +2351,7 @@ class TestPinnedImageExecution:
         monkeypatch.setattr("rebrew.compiler.compile.cached_image_digest", _digest)
         monkeypatch.setattr(toolchain_mod, "docker_available", lambda: True)
         monkeypatch.setattr(toolchain_mod, "image_present", _present)
-        monkeypatch.setattr(toolchain_mod.subprocess, "run", _run)
+        monkeypatch.setattr(toolchain_mod, "run_process_group", _run)
         source = self._source(tmp_path)
         work = tmp_path / "w"
         work.mkdir()

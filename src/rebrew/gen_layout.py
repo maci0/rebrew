@@ -60,7 +60,13 @@ lazy from rebrew.config import compiler_dir, target_module
 lazy from rebrew.formats.pe_headers import pe_image_base, pe_layout
 lazy from rebrew.formats.pe_image import PeImport, derive_link_options, parse_pe
 lazy from rebrew.layout_meta import LayoutMetadata, extract_layout, write_package
-lazy from rebrew.utils import atomic_write_text, container_runtime, fold_ident, pe_name_token
+lazy from rebrew.utils import (
+    atomic_write_text,
+    container_runtime,
+    fold_ident,
+    pe_name_token,
+    run_process_group,
+)
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
@@ -228,14 +234,12 @@ def _import_lib_symbols_from_image(dll_stem: str) -> set[str]:
     # because the image filesystem is case-sensitive.
     name = f"rebrew-libgrep-{uuid.uuid4().hex[:12]}"
     try:
-        r = subprocess.run(
+        r = run_process_group(
             [
                 container_runtime(),
                 "run",
                 "--rm",
                 *docker_hardening_args(pull=False),
-                # Named so the timeout path can kill it (a killed docker CLI
-                # leaves the container running under dockerd).
                 "--name",
                 name,
                 "--entrypoint",
@@ -254,9 +258,6 @@ def _import_lib_symbols_from_image(dll_stem: str) -> set[str]:
             timeout=60,
         )
     except subprocess.TimeoutExpired:
-        from rebrew.compiler.toolchain import kill_container
-
-        kill_container(name)
         log.warning("container %s timed out listing symbols; library assumed empty", name)
         return set()
     except OSError as exc:

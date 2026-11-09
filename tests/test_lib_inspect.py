@@ -308,7 +308,7 @@ class TestStockExtraction:
 
         monkeypatch.setattr(lm, "container_runtime", lambda: "docker")
         monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
-        monkeypatch.setattr(lm.subprocess, "run", container)
+        monkeypatch.setattr(lm, "run_process_group", container)
         cfg = SimpleNamespace(
             root=tmp_path, external_libs={"LIBCMT": "LIBCMT.lib"}, compiler_profile="msvc-6.0-sp5"
         )
@@ -341,6 +341,6 @@ class TestStockExtraction:
 
         monkeypatch.setattr(lm, "container_runtime", lambda: "docker")
         monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
-        monkeypatch.setattr(lm.subprocess, "run", container)
+        monkeypatch.setattr(lm, "run_process_group", container)
         with pytest.raises(ToolchainError, match="several"):
             lm.ensure_stock_lib(tmp_path / "x.lib", profile="msvc-6.0-sp5", name="LIBCMT.lib")

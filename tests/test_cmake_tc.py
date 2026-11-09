@@ -220,7 +220,7 @@ def test_docker_run_builds_command(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
         calls.append(cmd)
         return SimpleNamespace(returncode=returncodes[len(calls) - 1], stdout="", stderr="")
 
-    monkeypatch.setattr("rebrew.cmake_tc.subprocess.run", fake_run)
+    monkeypatch.setattr("rebrew.cmake_tc.run_process_group", fake_run)
 
     spec = TOOLCHAINS["msvc-6.0"]
     rc = _docker_run(spec, "cl", ["/c", "x.c"])
@@ -275,7 +275,7 @@ def test_source_date_epoch_freezes_tool_after_real_wineboot(
         calls.append(cmd)
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr("rebrew.cmake_tc.subprocess.run", fake_run)
+    monkeypatch.setattr("rebrew.cmake_tc.run_process_group", fake_run)
     spec = TOOLCHAINS["msvc-6.0"]
     assert _docker_run(spec, mode, ["/nologo"]) == 0
     init, tool = calls
@@ -293,9 +293,9 @@ def test_source_date_epoch_freezes_tool_after_real_wineboot(
 def test_docker_run_timeout_kills_container(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """A timed-out wine compile is killed by container name: killing the
-    docker CLI alone leaves the container running under dockerd, leaking one
-    hung wine process per timeout."""
+    """A timed-out wine compile now goes through the group-killing runner:
+    killing the docker CLI alone leaves the container running under dockerd,
+    leaking one hung wine process per timeout."""
     import subprocess as sp
 
     _chdir_project(monkeypatch, tmp_path)
@@ -307,22 +307,24 @@ def test_docker_run_timeout_kills_container(
             raise sp.TimeoutExpired(cmd, 3600)
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr("rebrew.cmake_tc.subprocess.run", fake_run)
+    killed: list[str] = []
+    monkeypatch.setattr("rebrew.utils.kill_process_group", lambda proc: killed.append("group"))
+    monkeypatch.setattr("rebrew.cmake_tc.run_process_group", fake_run)
 
     spec = TOOLCHAINS["msvc-6.0"]
     with pytest.raises(sp.TimeoutExpired):
         _docker_run(spec, "cl", ["/c", "x.c"])
 
-    init_cmd, run_cmd, kill_cmd = calls
+    init_cmd, run_cmd = calls
     assert init_cmd[-2:] == ["wineboot", "-u"]
-    assert kill_cmd[:2] == ["docker", "kill"]
-    assert kill_cmd[2] == run_cmd[run_cmd.index("--name") + 1]
+    assert run_cmd[run_cmd.index("--name") + 1]
+    assert killed == []  # group-kill is inside run_process_group; no docker-kill wrapper
 
 
 def test_wineprefix_init_timeout_kills_container(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """A hung wineboot is killed by container name before the error exit."""
+    """A hung wineboot is group-killed before the error exit (one call only)."""
     import subprocess as sp
 
     import typer
@@ -336,13 +338,12 @@ def test_wineprefix_init_timeout_kills_container(
             raise sp.TimeoutExpired(cmd, 300)
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr("rebrew.cmake_tc.subprocess.run", fake_run)
+    monkeypatch.setattr("rebrew.cmake_tc.run_process_group", fake_run)
 
     with pytest.raises(typer.Exit):
         _ensure_wineprefix(Path(os.environ["REBREW_WINEPREFIX"]), TOOLCHAINS["msvc-6.0"])
 
-    assert len(calls) == 2
-    assert calls[1][:2] == ["docker", "kill"]
+    assert len(calls) == 1
 
 
 @pytest.mark.parametrize("failure", ["response", "lock", "spawn"])
@@ -363,8 +364,8 @@ def test_docker_run_does_not_kill_before_launch(
         launched.append(cmd)
         fail()
 
-    monkeypatch.setattr("rebrew.cmake_tc.kill_container", killed.append)
-    monkeypatch.setattr("rebrew.cmake_tc.subprocess.run", fail_spawn)
+    monkeypatch.setattr("rebrew.utils.kill_process_group", killed.append)
+    monkeypatch.setattr("rebrew.cmake_tc.run_process_group", fail_spawn)
     if failure == "response":
         monkeypatch.setattr("rebrew.cmake_tc._rewrite_response_files", fail)
     elif failure == "lock":
@@ -633,7 +634,7 @@ def test_docker_run_rejects_relative_wineprefix(
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("REBREW_WINEPREFIX", "prefix")
     calls: list[list[str]] = []
-    monkeypatch.setattr("rebrew.cmake_tc.subprocess.run", lambda cmd, **_: calls.append(cmd))
+    monkeypatch.setattr("rebrew.cmake_tc.run_process_group", lambda cmd, **_: calls.append(cmd))
 
     with pytest.raises(typer.Exit):
         _docker_run(TOOLCHAINS["msvc-6.0"], "cl", ["/c", "x.c"])

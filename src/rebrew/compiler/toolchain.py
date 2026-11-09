@@ -990,7 +990,7 @@ def _image_id(tag: str) -> str | None:
     if not docker_available():
         return None
     try:
-        r = subprocess.run(
+        r = run_process_group(
             [container_runtime(), "image", "inspect", "--format", "{{.Id}}", tag],
             capture_output=True,
             text=True,
@@ -1012,7 +1012,7 @@ def _image_id(tag: str) -> str | None:
 def _retag_image(src: str, dst: str) -> None:
     """Point the *dst* tag at *src* (an image id or tag)."""
     try:
-        r = subprocess.run(
+        r = run_process_group(
             [container_runtime(), "tag", src, dst],
             capture_output=True,
             text=True,
@@ -1472,21 +1472,18 @@ def run_toolchain(
         cmd.append(target)
         cmd.extend(args)
         try:
-            # start_new_session: this is the hot path (every compile), so a
-            # wedged pipe writer must not let a timed-out compile's process
-            # group escape the kill below the way run_process_group's does.
-            r = subprocess.run(
+            # Group-killed (run_process_group): this is the hot path (every
+            # compile), so a wedged pipe writer must not let a timed-out
+            # compile's process group escape the kill.
+            r = run_process_group(
                 cmd,
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
                 errors="replace",
                 timeout=timeout,
-                start_new_session=True,
             )
         except subprocess.TimeoutExpired as exc:
-            if "--name" in cmd:
-                kill_container(str(cmd[cmd.index("--name") + 1]), **runtime_options)
             raise ToolchainError(
                 f"docker invocation failed: {exc}",
                 kind="invocation",
@@ -1503,12 +1500,6 @@ def run_toolchain(
                 name=spec.name,
                 retryable=True,
             ) from exc
-        except BaseException:
-            # Ctrl+C: subprocess.run SIGKILLs the docker CLI, which leaves
-            # the container running under dockerd.
-            if "--name" in cmd:
-                kill_container(str(cmd[cmd.index("--name") + 1]), **runtime_options)
-            raise
         return RunResult(r.returncode, r.stdout, r.stderr, backend=runtime)
 
     if spec.runtime == "native":
@@ -1627,7 +1618,7 @@ def pull_toolchain(name: str, timeout: int = 1200) -> tuple[str, bool]:
 
     def _pull() -> None:
         try:
-            r = subprocess.run(
+            r = run_process_group(
                 [container_runtime(), "pull", image],
                 capture_output=True,
                 text=True,

@@ -40,7 +40,7 @@ def runtime(monkeypatch):
         data = state["id"].encode() if args[1:3] == ["image", "inspect"] else state["archive"]
         return subprocess.CompletedProcess(args, 0, stdout=data, stderr=b"")
 
-    monkeypatch.setattr("rebrew.compiler.image_headers.subprocess.run", run)
+    monkeypatch.setattr("rebrew.compiler.image_headers.run_process_group", run)
     return state, calls
 
 

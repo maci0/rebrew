@@ -72,7 +72,7 @@ lazy from rebrew.formats.archives import stock_lib_valid as stock_lib_valid
 lazy from rebrew.formats.binary_loader import extract_raw_bytes
 lazy from rebrew.formats.coff import load_coff
 lazy from rebrew.gen_flirt_pat import parse_archive, parse_coff_aliases, parse_coff_obj
-lazy from rebrew.utils import container_runtime, read_json_text
+lazy from rebrew.utils import container_runtime, read_json_text, run_process_group
 lazy from rebrew.workspace.config import config_path
 
 MIN_BYTES = 8
@@ -560,12 +560,11 @@ def ensure_stock_lib(dest: Path, *, profile: str, name: str) -> bool:
         return False
     image, lib_dir = stock_lib_dir(profile, name)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    from rebrew.compiler.toolchain import kill_container
 
     container = f"rebrew-libext-{uuid.uuid4().hex[:12]}"
     staging = dest.parent / f".{dest.name}.{uuid.uuid4().hex}.part"
     try:
-        result = subprocess.run(
+        result = run_process_group(
             [
                 runtime,
                 "run",
@@ -592,12 +591,9 @@ def ensure_stock_lib(dest: Path, *, profile: str, name: str) -> bool:
             timeout=120,
         )
     except subprocess.TimeoutExpired as exc:
-        kill_container(container)
         staging.unlink(missing_ok=True)
         raise ToolchainError(f"extracting {name} from {image} timed out") from exc
     except BaseException:
-        # Ctrl+C kills the docker CLI but leaves the container running.
-        kill_container(container)
         staging.unlink(missing_ok=True)
         raise
     if result.returncode != 0 or not stock_lib_valid(staging):
@@ -632,11 +628,10 @@ def assert_library_is_stock(
     if not runtime_on_path():
         return
     image, lib_dir = stock_lib_dir(profile, name)
-    from rebrew.compiler.toolchain import kill_container
 
     container = f"rebrew-libhash-{uuid.uuid4().hex[:12]}"
     try:
-        result = subprocess.run(
+        result = run_process_group(
             [
                 runtime,
                 "run",
@@ -663,16 +658,11 @@ def assert_library_is_stock(
             timeout=120,
         )
     except subprocess.TimeoutExpired:
-        kill_container(container)
         error_exit(
             f"verifying {path.name} against {image} timed out",
             json_mode=json_mode,
             code=EXIT_ERROR,
         )
-    except BaseException:
-        # Ctrl+C kills the docker CLI but leaves the container running.
-        kill_container(container)
-        raise
     digests = [line.split()[0] for line in result.stdout.splitlines() if line.strip()]
     if len(digests) != 2:
         error_exit(

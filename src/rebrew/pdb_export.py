@@ -58,7 +58,7 @@ from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print
 from rebrew.errors import RebrewError
 lazy from rebrew.formats.pe_symbols import KIND_FUNC, pe_symbols
 lazy from rebrew.symbol_addrs import SymbolRow, function_symbol_rows, merge_pe_symbols
-lazy from rebrew.utils import untrusted_ident
+lazy from rebrew.utils import run_process_group, untrusted_ident
 
 app = typer.Typer(
     help="Write a synthetic PDB for the target binary from rebrew's symbols.",
@@ -656,7 +656,7 @@ def write_pdb(document: dict[str, Any], output: Path) -> None:
     partial = output.with_name(f".{output.name}.{os.getpid()}.tmp")
     try:
         try:
-            result = subprocess.run(
+            result = run_process_group(
                 [tool, "yaml2pdb", f"-pdb={partial}", "-"],
                 input=json.dumps(document),
                 capture_output=True,
@@ -664,7 +664,6 @@ def write_pdb(document: dict[str, Any], output: Path) -> None:
                 encoding="utf-8",
                 errors="replace",
                 timeout=_PDBUTIL_TIMEOUT_S,
-                check=False,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise PdbExportError(f"llvm-pdbutil yaml2pdb failed: {exc}") from exc
@@ -682,14 +681,13 @@ def read_back_identity(pdb: Path) -> tuple[str, int, int]:
     """``(GUID, age, signature)`` of *pdb* per ``llvm-pdbutil dump -summary``."""
     tool = _pdbutil()
     try:
-        result = subprocess.run(
+        result = run_process_group(
             [tool, "dump", "-summary", str(pdb)],
             capture_output=True,
             text=True,
             encoding="utf-8",
             errors="replace",
             timeout=_PDBUTIL_TIMEOUT_S,
-            check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise PdbExportError(f"llvm-pdbutil dump failed: {exc}") from exc

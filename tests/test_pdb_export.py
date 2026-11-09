@@ -253,7 +253,7 @@ class TestReadBackIdentity:
                 stderr="llvm-pdbutil: truncated PDB",
             )
 
-        monkeypatch.setattr(pdb_export.subprocess, "run", _run)
+        monkeypatch.setattr(pdb_export, "run_process_group", _run)
         with pytest.raises(PdbExportError, match=r"dump -summary exited 1.*truncated PDB"):
             read_back_identity(pdb)
 
@@ -271,7 +271,7 @@ class TestReadBackIdentity:
         def _run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
             return subprocess.CompletedProcess(args, 0, stdout="no identity here\n", stderr="")
 
-        monkeypatch.setattr(pdb_export.subprocess, "run", _run)
+        monkeypatch.setattr(pdb_export, "run_process_group", _run)
         with pytest.raises(PdbExportError, match="cannot read back"):
             read_back_identity(pdb)
 

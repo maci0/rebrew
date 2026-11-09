@@ -89,7 +89,7 @@ def _monkey_docker(monkeypatch, *, available: bool = True, image: bool = True) -
 
     monkeypatch.setattr("rebrew.compiler.toolchain.docker_available", lambda: available)
     monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: available and image)
-    monkeypatch.setattr("rebrew.compiler.toolchain.subprocess.run", _run)
+    monkeypatch.setattr("rebrew.compiler.toolchain.run_process_group", _run)
     return calls
 
 
@@ -649,7 +649,7 @@ class TestRunToolchain:
             calls.append(cmd)
             return _FakeProc(0, "", "")
 
-        monkeypatch.setattr("rebrew.compiler.toolchain.subprocess.run", _run)
+        monkeypatch.setattr("rebrew.compiler.toolchain.run_process_group", _run)
         with pytest.raises(ToolchainError, match="no docker image"):
             run_toolchain(spec, ["/c", "t.c"], workdir=tmp_path)
         assert calls == [], "no subprocess may run for a wine spec without an image"
@@ -671,19 +671,18 @@ class TestRunToolchain:
                 raise sp.TimeoutExpired(cmd, 300)
             return _FakeProc(0, "", "")
 
+        killed: list[str] = []
         monkeypatch.setattr("rebrew.compiler.toolchain.docker_available", lambda: True)
         monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: True)
-        monkeypatch.setattr("rebrew.compiler.toolchain.subprocess.run", _run)
+        monkeypatch.setattr("rebrew.compiler.toolchain.run_process_group", _run)
+        monkeypatch.setattr("rebrew.utils.kill_process_group", lambda proc: killed.append("group"))
 
         with pytest.raises(ToolchainError, match="docker invocation failed"):
             run_toolchain(spec, ["/c", "f.c"], workdir=tmp_path, timeout=1)
 
-        assert len(calls) == 2
-        name_at = calls[0].index("--name")
-        assert calls[0][name_at : name_at + 2] == ["--name", calls[1][2]], (
-            "kill must target the run's container"
-        )
-        assert calls[1][:2] == ["docker", "kill"]
+        assert len(calls) == 1
+        assert calls[0][calls[0].index("--name") + 1]
+        assert killed == []  # group-kill is inside run_process_group; no docker-kill wrapper
 
     def test_docker_interrupt_kills_named_container(self, tmp_path: Path, monkeypatch) -> None:
         """Ctrl+C mid-compile kills only the docker CLI; the container must
@@ -699,19 +698,18 @@ class TestRunToolchain:
                 raise KeyboardInterrupt
             return _FakeProc(0, "", "")
 
+        killed: list[str] = []
         monkeypatch.setattr("rebrew.compiler.toolchain.docker_available", lambda: True)
         monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: True)
-        monkeypatch.setattr("rebrew.compiler.toolchain.subprocess.run", _run)
+        monkeypatch.setattr("rebrew.compiler.toolchain.run_process_group", _run)
+        monkeypatch.setattr("rebrew.utils.kill_process_group", lambda proc: killed.append("group"))
 
         with pytest.raises(KeyboardInterrupt):
             run_toolchain(spec, ["/c", "f.c"], workdir=tmp_path, timeout=1)
 
-        assert len(calls) == 2
-        name_at = calls[0].index("--name")
-        assert calls[0][name_at : name_at + 2] == ["--name", calls[1][2]], (
-            "kill must target the run's container"
-        )
-        assert calls[1][:2] == ["docker", "kill"]
+        assert len(calls) == 1
+        assert calls[0][calls[0].index("--name") + 1]
+        assert killed == []  # group-kill is inside run_process_group; no docker-kill wrapper
 
     def test_docker_os_error_skips_kill(self, tmp_path: Path, monkeypatch) -> None:
         """No container exists when docker itself cannot be exec'd — the
@@ -727,7 +725,7 @@ class TestRunToolchain:
 
         monkeypatch.setattr("rebrew.compiler.toolchain.docker_available", lambda: True)
         monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: True)
-        monkeypatch.setattr("rebrew.compiler.toolchain.subprocess.run", _run)
+        monkeypatch.setattr("rebrew.compiler.toolchain.run_process_group", _run)
 
         with pytest.raises(ToolchainError, match="docker invocation failed"):
             run_toolchain(spec, ["/c", "f.c"], workdir=tmp_path)
@@ -968,7 +966,7 @@ class TestPullToolchain:
         monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: True)
         called: list[str] = []
         monkeypatch.setattr(
-            "rebrew.compiler.toolchain.subprocess.run",
+            "rebrew.compiler.toolchain.run_process_group",
             lambda *a, **k: called.append(a) or type("R", (), {"returncode": 0})(),
         )
         tag, was_present = pull_toolchain("msvc-6.0")
@@ -993,7 +991,7 @@ class TestPullToolchain:
                 return type("R", (), {"returncode": 0, "stdout": "sha256:NEW\n", "stderr": ""})()
             return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
 
-        monkeypatch.setattr("rebrew.compiler.toolchain.subprocess.run", _run)
+        monkeypatch.setattr("rebrew.compiler.toolchain.run_process_group", _run)
         tag, was_present = pull_toolchain("msvc-6.0")
         assert tag == "rebrew/msvc:6.0-win32"
         assert was_present is False
@@ -1013,7 +1011,7 @@ class TestPullToolchain:
                 return type("R", (), {"returncode": 0, "stdout": "sha256:NEW\n", "stderr": ""})()
             return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
 
-        monkeypatch.setattr("rebrew.compiler.toolchain.subprocess.run", _run)
+        monkeypatch.setattr("rebrew.compiler.toolchain.run_process_group", _run)
         pull_toolchain("msvc-6.0")
         pulls = [c for c in seen if c[1] == "pull"]
         assert pulls and all(c[0] == "podman" for c in pulls)
@@ -1031,7 +1029,7 @@ class TestPullToolchain:
                 raise subprocess.TimeoutExpired(cmd, timeout=1200)
             return type("R", (), {"returncode": 1, "stdout": "", "stderr": ""})()
 
-        monkeypatch.setattr("rebrew.compiler.toolchain.subprocess.run", _run)
+        monkeypatch.setattr("rebrew.compiler.toolchain.run_process_group", _run)
         with pytest.raises(ToolchainError) as exc_info:
             pull_toolchain("msvc-6.0")
         assert exc_info.value.kind == "docker"
@@ -1100,7 +1098,7 @@ class TestSwapToolchainImage:
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         monkeypatch.setattr("rebrew.compiler.toolchain.docker_available", lambda: True)
-        monkeypatch.setattr("rebrew.compiler.toolchain.subprocess.run", _run)
+        monkeypatch.setattr("rebrew.compiler.toolchain.run_process_group", _run)
         return state, calls
 
     def test_failed_op_leaves_previous_image(self, monkeypatch) -> None:
@@ -1708,7 +1706,6 @@ class TestSmokePrintGoldens:
 
     def test_print_goldens_emits_masked_hash(self, tmp_path: Path, monkeypatch, capsys) -> None:
         import hashlib
-        import subprocess
         from types import SimpleNamespace
 
         from typer.testing import CliRunner
@@ -1726,7 +1723,7 @@ class TestSmokePrintGoldens:
             (Path(v.split(":")[0]) / "t.obj").write_bytes(obj)
             return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
 
-        monkeypatch.setattr(subprocess, "run", _fake_run)
+        monkeypatch.setattr("rebrew.toolchain_cli.run_process_group", _fake_run)
         result = CliRunner().invoke(
             umbrella, ["toolchain", "smoke", "msvc-6.0", "--print-goldens", "--json"]
         )
@@ -1752,19 +1749,18 @@ class TestSmokePrintGoldens:
             names.append(cmd[cmd.index("--name") + 1])
             raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
 
-        monkeypatch.setattr(subprocess, "run", _fake_run)
-        monkeypatch.setattr("rebrew.compiler.toolchain.kill_container", killed.append)
+        monkeypatch.setattr("rebrew.toolchain_cli.run_process_group", _fake_run)
+        monkeypatch.setattr("rebrew.utils.kill_process_group", lambda proc: killed.append("group"))
         result = CliRunner().invoke(umbrella, ["toolchain", "smoke", "msvc-6.0", "--json"])
         payload = cli_payload(result)
         assert payload["results"] == {"msvc-6.0": "FAIL (docker run timed out after 300s)"}
         assert payload["passed"] is False
-        assert killed == names
+        assert killed == []  # group-kill is inside run_process_group; no docker-kill wrapper
         assert names[0].startswith("rebrew-smoke-msvc-6.0-")
 
     def test_golden_drift_exits_mismatch_not_error(self, monkeypatch) -> None:
         """A reproducible-but-different object is the finding the gate exists
         to report (exit 1), not a broken toolchain (exit 2)."""
-        import subprocess
         from types import SimpleNamespace
 
         from typer.testing import CliRunner
@@ -1778,7 +1774,7 @@ class TestSmokePrintGoldens:
             (Path(v.split(":")[0]) / "t.obj").write_bytes(b"OBJ" + b"\xff" * 4 + b"TAIL")
             return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
 
-        monkeypatch.setattr(subprocess, "run", _fake_run)
+        monkeypatch.setattr("rebrew.toolchain_cli.run_process_group", _fake_run)
         result = CliRunner().invoke(umbrella, ["toolchain", "smoke", "msvc-6.0", "--json"])
         assert result.exit_code == 1, result.output
         payload = cli_payload(result)
@@ -1796,8 +1792,7 @@ class TestSmokePrintGoldens:
         def _fake_run(cmd, **kwargs):
             raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
 
-        monkeypatch.setattr(subprocess, "run", _fake_run)
-        monkeypatch.setattr("rebrew.compiler.toolchain.kill_container", lambda name: None)
+        monkeypatch.setattr("rebrew.toolchain_cli.run_process_group", _fake_run)
         result = CliRunner().invoke(umbrella, ["toolchain", "smoke", "msvc-6.0", "--json"])
         assert result.exit_code == 2, result.output
 
@@ -1817,7 +1812,7 @@ class TestPullToolchainHint:
 
         monkeypatch.setattr("rebrew.compiler.toolchain.docker_available", lambda: True)
         monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: False)
-        monkeypatch.setattr("rebrew.compiler.toolchain.subprocess.run", _fake_run)
+        monkeypatch.setattr("rebrew.compiler.toolchain.run_process_group", _fake_run)
         with pytest.raises(ToolchainError, match="toolchain build msvc-4.2"):
             pull_toolchain("msvc-4.2")
 

@@ -45,6 +45,7 @@ lazy from rebrew.utils import (
     parse_c_integer_literal,
     preset_module_key,
     read_source_text,
+    run_process_group,
     split_source_lines,
 )
 lazy from rebrew.workspace.config import config_path
@@ -208,7 +209,7 @@ def _run_objdump(obj: Path, flag: str) -> str:
 
 def _run_objdump_uncached(obj: Path, flag: str) -> str:
     try:
-        r = subprocess.run(
+        r = run_process_group(
             ["objdump", flag, str(obj)],
             capture_output=True,
             text=True,

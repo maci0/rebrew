@@ -249,6 +249,8 @@ class TestImportLibSymbolsFromImage:
     def _run_locally(monkeypatch: pytest.MonkeyPatch, lib_dir: Path) -> list[list[str]]:
         import subprocess
 
+        import rebrew.gen_layout as gen_layout
+
         seen: list[list[str]] = []
         real_run = subprocess.run
 
@@ -259,7 +261,7 @@ class TestImportLibSymbolsFromImage:
             local = ["sh", "-c", cmd[i + 1], cmd[i + 2], str(lib_dir), *cmd[i + 4 :]]
             return real_run(local, **kwargs)  # type: ignore[call-overload]
 
-        monkeypatch.setattr(subprocess, "run", fake_run)
+        monkeypatch.setattr(gen_layout, "run_process_group", fake_run)
         return seen
 
     def test_matches_lib_name_case_insensitively(
