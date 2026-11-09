@@ -274,7 +274,9 @@ class TestDownloadWiboErrors:
             lambda url, **kw: self._meta(
                 {
                     "tag_name": "v1",
-                    "assets": [{"name": wibo_mod._wibo_asset_name(), "digest": "sha256:" + "ab" * 32}],
+                    "assets": [
+                        {"name": wibo_mod._wibo_asset_name(), "digest": "sha256:" + "ab" * 32}
+                    ],
                 }
             ),
         )

@@ -55,9 +55,7 @@ def TestOneInput(data: bytes) -> None:
             assert all(isinstance(size, int) and size > 0 for _start, size in result)
             # Determinism on exactly the same bytes.
             assert (
-                _parse_eh_frame(
-                    data, _SECTION_VA, pointer_size=pointer_size, big_endian=big_endian
-                )
+                _parse_eh_frame(data, _SECTION_VA, pointer_size=pointer_size, big_endian=big_endian)
                 == result
             )
             # Truncation can only shrink the result to a prefix of it.

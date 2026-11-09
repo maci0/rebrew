@@ -1032,7 +1032,10 @@ class TestUploadLedger:
         recorded = 1_700_000_000.0
         decompme.record_upload(tmp_path, digest, "abc", "tok", "https://decomp.me", now=recorded)
         stepped_back = recorded - 3600.0
-        assert decompme.recorded_upload(tmp_path, digest, "https://decomp.me", now=stepped_back) is not None
+        assert (
+            decompme.recorded_upload(tmp_path, digest, "https://decomp.me", now=stepped_back)
+            is not None
+        )
 
 
 class TestVerifyCompiler:

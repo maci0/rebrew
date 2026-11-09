@@ -757,9 +757,7 @@ def _add_target_locked(
         (root / "src" / name).mkdir(parents=True, exist_ok=True)
         (root / "bin" / name).mkdir(parents=True, exist_ok=True)
         if json_output:
-            json_print(
-                {"target": name, "added": False, "existed": True, "changed": False}
-            )
+            json_print({"target": name, "added": False, "existed": True, "changed": False})
         else:
             console.print(f"[yellow]Target '{name}' already exists (no changes made).[/yellow]")
         return

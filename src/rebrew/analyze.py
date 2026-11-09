@@ -494,7 +494,9 @@ def _collect_float_consts(info: Any) -> list[dict[str, Any]]:
     try:
         from rebrew.config import arch_byte_order
 
-        order = arch_byte_order(str(getattr(info, "arch", "") or ""), getattr(info, "endian", "") or "")
+        order = arch_byte_order(
+            str(getattr(info, "arch", "") or ""), getattr(info, "endian", "") or ""
+        )
         consts = list(
             find_float_consts(
                 code_regions,

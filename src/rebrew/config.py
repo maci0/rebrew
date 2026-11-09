@@ -1885,13 +1885,9 @@ def check_env_jobs_addr(raw: str) -> None:
     try:
         addr = ipaddress.ip_address(host)
     except ValueError:
-        raise ConfigError(
-            f"REBREW_JOBS_ADDR={value!r} must be a loopback host:port"
-        ) from None
+        raise ConfigError(f"REBREW_JOBS_ADDR={value!r} must be a loopback host:port") from None
     if not addr.is_loopback:
-        raise ConfigError(
-            f"REBREW_JOBS_ADDR={value!r} must be a loopback host:port"
-        )
+        raise ConfigError(f"REBREW_JOBS_ADDR={value!r} must be a loopback host:port")
 
 
 def check_env_managed_compile_limit(raw: str) -> None:
@@ -1911,9 +1907,7 @@ def check_env_managed_compile_limit(raw: str) -> None:
     except ValueError as exc:
         raise ConfigError(f"REBREW_MANAGED_COMPILE_LIMIT={value!r} is not an int") from exc
     if not 1 <= parsed <= 1000:
-        raise ConfigError(
-            f"REBREW_MANAGED_COMPILE_LIMIT={value!r} must be in 1..1000"
-        )
+        raise ConfigError(f"REBREW_MANAGED_COMPILE_LIMIT={value!r} must be in 1..1000")
 
 
 def check_env_managed_recompile_url(raw: str) -> None:
@@ -1931,7 +1925,7 @@ def check_env_managed_recompile_url(raw: str) -> None:
         return
     validate_http_url(value, "REBREW_MANAGED_RECOMPILE_URL")
     parsed = urlparse(value)
-    host = (parsed.hostname or "")
+    host = parsed.hostname or ""
     # Mirror the Go gate exactly: https, or http to 127.0.0.1 / ::1 only
     # (``localhost`` as a name is not accepted by the mediator, so it is
     # not accepted here either).
@@ -1989,7 +1983,6 @@ def check_env_job_docker_image(raw: str) -> None:
             f"REBREW_JOB_DOCKER_IMAGE={value!r} must be a sha256: image id "
             "(sha256: followed by 64 lowercase hex digits)"
         )
-
 
 
 def check_env_ops_allowed_hosts(raw: str) -> None:
@@ -3394,10 +3387,10 @@ __all__ = [
     "check_env_dir",
     "check_env_display",
     "check_env_insecure_cluster_host",
-    "check_env_llm_api_key",
     "check_env_job_docker_image",
     "check_env_job_token",
     "check_env_jobs_addr",
+    "check_env_llm_api_key",
     "check_env_managed_compile_limit",
     "check_env_managed_compilers",
     "check_env_managed_recompile_url",

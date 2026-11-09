@@ -2546,6 +2546,7 @@ _LIBRARY_HEADER_CACHE_LOCK = threading.Lock()
 
 def _stat_identity(path: Path) -> tuple[int, int, int, int]:
     from rebrew.utils import stat_identity
+
     mtime_ns, ctime_ns, size, ino = stat_identity(path)
     return (mtime_ns, size, ino, ctime_ns)
 

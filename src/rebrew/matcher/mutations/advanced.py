@@ -246,11 +246,7 @@ def mut_loop_condition_extraction(s: str, rng: random.Random) -> str | None:
     else:
         body_str = b_source[body.start_byte : body.end_byte]
     new_loop = (
-        b"while (1) {\n        if (!("
-        + cond_str
-        + b")) break;\n        "
-        + body_str
-        + b"\n    }"
+        b"while (1) {\n        if (!(" + cond_str + b")) break;\n        " + body_str + b"\n    }"
     )
 
     return decode_source(b_source[: stmt.start_byte] + new_loop + b_source[stmt.end_byte :])

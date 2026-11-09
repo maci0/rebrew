@@ -209,9 +209,7 @@ def output_files(manifest: Manifest) -> set[str]:
     for path in manifest.output.rglob("*"):
         _inside(manifest.root, path)
         walked.append(path)
-    return {
-        p.relative_to(manifest.output).as_posix() for p in walked if p.is_file()
-    }
+    return {p.relative_to(manifest.output).as_posix() for p in walked if p.is_file()}
 
 
 def check(manifest: Manifest, staged: Path) -> None:

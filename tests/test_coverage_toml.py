@@ -470,9 +470,7 @@ class TestHistory:
         broken.write_text("this is not = = toml", encoding="utf-8")
         assert _read_previous(broken) == {}
 
-    def test_status_spelling_only_change_is_not_a_transition(
-        self, data: dict[str, Any]
-    ) -> None:
+    def test_status_spelling_only_change_is_not_a_transition(self, data: dict[str, Any]) -> None:
         # The stored column already holds the canonical spelling, so a
         # previous document that spells it any other way records no change:
         # "exact" and "EXACT" are one status, and a history row claiming a

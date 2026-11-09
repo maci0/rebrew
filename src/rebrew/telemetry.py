@@ -209,7 +209,9 @@ class _Exporter:
             with self._lock:
                 self._dropped += 1
                 if self._dropped == 1:
-                    logger.warning("trace queue full (%d); spans dropped until it drains", QUEUE_SIZE)
+                    logger.warning(
+                        "trace queue full (%d); spans dropped until it drains", QUEUE_SIZE
+                    )
 
     @property
     def dropped_spans(self) -> int:

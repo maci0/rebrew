@@ -2888,13 +2888,9 @@ class TestEnvKnobValidators:
         assert env_knob_errors({"REBREW_MANAGED_COMPILE_LIMIT": "abc"})
         assert not env_knob_errors({"REBREW_MANAGED_COMPILE_LIMIT": "1000"})
         assert env_knob_errors({"REBREW_MANAGED_RECOMPILE_URL": "http://example.com"})
-        assert env_knob_errors(
-            {"REBREW_MANAGED_RECOMPILE_URL": "https://example.com/path"}
-        )
+        assert env_knob_errors({"REBREW_MANAGED_RECOMPILE_URL": "https://example.com/path"})
         assert not env_knob_errors({"REBREW_MANAGED_RECOMPILE_URL": "https://example.com"})
-        assert not env_knob_errors(
-            {"REBREW_MANAGED_RECOMPILE_URL": "http://127.0.0.1:9000"}
-        )
+        assert not env_knob_errors({"REBREW_MANAGED_RECOMPILE_URL": "http://127.0.0.1:9000"})
         assert env_knob_errors({"REBREW_BINARY": "relative/bin"})
         assert not env_knob_errors({"REBREW_BINARY": "/abs/bin"})
         assert env_knob_errors({"REBREW_DOCKER_BINARY": "relative/bin"})

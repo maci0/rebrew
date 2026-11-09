@@ -53,7 +53,11 @@ def _assert_snapshot_invariants(snap: CoverageSnapshot) -> None:
         assert isinstance(fn.status, str)
         assert isinstance(fn.module, str)
         assert fn.size is None or isinstance(fn.size, int)
-        assert fn.similarity is None or (isinstance(fn.similarity, float) and fn.similarity == fn.similarity and abs(fn.similarity) != float("inf"))
+        assert fn.similarity is None or (
+            isinstance(fn.similarity, float)
+            and fn.similarity == fn.similarity
+            and abs(fn.similarity) != float("inf")
+        )
         for item in fn.files:
             assert isinstance(item, str)
         for item in fn.detected_by:

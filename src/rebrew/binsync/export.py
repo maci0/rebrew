@@ -105,19 +105,25 @@ def _as_int(value: object, default: int = 0, *, field: str = "") -> int:
     if value is None:
         return default
     if isinstance(value, bool):
-        logger.warning("binsync export: %s=%r is not an int; using default %d", field, value, default)
+        logger.warning(
+            "binsync export: %s=%r is not an int; using default %d", field, value, default
+        )
         return default
     if isinstance(value, int):
         return value
     if isinstance(value, float):
         if value.is_integer() and abs(value) < 1e15:
             return int(value)
-        logger.warning("binsync export: %s=%r is not an integral int; using default %d", field, value, default)
+        logger.warning(
+            "binsync export: %s=%r is not an integral int; using default %d", field, value, default
+        )
         return default
     try:
         return parse_int_literal(str(value))
     except ValueError:
-        logger.warning("binsync export: %s=%r is not an int; using default %d", field, value, default)
+        logger.warning(
+            "binsync export: %s=%r is not an int; using default %d", field, value, default
+        )
         return default
 
 

@@ -22,7 +22,9 @@ def test_full_queue_counts_dropped_spans_and_logs_once(caplog: pytest.LogCapture
     exporter._queue = queue_module.Queue(2)
     exporter._lock = threading.Lock()
     exporter._dropped = 0
-    spans = [telemetry.Span("s", telemetry.KIND_INTERNAL, "a" * 32, "b" * 16, "", 0) for _ in range(3)]
+    spans = [
+        telemetry.Span("s", telemetry.KIND_INTERNAL, "a" * 32, "b" * 16, "", 0) for _ in range(3)
+    ]
     with caplog.at_level(logging.WARNING, logger="rebrew.telemetry"):
         exporter.submit(spans[0])
         exporter.submit(spans[1])

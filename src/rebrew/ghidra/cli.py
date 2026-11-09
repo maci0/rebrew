@@ -522,7 +522,10 @@ def watch(
     """Watch sources and export changes until interrupted."""
     json_mode = _context_requests_json(ctx)
     if json_mode:
-        error_exit("sync watch does not support JSON output; omit -o json to monitor changes", json_mode=True)
+        error_exit(
+            "sync watch does not support JSON output; omit -o json to monitor changes",
+            json_mode=True,
+        )
     ensure_watch_terminal(json_mode=json_mode)
     execute_sync(
         state_dir=state_dir,

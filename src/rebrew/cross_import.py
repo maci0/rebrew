@@ -520,7 +520,9 @@ def _rewrite_address(
     anchors = parse_address_anchors(text, syntax=source_syntax)
     removed = {a.line for a in anchors if a.kind == "FUNCTION" and a.name == name}
     body = "".join(
-        line for i, line in enumerate(split_source_lines(text, keepends=True), 1) if i not in removed
+        line
+        for i, line in enumerate(split_source_lines(text, keepends=True), 1)
+        if i not in removed
     )
     return add_address_anchor(body, module, va, name, syntax=syntax)
 
