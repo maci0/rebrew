@@ -88,8 +88,19 @@ _XVFB_DISPLAY_RANGE = range(90, 200)
 #: a zombie child and racing the winner's socket probe).
 _XVFB_INIT_LOCK = threading.Lock()
 
-#: Socket dir X servers bind (patchable in tests).
+#: Socket dir X servers bind (patchable in tests).  Xvfb binds under
+#: ``TMPDIR`` (falling back to ``/tmp``), so :func:`_xvfb_socket_dir` reads
+#: it at call time rather than freezing ``/tmp`` at import: a sandboxed/CI
+#: run with ``TMPDIR`` on another filesystem would otherwise probe a dir
+#: Xvfb never writes to.  Tests monkeypatch ``_XVFB_SOCKET_DIR``; when that
+#: value still equals the import-time default, the live ``TMPDIR`` dir wins.
 _XVFB_SOCKET_DIR = Path("/tmp/.X11-unix")
+
+
+def _xvfb_socket_dir() -> Path:
+    if _XVFB_SOCKET_DIR != Path("/tmp/.X11-unix"):
+        return _XVFB_SOCKET_DIR
+    return Path(tempfile.gettempdir()) / ".X11-unix"
 
 #: The display is Xvfb's first argv token, so match it on the token boundary.
 #: A greedy ``[^\n]*:(\d+)`` would key the map on the LAST ``:N`` in the
@@ -257,7 +268,7 @@ def _server_display(display: str) -> str:
 
 def _display_alive(display: str) -> bool:
     """True when the X server for *display* (e.g. ``:99``, ``:99.0``) has a socket."""
-    return (_XVFB_SOCKET_DIR / f"X{_server_display(display).removeprefix(':')}").exists()
+    return (_xvfb_socket_dir() / f"X{_server_display(display).removeprefix(':')}").exists()
 
 
 def _running_xvfb_displays() -> dict[str, int]:
@@ -295,7 +306,7 @@ def _pick_free_display() -> str | None:
     ``xvfb-run``, which owns its display reservation.
     """
     for n in _XVFB_DISPLAY_RANGE:
-        if not (_XVFB_SOCKET_DIR / f"X{n}").exists():
+        if not (_xvfb_socket_dir() / f"X{n}").exists():
             return f":{n}"
     return None
 
@@ -326,7 +337,7 @@ def _wait_for_socket(
     """
     now = clock if clock is not None else time.monotonic
     nap = sleep if sleep is not None else time.sleep
-    sock = _XVFB_SOCKET_DIR / f"X{display.removeprefix(':')}"
+    sock = _xvfb_socket_dir() / f"X{display.removeprefix(':')}"
     deadline = now() + timeout
     proc_pid = getattr(proc, "pid", None)
     while now() < deadline:
