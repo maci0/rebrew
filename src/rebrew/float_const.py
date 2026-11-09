@@ -126,6 +126,7 @@ def find_float_consts(
     const_regions: Sequence[tuple[int, int]],
     read_at: Callable[[int, int], bytes],
     reloc_sites: set[int] | None = None,
+    byte_order: str = "<",
 ) -> Iterator[FloatConstant]:
     """Yield float constants referenced from code.
 
@@ -137,6 +138,10 @@ def find_float_consts(
     *reloc_sites* — absolute addresses (VAs) of relocation sites; when
     given, an instruction's operand must sit in one (an immediate that
     happens to look like an address is not a real reference).
+    *byte_order* — the image's ``struct`` byte-order prefix (``"<"`` little,
+    ``">"`` big).  The x87 image is little-endian, but a big-endian target
+    stores its constants big-endian; reading them little-endian returns a
+    byte-reversed value.
 
     A constant must lie wholly inside one const region, and a short read
     from *read_at* (truncated image) skips it rather than raising.
@@ -161,5 +166,5 @@ def find_float_consts(
             if len(raw) != size:
                 continue
             seen.add(pointer)
-            (value,) = struct.unpack("<f" if single else "<d", raw)
+            (value,) = struct.unpack(byte_order + ("f" if single else "d"), raw)
             yield FloatConstant(pointer, size, value)

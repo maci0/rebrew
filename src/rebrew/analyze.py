@@ -492,11 +492,15 @@ def _collect_float_consts(info: Any) -> list[dict[str, Any]]:
     if not code_regions:
         return []
     try:
+        from rebrew.config import arch_byte_order
+
+        order = arch_byte_order(str(getattr(info, "arch", "") or ""), getattr(info, "endian", "") or "")
         consts = list(
             find_float_consts(
                 code_regions,
                 const_regions,
                 lambda va, size: info.data[va_to_file_offset(info, va) :][:size],
+                byte_order=order,
             )
         )
     except Exception:  # best-effort

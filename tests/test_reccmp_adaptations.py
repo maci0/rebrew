@@ -185,6 +185,20 @@ class TestFloatConst:
         assert consts[0].size == 4
         assert consts[0].value == pytest.approx(3.5)
 
+    def test_find_float_consts_big_endian(self) -> None:
+        image = struct.pack(">f", 3.5)
+        code = b"\xd9\x05" + struct.pack("<I", 0x403000)
+        consts = list(
+            find_float_consts(
+                [(0x401000, code)],
+                [(0x403000, 0x403100)],
+                lambda va, size: image,
+                byte_order=">",
+            )
+        )
+        assert len(consts) == 1
+        assert consts[0].value == pytest.approx(3.5)
+
     def test_pointer_to_writable_data_ignored(self) -> None:
         code = b"\xd9\x05" + struct.pack("<I", 0x405000)
         assert (
