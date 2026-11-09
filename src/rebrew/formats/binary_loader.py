@@ -38,6 +38,14 @@ if TYPE_CHECKING:
 #: Makes the one-shot LIEF log-level change in ``__getattr__`` single-threaded.
 _LIEF_LOGGING_LOCK = threading.Lock()
 
+# Capstone ``Cs`` objects wrap a libcapstone handle mutated on every
+# ``disasm`` call, so one instance cannot be shared across threads.  The
+# extent walk runs per function over whole sections in long-lived worker
+# pools; a per-thread cache elides repeated constructor calls (each
+# ``cs_open`` is a native handle closed only by GC) without handle races.
+# Bounded by distinct (arch, mode) pairs — a handful per thread.
+_extent_disassemblers = threading.local()
+
 
 def __getattr__(name: str) -> Any:
     """Lazily import LIEF on first attribute use.
@@ -878,6 +886,18 @@ def function_extent_from_bytes(
     """
     import capstone
 
+    def _disassembler(cs_arch: int, cs_mode: int) -> capstone.Cs:
+        cache = getattr(_extent_disassemblers, "cache", None)
+        if cache is None:
+            cache = {}
+            _extent_disassemblers.cache = cache
+        key = (cs_arch, cs_mode)
+        md = cache.get(key)
+        if md is None:
+            md = capstone.Cs(cs_arch, cs_mode)
+            cache[key] = md
+        return md
+
     # Per-arch walker config (multi-arch P0): the disassembler arch/mode
     # comes from the shared arch/endianness table; the function-end
     # terminators follow the arch.  Unconditional-jump mnemonics are treated
@@ -947,7 +967,7 @@ def function_extent_from_bytes(
             ),
         ]
         for cs_mode in modes:
-            md = capstone.Cs(capstone.CS_ARCH_MIPS, cs_mode)
+            md = _disassembler(capstone.CS_ARCH_MIPS, cs_mode)
             md.skipdata = False
             result = _walk(md, rets, jmps, delay_slot=4)
             if result is not None:
@@ -974,18 +994,18 @@ def function_extent_from_bytes(
         return None
 
     if arch == "arm32":
-        md = capstone.Cs(cs_arch, mode)
+        md = _disassembler(cs_arch, mode)
         md.skipdata = False
         return _walk(md, {"bx"}, {"b"})
 
     if arch == "sh2":
-        md = capstone.Cs(cs_arch, mode)
+        md = _disassembler(cs_arch, mode)
         md.skipdata = False
         return _walk(md, {"rts"}, {"bra", "jmp"})
 
     # x86_16/x86_32/x86_64 (and unknown arches — default to the historical
     # x86 walker).
-    md = capstone.Cs(cs_arch, mode)
+    md = _disassembler(cs_arch, mode)
     md.skipdata = False
     return _walk(md, {"ret", "retf", "iret", "iretd"}, {"jmp"})
 
