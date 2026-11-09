@@ -454,6 +454,30 @@ def test_enumerate_ne_functions_sweep_is_bounded(fill: bytes) -> None:
         capstone.Cs.disasm = real_disasm
 
 
+def test_enumerate_ne_functions_lists_every_function_of_a_full_segment() -> None:
+    """The decode budget is charged the bytes a candidate decodes, not the rest of the segment.
+
+    A 64,000-byte segment of 1,000 small functions decodes about 5 bytes per function.
+    Charging each candidate the remaining segment length spent the budget after a few
+    dozen functions, and the rest of the segment was never listed.
+    """
+    from rebrew.formats.binary_model import BinaryInfo
+    from rebrew.formats.ne_loader import NeSegment, enumerate_ne_functions
+
+    stride = 64
+    count = 1000
+    function = b"\x55\x8b\xec\x5d\xc3"  # push bp; mov bp,sp; pop bp; ret
+    segment = b"".join(function + b"\x90" * (stride - len(function)) for _ in range(count))
+    info = BinaryInfo(path=Path("full.ne"), format="ne", _data=segment)
+    info.ne_segments = [
+        NeSegment(
+            index=1, file_offset=0, length=len(segment), flags=0, min_allocation=0, is_code=True
+        )
+    ]
+    offsets = [f.offset for f in enumerate_ne_functions(info)]
+    assert offsets == [i * stride for i in range(count)]
+
+
 def test_entry_point_and_entry_table_start_functions(tmp_path: Path) -> None:
     """The program entry (CS:IP) is a function even when no prolog opens it, mapped like every other VA."""
     import struct

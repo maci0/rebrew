@@ -101,12 +101,12 @@ _CODE_ANCHORS = frozenset({0x55, 0xC8, 0x9A, 0xE8, 0xEB, 0xE9})
 PROBE_MAX_CANDIDATES = 512
 PROBE_DECODE_INSTRUCTIONS = 24
 
-#: Bytes of x86-16 a single code segment may feed to the disassembler during
-#: the linear sweep.  Each prolog candidate is decoded from its own offset to
-#: the segment end, so a segment of data (or of ``push bp`` bytes) with no
-#: ``ret`` in it costs candidates x segment length; without this budget a
-#: 64 KiB segment takes hours.  Real code hits its epilog in a few dozen
-#: bytes, so the budget is never reached by a genuine function set.
+#: Bytes of x86-16 a single code segment may decode during the linear sweep.
+#: Each prolog candidate is decoded from its own offset until its epilog, so a
+#: segment of data (or of ``push bp`` bytes) with no ``ret`` in it costs
+#: candidates x segment length; without this budget a 64 KiB segment takes
+#: hours.  A candidate is charged the bytes it decoded: real code hits its
+#: epilog in a few dozen bytes, so a genuine function set never reaches it.
 SWEEP_DECODE_BUDGET = 1 << 20
 
 
@@ -383,8 +383,6 @@ def enumerate_ne_functions(info: BinaryInfo) -> list[NeFunction]:
                     warned = True
                 continue
             body = raw[start : start + (len(raw) if seeded else budget)]
-            if not seeded:
-                budget -= len(body)
             va = seg.base_va + start
             size = 0
             insn_count = 0
@@ -395,6 +393,8 @@ def enumerate_ne_functions(info: BinaryInfo) -> list[NeFunction]:
                 if _is_epilog(insn.mnemonic):
                     found_epilog = True
                     break
+            if not seeded:
+                budget -= size
             # Keep the function only when the body is credible: a real epilog
             # (ret/retf) or a long decoded run.  A lone `enter`/`push bp` in
             # data decodes to 1-2 instructions and is a false positive.
