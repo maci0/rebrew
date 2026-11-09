@@ -112,13 +112,17 @@ def prepare_guarded_inputs(
                         or param_decl.type != "identifier"
                     ):
                         raise ValueError(f"{path}: unsupported guarded function parameter")
-                    name = raw[param_decl.start_byte : param_decl.end_byte].decode("utf-8")
+                    name = raw[param_decl.start_byte : param_decl.end_byte].decode(
+                        "utf-8", errors="surrogateescape"
+                    )
                     if name in local or name in names or name.startswith("_"):
                         raise ValueError(f"{path}: guarded parameter name is ambiguous")
                     local.add(name)
                 parameters_by_start[node.start_byte] = local
                 parameter_names.update(local)
-                name = raw[func_name.start_byte : func_name.end_byte].decode("utf-8")
+                name = raw[func_name.start_byte : func_name.end_byte].decode(
+                    "utf-8", errors="surrogateescape"
+                )
                 parameter_counts[name] = len(local)
                 return_types[name] = raw[result_type.start_byte : result_type.end_byte]
                 body_node = node.child_by_field_name("body")
@@ -151,7 +155,7 @@ def prepare_guarded_inputs(
             start = raw.rfind(b"\n", 0, endings[0].start_byte) + 1
             end = raw.find(b"\n", endings[0].end_byte)
             end = len(raw) if end < 0 else end + 1
-            closing = raw[start:end].decode("utf-8")
+            closing = raw[start:end].decode("utf-8", errors="surrogateescape")
             if not closing.endswith("\n") or not _SIMPLE_CLOSE.fullmatch(closing):
                 raise ValueError(f"{path}: endif has unsupported trailing content")
             first = rows[0]["guards"][0]
@@ -161,7 +165,7 @@ def prepare_guarded_inputs(
         for span in funcs:
             start, end = span_extent(raw, span, spans)
             residual[start:end] = b" " * (end - start)
-            body = raw[span.start : span.end].decode("utf-8")
+            body = raw[span.start : span.end].decode("utf-8", errors="surrogateescape")
             if "__asm" in body or "_asm" in body:
                 raise ValueError(f"{path}: assembly cannot be moved")
         for start, end in directive_ranges:
@@ -188,7 +192,9 @@ def prepare_guarded_inputs(
                 if "." in number or exponent in number.lower():
                     raise ValueError(f"{path}: floating literal storage requires manual review")
             if node.type == "identifier":
-                identifier = raw[node.start_byte : node.end_byte].decode("utf-8")
+                identifier = raw[node.start_byte : node.end_byte].decode(
+                    "utf-8", errors="surrogateescape"
+                )
                 if _SENSITIVE.fullmatch(identifier):
                     raise ValueError(f"{path}: line-sensitive macros cannot be moved")
                 if in_function and identifier not in scope:
@@ -203,7 +209,11 @@ def prepare_guarded_inputs(
                     or arguments.named_children
                 ):
                     raise ValueError(f"{path}: guarded calls require known no-argument functions")
-                calls.append(raw[function.start_byte : function.end_byte].decode("utf-8"))
+                calls.append(
+                    raw[function.start_byte : function.end_byte].decode(
+                        "utf-8", errors="surrogateescape"
+                    )
+                )
             pending.extend((child, in_function, scope) for child in node.named_children)
         masked = bytearray(raw)
         for i in range(len(prefix.encode("utf-8"))):
@@ -213,7 +223,7 @@ def prepare_guarded_inputs(
             for i in range(start, end):
                 if masked[i] not in (10, 13):
                     masked[i] = 32
-        masks[path] = masked.decode("utf-8")
+        masks[path] = masked.decode("utf-8", errors="surrogateescape")
         wrappers[path] = (opening, closing)
     if len(newline_styles) != 1:
         raise ValueError("guarded interleave requires identical source line endings")
