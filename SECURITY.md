@@ -260,10 +260,14 @@ plugin cache backends or remove the open upstream diskcache advisory.
   The wibo asset and metadata fetches, the toolchain media download, and the
   `GH_TOKEN`-bearing GitHub commit lookup pass `trust_env=False`, so their
   httpx calls ignore `HTTPS_PROXY`, `SSL_CERT_FILE`, and
-  `REQUESTS_CA_BUNDLE`. The other httpx clients (recompile, decomp.me, LLM,
-  MCP) still honour them; ops `_download` now also passes `trust_env=False`
-  (proxy env ignored) with `SSL_CERT_FILE`/`SSL_CERT_DIR` re-applied
-  explicitly, so an operator-pinned CA bundle is not silently dropped. The OTLP span exporter
+  `REQUESTS_CA_BUNDLE`. The recompile, decomp.me, MCP and LLM clients now also pass
+  `trust_env=False` on their own clients (`compiler/compile.py`
+  `_shared_recompile_client`/`_job_recompile_client`,
+  `compiler/recompile_client.py`, `decompiler.py`, `skeleton.py`,
+  commit dddc7deb), so ambient `*_proxy` is ignored there too; ops
+  `_download` also passes `trust_env=False` (proxy env ignored) with
+  `SSL_CERT_FILE`/`SSL_CERT_DIR` re-applied explicitly, so an
+  operator-pinned CA bundle is not silently dropped. The OTLP span exporter
   (`src/rebrew/telemetry.py`) is not an httpx client: its `urllib.request`
   POST now goes through an opener built with `ProxyHandler({})`, so ambient
   `*_proxy` variables cannot reroute it either; `REBREW_OTLP_ENDPOINT`
@@ -312,6 +316,9 @@ plugin cache backends or remove the open upstream diskcache advisory.
   `splat.yaml` path against the operator's base and raises `ValueError` on any
   that escape it (`is_relative_to`), so an absolute, `../..`, or backslash-
   separated entry is refused before any read or `shutil.copy2` into the project.
+- No claim that `rebrew build check --objects` cannot be tricked by an included makefile. The probe refuses when `build.make` or any file it includes carries make function expansion: `_MAKE_INCLUDE_RE` in `src/rebrew/build_check.py` now matches `-s?include` (the `sinclude` variants the old regex missed) and `_probe_expansion` recurses the include graph depth-capped at 32 with cycle tracking, refusing a computed (`$`-bearing) include name outright (commit dddc7deb). A makefile naming its own programs without function expansion remains the disclosed residual — see `docs/THREAT_MODEL.md` §5.
+- No claim that a native toolchain binary is resolved from `PATH`. Image-less (plugin/overlay) toolchains now resolve vendored-only: `compiler/toolchain.py` `_resolve_binary` has no `shutil.which` fallback, and a binary name containing a path separator or NUL is rejected outright, so a hostile project cannot plant `cl` on `PATH` to hijack the lookup (commit ca4d6e52).
+- Backup bundles now carry the project target binary. `metadata/sqlite.py` `_target_binary_relpaths` (commit c8aa20ec) includes the binary named by `rebrew-project.toml` in every TOML/SQLite backup bundle — the one irreplaceable input rebrew cannot regenerate — so an off-tree copy is a complete recovery set; absolute/`..` entries are skipped.
   `--apply` is still the only opt-in.
 - No claim that PostgreSQL schema-shape validation is re-run on every store
   operation. `PgsqlStore._present` (`src/rebrew/metadata/pgsql.py`) caches the
