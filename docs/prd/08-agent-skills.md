@@ -11,7 +11,8 @@ tool" each turn.
 
 ## Problem It Solves
 
-Rebrew exposes 36 top-level commands (207 leaf commands in the clispec schema)
+Rebrew exposes 241 surfaces: 207 leaf commands and 34 groups, including the
+root (see `docs/CLI.md` header, measured against the Typer tree)
 and dozens of options. An agent that has
 to discover the workflow on the fly:
 
@@ -247,8 +248,8 @@ rebrew skills show <name> --json  # name/description/path + raw content
   `rebrew-intake` instructions.
 - An agent never edits `rebrew-functions.toml` by hand because every
   skill emphasises `update_source_status` / the CLI tools.
-- Skill files stay <250 lines so the agent always loads them in one
-  fetch.
+- Skill files stay ≤250 lines (enforced: `tests/test_skills_sync.py`
+  `MAX_SKILL_LINES`) so the agent always loads them in one fetch.
 - A regression test asserts that example commands in each SKILL.md use real
   flags: `tools/validate_skill_commands.py` checks every `rebrew <subcommand>
   --flag` in the SKILL.md bash blocks and inline code spans (plus
