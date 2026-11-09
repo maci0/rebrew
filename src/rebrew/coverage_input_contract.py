@@ -297,6 +297,7 @@ def canonical_verification_records(records: Any) -> bytes:
         raise CoverageInputError("invalid verification record set")
     previous: tuple[int, int, bytes, bytes] | None = None
     seen_va: set[int] = set()
+    canonical: list[dict[str, Any]] = []
     for row in records:
         if type(row) is not dict or set(row) != _RECORD_FIELDS:
             raise CoverageInputError("invalid verification record fields")
@@ -316,7 +317,17 @@ def canonical_verification_records(records: Any) -> bytes:
         ):
             raise CoverageInputError("invalid verification extent")
         status = row["status"]
-        if type(status) is not str or status not in (
+        if type(status) is not str:
+            raise CoverageInputError("verification status is not yet qualified")
+        # The metadata layer canonicalizes case and folds the NEAR_MATCH alias
+        # at every read/write, so a worker's persisted verdict may arrive in
+        # either spelling; the digest must be computed over the canonical form
+        # the rest of the trust chain compares against.
+        from rebrew.metadata.functions import canonical_status
+
+        status = canonical_status(status)
+        row = {**row, "status": status}
+        if status not in (
             "EXACT",
             "SIZE_MISMATCH",
             "NEAR_MATCHING",
@@ -348,7 +359,8 @@ def canonical_verification_records(records: Any) -> bytes:
         if previous is not None and key <= previous:
             raise CoverageInputError("verification records must be sorted and unique")
         previous = key
-    return json.dumps(records, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
+        canonical.append(row)
+    return json.dumps(canonical, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
         "utf-8"
     )
 
