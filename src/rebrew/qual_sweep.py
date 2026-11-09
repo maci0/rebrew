@@ -52,6 +52,7 @@ lazy from rebrew.utils import (
     interruptible_pool,
     read_source_text,
     source_backup,
+    split_source_lines,
     untrusted_ident,
 )
 
@@ -227,7 +228,7 @@ def main(
         )
 
     original, encoding = read_source_text(path)
-    lines = original.splitlines(keepends=True)
+    lines = split_source_lines(original, keepends=True)
     try:
         lo, hi = function_span(lines, sym)
     except ValueError as exc:

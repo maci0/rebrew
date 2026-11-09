@@ -506,7 +506,7 @@ def _source_decls_by_va(
             # file silently drops its globals from it; name the file instead.
             log.warning("skipping unreadable source %s: %s", cfile, exc)
             continue
-        for line in text.splitlines():
+        for line in split_source_lines(text):
             m = _VA_COMMENT_RE.search(line)
             if not m:
                 continue

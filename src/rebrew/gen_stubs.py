@@ -62,6 +62,7 @@ lazy from rebrew.utils import (
     parse_c_integer_literal,
     read_source_text,
     run_process_group,
+    split_source_lines,
     strip_comment_blocks,
 )
 
@@ -554,7 +555,7 @@ def collect_extern_info(src_dir: Path) -> dict[str, dict[str, typing.Any]]:
     deferred: dict[str, dict[str, typing.Any]] = {}
     for _src_file, text in _stripped_sources(src_dir):
         depth = 0
-        for raw in text.splitlines():
+        for raw in split_source_lines(text):
             line = raw.strip()
             if not line:
                 continue

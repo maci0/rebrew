@@ -16,7 +16,13 @@ lazy from pathlib import Path
 
 lazy from rebrew.c_parser import extract_function_name_from_line
 lazy from rebrew.metadata.anchors import metadata_comments, parse_address_anchors
-lazy from rebrew.utils import fold_ident, preset_module_key, read_source_text, rel_display_path
+lazy from rebrew.utils import (
+    fold_ident,
+    preset_module_key,
+    read_source_text,
+    rel_display_path,
+    split_source_lines,
+)
 lazy from rebrew.workspace.status import MATCHED_STATUSES
 
 logger = logging.getLogger(__name__)
@@ -833,7 +839,7 @@ class _DefinitionPrototypes:
         except OSError as exc:
             logger.warning("cannot read %s for its function prototypes: %s", filepath, exc)
             text = ""
-        self._lines = text.splitlines()
+        self._lines = split_source_lines(text)
         self._found = function_signatures(text) if text else {}
 
     def get(self, name: str) -> str:
@@ -1532,7 +1538,7 @@ def split_address_sections(text: str, *, syntax: Any = None) -> tuple[str, list[
             starts.get(anchor.definition_line, anchor.line), anchor.line
         )
     boundaries = sorted(starts.values())
-    lines = text.splitlines(keepends=True)
+    lines = split_source_lines(text, keepends=True)
     return "".join(lines[: boundaries[0] - 1]), [
         "".join(lines[start - 1 : end - 1])
         for start, end in zip(boundaries, [*boundaries[1:], len(lines) + 1], strict=True)

@@ -23,6 +23,7 @@ lazy from rebrew.config import (
     AddressCommentFormat,
 )
 lazy from rebrew.metadata.pascal import pascal_syntax
+lazy from rebrew.utils import split_source_lines
 
 _COMMENT_MASK = bytes(byte if byte in (10, 13) else 32 for byte in range(256))
 
@@ -220,7 +221,11 @@ def _parse_address_anchors(source: str, syntax: AddressCommentFormat) -> list[Ad
         return []
     if declarations is None:
         declarations = _declarations(source)
-    lines = bytes(masked).splitlines()
+    # masked is UTF-8 bytes with comments masked to spaces (newlines kept);
+    # decode with surrogateescape to preserve byte positions, then split on
+    # \n only: splitlines() would also break on U+2028/U+2029 inside a C
+    # string literal, shifting every later line number.
+    lines = split_source_lines(bytes(masked).decode("utf-8", errors="surrogateescape"))
     result: list[AddressAnchor] = []
     for module, va, line in pending:
         following = line
@@ -253,7 +258,7 @@ def add_address_anchor(
         if anchor.module == module and anchor.va == va and anchor.name == name:
             lines_to_anchor.discard(anchor.definition_line)
     newline = "\r\n" if "\r\n" in source else "\n"
-    lines = source.splitlines(keepends=True)
+    lines = split_source_lines(source, keepends=True)
     for line in sorted(lines_to_anchor, reverse=True):
         lines.insert(line - 1, address_comment(module, va, syntax=syntax) + newline)
     return "".join(lines)

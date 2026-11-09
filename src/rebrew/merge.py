@@ -219,7 +219,7 @@ def consolidate_declarations(text: str, *, syntax: Any = None) -> tuple[str, Ext
     exists).  Returns ``(merged_text, extern_report)`` so callers can warn on
     dropped or conflicting externs instead of losing them silently.
     """
-    lines = text.splitlines(keepends=True)
+    lines = split_source_lines(text, keepends=True)
     includes: list[str] = []
     externs: list[str] = []
     typedefs: list[str] = []
@@ -326,7 +326,7 @@ def normalize_body(block: str, *, syntax: Any = None) -> str:
     """The same C body across targets, excluding only its address anchors."""
     removed = {a.line for a in parse_address_anchors(block, syntax=syntax)}
     return "\n".join(
-        line.rstrip() for i, line in enumerate(block.splitlines(), 1) if i not in removed
+        line.rstrip() for i, line in enumerate(split_source_lines(block), 1) if i not in removed
     ).strip()
 
 
@@ -717,7 +717,7 @@ def _read_layouts(
         try:
             from rebrew.metadata.bindings import source_bindings
 
-            validation_lines = text.splitlines(keepends=True)
+            validation_lines = split_source_lines(text, keepends=True)
             if prior_output:
                 # --force explicitly reuses inputs whose rows moved to this output.
                 for anchor in parse_address_anchors(text, syntax=syntax):

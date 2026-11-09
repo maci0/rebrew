@@ -1015,7 +1015,7 @@ def _parse_stub_globals(stub_file: Path) -> dict[str, tuple[str, int | None]]:
     """``name -> (type, declared array size or None for scalars)`` from a stubs TU."""
     out: dict[str, tuple[str, int | None]] = {}
     text, _ = read_source_text(stub_file)
-    for line in text.splitlines():
+    for line in split_source_lines(text):
         m = _STUB_DEF_RE.match(line)
         if not m:
             continue
@@ -1724,7 +1724,7 @@ def fix_ownership(
     # The scan decides every later edit, so an unreadable TU fails here and
     # writes nothing.
     for f, text in _read_sources_or_fail(files):
-        for ln in text.splitlines():
+        for ln in split_source_lines(text):
             m = _DEF_LINE_RE.match(ln.strip())
             defined = (m.group(1) or m.group(2)) if m else None
             if defined and defined in toml and defined not in owner:

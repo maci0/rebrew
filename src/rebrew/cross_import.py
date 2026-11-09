@@ -51,6 +51,7 @@ lazy from rebrew.utils import (
     preset_module_key,
     read_source_text,
     rel_display_path,
+    split_source_lines,
 )
 lazy from rebrew.workspace.status import MATCHED_STATUSES
 
@@ -519,7 +520,7 @@ def _rewrite_address(
     anchors = parse_address_anchors(text, syntax=source_syntax)
     removed = {a.line for a in anchors if a.kind == "FUNCTION" and a.name == name}
     body = "".join(
-        line for i, line in enumerate(text.splitlines(keepends=True), 1) if i not in removed
+        line for i, line in enumerate(split_source_lines(text, keepends=True), 1) if i not in removed
     )
     return add_address_anchor(body, module, va, name, syntax=syntax)
 
@@ -537,7 +538,7 @@ def _strip_claim(block: str, claim: tuple[str, int], *, syntax: Any = None) -> s
         ("\r\n" if line.endswith("\r\n") else "\n" if line.endswith("\n") else "")
         if i in removed
         else line
-        for i, line in enumerate(block.splitlines(keepends=True), 1)
+        for i, line in enumerate(split_source_lines(block, keepends=True), 1)
     )
 
 

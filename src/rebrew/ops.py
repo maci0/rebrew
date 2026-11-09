@@ -71,7 +71,7 @@ from rebrew.errors import RebrewError
 lazy from rebrew import __version__, telemetry
 lazy from rebrew.cli import EXIT_ERROR, console, error_exit
 lazy from rebrew.formats.binary_loader import UnsupportedBinaryFormat
-lazy from rebrew.utils import fold_host
+lazy from rebrew.utils import fold_host, split_source_lines
 
 logger = logging.getLogger(__name__)
 
@@ -2645,7 +2645,7 @@ def _run_candidate(
             if f"0x{req.va:08x}" not in candidate.lower():
                 # rebrew wants the anchor directly above the one declaration it names, whatever
                 # includes and types the candidate keeps above it.
-                lines = candidate.splitlines(keepends=True)
+                lines = split_source_lines(candidate, keepends=True)
                 at = definitions[0][1] - 1
                 lines.insert(at, address_comment(module, req.va) + "\n")
                 candidate = "".join(lines)

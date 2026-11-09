@@ -75,6 +75,7 @@ lazy from rebrew.utils import (
     read_source_text,
     retry_backoff_delay,
     retry_log_detail,
+    split_source_lines,
     untrusted_text,
 )
 
@@ -201,7 +202,7 @@ def extract_function_text(text: str, name: str) -> str | None:
         if len(defs) != 1:
             return None
         idx = 0
-    lines = text.splitlines(keepends=True)
+    lines = split_source_lines(text, keepends=True)
     start = defs[idx][1]  # 1-based line of the selected definition
     end = defs[idx + 1][1] if idx + 1 < len(defs) else len(lines) + 1
     chunk = "".join(lines[: defs[0][1] - 1] + lines[start - 1 : end - 1])

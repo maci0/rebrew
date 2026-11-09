@@ -67,6 +67,7 @@ lazy from rebrew.utils import (
     filename_component,
     read_source_text,
     source_backup,
+    split_source_lines,
     untrusted_ident,
 )
 
@@ -872,7 +873,7 @@ def main(
     name_to_va = build_name_to_va(cfg)
 
     original, encoding = read_source_text(path)
-    lines = original.splitlines(keepends=True)
+    lines = split_source_lines(original, keepends=True)
     # One comment-stripping pass feeds both the span and the chunking below.
     code = _code_lines(lines)
     try:

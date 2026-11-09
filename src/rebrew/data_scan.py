@@ -35,6 +35,7 @@ lazy from rebrew.utils import (
     merged_span_bytes,
     read_source_text,
     rel_display_path,
+    split_source_lines,
 )
 
 log = logging.getLogger(__name__)
@@ -774,7 +775,7 @@ def _collect_scan_file_facts(
         log.warning("skipping unreadable source %s: %s", cfile, exc)
         return None
 
-    lines = text.splitlines()
+    lines = split_source_lines(text)
     fname = rel_display_path(cfile, src_dir)
     if not declarations and _store_names_the_file(text, cfile, metadata_dir, function_entries):
         if name_cover is not None:
