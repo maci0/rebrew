@@ -1808,6 +1808,7 @@ def check_env_display(raw: str) -> None:
 
 
 def check_env_insecure_cluster_host(raw: str) -> None:
+    """Raise when ``REBREW_RECOMPILE_INSECURE_CLUSTER_HOST`` is not an in-cluster host."""
     value = raw.strip()
     if not value:
         return
@@ -1824,6 +1825,7 @@ def check_env_insecure_cluster_host(raw: str) -> None:
 
 
 def check_env_recompile_api_key(raw: str) -> None:
+    """Raise when ``REBREW_RECOMPILE_API_KEY`` is not a printable ASCII header value."""
     if raw and (not raw.isascii() or any(not 33 <= ord(c) <= 126 for c in raw)):
         raise ConfigError("REBREW_RECOMPILE_API_KEY is not a printable ASCII header value")
 
@@ -1845,6 +1847,7 @@ def check_env_llm_api_key(raw: str) -> None:
 
 
 def check_env_ops_token(raw: str, *, name: str = "REBREW_OPS_TOKEN") -> None:
+    """Raise when the ops/job bearer token is short or carries control chars."""
     stripped = raw.strip()
     if stripped and len(stripped.encode("utf-8")) < 32:
         raise ConfigError(f"{name} must contain at least 32 bytes")
@@ -1986,6 +1989,7 @@ def check_env_job_docker_image(raw: str) -> None:
 
 
 def check_env_ops_allowed_hosts(raw: str) -> None:
+    """Raise when ``REBREW_OPS_ALLOWED_HOSTS`` holds a non-DNS host or port."""
     from rebrew.utils import fold_host
 
     for item in raw.split(","):
@@ -1997,6 +2001,7 @@ def check_env_ops_allowed_hosts(raw: str) -> None:
 
 
 def check_env_ops_positive_int(raw: str, name: str) -> None:
+    """Raise when the named env value is not a positive integer."""
     value = raw.strip()
     if not value:
         return
@@ -2009,6 +2014,7 @@ def check_env_ops_positive_int(raw: str, name: str) -> None:
 
 
 def check_env_ops_existing_dir(raw: str, name: str) -> None:
+    """Raise when the named env value is not an absolute existing directory."""
     value = raw.strip()
     if not value:
         return

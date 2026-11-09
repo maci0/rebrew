@@ -141,6 +141,7 @@ def canonical_coverage_input(value: Any) -> bytes:
 
 
 def coverage_input_digest(value: Any) -> str:
+    """SHA-256 of the canonical coverage input envelope."""
     return hashlib.sha256(canonical_coverage_input(value)).hexdigest()
 
 
@@ -371,6 +372,7 @@ def canonical_verification_records(records: Any) -> bytes:
 
 
 def verification_records_digest(records: Any) -> str:
+    """SHA-256 of the canonical verification-records list."""
     return hashlib.sha256(canonical_verification_records(records)).hexdigest()
 
 

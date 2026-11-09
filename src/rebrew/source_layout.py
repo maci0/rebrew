@@ -53,10 +53,12 @@ class SourceSpan:
 
 
 def decode_span(raw: bytes, start: int, end: int) -> str:
+    """Decode ``raw[start:end]`` preserving non-UTF-8 bytes as surrogates."""
     return raw[start:end].decode("utf-8", errors="surrogateescape")
 
 
 def gap_is_blank(raw: bytes, start: int, end: int) -> bool:
+    """True when the span holds only ASCII whitespace."""
     return raw[start:end].strip(b" \t\r\n") == b""
 
 

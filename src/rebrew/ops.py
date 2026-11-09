@@ -1736,6 +1736,7 @@ def _scan_binary(config: WorkerConfig, req: BinaryFile) -> contextlib.AbstractCo
 
 
 def imports(config: WorkerConfig, req: BinaryFile) -> dict[str, Any]:
+    """Import table of the stored binary, as its JSON payload."""
     from rebrew.imports import imports_payload
 
     with _scan_binary(config, req) as path:
@@ -1743,6 +1744,7 @@ def imports(config: WorkerConfig, req: BinaryFile) -> dict[str, Any]:
 
 
 def strings(config: WorkerConfig, req: BinaryFile) -> dict[str, Any]:
+    """Strings collected from the stored binary, as JSON."""
     from rebrew.strings import collect_strings
 
     with _scan_binary(config, req) as path:
@@ -1750,6 +1752,7 @@ def strings(config: WorkerConfig, req: BinaryFile) -> dict[str, Any]:
 
 
 def fingerprint(config: WorkerConfig, req: BinaryFile) -> dict[str, Any]:
+    """Fingerprint bundle of the stored binary."""
     from rebrew.fingerprints import fingerprint_bundle
 
     with _scan_binary(config, req) as path:
@@ -1776,6 +1779,7 @@ def crypto_scan(config: WorkerConfig, req: BinaryFile) -> dict[str, Any]:
 
 
 def pe_info(config: WorkerConfig, req: BinaryFile) -> dict[str, Any]:
+    """PE header fields of the stored binary."""
     from rebrew.pe_info import pe_info as info
 
     with _scan_binary(config, req) as path:

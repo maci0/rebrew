@@ -95,6 +95,12 @@ _POLL_INTERVAL = 0.25
 def coverage_inputs(
     cfg: ProjectConfig, scans: dict[Path, tuple[Path, ...]] | None = None
 ) -> tuple[tuple[str, int, int, int, int], ...]:
+    """Stat-identity tuples for every file the coverage frame reads.
+
+    Covers config, target binary, reversed/shared sources, metadata stores,
+    library tables, and the link map; used to detect input changes between
+    frame reads.
+    """
     def _scan(root: Path) -> tuple[Path, ...]:
         root = root.resolve()
         if scans is None:

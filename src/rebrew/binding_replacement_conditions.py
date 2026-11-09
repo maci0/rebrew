@@ -11,6 +11,7 @@ from rebrew.c_parser import mask_msvc_syntax, mask_va_arg_types, parse_c_source
 
 @lru_cache(maxsize=256)
 def macro_change_re(name: str) -> re.Pattern[str]:
+    """Cached pattern matching a ``#define``/``#undef`` for *name* at line start."""
     # ``re.escape(name)`` defeats the module-level pattern cache, so without
     # this cache every call recompiles the same escaped pattern.
     return re.compile(rf"(?m)^\s*#\s*(?:define|undef)\s+{re.escape(name)}\b")

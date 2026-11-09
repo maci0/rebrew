@@ -112,11 +112,12 @@ from rebrew.compiler.recompile_client import compile_source
 class _Reply:
     """Satisfies rebrew.compiler.recompile_client.HttpResponse."""
 
-    def __init__(self, status_code, *, json_body=None, content=b"", text=""):
+    def __init__(self, status_code, *, json_body=None, content=b"", text="", headers=None):
         self.status_code = status_code
         self._json = json_body
         self.content = content
         self.text = text
+        self.headers = {} if headers is None else headers
 
     def json(self):
         if self._json is None:

@@ -266,6 +266,12 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
 def retained_snapshot(
     config: WorkerConfig, req: DecompileSnapshotRequest | SecuritySnapshotRequest
 ) -> Iterator[tuple[Path, ProjectConfig, set[Path], Callable[[], None]]]:
+    """Stage a retained analysis capture and yield its root, config, and file set.
+
+    Validates the manifest and the captured binary against the snapshot
+    config, and yields a ``verify_files`` callable that re-checks every
+    captured file for symlink or substitution drift.
+    """
     from rebrew import ops
     from rebrew.config import load_config
 
