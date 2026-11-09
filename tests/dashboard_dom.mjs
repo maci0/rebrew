@@ -3,9 +3,9 @@ import { readFileSync } from "node:fs";
 /** Load the dashboard JS (piped to stdin) and export *names* from it. */
 export async function loadApp(names) {
 	const source = readFileSync(0, "utf8");
-	const module = source + "\nexport { " + names.join(", ") + " };\n";
+	const module = `${source}\nexport { ${names.join(", ")} };\n`;
 	return import(
-		"data:text/javascript;base64," + Buffer.from(module).toString("base64")
+		`data:text/javascript;base64,${Buffer.from(module).toString("base64")}`
 	);
 }
 

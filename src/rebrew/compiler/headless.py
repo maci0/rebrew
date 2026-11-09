@@ -98,7 +98,7 @@ _XVFB_SOCKET_DIR = Path("/tmp/.X11-unix")
 
 
 def _xvfb_socket_dir() -> Path:
-    if _XVFB_SOCKET_DIR != Path("/tmp/.X11-unix"):
+    if Path("/tmp/.X11-unix") != _XVFB_SOCKET_DIR:
         return _XVFB_SOCKET_DIR
     return Path(tempfile.gettempdir()) / ".X11-unix"
 

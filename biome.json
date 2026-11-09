@@ -15,6 +15,9 @@
 			},
 			"complexity": {
 				"useOptionalChain": "warn"
+			},
+			"style": {
+				"useTemplate": "error"
 			}
 		}
 	}

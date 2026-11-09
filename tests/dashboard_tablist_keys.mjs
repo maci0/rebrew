@@ -7,7 +7,7 @@ const body = { id: "body" };
 const elements = new Map();
 
 const tabButton = (view) => {
-	const el = stubElement("tab-" + view);
+	const el = stubElement(`tab-${view}`);
 	el.tabIndex = 0;
 	el.attributes["data-view"] = view;
 	el.getAttribute = (name) => el.attributes[name];

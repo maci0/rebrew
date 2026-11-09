@@ -61,7 +61,7 @@ installDom(
 );
 globalThis.location = { hash: "#target=a" };
 globalThis.history = { replaceState() {}, pushState() {} };
-const row = (i) => ["0x" + i.toString(16), "f" + i, "", 1, "EXACT", "", ""];
+const row = (i) => [`0x${i.toString(16)}`, `f${i}`, "", 1, "EXACT", "", ""];
 const page = (n) => Array.from({ length: n }, (_, i) => row(i));
 const summary = {
 	function_stats: {

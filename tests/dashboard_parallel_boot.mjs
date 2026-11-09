@@ -37,18 +37,18 @@ for (let i = 0; i < 5; i += 1)
 
 assert.ok(
 	paths.includes("/api/summary?target=b"),
-	"summary requested: " + paths,
+	`summary requested: ${paths}`,
 );
 assert.ok(
 	paths.some(
 		(p) =>
 			p.startsWith("/api/functions") && /target=b/.test(p) && /q=Win/.test(p),
 	),
-	"functions requested while the summary is in flight: " + paths,
+	`functions requested while the summary is in flight: ${paths}`,
 );
 assert.ok(
 	paths.some((p) => p.startsWith("/api/globals") && /target=b/.test(p)),
-	"active view requested while the summary is in flight: " + paths,
+	`active view requested while the summary is in flight: ${paths}`,
 );
 
 held.forEach((release) => {

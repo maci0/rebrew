@@ -38,9 +38,9 @@ lazy from rebrew.metadata.storage import (
     project_metadata_stores,
 )
 lazy from rebrew.sources import scan_files
+lazy from rebrew.utils import stat_identity
 lazy from rebrew.verify_cache import CACHE_FILENAME, cache_path_for
 lazy from rebrew.workspace import read_config, targets_table
-lazy from rebrew.utils import stat_identity
 
 __all__ = [
     "ProjectCoverageError",

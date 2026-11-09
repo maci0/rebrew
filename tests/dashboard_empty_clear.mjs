@@ -40,7 +40,7 @@ const summary = {
 		by_module_counts: {},
 	},
 };
-const row = (i) => ["0x" + i.toString(16), "f" + i, "", 1, "EXACT", "", ""];
+const row = (i) => [`0x${i.toString(16)}`, `f${i}`, "", 1, "EXACT", "", ""];
 globalThis.fetch = async (path) => {
 	let payload = {};
 	if (path === "/api/bootstrap") {
