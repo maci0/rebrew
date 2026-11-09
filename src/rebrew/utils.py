@@ -1550,7 +1550,7 @@ def fold_host(value: str) -> str:
     not IDNA-encodable falls back to the casefolded NFC text so a bad value
     simply fails to match rather than raising.
     """
-    folded = unicodedata.normalize("NFC", value).casefold().rstrip(".")
+    folded = strip_bidi_format(unicodedata.normalize("NFC", value)).casefold().rstrip(".")
     try:
         return folded.encode("idna").decode("ascii")
     except UnicodeError:

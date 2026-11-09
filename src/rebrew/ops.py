@@ -464,14 +464,18 @@ def _refused(detail: str) -> OpsError:
 
 def error_body(code: str, detail: str, status: int) -> bytes:
     """The refusal reply both transports write."""
-    return json.dumps({"error": code, "detail": detail, "status": status}).encode("utf-8")
+    from rebrew.utils import strip_bidi_format
+
+    return json.dumps(
+        {"error": code, "detail": strip_bidi_format(detail), "status": status}
+    ).encode("utf-8")
 
 
 def _bounded(text: str) -> str:
     """*text* on one line, cut at :data:`DETAIL_MAX_CHARS`."""
-    from rebrew.utils import truncate_text
+    from rebrew.utils import strip_bidi_format, truncate_text
 
-    return truncate_text(" ".join(text.split()), DETAIL_MAX_CHARS)
+    return truncate_text(" ".join(strip_bidi_format(text).split()), DETAIL_MAX_CHARS)
 
 
 # ---------------------------------------------------------------------------
@@ -1154,7 +1158,7 @@ def _download(config: WorkerConfig, url: str, wanted: str, into: Path) -> None:
     from urllib.parse import urlunsplit
 
     parts = urlsplit(url)
-    if parts.scheme != "https" or not parts.hostname:
+    if parts.scheme != "https" or not parts.hostname or parts.username or parts.password:
         raise _invalid("url must be an https URL")
     from rebrew.config import ALLOW_PRIVATE_DOWNLOAD_ENV, parse_env_bool
 
