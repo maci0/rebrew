@@ -285,9 +285,7 @@ class _Exporter:
         except OSError as exc:
             with self._lock:
                 self._export_failed += len(batch)
-            logger.warning(
-                "trace export failed (%d spans): %s", len(batch), type(exc).__name__
-            )
+            logger.warning("trace export failed (%d spans): %s", len(batch), type(exc).__name__)
 
 
 _exporter: _Exporter | None = None

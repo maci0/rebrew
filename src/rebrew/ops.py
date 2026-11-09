@@ -2169,7 +2169,9 @@ def capture_fresh_analysis(
         captured_count = sum(1 for path in paths if path.resolve().is_relative_to(root))
         if captured_count > MAX_READSET_FILES:
             raise _readset_limit("fresh analysis capture", captured_count, MAX_READSET_FILES)
-        for path in sorted(paths, key=lambda value: str(value).encode("utf-8", errors="surrogateescape")):
+        for path in sorted(
+            paths, key=lambda value: str(value).encode("utf-8", errors="surrogateescape")
+        ):
             resolved = path.resolve()
             if not resolved.is_relative_to(root):
                 if path.exists() or path.is_symlink():
@@ -2360,7 +2362,9 @@ def capture_fresh_analysis(
                         "data": base64.b64encode(normalized).decode("ascii"),
                     }
                 )
-                entries.sort(key=lambda entry: entry["path"].encode("utf-8", errors="surrogateescape"))
+                entries.sort(
+                    key=lambda entry: entry["path"].encode("utf-8", errors="surrogateescape")
+                )
                 capture["report_path"] = report_path
         return capture, report
 

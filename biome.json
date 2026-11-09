@@ -9,12 +9,13 @@
 	"linter": {
 		"rules": {
 			"correctness": {
+				"recommended": true,
 				"noUnusedVariables": "error",
 				"noUnusedImports": "error",
-				"noUnusedFunctionParameters": "warn"
+				"noUnusedFunctionParameters": "error"
 			},
 			"complexity": {
-				"useOptionalChain": "warn"
+				"useOptionalChain": "error"
 			},
 			"style": {
 				"useTemplate": "error"

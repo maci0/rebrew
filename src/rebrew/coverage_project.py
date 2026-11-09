@@ -101,6 +101,7 @@ def coverage_inputs(
     library tables, and the link map; used to detect input changes between
     frame reads.
     """
+
     def _scan(root: Path) -> tuple[Path, ...]:
         root = root.resolve()
         if scans is None:

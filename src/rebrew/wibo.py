@@ -34,6 +34,7 @@ lazy from rebrew.utils import close_response
 class WiboError(RebrewError, RuntimeError):
     """Wibo lookup/download failure (unsupported host, bad release payload, bad download)."""
 
+
 _WIBO_API_URL = "https://api.github.com/repos/decompals/wibo/releases/latest"
 _WIBO_DEFAULT_PATH = Path("tools/wibo")
 
@@ -171,9 +172,7 @@ def _read_release_metadata() -> dict[str, Any]:
             resp.raise_for_status()
             declared = resp.headers.get("content-length", "")
             if declared.isdigit() and int(declared) > _MAX_WIBO_METADATA_BYTES:
-                raise WiboError(
-                    f"wibo release metadata exceeds {_MAX_WIBO_METADATA_BYTES} bytes"
-                )
+                raise WiboError(f"wibo release metadata exceeds {_MAX_WIBO_METADATA_BYTES} bytes")
             # Prefer the already-buffered ``content`` when present (httpx
             # replies and test doubles that supply it); fall back to
             # ``json()`` for stand-ins that only implement ``json()``.

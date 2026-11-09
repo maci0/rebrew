@@ -49,9 +49,9 @@ def _assert_rows_shape(rows: dict[tuple[str, int], dict[str, object]]) -> None:
         # Round-trip: the canonical spelling re-parses to the same identity.
         assert parse_metadata_key(qualified_key(module, va)) == (module, va)
         # A row read back must resolve to itself through the key index.
-        assert resolve_metadata_key({"format": 0, qualified_key(module, va): row}, module, va) in (
-            qualified_key(module, va),
-        )
+        assert resolve_metadata_key(
+            {"format": 0, qualified_key(module, va): row}, module, va
+        ) == qualified_key(module, va)
 
 
 def TestOneInput(data: bytes) -> None:
@@ -80,9 +80,7 @@ def TestOneInput(data: bytes) -> None:
 
     for version in (FUNCTION_FORMAT_VERSION, FORMAT_VERSION):
         try:
-            rows = parse_metadata_doc(
-                doc, source="fuzz", version=version, deepcopy=False
-            )
+            rows = parse_metadata_doc(doc, source="fuzz", version=version, deepcopy=False)
         except ValueError:
             continue
         _assert_rows_shape(rows)
@@ -93,16 +91,12 @@ def TestOneInput(data: bytes) -> None:
         if rows and version in (FUNCTION_FORMAT_VERSION, FORMAT_VERSION):
             import tomlkit
 
-            rendered = tomlkit.dumps(
-                build_metadata_doc(rows, _CANONICAL_ORDER, version=version)
-            )
+            rendered = tomlkit.dumps(build_metadata_doc(rows, _CANONICAL_ORDER, version=version))
             try:
                 reread = tomllib.loads(rendered)
             except tomllib.TOMLDecodeError:
                 return
-            back = parse_metadata_doc(
-                reread, source="fuzz", version=version, deepcopy=False
-            )
+            back = parse_metadata_doc(reread, source="fuzz", version=version, deepcopy=False)
             assert back == rows
 
     # File-path entry point agrees with the pure entry point on same bytes.
@@ -115,7 +109,7 @@ def TestOneInput(data: bytes) -> None:
             loaded = load_metadata_doc(
                 root / "rebrew-functions.toml", {}, "metadata", deepcopy=False
             )
-        except (ValueError, UnicodeError, OSError):
+        except ValueError, UnicodeError, OSError:
             return
         _assert_rows_shape(loaded)
 
