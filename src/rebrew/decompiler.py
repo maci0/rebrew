@@ -759,6 +759,14 @@ class KunaNoBodyError(RebrewError, ValueError):
     """kuna reports that the address is an import slot, not a function body."""
 
 
+#: kuna builds before v1.993 have no ``--raw-image``: they answer ``unknown option --raw-image``.
+_KUNA_NO_RAW_IMAGE_RE = re.compile(r"unknown option --raw-image")
+#: How kuna reads one NE segment as a flat 16-bit protected-mode image at base 0.
+_KUNA_NE_ARGS = ("--raw-image", "--target", "x86:LE:16:Protected Mode", "--base", "0x0")
+_NE_SEGMENT_SHIFT = 16
+_NE_OFFSET_MASK = 0xFFFF
+
+
 def fetch_kuna(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
     """Fetch decompilation from the Kuna decompiler (agent-first Ghidra port).
 
@@ -769,6 +777,11 @@ def fetch_kuna(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
     failure is reported as a warning carrying kuna's first stderr line), exactly
     like the other optional backends.  Raises :class:`KunaNoBodyError` when the
     address is an import slot.
+
+    A 16-bit NE executable is not a format kuna loads: ``va`` is the flat address
+    ``((segment - 1) << 16) | offset`` and kuna decompiles that segment's bytes, with its
+    relocations applied, as a raw image (:func:`_fetch_kuna_ne`).  A kuna without ``--raw-image``
+    (before v1.993) raises :class:`~rebrew.formats.binary_loader.UnsupportedBinaryFormat`.
 
     Kuna reads SLEIGH specs from ``KUNA_SPECS`` (default ``/specs/``); an
     explicit ``KUNA_SPECS`` is honored, otherwise the first working spec dir
@@ -783,9 +796,53 @@ def fetch_kuna(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
     # An explicit KUNA_SPECS is inherited as is; otherwise the discovered dir is injected.
     spec_dir = None if _kuna_specs_override() is not None else kuna_spec_dir()
     env = None if spec_dir is None else {**os.environ, KUNA_SPECS_ENV: spec_dir}
+    from rebrew.formats.binary_loader import is_ne
+
+    if is_ne(binary):
+        return _fetch_kuna_ne(kuna, binary, va, root, env)
+    return _run_kuna([kuna, "decompile", str(binary), f"0x{va:x}", "--addr"], va, root, env)
+
+
+def _fetch_kuna_ne(
+    kuna: str, binary: Path, va: int, root: Path, env: dict[str, str] | None
+) -> str | None:
+    """Decompile the NE function at flat address *va* from its relocated segment slice."""
+    from rebrew.formats.ne_loader import NeParseError
+    from rebrew.formats.ne_relocations import build_ne_slice
+
+    segment, offset = (va >> _NE_SEGMENT_SHIFT) + 1, va & _NE_OFFSET_MASK
+    try:
+        sliced = build_ne_slice(binary.read_bytes(), segment)
+    except (OSError, NeParseError) as exc:
+        warnings.warn(f"kuna cannot read NE segment {segment} for 0x{va:08x}: {exc}", stacklevel=3)
+        return None
+    if offset >= sliced.length:
+        warnings.warn(
+            f"0x{va:08x} is outside NE segment {segment} ({sliced.length} bytes)", stacklevel=3
+        )
+        return None
+    with tempfile.TemporaryDirectory(prefix="rebrew-ne-") as scratch:
+        image = Path(scratch) / f"segment{segment}.bin"
+        image.write_bytes(sliced.image)
+        code = _run_kuna(
+            [kuna, "decompile", str(image), f"0x{offset:x}", "--addr", *_KUNA_NE_ARGS],
+            va,
+            root,
+            env,
+            raw_image=True,
+        )
+    if code is None:
+        return None
+    return f"{sliced.name_calls(code)}\n{sliced.summary()}"
+
+
+def _run_kuna(
+    cmd: list[str], va: int, root: Path, env: dict[str, str] | None, *, raw_image: bool = False
+) -> str | None:
+    """Run one ``kuna decompile`` and return its cleaned stdout, reporting every failure."""
     try:
         result = run_process_group(
-            [kuna, "decompile", str(binary), f"0x{va:x}", "--addr"],
+            cmd,
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -797,21 +854,30 @@ def fetch_kuna(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
         if result.returncode == 0 and result.stdout:
             return _clean_output(result.stdout)
         if result.returncode != 0:
-            refusal = _KUNA_IMPORT_RE.search(result.stderr or "")
+            stderr = result.stderr or ""
+            if raw_image and _KUNA_NO_RAW_IMAGE_RE.search(stderr):
+                from rebrew.formats.binary_loader import UnsupportedBinaryFormat
+
+                raise UnsupportedBinaryFormat(
+                    "this kuna cannot decompile a 16-bit NE executable: it has no --raw-image "
+                    "(kuna v1.993 or later is needed)",
+                    magic="4d5a",
+                )
+            refusal = _KUNA_IMPORT_RE.search(stderr)
             if refusal is not None:
                 raise KunaNoBodyError(
                     f"kuna has no function body at 0x{va:08x}: import {refusal.group(1)}"
                 )
-            detail = (result.stderr or "").strip().splitlines()
+            detail = stderr.strip().splitlines()
             warnings.warn(
                 f"kuna failed decompiling 0x{va:08x} (exit {result.returncode}): "
                 f"{detail[0] if detail else 'no message'}",
-                stacklevel=2,
+                stacklevel=3,
             )
     except subprocess.TimeoutExpired:
-        warnings.warn(f"kuna timed out decompiling 0x{va:08x}", stacklevel=2)
+        warnings.warn(f"kuna timed out decompiling 0x{va:08x}", stacklevel=3)
     except (OSError, subprocess.SubprocessError) as e:
-        warnings.warn(f"kuna failed decompiling 0x{va:08x}: {e}", stacklevel=2)
+        warnings.warn(f"kuna failed decompiling 0x{va:08x}: {e}", stacklevel=3)
     return None
 
 

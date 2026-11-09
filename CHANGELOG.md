@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Added
+
+- `rebrew.decompile`, `rebrew skeleton --decomp` and `--seed-kuna` decompile 16-bit NE functions with kuna v1.993+: the segment holding the function (flat address `((segment - 1) << 16) | offset`, the address NE rows carry) is cut from the file, its relocations are applied (`rebrew.formats.ne_relocations`) and kuna reads it as a raw image (`--raw-image --target 'x86:LE:16:Protected Mode' --base 0x0`). Calls are named by flat address (`sub_10123`); far calls through an import read `MODULE_ordinal` (`KERNEL_5`) and a trailing comment counts the fixups applied and not applied. Relocation kinds handled: far pointer, selector, offset and low byte sources against internal (fixed segment or entry-table ordinal) and import (ordinal or name) targets, including fixup chains and additive records. Not applied: OS fixups (left as in the file), import offsets and selectors (cleared, counted), entry ordinals missing from the entry table, and far-call stubs when a 64 KiB segment has no room. A kuna without `--raw-image` (before v1.993) raises `UnsupportedBinaryFormat`, which the ops answer as 422 `unsupported-binary-format`.
+
 ## [6.28.2] - 2026-11-10
 
 ### Changed
