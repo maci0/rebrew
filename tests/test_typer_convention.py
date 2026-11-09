@@ -54,6 +54,7 @@ class TestConventionEnforced:
 
         from rebrew import match
 
+        monkeypatch.setattr("rebrew.cli.stdin_is_tty", lambda: True)
         captured: dict = {}
         main_params = inspect.signature(match.execute_search).parameters
         execute_search = match.execute_search

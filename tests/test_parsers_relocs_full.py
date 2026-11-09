@@ -388,7 +388,7 @@ def test_omf16_failure_falls_through_to_objconv(monkeypatch) -> None:
         assert relocs is None, "fall-through must not return code-less relocs"
     else:
         assert code == bytes.fromhex("9a 00 00 00 00 03 06 00 00 cb")
-        assert sorted(relocs) == [1, 7]
+        assert sorted(relocs) == [1, 3, 7]
 
 
 def test_omf_to_coff_failed_conversion_raises(monkeypatch, tmp_path: Path) -> None:

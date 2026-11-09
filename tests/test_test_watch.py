@@ -158,6 +158,7 @@ class TestWatchCli:
         src = tmp_path / "func.c"
         src.write_text("int f(void) { return 1; }\n", encoding="utf-8")
         monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("rebrew.cli.stdin_is_tty", lambda: True)
         seen: dict[str, object] = {}
         monkeypatch.setattr(
             test_mod,

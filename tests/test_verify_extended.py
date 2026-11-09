@@ -1697,6 +1697,7 @@ class TestVerifyWatch:
     def test_watch_dispatches_retest(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.verify import app
 
+        monkeypatch.setattr("rebrew.cli.stdin_is_tty", lambda: True)
         cfg = _cfg(tmp_path)
         monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
         calls = {"n": 0}

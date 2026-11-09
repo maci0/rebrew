@@ -48,6 +48,7 @@ class TestMatchCliWatch:
     ) -> None:
         from rebrew.match import app
 
+        monkeypatch.setattr("rebrew.cli.stdin_is_tty", lambda: True)
         cfg = SimpleNamespace(
             metadata_dir=tmp_path,
             reversed_dir=tmp_path / "src",

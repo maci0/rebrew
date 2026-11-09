@@ -170,6 +170,7 @@ class TestWatchFiles:
 
 class TestVerifyWatchCli:
     def test_watch_dispatches_to_watch_files(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("rebrew.cli.stdin_is_tty", lambda: True)
         seen: dict[str, Any] = {}
         monkeypatch.setattr(
             verify_mod,

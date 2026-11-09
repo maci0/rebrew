@@ -446,7 +446,7 @@ class TestInvalidateToolchainDigest:
             calls["n"] += 1
             return SimpleNamespace(returncode=1, stdout="", stderr="missing")
 
-        monkeypatch.setattr(toolchain_mod.subprocess, "run", _fail)
+        monkeypatch.setattr(toolchain_mod, "run_process_group", _fail)
         assert cached_image_digest("rebrew/msvc:6.0-win32") == ""
         assert (
             container_runtime(),
@@ -468,7 +468,7 @@ class TestInvalidateToolchainDigest:
             calls["n"] += 1
             return SimpleNamespace(returncode=0, stdout=image_id + "\n", stderr="")
 
-        monkeypatch.setattr(toolchain_mod.subprocess, "run", _ok)
+        monkeypatch.setattr(toolchain_mod, "run_process_group", _ok)
         assert cached_image_digest("rebrew/msvc:6.0-win32") == image_id
         assert cached_image_digest("rebrew/msvc:6.0-win32") == image_id
         assert calls["n"] == 1
@@ -489,7 +489,7 @@ class TestInvalidateToolchainDigest:
             invalidate_toolchain_digest("rebrew/msvc:6.0-win32")
             return SimpleNamespace(returncode=0, stdout="sha256:0ld0ld0ld0ld99\n", stderr="")
 
-        monkeypatch.setattr(toolchain_mod.subprocess, "run", _swap_mid_inspect)
+        monkeypatch.setattr(toolchain_mod, "run_process_group", _swap_mid_inspect)
         assert cached_image_digest("rebrew/msvc:6.0-win32") == ""
         assert (
             container_runtime(),
@@ -512,7 +512,7 @@ class TestInvalidateToolchainDigest:
             ] = refilled
             return SimpleNamespace(returncode=0, stdout="sha256:" + "ab" * 32 + "\n", stderr="")
 
-        monkeypatch.setattr(toolchain_mod.subprocess, "run", _swap_then_refill)
+        monkeypatch.setattr(toolchain_mod, "run_process_group", _swap_then_refill)
         assert cached_image_digest("rebrew/msvc:6.0-win32") == refilled
 
     def test_short_refill_after_invalidate_is_rejected(self, monkeypatch) -> None:
@@ -528,7 +528,7 @@ class TestInvalidateToolchainDigest:
             ] = "newnewnewnew"
             return SimpleNamespace(returncode=0, stdout="sha256:" + "ab" * 32 + "\n", stderr="")
 
-        monkeypatch.setattr(toolchain_mod.subprocess, "run", _swap_then_refill)
+        monkeypatch.setattr(toolchain_mod, "run_process_group", _swap_then_refill)
         assert cached_image_digest("rebrew/msvc:6.0-win32") == ""
         assert (
             container_runtime(),
@@ -558,7 +558,7 @@ class TestInvalidateToolchainDigest:
             calls["n"] += 1
             return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
 
-        monkeypatch.setattr(toolchain_mod.subprocess, "run", _ok)
+        monkeypatch.setattr(toolchain_mod, "run_process_group", _ok)
         tag = "rebrew/msvc:6.0-win32"
         assert cached_image_digest(tag) == ""
         assert (container_runtime(), tag) not in toolchain_mod._toolchain_digest_cache
@@ -580,7 +580,7 @@ class TestInvalidateToolchainDigest:
                 )
             raise subprocess.TimeoutExpired(cmd=["docker"], timeout=15)
 
-        monkeypatch.setattr(toolchain_mod.subprocess, "run", _bad)
+        monkeypatch.setattr(toolchain_mod, "run_process_group", _bad)
         tag = "rebrew/msvc:6.0-win32"
         assert cached_image_digest(tag) == ""
         assert cached_image_digest(tag) == ""
@@ -601,7 +601,7 @@ class TestInvalidateToolchainDigest:
             calls["n"] += 1
             return SimpleNamespace(returncode=0, stdout=image_id + "\n", stderr="")
 
-        monkeypatch.setattr(toolchain_mod.subprocess, "run", _ok)
+        monkeypatch.setattr(toolchain_mod, "run_process_group", _ok)
         assert cached_image_digest(tag) == image_id
         assert calls["n"] == 1
         assert toolchain_mod._toolchain_digest_cache[(container_runtime(), tag)] == image_id
@@ -623,7 +623,7 @@ class TestInvalidateToolchainDigest:
         def _ok(cmd, **_k):
             return SimpleNamespace(returncode=0, stdout=stdout[cmd[-1]], stderr="")
 
-        monkeypatch.setattr(toolchain_mod.subprocess, "run", _ok)
+        monkeypatch.setattr(toolchain_mod, "run_process_group", _ok)
         assert cached_image_digest("rebrew/one:tag") == id_a
         assert cached_image_digest("rebrew/two:tag") == id_b
         spec = SimpleNamespace(image="rebrew/one:tag")
@@ -654,7 +654,7 @@ class TestInvalidateToolchainDigest:
             code = results.pop(0)
             return SimpleNamespace(returncode=code, stdout="", stderr="")
 
-        monkeypatch.setattr(toolchain_mod.subprocess, "run", _inspect)
+        monkeypatch.setattr(toolchain_mod, "run_process_group", _inspect)
         assert image_present("rebrew/msvc:6.0-win32") is False
         assert (container_runtime(), "rebrew/msvc:6.0-win32") not in toolchain_mod._image_presence
         assert image_present("rebrew/msvc:6.0-win32") is True
@@ -672,7 +672,7 @@ class TestInvalidateToolchainDigest:
         def _timeout(*_a: object, **_k: object) -> object:
             raise subprocess.TimeoutExpired(cmd=["docker"], timeout=30)
 
-        monkeypatch.setattr(toolchain_mod.subprocess, "run", _timeout)
+        monkeypatch.setattr(toolchain_mod, "run_process_group", _timeout)
         with pytest.raises(ToolchainError, match="docker image inspect") as ei:
             image_present("rebrew/msvc:6.0-win32")
         assert ei.value.kind == "docker"
@@ -687,7 +687,7 @@ class TestInvalidateToolchainDigest:
         def _timeout(*_a: object, **_k: object) -> object:
             raise subprocess.TimeoutExpired(cmd=["docker"], timeout=60)
 
-        monkeypatch.setattr(toolchain_mod.subprocess, "run", _timeout)
+        monkeypatch.setattr(toolchain_mod, "run_process_group", _timeout)
         with pytest.raises(ToolchainError, match="docker tag") as ei:
             _retag_image("sha256:abc", "rebrew/msvc:6.0-win32")
         assert ei.value.kind == "docker"
@@ -715,7 +715,7 @@ class TestInvalidateToolchainDigest:
         def _ok(*_a, **_k):
             return SimpleNamespace(returncode=0, stdout=image_id + "\n", stderr="")
 
-        monkeypatch.setattr(toolchain_mod.subprocess, "run", _ok)
+        monkeypatch.setattr(toolchain_mod, "run_process_group", _ok)
         errors: list[BaseException] = []
 
         def _worker(i: int) -> None:

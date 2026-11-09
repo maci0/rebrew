@@ -627,6 +627,7 @@ class TestDiffCli:
     ) -> None:
         from rebrew.diff import app
 
+        monkeypatch.setattr("rebrew.cli.stdin_is_tty", lambda: True)
         cfg = SimpleNamespace(
             metadata_dir=tmp_path,
             reversed_dir=tmp_path / "src",
@@ -669,6 +670,7 @@ class TestDiffCli:
         """
         from rebrew.diff import app
 
+        monkeypatch.setattr("rebrew.cli.stdin_is_tty", lambda: True)
         cfg = SimpleNamespace(
             metadata_dir=tmp_path,
             reversed_dir=tmp_path / "src",

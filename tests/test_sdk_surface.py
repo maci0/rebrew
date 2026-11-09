@@ -124,6 +124,7 @@ class TestErrorsLazyExports:
         import rebrew.errors as err_mod
 
         expected = {
+            "CapstoneUnavailable",
             "CatalogScanError",
             "CompareResultError",
             "ComponentError",
@@ -168,6 +169,7 @@ class TestErrorsLazyExports:
             "UnshareError",
             "UnsupportedBinaryFormat",
             "VendorError",
+            "WiboError",
             "WorkspaceConfigError",
             "WorkspaceNotFound",
         }
@@ -187,6 +189,7 @@ class TestErrorsLazyExports:
         assert "ConfigError" in d
         assert "DecompmeError" in d
         assert err_mod.__all__ == [
+            "CapstoneUnavailable",
             "CatalogScanError",
             "CompareResultError",
             "ComponentError",
@@ -236,6 +239,7 @@ class TestErrorsLazyExports:
             "UnshareError",
             "UnsupportedBinaryFormat",
             "VendorError",
+            "WiboError",
             "WorkspaceConfigError",
             "WorkspaceNotFound",
         ]

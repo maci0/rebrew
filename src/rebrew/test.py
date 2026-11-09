@@ -393,8 +393,6 @@ def main(
     """
     if option_default(watch, False) and option_default(json_output, False):
         error_exit("--watch is terminal-only; omit --json", json_mode=True)
-    if option_default(watch, False):
-        ensure_watch_terminal(json_mode=option_default(json_output, False))
     all_targets = option_default(all_targets, False)
     source_targets = option_default(source_targets, False)
     if all_targets:
@@ -593,6 +591,7 @@ def main(
         )
 
     if watch:
+        ensure_watch_terminal(json_mode=option_default(json_output, False))
 
         def _retest() -> None:
             # Re-run the full single-file test path; --watch must not nest.

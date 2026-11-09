@@ -33,8 +33,7 @@ for name, spec in sorted(TOOLCHAINS.items()):
 # `list_toolchains()` is the other view of the same registry snapshot, one
 # dict per profile, with `origin` (packaged vs plugin) and the docker-present
 # flag on each row. Reach for it when you want those alongside the spec.
-# `rebrew toolchain list --json` prints `{"toolchains": list_toolchains(),
-# "docker_available": <bool>}`:
+# `rebrew toolchain list --json` prints `{"toolchains": list_toolchains(), "docker_available": <bool>}`:
 # the rows verbatim, wrapped in the envelope, so a consumer reads
 # `payload["toolchains"]` rather than parsing the table out of a list.
 

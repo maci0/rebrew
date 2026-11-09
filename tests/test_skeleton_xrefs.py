@@ -9,7 +9,7 @@ from rebrew.skeleton import fetch_xref_context, generate_skeleton
 
 
 class _DummyClient:
-    def __init__(self, timeout: float) -> None:
+    def __init__(self, timeout: float = 0.0, **kwargs: object) -> None:
         self.timeout = timeout
 
     def __enter__(self) -> _DummyClient:
