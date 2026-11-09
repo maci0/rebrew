@@ -27,7 +27,12 @@ lazy from urllib.parse import urljoin, urlparse
 if TYPE_CHECKING:
     import httpx
 
+lazy from rebrew.errors import RebrewError
 lazy from rebrew.utils import close_response
+
+
+class WiboError(RebrewError, RuntimeError):
+    """Wibo lookup/download failure (unsupported host, bad release payload, bad download)."""
 
 _WIBO_API_URL = "https://api.github.com/repos/decompals/wibo/releases/latest"
 _WIBO_DEFAULT_PATH = Path("tools/wibo")
@@ -61,7 +66,7 @@ def _wibo_asset_name() -> str:
         if machine in {"i686", "i386"}:
             return "wibo-i686"
 
-    raise RuntimeError(
+    raise WiboError(
         "Unsupported platform for wibo: need Linux x86_64 or i686 "
         f"(platform={sys.platform!r}, machine={platform.machine()!r})"
     )
@@ -91,7 +96,7 @@ def _trusted_wibo_download_url(url: str) -> str:
     parsed = urlparse(url.strip())
     host = (parsed.hostname or "").lower()
     if parsed.scheme != "https" or host not in _WIBO_DOWNLOAD_HOSTS or not parsed.path:
-        raise RuntimeError(
+        raise WiboError(
             f"wibo release asset download URL is not a trusted GitHub https host: {url!r}"
         )
     return url
@@ -113,17 +118,17 @@ def _get_with_trusted_redirects(url: str) -> httpx.Response:
                 current, timeout=_NETWORK_TIMEOUT_S, follow_redirects=False, trust_env=False
             )
         except httpx.HTTPError as exc:
-            raise RuntimeError(f"Failed to download wibo asset: {exc}") from exc
+            raise WiboError(f"Failed to download wibo asset: {exc}") from exc
         if resp.status_code not in {301, 302, 303, 307, 308}:
             return resp
         try:
             location = resp.headers.get("location")
             if not location:
-                raise RuntimeError(f"wibo download redirect missing Location from {current!r}")
+                raise WiboError(f"wibo download redirect missing Location from {current!r}")
             current = _trusted_wibo_download_url(urljoin(current, location))
         finally:
             close_response(resp)
-    raise RuntimeError(f"wibo download exceeded redirect limit from {url!r}")
+    raise WiboError(f"wibo download exceeded redirect limit from {url!r}")
 
 
 def _trusted_wibo_metadata_url(url: str) -> str:
@@ -131,7 +136,7 @@ def _trusted_wibo_metadata_url(url: str) -> str:
     parsed = urlparse(url.strip())
     host = (parsed.hostname or "").lower()
     if parsed.scheme != "https" or host not in _WIBO_METADATA_HOSTS or not parsed.path:
-        raise RuntimeError(f"wibo release metadata URL is not https://api.github.com: {url!r}")
+        raise WiboError(f"wibo release metadata URL is not https://api.github.com: {url!r}")
     return url.strip()
 
 
@@ -151,14 +156,14 @@ def _read_release_metadata() -> dict[str, Any]:
                 current, timeout=_NETWORK_TIMEOUT_S, follow_redirects=False, trust_env=False
             )
         except httpx.HTTPError as exc:
-            raise RuntimeError(
+            raise WiboError(
                 f"Failed to fetch wibo release metadata from {current!r}: {exc}"
             ) from exc
         try:
             if resp.status_code in {301, 302, 303, 307, 308}:
                 location = resp.headers.get("location")
                 if not location:
-                    raise RuntimeError(
+                    raise WiboError(
                         f"wibo release metadata redirect missing Location from {current!r}"
                     )
                 current = _trusted_wibo_metadata_url(urljoin(current, location))
@@ -166,7 +171,7 @@ def _read_release_metadata() -> dict[str, Any]:
             resp.raise_for_status()
             declared = resp.headers.get("content-length", "")
             if declared.isdigit() and int(declared) > _MAX_WIBO_METADATA_BYTES:
-                raise RuntimeError(
+                raise WiboError(
                     f"wibo release metadata exceeds {_MAX_WIBO_METADATA_BYTES} bytes"
                 )
             # Prefer the already-buffered ``content`` when present (httpx
@@ -177,12 +182,12 @@ def _read_release_metadata() -> dict[str, Any]:
                 try:
                     data = resp.json()
                 except ValueError as exc:
-                    raise RuntimeError(
+                    raise WiboError(
                         f"Invalid JSON in wibo release metadata from {current!r}: {exc}"
                     ) from exc
             else:
                 if len(body) > _MAX_WIBO_METADATA_BYTES:
-                    raise RuntimeError(
+                    raise WiboError(
                         f"wibo release metadata exceeds {_MAX_WIBO_METADATA_BYTES} bytes"
                     )
                 try:
@@ -190,21 +195,21 @@ def _read_release_metadata() -> dict[str, Any]:
 
                     data = _json.loads(body)
                 except ValueError as exc:
-                    raise RuntimeError(
+                    raise WiboError(
                         f"Invalid JSON in wibo release metadata from {current!r}: {exc}"
                     ) from exc
         finally:
             close_response(resp)
         if not isinstance(data, dict):
-            raise RuntimeError("Invalid wibo release metadata response")
+            raise WiboError("Invalid wibo release metadata response")
         return data
-    raise RuntimeError(f"wibo release metadata exceeded redirect limit from {_WIBO_API_URL!r}")
+    raise WiboError(f"wibo release metadata exceeded redirect limit from {_WIBO_API_URL!r}")
 
 
 def download_wibo(dest: Path) -> str:
     """Download latest wibo release binary to *dest* and return release tag_name.
 
-    Raises RuntimeError if the asset is not found, download fails,
+    Raises WiboError if the asset is not found, download fails,
     or SHA-256 verification fails.
     """
     import httpx  # deferred: ~46 ms of startup for non-wibo commands
@@ -214,7 +219,7 @@ def download_wibo(dest: Path) -> str:
     asset_name = _wibo_asset_name()
     assets_raw = release.get("assets", [])
     if not isinstance(assets_raw, list):
-        raise RuntimeError("Invalid wibo release metadata: assets is not a list")
+        raise WiboError("Invalid wibo release metadata: assets is not a list")
 
     selected_asset: dict[str, Any] | None = None
     for asset in assets_raw:
@@ -223,19 +228,19 @@ def download_wibo(dest: Path) -> str:
             break
 
     if selected_asset is None:
-        raise RuntimeError(f"wibo release asset not found: {asset_name}")
+        raise WiboError(f"wibo release asset not found: {asset_name}")
 
     download_url = selected_asset.get("browser_download_url")
     digest = selected_asset.get("digest")
     if not isinstance(download_url, str) or not download_url:
-        raise RuntimeError(f"wibo release asset missing download URL: {asset_name}")
+        raise WiboError(f"wibo release asset missing download URL: {asset_name}")
     if not isinstance(digest, str) or not digest.startswith("sha256:"):
-        raise RuntimeError(f"wibo release asset missing SHA256 digest: {asset_name}")
+        raise WiboError(f"wibo release asset missing SHA256 digest: {asset_name}")
     expected_sha256 = digest.removeprefix("sha256:")
     if len(expected_sha256) != 64 or any(
         c not in "0123456789abcdefABCDEF" for c in expected_sha256
     ):
-        raise RuntimeError(f"wibo release asset has malformed SHA256 digest: {asset_name}")
+        raise WiboError(f"wibo release asset has malformed SHA256 digest: {asset_name}")
     expected_sha256 = expected_sha256.lower()
     # Validate before the GET so a poisoned browser_download_url never leaves
     # the process (SSRF against link-local / intranet listeners).
@@ -248,24 +253,24 @@ def download_wibo(dest: Path) -> str:
             resp.raise_for_status()
             declared = resp.headers.get("content-length", "")
             if declared.isdigit() and int(declared) > _MAX_WIBO_DOWNLOAD_BYTES:
-                raise RuntimeError(
+                raise WiboError(
                     f"wibo asset exceeds {_MAX_WIBO_DOWNLOAD_BYTES} bytes: {asset_name}"
                 )
             body = resp.content
             if len(body) > _MAX_WIBO_DOWNLOAD_BYTES:
-                raise RuntimeError(
+                raise WiboError(
                     f"wibo asset exceeds {_MAX_WIBO_DOWNLOAD_BYTES} bytes: {asset_name}"
                 )
         finally:
             close_response(resp)
     except httpx.HTTPError as exc:
-        raise RuntimeError(
+        raise WiboError(
             f"Failed to download wibo asset {asset_name} from {download_url}: {exc}"
         ) from exc
 
     actual_sha256 = hashlib.sha256(body).hexdigest()
     if actual_sha256 != expected_sha256:
-        raise RuntimeError(
+        raise WiboError(
             f"SHA256 mismatch for downloaded wibo: expected {expected_sha256}, got {actual_sha256}"
         )
 

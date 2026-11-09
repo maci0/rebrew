@@ -263,7 +263,21 @@ def main(
                     }
                 )
                 continue
-            fields = _read_fields(out)
+            try:
+                fields = _read_fields(out)
+            except (OSError, ValueError) as exc:
+                # A garbage/partial DLL must not abort the whole sweep: the
+                # link exited 0 but wrote no readable PE.  Record it as a
+                # failed candidate so the remaining probes still run.
+                results.append(
+                    {
+                        "candidate": cand.name,
+                        "options": cand.options,
+                        "link_failed": True,
+                        "stderr": f"unreadable candidate output: {exc}",
+                    }
+                )
+                continue
             diffs = {k: (ref[k], fields[k]) for k in ref if ref[k] != fields.get(k)}
             if not keep:
                 out.unlink(missing_ok=True)

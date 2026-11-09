@@ -52,6 +52,7 @@ from typing import TYPE_CHECKING, Any, override
 # Same names ``__getattr__`` loads at runtime.  Present here so a type
 # checker sees ``from rebrew.errors import ConfigError`` as that class.
 if TYPE_CHECKING:
+    from rebrew.analysis import CapstoneUnavailable as CapstoneUnavailable
     from rebrew.app.plugin import ComponentError as ComponentError
     from rebrew.coff_reloc import CatalogScanError as CatalogScanError
     from rebrew.coff_reloc import UnresolvedSymbolError as UnresolvedSymbolError
@@ -97,6 +98,7 @@ if TYPE_CHECKING:
     from rebrew.strict_relocation import StrictRelocationError as StrictRelocationError
     from rebrew.struct_recover import NoDecompilationError as NoDecompilationError
     from rebrew.vendor import VendorError as VendorError
+    from rebrew.wibo import WiboError as WiboError
     from rebrew.workspace.config import WorkspaceConfigError as WorkspaceConfigError
     from rebrew.workspace.config import WorkspaceNotFound as WorkspaceNotFound
 
@@ -263,6 +265,7 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "ConfigError": ("rebrew.errors", "ConfigError"),
     "ConfigKeyError": ("rebrew.errors", "ConfigKeyError"),
     "ConfigNotFoundError": ("rebrew.errors", "ConfigNotFoundError"),
+    "CapstoneUnavailable": ("rebrew.analysis", "CapstoneUnavailable"),
     "CatalogScanError": ("rebrew.coff_reloc", "CatalogScanError"),
     "ComponentError": ("rebrew.app.plugin", "ComponentError"),
     "CompareResultError": ("rebrew.compiler.compile", "CompareResultError"),
@@ -304,6 +307,7 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "CoverageTomlError": ("rebrew.coverage_toml", "CoverageTomlError"),
     "ProjectCoverageError": ("rebrew.coverage_project", "ProjectCoverageError"),
     "VendorError": ("rebrew.vendor", "VendorError"),
+    "WiboError": ("rebrew.wibo", "WiboError"),
     "WorkspaceConfigError": ("rebrew.workspace.config", "WorkspaceConfigError"),
     "WorkspaceNotFound": ("rebrew.workspace.config", "WorkspaceNotFound"),
 }
@@ -358,6 +362,7 @@ def __dir__() -> list[str]:
 
 
 __all__ = [
+    "CapstoneUnavailable",
     "CatalogScanError",
     "CompareResultError",
     "ComponentError",
@@ -407,6 +412,7 @@ __all__ = [
     "UnshareError",
     "UnsupportedBinaryFormat",
     "VendorError",
+    "WiboError",
     "WorkspaceConfigError",
     "WorkspaceNotFound",
 ]

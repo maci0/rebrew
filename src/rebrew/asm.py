@@ -58,7 +58,7 @@ from rebrew.cli import (
     parse_va,
     require_config,
 )
-lazy from rebrew.analysis import direct_call_target, direct_jump_target
+lazy from rebrew.analysis import CapstoneUnavailable, direct_call_target, direct_jump_target
 lazy from rebrew.catalog import load_function_structure
 lazy from rebrew.config import ProjectConfig, inventory_path_for, load_config, target_module
 lazy from rebrew.metadata.bindings import read_source_bindings
@@ -151,7 +151,7 @@ def disasm_bytes(code_bytes: bytes, va: int, cfg: ProjectConfig | None = None) -
     try:
         from capstone import CS_ARCH_X86, CS_MODE_32, Cs
     except ImportError as exc:
-        raise RuntimeError("capstone not installed") from exc
+        raise CapstoneUnavailable("capstone not installed") from exc
 
     arch = cfg.capstone_arch if cfg is not None else CS_ARCH_X86
     mode = cfg.capstone_mode if cfg is not None else CS_MODE_32
@@ -1256,7 +1256,7 @@ def _get_capstone_x86() -> tuple[int, int, int, Any]:
     try:
         from capstone import CS_ARCH_X86, CS_MODE_32, CS_OPT_SYNTAX_INTEL, Cs
     except ImportError as e:
-        raise RuntimeError("capstone required. Install: uv pip install capstone") from e
+        raise CapstoneUnavailable("capstone required. Install: uv pip install capstone") from e
     return CS_ARCH_X86, CS_MODE_32, CS_OPT_SYNTAX_INTEL, Cs
 
 

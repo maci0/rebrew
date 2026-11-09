@@ -31,12 +31,18 @@ lazy from collections.abc import Iterator
 
 lazy import capstone
 
+lazy from rebrew.errors import RebrewError
 lazy from rebrew.formats.binary_loader import (
     capstone_config_for,
     section_extent,
     va_to_file_offset,
 )
 lazy from rebrew.formats.binary_model import BinaryInfo
+
+
+class CapstoneUnavailable(RebrewError, RuntimeError):
+    """The optional ``capstone`` disassembler is not installed."""
+
 
 DEFAULT_CS_ARCH = "CS_ARCH_X86"
 DEFAULT_CS_MODE = "CS_MODE_32"
@@ -139,7 +145,7 @@ def capstone_for(info: BinaryInfo | None = None) -> Any:
     try:
         from capstone import CS_ARCH_X86, CS_MODE_32, Cs
     except ImportError as exc:
-        raise RuntimeError("capstone not installed") from exc
+        raise CapstoneUnavailable("capstone not installed") from exc
 
     if info is None:
         cs_arch, mode = CS_ARCH_X86, CS_MODE_32
@@ -302,7 +308,7 @@ def _op_constants() -> tuple[Any, Any, Any]:
             try:
                 from capstone import CS_OP_IMM, CS_OP_MEM, CS_OP_REG
             except ImportError as exc:
-                raise RuntimeError("capstone not installed") from exc
+                raise CapstoneUnavailable("capstone not installed") from exc
             _OP_CONSTANTS = (CS_OP_REG, CS_OP_IMM, CS_OP_MEM)
         return _OP_CONSTANTS
 
