@@ -34,7 +34,7 @@ __all__ = [
 ]
 
 DATABASE_FILENAME = "rebrew-metadata.sqlite3"
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 #: The one DDL this store creates.  ``_check_schema`` compares the stored
 #: ``CREATE TABLE`` against it so a database whose table was hand-altered to
 #: drop the primary key or the revision check is rejected instead of being
@@ -48,6 +48,15 @@ _EXPECTED_DDL = (
     "CREATE TABLE metadata_documents(id INTEGER NOT NULL PRIMARY KEY, "
     "path TEXT NOT NULL UNIQUE, revision INTEGER NOT NULL CHECK (revision > 0), "
     "content TEXT NOT NULL)"
+)
+#: DDL of the 6.24.0 store (``path`` was the primary key, no surrogate ``id``).
+#: Databases with this exact DDL are upgraded in place on first open: the
+#: table is rebuilt under the new DDL, preserving every (path, revision,
+#: content) row, so an upgrade is not a data loss and needs no manual
+#: ``rebrew metadata migrate``.  Any other DDL is still rejected.
+_LEGACY_DDL = (
+    "CREATE TABLE metadata_documents(path TEXT NOT NULL PRIMARY KEY, "
+    "revision INTEGER NOT NULL CHECK (revision > 0), content TEXT NOT NULL)"
 )
 _CONNECTIONS = threading.local()
 
@@ -69,6 +78,56 @@ def _check_database_schema(connection: sqlite3.Connection, location: Path) -> No
     ).fetchall()
     if extra:
         raise MetadataStorageError(f"{location}: unsupported metadata schema {version}")
+
+
+def _migrate_legacy_schema(connection: sqlite3.Connection, location: Path) -> None:
+    """Rebuild a 6.24.0-era database under the current DDL, preserving rows.
+
+    Runs inside the caller's ``BEGIN IMMEDIATE`` transaction, so a failure
+    rolls back and leaves the original table untouched.  The legacy table has
+    ``(path, revision, content)``; the new table adds a surrogate ``id`` (rowid
+    alias) and keeps ``path`` UNIQUE.  Rows are copied in ``path`` order so
+    ``id`` is deterministic.
+    """
+    tables = connection.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+    others = {name for (name,) in tables if name != "metadata_documents"}
+    if others:
+        raise MetadataStorageError(f"{location}: unsupported metadata schema 1")
+    connection.execute("ALTER TABLE metadata_documents RENAME TO metadata_documents_legacy")
+    connection.execute(_EXPECTED_DDL)
+    connection.execute(
+        "INSERT INTO metadata_documents(path, revision, content) "
+        "SELECT path, revision, content FROM metadata_documents_legacy ORDER BY path"
+    )
+    connection.execute("DROP TABLE metadata_documents_legacy")
+    connection.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
+    # A legacy database may carry stray indexes from the old UNIQUE/PK; the
+    # rebuild above drops them with the old table, so only the new
+    # autoindex remains.  Verify no extra survives.
+    extra = connection.execute(
+        "SELECT type, name FROM sqlite_master "
+        "WHERE name NOT LIKE 'sqlite_%' AND NOT (type='table' AND name='metadata_documents') "
+        "AND NOT (type='index' AND name='sqlite_autoindex_metadata_documents_1')"
+    ).fetchall()
+    if extra:
+        raise MetadataStorageError(f"{location}: unsupported metadata schema 1")
+
+
+def _is_migratable_legacy(location: Path) -> bool:
+    """Whether *location* is a 6.24.0 database eligible for in-place upgrade."""
+    try:
+        with contextlib.closing(
+            sqlite3.connect(location.as_uri() + "?mode=ro", uri=True, timeout=30)
+        ) as connection:
+            version = connection.execute("PRAGMA user_version").fetchone()[0]
+            if version != 1:
+                return False
+            row = connection.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='metadata_documents'"
+            ).fetchone()
+            return row is not None and " ".join(str(row[0]).split()) == _LEGACY_DDL
+    except sqlite3.Error:
+        return False
 
 
 class MetadataStorageError(RebrewError, ValueError):
@@ -128,7 +187,19 @@ class SqliteStore:
                 sqlite3.connect(self.location.as_uri() + "?mode=ro", uri=True, timeout=30)
             ) as connection:
                 connection.execute("PRAGMA busy_timeout = 30000")
-                self._check_schema(connection)
+                try:
+                    self._check_schema(connection)
+                except MetadataStorageError:
+                    # A 6.24.0 database (user_version 1, legacy DDL) is upgraded
+                    # in place on first access, even for a read: the read-only
+                    # check above rejects it, so upgrade through the write path
+                    # and retry the read on the migrated database.
+                    if not _is_migratable_legacy(self.location):
+                        raise
+                    with self.transaction():
+                        pass
+                    connection.execute("PRAGMA busy_timeout = 30000")
+                    self._check_schema(connection)
                 yield connection
         except sqlite3.OperationalError as exc:
             raise MetadataUnavailableError(f"{self.location}: {exc}") from exc
@@ -258,6 +329,16 @@ class SqliteStore:
                             )
                         connection.execute(_EXPECTED_DDL)
                         connection.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
+                    elif version == 1:
+                        row = connection.execute(
+                            "SELECT sql FROM sqlite_master WHERE type='table' "
+                            "AND name='metadata_documents'"
+                        ).fetchone()
+                        if row is None or " ".join(str(row[0]).split()) != _LEGACY_DDL:
+                            raise MetadataStorageError(
+                                f"{self.location}: unsupported metadata schema {version}"
+                            )
+                        _migrate_legacy_schema(connection, self.location)
                     self._check_schema(connection)
                     connections[self.location] = connection
                     try:
