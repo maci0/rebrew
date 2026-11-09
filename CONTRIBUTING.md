@@ -155,7 +155,7 @@ make lint                     # ruff check .
 make format                   # ruff format (writes)
 make format-check             # ruff format --check
 make mypy                     # mypy type check (matches CI lint job)
-make audit                    # uv audit --locked --ignore-until-fixed GHSA-w8v5-vhqr-4h9vuntil2028-01-27 (matches CI lint job)
+make audit                    # uv audit --locked --ignore-until-fixed PYSEC-2026-2447until2028-01-27 (matches CI lint job)
 make check                    # pre-commit hook parity (CI pre-commit job)
 make build                    # reproducible sdist+wheel + dist/rebrew.buildinfo (CI package job)
 make sbom                     # CycloneDX 1.5 JSON from uv.lock (offline)

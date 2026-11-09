@@ -26,6 +26,8 @@ repos:
       - id: check-json
       - id: check-yaml
       - id: check-toml
+        # deliberately truncated input for the metadata TOML reader tests
+        exclude: ^tests/fixtures/metadata_doc/truncated\.toml$
       - id: mixed-line-ending
         args: [--fix=lf]
 
