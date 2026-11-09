@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.27.0] - 2026-11-09
+
 ### Removed
 
 - `rebrew.vendor` no longer falls back to a patched `subprocess.run` when applying patches; it always uses `run_process_group` (the fallback existed only for one test, which now patches `rebrew.vendor.run_process_group`).
