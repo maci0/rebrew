@@ -59,10 +59,9 @@ def file_transaction(directory: Path, filename: str) -> Iterator[None]:
     if Path(filename).name != filename or "/" in filename or "\\" in filename:
         raise ValueError(f"invalid metadata filename: {filename!r}")
     # Create the target directory before opening the ``.lock`` sidecar: the
-    # first-ever write into a fresh metadata root would otherwise crash with
-    # FileNotFoundError inside the lock acquisition (the data write itself
-    # only runs later, inside atomic_write_text's own mkdir).  exist_ok
-    # keeps concurrent creators safe.
+    # first write into a fresh metadata root would otherwise crash with
+    # FileNotFoundError inside lock acquisition. exist_ok keeps
+    # concurrent creators safe.
     path.parent.mkdir(parents=True, exist_ok=True)
     with _METADATA_WRITE_LOCKS_LOCK:
         entry = METADATA_WRITE_LOCKS.get(filename)

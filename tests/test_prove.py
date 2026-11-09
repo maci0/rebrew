@@ -807,7 +807,6 @@ class TestProveConstraintsMetadata:
         constraints = {"arg0": {"type": "pointer", "struct_size": 24}}
         update_field(meta_dir, 0x1000, "prove_constraints", constraints, module="GAME")
 
-        # Create an annotation and merge
         ann = SourceBinding(va=0x1000, module="GAME")
         merge_into_binding(ann, meta_dir)
         assert ann.prove_constraints == {"arg0": {"type": "pointer", "struct_size": 24}}

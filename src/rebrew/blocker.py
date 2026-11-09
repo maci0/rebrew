@@ -73,7 +73,6 @@ def resolve_function(
     va_int: int | None = parse_va(va_override, json_mode=json_mode) if va_override else None
 
     raw = function
-    # Check if positional itself is a hex VA before resolving through sources.
     if va_int is None and re.match(r"^0[xX][0-9a-fA-F]+$", raw.strip()):
         va_int = parse_va(raw.strip(), json_mode=json_mode)
         # Bare VA without a file — module comes from config marker.

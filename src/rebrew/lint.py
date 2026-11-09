@@ -2367,9 +2367,8 @@ def lint_file(
                 result, va_str, min_va=min_valid_va_for(cfg) if cfg else MIN_VALID_VA
             )
 
-            # Check EVERY block of a multi-function file, keyed on
-            # (module, va) so a multi-module file whose blocks share a VA
-            # (a valid layout) is not flagged.
+            # EVERY block of a multi-function file, keyed on (module, va) so
+            # a multi-module file whose blocks share a VA is not flagged.
             # DATA/GLOBAL also pass the binding kind + body so the check can
             # tell a second definition (real collision) from an extern/bare
             # claim beside the single definition (progressive ownership).

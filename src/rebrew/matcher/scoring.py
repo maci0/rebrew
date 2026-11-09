@@ -985,8 +985,7 @@ def diff_functions(
                     t_norm = norm_target[t_a : t_a + t_s]
                     c_norm = norm_cand[c_a : c_a + c_s]
                     if t_norm == c_norm and t_norm:
-                        # Check if any byte in this instruction overlaps an
-                        # invalid reloc span (O(1) via the precomputed mask).
+                        # O(1) via the precomputed invalid-reloc mask.
                         is_invalid = bool(invalid_mask) and any(invalid_mask[t_a : t_a + t_s])
                         match_char = "XX" if is_invalid else "~~"
                     elif (

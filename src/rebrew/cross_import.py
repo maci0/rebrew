@@ -1874,8 +1874,8 @@ def main(
     imported_src_files: dict[str, str] = {}
     non_skipped = sum(1 for r in results if not r["action"].startswith("skipped"))
     for dst_va in sorted(dest_bytes):
-        # Check the budget BEFORE importing: the old post-import guard ran with
-        # the first import already appended, so ``--limit 0`` still imported one.
+        # Budget BEFORE importing: the old post-import guard ran with the
+        # first import already appended, so ``--limit 0`` still imported one.
         if limit is not None and non_skipped >= limit:
             break
         if dst_va not in matched_vas:

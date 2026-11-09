@@ -81,8 +81,7 @@ def parse_coff_obj(obj_data: bytes) -> Iterator[tuple[str, bytes, set[int]]]:
             continue
 
         section = sym.section
-        # Check if this is a code section (IMAGE_SCN_CNT_CODE = 0x20)
-        if not (section.characteristics & 0x20):
+        if not (section.characteristics & 0x20):  # IMAGE_SCN_CNT_CODE
             continue
 
         content = bytes(section.content)

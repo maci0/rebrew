@@ -174,7 +174,6 @@ class TestFindAllStubs:
     def test_duplicate_va_warning(self, tmp_path: Path) -> None:
         """Contradictory address anchors fail before batch matching."""
         self._make_stub(tmp_path, 0x10001000, "_dup_a")
-        # Create second file with same VA
         f2 = tmp_path / "dup_file.c"
         write_source(
             f2,

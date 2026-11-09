@@ -476,7 +476,6 @@ def show(
     elif "." not in key and key in _PROJECT_SCOPED_KEYS:
         key = f"project.{key}"
 
-    # Resolve dotted key path (handles keys containing dots like target names)
     parent, final_key, _ = _resolve_dotted_key(doc, key, json_mode=json_output)
     if not isinstance(parent, dict) or final_key not in parent:
         error_exit(f"Key '{key}' not found.", json_mode=json_output)

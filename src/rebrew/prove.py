@@ -828,8 +828,7 @@ def prove_equivalence(
                 angr.options.ZERO_FILL_UNCONSTRAINED_REGISTERS,
             },
         )
-        # Set up a fake stack frame with a concrete return address.
-        # Layout: [ret_addr] [arg0] [arg1] ...  at ESP.
+        # Fake stack frame: [ret_addr] [arg0] ... at ESP.
         STACK_TOP = 0x7FFF0000
         state.regs.esp = STACK_TOP
         state.regs.ebp = STACK_TOP

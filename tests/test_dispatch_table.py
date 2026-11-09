@@ -118,7 +118,6 @@ class TestDispatchTable:
 class TestFindDispatchTables:
     def _make_binary(self, text_va, text_size, data_va, data_offset, pointers) -> bytes:
         """Build a minimal binary with .text and .data sections."""
-        # Create binary data large enough
         binary = bytearray(data_offset + len(pointers) * 4 + 256)
         # Write function pointers into the data section
         for i, ptr in enumerate(pointers):

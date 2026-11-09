@@ -1151,7 +1151,7 @@ def vendored_binary(spec: ToolchainSpec) -> Path | None:
     if spec.host_bin:
         norm_host_bin = unicodedata.normalize("NFC", spec.host_bin).casefold()
         try:
-            # Check direct child first, then product trees nested one level
+            # Direct child first, then product trees nested one level
             # deeper (VC98/Bin for MSVC 6 master and SP5, Vc7/bin for 7.0/7.1,
             # VC/bin for 8.0+): look for <top>/<wrapper>/<host_bin>/<binary>.
             parents = [host] + [w for w in host.iterdir() if w.is_dir()]

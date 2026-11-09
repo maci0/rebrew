@@ -370,10 +370,10 @@ class SourceBinding:
                 if _CFLAGS_GLUED_RE.match(flag)
             )
 
-        # Check kind consistency against module name.  A STUB-status function
-        # may keep either its STUB or FUNCTION kind (status lives in
-        # rebrew-functions.toml). LIBRARY may use the binary's target module:
-        # vendored source is still target-scoped, even when attributed to a library.
+        # A STUB-status function may keep either its STUB or FUNCTION kind
+        # (status lives in rebrew-functions.toml). LIBRARY may use the binary's
+        # target module: vendored source is still target-scoped, even when
+        # attributed to a library.
         _lib = library_modules or set()
         if self.module in _lib or self.kind == "LIBRARY":
             expected_kind = "LIBRARY"

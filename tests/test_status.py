@@ -195,7 +195,6 @@ class TestCollectStatus:
         src = tmp_path / "src"
         src.mkdir()
 
-        # Create function_structure.json
         funcs = [
             {"va": 0x1000, "size": 100, "ghidra_name": "func_a"},
             {"va": 0x2000, "size": 200, "ghidra_name": "func_b"},
@@ -203,8 +202,7 @@ class TestCollectStatus:
         ]
         (src / "function_structure.json").write_text(json.dumps(funcs), encoding="utf-8")
 
-        # Create source files with annotations (SIZE/CFLAGS stay inline;
-        # STATUS lives in rebrew-functions.toml)
+        # SIZE/CFLAGS stay inline; STATUS lives in rebrew-functions.toml
         write_source(
             src / "func_a.c",
             "/* ADDRESS: TEST 0x1000 */\nvoid func_a(void) {}\n",

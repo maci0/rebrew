@@ -693,11 +693,9 @@ def read_back_identity(pdb: Path) -> tuple[str, int, int]:
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise PdbExportError(f"llvm-pdbutil dump failed: {exc}") from exc
-    # Check the exit code before parsing stdout: a non-zero dump can still
-    # print a partial summary (or a stale one on a truncated file), and
-    # accepting it would stamp the PDB with the wrong identity instead of
-    # failing the export.  Carry stderr so the operator sees why the dump
-    # failed without re-running llvm-pdbutil by hand.
+    # A non-zero dump can still print a partial/stale summary; accepting it
+    # would stamp the PDB with the wrong identity. Carry stderr so the
+    # operator sees why the dump failed.
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "").strip().splitlines()[:3]
         raise PdbExportError(

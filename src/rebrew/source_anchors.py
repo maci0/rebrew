@@ -99,7 +99,8 @@ def materialize_anchors(
                 updated = add_address_anchor(updated, module, va, name)
             bindings.append({"file": str(path), "module": module, "va": va, "name": name})
             edits.append(SourceEdit(lines[0], 1, "address anchor"))
-        # Check every generated anchor against canonical identities, including other modules.
+        # Every generated anchor is checked against canonical identities,
+        # including other modules.
         source_bindings(
             updated,
             path,

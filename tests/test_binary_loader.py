@@ -145,7 +145,6 @@ class TestBinaryInfo:
 
 class TestExtractBytesAtVa:
     def test_basic_extraction(self, tmp_path: Path) -> None:
-        # Create a fake binary with known bytes
         f = tmp_path / "test.bin"
         content = b"\x00" * 0x400 + b"\xab\xcd\xef\x12" + b"\x00" * 100
         f.write_bytes(content)

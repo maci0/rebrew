@@ -336,7 +336,6 @@ class TestDuplicateVADetection:
     """Verify find_all_stubs detects duplicate VAs."""
 
     def test_duplicate_va_rejected(self, tmp_path: Path) -> None:
-        # Create two STUB files with the same VA
         for name in ("func_a.c", "func_b.c"):
             write_source(tmp_path / name, STUB_HEADER, encoding="utf-8")
 

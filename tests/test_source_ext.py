@@ -351,7 +351,6 @@ def test_load_existing_vas_with_cfg(tmp_path: Path) -> None:
     """load_existing_vas uses source_glob(cfg) pattern."""
     from rebrew.naming import load_existing_vas
 
-    # Create a .cpp file with annotation
     cpp_file = tmp_path / "my_func.cpp"
     write_source(
         cpp_file,

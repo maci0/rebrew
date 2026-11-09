@@ -1360,7 +1360,6 @@ class TestCLIAddTargetMissingBinary:
         """When the binary exists, add-target works normally (no --force needed)."""
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        # Create a real (minimal) binary so the path resolves
         orig_dir = tmp_path / "original"
         orig_dir.mkdir()
         (orig_dir / "client.exe").write_bytes(b"MZ" + b"\x00" * 254)
