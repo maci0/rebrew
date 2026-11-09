@@ -5,7 +5,7 @@
 	warn-yamllint warn-biome \
 	warn-vnu \
 	vnu biome \
-	ensure-bash ensure-unshare-build ensure-jpype-build ensure-go ensure-patch ensure-rust \
+	ensure-bash ensure-unshare-build ensure-jpype-build ensure-go ensure-patch ensure-rust warn-go warn-patch warn-unshare-build \
 	smoke-wheel \
 	require-dist \
 	ensure-extras \
@@ -171,7 +171,7 @@ UV_RUN_TOOLS := uv run --no-project --offline --python $(PYTHON_PIN)
 
 help:
 	@printf '%s\n' \
-		'  make doctor             # report every missing prerequisite (uv, resembl, JDK/ant, go, patch, rust, nasm, bun, cc/json-c, shellcheck, yamllint, vnu, extras)' \
+		'  make doctor             # report every missing prerequisite (uv, resembl, JDK/ant, go, patch, rust, nasm, bun, cc/json-c, shellcheck, yamllint, biome, vnu, extras)' \
 		'  make setup              # uv sync (locked + extras + similarity) + pre-commit/pre-push hooks' \
 		'  make add-dep ADD_DEP_SPEC=<spec>  # uv add <spec> (pyproject.toml + uv.lock), then the license-table step' \
 		'  make clone-resembl      # clone sibling resembl pin into ../resembl (required for uv sync)' \
@@ -308,6 +308,13 @@ warn-nasm:
 # only surfaces as a skip inside test_unshare.py, so a contributor reads
 # green without knowing the namespace tests never ran. Probe here (warn, not
 # hard: Alpine/offline hosts may lack the binary) and name the fix.
+warn-unshare-build:
+	@set -eu; \
+	if ! command -v cc >/dev/null 2>&1 || ! command -v pkg-config >/dev/null 2>&1 || ! pkg-config --exists json-c; then \
+	  echo "WARNING: cc, pkg-config and json-c development files not on PATH (native runner tests need them, same as CI; they skip in make test-one)."; \
+	  echo "Install them before running the full suite: apt install build-essential pkg-config libjson-c-dev"; \
+	fi
+
 ensure-unshare-build:
 	@set -eu; \
 	if ! command -v cc >/dev/null 2>&1 || ! command -v pkg-config >/dev/null 2>&1 || ! pkg-config --exists json-c; then \
@@ -358,6 +365,13 @@ ensure-jpype-build:
 # `make all`.  CI pins GO_VERSION via a SHA-256 verified tarball; presence
 # is hard, version drift only warns (like uv/bun/rust above), so a newer Go
 # still runs the checks while the drift stays visible.
+warn-go:
+	@set -eu; \
+	if ! command -v go >/dev/null 2>&1; then \
+	  echo "WARNING: go not on PATH (required for make jobs-check, same as CI jobs-service; skipped in make test-one)."; \
+	  echo "Install Go $(GO_VERSION) (services/jobs/go.mod toolchain; CI pins GO_VERSION=$(GO_VERSION)) before running make all / jobs-check"; \
+	fi
+
 ensure-go:
 	@set -eu; \
 	if ! command -v go >/dev/null 2>&1; then \
@@ -375,6 +389,13 @@ ensure-go:
 # pinned patches, and tests/test_vendor.py exercises the real binary.  CI
 # installs patch in the test job; without it the suite fails inside the
 # vendor tests.  Hard gate for `make test` / `make coverage`, doctor entry.
+warn-patch:
+	@set -eu; \
+	if ! command -v patch >/dev/null 2>&1; then \
+	  echo "WARNING: GNU patch not on PATH (required for the vendor tests and `rebrew library vendor`, same as CI; they skip in make test-one)."; \
+	  echo "Install it before running the full suite: e.g. apt install patch / pacman -S patch / dnf install patch"; \
+	fi
+
 ensure-patch:
 	@set -eu; \
 	if ! command -v patch >/dev/null 2>&1; then \
@@ -523,7 +544,7 @@ clone-resembl: ensure-bash
 	RESEMBL_REF=$(RESEMBL_REF) RESEMBL_SHA=$(RESEMBL_SHA) bash tools/ci_clone_resembl.sh "$(RESEMBL_DIR)"
 
 # Setup the development environment
-setup: ensure-resembl warn-nasm ensure-jpype-build ensure-rust warn-uv-version
+setup: ensure-resembl warn-nasm warn-bun warn-patch warn-unshare-build warn-go ensure-jpype-build ensure-rust warn-uv-version
 	uv sync $(UV_SYNC_FLAGS)
 	uv run --frozen pre-commit install
 
@@ -709,9 +730,10 @@ test: ensure-nasm ensure-bun ensure-unshare-build ensure-patch warn-vnu ensure-u
 	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
 		uv run --frozen pytest tests/ -v --tb=short
 
-# Fast edit-test loop: one file or pytest node id.  Only warns about nasm and
-# bun: their tests skip without those binaries, so unrelated files still run.
-test-one: warn-nasm warn-bun ensure-uv warn-test-extras
+# Fast edit-test loop: one file or pytest node id.  Only warns about the host
+# deps (nasm, bun, patch, cc/json-c): their tests skip without those binaries,
+# so unrelated files still run.
+test-one: warn-nasm warn-bun warn-patch warn-unshare-build ensure-uv warn-test-extras
 	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
 		uv run --frozen pytest $(T) $(FLAGS) -v --tb=short
 

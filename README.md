@@ -173,7 +173,7 @@ make test-one T=tests/test_annotation_roundtrip.py   # single-file edit-test loo
 make test                  # full suite (needs nasm, bun, patch, and cc/pkg-config/json-c)
 make lint                  # ruff check (same as CI)
 make format                # ruff format (writes)
-make all                   # local gates: format-check, lint, mypy, audit, coverage, gen-fixtures-check, cycles-check, layering-check, idempotency-check, cli-contract, jobs-check
+make all                   # local gates: format-check, lint, mypy, audit, coverage, gen-fixtures-check, gen-skills-check, cycles-check, layering-check, idempotency-check, cli-contract, jobs-check
 make check                 # pre-commit hook parity (before a PR)
 make build                 # sdist + wheel + dist/rebrew.buildinfo (CI package job)
 make clean                 # remove build/dist artifacts and caches

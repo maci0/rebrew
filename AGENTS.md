@@ -39,7 +39,7 @@ Docker build source lives in the sibling **recompile-toolchains** checkout (`REB
 ## Build & Test Commands
 
 ```bash
-make doctor                               # report every missing prerequisite (uv, the pinned uv version, ../resembl, bash, nasm, bun, JDK/ant, go, patch, rust (cargo+rustc), cc/pkg-config/json-c, shellcheck, yamllint, vnu, venv extras) and its fix
+make doctor                               # report every missing prerequisite (uv, the pinned uv version, ../resembl, bash, nasm, bun, JDK/ant, go, patch, rust (cargo+rustc), cc/pkg-config/json-c, shellcheck, yamllint, biome, vnu, venv extras) and its fix
 make test-one T=tests/test_source_bindings.py  # edit-test loop; T takes a node id (::TestClass), FLAGS= takes any pytest flag
 make test                                 # full suite (needs nasm + bun + cc/pkg-config/json-c + patch + the setup extras; vnu skips if absent)
 make lint / make format / make mypy
