@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.25.0] - 2026-11-09
+
 ### Added
 
 - `rebrew metadata backup` now writes a verified bundle manifest (`rebrew-backup.manifest.json`, size+sha256 per file) and `rebrew metadata restore` verifies it before installing anything, refusing a torn or corrupted bundle; `rebrew doctor` gains a `Backup readiness` check (`rebrew.doctor.check_backup_readiness`) naming the non-regenerable target binary and the durable `.rebrew/` extras it can carry, and warning that the PostgreSQL backend has no rebrew-side backup (use `pg_dump`/`pg_restore`).
