@@ -352,7 +352,10 @@ def prepare_backend() -> Path:
     """Check prerequisites and build the opt-in native helper once, under a lock."""
     if platform.system() != "Linux" or platform.machine() not in ("x86_64", "amd64"):
         raise UnshareError("--experimental-unshare currently requires Linux x86_64")
-    if os.geteuid() == 0:
+    # os.geteuid is POSIX-only; this backend is Linux-only by the check above,
+    # but a capability probe keeps the intent explicit and avoids AttributeError
+    # if platform detection ever changes.
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
         raise UnshareError("--experimental-unshare must run as an unprivileged user")
     root = _cache_root()
     with _PREPARE_LOCK, file_lock(root / "prepare.lock"):
@@ -489,8 +492,23 @@ def _profile(
                 "/proc/sys",
                 "/proc/sysrq-trigger",
             ],
-            "uidMappings": [{"containerID": 1000, "hostID": os.getuid(), "size": 1}],
-            "gidMappings": [{"containerID": 1000, "hostID": os.getgid(), "size": 1}],
+            # getuid/getgid are POSIX-only; prepare_backend() already gated
+            # this to Linux, so the probe is unreachable on Windows but keeps
+            # the mapping honest if the gate ever widens.
+            "uidMappings": [
+                {
+                    "containerID": 1000,
+                    "hostID": os.getuid() if hasattr(os, "getuid") else 1000,
+                    "size": 1,
+                }
+            ],
+            "gidMappings": [
+                {
+                    "containerID": 1000,
+                    "hostID": os.getgid() if hasattr(os, "getgid") else 1000,
+                    "size": 1,
+                }
+            ],
         },
     }
 
