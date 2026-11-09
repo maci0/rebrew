@@ -4869,13 +4869,14 @@ Status: open. In guild-rebrew eight loose zlib functions (`zError`, `zcfree`,
 `deflate_fast`, `deflateCopy`, `inflate_blocks`, `inflate`,
 `inflate_blocks_sync_point`, `inflate_set_dictionary`) match the compiled vendored
 objects byte for byte, but `library bind-source` stops with "source must contain one
-complete definition with matching C symbol". Probe on `references/zlib/zutil.c`
-(`rebrew.c_parser.function_signatures` and
-`rebrew.source_binding.has_unique_source_definition`): `zError` is absent from the
-signature map (K&R definition `zError(err) int err;` under `const char * ZEXPORT`),
-and `zcfree` and `zcalloc` are in the map but `has_unique_source_definition` is false
-because the file holds three alternative definitions of each under `#ifdef __TURBOC__`,
-`#if defined(M_I86)` and `#ifndef MY_ZCALLOC`. The other five functions were not probed.
+complete definition with matching C symbol". Probe (`rebrew.c_parser.function_signatures`, `rebrew.source_binding.has_unique_source_definition`)
+on the pinned zlib 1.1.3 sources: `has_unique_source_definition` is false for every one of
+`zError`, `zcfree`, `zcalloc`, `deflate_fast`, `deflateCopy`, `inflate_blocks` and `inflate`,
+and `zError`, `inflate_set_dictionary` and `inflate_blocks_sync_point` are also missing from the
+signature map. The definitions in 1.1.3 are K&R style (`deflateCopy (dest, source) z_streamp dest;
+z_streamp source;`), often behind macros (`local`, `ZEXPORT`). `zcfree` and `zcalloc` additionally
+have three conditional definitions each (`#ifdef __TURBOC__`, `#if defined(M_I86)`,
+`#ifndef MY_ZCALLOC`).
 Wanted: evaluate the target's preprocessor defines when counting definitions, or accept
 the bind when the compiled object defines the symbol exactly once, and parse K&R
 parameter lists. The vendored source is pinned, so editing it is not an option.
