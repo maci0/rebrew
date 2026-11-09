@@ -577,7 +577,10 @@ def export_state(
             comment_artifacts.append((va + 2, va, f"[rebrew:ghidra] {ghidra}"))
         for addr, comment in (fields.get("comments") or {}).items():
             if isinstance(comment, dict):
-                metadata_comments[parse_int_literal(str(addr))] = (va, str(comment.get("comment") or ""))
+                metadata_comments[parse_int_literal(str(addr))] = (
+                    va,
+                    str(comment.get("comment") or ""),
+                )
 
     comment_artifacts.extend(
         (addr, owner, text) for addr, (owner, text) in sorted(metadata_comments.items())

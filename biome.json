@@ -1,0 +1,21 @@
+{
+	"$schema": "https://biomejs.dev/schemas/2.6.6/schema.json",
+	"files": {
+		"includes": ["tests/dashboard_*.mjs"]
+	},
+	"formatter": {
+		"indentStyle": "tab"
+	},
+	"linter": {
+		"rules": {
+			"correctness": {
+				"noUnusedVariables": "error",
+				"noUnusedImports": "error",
+				"noUnusedFunctionParameters": "warn"
+			},
+			"complexity": {
+				"useOptionalChain": "warn"
+			}
+		}
+	}
+}

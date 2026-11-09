@@ -134,9 +134,7 @@ class Bool(Value):
 
     def __init__(self, value: bool, type_byte: int | None = None) -> None:
         self.value = value
-        self.type_byte = (
-            _TYPE_TRUE if value else _TYPE_FALSE
-        ) if type_byte is None else type_byte
+        self.type_byte = (_TYPE_TRUE if value else _TYPE_FALSE) if type_byte is None else type_byte
 
     @override
     def encode(self) -> bytes:

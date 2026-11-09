@@ -4,41 +4,61 @@ import { installStubDom, loadApp } from "./dashboard_dom.mjs";
 
 // Non-first target without Status/Module: the bootstrap payload does not fit.
 installStubDom({ hash: "#target=b&view=globals&q=Win", hidden: true });
-const summary = { function_stats: { total: 1, by_status: { EXACT: 1 }, by_module_counts: {} } };
+const summary = {
+	function_stats: { total: 1, by_status: { EXACT: 1 }, by_module_counts: {} },
+};
 const paths = [];
 const held = [];
 globalThis.fetch = (path) => {
-  paths.push(path);
-  let body = {};
-  if (path === "/api/bootstrap") {
-    body = { targets: ["a", "b"], summary, functions: { functions: [], count: 0, total: 0 } };
-    return Promise.resolve({ ok: true, json: async () => body });
-  }
-  if (path.startsWith("/api/summary")) body = summary;
-  else if (path.startsWith("/api/functions")) body = { functions: [], count: 0, total: 0 };
-  else if (path.startsWith("/api/globals")) body = { globals: [], total: 0 };
-  // Hold every follow-up response until all have been requested.
-  return new Promise((resolve) => held.push(() => resolve({ ok: true, json: async () => body })));
+	paths.push(path);
+	let body = {};
+	if (path === "/api/bootstrap") {
+		body = {
+			targets: ["a", "b"],
+			summary,
+			functions: { functions: [], count: 0, total: 0 },
+		};
+		return Promise.resolve({ ok: true, json: async () => body });
+	}
+	if (path.startsWith("/api/summary")) body = summary;
+	else if (path.startsWith("/api/functions"))
+		body = { functions: [], count: 0, total: 0 };
+	else if (path.startsWith("/api/globals")) body = { globals: [], total: 0 };
+	// Hold every follow-up response until all have been requested.
+	return new Promise((resolve) =>
+		held.push(() => resolve({ ok: true, json: async () => body })),
+	);
 };
 
 const { init } = await loadApp(["init"]);
 const booted = init();
-for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+for (let i = 0; i < 5; i += 1)
+	await new Promise((resolve) => setTimeout(resolve, 0));
 
-assert.ok(paths.includes("/api/summary?target=b"), "summary requested: " + paths);
 assert.ok(
-  paths.some((p) => p.startsWith("/api/functions") && /target=b/.test(p) && /q=Win/.test(p)),
-  "functions requested while the summary is in flight: " + paths,
+	paths.includes("/api/summary?target=b"),
+	"summary requested: " + paths,
 );
 assert.ok(
-  paths.some((p) => p.startsWith("/api/globals") && /target=b/.test(p)),
-  "active view requested while the summary is in flight: " + paths,
+	paths.some(
+		(p) =>
+			p.startsWith("/api/functions") && /target=b/.test(p) && /q=Win/.test(p),
+	),
+	"functions requested while the summary is in flight: " + paths,
+);
+assert.ok(
+	paths.some((p) => p.startsWith("/api/globals") && /target=b/.test(p)),
+	"active view requested while the summary is in flight: " + paths,
 );
 
 held.forEach((release) => {
-  release();
+	release();
 });
 await booted;
 const el = (id) => document.getElementById(id);
-assert.equal(el("status").disabled, false, "status select enabled after the summary renders");
+assert.equal(
+	el("status").disabled,
+	false,
+	"status select enabled after the summary renders",
+);
 assert.equal(el("view-globals").hidden, false, "saved view is shown");

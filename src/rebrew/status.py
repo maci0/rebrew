@@ -1637,7 +1637,10 @@ def _file_rows(report: StatusReport) -> list[Any]:
     )
     if report.file_built:
         text.append(f"    {report.file_built}", style="dim")
-    rows: list[Any] = [text, ratio_bar(report.file_matched_bytes, report.file_total_bytes, BAR_WIDTH)]
+    rows: list[Any] = [
+        text,
+        ratio_bar(report.file_matched_bytes, report.file_total_bytes, BAR_WIDTH),
+    ]
     gap = report.file_total_bytes - report.file_matched_bytes
     rows.append(Text(f"{gap:,}B differ or are missing", style="dim"))
     if report.file_sections:

@@ -331,6 +331,12 @@ jobs:
         # Same reason as shellcheck: the yamllint hook skips itself when the
         # binary is missing, so the YAML gate exists only if this runs.
         run: bash tools/ci_apt_install.sh yamllint
+      - name: Install biome
+        # Same reason as shellcheck/yamllint: the biome hook skips itself
+        # when the binary is missing, so the dashboard-JS gate exists only
+        # if this step runs.  Pinned release, installed via npm (biome has
+        # no apt package); the version must match biome.json's schema pin.
+        run: npm install -g @biomejs/biome@2.6.6
       - name: Run pre-commit hooks
         env:
           SKIP: ruff-check,ruff-format,mypy

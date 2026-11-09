@@ -186,9 +186,7 @@ def test_configured_inventory_override(tmp_path: Path, monkeypatch: pytest.Monke
     # input that triggers it: capture logic appending the default path
     # alongside the configured one; the wrong value: a second
     # function_structure.json entry).
-    assert all(
-        entry["path"] != "src/mini/function_structure.json" for entry in capture["entries"]
-    )
+    assert all(entry["path"] != "src/mini/function_structure.json" for entry in capture["entries"])
 
 
 def test_missing_selected_inventory_has_no_name_evidence(

@@ -2,7 +2,7 @@
 	gen-fixtures gen-fixtures-check gen-skills gen-skills-check gen-flags gen-flags-check jobs-check \
 	cycles-check idempotency-check mypy audit \
 	cli-contract release-check coverage ensure-uv ensure-resembl ensure-nasm warn-nasm ensure-bun warn-bun warn-shellcheck \
-	warn-yamllint \
+	warn-yamllint warn-biome \
 	warn-vnu \
 	vnu \
 	ensure-bash ensure-unshare-build ensure-jpype-build ensure-go ensure-patch ensure-rust \
@@ -444,6 +444,15 @@ warn-yamllint:
 	  echo "  apt install yamllint / pacman -S yamllint / dnf install yamllint"; \
 	fi
 
+# Same skip-if-absent shape for the dashboard-JS biome gate (.pre-commit-config.yaml).
+warn-biome:
+	@set -eu; \
+	if ! command -v biome >/dev/null 2>&1; then \
+	  echo "WARNING: biome not on PATH; the pre-commit biome hook skips itself locally."; \
+	  echo "CI installs it, so a clean 'make check' here can still fail after push:"; \
+	  echo "  npm install -g @biomejs/biome"; \
+	fi
+
 # Same warn-level shape, same consequence, for the W3C validator: the two
 # tests in tests/html_validate.py skip when `vnu` is off PATH, and the CI test
 # job installs it, so a green `make test` on a host without it never opened the
@@ -599,7 +608,7 @@ warn-test-extras: ensure-uv
 doctor:
 	@set -u; \
 	rc=0; setup_rc=0; uv_rc=0; \
-	for check in ensure-uv warn-uv-version ensure-resembl ensure-bash ensure-nasm ensure-bun ensure-unshare-build ensure-jpype-build ensure-go ensure-patch ensure-rust warn-shellcheck warn-yamllint warn-vnu ensure-extras; do \
+	for check in ensure-uv warn-uv-version ensure-resembl ensure-bash ensure-nasm ensure-bun ensure-unshare-build ensure-jpype-build ensure-go ensure-patch ensure-rust warn-shellcheck warn-yamllint warn-biome warn-vnu ensure-extras; do \
 	  case $$check in \
 	    ensure-uv) label='uv on PATH' ;; \
 	    warn-uv-version) label="uv >= $(UV_VERSION) (CI pin)" ;; \
@@ -614,6 +623,7 @@ doctor:
 	    ensure-rust) label='Rust toolchain (cargo + rustc) on PATH (python-flirt sdist build for make setup)' ;; \
 	    warn-shellcheck) label='shellcheck on PATH (pre-commit shell hook)' ;; \
 	    warn-yamllint) label='yamllint on PATH (pre-commit YAML hook)' ;; \
+	    warn-biome) label='biome on PATH (pre-commit dashboard-JS hook)' ;; \
 	    warn-vnu) label='vnu on PATH (W3C validation of the HTML surfaces)' ;; \
 	    ensure-extras) label="venv extras (angr with bundled Claripy, rapidfuzz/resembl)" ;; \
 	  esac; \
@@ -707,7 +717,7 @@ format-check: ensure-uv
 
 # Run pre-commit checks on all files.  Match CI workflow env so Rich/typer
 # ANSI cannot split option names when GITHUB_ACTIONS/FORCE_COLOR is set.
-check: warn-shellcheck warn-yamllint ensure-uv
+check: warn-shellcheck warn-yamllint warn-biome ensure-uv
 	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
 		uv run --frozen pre-commit run --all-files
 

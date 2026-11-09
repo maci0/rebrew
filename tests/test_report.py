@@ -168,7 +168,10 @@ class TestReportCli:
         # body: white hover text and a pale focus ring fail 1.4.3 / 1.4.11.
         assert "\nnav a" not in index
         assert "header nav a:hover, footer nav a:hover { color: #fff; }" in index
-        assert "header nav a:focus-visible, footer nav a:focus-visible { outline-color: #9dc4f5; }" in index
+        assert (
+            "header nav a:focus-visible, footer nav a:focus-visible { outline-color: #9dc4f5; }"
+            in index
+        )
         # The nav repeats in the footer: a 250-row table pushes the header
         # nav off screen, and the bottom pager alone has no page links.
         assert "<footer><nav aria-label='Report pages'>" in index

@@ -131,7 +131,11 @@ def repair_inventory_extents(
         row_vas: list[int] = []
         for row in document:
             va = int(row["va"]) if isinstance(row["va"], int) else parse_int_literal(str(row["va"]))
-            size = int(row["size"]) if isinstance(row["size"], int) else parse_int_literal(str(row["size"]))
+            size = (
+                int(row["size"])
+                if isinstance(row["size"], int)
+                else parse_int_literal(str(row["size"]))
+            )
             if va in rows or va < 0 or size < 0:
                 raise ValueError("native inventory has duplicate addresses or negative extents")
             rows[va] = row
@@ -259,7 +263,9 @@ def repair_inventory_extents(
                     else:
                         raw_size = other["size"]
                         other_size = (
-                            int(raw_size) if isinstance(raw_size, int) else parse_int_literal(str(raw_size))
+                            int(raw_size)
+                            if isinstance(raw_size, int)
+                            else parse_int_literal(str(raw_size))
                         )
                     if other_va != va and va < other_va + other_size and other_va < va + size:
                         raise ValueError(
@@ -269,7 +275,9 @@ def repair_inventory_extents(
                 None
                 if va in unknown
                 else (
-                    int(row["size"]) if isinstance(row["size"], int) else parse_int_literal(str(row["size"]))
+                    int(row["size"])
+                    if isinstance(row["size"], int)
+                    else parse_int_literal(str(row["size"]))
                 )
             )
             if old_size == size:

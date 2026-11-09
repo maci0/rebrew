@@ -310,6 +310,7 @@ _CAST_PTR_RE = re.compile(r"\(\s*[A-Za-z_]\w*(?:\s+\w+)*?\s*\*\s*\)\s*(?P<var>[A
 #: ``var[i]`` / ``&var[i]`` uses — pointer evidence for item 15's gate.
 _INDEX_USE_RE = re.compile(r"&?\s*(?P<var>[A-Za-z_]\w*)\s*\[\s*(?:0x[0-9a-fA-F]+|\d+)\s*\]")
 
+
 @lru_cache(maxsize=64)
 def _word_count_re(var: str) -> re.Pattern[str]:
     """Whole-word pattern for *var*; cached because ``re.escape(var)`` defeats

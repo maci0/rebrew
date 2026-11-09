@@ -88,7 +88,11 @@ def _helper(root: Path) -> Path:
         if recorded and hashlib.sha256(helper.read_bytes()).hexdigest() == recorded[0]:
             # A manifest written before the cc-version line existed has no
             # provenance; rebuild once to record it.
-            if len(recorded) >= 3 and recorded[1].startswith("cc=") and recorded[2].startswith("epoch="):
+            if (
+                len(recorded) >= 3
+                and recorded[1].startswith("cc=")
+                and recorded[2].startswith("epoch=")
+            ):
                 return helper
             if len(recorded) == 1:
                 pass  # fall through to rebuild with provenance
@@ -114,7 +118,11 @@ def _helper(root: Path) -> Path:
     if not epoch.isdigit():
         epoch = "0"
     cc_ver = _command([cc, "--version"])
-    cc_version = (cc_ver.stdout or "").splitlines()[0] if cc_ver.returncode == 0 and cc_ver.stdout else "unknown"
+    cc_version = (
+        (cc_ver.stdout or "").splitlines()[0]
+        if cc_ver.returncode == 0 and cc_ver.stdout
+        else "unknown"
+    )
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     partial = directory / "runner.partial"
     try:

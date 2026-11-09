@@ -2825,16 +2825,12 @@ class TestEnvKnobValidators:
         assert "REBREW_OPS_CONCURRENCY" in env_knob_errors({"REBREW_OPS_CONCURRENCY": "0"})
         assert env_knob_errors({"REBREW_OPS_FILESTORE": ""}) == {}
         assert env_knob_errors({"REBREW_OPS_FILESTORE": str(tmp_path)}) == {}
-        assert "REBREW_OPS_FILESTORE" in env_knob_errors(
-            {"REBREW_OPS_FILESTORE": "relative/path"}
-        )
+        assert "REBREW_OPS_FILESTORE" in env_knob_errors({"REBREW_OPS_FILESTORE": "relative/path"})
         assert "REBREW_OPS_FILESTORE" in env_knob_errors(
             {"REBREW_OPS_FILESTORE": str(tmp_path / "absent")}
         )
         assert env_knob_errors({"REBREW_OPS_WORKSPACE": str(tmp_path)}) == {}
-        assert "REBREW_OPS_WORKSPACE" in env_knob_errors(
-            {"REBREW_OPS_WORKSPACE": "relative/path"}
-        )
+        assert "REBREW_OPS_WORKSPACE" in env_knob_errors({"REBREW_OPS_WORKSPACE": "relative/path"})
 
     def test_lazily_read_knobs_are_reported(self) -> None:
         from rebrew.config import env_knob_errors

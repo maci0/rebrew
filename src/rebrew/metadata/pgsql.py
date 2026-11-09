@@ -105,7 +105,7 @@ class PgsqlStore:
             try:
                 connection._rebrew_present_cache = {}
                 cache = getattr(connection, "_rebrew_present_cache", None)
-            except (AttributeError, TypeError):
+            except AttributeError, TypeError:
                 cache = {}
         if id(connection) in cache:
             return cache[id(connection)]

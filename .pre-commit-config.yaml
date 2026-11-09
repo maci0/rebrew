@@ -94,6 +94,16 @@ repos:
         language: system
         types: [yaml]
 
+      # Dashboard interaction tests are the repo's only JS; biome is the
+      # de-facto linter/formatter for that tree. Same skip-if-absent shape
+      # as shellcheck/yamllint: CI's pre-commit job installs biome, and
+      # `make check` warns locally when it is missing (warn-biome).
+      - id: biome-check
+        name: Biome Check (dashboard JS)
+        entry: bash -c 'command -v biome >/dev/null 2>&1 || exit 0; exec biome check "$@"' --
+        language: system
+        files: ^tests/dashboard_.*\.mjs$
+
       - id: mypy
         name: Mypy type check
         # `make mypy` first checks the `prove` extra is installed: without it
