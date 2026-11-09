@@ -198,10 +198,11 @@ the whole backup set, not by replay.
 The configured BinSync state dir (`targets.<name>.binsync_state_dir`,
 or `--state-dir` on sync commands) is durable project state as well:
 it is git-versioned (the plugin commits and rebase-pulls it) and is
-*not* carried by `rebrew metadata backup`. Back it up with the
-project (push/clone the state repo) or its field-sync history is
-lost with the host. `rebrew doctor`'s Backup readiness check names
-it when it is configured and present.
+*carried* by `rebrew metadata backup` (every file under the state
+dir, including `.git/`, rides in the bundle and is restored with
+it). Pushing or cloning the state repo remains a valid second
+copy. `rebrew doctor`'s Backup readiness check names it when it is
+configured and present.
 
 Every `rebrew metadata backup` bundle carries a manifest
 (`rebrew-backup.manifest.json`, beside the SQLite database or inside

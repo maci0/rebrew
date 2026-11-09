@@ -1113,11 +1113,17 @@ def check_backup_readiness(cfg: ProjectConfig) -> CheckResult:
             if binary is not None and Path(binary).exists()
             else ""
         )
+        binsync_dir = getattr(cfg, "binsync_state_dir", "") or ""
+        binsync_note = (
+            f" + BinSync state dir {binsync_dir} (rides in the backup bundle)"
+            if binsync_dir and Path(binsync_dir).expanduser().is_dir()
+            else ""
+        )
         return CheckResult(
             name="Backup readiness",
             status=_OK,
             message=f"SQLite database + {extras} .rebrew/ extra(s) back up with "
-            "`rebrew metadata backup --dir <off-tree>`" + binary_note,
+            f"`rebrew metadata backup --dir <off-tree>`{binsync_note}" + binary_note,
         )
     # The target binary is not regenerable from anything rebrew holds:
     # an operator who loses it loses the reference the whole project
@@ -1141,7 +1147,7 @@ def check_backup_readiness(cfg: ProjectConfig) -> CheckResult:
     extras = len(extra_durable_sources(root))
     binsync_dir = getattr(cfg, "binsync_state_dir", "") or ""
     binsync_note = (
-        f" + BinSync state dir {binsync_dir} (git-versioned; back it up with the project)"
+        f" + BinSync state dir {binsync_dir} (rides in the backup bundle)"
         if binsync_dir and Path(binsync_dir).expanduser().is_dir()
         else ""
     )

@@ -665,3 +665,23 @@ class TestRestoreDrill:
         (tmp_path / ".rebrew" / "ga_runs.jsonl").write_text('{"a":1}\n', encoding="utf-8")
         with pytest.raises(FileNotFoundError, match="no metadata stores"):
             backup_metadata_toml(tmp_path, tmp_path / "off-tree")
+
+    def test_backup_carries_binsync_state_dir(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")
+        cfg = '[targets.game]\nbinary = "game.exe"\nbinsync_state_dir = "sync/binsync"\n'
+        (tmp_path / "rebrew-project.toml").write_text(cfg, encoding="utf-8")
+        state = tmp_path / "sync" / "binsync" / "functions"
+        state.mkdir(parents=True)
+        (state / "0x1000.toml").write_text("name='foo'\n", encoding="utf-8")
+        git_dir = tmp_path / "sync" / "binsync" / ".git"
+        git_dir.mkdir(parents=True, exist_ok=True)
+        (git_dir / "HEAD").write_text("ref: refs/heads/binsync/rebrew\n", encoding="utf-8")
+        bundle = backup_metadata_toml(tmp_path, tmp_path / "off-tree")
+        manifest = verify_backup_manifest(bundle)
+        assert "sync/binsync/functions/0x1000.toml" in manifest
+        assert "sync/binsync/.git/HEAD" in manifest
+        (state / "0x1000.toml").unlink()
+        (git_dir / "HEAD").unlink()
+        restore_metadata_toml(bundle, tmp_path)
+        assert (state / "0x1000.toml").read_text(encoding="utf-8") == "name='foo'\n"
+        assert (git_dir / "HEAD").read_text(encoding="utf-8") == "ref: refs/heads/binsync/rebrew\n"

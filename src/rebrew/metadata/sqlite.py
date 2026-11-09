@@ -369,6 +369,10 @@ _SNAPSHOTS_DIR_REL = Path("snapshots")
 #: ``rebrew.decompme._UPLOADS_FILE_MODE``.
 _UPLOADS_MODE = 0o600
 
+#: Mode for a BinSync state-dir copy in a bundle: a git repo, so keep it
+#: writable for the next in-place git operation.
+_BINSYNC_MODE = 0o644
+
 
 def _validate_uploads_ledger(source: Path) -> None:
     """Validate the uploads ledger as one JSON object, or raise.
@@ -441,7 +445,15 @@ def _validate_extra(source: Path) -> None:
 
 def _extra_mode(source: Path) -> int:
     """Write mode for one ``.rebrew/`` extra, owner-only for the ledger."""
-    return _UPLOADS_MODE if source.name == "decompme-uploads.json" else 0o444
+    if source.name == "decompme-uploads.json":
+        return _UPLOADS_MODE
+    return 0o444
+
+
+def _is_in_binsync_state(root: Path, source: Path) -> bool:
+    """Whether *source* sits under a configured BinSync state dir at *root*."""
+    rel = source.relative_to(root)
+    return any(rel == b or b in rel.parents for b in _binsync_state_relpaths(root))
 
 
 def _write_backup_manifest(bundle: Path, files: list[tuple[str, bytes]]) -> None:
@@ -666,15 +678,36 @@ def _project_config(root: Path) -> Path | None:
     return candidate if candidate.is_file() else None
 
 
-def _target_binary_relpaths(root: Path) -> list[Path]:
-    """Project-relative target binaries named by the project config.
+def _binsync_state_relpaths(root: Path) -> list[Path]:
+    """Project-relative BinSync state-dir paths named by the project config."""
+    config = root / _PROJECT_CONFIG_NAME
+    if not config.is_file():
+        return []
+    try:
+        raw = tomllib.loads(config.read_text(encoding="utf-8"))
+    except ValueError, OSError:
+        return []
+    targets = raw.get("targets")
+    if not isinstance(targets, dict):
+        return []
+    rels: list[Path] = []
+    for table in targets.values():
+        if not isinstance(table, dict):
+            continue
+        entry = table.get("binsync_state_dir")
+        if not isinstance(entry, str) or not entry.strip():
+            continue
+        rel = Path(entry.strip())
+        if rel.is_absolute() or ".." in rel.parts:
+            continue
+        if not (root / rel).is_dir():
+            continue
+        rels.append(rel)
+    return sorted(set(rels))
 
-    The target binary is the one irreplaceable input rebrew cannot
-    regenerate: verification, layout and toolchain detection all read
-    it, and a restore without it leaves a tree that cannot verify.
-    ``rebrew doctor`` already names it; the backup bundle must
-    carry it so an off-tree copy is a complete recovery set.
-    """
+
+def _target_binary_relpaths(root: Path) -> list[Path]:
+    """Project-relative target binaries named by the project config."""
     config = root / _PROJECT_CONFIG_NAME
     if not config.is_file():
         return []
@@ -746,12 +779,15 @@ def backup_metadata_toml(root: Path, backup_dir: Path) -> Path:
         sources.append(config)
     for rel in _target_binary_relpaths(root):
         sources.append(root / rel)
+    for rel in _binsync_state_relpaths(root):
+        sources.extend(sorted(p for p in (root / rel).rglob("*") if p.is_file()))
     sources.extend(extras)
     written: list[tuple[str, bytes]] = []
     for source in sources:
         dest = bundle / source.relative_to(root)
         payload = source.read_bytes()
-        atomic_write_bytes(dest, payload, mode=_extra_mode(source))
+        mode = _BINSYNC_MODE if _is_in_binsync_state(root, source) else _extra_mode(source)
+        atomic_write_bytes(dest, payload, mode=mode)
         if dest.read_bytes() != payload:
             raise MetadataStorageError(f"{dest}: backup verification failed")
         written.append((str(source.relative_to(root)), payload))
@@ -793,6 +829,11 @@ def restore_metadata_toml(bundle: Path, root: Path) -> tuple[Path, ...]:
     for rel in _target_binary_relpaths(bundle):
         if rel not in planned:
             planned.append(rel)
+    for rel in _binsync_state_relpaths(bundle):
+        for source in sorted(p for p in (bundle / rel).rglob("*") if p.is_file()):
+            entry = source.relative_to(bundle)
+            if entry not in planned:
+                planned.append(entry)
     extras = extra_durable_sources(bundle)
     for source in extras:
         rel = source.relative_to(bundle)
@@ -823,8 +864,10 @@ def restore_metadata_toml(bundle: Path, root: Path) -> tuple[Path, ...]:
                 # it with the already-restored bytes would discard the only
                 # copy of what the restore displaced (see restore_ga_runs).
                 if not preserved.is_file() or preserved.read_bytes() != original:
-                    atomic_write_bytes(preserved, original, mode=_extra_mode(dest))
-            atomic_write_bytes(dest, raw, mode=_extra_mode(dest))
+                    mode = _BINSYNC_MODE if _is_in_binsync_state(root, dest) else _extra_mode(dest)
+                    atomic_write_bytes(preserved, original, mode=mode)
+            mode = _BINSYNC_MODE if _is_in_binsync_state(root, dest) else _extra_mode(dest)
+            atomic_write_bytes(dest, raw, mode=mode)
             if dest.read_bytes() != raw:
                 raise MetadataStorageError(f"{dest}: restored copy verification failed")
             installed.append(dest)
@@ -840,22 +883,8 @@ def restore_metadata_toml(bundle: Path, root: Path) -> tuple[Path, ...]:
 
 
 def backup_metadata_database(root: Path, backup_dir: Path) -> Path:
-    """Copy the SQLite metadata database to *backup_dir* via the backup API.
+    """Copy the SQLite metadata database to *backup_dir* via the backup API."""
 
-    A plain file copy of a live SQLite database can capture a torn page
-    image if a writer is mid-transaction; ``sqlite3``'s online backup API
-    copies a transactionally consistent snapshot instead.  The copy is
-    then opened read-only and its schema version and table checked,
-    so a backup that cannot be restored raises here rather than at
-    restore time.  A missing database raises ``FileNotFoundError``.
-
-    The GA log (``.rebrew/ga_runs.jsonl``), the BinSync baselines
-    (``.rebrew/sync/*.toml``), the upload ledger, the journal and
-    replication sidecar, the verify cache/baseline and the Ghidra
-    sync state ride alongside the database when present, via
-    :func:`extra_durable_sources`: none survives under git and
-    none is regenerable without loss.
-    """
     from rebrew.metadata.locking import file_transaction
 
     location = root / DATABASE_FILENAME
@@ -913,27 +942,20 @@ def backup_metadata_database(root: Path, backup_dir: Path) -> Path:
         if copied.read_bytes() != payload:
             raise MetadataStorageError(f"{copied}: backup verification failed")
         written.append((str(extra.relative_to(root)), payload))
+    for rel in _binsync_state_relpaths(root):
+        for source in sorted(p for p in (root / rel).rglob("*") if p.is_file()):
+            payload = source.read_bytes()
+            copied = backup_dir / source.relative_to(root)
+            atomic_write_bytes(copied, payload, mode=_BINSYNC_MODE)
+            if copied.read_bytes() != payload:
+                raise MetadataStorageError(f"{copied}: backup verification failed")
+            written.append((str(source.relative_to(root)), payload))
     _write_backup_manifest(backup_dir, written)
     return dest
 
 
 def restore_metadata_database(backup: Path, root: Path) -> Path:
-    """Install a backup made by :func:`backup_metadata_database` as the database.
-
-    The current database, if any, is first preserved as
-    ``rebrew-metadata.sqlite3.before-restore`` beside it.  The backup is
-    validated (schema version, integrity) before anything is written; a
-    corrupt backup raises and leaves the current database alone. The
-    restored bytes are built in a sibling temp file and published with
-    ``os.replace`` plus fsyncs, so a crash cannot leave a torn database
-    at the live path.
-
-    The ``.rebrew/`` extras saved alongside the backup (GA log,
-    BinSync baselines, upload ledger, journal, replication sidecar,
-    verify cache/baseline, Ghidra sync state) are installed the same
-    way, each preserved as ``.before-restore`` first; a corrupt one
-    raises and leaves everything alone.
-    """
+    """Install a backup made by :func:`backup_metadata_database` as the database."""
     from rebrew.metadata.locking import file_transaction
 
     if not backup.is_file():
@@ -972,6 +994,12 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
     for rel in _target_binary_relpaths(_backup_root):
         if rel not in [s.relative_to(_backup_root) for s, _ in _siblings]:
             _siblings.append((_backup_root / rel, root / rel))
+    for rel in _binsync_state_relpaths(_backup_root):
+        for _src in sorted(p for p in (_backup_root / rel).rglob("*") if p.is_file()):
+            if _src.relative_to(_backup_root) not in [
+                s.relative_to(_backup_root) for s, _ in _siblings
+            ]:
+                _siblings.append((_src, root / _src.relative_to(_backup_root)))
     location = root / DATABASE_FILENAME
     location.parent.mkdir(parents=True, exist_ok=True)
     with file_transaction(location.parent, location.name):
