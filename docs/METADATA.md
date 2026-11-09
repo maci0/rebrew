@@ -182,8 +182,8 @@ Everything else is
 regenerable: compile caches, `output/`,
 `bin/`, and toolchain images (re-pull via `rebrew toolchain pull`).
 The target binary named by each `[targets.*].binary` is the
-non-regenerable reference the whole project verifies against. A
-TOML backup carries it alongside the stores, so one off-tree
+non-regenerable reference the whole project verifies against. Both the
+TOML and SQLite backups carry it alongside the stores, so one off-tree
 bundle is a complete recovery set; `rebrew doctor`'s Backup
 readiness check names it when present.
 

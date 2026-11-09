@@ -574,6 +574,36 @@ class TestTomlBackup:
         assert ledger["digest1"]["claim_token"] == "tok"  # noqa: S105
         assert uploads.stat().st_mode & 0o777 == 0o600
 
+    def test_sqlite_backup_carries_target_binary(self, tmp_path: Path) -> None:
+        # The target binary is irreplaceable; a SQLite backup that omits
+        # it leaves a restored tree that cannot verify, same as TOML.
+        _project(tmp_path)
+        (tmp_path / "rebrew-project.toml").write_text(
+            '[project]\ndefault_target = "game"\nshared_dir = ""\n'
+            '[targets.game]\nbinary = "original/game.exe"\nreversed_dir = "src"\nmodule = "GAME"\n'
+            '[metadata]\nbackend = "sqlite"\n',
+            encoding="utf-8",
+        )
+        binary = tmp_path / "original" / "game.exe"
+        binary.parent.mkdir(parents=True, exist_ok=True)
+        binary.write_bytes(b"MZ\x00\x01\x02")
+        # The backup root is the off-tree dir; its project config is the
+        # one _target_binary_relpaths reads on restore. Seed it there so
+        # the restore side can discover the binary path (the live-tree
+        # backup already read the live config above).
+        _backup_cfg = tmp_path / "off-tree" / "rebrew-project.toml"
+        _backup_cfg.parent.mkdir(parents=True, exist_ok=True)
+        _backup_cfg.write_text(
+            (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8"), encoding="utf-8"
+        )
+        store = metadata_store(tmp_path / "rebrew-functions.toml", backend="sqlite", root=tmp_path)
+        store.write({"format": 2}, "test")
+        dest = backup_metadata_database(tmp_path, tmp_path / "off-tree")
+        assert "original/game.exe" in verify_backup_manifest(tmp_path / "off-tree")
+        binary.unlink()
+        restore_metadata_database(dest, tmp_path)
+        assert binary.read_bytes() == b"MZ\x00\x01\x02"
+
     def test_corrupt_bundle_leaves_stores_alone(self, tmp_path: Path) -> None:
         (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")
         bundle = backup_metadata_toml(tmp_path, tmp_path / "off-tree")

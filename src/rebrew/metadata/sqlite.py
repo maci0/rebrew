@@ -888,6 +888,13 @@ def backup_metadata_database(root: Path, backup_dir: Path) -> Path:
     from rebrew.utils import atomic_write_bytes
 
     written: list[tuple[str, bytes]] = [(METADATA_BACKUP_FILENAME, dest.read_bytes())]
+    for rel in _target_binary_relpaths(root):
+        payload = (root / rel).read_bytes()
+        copied = backup_dir / rel
+        atomic_write_bytes(copied, payload, mode=0o444)
+        if copied.read_bytes() != payload:
+            raise MetadataStorageError(f"{copied}: backup verification failed")
+        written.append((str(rel), payload))
     for extra in extra_durable_sources(root):
         payload = extra.read_bytes()
         copied = backup_dir / extra.relative_to(root)
@@ -951,6 +958,9 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
         # uploads ledger / Ghidra JSON as JSON objects, rest as TOML.
         _validate_extra(_src)
         _siblings.append((_src, root / _src.relative_to(_backup_root)))
+    for rel in _target_binary_relpaths(_backup_root):
+        if rel not in [s.relative_to(_backup_root) for s, _ in _siblings]:
+            _siblings.append((_backup_root / rel, root / rel))
     location = root / DATABASE_FILENAME
     location.parent.mkdir(parents=True, exist_ok=True)
     with file_transaction(location.parent, location.name):

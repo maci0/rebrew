@@ -1109,7 +1109,7 @@ def check_backup_readiness(cfg: ProjectConfig) -> CheckResult:
         binary = getattr(cfg, "target_binary", None)
         binary_note = (
             f" Target binary {Path(binary).name} is not regenerable — "
-            "keep a separate off-tree copy with the backup."
+            "it rides in the SQLite backup bundle; copy the bundle off-tree."
             if binary is not None and Path(binary).exists()
             else ""
         )
