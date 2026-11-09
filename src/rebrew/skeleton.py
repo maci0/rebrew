@@ -203,14 +203,14 @@ def generate_skeleton(
         va: Virtual address of the target function.
         ghidra_name: Name of the function imported from Ghidra.
         module: Module name used for the ADDRESS anchor.
-        custom_name: Optional override name for the function.
-        xref_context: Optional string containing fetched caller cross-references.
-        decomp_code: Optional decompilation output to embed as a comment block.
+        custom_name: Override name for the function, if any.
+        xref_context: Fetched caller cross-references, if any.
+        decomp_code: Decompilation output to embed as a comment block, if any.
         decomp_backend: Name of the decompiler backend (for the header comment).
         decomp_body: Embed the decompiled body as the initial implementation.
-        func_lookup: Optional prebuilt VA→(name, status) map for tail-call
-            resolution; batch callers share one instance across functions.
-        todo_text: Optional comment text for the TODO marker (None for compact format).
+        func_lookup: Prebuilt VA→(name, status) map for tail-call
+            resolution, if any; batch callers share one instance across functions.
+        todo_text: Comment text for the TODO marker (None for compact format).
 
     """
 

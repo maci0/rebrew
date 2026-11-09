@@ -30,6 +30,8 @@ converted from reviewed exported evidence before use. Conversion is operational
 work, not a retained parser. Preserve code, storage ownership, physical line
 numbers where relevant, stored verification and external provenance. Registration
 cannot earn a comparison verdict. Assembly evidence and target-scoped support
-purposes belong in rebrew-source.toml.
+purposes belong in a separate `rebrew-source.toml` store (as amended by
+[ADR-033](033-consolidated-source-evidence.md), they now live under `[source]`
+in format-3 `rebrew-functions.toml`).
 
 Supersedes the inline-input and incremental-migration decisions in ADR 023.
