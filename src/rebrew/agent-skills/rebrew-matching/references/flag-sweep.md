@@ -60,5 +60,5 @@ Check `rebrew match history` before long batches. `--skip-recent N` skips
 functions with a GA record in the last N hours. `rebrew match batch --resume`
 continues an interrupted GA from its per-function checkpoint. `--seed-solved`
 is on by default (`--no-seed-solved` to disable). Prefer `rebrew match climb`
-/ `rebrew match qualifiers` (single-function, SKILL.md §4) over another GA
+/ `rebrew match qualifiers` (single-function, SKILL.md §4 Structural Similarity Metric) over another GA
 pass when `rebrew diagnose near` reports order or qualifier residue.

@@ -5,9 +5,9 @@ description: >-
   pick work with todo, generate skeletons, edit/test/diff C, verify progress,
   manage metadata, and reorganize sources. Covers status accounting, coverage
   documents, and local recon. Trigger: "reverse this function", "decompile
-  this function", "make this function byte-match", "rebrew test/diff/verify".
-  Use rebrew-matching only for stalled byte matches, rebrew-data-analysis for
-  globals, and rebrew-ghidra-sync for integration sync.
+  this function", "generate a skeleton", "rebrew skeleton", "rebrew test/diff/verify".
+  Use rebrew-matching for stalled byte matches, rebrew-data-analysis for globals,
+  and rebrew-ghidra-sync for integration sync.
 license: MIT
 ---
 
@@ -213,7 +213,7 @@ rebrew diff 0x<VA> --json                # JSON diff + structural similarity + b
 
 The rest of the diff surface: `--mismatches-only`, `--register-aware`,
 `--format csv`, `--fix-blocker`, `rebrew blocker set/clear`, the `**`/`RR`/`XX`
-marker legend, and BLOCKER metadata rules are in `rebrew-matching` §1. Deep
+marker legend, and BLOCKER metadata rules are in `rebrew-matching` §1 Diff Analysis. Deep
 GA/prove → `rebrew-matching`.
 
 ## 5. File Organization and Dependency Graph

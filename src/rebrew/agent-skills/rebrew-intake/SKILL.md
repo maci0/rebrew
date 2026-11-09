@@ -41,7 +41,7 @@ rebrew toolchain pull <profile>           # docker image for the profile (requir
 ```
 
 `rebrew intake` does **not** run FLIRT or catalog; continue with
-§1–§8 below after it (or after a manual `rebrew init`). Shipped toolchains are
+§1–§10 below after it (or after a manual `rebrew init`). Shipped toolchains are
 docker-only.
 
 ### Multi-target file layout

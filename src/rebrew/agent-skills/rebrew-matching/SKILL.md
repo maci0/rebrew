@@ -3,11 +3,11 @@ name: rebrew-matching
 description: >-
   Resolve stalled or near Rebrew byte matches (stuck, NEAR_MATCHING, make it
   EXACT) with structural diffs, compiler flag sweeps, GA, statement/qualifier
-  search, symbolic proving, and library flag overrides. Trigger: "make this
-  function match", "run GA / flag sweep", "function won't match", "prove this
-  function". Use only after ordinary C edits stop improving a match; use
-  rebrew-workflow for the initial edit/test loop and for routine byte-match
-  work.
+  search, symbolic proving, and library flag overrides. Trigger: "stuck byte
+  match", "run GA / flag sweep", "function won't match", "prove this function",
+  "make this function EXACT". Use only after ordinary C edits stop improving
+  a match; use rebrew-workflow for the initial edit/test loop and for routine
+  byte-match work.
 license: MIT
 ---
 
@@ -167,7 +167,7 @@ every qualifier set on one function and keeps winners. Batch flag/GA details:
 
 - For library-origin functions (MSVCRT, ZLIB), use `rebrew library crt-match` to identify the reference source first.
 - Common CFLAGS: `/O2 /Gd` (GAME); a library subtree takes its flags from a
-  preset (§8), not from per-function CFLAGS.
+  preset (§8 Library Flag Overrides), not from per-function CFLAGS.
 - While iterating on a single function, `--watch` (on `diff`, `prove`, or `match run`) re-runs on every
   file save, faster than re-typing the command. It never exits on its own: start it only when the
   user wants a live loop, and stop it when they are done. `rebrew match run --watch` is single-function only;
