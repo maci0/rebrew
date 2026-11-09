@@ -54,6 +54,7 @@ lazy from rebrew.workspace.status import INFRASTRUCTURE_STATUSES as INFRASTRUCTU
 lazy from rebrew.workspace.status import KNOWN_STATUSES as KNOWN_STATUSES
 lazy from rebrew.workspace.status import MATCHED_STATUSES as MATCHED_STATUSES
 lazy from rebrew.workspace.status import STUB_PLACEHOLDER_STATUSES
+lazy from rebrew.workspace.status import canonical_status as workspace_canonical_status
 
 if TYPE_CHECKING:
     from rebrew.metadata.bindings import SourceBinding
@@ -1374,24 +1375,14 @@ def remove_field(directory: Path | str | Any, va: int, key: str, module: str) ->
 # ---------------------------------------------------------------------------
 
 
-#: Legacy / hand-edited spellings normalized by :func:`canonical_status`.
-#: Catalog/grid already treats ``NEAR_MATCH`` as ``NEAR_MATCHING``; without
-#: this map a legacy TOML value is valid to the grid but rejected by
-#: ``KNOWN_STATUSES`` / lint E004.
-_STATUS_ALIASES: dict[str, str] = {
-    "NEAR_MATCH": "NEAR_MATCHING",
-}
-
-
 #: Canonical STATUS spelling: every persisted/compared status is upper-case.
 #: The validation layer (``metadata.model``) accepts any case via ``.upper()``,
 #: and hand-edited TOML or library-header KV lines may carry lower-case values;
 #: normalizing at every read/write keeps the exact-case consumers (dashboards,
 #: promotion policy) consistent instead of silently dropping such entries.
-def canonical_status(status: str) -> str:
-    """Return *status* in its canonical (upper-case, trimmed) spelling."""
-    folded = status.strip().upper()
-    return _STATUS_ALIASES.get(folded, folded)
+#: The alias map itself is owned by :mod:`rebrew.workspace.status` so the
+#: writer, the status overlay and the catalog grid share one definition.
+canonical_status = workspace_canonical_status
 
 
 def is_status_parked(current_status: str) -> bool:

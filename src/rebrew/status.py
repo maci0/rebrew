@@ -47,7 +47,7 @@ lazy from rebrew.utils import (
     last_change_ns,
     merged_span_bytes,
 )
-lazy from rebrew.workspace.status import MATCHED_STATUSES, STUB_PLACEHOLDER_STATUSES
+lazy from rebrew.workspace.status import MATCHED_STATUSES, STATUS_ALIASES, STUB_PLACEHOLDER_STATUSES
 
 log = logging.getLogger(__name__)
 
@@ -631,7 +631,7 @@ def _canonical_status_fast(value: str) -> str:
     ``metadata.functions`` remains the full normalization for cold paths.
     """
     folded = value.strip().upper()
-    return "NEAR_MATCHING" if folded == "NEAR_MATCH" else folded
+    return STATUS_ALIASES.get(folded, folded)
 
 
 def effective_status(ann_status: str, cached: str | None) -> str:

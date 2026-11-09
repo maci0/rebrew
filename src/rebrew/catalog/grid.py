@@ -25,7 +25,7 @@ lazy from rebrew.sections import (
     trim_trailing_padding,
 )
 lazy from rebrew.utils import floor_pct, merged_span_bytes
-lazy from rebrew.workspace.status import MATCHED_STATUSES
+lazy from rebrew.workspace.status import MATCHED_STATUSES, STATUS_ALIASES
 
 log = logging.getLogger(__name__)
 
@@ -40,14 +40,13 @@ _GRID_COLUMNS = 64
 
 # Highest-priority status group per VA (first matching group wins).
 # Only EXACT/RELOC are byte-identical; PROVEN (semantically equivalent,
-# bytes differ) has its own bucket below them.  NEAR_MATCH is accepted as an
-# alias for NEAR_MATCHING (hand-written/older inputs); the canonical spelling
-# is NEAR_MATCHING (see workspace.status.KNOWN_STATUSES).
+# bytes differ) has its own bucket below them.  Legacy alias spellings
+# (e.g. NEAR_MATCH for NEAR_MATCHING) are accepted via STATUS_ALIASES.
 _STATUS_PRIORITY = (
     ("EXACT",),
     ("RELOC",),
     ("PROVEN",),
-    ("NEAR_MATCHING", "NEAR_MATCH"),
+    ("NEAR_MATCHING", *STATUS_ALIASES),
     ("STUB",),
 )
 _STATUS_COUNTERS = {status: group[0] for group in _STATUS_PRIORITY for status in group}

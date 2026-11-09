@@ -102,6 +102,20 @@ class TrustedCoverage:
         return result
 
 
+#: Legacy / hand-edited spellings normalized by :func:`canonical_status`.
+#: Single owner for the alias so the writer, the status overlay and the
+#: catalog grid cannot drift apart on which spellings they accept.
+STATUS_ALIASES: dict[str, str] = {
+    "NEAR_MATCH": "NEAR_MATCHING",
+}
+
+
+def canonical_status(status: str) -> str:
+    """Return *status* in its canonical (upper-case, trimmed) spelling."""
+    folded = status.strip().upper()
+    return STATUS_ALIASES.get(folded, folded)
+
+
 KNOWN_STATUSES: frozenset[str] = frozenset(
     {
         # User classification (annotation / user edits).
