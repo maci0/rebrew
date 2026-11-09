@@ -3288,12 +3288,9 @@ def _answer(config: WorkerConfig, name: str, body: bytes) -> Mapping[str, Any]:
         detail = f"request exceeds {MAX_REQUEST_BYTES} bytes"
         raise OpsError(detail, code=INVALID_REQUEST, status=413)
     try:
-        if name in {"rebrew.decompile_snapshot", "rebrew.security_scan_snapshot"}:
-            from rebrew.named_snapshot import unique_json_object
+        from rebrew.named_snapshot import unique_json_object
 
-            raw = json.loads(body, object_pairs_hook=unique_json_object)
-        else:
-            raw = json.loads(body)
+        raw = json.loads(body, object_pairs_hook=unique_json_object)
     except ValueError:
         raise _invalid("request is not JSON") from None
     request: Any = parse_request(op.request, raw)
@@ -3867,11 +3864,9 @@ def call_command(
         max_download_bytes,
     )
     body = sys.stdin.buffer.read(MAX_REQUEST_BYTES + 1)
-    # read(MAX+1) truncates the stream to MAX+1 bytes; json.loads rejects a
-    # split UTF-8 sequence (UnicodeDecodeError -> "not JSON"), and anything
-    # over the limit must be a 413 refusal, not a silent truncation.
-    if len(body) > MAX_REQUEST_BYTES:
-        body = body[:MAX_REQUEST_BYTES]
+    # read(MAX+1) lets dispatch answer over-limit input with 413; truncating
+    # here would turn it into a 400 "not JSON" for the same client mistake
+    # the HTTP transport answers 413.
     # stdout carries only the reply; anything rebrew prints goes to stderr.
     with contextlib.redirect_stdout(sys.stderr):
         status, reply = dispatch(config, op, body)
