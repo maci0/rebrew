@@ -30,15 +30,15 @@ itself, and the consequences (including trade-offs accepted).
 | 003 | NE import parsing degrades to module list, never fabricates |
 | 004 | Intake re-discovery prunes only exact auto-stubs |
 | 005 | Toolchain detection: backend order + NE marker family + linker fallback |
-| 006 | Standardized toolchain invocation (docker-first, host fallback) *(amended by 007, 008, 011, 016)* |
-| 007 | Complete containerization + unified byte-reproducibility gate *(amended by 011, 016)* |
-| 008 | Docker-only toolchain execution (no host wine/dosbox) *(amended by 016, 032)* |
+| 006 | Standardized toolchain invocation (docker-first, host fallback) *(amended by 007, 008, 011, 016 — see status lines)* |
+| 007 | Complete containerization + unified byte-reproducibility gate *(amended by 011, 016 — see status lines)* |
+| 008 | Docker-only toolchain execution (no host wine/dosbox) *(amended by 016, 032 — see status lines)* |
 | 009 | Cross-target function import (`rebrew source import-related`) *(amended by 022, 024, 028)* |
 | 010 | Shared multi-version sources (`src/shared` + per-target defines) |
 | 011 | Toolchain build source moves to the sibling recompile-toolchains checkout |
 | 012 | Metadata store tiers: canonical vs derived vs cache (see [METADATA.md](../METADATA.md)) *(amended by 023, 031)* |
-| 013 | Byte-level library detection against linked archives (`rebrew lib-match`) |
-| 014 | The CLI is a component graph (`rebrew.plugin` + `rebrew.builtins`) |
+| 013 | Byte-level library detection against linked archives (`rebrew library match`) |
+| 014 | The CLI is a component graph (`rebrew.app.plugin` + `rebrew.app.builtins`) |
 | 015 | Compile backends: local docker images plus the recompile service *(amended by 016)* |
 | 016 | Image-backed native compiler profiles (gcc-14.2.0, clang-18.1.8, mingw-16.2.0, watcom-2.0-win16) *(amended by 017)* |
 | 017 | Standardized toolchain profile names (`<image-family>-<version>`) |

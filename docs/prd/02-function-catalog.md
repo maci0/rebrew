@@ -262,10 +262,13 @@ rebrew coverage export --output snapshots/
 
 ## Success Metrics
 
-- `rebrew coverage catalog --json` runs in under 10 s on a 5000-function binary.
+- `rebrew coverage catalog --json` runs in under 10 s on a 5000-function
+  binary on the reference machine recorded in `docs/PERFORMANCE.md`
+  (the figure is a recorded measurement on that machine, not a
+  host-independent guarantee).
 - After FLIRT + catalog + CRT triage, the share of LIBRARY-attributed
-  uncovered functions in `rebrew todo` drops to <5% (the rest become
-  `identify-library` follow-up work).
+  uncovered functions in `rebrew todo` drops to <5% on the validation
+  target corpus (the rest become `identify-library` follow-up work).
 - The `coverage-<target>.toml` document format is stable across patch releases
   (its `version` field is the format's version).
 - `rebrew status` output is human-readable; metadata TOMLs round-trip

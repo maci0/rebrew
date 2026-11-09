@@ -17,7 +17,7 @@ Compose the CLI from components, following the composition discipline of
 Cordis (Shi, Zhang & Cui, "A Programming Paradigm for Spatiotemporal
 Composability", arXiv:2608.25512):
 
-- `rebrew.plugin` provides the runtime: one `Context` type carrying both
+- `rebrew.app.plugin` provides the runtime: one `Context` type carrying both
   halves of the paradigm (the service table is the coeffect half, the inverse
   accumulator the effect half), the `Component` protocol (`needs` is the
   coeffect specification, `provides` declares provision ownership),
@@ -38,13 +38,12 @@ Composability", arXiv:2608.25512):
   component's specification: a component activates when its dependencies
   appear, and is deactivated, reverting exactly the effects that activation
   installed, when a needed service is withdrawn.
-- `rebrew.builtins` is the packaged manifest: every tool it lists is one
+- `rebrew.app.builtins` is the packaged manifest: every tool it lists is one
   `CliComponent` (name, module, help, panel, group flag), so the help
   panel lives on the tool's own row rather than a separate name-keyed
-  table.  The one packaged component outside the manifest
-  (`import-splat`) is declared in `rebrew.main._EXTRA_COMPONENTS` with
-  the same shape, because the manifest is pinned to bundled agent skills.
-- `rebrew.main` builds the app, publishes it as the `cli` service, and
+  table.  `import-splat` is a row in the manifest's `source` domain
+  (`rebrew.splat_config`) alongside the other `source` commands.
+- `rebrew.app.main` builds the app, publishes it as the `cli` service, and
   activates the packaged components plus any third-party components from the
   `rebrew.commands` / `rebrew.multicommands` entry-point groups.
 - Mounting a command or group is a reversible effect: its disposer removes

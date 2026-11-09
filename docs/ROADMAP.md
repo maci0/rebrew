@@ -12,11 +12,11 @@ first-class proof target, with PPC/ARM as the follow-on set.
 > instructions. Use [CLI.md](CLI.md) for shipped behavior.
 > The table records the original work list, so an unchecked row is a claim to
 > re-verify against code, not current fact. Open items the table does not
-> track: `ToolchainSpec.arch` field + gcc-mips spec (shipped as the
-> `gcc-*-mipsel`/`-psx` profiles instead of a single `gcc-mips` name),
-> `asm.py` x86 hardcodes,
-> and ISA-dispatched heuristic reloc masking in `matcher/scoring.py`
-> (`_zero_reloc_fields` is still x86-32 only).
+> track: `asm.py` x86 hardcodes, and ISA-dispatched heuristic reloc masking
+> in `matcher/scoring.py` (`_zero_reloc_fields` is still x86-32 only).
+> Shipped since the original list: Phase 0/1 MIPS milestone (see §Phase 0/1)
+> and the `gcc-*-mipsel`/`-psx` profiles in place of the single `gcc-mips`
+> name.
 
 ## Current state (grounded audit)
 
@@ -42,22 +42,23 @@ first-class proof target, with PPC/ARM as the follow-on set.
 | Function extent walker | `binary_loader.function_extent_from_disasm` | done: per-arch terminator/jump table incl. MIPS delay slots |
 | Reloc masking | `coff_reloc.py::smart_reloc_compare` | `coff-i386` plus `elf-mips`/`elf-ppc` type tables; `R_MIPS_26`/`HI16`/`LO16` and `R_PPC_REL24` still unmaskable |
 | Object reloc parsing | `matcher/parsers.py` | done: `_parse_elf_symbol_bytes` is machine-agnostic (section-local reloc filter) |
-| Function discovery | `discover.py::_capstone_sweep` | `e8 rel32` call targets, `CC/90` padding, `ret` ends |
-| Stack frames | `stack_cmp.py` | esp/ebp frame analysis (x86-32) |
+| Function discovery | `discover.py::_capstone_sweep` | `e8 rel32` call targets, `CC/90` padding, `ret` ends (x86-only; tracked in §6) |
+| Stack frames | `stack_cmp.py` | esp/ebp frame analysis (x86-32; MIPS gate still open, tracked in §6) |
 | Jump tables | `catalog/registry.py::is_jump_table` | done: arch-dispatched (`arch`/`endian` params); the `0x90/0xCC` prefix and `8BFF` hotpatch skip are x86-only |
-| Flags | `flag_data.py` | GCC family exists; no MIPS/PPC axes (`-mabi`, `-march`) |
-| Toolchain specs | `compiler/toolchain.py::ToolchainSpec` | `bits` field only; add `arch` for alignment/detection |
+| Flags | `flag_data.py` | GCC family exists; no MIPS/PPC axes (`-mabi`, `-march`) (tracked in §6) |
+| Toolchain specs | `compiler/toolchain.py::ToolchainSpec` | `bits` field only; no `arch` field (alignment/detection still open, tracked in §6) |
 | Import/PE lane | `round_trip`, `gen_layout`, `postlink`, `link_sweep`, `imports.py`, `formats/pe_headers.py` | PE-specific: N/A for ELF targets (gate or ELF equivalents later) |
 | Known arches | `doctor.py::_KNOWN_ARCHES` | done: all ten presets |
 
-## Phase 0: Arch plumbing foundation
+## Phase 0: Arch plumbing foundation — DONE
 
-Small, behavior-neutral; unblocks every later phase. Exit: full suite green,
-**zero change to x86 behavior**.
+Small, behavior-neutral; unblocks every later phase. Exit was met: full suite
+green, **zero change to x86 behavior**.
 
 > The tracked checklist for this phase is §6, "Phase 0: Foundation: decouple
-> the x86 assumption"; the list below is the design rationale behind it, kept
-> because it names the per-arch tables each item has to produce.
+> the x86 assumption" (all items checked); the list below is the design
+> rationale behind it, kept because it names the per-arch tables each item
+> had to produce.
 
 1. `config.py`: add `mips32` (CS_ARCH_MIPS + CS_MODE_MIPS32, ptr 4, padding
    `[0x00]`), `mips64`, `ppc32` (CS_ARCH_PPC + CS_MODE_32), `ppc64`, `sh2`
@@ -83,16 +84,20 @@ Small, behavior-neutral; unblocks every later phase. Exit: full suite green,
    tiny MIPS/PPC ELF fixtures; reloc masking with MIPS reloc records; the full
    existing suite stays green.
 
-## Phase 1: MIPS 32-bit first-class target (proof of pipeline)
+## Phase 1: MIPS 32-bit first-class target (proof of pipeline) — DONE
 
-Delivers: *a MIPS ELF binary can be onboarded, annotated, and matched with
-`gcc-mips`*; the end-to-end milestone that validates the whole arch layer.
+Delivered: *a MIPS ELF binary can be onboarded, annotated, and matched with
+`gcc-*-mipsel`/`-psx` profiles*; the end-to-end milestone that validated the
+arch layer. The single `gcc-mips` name planned here shipped instead as the
+per-version `gcc-<version>-mipsel`/`gcc-<version>-psx` profiles (see the
+header note).
 
-1. Toolchain spec `gcc-mips` (native Linux cross compiler,
-   `mipsel-linux-gnu-gcc` for PS1 / `mips-linux-gnu-gcc` BE for N64; per-target
-   `arch`/endianness in the spec): copy the `gcc-14.2.0`/`mingw-16.2.0` image-spec pattern
-   (Dockerfile in the recompile-toolchains checkout, wrapper that `rebrew_exec`s
-   the compiler); `bits=32`, `arch=mips32`.
+1. Toolchain specs `gcc-<version>-mipsel` / `gcc-<version>-psx` (shipped name;
+   the planned single `gcc-mips` was split per version): native Linux cross
+   compiler (`mipsel-linux-gnu-gcc` for PS1 / `mips-linux-gnu-gcc` BE for N64;
+   per-target endianness in the spec), copying the `gcc-14.2.0`/`mingw-16.2.0`
+   image-spec pattern (Dockerfile in the recompile-toolchains checkout,
+   wrapper that `rebrew_exec`s the compiler); `bits=32`.
 2. `flag_data.py`: MIPS GCC flag family (minimal posix axes: `-march`, `-mabi`,
    `-O2` etc.) registered like `GCC_FLAGS`; sweep tiers.
 3. `matcher/parsers.py`: MIPS ELF object + reloc support (R_MIPS_26/JUMP26/
@@ -100,18 +105,19 @@ Delivers: *a MIPS ELF binary can be onboarded, annotated, and matched with
 4. `stack_cmp.py`: minimal MIPS frame analyzer (sp/fp/ra slots) or explicit
    "N/A on this arch" gate; default: gate.
 5. `catalog/registry.py::is_jump_table`: MIPS variant (word-pointer tables).
-6. **End-to-end fixture**: compile a small C sample with `gcc-mips` into an ELF,
-   `rebrew init` it, run discover → skeleton → `rebrew test`/`verify` → EXACT on
-   a matching function and NEAR_MATCHING on a perturbed one. Checked into
-   `tests/fixtures/` so CI exercises the whole pipeline without a target binary.
+6. **End-to-end fixture**: compile a small C sample with a `gcc-*-mipsel`
+   profile into an ELF, `rebrew init` it, run discover → skeleton →
+   `rebrew test`/`verify` → EXACT on a matching function and NEAR_MATCHING on
+   a perturbed one. Checked into `tests/fixtures/` so CI exercises the whole
+   pipeline without a target binary.
 7. Ecosystem integrations: decomp.dev report (arch-agnostic ✓), objdiff target
    synthesis (`write_coff_object(machine=...)`; `0x0166` MIPS, or emit ELF since
    objdiff reads ELF natively), `symbol-addrs`, `context`; all already work;
    only the objdiff machine constant needs a MIPS value.
 
-Caveat (same as `mingw-16.2.0`, documented in AGENTS.md): `gcc-mips` gives
-**structural** matches; byte-exact matching for console titles needs the original
-compiler → Phase 2.
+Caveat (same as `mingw-16.2.0`, documented in AGENTS.md): `gcc-*-mipsel`
+gives **structural** matches; byte-exact matching for console titles needs
+the original compiler → Phase 2.
 
 ## Phase 2: Console-era toolchains + ecosystem interop
 
