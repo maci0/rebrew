@@ -2038,9 +2038,9 @@ def source_date_epoch() -> str | None:
 
 
 def check_env_source_date_epoch(raw: str) -> None:
-    """Require nonnegative decimal seconds representable by a signed 64-bit clock."""
-    if not raw.isascii() or not raw.isdecimal() or len(raw) > 19 or int(raw) > 2**63 - 1:
-        raise ConfigError("SOURCE_DATE_EPOCH must be decimal seconds in 0..9223372036854775807")
+    """Require nonnegative decimal seconds representable as a UTC datetime."""
+    if not raw.isascii() or not raw.isdecimal() or len(raw) > 12 or int(raw) > 253402300799:
+        raise ConfigError("SOURCE_DATE_EPOCH must be decimal seconds in 0..253402300799")
 
 
 def check_env_toolchain_pin(raw: str) -> None:
