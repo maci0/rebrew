@@ -65,8 +65,22 @@ def utc_now_iso(now: datetime | None = None) -> str:
     arguments), so a re-run of one seed leaves a byte-identical file.
     A zone-less *now* is read as UTC, the same rule readers of the field
     apply, so a naive stamp never leaks into the log without an offset.
+
+    When no instant is supplied, ``SOURCE_DATE_EPOCH`` (the reproducible-
+    builds epoch already honored by the compiler/compile-cache paths) pins
+    the stamp, so a single seed plus that epoch replays a run byte-for-byte
+    without threading a ``now=`` through every batch driver.
     """
-    moment = now or datetime.now(UTC)
+    if now is None:
+        from rebrew.config import source_date_epoch
+
+        epoch = source_date_epoch()
+        if epoch is not None:
+            moment = datetime.fromtimestamp(int(epoch), UTC)
+            return moment.astimezone(UTC).isoformat()
+        moment = datetime.now(UTC)
+    else:
+        moment = now
     if moment.tzinfo is None:
         moment = moment.replace(tzinfo=UTC)
     return moment.astimezone(UTC).isoformat()

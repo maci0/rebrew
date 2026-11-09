@@ -1092,7 +1092,13 @@ def _filter_recently_run(
     """
     from datetime import UTC, datetime, timedelta
 
-    end = now if now is not None else datetime.now(UTC)
+    if now is None:
+        from rebrew.config import source_date_epoch
+
+        epoch = source_date_epoch()
+        end = datetime.fromtimestamp(int(epoch), UTC) if epoch is not None else datetime.now(UTC)
+    else:
+        end = now
     if end.tzinfo is None:
         end = end.replace(tzinfo=UTC)
     cutoff = end - timedelta(hours=hours)

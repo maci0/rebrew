@@ -1036,6 +1036,25 @@ class TestRunAllBatch:
         self._run(self._cfg(tmp_path), json_output=True, now=lambda: stamp)
         assert [r["ts"] for r in recorded] == [stamp.isoformat()] * 2
 
+    def test_run_log_stamp_honors_source_date_epoch(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A single seed plus SOURCE_DATE_EPOCH replays a run byte-for-byte:
+        the stamp falls back to the reproducible-builds epoch already
+        honored by the compiler paths, without threading ``now=`` through
+        every batch driver."""
+        stubs = [self._stub("f1.c")]
+        monkeypatch.setattr("rebrew.match_run.find_all_stubs", lambda *a, **k: stubs)
+        monkeypatch.setattr(
+            "rebrew.match_run._run_one_stub_ga",
+            lambda stub, cfg, gens, pop, jobs, timeout, seeds, **_kw: (True, "MATCHED", 0.0, 3, 7),
+        )
+        recorded: list[dict[str, Any]] = []
+        monkeypatch.setattr("rebrew.matcher.record_ga_run", lambda root, **kw: recorded.append(kw))
+        monkeypatch.setenv("SOURCE_DATE_EPOCH", "0")
+        self._run(self._cfg(tmp_path), json_output=True)
+        assert [r["ts"] for r in recorded] == ["1970-01-01T00:00:00+00:00"]
+
     def test_parallel_solutions_are_flushed_in_stub_order(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
