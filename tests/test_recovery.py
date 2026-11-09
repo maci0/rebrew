@@ -409,6 +409,30 @@ class TestBackupManifest:
         restore_metadata_toml(bundle, tmp_path)
         assert cached.read_text(encoding="utf-8") == '{"version": 1, "fingerprint": []}\n'
 
+    def test_toml_backup_carries_target_binary(self, tmp_path: Path) -> None:
+        # The target binary is the non-regenerable input: a bundle that
+        # omits it leaves a restored tree that cannot verify.
+        (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")
+        (tmp_path / "rebrew-project.toml").write_text(
+            '[project]\ndefault_target = "game"\n'
+            '[targets.game]\nbinary = "original/game.exe"\n'
+            'reversed_dir = "src"\nmodule = "GAME"\n'
+            '[metadata]\nbackend = "toml"\n',
+            encoding="utf-8",
+        )
+        binary = tmp_path / "original" / "game.exe"
+        binary.parent.mkdir(parents=True, exist_ok=True)
+        binary.write_bytes(b"MZ\x00\x01\x02")
+        bundle = backup_metadata_toml(tmp_path, tmp_path / "off-tree")
+        assert "original/game.exe" in verify_backup_manifest(bundle)
+        backed = bundle / "original" / "game.exe"
+        assert backed.read_bytes() == b"MZ\x00\x01\x02"
+        # Restore reinstalls it after the live copy is lost.
+        binary.unlink()
+        assert not binary.exists()
+        restore_metadata_toml(bundle, tmp_path)
+        assert binary.read_bytes() == b"MZ\x00\x01\x02"
+
 
 class TestTomlBackup:
     def test_round_trip_covers_all_stores_and_dropins(self, tmp_path: Path) -> None:

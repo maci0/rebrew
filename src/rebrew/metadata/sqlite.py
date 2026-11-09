@@ -655,6 +655,41 @@ def _project_config(root: Path) -> Path | None:
     return candidate if candidate.is_file() else None
 
 
+def _target_binary_relpaths(root: Path) -> list[Path]:
+    """Project-relative target binaries named by the project config.
+
+    The target binary is the one irreplaceable input rebrew cannot
+    regenerate: verification, layout and toolchain detection all read
+    it, and a restore without it leaves a tree that cannot verify.
+    ``rebrew doctor`` already names it; the backup bundle must
+    carry it so an off-tree copy is a complete recovery set.
+    """
+    config = root / _PROJECT_CONFIG_NAME
+    if not config.is_file():
+        return []
+    try:
+        raw = tomllib.loads(config.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return []
+    targets = raw.get("targets")
+    if not isinstance(targets, dict):
+        return []
+    rels: list[Path] = []
+    for table in targets.values():
+        if not isinstance(table, dict):
+            continue
+        binary = table.get("binary")
+        if not isinstance(binary, str) or not binary.strip():
+            continue
+        rel = Path(binary.strip())
+        if rel.is_absolute() or ".." in rel.parts:
+            continue
+        if not (root / rel).is_file():
+            continue
+        rels.append(rel)
+    return sorted(set(rels))
+
+
 def _toml_stores_present(root: Path) -> list[tuple[str, list[Path]]]:
     """Non-empty ``(name, tree)`` pairs for the managed TOML stores.
 
@@ -698,6 +733,8 @@ def backup_metadata_toml(root: Path, backup_dir: Path) -> Path:
         sources.extend(tree)
     if config is not None:
         sources.append(config)
+    for rel in _target_binary_relpaths(root):
+        sources.append(root / rel)
     sources.extend(extras)
     written: list[tuple[str, bytes]] = []
     for source in sources:
@@ -742,11 +779,15 @@ def restore_metadata_toml(bundle: Path, root: Path) -> tuple[Path, ...]:
             except (ValueError, OSError) as exc:
                 raise MetadataStorageError(f"{source}: corrupt backup: {exc}") from exc
             planned.append(source.relative_to(bundle))
+    for rel in _target_binary_relpaths(bundle):
+        if rel not in planned:
+            planned.append(rel)
     extras = extra_durable_sources(bundle)
     for source in extras:
         rel = source.relative_to(bundle)
         _validate_extra(source)
-        planned.append(rel)
+        if rel not in planned:
+            planned.append(rel)
     if not planned:
         raise FileNotFoundError(f"no metadata stores in backup bundle at {bundle}")
     if not any(rel.name in _TOML_STORE_NAMES for rel in planned):

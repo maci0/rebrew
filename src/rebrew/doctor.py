@@ -1109,7 +1109,7 @@ def check_backup_readiness(cfg: ProjectConfig) -> CheckResult:
         binary = getattr(cfg, "target_binary", None)
         binary_note = (
             f" Target binary {Path(binary).name} is not regenerable — "
-            "copy it off-tree with the backup."
+            "keep a separate off-tree copy with the backup."
             if binary is not None and Path(binary).exists()
             else ""
         )
@@ -1128,7 +1128,7 @@ def check_backup_readiness(cfg: ProjectConfig) -> CheckResult:
     if binary is not None and Path(binary).exists():
         binary_note = (
             f" Target binary {Path(binary).name} is not regenerable — "
-            "copy it off-tree with the backup."
+            "it rides in the TOML backup bundle; copy the bundle off-tree."
         )
     trees = toml_store_trees(root)
     if not trees:

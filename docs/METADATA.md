@@ -181,9 +181,11 @@ SQLite backup commands (`rebrew metadata backup`) carry the whole
 Everything else is
 regenerable: compile caches, `output/`,
 `bin/`, and toolchain images (re-pull via `rebrew toolchain pull`).
-The target binary under `original/` is the other input; it is not
-regenerable from anything rebrew holds — copy it off-tree with the
-backup. `rebrew doctor`'s Backup readiness check names it when present.
+The target binary named by each `[targets.*].binary` is the
+non-regenerable reference the whole project verifies against. A
+TOML backup carries it alongside the stores, so one off-tree
+bundle is a complete recovery set; `rebrew doctor`'s Backup
+readiness check names it when present.
 
 RPO is the last successful backup of the files above; RTO is a file
 copy restore plus `rebrew verify` for the touched target. There is no
