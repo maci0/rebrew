@@ -697,9 +697,12 @@ rebrew receives.
 - `_REBREW_COMPLETE`: click's shell-completion mode marker, set by the completion scripts `rebrew init --write-completions` writes. Rebrew never reads it itself, and there is no `completion` subcommand.
 - `GH_TOKEN` / `GITHUB_TOKEN`: optional GitHub auth for `rebrew toolchain`
   downloads that need a token (not a rebrew-prefixed name; standard gh env).
-- `KUNA_SPECS`: SLEIGH spec directory the host `kuna` binary reads for
+- `KUNA_SPECS`: SLEIGH specs root (the directory holding `Ghidra/Processors`;
+  kuna v1.993+ rejects its `x86/data/languages` subdirectory, v1.160 accepts
+  both) the host `kuna` binary reads for
   `rebrew match run --seed-kuna` (unset: the first dir holding `x86.sla` under
-  `UV_TOOL_DIR`, `XDG_DATA_HOME`, or the probed platform defaults).  A value
+  `UV_TOOL_DIR`, `XDG_DATA_HOME`, or the probed platform defaults, passed as
+  the specs root when it sits under `Ghidra/Processors`).  A value
   that is not a directory warns and falls back to discovery, so an export
   left behind by a moved checkout cannot silently strand kuna on its
   rarely-present `/specs/` default.  A set-but-unusable value is also reported
