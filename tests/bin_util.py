@@ -922,15 +922,17 @@ def make_xref_probe(tmp_path: Path) -> tuple[Path, dict[str, int]]:
 
 def make_ne(
     *,
-    segments: list[tuple[bytes, int]] | None = None,
+    segments: list[tuple[bytes, int] | tuple[bytes, int, bytes]] | None = None,
     exports: list[tuple[str, int]] | None = None,
     modules: list[str] | None = None,
     autodata: int = 0,
 ) -> bytes:
     """Assemble a minimal NE file.
 
-    *segments*: list of (content, flags); each becomes a segment aligned to
-    the 16-byte logical sector.  *exports*: (name, ordinal) resident-name
+    *segments*: list of (content, flags) or (content, flags, relocations); each
+    becomes a segment aligned to the 16-byte logical sector.  A relocation
+    block (``count`` word + 8-byte records) follows the content outside the
+    declared length, where the NE format keeps it.  *exports*: (name, ordinal) resident-name
     entries.  *modules*: imported module names (module reference table +
     imported names table).
     """
@@ -940,9 +942,10 @@ def make_ne(
     segs = segments or []
     seg_table = bytearray()
     seg_blobs: list[bytes] = []
-    for content, flags in segs:
-        # pad content to sector alignment
-        padded = content + b"\x00" * ((-len(content)) % sector)
+    for content, flags, *trailer in segs:
+        # pad content (and its relocation block) to sector alignment
+        blob = content + (trailer[0] if trailer else b"")
+        padded = blob + b"\x00" * ((-len(blob)) % sector)
         seg_blobs.append(padded)
         encoded_length = 0 if len(content) == 0x10000 else len(content)
         seg_table += struct.pack("<HHHH", 0, encoded_length, flags, encoded_length)
@@ -1011,7 +1014,6 @@ def make_ne(
     out = bytes(mz) + bytes(ne) + bytes(seg_table) + bytes(resnames) + bytes(modtab)
     out += bytes(impnames_payload)
     out += b"\x00" * (data_start - len(out))  # pad to the sector-aligned data start
-    for content, _flags in segs:
-        padded = content + b"\x00" * ((-len(content)) % sector)
-        out += padded
+    for blob in seg_blobs:
+        out += blob
     return out

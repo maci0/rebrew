@@ -12,6 +12,7 @@ Executable, object and archive file parsers: the layer every analysis, compile a
 | `dfm.py` | Bounded Delphi 1 form codec with lossless property order/wire types |
 | `ne_analysis.py` | Validated physical segments/fixups and content-window inventories |
 | `ne_loader.py` | 16-bit NE images (LIEF cannot parse NE) |
+| `ne_relocations.py` | One NE segment as a raw 16-bit image with its fixups applied (chains followed; far calls to other segments and imports become named stubs) for the kuna `--raw-image` path |
 | `pe_headers.py` / `pe_image.py` | Read and patch PE header fields in place; the image walk for MSVC link options |
 | `pe_symbols.py` | PE data directories as symbol records |
 | `import_table.py` | Import tables and import-stub detection |
