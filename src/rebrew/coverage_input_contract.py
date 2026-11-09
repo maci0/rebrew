@@ -329,13 +329,18 @@ def canonical_verification_records(records: Any) -> bytes:
         row = {**row, "status": status}
         if status not in (
             "EXACT",
+            "RELOC",
             "SIZE_MISMATCH",
             "NEAR_MATCHING",
             "STUB",
         ):
             raise CoverageInputError("verification status is not yet qualified")
-        if type(row["reloc_count"]) is not int or row["reloc_count"] != 0:
+        if type(row["reloc_count"]) is not int or not 0 <= row["reloc_count"] <= (1 << 63) - 1:
+            raise CoverageInputError("invalid verification reloc count")
+        if status != "RELOC" and row["reloc_count"] != 0:
             raise CoverageInputError("verification relocations are not yet qualified")
+        if status == "RELOC" and row["reloc_count"] == 0:
+            raise CoverageInputError("RELOC verification requires relocations")
         for field in ("match_count", "total", "obj_size"):
             if type(row[field]) is not int or not 0 <= row[field] <= (1 << 63) - 1:
                 raise CoverageInputError("invalid verification count")
@@ -343,7 +348,7 @@ def canonical_verification_records(records: Any) -> bytes:
         if (
             total != max(size, obj_size)
             or matches > min(size, obj_size)
-            or (status == "EXACT" and (obj_size != size or matches != size))
+            or (status in ("EXACT", "RELOC") and (obj_size != size or matches != size))
             or (status == "SIZE_MISMATCH" and obj_size == size)
             or (status == "NEAR_MATCHING" and (obj_size != size or matches == size))
             or (status == "STUB" and matches == size)

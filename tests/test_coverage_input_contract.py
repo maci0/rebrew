@@ -192,7 +192,7 @@ def test_recorded_worker_comparisons_project_without_losing_status():
         assert len(verification_records_digest([row])) == 64
 
 
-def test_recorded_relocation_remains_unqualified_without_strict_binding():
+def test_recorded_relocation_is_qualified_as_matched():
     import json
     from pathlib import Path
 
@@ -218,5 +218,11 @@ def test_recorded_relocation_remains_unqualified_without_strict_binding():
         "reloc_count": result["reloc_count"],
         "result_digest": hashlib.sha256(payload).hexdigest(),
     }
-    with pytest.raises(CoverageInputError):
-        verification_records_digest([row])
+    assert len(verification_records_digest([row])) == 64
+    for forged in (
+        {**row, "reloc_count": 0},
+        {**row, "match_count": 3},
+        {**row, "obj_size": 5, "total": 5},
+    ):
+        with pytest.raises(CoverageInputError):
+            verification_records_digest([forged])
