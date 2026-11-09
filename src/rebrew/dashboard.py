@@ -1411,7 +1411,7 @@ _INDEX_HTML = """<!doctype html>
     min-height: 4.3rem; }
   .card { border: 1px solid var(--rb-line); border-radius: var(--rb-radius);
     padding: .9rem 1.1rem; min-width: 110px; background: var(--rb-surface); }
-  button.card { font: inherit; color: inherit; text-align: left; cursor: pointer; }
+  button.card { font: inherit; color: inherit; text-align: left; cursor: pointer; min-height: 2.75rem; }
   button.card:hover { border-color: var(--rb-line-hi); background: var(--rb-hover); }
   button.card:active { background: var(--rb-pressed); }
   button.card.active, .views button.active { border-color: var(--rb-accent);

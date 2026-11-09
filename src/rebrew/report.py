@@ -494,7 +494,7 @@ def _page(title: str, target: str, active: str, body: str) -> str:
         f"<header><h1><span class='mark' aria-hidden='true'>0x</span> {html.escape(target)} - Rebrew report</h1>"
         f"<nav aria-label='Report pages'>{nav}</nav></header>\n"
         f"<main id='main' tabindex='-1'>\n{body}\n</main>\n"
-        f"<footer><nav aria-label='Report pages'>{nav}</nav></footer>\n"
+        f"<footer><nav aria-label='Report pages, footer'>{nav}</nav></footer>\n"
         "</body>\n</html>\n"
     )
 
@@ -766,7 +766,7 @@ def _render_index(
                 ("VMTs", str(ne["vmt_tables"])),
             ]
         )
-        ne_html = f"<h2>16-bit NE target</h2>{ne_cards}"
+        ne_html = f"<h3>16-bit NE target</h3>{ne_cards}"
 
     if not functions:
         table = f"<p class='note'>{_no_functions_note(reversed_dir)}</p>"
@@ -1216,7 +1216,7 @@ def _graph_body(mermaid: str, *, spilled: bool, nodes: int, edges: int, dispatch
         "can paint, and the rest is <a href='callgraph.mmd'>callgraph.mmd</a>. "
         "A <a href='adjacency.txt'>plain-text adjacency list</a> "
         "(screen-reader accessible) is available as a separate download.</p>"
-        "<h2 id='mermaid-heading'>Mermaid source (opening lines)</h2>"
+        "<h3 id='mermaid-heading'>Mermaid source (opening lines)</h3>"
         "<p id='mermaid-alt'>The diagram above is code, not a picture: "
         "use the <a href='adjacency.txt'>adjacency list</a> for a text "
         "reading of the same call graph.</p>"

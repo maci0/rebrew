@@ -174,10 +174,12 @@ class TestReportCli:
         )
         # The nav repeats in the footer: a 250-row table pushes the header
         # nav off screen, and the bottom pager alone has no page links.
-        assert "<footer><nav aria-label='Report pages'>" in index
+        assert "<footer><nav aria-label='Report pages, footer'>" in index
         graph = (site / "graph.html").read_text(encoding="utf-8")
         assert "<h2>Call graph</h2>" in graph
         assert "<h3>" not in graph
+        assert "<h2 id='mermaid-heading'>Mermaid source</h2>" in graph
+        assert "<h3 id='mermaid-heading'>Mermaid source (opening lines)</h3>" not in graph
         imports_html = (site / "imports.html").read_text(encoding="utf-8")
         assert "<h2>Imports</h2>" in imports_html
         assert "<h3>" not in imports_html
