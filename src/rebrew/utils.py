@@ -1010,6 +1010,15 @@ def last_change_ns(st: os.stat_result) -> int:
     return max(st.st_mtime_ns, st.st_ctime_ns)
 
 
+def stat_identity(path: Path) -> tuple[int, int, int, int]:
+    """``(mtime_ns, ctime_ns, size, ino)`` for *path*, all 0 when unreadable."""
+    try:
+        st = path.stat()
+    except OSError:
+        return (0, 0, 0, 0)
+    return (st.st_mtime_ns, st.st_ctime_ns, st.st_size, st.st_ino)
+
+
 def read_compile_source(filepath: Path) -> str:
     """Read *filepath* for a compile/GA round-trip (lossless byte identity).
 

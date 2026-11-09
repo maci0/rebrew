@@ -40,6 +40,7 @@ lazy from rebrew.metadata.storage import (
 lazy from rebrew.sources import scan_files
 lazy from rebrew.verify_cache import CACHE_FILENAME, cache_path_for
 lazy from rebrew.workspace import read_config, targets_table
+lazy from rebrew.utils import stat_identity
 
 __all__ = [
     "ProjectCoverageError",
@@ -89,14 +90,6 @@ _LOCK = threading.RLock()
 _MAX_PROJECTS = 4
 # A bounded polling delay amortizes source-tree stats across concurrent requests.
 _POLL_INTERVAL = 0.25
-
-
-def _stat(path: Path) -> tuple[int, int, int, int]:
-    try:
-        st = path.stat()
-    except FileNotFoundError:
-        return (0, 0, 0, 0)
-    return st.st_mtime_ns, st.st_ctime_ns, st.st_size, st.st_ino
 
 
 def coverage_inputs(
@@ -151,7 +144,7 @@ def coverage_inputs(
                 store = metadata_store(path)
                 if store.name == "pgsql":
                     remote[path] = store
-    return tuple((str(path), *_stat(path)) for path in sorted(paths)) + tuple(
+    return tuple((str(path), *stat_identity(path)) for path in sorted(paths)) + tuple(
         part for path in sorted(remote) for part in remote[path].fingerprint()
     )
 
@@ -249,7 +242,7 @@ def load_project_coverage(root: Path, *, refresh: bool = False) -> ProjectCovera
             assert state.view is not None
             return state.view
         try:
-            key = _stat(root / "rebrew-project.toml")
+            key = stat_identity(root / "rebrew-project.toml")
             if key == (0, 0, 0, 0):
                 raise ProjectCoverageError(f"{root}: no rebrew-project.toml")
             if state.config_key != key:
@@ -311,7 +304,7 @@ def load_project_coverage(root: Path, *, refresh: bool = False) -> ProjectCovera
         if failures != state.failures:
             changed = True
         state.failures = failures
-        if _stat(root / "rebrew-project.toml") != state.config_key:
+        if stat_identity(root / "rebrew-project.toml") != state.config_key:
             state.config_key = (0, 0, 0, 0)
             raise ProjectCoverageError(
                 f"{root}: configuration changed while coverage was being read"

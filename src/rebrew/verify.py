@@ -2536,12 +2536,9 @@ _LIBRARY_HEADER_CACHE_LOCK = threading.Lock()
 
 
 def _stat_identity(path: Path) -> tuple[int, int, int, int]:
-    """``(mtime_ns, size, ino, ctime_ns)`` for *path*, all 0 when unreadable."""
-    try:
-        st = path.stat()
-    except OSError:
-        return (0, 0, 0, 0)
-    return (st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns)
+    from rebrew.utils import stat_identity
+    mtime_ns, ctime_ns, size, ino = stat_identity(path)
+    return (mtime_ns, size, ino, ctime_ns)
 
 
 def _library_vas(cfg: Any, entries: list[SourceBinding]) -> set[int]:
