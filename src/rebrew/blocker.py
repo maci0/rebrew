@@ -37,6 +37,7 @@ from rebrew.cli import (
 )
 lazy from rebrew.config import target_module
 lazy from rebrew.metadata.bindings import min_valid_va_for
+lazy from rebrew.utils import parse_int_literal
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
@@ -175,7 +176,7 @@ def blocker_set(
     delta_int: int | None = None
     if delta is not None:
         try:
-            delta_int = int(delta.strip(), 0)
+            delta_int = parse_int_literal(delta)
         except ValueError, TypeError:
             error_exit(
                 f"Invalid --delta value: {delta!r} (expected integer)", json_mode=json_output

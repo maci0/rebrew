@@ -94,6 +94,28 @@ class TestBlockerSet:
         assert res.exit_code == 0
         assert meta.get_entry(cfg.metadata_dir, 0x401000, "SERVER").get("blocker_delta") == 16
 
+    def test_set_leading_zero_delta_is_decimal(self, tmp_path: Path, monkeypatch) -> None:
+        import rebrew.metadata.functions as meta
+
+        cfg = _mock_cfg(tmp_path, monkeypatch)
+        _write_annotated_source(cfg)
+        from rebrew.blocker import app
+
+        res = CliRunner().invoke(app, ["set", "0x401000", "x", "--delta", "010"])
+        assert res.exit_code == 0, res.output
+        assert meta.get_entry(cfg.metadata_dir, 0x401000, "SERVER").get("blocker_delta") == 10
+
+    def test_set_underscored_delta_rejected(self, tmp_path: Path, monkeypatch) -> None:
+        import rebrew.metadata.functions as meta
+
+        cfg = _mock_cfg(tmp_path, monkeypatch)
+        _write_annotated_source(cfg)
+        from rebrew.blocker import app
+
+        res = CliRunner().invoke(app, ["set", "0x401000", "x", "--delta", "1_0"])
+        assert res.exit_code != 0, res.output
+        assert "blocker_delta" not in meta.get_entry(cfg.metadata_dir, 0x401000, "SERVER")
+
     def test_set_dry_run_no_write(self, tmp_path: Path, monkeypatch) -> None:
         import rebrew.metadata.functions as meta
 
