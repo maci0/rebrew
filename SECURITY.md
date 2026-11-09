@@ -313,3 +313,25 @@ plugin cache backends or remove the open upstream diskcache advisory.
   that escape it (`is_relative_to`), so an absolute, `../..`, or backslash-
   separated entry is refused before any read or `shutil.copy2` into the project.
   `--apply` is still the only opt-in.
+- No claim that PostgreSQL schema-shape validation is re-run on every store
+  operation. `PgsqlStore._present` (`src/rebrew/metadata/pgsql.py`) caches the
+  four-catalog-query verdict per connection id, and first-use DDL
+  (`pg_advisory_xact_lock` + `_DDL`, then dropping the cached `False` verdict)
+  makes the transaction that creates the table see it; the advisory lock
+  serializes DDL so the verdict cannot go stale mid-transaction, and a fresh
+  connection re-validates. The cache does not change the schema pin itself
+  (exact column list + PK/CHECK, `statement_timeout 30s`, redacted diagnostics).
+- No claim that JSON output can carry non-finite numbers, and no claim that
+  `010` means octal in address/size parsing. `json_print`
+  (`src/rebrew/cli.py`) passes `allow_nan=False` on both tty and pipe paths so
+  `NaN`/`Infinity` cannot emit non-strict JSON (commit 84843a14), and integer
+  parsing goes through `utils.parse_int_literal` / `parse_c_integer_literal`
+  (`src/rebrew/utils.py`, commit ee94b3d7): a `0x` prefix selects base 16,
+  otherwise decimal (`010` is ten), ASCII digits only, replacing bare
+  `int(x, 0)` across binsync/catalog/prove/report/residue/switch call sites
+  that previously stored zero on a leading zero.
+- No claim that the ops worker's download client is left open after a fetch.
+  `_download` (`src/rebrew/ops.py`) now closes its `httpx.Client` via the
+  context manager (`with httpx.Client(...) as _http: _http.stream(...)`,
+  commit 73103760); the SSRF pinning, `trust_env=False`, and `verify=`
+  behaviour above are unchanged.
