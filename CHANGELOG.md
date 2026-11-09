@@ -1,5 +1,11 @@
 ## [Unreleased]
 
+## [6.25.1] - 2026-11-09
+
+### Fixed
+
+- `uv.lock` is regenerated against the pinned resembl `v4.0.0` (uv 0.13.6); the 6.25.0 lock failed `uv sync --locked` in CI, so 6.25.0 was never released.
+
 ## [6.25.0] - 2026-11-09
 
 ### Added
