@@ -82,6 +82,7 @@ from typing import TYPE_CHECKING, Any
 lazy import shutil
 
 import typer
+import yaml
 
 from rebrew.cli import (
     TargetOption,
@@ -1735,356 +1736,173 @@ def _write_libraries(cfg: Any, plan: ImportPlan, planned: list[SourceBinding]) -
 
 
 # ---------------------------------------------------------------------------
-# YAML subset reader
+# YAML reader (PyYAML, strict)
 # ---------------------------------------------------------------------------
 
 
 _MAX_YAML_DEPTH = 64
 
 
-def parse_yaml_subset(text: str) -> Any:
-    """Parse the YAML subset splat configs use.
+class _StrictLoader(yaml.SafeLoader):
+    """SafeLoader with the subset's scalar rules and duplicate-key refusal.
 
-    Block mappings/sequences, inline ``{...}``/``[...]`` flows, quoted and
-    plain scalars, ``#`` comments, and a leading ``---``.  Anything else
-    (tabs for indentation, block scalars, anchors/aliases/tags, multiple
-    documents, duplicate keys) raises :class:`ValueError` naming the line; a
-    construct this reader does not model must not be guessed at.
+    Keys are always strings (splat keys never coerce). Values keep the old
+    subset's coercion: only true/false (any case), null/~, ints and hex ints
+    coerce; the YAML 1.1 ``yes``/``no``/``on``/``off`` booleans, floats and
+    dates would turn a config's string into a type the importer must reject.
     """
-    out: list[_Line] = []
+
+    def construct_mapping(self, node, deep=False):
+        mapping = {}
+        for key_node, value_node in node.value:
+            key = self.construct_yaml_str(key_node)
+            if key in mapping:
+                mark = key_node.start_mark
+                raise ValueError(f"line {mark.line + 1}: duplicate key {key!r}")
+            mapping[key] = self.construct_object(value_node, deep=deep)
+        return mapping
+
+
+# Subset implicit resolvers: drop the 1.1 ``yes``/``no``/``on``/``off`` bools,
+# timestamps and floats; keep null/int/bool only in the old subset's spellings.
+def _subset_implicit_resolvers():
+    bool_re = re.compile(r"^(?:true|True|TRUE|false|False|FALSE)$", re.VERBOSE)
+    null_re = re.compile(r"^(?: ~|null|Null|NULL| )$", re.VERBOSE)
+    int_re = re.compile(
+        r"^(?:[-+]?0b[0-1_]+|[-+]?0x[0-9a-fA-F_]+|[-+]?(?:0|[1-9][0-9_]*))$",
+        re.VERBOSE,
+    )
+    base = yaml.resolver.Resolver.yaml_implicit_resolvers
+    out = {}
+    for first in base:
+        keep = []
+        for tag, regex in base[first]:
+            if tag == "tag:yaml.org,2002:bool":
+                keep.append((tag, bool_re))
+            elif tag == "tag:yaml.org,2002:null":
+                keep.append((tag, null_re))
+            elif tag == "tag:yaml.org,2002:int":
+                # Old subset: leading-zero octal stays decimal (010 is ten);
+                # drop the sexagesimal form the stock int regex carries.
+                keep.append((tag, int_re))
+            elif tag in ("tag:yaml.org,2002:float", "tag:yaml.org,2002:timestamp"):
+                continue
+            else:
+                keep.append((tag, regex))
+        if keep:
+            out[first] = keep
+    return out
+
+
+_StrictLoader.yaml_implicit_resolvers = _subset_implicit_resolvers()
+
+
+def parse_yaml_subset(text: str):
+    """Parse a splat config as YAML.
+
+    PyYAML parses; this wrapper keeps the strictness the importer relies on
+    (duplicate keys, anchors, block scalars, deep nesting, tabs, multiple
+    documents are refused with a line reason), because a config this module
+    cannot read must fail loudly rather than half-importing.
+    """
+    try:
+        document = yaml.compose(text, Loader=_StrictLoader)
+    except yaml.YAMLError as exc:
+        mark = getattr(exc, "problem_mark", None)
+        line = mark.line + 1 if mark is not None else 1
+        problem = getattr(exc, "problem", None) or str(exc)
+        detail = str(exc)
+        if "\\t" in detail or "tab" in detail.lower():
+            problem = "tab indentation is not supported"
+        elif "expected a single document" in problem:
+            problem = "multiple documents are not supported"
+        elif "expected" in problem and "']'" in detail:
+            problem = f"unterminated flow sequence: {problem}"
+        raise ValueError(f"line {line}: {problem}") from exc
+    except RecursionError:
+        raise ValueError(f"line 1: YAML nesting exceeds {_MAX_YAML_DEPTH} levels") from None
+    if document is None:
+        return {}
+    _check_yaml_text_before_doc(text)
+    if not isinstance(document, (yaml.MappingNode, yaml.SequenceNode)):
+        mark = getattr(document, "start_mark", None)
+        line = mark.line + 1 if mark is not None else 1
+        raise ValueError(f"line {line}: expected a mapping or sequence at the document root")
+    _check_yaml_text_doc(text)
+    _check_yaml_nodes(document, text)
+    loader = _StrictLoader(text)
+    try:
+        return loader.construct_document(document)
+    except ValueError:
+        raise
+    except yaml.YAMLError as exc:
+        mark = getattr(exc, "problem_mark", None)
+        line = mark.line + 1 if mark is not None else 1
+        problem = getattr(exc, "problem", None) or str(exc)
+        raise ValueError(f"line {line}: {problem}") from exc
+    except RecursionError:
+        raise ValueError(f"line 1: YAML nesting exceeds {_MAX_YAML_DEPTH} levels") from None
+    finally:
+        loader.dispose()
+
+
+def _check_yaml_text_before_doc(text):
+    """Refuse ``...``/trailing-marker misuse before the root check.
+
+    ``---`` opens one document; ``...`` anywhere in a file the importer reads
+    means the file holds more than one document, which it refuses.
+    """
+    for number, raw in enumerate(text.splitlines(), start=1):
+        stripped = raw.strip()
+        if stripped == "...":
+            raise ValueError(f"line {number}: multiple documents are not supported")
+
+
+def _check_yaml_text_doc(text):
+    """Refuse a second ``---`` and tab indentation the node walk cannot see."""
+    seen_document = False
     for number, raw in enumerate(text.splitlines(), start=1):
         if "\t" in raw[: len(raw) - len(raw.lstrip())]:
             raise ValueError(f"line {number}: tab indentation is not supported")
-        content = _strip_comment(raw).rstrip()
-        if not content.strip():
-            continue
-        stripped = content.strip()
+        stripped = raw.strip()
         if stripped == "---":
+            if seen_document:
+                raise ValueError(f"line {number}: multiple documents are not supported")
+            seen_document = True
+
+
+def _check_yaml_nodes(node, text):
+    """Refuse anchors, block scalars, and nesting deeper than the limit."""
+    stack = [(node, 0)]
+    seen = set()
+    while stack:
+        current, depth = stack.pop()
+        if depth >= _MAX_YAML_DEPTH:
+            mark = getattr(current, "start_mark", None)
+            line = mark.line + 1 if mark is not None else 1
+            raise ValueError(f"line {line}: YAML nesting exceeds {_MAX_YAML_DEPTH} levels")
+        if id(current) in seen:
             continue
-        if stripped.startswith("..."):
-            raise ValueError(f"line {number}: multiple documents are not supported")
-        first = stripped[0]
-        if first in _UNSUPPORTED_LEADING:
-            raise ValueError(f"line {number}: {_UNSUPPORTED_LEADING[first]}")
-        out.append(_Line(number, len(content) - len(content.lstrip()), stripped))
-    if not out:
-        return {}
-    value, index = _parse_block(out, 0, out[0].indent)
-    if index != len(out):
-        raise ValueError(f"line {out[index].number}: unexpected content")
-    return value
-
-
-@dataclass(frozen=True)
-class _Line:
-    """One significant YAML line: its number, indent, and content."""
-
-    number: int
-    indent: int
-    text: str
-
-
-#: YAML constructs this reader refuses to guess at.
-_UNSUPPORTED_LEADING: dict[str, str] = {
-    "|": "block scalars (| and >) are not part of the supported subset",
-    ">": "block scalars (| and >) are not part of the supported subset",
-    "&": "anchors are not part of the supported subset",
-    "*": "aliases are not part of the supported subset",
-    "!": "tags are not part of the supported subset",
-    "%": "YAML directives are not part of the supported subset",
-}
-
-
-def _strip_comment(line: str) -> str:
-    """Drop a trailing ``#`` comment (not inside quotes)."""
-    quote = ""
-    for index, char in enumerate(line):
-        if quote:
-            if char == quote:
-                quote = ""
-            continue
-        if char in "\"'":
-            quote = char
-            continue
-        if char == "#" and (index == 0 or line[index - 1] in " \t"):
-            return line[:index]
-    return line
-
-
-def _parse_block(lines: list[_Line], index: int, indent: int, depth: int = 0) -> tuple[Any, int]:
-    """Parse the block at *indent* starting at *index*."""
-    if depth >= _MAX_YAML_DEPTH:
-        raise ValueError(
-            f"line {lines[index].number}: YAML nesting exceeds {_MAX_YAML_DEPTH} levels"
-        )
-    if lines[index].text.startswith("- "):
-        return _parse_sequence(lines, index, indent, depth)
-    return _parse_mapping(lines, index, indent, depth)
-
-
-def _parse_mapping(
-    lines: list[_Line], index: int, indent: int, depth: int
-) -> tuple[dict[str, Any], int]:
-    out: dict[str, Any] = {}
-    while index < len(lines):
-        line = lines[index]
-        if line.indent < indent:
-            break
-        if line.indent > indent:
-            raise ValueError(f"line {line.number}: unexpected indentation")
-        if line.text.startswith("- "):
-            raise ValueError(f"line {line.number}: sequence item inside a mapping")
-        key, sep, rest = _split_key(line)
-        if not sep:
-            raise ValueError(f"line {line.number}: expected 'key: value'")
-        if key in out:
-            raise ValueError(f"line {line.number}: duplicate key {key!r}")
-        value_text = rest.strip()
-        index += 1
-        if value_text:
-            out[key] = _parse_scalar(value_text, line.number, depth + 1)
-            continue
-        if index < len(lines) and lines[index].indent > indent:
-            out[key], index = _parse_block(lines, index, lines[index].indent, depth + 1)
-        elif (
-            index < len(lines)
-            and lines[index].indent == indent
-            and lines[index].text.startswith("- ")
-        ):
-            out[key], index = _parse_sequence(lines, index, indent, depth + 1)
-        else:
-            out[key] = None
-    return out, index
-
-
-def _parse_sequence(
-    lines: list[_Line], index: int, indent: int, depth: int
-) -> tuple[list[Any], int]:
-    """Parse a ``- item`` block.
-
-    An item's own content is every following line indented past the dash
-    column, so ``- key: value`` with more keys underneath parses as one
-    mapping and ``- [0x200, text, name]`` as one flow list.
-    """
-    if depth >= _MAX_YAML_DEPTH:
-        raise ValueError(
-            f"line {lines[index].number}: YAML nesting exceeds {_MAX_YAML_DEPTH} levels"
-        )
-    out: list[Any] = []
-    while index < len(lines):
-        line = lines[index]
-        if line.indent != indent or not line.text.startswith("- "):
-            if line.indent > indent:
-                raise ValueError(f"line {line.number}: unexpected indentation")
-            break
-        item_indent = line.indent + 2
-        block: list[_Line] = []
-        rest = line.text[2:].strip()
-        if rest:
-            block.append(_Line(line.number, item_indent, rest))
-        index += 1
-        while index < len(lines) and lines[index].indent >= item_indent:
-            nested = lines[index]
-            block.append(_Line(nested.number, nested.indent, nested.text))
-            index += 1
-        if not block:
-            out.append(None)
-            continue
-        if _looks_like_mapping(block[0].text) or block[0].text.startswith("- "):
-            value, consumed = _parse_block(block, 0, block[0].indent, depth + 1)
-            if consumed != len(block):
-                raise ValueError(f"line {block[consumed].number}: unexpected content")
-            out.append(value)
-            continue
-        if len(block) > 1:
-            raise ValueError(
-                f"line {block[0].number}: a sequence item with nested lines must be a mapping"
-            )
-        out.append(_parse_scalar(block[0].text, block[0].number, depth + 1))
-    return out, index
-
-
-def _split_key(line: _Line) -> tuple[str, str, str]:
-    """Split ``key: value`` outside quotes; returns ``(key, sep, rest)``."""
-    quote = ""
-    depth = 0
-    text = line.text
-    for index, char in enumerate(text):
-        if quote:
-            if char == quote:
-                quote = ""
-            continue
-        if char in "\"'":
-            quote = char
-            continue
-        if char in "[{":
-            depth += 1
-            continue
-        if char in "]}":
-            depth -= 1
-            continue
-        if char == ":" and depth == 0:
-            if index + 1 < len(text) and text[index + 1] not in " \t":
-                continue
-            return text[:index].strip(), ":", text[index + 1 :]
-    return text, "", ""
-
-
-def _looks_like_mapping(text: str) -> bool:
-    """True when a sequence item's content starts a mapping (``key: value``)."""
-    if text.startswith(("[", "{")):
-        return False
-    key, sep, _rest = _split_key(_Line(0, 0, text))
-    return bool(sep) and bool(key)
-
-
-def _parse_scalar(text: str, number: int, depth: int) -> Any:
-    """A plain, quoted, flow, or scalar value."""
-    text = text.strip()
-    if text.startswith(("[", "{")):
-        value, position = _flow_value(text, 0, number, depth)
-        if text[position:].strip():
-            raise ValueError(f"line {number}: unexpected content after a flow value")
-        return value
-    if text[0] in _UNSUPPORTED_LEADING:
-        # ``key: |`` (block scalar), ``key: &a`` (anchor), ``key: !tag``, ...
-        # The same indicators the line-start check refuses, in value position.
-        raise ValueError(f"line {number}: {_UNSUPPORTED_LEADING[text[0]]}")
-    if text.startswith(('"', "'")):
-        return _parse_quoted(text, number)
-    if text in ("true", "True"):
-        return True
-    if text in ("false", "False"):
-        return False
-    if text in ("null", "~", "Null", "NULL"):
-        return None
-    return _parse_plain(text)
-
-
-def _parse_plain(text: str) -> Any:
-    """A plain scalar: an int when it parses as one, else the text."""
-    try:
-        return parse_int_literal(text)
-    except ValueError:
-        return text
-
-
-def _parse_quoted(text: str, number: int) -> str:
-    """A single- or double-quoted scalar, with the closing quote required.
-
-    Delegates to the flow reader's quoted-scalar parser (one implementation for
-    both positions) and rejects trailing content.
-    """
-    value, position = _flow_quoted(text, 0, number)
-    rest = text[position:].strip()
-    if rest and not rest.startswith("#"):
-        raise ValueError(f"line {number}: unexpected content after a quoted scalar")
-    return value
-
-
-def _flow_value(text: str, position: int, number: int, depth: int) -> tuple[Any, int]:
-    """Parse one flow entry (sequence, mapping, quoted or plain scalar)."""
-    if depth >= _MAX_YAML_DEPTH:
-        raise ValueError(f"line {number}: YAML nesting exceeds {_MAX_YAML_DEPTH} levels")
-    position = _skip_spaces(text, position)
-    if position >= len(text):
-        raise ValueError(f"line {number}: flow value ends unexpectedly")
-    char = text[position]
-    if char == "[":
-        return _flow_sequence(text, position, number, depth)
-    if char == "{":
-        return _flow_mapping(text, position, number, depth)
-    if char in "\"'":
-        return _flow_quoted(text, position, number)
-    start = position
-    while position < len(text) and text[position] not in ",]}":
-        position += 1
-    return _parse_plain(text[start:position].strip()), position
-
-
-def _flow_sequence(text: str, position: int, number: int, depth: int) -> tuple[list[Any], int]:
-    """Parse ``[a, b, ...]`` starting at *position* (the opening bracket)."""
-    items: list[Any] = []
-    position = _skip_spaces(text, position + 1)
-    while True:
-        if position >= len(text):
-            raise ValueError(f"line {number}: unterminated flow sequence")
-        if text[position] == "]":
-            return items, position + 1
-        value, position = _flow_value(text, position, number, depth + 1)
-        items.append(value)
-        position = _skip_spaces(text, position)
-        if position >= len(text):
-            raise ValueError(f"line {number}: unterminated flow sequence")
-        if text[position] == ",":
-            position = _skip_spaces(text, position + 1)
-            continue
-        if text[position] == "]":
-            return items, position + 1
-        raise ValueError(f"line {number}: expected ',' or ']' in a flow sequence")
-
-
-def _flow_mapping(text: str, position: int, number: int, depth: int) -> tuple[dict[str, Any], int]:
-    """Parse ``{k: v, ...}`` starting at *position* (the opening brace)."""
-    out: dict[str, Any] = {}
-    position = _skip_spaces(text, position + 1)
-    while True:
-        if position >= len(text):
-            raise ValueError(f"line {number}: unterminated flow mapping")
-        if text[position] == "}":
-            return out, position + 1
-        if text[position] in "\"'":
-            key, position = _flow_quoted(text, position, number)
-            key = str(key)
-        else:
-            start = position
-            while position < len(text) and text[position] not in ":{,}":
-                position += 1
-            key = text[start:position].strip()
-        if position >= len(text) or text[position] != ":":
-            raise ValueError(f"line {number}: flow mapping entry {key!r} has no value")
-        if key in out:
-            raise ValueError(f"line {number}: duplicate key {key!r}")
-        value, position = _flow_value(text, position + 1, number, depth + 1)
-        out[key] = value
-        position = _skip_spaces(text, position)
-        if position >= len(text):
-            raise ValueError(f"line {number}: unterminated flow mapping")
-        if text[position] == ",":
-            position = _skip_spaces(text, position + 1)
-            continue
-        if text[position] == "}":
-            return out, position + 1
-        raise ValueError(f"line {number}: expected ',' or '}}' in a flow mapping")
-
-
-def _flow_quoted(text: str, position: int, number: int) -> tuple[str, int]:
-    """Parse a quoted flow scalar; returns ``(value, position after quote)``."""
-    quote = text[position]
-    out: list[str] = []
-    index = position + 1
-    while index < len(text):
-        char = text[index]
-        if char == "\\" and quote == '"':
-            if index + 1 >= len(text):
-                raise ValueError(f"line {number}: unterminated escape in a quoted scalar")
-            out.append(
-                {"n": "\n", "t": "\t", '"': '"', "\\": "\\"}.get(text[index + 1], text[index + 1])
-            )
-            index += 2
-            continue
-        if char == quote:
-            return "".join(out), index + 1
-        out.append(char)
-        index += 1
-    raise ValueError(f"line {number}: unterminated quoted scalar")
-
-
-def _skip_spaces(text: str, position: int) -> int:
-    """Advance past spaces and tabs."""
-    while position < len(text) and text[position] in " \t":
-        position += 1
-    return position
+        seen.add(id(current))
+        mark = getattr(current, "start_mark", None)
+        line = mark.line + 1 if mark is not None else 1
+        if isinstance(current, yaml.ScalarNode) and current.style in ("|", ">"):
+            raise ValueError(f"line {line}: block scalar is not supported")
+        if isinstance(current, yaml.MappingNode):
+            for k, v in current.value:
+                stack.append((k, depth + 1))
+                stack.append((v, depth + 1))
+        elif isinstance(current, yaml.SequenceNode):
+            for v in current.value:
+                stack.append((v, depth + 1))
+    for event in yaml.parse(text):
+        anchor = getattr(event, "anchor", None)
+        if anchor is not None:
+            line = event.start_mark.line + 1
+            raise ValueError(f"line {line}: anchors are not supported")
+        if isinstance(event, yaml.AliasEvent):
+            line = event.start_mark.line + 1
+            raise ValueError(f"line {line}: anchors are not supported")
 
 
 # ---------------------------------------------------------------------------

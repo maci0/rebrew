@@ -48,6 +48,7 @@ dependencies = [
     "lief>=1.0.0,<2",  # 1.0 verified: full suite green (was held at <1 on breaking rumors)
     "numpy>=2.5.4,<3",  # byte/structural similarity scoring (matcher/scoring.py, core/matching.py, binary_similarity.py)
     "python-flirt @ https://github.com/maci0/lancelot/releases/download/python-flirt-v0.10.2-relumea.1/python_flirt-0.10.2%2Brelumea.1.tar.gz#sha256=5ad7a93c992d33478d97b8ce874fa7d5b92a121a949cd2a7e8f589e1a48fff01",  # FLIRT .sig signature scanning (flirt.py; imports as `flirt`)
+    "pyyaml>=6.0.3,<7",  # splat config YAML (splat_config.py; replaces the hand-rolled subset reader)
     "rich>=15.0.0,<16",  # console rendering (Console(stderr=True) convention) and typer's markup backend
     "tomlkit>=0.15.2,<1",  # round-trip-preserving TOML writes (metadata/functions.py, cfg.py, library.py)
     "tree-sitter>=0.26.0,<1",  # C AST parsing (c_parser.py, struct_parser.py, matcher/ast_engine.py) — never regex-parse C
