@@ -610,6 +610,22 @@ class TestStripBody:
 
         assert strip_body("int f(void) /* { */ { return 1; }") == "int f(void) /* { */"
 
+    def test_line_comment_runs_to_end_of_line_only(self) -> None:
+        from rebrew.utils import strip_body
+
+        # A "//" comment ends at the newline; the "{" on the next line is the
+        # body delimiter.  Dropping it would hand BinSync a prototype that
+        # still carries the whole body.
+        assert strip_body("int f(void) // note { \n { return 1; }") == "int f(void) // note {"
+
+    def test_line_comment_without_brace_still_finds_the_body(self) -> None:
+        from rebrew.utils import strip_body
+
+        assert (
+            strip_body("int f(void)\n// trailing comment without brace\n{ return 1; }")
+            == "int f(void)\n// trailing comment without brace"
+        )
+
 
 class TestAtomicWriteParents:
     def test_creates_missing_parent_dirs(self, tmp_path: Path) -> None:

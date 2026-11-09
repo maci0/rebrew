@@ -524,6 +524,13 @@ def _merge_history(
             for row in previous_functions
             if isinstance(row, dict) and isinstance(row.get("va"), int)
         }
+    # Canonicalize the snapshot with the same spelling _function_rows writes,
+    # so the "did it change" test compares statuses, not their spellings: a
+    # previous document carrying "exact" against a fresh "EXACT" is one
+    # status, not a transition, and the row only fires on a real change.
+    for va, status in old_statuses.items():
+        folded = canonical_status(str(status or "UNKNOWN"))
+        old_statuses[va] = folded if folded in FUNCTION_DB_STATUSES else "UNKNOWN"
     carried: list[dict[str, Any]] = (
         [dict(row) for row in previous_history if isinstance(row, dict)]
         if isinstance(previous_history, list)

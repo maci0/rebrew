@@ -1623,7 +1623,11 @@ def strip_body(prototype: str) -> str:
             i += 1
             continue
         if prototype.startswith("//", i):
-            i = len(prototype)
+            # A line comment runs to the end of its line, not to the end of
+            # the string: the "{" that opens the body is usually on a later
+            # line, and must still be found.
+            end = prototype.find("\n", i + 2)
+            i = len(prototype) if end == -1 else end
             continue
         if prototype.startswith("/*", i):
             end = prototype.find("*/", i + 2)

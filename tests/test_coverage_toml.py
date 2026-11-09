@@ -470,6 +470,23 @@ class TestHistory:
         broken.write_text("this is not = = toml", encoding="utf-8")
         assert _read_previous(broken) == {}
 
+    def test_status_spelling_only_change_is_not_a_transition(
+        self, data: dict[str, Any]
+    ) -> None:
+        # The stored column already holds the canonical spelling, so a
+        # previous document that spells it any other way records no change:
+        # "exact" and "EXACT" are one status, and a history row claiming a
+        # transition that did not happen makes every later read count an
+        # extra delta.  _function_rows canonicalizes on the way in, so the
+        # stored spelling is canonical; this pins the comparison to match.
+        previous = {
+            "version": _TOML_VERSION,
+            "functions": [{"va": 0x10001000, "status": "exact"}],
+            "history": [],
+        }
+        doc = tomllib.loads(render_coverage_toml(TARGET, data, previous=previous))
+        assert doc["history"] == []
+
 
 # ---------------------------------------------------------------------------
 # 6. verify_results: the cache is the source, the previous file is the fallback
