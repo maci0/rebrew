@@ -188,8 +188,29 @@ def _snapshot_destination(
         if not location.is_file():
             return None
         snapshot_dir = root / ".rebrew"
-        dest = backup_metadata_database(root, snapshot_dir)
         sqlite_snapshot = snapshot_dir / (DATABASE_FILENAME + DESTINATION_SNAPSHOT_SUFFIX)
+        # Keep the first displaced destination across a later transfer, as
+        # the restore sidecars do: overwriting it discards the only copy of
+        # what the first transfer displaced.  Compare logical row content so
+        # a re-run of the same transfer (same destination bytes) is a no-op
+        # even if the physical file was rewritten.
+        if sqlite_snapshot.is_file():
+            import sqlite3
+
+            def _rows(db: Path) -> list[tuple[str, str]] | None:
+                try:
+                    with sqlite3.connect(db.as_uri() + "?mode=ro", uri=True, timeout=30) as conn:
+                        return conn.execute(
+                            "SELECT path, content FROM metadata_documents ORDER BY path"
+                        ).fetchall()
+                except sqlite3.Error:
+                    return None
+
+            if _rows(location) == _rows(sqlite_snapshot):
+                return sqlite_snapshot
+            if _rows(location) is None:
+                return sqlite_snapshot
+        dest = backup_metadata_database(root, snapshot_dir)
         if dest != sqlite_snapshot:
             dest.replace(sqlite_snapshot)
         return sqlite_snapshot
@@ -203,8 +224,21 @@ def _snapshot_destination(
             if backend == "pgsql"
             else store.location.with_name(store.location.name + DESTINATION_SNAPSHOT_SUFFIX)
         )
-        atomic_write_bytes(target, data, mode=0o444)
-        if target.read_bytes() != data:
-            raise ValueError(f"metadata destination snapshot verification failed for {target}")
-        snapshot = target
+        # Keep the first preserved copy across any later transfer: the
+        # sidecar is the only copy of what the first transfer displaced,
+        # so a re-run whose destination already holds the transferred
+        # bytes must not overwrite it (see restore_ga_runs).
+        if target.is_file() and target.read_bytes() == data:
+            snapshot = target
+            continue
+        if not target.exists():
+            atomic_write_bytes(target, data, mode=0o444)
+            if target.read_bytes() != data:
+                raise ValueError(f"metadata destination snapshot verification failed for {target}")
+            snapshot = target
+        else:
+            # A later transfer displaces different destination bytes; only
+            # publish the new snapshot when it differs from what is kept,
+            # so the first displaced copy survives.
+            snapshot = target
     return snapshot
