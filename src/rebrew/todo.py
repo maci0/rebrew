@@ -314,16 +314,23 @@ def _collect_active_functions(
     prover_available: bool | None = None  # one angr probe per call, taken on first need
 
     # 1. Gather all unique VAs between metadata and verify cache
-    metadata_vas = set(existing.keys())
-    verify_vas = set()
-    from rebrew.metadata.document import canonical_va_key
+    # Keep the historical lookup semantics: only the zero-padded spelling
+    # ``0x%08x`` was ever consulted, so short-spelling verify rows were
+    # visible in the VA union but never joined. Building an int map would
+    # change results for those rows; instead precompute the padded key
+    # per verify entry once.
+    verify_vas: set[int] = set()
+    padded: dict[int, Any] = {}
+    for va_str, entry in verify_entries.items():
+        from rebrew.metadata.document import canonical_va_key
 
-    for va_str in verify_entries:
         va = canonical_va_key(va_str)
         if isinstance(va, int):
             verify_vas.add(va)
+            if va_str == f"0x{va:08x}":
+                padded[va] = entry
 
-    all_vas = metadata_vas | verify_vas
+    all_vas = set(existing) | verify_vas
 
     for va in all_vas:
         info = existing.get(va, {})
@@ -338,8 +345,7 @@ def _collect_active_functions(
         name = info.get("symbol") or name_by_va.get(va) or f"FUN_{va:08x}"
         filename = info.get("filename", "")
 
-        va_key = f"0x{va:08x}"
-        v_entry = verify_entries.get(va_key)
+        v_entry = padded.get(va)
         v_status = v_entry.status if v_entry else None
         # Same rule as `rebrew status`: a stale metadata EXACT whose cached
         # verdict no longer matches is live work. Canonical spelling, so a

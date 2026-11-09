@@ -202,13 +202,16 @@ def load_metadata_collection(
             return load_toml_for_write_strict(member, description)
         stat = member.stat()
         fingerprint = (stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size, stat.st_ino)
-        return copy.deepcopy(_parsed_member(member, fingerprint))
+        return _parsed_member(member, fingerprint)
 
     if len(paths) == 1:
         doc = load(paths[0])
         if validate is not None:
             validate(doc)
-        return doc
+        # The parsed-member cache must not be handed out: callers (and the
+        # deepcopy in load_metadata_doc) mutate the result. Copy once here
+        # instead of deepcopying per member below.
+        return doc if roundtrip else copy.deepcopy(doc)
     merged: dict[str, Any] = tomlkit.document() if roundtrip else {}
     owners: dict[tuple[str, ...], Path] = {}
     for member in paths:
