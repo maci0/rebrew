@@ -34,7 +34,7 @@ from __future__ import annotations
 import hashlib
 import re
 
-from hypothesis import given, settings
+from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
 from rebrew.source_preprocessed import parse_msvc_preprocessed
@@ -94,6 +94,7 @@ class TestParseMsvcPreprocessedRobust:
             assert 0 <= marker["start"] <= marker["end"] <= len(raw)
             assert isinstance(marker["reported_path"], str)
 
+    @example(raw=b'#line 0 "\\"\n#line 0 ""\nint f(void) { return 1; }\n')
     @given(_preprocessed())
     @settings(max_examples=150, deadline=None)
     def test_view_differs_only_inside_markers_and_modifiers(self, raw: bytes) -> None:

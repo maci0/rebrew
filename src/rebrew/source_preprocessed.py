@@ -30,6 +30,12 @@ def _protect_literals(raw: bytearray) -> list[tuple[int, int, bytes]]:
     i = 0
     while i < len(raw):
         start = i
+        if raw[i] == ord("#") and not raw[raw.rfind(b"\n", 0, i) + 1 : i].strip(b" \t"):
+            # A #line marker is blanked whole later; its quoted path is not a literal.
+            marker = _LINE.match(raw, raw.rfind(b"\n", 0, i) + 1)
+            if marker is not None:
+                i = marker.end()
+                continue
         if raw[i : i + 2] == b"//":
             end = raw.find(b"\n", i + 2)
             end = len(raw) if end < 0 else end
