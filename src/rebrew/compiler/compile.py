@@ -1383,7 +1383,7 @@ def _shared_recompile_client(timeout: float) -> Any:
             else:
                 _recompile_inflight.pop(id(victim), None)
                 victim.close()
-        client = httpx.Client(timeout=timeout)
+        client = httpx.Client(timeout=timeout, trust_env=False)
         _recompile_clients[timeout] = client
         _recompile_inflight[id(client)] = 1
         return client

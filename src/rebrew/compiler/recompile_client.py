@@ -518,7 +518,9 @@ def compile_source(
     started_at = time.perf_counter()
     for attempt in range(attempts):
         # One client for POST + GET.  Injected clients are not closed here.
-        cm: Any = nullcontext(client) if client is not None else httpx.Client(timeout=timeout)
+        cm: Any = (
+            nullcontext(client) if client is not None else httpx.Client(timeout=timeout, trust_env=False)
+        )
         try:
             with cm as http:
                 if pending is None:

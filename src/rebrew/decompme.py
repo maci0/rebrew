@@ -458,6 +458,7 @@ def upload_scratch(
     kw: dict[str, Any] = {}
     if client is None:
         kw["timeout"] = timeout
+        kw["trust_env"] = False
     url = f"{api}/api/scratch"
     attempts = retries + 1
     last_exc: DecompmeError | None = None
@@ -740,6 +741,7 @@ def verify_compiler(
     kw: dict[str, Any] = {}
     if client is None:
         kw["timeout"] = timeout
+        kw["trust_env"] = False
     try:
         resp = get_fn(f"{api}/api/compiler", **kw)
     except Exception as exc:

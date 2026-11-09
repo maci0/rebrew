@@ -1033,7 +1033,7 @@ class TestVerifyCompiler:
 
         closed: list[bool] = []
 
-        def _fake_get(url, timeout):
+        def _fake_get(url, timeout, trust_env=True):
             return SimpleNamespace(
                 status_code=200,
                 json=lambda: {
@@ -1050,7 +1050,7 @@ class TestVerifyCompiler:
     def test_unknown_compiler_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import httpx
 
-        def _fake_get(url, timeout):
+        def _fake_get(url, timeout, trust_env=True):
             return SimpleNamespace(
                 status_code=200,
                 json=lambda: {"compilers": {"msvc6.0": {}, "msvc7.1": {}}, "platforms": {}},
@@ -1066,7 +1066,7 @@ class TestVerifyCompiler:
     def test_transport_failure_degrades(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import httpx
 
-        def _fake_get(url, timeout):
+        def _fake_get(url, timeout, trust_env=True):
             raise httpx.ConnectError("cf")
 
         monkeypatch.setattr(httpx, "get", _fake_get)
@@ -1078,7 +1078,9 @@ class TestVerifyCompiler:
         monkeypatch.setattr(
             httpx,
             "get",
-            lambda url, timeout: SimpleNamespace(status_code=403, text="cf", close=lambda: None),
+            lambda url, timeout, trust_env=True: SimpleNamespace(
+                status_code=403, text="cf", close=lambda: None
+            ),
         )
         assert decompme.verify_compiler("msvc6.0") is None
 

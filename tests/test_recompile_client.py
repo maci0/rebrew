@@ -795,7 +795,9 @@ class TestCompileViaRecompile:
                 closed.append(self.timeout)
 
         monkeypatch.setattr(compile_mod, "_recompile_clients", {})
-        monkeypatch.setattr(httpx, "Client", lambda timeout: _Closable(timeout))
+        monkeypatch.setattr(
+            httpx, "Client", lambda timeout, trust_env=True: _Closable(timeout)
+        )
         first = compile_mod._shared_recompile_client(10.0)
         second = compile_mod._shared_recompile_client(20.0)
         assert first is not second
@@ -824,7 +826,9 @@ class TestCompileViaRecompile:
         monkeypatch.setattr(compile_mod, "_recompile_clients", {})
         monkeypatch.setattr(compile_mod, "_recompile_retired", [])
         monkeypatch.setattr(compile_mod, "_recompile_inflight", {})
-        monkeypatch.setattr(httpx, "Client", lambda timeout: _Closable(timeout))
+        monkeypatch.setattr(
+            httpx, "Client", lambda timeout, trust_env=True: _Closable(timeout)
+        )
         first = compile_mod._shared_recompile_client(10.0)
         second = compile_mod._shared_recompile_client(20.0)
         # Refresh the first so the *second* is the eviction victim.
@@ -862,7 +866,9 @@ class TestCompileViaRecompile:
         monkeypatch.setattr(compile_mod, "_recompile_clients", {})
         monkeypatch.setattr(compile_mod, "_recompile_retired", [])
         monkeypatch.setattr(compile_mod, "_recompile_inflight", {})
-        monkeypatch.setattr(httpx, "Client", lambda timeout: _Closable(timeout))
+        monkeypatch.setattr(
+            httpx, "Client", lambda timeout, trust_env=True: _Closable(timeout)
+        )
         held = compile_mod._shared_recompile_client(10.0)
         compile_mod._shared_recompile_client(20.0)
         assert closed == []
@@ -897,7 +903,9 @@ class TestCompileViaRecompile:
         monkeypatch.setattr(compile_mod, "_recompile_clients", {})
         monkeypatch.setattr(compile_mod, "_recompile_retired", [])
         monkeypatch.setattr(compile_mod, "_recompile_inflight", {})
-        monkeypatch.setattr(httpx, "Client", lambda timeout: _Closable(timeout))
+        monkeypatch.setattr(
+            httpx, "Client", lambda timeout, trust_env=True: _Closable(timeout)
+        )
         # No retain call: the handout alone must make the client unevictable.
         held = compile_mod._shared_recompile_client(10.0)
         assert compile_mod._recompile_inflight[id(held)] == 1

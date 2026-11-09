@@ -72,7 +72,12 @@ MAKE_QUERY_TIMEOUT_S = 300.0
 _MAKE_EXPANSION_RE = re.compile(
     r"\$\(\s*(shell|info|warning|error|file|eval)\b|\$\{\s*(shell|info|warning|error|file|eval)\b"
 )
-_MAKE_INCLUDE_RE = re.compile(r"^\s*-?include\s+(.+)$", re.M)
+_MAKE_INCLUDE_RE = re.compile(r"^\s*-?(?:s?include)\s+(.+)$", re.M)
+
+#: Bound on the include-graph recursion below: a hostile build.make could
+#: otherwise make the probe recurse until RecursionError (a crash, not a
+#: bypass -- the probe runs before make either way).
+_MAKE_INCLUDE_DEPTH_MAX = 32
 
 #: Where CMake puts the generated build system, relative to the project root.
 DEFAULT_BUILD_DIR = Path("build")
@@ -347,9 +352,13 @@ def check(
         # before any recipe runs. Refuse when the file or any file it
         # includes carries function expansion; the probe stays a read-only
         # staleness query and never becomes code execution.
-        def _probe_expansion(text: str, where: Path) -> str | None:
+        def _probe_expansion(
+            text: str, where: Path, depth: int = 0, seen: frozenset[Path] = frozenset()
+        ) -> str | None:
             if _MAKE_EXPANSION_RE.search(text):
                 return f"{where} expands make functions"
+            if depth >= _MAKE_INCLUDE_DEPTH_MAX:
+                return None
             for inc in _MAKE_INCLUDE_RE.finditer(text):
                 for name in inc.group(1).split():
                     if "$" in name:
@@ -357,10 +366,18 @@ def check(
                     inc_path = Path(name)
                     inc_path = inc_path if inc_path.is_absolute() else (build_dir / inc_path)
                     try:
+                        resolved = inc_path.resolve()
+                    except OSError:
+                        continue
+                    if resolved in seen:
+                        continue
+                    try:
                         if inc_path.is_file():
                             hit = _probe_expansion(
                                 inc_path.read_text(encoding="utf-8", errors="replace"),
                                 inc_path,
+                                depth + 1,
+                                seen | {resolved},
                             )
                             if hit:
                                 return hit

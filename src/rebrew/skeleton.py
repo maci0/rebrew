@@ -433,7 +433,7 @@ def fetch_xref_context(
 
     try:
         with (
-            httpx.Client(timeout=_sync_mod.MCP_REQUEST_TIMEOUT_S) as client,
+            httpx.Client(timeout=_sync_mod.MCP_REQUEST_TIMEOUT_S, trust_env=False) as client,
             contextlib.ExitStack() as cleanup,
         ):
             session_id = _init_mcp_session(client, endpoint)
