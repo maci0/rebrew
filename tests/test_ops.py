@@ -665,19 +665,25 @@ class TestUrlBinaries:
 
         monkeypatch.setattr(ops, "DNS_TIMEOUT_SECONDS", 0.2)
 
+        # Block until the test ends, so the resolver is hung on any machine.
+        release = threading.Event()
+
         def _hung(*args: Any, **kwargs: Any) -> Any:
-            time.sleep(2)
+            release.wait()
             return []
 
-        with mock.patch.object(socket, "getaddrinfo", _hung):
-            started = time.monotonic()
-            refusal = _refusal(
-                self._config(tmp_path),
-                "rebrew.fingerprint",
-                json.dumps(self._url_file("https://example.com")).encode(),
-            )
-            assert refusal["detail"] == "url host cannot be resolved"
-            assert time.monotonic() - started < 1.0
+        try:
+            with mock.patch.object(socket, "getaddrinfo", _hung):
+                started = time.monotonic()
+                refusal = _refusal(
+                    self._config(tmp_path),
+                    "rebrew.fingerprint",
+                    json.dumps(self._url_file("https://example.com")).encode(),
+                )
+                assert refusal["detail"] == "url host cannot be resolved"
+                assert time.monotonic() - started < 1.0
+        finally:
+            release.set()
 
     def test_private_dns_answer_is_refused(self, tmp_path: Path) -> None:
         from unittest import mock

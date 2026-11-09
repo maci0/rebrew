@@ -80,9 +80,9 @@ class TestApplyXtensaRelocationFuzz:
         if offset >= 0 and offset + width <= len(buf):
             assert bytes(buf[:offset]) == raw[:offset]
             assert bytes(buf[offset + width :]) == raw[offset + width :]
-            if kind == 20 and width == 3:
+            if kind == 20 and width == 3 and offset + 3 < len(buf):
                 # SLOT0 rewrite preserves the top byte (fourth byte / opcode extension).
-                assert buf[offset + 3 - 1] is not None  # window inside buf
+                assert buf[offset + 3] == raw[offset + 3]
 
     @_SETTINGS
     @given(st.binary(max_size=16), st.integers(min_value=0, max_value=2**32 - 1))
