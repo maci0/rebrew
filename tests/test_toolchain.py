@@ -516,6 +516,17 @@ class TestRunToolchain:
         assert run_toolchain(spec, ["/c", "t.c"], workdir=tmp_path).ok
         assert seen[0] is not None and seen[0].get("TZ") == "UTC0"
 
+    def test_docker_compile_runs_as_the_image_user(self, tmp_path: Path, monkeypatch) -> None:
+        # The toolchain images run as their own unprivileged user (rebrew, uid 1000), which owns the baked
+        # /opt/wineprefix; Wine refuses a prefix another uid owns ("'/opt/wineprefix' is not owned by you"), so a
+        # --user of the host's uid breaks every compile on a host whose uid is not 1000 (a CI runner is 1001).
+        spec = ToolchainSpec(
+            name="t", image="rebrew/t:latest", binary="cl", image_entrypoint="/usr/local/bin/cl"
+        )
+        calls = _monkey_docker(monkeypatch)
+        run_toolchain(spec, ["/c", "f.c"], workdir=tmp_path)
+        assert "--user" not in calls[0]
+
     def test_docker_backend_uses_image_and_mount(self, tmp_path: Path, monkeypatch) -> None:
         spec = ToolchainSpec(
             name="t", image="rebrew/t:latest", binary="cl", image_entrypoint="/usr/local/bin/cl"

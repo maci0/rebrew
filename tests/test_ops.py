@@ -697,6 +697,7 @@ class TestUrlBinaries:
                 )
                 assert refusal["detail"] == "url host cannot be resolved"
                 assert time.monotonic() - started < 1.0
+                assert (refusal["status"], refusal["error"]) == (500, "engine-error")
         finally:
             release.set()
 
@@ -776,6 +777,24 @@ class TestUrlBinaries:
             assert seen["url"].startswith("https://93.184.216.34/")
             assert seen["headers"]["Host"] == "example.com"
             assert seen["extensions"]["sni_hostname"] == "example.com"
+
+    def test_a_failed_lookup_is_retryable(self, tmp_path: Path) -> None:
+        from unittest import mock
+
+        def _down(*args: Any, **kwargs: Any) -> Any:
+            raise socket.gaierror(socket.EAI_AGAIN, "Temporary failure in name resolution")
+
+        with mock.patch.object(socket, "getaddrinfo", _down):
+            refusal = _refusal(
+                self._config(tmp_path),
+                "rebrew.fingerprint",
+                json.dumps(self._url_file("https://example.com")).encode(),
+            )
+        assert (refusal["status"], refusal["error"], refusal["detail"]) == (
+            500,
+            "engine-error",
+            "url host cannot be resolved",
+        )
 
 
 class TestRefusals:
@@ -1936,6 +1955,25 @@ class TestHttpTransport:
             assert "rebrew_ops_requests_total" in text
             assert "rebrew_ops_errors_total" in text
             assert "rebrew_ops_latency_ms_total" in text
+            # One Prometheus histogram family: its TYPE names the family, the buckets are cumulative, and exactly
+            # one bucket is +Inf, equal to _count.
+            assert "# TYPE rebrew_ops_latency histogram" in text
+            buckets = [
+                line.split(" ")
+                for line in text.splitlines()
+                if line.startswith("rebrew_ops_latency_bucket{")
+            ]
+            bounds = [
+                name.removeprefix('rebrew_ops_latency_bucket{le="').removesuffix('"}')
+                for name, _ in buckets
+            ]
+            counts = [int(value) for _, value in buckets]
+            assert bounds.count("+Inf") == 1 and bounds[-1] == "+Inf" and "inf" not in bounds
+            assert counts == sorted(counts)
+            count_line = next(
+                line for line in text.splitlines() if line.startswith("rebrew_ops_latency_count ")
+            )
+            assert counts[-1] == int(count_line.split(" ")[1])
         finally:
             conn.close()
 
