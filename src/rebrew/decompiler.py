@@ -39,6 +39,7 @@ lazy from pathlib import Path
 lazy from typing import Any
 
 from rebrew.c_parser import CALLING_CONVENTION
+from rebrew.errors import RebrewError
 lazy from rebrew.config import KUNA_SPECS_ENV, expand_env_path, warn_env_dir
 lazy from rebrew.registry import RegistryError
 lazy from rebrew.utils import binary_fingerprint, console, run_process_group, untrusted_literal
@@ -754,7 +755,7 @@ _KUNA_IMPORT_RE = re.compile(
 )
 
 
-class KunaNoBodyError(ValueError):
+class KunaNoBodyError(RebrewError, ValueError):
     """kuna reports that the address is an import slot, not a function body."""
 
 

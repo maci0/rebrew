@@ -69,6 +69,7 @@ if TYPE_CHECKING:
     from rebrew.coverage_input_contract import CoverageInputError as CoverageInputError
     from rebrew.coverage_project import ProjectCoverageError as ProjectCoverageError
     from rebrew.coverage_toml import CoverageTomlError as CoverageTomlError
+    from rebrew.decompiler import KunaNoBodyError as KunaNoBodyError
     from rebrew.decompme import DecompmeError as DecompmeError
     from rebrew.decompme import DecompmeErrorKind as DecompmeErrorKind
     from rebrew.doctor import LibIndexUnavailable as LibIndexUnavailable
@@ -277,6 +278,7 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "DosboxError": ("rebrew.compiler.dosbox", "DosboxError"),
     "ExportParseError": ("rebrew.formats.binary_loader", "ExportParseError"),
     "FingerprintError": ("rebrew.fingerprints", "FingerprintError"),
+    "KunaNoBodyError": ("rebrew.decompiler", "KunaNoBodyError"),
     "LibraryOverrideError": ("rebrew.metadata.functions", "LibraryOverrideError"),
     "LibIndexUnavailable": ("rebrew.doctor", "LibIndexUnavailable"),
     "McpApplyAborted": ("rebrew.ghidra.client", "McpApplyAborted"),
@@ -378,6 +380,7 @@ __all__ = [
     "DosboxError",
     "ExportParseError",
     "FingerprintError",
+    "KunaNoBodyError",
     "LibIndexUnavailable",
     "LibraryOverrideError",
     "McpApplyAborted",
