@@ -287,7 +287,9 @@ else refused, `src/rebrew/wibo.py`), the
   (`_MAX_LIVE_SHA_BYTES` in `src/rebrew/toolchain_cli.py`,
   declared-length and buffered-body checked before `json` parsing).
 - No claim that the ops worker's presigned-URL download is SSRF-proof.
-  `_download` in `src/rebrew/ops.py` refuses a `url` host that resolves to a
+  `_download` in `src/rebrew/ops.py` refuses a `url` that is not https, a
+  hostless URL, or a URL carrying userinfo (`parts.username or
+  parts.password`, commit 2eb25aa0), and refuses a `url` host that resolves to a
   non-public address: `_check_download_host` resolves the hostname and
   refuses any non-`is_global` address (IP literals checked the same way)
   and any resolution failure. The refusal is bypassed only by the operator
@@ -307,6 +309,12 @@ else refused, `src/rebrew/wibo.py`), the
   `_download` passes `trust_env=False` (ambient `*_proxy` ignored) while
   re-applying an operator-pinned `SSL_CERT_FILE`/`SSL_CERT_DIR`
   explicitly via `verify=`.
+- No claim that a Host-header spelling variant bypasses the allow-list, and no
+  claim that error/reply text is free of bidi controls. Both sides of the Host
+  comparison are folded through `fold_host` (`src/rebrew/utils.py`), which
+  now runs `strip_bidi_format` after NFC normalization and before casefold/IDNA
+  (commit 2eb25aa0), and ops error/reply text is bidi-stripped the same way
+  (`error_body` and `_bounded` in `src/rebrew/ops.py`, same commit).
 - No claim that `REBREW_OTLP_ENDPOINT` is validated only at export time.
   The knob is now validated at startup: `OTLP_ENDPOINT_ENV` in
   `src/rebrew/config.py` is `validate_http_url`-checked in
