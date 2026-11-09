@@ -1797,7 +1797,9 @@ def _opt_query(params: dict[str, list[str]], name: str) -> str | None:
     raw = _raw_param(params, name)
     if raw is None:
         return None
-    stripped = raw.strip()
+    # NFC: a target name from a macOS volume (or a browser on one) arrives
+    # NFD, and every stored key — config, file stem, snapshot — is NFC.
+    stripped = unicodedata.normalize("NFC", raw.strip())
     return stripped or None
 
 

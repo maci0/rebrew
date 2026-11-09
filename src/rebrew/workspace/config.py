@@ -118,12 +118,18 @@ def project_table(config: dict[str, Any]) -> dict[str, Any]:
 
 
 def targets_table(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    """The ``[targets]`` entries that are tables, keyed by target name."""
+    """The ``[targets]`` entries that are tables, keyed by target name.
+
+    Keys are NFC: ``rebrew.config._normalized_targets`` already re-keys
+    the same table to NFC and fails on an NFD/NFC collision, so every
+    reader built on this table — including ``default_target`` and the
+    coverage project — agrees with the config loader on one spelling.
+    """
     targets = config.get("targets")
     if not isinstance(targets, dict):
         return {}
     return {
-        name: entry
+        unicodedata.normalize("NFC", name): entry
         for name, entry in targets.items()
         if isinstance(name, str) and isinstance(entry, dict)
     }
@@ -133,8 +139,10 @@ def default_target(config: dict[str, Any]) -> str | None:
     """``[project].default_target`` when it names a target, else the first one."""
     targets = targets_table(config)
     configured = project_table(config).get("default_target")
-    if isinstance(configured, str) and configured in targets:
-        return configured
+    if isinstance(configured, str):
+        configured = unicodedata.normalize("NFC", configured)
+        if configured in targets:
+            return configured
     return next(iter(targets), None)
 
 

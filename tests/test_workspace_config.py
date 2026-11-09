@@ -132,6 +132,13 @@ def test_targets_table_drops_non_tables() -> None:
     assert targets_table({"targets": ["x"]}) == {}
 
 
+def test_targets_table_rekeys_an_nfd_key_to_nfc() -> None:
+    # A decomposing volume hands back an NFD key; the config loader and
+    # every reader built on targets_table have to agree on one spelling.
+    config = {"targets": {"cafe\u0301": {"binary": "a"}}}
+    assert targets_table(config) == {"caf\u00e9": {"binary": "a"}}
+
+
 def test_default_target_named() -> None:
     config = {"project": {"default_target": "B"}, "targets": {"A": {}, "B": {}}}
     assert default_target(config) == "B"
@@ -140,6 +147,13 @@ def test_default_target_named() -> None:
 def test_default_target_unknown_name_falls_back_to_first() -> None:
     config = {"project": {"default_target": "Z"}, "targets": {"A": {}, "B": {}}}
     assert default_target(config) == "A"
+
+
+def test_default_target_matches_an_nfd_spelling() -> None:
+    config = {"project": {"default_target": "cafe\u0301"}, "targets": {"caf\u00e9": {}}}
+    assert default_target(config) == "caf\u00e9"
+    config = {"project": {"default_target": "caf\u00e9"}, "targets": {"cafe\u0301": {}}}
+    assert default_target(config) == "caf\u00e9"
 
 
 def test_default_target_without_targets() -> None:
