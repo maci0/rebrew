@@ -75,6 +75,13 @@ lazy from rebrew.utils import fold_host
 
 logger = logging.getLogger(__name__)
 
+#: Level column width matching the dashboard's server log format.
+_LOG_LEVEL_FORMAT = "%(levelname)-8s"
+_LOG_TIME_FORMAT = "%H:%M:%S UTC"
+_OPS_HANDLER_NAME = "rebrew-ops"
+_PACKAGE_HANDLER_NAME = "rebrew-ops-package"
+_PACKAGE_LOGGER_NAME = __name__.partition(".")[0]
+
 #: Correlation id per ops request, mirroring the dashboard's ``r<N>``: the
 #: ``X-Request-Id`` header, the access line, and every error line of one
 #: request carry it, so an operator holding a refusal can pivot to the log
@@ -115,6 +122,104 @@ def _trace_id() -> str:
     """Trace id of the open span, so logs join the MELT investigative path."""
     opened = telemetry.current()
     return opened.trace_id if opened is not None else "-"
+
+
+class _CorrelatedFormatter(logging.Formatter):
+    """Stamp library records raised inside a request with its id and trace id.
+
+    Mirrors the dashboard's formatter: a warning from engine code running
+    inside an ops request names no request on its own, so the formatter
+    supplies the stamped id and the open span's trace id, and escapes the
+    rendered line so request-derived text cannot forge a second line.
+    """
+
+    @override
+    def format(self, record: logging.LogRecord) -> str:
+        request_id = _request_id()
+        line = _escape_log_text(super().format(record))
+        if request_id == "-":
+            return line
+        trace_id = _trace_id()
+        return f"{request_id} {trace_id} {line}" if trace_id != "-" else f"{request_id} {line}"
+
+
+def _attach_server_log_handler() -> Callable[[], None]:
+    """Send this module's and the package's records to the console in one format.
+
+    Without a handler, records fall back to ``lastResort`` or to the root
+    handler ``configure_logging`` installed, in a different format with no
+    request id, so library warnings raised inside a request cannot be
+    pivoted to by id.  Mirrors the dashboard: the ops logger gets an INFO
+    handler on the console, the package logger gets the correlated
+    formatter, both stamped in UTC with a level column.  Returns a
+    disposer restoring both loggers.
+    """
+    from rebrew.cli import console
+    from rebrew.utils import remove_identity
+
+    handler = logging.StreamHandler(console.file)
+    formatter = logging.Formatter(
+        f"%(asctime)s {_LOG_LEVEL_FORMAT} %(message)s", _LOG_TIME_FORMAT
+    )
+    formatter.converter = time.gmtime
+    handler.setFormatter(formatter)
+    handler.set_name(_OPS_HANDLER_NAME)
+    replaced = [h for h in logger.handlers if h.get_name() == handler.get_name()]
+    previous_level = logger.level
+    previous_propagate = logger.propagate
+
+    package_log = logging.getLogger(_PACKAGE_LOGGER_NAME)
+    package_handler = logging.StreamHandler(console.file)
+    package_formatter = _CorrelatedFormatter(
+        f"%(asctime)s {_LOG_LEVEL_FORMAT} %(message)s", _LOG_TIME_FORMAT
+    )
+    package_formatter.converter = time.gmtime
+    package_handler.setFormatter(package_formatter)
+    package_handler.set_name(_PACKAGE_HANDLER_NAME)
+    package_replaced = [
+        h for h in package_log.handlers if h.get_name() == package_handler.get_name()
+    ]
+    package_previous_propagate = package_log.propagate
+
+    swapped = False
+    package_swapped = False
+    disposed = False
+
+    def restore() -> None:
+        nonlocal disposed, swapped, package_swapped
+        if disposed:
+            return
+        disposed = True
+        if swapped:
+            remove_identity(logger.handlers, handler)
+            for existing in replaced:
+                logger.addHandler(existing)
+            logger.setLevel(previous_level)
+            logger.propagate = previous_propagate
+            swapped = False
+        if package_swapped:
+            remove_identity(package_log.handlers, package_handler)
+            for existing in package_replaced:
+                package_log.addHandler(existing)
+            package_log.propagate = package_previous_propagate
+            package_swapped = False
+
+    try:
+        for existing in replaced:
+            logger.removeHandler(existing)
+        swapped = True
+        logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
+        logger.propagate = False
+        for existing in package_replaced:
+            package_log.removeHandler(existing)
+        package_swapped = True
+        package_log.addHandler(package_handler)
+        package_log.propagate = False
+    except BaseException:
+        restore()
+        raise
+    return restore
 
 
 # ---------------------------------------------------------------------------
@@ -3445,10 +3550,24 @@ class OpsServer(ThreadingHTTPServer):
         self._latency_ms_buckets = [0] * len(_LATENCY_BUCKETS_MS)
         self._started_at = time.monotonic()
         self.concurrency = concurrency
+        # Per-op breakdown, bounded by the op set: one entry per known op
+        # plus "/unknown" for paths outside it.  Without it a metric anomaly
+        # cannot say which op is slow or failing; the access line names the
+        # op but no counter does.
+        self._per_op: dict[str, dict[str, float]] = {}
 
-    def record_request(self, code: int, elapsed_ms: float) -> None:
+    def record_request(self, code: int, elapsed_ms: float, op: str = "/unknown") -> None:
         with self._metrics_lock:
             self._request_count += 1
+            entry = self._per_op.setdefault(
+                op, {"count": 0.0, "server_errors": 0.0, "client_errors": 0.0, "latency_ms": 0.0}
+            )
+            entry["count"] += 1
+            entry["latency_ms"] += elapsed_ms
+            if code >= 500:
+                entry["server_errors"] += 1
+            elif code >= 400:
+                entry["client_errors"] += 1
             self._latency_ms_total += elapsed_ms
             self._latency_ms_max = max(self._latency_ms_max, elapsed_ms)
             for index, bound in enumerate(_LATENCY_BUCKETS_MS):
@@ -3464,7 +3583,9 @@ class OpsServer(ThreadingHTTPServer):
                 self._client_error_count += 1
                 self._error_count += 1
 
-    def metrics_snapshot(self) -> tuple[dict[str, float | int], list[int]]:
+    def metrics_snapshot(
+        self,
+    ) -> tuple[dict[str, float | int], list[int], dict[str, dict[str, float]]]:
         with self._metrics_lock:
             return (
                 {
@@ -3481,6 +3602,7 @@ class OpsServer(ThreadingHTTPServer):
                     "uptime_seconds": time.monotonic() - self._started_at,
                 },
                 list(self._latency_ms_buckets),
+                {op: dict(entry) for op, entry in self._per_op.items()},
             )
 
 
@@ -3540,7 +3662,10 @@ class _OpsHandler(BaseHTTPRequestHandler):
         # patch level to any caller that can reach the worker.
         elapsed_ms = (time.perf_counter() - self._request_started) * 1000.0
         with contextlib.suppress(AttributeError):
-            typing.cast("OpsServer", self.server).record_request(code, elapsed_ms)
+            raw_path = urlsplit(getattr(self, "path", "") or "").path
+            op_name = raw_path.removeprefix("/")
+            route = f"/{op_name}" if op_name in OPS else "/unknown"
+            typing.cast("OpsServer", self.server).record_request(code, elapsed_ms, route)
         self.log_request(code, getattr(self, "_response_size", "-"))
         opened = telemetry.current()
         if opened is not None and opened.kind == telemetry.KIND_SERVER:
@@ -3618,10 +3743,11 @@ class _OpsHandler(BaseHTTPRequestHandler):
             return True
         peer = getattr(self, "client_address", None)
         logger.warning(
-            "%s rejected request with Host %r from %s",
+            "%s rejected request with Host %r from %s trace_id=%s",
             self._request_id,
             _escape_log_text(self.headers.get("Host", "")) or "-",
             _escape_log_text(str(peer[0]) if peer else "-"),
+            _trace_id(),
         )
         self._refuse(
             "host-not-allowed", "request Host not allowed (wrong or missing Host header)", 403
@@ -3660,7 +3786,11 @@ class _OpsHandler(BaseHTTPRequestHandler):
             return
         given = self.headers.get("Authorization", "").encode("utf-8")
         if not hmac.compare_digest(given, f"Bearer {server.token}".encode()):
-            logger.warning("%s rejected unauthenticated request", self._request_id)
+            logger.warning(
+                "%s rejected unauthenticated request trace_id=%s",
+                self._request_id,
+                _trace_id(),
+            )
             self._refuse("unauthorized", "a valid bearer token is required", 401)
             return
         with server.idle:
@@ -3668,7 +3798,9 @@ class _OpsHandler(BaseHTTPRequestHandler):
             if admitted:
                 server.active += 1
         if not admitted:
-            logger.warning("%s worker busy; returning 503", self._request_id)
+            logger.warning(
+                "%s worker busy; returning 503 trace_id=%s", self._request_id, _trace_id()
+            )
             body = error_body(WORKER_BUSY, "every worker slot is busy; retry later", 503)
             self._send(503, body, {"Retry-After": str(BUSY_RETRY_AFTER_SECONDS)})
             return
@@ -3721,7 +3853,7 @@ class _OpsHandler(BaseHTTPRequestHandler):
             ):
                 self._refuse("unauthorized", "a valid bearer token is required", 401)
                 return
-            snapshot, latency_buckets = server.metrics_snapshot()
+            snapshot, latency_buckets, per_op = server.metrics_snapshot()
             if path == "/health":
                 payload = {
                     "status": "up",
@@ -3774,6 +3906,30 @@ class _OpsHandler(BaseHTTPRequestHandler):
                 f'rebrew_ops_latency_bucket{{le="+Inf"}} {snapshot["request_count"]}',
                 f"rebrew_ops_latency_count {snapshot['request_count']}",
                 f"rebrew_ops_latency_sum {snapshot['latency_ms_total']:.3f}",
+                "# HELP rebrew_ops_per_op_requests_total Requests per op (bounded by the op set).",
+                "# TYPE rebrew_ops_per_op_requests_total counter",
+                *(
+                    f'rebrew_ops_per_op_requests_total{{op="{op}"}} {int(entry["count"])}'
+                    for op, entry in sorted(per_op.items())
+                ),
+                "# HELP rebrew_ops_per_op_server_errors_total 5xx responses per op.",
+                "# TYPE rebrew_ops_per_op_server_errors_total counter",
+                *(
+                    f'rebrew_ops_per_op_server_errors_total{{op="{op}"}} {int(entry["server_errors"])}'
+                    for op, entry in sorted(per_op.items())
+                ),
+                "# HELP rebrew_ops_per_op_client_errors_total 4xx responses per op.",
+                "# TYPE rebrew_ops_per_op_client_errors_total counter",
+                *(
+                    f'rebrew_ops_per_op_client_errors_total{{op="{op}"}} {int(entry["client_errors"])}'
+                    for op, entry in sorted(per_op.items())
+                ),
+                "# HELP rebrew_ops_per_op_latency_ms_total Total latency per op, in milliseconds.",
+                "# TYPE rebrew_ops_per_op_latency_ms_total counter",
+                *(
+                    f'rebrew_ops_per_op_latency_ms_total{{op="{op}"}} {entry["latency_ms"]:.3f}'
+                    for op, entry in sorted(per_op.items())
+                ),
             ]
             body = ("\n".join(lines) + "\n").encode("utf-8")
             self._send(
@@ -3950,6 +4106,7 @@ def serve_command(
         threading.Thread(target=server.shutdown, daemon=True).start()
 
     previous = signal.signal(signal.SIGTERM, stop)
+    restore_log = _attach_server_log_handler()
     try:
         server.serve_forever()
     finally:
@@ -3957,6 +4114,7 @@ def serve_command(
         with server.idle:
             server.draining = True
             server.idle.wait_for(lambda: server.active == 0, timeout=30)
+        restore_log()
         stop_telemetry()
         signal.signal(signal.SIGTERM, previous)
 
