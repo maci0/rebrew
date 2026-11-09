@@ -43,7 +43,7 @@ span's trace id, and ``REBREW_OTLP_ENDPOINT`` exports the spans over OTLP/HTTP
 Successful responses negotiate zstd then gzip with quality weights. ETags key
 on the live input version or portable file state plus the exact route/query;
 health is no-store. Static assets are content-hashed and precompressed. The
-entry checkpoint measured 12781 B zstd / 13421 B gzip against a 13600 B budget;
+entry checkpoint measured 12768 B zstd / 13416 B gzip against a 13600 B budget;
 host zlib versions can change gzip size. Tests enforce the wire budget.
 Reload re-reads the live view; view/target/filter navigation is stored in the
 URL hash. Details, API schema and transfer measurements live in
@@ -1156,11 +1156,6 @@ function bindControls() {
     }
     restoreFocus(["target", "main"]);
   };
-  // Empty-state reload.
-  document.addEventListener?.("click", (ev) => {
-    const b = ev.target.closest && ev.target.closest("button[id^='empty-r-']");
-    if (b) $("reload").click();
-  });
   $("retry-summary").onclick = async () => {
     await loadSummary();
     restoreFocus(["retry-summary", "main"]);
@@ -1322,6 +1317,10 @@ function start() {
     $("retry-summary").focus();
   });
 }
+document.addEventListener?.("click", (ev) => {
+  const b = ev.target.closest && ev.target.closest("button[id^='empty-r-']");
+  if (b) $("reload").click();
+});
 // Set before start() so the boot guard sees a client that ran; synchronous, so
 // the guard's DOMContentLoaded check (which a deferred client always precedes)
 // sees a client that got this far.
