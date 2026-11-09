@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- `uv tool install` (the README Quick Start) no longer installs a rebrew that crashes at startup with `ImportError: cannot import name 'TyperPath' from 'typer.models'`. Typer 0.29.0 removed `typer.models.TyperPath`, which 18 CLI modules import for their path options, and the `typer>=0.27.3,<1` requirement let a fresh install resolve it; `uv.lock` pins 0.27.3, so locked syncs and CI never saw it. The requirement is now `typer>=0.27.3,<0.29`.
+
 ## [6.29.1] - 2026-11-10
 
 ### Fixed
