@@ -37,7 +37,6 @@ type outputWriter struct {
 
 func (w *outputWriter) Write(p []byte) (int, error) {
 	w.mu.Lock()
-	defer w.mu.Unlock()
 	n := len(p)
 	keep := n
 	if keep > outputLimit-w.size {
@@ -46,36 +45,50 @@ func (w *outputWriter) Write(p []byte) (int, error) {
 	}
 	if keep > 0 {
 		if _, err := w.file.Write(p[:keep]); err != nil {
+			w.mu.Unlock()
 			return 0, err
 		}
 		w.size += keep
 	}
+	size, truncated := w.size, w.truncated
 	interval := w.saveInterval
 	if interval <= 0 {
 		interval = outputSaveInterval
 	}
-	if now := time.Now(); now.Sub(w.lastSave) >= interval {
-		if err := w.persistLocked(); err != nil {
+	now := time.Now()
+	due := now.Sub(w.lastSave) >= interval
+	if due {
+		w.lastSave = now
+	}
+	w.mu.Unlock()
+	if due {
+		if err := w.persist(size, truncated); err != nil {
 			return 0, err
 		}
-		w.lastSave = now
 	}
 	return n, nil
 }
 
-// persistLocked rewrites the receipt's output counters. Callers hold w.mu.
-func (w *outputWriter) persistLocked() error {
+// persist rewrites the receipt's output counters.  writeJSONAtomic's rename
+// is the atomic commit point; a concurrent field update (e.g. CancelRequested
+// set under o.mu) can be clobbered if it lands between the read and the
+// rename, so the owner lock is still held here to serialize against those
+// writers.  The writer lock is never held across it, so lock order stays
+// o.mu -> (no w.mu), matching admit/Cancel/ReconcileDocker.
+// Counters are monotonic, so a stale persist writes a smaller size only.
+// Callers must not hold w.mu.
+func (w *outputWriter) persist(size int, truncated bool) error {
 	w.owner.mu.Lock()
 	defer w.owner.mu.Unlock()
 	r, err := w.owner.read(w.id)
 	if err != nil {
 		return err
 	}
-	if r.OutputBytes == w.size && r.OutputTruncated == w.truncated {
+	if r.OutputBytes >= size && r.OutputTruncated == truncated {
 		return nil
 	}
-	r.OutputBytes = w.size
-	r.OutputTruncated = w.truncated
+	r.OutputBytes = size
+	r.OutputTruncated = truncated
 	if err = w.owner.save(r); err != nil {
 		return err
 	}
@@ -87,8 +100,9 @@ func (w *outputWriter) persistLocked() error {
 
 func (w *outputWriter) finish() (string, error) {
 	w.mu.Lock()
-	defer w.mu.Unlock()
-	if err := w.persistLocked(); err != nil {
+	size, truncated := w.size, w.truncated
+	w.mu.Unlock()
+	if err := w.persist(size, truncated); err != nil {
 		_ = w.file.Close()
 		return "", err
 	}

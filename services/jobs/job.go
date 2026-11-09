@@ -642,17 +642,26 @@ func (o *Owner) runDocker(ctx context.Context, saved Receipt, workspace string) 
 }
 
 // ReconcileDocker proves local container stop without claiming lost output is complete.
+//
+// The external checks (docker inspect, result-workspace seal) run without
+// o.mu — they can take the full 15s context timeout — and the receipt is
+// committed under a fresh lock with a re-check of the winner, so a
+// concurrent Cancel or a second ReconcileDocker racing this one cannot be
+// silently overwritten by a stale write.  The first writer to change the
+// retained state wins; a loser returns an error instead of saving.
 func (o *Owner) ReconcileDocker(ctx context.Context, id string) (Receipt, error) {
 	o.mu.Lock()
-	defer o.mu.Unlock()
 	if o.closed {
+		o.mu.Unlock()
 		return Receipt{}, errors.New("owner is closed")
 	}
 	r, err := o.read(id)
 	if err != nil {
+		o.mu.Unlock()
 		return r, err
 	}
 	if o.docker == nil || r.Provider != "docker" || r.Image != o.docker.Image || r.State != "uncertain" || r.ContainerID == "" {
+		o.mu.Unlock()
 		return r, errors.New("no recoverable exact container")
 	}
 	provider := *o.docker
@@ -660,38 +669,64 @@ func (o *Owner) ReconcileDocker(ctx context.Context, id string) (Receipt, error)
 	if r.ManagedCompile {
 		pending, pendingErr := o.compilePending(r.ID)
 		if pending || pendingErr != nil {
+			o.mu.Unlock()
 			return r, errors.New("managed compile outcome unresolved")
 		}
 		provider.CompileDir = r.CompileSocket
 	}
-	stop, err := provider.InspectStop(ctx, r.ContainerID, r.ID, filepath.Join(o.dir, r.ID+".original"), filepath.Join(o.dir, r.ID+".workspace"), r.Seed)
+	external := r
+	o.mu.Unlock()
+
+	stop, err := provider.InspectStop(ctx, external.ContainerID, external.ID, filepath.Join(o.dir, external.ID+".original"), filepath.Join(o.dir, external.ID+".workspace"), external.Seed)
 	if err == nil {
-		digest, err := retainResultWorkspace(filepath.Join(o.dir, r.ID+".workspace"), o.dir, r.ID)
+		digest, err := retainResultWorkspace(filepath.Join(o.dir, external.ID+".workspace"), o.dir, external.ID)
 		if err != nil {
 			return r, err
 		}
-		if r.ResultWorkspaceSHA256 != "" && r.ResultWorkspaceSHA256 != digest {
-			return r, errors.New("retained result workspace changed")
-		}
-		r.ResultWorkspaceSHA256 = digest
-		r.State, r.StopVerified, r.OutputIncomplete = "stopped_unsettled", true, true
-		r.ExitCode = &stop.ExitCode
-	} else {
-		if !r.CancelRequested {
-			return r, err
-		}
-		_, err = provider.InspectNeverStarted(ctx, r.ContainerID, r.ID, filepath.Join(o.dir, r.ID+".original"), filepath.Join(o.dir, r.ID+".workspace"), r.Seed)
+		o.mu.Lock()
+		defer o.mu.Unlock()
+		current, err := o.read(id)
 		if err != nil {
-			return r, err
+			return current, err
 		}
-		r.State, r.StopVerified, r.NeverStarted = "cancelled", true, true
+		if current.State != "uncertain" || current.ContainerID != external.ContainerID {
+			return current, errors.New("retained state changed during reconciliation")
+		}
+		if current.ResultWorkspaceSHA256 != "" && current.ResultWorkspaceSHA256 != digest {
+			return current, errors.New("retained result workspace changed")
+		}
+		current.ResultWorkspaceSHA256 = digest
+		current.State, current.StopVerified, current.OutputIncomplete = "stopped_unsettled", true, true
+		current.ExitCode = &stop.ExitCode
+		if err = o.save(current); err != nil {
+			return current, err
+		}
+		o.occupied = false
+		o.notify(id)
+		return current, nil
 	}
-	if err = o.save(r); err != nil {
+	if !external.CancelRequested {
 		return r, err
+	}
+	if _, err := provider.InspectNeverStarted(ctx, external.ContainerID, external.ID, filepath.Join(o.dir, external.ID+".original"), filepath.Join(o.dir, external.ID+".workspace"), external.Seed); err != nil {
+		return r, err
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	current, err := o.read(id)
+	if err != nil {
+		return current, err
+	}
+	if current.State != "uncertain" || current.ContainerID != external.ContainerID || !current.CancelRequested {
+		return current, errors.New("retained state changed during reconciliation")
+	}
+	current.State, current.StopVerified, current.NeverStarted = "cancelled", true, true
+	if err = o.save(current); err != nil {
+		return current, err
 	}
 	o.occupied = false
 	o.notify(id)
-	return r, nil
+	return current, nil
 }
 
 // Cancel records a request; it does not claim a child or its descendants stopped.
