@@ -1,0 +1,4 @@
+format = 2
+
+[SERVER.0x1000]
+STATUS = "EXACT"

@@ -1,0 +1,5 @@
+format = 3
+
+[SERVER.0x1000]
+STATUS = "EXACT"
+SIZE = 42
