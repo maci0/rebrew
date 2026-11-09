@@ -26,6 +26,7 @@
 # compromised platform package changed what the gate ran without any pin
 # moving. This helper fetches exactly one binary and verifies it.
 #
+#
 # Usage: bin_dir="$(bash tools/ci_install_biome.sh [dest])"
 # Prints the directory holding the `biome` binary for the caller to put
 # on PATH. Exits 1 when the download or either pin check fails, naming

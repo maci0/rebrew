@@ -217,6 +217,7 @@ help:
 		'     (shellcheck + yamllint too: the pre-commit shell and YAML hooks skip' \
 		'     themselves without them, CI runs both; vnu for the W3C HTML gate,' \
 		'     which skips without it, so run make vnu and eval the line it prints;' \
+		'     biome for the dashboard-JS gate, same shape: run make biome;' \
 		'     bash for step 2: tools/ci_clone_resembl.sh runs under it)' \
 		'  2. Clone sibling resembl at $(RESEMBL_REF) into ../resembl' \
 		'     git clone --depth 1 --branch $(RESEMBL_REF) https://github.com/maci0/resembl.git ../resembl' \
@@ -458,6 +459,9 @@ warn-yamllint:
 	fi
 
 # Same skip-if-absent shape for the dashboard-JS biome gate (.pre-commit-config.yaml).
+# The pin (archive digest + version) lives in tools/ci_install_biome.sh, so
+# `make biome` installs the same bytes CI validates with instead of naming a
+# second source (the old `npm install -g` trusted the registry response).
 warn-biome:
 	@set -eu; \
 	if ! command -v biome >/dev/null 2>&1; then \
