@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from collections import OrderedDict
 from dataclasses import dataclass
 from functools import lru_cache
@@ -257,14 +258,23 @@ def cflags_equivalent(stored: str, current: str) -> bool:
 def _package_source_fingerprint() -> tuple[tuple[str, int, int, int, int], ...]:
     """``(path, mtime_ns, size, ino, ctime_ns)`` for every ``.py`` file in the package.
 
-    Not memoized, for the reason :func:`_headers_stat_fingerprint` is not: a
-    long-lived process (``verify --watch``, the dashboard) must see an edit to
-    the comparison logic, which is the whole point of the hash.  Change time
-    catches an in-place rewrite that restores the old mtime and size.
+    The walk is memoized for a short window (``_PACKAGE_FP_TTL_SECONDS``) so a
+    parallel verify run does not re-stat ~300 package files per
+    :func:`compiler_config_hash` call, while a long-lived process
+    (``verify --watch``, the dashboard) still sees an edit within that
+    window rather than for the rest of the process.  Change time catches an
+    in-place rewrite that restores the old mtime and size.  Within one
+    window every entry is stat'ed once per entry, not once per caller.
     """
     import rebrew
 
+    global _PACKAGE_FP_MEMO
     pkg_root = Path(rebrew.__file__).resolve().parent
+    now = time.monotonic()
+    with _PACKAGE_FP_LOCK:
+        cached_fp, cached_at = _PACKAGE_FP_MEMO
+        if cached_fp is not None and now - cached_at < _PACKAGE_FP_TTL_SECONDS:
+            return cached_fp
     entries: list[tuple[str, int, int, int, int]] = []
     for path in pkg_root.rglob("*.py"):
         try:
@@ -278,7 +288,21 @@ def _package_source_fingerprint() -> tuple[tuple[str, int, int, int, int], ...]:
             entries.append((f"{path}\0unreadable", 0, 0, 0, 0))
             continue
         entries.append((str(path), st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns))
-    return tuple(sorted(entries))
+    fingerprint = tuple(sorted(entries))
+    with _PACKAGE_FP_LOCK:
+        _PACKAGE_FP_MEMO = (fingerprint, now)
+    return fingerprint
+
+
+#: The package-source stat walk costs one lstat per .py file (~6 ms for the
+#: shipped package) and runs on every :func:`compiler_config_hash` call,
+#: i.e. once per verify entry.  Memoize it for a short window so a parallel
+#: run stats each entry once while ``verify --watch`` still picks up an edit
+#: to the comparison logic within seconds.  The memo holds one fingerprint,
+#: so it cannot serve a stale tree after the window expires.
+_PACKAGE_FP_TTL_SECONDS = 1.0
+_PACKAGE_FP_LOCK = threading.Lock()
+_PACKAGE_FP_MEMO: tuple[tuple[tuple[str, int, int, int, int], ...] | None, float] = (None, 0.0)
 
 
 #: Memo for :func:`_compare_logic_hash`, guarded by the package-source stat
