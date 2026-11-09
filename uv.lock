@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.15"
 resolution-markers = [
     "python_full_version < '3.16' and platform_machine == 'x86_64' and platform_python_implementation == 'CPython' and sys_platform == 'linux'",
@@ -1353,7 +1353,7 @@ dev = [
 fuzz = [
     { name = "atheris", marker = "python_full_version < '3.15'", specifier = ">=3.1.0,<4" },
     { name = "atheris", marker = "python_full_version == '3.15.*' and platform_machine == 'x86_64' and platform_python_implementation == 'CPython' and sys_platform == 'linux'", url = "https://github.com/maci0/atheris/releases/download/atheris-v3.1.0-relumea.2/atheris-3.1.0%2Brelumea.2-cp315-cp315-linux_x86_64.whl" },
-    { name = "atheris", marker = "(python_full_version >= '3.15' and platform_machine != 'x86_64') or (python_full_version >= '3.16' and platform_machine == 'x86_64' and platform_python_implementation == 'CPython' and sys_platform == 'linux') or (python_full_version >= '3.15' and platform_python_implementation != 'CPython') or (python_full_version >= '3.15' and sys_platform != 'linux')", url = "https://github.com/maci0/atheris/releases/download/atheris-v3.1.0-relumea.2/atheris-3.1.0%2Brelumea.2.tar.gz" },
+    { name = "atheris", marker = "python_full_version >= '3.16' or (python_full_version == '3.15.*' and platform_machine != 'x86_64') or (python_full_version == '3.15.*' and platform_python_implementation != 'CPython') or (python_full_version == '3.15.*' and sys_platform != 'linux')", url = "https://github.com/maci0/atheris/releases/download/atheris-v3.1.0-relumea.2/atheris-3.1.0%2Brelumea.2.tar.gz" },
 ]
 m2c = [{ name = "m2c", git = "https://github.com/matt-kempster/m2c.git?rev=c632946b8cfbe8fce442b522dba92dfa72f1f317" }]
 similarity = [
@@ -1376,15 +1376,16 @@ dependencies = [
     { name = "sqlmodel" },
     { name = "tomli-w" },
     { name = "typer" },
+    { name = "tzdata", marker = "sys_platform == 'win32'" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "atheris", marker = "python_full_version < '3.15' and extra == 'fuzz'", specifier = ">=3.1.0" },
     { name = "atheris", marker = "python_full_version == '3.15.*' and platform_machine == 'x86_64' and platform_python_implementation == 'CPython' and sys_platform == 'linux' and extra == 'fuzz'", url = "https://github.com/maci0/atheris/releases/download/atheris-v3.1.0-relumea.2/atheris-3.1.0%2Brelumea.2-cp315-cp315-linux_x86_64.whl" },
-    { name = "atheris", marker = "(python_full_version >= '3.16' and platform_machine == 'x86_64' and platform_python_implementation == 'CPython' and sys_platform == 'linux' and extra == 'fuzz') or (python_full_version >= '3.15' and platform_machine != 'x86_64' and extra == 'fuzz') or (python_full_version >= '3.15' and platform_python_implementation != 'CPython' and extra == 'fuzz') or (python_full_version >= '3.15' and sys_platform != 'linux' and extra == 'fuzz')", url = "https://github.com/maci0/atheris/releases/download/atheris-v3.1.0-relumea.2/atheris-3.1.0%2Brelumea.2.tar.gz" },
+    { name = "atheris", marker = "(python_full_version == '3.15.*' and platform_machine != 'x86_64' and extra == 'fuzz') or (python_full_version == '3.15.*' and platform_python_implementation != 'CPython' and extra == 'fuzz') or (python_full_version == '3.15.*' and sys_platform != 'linux' and extra == 'fuzz') or (python_full_version >= '3.16' and extra == 'fuzz')", url = "https://github.com/maci0/atheris/releases/download/atheris-v3.1.0-relumea.2/atheris-3.1.0%2Brelumea.2.tar.gz" },
     { name = "black", marker = "extra == 'dev'", specifier = ">=26.5.1" },
-    { name = "datasketch", marker = "extra == 'dev'", specifier = ">=2" },
+    { name = "datasketch", marker = "extra == 'dev'", specifier = ">=2,<3" },
     { name = "duckdb", marker = "extra == 'duckdb'", specifier = ">=1.5.5" },
     { name = "duckdb-engine", marker = "extra == 'duckdb'", specifier = ">=0.17.0" },
     { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.168.1" },
@@ -1407,7 +1408,7 @@ requires-dist = [
     { name = "sqlmodel", specifier = ">=0.0.47" },
     { name = "tomli-w", specifier = ">=1.2.0" },
     { name = "typer", specifier = ">=0.27.2" },
-    { name = "tzdata", marker = "python_full_version < '3.15' and sys_platform == 'win32'", specifier = ">=2026.4" },
+    { name = "tzdata", marker = "sys_platform == 'win32'", specifier = ">=2026.4" },
 ]
 provides-extras = ["dev", "duckdb", "fuzz"]
 
