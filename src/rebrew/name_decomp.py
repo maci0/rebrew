@@ -400,7 +400,7 @@ def apply_known_names(
     # Anonymous pointer vars → evidence offsets (temps excluded already).
     # Only vars with pointer evidence are rewritten: a bare ``int`` loop
     # counter used in ``var + N`` address arithmetic must not be renamed.
-    parsed = parse_decomp_for_structs(text)
+    parsed = parse_decomp_for_structs(text, cast_index=False)
     # Only rewrite cast-index parameters when no other use could change meaning
     # after the parameter's type changes from a primitive pointer to a struct.
     if pointer_width in (4, 8):

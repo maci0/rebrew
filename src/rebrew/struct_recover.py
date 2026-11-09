@@ -384,7 +384,9 @@ class ParseResult:
     anonymous: dict[str, StructEvidence] = field(default_factory=dict)
 
 
-def parse_decomp_for_structs(text: str, max_offset: int = _MAX_MEMBER_OFFSET) -> ParseResult:
+def parse_decomp_for_structs(
+    text: str, max_offset: int = _MAX_MEMBER_OFFSET, *, cast_index: bool = True
+) -> ParseResult:
     """Parse decompiled C into named + anonymous pointer evidence.
 
     The base type of a pointer is taken from its declaration/cast when it is
@@ -398,6 +400,8 @@ def parse_decomp_for_structs(text: str, max_offset: int = _MAX_MEMBER_OFFSET) ->
     ``ParseResult.anonymous`` (compiler temporaries excluded); the caller
     decides what to synthesize from those.  *max_offset* filters out offsets
     that are really absolute addresses (pass the image base when known).
+    *cast_index* reads ``((T *)p)[N]`` accesses; :func:`rebrew.name_decomp.apply_known_names`
+    turns it off because it applies its own pointer-width gate to that form.
     """
     from rebrew.compiler.cache import mask_preprocessor_comments
 
@@ -479,7 +483,7 @@ def parse_decomp_for_structs(text: str, max_offset: int = _MAX_MEMBER_OFFSET) ->
         if elem is None or index is None:
             continue
         _record(var, index * elem, elem)
-    for m in CAST_INDEX_RE.finditer(text):
+    for m in CAST_INDEX_RE.finditer(text if cast_index else ""):
         width = type_width(m.group("type"))
         index = parse_member_index(m.group("idx"))
         if width is None or index is None:
