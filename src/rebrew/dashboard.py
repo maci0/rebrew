@@ -43,7 +43,7 @@ span's trace id, and ``REBREW_OTLP_ENDPOINT`` exports the spans over OTLP/HTTP
 Successful responses negotiate zstd then gzip with quality weights. ETags key
 on the live input version or portable file state plus the exact route/query;
 health is no-store. Static assets are content-hashed and precompressed. The
-entry checkpoint measured 12768 B zstd / 13416 B gzip against a 13600 B budget;
+entry checkpoint measured 12732 B zstd / 13375 B gzip against a 13600 B budget;
 host zlib versions can change gzip size. Tests enforce the wire budget.
 Reload re-reads the live view; view/target/filter navigation is stored in the
 URL hash. Details, API schema and transfer measurements live in
@@ -563,9 +563,7 @@ function syncViewChrome() {
   syncError();
 }
 function syncCardActive() {
-  // Status cards filter Functions only; pressed on another view, a card would
-  // claim a filter that view is not applying.
-  const current = currentView === "functions" ? $("status").value : "";
+  const current = currentView === "functions" ? $("status").value || "UNKNOWN" : "";
   document.querySelectorAll("#cards button[data-status]").forEach(btn => {
     const on = btn.getAttribute("data-status") === current;
     btn.classList.toggle("active", on);
@@ -772,7 +770,7 @@ function renderSummary(s) {
     const inner = "<span class=value>" + esc(v) + "</span> " + label + esc(k) + "</span>";
     const hintId = "card-desc-" + i;
     if (status) {
-      const pressed = currentView === "functions" && $("status").value === status;
+      const pressed = currentView === "functions" && ($("status").value || "UNKNOWN") === status;
       const active = pressed ? " active" : "";
       return "<button type=button class='card" + active + "' data-status='" + esc(status)
         + "' aria-describedby='" + hintId + "' aria-pressed='" + (pressed ? "true" : "false") + "'>"

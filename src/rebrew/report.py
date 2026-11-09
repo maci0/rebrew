@@ -54,6 +54,7 @@ from rebrew.cli import (
 from rebrew.status_style import (
     DISPLAY_STATUSES,
     STATUS_HEX,
+    STATUS_SUMMARIES,
     status_legend_rows,
     status_text_css,
 )
@@ -457,6 +458,14 @@ def _status_legend(statuses: set[str]) -> str:
         f"<dd>{html.escape(meaning)}</dd>"
         for status, meaning in rows
     )
+    # A table row saved without a STATUS prints the UNKNOWN the classifier
+    # gives it, so that token needs its own line beside the stored ones.
+    if "UNKNOWN" in statuses and all(status != "UNKNOWN" for status, _ in rows):
+        items += (
+            "<dt class='st status-UNKNOWN'>UNKNOWN</dt>"
+            f"<dd>{html.escape(STATUS_SUMMARIES['UNKNOWN'])}</dd>"
+        )
+        rows = [*rows, ("UNKNOWN", STATUS_SUMMARIES["UNKNOWN"])]
     return (
         f"<details class='legend'><summary>Status reference "
         f"({len(rows)})</summary><dl>{items}</dl></details>"
@@ -750,7 +759,12 @@ def _render_index(
     card_html = _cards(cards)
     # The cards print the tokens the legend explains, so the two travel
     # together: DISPLAY_STATUSES has a card whether or not the count is zero.
-    legend_html = _status_legend(set(sc) | set(DISPLAY_STATUSES))
+    shown = set(sc) | set(DISPLAY_STATUSES)
+    # A table row saved without a STATUS prints the UNKNOWN the classifier
+    # gives it, so that token needs its own line beside the stored ones.
+    if any(fn["status"] == "UNKNOWN" for fn in functions):
+        shown.add("UNKNOWN")
+    legend_html = _status_legend(shown)
 
     # 16-bit NE targets get their own card set (segments, VMTs).
     ne_html = ""
