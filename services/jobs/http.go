@@ -272,6 +272,10 @@ func apiError(w http.ResponseWriter, detail string, status int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("X-Frame-Options", "DENY")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
 	if status == http.StatusUnauthorized {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="rebrew-jobs"`)
 	}
@@ -284,7 +288,7 @@ func apiError(w http.ResponseWriter, detail string, status int) {
 
 func hostAllowed(host string) bool {
 	if host == "" {
-		return true
+		return false
 	}
 	h := host
 	if strings.Contains(h, ":") {
@@ -433,6 +437,8 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
 		// Every JSON request on this service declares its media type, as
 		// `rebrew ops serve` already requires on POST (415 otherwise).
 		if r.Method == http.MethodPost {

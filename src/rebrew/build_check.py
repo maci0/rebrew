@@ -70,7 +70,7 @@ MAKE_QUERY_TIMEOUT_S = 300.0
 # ``$(shell ...)`` while reading the file. Refuse the probe when the file or
 # any file it includes carries make function expansion.
 _MAKE_EXPANSION_RE = re.compile(
-    r"\$\(\s*(shell|info|warning|error|file|eval)\b|\$\{\s*(shell|info|warning|error|file|eval)\b"
+    r"\$\(\s*(shell|info|warning|error|file|eval|abspath|realpath|patsubst|subst|wildcard|foreach|if|origin|flavor|value|words|word|wordlist|firstword|lastword|dir|notdir|suffix|basename|addsuffix|addprefix|join|sort|strip|findstring|filter|filter-out|call|define|undefine|override|export|unexport|vpath|functions|split|version)\b|\$\{\s*(shell|info|warning|error|file|eval|abspath|realpath|patsubst|subst|wildcard|foreach|if|origin|flavor|value|words|word|wordlist|firstword|lastword|dir|notdir|suffix|basename|addsuffix|addprefix|join|sort|strip|findstring|filter|filter-out|call|define|undefine|override|export|unexport|vpath|functions|split|version)\b|\$\(\$|\$\{\$"
 )
 _MAKE_INCLUDE_RE = re.compile(r"^\s*-?(?:s?include)\s+(.+)$", re.M)
 
