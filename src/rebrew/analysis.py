@@ -737,6 +737,7 @@ _UTF16_PRINTABLE = set(range(0x20, 0x7F))
 #: byte walk in C.
 _ASCII_RUN = re.compile(rb"[\x20-\x7e]{4,}")
 _UTF16_RUN = re.compile(rb"(?:[\x20-\x7e]\x00){4,}")
+_PRINTABLE_RUN = re.compile(rb"[\x20-\x7e]+")
 
 
 @lru_cache(maxsize=64)
@@ -799,25 +800,33 @@ def _scan_pascal(raw: bytes, va: int, section: str, min_len: int) -> list[String
     """Scan for Pascal (length-prefixed) strings: ``len`` then *len* printable
     ASCII bytes.  Borland Delphi's RTL stores strings this way."""
     out: list[StringEntry] = []
-    i = 0
-    n = len(raw)
-    while i < n:
-        ln = raw[i]
-        if 1 <= ln <= _PASCAL_MAX_LEN and i + 1 + ln <= n:
-            body = raw[i + 1 : i + 1 + ln]
-            if all(b in _PRINTABLE for b in body) and ln >= min_len:
+    # A body is printable iff it lies inside one maximal printable run, so
+    # only positions whose body overlaps such a run can match.  Scanning
+    # candidates run-by-run (regex finds the runs in C) avoids a per-byte
+    # Python loop over the whole segment; results are identical because a
+    # match is exactly a run-contained body with a sufficient length byte.
+    for match in _PRINTABLE_RUN.finditer(raw):
+        s, e = match.start(), match.end()
+        if e - s < min_len:
+            continue
+        i = s - 1
+        last = e - min_len
+        while 0 <= i <= last:
+            ln = raw[i]
+            if min_len <= ln <= _PASCAL_MAX_LEN and i + 1 + ln <= e:
                 out.append(
                     StringEntry(
                         va=va + i,
                         size=1 + ln,
-                        text=body.decode("ascii", "replace"),
+                        text=raw[i + 1 : i + 1 + ln].decode("ascii", "replace"),
                         kind="pascal",
                         section=section,
                     )
                 )
                 i += 1 + ln
                 continue
-        i += 1
+            i += 1
+    out.sort(key=lambda entry: entry.va)
     return out
 
 

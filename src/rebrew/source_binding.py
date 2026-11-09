@@ -32,7 +32,7 @@ lazy from rebrew.metadata.bindings import derive_c_symbol
 lazy from rebrew.metadata.functions import get_entry, identity_file, load_metadata
 lazy from rebrew.metadata.source_provenance import function_definition_hashes
 lazy from rebrew.sources import iter_sources
-lazy from rebrew.utils import preset_module_key, read_source_text
+lazy from rebrew.utils import detect_source_encoding, preset_module_key, read_source_text
 
 app = typer.Typer(
     help="Review and change source bindings while retaining native inventory and evidence.",
@@ -140,10 +140,10 @@ def _change(
 
     def pin(path: Path, parsed_text: str | None = None) -> None:
         raw = path.read_bytes()
-        if parsed_text is not None and (
-            read_source_text(path)[0] != parsed_text or path.read_bytes() != raw
-        ):
-            raise ValueError(f"binding review input changed while parsing: {path}")
+        if parsed_text is not None:
+            text = raw.decode(detect_source_encoding(raw), errors="replace")
+            if text != parsed_text or path.read_bytes() != raw:
+                raise ValueError(f"binding review input changed while parsing: {path}")
         inputs[path.resolve()] = hashlib.sha256(raw).hexdigest()
 
     pin(cfg.target_binary)
