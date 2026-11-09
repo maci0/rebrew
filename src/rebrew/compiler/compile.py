@@ -1466,7 +1466,7 @@ def _compile_via_recompile(
     if job_socket:
         if job_socket != "/run/rebrew-job/owner.sock" or url != "http://rebrew-job":
             return None, "Invalid job compile transport configuration"
-        import secrets
+        import json as _json
 
         import httpx
 
@@ -1476,13 +1476,32 @@ def _compile_via_recompile(
             return None, "Job compile capability unavailable"
         if len(capability) != 64 or any(c not in "0123456789abcdef" for c in capability):
             return None, "Invalid job compile capability"
+        # Intent is the dedup token for a logical compile: deterministic
+        # from (compiler, source, flags, filename, emit_assembly), never
+        # random, so a retry or crash-restart replays the same intent and
+        # the mediator returns the retained result instead of re-executing
+        # the upstream compile. The Idempotency-Key already uses this
+        # digest; the Intent must match it, or every retry looks new.
+        intent = hashlib.sha256(
+            _json.dumps(
+                {
+                    "compiler": profile,
+                    "source": source_text,
+                    "flags": all_flags,
+                    "filename": source_path.name,
+                    "emit_assembly": emit_assembly,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
         client = httpx.Client(
             timeout=timeout,
             transport=httpx.HTTPTransport(uds=job_socket),
             trust_env=False,
             headers={
                 "X-Rebrew-Job-Capability": capability,
-                "X-Rebrew-Compile-Intent": secrets.token_hex(32),
+                "X-Rebrew-Compile-Intent": intent,
             },
         )
     else:
