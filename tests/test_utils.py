@@ -1786,6 +1786,20 @@ class TestTruncateText:
         assert truncate_text("abc", 0) == ""
         assert truncate_text("abc", -1) == ""
 
+    def test_hangul_jamo_cluster_not_split(self) -> None:
+        from rebrew.utils import truncate_text
+
+        # L+V+T (U+1100 U+1161 U+11A8, category Lo) is one cluster; cutting
+        # inside it would leave a bare choseong or broken syllable.
+        jamo = "\u1100\u1161\u11a8x"
+        assert truncate_text(jamo, 1) == ""
+        assert truncate_text(jamo, 2) == ""
+        assert truncate_text(jamo, 3) == "\u1100\u1161\u11a8"
+        assert truncate_text(jamo, 4) == jamo
+        # Precomposed LV (U+AC00) + trailing jamo.
+        assert truncate_text("\uac00\u11a8x", 1) == ""
+        assert truncate_text("\uac00\u11a8x", 2) == "\uac00\u11a8"
+
 
 class TestStripBidiFormat:
     """Invisible reordering characters must not reach a status column or DOM."""

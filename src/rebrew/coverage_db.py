@@ -23,8 +23,8 @@ from rebrew.metadata.data import (
     DATA_STATUS_UNCHECKED,
     DATA_STATUS_VERIFIED,
 )
-from rebrew.workspace.status import COVERAGE_DB_STATUSES, KNOWN_STATUSES
 from rebrew.utils import parse_int_literal as _parse_int_literal
+from rebrew.workspace.status import COVERAGE_DB_STATUSES, KNOWN_STATUSES
 lazy from rebrew.cli import (
     console,
     error_exit,

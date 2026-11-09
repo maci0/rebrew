@@ -841,7 +841,10 @@ def _merge_status_history(old: Any, new: list[dict[str, str]]) -> list[dict[str,
         triple = (row["old_status"], row["new_status"], row["updated_by"])
         moment = datetime.fromisoformat(row["changed_at"])
         prev_moment = last_seen.get(triple)
-        if prev_moment is not None and 0 <= (moment - prev_moment).total_seconds() <= _HISTORY_REPLAY_WINDOW_SECONDS:
+        if (
+            prev_moment is not None
+            and 0 <= (moment - prev_moment).total_seconds() <= _HISTORY_REPLAY_WINDOW_SECONDS
+        ):
             continue
         last_seen[triple] = moment
         merged.append(row)

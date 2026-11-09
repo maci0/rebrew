@@ -248,7 +248,7 @@ class PgsqlStore:
                         cache = getattr(connection, "_rebrew_present_cache", None)
                         if isinstance(cache, dict):
                             cache.pop(id(connection), None)
-                    except (AttributeError, TypeError):
+                    except AttributeError, TypeError:
                         pass
                 lock = int.from_bytes(
                     hashlib.sha256(self.project.encode()).digest()[:8], "big", signed=True

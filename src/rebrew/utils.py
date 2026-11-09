@@ -397,7 +397,8 @@ def truncate_text(text: str, max_chars: int) -> str:
     point would continue the cluster. Regional indicators (a flag is two
     of them) and emoji skin-tone modifiers (category ``Sk``, not a
     combining mark) continue a cluster too, as do tag characters
-    (U+E0020-U+E007F, subdivision flags), so a cut there backs off as
+    (U+E0020-U+E007F, subdivision flags) and Hangul Jamo vowels/trailing
+    consonants (category Lo, U+1160-U+11FF), so a cut there backs off as
     well rather than leaving a lone regional indicator or a bare base.
     A non-positive *max_chars* yields the empty string: ``text[:max_chars]``
     with a negative bound would silently drop the tail instead.
@@ -416,6 +417,7 @@ def truncate_text(text: str, max_chars: int) -> str:
             or "\ufe00" <= nxt <= "\ufe0f"
             or "\U0001f3fb" <= nxt <= "\U0001f3ff"
             or "\U000e0020" <= nxt <= "\U000e007f"
+            or _hangul_continues(prev, nxt)
             or (
                 "\U0001f1e6" <= nxt <= "\U0001f1ff"
                 and "\U0001f1e6" <= prev <= "\U0001f1ff"
@@ -426,6 +428,31 @@ def truncate_text(text: str, max_chars: int) -> str:
         else:
             break
     return cut
+
+
+def _hangul_continues(prev: str, nxt: str) -> bool:
+    """Whether *nxt* continues a Hangul Jamo cluster started by *prev*.
+
+    Hangul Jamo medial vowels (U+1160-U+11FF, category Lo) and trailing
+    consonants (U+11A8-U+11FF) are not combining marks, so the Mn/Mc/Me
+    check misses them: truncating ``각`` (L+V+T) at one or two code
+    points would leave a bare choseong or choseong+jungseong that
+    renders as a broken syllable.  UAX #29 GB6-GB8: L x (L|V|LV|LVT),
+    (LV|V) x (V|T), (LVT|T) x T.  Precomposed LV/LVT syllables are
+    U+AC00-U+D7A3.
+    """
+    o_prev, o_nxt = ord(prev), ord(nxt)
+    if not (0x1100 <= o_prev <= 0x11FF or 0xAC00 <= o_prev <= 0xD7A3):
+        return False
+    if 0x1100 <= o_prev <= 0x115F:  # L
+        return 0x1100 <= o_nxt <= 0x11FF or 0xAC00 <= o_nxt <= 0xD7A3
+    if 0x1160 <= o_prev <= 0x11FF:  # V or T
+        # V (U+1160-U+11A7) continues with V or T; T (U+11A8-U+11FF) only with T.
+        return 0x1160 <= o_nxt <= 0x11FF if o_prev <= 0x11A7 else 0x11A8 <= o_nxt <= 0x11FF
+    # Precomposed LV (no trailing) or LVT (with trailing)
+    if (o_prev - 0xAC00) % 28 == 0:  # LV
+        return 0x1160 <= o_nxt <= 0x11FF
+    return 0x11A8 <= o_nxt <= 0x11FF  # LVT
 
 
 def _ri_run(text: str) -> int:

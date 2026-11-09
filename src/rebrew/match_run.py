@@ -475,7 +475,7 @@ def _save_solution(
             collect_out.append(entry)
             return
         save_solution(cfg.root, entry)
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         # Operator abort, not a save failure: re-raise so a Ctrl+C landing
         # in the save path stops the run instead of falling through to the
         # next stub and burning hours of GA after stop was requested.

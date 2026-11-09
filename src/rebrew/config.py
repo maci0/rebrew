@@ -1827,7 +1827,7 @@ def check_env_recompile_api_key(raw: str) -> None:
 
 
 def check_env_ops_token(raw: str, *, name: str = "REBREW_OPS_TOKEN") -> None:
-    if raw.strip() and len(raw.strip()) < 32:
+    if raw.strip() and len(raw.strip().encode("utf-8")) < 32:
         raise ConfigError(f"{name} must contain at least 32 bytes")
 
 
@@ -1949,6 +1949,7 @@ def check_env_job_docker_image(raw: str) -> None:
             f"REBREW_JOB_DOCKER_IMAGE={value!r} must be a sha256: image id "
             "(sha256: followed by 64 lowercase hex digits)"
         )
+
 
 
 def check_env_ops_allowed_hosts(raw: str) -> None:

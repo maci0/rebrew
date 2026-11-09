@@ -158,9 +158,7 @@ def _attach_server_log_handler() -> Callable[[], None]:
     from rebrew.utils import remove_identity
 
     handler = logging.StreamHandler(console.file)
-    formatter = logging.Formatter(
-        f"%(asctime)s {_LOG_LEVEL_FORMAT} %(message)s", _LOG_TIME_FORMAT
-    )
+    formatter = logging.Formatter(f"%(asctime)s {_LOG_LEVEL_FORMAT} %(message)s", _LOG_TIME_FORMAT)
     formatter.converter = time.gmtime
     handler.setFormatter(formatter)
     handler.set_name(_OPS_HANDLER_NAME)
@@ -4105,7 +4103,7 @@ def serve_command(
     token = os.environ.get(TOKEN_ENV, "").strip()
     if not token:
         error_exit(f"{TOKEN_ENV} is not set; serve answers only bearer-authenticated calls")
-    if len(token) < 32:
+    if len(token.encode("utf-8")) < 32:
         error_exit(f"{TOKEN_ENV} must contain at least 32 bytes")
     if workspace is None:
         error_exit("serve needs --workspace (or REBREW_OPS_WORKSPACE) to confine project paths")

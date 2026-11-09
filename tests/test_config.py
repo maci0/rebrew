@@ -2847,6 +2847,8 @@ class TestEnvKnobValidators:
         assert env_knob_errors({"REBREW_LLM_TIMEOUT": "2"})
         assert not env_knob_errors({"REBREW_RECOMPILE_INSECURE_CLUSTER_HOST": "a.svc"})
         assert not env_knob_errors({"REBREW_OPS_TOKEN": "x" * 32})
+        # Byte length, not code-point count: 16 two-byte chars are 32 bytes.
+        assert not env_knob_errors({"REBREW_OPS_TOKEN": "é" * 16})
         assert not env_knob_errors({"REBREW_OPS_ALLOWED_HOSTS": "example.com:8080"})
         # serve folds hosts (casefold + IDNA via fold_host) before the same
         # regex, so mixed-case and IDN names serve fine and must not be

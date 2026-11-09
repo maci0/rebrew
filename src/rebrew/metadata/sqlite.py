@@ -669,7 +669,7 @@ def _target_binary_relpaths(root: Path) -> list[Path]:
         return []
     try:
         raw = tomllib.loads(config.read_text(encoding="utf-8"))
-    except (ValueError, OSError):
+    except ValueError, OSError:
         return []
     targets = raw.get("targets")
     if not isinstance(targets, dict):
