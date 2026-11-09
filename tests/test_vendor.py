@@ -222,7 +222,7 @@ class TestVendor:
         def hung(*args: object, **kwargs: object) -> None:
             raise subprocess.TimeoutExpired(cmd=args[0] if args else "patch", timeout=60)
 
-        monkeypatch.setattr("rebrew.vendor.subprocess.run", hung)
+        monkeypatch.setattr("rebrew.vendor.run_process_group", hung)
         with pytest.raises(VendorError, match="did not apply within"):
             vendor_trees(tmp_path, [manifest], write=True)
         assert "return 2;" in (tmp_path / "lib/f.c").read_text()

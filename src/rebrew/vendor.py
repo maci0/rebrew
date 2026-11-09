@@ -151,15 +151,9 @@ def stage(manifest: Manifest, stage_root: Path) -> Path:
         shutil.copyfile(manifest.pristine / name, target / name)
     for patch in manifest.patches:
         # The stdlib has no unified-diff applier; GNU patch is the one dependency here.
-        # run_process_group kills the whole group on timeout; subprocess.run is
-        # kept for tests that patch it. Pick whichever the caller patched.
-        _runner: Any
-        if getattr(subprocess.run, "__module__", "subprocess") != "subprocess":
-            _runner = subprocess.run
-        else:
-            _runner = run_process_group
+        # run_process_group kills the whole group on timeout.
         try:
-            result = _runner(
+            result = run_process_group(
                 [
                     "patch",
                     "-p1",

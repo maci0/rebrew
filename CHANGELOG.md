@@ -2,6 +2,7 @@
 
 ### Removed
 
+- `rebrew.vendor` no longer falls back to a patched `subprocess.run` when applying patches; it always uses `run_process_group` (the fallback existed only for one test, which now patches `rebrew.vendor.run_process_group`).
 - **Breaking:** `rebrew.metadata.functions` no longer re-exports `KNOWN_STATUSES` and `MATCHED_STATUSES`; import them from `rebrew.workspace.status`. No caller read them from `rebrew.metadata.functions` in any repo under `relumea/repos` except one test, now pointed at the owner.
 
 ## [6.26.1] - 2026-11-09
