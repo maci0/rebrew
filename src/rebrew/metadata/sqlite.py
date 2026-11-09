@@ -765,7 +765,7 @@ def _binsync_state_relpaths(root: Path) -> list[Path]:
     if not config.is_file():
         return []
     try:
-        raw = tomllib.loads(config.read_text(encoding="utf-8"))
+        raw = tomllib.loads(config.read_text(encoding="utf-8-sig"))
     except ValueError, OSError:
         return []
     targets = raw.get("targets")
@@ -793,7 +793,7 @@ def _target_binary_relpaths(root: Path) -> list[Path]:
     if not config.is_file():
         return []
     try:
-        raw = tomllib.loads(config.read_text(encoding="utf-8"))
+        raw = tomllib.loads(config.read_text(encoding="utf-8-sig"))
     except ValueError, OSError:
         return []
     targets = raw.get("targets")
