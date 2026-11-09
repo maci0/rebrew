@@ -105,6 +105,23 @@ def record_native_identity(
             or {k: entry[k] for k in FUNCTION_IDENTITY_FIELDS if k in entry} != evidence["claim"]
         ):
             raise ValueError("native library claim changed since review")
+        # A re-review of the same proof (retry, crash-restart, rerun) must
+        # not rewrite the store: the receipt it would publish differs only
+        # in ``reviewed_at`` (wall clock fresh on every receipt), so an
+        # unconditional write churns the TOML on every replay.  Compare
+        # with the instant aside, as ``record_verification`` does: an
+        # identical proof keeps the stored receipt, its instant included.
+        stored = entry.get("native_identity")
+        if isinstance(stored, dict):
+            # tomlkit Tables are not plain dicts (``size`` arrives as a
+            # tomlkit Integer, so the validator's ``type(...) is int``
+            # rejects it): compare the stored proof in plain Python
+            # instead, with the instant aside.
+            stored_proof = {k: copy.deepcopy(v) for k, v in stored.items()}
+            if {k: v for k, v in stored_proof.items() if k != "reviewed_at"} == {
+                k: v for k, v in evidence.items() if k != "reviewed_at"
+            }:
+                return
         entry["native_identity"] = evidence
         stamp_format(doc)
         metadata_store(path).write(doc, "metadata")
