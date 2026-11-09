@@ -9,6 +9,7 @@ lazy from typing import Any
 
 lazy from rebrew.metadata.document import (
     load_metadata_for_write,
+    parse_stamp,
     resolve_metadata_key,
     stamp_format,
 )
@@ -53,9 +54,7 @@ def validate_native_identity(value: Any) -> dict[str, Any]:
         raise ValueError("native identity reason must contain 1–2000 characters")
     if not isinstance(value["reviewed_at"], str):
         raise ValueError("native identity review time requires a timezone")
-    stamp = datetime.fromisoformat(value["reviewed_at"])
-    if stamp.tzinfo is None or stamp.utcoffset() is None:
-        raise ValueError("native identity review time requires a timezone")
+    stamp = parse_stamp(value["reviewed_at"], field="native identity review time")
     # Normalize to UTC like status_history / binding_history, so one instant
     # has one spelling regardless of the offset it was reviewed in.
     value = {**value, "reviewed_at": stamp.astimezone(UTC).isoformat()}

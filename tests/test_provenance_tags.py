@@ -193,3 +193,28 @@ class TestStampTimezone:
         # An offset-aware caller instant is re-rendered in UTC, not leaked as-is.
         aware = datetime(2026, 1, 2, 5, 4, 5, tzinfo=timezone(timedelta(hours=2)))
         assert stamp_now(aware) == "2026-01-02T03:04:05+00:00"
+
+
+class TestParseStamp:
+    @pytest.mark.parametrize("spelling", ["2026-01-02T03:04:05Z", "2026-01-02T03:04:05z"])
+    def test_z_spellings_normalize_to_utc(self, spelling: str) -> None:
+        from rebrew.metadata.document import parse_stamp
+
+        assert parse_stamp(spelling, field="changed_at").isoformat() == "2026-01-02T03:04:05+00:00"
+
+    @pytest.mark.parametrize("bad", ["garbage", "2026-01-02T03:04:05", ""])
+    def test_unparseable_or_zoneless_raises_field_error(self, bad: str) -> None:
+        from rebrew.metadata.document import parse_stamp
+
+        with pytest.raises(ValueError, match="changed_at requires a timezone"):
+            parse_stamp(bad, field="changed_at")
+
+    def test_history_event_accepts_lowercase_z(self) -> None:
+        from rebrew.metadata.functions import _history_event
+
+        row = {"old_status": "UNKNOWN", "new_status": "STUB", "updated_by": "x"}
+        assert _history_event({**row, "changed_at": "2026-01-02T03:04:05z"})["changed_at"] == (
+            "2026-01-02T03:04:05+00:00"
+        )
+        with pytest.raises(ValueError, match="status history changed_at requires a timezone"):
+            _history_event({**row, "changed_at": "garbage"})

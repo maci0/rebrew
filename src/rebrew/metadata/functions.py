@@ -36,6 +36,7 @@ lazy from rebrew.metadata.document import (
     clear_metadata_doc_cache,
     load_metadata_doc,
     load_metadata_for_write,
+    parse_stamp,
     pop_metadata_doc_cache,
     resolve_metadata_key,
     stamp_format,
@@ -810,9 +811,7 @@ def _history_event(row: Any) -> dict[str, str]:
     for key in ("old_status", "new_status"):
         if row[key] not in KNOWN_STATUSES | {"UNKNOWN"}:
             raise ValueError(f"unknown history status {row[key]!r}")
-    stamp = datetime.fromisoformat(row["changed_at"])
-    if stamp.tzinfo is None or stamp.utcoffset() is None:
-        raise ValueError("status history changed_at requires a timezone")
+    stamp = parse_stamp(row["changed_at"], field="status history changed_at")
     return {**row, "changed_at": stamp.astimezone(UTC).isoformat()}
 
 

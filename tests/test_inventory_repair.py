@@ -599,3 +599,31 @@ class TestReviewedRetirement:
                 cfg, {}, retire=[0x401000], reason="proof", expected_digest=preview["input_digest"]
             )
         assert len(json.loads(inventory.read_text())) == 2
+
+
+class TestChangedAtStamp:
+    def test_naive_now_is_stored_as_utc(self, tmp_path: Path) -> None:
+        from datetime import datetime
+
+        cfg, inventory = _project(tmp_path)
+        preview = repair_inventory_extents(
+            cfg,
+            {0x401000: 16},
+            reason="native body",
+            dry_run=True,
+            now=datetime(2025, 11, 2, 1, 30),  # noqa: DTZ001
+        )
+        assert preview["repairs"][0]["changed_at"] == "2025-11-02T01:30:00+00:00"
+
+    def test_foreign_offset_now_is_stored_in_utc(self, tmp_path: Path) -> None:
+        from datetime import datetime, timedelta, timezone
+
+        cfg, _inventory = _project(tmp_path)
+        preview = repair_inventory_extents(
+            cfg,
+            {0x401000: 16},
+            reason="native body",
+            dry_run=True,
+            now=datetime(2025, 6, 1, 12, 0, tzinfo=timezone(timedelta(hours=-4))),
+        )
+        assert preview["repairs"][0]["changed_at"] == "2025-06-01T16:00:00+00:00"

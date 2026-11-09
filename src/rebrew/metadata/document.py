@@ -61,6 +61,30 @@ def stamp_now(now: datetime | None, *, timespec: str = "auto") -> str:
     return moment.astimezone(UTC).isoformat(timespec=timespec)
 
 
+def parse_stamp(value: str, *, field: str) -> datetime:
+    """Parse an ISO 8601 stamp that must name its zone, as an aware datetime.
+
+    One trailing ``Z``/``z`` is normalized to ``+00:00`` before
+    :func:`datetime.fromisoformat`: the ``Z`` spelling is what the run log
+    and ``pe_info`` write, and ``fromisoformat`` rejects a lowercase ``z``
+    on every Python version, so a ``z``-stamped row would otherwise fail
+    here while :func:`rebrew.matcher.solutions._normalise_ts` accepts it.
+    A parse failure and a zone-less stamp raise the same ``ValueError``
+    naming *field*, so callers never surface the raw ``Invalid isoformat
+    string`` for a stamp that simply lacks its zone.
+    """
+    raw = value.strip()
+    if raw.endswith(("Z", "z")):
+        raw = raw[:-1] + "+00:00"
+    try:
+        stamp = datetime.fromisoformat(raw)
+    except ValueError:
+        raise ValueError(f"{field} requires a timezone") from None
+    if stamp.tzinfo is None or stamp.utcoffset() is None:
+        raise ValueError(f"{field} requires a timezone")
+    return stamp
+
+
 def metadata_format(path: Path) -> int:
     """Select the current schema and refuse the retired separate source store."""
     if path.name == "rebrew-functions.toml":

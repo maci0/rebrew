@@ -20,6 +20,7 @@ from rebrew.metadata.functions import (
 lazy from rebrew.metadata.document import (
     build_metadata_key_index,
     load_metadata_for_write,
+    parse_stamp,
     resolve_metadata_key,
     stamp_format,
     stamp_now,
@@ -61,9 +62,7 @@ def validate_binding_history(value: Any) -> list[dict[str, Any]]:
             raise ValueError("binding reason must contain 1–2000 characters")
         if not isinstance(event["changed_at"], str):
             raise ValueError("binding history changed_at requires a timezone")
-        stamp = datetime.fromisoformat(event["changed_at"])
-        if stamp.tzinfo is None or stamp.utcoffset() is None:
-            raise ValueError("binding history changed_at requires a timezone")
+        stamp = parse_stamp(event["changed_at"], field="binding history changed_at")
         # Normalize to UTC like status_history, so lexicographic ordering of
         # changed_at is chronological and Z/+02:00 spellings of one instant
         # don't sort as different times.

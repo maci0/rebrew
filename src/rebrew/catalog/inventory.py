@@ -4,11 +4,12 @@ from __future__ import annotations
 
 lazy import hashlib
 lazy import json
-lazy from datetime import UTC, datetime
+lazy from datetime import datetime
 lazy from typing import Any
 
 lazy from rebrew.config import ProjectConfig, inventory_path_for
 lazy from rebrew.formats.binary_loader import load_binary
+lazy from rebrew.metadata.document import stamp_now
 lazy from rebrew.utils import atomic_write_text, file_lock, parse_int_literal
 
 
@@ -66,8 +67,12 @@ def repair_inventory_extents(
     # Retirement receipts return complete original rows; source identity and
     # earned verdicts remain in their separate metadata owner.
     # Single wall-clock seam: callers supplying *now* get byte-identical
-    # replays; default reads the clock once per invocation.
-    changed_at = (now or datetime.now(UTC)).isoformat()
+    # replays; default reads the clock once per invocation.  stamp_now
+    # normalizes a zone-less *now* to UTC and converts any other offset to
+    # +00:00, so extent_history never carries an offset-less stamp (which
+    # sorts after every aware stamp of the same wall time) or a frozen
+    # foreign offset for the same instant.
+    changed_at = stamp_now(now)
     merge_list = _validate_merges(list(merges or []))
     retire_list = list(retire or [])
     if any(not isinstance(va, int) or isinstance(va, bool) or va < 0 for va in retire_list):
