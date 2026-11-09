@@ -25,7 +25,7 @@ def main(
     json_output: bool = typer.Option(
         False,
         "--json",
-        help="Output results as JSON (schema is always JSON; accepted for consistency)",
+        help="Output results as JSON",
     ),
 ) -> None:
     """Print the clispec 0.3 JSON document for this CLI."""
