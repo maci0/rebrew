@@ -25,7 +25,6 @@ from rebrew.matcher.mutations.queries import (
     LazyQuery,
 )
 lazy from rebrew.matcher.mutations.runtime import (
-    assign_zero_targets,
     brace_block,
     capture,
     commute_operands,
@@ -34,6 +33,7 @@ lazy from rebrew.matcher.mutations.runtime import (
     pick_match,
     query_cursor,
     statement_region_start,
+    toggle_zero_assignment,
 )
 
 # --- Queries for Phase 5 mutations ---
@@ -297,29 +297,13 @@ def mut_zero_to_bitand(s: str, rng: random.Random) -> str | None:
     Using ``var &= 0`` instead of ``var = 0`` can trigger the
     ``and`` instruction form instead of ``mov [mem], 0``.
     """
-    b_source = encode_source(s)
-    tree = parse_c_ast(b_source)
-
-    candidates: list[tuple[dict[str, ts.Node], bytes, str]] = []
-
-    # Forward: var = 0 → var &= 0
-    for caps, var in assign_zero_targets(b_source, tree):
-        candidates.append((caps, var + b" &= 0;", "expr"))
-
-    # Reverse: var &= 0 → var = 0
-    bitand_cursor = query_cursor(_QUERY_BITAND_ZERO)
-    for m in bitand_cursor.matches(tree.root_node):
-        caps = first_caps(m[1])
-        var = b_source[caps["var"].start_byte : caps["var"].end_byte]
-        candidates.append((caps, var + b" = 0;", "expr"))
-
-    if not candidates:
-        return None
-
-    caps, replacement, target_key = rng.choice(candidates)
-    target = caps[target_key]
-    result = b_source[: target.start_byte] + replacement + b_source[target.end_byte :]
-    return decode_source(result)
+    return toggle_zero_assignment(
+        s,
+        rng,
+        forward_fn=lambda var: var + b" &= 0;",
+        reverse_query=_QUERY_BITAND_ZERO,
+        reverse_replacement=b" = 0;",
+    )
 
 
 # ---------------------------------------------------------------------------

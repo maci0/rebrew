@@ -48,6 +48,7 @@ __all__ = [
     "query_cursor",
     "set_target_range",
     "statement_region_start",
+    "toggle_zero_assignment",
     "under_postfix",
 ]
 
@@ -236,6 +237,33 @@ def assign_zero_targets(b_source: bytes, tree: ts.Tree) -> list[tuple[dict[str, 
             continue
         targets.append((caps, var))
     return targets
+
+
+def toggle_zero_assignment(
+    s: str,
+    rng: random.Random,
+    *,
+    forward_fn: Callable[[bytes], bytes],
+    reverse_query: ts.Query | LazyQuery,
+    reverse_replacement: bytes,
+) -> str | None:
+    """Toggle ``var = 0`` against its reverse form."""
+    b_source = encode_source(s)
+    tree = parse_c_ast(b_source)
+    candidates: list[tuple[dict[str, ts.Node], bytes, str]] = []
+    for caps, var in assign_zero_targets(b_source, tree):
+        candidates.append((caps, forward_fn(var), "expr"))
+    cursor = query_cursor(reverse_query)
+    for m in cursor.matches(tree.root_node):
+        caps = first_caps(m[1])
+        var = b_source[caps["var"].start_byte : caps["var"].end_byte]
+        candidates.append((caps, var + reverse_replacement, "expr"))
+    if not candidates:
+        return None
+    caps, replacement, target_key = rng.choice(candidates)
+    target = caps[target_key]
+    result = b_source[: target.start_byte] + replacement + b_source[target.end_byte :]
+    return decode_source(result)
 
 
 def find_function_body_insert_pos(source: bytes, ref_byte: int) -> int | None:

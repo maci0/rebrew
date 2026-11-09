@@ -94,7 +94,6 @@ lazy from rebrew.matcher.mutations.runtime import (
     RE_RET_FALSE_LABEL_NL,
     RE_SINK_RETURN,
     apply_query_once,
-    assign_zero_targets,
     brace_block,
     cap_bytes,
     capture,
@@ -105,6 +104,7 @@ lazy from rebrew.matcher.mutations.runtime import (
     pick_match,
     query_cursor,
     statement_region_start,
+    toggle_zero_assignment,
 )
 lazy from rebrew.utils import parse_c_integer_literal
 
@@ -1941,27 +1941,13 @@ def mut_postpre_increment(s: str, rng: random.Random) -> str | None:
 
 def mut_xor_zero_toggle(s: str, rng: random.Random) -> str | None:
     """Toggle x = 0 <-> x ^= x."""
-    b_source = encode_source(s)
-    tree = parse_c_ast(b_source)
-
-    candidates: list[tuple[dict[str, ts.Node], bytes, str]] = []
-
-    for caps, var in assign_zero_targets(b_source, tree):
-        candidates.append((caps, var + b" ^= " + var + b";", "expr"))
-
-    xor_cursor = query_cursor(QUERY_XOR_SELF)
-    for m in xor_cursor.matches(tree.root_node):
-        caps = first_caps(m[1])
-        var = b_source[caps["var"].start_byte : caps["var"].end_byte]
-        candidates.append((caps, var + b" = 0;", "expr"))
-
-    if not candidates:
-        return None
-
-    caps, replacement, target_key = rng.choice(candidates)
-    target = caps[target_key]
-    result = b_source[: target.start_byte] + replacement + b_source[target.end_byte :]
-    return decode_source(result)
+    return toggle_zero_assignment(
+        s,
+        rng,
+        forward_fn=lambda var: var + b" ^= " + var + b";",
+        reverse_query=QUERY_XOR_SELF,
+        reverse_replacement=b" = 0;",
+    )
 
 
 def mut_negate_condition(s: str, rng: random.Random) -> str | None:

@@ -1125,6 +1125,7 @@ def _retarget_rows(
     rows: list[tuple[str, int, str]],
     *,
     new_file: str | None,
+    writer: Callable[[Any, list[dict[str, Any]]], None],
 ) -> None:
     """Point *rows* at *new_file*, or back at the file each row had."""
     payload = [
@@ -1138,27 +1139,7 @@ def _retarget_rows(
     ]
     if not payload:
         return
-    record_function_rows(meta, payload)
-
-
-def _retarget_data_rows(
-    meta: Any,
-    rows: list[tuple[str, int, str]],
-    *,
-    new_file: str | None,
-) -> None:
-    payload = [
-        {
-            "module": module,
-            "va": va,
-            "identity": {"file": new_file if new_file is not None else old},
-        }
-        for module, va, old in rows
-        if new_file is not None or old
-    ]
-    if not payload:
-        return
-    record_data_rows(meta, payload)
+    writer(meta, payload)
 
 
 def _undo_retarget(
@@ -1173,9 +1154,9 @@ def _undo_retarget(
 ) -> None:
     try:
         if data_done:
-            _retarget_data_rows(meta, data_rows, new_file=None)
+            _retarget_rows(meta, data_rows, new_file=None, writer=record_data_rows)
         if functions_done:
-            _retarget_rows(meta, function_rows, new_file=None)
+            _retarget_rows(meta, function_rows, new_file=None, writer=record_function_rows)
     except Exception as undo_exc:
         error_exit(
             f"Merge did not finish ({exc}). The output was restored "
@@ -1210,10 +1191,10 @@ def _commit_definitions(
         else:
             publisher(output_path, merged_text.encode(out_encoding))
         if function_rows:
-            _retarget_rows(meta, function_rows, new_file=new_file)
+            _retarget_rows(meta, function_rows, new_file=new_file, writer=record_function_rows)
             functions_done = True
         if data_rows:
-            _retarget_data_rows(meta, data_rows, new_file=new_file)
+            _retarget_rows(meta, data_rows, new_file=new_file, writer=record_data_rows)
             data_done = True
     except UnicodeEncodeError as exc:
         if publisher is None:
