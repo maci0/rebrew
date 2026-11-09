@@ -30,10 +30,11 @@ from rebrew.compiler.toolchain import TOOLCHAINS, get_toolchain
 for name, spec in sorted(TOOLCHAINS.items()):
     print(name, spec.family, spec.bits, spec.obj_ext, spec.image)
 
-# `list_toolchains()` is the other view of the same table, one dict per
-# profile, with `origin` and the docker-present flag on each row. Reach for it
-# when you want those alongside the spec. `rebrew toolchain list --json`
-# prints `{"toolchains": list_toolchains(), "docker_available": <bool>}`:
+# `list_toolchains()` is the other view of the same registry snapshot, one
+# dict per profile, with `origin` (packaged vs plugin) and the docker-present
+# flag on each row. Reach for it when you want those alongside the spec.
+# `rebrew toolchain list --json` prints `{"toolchains": list_toolchains(),
+# "docker_available": <bool>}`:
 # the rows verbatim, wrapped in the envelope, so a consumer reads
 # `payload["toolchains"]` rather than parsing the table out of a list.
 
@@ -81,21 +82,24 @@ reads it back as the same exception class, so `result.error.retryable` and
 `result.error.kind` still work on a result loaded from JSON. `RebrewError`
 gains the same `to_dict()` / `from_dict()` pair for any other error you store.
 
-Every rebrew error type inherits `RebrewError` alongside its original
-built-in base (`RuntimeError`, `ValueError`, `FileNotFoundError`, `KeyError`),
-so a new error type in a later release lands
-in that handler instead of escaping it. The structured fields `kind`, `name`,
-`status_code` and `group` are declared on that base too, so one `except
+Every rebrew error type inherits `RebrewError` alongside one of the
+built-in bases its defining module chose (`RuntimeError`, `ValueError`,
+`FileNotFoundError`, `KeyError`, …), so a new error type in a later release
+lands in that handler instead of escaping it. The structured fields `kind`,
+`name`, `status_code` and `group` are declared on that base too, so one `except
 RebrewError` can read them without `getattr`; a field the arriving error does
 not fill is `None`, and a serialized error leaves it out.
 
 The clients that talk to a service take the HTTP client as an argument, so
 your tests never need a live one. `HttpClient` (from `rebrew.compiler.recompile_client`
 or `rebrew.decompme`) is the two-method shape those clients call: `.post` and
-`.get`. A stand-in that takes `**kwargs` satisfies both, so one fake covers
-both of them. What it returns is a reply, and that is typed too: `HttpResponse`
-names the members each transport reads. `rebrew.compiler.recompile_client` needs
-`status_code`, `text`, `json()` and `content` (the artifact bytes);
+`.get`. The two protocols differ in signature — `recompile_client` takes
+typed `json`/`headers`/`follow_redirects` keywords while `decompme` takes
+`**kwargs` — so a stand-in for one is not usable for the other without
+matching its signature. What it returns is a reply, and that is typed too:
+`HttpResponse` names the members each transport reads.
+`rebrew.compiler.recompile_client` needs `status_code`, `text`, `json()`,
+`content` (the artifact bytes) and `headers` (the Content-Length bound);
 `rebrew.decompme` needs the same minus `content` plus `close()`, because the
 module-level `httpx.post` / `httpx.get` reply owns a connection. An
 `httpx.Response` satisfies both, and a stand-in missing a member is a type
@@ -162,8 +166,9 @@ opens a session and terminates it on every exit path. Both take a `url` plus
 typed as `McpResponse` and has to carry `status_code`, `headers`, `text`,
 `json()` and `raise_for_status()`. That is the `FakeService` above with `delete`
 added, over a `_Reply` that also carries `headers` and `raise_for_status()`.
-`close()` is optional on both reply protocols, so a stand-in holding no
-connection to release is still a valid answer.
+`close()` is absent from both the `recompile_client` and MCP reply protocols
+(probed via `close_response`), so a stand-in holding no connection to release
+is still a valid answer; only the `decompme` protocol requires `close()`.
 
 Rebrew is 6.x. The CLI command names and flags and the
 `rebrew-project.toml` schema are frozen from 1.0.0: removing or renaming one,

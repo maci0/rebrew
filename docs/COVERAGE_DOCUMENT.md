@@ -155,14 +155,14 @@ document never holds a function no reader can key.
 | `va` | integer | Virtual address. |
 | `name` | string | Variable name. |
 | `decl` | string | C declaration (`int g_counter;`). |
-| `files` | array of strings | Declaration sites (legacy compatibility). |
+| `files` | array of strings | Declaration sites, copied from the catalog `files` list. Kept alongside `declared_in` for older readers. |
 | `owners` | array of strings | Source definition, `library:object`, linker import, or backing owner. Empty means unknown. |
 | `referenced_in` | array of strings | Syntactic users. |
 | `declared_in` | array of strings | Declaration sites, including headers. |
 | `storage_kind` | string | `object`, `alias`, `literal`, `span`, or `import`. |
 | `backing` | string | Backing allocation for an alias. |
 | `module` | string | Origin module. |
-| `size` | integer | Bytes; legacy display fallback `4` when the catalog gives no usable size. This is not a verification extent. |
+| `size` | integer | Bytes; display fallback `4` when the catalog gives no usable size. This is not a verification extent. |
 | `status` | string | Data verdict: `VERIFIED`, `DRIFT`, `UNCHECKED`, or `""` when never compared. |
 
 #### `verify_results`
