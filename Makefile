@@ -77,6 +77,12 @@ MATURIN_VERSION ?= 1.15.0
 # rather than hard-failing, mirroring the Rust/uv drift posture.
 JDK_VERSION ?= 21
 
+# Biome pin for the dashboard-JS gate (.pre-commit-config.yaml biome hook).
+# Must match the CI pre-commit job install (@biomejs/biome@<version> in
+# .github/workflows/ci.yml) and biome.json's $schema pin. warn-biome prints
+# this version so a contributor installs the same release CI validates with.
+BIOME_VERSION ?= 2.6.6
+
 # Single-file / nodeid override for the edit-test loop:
 #   make test-one T=tests/test_annotation_roundtrip.py
 #   make test-one T=tests/test_annotation_roundtrip.py::test_roundtrip_multi_target
@@ -456,7 +462,7 @@ warn-biome:
 	if ! command -v biome >/dev/null 2>&1; then \
 	  echo "WARNING: biome not on PATH; the pre-commit biome hook skips itself locally."; \
 	  echo "CI installs it, so a clean 'make check' here can still fail after push:"; \
-	  echo "  npm install -g @biomejs/biome"; \
+	  echo "  npm install -g @biomejs/biome@$(BIOME_VERSION)"; \
 	fi
 
 # Same warn-level shape, same consequence, for the W3C validator: the two
@@ -1108,7 +1114,7 @@ sdist-check: ensure-uv dist/rebrew.buildinfo
 	umask 022 && SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 \
 	  uv build --wheel --out-dir .sdist-check --build-constraints build-constraints.txt \
 	  --require-hashes "$$sdist"; \
-	$(UV_RUN_TOOLS) python tools/check_sdist_wheel.py "$$wheel" .sdist-check/*.whl; \
+	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 $(UV_RUN_TOOLS) python tools/check_sdist_wheel.py "$$wheel" .sdist-check/*.whl; \
 	rm -rf .sdist-check
 
 # Install the built wheel into a throwaway venv and smoke-import it (CI

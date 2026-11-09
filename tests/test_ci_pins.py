@@ -1740,6 +1740,29 @@ class TestCiPins:
             f"Makefile BUN_VERSION={m.group(1)} != CI bun-version={ci_bun.group(1)}"
         )
 
+    def test_biome_pin_aligned_across_makefile_ci_and_schema(self) -> None:
+        """Biome version must match in Makefile, CI install, and biome.json.
+
+        CI installs via npm; a contributor following warn-biome's hint
+        installs the Makefile pin.  Drift installs different linters.
+        """
+        text = MAKEFILE.read_text(encoding="utf-8")
+        m = re.search(r"(?m)^BIOME_VERSION\s*\?=\s*(\S+)\s*$", text)
+        assert m is not None, "BIOME_VERSION missing from Makefile"
+        ci = CI_YML.read_text(encoding="utf-8")
+        ci_biome = re.search(r"@biomejs/biome@(\S+)", ci)
+        assert ci_biome is not None, "biome install missing from CI"
+        assert m.group(1) == ci_biome.group(1), (
+            f"Makefile BIOME_VERSION={m.group(1)} != CI biome={ci_biome.group(1)}"
+        )
+        schema = (ROOT / "biome.json").read_text(encoding="utf-8")
+        schema_v = re.search(r"schemas/(\S+)/schema\.json", schema)
+        assert schema_v is not None, "biome.json $schema pin missing"
+        assert m.group(1) == schema_v.group(1), (
+            f"Makefile BIOME_VERSION={m.group(1)} != biome.json schema={schema_v.group(1)}"
+        )
+        assert "npm install -g @biomejs/biome@" in text, "warn-biome must print pinned install"
+
     def test_native_runner_prerequisites_cover_every_python_matrix_entry(self) -> None:
         import yaml
 

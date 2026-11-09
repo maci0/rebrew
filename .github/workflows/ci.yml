@@ -336,7 +336,12 @@ jobs:
         # when the binary is missing, so the dashboard-JS gate exists only
         # if this step runs.  Pinned release, installed via npm (biome has
         # no apt package); the version must match biome.json's schema pin.
-        run: npm install -g @biomejs/biome@2.6.6
+        # `set -euo pipefail` so an npm failure fails the job instead of
+        # letting the pre-commit step below run without biome and pass.
+        run: |
+          set -euo pipefail
+          npm install -g @biomejs/biome@2.6.6
+          biome --version
       - name: Run pre-commit hooks
         env:
           SKIP: ruff-check,ruff-format,mypy
