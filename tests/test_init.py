@@ -1873,6 +1873,27 @@ class TestRefreshAgentsPrunesStaleSkills:
         self._render(root, {"keep/SKILL.md": b"# k\n"}, monkeypatch)
         assert edited.read_text(encoding="utf-8") == "# old, hand-edited\n"
 
+    def test_corrupt_manifest_is_ignored_on_rerun(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A crash mid-manifest-write leaves a torn JSON file. A rerun must
+        # treat it as no manifest (leaving every file on disk untouched),
+        # not raise, so refresh converges instead of failing forever.
+        from rebrew.init import _load_scaffold_manifest
+
+        root = self._project(tmp_path)
+        self._render(root, {"keep/SKILL.md": b"# k\n"}, monkeypatch)
+        manifest = root / ".agents/skills/.rebrew-scaffold.json"
+        manifest.write_text("{torn", encoding="utf-8")
+
+        assert _load_scaffold_manifest(root) == {}
+
+        self._render(root, {"keep/SKILL.md": b"# k\n"}, monkeypatch)
+        assert (root / ".agents/skills/keep/SKILL.md").is_file()
+        manifest.write_text("{torn", encoding="utf-8")
+        self._render(root, {"keep/SKILL.md": b"# k\n"}, monkeypatch)
+        assert (root / ".agents/skills/keep/SKILL.md").is_file()
+
     def test_manifest_outside_the_project_is_ignored(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
