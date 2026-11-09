@@ -34,8 +34,11 @@ func TestCompileMediatorMethodNotAllowed(t *testing.T) {
 	if w := send(http.MethodGet, "/api/v1/compile"); w.Code != 405 || w.Header().Get("Allow") != http.MethodPost {
 		t.Fatalf("GET compile: %d Allow=%q", w.Code, w.Header().Get("Allow"))
 	}
-	if w := send(http.MethodPost, "/api/v1/artifacts/abcdef123456.o"); w.Code != 405 || w.Header().Get("Allow") != http.MethodGet {
+	if w := send(http.MethodPost, "/api/v1/artifacts/abcdef123456.o"); w.Code != 405 || w.Header().Get("Allow") != "GET, HEAD" {
 		t.Fatalf("POST artifact: %d Allow=%q", w.Code, w.Header().Get("Allow"))
+	}
+	if w := send(http.MethodHead, "/api/v1/artifacts/abcdef123456.o"); w.Code != http.StatusNotFound || w.Body.Len() != 0 {
+		t.Fatalf("HEAD artifact mirrors GET: %d body=%q", w.Code, w.Body.String())
 	}
 	if w := send(http.MethodGet, "/api/v1/nope"); w.Code != 404 {
 		t.Fatalf("unknown path: %d", w.Code)

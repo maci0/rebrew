@@ -320,6 +320,7 @@ func (m *CompileMediator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if r.Context().Err() != nil {
@@ -440,7 +441,7 @@ func (m *CompileMediator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		log.Printf("level=info msg=compile_admitted intent=%q compiler=%q key=%q", v.Intent, payload.Compiler, v.Key)
 		return
 	}
-	if r.Method == http.MethodGet && validArtifact(r.URL.Path) {
+	if (r.Method == http.MethodGet || r.Method == http.MethodHead) && validArtifact(r.URL.Path) {
 		id := r.Header.Get("X-Rebrew-Compile-Intent")
 		v, err := m.readOriginal(id)
 		if err != nil || v.Artifact != r.URL.Path || len(v.Result) == 0 {
@@ -476,20 +477,23 @@ func (m *CompileMediator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/octet-stream")
-		_, _ = w.Write(body)
+		if r.Method != http.MethodHead {
+			_, _ = w.Write(body)
+		}
 		log.Printf("level=info msg=compile_artifact_ok intent=%q bytes=%d", id, len(body))
 		return
 	}
 	// Known path with wrong method: 405 with Allow, like the jobs API /
 	// dashboard / ops on a served path, rather than 404 which would claim
-	// the resource is missing.
+	// the resource is missing.  HEAD mirrors GET (RFC 9110 §9.3.2) exactly
+	// as the jobs API advertises Allow: GET, HEAD on its readable routes.
 	if r.URL.Path == "/api/v1/compile" {
 		w.Header().Set("Allow", http.MethodPost)
 		apiError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	if validArtifact(r.URL.Path) {
-		w.Header().Set("Allow", http.MethodGet)
+		w.Header().Set("Allow", "GET, HEAD")
 		apiError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
