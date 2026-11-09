@@ -34,7 +34,7 @@ Axes are per-profile (MSVC `/` flags, Watcom `-os/-ot/…`, Borland `-O1/-O2`,
 16-bit MSVC). Fetch pinned images with `rebrew toolchain pull <profile>`; execution uses the
 configured backend. Try `/O2`
 or `/O1` by hand before a blind sweep; heuristics:
-`references/codegen-hints.md`. Counts: `docs/FLAG_SWEEP_TIERS.md`.
+`codegen-hints.md` (same directory). Counts: `docs/FLAG_SWEEP_TIERS.md`.
 
 ## Batch matching (`match batch`)
 

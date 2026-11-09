@@ -11,9 +11,9 @@ description: >-
 license: MIT
 ---
 
-Work loop: `todo` → library check → native review → C → `test`/`diff` → `verify`/lint. Use matching when edits stop improving bytes.
-
 # Rebrew Workflow
+
+Work loop: `todo` → library check → native review → C → `test`/`diff` → `verify`/lint. Use matching when edits stop improving bytes.
 
 Invoke tools as `rebrew <command>`. Names such as `rebrew-workflow` identify
 skills, not executables. Build tools also use the umbrella: CMake invokes

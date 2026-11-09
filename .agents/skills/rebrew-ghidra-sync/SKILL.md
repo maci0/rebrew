@@ -6,7 +6,8 @@ description: >-
   resolution, provenance, git-backed state, and related-target overlays). Use
   ReVa only for live Ghidra structural operations: function creation,
   bookmarks, and data-label pulls. Trigger: "sync with Ghidra", "push/pull
-  to Ghidra", "BinSync", "ReVa". Use rebrew-workflow for local C edits.
+  to Ghidra", "import/export names to Ghidra", "rename in Ghidra",
+  "BinSync", "ReVa". Use rebrew-workflow for local C edits.
 license: MIT
 ---
 

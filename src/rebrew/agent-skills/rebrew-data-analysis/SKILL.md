@@ -5,7 +5,8 @@ description: >-
   complete extents, BSS gaps, dispatch tables/vtables, relocation mismatches,
   missing globals, and cross-TU type conflicts). Covers data layout repairs
   and stored verdict accounting. Trigger: "fix this global", "missing global",
-  "BSS gap", "vtable/dispatch table", "data layout", "type conflict".
+  "XX rows", "missing_globals", "relocation mismatch", "BSS gap",
+  "vtable/dispatch table", "data layout", "type conflict".
   Use rebrew-ghidra-sync for external data imports and rebrew-workflow for
   function bodies.
 license: MIT
