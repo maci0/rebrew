@@ -1670,6 +1670,12 @@ class TestFloorPct:
         assert floor_pct(10**400, 10**400) == 100.0
         assert floor_pct(10**400, 2 * 10**400) == 50.0
 
+    def test_huge_ratio_saturates_instead_of_crashing(self) -> None:
+        # 10**500 / 10**100 overflows int/int to float (OverflowError at
+        # the division, not in isfinite): the share is far above 100%, so
+        # saturate like the float-overflow path instead of crashing.
+        assert floor_pct(10**500, 10**100) == 1000000.0
+
 
 class TestClipSpan:
     def test_last_start_is_never_clipped(self) -> None:

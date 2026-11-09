@@ -551,7 +551,13 @@ def floor_pct(part: float, whole: float, decimals: int = 1) -> float:
     scale = float(10**decimals)
     # Divide first: 100 * part overflows near float max. The inner round
     # absorbs float error (57.3 * 10 = 572.99...).
-    ratio = part / whole
+    try:
+        ratio = part / whole
+    except OverflowError:
+        # int/int of huge ints whose quotient exceeds float range
+        # (10**500 / 10**100): the share is far above 100%, so saturate
+        # like the finite-overflow path below instead of crashing a report.
+        return float(10**6) if part > 0 else 0.0
     result = 100.0 * ratio * scale if math.isfinite(ratio) else ratio
     if not math.isfinite(result):
         # The percent overflowed float (ratio > ~1e306, e.g. 1e308/1):
