@@ -30,6 +30,7 @@ from rebrew.cli import (
     WATCH_FILE_HELP,
     TargetOption,
     console,
+    ensure_watch_terminal,
     error_exit,
     json_print,
     option_default,
@@ -597,6 +598,8 @@ def main(
     """Compile a reversed function and show a byte diff against the target."""
     if option_default(watch, False) and option_default(json_output, False):
         error_exit("--watch is terminal-only; omit --json", json_mode=True)
+    if option_default(watch, False):
+        ensure_watch_terminal(json_mode=option_default(json_output, False))
     dry_run = option_default(dry_run, False)
     fix_blocker = option_default(fix_blocker, False)
     if dry_run and not fix_blocker:

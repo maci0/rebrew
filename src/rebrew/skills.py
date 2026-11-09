@@ -240,7 +240,7 @@ def list_skills(
         return
 
     if not skills:
-        console.print("[yellow]No skills found under agent-skills/.[/yellow]")
+        _stdout_console.print("[yellow]No skills found under agent-skills/.[/yellow]")
         return
 
     table = TerminalTable(show_header=True, header_style="bold")
@@ -249,7 +249,7 @@ def list_skills(
     for s in skills:
         name = f"{s['name']} [dim](user)[/dim]" if s["origin"] == "user" else s["name"]
         table.add_row(name, s["first_line"] or s["description"][:80])
-    console.print(table)
+    _stdout_console.print(table)
 
 
 @app.command(

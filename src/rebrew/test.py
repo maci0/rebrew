@@ -50,6 +50,7 @@ from rebrew.cli import (
     all_items_option,
     all_targets_run,
     console,
+    ensure_watch_terminal,
     error_exit,
     json_print,
     option_default,
@@ -392,6 +393,8 @@ def main(
     """
     if option_default(watch, False) and option_default(json_output, False):
         error_exit("--watch is terminal-only; omit --json", json_mode=True)
+    if option_default(watch, False):
+        ensure_watch_terminal(json_mode=option_default(json_output, False))
     all_targets = option_default(all_targets, False)
     source_targets = option_default(source_targets, False)
     if all_targets:

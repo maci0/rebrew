@@ -54,6 +54,7 @@ from rebrew.cli import (
     TargetOption,
     all_items_option,
     console,
+    ensure_watch_terminal,
     error_exit,
     json_print,
     option_default,
@@ -1225,6 +1226,8 @@ def main(
     """Prove semantic equivalence of a NEAR_MATCHING/SIZE_MISMATCH function via symbolic execution."""
     if option_default(watch, False) and option_default(json_output, False):
         error_exit("--watch is terminal-only; omit --json", json_mode=True)
+    if option_default(watch, False):
+        ensure_watch_terminal(json_mode=option_default(json_output, False))
     all_sources = option_default(all_sources, False)
     ceiling_only = option_default(ceiling_only, False)
     max_delta = option_default(max_delta, None)

@@ -27,6 +27,7 @@ from rebrew.cli import (
     EXIT_ERROR,
     TargetOption,
     console,
+    ensure_watch_terminal,
     error_exit,
     json_print,
     require_config,
@@ -519,9 +520,13 @@ def watch(
     target: str | None = TargetOption,
 ) -> None:
     """Watch sources and export changes until interrupted."""
+    json_mode = _context_requests_json(ctx)
+    if json_mode:
+        error_exit("sync watch does not support JSON output; omit -o json to monitor changes", json_mode=True)
+    ensure_watch_terminal(json_mode=json_mode)
     execute_sync(
         state_dir=state_dir,
-        json_output=_context_requests_json(ctx),
+        json_output=json_mode,
         target=target,
         push=True,
         watch=True,

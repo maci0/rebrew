@@ -46,6 +46,8 @@ class TestJsonContracts:
             exported.append(out)
             return {}
 
+        monkeypatch.setattr("rebrew.cli.stdin_is_tty", lambda: True)
+        monkeypatch.setattr("rebrew.binsync.serial.require_declib", lambda json_mode=False: None)
         monkeypatch.setattr("rebrew.binsync.export.export_state", export)
         monkeypatch.setattr("rebrew.binsync.export.print_export_result", lambda *args, **kw: None)
         monkeypatch.setattr(

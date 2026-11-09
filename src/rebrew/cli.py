@@ -1177,6 +1177,22 @@ def stdin_is_tty() -> bool:
         return False
 
 
+def ensure_watch_terminal(*, json_mode: bool = False) -> None:
+    """Refuse ``--watch`` when stdin is not a terminal.
+
+    A watch loop runs until Ctrl+C.  Without a terminal it hangs forever in
+    CI/scripts, so it exits ``EXIT_ERROR`` instead.  ``--json`` is the other
+    refusal (already in the callers); this covers the text path.
+    """
+    if not stdin_is_tty():
+        error_exit(
+            "--watch requires a terminal (stdin is not a terminal)",
+            json_mode=json_mode,
+            kind="usage",
+            hint="Run --watch only from an interactive terminal.",
+        )
+
+
 def confirm_abort(prompt: str, *, skip_flag: str = "--force") -> None:
     """Ask *prompt* on stderr for a destructive action, aborting on "no".
 
@@ -1489,6 +1505,7 @@ __all__ = [
     "confirm_abort",
     "console",
     "effective_log_level",
+    "ensure_watch_terminal",
     "error_exit",
     "exit_130_on_interrupt",
     "json_mode_active",
