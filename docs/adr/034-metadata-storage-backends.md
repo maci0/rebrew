@@ -5,7 +5,9 @@
 
 ## Context
 
-Managed metadata has five domain owners, while readers, file watchers and review
+Managed metadata has four domain owners (functions, data, types and
+libraries; source evidence and purposes live under `[source]` in the format-3
+`rebrew-functions.toml`, per ADR-033), while readers, file watchers and review
 guards have also depended on physical TOML paths. Supporting another persistence
 format requires those consumers to share a storage boundary without moving
 schema validation, provenance or comparison verdict ownership into a backend.
@@ -14,9 +16,11 @@ schema validation, provenance or comparison verdict ownership into a backend.
 
 Use `metadata.storage.MetadataStore` for document reads, writes, discovery,
 fingerprints, snapshots and transactions. Keep the existing function, data,
-source-evidence, type and library APIs as domain owners. Project configuration
-remains `rebrew-project.toml` and selects `[metadata].backend`; TOML is the default.
-Optional factories register through `rebrew.metadata_backends`.
+type and library APIs as domain owners; source evidence is stored under
+`[source]` in `rebrew-functions.toml` per ADR-033, not as a fifth store.
+Project configuration remains `rebrew-project.toml` and selects
+`[metadata].backend`; TOML is the default. Optional factories register
+through `rebrew.metadata_backends`.
 
 The TOML backend retains main files and ownership-preserving `.d/*.toml` fragments.
 The experimental SQLite backend stores logical documents by project-relative
