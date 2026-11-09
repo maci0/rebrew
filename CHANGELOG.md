@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.29.1] - 2026-11-10
+
 ### Fixed
 
 - NE function discovery no longer stops early in a large code segment. The per-segment decode budget (`SWEEP_DECODE_BUDGET`) charged every prolog candidate the rest of the segment instead of the bytes it decoded, so a 64 KiB segment spent it after a few dozen functions and logged `decode budget exhausted` for the rest. A candidate is now charged what it decodes; a segment with no `ret` is still bounded. ski16.exe lists 141 functions (was 73).
