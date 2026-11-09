@@ -506,7 +506,7 @@ _FIND_STOCK_LIB = (
     "esac\n"
 )
 #: Characters ``find -iname`` would read as a pattern rather than a name.
-_ARCHIVE_NAME_FORBIDDEN = frozenset("/\\*?[]")
+_ARCHIVE_NAME_FORBIDDEN = frozenset("/\\*?[]\"'")
 
 
 def stock_lib_dir(profile: str, name: str) -> tuple[str, str]:

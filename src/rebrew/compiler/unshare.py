@@ -194,10 +194,18 @@ def _unpack(archive: Path, destination: Path) -> None:
             if member.issym() or member.islnk():
                 links.append(member)
             elif member.isdir():
+                if target.exists() and target.is_symlink():
+                    raise UnshareError(f"unsafe image archive path: {member.name}")
                 target.mkdir(parents=True, exist_ok=True)
+                if not target.is_relative_to(destination.resolve()):
+                    raise UnshareError(f"unsafe image archive path: {member.name}")
                 directories.append((target, member.mode & 0o1777, member.mtime))
             elif member.isfile():
+                if target.parent.exists() and target.parent.is_symlink():
+                    raise UnshareError(f"unsafe image archive path: {member.name}")
                 target.parent.mkdir(parents=True, exist_ok=True)
+                if not target.parent.resolve().is_relative_to(destination.resolve()):
+                    raise UnshareError(f"unsafe image archive path: {member.name}")
                 source = stream.extractfile(member)
                 if source is None:
                     raise UnshareError(f"image archive has no bytes for {member.name}")
@@ -205,7 +213,13 @@ def _unpack(archive: Path, destination: Path) -> None:
                     shutil.copyfileobj(source, output)
                 target.chmod(member.mode & 0o1777)
                 os.utime(target, (member.mtime, member.mtime))
-            elif not (member.ischr() or member.isblk() or member.isfifo()):
+            elif member.ischr() or member.isblk() or member.isfifo():
+                # Device/FIFO nodes carry no payload and would only
+                # materialize host device handles inside the staged rootfs;
+                # refuse them outright rather than silently skipping, so a
+                # compromised image fails closed.
+                raise UnshareError(f"unsafe image archive entry: {member.name}")
+            else:
                 raise UnshareError(f"unsupported image archive entry: {member.name}")
         # Absolute symlinks refer to container paths. Install them only after all
         # writes, so an image cannot redirect extraction onto the host.
