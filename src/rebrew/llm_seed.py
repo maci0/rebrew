@@ -512,7 +512,7 @@ def build_prompt(source: str, count: int = _DEFAULT_COUNT) -> str:
 
 
 def _reject_control_chars_in_key(api_key: str) -> None:
-    """Refuse an API key carrying a C0/C1 control character.
+    """Refuse an API key carrying a C0/C1 control or bidi-format character.
 
     h11 validates an outgoing header value at send time and, on failure, quotes
     the offending value with ``!r``, so a key with an interior CR (a
@@ -523,12 +523,17 @@ def _reject_control_chars_in_key(api_key: str) -> None:
     :func:`sanitize_log_value` cannot catch it: the key would reach a WARNING
     line that has weaker protection than the environment variable it came from.
 
-    Rejecting here is also the correct behaviour on its own terms.  A control
-    character in a credential is never legitimate, and stripping it would send
-    a *different* key than the operator exported, turning a paste accident into
-    a silent 401 against a real provider.
+    Bidi-format characters (U+200E/U+200F, U+202A-202E, zero-width, tag chars)
+    are rejected for the same reason: they reorder or hide text and could make
+    an error message misread the key's identity, and a header value carrying
+    one is never legitimate.  Rejecting here is also the correct behaviour on
+    its own terms: a control or bidi character in a credential is never
+    legitimate, and stripping it would send a *different* key than the operator
+    exported, turning a paste accident into a silent 401 against a real provider.
     """
-    if _CTRL_CHAR_RE.search(api_key):
+    from rebrew.utils import strip_bidi_format
+
+    if _CTRL_CHAR_RE.search(api_key) or strip_bidi_format(api_key) != api_key:
         raise ValueError(
             "LLM API key contains a control character: a credential with one in "
             "it is malformed (check for a CRLF-terminated key file or a stray "

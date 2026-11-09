@@ -3771,6 +3771,15 @@ class _OpsHandler(BaseHTTPRequestHandler):
         server = typing.cast("OpsServer", self.server)
         if not self._check_host(server):
             return
+        # CSRF defense-in-depth: a browser sending a POST carries
+        # Origin/Referer; a non-browser client (httpx, curl) does not. The
+        # bearer check below is the real auth, but refusing a browser-origin
+        # POST outright means a malicious page cannot probe the token with a
+        # cross-origin form even if the token were somehow ambient.
+        if self._cross_origin_browser_post():
+            logger.warning("%s rejected cross-origin browser POST", self._request_id)
+            self._refuse("cross-origin", "cross-origin browser POST is not allowed", 403)
+            return
         # /health and /metrics are GET/HEAD on this server: a POST is a
         # wrong method for a served resource (405), not an unknown op (404).
         # Other paths fall through to dispatch, which answers 404 for a name
@@ -3812,8 +3821,29 @@ class _OpsHandler(BaseHTTPRequestHandler):
                 server.slots.release()
                 server.idle.notify_all()
 
+    def _cross_origin_browser_post(self) -> bool:
+        """True when the request carries a browser Origin/Referer header.
+
+        Browsers always send Origin on cross-origin POSTs and Referer on
+        same-origin ones; a non-browser HTTP client sends neither.  Refusing
+        the browser case costs nothing for legitimate callers (ops clients are
+        httpx) and stops a malicious page from reaching the bearer check.
+        """
+        origin = self.headers.get("Origin")
+        if origin is not None:
+            # Any Origin value means a browser cross-origin (or same-origin
+            # fetch) POST; server-to-server clients do not send it.
+            return bool(origin.strip())
+        referer = self.headers.get("Referer")
+        return referer is not None and bool(referer.strip())
+
     def _answer(self, server: OpsServer) -> None:
         content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+        # CSRF defense-in-depth happens in _post before auth; this guard keeps
+        # _answer safe if a future caller reaches it without _post's check.
+        if self.headers.get("Origin") is not None or self.headers.get("Referer") is not None:
+            self._refuse("cross-origin", "cross-origin browser POST is not allowed", 403)
+            return
         if content_type != "application/json":
             self._refuse(INVALID_REQUEST, "Content-Type must be application/json", 415)
             return

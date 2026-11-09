@@ -274,7 +274,7 @@ class TestDownloadWiboErrors:
             lambda url, **kw: self._meta(
                 {
                     "tag_name": "v1",
-                    "assets": [{"name": wibo_mod._wibo_asset_name(), "digest": "sha256:abc"}],
+                    "assets": [{"name": wibo_mod._wibo_asset_name(), "digest": "sha256:" + "ab" * 32}],
                 }
             ),
         )
@@ -349,7 +349,7 @@ class TestDownloadWiboErrors:
                                 "browser_download_url": (
                                     "https://github.com/decompals/wibo/releases/download/v1/wibo"
                                 ),
-                                "digest": "sha256:abc",
+                                "digest": "sha256:" + "ab" * 32,
                             }
                         ],
                     }

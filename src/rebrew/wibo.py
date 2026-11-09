@@ -232,6 +232,11 @@ def download_wibo(dest: Path) -> str:
     if not isinstance(digest, str) or not digest.startswith("sha256:"):
         raise RuntimeError(f"wibo release asset missing SHA256 digest: {asset_name}")
     expected_sha256 = digest.removeprefix("sha256:")
+    if len(expected_sha256) != 64 or any(
+        c not in "0123456789abcdefABCDEF" for c in expected_sha256
+    ):
+        raise RuntimeError(f"wibo release asset has malformed SHA256 digest: {asset_name}")
+    expected_sha256 = expected_sha256.lower()
     # Validate before the GET so a poisoned browser_download_url never leaves
     # the process (SSRF against link-local / intranet listeners).
     download_url = _trusted_wibo_download_url(download_url)
