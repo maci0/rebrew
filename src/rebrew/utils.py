@@ -742,13 +742,32 @@ def _memo_store(memo_key: _SourceMemoKey, value: _SourceMemoValue) -> None:
 _GENERATED_STAMP_PREFIX = "* Generated:"
 
 
-_CONTAINER_RUNTIME_RE = re.compile(r"^[a-zA-Z0-9_\-\./]+$")
+_CONTAINER_RUNTIME_RE = re.compile(r"^[a-zA-Z0-9_\-\./\\:]+$")
 DEFAULT_CONTAINER_RUNTIME = "docker"
 #: Bare runtime names rebrew knows how to drive.  Anything else is a typo
 #: (``dockre``, ``Podmam``) that would otherwise surface as a spawn failure
 #: from deep inside a compile; a value carrying a path separator is passed
 #: through as a path to a runtime binary instead of being name-checked.
 CONTAINER_RUNTIMES = ("docker", "podman", "nerdctl")
+
+
+def _is_absolute_runtime_path(runtime: str) -> bool:
+    """True when *runtime* is an absolute path on any supported platform.
+
+    ``os.path.isabs`` only understands the host's separator, so a Windows
+    ``C:\\...`` path was refused from POSIX and vice versa.  The runtime is
+    a local binary, so only its own OS matters; accepting both spellings
+    here keeps a Windows admin's ``C:\\tools\\podman.exe`` valid everywhere
+    the check runs (CI matrix, config export) instead of planner-dependent.
+    """
+    if "/" in runtime and runtime.startswith("/"):
+        return True
+    if ("/" in runtime or "\\" in runtime) and (
+        runtime.startswith("\\\\")
+        or (len(runtime) >= 3 and runtime[1] == ":" and runtime[2] in "/\\")
+    ):
+        return True
+    return Path(runtime).is_absolute()
 
 
 def container_runtime(runtime: str | None = None) -> str:
@@ -776,11 +795,11 @@ def container_runtime(runtime: str | None = None) -> str:
     runtime = runtime.strip() or DEFAULT_CONTAINER_RUNTIME
     if not _CONTAINER_RUNTIME_RE.fullmatch(runtime):
         raise ConfigError(f"REBREW_CONTAINER_RUNTIME={runtime!r} contains invalid characters")
-    if "/" in runtime:
+    if "/" in runtime or "\\" in runtime:
         # A path must be absolute: a relative value like ./evil resolves
         # against the project cwd and lets a cloned tree redirect every
         # container run to a binary it ships.
-        if not runtime.startswith("/"):
+        if not _is_absolute_runtime_path(runtime):
             raise ConfigError(
                 f"REBREW_CONTAINER_RUNTIME={runtime!r} must be an absolute path "
                 "or one of " + ", ".join(CONTAINER_RUNTIMES)

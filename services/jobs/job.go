@@ -347,13 +347,7 @@ func (o *Owner) admit(key, seed, expectedWorkspaceSHA256, credential string, opt
 	if err = sealSnapshot(originalPath); err != nil {
 		return Receipt{}, false, err
 	}
-	directory, err := os.Open(o.dir)
-	if err != nil {
-		return Receipt{}, false, err
-	}
-	err = directory.Sync()
-	directory.Close()
-	if err != nil {
+	if err := syncDir(o.dir); err != nil {
 		return Receipt{}, false, err
 	}
 	r = Receipt{ID: id, Kind: kind, Seed: rel, SeedSHA256: seedDigest, WorkspaceSHA256: workspaceDigest, Generations: options.Generations, Population: options.Population, State: "uncertain", ManagedCompile: credential != "", CredentialSHA256: credentialDigest}

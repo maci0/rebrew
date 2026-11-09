@@ -110,6 +110,22 @@ def test_container_runtime_accepts_binary_path(monkeypatch: pytest.MonkeyPatch) 
     assert container_runtime() == "/opt/bin/ctr-runc"
 
 
+def test_container_runtime_accepts_windows_binary_paths() -> None:
+    """Windows-spelled absolutes validate on POSIX too (config export/CI).
+
+    ``os.path.isabs`` only knows the host separator, so ``C:\\...`` was
+    refused from Linux and ``/opt/...`` from Windows.  The runtime is a
+    local binary, so only its own OS matters, and a relative spelling
+    must stay refused on every platform.
+    """
+    assert container_runtime(r"C:\tools\ctr-runc") == r"C:\tools\ctr-runc"
+    assert container_runtime("C:/tools/ctr-runc") == "C:/tools/ctr-runc"
+    assert container_runtime(r"\\server\share\ctr-runc") == r"\\server\share\ctr-runc"
+    for relative in (r".\ctr-runc", r"..\ctr-runc", "./ctr-runc"):
+        with pytest.raises(ValueError, match="must be an absolute path"):
+            container_runtime(relative)
+
+
 def test_atomic_write_text_success(tmp_path: Path) -> None:
     f = tmp_path / "test.txt"
     atomic_write_text(f, "hello world")

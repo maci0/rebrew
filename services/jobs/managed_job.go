@@ -141,13 +141,7 @@ func (o *Owner) startManagedCompile(id, credential string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	d, err := os.Open(base)
-	if err != nil {
-		return "", err
-	}
-	err = d.Sync()
-	d.Close()
-	if err != nil {
+	if err := syncDir(base); err != nil {
 		return "", err
 	}
 	socket, err := os.MkdirTemp("", "rebrew-job-")

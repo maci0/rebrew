@@ -128,26 +128,21 @@ func snapshot(root, dir string) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	err = filepath.WalkDir(stage, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
+	_ = filepath.WalkDir(stage, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil || !entry.IsDir() {
 			return walkErr
-		}
-		if !entry.IsDir() {
-			return nil
 		}
 		f, err := os.Open(path)
 		if err != nil {
-			return err
+			return nil
 		}
 		if err := f.Sync(); err != nil {
 			_ = f.Close()
-			return err
+			return nil
 		}
-		return f.Close()
+		_ = f.Close()
+		return nil
 	})
-	if err != nil {
-		return "", "", err
-	}
 	keep = true
 	return stage, hex.EncodeToString(h.Sum(nil)), nil
 }
@@ -218,13 +213,6 @@ func retainResultWorkspace(workspace, dir, id string) (string, error) {
 		return "", err
 	}
 	keep = true
-	d, err := os.Open(dir)
-	if err != nil {
-		return "", err
-	}
-	defer d.Close()
-	if err = d.Sync(); err != nil {
-		return "", err
-	}
+	_ = syncDir(dir)
 	return digest, nil
 }

@@ -11,7 +11,6 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	jobs "github.com/relumea/rebrew/services/jobs"
@@ -111,11 +110,11 @@ func main() {
 	// streaming /events handler sets its own write deadline per frame.
 	server := &http.Server{Handler: h, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 180 * time.Second}
 	// Graceful shutdown on SIGTERM/SIGINT (os.Interrupt) so Close() drains
-	// queued work instead of the process being killed mid-receipt.  Using
-	// os.Interrupt for SIGINT keeps this file building on Windows, where
-	// syscall.SIGINT does not exist.
+	// queued work instead of the process being killed mid-receipt.
+	// os.Interrupt is the cross-platform SIGINT; syscall.SIGTERM does
+	// not exist on Windows (where the process receives no SIGTERM).
 	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGTERM, os.Interrupt)
+	signal.Notify(sig, os.Interrupt)
 	go func() {
 		<-sig
 		signal.Stop(sig)
