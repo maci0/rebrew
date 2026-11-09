@@ -835,3 +835,40 @@ def test_a_line_comment_is_not_a_declared_type() -> None:
     text = "void f(void)\n{\n  int v1; // Foo\n  *p = 1;\n  p->field_8 = 2;\n}\n"
     result = parse_decomp_for_structs(text)
     assert "Foo" not in result.named
+
+
+# Recorded from kuna v1.994 on skifree32 ski32.exe 0x401350. kuna v1.160 wrote the same accesses
+# as `*(unsigned char *)(a0 + 0x4c)`, `*(int *)(a0 + 4)` and `*(unsigned int *)(a0 + 0x4c)`.
+_KUNA_994_CAST_INDEX = """void sub_401350(void *a0) // return-dupe
+{
+  if (!a0)
+    sub_401240();
+  if (((unsigned char *)a0)[0x4c] & 1)
+    return;
+  if (((int *)a0)[1])
+    *(unsigned int *)(((int *)a0)[1] + 4) = 0;
+  ((unsigned int *)a0)[0x13] = ((unsigned int *)a0)[0x13] | 8;
+}
+"""
+
+
+def test_cast_then_index_accesses_are_struct_evidence() -> None:
+    """`((T *)p)[N]` is byte offset N * sizeof(T) from p, with T's width."""
+    result = parse_decomp_for_structs(_KUNA_994_CAST_INDEX)
+    assert {off: sorted(slots) for off, slots in result.anonymous["a0"].offsets.items()} == {
+        0x4: [4],
+        0x4C: [1, 4],
+    }
+
+
+def test_cast_then_index_through_a_pointer_element_type() -> None:
+    """Recorded from kuna v1.994 on ski32.exe 0x401540: `a1 = ((void **)a1)[2];` is offset 8, width 4."""
+    text = (
+        "void sub_401540(void *a1)\n{\n  void **v1;\n  a1 = ((void **)a1)[2];\n"
+        "  v1 = &((void **)a1)[2];\n  ((unsigned int *)a1)[8] = 0;\n}\n"
+    )
+    result = parse_decomp_for_structs(text)
+    assert {off: sorted(slots) for off, slots in result.anonymous["a1"].offsets.items()} == {
+        0x8: [4],
+        0x20: [4],
+    }

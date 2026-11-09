@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- `rebrew types recover` (`parse_decomp_for_structs`) reads kuna v1.994's cast-then-index accesses, `((unsigned char *)a0)[0x4c]`, `((int *)a0)[1]`, `((void **)a1)[2]`: the byte offset is the index times the cast element's width. Before, only `*(T *)(a0 + off)` and `a0[N]` were read, so on skifree32 `ski32.exe` v1.994 gave 8 of the 17 struct candidates kuna v1.160 gave (every access at 0x4c and most of the larger layouts were missing); with this change it gives all 17.
+
 ## [6.28.0] - 2026-11-10
 
 ### Fixed

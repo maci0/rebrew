@@ -115,6 +115,13 @@ ARRAY_DEREF_RE = re.compile(
 #: only.  The lookbehind keeps the ``&a0[10]`` cast-deref form from
 #: double-counting.
 ARRAY_IDX_RE = re.compile(rf"(?<![\w&])(?P<var>[A-Za-z_]\w*)\s*\[\s*(?P<idx>{_ARRAY_INDEX})\s*\]")
+#: ``((int *)a0)[1]`` / ``((unsigned char *)a0)[0x4c]`` — kuna v1.994 indexes a cast
+#: pointer (``((void **)a1)[2]`` indexes pointers); the byte offset is index × the cast
+#: element type's width.
+CAST_INDEX_RE = re.compile(
+    rf"\(\s*\(\s*(?P<type>{_DECL_TYPE}(?:\s*\*)*)\s*\*\s*\)\s*(?P<var>[A-Za-z_]\w*)\s*\)"
+    rf"\s*\[\s*(?P<idx>{_ARRAY_INDEX})\s*\]"
+)
 
 #: Pseudo-types that never name a recoverable struct.
 PSEUDO_TYPES = frozenset(
@@ -472,6 +479,12 @@ def parse_decomp_for_structs(text: str, max_offset: int = _MAX_MEMBER_OFFSET) ->
         if elem is None or index is None:
             continue
         _record(var, index * elem, elem)
+    for m in CAST_INDEX_RE.finditer(text):
+        width = type_width(m.group("type"))
+        index = parse_member_index(m.group("idx"))
+        if width is None or index is None:
+            continue
+        _record(m.group("var"), index * width, width)
 
     return ParseResult(named=named, anonymous=anonymous)
 
