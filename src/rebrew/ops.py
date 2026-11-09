@@ -2060,6 +2060,15 @@ def run_rebrew(
             stop_process_tree(process)
             release_captured_pipes(process)
         raise _refused(f"rebrew {name} did not finish within {timeout} s") from None
+    except BaseException:
+        # KeyboardInterrupt / SystemExit during communicate(): without this
+        # the child (and its whole process group) outlives the serve thread
+        # that spawned it, accumulating one orphaned rebrew per interrupted
+        # request.  Mirror utils.run_process_group's BaseException path.
+        from rebrew.utils import stop_process_tree
+
+        stop_process_tree(process)
+        raise
     if process.returncode != 0 and not (outcome_exit and process.returncode == 1):
         logger.error(
             "rebrew %s exited %d: %s", name, process.returncode, _escape_log_text(stderr.strip())
