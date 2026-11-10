@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // HEAD must mirror GET on safe read endpoints (RFC 9110 §9.3.2), like the
@@ -60,6 +61,22 @@ func TestJobHeadMirrorsGet(t *testing.T) {
 	// Wrong method still 405, now advertising GET, HEAD.
 	if w := send(http.MethodPut, "/jobs/"+id); w.Code != http.StatusMethodNotAllowed || w.Header().Get("Allow") != "GET, HEAD" {
 		t.Fatalf("PUT job: %d Allow=%q", w.Code, w.Header().Get("Allow"))
+	}
+	// The output file appears only once the job runs, and Admit returns before that: wait
+	// for the job to finish instead of racing its start (GET output answered 404 when it won).
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		r, getErr := owner.Get(id)
+		if getErr != nil {
+			t.Fatal(getErr)
+		}
+		if r.ExitCode != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("job did not finish")
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 	// Output: HEAD mirrors GET (200 when the file exists, else 404), empty body either way.
 	if w := send(http.MethodGet, "/jobs/"+id+"/output"); w.Code != http.StatusOK {
