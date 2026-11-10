@@ -6,6 +6,8 @@
 
 ### Fixed
 
+- A C file whose body the grammar cannot parse no longer hides the definitions after it. Statement macros without semicolons (zlib 1.1.3 `infblock.c`: `LEAVE`, `NEEDBITS(14)`) left `inflate_blocks` unclosed, so tree-sitter buried `inflate_blocks_free` and `inflate_blocks_sync_point` in one ERROR and `rebrew library bind-source` refused them ("source must contain one complete definition with matching C symbol"). Each top-level brace block that an erroneous node spans is now parsed again on its own, the rest of the file blanked so offsets hold, for `function_signatures`, `find_c_function_definitions`, `function_definition_spans`, `iter_function_name_and_proto` and `function_definition_hashes`. Extern-variable and variable-role scans are unchanged.
+
 - MCP reads reject non-object JSON replies and malformed tool-content containers without crashing. MCP writes count malformed content as an error instead of confirming the operation applied. Responses and sessions still close on these error paths.
 
 - Strict PE header parsing rejects an undersized declared optional header even when trailing bytes are available, instead of reading section-table bytes as optional-header fields.
@@ -65,6 +67,7 @@
 - Correct metadata backup scope: source trees need separate backups, and configured reference binaries or BinSync directories with absolute or parent-relative paths are not included.
 
 - Distinguish metadata backup copy verification from record validation: TOML backup preserves bytes, restore checks TOML syntax, and SQLite adds database schema/integrity checks.
+
 
 ## [6.32.1] - 2026-11-11
 

@@ -53,31 +53,7 @@ def conditional_fragments(
         position = raw.index(b"#", match.start(), match.end())
         probe[position] = 32
     tree, _ = parse(bytes(probe))
-    lexical = bytearray(raw)
-    pending = [tree.root_node]
-    while pending:
-        node = pending.pop()
-        if node.type in {"comment", "string_literal", "char_literal"}:
-            lexical[node.start_byte : node.end_byte] = raw[
-                node.start_byte : node.end_byte
-            ].translate(_MASK)
-        else:
-            pending.extend(node.named_children)
-
-    directives: list[tuple[int, int, bytes]] = []
-    consumed = 0
-    for match in _DIRECTIVE.finditer(lexical):
-        if match.start() < consumed:
-            continue
-        end = raw.find(b"\n", match.end())
-        end = len(raw) if end < 0 else end + 1
-        while raw[match.start() : end].rstrip(b"\r\n").endswith(b"\\") and end < len(raw):
-            following = raw.find(b"\n", end)
-            end = len(raw) if following < 0 else following + 1
-        consumed = end
-        directives.append((match.start(), end, match[1]))
-        lexical[match.start() : end] = raw[match.start() : end].translate(_MASK)
-
+    lexical, directives = _lexical_view(raw, tree)
     events = [(match.start(), match.end(), match[0]) for match in _BRACE.finditer(lexical)]
     events.extend(directives)
     events.sort()
@@ -116,6 +92,64 @@ def conditional_fragments(
                 stack[-1].consistent &= consistent
             depth = frame.ends[0]
     return sorted(fragments, key=lambda group: group.start), sorted(regions)
+
+
+def _lexical_view(raw: bytes, tree: Any) -> tuple[bytearray, list[tuple[int, int, bytes]]]:
+    """Blank comments, literals and directive lines selected from *tree*.
+
+    Returns the blanked copy and each directive's ``(start, end, keyword)``.
+    """
+    lexical = bytearray(raw)
+    pending = [tree.root_node]
+    while pending:
+        node = pending.pop()
+        if node.type in {"comment", "string_literal", "char_literal"}:
+            lexical[node.start_byte : node.end_byte] = raw[
+                node.start_byte : node.end_byte
+            ].translate(_MASK)
+        else:
+            pending.extend(node.named_children)
+
+    directives: list[tuple[int, int, bytes]] = []
+    consumed = 0
+    for match in _DIRECTIVE.finditer(lexical):
+        if match.start() < consumed:
+            continue
+        end = raw.find(b"\n", match.end())
+        end = len(raw) if end < 0 else end + 1
+        while raw[match.start() : end].rstrip(b"\r\n").endswith(b"\\") and end < len(raw):
+            following = raw.find(b"\n", end)
+            end = len(raw) if following < 0 else following + 1
+        consumed = end
+        directives.append((match.start(), end, match[1]))
+        lexical[match.start() : end] = raw[match.start() : end].translate(_MASK)
+    return lexical, directives
+
+
+def top_level_blocks(raw: bytes, tree: Any) -> list[tuple[int, int]]:
+    """Half-open spans of *raw*, each ending after a brace that closes to depth zero.
+
+    Comments, literals and directive lines selected from *tree* do not count.
+    The spans cover *raw* from the start; text after the last closing brace is
+    not a block.
+    """
+    lexical, _directives = _lexical_view(raw, tree)
+    blocks: list[tuple[int, int]] = []
+    start = depth = 0
+    for match in _BRACE.finditer(lexical):
+        if match[0] == b"{":
+            depth += 1
+        elif depth:
+            depth -= 1
+            if not depth:
+                blocks.append((start, match.end()))
+                start = match.end()
+    return blocks
+
+
+def isolate(raw: bytes, start: int, end: int) -> bytes:
+    """*raw* with everything outside ``[start, end)`` blanked, newlines kept."""
+    return raw[:start].translate(_MASK) + raw[start:end] + raw[end:].translate(_MASK)
 
 
 def structural_variants(raw: bytes, fragments: list[ConditionalFragment]) -> Iterator[bytes]:

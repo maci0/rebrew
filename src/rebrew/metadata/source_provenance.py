@@ -19,6 +19,7 @@ lazy from rebrew.c_parser import (
     mask_msvc_syntax,
     mask_va_arg_types,
     parse_c_source,
+    recovered_trees,
 )
 lazy from rebrew.metadata.document import (
     FUNCTION_FORMAT_VERSION,
@@ -70,7 +71,14 @@ def function_definition_hashes(source: str) -> dict[str, str]:
     raw = source.encode("utf-8", errors="surrogateescape")
     hashes: dict[str, str] = {}
     ambiguous: set[str] = set()
-    pending = [tree.root_node]
+    # Top-level nodes inside a reparsed block are judged from that block alone.
+    recovered = list(recovered_trees(tree, parsed))
+    pending = [
+        node
+        for node in tree.root_node.children
+        if not any(node.start_byte < end and start < node.end_byte for _, start, end in recovered)
+    ]
+    pending.extend(block.root_node for block, _start, _end in recovered)
     while pending:
         node = pending.pop()
         if node.type != "function_definition":

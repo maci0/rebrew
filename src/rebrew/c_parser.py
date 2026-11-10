@@ -20,7 +20,12 @@ lazy from collections.abc import Callable, Iterator
 lazy from itertools import pairwise
 lazy from typing import Any
 
-lazy from rebrew.c_conditionals import conditional_fragments, structural_variants
+lazy from rebrew.c_conditionals import (
+    conditional_fragments,
+    isolate,
+    structural_variants,
+    top_level_blocks,
+)
 lazy from rebrew.utils import BYTES_PER_MIB, parse_c_integer_literal, strip_body
 
 logger = logging.getLogger(__name__)
@@ -209,7 +214,38 @@ def comment_nodes(tree: Any) -> list[Any]:
     )
 
 
-def _structure_trees(tree: Any, raw: bytes) -> Iterator[tuple[Any, bytes, list[tuple[int, int]]]]:
+def recovered_trees(tree: Any, parser_bytes: bytes) -> Iterator[tuple[Any, int, int]]:
+    """Same-coordinate parses of top-level blocks that an erroneous node spans.
+
+    A body the grammar cannot parse (statement macros without semicolons) can
+    leave its definition unclosed and bury every later definition in one
+    ERROR. Each top-level brace block overlapping such a node is parsed alone,
+    the rest of *parser_bytes* (the input *tree* was parsed from) blanked, so
+    offsets stay those of that input.
+    Yields ``(tree, start, end)`` with the block's byte span. A file of one
+    block yields nothing.
+    """
+    root = tree.root_node
+    broken = [(node.start_byte, node.end_byte) for node in root.named_children if node.has_error]
+    if not broken:
+        return
+    blocks = top_level_blocks(parser_bytes, tree)
+    if len(blocks) < 2:
+        return
+    for start, end in blocks:
+        if any(start < stop and begin < end for begin, stop in broken):
+            yield parse_c_source(isolate(parser_bytes, start, end))[0], start, end
+
+
+def _structure_trees(
+    tree: Any, raw: bytes, parser_bytes: bytes
+) -> Iterator[tuple[Any, bytes, list[tuple[int, int]]]]:
+    yield from _conditional_trees(tree, raw)
+    for recovered, _start, _end in recovered_trees(tree, parser_bytes):
+        yield recovered, raw, []
+
+
+def _conditional_trees(tree: Any, raw: bytes) -> Iterator[tuple[Any, bytes, list[tuple[int, int]]]]:
     if not tree.root_node.has_error:
         yield tree, raw, []
         return
@@ -233,12 +269,12 @@ def parse_c_structure(source: str | bytes) -> tuple[Any, bytes, list[tuple[int, 
     source slices; inventories use every alternative rather than evaluating macros.
     """
     tree, raw = parse_c_source(source)
-    return next(_structure_trees(tree, raw))
+    return next(_conditional_trees(tree, raw))
 
 
 def _function_trees(source: str) -> Iterator[tuple[Any, bytes, list[tuple[int, int]]]]:
-    tree, _ = parse_c_source(mask_msvc_syntax(source))
-    return _structure_trees(tree, source.encode("utf-8", errors="surrogateescape"))
+    tree, parser_bytes = parse_c_source(mask_msvc_syntax(source))
+    return _structure_trees(tree, source.encode("utf-8", errors="surrogateescape"), parser_bytes)
 
 
 def node_text(node: Any, source_bytes: bytes) -> str:
@@ -2127,7 +2163,7 @@ def find_extern_variables(
 
     _variant_index = 0
     for _variant_index, (variant_tree, _raw, _regions) in enumerate(
-        _structure_trees(tree, src_bytes)
+        _conditional_trees(tree, src_bytes)
     ):
         walk(variant_tree.root_node)
     if _variant_index:
@@ -2275,7 +2311,7 @@ def find_variable_roles(
         for child in node.named_children:
             walk(child, shadows, file_scope)
 
-    for variant_tree, _raw, _regions in _structure_trees(tree, src):
+    for variant_tree, _raw, _regions in _conditional_trees(tree, src):
         for node in variant_tree.root_node.named_children:
             walk(node, set(), True)
     return definitions, declarations, uses
