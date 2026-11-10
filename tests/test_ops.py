@@ -2059,9 +2059,14 @@ class TestHttpTransport:
         The worker refuses at once a call that finds the slot taken, even by a request in flight for a
         millisecond, so the stalled call can itself be refused (503 on its own socket). It is sent again
         until a probe finds the slot held and the stalled call was not the one refused.
+
+        Each attempt starts from a free slot. A call whose socket was just closed holds the slot
+        until the worker reads the close, and a probe answered 503 for that call would pass off
+        a stalled call that was itself refused as the holder.
         """
         deadline = time.monotonic() + WAIT_SECONDS
         while time.monotonic() < deadline:
+            self._wait_for_a_free_slot(port, deadline)
             stalled = socket.create_connection(("127.0.0.1", port), timeout=WAIT_SECONDS)
             stalled.sendall(
                 f"POST /rebrew.fingerprint HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n".encode()
@@ -2083,6 +2088,16 @@ class TestHttpTransport:
                 time.sleep(0.05)
             stalled.close()
         raise AssertionError("no stalled call ever held the slot")
+
+    def _wait_for_a_free_slot(self, port: int, deadline: float) -> tuple[int, Any]:
+        """The dispatcher's answer to a probe once no call holds the worker's only slot."""
+        headers = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
+        while True:
+            status, reply = self._post(port, "/rebrew.nope", b"{}", headers)
+            if status != 503:
+                return status, reply
+            assert time.monotonic() < deadline, "the slot was not released"
+            time.sleep(0.05)
 
     def test_a_full_worker_answers_503_with_retry_after(self, server: tuple[int, Path]) -> None:
         port, _workspace = server
@@ -2156,13 +2171,7 @@ class TestHttpTransport:
             resent.close()
         # Once every stalled socket closes, the slot must be free again: a leaked slot
         # would leave this at 503 instead of the dispatcher's 404.
-        deadline = time.monotonic() + WAIT_SECONDS
-        while True:
-            status, reply = self._post(port, "/rebrew.nope", b"{}", headers)
-            if status != 503:
-                break
-            assert time.monotonic() < deadline, "the slot was not released"
-            time.sleep(0.05)
+        status, reply = self._wait_for_a_free_slot(port, time.monotonic() + WAIT_SECONDS)
         assert (status, reply["error"]) == (404, "unknown-op")
 
     def test_access_line_and_header_share_a_request_id(self, server: tuple[int, Path]) -> None:
