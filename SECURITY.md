@@ -236,7 +236,8 @@ plugin cache backends or remove the open upstream diskcache advisory.
   `src/rebrew/compiler/compile.py`). The artifact body is capped at 30 MiB
   (`_MAX_ARTIFACT_BYTES` in `src/rebrew/compiler/recompile_client.py`,
   declared-length and buffered-length checked before the object is written to
-  disk and parsed). The compile
+  disk and parsed, after the GET has buffered the body, so memory is not
+  bounded). The compile
   cache `size_limit` still bounds locally compiled objects only, and that
   limit is project-supplied: the 500 MiB default (`_DEFAULT_SIZE_LIMIT` in
   `src/rebrew/compiler/cache.py`) is replaced by `[cache] size_limit_mib` from
@@ -285,7 +286,11 @@ else refused, `src/rebrew/wibo.py`), the
   GitHub commit lookup reply (`_live_commit_sha`, the bare sha requested as
   `application/vnd.github.sha`) at 1 MiB (`_MAX_LIVE_SHA_BYTES` in
   `src/rebrew/toolchain_cli.py`, declared-length and buffered-body checked
-  before the sha is read; anything but 40 lowercase hex is refused).
+  before the sha is read; anything but 40 lowercase hex is refused). The
+  wibo asset, wibo metadata and commit lookup caps, and the 30 MiB recompile
+  artifact cap, are checked after a buffered GET has received the whole
+  body, so they refuse an oversized reply but do not bound the memory spent
+  receiving it; only the toolchain media cap runs while streaming.
 - No claim that the ops worker's presigned-URL download is SSRF-proof.
   `_download` in `src/rebrew/ops.py` refuses a `url` that is not https, a
   hostless URL, or a URL carrying userinfo (`parts.username or

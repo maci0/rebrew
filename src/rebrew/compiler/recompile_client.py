@@ -45,13 +45,12 @@ _MAX_FLAGS = 64
 #: Single-flag length cap mirrored from the service (``_MAX_FLAG_LEN``).
 _MAX_FLAG_LEN = 256
 
-#: Hard cap on a recompile artifact body. The response is fully buffered
-#: in memory (``art.content``) before it is written to disk and parsed,
-#: so without a cap a compromised/mitm'd recompile service (or a
-#: misconfigured one) could force an OOM by returning an oversized
-#: ``.obj``. A single-function COFF object is at most a few MiB for
-#: MSVC/Watcom/DOS toolchains; 30 MiB is generous headroom while bounding
-#: the allocation.
+#: Hard cap on a recompile artifact body, checked before it is written to
+#: disk and parsed. The GET has buffered the whole body (``art.content``) by
+#: then, so the cap refuses an oversized ``.obj`` from a compromised or
+#: misconfigured service but does not bound the memory spent receiving it.
+#: A single-function COFF object is at most a few MiB for MSVC/Watcom/DOS
+#: toolchains; 30 MiB is generous headroom.
 _MAX_ARTIFACT_BYTES = 30 * 1024**2
 
 #: How a :class:`RecompileError` arose — callers branch on this instead of

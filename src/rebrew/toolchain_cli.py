@@ -94,10 +94,10 @@ _HTTP_RETRY_BACKOFF_S = 0.5
 _MAX_PINNED_DOWNLOAD_BYTES = 2 * 1024**3
 
 #: Cap on the `_live_commit_sha` GitHub API reply, checked before the sha is
-#: read, against a compromised/MITM'd `api.github.com` reply or a proxy
-#: serving a huge error page.  The reply is the 40-byte sha alone
-#: (`_GITHUB_SHA_MEDIA_TYPE`); 1 MiB is generous (same bound as wibo release
-#: metadata).
+#: read.  `httpx.get` has buffered the whole body by then, so the cap refuses
+#: an oversized reply but does not bound its memory.  The reply is the
+#: 40-byte sha alone (`_GITHUB_SHA_MEDIA_TYPE`); 1 MiB is generous (same
+#: bound as wibo release metadata).
 _MAX_LIVE_SHA_BYTES = 1024**2
 
 #: GitHub media type for the commit endpoint that answers with the sha alone.

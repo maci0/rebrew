@@ -75,15 +75,15 @@ def _wibo_asset_name() -> str:
 
 _NETWORK_TIMEOUT_S = 30  # Fail fast rather than hang indefinitely in CI/automation
 
-#: Cap on a wibo asset's body.  The sha256 digest is checked only after the
-#: body lands in memory, so without a cap a compromised mirror could OOM the
-#: process before the digest ever runs (DoS).  A wibo binary is a few MiB.
+#: Cap on a wibo asset's body, checked before the sha256 digest and the write.
+#: ``httpx.get`` has buffered the whole body by then, so the cap refuses an
+#: oversized asset but does not bound the memory spent receiving it.  A wibo
+#: binary is a few MiB.
 _MAX_WIBO_DOWNLOAD_BYTES = 64 * 1024**2
 
-#: Cap on the release metadata JSON body. ``resp.json()`` buffers the whole
-#: body before parsing, so a compromised/MITM'd ``api.github.com`` reply
-#: could OOM the process before any parsing runs. The metadata is a few
-#: KiB; 1 MiB is generous.
+#: Cap on the release metadata JSON body, checked before parsing.  As with the
+#: asset, ``httpx.get`` has buffered the whole body first, so memory is not
+#: bounded.  The metadata is a few KiB; 1 MiB is generous.
 _MAX_WIBO_METADATA_BYTES = 1024**2
 
 
