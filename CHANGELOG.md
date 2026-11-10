@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- A fresh install (`uv tool install`, the README Quick Start) no longer crashes at startup with `ImportError: cannot import name 'TyperPath' from 'typer.models'`. Typer 0.29.0 removed `typer.models.TyperPath` and the `click_type=` option argument that 18 CLI modules used for their path options, and the `typer>=0.27.3,<1` requirement let an install without the lock resolve it (#60, diagnosed by Marc-Alexandre Espiaut, who proposed a `<0.29` cap in #61). rebrew now requires `typer>=0.29.0,<1` (locked at 0.29.0; its new `pydantic` dependency was already in the lock). String path options keep `str` values and shell file completion and still read `<path>` in help; a positional path argument now reads `<str>`, since Typer 0.29 labels only a `Path` annotation as a path. `--version`, `--verbose` and `--quiet` are built through Typer's own option builder. Help labels a flag with no type and a repeatable option by one value, as before 0.29, so every flag stays readable at 60 columns.
+
 ## [6.29.1] - 2026-11-10
 
 ### Fixed

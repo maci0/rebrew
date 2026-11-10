@@ -22,7 +22,6 @@ lazy from pathlib import Path
 lazy from string import Template
 
 import typer
-from typer.models import TyperPath
 
 from rebrew.cli import (
     EXIT_ERROR,
@@ -286,7 +285,6 @@ def detect_cmd(
     binary: str = typer.Argument(
         ...,
         help="Path to the target binary (PE/NE/ELF/Mach-O)",
-        click_type=TyperPath(path_type=str),
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,

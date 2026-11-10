@@ -40,7 +40,6 @@ lazy from collections import Counter
 lazy from typing import Any
 
 import typer
-from typer.models import TyperPath
 
 from rebrew.cli import (
     TargetOption,
@@ -1137,7 +1136,7 @@ def main(
         "--output",
         "-o",
         help="Write function_structure.json to this path (default: stdout as text)",
-        click_type=TyperPath(path_type=str),
+        metavar="<path>",
     ),
     min_size: int = typer.Option(8, "--min-size", help="Drop functions smaller than this"),
     limit: int | None = typer.Option(

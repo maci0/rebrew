@@ -23,7 +23,6 @@ lazy from pathlib import Path
 lazy from typing import Literal
 
 import typer
-from typer.models import TyperPath
 
 from rebrew.cli import (
     CFLAGS_HELP,
@@ -94,7 +93,7 @@ IncOption = typer.Option(
     None,
     help="Include dir (auto from project config)",
     rich_help_panel="Build inputs",
-    click_type=TyperPath(path_type=str),
+    metavar="<path>",
 )
 CflagsOption = typer.Option(None, help=CFLAGS_HELP, rich_help_panel="Build inputs")
 SymbolOption = typer.Option(
@@ -587,7 +586,7 @@ def run(
         "-o",
         help="Directory for search results",
         rich_help_panel="Output options",
-        click_type=TyperPath(path_type=str),
+        metavar="<path>",
     ),
     compare_obj: bool = typer.Option(
         True, help="Use object comparison instead of full link", rich_help_panel="Build inputs"
@@ -597,7 +596,7 @@ def run(
         "--lib",
         help="Lib dir",
         rich_help_panel="Build inputs",
-        click_type=TyperPath(path_type=str),
+        metavar="<path>",
     ),
     link: str | None = typer.Option(
         None,
@@ -616,7 +615,7 @@ def run(
         "--seed-file",
         help="Extra .c file(s) to seed GA population from solved functions. Ignored if --no-seeds is also passed",
         rich_help_panel="Seeding",
-        click_type=TyperPath(path_type=str),
+        metavar="<path>",
     ),
     no_seed: bool = typer.Option(
         False,
@@ -658,7 +657,7 @@ def run(
         "--collect-pairs",
         help="Append source/binary training pairs to a JSONL file",
         rich_help_panel="Output options",
-        click_type=TyperPath(path_type=str),
+        metavar="<path>",
     ),
     watch: bool = typer.Option(
         False,
@@ -835,7 +834,7 @@ def batch(
         "--collect-pairs",
         help="Append source/binary training pairs to a JSONL file",
         rich_help_panel="Output options",
-        click_type=TyperPath(path_type=str),
+        metavar="<path>",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),

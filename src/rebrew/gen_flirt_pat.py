@@ -19,7 +19,6 @@ lazy from pathlib import Path
 lazy from typing import Any
 
 import typer
-from typer.models import TyperPath
 
 lazy from rebrew.cli import console, error_exit, json_print
 lazy from rebrew.formats.archives import parse_archive as parse_archive
@@ -521,11 +520,9 @@ def generate_pat(lib_file: Path, out_path: Path) -> dict[str, int | bool]:
 
 @app.callback(invoke_without_command=True)
 def main(
-    lib_path: str = typer.Argument(
-        ..., help="Path to .lib file", click_type=TyperPath(path_type=str)
-    ),
+    lib_path: str = typer.Argument(..., help="Path to .lib file"),
     output: str | None = typer.Option(
-        None, "--output", "-o", help="Output .pat file path", click_type=TyperPath(path_type=str)
+        None, "--output", "-o", help="Output .pat file path", metavar="<path>"
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:

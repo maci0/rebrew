@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Any, Literal, NoReturn, override
+from typing import Any, Literal, NoReturn, get_args, override
 lazy import json
 lazy import os
 lazy import stat
@@ -42,6 +42,7 @@ lazy from typer._click.core import Command as TyperBaseCommand
 lazy from typer._click.core import Context as TyperContext
 lazy from typer._click.core import Parameter as TyperParameter
 lazy from typer._click.exceptions import BadOptionUsage
+lazy from typer.models import ParamMeta
 
 from rebrew.config import (
     DEFAULT_LOG_LEVEL,
@@ -815,6 +816,21 @@ def _declares(cmd: TyperBaseCommand, *names: str) -> bool:
     return any(name in param.opts for param in cmd.params for name in names)
 
 
+def _option(name: str, annotation: type, declaration: Any) -> TyperOption:
+    """The option Typer builds from *declaration* (a ``typer.Option``) on a parameter *name* typed *annotation*.
+
+    ponytail: ``typer.main._get_param`` is private; it is the one path Typer
+    builds every declared option through (names, flag or count, callback
+    wrapper, type descriptor), so the injected flags parse like declared ones.
+    A rename in a later Typer fails every command at startup and the CLI
+    contract tests with it.
+    """
+    option = typer.main._get_param(ParamMeta(name=name, default=declaration, annotation=annotation))
+    if not isinstance(option, TyperOption):
+        raise TypeError(f"typer built {type(option).__name__} for option {name}")
+    return option
+
+
 def add_global_options(cmd: TyperBaseCommand) -> TyperBaseCommand:
     """Give *cmd* the umbrella's ``--version``/``--verbose``/``--quiet`` flags.
 
@@ -885,41 +901,78 @@ def add_global_options(cmd: TyperBaseCommand) -> TyperBaseCommand:
         cmd._rebrew_target_listing = True  # type: ignore[attr-defined]
     if not _declares(cmd, "--version"):
         cmd.params.append(
-            TyperOption(
-                param_decls=["--version", "-V"],
-                is_flag=True,
-                is_eager=True,
-                expose_value=False,
-                callback=_print_version,
-                help=VERSION_HELP,
+            _option(
+                "version",
+                bool,
+                typer.Option(
+                    False,
+                    "--version",
+                    "-V",
+                    is_eager=True,
+                    expose_value=False,
+                    callback=_print_version,
+                    help=VERSION_HELP,
+                ),
             )
         )
     if not _declares(cmd, "--verbose", "-v"):
         cmd.params.append(
-            TyperOption(
-                param_decls=["--verbose", "-v"],
-                count=True,
-                default=0,
-                metavar="",
-                show_default=False,
-                is_eager=True,
-                expose_value=False,
-                callback=_apply_verbose,
-                help=VERBOSE_HELP,
+            _option(
+                "verbose",
+                int,
+                typer.Option(
+                    0,
+                    "--verbose",
+                    "-v",
+                    count=True,
+                    metavar="",
+                    show_default=False,
+                    is_eager=True,
+                    expose_value=False,
+                    callback=_apply_verbose,
+                    help=VERBOSE_HELP,
+                ),
             )
         )
     if not _declares(cmd, "--quiet", "-q"):
         cmd.params.append(
-            TyperOption(
-                param_decls=["--quiet", "-q"],
-                is_flag=True,
-                is_eager=True,
-                expose_value=False,
-                callback=_apply_quiet,
-                help=QUIET_HELP,
+            _option(
+                "quiet",
+                bool,
+                typer.Option(
+                    False,
+                    "--quiet",
+                    "-q",
+                    is_eager=True,
+                    expose_value=False,
+                    callback=_apply_quiet,
+                    help=QUIET_HELP,
+                ),
             )
         )
+    # Typer 0.29 labels a flag <bool> and a repeatable option <list[str]> in help. A flag takes no value
+    # and each use of a repeatable option takes one, and the wider labels narrow the flag column until
+    # long names are cut at 60 columns, so the help labels what one use takes. --help is built per
+    # command on first use, outside cmd.params.
+    original_help_option = cmd.get_help_option
+
+    def get_help_option(ctx: TyperContext) -> TyperOption | None:
+        option = original_help_option(ctx)
+        if option is not None and option.metavar is None:
+            option.metavar = ""
+        return option
+
+    cmd.get_help_option = get_help_option  # type: ignore[method-assign]
     for param in cmd.params:
+        if isinstance(param, TyperOption) and param.metavar is None:
+            if param.is_flag and not param.count:
+                param.metavar = ""
+            elif (
+                param.multiple
+                and (item := get_args(param.type_descriptor.annotation))
+                and isinstance(item[0], type)
+            ):
+                param.metavar = f"<{item[0].__name__}>"
         if not isinstance(param, TyperOption) or param.rich_help_panel is not None:
             continue
         flags = set(param.opts)

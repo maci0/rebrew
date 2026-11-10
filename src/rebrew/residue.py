@@ -27,7 +27,6 @@ lazy from pathlib import Path
 lazy from typing import Any
 
 import typer
-from typer.models import TyperPath
 lazy from rich.cells import cell_len
 
 from rebrew.cli import (
@@ -248,19 +247,18 @@ def main(
     built: str = typer.Argument(
         None,
         help="Built image to measure (default: build/<target>)",
-        click_type=TyperPath(path_type=str),
     ),
     baseline: str | None = typer.Option(
         None,
         "--baseline",
         help="Baseline JSON file: also print per-function deltas vs it",
-        click_type=TyperPath(path_type=str),
+        metavar="<path>",
     ),
     new_baseline: str | None = typer.Option(
         None,
         "--new-baseline",
         help="Write this run's report as JSON to PATH (adopt as baseline)",
-        click_type=TyperPath(path_type=str),
+        metavar="<path>",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,

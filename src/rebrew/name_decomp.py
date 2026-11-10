@@ -34,11 +34,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from functools import lru_cache
-from pathlib import Path
 from typing import Any
+lazy from pathlib import Path
 
 import typer
-from typer.models import TyperPath
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, parse_va, require_config
 from rebrew.decompiler import BACKEND_HELP_CHOICES, complete_backends
@@ -622,7 +621,7 @@ def main(
         "--output",
         "-o",
         help="Write decompilation to this file (default: stdout)",
-        click_type=TyperPath(path_type=Path),
+        metavar="<path>",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,

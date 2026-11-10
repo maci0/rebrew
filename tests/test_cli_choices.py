@@ -47,10 +47,10 @@ class TestFiniteChoices:
         command = _command(route)
         param = next(param for param in command.params if flag in param.opts)
         with command.make_context(command.name, [], resilient_parsing=True) as ctx:
-            completed = [item.value for item in param.type.shell_complete(ctx, param, prefix)]
+            completed = [item.value for item in param.shell_complete(ctx, prefix)]
             assert expected in completed
             assert all(value.startswith(prefix) for value in completed)
-            value = param.type.convert(expected, param, ctx)
+            value = param.process_value(ctx, expected)
             assert type(value) is str
             assert value == expected
 
@@ -64,7 +64,7 @@ class TestFiniteChoices:
         ]:
             command = _command(route)
             param = next(param for param in command.params if flag in param.opts)
-            assert set(param.type.choices) == expected
+            assert set(param.type_descriptor.choices) == expected
 
 
 class TestDecompilerCompletion:

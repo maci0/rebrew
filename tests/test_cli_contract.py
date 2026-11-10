@@ -775,7 +775,6 @@ class TestComposedHelp:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from rich.markup import render
-        from typer.models import TyperPath
 
         from rebrew.app.main import app
         from rebrew.cli import add_global_options
@@ -796,8 +795,8 @@ class TestComposedHelp:
             context = typer._click.core.Context(current)
             for param in current.get_params(context):
                 monkeypatch.setattr(param, "callback", None)
-                if isinstance(param.type, TyperPath):
-                    monkeypatch.setattr(param.type, "exists", False)
+                if param.type_descriptor.is_path:
+                    monkeypatch.setattr(param.type_descriptor.parameter_info, "exists", False)
         failures = []
         for path, current in commands:
             for line in render(current.epilog or "", emoji=False).plain.splitlines():

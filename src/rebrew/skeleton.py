@@ -28,7 +28,6 @@ if TYPE_CHECKING:
     from rebrew.catalog import FunctionEntry
 
 import typer
-from typer.models import TyperPath
 
 from rebrew.cli import (
     EXIT_ERROR,
@@ -1479,7 +1478,7 @@ def main(
         "--output",
         "-o",
         help="Output file path. Excludes --batch.",
-        click_type=TyperPath(path_type=str),
+        metavar="<path>",
     ),
     batch: int | None = typer.Option(
         None,
@@ -1503,7 +1502,7 @@ def main(
         None,
         "--append",
         help="Append function to an existing .c file (multi-function file). Excludes --batch.",
-        click_type=TyperPath(path_type=str),
+        metavar="<path>",
     ),
     decomp: bool = typer.Option(False, "--decomp", help="Embed decompilation in skeleton"),
     decomp_body: bool = typer.Option(

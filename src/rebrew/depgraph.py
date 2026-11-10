@@ -21,7 +21,6 @@ lazy import contextlib
 lazy from pathlib import Path
 
 import typer
-from typer.models import TyperPath
 
 from rebrew.cli import (
     EXIT_ERROR,
@@ -791,7 +790,7 @@ def main(
         "--output",
         "-o",
         help="Output file (default: stdout); excludes --cu-map",
-        click_type=TyperPath(path_type=str),
+        metavar="<path>",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,

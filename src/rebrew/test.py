@@ -32,7 +32,6 @@ lazy from pathlib import Path
 lazy from typing import Any, TypeGuard
 
 import typer
-from typer.models import TyperPath
 
 from rebrew.cli import (
     CFLAGS_HELP,
@@ -278,7 +277,7 @@ def main(
         None,
         "--target-bin",
         help="Raw function byte slice to compare against. Excludes --all.",
-        click_type=TyperPath(path_type=str),
+        metavar="<path>",
     ),
     size: int | None = typer.Option(None, "--size", help=f"{SIZE_HELP}. Excludes --all."),
     cflags: str | None = typer.Option(None, "--cflags", help=f"{CFLAGS_HELP}. Excludes --all."),
@@ -292,7 +291,7 @@ def main(
         None,
         "--dir",
         help=f"{DIR_HELP}. Requires --all",
-        click_type=TyperPath(path_type=str),
+        metavar="<path>",
     ),
     origin: str | None = typer.Option(None, "--module", help=f"{MODULE_HELP}. Requires --all"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),

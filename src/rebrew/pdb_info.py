@@ -34,7 +34,6 @@ lazy import shutil
 lazy import subprocess
 
 import typer
-from typer.models import TyperPath
 lazy import tomlkit
 
 lazy from rebrew.cli import console, error_exit, json_print, untrusted_ident
@@ -316,7 +315,6 @@ def show(
     binary: str = typer.Argument(
         ...,
         help="Path to the binary whose sibling .pdb to read",
-        click_type=TyperPath(path_type=str),
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
@@ -336,7 +334,6 @@ def import_cflags(
     binary: str = typer.Argument(
         ...,
         help="Path to the binary whose sibling .pdb to read",
-        click_type=TyperPath(path_type=str),
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),

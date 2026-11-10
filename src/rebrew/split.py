@@ -18,7 +18,6 @@ lazy from pathlib import Path
 lazy from typing import Any
 
 import typer
-from typer.models import TyperPath
 
 from rebrew.cli import (
     TargetOption,
@@ -558,7 +557,6 @@ def main(
     source: str = typer.Argument(
         ...,
         help="Path to a multi-function source file",
-        click_type=TyperPath(path_type=str),
     ),
     va: str | None = typer.Option(
         None, "--va", help="Extract a single function by VA (hex) into its own file"
@@ -577,7 +575,7 @@ def main(
         "--output",
         "-o",
         help="Output directory",
-        click_type=TyperPath(path_type=str),
+        metavar="<path>",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     force: bool = typer.Option(

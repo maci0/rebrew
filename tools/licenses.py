@@ -141,7 +141,7 @@ REGISTRY_LICENSES: dict[str, str] = {
     "tqdm==4.70.1": "MPL-2.0 AND MIT",
     "tree-sitter==0.26.0": "OSI Approved :: MIT License",
     "tree-sitter-c==0.24.2": "MIT",
-    "typer==0.27.3": "MIT",
+    "typer==0.29.0": "MIT",
     "tzdata==2026.6": "Apache-2.0",
     "typing-extensions==4.16.0": "PSF-2.0",
     "typing-inspection==0.4.5": "MIT",

@@ -12,7 +12,6 @@ lazy from pathlib import Path
 lazy from typing import Any
 
 import typer
-from typer.models import TyperPath
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
 
@@ -257,13 +256,13 @@ def main(
         None,
         "--from",
         help="Retarget every row naming this old source path; requires --to; excludes positional specs",
-        click_type=TyperPath(path_type=str),
+        metavar="<path>",
     ),
     to_file: str | None = typer.Option(
         None,
         "--to",
         help="New source path; requires --from; excludes positional specs",
-        click_type=TyperPath(path_type=str),
+        metavar="<path>",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),

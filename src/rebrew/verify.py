@@ -37,7 +37,6 @@ if TYPE_CHECKING:
     from rebrew.compiler.context import CompileContext
 
 import typer
-from typer.models import TyperPath
 lazy import capstone
 lazy from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn
 lazy from rich.text import Text
@@ -733,7 +732,6 @@ def main(
     file: str | None = typer.Argument(
         None,
         help="Restrict to one source file (e.g. src/x/foo.c) for per-file CI gating",
-        click_type=TyperPath(path_type=str),
     ),
     root: Path | None = RootOption,
     jobs: int | None = typer.Option(
@@ -748,7 +746,7 @@ def main(
         "-o",
         help="Write the JSON report to a file (explicit export; the --compare "
         "baseline lives in .rebrew/ and needs no flag)",
-        click_type=TyperPath(path_type=str),
+        metavar="<path>",
     ),
     summary: bool = typer.Option(
         False,
@@ -778,7 +776,7 @@ def main(
         None,
         "--dir",
         help=DIR_HELP,
-        click_type=TyperPath(path_type=str),
+        metavar="<path>",
     ),
     origin: str | None = typer.Option(None, "--module", help=MODULE_HELP),
     no_promote: bool = typer.Option(

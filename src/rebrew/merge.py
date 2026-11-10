@@ -23,7 +23,6 @@ lazy from pathlib import Path
 lazy from typing import Any
 
 import typer
-from typer.models import TyperPath
 
 from rebrew.cli import (
     EXPECTED_DIGEST_HELP,
@@ -1779,11 +1778,9 @@ def _merge_definitions(
 
 @app.callback(invoke_without_command=True)
 def main(
-    sources: list[str] = typer.Argument(
-        ..., help="Input source files (or directories)", click_type=TyperPath(path_type=str)
-    ),
+    sources: list[str] = typer.Argument(..., help="Input source files (or directories)"),
     output: str = typer.Option(
-        ..., "--output", "-o", help="Output merged source file", click_type=TyperPath(path_type=str)
+        ..., "--output", "-o", help="Output merged source file", metavar="<path>"
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     force: bool = typer.Option(

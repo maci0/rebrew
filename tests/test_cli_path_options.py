@@ -1,12 +1,13 @@
-"""Path-valued CLI parameters provide native completion without changing APIs."""
+"""String path parameters keep str values and shell file completion; options read <path> in help."""
 
 import importlib
 from typing import Any
 lazy from pathlib import Path
 
 import pytest
+import typer
+from typer.core import TyperOption
 from typer.main import get_command
-from typer.models import TyperPath
 
 
 class TestStringPathParameters:
@@ -46,13 +47,17 @@ class TestStringPathParameters:
             for name in operation.split():
                 command = command.commands[name]
         params = {param.name: param for param in command.params}
+        context = typer._click.core.Context(command)
         for name in names:
             param = params[name]
-            assert isinstance(param.type, TyperPath), (module, operation, name)
-            # This is Typer's native path/completion type, with a string return
-            # so direct Python callers and structured JSON fields stay stable.
-            assert param.type.name == "path"
             candidate = str(tmp_path / "new path")
-            value = param.type.convert(candidate, param, None)
-            assert type(value) is str
-            assert value == candidate
+            many = param.multiple or param.nargs == -1
+            value = param.process_value(context, [candidate] if many else candidate)
+            # A string return keeps direct Python callers and structured JSON fields stable.
+            assert (list(value) if many else [value]) == [candidate], (module, operation, name)
+            assert all(type(item) is str for item in (value if many else [value]))
+            # No completion items: the shell completes file names.
+            assert param.shell_complete(context, "x") == []
+            # An option's help names its value a path; an argument's shows its name.
+            if isinstance(param, TyperOption):
+                assert param.display_type_rich(context) == "<path>", (module, operation, name)

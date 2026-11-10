@@ -33,7 +33,6 @@ lazy import shutil
 lazy from typing import Any
 
 import typer
-from typer.models import TyperPath
 lazy from typer.testing import CliRunner
 
 from rebrew.utils import (
@@ -574,7 +573,6 @@ def main(
     binary: str = typer.Argument(
         ...,
         help="Path to the target binary (copied into original/)",
-        click_type=TyperPath(path_type=str),
     ),
     toolchain: str | None = typer.Option(
         None, "--toolchain", help="Compiler profile (default: auto-detected)"

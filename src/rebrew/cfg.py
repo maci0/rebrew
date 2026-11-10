@@ -33,7 +33,6 @@ lazy from pathlib import Path
 lazy from typing import Any, Literal
 
 import typer
-from typer.models import TyperPath
 lazy import tomlkit
 
 from rebrew.cli import (
@@ -660,7 +659,7 @@ def add_target(
         "--binary",
         "-b",
         help="Path to the original binary",
-        click_type=TyperPath(path_type=str),
+        metavar="<path>",
     ),
     arch: str | None = typer.Option(
         None,

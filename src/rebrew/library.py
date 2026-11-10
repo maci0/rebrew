@@ -20,7 +20,6 @@ lazy from pathlib import Path
 lazy from typing import Any
 
 import typer
-from typer.models import TyperPath
 
 from rebrew.cli import (
     EXPECTED_DIGEST_HELP,
@@ -286,9 +285,7 @@ def _resolve_root(dir_arg: str | None) -> Path:
     ),
 )
 def show_cmd(
-    directory: str = typer.Argument(
-        ".", help="Library directory (walk-up from here)", click_type=TyperPath(path_type=str)
-    ),
+    directory: str = typer.Argument(".", help="Library directory (walk-up from here)"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Show the effective library override for a directory (nearest rebrew-libraries.toml walking up toward the project root)."""
@@ -333,7 +330,6 @@ def list_cmd(
     root: str = typer.Argument(
         ".",
         help="Project root (recursively finds rebrew-libraries.toml)",
-        click_type=TyperPath(path_type=str),
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
@@ -386,7 +382,6 @@ def set_cmd(
     directory: str = typer.Argument(
         ".",
         help="Library directory (writes rebrew-libraries.toml here)",
-        click_type=TyperPath(path_type=str),
     ),
     toolchain: str | None = typer.Option(
         None, "--toolchain", help="Compiler profile, e.g. msvc-6.0 / msvc-6.0-sp6"
@@ -489,7 +484,6 @@ def rm_cmd(
     directory: str = typer.Argument(
         ".",
         help="Library directory (removes rebrew-libraries.toml here)",
-        click_type=TyperPath(path_type=str),
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
