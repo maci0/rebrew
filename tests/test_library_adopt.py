@@ -469,3 +469,15 @@ def test_adopt_rejects_inventory_created_after_review(tmp_path: Path) -> None:
         result = _adopt(cfg, lib, "--json")
     assert result.exit_code == 2, result.output
     assert get_entry(cfg.metadata_dir, VA, "SERVER") == before
+
+
+def test_adopt_picks_the_same_object_for_a_comdat_in_several_members(tmp_path: Path) -> None:
+    import json as json_mod
+
+    members = [
+        (f"{letter}.obj", make_coff_obj(CODE, func_symbol="_mylibfn")) for letter in "hgfedcba"
+    ]
+    cfg, lib = _project(tmp_path, members)
+    result = _adopt(cfg, lib, "--dry-run", "--json")
+    assert result.exit_code == 0, result.output
+    assert json_mod.loads(result.output)["object"].endswith("a.obj")

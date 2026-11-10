@@ -643,7 +643,7 @@ def adopt_cmd(
                 "with the reviewed native symbol",
                 json_mode=json_output,
             )
-    symbol, object_label = pairs.pop()
+    symbol, object_label = min(pairs)
     if object_label.endswith(".c.obj") or ":" not in object_label:
         error_exit(
             f"0x{address:x} matched a project-built object ({object_label}); bind its source "
