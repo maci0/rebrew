@@ -1,7 +1,13 @@
 ## [Unreleased]
 
+### Changed
+
+- `msvc-4.0`, `borland-5.5` and `msvc-6.0-sp3` download from our byte-identical copies in the `archaic-toolchains` org (release `2026-11-10` of `msvc400`, `borlandc55` and `msvc600-win9x`) instead of itsmattkc's master branch, archive.org and OmniBlade's release; every sha256 is unchanged. Toolchain downloads no longer accept archive.org hosts, since no pin uses them now.
+- **Breaking:** `rebrew.compiler.toolchain_data.SOURCES` entries `msvc-4.0`, `borland-5.5` and `msvc-6.0-sp3` carry new `url` values (the archaic-toolchains copies above); their `sha256` is unchanged. Code that matches on those URLs, or fetches them past the toolchain download allow-list, needs the new ones.
+
 ### Fixed
 
+- `rebrew doctor`'s download hints for a missing `msvc-6.0-sp3`, `msvc-6.0-sp6` and `msvc-7.0` toolchain named files OmniBlade's `msvcwin9x` release never had (`msvc-6.0-sp3-win32.tar.gz`, `msvc-6.0-sp6-win32.tar.gz`, `msvc-7.0-win32.tar.gz`: HTTP 404). They now name `msvc6.3.tar.gz`, `msvc6.6.tar.gz` and `msvc7.0.tar.gz` in `archaic-toolchains/msvc600-win9x`, and the `msvc-4.0` and Watcom hints point at our copies as well. `docs/TOOLCHAIN.md`'s fetch loop had the same wrong names.
 - The wibo release metadata (1 MiB), wibo asset (64 MiB) and `toolchain check-updates` commit lookup (1 MiB) caps now bound memory: the replies are read as streams with a running cap (`rebrew.utils.read_capped_body`). They were read with `httpx.get`, which buffers the whole body before the cap was checked. An HTTP error status on the wibo release metadata now raises `WiboError` ("Failed to fetch wibo release metadata") like the other wibo failures, not a bare `httpx.HTTPStatusError`. The recompile artifact cap still runs after a buffered GET: streaming it needs a `stream` method on the public `HttpClient` protocol.
 - **Breaking:** `rebrew.wibo.close_response` is gone; it was `rebrew.utils.close_response` re-exported by an import wibo no longer needs. Import it from `rebrew.utils`.
 - `rebrew toolchain check-updates` no longer reports `check failed (ToolchainError)` for msvc-7.1-sp1, which failed the nightly toolchain-sync job since 2026-11-09. The commit lookup read GitHub's commit JSON, which lists the commit's files with their patches: 1,184,601 bytes for archaic-msvc/msvc710_sp1, past the 1 MiB reply cap added that day (23b1192a). It now asks for the bare sha (`application/vnd.github.sha`, 40 bytes) and refuses a reply that is not 40 lowercase hex.

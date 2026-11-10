@@ -1993,6 +1993,11 @@ class TestTrustedToolchainDownload:
             _trusted_toolchain_download_url("https://evil.example/payload")
         with pytest.raises(ToolchainError, match="trusted https"):
             _trusted_toolchain_download_url("https://169.254.169.254/latest/meta-data")
+        # No pin downloads from archive.org any more (borland-5.5 comes from archaic-toolchains).
+        with pytest.raises(ToolchainError, match="trusted https"):
+            _trusted_toolchain_download_url(
+                "https://ia801234.us.archive.org/0/items/BorlandC55/file.zip"
+            )
 
     def test_accepts_pinned_publisher_hosts(self) -> None:
         from rebrew.toolchain_cli import _trusted_toolchain_download_url
@@ -2005,10 +2010,6 @@ class TestTrustedToolchainDownload:
             "https://ftp.gnu.org/gnu/gcc/gcc-14.2.0/gcc-14.2.0.tar.xz"
         )
         assert gnu.startswith("https://ftp.gnu.org/")
-        ia = _trusted_toolchain_download_url(
-            "https://ia801234.us.archive.org/0/items/BorlandC55/file.zip"
-        )
-        assert ia.startswith("https://ia801234.us.archive.org/")
 
     def test_redirect_off_list_is_refused(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

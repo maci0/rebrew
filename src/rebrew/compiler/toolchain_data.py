@@ -117,9 +117,10 @@ SOURCES: dict[str, ToolchainSource] = {
     "msvc-6.0-sp3": ToolchainSource(
         # OmniBlade decomp.me msvc6.3 — VC 6.0 SP3 (CL.EXE 12.00.8168, the
         # RTM..SP3 build; identical to the flagship msvc-6.0 compiler).  The
-        # archaic-msvc msvc600_sp3 repo carries no Bin/, so the decomp.me
-        # mirror (which matches the vendored tree byte-for-byte) is pinned.
-        url="https://github.com/OmniBlade/decomp.me/releases/download/msvcwin9x/msvc6.3.tar.gz",
+        # archaic-msvc msvc600_sp3 repo carries no Bin/, so OmniBlade's
+        # decomp.me tarball (which matches the vendored tree byte-for-byte) is
+        # pinned, from our copy in archaic-toolchains/msvc600-win9x.
+        url="https://github.com/archaic-toolchains/msvc600-win9x/releases/download/2026-11-10/msvc6.3.tar.gz",
         sha256="84f73e718b3671bfd5de3b7764622b07633b572ee826ca3b77602d224c128608",
         layout="tar",
         host_dir="msvc/6.0-sp3-win32",
@@ -386,7 +387,9 @@ SOURCES: dict[str, ToolchainSource] = {
         host_dir="watcom/2.0-win16",
     ),
     "borland-5.5": ToolchainSource(
-        url="https://archive.org/download/BorlandC55/Borland%20C%2B%2B%205.5.zip",
+        # archive.org BorlandC55 `Borland C++ 5.5.zip`, from our copy in
+        # archaic-toolchains/borlandc55.
+        url="https://github.com/archaic-toolchains/borlandc55/releases/download/2026-11-10/Borland-C-5.5.zip",
         sha256="12affb942db2b9823292697faaa6f465b18c381ba347f9f4bf8efae6ff34cca1",
         layout="zip-installshield",
         host_dir="borland/5.5-win32",
@@ -443,11 +446,12 @@ SOURCES: dict[str, ToolchainSource] = {
         host_dir="msvc/5.0-win32",
     ),
     "msvc-4.0": ToolchainSource(
-        # itsmattkc/MSVC400 — the classic MSVC 4.0 (1995) tree; BIN/CL.EXE
+        # itsmattkc/MSVC400 (its master tarball, from our copy in
+        # archaic-toolchains/msvc400) — the classic MSVC 4.0 (1995) tree; BIN/CL.EXE
         # at the repo root.  Completes the msvc4x/5/6/7 profile set (config,
         # init, and the detector already knew msvc-4.0; only the toolchain
         # registry lacked it).
-        url="https://codeload.github.com/itsmattkc/MSVC400/tar.gz/refs/heads/master",
+        url="https://github.com/archaic-toolchains/msvc400/releases/download/2026-11-10/MSVC400-master.tar.gz",
         sha256="c076ab51bb5a52c805c85603d565ac406beec1a0accf3829127369294f1aff11",
         commit="821e942fd95bd16d01649401de7943ef87ae9f54",
         layout="tar-strip1",

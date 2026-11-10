@@ -131,7 +131,6 @@ _TOOLCHAIN_DOWNLOAD_HOST_SUFFIXES = frozenset(
         "github.com",
         "githubusercontent.com",
         "gnu.org",
-        "archive.org",
     }
 )
 
@@ -3725,7 +3724,7 @@ def check_updates_cmd(
 ) -> None:
     """Detect upstream drift in pinned toolchain sources.
 
-    GitHub-codeload sources (archaic-msvc, archaic-toolchains, itsmattkc, open-watcom): compares the live default-branch commit sha (GitHub API, no download) against the commit the pin was taken from.  The Open Watcom snapshot (a moving 'Last-CI-build' release tag) is re-downloaded and re-hashed.  Immutable release assets (decomp.me, archive.org) and pinned tarballs (16-bit media in the recompile-toolchains checkout) are reported as static.
+    GitHub-codeload sources (archaic-msvc, archaic-toolchains): compares the live default-branch commit sha (GitHub API, no download) against the commit the pin was taken from.  The Open Watcom snapshot (a moving 'Last-CI-build' release tag) is re-downloaded and re-hashed.  Immutable release assets (decomp.me, archive.org) and pinned tarballs (16-bit media in the recompile-toolchains checkout) are reported as static.
     """
     import tempfile
 

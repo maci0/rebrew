@@ -118,18 +118,23 @@ class TestCompilerAvailability:
         result = check_compiler(
             _cfg(compiler_command="wine tools/CL.EXE", root=Path("/opt/msvc-4.0"))
         )
-        assert "MSVC400" in result.fix
+        assert (
+            "https://github.com/archaic-toolchains/msvc400/releases/download/2026-11-10/MSVC400-master.tar.gz"
+            in result.fix
+        )
 
     def test_wine_cl_missing_msvc_6_03_hint(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """The SP3 toolchain ships from the decomp.me mirror, not itsmattkc."""
+        """The SP3 toolchain is OmniBlade's `msvc6.3`, kept in archaic-toolchains, not itsmattkc."""
         monkeypatch.setattr(
             "rebrew.doctor.shutil.which", lambda exe: "/usr/bin/wine" if exe == "wine" else None
         )
         result = check_compiler(
             _cfg(compiler_command="wine Bin/CL.EXE", root=Path("/opt/msvc-6.0-sp3-win32"))
         )
-        assert "OmniBlade" in result.fix
-        assert "msvc-6.0-sp3-win32.tar.gz" in result.fix
+        assert (
+            "https://github.com/archaic-toolchains/msvc600-win9x/releases/download/2026-11-10/msvc6.3.tar.gz"
+            in result.fix
+        )
         assert "itsmattkc" not in result.fix  # msvc-6.0-sp3-win32 must not hit the SP6-era hint
 
     def test_wine_cl_missing_msvc70_hint(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -139,7 +144,22 @@ class TestCompilerAvailability:
         result = check_compiler(
             _cfg(compiler_command="wine Bin/cl.exe", root=Path("/opt/msvc-7.0-win32"))
         )
-        assert "msvc-7.0-win32.tar.gz" in result.fix
+        assert (
+            "https://github.com/archaic-toolchains/msvc600-win9x/releases/download/2026-11-10/msvc7.0.tar.gz"
+            in result.fix
+        )
+
+    def test_wine_cl_missing_msvc_6_06_hint(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            "rebrew.doctor.shutil.which", lambda exe: "/usr/bin/wine" if exe == "wine" else None
+        )
+        result = check_compiler(
+            _cfg(compiler_command="wine Bin/CL.EXE", root=Path("/opt/msvc-6.0-sp6-win32"))
+        )
+        assert (
+            "https://github.com/archaic-toolchains/msvc600-win9x/releases/download/2026-11-10/msvc6.6.tar.gz"
+            in result.fix
+        )
 
     def test_wine_cl_missing_msvc500_hint(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """VC5.0 (archaic-msvc) gets the codeload URL, not itsmattkc."""
@@ -158,7 +178,10 @@ class TestCompilerAvailability:
         )
         result = check_compiler(_cfg(compiler_command="wine bin/wcc.exe", root=Path("/opt/wcc11")))
         assert "Watcom" in result.fix
-        assert "wcc11.0.tar.gz" in result.fix
+        assert (
+            "https://github.com/archaic-toolchains/watcom1x/releases/download/2026-11-10/wcc11.0.tar.gz"
+            in result.fix
+        )
 
     def test_wine_smoke_test_pass(self, monkeypatch: pytest.MonkeyPatch) -> None:
         cl = Path("/tmp/proj/tools/CL.EXE")
@@ -699,7 +722,9 @@ class TestToolchainDownloadHint:
         from rebrew.doctor import _toolchain_download_hint
 
         hint = _toolchain_download_hint("toolchain/msvc/6.0-sp3-win32/bin/cl.exe")
-        assert "msvc-6.0-sp3-win32" in hint  # must not match the generic msvc-6.0 branch
+        assert hint.endswith(
+            "/msvc600-win9x/releases/download/2026-11-10/msvc6.3.tar.gz"
+        )  # not msvc-6.0
 
     def test_unknown_no_hint(self) -> None:
         from rebrew.doctor import _toolchain_download_hint

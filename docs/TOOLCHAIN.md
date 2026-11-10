@@ -1049,16 +1049,17 @@ The MSVC layout the vendored trees share is `bin/cl.exe` + `include/` +
 against real Microsoft VC5.0 product binaries (e.g. `BIND.EXE`).
 
 decomp.me also maintains win32 compiler data (`github.com/decompme/compilers`,
-`platforms/win32/`); its toolchains are published by
-`github.com/OmniBlade/decomp.me/releases/download/msvcwin9x/` (a subset;
+`platforms/win32/`); its toolchains are published by OmniBlade's `msvcwin9x` release, which we keep
+byte for byte at
+`github.com/archaic-toolchains/msvc600-win9x/releases/download/2026-11-10/` (a subset;
 msvc6.0/6.3/6.4/6.5/6.5pp/6.6/7.0 only, no Lib dir):
 
 | Version | File | CL version | Notes |
 |---------|------|------------|-------|
 | msvc6.0 | `msvc6.0.tar.gz` (6.2 MB) | 12.00.x | same SP line as the local master |
-| msvc-6.0-sp3-win32 | `msvc-6.0-sp3-win32.tar.gz` (6.6 MB) | 12.00.8168 | **SP3: codegen differs from SP6** |
-| msvc-6.0-sp6-win32 | `msvc-6.0-sp6-win32.tar.gz` (6.6 MB) | 12.00.8804 | **SP4+ driver: distinct from `msvc-6.0`'s RTM..SP3 8168** |
-| msvc-7.0-win32 | `msvc-7.0-win32.tar.gz` (33 MB) | 13.10.3077 | **VC7: enables the `msvc-7.0` profile** |
+| msvc-6.0-sp3-win32 | `msvc6.3.tar.gz` (6.6 MB) | 12.00.8168 | **SP3: codegen differs from SP6** |
+| msvc-6.0-sp6-win32 | `msvc6.6.tar.gz` (6.6 MB) | 12.00.8804 | **SP4+ driver: distinct from `msvc-6.0`'s RTM..SP3 8168** |
+| msvc-7.0-win32 | `msvc7.0.tar.gz` (33 MB) | 13.10.3077 | **VC7: enables the `msvc-7.0` profile** |
 | msvc4.x/7.1/8.0 | not published | n/a | document + skip |
 
 Layout notes (differ from the local `recompile-toolchains/msvc/6.0-win32/source/VC98/...`):
@@ -1078,8 +1079,9 @@ Fetch + extract (kept out of git; `tools/` is ignored; ~75 MB total):
 
 ```bash
 cd tools
-for v in msvc-6.0-sp3-win32 msvc-6.0-sp6-win32 msvc-7.0-win32; do
-  curl -L -o $v.tar.gz https://github.com/OmniBlade/decomp.me/releases/download/msvcwin9x/$v.tar.gz
+for pair in msvc-6.0-sp3-win32:msvc6.3 msvc-6.0-sp6-win32:msvc6.6 msvc-7.0-win32:msvc7.0; do
+  v=${pair%%:*} asset=${pair#*:}
+  curl -L -o $v.tar.gz https://github.com/archaic-toolchains/msvc600-win9x/releases/download/2026-11-10/$asset.tar.gz
   mkdir -p $v && tar xzf $v.tar.gz -C $v
 done
 ```

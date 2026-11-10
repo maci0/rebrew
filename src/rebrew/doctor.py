@@ -233,6 +233,11 @@ def check_arch_format(cfg: ProjectConfig) -> CheckResult:
     )
 
 
+#: Our preservation copies of third-party toolchain media (archaic-toolchains org), the same
+#: release the pinned ToolchainSource URLs use.
+_MIRROR = "https://github.com/archaic-toolchains/{repo}/releases/download/2026-11-10/{asset}"
+
+
 def _toolchain_download_hint(path_str: str) -> str:
     """A download URL for a missing vendored toolchain, keyed by path.
 
@@ -243,20 +248,11 @@ def _toolchain_download_hint(path_str: str) -> str:
     (with the leading space) or "" when unknown.
     """
     if "6.0-sp3-win32" in path_str or "msvc6.3" in path_str:
-        return (
-            " Download: https://github.com/OmniBlade/decomp.me/"
-            "releases/download/msvcwin9x/msvc-6.0-sp3-win32.tar.gz"
-        )
+        return " Download: " + _MIRROR.format(repo="msvc600-win9x", asset="msvc6.3.tar.gz")
     if "6.0-sp6-win32" in path_str or "msvc6.6" in path_str:
-        return (
-            " Download: https://github.com/OmniBlade/decomp.me/"
-            "releases/download/msvcwin9x/msvc-6.0-sp6-win32.tar.gz"
-        )
+        return " Download: " + _MIRROR.format(repo="msvc600-win9x", asset="msvc6.6.tar.gz")
     if "7.0-win32" in path_str or "msvc-7.0" in path_str:
-        return (
-            " Download: https://github.com/OmniBlade/decomp.me/"
-            "releases/download/msvcwin9x/msvc-7.0-win32.tar.gz"
-        )
+        return " Download: " + _MIRROR.format(repo="msvc600-win9x", asset="msvc7.0.tar.gz")
     if "5.0-win32" in path_str or "msvc500" in path_str or "msvc-5.0" in path_str:
         return (
             " Download: https://codeload.github.com/archaic-msvc/msvc500/tar.gz/refs/heads/master"
@@ -264,7 +260,7 @@ def _toolchain_download_hint(path_str: str) -> str:
     if "6.0-win32" in path_str or "msvc-6.0" in path_str:
         return " Download: https://github.com/itsmattkc/msvc-6.0-win32"
     if "4.0-win32" in path_str or "msvc-4.0" in path_str:
-        return " Download: https://codeload.github.com/itsmattkc/MSVC400/tar.gz/refs/heads/master"
+        return " Download: " + _MIRROR.format(repo="msvc400", asset="MSVC400-master.tar.gz")
     if "4.2-win32" in path_str or "msvc-4.2" in path_str:
         # The vendored 4.2 tree comes from the archaic-msvc repo (its own
         # README + the pinned ToolchainSource); the itsmattkc mirror is a
@@ -273,9 +269,8 @@ def _toolchain_download_hint(path_str: str) -> str:
             " Download: https://codeload.github.com/archaic-msvc/msvc420/tar.gz/refs/heads/master"
         )
     if "wcc" in path_str or "watcom" in path_str:
-        return (
-            " Download (Watcom C/C++): https://github.com/OmniBlade/"
-            "decomp.me/releases/download/wcc10.5/wcc11.0.tar.gz"
+        return " Download (Watcom C/C++): " + _MIRROR.format(
+            repo="watcom1x", asset="wcc11.0.tar.gz"
         )
     if "1.52-win16" in path_str or "msvc152" in path_str:
         return " Download (MSVC 1.52): https://archive.org/details/en_vc152_202512"
