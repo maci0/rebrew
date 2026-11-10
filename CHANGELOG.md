@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.31.0] - 2026-11-10
+
 ### Fixed
 
 - `rebrew library match` compares the bytes again when every relocation lies inside the compared window. The match rewrite (e438e776) skipped the comparison in that case, so any same-size body with enough fixed bytes matched any library symbol: in guild-rebrew 28 real d3dx8 findings read as 3618.
