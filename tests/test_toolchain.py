@@ -2111,26 +2111,9 @@ class TestLiveCommitShaRetry:
     def _resp(status: int, sha: str = "a" * 40) -> object:
         import httpx
 
-        class _Resp:
-            def __init__(self) -> None:
-                self.status_code = status
-                self.request = httpx.Request("GET", "https://api.github.com/")
-
-            def raise_for_status(self) -> None:
-                if self.status_code >= 400:
-                    raise httpx.HTTPStatusError(
-                        "boom",
-                        request=self.request,
-                        response=self,  # type: ignore[arg-type]
-                    )
-
-            def json(self) -> dict[str, str]:
-                return {"sha": sha}
-
-            def close(self) -> None:
-                return None
-
-        return _Resp()
+        return httpx.Response(
+            status, content=sha.encode(), request=httpx.Request("GET", "https://api.github.com/")
+        )
 
     def test_retryable_status_is_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import httpx
@@ -2207,6 +2190,48 @@ class TestLiveCommitShaRetry:
         with pytest.raises(httpx.ReadTimeout):
             _live_commit_sha("o", "r", "master")
         assert calls == _HTTP_ATTEMPTS
+
+
+class TestLiveCommitShaReply:
+    """GitHub's commit JSON lists the commit's files with their patches: for the
+    archaic-msvc/msvc710_sp1 import it is 1,184,601 bytes, past
+    `_MAX_LIVE_SHA_BYTES`, and the nightly drift gate read `check failed
+    (ToolchainError)` for a pin that had not moved."""
+
+    def test_a_large_commit_reads_current(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import httpx
+        from typer.testing import CliRunner
+
+        from rebrew.app.main import app as umbrella
+        from rebrew.compiler import toolchain_data
+        from rebrew.toolchain_cli import _MAX_LIVE_SHA_BYTES
+
+        src = toolchain_data.SOURCES["msvc-7.1-sp1"]
+        monkeypatch.setattr(toolchain_data, "SOURCES", {"msvc-7.1-sp1": src})
+
+        def _github(url: str, *, headers: dict[str, str], **_kw: object) -> httpx.Response:
+            request = httpx.Request("GET", url, headers=headers)
+            if headers.get("Accept") == "application/vnd.github.sha":
+                return httpx.Response(200, content=src.commit.encode(), request=request)
+            files = "x" * (_MAX_LIVE_SHA_BYTES + 1)
+            return httpx.Response(200, json={"sha": src.commit, "files": files}, request=request)
+
+        monkeypatch.setattr(httpx, "get", _github)
+        result = CliRunner().invoke(umbrella, ["toolchain", "check-updates", "--json"])
+        assert result.exit_code == 0, result.output
+        assert cli_payload(result) == {"toolchains": {"msvc-7.1-sp1": "current"}, "drifted": []}
+
+    def test_a_reply_that_is_not_a_sha_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import httpx
+
+        from rebrew.toolchain_cli import _live_commit_sha
+
+        def _proxy_page(url: str, **_kw: object) -> httpx.Response:
+            return httpx.Response(200, text="<html>", request=httpx.Request("GET", url))
+
+        monkeypatch.setattr(httpx, "get", _proxy_page)
+        with pytest.raises(ToolchainError, match="not a commit sha"):
+            _live_commit_sha("o", "r", "master")
 
 
 class TestVendorRetryAfterPartialFailure:

@@ -282,9 +282,10 @@ else refused, `src/rebrew/wibo.py`), the
   `src/rebrew/wibo.py`, declared-length and buffered-body checked before
   `json` parsing), and the toolchain media at 2 GiB
   (`_MAX_PINNED_DOWNLOAD_BYTES` in `src/rebrew/toolchain_cli.py`), and the
-  GitHub commit lookup reply (`_live_commit_sha`) at 1 MiB
-  (`_MAX_LIVE_SHA_BYTES` in `src/rebrew/toolchain_cli.py`,
-  declared-length and buffered-body checked before `json` parsing).
+  GitHub commit lookup reply (`_live_commit_sha`, the bare sha requested as
+  `application/vnd.github.sha`) at 1 MiB (`_MAX_LIVE_SHA_BYTES` in
+  `src/rebrew/toolchain_cli.py`, declared-length and buffered-body checked
+  before the sha is read; anything but 40 lowercase hex is refused).
 - No claim that the ops worker's presigned-URL download is SSRF-proof.
   `_download` in `src/rebrew/ops.py` refuses a `url` that is not https, a
   hostless URL, or a URL carrying userinfo (`parts.username or

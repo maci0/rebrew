@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- `rebrew toolchain check-updates` no longer reports `check failed (ToolchainError)` for msvc-7.1-sp1, which failed the nightly toolchain-sync job since 2026-11-09. The commit lookup read GitHub's commit JSON, which lists the commit's files with their patches: 1,184,601 bytes for archaic-msvc/msvc710_sp1, past the 1 MiB reply cap added that day (23b1192a). It now asks for the bare sha (`application/vnd.github.sha`, 40 bytes) and refuses a reply that is not 40 lowercase hex.
+
 ## [6.31.0] - 2026-11-10
 
 ### Fixed
