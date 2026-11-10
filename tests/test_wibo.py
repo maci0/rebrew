@@ -5,6 +5,7 @@ import json
 import stat
 import sys
 from types import SimpleNamespace
+lazy from collections.abc import Iterator
 lazy from pathlib import Path
 
 import pytest
@@ -38,6 +39,15 @@ class _FakeHTTPResponse:
     def close(self) -> None:
         self.closed = True
 
+    def iter_bytes(self) -> Iterator[bytes]:
+        yield self.content
+
+    def __enter__(self) -> _FakeHTTPResponse:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.close()
+
 
 def _release_payload(digest: str) -> str:
     """Build the GitHub release metadata payload used by download_wibo tests."""
@@ -58,16 +68,16 @@ def _release_payload(digest: str) -> str:
 
 
 def _mock_wibo_http(monkeypatch: pytest.MonkeyPatch, payload: str, binary: bytes) -> None:
-    """Patch platform + httpx.get so download_wibo fetches *payload*/*binary*."""
+    """Patch platform + httpx.stream so download_wibo fetches *payload*/*binary*."""
     monkeypatch.setattr(sys, "platform", "linux", raising=False)
     monkeypatch.setattr("platform.machine", lambda: "x86_64")
 
-    def _fake_httpx_get(url: str, **kwargs: object) -> _FakeHTTPResponse:
+    def _fake_httpx_stream(_method: str, url: str, **kwargs: object) -> _FakeHTTPResponse:
         if url == _WIBO_API_URL:
             return _FakeHTTPResponse(payload)
         return _FakeHTTPResponse(binary)
 
-    monkeypatch.setattr("httpx.get", _fake_httpx_get)
+    monkeypatch.setattr("httpx.stream", _fake_httpx_stream)
 
 
 class TestWiboAssetName:
@@ -148,6 +158,28 @@ class TestDownloadWibo:
             download_wibo(dest)
         assert not dest.exists()
 
+    def test_an_asset_over_the_cap_is_refused(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The digest matches, so only the body cap can refuse it."""
+        dest = tmp_path / "tools" / "wibo"
+        binary = b"x" * 17
+        _mock_wibo_http(monkeypatch, _release_payload(hashlib.sha256(binary).hexdigest()), binary)
+        monkeypatch.setattr(wibo_mod, "_MAX_WIBO_DOWNLOAD_BYTES", 16)
+
+        with pytest.raises(wibo_mod.WiboError, match="wibo asset exceeds 16 bytes"):
+            download_wibo(dest)
+        assert not dest.exists()
+
+    def test_release_metadata_over_the_cap_is_refused(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _mock_wibo_http(monkeypatch, _release_payload("0" * 64), b"")
+        monkeypatch.setattr(wibo_mod, "_MAX_WIBO_METADATA_BYTES", 16)
+
+        with pytest.raises(wibo_mod.WiboError, match="wibo release metadata exceeds 16 bytes"):
+            download_wibo(tmp_path / "tools" / "wibo")
+
     def test_missing_asset_raises(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         dest = tmp_path / "tools" / "wibo"
         payload = json.dumps({"tag_name": "v0.9.0", "assets": []})
@@ -155,8 +187,8 @@ class TestDownloadWibo:
         monkeypatch.setattr(sys, "platform", "linux", raising=False)
         monkeypatch.setattr("platform.machine", lambda: "x86_64")
         monkeypatch.setattr(
-            "httpx.get",
-            lambda _url, **kwargs: _FakeHTTPResponse(payload),
+            "httpx.stream",
+            lambda _method, _url, **kwargs: _FakeHTTPResponse(payload),
         )
 
         with pytest.raises(RuntimeError, match="asset not found"):
@@ -167,8 +199,8 @@ class TestDownloadWibo:
     ) -> None:
         dest = tmp_path / "tools" / "wibo"
         monkeypatch.setattr(
-            "httpx.get",
-            lambda _url, **kwargs: _FakeHTTPResponse("{not json"),
+            "httpx.stream",
+            lambda _method, _url, **kwargs: _FakeHTTPResponse("{not json"),
         )
 
         with pytest.raises(RuntimeError, match="Invalid JSON in wibo release metadata"):
@@ -236,42 +268,36 @@ class TestDoctorCheckRunner:
 
 
 class TestDownloadWiboErrors:
-    def _meta(self, payload: object) -> SimpleNamespace:
-        return SimpleNamespace(
-            status_code=200,
-            headers={},
-            raise_for_status=lambda: None,
-            json=lambda: payload,
-            close=lambda: None,
-        )
+    def _meta(self, payload: object) -> _FakeHTTPResponse:
+        return _FakeHTTPResponse(json.dumps(payload))
 
     def test_metadata_fetch_failure(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import httpx
 
-        def boom(url: str, **kw: object) -> SimpleNamespace:
+        def boom(_method: str, url: str, **kw: object) -> _FakeHTTPResponse:
             raise httpx.HTTPError("net down")
 
-        monkeypatch.setattr("httpx.get", boom)
+        monkeypatch.setattr("httpx.stream", boom)
         with pytest.raises(RuntimeError, match="Failed to fetch wibo release metadata"):
             wibo_mod.download_wibo(tmp_path / "wibo")
 
     def test_metadata_not_dict(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("httpx.get", lambda url, **kw: self._meta([1, 2]))
+        monkeypatch.setattr("httpx.stream", lambda _method, url, **kw: self._meta([1, 2]))
         with pytest.raises(RuntimeError, match="Invalid wibo release metadata response"):
             wibo_mod.download_wibo(tmp_path / "wibo")
 
     def test_assets_not_a_list(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
-            "httpx.get",
-            lambda url, **kw: self._meta({"tag_name": "v1", "assets": "nope"}),
+            "httpx.stream",
+            lambda _method, url, **kw: self._meta({"tag_name": "v1", "assets": "nope"}),
         )
         with pytest.raises(RuntimeError, match="assets is not a list"):
             wibo_mod.download_wibo(tmp_path / "wibo")
 
     def test_missing_download_url(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
-            "httpx.get",
-            lambda url, **kw: self._meta(
+            "httpx.stream",
+            lambda _method, url, **kw: self._meta(
                 {
                     "tag_name": "v1",
                     "assets": [
@@ -285,8 +311,8 @@ class TestDownloadWiboErrors:
 
     def test_missing_digest(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
-            "httpx.get",
-            lambda url, **kw: self._meta(
+            "httpx.stream",
+            lambda _method, url, **kw: self._meta(
                 {
                     "tag_name": "v1",
                     "assets": [
@@ -322,7 +348,7 @@ class TestDownloadWiboErrors:
         )
         fetched: list[str] = []
 
-        def _fake_httpx_get(url: str, **kwargs: object) -> _FakeHTTPResponse:
+        def _fake_httpx_stream(_method: str, url: str, **kwargs: object) -> _FakeHTTPResponse:
             fetched.append(url)
             if url == _WIBO_API_URL:
                 return _FakeHTTPResponse(payload)
@@ -330,7 +356,7 @@ class TestDownloadWiboErrors:
 
         monkeypatch.setattr(sys, "platform", "linux", raising=False)
         monkeypatch.setattr("platform.machine", lambda: "x86_64")
-        monkeypatch.setattr("httpx.get", _fake_httpx_get)
+        monkeypatch.setattr("httpx.stream", _fake_httpx_stream)
 
         with pytest.raises(RuntimeError, match="not a trusted GitHub https host"):
             download_wibo(dest)
@@ -340,7 +366,7 @@ class TestDownloadWiboErrors:
     def test_download_failure(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import httpx
 
-        def get(url: str, **kw: object) -> SimpleNamespace:
+        def stream(_method: str, url: str, **kw: object) -> _FakeHTTPResponse:
             if "api.github.com" in url:
                 return self._meta(
                     {
@@ -358,7 +384,7 @@ class TestDownloadWiboErrors:
                 )
             raise httpx.HTTPError("dl failed")
 
-        monkeypatch.setattr("httpx.get", get)
+        monkeypatch.setattr("httpx.stream", stream)
         with pytest.raises(RuntimeError, match="Failed to download wibo asset"):
             wibo_mod.download_wibo(tmp_path / "wibo")
 
@@ -372,7 +398,7 @@ class TestTrustedRedirects:
         ]
         responses: list[_FakeHTTPResponse] = []
 
-        def _fake_httpx_get(url: str, **kwargs: object) -> _FakeHTTPResponse:
+        def _fake_httpx_stream(_method: str, url: str, **kwargs: object) -> _FakeHTTPResponse:
             if url == hops[0]:
                 r = _FakeHTTPResponse(b"", status_code=302)
                 r.headers["location"] = hops[1]
@@ -382,12 +408,9 @@ class TestTrustedRedirects:
             responses.append(r)
             return r
 
-        monkeypatch.setattr("httpx.get", _fake_httpx_get)
-        final = wibo_mod._get_with_trusted_redirects(hops[0])
-        assert final is responses[1]
-        assert responses[0].closed is True
-        assert responses[1].closed is False
-        final.close()
+        monkeypatch.setattr("httpx.stream", _fake_httpx_stream)
+        assert wibo_mod._download_with_trusted_redirects(hops[0], "wibo") == b"binary"
+        assert [r.closed for r in responses] == [True, True]
 
     def test_metadata_off_host_redirect_is_not_fetched(
         self, monkeypatch: pytest.MonkeyPatch
@@ -395,14 +418,14 @@ class TestTrustedRedirects:
         """A redirect of the digest JSON must not leave api.github.com."""
         fetched: list[str] = []
 
-        def _fake_httpx_get(url: str, **kwargs: object) -> _FakeHTTPResponse:
+        def _fake_httpx_stream(_method: str, url: str, **kwargs: object) -> _FakeHTTPResponse:
             fetched.append(url)
             assert kwargs.get("follow_redirects") is False
             r = _FakeHTTPResponse(b"", status_code=302)
             r.headers["location"] = "https://evil.example/latest"
             return r
 
-        monkeypatch.setattr("httpx.get", _fake_httpx_get)
+        monkeypatch.setattr("httpx.stream", _fake_httpx_stream)
         with pytest.raises(RuntimeError, match="not https://api.github.com"):
             wibo_mod._read_release_metadata()
         assert fetched == [_WIBO_API_URL]
@@ -412,7 +435,7 @@ class TestTrustedRedirects:
         tag_url = "https://api.github.com/repos/decompals/wibo/releases/123"
         fetched: list[str] = []
 
-        def _fake_httpx_get(url: str, **kwargs: object) -> _FakeHTTPResponse:
+        def _fake_httpx_stream(_method: str, url: str, **kwargs: object) -> _FakeHTTPResponse:
             fetched.append(url)
             if url == _WIBO_API_URL:
                 r = _FakeHTTPResponse(b"", status_code=302)
@@ -420,7 +443,7 @@ class TestTrustedRedirects:
                 return r
             return _FakeHTTPResponse('{"tag_name": "v1", "assets": []}')
 
-        monkeypatch.setattr("httpx.get", _fake_httpx_get)
+        monkeypatch.setattr("httpx.stream", _fake_httpx_stream)
         data = wibo_mod._read_release_metadata()
         assert data["tag_name"] == "v1"
         assert fetched == [_WIBO_API_URL, tag_url]

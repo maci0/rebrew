@@ -2,6 +2,8 @@
 
 ### Fixed
 
+- The wibo release metadata (1 MiB), wibo asset (64 MiB) and `toolchain check-updates` commit lookup (1 MiB) caps now bound memory: the replies are read as streams with a running cap (`rebrew.utils.read_capped_body`). They were read with `httpx.get`, which buffers the whole body before the cap was checked. An HTTP error status on the wibo release metadata now raises `WiboError` ("Failed to fetch wibo release metadata") like the other wibo failures, not a bare `httpx.HTTPStatusError`. The recompile artifact cap still runs after a buffered GET: streaming it needs a `stream` method on the public `HttpClient` protocol.
+- **Breaking:** `rebrew.wibo.close_response` is gone; it was `rebrew.utils.close_response` re-exported by an import wibo no longer needs. Import it from `rebrew.utils`.
 - `rebrew toolchain check-updates` no longer reports `check failed (ToolchainError)` for msvc-7.1-sp1, which failed the nightly toolchain-sync job since 2026-11-09. The commit lookup read GitHub's commit JSON, which lists the commit's files with their patches: 1,184,601 bytes for archaic-msvc/msvc710_sp1, past the 1 MiB reply cap added that day (23b1192a). It now asks for the bare sha (`application/vnd.github.sha`, 40 bytes) and refuses a reply that is not 40 lowercase hex.
 
 ## [6.31.0] - 2026-11-10

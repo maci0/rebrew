@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from pathlib import Path
 from typing import Any, ClassVar
-lazy from collections.abc import Iterator
+lazy from collections.abc import Callable, Iterator
 
 import pytest
 from cli_json import cli_payload
@@ -2102,6 +2103,17 @@ class TestTrustedToolchainDownload:
         assert naps == [_HTTP_RETRY_BACKOFF_S]
 
 
+def _streamed(get: Callable[..., Any]) -> Callable[..., Any]:
+    """An ``httpx.stream`` stand-in serving what the ``httpx.get``-shaped *get* answers."""
+
+    @contextlib.contextmanager
+    def stream(method: str, url: str, **kwargs: Any) -> Iterator[Any]:
+        assert method == "GET", method
+        yield get(url, **kwargs)
+
+    return stream
+
+
 class TestLiveCommitShaRetry:
     """`check-updates` calls `_live_commit_sha` once per codeload source, and
     the nightly drift gate fails the job on a `check failed` row. A single
@@ -2129,7 +2141,7 @@ class TestLiveCommitShaRetry:
                 return self._resp(502)
             return self._resp(200)
 
-        monkeypatch.setattr(httpx, "get", _get)
+        monkeypatch.setattr(httpx, "stream", _streamed(_get))
         monkeypatch.setattr("rebrew.toolchain_cli.time.sleep", lambda _s: None)
         assert _live_commit_sha("o", "r", "master") == "a" * 40
         assert calls == 2
@@ -2148,7 +2160,7 @@ class TestLiveCommitShaRetry:
                 raise httpx.ConnectError("connection reset")
             return self._resp(200, sha="b" * 40)
 
-        monkeypatch.setattr(httpx, "get", _get)
+        monkeypatch.setattr(httpx, "stream", _streamed(_get))
         monkeypatch.setattr("rebrew.toolchain_cli.time.sleep", lambda _s: None)
         assert _live_commit_sha("o", "r", "master") == "b" * 40
         assert calls == 3
@@ -2166,7 +2178,7 @@ class TestLiveCommitShaRetry:
             calls += 1
             return self._resp(404)
 
-        monkeypatch.setattr(httpx, "get", _get)
+        monkeypatch.setattr(httpx, "stream", _streamed(_get))
         monkeypatch.setattr("rebrew.toolchain_cli.time.sleep", lambda _s: None)
         with pytest.raises(httpx.HTTPStatusError):
             _live_commit_sha("o", "r", "master")
@@ -2185,7 +2197,7 @@ class TestLiveCommitShaRetry:
             calls += 1
             raise httpx.ReadTimeout("timed out")
 
-        monkeypatch.setattr(httpx, "get", _get)
+        monkeypatch.setattr(httpx, "stream", _streamed(_get))
         monkeypatch.setattr("rebrew.toolchain_cli.time.sleep", lambda _s: None)
         with pytest.raises(httpx.ReadTimeout):
             _live_commit_sha("o", "r", "master")
@@ -2216,7 +2228,7 @@ class TestLiveCommitShaReply:
             files = "x" * (_MAX_LIVE_SHA_BYTES + 1)
             return httpx.Response(200, json={"sha": src.commit, "files": files}, request=request)
 
-        monkeypatch.setattr(httpx, "get", _github)
+        monkeypatch.setattr(httpx, "stream", _streamed(_github))
         result = CliRunner().invoke(umbrella, ["toolchain", "check-updates", "--json"])
         assert result.exit_code == 0, result.output
         assert cli_payload(result) == {"toolchains": {"msvc-7.1-sp1": "current"}, "drifted": []}
@@ -2229,9 +2241,37 @@ class TestLiveCommitShaReply:
         def _proxy_page(url: str, **_kw: object) -> httpx.Response:
             return httpx.Response(200, text="<html>", request=httpx.Request("GET", url))
 
-        monkeypatch.setattr(httpx, "get", _proxy_page)
+        monkeypatch.setattr(httpx, "stream", _streamed(_proxy_page))
         with pytest.raises(ToolchainError, match="not a commit sha"):
             _live_commit_sha("o", "r", "master")
+
+    def test_an_oversized_reply_stops_being_read_at_the_cap(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A reply with no Content-Length, four times the cap, is refused once the
+        bytes read pass `_MAX_LIVE_SHA_BYTES`, not buffered whole first. The body is
+        finite so a broken cap fails the test instead of hanging it."""
+        import httpx
+
+        from rebrew.toolchain_cli import _MAX_LIVE_SHA_BYTES, _live_commit_sha
+
+        chunk = 64 * 1024
+        pulled = 0
+
+        class _Oversized(httpx.SyncByteStream):
+            def __iter__(self) -> Iterator[bytes]:
+                nonlocal pulled
+                for _ in range(4 * (_MAX_LIVE_SHA_BYTES // chunk)):
+                    pulled += 1
+                    yield b"0" * chunk
+
+        def _github(url: str, **_kw: object) -> httpx.Response:
+            return httpx.Response(200, stream=_Oversized(), request=httpx.Request("GET", url))
+
+        monkeypatch.setattr(httpx, "stream", _streamed(_github))
+        with pytest.raises(ToolchainError, match="exceeds"):
+            _live_commit_sha("o", "r", "master")
+        assert pulled == _MAX_LIVE_SHA_BYTES // chunk + 1
 
 
 class TestVendorRetryAfterPartialFailure:

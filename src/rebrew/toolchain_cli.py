@@ -45,6 +45,7 @@ lazy from rebrew.utils import (
     TerminalTable,
     atomic_write_text,
     container_runtime,
+    read_capped_body,
     run_process_group,
 )
 
@@ -93,11 +94,9 @@ _HTTP_RETRY_BACKOFF_S = 0.5
 #: media is a few hundred MiB at most; 2 GiB leaves generous headroom.
 _MAX_PINNED_DOWNLOAD_BYTES = 2 * 1024**3
 
-#: Cap on the `_live_commit_sha` GitHub API reply, checked before the sha is
-#: read.  `httpx.get` has buffered the whole body by then, so the cap refuses
-#: an oversized reply but does not bound its memory.  The reply is the
-#: 40-byte sha alone (`_GITHUB_SHA_MEDIA_TYPE`); 1 MiB is generous (same
-#: bound as wibo release metadata).
+#: Cap on the `_live_commit_sha` GitHub API reply, applied while it streams
+#: in.  The reply is the 40-byte sha alone (`_GITHUB_SHA_MEDIA_TYPE`); 1 MiB
+#: is generous (same bound as wibo release metadata).
 _MAX_LIVE_SHA_BYTES = 1024**2
 
 #: GitHub media type for the commit endpoint that answers with the sha alone.
@@ -3674,37 +3673,32 @@ def _live_commit_sha(
     url = f"https://api.github.com/repos/{owner}/{repo}/commits/{branch}"
     # No automatic redirects: an off-host Location would still receive the
     # optional GH_TOKEN Authorization header before httpx's strip runs.
-    # Close every exit path: check-updates loops this once per source, and an
-    # unclosed response pins the connection until GC (same discipline as
-    # wibo / decompme one-shot GETs).
+    # The stream closes on every exit path: check-updates loops this once per
+    # source, and an unclosed response pins the connection until GC.
     for attempt in range(_HTTP_ATTEMPTS):
         try:
-            resp = httpx.get(
+            with httpx.stream(
+                "GET",
                 url,
                 headers={**_github_auth_headers(), "Accept": _GITHUB_SHA_MEDIA_TYPE},
                 timeout=20,
                 follow_redirects=False,
                 trust_env=False,
-            )
-            try:
+            ) as resp:
                 resp.raise_for_status()
-                declared = resp.headers.get("content-length", "")
-                if (declared.isdigit() and int(declared) > _MAX_LIVE_SHA_BYTES) or len(
-                    resp.content
-                ) > _MAX_LIVE_SHA_BYTES:
-                    raise ToolchainError(
-                        f"GitHub API reply for {owner}/{repo}@{branch} exceeds "
-                        f"{_MAX_LIVE_SHA_BYTES} bytes"
-                    )
-                sha = resp.content.decode("ascii", errors="replace").strip()
-                if not re.fullmatch(_COMMIT_SHA_PATTERN, sha):
-                    raise ToolchainError(
-                        f"GitHub API reply for {owner}/{repo}@{branch} is not a commit sha: "
-                        f"{sha[:_SHA_REPLY_EXCERPT_CHARS]!r}"
-                    )
-                return sha
-            finally:
-                resp.close()
+                raw = read_capped_body(resp, _MAX_LIVE_SHA_BYTES)
+            if raw is None:
+                raise ToolchainError(
+                    f"GitHub API reply for {owner}/{repo}@{branch} exceeds "
+                    f"{_MAX_LIVE_SHA_BYTES} bytes"
+                )
+            sha = raw.decode("ascii", errors="replace").strip()
+            if not re.fullmatch(_COMMIT_SHA_PATTERN, sha):
+                raise ToolchainError(
+                    f"GitHub API reply for {owner}/{repo}@{branch} is not a commit sha: "
+                    f"{sha[:_SHA_REPLY_EXCERPT_CHARS]!r}"
+                )
+            return sha
         except httpx.HTTPStatusError as exc:
             if (
                 exc.response.status_code not in RETRYABLE_HTTP_STATUS

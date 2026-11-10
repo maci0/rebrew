@@ -78,6 +78,7 @@ lazy from collections.abc import Callable, Iterator, Sequence
 
 from rich.console import Console
 from rich.table import Table
+lazy import httpx
 lazy import tomlkit
 lazy from rich.console import ConsoleOptions, RenderResult
 lazy from rich.errors import MarkupError
@@ -2205,6 +2206,24 @@ def close_response(resp: Any) -> None:
     if callable(close):
         with contextlib.suppress(Exception):
             close()
+
+
+def read_capped_body(resp: httpx.Response, limit: int) -> bytes | None:
+    """The body of *resp*, or ``None`` once its declared or received length passes *limit*.
+
+    Memory stays bounded by *limit* only for a reply opened as a stream
+    (``httpx.stream``, ``Client.stream``): a plain ``get`` has read the whole
+    body before it returns.
+    """
+    declared = resp.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > limit:
+        return None
+    body = bytearray()
+    for chunk in resp.iter_bytes():
+        body += chunk
+        if len(body) > limit:
+            return None
+    return bytes(body)
 
 
 def strip_comment_blocks(text: str) -> str:

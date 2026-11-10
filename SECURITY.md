@@ -280,17 +280,18 @@ plugin cache backends or remove the open upstream diskcache advisory.
 digest is shape-validated before the GET (exactly 64 hex, lowercased,
 else refused, `src/rebrew/wibo.py`), the
   release-metadata JSON at 1 MiB (`_MAX_WIBO_METADATA_BYTES` in
-  `src/rebrew/wibo.py`, declared-length and buffered-body checked before
-  `json` parsing), and the toolchain media at 2 GiB
+  `src/rebrew/wibo.py`, declared length checked, then a running cap while
+  the body streams in, before `json` parsing), and the toolchain media at 2 GiB
   (`_MAX_PINNED_DOWNLOAD_BYTES` in `src/rebrew/toolchain_cli.py`), and the
   GitHub commit lookup reply (`_live_commit_sha`, the bare sha requested as
   `application/vnd.github.sha`) at 1 MiB (`_MAX_LIVE_SHA_BYTES` in
-  `src/rebrew/toolchain_cli.py`, declared-length and buffered-body checked
-  before the sha is read; anything but 40 lowercase hex is refused). The
-  wibo asset, wibo metadata and commit lookup caps, and the 30 MiB recompile
-  artifact cap, are checked after a buffered GET has received the whole
-  body, so they refuse an oversized reply but do not bound the memory spent
-  receiving it; only the toolchain media cap runs while streaming.
+  `src/rebrew/toolchain_cli.py`, declared length checked, then a running
+  cap while the body streams in; anything but 40 lowercase hex is refused). These caps
+  apply while the body streams in (`read_capped_body` in
+  `src/rebrew/utils.py`), so they bound memory too. The 30 MiB recompile
+  artifact cap is checked after a buffered GET has received the whole body,
+  so it refuses an oversized artifact but does not bound the memory spent
+  receiving it.
 - No claim that the ops worker's presigned-URL download is SSRF-proof.
   `_download` in `src/rebrew/ops.py` refuses a `url` that is not https, a
   hostless URL, or a URL carrying userinfo (`parts.username or
