@@ -1734,27 +1734,26 @@ class TestHttpTransport:
         connection = None
         try:
             deadline = time.monotonic() + WAIT_SECONDS
-            while connection is None:
+            while True:
                 assert process.poll() is None and time.monotonic() < deadline
                 try:
-                    connection = socket.create_connection(("127.0.0.1", port), timeout=1)
+                    socket.create_connection(("127.0.0.1", port), timeout=1).close()
+                    break
                 except OSError:
                     time.sleep(0.1)
-            connection.settimeout(WAIT_SECONDS)
-            connection.sendall(
-                f"POST /rebrew.nope HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAuthorization: Bearer {TOKEN}\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n".encode()
-            )
-            while (
-                self._post(port, "/rebrew.nope", b"{}", {"Authorization": f"Bearer {TOKEN}"})[0]
-                != 503
-            ):
-                assert process.poll() is None and time.monotonic() < deadline
-                time.sleep(0.05)
+            # A stalled call sent once can lose the slot to the first probe and be refused,
+            # leaving every later probe a 404: the helper sends it again until it holds the slot.
+            connection = self._hold_the_only_slot(port)
             process.terminate()
             time.sleep(0.2)
             assert process.poll() is None
-            connection.sendall(b"{}")
-            assert b"404" in connection.recv(4096)
+            connection.sendall(b'{"xx": 12}')
+            reply = b"".join(iter(lambda: connection.recv(4096), b""))
+            head, _, body = reply.partition(b"\r\n\r\n")
+            assert (head.split(b"\r\n", 1)[0], json.loads(body)["error"]) == (
+                b"HTTP/1.0 400 Bad Request",
+                "invalid-request",
+            )
             assert process.wait(timeout=5) == 0
         finally:
             if connection is not None:
