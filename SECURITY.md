@@ -40,9 +40,9 @@ the local project as metadata, source markers, and `library_<module>.h` names;
 the command is a dry run unless `--apply` is passed), and installed Python
 entry-point plugins
 (including `rebrew.cache_backends`) as part of the trust boundary. So are the
-host-tool knobs outside the `REBREW_` namespace: `KUNA_SPECS` (else the first
-pypcode spec dir under `UV_TOOL_DIR` / `XDG_DATA_HOME` / `LOCALAPPDATA`) is the
-SLEIGH language definition the native `kuna` binary parses, `XDG_CACHE_HOME` is
+host-tool knobs outside the `REBREW_` namespace: `KUNA_SPECS` names the
+SLEIGH language definitions the native `kuna` binary parses in place of its
+own, `XDG_CACHE_HOME` is
 the sandbox base whose `rebrew`-prefixed directories older than a day are
 deleted by `sweep_stale_temp_dirs` on the next compile
 (`src/rebrew/compiler/temp_dirs.py`). That sweep is not confined to the cache base: it

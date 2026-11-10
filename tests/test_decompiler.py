@@ -1,6 +1,7 @@
 """Tests for rebrew.decompiler backend dispatch and helpers."""
 
 import importlib.util
+import shutil
 import subprocess
 import threading
 import time
@@ -26,6 +27,8 @@ from rebrew.decompiler import (
     fetch_r2ghidra,
 )
 from rebrew.ghidra.client import DEFAULT_MCP_ENDPOINT
+
+_FIXTURES = Path(__file__).parent / "fixtures"
 
 
 class TestCleanOutput:
@@ -827,155 +830,21 @@ class TestKunaBackend:
         with pytest.warns(UserWarning, match="out of memory"):
             assert dc.fetch_kuna(binary, 0x401000, tmp_path) is None
 
-    def test_kuna_spec_dirs_only_qualifies_sla_dirs(self, tmp_path: Path) -> None:
-        """Only dirs containing x86.sla qualify as spec dirs."""
-        import rebrew.decompiler as dc
-
-        good = tmp_path / "good"
-        good.mkdir()
-        (good / "x86.sla").write_bytes(b"sla\x04binary")
-        assert all(isinstance(d, Path) for d in dc._kuna_spec_dirs())
-
-    def test_kuna_spec_dirs_honors_uv_tool_dir(
+    def test_fetch_kuna_leaves_spec_lookup_to_kuna(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """UV_TOOL_DIR + current python tag locate a tool-env pypcode tree."""
-        import sys
+        """Without KUNA_SPECS, kuna runs on the inherited environment: it carries its own specs.
 
-        import rebrew.decompiler as dc
-
-        tool_root = tmp_path / "tools"
-        py_tag = f"python{sys.version_info.major}.{sys.version_info.minor}"
-        sla_dir = (
-            tool_root
-            / "rebrew"
-            / "lib"
-            / py_tag
-            / "site-packages"
-            / "pypcode"
-            / "processors"
-            / "x86"
-            / "data"
-            / "languages"
-        )
-        sla_dir.mkdir(parents=True)
-        (sla_dir / "x86.sla").write_bytes(b"sla\x04binary")
-        monkeypatch.setenv("UV_TOOL_DIR", str(tool_root))
-        assert sla_dir in dc._kuna_spec_dirs()
-
-    def test_kuna_spec_dirs_finds_a_tool_env_on_another_python(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A tool env built on a different Python (angr on 3.12) still qualifies, newest first."""
-        import rebrew.decompiler as dc
-
-        tool_root = tmp_path / "tools"
-        tail = Path("site-packages/pypcode/processors/x86/data/languages")
-        dirs = {}
-        for tag in ("python3.9", "python3.12"):
-            dirs[tag] = tool_root / "angr" / "lib" / tag / tail
-            dirs[tag].mkdir(parents=True)
-            (dirs[tag] / "x86.sla").write_bytes(b"sla\x04binary")
-        monkeypatch.setenv("UV_TOOL_DIR", str(tool_root))
-        found = [d for d in dc._kuna_spec_dirs() if str(d).startswith(str(tool_root))]
-        assert found == [dirs["python3.12"], dirs["python3.9"]]
-
-    def test_rizin_sleigh_dirs_probe_the_host_multiarch_triplet(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """The multiarch libdir comes from the interpreter, not a hardcoded triplet."""
-        import rebrew.decompiler as dc
-
-        triplet = "zzz-host-triplet"
-        monkeypatch.setattr(dc.sysconfig, "get_config_var", lambda var: triplet)
-        monkeypatch.setattr(dc.shutil, "which", lambda n: None)
-        dirs = dc._rizin_sleigh_dirs()
-        assert Path("/usr/lib") / triplet / "rizin/plugins/rz_ghidra_sleigh" in dirs
-
-    def test_uv_tool_roots_honors_xdg_data_home(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """XDG_DATA_HOME/uv/tools wins over ~/.local/share when set (uv default)."""
-        import rebrew.decompiler as dc
-
-        xdg = tmp_path / "xdg-data"
-        monkeypatch.delenv("UV_TOOL_DIR", raising=False)
-        monkeypatch.setenv("XDG_DATA_HOME", str(xdg))
-        roots = dc._uv_tool_roots()
-        assert roots[0] == xdg / "uv" / "tools"
-        assert not any(p.as_posix().endswith(".local/share/uv/tools") for p in roots)
-
-    def test_uv_tool_roots_ignores_relative_xdg_data_home(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A relative XDG_DATA_HOME is invalid per the XDG spec: use ~/.local/share."""
-        import rebrew.decompiler as dc
-
-        monkeypatch.delenv("UV_TOOL_DIR", raising=False)
-        monkeypatch.setenv("XDG_DATA_HOME", "rel-data")
-        roots = dc._uv_tool_roots()
-        assert roots[0] == Path.home() / ".local" / "share" / "uv" / "tools"
-
-    def test_uv_tool_roots_expands_a_quoted_tilde(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A quoted or direnv-written ``~`` must reach the probe expanded.
-
-        A shell does not expand ``~`` inside a quoted assignment or inside the
-        ``.env`` file direnv points at, which is where these values are
-        usually written.  The literal string then missed every candidate, so
-        pypcode/angr SLEIGH specs were never found and the seed backends
-        returned no decompilation with the tools installed.
+        rebrew used to inject the first pypcode or rizin ``x86/data/languages`` directory it found,
+        which kuna v1.993+ rejects ("it holds no Ghidra/Processors tree"), so a working kuna
+        failed whenever one of those was installed.
         """
-        import rebrew.decompiler as dc
-
-        home = tmp_path / "home"
-        tool_root = home / "uv" / "tools"
-        tool_root.mkdir(parents=True)
-        monkeypatch.setenv("HOME", str(home))
-        monkeypatch.setenv("UV_TOOL_DIR", "~/uv/tools")
-        monkeypatch.setenv("XDG_DATA_HOME", "~/data")
-        roots = dc._uv_tool_roots()
-        assert roots[0] == tool_root
-        assert tool_root / "uv" / "tools" not in roots
-
-    def test_uv_tool_roots_ignores_a_blank_uv_tool_dir(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """An empty or whitespace-only export is unset, not a relative probe.
-
-        ``Path(" ")`` is a real relative path, so the old truthiness check
-        appended a cwd-relative candidate that could never exist.
-        """
-        import rebrew.decompiler as dc
-
-        monkeypatch.delenv("XDG_DATA_HOME", raising=False)
-        monkeypatch.setenv("UV_TOOL_DIR", "  ")
-        roots = dc._uv_tool_roots()
-        assert Path(" ") not in roots
-        assert roots[0] == Path.home() / ".local" / "share" / "uv" / "tools"
-
-    def test_rizin_sleigh_dirs_include_lib64(self) -> None:
-        """Multi-lib Linux layouts are probed, not only /usr/lib."""
-        import rebrew.decompiler as dc
-
-        dirs = dc._rizin_sleigh_dirs()
-        assert Path("/usr/lib/rizin/plugins/rz_ghidra_sleigh") in dirs
-        assert Path("/usr/lib64/rizin/plugins/rz_ghidra_sleigh") in dirs
-
-    def test_fetch_kuna_injects_specs_env(self, tmp_path: Path, monkeypatch) -> None:
-        """Without KUNA_SPECS, fetch_kuna injects the resolved spec dir."""
         import rebrew.decompiler as dc
 
         binary = tmp_path / "x.exe"
         binary.write_bytes(b"MZ")
         monkeypatch.setattr(dc.shutil, "which", lambda n: "/usr/bin/kuna")
         monkeypatch.delenv("KUNA_SPECS", raising=False)
-        spec = tmp_path / "specs"
-        spec.mkdir()
-        (spec / "x86.sla").write_bytes(b"sla\x04binary")
-        monkeypatch.setattr(dc, "_kuna_spec_dirs", lambda: [spec])
-
         seen: dict = {}
 
         class _R:
@@ -989,58 +858,18 @@ class TestKunaBackend:
 
         monkeypatch.setattr(dc, "run_process_group", _run)
         assert dc.fetch_kuna(binary, 0x401000, tmp_path) is not None
-        assert seen.get("env", {}).get("KUNA_SPECS") == str(spec)
+        assert seen["env"] is None
 
-    def test_fetch_kuna_injects_the_specs_root_of_a_ghidra_layout(
+    def test_fetch_kuna_drops_a_blank_specs_override(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """kuna v1.993+ rejects the languages dir; the root holding Ghidra/Processors serves every version."""
-        import rebrew.decompiler as dc
-
-        binary = tmp_path / "x.exe"
-        binary.write_bytes(b"MZ")
-        monkeypatch.setattr(dc.shutil, "which", lambda n: "/usr/bin/kuna")
-        monkeypatch.delenv("KUNA_SPECS", raising=False)
-        root = tmp_path / "specs"
-        languages = root / "Ghidra" / "Processors" / "x86" / "data" / "languages"
-        languages.mkdir(parents=True)
-        (languages / "x86.sla").write_bytes(b"sla\x04binary")
-        monkeypatch.setattr(dc, "_kuna_spec_dirs", lambda: [languages])
-        seen: dict = {}
-
-        class _R:
-            returncode = 0
-            stdout = "int f(void) { return 0; }\n"
-            stderr = ""
-
-        def _run(cmd, **kw):
-            seen.update(kw)
-            return _R()
-
-        monkeypatch.setattr(dc, "run_process_group", _run)
-        assert dc.fetch_kuna(binary, 0x401000, tmp_path) is not None
-        assert seen["env"]["KUNA_SPECS"] == str(root)
-
-    def test_fetch_kuna_injects_specs_when_override_blank(
-        self, tmp_path: Path, monkeypatch
-    ) -> None:
-        """``KUNA_SPECS=''`` is unset, not an override.
-
-        Truthiness drove the discovery fallback while mere presence drove the
-        injection decision, so a blank export resolved a spec dir and then
-        withheld it, leaving kuna on its rarely-present ``/specs/`` default.
-        """
+        """``KUNA_SPECS='  '`` is unset, not an override: kuna must not be handed it."""
         import rebrew.decompiler as dc
 
         binary = tmp_path / "x.exe"
         binary.write_bytes(b"MZ")
         monkeypatch.setattr(dc.shutil, "which", lambda n: "/usr/bin/kuna")
         monkeypatch.setenv("KUNA_SPECS", "  ")
-        spec = tmp_path / "specs"
-        spec.mkdir()
-        (spec / "x86.sla").write_bytes(b"sla\x04binary")
-        monkeypatch.setattr(dc, "_kuna_spec_dirs", lambda: [spec])
-
         seen: dict = {}
 
         class _R:
@@ -1054,10 +883,11 @@ class TestKunaBackend:
 
         monkeypatch.setattr(dc, "run_process_group", _run)
         assert dc.fetch_kuna(binary, 0x401000, tmp_path) is not None
-        assert seen.get("env", {}).get("KUNA_SPECS") == str(spec)
+        assert "KUNA_SPECS" not in seen["env"]
+        assert seen["env"]["PATH"]
 
     def test_fetch_kuna_honors_explicit_specs(self, tmp_path: Path, monkeypatch) -> None:
-        """An explicit KUNA_SPECS is never overridden by spec discovery."""
+        """An explicit KUNA_SPECS directory is inherited as is."""
         import rebrew.decompiler as dc
 
         binary = tmp_path / "x.exe"
@@ -1066,7 +896,6 @@ class TestKunaBackend:
         explicit.mkdir()
         monkeypatch.setattr(dc.shutil, "which", lambda n: "/usr/bin/kuna")
         monkeypatch.setenv("KUNA_SPECS", str(explicit))
-        monkeypatch.setattr(dc, "_kuna_spec_dirs", lambda: [tmp_path / "discovered"])
 
         seen: dict = {}
 
@@ -1083,24 +912,20 @@ class TestKunaBackend:
         assert dc.fetch_kuna(binary, 0x401000, tmp_path) is not None
         assert seen.get("env") is None
 
-    def test_fetch_kuna_falls_back_when_specs_not_a_directory(
+    def test_fetch_kuna_drops_a_specs_override_that_is_not_a_directory(
         self, tmp_path: Path, monkeypatch
     ) -> None:
         """A KUNA_SPECS left pointing at a moved dir is reported, not honored.
 
-        Honoring it suppressed discovery, so kuna ran against its rarely
-        present /specs/ default and every seed came back empty with nothing
-        naming the mistyped path.
+        Handed to kuna it fails every decompile ("no SLEIGH specs at ..."); without it kuna
+        reads its own specs.
         """
         import rebrew.decompiler as dc
 
         binary = tmp_path / "x.exe"
         binary.write_bytes(b"MZ")
-        spec = tmp_path / "specs"
-        spec.mkdir()
         monkeypatch.setattr(dc.shutil, "which", lambda n: "/usr/bin/kuna")
         monkeypatch.setenv("KUNA_SPECS", str(tmp_path / "moved"))
-        monkeypatch.setattr(dc, "_kuna_spec_dirs", lambda: [spec])
 
         seen: dict = {}
 
@@ -1116,7 +941,34 @@ class TestKunaBackend:
         monkeypatch.setattr(dc, "run_process_group", _run)
         with pytest.warns(ConfigWarning, match="KUNA_SPECS"):
             assert dc.fetch_kuna(binary, 0x401000, tmp_path) is not None
-        assert seen["env"]["KUNA_SPECS"] == str(spec)
+        assert "KUNA_SPECS" not in seen["env"]
+
+    @pytest.mark.skipif(
+        shutil.which("kuna") is None, reason="requires the optional Kuna executable"
+    )
+    def test_real_kuna_decompiles_with_no_specs_configured(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.decompiler as dc
+
+        monkeypatch.delenv("KUNA_SPECS", raising=False)
+        code = dc.fetch_kuna(_FIXTURES / "mini_pe.exe", 0x401000, tmp_path)
+        assert code is not None and "sub_401000" in code
+
+    @pytest.mark.skipif(
+        shutil.which("kuna") is None, reason="requires the optional Kuna executable"
+    )
+    def test_real_kuna_refusal_of_a_specs_dir_is_reported(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An explicit KUNA_SPECS without kuna's spec tree fails the decompile with kuna's reason."""
+        import rebrew.decompiler as dc
+
+        languages = tmp_path / "languages"
+        languages.mkdir()
+        monkeypatch.setenv("KUNA_SPECS", str(languages))
+        with pytest.warns(UserWarning, match=r"kuna failed decompiling 0x00401000 .*KUNA_SPECS"):
+            assert dc.fetch_kuna(_FIXTURES / "mini_pe.exe", 0x401000, tmp_path) is None
 
     def test_kuna_seed_source_fixes_pseudo_types(self, tmp_path: Path, monkeypatch) -> None:
         import rebrew.decompiler as dc

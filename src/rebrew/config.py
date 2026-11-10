@@ -160,13 +160,11 @@ unset (the flag's own value then applies), so a leftover blank export does not
 break every upload."""
 
 KUNA_SPECS_ENV = "KUNA_SPECS"
-"""Env var naming the SLEIGH spec directory the host ``kuna`` binary reads.
+"""Env var naming a SLEIGH specs root the host ``kuna`` binary reads in place of its own.
 
 The one documented directory knob outside the ``REBREW_`` namespace: kuna
-resolves specs from it, and rebrew only injects a discovered spec dir when it
-is unset.  A value that is not a directory therefore hands kuna its rarely
-present ``/specs/`` default and every ``--seed-kuna`` seed comes back empty,
-so it is checked like every other path knob.  Read by
+reads it itself, and a value that is not a directory fails every decompile,
+so it is checked like every other path knob and kept from kuna.  Read by
 :mod:`rebrew.decompiler`, and reported by ``rebrew cfg effective``."""
 
 XVFB_DISPLAY_ENV = "REBREW_XVFB_DISPLAY"
@@ -1717,13 +1715,11 @@ def parse_env_log_level(raw: str, *, default: int) -> int:
 def expand_env_path(raw: str) -> Path | None:
     """Normalize a directory-valued env knob's text, or ``None`` when unset.
 
-    The one ``~``-expansion rule, split out of :func:`env_dir_path` so a knob
-    that *probes a list* of candidates rather than validating one entry can
-    share it.  A shell does not expand ``~`` inside a quoted assignment
-    (``UV_TOOL_DIR='~/.local/share/uv/tools'``) nor inside the ``.env`` file a
-    direnv points at, which is where these values are usually written: the
-    literal string then misses every candidate and the tool is reported as
-    not installed when it is.
+    The one ``~``-expansion rule, shared by :func:`env_dir_path` and the
+    ``KUNA_SPECS`` check in :mod:`rebrew.decompiler`.  A shell does not expand
+    ``~`` inside a quoted assignment (``KUNA_SPECS='~/kuna/specs'``) nor inside
+    the ``.env`` file a direnv points at, which is where these values are
+    usually written: the literal string then names no directory.
     """
     value = raw.strip()
     if not value:

@@ -697,18 +697,15 @@ rebrew receives.
 - `_REBREW_COMPLETE`: click's shell-completion mode marker, set by the completion scripts `rebrew init --write-completions` writes. Rebrew never reads it itself, and there is no `completion` subcommand.
 - `GH_TOKEN` / `GITHUB_TOKEN`: optional GitHub auth for `rebrew toolchain`
   downloads that need a token (not a rebrew-prefixed name; standard gh env).
-- `KUNA_SPECS`: SLEIGH specs root (the directory holding `Ghidra/Processors`;
-  kuna v1.993+ rejects its `x86/data/languages` subdirectory, v1.160 accepts
-  both) the host `kuna` binary reads for
-  `rebrew match run --seed-kuna` (unset: the first dir holding `x86.sla` under
-  `UV_TOOL_DIR`, `XDG_DATA_HOME`, or the probed platform defaults, passed as
-  the specs root when it sits under `Ghidra/Processors`).  A value
-  that is not a directory warns and falls back to discovery, so an export
-  left behind by a moved checkout cannot silently strand kuna on its
-  rarely-present `/specs/` default.  A set-but-unusable value is also reported
-  by `cfg effective` under `env_errors`, like every other path knob.
-- `UV_TOOL_DIR` / `XDG_DATA_HOME`: roots searched for that spec tree, ahead
-  of the probed defaults.
+- `KUNA_SPECS`: a SLEIGH specs root the host `kuna` binary reads in place of
+  the specs it carries (the directory holding `Ghidra/Processors`; kuna
+  v1.993+ rejects anything else, such as its `x86/data/languages`
+  subdirectory).  Unset, kuna finds its own specs (v1.820+ carries them, per
+  its release notes) and rebrew passes none; an older kuna needs the variable.
+  A value that is blank or not a directory warns and is kept from kuna, so an
+  export left behind by a moved checkout does not fail every decompile.  A
+  set-but-unusable value is also reported by `cfg effective` under
+  `env_errors`, like every other path knob.
 
 ## Lint style (`[project.lint]`)
 

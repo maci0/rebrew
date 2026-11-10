@@ -31,7 +31,6 @@ lazy import os
 lazy import shutil
 lazy import subprocess
 lazy import sys
-lazy import sysconfig
 lazy import tempfile
 lazy import warnings
 lazy from collections.abc import Callable
@@ -554,92 +553,8 @@ def fetch_r2dec(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None
     return _run_re(binary, va, "pdd", root)
 
 
-def _uv_tool_roots() -> list[Path]:
-    """Candidate ``uv tool`` install roots across host layouts.
-
-    Prefer ``UV_TOOL_DIR`` when set; otherwise probe the default locations uv
-    uses on Linux (``$XDG_DATA_HOME/uv/tools`` or ``~/.local/share/uv/tools``),
-    macOS, and Windows so a pypcode install under a tool env is found without
-    hard-coding one OS path.  ``XDG_DATA_HOME`` must win over the ``~/.local``
-    fallback — uv honors it, and probing only the fallback misses the tree.
-    """
-    roots: list[Path] = []
-    # expand_env_path, not Path(): a quoted or direnv-written `~` reached
-    # this probe unexpanded, so a real tool env missed every candidate and
-    # `rebrew decompile` returned nothing with the tools installed.
-    uv_tool = expand_env_path(os.environ.get("UV_TOOL_DIR", ""))
-    if uv_tool is not None:
-        roots.append(uv_tool)
-    home = Path.home()
-    # XDG spec: a relative XDG_DATA_HOME is invalid and ignored.
-    xdg_data = expand_env_path(os.environ.get("XDG_DATA_HOME", ""))
-    linux_data = (
-        (xdg_data if xdg_data is not None and xdg_data.is_absolute() else home / ".local" / "share")
-        / "uv"
-        / "tools"
-    )
-    local_appdata = expand_env_path(os.environ.get("LOCALAPPDATA", ""))
-    for candidate in (
-        linux_data,
-        home / "Library" / "Application Support" / "uv" / "tools",
-        local_appdata / "uv" / "tools" if local_appdata is not None else None,
-    ):
-        if candidate is not None and candidate not in roots:
-            roots.append(candidate)
-    return roots
-
-
-def _rizin_multiarch_triplets() -> list[str]:
-    """Multiarch libdir triplet this host's Python was built for, if any.
-
-    Distros install into ``/usr/lib/<triplet>``; the triplet is a build
-    property of the host (``x86_64-linux-gnu``, ``aarch64-linux-gnu``), not
-    a constant, so read it from the interpreter instead of naming one.
-    """
-    value = sysconfig.get_config_var("MULTIARCH")
-    return [value] if isinstance(value, str) and value else []
-
-
-def _rizin_sleigh_dirs() -> list[Path]:
-    """Candidate rizin ``rz_ghidra_sleigh`` plugin dirs across Linux layouts.
-
-    Distros split plugins across ``lib`` / ``lib64`` / multiarch triplets;
-    also probe next to a ``rizin``/``rz`` binary so a non-FHS prefix works.
-    """
-    candidates: list[Path] = [
-        Path("/usr/lib/rizin/plugins/rz_ghidra_sleigh"),
-        Path("/usr/lib64/rizin/plugins/rz_ghidra_sleigh"),
-        *(
-            Path("/usr/lib") / t / "rizin/plugins/rz_ghidra_sleigh"
-            for t in _rizin_multiarch_triplets()
-        ),
-    ]
-    # A triplet this interpreter was not built for (a cross-built Python, a
-    # foreign-prefix distroless image) still names a real libdir on disk.
-    with contextlib.suppress(OSError):
-        candidates.extend(sorted(Path("/usr/lib").glob("*/rizin/plugins/rz_ghidra_sleigh")))
-    for name in ("rizin", "rz"):
-        found = shutil.which(name)
-        if found is None:
-            continue
-        bindir = Path(found).resolve().parent
-        for rel in (
-            "../lib/rizin/plugins/rz_ghidra_sleigh",
-            "../lib64/rizin/plugins/rz_ghidra_sleigh",
-        ):
-            with contextlib.suppress(OSError):
-                candidates.append((bindir / rel).resolve())
-    return candidates
-
-
-def _python_dir_version(directory: Path) -> tuple[int, ...]:
-    """The version a ``lib/python3.12``-style directory names, for newest-first order."""
-    digits = directory.name.removeprefix("python").split(".")
-    return tuple(int(part) for part in digits if part.isdigit())
-
-
-#: ``KUNA_SPECS`` values already reported as non-directories.  The spec dir is
-#: resolved once per seeded function, so without this a bad path would print
+#: ``KUNA_SPECS`` values already reported as non-directories.  The override is
+#: read once per decompiled function, so without this a bad path would print
 #: the same warning for every function in a GA run.  The latch is a
 #: check-then-act, so it needs the lock: seeding runs from the batch pools, and
 #: two workers resolving one bad path would both warn.
@@ -647,88 +562,13 @@ _WARNED_KUNA_SPECS_LOCK = threading.Lock()
 _WARNED_KUNA_SPECS: set[str] = set()
 
 
-def _kuna_spec_dirs() -> list[Path]:
-    """Candidate SLEIGH spec dirs for kuna, best first.
-
-    Kuna resolves specs from ``KUNA_SPECS`` (else ``/specs/``, which rarely
-    exists), and the rizin-bundled ``.sla`` files are XML debug format that
-    kuna's loader rejects ("Missing SLA format header").  The binary-format
-    specs shipped inside pypcode installs work — prefer those, then the
-    rizin dir as a fallback.  Only dirs containing ``x86.sla`` qualify so a
-    partial tree never shadows a working one.
-    """
-    candidates: list[Path] = []
-    try:
-        import pypcode
-
-        candidates.append(
-            Path(pypcode.__file__).parent / "processors" / "x86" / "data" / "languages"
-        )
-    except ImportError:
-        pass
-    sla_tail = Path("site-packages") / "pypcode" / "processors" / "x86" / "data" / "languages"
-    for root in _uv_tool_roots():
-        for uv_tool in ("rebrew", "angr"):
-            # A tool env runs its own Python, which need not be this one's, so
-            # every `lib/python*` it holds is probed, newest version first.
-            lib = root / uv_tool / "lib"
-            with contextlib.suppress(OSError):
-                versions = sorted(lib.glob("python*"), key=_python_dir_version, reverse=True)
-                candidates.extend(version / sla_tail for version in versions)
-    candidates.extend(_rizin_sleigh_dirs())
-    # Kuna's own bundled specs (binary .sla): the rizin ones are XML and
-    # kuna rejects them, so this dir must win when no pypcode specs exist.
-    candidates.insert(0, Path("/usr/share/kuna/specs/Ghidra/Processors/x86/data/languages"))
-    seen: set[Path] = set()
-    out: list[Path] = []
-    for d in candidates:
-        if not (d / "x86.sla").is_file():
-            continue
-        try:
-            key = d.resolve()
-        except OSError:
-            key = d
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(d)
-    return out
-
-
-_KUNA_LANGUAGES_TAIL = ("Ghidra", "Processors", "x86", "data", "languages")
-
-
-def kuna_spec_dir() -> str | None:
-    """Where kuna reads its SLEIGH specs: an explicit ``KUNA_SPECS``, else the
-    first working dir :func:`_kuna_spec_dirs` finds, else None."""
-    explicit = _kuna_specs_override()
-    if explicit is not None:
-        return explicit
-    found = _kuna_spec_dirs()
-    if not found:
-        return None
-    # kuna v1.993+ takes the root holding Ghidra/Processors (v1.160 takes either); the
-    # pypcode and rizin trees have no such root and are passed as the languages dir.
-    first = found[0]
-    if first.parts[-5:] == _KUNA_LANGUAGES_TAIL:
-        return str(first.parents[4])
-    return str(first)
-
-
 def _kuna_specs_override() -> str | None:
     """The operator's ``KUNA_SPECS``, or None when unset, blank, or not a directory.
 
-    One predicate for both the discovery fallback and the injection decision
-    in :func:`fetch_kuna`. Splitting them (truthiness here, presence there)
-    meant ``KUNA_SPECS=''`` discovered a spec dir and then refused to inject
-    it, leaving kuna on its rarely-present ``/specs/`` default.
-
-    A path that is not a directory is not honored either: an export left
-    behind by a moved checkout used to suppress discovery, so kuna ran
-    against its rarely-present ``/specs/`` default and every seed came back
-    empty with nothing naming the mistyped path.  Warn once and fall through
-    to discovery, the same treatment every other directory-valued env knob
-    gets in :func:`rebrew.config.env_dir_path`, which also raises the error
+    A path that is not a directory is not honored: handed to kuna, an export
+    left behind by a moved checkout fails every decompile.  Warn once, the
+    same treatment every other directory-valued env knob gets in
+    :func:`rebrew.config.env_dir_path`, which also raises the error
     ``rebrew cfg effective`` reports for a set-but-unusable ``KUNA_SPECS``.
     """
     raw = os.environ.get(KUNA_SPECS_ENV, "")
@@ -783,19 +623,20 @@ def fetch_kuna(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
     relocations applied, as a raw image (:func:`_fetch_kuna_ne`).  A kuna without ``--raw-image``
     (before v1.993) raises :class:`~rebrew.formats.binary_loader.UnsupportedBinaryFormat`.
 
-    Kuna reads SLEIGH specs from ``KUNA_SPECS`` (default ``/specs/``); an
-    explicit ``KUNA_SPECS`` is honored, otherwise the first working spec dir
-    from :func:`_kuna_spec_dirs` is injected so ``--seed-kuna`` works without
-    manual env setup.
+    Kuna finds its SLEIGH specs itself: v1.820+ carries them in the binary, and
+    ``KUNA_SPECS`` names another specs root (the directory holding
+    ``Ghidra/Processors``; v1.993+ rejects anything else).  Nothing is injected.  A
+    ``KUNA_SPECS`` that is blank or not a directory is kept from kuna, so it reads
+    its own specs instead of failing on the value.
     """
     if not binary.exists():
         return None
     kuna = shutil.which("kuna")
     if kuna is None:
         return None
-    # An explicit KUNA_SPECS is inherited as is; otherwise the discovered dir is injected.
-    spec_dir = None if _kuna_specs_override() is not None else kuna_spec_dir()
-    env = None if spec_dir is None else {**os.environ, KUNA_SPECS_ENV: spec_dir}
+    env = None
+    if KUNA_SPECS_ENV in os.environ and _kuna_specs_override() is None:
+        env = {k: v for k, v in os.environ.items() if k != KUNA_SPECS_ENV}
     from rebrew.formats.binary_loader import is_ne
 
     if is_ne(binary):

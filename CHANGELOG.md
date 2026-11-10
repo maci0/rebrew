@@ -1,5 +1,10 @@
 ## [Unreleased]
 
+### Fixed
+
+- A kuna decompile (`rebrew decompile`, `--seed-kuna`, the `rebrew.decompile` op) no longer fails on a machine that has pypcode or rizin installed and no `/usr/share/kuna/specs`. With `KUNA_SPECS` unset, rebrew injected the first `x86/data/languages` directory it found, and kuna v1.993+ rejects those (`no SLEIGH specs at ... (KUNA_SPECS) -- it holds no Ghidra/Processors tree`), though the same kuna decompiles with the variable unset: it carries its own specs. rebrew now injects nothing and passes `KUNA_SPECS` through; a value that is blank or not a directory still warns and is kept from kuna. The spec search over `UV_TOOL_DIR`, `XDG_DATA_HOME`, the pypcode and rizin trees is removed.
+- **Breaking:** `rebrew.decompiler.kuna_spec_dir` is removed with the spec search; there is no replacement, since kuna finds its own specs. A kuna that does not carry them (before v1.820, per its release notes) needs `KUNA_SPECS` set to its extracted specs root.
+
 ## [6.30.0] - 2026-11-10
 
 ### Fixed
