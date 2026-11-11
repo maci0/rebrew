@@ -782,6 +782,15 @@ class TestCLISet:
         doc, _ = load_toml(tmp_path)
         assert doc["compiler"]["cflags"] == "/O1"
 
+    def test_set_quoted_target_segment(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["set", 'targets."server.dll".raw_link', "build/x.dll"])
+        assert result.exit_code == 0
+        doc, _ = load_toml(tmp_path)
+        assert doc["targets"]["server.dll"]["raw_link"] == "build/x.dll"
+        assert set(doc["targets"]) == {"server.dll"}
+
     def test_set_int(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)

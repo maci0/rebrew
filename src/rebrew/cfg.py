@@ -27,6 +27,7 @@ lazy import contextlib
 lazy import json
 lazy import math
 lazy import os
+lazy import re
 lazy import shutil
 lazy from collections.abc import Mapping
 lazy from pathlib import Path
@@ -144,6 +145,27 @@ _TARGET_SCOPED_KEYS: frozenset[str] = frozenset(KNOWN_TARGET_KEYS - {"compiler"}
 _PROJECT_SCOPED_KEYS: frozenset[str] = frozenset(KNOWN_PROJECT_KEYS)
 
 
+#: One TOML key segment: ``"quoted.literal"`` or a bare run without dots.
+_KEY_SEGMENT = re.compile(r'"([^"]*)"|([^".]+)')
+
+
+def _split_dotted_key(key: str, *, json_mode: bool) -> list[str]:
+    """Split *key* on dots outside double quotes; a quoted segment is one literal part."""
+    parts: list[str] = []
+    pos = 0
+    while True:
+        match = _KEY_SEGMENT.match(key, pos)
+        if match is None:
+            error_exit(f"Malformed key '{key}' at offset {pos}.", json_mode=json_mode)
+        parts.append(match.group(1) if match.group(1) is not None else match.group(2))
+        pos = match.end()
+        if pos == len(key):
+            return parts
+        if key[pos] != ".":
+            error_exit(f"Malformed key '{key}' at offset {pos}.", json_mode=json_mode)
+        pos += 1
+
+
 def _resolve_dotted_key(
     doc: dict[str, Any], key: str, *, create_missing: bool = False, json_mode: bool = False
 ) -> tuple[dict[str, Any], str, list[str]]:
@@ -166,7 +188,7 @@ def _resolve_dotted_key(
         key path (for display).
 
     """
-    parts = key.split(".")
+    parts = _split_dotted_key(key, json_mode=json_mode)
     current: Any = doc
     resolved: list[str] = []
     i = 0
