@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- `rebrew toolchain detect` gets Detect It Easy's answer again for a binary reached through a symlinked directory. DIE 4.0 prints nothing, exit 0, for such a path, so detect logged `diec printed no JSON` and fell back to its weaker detectors; rebrew now hands diec the resolved path.
+
 ## [6.32.0] - 2026-11-11
 
 ### Changed

@@ -503,8 +503,10 @@ def _run_diec(path: Path, diec: Path | None = None) -> list[dict[str, object]] |
     if diec is None:
         return None
     try:
+        # The resolved path: Detect It Easy 4.0 prints nothing, exit 0, for a path through a
+        # symlinked directory.
         r = run_process_group(
-            [str(diec), "-j", "--heuristicscan", str(path)],
+            [str(diec), "-j", "--heuristicscan", str(path.resolve())],
             capture_output=True,
             text=True,
             encoding="utf-8",

@@ -11,6 +11,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import ClassVar
 
+import pytest
+
 from rebrew.toolchain_detect import (
     ToolchainInfo,
     _diec_version_hint,
@@ -837,3 +839,39 @@ def test_every_msvc6_image_in_the_binary_map_has_a_spec() -> None:
     msvc6_images = {i for i in IMAGE_ENTRYPOINTS if i.startswith("rebrew/msvc:6.0")}
     assert msvc6_images, "no msvc6 images registered at all"
     assert msvc6_images <= spec_images, sorted(msvc6_images - spec_images)
+
+
+class TestDiecPath:
+    """Detect It Easy 4.0 prints nothing, exit 0, for a path through a symlinked directory,
+    so rebrew hands diec the resolved path."""
+
+    def test_diec_gets_the_resolved_path(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import subprocess
+
+        from rebrew.toolchain_detect import _run_diec
+
+        real = tmp_path / "real"
+        real.mkdir()
+        (real / "x.exe").write_bytes(b"MZ")
+        (tmp_path / "link").symlink_to(real, target_is_directory=True)
+        seen: list[list[str]] = []
+
+        def _run(argv: list[str], **_kw: object) -> subprocess.CompletedProcess[str]:
+            seen.append(argv)
+            return subprocess.CompletedProcess(argv, 0, stdout='{"detects": []}', stderr="")
+
+        monkeypatch.setattr("rebrew.toolchain_detect.run_process_group", _run)
+        _run_diec(tmp_path / "link" / "x.exe", diec=Path("/opt/diec"))
+        assert seen[0][-1] == str((real / "x.exe").resolve())
+
+    def test_installed_diec_reads_a_file_behind_a_symlinked_directory(self, tmp_path: Path) -> None:
+        import shutil
+
+        from rebrew.toolchain_detect import _run_diec
+
+        if shutil.which("diec") is None:
+            pytest.skip("no diec on PATH")
+        (tmp_path / "link").symlink_to(Path(__file__).parent / "fixtures", target_is_directory=True)
+        assert _run_diec(tmp_path / "link" / "mini_pe.exe") is not None
