@@ -408,6 +408,37 @@ class TestOnlyVaGuard:
         assert set(ci.unmatched_dest_bytes(cfg, only_va=0x401040)) == {0x401040}
 
 
+class TestLibraryRowsAreNotDestinations:
+    def test_library_row_bound_outside_reversed_dir(self, tmp_path: Path) -> None:
+        """A LIBRARY row bound with ``library bind-source`` to a vendored file
+        outside ``reversed_dir`` (``references/zlib/deflate.c``) is linked code:
+        a shared import must not rebind it to a game source."""
+        from rebrew.metadata.functions import record_function_identity
+
+        (tmp_path / "src").mkdir()
+        record_function_identity(
+            tmp_path,
+            module="GOLD",
+            va=0x461E60,
+            file="references/zlib/deflate.c",
+            kind="LIBRARY",
+            name="putShortMSB",
+            symbol="_putShortMSB",
+            size=47,
+        )
+        record_function_identity(
+            tmp_path, module="GOLDTL", va=0x45DE70, file="src/f.c", kind="LIBRARY", name="g"
+        )
+        cfg = SimpleNamespace(
+            reversed_dir=tmp_path / "src",
+            metadata_dir=tmp_path,
+            root=tmp_path,
+            module="GOLD",
+            external_libs=[],
+        )
+        assert ci._library_vas(cfg) == {0x461E60}
+
+
 class TestTargetBytes:
     def test_missing_binary_raises(self, tmp_path: Path) -> None:
         """A missing binary is an error, not an empty catalog of bytes."""

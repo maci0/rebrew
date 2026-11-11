@@ -433,6 +433,12 @@ def _library_vas(cfg: ProjectConfig) -> set[int]:
     for ann in library_inventory_bindings(cfg.metadata_dir, reversed_dir):
         if ann.va:
             out.add(int(ann.va))
+    # ``library bind-source`` rows can name a vendored file outside reversed_dir
+    # (references/zlib/deflate.c), which neither scan above reaches.
+    module = target_module(cfg)
+    for (row_module, va), entry in function_entries.items():
+        if row_module == module and str(entry.get("kind") or "").upper() == "LIBRARY":
+            out.add(int(va))
     return out
 
 
