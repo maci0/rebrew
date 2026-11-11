@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.32.1] - 2026-11-11
+
 ### Changed
 
 - The supported Detect It Easy is 4.0 (`docs/TOOLCHAIN.md`, `docs/ONBOARDING.md`); the 3.10 vendoring recipe with Qt 5 libraries is gone, since 4.0 links Qt 6 and ships no Ubuntu package.
