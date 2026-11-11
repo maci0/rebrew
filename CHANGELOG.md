@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.32.0] - 2026-11-11
+
 ### Changed
 
 - `msvc-4.0`, `borland-5.5` and `msvc-6.0-sp3` download from our byte-identical copies in the `archaic-toolchains` org (release `2026-11-10` of `msvc400`, `borlandc55` and `msvc600-win9x`) instead of itsmattkc's master branch, archive.org and OmniBlade's release; every sha256 is unchanged. Toolchain downloads no longer accept archive.org hosts, since no pin uses them now.
@@ -11,6 +13,8 @@
 - The wibo release metadata (1 MiB), wibo asset (64 MiB) and `toolchain check-updates` commit lookup (1 MiB) caps now bound memory: the replies are read as streams with a running cap (`rebrew.utils.read_capped_body`). They were read with `httpx.get`, which buffers the whole body before the cap was checked. An HTTP error status on the wibo release metadata now raises `WiboError` ("Failed to fetch wibo release metadata") like the other wibo failures, not a bare `httpx.HTTPStatusError`. The recompile artifact cap still runs after a buffered GET: streaming it needs a `stream` method on the public `HttpClient` protocol.
 - **Breaking:** `rebrew.wibo.close_response` is gone; it was `rebrew.utils.close_response` re-exported by an import wibo no longer needs. Import it from `rebrew.utils`.
 - `rebrew toolchain check-updates` no longer reports `check failed (ToolchainError)` for msvc-7.1-sp1, which failed the nightly toolchain-sync job since 2026-11-09. The commit lookup read GitHub's commit JSON, which lists the commit's files with their patches: 1,184,601 bytes for archaic-msvc/msvc710_sp1, past the 1 MiB reply cap added that day (23b1192a). It now asks for the bare sha (`application/vnd.github.sha`, 40 bytes) and refuses a reply that is not 40 lowercase hex.
+- `tests/test_ops.py::TestHttpTransport::test_sigterm_drains_active_request` no longer runs out its 120 s deadline when its one stalled call loses the worker's only slot to the first probe and is refused (every later probe then answered 404). It holds the slot through `_hold_the_only_slot`, which sends the call again until it holds it.
+- `services/jobs` `TestJobHeadMirrorsGet` no longer asks for a job's `/output` before the job runs (404): `Admit` returns before the output file exists, so the test waits for the exit code.
 
 ## [6.31.0] - 2026-11-10
 
