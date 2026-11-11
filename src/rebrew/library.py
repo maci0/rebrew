@@ -136,6 +136,13 @@ def bind_source_cmd(
             "library source changed while reading; review a new preview", json_mode=json_output
         )
     signatures = function_signatures(text)
+    if has_unique_source_definition(text, name) and name in signatures:
+        expected = derive_c_symbol(name, signatures[name])
+        if expected != symbol:
+            error_exit(
+                f"--symbol {symbol} does not match the definition's native symbol {expected}",
+                json_mode=json_output,
+            )
     if (
         not has_unique_source_definition(text, name)
         or name not in signatures

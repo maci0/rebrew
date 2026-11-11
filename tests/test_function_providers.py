@@ -99,6 +99,27 @@ class TestCompiledSources:
             assert metadata[("GAME", 0x10001000)]["file"] == "vendor.c"
             assert metadata[("GAME", 0x10001000)]["status"] == "STUB"
 
+    def test_undecorated_symbol_names_the_expected_native_symbol(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.library import app
+
+        cfg = _project(tmp_path)
+        source = tmp_path / "vendor.c"
+        source.write_text("int checksum(void) { return 7; }\n")
+        write_source(
+            cfg.reversed_dir / "library_vendor.h",
+            "\n// checksum\n\n",
+            metadata_fields={"GAME.0x10001000": {"kind": "LIBRARY", "size": 7, "name": "checksum"}},
+        )
+        monkeypatch.setattr("rebrew.library.require_config", lambda **_kwargs: cfg)
+        args = ["bind-source", "0x10001000", str(source), "--symbol", "checksum"]
+        result = CliRunner().invoke(app, [*args, "--dry-run", "--json"])
+        assert result.exit_code != 0
+        assert "_checksum" in cli_payload(result)["error"]
+
     def test_header_binding_includes_reference_source_without_an_inline_marker(
         self, tmp_path: Path
     ) -> None:
