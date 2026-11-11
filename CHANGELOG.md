@@ -6,6 +6,9 @@
 
 ### Fixed
 
+- `rebrew source import-related` no longer treats a LIBRARY row as an import destination when `library bind-source` bound it to a vendored file outside `reversed_dir`. Only library headers and the library inventory were excluded, so on guild-rebrew a `--shared` import rebound Gold `putShortMSB` (EXACT on `references/zlib/deflate.c`) to an unnamed game copy. Every LIBRARY row of the destination module is now excluded.
+- `rebrew cfg set` honours double-quoted key segments: `targets."server.dll".raw_link` split on every dot and wrote a bogus target table while `--dry-run` printed the intended key.
+- `rebrew library bind-source` names the expected native symbol when `--symbol` does not match the definition's decoration (`--symbol putShortMSB` for a cdecl definition now says it expects `_putShortMSB`), instead of the generic "source must contain one complete definition with matching C symbol".
 - A C file whose body the grammar cannot parse no longer hides the definitions after it. Statement macros without semicolons (zlib 1.1.3 `infblock.c`: `LEAVE`, `NEEDBITS(14)`) left `inflate_blocks` unclosed, so tree-sitter buried `inflate_blocks_free` and `inflate_blocks_sync_point` in one ERROR and `rebrew library bind-source` refused them ("source must contain one complete definition with matching C symbol"). Each top-level brace block that an erroneous node spans is now parsed again on its own, the rest of the file blanked so offsets hold, for `function_signatures`, `find_c_function_definitions`, `function_definition_spans`, `iter_function_name_and_proto` and `function_definition_hashes`. Extern-variable and variable-role scans are unchanged.
 
 - MCP reads reject non-object JSON replies and malformed tool-content containers without crashing. MCP writes count malformed content as an error instead of confirming the operation applied. Responses and sessions still close on these error paths.

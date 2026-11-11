@@ -4881,16 +4881,26 @@ Wanted: evaluate the target's preprocessor defines when counting definitions, or
 the bind when the compiled object defines the symbol exactly once, and parse K&R
 parameter lists. The vendored source is pinned, so editing it is not an option.
 
-## import-related --shared overrides a LIBRARY binding on the destination row
+## Rebinding a row onto a twin's source leaves its callers on the old name
 
-`rebrew source import-related --from Europa1400Gold_TL.exe --target Europa1400Gold.exe --shared
---min-score 100 --min-gap 0` (guild-rebrew, 2026-11-11) rebound Gold 0x00461e60, a LIBRARY row
-bound with `library bind-source` to `references/zlib/deflate.c` (`_putShortMSB`, EXACT), to the
-unnamed GoldTL game file `src/Develop/Unassigned/fcn_0045de70.c` because the bytes scored 100.
-Library code then counts as game C, and the vendored provider is lost. Undoing it needed
-`source binding retire` plus a new `library bind-source`.
-Wanted: skip destination rows whose active binding is LIBRARY (report them as
-`library-bound`), or offer the reverse: mark the source-side twin as the same library function.
-Related: `library bind-source --symbol putShortMSB` fails with "must contain one complete
-definition with matching C symbol" while `--symbol _putShortMSB` works for a `local` (static)
-K&R definition; the error does not say the decorated name is expected.
+`rebrew source import-related --shared` and `rebrew source binding rebind` move a Gold row onto
+the GoldTL twin's file and rename the row to the twin's C name (`fcn_0040b2f0` becomes
+`fcn_0040c120`), but Gold callers such as `GOLD.fcn_0040aaf0.c` keep calling `fcn_0040b2f0`, so
+the next Gold link has unresolved externals that RELOC comparisons never notice (call targets
+are masked). `rebrew source rename fcn_0040b2f0 GOLD.0x0040b2f0` repairs them, and resolves
+ownership per target correctly, but only once the old definition is gone: while the old
+`GOLD.fcn_*.c` file still defines the name it refuses ("cannot bind ...: it declares a
+definition", "binding source must be an unbound placeholder").
+Wanted: an option on rebind and `import-related --shared` to retarget references to the
+previous name in the same write, and to retire the old single-body file when no other row or
+data record names it. guild-rebrew replay: `.scratch/xbin/gold_twins_adopt.py` does the three
+steps in sequence (rebind, delete orphaned file, rename) for 97 Gold rows.
+
+## import-related --va is slow for a single pair
+
+`rebrew source import-related --from Europa1400Gold_TL.exe --target Europa1400Gold.exe --va
+0x... --source-va 0x... --shared --dry-run` takes 5 to 20 minutes per call on guild-rebrew
+(5,165 GoldTL and 2,180 Gold rows), because it scores the whole donor side each time; a
+masked-byte hash of equal-size functions found 127 exact Gold/GoldTL twins in under a minute
+(`.scratch/xbin/twin_hash.py`). Wanted: with `--va` and `--source-va` given, compare only that
+pair; and an exact masked-hash pre-pass before similarity scoring.
