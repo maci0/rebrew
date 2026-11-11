@@ -134,3 +134,14 @@ def test_unknown_kind_is_value_error(tmp_path: Path) -> None:
         serial.load_artifact(p, "nope")
     with pytest.raises(ValueError):
         serial.load_many(p, "nope")
+
+
+def test_unencodable_value_is_value_error(tmp_path: Path) -> None:
+    """A NUL in a name parses but cannot be written back: refuse it at load."""
+    p = tmp_path / "s.toml"
+    p.write_bytes(
+        b'name = "\x00"\nsize = 0x8\n\n[members.0x0]\nname = "a"\noffset = 0x0\n'
+        b'type = "int"\nsize = 0x4\n'
+    )
+    with pytest.raises(ValueError, match="re-encode"):
+        serial.load_artifact(p, "struct")

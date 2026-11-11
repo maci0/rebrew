@@ -238,9 +238,10 @@ def load_artifact(path: Path, kind: str) -> Any | None:
     except OSError as exc:
         raise ValueError(f"unreadable BinSync {kind} at {path}: {exc}") from exc
     try:
-        return _class_for(kind).loads(text)
+        artifact = _class_for(kind).loads(text)
     except Exception as exc:
         raise ValueError(f"unparseable BinSync {kind} at {path}: {exc}") from exc
+    return _encodable([artifact], path, kind)[0] if artifact is not None else None
 
 
 def dump_many(path: Path, kind: str, artifacts: list[Any], *, key: str = "addr") -> None:
@@ -262,9 +263,27 @@ def load_many(path: Path, kind: str) -> list[Any]:
     except OSError as exc:
         raise ValueError(f"unreadable BinSync {kind} at {path}: {exc}") from exc
     try:
-        return list(_class_for(kind).loads_many(text))
+        artifacts = list(_class_for(kind).loads_many(text))
     except Exception as exc:
         raise ValueError(f"unparseable BinSync {kind} at {path}: {exc}") from exc
+    return _encodable(artifacts, path, kind)
+
+
+def _encodable(artifacts: list[Any], path: Path, kind: str) -> list[Any]:
+    """*artifacts*, or ValueError when one cannot be written back.
+
+    The TOML encoder under declib fails on some values its parser accepts (a NUL
+    in a name raised IndexError): a load must not hand out an artifact the next
+    export crashes on.
+    """
+    for artifact in artifacts:
+        try:
+            artifact.dumps()
+        except Exception as exc:
+            raise ValueError(
+                f"BinSync {kind} at {path} holds a value TOML cannot re-encode: {exc!r}"
+            ) from exc
+    return artifacts
 
 
 # ---------------------------------------------------------------------------
