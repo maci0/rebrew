@@ -182,6 +182,25 @@ class TestCommentConfiguration:
         config.write_text('[project.address_comments]\nstyle="delphi"\n')
         assert address_comments_for_file(source).style == "delphi"
 
+    def test_unchanged_configuration_is_parsed_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typing import Any
+
+        from rebrew.utils import load_tomllib
+
+        (tmp_path / "rebrew-project.toml").write_text('[project.address_comments]\nstyle="cpp"\n')
+        parses: list[Path] = []
+
+        def counting(path: Path) -> dict[str, Any]:
+            parses.append(path)
+            return load_tomllib(path)
+
+        monkeypatch.setattr("rebrew.config.load_tomllib", counting)
+        for name in ("a.c", "b.c", "c.c"):
+            assert address_comments_for_file(tmp_path / "src/shared" / name).style == "cpp"
+        assert len(parses) == 1
+
     def test_project_target_override_registration_and_metadata_read(self, tmp_path: Path) -> None:
         (tmp_path / "rebrew-project.toml").write_text(
             '[project.address_comments]\nstyle = "cpp"\n'

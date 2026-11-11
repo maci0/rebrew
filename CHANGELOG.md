@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- Source discovery parses `rebrew-project.toml` once instead of once per source file: `address_comments_for_file` cached nothing, so one `rebrew source import-related` dry run on guild-rebrew parsed it 10,906 times (6 now). The cache is keyed on the file's mtime, size and inode, so an edited config is read again.
 - `rebrew source import-related` no longer treats a LIBRARY row as an import destination when `library bind-source` bound it to a vendored file outside `reversed_dir`. Only library headers and the library inventory were excluded, so on guild-rebrew a `--shared` import rebound Gold `putShortMSB` (EXACT on `references/zlib/deflate.c`) to an unnamed game copy. Every LIBRARY row of the destination module is now excluded.
 - `rebrew cfg set` honours double-quoted key segments: `targets."server.dll".raw_link` split on every dot and wrote a bogus target table while `--dry-run` printed the intended key.
 - `rebrew library bind-source` names the expected native symbol when `--symbol` does not match the definition's decoration (`--symbol putShortMSB` for a cdecl definition now says it expects `_putShortMSB`), instead of the generic "source must contain one complete definition with matching C symbol".

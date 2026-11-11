@@ -561,6 +561,23 @@ def parse_address_comment_format(project: Any, target: Any = None) -> AddressCom
     return AddressCommentFormat(**values) if values else DEFAULT_ADDRESS_COMMENTS
 
 
+#: Parsed ``rebrew-project.toml`` per path, keyed on its stat so an edit is re-read.
+#: Source discovery asks once per file (10,900 files on guild-rebrew).
+_PROJECT_TOML: dict[Path, tuple[tuple[int, int, int], dict[str, Any]]] = {}
+
+
+def _project_toml(path: Path) -> dict[str, Any]:
+    """Read-only parsed project config; callers must not mutate the result."""
+    st = path.stat()
+    stamp = (st.st_mtime_ns, st.st_size, st.st_ino)
+    hit = _PROJECT_TOML.get(path)
+    if hit is not None and hit[0] == stamp:
+        return hit[1]
+    raw = load_tomllib(path)
+    _PROJECT_TOML[path] = (stamp, raw)
+    return raw
+
+
 def address_comments_for_file(
     filepath: Path, *, module: str | None = None, project_root: Path | None = None
 ) -> AddressCommentFormat:
@@ -574,7 +591,7 @@ def address_comments_for_file(
     root = project_root or walk_up_to_root(filepath.parent)
     if root is None or not (root / "rebrew-project.toml").is_file():
         return DEFAULT_ADDRESS_COMMENTS
-    raw = load_tomllib(root / "rebrew-project.toml")
+    raw = _project_toml(root / "rebrew-project.toml")
     project = _as_table(raw.get("project", {}), "project")
     targets = _normalized_targets(_as_table(raw.get("targets", {}), "targets"))
     selected = []
