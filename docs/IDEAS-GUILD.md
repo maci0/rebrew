@@ -4880,3 +4880,17 @@ have three conditional definitions each (`#ifdef __TURBOC__`, `#if defined(M_I86
 Wanted: evaluate the target's preprocessor defines when counting definitions, or accept
 the bind when the compiled object defines the symbol exactly once, and parse K&R
 parameter lists. The vendored source is pinned, so editing it is not an option.
+
+## import-related --shared overrides a LIBRARY binding on the destination row
+
+`rebrew source import-related --from Europa1400Gold_TL.exe --target Europa1400Gold.exe --shared
+--min-score 100 --min-gap 0` (guild-rebrew, 2026-11-11) rebound Gold 0x00461e60, a LIBRARY row
+bound with `library bind-source` to `references/zlib/deflate.c` (`_putShortMSB`, EXACT), to the
+unnamed GoldTL game file `src/Develop/Unassigned/fcn_0045de70.c` because the bytes scored 100.
+Library code then counts as game C, and the vendored provider is lost. Undoing it needed
+`source binding retire` plus a new `library bind-source`.
+Wanted: skip destination rows whose active binding is LIBRARY (report them as
+`library-bound`), or offer the reverse: mark the source-side twin as the same library function.
+Related: `library bind-source --symbol putShortMSB` fails with "must contain one complete
+definition with matching C symbol" while `--symbol _putShortMSB` works for a `local` (static)
+K&R definition; the error does not say the decorated name is expected.
