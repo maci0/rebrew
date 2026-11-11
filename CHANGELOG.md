@@ -1,7 +1,12 @@
 ## [Unreleased]
 
+### Changed
+
+- The supported Detect It Easy is 4.0 (`docs/TOOLCHAIN.md`, `docs/ONBOARDING.md`); the 3.10 vendoring recipe with Qt 5 libraries is gone, since 4.0 links Qt 6 and ships no Ubuntu package.
+
 ### Fixed
 
+- `rebrew toolchain detect` takes the compiler family from Detect It Easy again. diec reports each value's `type` in lowercase (`compiler`, `linker`), and the DIE backend compared against `Compiler` and `Linker`, so it never named a family from a real scan and left it to the weaker detectors; on guild-rebrew's server.dll it now reports `detected_by=die`, `family=msvc`, `confidence=high`. The tests fed the capitalised form; they now use diec 4.0's own output, and one runs the installed diec on `tests/fixtures/tc16_hello.exe`.
 - `rebrew toolchain detect` gets Detect It Easy's answer again for a binary reached through a symlinked directory. DIE 4.0 prints nothing, exit 0, for such a path, so detect logged `diec printed no JSON` and fell back to its weaker detectors; rebrew now hands diec the resolved path.
 
 ## [6.32.0] - 2026-11-11

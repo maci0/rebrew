@@ -550,11 +550,10 @@ best-first:
 1. **Detect It Easy** (`diec -j --heuristicscan`): the strongest signatures
    for MSVC (per-version, e.g. `12.00.9782` = MSVC 6.0), Borland/Delphi,
    linkers.  Used when `diec` is on PATH or vendored at `tools/diec/diec`
-   (fetch the Linux `die_3.10_Ubuntu_24.04_amd64.deb` from the
-   horsicq/Detect-It-Easy "Beta" release, `ar x` + `tar -xf` it, and vendor
-   the matching `libQt5Core`/`libQt5Script`/`libicu74` `.so` files into
-   `tools/diec/lib/`; the `.so`-only pair from a single distro release
-   works; mixing distros aborts the QtScript engine).
+   with the Qt 6 libraries it loads in `tools/diec/lib/`.  The supported
+   version is Detect It Easy 4.0 (release `4.0.0`,
+   https://github.com/horsicq/DIE-engine/releases/tag/4.0.0; on Arch the
+   `detect-it-easy-bin` package); 3.x is not supported.
 2. **PDB** (`llvm-pdbutil`), when a sibling `.pdb` exists: the `S_COMPILE3`
    record carries the compiler version and, for MSVC PDBs, the exact
    compiler flags (auto-surfaced in the doctor report).  A `.zig-cache`

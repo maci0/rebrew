@@ -640,7 +640,8 @@ def detect_with_die(path: Path, diec: Path | None = None) -> ToolchainInfo | Non
             vtype = str(v.get("type") or "")
             name = str(v.get("name") or "")
             string = str(v.get("string") or "")
-            if vtype == "Compiler":
+            # Detect It Easy 4.0 spells the type in lowercase ("compiler", "linker").
+            if vtype == "compiler":
                 info.add(f"DIE: compiler {string or name}")
                 low = name.lower()
                 if "visual c/c++" in low or "visual c++" in low:
@@ -653,7 +654,7 @@ def detect_with_die(path: Path, diec: Path | None = None) -> ToolchainInfo | Non
                     info.family = "borlandc"
                 elif "gnu" in low or "mingw" in low or "gcc" in low:
                     info.family = "mingw"
-            elif vtype == "Linker":
+            elif vtype == "linker":
                 info.add(f"DIE: linker {string or name}")
                 low = name.lower()
                 if info.family == "unknown" and "turbo linker" in low and "delphi" in low:

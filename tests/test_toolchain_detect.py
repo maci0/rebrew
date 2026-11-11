@@ -153,12 +153,12 @@ class TestDetectWithDie:
             {
                 "values": [
                     {
-                        "type": "Linker",
+                        "type": "linker",
                         "name": "Microsoft Linker",
                         "string": "Linker: Microsoft Linker(5.12.8034)",
                     },
                     {
-                        "type": "Compiler",
+                        "type": "compiler",
                         "name": "Microsoft Visual C/C++",
                         "version": "12.00.9782",
                         "string": "Compiler: Microsoft Visual C/C++(12.00.9782)[C]",
@@ -180,7 +180,7 @@ class TestDetectWithDie:
             {
                 "values": [
                     {
-                        "type": "Compiler",
+                        "type": "compiler",
                         "name": "Borland Delphi",
                         "version": "2",
                         "string": "Compiler: Borland Delphi(2)",
@@ -254,7 +254,7 @@ class TestOrchestration:
             {
                 "values": [
                     {
-                        "type": "Compiler",
+                        "type": "compiler",
                         "name": "Borland Delphi",
                         "version": "2",
                         "string": "Compiler: Borland Delphi(2)",
@@ -283,7 +283,7 @@ class TestOrchestration:
             {
                 "values": [
                     {
-                        "type": "Compiler",
+                        "type": "compiler",
                         "name": "Watcom C/C++",
                         "version": "11.0",
                         "string": "Compiler: Watcom C/C++(11.0)[C]",
@@ -302,7 +302,7 @@ class TestOrchestration:
             {
                 "values": [
                     {
-                        "type": "Compiler",
+                        "type": "compiler",
                         "name": "Borland C++",
                         "version": "5.5",
                         "string": "Compiler: Borland C++(5.5)[C]",
@@ -592,7 +592,7 @@ class TestCrtLinkage:
         {
             "values": [
                 {
-                    "type": "Compiler",
+                    "type": "compiler",
                     "name": "Microsoft Visual C/C++",
                     "version": "11.00",
                     "string": "Compiler: Microsoft Visual C/C++(11.00)",
@@ -875,3 +875,14 @@ class TestDiecPath:
             pytest.skip("no diec on PATH")
         (tmp_path / "link").symlink_to(Path(__file__).parent / "fixtures", target_is_directory=True)
         assert _run_diec(tmp_path / "link" / "mini_pe.exe") is not None
+
+    def test_installed_diec_names_the_family(self) -> None:
+        """Detect It Easy 4.0 reports types in lowercase (``compiler``, ``linker``); the
+        backend must classify from that, not only from the version hint."""
+        import shutil
+
+        if shutil.which("diec") is None:
+            pytest.skip("no diec on PATH")
+        info = detect_with_die(Path(__file__).parent / "fixtures" / "tc16_hello.exe")
+        assert info is not None
+        assert (info.family, info.detected_by, info.confidence) == ("borlandc", "die", "high")

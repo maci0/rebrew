@@ -14,7 +14,7 @@ see [TOOLCHAIN.md](TOOLCHAIN.md).
 | rebrew itself | everything | `uv tool install 'rebrew[prove] @ git+https://github.com/maci0/rebrew.git'` (in a rebrew checkout, `make setup` instead; see CONTRIBUTING.md) |
 | **docker** | every compiler (MSVC, Borland, Watcom, Turbo C, Delphi, GCC, Clang, MinGW): execution is docker-only; the image wraps wine/DOSBox or holds the native compiler | your distro's `docker` |
 | **rizin** (the `rizin` executable) | packaged function discoverer (`rebrew.discoverers`; alternatives plug in without host edits) | `apt install rizin` / [rizin.re](https://rizin.re) |
-| `diec` (optional) | stronger compiler detection in `rebrew doctor`/`intake` | `diec` on `PATH`, or unpack [Detect It Easy](https://github.com/horsicq/DIE-engine/releases) into `tools/diec/` (gitignored, not shipped) |
+| `diec` (optional) | stronger compiler detection in `rebrew doctor`/`intake` | Detect It Easy 4.0: `diec` on `PATH` (Arch: `detect-it-easy-bin`), or unpack [release 4.0.0](https://github.com/horsicq/DIE-engine/releases/tag/4.0.0) into `tools/diec/` (gitignored, not shipped) |
 
 Every compiler (including GCC, Clang and MinGW) needs docker: the image
 holds it (see `rebrew toolchain list`).
