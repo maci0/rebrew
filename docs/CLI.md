@@ -1,6 +1,6 @@
 # CLI Reference
 
-The CLI exposes 241 surfaces: 207 leaf commands and 34 groups, including the
+The CLI exposes 242 surfaces: 208 leaf commands and 34 groups, including the
 root. They are registered under the unified `rebrew` entry point in `app/main.py`
 (`CliComponent` rows in `app/builtins.py`).
 Only `rebrew` is installed. Invoke tools as subcommands:
@@ -3244,6 +3244,7 @@ Use `rebrew data <operation> --help` for exact arguments and examples.
 | `rebrew data set` | Set one metadata field through the locked data writers. |
 | `rebrew data move` | Re-address one data row, refusing an occupied target address. |
 | `rebrew data mark-literals` | Mark rows the link map shows to be compiler literals (storage_kind=literal). |
+| `rebrew data pair` | Pair two targets' copies of one function and give their data operands one name. |
 | `rebrew data dispatch` | Decode dispatch tables and their storage extents. |
 | `rebrew data bss` | Report BSS extents and gaps. |
 | `rebrew data fix-bss` | Generate BSS padding from proven extents. |
@@ -3362,6 +3363,42 @@ rebrew data mark-literals --dry-run --json
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `--link-map` | path | — | MSVC link map of a reference-aligned build (default: raw_link's .map) |
+| `--dry-run` | flag | `False` | Preview changes without writing |
+| `--json` | flag | `False` | Output results as JSON |
+| `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+
+### `rebrew data pair`
+
+`rebrew data pair [OPTIONS] VA_A VA_B`
+
+Pair two targets' copies of one function and give their data operands one name.
+
+For two binaries built from one source, a shared C file that spells a global as
+a raw address matches only the target whose address it spells, and `source
+symbolize` needs base relocations most executables lack. This decodes both
+reference bodies (`VA_A` in `--from`, `VA_B` in `--target`) instruction by
+instruction and pairs every absolute operand that lies in a non-code section of
+each image. A pair named on one side only yields the other side's row (same
+name, size, type and kind; an interior operand creates the row at the paired
+start) through the locked data writer. Pairs named differently on the two sides,
+or whose new start is already a row, are `conflict`s and are left alone; pairs
+named on neither side are `unnamed`. Bodies that decode to different
+instructions are refused. `--rewrite` replaces the raw `--from` address casts in
+the shared source with `&name` and declares the names on an existing one-line
+extern or an empty file-scope line, so line numbers do not move. Re-test both
+targets afterwards.
+
+```bash
+rebrew data pair 0x402320 0x401e50 --from a.exe -t b.exe --dry-run --json
+```
+
+| Argument or option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `VA_A` | str | — | Function VA in --from |
+| `VA_B` | str | — | Function VA in the selected --target |
+| `--from` | str | — | Target whose rows and addresses the shared source spells |
+| `--size` | int | — | Body size in bytes (default: the --from function row) |
+| `--rewrite` | path | — | Shared C source: replace raw --from address casts with the names |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | — | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |

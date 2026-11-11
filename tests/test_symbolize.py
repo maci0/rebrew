@@ -225,8 +225,20 @@ class TestDeclare:
         _run(cfg, monkeypatch, "--declare", "g_table")
         assert _source(cfg) == text
 
-    def test_needs_an_extern_line(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_empty_line_hosts_the_declaration(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         source = _SOURCE.replace("extern int g_other;\n", "")
+        cfg = _project(tmp_path, source)
+        code, output = _run(cfg, monkeypatch, "--declare", "g_table", "--json")
+        assert code == 0, output
+        assert _source(cfg).splitlines()[0] == "extern char g_table[];"
+        assert _source(cfg).count("\n") == source.count("\n")
+
+    def test_needs_an_extern_or_empty_line(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        source = _SOURCE.replace("extern int g_other;\n\n", "")
         cfg = _project(tmp_path, source)
         code, output = _run(cfg, monkeypatch, "--declare", "g_table", "--json")
         assert code != 0

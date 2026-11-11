@@ -25,6 +25,7 @@ from rebrew.cli import (
     parse_va,
     require_config,
 )
+from rebrew.data_pair import pair as _pair
 lazy from rebrew.config import target_module
 lazy from rebrew.data_scan import (
     BssReport,
@@ -1295,3 +1296,17 @@ def main_entry() -> None:
 
 if __name__ == "__main__":
     main_entry()
+
+
+app.command(
+    "pair",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew data pair 0x402320 0x401e50 --from a.exe -t b.exe --dry-run --json\n\n"
+        "  # Also name the raw casts in the shared source\n"
+        "  rebrew data pair 0x402320 0x401e50 --from a.exe -t b.exe --rewrite f.c\n\n"
+        "[dim]Pairs absolute data operands of two copies of one function and creates the "
+        "missing side's data row with the other side's name, size, type and kind. "
+        "Conflicts are reported, never overwritten. Re-test both targets afterwards.[/dim]"
+    ),
+)(_pair)

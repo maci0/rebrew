@@ -3,9 +3,16 @@
 ### Changed
 
 - Every dependency is at its newest release: `uv lock --upgrade` moves 21 packages within their caps (angr, archinfo, cle and pyvex 10.0.6, click 8.5.1, pydantic 2.14.3, pydantic-core 2.50.4, tree-sitter 0.26.1, typer 0.29.1, z3-solver 5.3.3.0, ruff 0.17.4, hypothesis 6.170.15 and the rest of their trees); no cap holds back a newer major. The floors of click, tree-sitter, typer, angr, ruff and hypothesis follow the lock, and `tools/licenses.py` moves each entry to the new version after PyPI's licence metadata for both releases compared equal. The contributor resembl pin moves from `v4.0.0` to `v5.0.0` (eb8e9b4c) in the `Makefile`, the CI `uv-env` action, `uv.lock` and the setup docs.
+### Added
+
+- **Breaking:** `rewrite_casts` and `declare_externs` moved from `rebrew.symbolize` to the new library module `rebrew.cast_rewrite`, which `source symbolize` and `data pair` both use; import them from there.
+- `rebrew data pair VA_A VA_B --from A --target B` gives a function's data operands one name in two targets that share its code. It decodes both reference bodies, pairs absolute operands in non-code sections by position, creates the missing side's row from the named side (name, size, type, kind), and reports conflicts and unnamed pairs; `--rewrite` turns the shared source's raw casts into `&name`. On guild-rebrew, GoldTL `fcn_00402320` spelled `*(int*) 0x675170`, so its Gold twin built from the same file missed by the address; Gold already named the global `g_675170`.
+- `source symbolize --declare` and `data pair --rewrite` declare names on an empty file-scope line when the file has no one-line extern to append to, keeping every line number.
+
 
 ### Fixed
 
+- BinSync loads refuse an artifact their own export cannot write back: a struct named `"\x00"` parsed, then `dumps()` raised `IndexError` inside the TOML encoder (found by `test_serial_load_never_raises_unexpected`). `load_artifact` and `load_many` now raise `ValueError` for it, as for any unparseable file.
 - Source discovery parses `rebrew-project.toml` once instead of once per source file: `address_comments_for_file` cached nothing, so one `rebrew source import-related` dry run on guild-rebrew parsed it 10,906 times (6 now). The cache is keyed on the file's mtime, size and inode, so an edited config is read again.
 - `rebrew source import-related` no longer treats a LIBRARY row as an import destination when `library bind-source` bound it to a vendored file outside `reversed_dir`. Only library headers and the library inventory were excluded, so on guild-rebrew a `--shared` import rebound Gold `putShortMSB` (EXACT on `references/zlib/deflate.c`) to an unnamed game copy. Every LIBRARY row of the destination module is now excluded.
 - `rebrew cfg set` honours double-quoted key segments: `targets."server.dll".raw_link` split on every dot and wrote a bogus target table while `--dry-run` printed the intended key.
