@@ -207,7 +207,10 @@ def _refuse_conflicting_prototype(
     if name not in text:
         return
     declaration = re.compile(rf"^(?![ \t]).*\b{re.escape(name)}\s*\(.*\)\s*;\s*$", re.M)
+    unprototyped = re.compile(rf"\b{re.escape(name)}\s*\(\s*\)")
     for line in declaration.findall(text):
+        if unprototyped.search(line):
+            continue  # C89 `f()` leaves the parameters unspecified: compatible
         other = prototype_type_key(line)
         if other is not None and other != key:
             raise ValueError(

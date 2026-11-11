@@ -353,6 +353,22 @@ class TestRebindRejectingControls:
         assert result.exit_code == 2
         assert "src/caller.c" in cli_payload(result)["error"]
 
+    def test_unprototyped_declaration_is_compatible(self, tmp_path: Path) -> None:
+        """``extern void f();`` leaves the parameters unspecified (C89), so any
+        definition matches it."""
+        from rebrew.source_binding import app
+
+        cfg = _project(tmp_path)
+        (cfg.reversed_dir / "caller.c").write_text(
+            "extern void fcn_00405000();\nvoid h(void) { fcn_00405000(1); }\n"
+        )
+        source = cfg.reversed_dir / "twin.c"
+        source.write_text("void __cdecl fcn_00405000(int a) { }\n")
+        args = ["rebind", "0x401000", str(source), "--name", "fcn_00405000", "--reason", "twin"]
+        with patch("rebrew.source_binding.require_config", return_value=cfg):
+            result = CliRunner().invoke(app, [*args, "--dry-run", "--json"])
+        assert result.exit_code == 0, result.output
+
     def test_direct_call_target_is_a_function(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from types import SimpleNamespace
 
