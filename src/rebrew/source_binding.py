@@ -4,6 +4,7 @@ from __future__ import annotations
 
 lazy import hashlib
 lazy import json
+lazy import re
 lazy from pathlib import Path
 lazy from typing import Any
 
@@ -119,6 +120,102 @@ def supported_decorated_signature(prototype: str) -> bool:
     return False
 
 
+#: A generated function name: its hex suffix is the VA it was generated for.
+_GENERATED_NAME = re.compile(r"(?:fcn|sub|FUN)_([0-9A-Fa-f]{6,16})")
+
+
+def _is_call_target(binary: Path, va: int) -> bool:
+    """True when an x86 ``call rel32`` in a code section of *binary* lands on *va*.
+
+    An inventory can miss functions; a direct call proves one starts there.
+    Non-x86 or unreadable images answer False.
+    """
+    from rebrew.formats.binary_loader import load_binary
+
+    try:
+        info = load_binary(binary)
+    except OSError, ValueError:
+        return False
+    if not str(info.arch).startswith("x86"):
+        return False
+    for section in info.sections.values():
+        if not section.is_code_section:
+            continue
+        data = info.data[
+            section.file_offset : section.file_offset + min(section.raw_size, section.size)
+        ]
+        at = data.find(b"\xe8")
+        while 0 <= at <= len(data) - 5:
+            rel = int.from_bytes(data[at + 1 : at + 5], "little", signed=True)
+            if (section.va + at + 5 + rel) & 0xFFFFFFFF == va:
+                return True
+            at = data.find(b"\xe8", at + 1)
+    return False
+
+
+def _refuse_generated_name_of_another_function(cfg: ProjectConfig, va: int, name: str) -> None:
+    """Refuse *name* when it is the generated name of a different function in this target.
+
+    A twin's source from another binary carries that binary's address in its name
+    (GoldTL ``fcn_005c61c0`` for Gold's 0x5ba750), and the same address can be a
+    different function here, already called by that name.
+    """
+    from rebrew.catalog.loaders import load_function_structure
+    from rebrew.config import inventory_path_for
+
+    match = _GENERATED_NAME.fullmatch(name)
+    if match is None or int(match.group(1), 16) == va:
+        return
+    named = int(match.group(1), 16)
+    rows = load_metadata(cfg.metadata_dir, deepcopy=False)
+    known = (
+        (target_module(cfg) or "", named) in rows
+        or any(
+            entry.va == named
+            for entry in load_function_structure(inventory_path_for(cfg.reversed_dir, cfg))
+        )
+        or _is_call_target(cfg.target_binary, named)
+    )
+    if known:
+        raise ValueError(
+            f"{name} is the generated name of another {target_module(cfg)} function at "
+            f"0x{named:08x}; rename the replacement definition first"
+        )
+
+
+def _replacement_type_key(identity: dict[str, Any] | None, source: Path | None) -> str | None:
+    """Type key of the replacement definition, or None when there is nothing to compare."""
+    from rebrew.c_parser import prototype_type_key
+
+    if identity is None or source is None:
+        return None
+    text, _ = read_source_text(source)
+    signature = function_signatures(text).get(identity["name"])
+    return prototype_type_key(signature) if signature else None
+
+
+def _refuse_conflicting_prototype(
+    text: str, name: str, key: str, path: Path, cfg: ProjectConfig
+) -> None:
+    """Refuse when *path* already declares *name* at file scope with other types.
+
+    The name then already means another function in this target (a placeholder
+    or a stale twin name); binding a definition to it breaks that caller.
+    """
+    from rebrew.c_parser import prototype_type_key
+
+    if name not in text:
+        return
+    declaration = re.compile(rf"^(?![ \t]).*\b{re.escape(name)}\s*\(.*\)\s*;\s*$", re.M)
+    for line in declaration.findall(text):
+        other = prototype_type_key(line)
+        if other is not None and other != key:
+            raise ValueError(
+                f"{name} is already declared as `{line.strip()}` in "
+                f"{identity_file(path, cfg.root)}; rename the replacement definition first"
+            )
+
+
 def _change(
     cfg: ProjectConfig,
     va: int,
@@ -157,6 +254,7 @@ def _change(
         )
         if not name or not has_unique_source_definition(text, name):
             raise ValueError("replacement must contain one unambiguous definition; select --name")
+        _refuse_generated_name_of_another_function(cfg, va, name)
         pin(source, text)
         # Preserve library ancestry without accepting a new attribution by name.
         kind = str(
@@ -203,8 +301,11 @@ def _change(
                     )
     old_name = str(current.get("name") or "")
     references = []
+    new_key = _replacement_type_key(identity, source)
     for path in iter_sources(cfg.reversed_dir, cfg):
         text, _ = read_source_text(path)
+        if new_key is not None and identity is not None and path.resolve() != source:
+            _refuse_conflicting_prototype(text, identity["name"], new_key, path, cfg)
         if not old_name or old_name not in text:
             continue
         parsed = ParsedSource.parse(text)

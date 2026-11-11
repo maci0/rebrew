@@ -315,6 +315,64 @@ class TestRebindRejectingControls:
             )
         assert (cfg.metadata_dir / "rebrew-functions.toml").read_bytes() == before
 
+    def test_generated_name_of_another_function_is_rejected(self, tmp_path: Path) -> None:
+        """``fcn_00403000`` names the target's own function at 0x403000: a twin
+        from another binary must not take that name for 0x401000."""
+        import json
+
+        from rebrew.source_binding import app
+
+        cfg = _project(tmp_path)
+        (cfg.reversed_dir / "function_structure.json").write_text(
+            json.dumps([{"va": 0x401000, "size": 4}, {"va": 0x403000, "size": 8}])
+        )
+        source = cfg.reversed_dir / "twin.c"
+        source.write_text("int fcn_00403000(void) { return 1; }\n")
+        before = (cfg.metadata_dir / "rebrew-functions.toml").read_bytes()
+        args = ["rebind", "0x401000", str(source), "--name", "fcn_00403000"]
+        with patch("rebrew.source_binding.require_config", return_value=cfg):
+            result = CliRunner().invoke(app, [*args, "--reason", "twin", "--dry-run", "--json"])
+        assert result.exit_code == 2
+        assert "0x00403000" in cli_payload(result)["error"]
+        assert (cfg.metadata_dir / "rebrew-functions.toml").read_bytes() == before
+
+    def test_name_declared_with_other_types_is_rejected(self, tmp_path: Path) -> None:
+        """A caller already declares the name with other parameters: binding the
+        twin's definition to it would break that file (MSVC C2198)."""
+        from rebrew.source_binding import app
+
+        cfg = _project(tmp_path)
+        (cfg.reversed_dir / "caller.c").write_text(
+            "int __cdecl fcn_00405000(void);\nint h(void) { return fcn_00405000(); }\n"
+        )
+        source = cfg.reversed_dir / "twin.c"
+        source.write_text("int __cdecl fcn_00405000(int a, float b) { return a; }\n")
+        args = ["rebind", "0x401000", str(source), "--name", "fcn_00405000", "--reason", "twin"]
+        with patch("rebrew.source_binding.require_config", return_value=cfg):
+            result = CliRunner().invoke(app, [*args, "--dry-run", "--json"])
+        assert result.exit_code == 2
+        assert "src/caller.c" in cli_payload(result)["error"]
+
+    def test_direct_call_target_is_a_function(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from types import SimpleNamespace
+
+        from rebrew.source_binding import _is_call_target
+
+        # call 0x403000 from 0x401000: rel32 = 0x403000 - 0x401005
+        code = b"\x90" + bytes.fromhex("e8fb1f0000") + b"\xc3"
+        text = SimpleNamespace(
+            name=".text",
+            va=0x400FFF,
+            size=len(code),
+            file_offset=0,
+            raw_size=len(code),
+            is_code_section=True,
+        )
+        info = SimpleNamespace(arch="x86_32", sections={".text": text}, data=code)
+        monkeypatch.setattr("rebrew.formats.binary_loader.load_binary", lambda path: info)
+        assert _is_call_target(Path("x.exe"), 0x403000)
+        assert not _is_call_target(Path("x.exe"), 0x403004)
+
     def test_undiscoverable_destination_is_rejected(self, tmp_path: Path) -> None:
         from rebrew.source_binding import app
 

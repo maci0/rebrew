@@ -12,6 +12,7 @@
 
 ### Fixed
 
+- `rebrew source binding rebind` refuses a replacement name that already means another function in the target: a generated `fcn_<VA>` name whose VA is another row, an inventory entry or a direct call target in the target binary, or a name a target source already declares with other parameter types. On guild-rebrew, rebinding Gold 0x5ba750 onto its GoldTL twin named it `fcn_005c61c0`, which Gold callers already declared as `int fcn_005c61c0(void)`, and the Gold build failed with C2198.
 - BinSync loads refuse an artifact their own export cannot write back: a struct named `"\x00"` parsed, then `dumps()` raised `IndexError` inside the TOML encoder (found by `test_serial_load_never_raises_unexpected`). `load_artifact` and `load_many` now raise `ValueError` for it, as for any unparseable file.
 - Source discovery parses `rebrew-project.toml` once instead of once per source file: `address_comments_for_file` cached nothing, so one `rebrew source import-related` dry run on guild-rebrew parsed it 10,906 times (6 now). The cache is keyed on the file's mtime, size and inode, so an edited config is read again.
 - `rebrew source import-related` no longer treats a LIBRARY row as an import destination when `library bind-source` bound it to a vendored file outside `reversed_dir`. Only library headers and the library inventory were excluded, so on guild-rebrew a `--shared` import rebound Gold `putShortMSB` (EXACT on `references/zlib/deflate.c`) to an unnamed game copy. Every LIBRARY row of the destination module is now excluded.
