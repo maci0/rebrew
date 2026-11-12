@@ -429,7 +429,8 @@ warning naming the target and the count.
 
 ## 3. Dashboard REST API
 
-`rebrew coverage serve` serves the coverage documents read-only over HTTP on
+`rebrew coverage serve` serves live project coverage over HTTP by default;
+`--snapshots DIR` selects portable coverage documents. It binds
 `http://127.0.0.1:8000` by default (`--host` / `--port`). There is no
 authentication: it binds loopback, and a non-loopback `--host` prints a startup
 warning. The machine-readable contract is
@@ -443,8 +444,8 @@ human summary, and both are checked against the code by
 | `GET`, `HEAD` | `/app.js` | `v` | Dashboard client; `?v=<content hash>` is served `immutable` |
 | `GET`, `HEAD` | `/favicon.svg` | `v` | The rebrew mark, served as its own asset rather than inlined; `?v=<content hash>` is served `immutable` |
 | `GET`, `HEAD` | `/api/bootstrap` | | Targets plus the first target's summary and functions, in one round trip |
-| `GET`, `HEAD` | `/api/health` | | `{"status": "ok", "coverage_source": "<coverage directory>", "targets": <n>, "requests": <n>, "server_errors": <n>, "client_errors": <n>, "not_modified": <n>, "timeouts": <n>, "slow_requests": <n>, "slowest_ms": <ms>, "active_connections": <n>, "trace_spans_dropped": <n>, "trace_spans_failed": <n>}` after one real read of the documents (`coverage_source` is served only on a loopback bind, since a LAN client has no use for the analyst's absolute path; the seven fields from `requests` through `slowest_ms` and the `active_connections` gauge are present only on the HTTP server; the two trace counters are also present in direct API calls and count spans the exporter dropped or failed to POST), so a directory that yields no readable document answers 500 `database_error`; served `no-store` with no `ETag`, so a probe cannot be cached or revalidated into a stale "healthy" |
-| `GET`, `HEAD` | `/api/targets` | | Every target with a readable document |
+| `GET`, `HEAD` | `/api/health` | | `{"status": "ok", "coverage_source": "<project root or snapshot directory>", "targets": <n>, "requests": <n>, "server_errors": <n>, "client_errors": <n>, "not_modified": <n>, "timeouts": <n>, "slow_requests": <n>, "slowest_ms": <ms>, "active_connections": <n>, "trace_spans_dropped": <n>, "trace_spans_failed": <n>}` after one real read of the coverage source (`coverage_source` is served only on a loopback bind, since a LAN client has no use for the analyst's absolute path; the seven fields from `requests` through `slowest_ms` and the `active_connections` gauge are present only on the HTTP server; the two trace counters are also present in direct API calls and count spans the exporter dropped or failed to POST), so a source with no readable target answers 500 `database_error`; failed live siblings appear in `failures` and set `status` to `degraded` while healthy targets remain available; served `no-store` with no `ETag`, so a probe cannot be cached or revalidated into a stale "healthy" |
+| `GET`, `HEAD` | `/api/targets` | | Readable targets, with failed live siblings reported in `failures` |
 | `GET`, `HEAD` | `/api/summary` | `target` | Coverage percentages plus the derived `function_stats` object |
 | `GET`, `HEAD` | `/api/functions` | `target`, `status`, `module`, `q`, `limit`, `offset` | Paged function rows |
 | `GET`, `HEAD` | `/api/sections` | `target` | Per-section cell counts, unpaged |
@@ -477,16 +478,16 @@ Clients read the applied values back from the envelope.
 > `/api/sections`, `/api/targets`, and the top level of `/api/bootstrap`,
 > which have no page (so `limit` there is the row count, not a page size).
 > A client that pages steps by `count`, not by `limit`.
-> Missing `target` → 400; unknown target or unreadable document → 404
+> Missing `target` → 400; a target with no readable coverage view → 404
 > `unknown_target`; a `status` filter outside the STATUS vocabulary → 400 (an
 > empty page would read as "no functions in that status").  A corrupt
 > `function_stats` is not a case: it is derived from the stored function rows, so
-> a target is either a readable document (200) or not (404 `unknown_target`).
+> a target either has a readable coverage view (200) or answers 404 `unknown_target`.
 > Every error body is
 > `{"error": "<message>", "code": "<machine-readable code>"}`; branch on
 > `code` (`missing_target`, `unknown_target`, `invalid_status`, `not_found`,
-> `method_not_allowed`, `host_not_allowed`, `database_error` (the whole
-> directory yielded no readable document, which only `/api/health` asks about)
+> `method_not_allowed`, `host_not_allowed`, `database_error` (unreadable coverage
+> inputs, including no readable target on `/api/health`),
 > `internal_error`, `server_busy` (a connection refused
 > because the 64-connection cap was full, answered before routing with
 > `Retry-After: 1`), plus `bad_request` / `uri_too_long` /

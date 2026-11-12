@@ -53,7 +53,7 @@ tags:
   - name: assets
     description: HTML shell and its scripts.
   - name: database
-    description: Target-scoped coverage data.  All require `?target=`.
+    description: Coverage source health, target discovery and target-scoped rows.
 
 paths:
   /:
