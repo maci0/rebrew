@@ -363,6 +363,20 @@ class TestTypeTable:
         assert TypeTable(pointer_size=4).type_for("int[]", 10) == 0
         assert TypeTable(pointer_size=4).type_for("int[]", None) == 0
 
+    def test_bound_past_32_bits_is_untyped(self) -> None:
+        # 2**32 elements of int is 16 GiB, past the unsigned 32-bit CodeView
+        # size field; emitting it would wrap the stored extent.
+        assert TypeTable(pointer_size=4).type_for("int[4294967296]", None) == 0
+        assert TypeTable(pointer_size=4).type_for("int[]", 0x100000000) == 0
+
+    def test_negative_extent_is_not_an_array_bound(self) -> None:
+        # ``-4 % 4 == 0`` in Python, so a negative byte count used to emit
+        # an LF_ARRAY whose Size is negative.
+        table = TypeTable(pointer_size=4)
+        assert table.type_for("int[]", -4) == 0
+        assert table.records == []
+        assert TypeTable(pointer_size=4).type_for("int[]", 0) == 0
+
     def test_records_are_shared(self) -> None:
         table = TypeTable(pointer_size=4)
         assert table.type_for("char[4]", None) == table.type_for("const char[4]", None)

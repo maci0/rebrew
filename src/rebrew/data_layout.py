@@ -1134,6 +1134,12 @@ def _element_count_or_none(brackets: str) -> int | None:
     return total
 
 
+#: Largest extent :func:`estimate_type_size` will report. A declared bound
+#: whose product exceeds the 32-bit address space is not a global this
+#: toolchain can place, and treating it as one inflates coverage.
+_MAX_ESTIMATED_BYTES = 0xFFFFFFFF
+
+
 #: Words that are not part of a declared type: storage classes and
 #: qualifiers precede it, the declared name follows it.
 _NON_TYPE_WORDS = frozenset({"extern", "static", "auto", "register", "const", "volatile", "signed"})
@@ -1236,6 +1242,8 @@ def data_symbol_size(fields: dict[str, Any], *, arch: str = "x86_32") -> int:
             if not isinstance(bound, int) or bound <= 0:
                 return 0
             width *= bound
+            if width > _MAX_ESTIMATED_BYTES:
+                return 0
         return width
     base = " ".join(word for word in base.split() if word not in _NON_TYPE_WORDS)
     if "(" in base or ")" in base:
@@ -1246,6 +1254,8 @@ def data_symbol_size(fields: dict[str, Any], *, arch: str = "x86_32") -> int:
         if not isinstance(bound, int) or bound <= 0:
             return 0
         width *= bound
+        if width > _MAX_ESTIMATED_BYTES:
+            return 0
     return width
 
 
@@ -1281,13 +1291,21 @@ def estimate_type_size(type_str: str) -> int:
         for bound in abstract:
             if isinstance(bound, int) and bound > 0:
                 count *= bound
+                # Past the 32-bit address space the product is not a size a
+                # global can have; 0 means unknown, matching an unresolvable
+                # bound, instead of a multi-gigabyte coverage contribution.
+                if count > _MAX_ESTIMATED_BYTES // 4:
+                    return 0
         return 4 * count
     base, dimensions = array_type_shape(text)
     count = 1
     for bound in dimensions:
         if isinstance(bound, int) and bound > 0:
             count *= bound
-    return c_type_size(base) * count
+            if count > _MAX_ESTIMATED_BYTES:
+                return 0
+    size = c_type_size(base) * count
+    return size if size <= _MAX_ESTIMATED_BYTES else 0
 
 
 def typed_array_literal(ctype: str, data: bytes, byte_order: str = "<") -> tuple[str, int]:

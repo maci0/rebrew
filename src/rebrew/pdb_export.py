@@ -162,6 +162,9 @@ _INDEX_TYPE_32 = 0x0022
 _INDEX_TYPE_64 = 0x0023
 _FIRST_TYPE_INDEX = 0x1000
 _NO_TYPE = 0
+#: CodeView array sizes are unsigned 32-bit. A bound past this overflows the
+#: field and a consumer reads the wrapped value as the extent.
+_MAX_ARRAY_BYTES = 0xFFFFFFFF
 
 #: COFF machine → llvm-pdbutil ``MachineType`` name.
 _MACHINES = {0x14C: "x86", 0x8664: "Amd64"}
@@ -334,13 +337,26 @@ class TypeTable:
             if not isinstance(bound, int) or bound <= 0:
                 return _NO_TYPE
             element_size *= bound
+            if element_size > _MAX_ARRAY_BYTES:
+                return _NO_TYPE
             index = self.array_of(index, element_size)
         outer = dims[0]
-        if outer is None and known_size and known_size % element_size == 0:
+        # A negative or zero extent is not an array bound. ``known_size``
+        # is a byte count, and ``-4 % 4 == 0`` in Python, so ``int[]`` with
+        # size -4 used to emit an LF_ARRAY whose Size is -4.
+        if (
+            outer is None
+            and known_size is not None
+            and known_size > 0
+            and known_size % element_size == 0
+        ):
             outer = known_size // element_size
         if not isinstance(outer, int) or outer <= 0:
             return _NO_TYPE
-        return self.array_of(index, element_size * outer)
+        total_size = element_size * outer
+        if total_size > _MAX_ARRAY_BYTES:
+            return _NO_TYPE
+        return self.array_of(index, total_size)
 
 
 # ---------------------------------------------------------------------------

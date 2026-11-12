@@ -593,6 +593,18 @@ class TestPlan:
         assert plan.profile == "msvc-6.0"  # the project's profile, unchanged
         assert any("no rebrew profile" in note for note in plan.notes)
 
+    def test_negative_symbol_size_is_not_a_negative_array_bound(self) -> None:
+        # ``-8 % 4 == 0`` in Python, so a negative splat size used to emit
+        # ``extern unsigned int g_table[-2];`` into generated source.
+        assert (
+            splat_config.data_declaration("g_table", "u32", -8)
+            == "extern unsigned int g_table;"
+        )
+        assert (
+            splat_config.data_declaration("g_table", "u32", 16)
+            == "extern unsigned int g_table[4];"
+        )
+
 
 class TestRegistration:
     def test_registered_in_the_umbrella_manifest(self) -> None:

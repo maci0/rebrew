@@ -922,7 +922,7 @@ class ImportPlan:
     existing_vas: dict[int, tuple[str, str]] = field(default_factory=dict)
 
 
-def _data_declaration(name: str, kind: str, size: int | None) -> str:
+def data_declaration(name: str, kind: str, size: int | None) -> str:
     """A C declaration for a splat data symbol (``extern unsigned int x;``).
 
     The element type comes from the splat ``type:`` comment; when a ``size:``
@@ -931,7 +931,9 @@ def _data_declaration(name: str, kind: str, size: int | None) -> str:
     """
     c_type = _DATA_C_TYPES[kind]
     element = _DATA_TYPE_SIZES.get(kind)
-    if size and element and size % element == 0 and size // element > 1:
+    # ``size`` is a byte count. ``-8 % 4 == 0`` in Python, so a negative
+    # size would emit ``name[-2]``, which is not a declaration.
+    if size and element and size > 0 and size % element == 0 and size // element > 1:
         return f"extern {c_type} {name}[{size // element}];"
     return f"extern {c_type} {name};"
 
@@ -1241,7 +1243,7 @@ def _plan_annotations(
         else:
             kind = "DATA"
             module = target_module_name
-            declaration = _data_declaration(name, row.kind, row.size)
+            declaration = data_declaration(name, row.kind, row.size)
             rel = f"data_{name}{_first_ext(cfg)}"
             path = cfg.reversed_dir / rel
 

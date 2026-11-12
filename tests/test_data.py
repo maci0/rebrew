@@ -1010,6 +1010,8 @@ class TestEstimateTypeSize:
         assert estimate_type_size("int[sizeof(char (__cdecl *row)[4])]") == 16
         assert estimate_type_size("int[sizeof(char (__cdecl *)[4])]") == 16
         assert estimate_type_size("int[sizeof(int (__cdecl *table[2])[3])]") == 32
+        # 2**30 ints is 4 GiB, past anything a 32-bit global can occupy.
+        assert estimate_type_size("int[1073741824]") == 0
         assert data_symbol_size({"type": "int (__cdecl *table[2])[3]"}) == 8
         assert data_symbol_size({"type": "char (__cdecl *row)[4]"}) == 4
         assert data_symbol_size({"type": "void (__cdecl *cbs[4])(int)"}) == 0
