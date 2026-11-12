@@ -102,3 +102,46 @@ def test_extract_missing_rsrc_json(tmp_path: Path) -> None:
     assert result.exit_code == EXIT_ERROR
     data = cli_payload(result)
     assert data["present"] is False
+
+
+def test_compare_rejects_truncated_resource_sections(tmp_path: Path) -> None:
+    from rebrew.resource import app
+
+    a = _rsrc_pe(tmp_path / "a.exe", b"RESOURCE")
+    b = _rsrc_pe(tmp_path / "b.exe", b"RESOURCE")
+    for path in (a, b):
+        path.write_bytes(path.read_bytes()[:-1])
+    result = runner.invoke(app, ["compare", str(a), str(b), "--json"])
+    assert result.exit_code == 2
+    assert "truncated .rsrc" in result.stderr
+
+
+def test_extract_keeps_output_when_resource_is_truncated(tmp_path: Path) -> None:
+    from rebrew.resource import app
+
+    source = _rsrc_pe(tmp_path / "source.exe", b"RESOURCE")
+    source.write_bytes(source.read_bytes()[:-1])
+    output = tmp_path / "out.rsrc"
+    output.write_bytes(b"keep")
+    result = runner.invoke(app, ["extract", str(source), "-o", str(output), "--json"])
+    assert result.exit_code == 2
+    assert "truncated .rsrc" in result.stderr
+    assert output.read_bytes() == b"keep"
+
+
+def test_resource_payload_without_alignment_padding_is_accepted(tmp_path: Path) -> None:
+    from rebrew.formats.binary_loader import load_binary
+    from rebrew.resource import app
+
+    payload = b"RESOURCE"
+    source = _rsrc_pe(tmp_path / "source.exe", payload)
+    section = load_binary(source).sections[".rsrc"]
+    assert len(source.read_bytes()) == section.file_offset + len(payload)
+    assert section.raw_size > len(payload)
+    compared = runner.invoke(app, ["compare", str(source), str(source), "--json"])
+    assert compared.exit_code == 0
+    assert cli_payload(compared)["match"] is True
+    output = tmp_path / "out.rsrc"
+    extracted = runner.invoke(app, ["extract", str(source), "-o", str(output), "--json"])
+    assert extracted.exit_code == 0
+    assert output.read_bytes() == payload

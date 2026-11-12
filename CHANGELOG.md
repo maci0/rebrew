@@ -10,6 +10,7 @@
 - Archive parsing rejects a member whose declared body extends past EOF, including long-name and symbol tables, instead of passing incomplete object bytes to library analysis.
 - Toolchain detection falls back when Detect It Easy returns malformed JSON detection records instead of raising TypeError or AttributeError.
 - A decomp.me upload ledger containing invalid UTF-8 is treated as corrupt and can be replaced by the next recorded upload, instead of failing with UnicodeDecodeError.
+- PE resource comparison and extraction reject a truncated .rsrc payload instead of reporting two partial sections as identical or overwriting the output with incomplete bytes. Missing alignment padding remains accepted.
 
 ## [6.32.1] - 2026-11-11
 

@@ -14,7 +14,7 @@ lazy from typing import Any
 
 import typer
 
-lazy from rebrew.cli import EXIT_ERROR, EXIT_MISMATCH, console, json_print
+lazy from rebrew.cli import EXIT_ERROR, EXIT_MISMATCH, console, error_exit, json_print
 lazy from rebrew.formats.binary_loader import load_binary
 
 app = typer.Typer(
@@ -36,6 +36,9 @@ def _rsrc_bytes(path: Path) -> tuple[bytes | None, dict[str, Any]]:
     if sec is None:
         return None, {}
     raw = info.data[sec.file_offset : sec.file_offset + sec.raw_size]
+    # File-alignment padding may be absent; the mapped resource payload must fit.
+    if len(raw) < min(sec.size or sec.raw_size, sec.raw_size):
+        raise ValueError(f"{path}: truncated .rsrc section")
     return raw, {
         "va": sec.va,
         "size": sec.size,
@@ -58,8 +61,11 @@ def compare(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Byte-compare the .rsrc sections of two PEs; exit 1 when they differ."""
-    a_bytes, a_info = _rsrc_bytes(recompiled)
-    b_bytes, b_info = _rsrc_bytes(original)
+    try:
+        a_bytes, a_info = _rsrc_bytes(recompiled)
+        b_bytes, b_info = _rsrc_bytes(original)
+    except (OSError, ValueError) as exc:
+        error_exit(str(exc), json_mode=json_output)
 
     report: dict[str, Any] = {
         "recompiled": str(recompiled),
@@ -128,7 +134,10 @@ def extract(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Extract the .rsrc section raw bytes to output."""
-    raw, info = _rsrc_bytes(pe)
+    try:
+        raw, info = _rsrc_bytes(pe)
+    except (OSError, ValueError) as exc:
+        error_exit(str(exc), json_mode=json_output)
     if raw is None:
         if json_output:
             json_print({"pe": str(pe), "present": False, "output": None})
