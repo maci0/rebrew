@@ -12,6 +12,8 @@
 
 ### Fixed
 
+- Strict PE header parsing rejects an undersized declared optional header even when trailing bytes are available, instead of reading section-table bytes as optional-header fields.
+
 - Archive parsing rejects a member whose declared body extends past EOF, including long-name and symbol tables, instead of passing incomplete object bytes to library analysis.
 
 - Toolchain detection falls back when Detect It Easy returns malformed JSON detection records instead of raising TypeError or AttributeError.

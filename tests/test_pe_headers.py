@@ -3,6 +3,7 @@
 import random
 from pathlib import Path
 
+import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -10,6 +11,7 @@ from rebrew.formats.pe_headers import (
     PATCHABLE,
     header_parity,
     patch_pe_headers,
+    pe_header,
     read_pe_header_fields,
 )
 
@@ -408,3 +410,15 @@ class TestPe32PlusFieldWidths:
         assert after["dll_characteristics"] == fields["dll_characteristics"]
         parity = {row["field"]: row["match"] for row in header_parity(data, patched)}
         assert parity["stack_reserve"] is False
+
+
+class TestPeHeaderBounds:
+    @pytest.mark.parametrize("declared_size", [0, 2, 32, 143])
+    def test_short_optional_header_is_rejected_with_trailing_bytes(
+        self, declared_size: int
+    ) -> None:
+        data = bytearray(_fixture())
+        pe_offset = int.from_bytes(data[0x3C:0x40], "little")
+        data[pe_offset + 0x14 : pe_offset + 0x16] = declared_size.to_bytes(2, "little")
+        with pytest.raises(ValueError, match="truncated optional header"):
+            pe_header(bytes(data))

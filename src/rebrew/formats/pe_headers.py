@@ -205,7 +205,7 @@ def pe_header(data: bytes) -> tuple[int, int, int, int, int]:
     # ImageBase ends at optional+32; the layout walkers read basereloc at
     # optional+140, so a claim shorter than that is truncated even when the
     # file ends on the claim.
-    if opt + optsz > len(data) or opt + _OPT_FIELD_END > len(data):
+    if optsz < _OPT_FIELD_END or opt + optsz > len(data):
         raise ValueError("truncated optional header")
     if opt + optsz + SECTION_ENTRY_SIZE * nsec > len(data):
         raise ValueError("truncated section table")
