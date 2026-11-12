@@ -3576,7 +3576,7 @@ class OpsServer(ThreadingHTTPServer):
         self.active = 0
         self.draining = False
         self.idle = threading.Condition()
-        self.allowed_hosts = _allowed_hosts_for(address[0], address[1]) | allowed_hosts
+        self.allowed_hosts = _allowed_hosts_for(address[0], self.server_address[1]) | allowed_hosts
         self._metrics_lock = threading.Lock()
         self._request_count = 0
         self._error_count = 0

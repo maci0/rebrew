@@ -1734,6 +1734,38 @@ def _free_port() -> int:
 
 
 class TestHttpTransport:
+    def test_ephemeral_port_uses_bound_port_for_host_checks(self) -> None:
+        from rebrew.ops import OpsServer
+
+        with OpsServer(("127.0.0.1", 0), WorkerConfig(), TOKEN, 1) as server:
+            port = server.server_address[1]
+            thread = threading.Thread(
+                target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+            )
+            thread.start()
+            try:
+                for host, expected in (
+                    (f"127.0.0.1:{port}", 200),
+                    (f"foreign.invalid:{port}", 403),
+                    ("127.0.0.1:0", 403),
+                ):
+                    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+                    try:
+                        connection.request(
+                            "GET",
+                            "/health",
+                            headers={"Host": host, "Authorization": f"Bearer {TOKEN}"},
+                        )
+                        response = connection.getresponse()
+                        response.read()
+                        assert response.status == expected, host
+                    finally:
+                        connection.close()
+            finally:
+                server.shutdown()
+                thread.join(timeout=5)
+            assert not thread.is_alive()
+
     def test_sigterm_drains_active_request(self, tmp_path: Path) -> None:
         filestore, workspace = _worker_dirs(tmp_path)
         port = _free_port()
