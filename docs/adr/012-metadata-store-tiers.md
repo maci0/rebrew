@@ -1,11 +1,13 @@
 # ADR-012: Metadata store tiers (canonical vs derived vs cache)
 
-- **Status**: Amended by [ADR-031](031-live-coverage-views.md)
-  (live coverage and durable history; earlier identity amendment: [ADR-023](023-markers-toml-single-source.md))
-  (function identity and `SIZE`/`CFLAGS` move to `rebrew-functions.toml`;
-  a migrated `.c` carries no marker lines, so the canonical-tier `.c`
-  identity and inline `SIZE`/`CFLAGS` co-read below apply only to
-  unmigrated files)
+- **Status**: Amended by [ADR-023](023-markers-toml-single-source.md)
+  (superseded by [ADR-030](030-address-only-source.md), itself amended by
+  [ADR-033](033-consolidated-source-evidence.md): identity and state live
+  in the metadata stores, and a `.c` carries optional ADDRESS anchors
+  only), [ADR-031](031-live-coverage-views.md) (live coverage and durable
+  history), [ADR-034](034-metadata-storage-backends.md) (amended by
+  [ADR-035](035-metadata-replication.md): storage backends behind one
+  `MetadataStore`)
 - **Date**: 2026-08
 
 ## Context
@@ -38,60 +40,61 @@ harder to see:
 
 ## Decision
 
-Adopt an explicit **four-tier model** and document it as the contract
-(current store map: [METADATA.md](../METADATA.md)):
+Adopt an explicit **four-tier model**. The tier membership and the
+per-fact ownership are the table in [METADATA.md](../METADATA.md); this
+record keeps the rules, and the citing ADRs in the status line record
+what has changed since:
 
-1. **Canonical (user-owned)**: `.c` marker lines (identity), the three
-   TOML stores (overrides), `rebrew-project.toml` (config).  The only
-   stores that hold non-derivable facts.
-2. **Derived, VCS-intended**: `src/<target>/function_structure.json`
-   (discovery inventory; replaces the removed `functions.txt` /
-   `CATALOG.md`), the layout package (`layout/<target>/`:
-   `rebrew-layout.toml` + `*.hex`), `<target>.def`, `crt_region/*.c`,
-   `src/link_stubs.c`, `flirt_sigs/*.pat`, toolchain files.  Generated
-   from the binary but committed so a rebuild never needs `original/`
-   around; regenerable via the generating command (gen-layout,
-   discover-functions, gen-link-stubs).
-3. **Derived, gitignored (build output)**: grid JSON, coverage.db, CSV,
-   `bin/<target>/*.bin`, `output/report/`.  (Amended: the grid JSON, the
-   coverage database and the CSV are gone; see the amendment at the end.)  Rebuildable via one command;
-   never hand-edited.  The `--compare` baseline lives in
-   `.rebrew/verify_baseline.toml` (unguarded `db/verify_results.json`
-   snapshots are no longer written; see `verify_cache.load_baseline`).
-4. **Cache (delete-safe)**: verify cache, Ghidra sync-state, compile
-   caches, GA run checkpoints (`out_dir/checkpoints`, `out_dir/best.c`),
-   in-memory mtime caches.  There is no per-run GA build cache:
-   same-run compiles memoize in memory, cross-run persistence is the shared
-   compile cache's job.  Except
-   `.rebrew/ga_runs.jsonl` (live GA history / win fingerprints; see
-   `matcher/solutions.py`; `load_solutions` derives winners from the log;
-   the old `.rebrew/solutions.json` store is gone).
+- **Canonical** holds the non-derivable facts: the C sources,
+  `rebrew-project.toml`, and the managed metadata stores. At acceptance
+  those stores were `rebrew-functions.toml`, `rebrew-data.toml` and
+  `rebrew-libraries.toml`, and the `.c` files carried identity as inline
+  marker lines. Identity and state have since moved entirely into the
+  metadata stores ([ADR-030](030-address-only-source.md)); a `.c` now
+  carries optional `/* ADDRESS: MODULE 0xVA */` anchors only, and readers
+  reject inline state (lint E024) with no migration of it.
+- **Derived, VCS-intended** is generated from the binary and committed so
+  a rebuild never needs `original/` around: the discovery inventory
+  (`function_structure.json`, replacing the removed `functions.txt` /
+  `CATALOG.md`), the layout package, the link scaffolding and the FLIRT
+  signatures. Regenerable by the command that writes each one (`rebrew
+  build layout`, `rebrew binary functions`, `rebrew build link-stubs`).
+- **Derived, gitignored** is rebuildable build output and is never
+  hand-edited. At acceptance this tier held a coverage grid JSON, a
+  SQLite `coverage.db` and a reccmp CSV, all three since removed
+  ([ADR-031](031-live-coverage-views.md) and the amendment below). The
+  `--compare` baseline lives in `.rebrew/verify_baseline.toml`; the
+  unguarded `db/verify_results.json` snapshots are no longer written
+  (`verify_cache.load_baseline`).
+- **Cache** is delete-safe: the verify cache, Ghidra sync-state, the
+  compile caches, GA run checkpoints (`out_dir/checkpoints`,
+  `out_dir/best.c`) and the in-memory mtime caches. There is no per-run
+  GA build cache; same-run compiles memoize in memory and cross-run
+  persistence is the shared compile cache's job. Except
+  `.rebrew/ga_runs.jsonl`, the live GA history and win fingerprints
+  (`matcher/solutions.py`; `load_solutions` derives winners from the
+  log). The `.rebrew/solutions.json` store is gone.
 
 Single-source rules enforced by code where cheap:
 
 - One parser per file format, in shared modules (`catalog/loaders.py`,
-  `rebrew/metadata_doc.py`).
-- All TOML stores load through one shared `load_metadata_doc` (tomllib,
-  mtime-cached) and serialize writes through one shared
-  `metadata_write_lock` (thread + flock). `rebrew-libraries.toml` is not
-  qualified-key data, so it keeps its own flat-table parse
-  (`parse_library_metadata`, tomllib via the shared `read_toml_text` BOM-
-  tolerant reader plus its own mtime/size/inode memo), but `rebrew library
-  set` / `rm` now take `metadata_write_lock` and edit in place with
-  `load_toml_for_write`, so the store is no longer written unlocked.
-- Writes to canonical stores go through the gated APIs only; STATUS
-  strictly via `update_source_status` / `update_statuses_batch` (one
-  promotion gate; `rebrew verify` and `rebrew intake` batch the writes,
-  `rebrew test` writes per file through `update_source_status`).
+  `rebrew.metadata.document`).
+- The managed metadata stores load through one `load_metadata_doc`
+  (`metadata/document.py`, mtime-cached) and serialize writes through one
+  `metadata_write_lock`, which takes the store transaction.
+  `rebrew-libraries.toml` is not qualified-key data, so
+  `parse_library_metadata` keeps its own flat-table validation, but it
+  reads through the same `MetadataStore` and `rebrew library set` / `rm`
+  write under `metadata_write_lock`. [ADR-034](034-metadata-storage-backends.md)
+  puts the TOML, SQLite and PostgreSQL backends behind that one store.
+- Writes to canonical stores go through the gated APIs only. STATUS goes
+  strictly through `update_source_status` / `update_statuses_batch` (one
+  promotion gate). `rebrew verify` and `rebrew intake` collect a run and
+  apply it with `update_statuses_batch`; `rebrew test` calls
+  `update_source_status` once per changed function, and that writer funnels
+  through the same batch helper.
 - No module-less metadata keys; `TOOLCHAIN` is a declared metadata field.
 - BinSync import routes STATUS through the metadata gate.
-- Volatile metadata (`STATUS`/`BLOCKER`/`NOTE`/…) is not parsed from
-  inline `.c` comments (`_kv_to_annotation` defaults STATUS to `STUB`);
-  values live in `rebrew-functions.toml`, migrated by `lint --fix` /
-  W019.  Still read inline: `SIZE`/`CFLAGS` (reccmp contract; co-read),
-  `TOOLCHAIN` and non-naked `SOURCE` (until migrated; metadata wins on
-  merge), `// SOURCE: naked` (file-borne), and structural `STRUCT`/
-  `CALLERS`.  The `library_*.h` extended KV parser remains the exception.
 
 ## Consequences
 
@@ -104,15 +107,18 @@ Single-source rules enforced by code where cheap:
   parsers could disagree on edge-case files.
 - Deleted ~250 lines of dead/duplicate parsing; verify parses the
   function list once instead of twice.
-- BinSync-created stubs no longer emit W019-flagged inline metadata.
+- BinSync-created stubs no longer emit inline metadata. (The W019 lint
+  that flagged it was removed with the marker parser; inline state is now
+  rejected outright as E024, per [ADR-030](030-address-only-source.md).)
 
 **Negative**
 
 - Behavioral strictness: empty-module metadata writes now raise instead of
-  silently writing an unreadable key; inline `// STATUS:`/`// NOTE:` (and
-  other volatile keys) are no longer produced by import paths and are no
-  longer parsed from existing `.c` files; `lint --fix` / W019 migrate
-  them into `rebrew-functions.toml`.
+  silently writing an unreadable key. Import paths stopped producing inline
+  `// STATUS:`/`// NOTE:` (and the other volatile keys), and nothing parses
+  them back out of a `.c`. At acceptance, `lint --fix` / W019 migrated any
+  already present into `rebrew-functions.toml`; that migration is gone, and
+  a file still carrying them fails lint E024.
 - The docs and ADR must be kept current when the store map changes (the
   ADR convention already requires this); [METADATA.md](../METADATA.md) is
   the living store map.

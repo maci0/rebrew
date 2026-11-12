@@ -97,16 +97,13 @@ identity and state. A migrated `.c` file is pure C.**
 is deleted, so `data.json`, the reccmp CSV and `rebrew catalog --csv` /
 `--data-json` no longer exist; the registry feeds one writer,
 `rebrew coverage export --output <dir>` → `coverage-<target>.toml` (see
-[COVERAGE_DOCUMENT.md](../COVERAGE_DOCUMENT.md)). The marker half stands: reccmp-compatible
-inline markers remain the input contract, and community round-trips re-enter
-through the source tree or a re-annotated copy.)*
+[COVERAGE_DOCUMENT.md](../COVERAGE_DOCUMENT.md)).)*
 
-*(Amended again: the marker-half sentence above no longer holds. Inline
-`// FUNCTION:`, `// LIBRARY:`, `// STUB:`, `// GLOBAL:`, `// DATA:`,
-`// VTABLE:`, and `// STRING:` lines, and co-read `// SIZE:` / `// CFLAGS:`,
-are not the input contract. The parser still reads them, and `rebrew source
-migrate-markers` moves them. New writers record `file` plus a kind under
-`MODULE.0xVA` and emit pure C. A reccmp checkout of a migrated tree sees no
-annotations. `SIZE` and `CFLAGS` are metadata-owned. `// SOURCE: naked` stays
-file-borne. `rebrew source merge` and `rebrew source split` still rearrange
-files that already carry inline markers.)*
+*(Superseded by [ADR-030](030-address-only-source.md): the marker half does
+not stand either. There is no marker parser and no `rebrew source
+migrate-markers`. Readers reject inline state outright (lint E024) and
+reject an older store format; the only migration is `source consolidate`
+over reviewed format-2 inputs
+([ADR-033](033-consolidated-source-evidence.md)). A `.c` carries optional
+`/* ADDRESS: MODULE 0xVA */` anchors and nothing else. `SIZE`, `CFLAGS`,
+and `source = "naked"` are metadata fields, not file-borne comments.)*

@@ -11,7 +11,7 @@ tool" each turn.
 
 ## Problem It Solves
 
-Rebrew exposes 241 surfaces: 207 leaf commands and 34 groups, including the
+Rebrew exposes 242 surfaces: 208 leaf commands and 34 groups, including the
 root (see `docs/CLI.md` header, measured against the Typer tree)
 and dozens of options. An agent that has
 to discover the workflow on the fly:
