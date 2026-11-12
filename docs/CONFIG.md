@@ -487,8 +487,9 @@ by the CLI layer and win for that invocation.
 ### Runtime / secrets
 
 - `REBREW_LLM_ENDPOINT` / `REBREW_LLM_API_KEY` / `REBREW_LLM_MODEL`: LLM
-  seeding endpoint, key, and model pin (`rebrew match run --seed-llm`). Required
-  for LLM seeding when `[llm]` is unset. The key is sent only as a `Bearer`
+  seeding endpoint, key, and model identifier (`rebrew match run --seed-llm`).
+  An endpoint enables seeding when `[llm]` is unset. The key is optional, and an
+  unset model uses the default documented above. The key is sent only as a `Bearer`
   header to the configured endpoint, never logged, and is redacted from any
   error text a failed request logs. Prefer these env vars over
   `[llm] api_key` in TOML. Endpoint must be an `http(s)` URL with a host;
