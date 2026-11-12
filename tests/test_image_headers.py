@@ -1,8 +1,11 @@
 """Compiler image header extraction and target include review."""
 
+import base64
 import io
 import subprocess
+import sys
 import tarfile
+from typing import Any
 lazy from pathlib import Path
 
 import pytest
@@ -505,3 +508,37 @@ def test_image_runtime_failures_are_rejected(monkeypatch, failed):
     monkeypatch.setattr("rebrew.compiler.image_headers.run_process_group", run)
     with ImageHeaders() as images, pytest.raises(ValueError, match="cannot inspect|cannot extract"):
         images.get("msvc-6.0-sp5-pp")
+
+
+@pytest.mark.parametrize("failure", [None, "inspect", "extract"])
+def test_image_headers_use_real_process_runner(
+    monkeypatch: pytest.MonkeyPatch, failure: str | None
+) -> None:
+    from rebrew.utils import run_process_group
+
+    header_archive = archive({"api.h": b"int sdk;\n"})
+
+    def run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[bytes]:
+        stage = "inspect" if args[1:3] == ["image", "inspect"] else "extract"
+        data = IMAGE.encode() if stage == "inspect" else header_archive
+        return run_process_group(
+            [
+                sys.executable,
+                "-c",
+                "import base64, sys; sys.stdout.buffer.write(base64.b64decode(sys.argv[1])); "
+                "sys.exit(int(sys.argv[2]))",
+                base64.b64encode(data).decode("ascii"),
+                "1" if stage == failure else "0",
+            ],
+            **kwargs,
+        )
+
+    monkeypatch.setattr("rebrew.compiler.image_headers.run_process_group", run)
+    with ImageHeaders() as images:
+        if failure is None:
+            root = images.get("msvc-6.0-sp5-pp")
+            assert (root / "api.h").read_bytes() == b"int sdk;\n"
+        else:
+            message = "cannot inspect" if failure == "inspect" else "cannot extract"
+            with pytest.raises(ValueError, match=message):
+                images.get("msvc-6.0-sp5-pp")
