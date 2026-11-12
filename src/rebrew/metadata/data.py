@@ -1029,10 +1029,32 @@ def merge_into_data_binding(
     return ann
 
 
+#: Fields a stored data verdict was measured against.  ``size``, ``type`` and
+#: ``section`` bound the bytes; ``storage_kind``, ``backing`` and
+#: ``link_symbol`` decide where those bytes are placed (an alias follows its
+#: backing object, a span its section, a named symbol its link map entry).
+#: A label, note or edit stamp does not change either, so it stays out.
+_DEFINITION_HASH_FIELDS: tuple[str, ...] = (
+    "size",
+    "type",
+    "section",
+    "storage_kind",
+    "backing",
+    "link_symbol",
+)
+
+
 def data_definition_hash(
     module: str, va: int, fields: dict[str, Any], *, arch: str = "x86_32"
 ) -> str:
-    """Fingerprint the canonical definition without its label, note or edit stamps."""
+    """Fingerprint the canonical definition without its label, note or edit stamps.
+
+    Covers the extent fields and the placement fields.  A verdict whose
+    ``definition_hash`` still matches was measured against the same extent and
+    the same placement; a change to either moves the hash, so a reader that
+    compares the stored hash (the binsync staleness check) sees the verdict as
+    stale instead of trusting a placement the measurement never saw.
+    """
     import hashlib
     import json
 
@@ -1040,7 +1062,7 @@ def data_definition_hash(
         "module": module,
         "va": va,
         "arch": arch,
-        **{field: fields.get(field, "") for field in ("size", "type", "section")},
+        **{field: fields.get(field, "") for field in _DEFINITION_HASH_FIELDS},
     }
     return hashlib.sha256(json.dumps(definition, sort_keys=True).encode()).hexdigest()
 
