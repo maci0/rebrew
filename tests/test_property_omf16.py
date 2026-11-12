@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import struct
 
+import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -179,3 +180,30 @@ class TestParseOmf16Decode:
         mod = parse_omf16(rec + _record(0x90, b"\x05_main" + struct.pack("<H", off)))
         assert mod.code[off:] == code
         assert mod.publics == {"_main": off}
+
+
+class TestOmf16BranchRelocations:
+    @pytest.mark.parametrize("opcode", [0xE8, 0xE9])
+    @pytest.mark.parametrize("instruction", [0xB8, 0x68])
+    def test_immediate_bytes_are_not_branch_relocations(
+        self, opcode: int, instruction: int
+    ) -> None:
+        from pathlib import Path
+
+        code = bytes([instruction, opcode, 0x00, 0x90, 0x90, 0xC3])
+        data = _record(0x96, _name_list([b"_main"]))
+        data += _record(0xC2, b"\xaa" * _NEAR_C2_HEADER + code)
+        actual, relocs = parse_obj_omf16(Path("immediate.obj"), "main", data=data)
+        assert actual == code
+        assert relocs == {}
+
+    @pytest.mark.parametrize("opcode", [0xE8, 0xE9])
+    def test_near_branches_keep_their_displacement_relocations(self, opcode: int) -> None:
+        from pathlib import Path
+
+        code = bytes([opcode, 0x00, 0x00, 0xC3])
+        data = _record(0x96, _name_list([b"_main"]))
+        data += _record(0xC2, b"\xaa" * _NEAR_C2_HEADER + code)
+        actual, relocs = parse_obj_omf16(Path("branch.obj"), "main", data=data)
+        assert actual == code
+        assert relocs == {1: "rel16"}

@@ -188,23 +188,17 @@ _CS_MOFFS = {0xA0, 0xA1, 0xA2, 0xA3}  # mov al/ax, moffs / mov moffs, al/ax
 def _code_relocs(code: bytes, start: int, end: int) -> dict[int, str]:
     """Reloc slots within ``code[start:end]``, offsets relative to *start*.
 
-    16-bit MSVC codegen never emits literal ``e8``/``e9`` opcodes (calls and
-    jumps are always linker-patched rel16 slots), so every ``e8``/``e9``
-    marks a 2-byte relocation at ``opcode+1``.  Global-variable access adds
+    Near calls and jumps (``e8``/``e9``) carry 2-byte rel16 operands.
+    Global-variable access adds
     absolute ``disp16`` slots: the ``a0-a3`` moffs forms (``mov ax,[g]``)
     and any modrm with ``mod=00 rm=110`` (``add ax,[g]``, ``push [g]``...).
     Far-code models add ``lcall``/``ljmp`` (``9a``/``ea``) — a 4-byte
     ptr16:16 patch slot.  Capstone (already a matcher dependency) locates
-    these operands exactly; the pure e8/e9 scan is the fallback when
-    capstone is unavailable."""
+    these operands exactly, so opcode-like bytes inside immediates and
+    displacements do not become relocation slots."""
     import capstone
 
     relocs: dict[int, str] = {}
-    # e8/e9 rel16 slots — always apply (byte scan, cheap)
-    for i in range(start, end):
-        if code[i] in (0xE8, 0xE9) and i + 2 < end:
-            relocs[i + 1 - start] = "rel16"
-    # disp16 absolute-operand slots via capstone (locates them exactly)
     md = getattr(_disassemblers, "md", None)
     if md is None:
         try:
@@ -215,6 +209,8 @@ def _code_relocs(code: bytes, start: int, end: int) -> dict[int, str]:
         _disassemblers.md = md
     for insn in md.disasm(code[start:end], 0):
         raw = bytes(insn.bytes)
+        if insn.opcode[0] in (0xE8, 0xE9) and insn.imm_size == 2:
+            relocs[insn.address + insn.imm_offset] = "rel16"
         for op in insn.operands:
             if op.type == capstone.x86.X86_OP_MEM and op.mem.base == 0 and op.mem.index == 0:
                 i = 0
