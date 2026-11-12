@@ -135,7 +135,9 @@ def read_segment_fixups(data: bytes, segment: NeSegment, raw: bytes) -> dict[int
         source, flags, location, target1, target2 = struct.unpack_from("<BBHHH", data, record)
         fixup = NeFixup(source & 0x0F, flags, target1, target2, bool(flags & ADDITIVE_FLAG))
         if fixup.additive:
-            if location + 2 <= len(raw):
+            # Byte addends need no two-byte chain link.
+            addend_size = 1 if fixup.source == SOURCE_LOW_BYTE else 2
+            if location + addend_size <= len(raw):
                 fixups[location] = fixup
             continue
         for _ in range(len(raw)):
@@ -216,7 +218,7 @@ class _Builder:
         if kind == TARGET_OS_FIXUP:
             self._skip("OS fixups left as in the file", location, width, clear=False)
             return
-        addend = _u16(self.raw, location)
+        addend = self.raw[location] if fixup.source == SOURCE_LOW_BYTE else _u16(self.raw, location)
         far_transfer = location > 0 and self.raw[location - 1] in (FAR_CALL_OPCODE, FAR_JUMP_OPCODE)
         if kind == TARGET_INTERNAL:
             target = self._internal(fixup, addend)

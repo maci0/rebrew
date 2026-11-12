@@ -120,6 +120,22 @@ def test_fixups_that_cannot_be_applied_are_cleared_and_counted() -> None:
     assert "1 OS fixups left as in the file" in summary
 
 
+class TestAdditiveByteFixup:
+    @pytest.mark.parametrize("trailing", [b"", b"\xa5"])
+    @pytest.mark.parametrize(
+        ("addend", "target", "expected"), [(0x12, 0x34, 0x46), (0xF0, 0x30, 0x20)]
+    )
+    def test_one_byte_addend_fits_at_segment_end(
+        self, trailing: bytes, addend: int, target: int, expected: int
+    ) -> None:
+        code = b"\x90" + bytes([addend]) + trailing
+        data = _ne(code, _records((0, 4, 1, 1, target)))
+        sl = build_ne_slice(data, 1)
+        assert sl.image == b"\x90" + bytes([expected]) + trailing
+        assert sl.applied == 1
+        assert sl.unapplied == {}
+
+
 def test_a_truncated_relocation_block_is_a_parse_error() -> None:
     data = _ne(CODE, struct.pack("<H", 500))
     with pytest.raises(NeParseError, match="truncated fixup block"):
