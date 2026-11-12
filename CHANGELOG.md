@@ -29,12 +29,17 @@
 - Source discovery resolves each target's source root and shared root once
   per unchanged ``rebrew-project.toml``, instead of calling ``Path.resolve``
   on those roots for every source file. Comment dialects are unchanged.
+- Capstone disassembler handles are cached and reused across per-function
+  disassembly and scan passes.
+- Project configuration parse caches are bounded.
 
 ### Fixed
 
 - `init --refresh-agents` no longer appends part of its own template on each
   run when the template mentions the project rules marker in prose.
 - The JPype build preflight accepts JDK 17, which the Ubuntu CI runner uses.
+- Truncated pages on todo and placement lists report explicit truncation
+  indicators when stdout is a terminal.
 
 ## [6.33.0] - 2026-11-12
 
