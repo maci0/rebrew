@@ -487,7 +487,7 @@ def main(
     objects: bool = typer.Option(
         False,
         "--objects",
-        help="Also ask Make whether native objects and header dependencies are current",
+        help="Query host Make for object/header freshness; use only trusted build files",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:

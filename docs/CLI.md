@@ -4457,20 +4457,22 @@ per-file flags there as `# Custom flags: <obj>_FLAGS = ...` and
 does not was added by hand. Objects with no `Custom` comment have no per-file
 flags (they compile with the global `C_FLAGS`) and are not drift.
 
-`--objects` additionally asks Make whether the objects themselves are current,
-header dependencies included; `make -q` answers without running a recipe, but it
-still *reads* `build.make`, and `$(shell …)` / `$(info …)` expand during that read.
-Make runs on the host here, not in a container, so the makefile CMake generated
-for this project reaches the host shell (see [`THREAT_MODEL.md`](THREAT_MODEL.md)
-risk item 2).
+`--objects` queries the host's `make -q` for object freshness, including header
+dependencies. Query mode is not a sandbox; use only build files you trust.
+The preflight refuses detected make-function expansion, computed includes,
+include graphs beyond its inspection limit, and known recursive-recipe forms
+(`+` modifiers on tab-prefixed recipes or literal `$(MAKE)` / `${MAKE}` references).
+Refusals exit 2. Recursive-recipe diagnostics name the file and line;
+include-limit diagnostics name the file and cap. See the
+[threat model](THREAT_MODEL.md).
 
-Exits 1 on drift, 2 when `build/` is missing or incomplete, and prints the
-restore command.
+Exits 1 on drift, 2 when `build/` is missing or incomplete or the query is
+refused, and prints the restore command.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `--build-dir` | path | `build` | CMake build directory to inspect |
-| `--objects` | flag | `False` | Also ask Make whether native objects and header dependencies are current |
+| `--objects` | flag | `False` | Query host make for object/header freshness; trusted build files only |
 | `--json` | flag | `False` | Output results as JSON |
 
 ### `rebrew build order-sources`
