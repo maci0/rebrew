@@ -4240,6 +4240,9 @@ fixes): import table, data sections, and PE metadata convergence, in
 place by default (`--output` to write elsewhere, `--dry-run` to preview
 the fixer reports without writing).  For byte-identical
 rebuild verification where the linker layout differs from the original.
+The CLI preserves the built `.reloc` raw offset; a full reference header copy
+requires matching section names, RVAs, and raw offsets. Remaining layout
+differences can prevent whole-file byte identity. See [Postlink](POSTLINK.md).
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |

@@ -82,7 +82,9 @@ addresses while the reference's point at *its* layout.  The fixer:
    content end (import thunks pulled by `/include`, `link_stubs` placeholders,
    dead-stripped-in-the-original init code) and fixes `.text` VirtualSize;
 4. grows `.data` to the reference's raw size and copies it, and replaces
-   `.reloc` at the reference's file offset.
+   `.reloc` at the built file's existing raw offset. The CLI preserves that
+   offset and does not trim the file to the reference's section end, so a
+   remaining raw-layout difference can prevent whole-file byte identity.
 
 The `.data` fixer copies reference bytes; it does not prove that source
 reconstructed them. It has the same limitation as an `_emit` dump. For strict
@@ -93,10 +95,12 @@ decompilation, gate it behind an explicit verification-build flag.
 The MSVC6 link step stamps the DOS stub (Rich header, `e_lfanew`),
 `TimeDateStamp`, an empty CheckSum, a too-small `.data` VirtualSize (BSS
 placeholders are emitted as `char[1]`), a `.reloc` VA that predates the BSS
-growth, and `SizeOfImage`.  Once the section layout has converged (same
-names + RVAs), every one of those fields is derivable from the reference, so
-the fixer copies the reference's full header block (COFF `Characteristics`,
-optional header, and section table) verbatim.  The CheckSum is **copied**,
+growth, and `SizeOfImage`. Once the section layout has converged (same
+names, RVAs, and raw file offsets), the fixer copies the reference's full
+header block (COFF `Characteristics`, optional header, and section table)
+verbatim. Otherwise it copies only the timestamp and checksum in that step,
+preserving the built section pointers. The DOS-stub and export-stamp steps
+still run. The CheckSum is **copied**,
 never recomputed: it covers the whole image, and a built `.text` that still
 differs would never produce the reference's value.
 
