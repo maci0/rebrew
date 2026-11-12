@@ -50,7 +50,7 @@ def _run_main(tmp_path: Path, monkeypatch, *, argv: list[str]) -> str:
     )
     result = runner.invoke(main_mod.app, ["intake", *argv])
     assert result.exit_code == 0, result.output
-    return result.output
+    return result.stdout
 
 
 class TestIntake:
@@ -872,3 +872,65 @@ class TestExistingProjectTargetSelection:
             assert "SERVER" in error["message"]
             assert "rebrew cfg target add" in error["hint"]
             assert snapshot() == before
+
+
+class TestConfiguredIntakeLayout:
+    @pytest.mark.parametrize("field,value", [("reversed_dir", "code/server"), ("module", "ALT")])
+    def test_rediscovery_uses_the_configured_source_root_and_module(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, field: str, value: str
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.app.main import app
+        from rebrew.config import load_config, target_module
+        from rebrew.metadata.functions import get_entry
+
+        fixture = Path(__file__).parent / "fixtures" / "mini_pe.exe"
+        original = tmp_path / "original"
+        original.mkdir()
+        (original / "server.dll").write_bytes(fixture.read_bytes())
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("rebrew.intake._enumerate_functions", lambda _: FAKE_FUNCS)
+        monkeypatch.setattr(
+            "rebrew.intake._suggest_profile", lambda _: ("msvc-6.0", "msvc", "MSVC 6.0", [])
+        )
+        runner = CliRunner()
+        initial = runner.invoke(
+            app,
+            [
+                "init",
+                "--target",
+                "server",
+                "--binary",
+                "server.dll",
+                "--toolchain",
+                "msvc-6.0",
+                "--json",
+            ],
+        )
+        assert initial.exit_code == 0, initial.output
+        edited = runner.invoke(app, ["cfg", "set", f"targets.server.{field}", value, "--json"])
+        assert edited.exit_code == 0, edited.output
+        config_bytes = (tmp_path / "rebrew-project.toml").read_bytes()
+        result = runner.invoke(app, ["intake", "original/server.dll", "--json"])
+        assert result.exit_code == 0, result.output
+        cfg = load_config(tmp_path)
+        source = cfg.reversed_dir / "fcn_00401000.c"
+        assert source.is_file()
+        entry = get_entry(cfg.metadata_dir, 0x401000, target_module(cfg))
+        assert entry["file"] == source.relative_to(cfg.metadata_dir).as_posix()
+        assert f"/* ADDRESS: {target_module(cfg)} 0x00401000 */" in source.read_text()
+        assert (tmp_path / "rebrew-project.toml").read_bytes() == config_bytes
+        if field == "reversed_dir":
+            assert not (tmp_path / "src" / "server" / "fcn_00401000.c").exists()
+
+        monkeypatch.setattr(
+            "rebrew.intake._enumerate_functions",
+            lambda _: [FAKE_FUNCS[1], (0x401040, 16, "fcn.00401040")],
+        )
+        repeated = runner.invoke(app, ["intake", "original/server.dll", "--json"])
+        assert repeated.exit_code == 0, repeated.output
+        assert not source.exists()
+        assert get_entry(cfg.metadata_dir, 0x401000, target_module(cfg)) == {}
+        assert (cfg.reversed_dir / "fcn_00401040.c").is_file()
+        assert (tmp_path / "rebrew-project.toml").read_bytes() == config_bytes

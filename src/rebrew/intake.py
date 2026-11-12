@@ -42,8 +42,8 @@ from rebrew.utils import (
     load_tomllib,
     read_json_text,
 )
-lazy from rebrew.cli import EXIT_OK, console, error_exit, json_print
-lazy from rebrew.config import ConfigError, validate_target_name
+lazy from rebrew.cli import EXIT_OK, console, error_exit, json_print, require_config
+lazy from rebrew.config import ConfigError, target_module, validate_target_name
 lazy from rebrew.metadata.bindings import derive_c_symbol, iter_source_bindings
 lazy from rebrew.metadata.storage import metadata_store
 lazy from rebrew.sources import iter_sources
@@ -613,7 +613,6 @@ def main(
                 hint="Add a target with 'rebrew cfg target add <name> --binary <path>'.",
                 json_mode=json_output,
             )
-    target_module_name = re.sub(r"[^A-Za-z0-9_]", "", target_name).upper()
 
     if toolchain is None:
         profile, family, hint, notes = _suggest_profile(bin_path)
@@ -746,7 +745,10 @@ def main(
         )
         error_exit(msg, json_mode=json_output)
 
-    src_dir = project / "src" / target_name
+    cfg = require_config(target=target_name, json_mode=json_output)
+    src_dir = cfg.reversed_dir
+    target_module_name = target_module(cfg)
+    metadata_dir = cfg.metadata_dir
     src_dir.mkdir(parents=True, exist_ok=True)
     # Read the previous inventory before the write: prune_stale_stubs uses it
     # to tell a real removal apart from a discovery that came back degraded.
@@ -761,12 +763,19 @@ def main(
     )
 
     # 5. document unmatched functions
-    documented = classify_all(project, src_dir, target_module_name, funcs, family, hint)
+    documented = classify_all(
+        project, src_dir, target_module_name, funcs, family, hint, metadata_dir=metadata_dir
+    )
     # 6. prune auto-stubs orphaned by a changed function list (re-discovery
     #    only — a fresh onboarding has nothing stale).
     if project_existed:
         pruned = prune_stale_stubs(
-            project, src_dir, target_module_name, funcs, prior_inventory=prior_inventory
+            project,
+            src_dir,
+            target_module_name,
+            funcs,
+            metadata_dir=metadata_dir,
+            prior_inventory=prior_inventory,
         )
         if pruned:
             notes.append(f"pruned {pruned} stale auto-stub(s) from the previous discovery")
