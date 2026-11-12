@@ -73,12 +73,13 @@ function at once (objdiff rebuilds base objects via `rebrew build objdiff-driver
 - `XX` invalid relocation difference (wrong target VA, counts as MISMATCH)
 
 Relocations are resolved from the COFF object's symbols against the data catalog.
-If the diff shows only `~~` lines, the function is already RELOC: `rebrew test` will promote it.
+If the diff shows only `~~` lines, use `rebrew test` to check the complete body
+and record RELOC when the comparison passes.
 RELOC to EXACT needs no source change when the linker resolves those slots to the
 reference values: link, and once the raw link places the function with identical
 bytes, `rebrew verify --text --raw-link` records linked EXACT.
 
-Exit codes: `0` = no structural differences (EXACT/RELOC), `1` = structural `**` lines
+Exit codes: `0` = no structural differences, `1` = structural `**` lines
 found (fix them), `2` = build error. With `--json`, read `summary.exact / summary.reloc /
 summary.reg / summary.structural` instead of parsing lines.
 
@@ -151,11 +152,11 @@ With `--json`, the output includes a `structural_similarity` object:
 - `structural_ratio`: fraction of instructions with real structural diffs
 - `flag_sensitive`: `true` when flag sweeping may help
 
-Use this to quickly rule out flag-based solutions before spending time on sweeps:
-`flag_sensitive: false` means flag sweeping won't help: go straight to the GA or
-`rebrew prove`. A high `mnemonic_match_ratio` with low `structural_ratio` means the
-code is semantically close and C-level tweaks (or `rebrew diagnose near`) may finish
-the job.
+Use these ratios to prioritize investigation before spending time on sweeps.
+`flag_sensitive` is a recommendation from the observed diff; it does not test flag
+combinations. When false, inspect `rebrew diagnose near` before choosing a sweep,
+C-level edits, or proof. High mnemonic agreement with few structural differences
+describes instruction shape; semantic equivalence still requires a scoped proof.
 
 When kinds match but residue remains (statement order / qualifiers), prefer these
 over another GA pass:
