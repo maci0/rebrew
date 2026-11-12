@@ -8,9 +8,16 @@
   `pyproject.toml`; the tree has no finding. `biome.json` enables the
   `recommended` preset for the dashboard scripts, which already pass it, and
   keeps the stricter correctness rules that were already explicit.
+- **Breaking:** `rebrew.cmake_tc.read_compile_source` is no longer importable.
+  The CMake response-file rewrite reads the file itself and no longer imports
+  the helper, so the name left that module. Import `rebrew.utils.read_compile_source`.
 
 ### Performance
 
+- **Breaking:** preprocessing no longer copies the translation unit per byte.
+  `source_preprocessed.mask_for_parse` is no longer importable; blank the
+  buffer in place with `source_preprocessed.mask_buffer_inplace` or
+  `source_layout.mask_buffer_inplace`. `source_layout.mask_for_parse` is unchanged.
 - Source discovery resolves each target's source root and shared root once
   per unchanged ``rebrew-project.toml``, instead of calling ``Path.resolve``
   on those roots for every source file. Comment dialects are unchanged.
