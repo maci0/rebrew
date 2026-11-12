@@ -22,7 +22,7 @@ are rejected. Extern declarations never establish storage ownership.
 | `size` | Size in bytes |
 | `section` | PE section (`.data`, `.rdata`, `.bss`) |
 | `note` | Local analysis description; native BinSync globals do not carry notes |
-| `status` | Data verdict written by `rebrew verify --data`: `VERIFIED` (built bytes match), `DRIFT` (differ), `UNCHECKED` (not compared); counted in `rebrew status` and `rebrew todo --category data-drift` |
+| `status` | Data verdict written by `rebrew verify --data`: `EXACT` (bytes and placement agree), `VERIFIED` (bytes agree, placement unproven), `DISPLACED` (linked provider is away from its reference VA), `DRIFT` (bytes differ or are missing), `UNCHECKED` (not compared); counted in `rebrew status` and `rebrew todo --category data-drift` |
 
 `rebrew data set` accepts multiple fields atomically. Preview with `--dry-run --json`; apply the same
 request with `--expected-digest HASH` from `input_digest`. Definition, identity and placement edits

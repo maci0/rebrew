@@ -102,8 +102,9 @@ notes and classification changes preserve it. `rebrew data move` changes a row's
 address and drops its verdict while retaining the previous comparison evidence.
 Update or remove a conflicting ADDRESS anchor before moving the row.
 
-Data verification has its own verdicts (VERIFIED, DRIFT, UNCHECKED), independent of
-function matches. Count overlapping initialized spans once and exclude BSS from
+Data verification has its own verdicts (EXACT, VERIFIED, DISPLACED, DRIFT,
+UNCHECKED), independent of function matches. EXACT includes checked placement;
+VERIFIED records byte agreement without placement proof. Count overlapping initialized spans once and exclude BSS from
 file-byte verification. Coverage documents and dashboards never establish owners.
 
 ## Evidence and edit stamps

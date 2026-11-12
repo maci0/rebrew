@@ -113,7 +113,7 @@ rebrew data layout fix-ownership --dry-run # re-partition defs; fixes layout-aud
 rebrew data layout fill # emit _dpad_<addr>[N] for uncovered .data runs (preview with --dry-run first)
 rebrew data layout own --dry-run # materialize link_stubs.c globals into owner TUs
 rebrew data layout converge --dry-run # adjust _dlead_<tu> pads vs build/<target>; does not rebuild
-rebrew verify --data --built build/<target>     # byte-compare built .data/.rdata per symbol (VERIFIED/DRIFT/UNCHECKED)
+rebrew verify --data --built build/<target>     # compare built data bytes and placement per symbol
 rebrew todo --category data-drift --json                # data symbols whose built bytes differ from the reference
 ```
 
@@ -156,7 +156,7 @@ When a function references a global address from disassembly:
 `data header` combines canonical `rebrew-data.toml` rows with parsed C declarations
 and optional address anchors. It uses stored `name`/`type`/`size`/`section`/`note`;
 a source declaration's type wins over metadata `type`.
-`rebrew lint` flags `DATA`/`GLOBAL` rows missing `SECTION` metadata (W016), forbidden inline metadata (E024), and the `rebrew-data.toml` shapes the writers reject (W031: an unknown field, a STATUS outside `VERIFIED`/`DRIFT`/`UNCHECKED`, half an `updated_by`/`updated_at` pair). W037 reports a row whose `size` or `type` extent disagrees with the definition of its `name` in its owning `file` (or, for a `span` row, the extern view there), with the `rebrew data set --size`/`--type` fix; a tiled allocation (short leading definition plus interior names and pads defined in the same file, each an `alias` row with `backing` = the allocation) counts as the contiguous run of those definitions, and a hole in it is named; W038 reports two named rows of one module whose extents overlap (an `alias` with a `backing` is exempt). Run it after recording a row and after any hand-check of the store. Live dashboards report unreadable target inputs directly; portable snapshot validation belongs to the explicit offline reader.
+`rebrew lint` flags `DATA`/`GLOBAL` rows missing `SECTION` metadata (W016), forbidden inline metadata (E024), and the `rebrew-data.toml` shapes the writers reject (W031: an unknown field, an invalid data STATUS, half an `updated_by`/`updated_at` pair). W037 reports a row whose `size` or `type` extent disagrees with the definition of its `name` in its owning `file` (or, for a `span` row, the extern view there), with the `rebrew data set --size`/`--type` fix; a tiled allocation (short leading definition plus interior names and pads defined in the same file, each an `alias` row with `backing` = the allocation) counts as the contiguous run of those definitions, and a hole in it is named; W038 reports two named rows of one module whose extents overlap (an `alias` with a `backing` is exempt). Run it after recording a row and after any hand-check of the store. Live dashboards report unreadable target inputs directly; portable snapshot validation belongs to the explicit offline reader.
 Set a missing section with `rebrew data set --section 0xVA=.bss` (`.data`, `.rdata`, or `.bss`). Do not hand-edit the TOML.
 
 ## Debugging Relocation Mismatches
