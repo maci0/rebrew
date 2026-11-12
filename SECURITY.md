@@ -187,33 +187,46 @@ plugin cache backends or remove the open upstream diskcache advisory.
   directory, so a regular file already inside the tree can still be read
   and rewritten into that staging directory.
 - No claim that a cloned project's metadata can make rebrew read or
-  write outside the project, and no claim that a command other than the
-  validator enforces it. The `file` identity field is a path, and one
-  validator owns it on the compile/verify/rename/cross-import path:
-  `contained_path` (`src/rebrew/sources.py`) resolves the
-  value under `source_roots` (`reversed_dir`, then `shared_dir`, with the
-  project `root` as the outer bound, since a shared-tree source is recorded
-  `../`-prefixed relative to `reversed_dir`) and refuses an empty, absolute,
-  or escaping value. `rebrew verify` (`verify.py` `verify_entry`, where a
-  refused entry is recorded `MISSING_FILE`), that module's cache-validity
-  read and deferred STATUS pass, the batch compile (`compiler/compile.py`
-  `precompile_batch`), the blocker clear in `rebrew test`, the
-  `rebrew build objdiff-driver` command (`objdiff_project.py`), `rebrew match partitions`,
-  and every read and write in `rebrew source import-related` (`cross_import.py`
-  `import_function`, `import_shared_function`, `promote_to_shared`) all
-  resolve through it; `rebrew source rename` (`rename.py`, `rename_ops.py`) and
-  the verify cache's patch refresh (`verify_cache.py`) keep their own
-  resolve-and-compare. BinSync overlay also uses
-  `contained_path` for source reads and signature/comment targets; prototype
-  imports update the actual C signature through the AST and the importer's
-  source-tree check. A corrupt BinSync state file is never silently treated
-  as missing or empty: `load_artifact` / `load_many` in `binsync/serial.py`
-  raise `ValueError` on unreadable/unparseable input (a missing file still
-  returns `None` / `[]`), so export/import/pull fail closed instead of
-  proceeding with empty state. What this does **not** claim: the shared validator's outer
-  bound is the project `root`, so project-internal paths such as `.git/hooks/`,
-  `rebrew-project.toml`, or `.rebrew/` can pass that validator. It says nothing
-  about a project running host commands, which
+  write outside the project, and no claim that one validator covers every
+  join of the `file` field. Two checks exist, and neither runs everywhere.
+  `validate_identity_file` (`src/rebrew/metadata/source_schema.py`) is the
+  write gate: it rejects a value that starts with `/`, carries a drive
+  letter, or contains a `..` part. It runs when a row is written, not when
+  a hand-edited store is read. `contained_path` (`src/rebrew/sources.py`)
+  resolves a value under `source_roots` (`reversed_dir`, then `shared_dir`,
+  with the project `root` as the outer bound, since a shared-tree source is
+  recorded `../`-prefixed relative to `reversed_dir`) and refuses an empty
+  value, one `Path.is_absolute()` accepts, or one that resolves outside
+  every root. `rebrew verify` (`verify.py` `verify_entry`, where a refused
+  entry is recorded `MISSING_FILE`), that module's cache-validity read and
+  deferred STATUS pass, the batch compile (`compiler/compile.py`
+  `precompile_batch`), the `rebrew build objdiff-driver` command
+  (`objdiff_project.py`), `rebrew match partitions`, every read and write in
+  `rebrew source import-related` (`cross_import.py` `import_function`,
+  `import_shared_function`, `promote_to_shared`), and `rename.py`
+  `_row_source` all resolve through it. `rebrew test` does not join `file`.
+  The compiled-source fast path does not either: `function_providers.py`
+  `_bind_compiled_row` builds the path with `join_under` (`src/rebrew/utils.py`)
+  and returns it as the display path when the base is inside the project and
+  the parent is not a symlink, without the `is_relative_to(root)` check the
+  slow path `bind_compiled_source` still makes. `join_under` returns an `X:`
+  drive spelling unchanged on every host, and `contained_path`'s absolute
+  test does not see that spelling on POSIX. `rename_ops.py` `_Project` joins
+  `reversed_dir / filepath` and resolves it with no containment check, and
+  the verify cache's patch refresh (`verify_cache.py`
+  `patch_verify_cache_entries`) skips its hash only when
+  `is_relative_to(reversed_dir)` fails, the same host-absolute test.
+  BinSync overlay uses `contained_path` for source reads and
+  signature/comment targets; prototype imports update the actual C signature
+  through the AST and the importer's source-tree check. A corrupt BinSync
+  state file is never silently treated as missing or empty: `load_artifact`
+  / `load_many` in `binsync/serial.py` raise `ValueError` on
+  unreadable/unparseable input (a missing file still returns `None` / `[]`),
+  so export/import/pull fail closed instead of proceeding with empty state.
+  What this does **not** claim: the shared validator's outer bound is the
+  project `root`, so project-internal paths such as `.git/hooks/`,
+  `rebrew-project.toml`, or `.rebrew/` can pass that validator. It says
+  nothing about a project running host commands, which
   [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) §5 covers separately.
 - No claim that `REBREW_CONTAINER_RUNTIME` is restricted to a container
   runtime rebrew trusts. `container_runtime` (`src/rebrew/utils.py`) rejects
