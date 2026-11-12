@@ -26,7 +26,16 @@ commands twice, comparing exit codes and parsed JSON without `timestamp` keys,
 and each configured mutating command twice against its own scratch project,
 requiring the first run to actually change it; derived `.rebrew` read caches
 are outside the content digest), both
-version-independent. The same job also installs the W3C validator through
+version-independent.
+
+Local idempotency sweeps rebuild and delete their scratch fixtures. The tool
+marks owned directories with `.rebrew-idempotency-fixture` and refuses existing
+unmarked directories, including fixtures from older versions. The write-sweep
+base and its fixture children must all be owned. Use a fresh, nonexistent
+`--fixture-dir` path when upgrading from unmarked fixtures; do not add ownership
+markers to an existing project.
+
+The same job also installs the W3C validator through
 `tools/ci_install_vnu.sh`, because `tests/html_validate.py` skips when
 `vnu` is off PATH and the two HTML surfaces (the dashboard shell and
 every generated report page) would otherwise never be parsed by a
