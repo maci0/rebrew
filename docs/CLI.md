@@ -2867,8 +2867,9 @@ cross-references.
 
 `rebrew binary xrefs [OPTIONS] VA [BINARY]`
 
-Cross-reference explorer: every code location that references the given
-address (calls, jmps, data references).
+Cross-reference explorer for encoded calls, jumps, and data references to
+the given address. The scan covers `.text` for non-NE images and code segments
+for NE images; it does not enumerate every runtime reference.
 
 Image-valued x86 comparison immediates appear as `cmp`, separately from
 `cmp_mem` memory accesses. Like `mov` immediates, these are possible address
