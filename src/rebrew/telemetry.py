@@ -297,6 +297,20 @@ def _current_exporter() -> _Exporter | None:
         return _exporter
 
 
+def export_stats() -> dict[str, int]:
+    """Spans the exporter has lost, or zeroes when export is not configured.
+
+    ``dropped`` is the queue-full count and ``failed`` the count lost to a
+    failed export POST.  A request path reports success and latency on its own;
+    neither number says whether the traces that should explain it ever left
+    the process, so the servers' health and metrics surfaces carry these.
+    """
+    exporter = _current_exporter()
+    if exporter is None:
+        return {"dropped": 0, "failed": 0}
+    return {"dropped": exporter.dropped_spans, "failed": exporter.export_failed_spans}
+
+
 def configure(endpoint: str, service: str, version: str) -> Callable[[], None]:
     """Start exporting to the OTLP/HTTP collector at ``endpoint``; returns the shutdown.
 

@@ -2505,6 +2505,13 @@ class Dashboard:
                 payload["coverage_source"] = str(self.source)
             if self.served is not None:
                 payload.update(self.served())
+            # Whether the traces that explain these requests are actually
+            # leaving the process: request totals say nothing about a
+            # collector that stopped accepting them.
+            payload.update(
+                trace_spans_dropped=telemetry.export_stats()["dropped"],
+                trace_spans_failed=telemetry.export_stats()["failed"],
+            )
             return self._json(200, payload)
         if parsed.path == "/api/targets":
             targets = self.targets()

@@ -58,6 +58,7 @@ lazy import sys
 lazy import tempfile
 lazy import threading
 lazy import time
+lazy import traceback
 lazy import typing
 lazy import unicodedata
 lazy from collections.abc import Callable, Iterable, Iterator, Mapping
@@ -3586,6 +3587,11 @@ class OpsServer(ThreadingHTTPServer):
         self._latency_ms_buckets = [0] * len(_LATENCY_BUCKETS_MS)
         self._started_at = time.monotonic()
         self._busy_refusals = 0
+        # Faults that escaped a handler thread.  ``record_request`` never sees
+        # them (``send_response`` did not run), so without this counter a
+        # handler that crashes on every call leaves /health and /metrics at
+        # zero errors while the process dumps tracebacks.
+        self._unhandled_errors = 0
         self.concurrency = concurrency
         # Per-op breakdown, bounded by the op set: one entry per known op
         # plus "/unknown" for paths outside it.  Without it a metric anomaly
@@ -3620,6 +3626,53 @@ class OpsServer(ThreadingHTTPServer):
                 self._client_error_count += 1
                 self._error_count += 1
 
+    def record_unhandled(self) -> None:
+        """Count a handler fault that escaped before a response was written."""
+        with self._metrics_lock:
+            self._unhandled_errors += 1
+
+    @override
+    def handle_error(self, request: Any, client_address: Any) -> None:
+        """Log a handler fault with its request id instead of a bare traceback.
+
+        ``socketserver.BaseServer.handle_error`` prints a rule-bracketed
+        traceback straight to stderr: no stamp, no level, no correlation id,
+        and no counter, so an operator cannot join it to the request that
+        raised it and ``/health`` keeps reporting zero errors.  Mirrors the
+        dashboard: a peer that went away is INFO with no count, a handler
+        timeout is a WARNING with no count, and anything else is an ERROR
+        with its traceback that counts as an unhandled fault.
+        """
+        exc = sys.exc_info()[1]
+        request_id = _request_id()
+        peer = _escape_log_text(str(client_address))
+        if isinstance(exc, ConnectionError):
+            logger.info(
+                "%s client disconnected trace_id=%s: %s",
+                request_id,
+                _trace_id(),
+                type(exc).__name__,
+            )
+            return
+        if isinstance(exc, TimeoutError):
+            logger.warning(
+                "%s handler timed out serving %s trace_id=%s: %s",
+                request_id,
+                peer,
+                _trace_id(),
+                type(exc).__name__,
+            )
+            return
+        self.record_unhandled()
+        logger.error(
+            "%s unhandled %s serving %s trace_id=%s\n%s",
+            request_id,
+            type(exc).__name__,
+            peer,
+            _trace_id(),
+            _escape_log_text(traceback.format_exc().rstrip()),
+        )
+
     def metrics_snapshot(
         self,
     ) -> tuple[dict[str, float | int], list[int], dict[str, dict[str, float]]]:
@@ -3637,6 +3690,7 @@ class OpsServer(ThreadingHTTPServer):
                     else 0.0,
                     "in_flight": self.active,
                     "busy_refusals": self._busy_refusals,
+                    "unhandled_errors": self._unhandled_errors,
                     "uptime_seconds": time.monotonic() - self._started_at,
                 },
                 list(self._latency_ms_buckets),
@@ -3937,6 +3991,9 @@ class _OpsHandler(BaseHTTPRequestHandler):
                     "uptime_seconds": round(snapshot["uptime_seconds"], 3),
                     "concurrency": server.concurrency,
                     "busy_refusals": snapshot.get("busy_refusals", 0),
+                    "unhandled_errors": snapshot.get("unhandled_errors", 0),
+                    "trace_spans_dropped": telemetry.export_stats()["dropped"],
+                    "trace_spans_failed": telemetry.export_stats()["failed"],
                 }
                 body = json.dumps(payload).encode("utf-8")
                 self._send(200, body)
@@ -3972,6 +4029,15 @@ class _OpsHandler(BaseHTTPRequestHandler):
                 "# HELP rebrew_ops_busy_refusals_total Calls refused with 503 because no worker slot was free.",
                 "# TYPE rebrew_ops_busy_refusals_total counter",
                 f"rebrew_ops_busy_refusals_total {snapshot.get('busy_refusals', 0)}",
+                "# HELP rebrew_ops_unhandled_errors_total Handler faults that escaped before a response was written.",
+                "# TYPE rebrew_ops_unhandled_errors_total counter",
+                f"rebrew_ops_unhandled_errors_total {snapshot.get('unhandled_errors', 0)}",
+                "# HELP rebrew_ops_trace_spans_dropped_total Finished spans dropped because the export queue was full.",
+                "# TYPE rebrew_ops_trace_spans_dropped_total counter",
+                f"rebrew_ops_trace_spans_dropped_total {telemetry.export_stats()['dropped']}",
+                "# HELP rebrew_ops_trace_spans_failed_total Finished spans lost to a failed export POST.",
+                "# TYPE rebrew_ops_trace_spans_failed_total counter",
+                f"rebrew_ops_trace_spans_failed_total {telemetry.export_stats()['failed']}",
                 "# HELP rebrew_ops_latency Latency of answered ops requests, in milliseconds.",
                 "# TYPE rebrew_ops_latency histogram",
                 # The last bound is infinity, written +Inf as the exposition format spells it: one +Inf bucket.

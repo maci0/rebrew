@@ -930,6 +930,20 @@ components:
             Connections currently holding a handler thread, the count the
             in-flight cap refuses on. A gauge, not a running total: it rises
             and falls with the clients connected right now.
+        trace_spans_dropped:
+          type: integer
+          minimum: 0
+          description: >-
+            Finished spans dropped because the trace export queue was full.
+            Zero when no collector is configured. The request totals above say
+            a request succeeded; this says whether the trace that explains it
+            ever left the process.
+        trace_spans_failed:
+          type: integer
+          minimum: 0
+          description: >-
+            Finished spans lost to a failed export POST to the collector.
+            Zero when no collector is configured.
 
     Summary:
       type: object

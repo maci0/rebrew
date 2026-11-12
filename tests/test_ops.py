@@ -2250,3 +2250,51 @@ def test_dispatch_5xx_is_logged_and_4xx_is_not(caplog: Any) -> None:
         status4, _ = dispatch(cfg, "rebrew.nope", b"{}")
     assert status4 == 404
     assert caplog.records == []
+
+def test_handler_fault_is_logged_with_its_request_id_and_counted(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A fault that escapes a handler thread must not vanish into stderr.
+
+    ``socketserver`` reports it through ``handle_error`` with no handler in
+    hand, so the record has to carry the stamped request id, and the fault has
+    to reach the counter ``/health`` and ``/metrics`` read.  A peer that simply
+    went away is not a fault and must not move that counter.
+    """
+    from rebrew.ops import OpsServer, _stamp_request
+
+    server = OpsServer.__new__(OpsServer)
+    server._metrics_lock = threading.Lock()
+    server._unhandled_errors = 0
+
+    def raise_fault() -> None:
+        _stamp_request("r7")
+        try:
+            raise RuntimeError("handler exploded")
+        except RuntimeError:
+            server.handle_error(None, ("127.0.0.1", 9))
+
+    with caplog.at_level(logging.INFO, logger="rebrew.ops"):
+        raise_fault()
+    assert server._unhandled_errors == 1
+    assert logging.ERROR in (entry.levelno for entry in caplog.records)
+    blob = "\n".join(caplog.text.splitlines())
+    assert "r7" in blob
+    assert "RuntimeError" in blob
+    assert "handler exploded" in blob
+
+    caplog.clear()
+    _stamp_request("r8")
+    try:
+        raise ConnectionResetError("peer reset")
+    except ConnectionResetError:
+        with caplog.at_level(logging.DEBUG, logger="rebrew.ops"):
+            server.handle_error(None, ("127.0.0.1", 9))
+    assert server._unhandled_errors == 1
+    assert [entry.levelno for entry in caplog.records] == [logging.INFO]
+
+
+def test_export_stats_are_zero_without_an_exporter() -> None:
+    from rebrew import telemetry
+
+    assert telemetry.export_stats() == {"dropped": 0, "failed": 0}
