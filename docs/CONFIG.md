@@ -429,7 +429,7 @@ keys warn.
 [llm]
 endpoint = ""                             # e.g. "http://localhost:11434/v1"; "" disables seeding
 api_key = ""                              # bearer key; prefer REBREW_LLM_API_KEY, do not commit
-model = "gpt-4o-mini-2024-07-18"          # pinned id; floating aliases raise
+model = "gpt-4o-mini-2024-07-18"          # dated id; exact latest/auto/default aliases raise
 max_requests = 32                         # process-wide call ceiling (0 disables LLM calls)
 max_tokens = 500000                       # process-wide token accounting limit (0 lifts it)
 timeout = 90                              # per-request HTTP budget, seconds (5..1800)
@@ -439,7 +439,7 @@ timeout = 90                              # per-request HTTP budget, seconds (5.
 |-----|------|---------|-------------|
 | `endpoint` | `string` | `""` | Base URL of the chat-completions endpoint; must be `http(s)` with a host. With an API key set, a plain `http://` endpoint is refused unless the host is loopback; `REBREW_LLM_ALLOW_PROJECT_ENDPOINT=1` does not lift that, it only decides whether a project-file endpoint may receive the env key. `REBREW_LLM_ENDPOINT` loses to this field |
 | `api_key` | `string` | `""` | Bearer token. `REBREW_LLM_API_KEY` wins whenever it is present, empty included (which clears a committed key for the run). `rebrew cfg set` refuses a non-empty value here: argv is world-readable |
-| `model` | `string` | `"gpt-4o-mini-2024-07-18"` | Pinned model id. `latest` / `auto` / `default` and malformed ids raise, so a seed run is reproducible; `REBREW_LLM_MODEL` loses to this field |
+| `model` | `string` | `"gpt-4o-mini-2024-07-18"` | Requested model id. Validates spelling and rejects the exact aliases `latest` / `auto` / `default`; other identifiers need no date. Sampling remains enabled and the provider request carries no generation seed. `REBREW_LLM_MODEL` loses to this field |
 | `max_requests` | `integer` | `32` | Process-wide ceiling on LLM calls (`REBREW_LLM_MAX_REQUESTS`); `0` disables LLM calls, values above 10000 clamp with a warning |
 | `max_tokens` | `integer` | `500000` | Process-wide token accounting limit (`REBREW_LLM_MAX_TOKENS`); requests reserve an estimated prompt cost plus the completion cap before sending. Reported usage can exceed that estimate. `0` lifts the limit, values above 100000000 clamp |
 | `timeout` | `integer` | `90` | Per-request HTTP budget in seconds (`REBREW_LLM_TIMEOUT`), 5 through 1800. Failed attempts without reported usage consume an estimated token charge |
