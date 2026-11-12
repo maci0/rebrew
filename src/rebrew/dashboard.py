@@ -3742,13 +3742,21 @@ class _DashboardServer(ThreadingHTTPServer):
             _send_over_capacity(request, request_id, active, self._max_active_connections)
             self.shutdown_request(request)
             return
+        # ``ThreadingMixIn.process_request`` returns as soon as the handler
+        # thread is running.  Releasing the slot here would admit past the
+        # cap while that thread still holds the descriptor, and releasing
+        # only on ``BaseException`` never runs: a started thread does not
+        # raise, so every admitted connection permanently consumes one slot
+        # until the cap refuses everything.  The handler thread gives the
+        # slot back; this path gives it back only when that thread never
+        # starts.
+        handed_off = False
         try:
             super().process_request(request, client_address)
-        except BaseException:
-            # The socket is closed by ``_handle_request_noblock``'s own handler
-            # around this call; only the slot is this method's to give back.
-            _release_connection_slot()
-            raise
+            handed_off = True
+        finally:
+            if not handed_off:
+                _release_connection_slot()
 
     @override
     def process_request_thread(
