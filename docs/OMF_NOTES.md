@@ -11,14 +11,26 @@ objconv 2.52 crashes with "buffer overflow detected: terminated" on MSVC
 1.52 objects and on the `/O` dialect below. Rebrew prefers the vendored
 binary over a PATH objconv.
 
-## Record framing
+## Current parser contract
+
+Record lengths use the full unsigned 16-bit little-endian word, including the
+checksum byte. The high bit is part of the length, not a checksum flag. A
+truncated high-bit record cannot be mistaken for a shorter complete record.
+This does not promise rejection of every malformed tail after code was parsed.
+
+The 16-bit parser locates near-call/jump `rel16` operands from decoded `E8`/`E9`
+instructions with two-byte immediates. Those byte values inside another
+instruction's immediate are not branch relocations; decoder initialization
+failure does not enable a raw-byte scan. Absolute `disp16` and far `ptr16:16`
+operands also use decoded instruction positions. The dated updates below retain
+historical observations and labels; their raw `e8`/`e9` scan descriptions are
+superseded by this contract.
 
 Record = `[type:1][length:2 LE][data]`. Advance = `3 + length`.
 
-The length includes the checksum byte. `omf16._record_len` masks bit 15
-and requires the body to fit; it does not interpret or validate a checksum
-flag. A zero checksum byte can mean the checksum is unused. The claimed
-bit-15/no-checksum convention has not been verified against these fixtures.
+The length includes the checksum byte and uses all 16 bits.
+`omf16._record_len` requires the declared body to fit. A zero checksum byte
+can mean the checksum is unused; bit 15 is not a checksum flag.
 
 Record names below come from the vendored objconv dump (`-dfhsrn`).
 The minimal parser uses selected byte layouts and heuristics rather than
