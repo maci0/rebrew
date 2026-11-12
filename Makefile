@@ -1218,11 +1218,14 @@ smoke-wheel: require-dist ensure-uv
 # second party, which loses the build-and-compare verification the
 # rebrew-jobs owner (an authenticated loopback service) is deployed with.
 #
-# Go 1.27.3 has no CGO hardening analogue for binaries: the pure-Go binary
-# is external-link free (CGO_ENABLED=0), so PIE / full RELRO / stack
-# protector flags that apply to the C helper in src/rebrew/compiler/unshare.py
-# do not apply here; the binary is not shipped in the wheel, and the job
-# discards the Windows cross-compile after the CGO_ENABLED=0 check.
+# Go 1.27.3 builds a position-independent executable with the internal
+# linker under CGO_ENABLED=0 (-buildmode=pie): the binary stays statically
+# linked, with no cgo runtime and no external linker, and the same flag is
+# accepted for the Windows cross-compile.  Full RELRO needs a dynamic
+# interpreter the internal linker does not emit, and the C stack protector
+# belongs to the C helper in src/rebrew/compiler/unshare.py, so neither is
+# set here.  The binary is not shipped in the wheel, and the job discards
+# the Windows cross-compile after the CGO_ENABLED=0 check.
 jobs-check: ensure-go
 	@set -eu; \
 	cd services/jobs; \
@@ -1230,9 +1233,9 @@ jobs-check: ensure-go
 	trap 'rm -rf "$$JOBS_TMP"' EXIT; \
 	GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off test -z "$$(gofmt -l .)"; \
 	GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off CGO_ENABLED=0 go vet ./...; \
-	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -o "$$JOBS_TMP/rebrew-jobs" ./cmd/rebrew-jobs; \
+	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off CGO_ENABLED=0 go build -trimpath -buildvcs=false -buildmode=pie -ldflags="-s -w -buildid=" -o "$$JOBS_TMP/rebrew-jobs" ./cmd/rebrew-jobs; \
 	GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off GOOS=windows CGO_ENABLED=0 go vet ./...; \
-	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off GOOS=windows CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -o "$$JOBS_TMP/rebrew-jobs.exe" ./cmd/rebrew-jobs; \
+	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off GOOS=windows CGO_ENABLED=0 go build -trimpath -buildvcs=false -buildmode=pie -ldflags="-s -w -buildid=" -o "$$JOBS_TMP/rebrew-jobs.exe" ./cmd/rebrew-jobs; \
 	GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off CGO_ENABLED=1 go test -count=1 -race ./...
 
 # Durable, verifiable build of the rebrew-jobs binary.  Lives outside
@@ -1244,7 +1247,7 @@ jobs-check: ensure-go
 jobs-build: ensure-go
 	@set -eu; \
 	cd services/jobs; \
-	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -o ../rebrew-jobs ./cmd/rebrew-jobs; \
+	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) GOTOOLCHAIN=local GOFLAGS=-mod=readonly GOSUMDB=off GOPROXY=off CGO_ENABLED=0 go build -trimpath -buildvcs=false -buildmode=pie -ldflags="-s -w -buildid=" -o ../rebrew-jobs ./cmd/rebrew-jobs; \
 	chmod 0755 ../rebrew-jobs
 
 # Run all non-mutating verification gates (mirrors CI lint + test +

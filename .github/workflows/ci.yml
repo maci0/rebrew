@@ -130,17 +130,19 @@ jobs:
           # Reproducibility: pin the one timestamp the Go linker honors to
           # the commit epoch, so a binary built here is byte-identical to a
           # local `make jobs-build` (the Makefile jobs-check does the same).
+          # -buildmode=pie keeps the CGO_ENABLED=0 binary position-independent
+          # and statically linked through the internal linker.
           SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct)"
           export SOURCE_DATE_EPOCH
           test -z "$(gofmt -l .)"
           go vet ./...
-          go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" ./...
+          go build -trimpath -buildvcs=false -buildmode=pie -ldflags="-s -w -buildid=" ./...
           # The service claims Windows support (platform_windows.go, the
           # os.Interrupt shutdown in cmd/rebrew-jobs).  Cross-compile + vet
           # for windows so a Unix-only symbol (e.g. syscall.SIGTERM) fails
           # here instead of on a Windows host; -race tests stay on Linux.
           GOOS=windows go vet ./...
-          GOOS=windows go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" \
+          GOOS=windows go build -trimpath -buildvcs=false -buildmode=pie -ldflags="-s -w -buildid=" \
             -o "$RUNNER_TEMP/rebrew-jobs.exe" ./cmd/rebrew-jobs
           CGO_ENABLED=1 go test -count=1 -race ./...
 
