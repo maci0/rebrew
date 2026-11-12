@@ -5,6 +5,7 @@ source files in nested subdirectory layouts (e.g. src/server.dll/game/init.c
 vs src/server.dll/network/init.c).
 """
 
+import os
 from pathlib import Path
 
 import pytest
@@ -132,14 +133,10 @@ class TestRelDisplayPath:
         # A bare leading separator must not discard the project root.  On
         # Windows os.path.join did exactly that; the host separator still
         # replaces the root, because there it is a real absolute path.
-        saved = utils.os.sep
-        utils.os.sep = "\\"
-        try:
-            joined = utils.join_under(r"C:\proj", "/src/game/pool.c")
-            assert joined.replace("\\", "/").startswith("C:/proj/") and joined.endswith("pool.c")
-            assert utils.join_under(r"C:\proj", r"D:\elsewhere\pool.c") == r"D:\elsewhere\pool.c"
-        finally:
-            utils.os.sep = saved
+        monkeypatch.setattr(os, "sep", "\\")
+        joined = utils.join_under(r"C:\proj", "/src/game/pool.c")
+        assert joined.replace("\\", "/").startswith("C:/proj/") and joined.endswith("pool.c")
+        assert utils.join_under(r"C:\proj", r"D:\elsewhere\pool.c") == r"D:\elsewhere\pool.c"
 
 
 # ---------------------------------------------------------------------------

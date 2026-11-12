@@ -27,8 +27,10 @@ __all__ = [
     "backup_metadata_toml",
     "extra_durable_sources",
     "metadata_paths",
+    "preserve_displaced",
     "restore_metadata_database",
     "restore_metadata_toml",
+    "rotate_preserved_copy",
     "toml_store_trees",
     "verify_backup_manifest",
 ]

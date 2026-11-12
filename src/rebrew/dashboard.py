@@ -133,6 +133,8 @@ def _next_request_id() -> str:
     with _REQUEST_IDS:
         _REQUEST_ID_VALUE += 1
         return f"r{_REQUEST_ID_VALUE}"
+
+
 #: The request in flight on this thread.  ``socketserver`` hands a fault to
 #: ``handle_error`` on the handler's own thread but not the handler instance,
 #: so this is what lets that fault name the request it belongs to.

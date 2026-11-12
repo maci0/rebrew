@@ -2251,6 +2251,7 @@ def test_dispatch_5xx_is_logged_and_4xx_is_not(caplog: Any) -> None:
     assert status4 == 404
     assert caplog.records == []
 
+
 def test_handler_fault_is_logged_with_its_request_id_and_counted(
     caplog: pytest.LogCaptureFixture,
 ) -> None:

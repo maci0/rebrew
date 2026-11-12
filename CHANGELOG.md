@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.34.0] - 2026-11-13
+
 ### Changed
 
 - **The lint ratchets take their next zero-finding step.** Ruff `RUF071`
@@ -11,6 +13,12 @@
 - **Breaking:** `rebrew.cmake_tc.read_compile_source` is no longer importable.
   The CMake response-file rewrite reads the file itself and no longer imports
   the helper, so the name left that module. Import `rebrew.utils.read_compile_source`.
+- **Breaking:** `rebrew.schema_cmd.main` no longer accepts the unused
+  `json_output` argument. Call it with the optional command path only.
+- Dashboard responses and coverage-report sidecars compress with the stdlib
+  `compression.zstd` module, so the `zstandard` package is no longer a
+  dependency. The entry zstd checkpoint is 12780 bytes, inside the 13600-byte
+  budget.
 
 ### Performance
 
@@ -22,12 +30,10 @@
   per unchanged ``rebrew-project.toml``, instead of calling ``Path.resolve``
   on those roots for every source file. Comment dialects are unchanged.
 
-### Changed
+### Fixed
 
-- Dashboard responses and coverage-report sidecars compress with the stdlib
-  `compression.zstd` module, so the `zstandard` package is no longer a
-  dependency. The entry zstd checkpoint is 12780 bytes, inside the 13600-byte
-  budget.
+- `init --refresh-agents` no longer appends part of its own template on each
+  run when the template mentions the project rules marker in prose.
 
 ## [6.33.0] - 2026-11-12
 

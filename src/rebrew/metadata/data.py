@@ -111,9 +111,9 @@ def data_file_index(
         if stored:
             index.setdefault(stored, []).append((module, va, entry))
     with _DATA_FILE_INDEX_LOCK:
-        stored = _DATA_FILE_INDEX.get(key)
-        if stored is not None and _DATA_FILE_INDEX_OWNER.get(key) is cached:
-            return stored
+        existing_index = _DATA_FILE_INDEX.get(key)
+        if existing_index is not None and _DATA_FILE_INDEX_OWNER.get(key) is cached:
+            return existing_index
         _DATA_FILE_INDEX[key] = index
         _DATA_FILE_INDEX_OWNER[key] = cached
         while len(_DATA_FILE_INDEX) > _DATA_FILE_INDEX_MAX:

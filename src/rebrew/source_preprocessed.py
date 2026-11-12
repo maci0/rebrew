@@ -57,7 +57,7 @@ def _protect_literals(raw: bytearray) -> list[tuple[int, int, bytes]]:
             if end < 0:
                 break
             end += 2
-        elif byte == quote_d or byte == quote_s:
+        elif byte in (quote_d, quote_s):
             quote = byte
             i += 1
             while i < n:
@@ -68,7 +68,7 @@ def _protect_literals(raw: bytearray) -> list[tuple[int, int, bytes]]:
                     i += 1
                     break
                 i += 1
-            end = i if i < n else n
+            end = min(n, i)
         else:
             i += 1
             continue

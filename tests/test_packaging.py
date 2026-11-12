@@ -693,7 +693,9 @@ class TestPackagingMetadata:
             for name, version in re.findall(
                 r"([A-Za-z][\w-]*) (\d+\.\d+\.\d+(?:\+[A-Za-z0-9.]+)?)", notice
             )
-            if name in locked and locked[name] != version and not locked[name].startswith(version + "+")
+            if name in locked
+            and locked[name] != version
+            and not locked[name].startswith(version + "+")
         ]
         assert stale == [], f"NOTICE names versions the lock no longer pins: {stale}"
 

@@ -100,6 +100,7 @@ PACKAGE_EXTERNALS: dict[str, frozenset[str]] = {
             "formats.binary_loader",
             "formats.xtensa",
             "formats.omf16",
+            "metadata.sqlite",
             "registry",
             "utils",
         }

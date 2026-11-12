@@ -131,6 +131,7 @@ class TestPgsqlConfig:
         ok_checks = ["CHECK ((revision > 0))", "CHECK ((schema_version = 1))"]
         connection = make_connection(ok_pk, ok_checks)
         assert store._present(connection) is True
+
         # A validated schema is remembered on the connection; asking again
         # must not re-run the catalog queries.
         def _not_called(sql: str, params: Any = None) -> Any:

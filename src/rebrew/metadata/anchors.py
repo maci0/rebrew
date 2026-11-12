@@ -302,7 +302,7 @@ def metadata_comments(
                 found.append((line_number, key))
         return found
     tree, src = parse_c_source(source)
-    found: list[tuple[int, str]] = []
+    found = []
     for node in comment_nodes(tree):
         parent = node.parent
         # A tuple constant, not a set literal: this predicate runs once per

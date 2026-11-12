@@ -346,8 +346,9 @@ class TestPortableHistoryMigration:
         before = {str(p): p.read_bytes() for p in project_files(tmp_path)}
         runner = CliRunner()
         args = ["--root", str(tmp_path), "--snapshots", str(portable), "--json"]
-        rejected = runner.invoke(app, [*args, "--dry-run"])
-        assert rejected.exit_code != 0
+        all_targets = runner.invoke(app, [*args, "--dry-run"])
+        assert all_targets.exit_code == 0, all_targets.output
+        assert [row["target"] for row in cli_payload(all_targets)["results"]] == ["good"]
         preview = runner.invoke(app, [*args, "--target", "good", "--dry-run"])
         assert preview.exit_code == 0, preview.output
         assert cli_payload(preview)["results"][0]["functions_changed"] == 1

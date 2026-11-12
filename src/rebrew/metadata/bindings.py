@@ -648,9 +648,9 @@ def _metadata_file_index(
         if stored:
             index.setdefault(stored, []).append((module, va, entry))
     with _METADATA_FILE_INDEX_LOCK:
-        stored = _METADATA_FILE_INDEX.get(key)
-        if stored is not None and _METADATA_FILE_INDEX_OWNER.get(key) is entries_by_key:
-            return stored
+        existing_index = _METADATA_FILE_INDEX.get(key)
+        if existing_index is not None and _METADATA_FILE_INDEX_OWNER.get(key) is entries_by_key:
+            return existing_index
         _METADATA_FILE_INDEX[key] = index
         _METADATA_FILE_INDEX_OWNER[key] = entries_by_key
         while len(_METADATA_FILE_INDEX) > _METADATA_FILE_INDEX_MAX:

@@ -302,19 +302,7 @@ class TestIndexEdgeCases:
     def test_asm_proc_lines_count_past_earlier_procedures(self, tmp_path: Path) -> None:
         _write(
             tmp_path / "mem.asm",
-            "\n".join(
-                [
-                    "; header",
-                    "_memcpy PROC",
-                    "ret",
-                    "_memcpy ENDP",
-                    "",
-                    "_memset PROC",
-                    "ret",
-                    "_memset ENDP",
-                    "",
-                ]
-            ),
+            "; header\n_memcpy PROC\nret\n_memcpy ENDP\n\n_memset PROC\nret\n_memset ENDP\n",
         )
 
         entries = {

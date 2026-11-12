@@ -85,8 +85,11 @@ def _agents_project_tail(path: Path) -> str:
     if not path.is_file():
         return ""
     text = path.read_text(encoding="utf-8-sig")
-    at = text.find(AGENTS_PROJECT_MARKER)
-    return text[at:] if at >= 0 else ""
+    lines = text.splitlines(keepends=True)
+    for i, line in enumerate(lines):
+        if line.rstrip("\r\n") == AGENTS_PROJECT_MARKER:
+            return "".join(lines[i:])
+    return ""
 
 
 _AGENT_SKILLS_SRC = Path(__file__).parent / "agent-skills"
