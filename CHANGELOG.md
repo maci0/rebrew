@@ -53,6 +53,9 @@
 ### Fixed
 
 - PE image and layout parsers share each image's import-slot budget across DLL descriptors, including slots with invalid names. Repeated descriptors can no longer multiply the 65,536-slot limit into billions of import reads or retained records.
+### Fixed
+
+- Repair the FLIRTDB quick start: scan its nested signature checkout directly instead of copying from a nonexistent `vc6/` directory or relying on recursive shell globs.
 
 ## [6.32.1] - 2026-11-11
 

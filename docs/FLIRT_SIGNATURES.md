@@ -37,18 +37,20 @@ and libraries:
 | **push0ebp/sig-database** | [github.com/push0ebp/sig-database](https://github.com/push0ebp/sig-database) | Broad MSVC coverage (VC12+) |
 | **Mandiant/siglib** | [github.com/mandiant/siglib](https://github.com/mandiant/siglib) | FLARE team sigs, strong on malware-adjacent CRTs |
 
-**Quick start: clone and copy:**
+**Quick start: scan a signature checkout:**
+
+Run inside your Rebrew project. FLIRTDB groups signatures by library and OS,
+such as `cmt/windows`; it has no top-level `vc6/` directory.
 
 ```bash
-# Example: grab Maktm's FLIRTDB
-git clone https://github.com/Maktm/FLIRTDB.git /tmp/FLIRTDB
-
-# Copy the VC6 CRT signatures into your project's flirt_sigs/ directory
-cp /tmp/FLIRTDB/vc6/*.sig flirt_sigs/
-
-# Or copy everything
-cp /tmp/FLIRTDB/**/*.sig flirt_sigs/
+mkdir -p .scratch
+git clone https://github.com/Maktm/FLIRTDB.git .scratch/FLIRTDB
+rebrew library scan-signatures .scratch/FLIRTDB --json
 ```
+
+The scanner reads `.sig` and `.pat` files recursively, so no flattening or shell
+recursive-glob option is needed. To keep a selected set in the project, copy
+those files into `flirt_sigs/` and scan that directory instead.
 
 ### IDA Pro (if available)
 
