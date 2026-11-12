@@ -842,7 +842,7 @@ BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
     CliComponent(
         name="prove",
         module="rebrew.prove",
-        help="Prove semantic equivalence of NEAR_MATCHING/SIZE_MISMATCH functions via symbolic execution.",
+        help="Prove semantic equivalence of eligible functions via symbolic execution.",
         panel=Panel.MATCHING,
     ),
     CliComponent(

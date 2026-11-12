@@ -55,6 +55,8 @@
 
 ### Changed
 
+- **Breaking:** `rebrew.app.builtins.BUILTIN_COMPONENTS` and its re-export `rebrew.app.main.BUILTIN_COMPONENTS` change the `prove` summary to "Prove semantic equivalence of eligible functions via symbolic execution.", matching the command help, instead of naming NEAR_MATCHING/SIZE_MISMATCH functions.
+
 - **Breaking:** `rebrew.binsync.overlay.main` changes its default `fields` value from `name,prototype,note` to `name,prototype,note,stack_vars,comments,types`. Default transfers are unchanged; an explicit selector now restricts stack variables, comments and types as well as the original categories. `global` remains opt-in.
 
 - **Breaking:** `rebrew.layout_meta.LayoutMetadata.calls` entries now hold `(rel32, prefix2, suffix2, opcode)`, and `calls.txt` adds the opcode column. `load_package` accepts older rows with an unknown opcode, but postlink excludes those call sites from alignment coverage and rewriting, and reports skipped targets. Regenerate the package with `rebrew build layout`; `write_package` refuses unknown-opcode entries. Call and jump opcodes must match before a target is rewritten.

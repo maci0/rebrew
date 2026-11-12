@@ -987,7 +987,9 @@ components:
             matched_bytes:
               type: integer
               minimum: 0
-              description: EXACT/RELOC spans plus identified LIBRARY rows regardless of status; excludes alignment padding.
+              description: >-
+                EXACT/RELOC spans plus identified LIBRARY rows regardless of status;
+                excludes alignment padding.
             total_bytes:
               type: integer
               minimum: 0
@@ -1006,7 +1008,9 @@ components:
           additionalProperties: true
         coverage_pct:
           type: number
-          description: Matched spans including identified library rows over total bytes, floored and capped at 100. 0.0 when total is 0.
+          description: >-
+            Matched spans including identified library rows over total bytes,
+            floored and capped at 100. 0.0 when total is 0.
         identified_pct:
           type: number
           description: Identified bytes, stubs included, over total bytes, floored. 0.0 when total is 0.
