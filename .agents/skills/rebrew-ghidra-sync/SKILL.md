@@ -126,7 +126,7 @@ ownership reconciliation and reverify functions after header changes.
 ## 3. Where Results Land
 
 - `functions/*.toml`, `global_vars.toml`, `structs/*.toml`: the BinSync state dir (`--state-dir`)
-- `rebrew-functions.toml`: per-function STATUS/NOTE/GHIDRA metadata (`cfg.metadata_dir`; STATUS is verify-earned, 0444-locked)
+- `rebrew-functions.toml`: per-function STATUS/NOTE/GHIDRA metadata (`cfg.metadata_dir`; STATUS is verify-earned; TOML files use mode 0444)
 - `rebrew-data.toml`: DATA/GLOBAL name/type/size and field origins (`cfg.metadata_dir`)
 - `rebrew_globals.h`: pulled data header (`cfg.reversed_dir`, from `sync pull-data`)
 - `.c` files: renames (pull) and C signatures
@@ -166,9 +166,9 @@ chained after `sync pull`), status bookmarks (`sync bookmarks`), data labels
 
 - **STATUS is never synced**: `rebrew test` and `rebrew verify` earn it;
   a pull does not. The next test or verify replaces PROVEN with the byte result.
-- **Metadata write-lock**: rebrew's metadata stores are 0444; direct edits fail
-  with Permission denied, the CLI chmods/updates/re-locks. State TOMLs are
-  0644 because BinSync writes them too.
+- **Metadata writes**: use the locked storage APIs. TOML files and SQLite
+  databases use mode 0444 at rest; PostgreSQL uses database permissions and
+  advisory locks. State TOMLs are 0644 because BinSync writes them too.
 - **Own branch only**: push checks out `binsync/<user>` and refuses a dirty
   tree on another user's branch; other users' branches are only read.
 - **External origins and verification evidence remain separate**: imported fields

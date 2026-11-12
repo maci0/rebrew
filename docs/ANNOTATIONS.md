@@ -64,7 +64,8 @@ purposes (`source.files.FILE.MODULE`). These records never invent a native VA. F
 `cfg.metadata_dir`; pass that directory to readers and writers.
 
 Never hand-edit these stores. Writers use their owning metadata APIs, locks,
-atomic replacement and mode 0444. STATUS is earned only by comparison through
+and backend persistence. TOML files and SQLite databases use mode 0444 at rest;
+PostgreSQL uses database permissions. STATUS is earned only by comparison through
 `rebrew test` / `rebrew verify`; an address or registration is no match evidence.
 `PROVEN` is not a byte match. Library origin and actual linked provider remain
 separate; a signature candidate is not a verified provider.

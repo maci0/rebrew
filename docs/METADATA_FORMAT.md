@@ -8,7 +8,9 @@ Ordinary readers reject old inline blocks and older metadata formats. The explic
 preview with `--dry-run --json`, then apply with its `--expected-digest`.
 
 Never hand-edit these files. Use the CLI or the owning metadata APIs, which
-validate writes, acquire the document lock, replace atomically, and write 0444.
+validate writes, lock the edit, and persist through the selected backend. TOML
+files and SQLite databases use mode 0444 at rest; PostgreSQL uses database
+permissions.
 Examples below illustrate managed output.
 
 ## Functions

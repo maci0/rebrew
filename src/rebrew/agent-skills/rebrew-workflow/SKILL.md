@@ -153,8 +153,8 @@ Rebrew filters source bindings by the active `--target`. Several targets may sha
 > TOOLCHAIN, BLOCKER/BLOCKER_DELTA, NOTE, GHIDRA, ANALYSIS, SOURCE, SKIP, GLOBALS,
 > LOCALS, COMMENTS, PROVE_CONSTRAINTS, ORIGINS, VERIFICATION, SIMILARITY, STATUS_HISTORY, BINDING_HISTORY, NATIVE_IDENTITY, UPDATED_BY/UPDATED_AT (SECTION lives in
 > `rebrew-data.toml`). STATUS via `rebrew test`/`verify` only; use `rebrew blocker
-> set/clear`, the locked owner APIs for metadata changes. Files are mode 0444
-> (`atomic_write_locked`). SIZE and CFLAGS are metadata-owned;
+> set/clear`, the locked owner APIs for metadata changes. TOML files and SQLite databases use
+> mode 0444 at rest; PostgreSQL uses database permissions. SIZE and CFLAGS are metadata-owned;
 > Reconstruction source, STRUCT/CALLERS and support purposes are metadata-only.
 > `rebrew source register` records address-bound identities. Format and migration details: `references/annotation-format.md`.
 
