@@ -139,6 +139,46 @@ class TestLoadPe:
 
 
 class TestLoadElf:
+    @pytest.mark.parametrize("executable", [False, True])
+    def test_program_header_fallback_never_aliases_a_larger_data_section(
+        self, tmp_path: Path, executable: bool
+    ) -> None:
+        import struct
+
+        from bin_util import make_elf
+
+        code = b"\xc3" * 4
+        data = bytearray(make_elf(code).replace(b"\0.text\0", b"\0.data\0"))
+        sections = struct.unpack_from("<I", data, 32)[0]
+        struct.pack_into("<I", data, sections + 40 + 8, 2)  # .data: SHF_ALLOC only
+        # Map only the four-byte body, leaving the larger string table outside it.
+        struct.pack_into(
+            "<IIIIIIII",
+            data,
+            52,
+            1,
+            0x1000,
+            0x8049000,
+            0x8049000,
+            4,
+            4,
+            5 if executable else 4,
+            0x1000,
+        )
+        path = tmp_path / "headers.elf"
+        path.write_bytes(data)
+        info = bl.load_binary(path)
+
+        assert info.sections[".shstrtab"].raw_size > len(code)
+        if executable:
+            assert info.text_va == 0x8049000
+            assert info.text_size == len(code)
+            assert info.text_raw_offset == 0x1000
+            assert bl.extract_bytes_at_va(info, info.text_va, info.text_size) == code
+        else:
+            assert ".text" not in info.sections
+            assert info.text_size == 0
+
     def test_sections_and_image_base(self) -> None:
         elf = SimpleNamespace(
             header=_mock_elf_header(),

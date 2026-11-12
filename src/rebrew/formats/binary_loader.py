@@ -236,9 +236,8 @@ def _load_pe(binary: lief.PE.Binary, path: Path) -> BinaryInfo:
 def _sections_from_exec_segments(load_segments: Any) -> list[SectionInfo]:
     """Code regions synthesised from executable ``PT_LOAD`` segments.
 
-    Only used when the ELF has no *section* headers at all — every sstrip'd
-    OpenWrt package and most stripped firmware — where the program headers are
-    the only description of the mapping left.
+    Used when ELF section headers describe no executable regions, including
+    sectionless firmware, and program headers still describe the mapping.
     """
     found: list[SectionInfo] = []
     for index, segment in enumerate(load_segments):
@@ -341,12 +340,13 @@ def _load_elf(binary: lief.ELF.Binary, path: Path) -> BinaryInfo:
         # information a loader uses to map the image.  Without this the FLIRT
         # scanner exits with "Could not find .text section" on the binaries
         # this library was built to identify.
-        for synth in _sections_from_exec_segments(load_segments):
+        segment_sections = _sections_from_exec_segments(load_segments)
+        for synth in segment_sections:
             sections[synth.name] = synth
-        if sections and ".text" not in sections:
+        if segment_sections and ".text" not in sections:
             # Same alias the section path uses, for consumers that ask for
             # `.text` by name.
-            best = max(sections.values(), key=lambda info: info.raw_size)
+            best = max(segment_sections, key=lambda info: info.raw_size)
             sections[".text"] = _text_alias(best)
             text_va, text_size, text_raw_offset = best.va, best.size, best.file_offset
 
