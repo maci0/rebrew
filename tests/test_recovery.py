@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from types import SimpleNamespace
+lazy from collections.abc import Iterator
 lazy from pathlib import Path
+lazy from typing import Any
 
 import pytest
 from typer.testing import CliRunner
@@ -151,6 +154,7 @@ class TestSqliteBackup:
             ),
             encoding="utf-8",
         )
+        config.chmod(0o600)
         binary = tmp_path / "game.exe"
         binary.write_bytes(b"MZ-reference")
         state = tmp_path / "sync" / "binsync"
@@ -173,6 +177,10 @@ class TestSqliteBackup:
             assert path.read_bytes() == payload
             assert path.stat().st_mode & 0o777 == 0o644
         assert (restored / "rebrew-project.toml").read_bytes() == config.read_bytes()
+        assert (restored / "rebrew-project.toml").stat().st_mode & 0o777 == 0o600
+        assert (backup.parent / "rebrew-project.toml").stat().st_mode & 0o777 == 0o600
+        restored_store = metadata_store(restored / "rebrew-functions.toml")
+        assert restored_store.read("test")["GAME.0x1000"]["size"] == 4
         assert "rebrew-project.toml" in verify_backup_manifest(backup.parent)
 
     def test_corrupt_bundle_config_is_rejected_before_restore(self, tmp_path: Path) -> None:
@@ -189,6 +197,93 @@ class TestSqliteBackup:
             restore_metadata_database(backup, restored)
         assert not (restored / DATABASE_FILENAME).exists()
         assert not (restored / "rebrew-project.toml").exists()
+
+    @pytest.mark.parametrize("failure", ["copy", "publish", "sync"])
+    def test_database_publication_failure_keeps_project_files_consistent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+    ) -> None:
+        from rebrew import utils
+        from rebrew.metadata import sqlite as sqlite_store
+
+        source = tmp_path / "source"
+        target = tmp_path / "target"
+        source.mkdir()
+        target.mkdir()
+        for root, size in ((source, 4), (target, 8)):
+            _project(root)
+            store = metadata_store(root / "rebrew-functions.toml", backend="sqlite", root=root)
+            store.write({"format": 3, "GAME.0x1000": {"size": size}}, "test")
+        (source / "game.exe").write_bytes(b"new-reference")
+        (target / "game.exe").write_bytes(b"old-reference")
+        config = target / "rebrew-project.toml"
+        original_config = config.read_bytes() + b"# destination config\n"
+        config.write_bytes(original_config)
+        config.chmod(0o600)
+        backup = backup_metadata_database(source, tmp_path / "backup")
+        real_replace = sqlite_store.os.replace
+        real_fsync = sqlite_store.os.fsync
+        real_write = utils.atomic_write_bytes
+        published = False
+
+        def _write(dest: Path, payload: bytes, **kwargs: Any) -> None:
+            real_write(dest, payload, **kwargs)
+            if failure == "copy" and dest == target / "game.exe" and payload == b"new-reference":
+                raise OSError("database companion copy failed")
+
+        def _replace(src: Path | str, dest: Path | str) -> None:
+            nonlocal published
+            if Path(dest) == target / DATABASE_FILENAME:
+                if failure == "publish":
+                    raise OSError("database publish failed")
+                real_replace(src, dest)
+                published = True
+            else:
+                real_replace(src, dest)
+
+        def _sync(fd: int) -> None:
+            if published and failure == "sync":
+                raise OSError("database directory sync failed")
+            real_fsync(fd)
+
+        monkeypatch.setattr(sqlite_store.os, "replace", _replace)
+        monkeypatch.setattr(sqlite_store.os, "fsync", _sync)
+        monkeypatch.setattr(utils, "atomic_write_bytes", _write)
+        with pytest.raises(OSError, match="database"):
+            restore_metadata_database(backup, target)
+        assert config.with_name(config.name + ".before-restore").stat().st_mode & 0o777 == 0o600
+        if failure != "sync":
+            assert config.read_bytes() == original_config
+            assert config.stat().st_mode & 0o777 == 0o600
+            assert (target / "game.exe").read_bytes() == b"old-reference"
+            expected_size = 8
+        else:
+            assert config.read_bytes() == (source / "rebrew-project.toml").read_bytes()
+            assert (target / "game.exe").read_bytes() == b"new-reference"
+            expected_size = 4
+        store = metadata_store(target / "rebrew-functions.toml", backend="sqlite", root=target)
+        assert store.read("test")["GAME.0x1000"]["size"] == expected_size
+
+    def test_restore_locks_config_before_database(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.metadata import locking
+
+        _project(tmp_path)
+        store = metadata_store(tmp_path / "rebrew-functions.toml", backend="sqlite", root=tmp_path)
+        store.write({"format": 3}, "test")
+        backup = backup_metadata_database(tmp_path, tmp_path / "backup")
+        acquired: list[str] = []
+        real_transaction = locking.file_transaction
+
+        @contextmanager
+        def _transaction(directory: Path, filename: str) -> Iterator[None]:
+            acquired.append(filename)
+            with real_transaction(directory, filename):
+                yield
+
+        monkeypatch.setattr(locking, "file_transaction", _transaction)
+        restore_metadata_database(backup, tmp_path)
+        assert acquired[:2] == ["rebrew-project.toml", DATABASE_FILENAME]
 
     def test_round_trip_and_verify(self, tmp_path: Path) -> None:
         _project(tmp_path)

@@ -1139,7 +1139,8 @@ def backup_metadata_database(root: Path, backup_dir: Path) -> Path:
     for extra in extras:
         payload = extra.read_bytes()
         copied_extra = backup_dir / extra.relative_to(root)
-        atomic_write_bytes(copied_extra, payload, mode=_extra_mode(extra))
+        mode = extra.stat().st_mode & 0o777 if extra == config else _extra_mode(extra)
+        atomic_write_bytes(copied_extra, payload, mode=mode)
         if copied_extra.read_bytes() != payload:
             raise MetadataStorageError(f"{copied_extra}: backup verification failed")
         written.append((str(extra.relative_to(root)), payload))
@@ -1205,7 +1206,10 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
                 _siblings.append((_src, root / _src.relative_to(_backup_root)))
     location = root / DATABASE_FILENAME
     location.parent.mkdir(parents=True, exist_ok=True)
-    with file_transaction(location.parent, location.name):
+    with (
+        file_transaction(root, _PROJECT_CONFIG_NAME),
+        file_transaction(location.parent, location.name),
+    ):
         if location.is_file():
             preserved = location.with_name(location.name + ".before-restore")
 
@@ -1274,38 +1278,43 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
         # Snapshot the extras' current bytes first, so a failure while
         # staging the database rolls the extras back instead of leaving a
         # half-restored tree (database from before, extras from the backup).
-        _before: dict[Path, bytes | None] = {}
+        _before: dict[Path, tuple[bytes | None, int]] = {}
         for _src, _dest in _siblings:
-            _before[_dest] = _dest.read_bytes() if _dest.is_file() else None
-        _installed: list[tuple[Path, int]] = []
+            _before[_dest] = (
+                (_dest.read_bytes(), _dest.stat().st_mode & 0o777) if _dest.is_file() else (None, 0)
+            )
+        _installed: list[Path] = []
+
+        def rollback_siblings() -> None:
+            for dest in reversed(_installed):
+                original, mode = _before[dest]
+                if original is None:
+                    dest.unlink(missing_ok=True)
+                else:
+                    _awb(dest, original, mode=mode)
+
         try:
             for _src, _dest in _siblings:
                 _raw = _src.read_bytes()
-                _current = _before[_dest]
-                # A BinSync state file stays writable, matching the backup copy.
-                _mode = (
-                    _BINSYNC_MODE
-                    if _is_in_binsync_state(_backup_root, _src)
-                    else _extra_mode(_dest)
-                )
+                _current, original_mode = _before[_dest]
                 if _current is not None and _current != _raw:
-                    # Keep every displaced copy (see the database
-                    # preservation above and restore_ga_runs).
-                    preserve_displaced(_dest, _current, _mode)
-                _awb(_dest, _raw, mode=_mode)
+                    preserve_displaced(_dest, _current, original_mode)
+                if _src == config:
+                    mode = _src.stat().st_mode & 0o777
+                elif _is_in_binsync_state(_backup_root, _src):
+                    mode = _BINSYNC_MODE
+                else:
+                    mode = _extra_mode(_dest)
+                _installed.append(_dest)
+                _awb(_dest, _raw, mode=mode)
                 if _dest.read_bytes() != _raw:
                     raise MetadataStorageError(f"{_dest}: restored copy verification failed")
-                _installed.append((_dest, _mode))
         except BaseException:
-            for _dest, _mode in reversed(_installed):
-                _original = _before[_dest]
-                if _original is None:
-                    _dest.unlink(missing_ok=True)
-                else:
-                    _awb(_dest, _original, mode=_mode)
+            rollback_siblings()
             raise
 
         tmp = location.with_name(f"{location.name}.{os.getpid()}.{time.monotonic_ns()}.tmp")
+        published = False
         try:
             db_source = sqlite3.connect(backup.as_uri() + "?mode=ro", uri=True, timeout=30)
             try:
@@ -1363,6 +1372,7 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
                     with contextlib.suppress(OSError):
                         _dest.with_suffix(".json").unlink(missing_ok=True)
             os.replace(tmp, location)
+            published = True
             dir_fd = os.open(location.parent, os.O_RDONLY)
             try:
                 os.fsync(dir_fd)
@@ -1371,5 +1381,7 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
         except BaseException:
             with contextlib.suppress(OSError):
                 tmp.unlink()
+            if not published:
+                rollback_siblings()
             raise
     return location
