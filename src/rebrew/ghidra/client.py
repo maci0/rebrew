@@ -333,7 +333,11 @@ def _call_mcp_tool(
                 endpoint,
             )
             return None
-        res = McpToolResult.from_dict(data.result)
+        try:
+            res = McpToolResult.from_dict(data.result)
+        except ValueError as exc:
+            logger.warning("MCP tool %s returned invalid tool content: %s", tool_name, exc)
+            return None
         if res.isError:
             error_text = res.content[0].text if res.content else str(data.result)
             logger.warning(
@@ -953,7 +957,10 @@ def apply_commands_via_mcp(
                     # drops the op.
                     if not (isinstance(data.result, dict) and "content" in data.result):
                         return False, "MCP response carried no tool-result content"
-                    res = McpToolResult.from_dict(data.result)
+                    try:
+                        res = McpToolResult.from_dict(data.result)
+                    except ValueError:
+                        return False, "invalid MCP tool-result content"
                     if res.isError:
                         is_error = True
                         content = res.content

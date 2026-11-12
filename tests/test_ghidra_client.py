@@ -116,6 +116,18 @@ def _mock_client(status_code: int = 200, text: str = "", content_type: str = "ap
 
 
 class TestCallMcpTool:
+    @pytest.mark.parametrize("payload", [None, [], True, 4, "bad"])
+    def test_non_object_json_is_rejected(self, payload: Any) -> None:
+        client, response = _mock_client(text=json.dumps(payload))
+        assert _call_mcp_tool(client, "http://x", "get-functions", {}, 1, "") is None
+        assert response.closed is True
+
+    @pytest.mark.parametrize("content", [None, True, 4, "bad", {}])
+    def test_non_list_content_is_rejected(self, content: Any) -> None:
+        client, response = _mock_client(text=json.dumps({"result": {"content": content}}))
+        assert _call_mcp_tool(client, "http://x", "get-functions", {}, 1, "") is None
+        assert response.closed is True
+
     def test_json_response(self) -> None:
         payload = {
             "jsonrpc": "2.0",
@@ -978,6 +990,19 @@ class TestApplyCommandsViaMcp:
         monkeypatch.setattr("httpx.Client", lambda **kw: _FakeClient(script))
         success, errors = apply_commands_via_mcp([self._cmd("create-label", address="0x1000")])
         assert (success, errors) == (1, 0)
+
+    @pytest.mark.parametrize("content", [None, True, 4, "bad", {}])
+    def test_non_list_content_is_not_applied(
+        self, monkeypatch: pytest.MonkeyPatch, content: Any
+    ) -> None:
+        from rebrew.ghidra.client import apply_commands_via_mcp
+
+        response = _FakeResp(text=json.dumps({"result": {"content": content}}))
+        fake = _FakeClient([_FakeResp(headers={"Mcp-Session-Id": "s1"}), _ok_rpc(), response])
+        monkeypatch.setattr("httpx.Client", lambda **kw: fake)
+        assert apply_commands_via_mcp([self._cmd("create-function", address="0x1000")]) == (0, 1)
+        assert response.closed is True
+        assert fake.deleted == ["s1"]
 
     def test_result_without_content_is_not_applied(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A JSON-RPC success with no tool-result content cannot confirm the op

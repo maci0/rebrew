@@ -40,6 +40,8 @@ class JsonRpcResponse:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> JsonRpcResponse:
+        if not isinstance(d, dict):
+            raise ValueError("JSON-RPC response must be an object")
         err = d.get("error")
         request_id = d.get("id")
         result = d.get("result")
@@ -72,10 +74,11 @@ class McpToolResult:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> McpToolResult:
+        content = d.get("content", [])
+        if not isinstance(content, list):
+            raise ValueError("MCP tool content must be a list")
         return cls(
-            content=[
-                McpToolContent.from_dict(c) for c in d.get("content", []) if isinstance(c, dict)
-            ],
+            content=[McpToolContent.from_dict(c) for c in content if isinstance(c, dict)],
             isError=bool(d.get("isError", False)),
         )
 
