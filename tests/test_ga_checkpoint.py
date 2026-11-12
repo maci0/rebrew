@@ -120,6 +120,36 @@ class TestGACheckpointData:
 
 
 class TestCheckpointIO:
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            b"null",
+            b"[]",
+            b'"text"',
+            b"true",
+            b"1",
+            b'{"generation":1e999,"best_score":1}',
+            b'{"generation":0,"best_score":1,"restarts":1e999}',
+            b'{"generation":0,"best_score":1,"stagnant_gens":1e999}',
+            b'{"generation":0,"best_score":1,"rng_state":'
+            + b"[" * 1200
+            + b"0"
+            + b"]" * 1200
+            + b"}",
+        ],
+    )
+    def test_malformed_checkpoint_values_warn_and_restart(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture, payload: bytes
+    ) -> None:
+        directory = tmp_path / "out" / "checkpoints"
+        directory.mkdir(parents=True)
+        checkpoint = directory / "_f.json"
+        checkpoint.write_bytes(payload)
+
+        assert read_ga_checkpoint(tmp_path / "out", "_f") is None
+        assert "restarts _f from scratch" in caplog.text
+        assert checkpoint.read_bytes() == payload
+
     def test_save_and_read(self, tmp_path: Path) -> None:
         ga = _make_ga(tmp_path)
         ga._save_checkpoint(2)

@@ -1303,8 +1303,10 @@ def read_ga_checkpoint(out_dir: Path, symbol: str) -> GACheckpoint | None:
         return None
     try:
         data = json.loads(read_json_text(ckpt))
+        if not isinstance(data, dict):
+            raise ValueError("checkpoint must be a JSON object")
         return GACheckpoint.from_dict(data)
-    except OSError, ValueError, TypeError, KeyError:
+    except OSError, ValueError, TypeError, KeyError, OverflowError, RecursionError:
         log.warning(
             "Checkpoint %s is unreadable — GA restarts %s from scratch",
             ckpt,
