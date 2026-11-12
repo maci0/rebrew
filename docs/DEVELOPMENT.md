@@ -202,8 +202,8 @@ make format-check                     # ruff format --check
 make mypy                             # type check (0 issues expected; strict,
                                         # covers src/rebrew + tools + every tests/ module
                                         # that has come clean; the rest is not yet clean)
-make check                            # 18 of 19 pre-commit hooks; only pytest
-                                        # (pre-push) is stage-gated.
+make check                            # pre-commit hooks; pytest runs only
+                                        # at the pre-push stage.
                                         # Exports NO_COLOR / TERM=dumb /
                                         # _TYPER_FORCE_DISABLE_TERMINAL first, so a
                                         # FORCE_COLOR or GITHUB_ACTIONS export in the
@@ -212,7 +212,7 @@ make check                            # 18 of 19 pre-commit hooks; only pytest
                                         # raw pre-commit call below does not, which is
                                         # why the make target is the documented one.
 NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
-  uv run --frozen pre-commit run --all-files   # same 18 hooks, ANSI-safe by hand
+  uv run --frozen pre-commit run --all-files   # same pre-commit hooks, ANSI-safe by hand
 make all                                # local gates: format-check, lint, mypy, audit, coverage, gen-fixtures-check, gen-skills-check, cycles-check, layering-check, idempotency-check, cli-contract, jobs-check
 make cli-contract                       # high-value --help greps (CI cli-contract job)
 make jobs-check                         # Go jobs service: gofmt -l, go vet ./..., go test -race ./... (CI jobs-service job)
