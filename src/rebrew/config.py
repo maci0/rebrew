@@ -979,17 +979,15 @@ class ProjectConfig:
         All metadata reads/writes must go through this property so the
         location is centralized.
         """
-        if self.root == self.reversed_dir:
-            return self.reversed_dir
         parent = self.reversed_dir.parent
         # No store one level above the source tree: the project may still
         # keep its TOMLs inside the source tree, or further up at ``root``.
         # The outermost store found wins, so every target of a multi-target
         # project reads and writes the same file.
-        outermost: Path | None = None
+        outermost: Path | None = self.reversed_dir if self.root == self.reversed_dir else None
         if metadata_store(self.reversed_dir / METADATA_FILENAME).exists():
             outermost = self.reversed_dir
-        candidate = parent
+        candidate = self.reversed_dir if self.root == self.reversed_dir else parent
         while True:
             if metadata_store(candidate / METADATA_FILENAME).exists():
                 outermost = candidate
@@ -1004,11 +1002,21 @@ class ProjectConfig:
                     # unrelated store from outside the project.
                     break
             candidate = candidate.parent
-        if outermost is not None:
-            return outermost
-        if self.root is not None and self.root in self.reversed_dir.parents:
-            return self.root
-        return parent.parent if parent.name == "src" else parent
+        if outermost is None:
+            if self.root is not None and self.root in self.reversed_dir.parents:
+                outermost = self.root
+            else:
+                outermost = parent.parent if parent.name == "src" else parent
+        if self.root is not None and "pgsql" in self.metadata_read_backends:
+            raw = load_tomllib(self.root / "rebrew-project.toml")
+            validate_source_directories(
+                self.root,
+                _normalized_targets(raw["targets"]),
+                self.target_name,
+                self.shared_dir,
+                metadata_root=outermost,
+            )
+        return outermost
 
     def __post_init__(self) -> None:
         """Coerce string path arguments to :class:`pathlib.Path` instances."""
@@ -2881,7 +2889,12 @@ def load_compile_cache_config(root: Path) -> ProjectConfig:
 
 
 def validate_source_directories(
-    root: Path, targets: Mapping[str, Any], target: str, shared_dir: Any = "src/shared"
+    root: Path,
+    targets: Mapping[str, Any],
+    target: str,
+    shared_dir: Any = "src/shared",
+    *,
+    metadata_root: Path | None = None,
 ) -> None:
     """Reject source roots that cannot have metadata-relative file identities."""
     source_dirs = {
@@ -2890,13 +2903,26 @@ def validate_source_directories(
         )
         for name, data in targets.items()
     }
-    metadata_root = ProjectConfig(
-        root=root, reversed_dir=source_dirs[f"[targets.{target}].reversed_dir"]
-    ).metadata_dir.resolve()
     if shared_dir is not None and str(shared_dir).strip():
         source_dirs["[project].shared_dir"] = _required_path(
             root, shared_dir, "src/shared", "[project].shared_dir"
         )
+    if metadata_root is None:
+        from rebrew.metadata.storage import backend_routes
+
+        try:
+            reads, _ = backend_routes(
+                load_tomllib(root / "rebrew-project.toml").get("metadata", {})
+            )
+        except ValueError as exc:
+            raise ConfigError(str(exc)) from exc
+        # A remote store's root is checked on first resolution, keeping config loads offline.
+        if "pgsql" in reads:
+            return
+        metadata_root = ProjectConfig(
+            root=root, reversed_dir=source_dirs[f"[targets.{target}].reversed_dir"]
+        ).metadata_dir
+    metadata_root = metadata_root.resolve()
     for field_name, directory in source_dirs.items():
         if not directory.resolve().is_relative_to(metadata_root):
             raise ConfigError(

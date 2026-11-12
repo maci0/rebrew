@@ -3033,3 +3033,46 @@ reversed_dir = "src/other"
         )
         assert load_config(tmp_path).metadata_dir == store_root
         assert load_config(tmp_path, target="other").metadata_dir == store_root
+
+    @pytest.mark.parametrize("shared", ["shared", "src/shared"])
+    def test_pgsql_checks_source_roots_when_metadata_root_is_resolved(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shared: str
+    ) -> None:
+        from rebrew.metadata.pgsql import PgsqlStore
+
+        (tmp_path / "src" / "game").mkdir(parents=True)
+        _make_project(
+            tmp_path,
+            f"""[project]
+default_target = "game"
+shared_dir = "{shared}"
+[targets.game]
+binary = "game.exe"
+reversed_dir = "src/game"
+[metadata]
+backend = "pgsql"
+[metadata.pgsql]
+dsn = "service=rebrew"
+project = "game"
+""",
+        )
+        reads: list[Path] = []
+
+        def exists(store: PgsqlStore) -> bool:
+            reads.append(store.path)
+            return store.path.parent == tmp_path / "src"
+
+        monkeypatch.setattr(PgsqlStore, "exists", exists)
+        cfg = load_config(tmp_path)
+        assert reads == []
+        if shared == "shared":
+            with pytest.raises(ConfigError) as caught:
+                _ = cfg.metadata_dir
+            message = str(caught.value)
+            assert "[project].shared_dir" in message
+            assert str(tmp_path / "src") in message
+            assert "move the store to the project root" in message
+            assert "move the directory under the store" in message
+        else:
+            assert cfg.metadata_dir == tmp_path / "src"
+        assert reads
