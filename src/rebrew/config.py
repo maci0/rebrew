@@ -3263,6 +3263,23 @@ def load_config(
         **_load_lint_settings(project_raw),
     )
 
+    metadata_root = cfg.metadata_dir.resolve()
+    source_dirs = {
+        f"[targets.{name}].reversed_dir": _required_path(
+            root, data.get("reversed_dir"), f"src/{name}", f"[targets.{name}].reversed_dir"
+        )
+        for name, data in targets_dict.items()
+    }
+    if shared_dir is not None:
+        source_dirs["[project].shared_dir"] = shared_dir
+    for field_name, directory in source_dirs.items():
+        if not directory.resolve().is_relative_to(metadata_root):
+            raise ConfigError(
+                f"rebrew-project.toml {field_name} ({directory}) is outside metadata "
+                f"directory {metadata_root}; move the store to the project root, "
+                "or move the directory under the store"
+            )
+
     # Auto-detect CRT sources if not explicitly configured
     if not cfg.crt_sources:
         cfg.crt_sources = detect_crt_sources(root)

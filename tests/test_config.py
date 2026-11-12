@@ -306,9 +306,11 @@ reversed_dir = "src/sub"
         root.mkdir()
         outside = tmp_path / "outside" / "src"
         outside.mkdir(parents=True)
+        # Isolate ancestor-store lookup from the project's default shared source root.
         toml = f"""\
 [project]
 default_target = "game"
+shared_dir = ""
 
 [targets.game]
 binary = "game.exe"
@@ -2976,3 +2978,58 @@ def test_removed_marker_key_fails_before_namespace_derivation(tmp_path: Path, le
     root = _make_project(tmp_path, f'[targets."server.dll"]\nbinary = "server.dll"\n{legacy}\n')
     with pytest.raises(ConfigError, match="marker was replaced by module"):
         load_config(root=root)
+
+
+class TestSourceDirectoryMetadataRoot:
+    @pytest.mark.parametrize("outside", ["shared", "sibling", "symlink"])
+    def test_rejects_source_directory_outside_metadata_root(
+        self, tmp_path: Path, outside: str
+    ) -> None:
+        (tmp_path / "src" / "game").mkdir(parents=True)
+        (tmp_path / "shared").mkdir()
+        write_store_fixture(tmp_path / "src" / "rebrew-functions.toml", "")
+        shared = "shared" if outside == "shared" else "src/shared"
+        if outside == "symlink":
+            (tmp_path / "src" / "shared").symlink_to(tmp_path / "shared", target_is_directory=True)
+        toml = f"""[project]
+default_target = "game"
+shared_dir = "{shared}"
+[targets.game]
+binary = "game.exe"
+reversed_dir = "src/game"
+"""
+        if outside == "sibling":
+            toml += '[targets.other]\nbinary = "other.exe"\nreversed_dir = "other"\n'
+        _make_project(tmp_path, toml)
+        with pytest.raises(ConfigError) as caught:
+            load_config(tmp_path)
+        message = str(caught.value)
+        field = "targets.other" if outside == "sibling" else "shared_dir"
+        assert field in message
+        assert str(tmp_path / "src") in message
+        assert "move the store to the project root" in message
+        assert "move the directory under the store" in message
+
+    @pytest.mark.parametrize("store_at_root", [False, True])
+    def test_valid_source_roots_keep_metadata_selection(
+        self, tmp_path: Path, store_at_root: bool
+    ) -> None:
+        (tmp_path / "src" / "game").mkdir(parents=True)
+        store_root = tmp_path if store_at_root else tmp_path / "src"
+        write_store_fixture(store_root / "rebrew-functions.toml", "")
+        shared = "shared" if store_at_root else "src/shared"
+        _make_project(
+            tmp_path,
+            f"""[project]
+default_target = "game"
+shared_dir = "{shared}"
+[targets.game]
+binary = "game.exe"
+reversed_dir = "src/game"
+[targets.other]
+binary = "other.exe"
+reversed_dir = "src/other"
+""",
+        )
+        assert load_config(tmp_path).metadata_dir == store_root
+        assert load_config(tmp_path, target="other").metadata_dir == store_root
