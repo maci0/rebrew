@@ -252,8 +252,8 @@ rebrew source graph [OPTIONS]
       --json
   -t, --target TEXT
 
-rebrew cache stats [--json] [-t TARGET]
-rebrew cache clear [--force] [--json] [-t TARGET]
+rebrew cache stats [--root PATH] [--json]
+rebrew cache clear [--root PATH] [--force] [--json]
 
 rebrew build round-trip [OPTIONS]
   -o, --output PATH
