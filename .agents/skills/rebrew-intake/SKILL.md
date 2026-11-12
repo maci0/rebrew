@@ -114,14 +114,16 @@ To pin a copied signature set in the project, run
 `rebrew library init-signatures --matched-only`. Existing project files are
 retained; `scan-signatures` remains a read-only scan.
 
-Preview the CRT dirs with `rebrew cfg detect-crt show --json` before `rebrew cfg detect-crt apply`; without it `rebrew library crt-match --all` finds nothing. FLIRT JSON:
-`matches[].names`; ambiguous hits in `ambiguous_matches`. Record SOURCE metadata on
-confirmed hits with `rebrew library crt-match --all --fix-source`. A hit names an origin,
-not the linked provider: `rebrew library adopt --dry-run --json` previews the unique archive
-member the raw-link map selected for each library-origin function, and applying that preview
-takes its `--expected-digest`. `rebrew library presence --object member.obj --json` reports
-whether one object's bodies occur in the reference, so an `/INCLUDE` does not pull a member
-the target never carried.
+Preview the CRT dirs with `rebrew cfg detect-crt show --json` before applying
+them. `crt-match` exits with an error when no `crt_sources` are configured.
+FLIRT JSON: `matches[].names`; ambiguous hits in `ambiguous_matches`. A hit
+names an origin, not the linked provider. `rebrew library adopt 0xVA --reason
+"<evidence>" --dry-run --json` re-matches that VA against the archives the
+target links and previews the unique `(symbol, member)` candidate; applying
+the preview needs `--expected-digest` and `--reason`. `rebrew library presence
+--object member.obj --json` reports whether one object's bodies occur in the
+reference, so an `/INCLUDE` does not pull a member the target never carried.
+A match is the bytes, not proof the linker selected that member.
 
 ### 3. Build Function Catalog + Coverage Document
 

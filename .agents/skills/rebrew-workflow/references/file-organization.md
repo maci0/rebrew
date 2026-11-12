@@ -74,9 +74,11 @@ rebrew recommend --json                   # all lanes: TU layout + hygiene + nex
 - `rebrew source import-related --shared` records the destination identity on
   the shared definition (`--promote` moves the file first). Optional address
   anchors follow their declarations; metadata carries every other field.
-- `rebrew source rehome 0xVA=src/bench/file.c --dry-run` repoints rows after a
-  definition was moved by hand, without moving its text. `--from OLD --to NEW` covers a
-  renamed file, and `--json` requires `--force` off a terminal.
+- `rebrew source rehome 0xVA=src/bench/file.c --dry-run` points that function
+  row at the file that now defines it, after a hand move, without moving its
+  text. `0xVA=PATH:NAME` binds the row to definition NAME. `--from OLD --to NEW`
+  retargets every function and data row naming OLD, and NEW must define each
+  moved function. `--json` needs no `--force`.
 - `rebrew source rename` rewrites whole identifiers only: never inside string
   literals, and inside comments only with `--comments`. Read the `--dry-run` list
   (`file:line:column role` plus row changes) before writing.

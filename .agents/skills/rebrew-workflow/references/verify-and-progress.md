@@ -86,11 +86,13 @@ third-party site. Run it only when the user asks for a decomp.me scratch, and
 `--dry-run` first if they have not said where the source may go. Without
 `--dry-run` it performs a network upload.
 
-`rebrew binary score --built build/bench --json` gives same-offset byte agreement
-of a built image against the reference. Read it as triage rather than a verdict: even a
-high score can hide displaced symbols, so `verify --whole-binary` stays the pass/fail.
+`rebrew binary score --built build/bench --json` reports same-offset byte
+agreement with the reference, whole file and per section. `informative` counts
+only positions where the reference byte is non-zero, so zero padding cannot
+inflate it. A high score still leaves placement to `verify --data` and section
+structure to `verify --whole-binary`.
 `rebrew verify --compare` diffs against the selected baseline (`.rebrew/verify_baseline.toml`,
-or its per-target copy under `.rebrew/targets/`; exit 1 on regression). First run
+or its per-target file under `.rebrew/targets/`; exit 1 on regression). First run
 warns and skips the diff.
 
 Local dashboards read canonical project metadata, inventory and binaries directly.

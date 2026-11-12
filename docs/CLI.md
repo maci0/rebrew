@@ -991,7 +991,7 @@ path keeps that command and any command under it.
 that list. It is an argument of each command that declares it.
 `rebrew --json <command>` exits 2. `rebrew -o json <command>` and
 `rebrew <command> --json` select JSON. `rebrew -o text <command> --json` stays
-text, except `rebrew schema`, which is JSON either way.
+text.
 
 Effects follow the full command path, not the last word. `lint`, `diff`,
 `binary extract show`, and `binary asm show` are `non_idempotent`. The same
@@ -1010,7 +1010,8 @@ shared log `--quiet`.
 | --- | --- | --- | --- |
 | `COMMAND` | str | none | Command path to include. Matching commands and their children are kept. |
 
-`schema` has no `--json` flag. `-o text` does not change its document.
+`schema` has no `--json` flag (passing one exits 2), and its document stays
+JSON under `-o text`.
 
 ### `rebrew prove`
 

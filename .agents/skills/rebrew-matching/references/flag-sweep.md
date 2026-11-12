@@ -32,7 +32,8 @@ rebrew match flags src/bench/<file>.c --tier full # requires authorized long-run
 
 When the profile itself is the unknown, compare profiles before any flag sweep:
 `rebrew match toolchains src/bench/<file>.c --toolchains msvc-6.0,msvc-7.0 --json`
-compiles the one function under each profile, and `--flags` adds a flag search inside it.
+compares object bytes under each profile. `--flags` adds a flag search inside
+that comparison (`--tier` and `--jobs` require it; the default tier is `targeted`).
 Axes differ per profile (MSVC `/` flags, Watcom `-os/-ot/…`, Borland `-O1/-O2`,
 16-bit MSVC). Fetch pinned images with `rebrew toolchain pull <profile>`; execution uses the
 configured backend. Try `/O2`

@@ -189,11 +189,13 @@ plugin cache backends or remove the open upstream diskcache advisory.
 - No claim that a cloned project's metadata can make rebrew read or
   write outside the project, and no claim that one validator covers every
   join of the `file` field. Two checks exist, and neither runs everywhere.
-  `validate_identity_file` (`src/rebrew/metadata/source_schema.py`) is the
-  write gate: it rejects a value that starts with `/`, carries a drive
-  letter, or contains a `..` part. It runs when a row is written, not when
-  a hand-edited store is read. `contained_path` (`src/rebrew/sources.py`)
-  resolves a value under `source_roots` (`reversed_dir`, then `shared_dir`,
+  `validate_identity_file` (`src/rebrew/metadata/source_schema.py`) rejects
+  a value that starts with `/`, carries a drive letter, or contains a `..`
+  part. It runs when a row is written and when either compiled-source
+  binder reads one (`function_providers.py` `bind_compiled_source`,
+  `_bind_compiled_row`), not on every read of a hand-edited store;
+  `rebrew lint` W034 reports the rows it would refuse. `contained_path`
+  (`src/rebrew/sources.py`) resolves a value under `source_roots` (`reversed_dir`, then `shared_dir`,
   with the project `root` as the outer bound, since a shared-tree source is
   recorded `../`-prefixed relative to `reversed_dir`) and refuses an empty
   value, one `Path.is_absolute()` accepts, or one that resolves outside
@@ -205,17 +207,20 @@ plugin cache backends or remove the open upstream diskcache advisory.
   `rebrew source import-related` (`cross_import.py` `import_function`,
   `import_shared_function`, `promote_to_shared`), and `rename.py`
   `_row_source` all resolve through it. `rebrew test` does not join `file`.
-  The compiled-source fast path does not either: `function_providers.py`
-  `_bind_compiled_row` builds the path with `join_under` (`src/rebrew/utils.py`)
-  and returns it as the display path when the base is inside the project and
-  the parent is not a symlink, without the `is_relative_to(root)` check the
-  slow path `bind_compiled_source` still makes. `join_under` returns an `X:`
-  drive spelling unchanged on every host, and `contained_path`'s absolute
-  test does not see that spelling on POSIX. `rename_ops.py` `_Project` joins
-  `reversed_dir / filepath` and resolves it with no containment check, and
-  the verify cache's patch refresh (`verify_cache.py`
-  `patch_verify_cache_entries`) skips its hash only when
-  `is_relative_to(reversed_dir)` fails, the same host-absolute test.
+  The compiled-source fast path (`_bind_compiled_row`) does not resolve
+  the joined path or make the `is_relative_to(root)` check that
+  `bind_compiled_source` makes: after `validate_identity_file`, it trusts a
+  base lexically inside the project and falls back to
+  `bind_compiled_source` when the source or a parent directory is a
+  symlink. `contained_path`'s absolute test does not see an `X:` drive
+  spelling on POSIX, and `join_under` (`src/rebrew/utils.py`) returns one
+  unchanged on every host; `validate_identity_file` refuses that spelling
+  before either binder joins it. `rename_ops.py` `_Project` joins
+  `reversed_dir / filepath` with no check of its own; that `filepath` comes
+  from `bind_compiled_source`, already bounded by the project root. The
+  verify cache's patch refresh (`verify_cache.py`
+  `patch_verify_cache_entries`) resolves a cache entry's `filepath` and
+  skips the hash refresh when it lands outside `reversed_dir`.
   BinSync overlay uses `contained_path` for source reads and
   signature/comment targets; prototype imports update the actual C signature
   through the AST and the importer's source-tree check. A corrupt BinSync
