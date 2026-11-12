@@ -167,3 +167,27 @@ class TestExtractTypeBlocks:
     def test_unreadable_file_raises_with_strict(self, tmp_path: Path) -> None:
         with pytest.raises(OSError):
             extract_type_blocks(tmp_path / "missing.c", strict=True)
+
+
+class TestDeepSourceTraversal:
+    def test_deep_body_does_not_hide_following_types(self, tmp_path: Path) -> None:
+        source = tmp_path / "deep.c"
+        structure = "typedef struct { int value; } S;"
+        enumeration = "enum E { ONE };"
+        source.write_text(
+            "typedef int I;\nvoid f(void) {"
+            + "{" * 1200
+            + "int x;"
+            + "}" * 1200
+            + "}\n"
+            + structure
+            + "\n"
+            + enumeration
+            + "\n",
+            encoding="utf-8",
+        )
+        assert extract_type_blocks(source) == (
+            [structure],
+            ["typedef int I;", structure],
+            [enumeration],
+        )

@@ -187,7 +187,9 @@ def extract_function_prototypes(filepath: Path) -> Iterator[str]:
 
         return chain(node)
 
-    def walk(node: Any) -> Iterator[str]:
+    pending = [root]
+    while pending:
+        node = pending.pop()
         if node.type == "declaration" and _is_plain_prototype(node):
             text = (
                 code_bytes[node.start_byte : node.end_byte]
@@ -195,7 +197,4 @@ def extract_function_prototypes(filepath: Path) -> Iterator[str]:
                 .strip()
             )
             yield _normalize_signature(text)
-        for child in getattr(node, "children", []):
-            yield from walk(child)
-
-    yield from walk(root)
+        pending.extend(reversed(getattr(node, "children", [])))

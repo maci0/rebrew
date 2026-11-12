@@ -187,3 +187,19 @@ class TestSignatureParserBranches:
         result = dict(extract_function_signatures(f))
         assert "foo" in result
         assert "caf\x81 e" in result["foo"]
+
+
+class TestDeepPrototypeTraversal:
+    def test_deep_body_does_not_hide_following_prototypes(self, tmp_path: Path) -> None:
+        from rebrew.signature_parser import extract_function_prototypes
+
+        source = tmp_path / "deep.c"
+        source.write_text(
+            "int before(void);\nvoid f(void) {"
+            + "{" * 1200
+            + "int x;"
+            + "}" * 1200
+            + "}\nint after(void);\n",
+            encoding="utf-8",
+        )
+        assert list(extract_function_prototypes(source)) == ["int before(void)", "int after(void)"]

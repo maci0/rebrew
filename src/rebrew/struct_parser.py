@@ -58,16 +58,18 @@ def _definition_blocks(
         """
         return b"\x00" not in text
 
-    def walk(node: Any) -> Iterator[tuple[frozenset[str], str]]:
+    pending = [tree.root_node]
+    while pending:
+        node = pending.pop()
         if node.type == "type_definition":
             if node.has_error:
-                return
+                continue
             text = code_bytes[node.start_byte : node.end_byte]
             if not usable(text):
-                return
+                continue
             has_body = b"{" in text
             if has_body and not balanced(text):
-                return
+                continue
             kinds = {"typedef"}
             if has_body and b"struct" in text:
                 kinds.add("struct")
@@ -78,7 +80,7 @@ def _definition_blocks(
             yield frozenset(kinds), text.decode(encoding, errors="replace")
         elif node.type in ("struct_specifier", "enum_specifier"):
             if node.has_error:
-                return
+                continue
             if node.parent and node.parent.type != "type_definition":
                 text = code_bytes[node.start_byte : node.end_byte]
                 if b"{" in text:
@@ -88,14 +90,11 @@ def _definition_blocks(
                         end_byte = next_sibling.end_byte
                     span = code_bytes[node.start_byte : end_byte]
                     if not balanced(span) or not usable(span):
-                        return
+                        continue
                     kinds = {"struct", "typedef"} if node.type == "struct_specifier" else {"enum"}
                     yield frozenset(kinds), span.decode(encoding, errors="replace")
         else:
-            for child in node.children:
-                yield from walk(child)
-
-    yield from walk(tree.root_node)
+            pending.extend(reversed(node.children))
 
 
 def _iter_definitions(
