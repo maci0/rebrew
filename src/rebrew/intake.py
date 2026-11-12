@@ -39,6 +39,7 @@ from rebrew.utils import (
     SOURCE_CHECKOUT,
     atomic_write_text,
     c_comment_safe,
+    load_tomllib,
     read_json_text,
 )
 lazy from rebrew.cli import EXIT_OK, console, error_exit, json_print
@@ -592,9 +593,26 @@ def main(
     target_name = target or bin_path.stem
     # The name becomes src/<target>/ and a [targets.<name>] key.
     try:
-        validate_target_name(target_name)
+        target_name = validate_target_name(target_name)
     except ConfigError as exc:
         error_exit(str(exc), json_mode=json_output)
+    project_config = Path("rebrew-project.toml")
+    project_existed = project_config.exists()
+    if project_existed:
+        try:
+            targets = load_tomllib(project_config).get("targets", {})
+            if not isinstance(targets, dict):
+                raise ConfigError("rebrew-project.toml [targets] must be a TOML table")
+            configured = [validate_target_name(name) for name in targets]
+        except (OSError, ValueError) as exc:
+            error_exit(f"Cannot read {project_config}: {exc}", json_mode=json_output)
+        if target_name not in configured:
+            error_exit(
+                f"Target {target_name!r} is not configured. "
+                f"Configured targets: {', '.join(configured) or '(none)'}.",
+                hint="Add a target with 'rebrew cfg target add <name> --binary <path>'.",
+                json_mode=json_output,
+            )
     target_module_name = re.sub(r"[^A-Za-z0-9_]", "", target_name).upper()
 
     if toolchain is None:
@@ -665,7 +683,6 @@ def main(
 
     runner = CliRunner()
     bin_filename = f"{target_name}{bin_path.suffix}" if bin_path.suffix else target_name
-    project_existed = (Path(".") / "rebrew-project.toml").exists()
     if project_existed:
         notes.append("project already exists — re-running intake (re-discovery)")
     else:

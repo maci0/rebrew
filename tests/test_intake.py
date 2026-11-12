@@ -782,7 +782,9 @@ class TestLinkToolchain:
         assert linked2 == linked1
 
 
-def test_unknown_elf64_uses_explicit_provisional_compatible_profile(monkeypatch) -> None:
+def test_unknown_elf64_uses_explicit_provisional_compatible_profile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from rebrew.toolchain_detect import ToolchainInfo
 
     monkeypatch.setattr(
@@ -798,9 +800,75 @@ def test_unknown_elf64_uses_explicit_provisional_compatible_profile(monkeypatch)
 
     import rebrew.app.main as main_mod
 
+    # Preview fresh onboarding independently of the repository's configured targets.
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("rebrew.intake._enumerate_functions", lambda _: FAKE_FUNCS)
     result = CliRunner().invoke(main_mod.app, ["intake", str(fixture), "--dry-run", "--json"])
     assert result.exit_code == 0, result.output
     preview = json.loads(result.output)
     assert (preview["family"], preview["profile"]) == ("unknown", "gcc-14.2.0")
     assert any("provisional" in note for note in preview["notes"])
+
+
+class TestExistingProjectTargetSelection:
+    @pytest.mark.parametrize(
+        "selection", [[], ["--target", "SERVER"], ["--target", "missing"], ["--dry-run"]]
+    )
+    def test_unknown_target_is_refused_before_writes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, selection: list[str]
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.app.main import app
+        from rebrew.config import load_config
+
+        fixture = Path(__file__).parent / "fixtures" / "mini_pe.exe"
+        original = tmp_path / "original"
+        original.mkdir()
+        binary = original / "server.dll"
+        binary.write_bytes(fixture.read_bytes())
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("rebrew.intake._enumerate_functions", lambda _: FAKE_FUNCS)
+        monkeypatch.setattr(
+            "rebrew.intake._suggest_profile", lambda _: ("msvc-6.0", "msvc", "MSVC 6.0", [])
+        )
+        runner = CliRunner()
+        initial = runner.invoke(
+            app,
+            [
+                "init",
+                "--target",
+                "SERVER",
+                "--binary",
+                "server.dll",
+                "--toolchain",
+                "msvc-6.0",
+                "--json",
+            ],
+        )
+        assert initial.exit_code == 0, initial.output
+
+        def snapshot() -> dict[Path, bytes | Path | None]:
+            return {
+                p.relative_to(tmp_path): p.readlink()
+                if p.is_symlink()
+                else p.read_bytes()
+                if p.is_file()
+                else None
+                for p in tmp_path.rglob("*")
+            }
+
+        before = snapshot()
+        result = runner.invoke(app, ["intake", "original/server.dll", *selection, "--json"])
+        if selection == ["--target", "SERVER"]:
+            assert result.exit_code == 0, result.output
+            cfg = load_config(tmp_path, target="SERVER")
+            assert (cfg.reversed_dir / "fcn_00401000.c").is_file()
+            assert json.loads(result.stdout)["target"] == "SERVER"
+            assert not (tmp_path / "src" / "server").exists()
+        else:
+            assert result.exit_code == 2, result.output
+            error = json.loads(result.stderr)["error"]
+            assert "SERVER" in error["message"]
+            assert "rebrew cfg target add" in error["hint"]
+            assert snapshot() == before
