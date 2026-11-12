@@ -300,11 +300,7 @@ def _download_artifact(
     """Fetch the artifact for an ``status == "ok"`` reply and build the result."""
     resolved = _same_origin_artifact_url(base_url, artifact_url)
     try:
-        art = (
-            http.get(resolved, headers=auth_headers, follow_redirects=False)
-            if auth_headers
-            else http.get(resolved)
-        )
+        art = http.get(resolved, headers=auth_headers, follow_redirects=False)
     except Exception as exc:
         raise RecompileError(
             f"recompile artifact download failed: {exc}",

@@ -567,6 +567,40 @@ class TestCompileSource:
         assert client.calls == []
 
 
+class TestArtifactRedirects:
+    @pytest.mark.parametrize("authenticated", [False, True])
+    @pytest.mark.parametrize("status", [301, 302, 303, 307, 308])
+    def test_artifact_fetch_refuses_redirects_with_redirecting_client(
+        self, monkeypatch: pytest.MonkeyPatch, authenticated: bool, status: int
+    ) -> None:
+        monkeypatch.delenv("REBREW_RECOMPILE_API_KEY", raising=False)
+        if authenticated:
+            monkeypatch.setenv("REBREW_RECOMPILE_API_KEY", "fixture-key")
+        requested = []
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            requested.append(str(request.url))
+            if request.method == "POST":
+                return httpx.Response(200, json={"status": "ok", "artifact_url": "/object.obj"})
+            if request.url.host == "compiler.invalid":
+                return httpx.Response(status, headers={"Location": "https://foreign.invalid/data"})
+            return httpx.Response(200, content=b"foreign payload")
+
+        with (
+            httpx.Client(transport=httpx.MockTransport(respond), follow_redirects=True) as client,
+            pytest.raises(RecompileError) as error,
+        ):
+            compile_source(
+                "https://compiler.invalid", "msvc-6.0", "int f(void){}", ["/c"], client=client
+            )
+        assert error.value.kind == "http"
+        assert error.value.status_code == status
+        assert requested == [
+            "https://compiler.invalid/api/v1/compile",
+            "https://compiler.invalid/object.obj",
+        ]
+
+
 class TestSameOriginArtifactUrl:
     @pytest.mark.parametrize("base", ["http://[", "http://[]", "http://svc\uff0f"])
     def test_malformed_base_is_a_validation_error(self, base: str) -> None:
