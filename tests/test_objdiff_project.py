@@ -91,6 +91,13 @@ class TestWriteCoffObject:
         machine = struct.unpack_from("<H", path.read_bytes(), 0)[0]
         assert machine == 0x01C0
 
+    def test_a_non_unicode_symbol_is_refused(self, tmp_path: Path) -> None:
+        """A lone surrogate cannot be encoded; replacing it would rename the symbol."""
+        path = tmp_path / "bad.o"
+        with pytest.raises(ValueError, match="not valid Unicode"):
+            objdiff_project.write_coff_object(path, [("caf\ud800", 0, b"\xc3")])
+        assert not path.exists()
+
     def test_overlapping_placements_raise(self, tmp_path: Path) -> None:
         """Overlapping placements must fail loud, never emit a corrupt
         object (the old code skipped `symbols.append`, desyncing the symbol

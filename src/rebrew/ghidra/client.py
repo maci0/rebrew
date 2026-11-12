@@ -210,7 +210,9 @@ def _response_within_limit(resp: McpResponse, tool_name: str, request_id: int | 
     The declared ``Content-Length`` is checked first so an oversized body is
     refused before ``json.loads`` allocates for it; the encoded text is
     measured too, because a server that declares nothing (or a chunked reply)
-    still gets a real ceiling.
+    still gets a real ceiling.  The ceiling is bytes, so the body is counted
+    as UTF-8: a code-point count would let a body of two- and three-byte
+    characters through at twice to three times the stated limit.
     """
     declared_raw = resp.headers.get("content-length") or resp.headers.get("Content-Length")
     if declared_raw is not None:
@@ -228,8 +230,22 @@ def _response_within_limit(resp: McpResponse, tool_name: str, request_id: int | 
             )
             return False
     try:
-        actual = len(resp.text.encode("utf-8", errors="replace"))
-    except AttributeError, TypeError, ValueError:
+        # A well-formed body encodes in one pass.  ``errors="replace"`` would
+        # turn a surrogate in U+DC80..U+DCFF (one decoded byte) into U+FFFD
+        # and over-count it by two, so only a body that fails to encode is
+        # recounted character by character.
+        text = resp.text
+        try:
+            actual = len(text.encode("utf-8"))
+        except UnicodeEncodeError:
+            actual = 0
+            for char in text:
+                code = ord(char)
+                if 0xDC80 <= code <= 0xDCFF:
+                    actual += 1
+                else:
+                    actual += len(char.encode("utf-8", errors="surrogatepass"))
+    except AttributeError, TypeError, ValueError, UnicodeEncodeError:
         return True
     if actual > MAX_MCP_RESPONSE_BYTES:
         logger.warning(

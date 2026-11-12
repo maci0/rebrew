@@ -105,7 +105,12 @@ def write_coff_object(
     long_names: list[bytes] = []
 
     def _name_field(name: str) -> bytes:
-        raw = name.encode("utf-8", errors="replace")
+        # ``errors="replace"`` would write U+FFFD over a character that is not
+        # Unicode, renaming the symbol so the object no longer names the function.
+        try:
+            raw = name.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise ValueError(f"symbol name {name!r} is not valid Unicode") from exc
         if len(raw) <= 8:
             return raw.ljust(8, b"\x00")
         long_names.append(raw + b"\x00")

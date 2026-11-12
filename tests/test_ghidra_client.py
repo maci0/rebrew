@@ -252,6 +252,21 @@ class TestMcpResponseSizeLimit:
         client, _ = _mock_client(text=json.dumps(payload))
         assert fetch_mcp_tool_raw(client, "http://x", "t", {}, 1) is None
 
+    def test_multibyte_body_is_measured_in_utf8_bytes(self) -> None:
+        """One code point can be two or three UTF-8 bytes, and the ceiling is bytes."""
+        from rebrew.ghidra.client import MAX_MCP_RESPONSE_BYTES, _response_within_limit
+
+        # U+00E9 is two bytes; just over half the limit in characters is over it in bytes.
+        text = "é" * (MAX_MCP_RESPONSE_BYTES // 2 + 1)
+        assert len(text) <= MAX_MCP_RESPONSE_BYTES
+        resp = SimpleNamespace(text=text, headers={})
+        assert _response_within_limit(resp, "get-functions", 1) is False
+
+        # U+DC80 is the lone surrogate a single non-UTF-8 byte decodes to.
+        # Counting it as U+FFFD (3 bytes) would refuse a body still inside the limit.
+        lone = "\udc80" * MAX_MCP_RESPONSE_BYTES
+        assert _response_within_limit(SimpleNamespace(text=lone, headers={}), "t", 1) is True
+
     def test_body_at_limit_is_returned(self) -> None:
         from rebrew.ghidra.client import fetch_mcp_tool_raw
 
