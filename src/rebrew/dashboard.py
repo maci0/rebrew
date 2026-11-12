@@ -333,6 +333,9 @@ _ENCODING_PREFERENCE: tuple[_WireEncoding, ...] = ("zstd", "gzip")
 #: served response names a coverage file.
 _COVERAGE_GLOB = "coverage-*.toml"
 
+# Zone-less date-times are UTC.  Held as a raw string so the digit-class
+# escapes are JS escapes, not Python ones, then spliced into the client.
+_ZONELESS_INSTANT_RE = r"/^\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/"
 
 _APP_JS = """
 const $ = (id) => document.getElementById(id);
@@ -410,7 +413,7 @@ function formatWhen(value) {
   if (!value) return "";
   // Zone-less date-times are stored in UTC.
   let raw = String(value).trim();
-  if (/^\\d{4}-\\d{2}-\\d{2}[Tt ]\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?$/.test(raw)) {
+  if (__ZONELESS_INSTANT_RE__.test(raw)) {
     raw += "Z";
   }
   const parsed = Date.parse(raw);
@@ -1636,6 +1639,7 @@ __STATUS_FORCED__
 </html>
 """
 
+_APP_JS = _APP_JS.replace("__ZONELESS_INSTANT_RE__", _ZONELESS_INSTANT_RE)
 _APP_JS_BYTES = _APP_JS.encode("utf-8")
 _APP_JS_VERSION = hashlib.sha256(_APP_JS_BYTES).hexdigest()[:16]
 _APP_JS_ETAG = f'"{_APP_JS_VERSION}"'
