@@ -3506,7 +3506,7 @@ automatic maps or archives leave attribution unknown; the scan never downloads
 libraries. Map addresses can differ from reference VAs, so match symbol names.
 DLL import slots, uncertain aliases, and unselected archive members are excluded.
 
-Metadata changes use `data set`: combine fields (`--type`, `--name`, `--size`, `--section`, `--file`, `--storage-kind`, `--backing`, `--link-symbol`, `--kind`, or `--note`) and repeat `0xVA=VALUE` for multiple records. A size change clears stored verification. Sections include `.data`, `.rdata`, `.bss`, and `.text` for embedded data such as compiler jump tables; use `--storage-kind 0xVA=span` for a layout view without an independent allocation. `data move 0xOLD 0xNEW` re-addresses one row. No operation treats a declaration, alias, or interior view as another storage allocation.
+Metadata changes use `data set`: combine fields (`--type`, `--name`, `--size`, `--section`, `--file`, `--storage-kind`, `--backing`, `--link-symbol`, `--kind`, or `--note`) and repeat `0xVA=VALUE` for multiple records. A size change clears the current verdict while retaining its historical `verification` record. Sections include `.data`, `.rdata`, `.bss`, and `.text` for embedded data such as compiler jump tables; use `--storage-kind 0xVA=span` for a layout view without an independent allocation. `data move 0xOLD 0xNEW` re-addresses one row. No operation treats a declaration, alias, or interior view as another storage allocation.
 
 Storage kinds (`--storage-kind 0xVA=KIND`) are `object`, `alias`, `literal`,
 `span`, and `import`; `--backing 0xVA=GLOBAL` names an alias's allocation and

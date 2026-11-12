@@ -97,8 +97,9 @@ An interior address names a view into its backing object; it is not another
 allocation. Extern declarations are declarations or users, not storage owners.
 
 `record_data_rows`, `set_data_field`, `set_data_fields_batch` and the `rebrew data`
-commands own edits. Definition changes invalidate the stored verdict; no-op edits,
-notes and classification changes preserve it. `rebrew data move` changes a row's
+commands own edits. Definition, identity, placement and classification changes
+invalidate the current verdict while retaining historical comparison evidence;
+no-op edits and notes preserve it. `rebrew data move` changes a row's
 address and drops its verdict while retaining the previous comparison evidence.
 Update or remove a conflicting ADDRESS anchor before moving the row.
 
