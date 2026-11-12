@@ -481,10 +481,11 @@ The source target comes from `--from`, or from the `target` key in the state
 include content-matched globals). `--module NAME` restricts the destination to
 one module.
 
-Default conflict behavior matches `rebrew binsync import`: a conflict is reported,
-nothing is written, and the command exits `1`. Pass `--accept-binsync` to take
-the remote value, or `--accept-local` to keep the local value and record the
-remote one as `GHIDRA` provenance.
+A conflicting field stays local unless resolved, and unresolved conflicts make
+the command exit `1`. Other eligible fields and definitions can still be applied;
+the overlay is not an all-or-nothing transaction. Use `--dry-run` to preview.
+Pass `--accept-binsync` to take the remote conflict value, or `--accept-local`
+to keep the local value and record the remote one as `GHIDRA` provenance.
 
 ```bash
 # Preview what would move from v1's state onto this target

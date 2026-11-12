@@ -5381,9 +5381,10 @@ compilation is needed.
 searched in the destination's same-named section and applied only to a unique
 occurrence (a duplicate or missing section is skipped).
 
-A conflict (both sides meaningful and differing) is reported and nothing is
-written unless `--accept-binsync` or `--accept-local` is given; the command
-exits `1` while any conflict is unresolved.
+A conflicting field stays local unless `--accept-binsync` or `--accept-local`
+resolves it; the command exits `1` while any conflict is unresolved. Other
+eligible fields and definitions can still be applied. Use `--dry-run` to
+preview before writing.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |

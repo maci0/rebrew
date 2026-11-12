@@ -11,8 +11,8 @@ directory names the SOURCE, from ``--from`` or the state ``manifest.toml``
 ``target`` key.  A conflict (both sides carry a meaningful, differing value)
 follows the ``binsync-import`` policy: ``--accept-binsync`` takes the remote
 value, ``--accept-local`` keeps the local one and records the remote value as
-``GHIDRA`` provenance, and with neither the conflict is reported and nothing
-is written (exit 1).
+``GHIDRA`` provenance, and with neither the conflicting field stays local
+(exit 1). Other eligible fields and definitions can still be applied.
 
 Globals are address-keyed to the source binary, so they are matched by exact
 content instead: the source global's bytes are searched in the destination
@@ -871,7 +871,11 @@ def main(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """Overlay a related target's BinSync data onto structurally-matched functions."""
+    """Overlay a related target's BinSync data onto structurally-matched functions.
+
+    Unresolved conflicts exit 1; other eligible fields can still be applied.
+    Use --dry-run to preview before writing.
+    """
     require_declib(json_mode=json_output)
     if accept_binsync and accept_local:
         error_exit(
