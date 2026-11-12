@@ -24,9 +24,9 @@ must never replace the Git dependency.
 - Class-based grouping (`class TestFeature:`), helpers prefixed `_`, tests
   annotated `-> None`.
 - `tests/bin_util.py` provides hand-rolled COFF/PE builders (`make_coff_obj`,
-  `make_lib_archive`, `make_pe`) for tests that need real binaries: LIEF has
-  no builders in the pinned version.  Import it as `from bin_util import ...`
-  (pytest puts the test directory on `sys.path`).
+  `make_lib_archive`, `make_pe`) for tests that need controlled binary
+  fixtures. Import it as `from bin_util import ...` (pytest puts the test
+  directory on `sys.path`).
 
 ## Typer quirks (learned the hard way)
 
@@ -48,10 +48,11 @@ must never replace the Git dependency.
    - Closures that re-enter a callback (e.g. `match._retest` in watch mode)
      must forward **every** CLI param explicitly: a missing one leaks as a
      truthy `OptionInfo` instead of its default.
-3. **Module-level `Console(stderr=True)`** captures stderr at import: output
-   is not capturable via `capsys` or `CliRunner` for modules that build their
-   console at module scope.  Assert JSON stdout or logic side effects instead,
-   and use `result.stdout` (not `result.output`) when the JSON is on stdout.
+3. **Console capture follows the selected stream.** The shared console from
+   `rebrew.utils` resolves the current stderr when writing, so `capsys` and
+   `CliRunner` can capture it. An explicitly supplied `file=` fixes a different
+   destination. Inspect `result.stdout` for normal JSON results and
+   `result.stderr` for structured errors; `result.output` combines streams.
 4. **`typer.Exit` carries no message**: `error_exit` prints it, so
    `pytest.raises(match=...)` cannot match it.  Assert on `result.output`
    instead.
