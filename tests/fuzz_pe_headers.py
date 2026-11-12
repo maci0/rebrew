@@ -112,7 +112,7 @@ def TestOneInput(data: bytes) -> None:
         assert imp.ordinal is None or 0 <= imp.ordinal <= 0xFFFF
         assert (imp.name is None) != (imp.ordinal is None)
     assert len(exports) <= _MAX_PARSED_ENTRIES
-    assert len(imports) <= _MAX_PARSED_ENTRIES * _MAX_PARSED_ENTRIES
+    assert len(imports) <= _MAX_PARSED_ENTRIES
     assert pe["reloc_va"] is None or isinstance(pe["reloc_va"], int)
     # Pair: determinism on exactly the same bytes.
     assert parse_pe(data) == (sections, exports, imports, pe)

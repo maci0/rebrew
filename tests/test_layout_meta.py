@@ -487,3 +487,38 @@ def test_extract_layout_shaped_pe_holds_invariants(blob: bytes) -> None:
     except ValueError:
         return
     _assert_extract_agrees(blob, meta)
+
+
+class TestImportSlotBudget:
+    @pytest.mark.parametrize("parser", ["image", "layout"])
+    @pytest.mark.parametrize("invalid_names", [False, True])
+    @pytest.mark.parametrize("slots_per_dll", [4, 6])
+    def test_limit_covers_all_descriptors(
+        self, monkeypatch: pytest.MonkeyPatch, parser: str, invalid_names: bool, slots_per_dll: int
+    ) -> None:
+        import rebrew.layout_meta as layout_meta
+        from rebrew.formats import pe_image
+
+        raw = bytearray(_make_pe(_SECTIONS))
+        opt = 0x80 + 24
+        struct.pack_into("<II", raw, opt + 104, 0x4000, 60)
+        for index in range(2):
+            struct.pack_into("<IIIII", raw, 0x400 + index * 20, 0x4080, 0, 0, 0x40C0, 0x4080)
+        for index in range(slots_per_dll):
+            struct.pack_into(
+                "<I", raw, 0x480 + index * 4, 0x7FFFFFFF if invalid_names else 0x80000001
+            )
+        raw[0x4C0:0x4C4] = b"DLL\0"
+        monkeypatch.setattr(pe_image, "_MAX_IMPORT_SLOTS", 8)
+        monkeypatch.setattr(layout_meta, "_MAX_IMPORT_SLOTS", 8)
+
+        def count_imports() -> int:
+            if parser == "image":
+                return len(pe_image.parse_pe(bytes(raw))[2])
+            return len(layout_meta.extract_layout(bytes(raw)).imports)
+
+        if slots_per_dll == 4:
+            assert count_imports() == (0 if invalid_names else 8)
+        else:
+            with pytest.raises(ValueError, match="import.*limit"):
+                count_imports()

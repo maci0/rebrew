@@ -94,7 +94,7 @@ def test_parse_pe_mutated_fixture_is_self_consistent(blob: bytes) -> None:
         assert imp.ordinal is None or 0 <= imp.ordinal <= 0xFFFF
         assert (imp.name is None) != (imp.ordinal is None)
     assert len(exports) <= _MAX_PARSED_ENTRIES
-    assert len(imports) <= _MAX_PARSED_ENTRIES * _MAX_PARSED_ENTRIES
+    assert len(imports) <= _MAX_PARSED_ENTRIES
 
     # reloc_va is derived (image_base + reloc_rva) only when the reloc RVA
     # lands in a section, so it is None or an int — never a str or a float.

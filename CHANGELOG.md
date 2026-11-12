@@ -50,6 +50,9 @@
 ### Fixed
 
 - Correct the SDK and name-normalization guides to separate local BinSync field export/import from live ReVa structural operations. Generic incoming names are filtered on pull.
+### Fixed
+
+- PE image and layout parsers share each image's import-slot budget across DLL descriptors, including slots with invalid names. Repeated descriptors can no longer multiply the 65,536-slot limit into billions of import reads or retained records.
 
 ## [6.32.1] - 2026-11-11
 

@@ -149,6 +149,7 @@ def parse_pe(
     # ---- imports (IAT order, per DLL descriptor) ----
     imp_rva, _imp_sz = struct.unpack_from("<II", data, opt + 104)
     imports: list[PeImport] = []
+    import_slots = 0
     io = rva_to_off(imp_rva)
     if io is not None:
         for i in range(_MAX_IMPORT_SLOTS):
@@ -175,6 +176,9 @@ def parse_pe(
                 nm = struct.unpack_from("<I", data, slot_off)[0]
                 if nm == 0:
                     break
+                import_slots += 1
+                if import_slots > _MAX_IMPORT_SLOTS:
+                    raise ValueError("PE import slot limit exceeded")
                 if nm & 0x80000000:
                     imports.append(PeImport(dll, None, nm & 0xFFFF))
                 else:

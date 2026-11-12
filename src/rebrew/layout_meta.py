@@ -379,6 +379,7 @@ def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
 
     # imports with reference IAT slot VAs
     imports: list[ImportMeta] = []
+    import_slots = 0
     if imp_rva:
         io = off(imp_rva)
         if io is not None:
@@ -406,6 +407,9 @@ def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
                     nm = struct.unpack_from("<I", data, slot_off)[0]
                     if nm == 0:
                         break
+                    import_slots += 1
+                    if import_slots > _MAX_IMPORT_SLOTS:
+                        raise ValueError("PE import slot limit exceeded")
                     if nm & 0x80000000:
                         imports.append(ImportMeta(dll, None, nm & 0xFFFF, iat_va + 4 * j))
                     else:
