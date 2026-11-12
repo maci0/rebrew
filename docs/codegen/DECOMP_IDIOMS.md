@@ -48,7 +48,7 @@ era).
 |---|---|---|---|
 | djb2 hash `h*33+c` | `h = h * 33 + c` | `c1 e6 05 03 f0 03 f1` (shl 5 + add + add) | 2.0-6.0 and 8.0+ shl/add; **7.0/7.1 use `imul eax,eax,0x21` (`6b c0 21`)**: the 7.x imul-by-33 fingerprint |
 | atoi `v*10+c-'0'` | the digit loop | `8d 04 80 42 … 8d 44 41 d0` (lea ×5 + lea ×2 + lea -48) | `lea [eax+eax*4]` + `lea [ecx+edx*2-48]`-style: version-scheduled but recognizable |
-| Whitespace skip | `while (*s==' '||*s=='\t') s++;` | `8a 08 80 f9 20 74 05 80 f9 09 75 03 40 eb f1` | byte compares + `inc eax` loop; **8.0 uses `add eax,1` (`83 c0 01`)** |
+| Whitespace skip | `while (*s==' '\|\|*s=='\t') s++;` | `8a 08 80 f9 20 74 05 80 f9 09 75 03 40 eb f1` | byte compares + `inc eax` loop; **8.0 uses `add eax,1` (`83 c0 01`)** |
 | String append | the strlen+copy tail | `80 38 00 … 8a 48 01 40 84 c9 …` | the double-walk loop; 8.0 `add-over-inc` in both increments; 7.0+ `lea esp,[esp]` loop-align |
 
 ## Data-structure walks
