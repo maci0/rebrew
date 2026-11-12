@@ -26,7 +26,7 @@ appear only after trigraph replacement or backslash-newline splicing), and
 size caps.  A fenced block is scanned as C, so a ```` ``` ```` inside a string
 literal, a char literal, or a comment is part of the code instead of ending
 the block, and a fence tagged for another language is skipped whole.  Request
-cost is bounded by source
+size and work are limited by source
 truncation, ``max_tokens``, ``n=1``, an HTTP body ceiling before JSON parse,
 a cap on how many fenced blocks one response may put through the C gate plus a
 stop at the requested seed count (so a response stuffed with fenced blocks
@@ -34,12 +34,13 @@ cannot buy one tree-sitter parse each), and a process-wide request budget
 (``[llm] max_requests``, default 32, overridden per run by
 ``REBREW_LLM_MAX_REQUESTS``;
 ``0`` disables further calls; a set-but-invalid value raises ``ValueError``)
-so ``--seed-llm --watch`` cannot bill unboundedly.  A call count does not
-bound spend on its own, since one request bills a prompt plus a capped
-completion, so a second process-wide ceiling on the tokens themselves
-(``[llm] max_tokens`` / ``REBREW_LLM_MAX_TOKENS``) prices each request before
-it is sent and refuses the one that no longer fits; a request the provider
-billed without reporting ``usage`` is charged its ceiling rather than nothing.
+to limit how often ``--seed-llm --watch`` calls the provider. A separate
+process-wide token budget (``[llm] max_tokens`` / ``REBREW_LLM_MAX_TOKENS``)
+reserves estimated prompt tokens plus the requested completion cap before
+sending a request, and refuses one whose reservation no longer fits.
+Reported ``usage`` is charged as reported; missing usage is charged the
+reservation. The prompt estimate can be low, so actual usage can exceed the
+reservation and the configured token budget.
 A prompt this process
 already sent is answered from an in-process cache instead of the endpoint, so
 a watch rerun that leaves the function under match byte-identical costs
@@ -129,7 +130,7 @@ _MAX_CACHED_PROMPTS = 64
 #: completion gate drops a clipped answer whole, so the request is billed and
 #: not one seed survives.
 _TOKENS_PER_SEED = 512
-#: Hard ceiling on a single completion, whatever the seed count asks for.
+#: Requested token cap for a single completion, whatever the seed count asks for.
 _MAX_COMPLETION_TOKENS = 4_096
 #: Floor for the completion cap, so a request for a single seed still has room
 #: for one whole function definition.
@@ -140,11 +141,8 @@ _MIN_COMPLETION_TOKENS = 256
 _SEED_TEMPERATURE = 0.8
 _MIN_COUNT = 1
 _MAX_COUNT = 8
-#: Characters per token in the prompt-side estimate.  Only used to price a
-#: request the provider has not billed yet (a pre-flight ceiling check, or a
-#: request that failed before reporting ``usage``), so it is a deliberately
-#: coarse divisor held well below the real ratio of a C prompt: over-charging
-#: stops seeding early, under-charging lets the run exceed its budget.
+#: Characters per token in the prompt estimate used for admission and missing usage.
+#: This coarse divisor can undercount the provider's actual prompt tokens.
 _CHARS_PER_TOKEN = 4
 #: Candidates a single response may put through the C gate.  Each one costs a
 #: tree-sitter parse, and the stop at :data:`_MAX_COUNT` seeds only fires once a
@@ -215,13 +213,10 @@ _resolved_timeout: float | None = None
 #: ``_reserve_token_budget`` resolve their limit first), so this lock is
 #: always the innermost and cannot invert an existing order.
 _budget_lock = threading.Lock()
-# Tokens this process has billed.  The call ceiling above bounds how often the
-# endpoint is asked, not what the answers cost: one request bills a prompt plus
-# a capped completion, and raising REBREW_LLM_MAX_REQUESTS multiplies both.  A
-# second ceiling on the tokens themselves is what keeps a long ``--watch`` run
-# on a big function inside a budget, so the spend is charged here as well.
+# Reported token usage plus estimated charges for requests with no usage report.
+# Admission counts in-flight reservations too; estimates can undercount real usage.
 _spent_tokens = 0
-#: Ceilings of requests that passed the budget check and are waiting on the
+#: Estimated tokens reserved for admitted requests that are waiting on the
 #: provider.  Guarded by :data:`_token_lock` with :data:`_spent_tokens`.
 _reserved_tokens = 0
 _token_lock = threading.Lock()
@@ -672,7 +667,7 @@ def _max_requests() -> int:
 
 
 def _max_tokens() -> int:
-    """Process-wide LLM token ceiling (resolved config, else env; ``0`` lifts it)."""
+    """Process-wide token admission budget (resolved config, else env; ``0`` lifts it)."""
     with _budget_lock:
         resolved = _resolved_max_tokens
     if resolved is not None:
@@ -681,12 +676,10 @@ def _max_tokens() -> int:
 
 
 def spent_tokens() -> int:
-    """Tokens billed by the LLM requests this process has sent.
+    """Tokens charged to the process's seeding budget.
 
-    What a provider reported, plus the worst case for a request that reported
-    nothing (a timeout, a 5xx after generation, an endpoint that omits
-    ``usage``), so the number is an upper bound on real spend rather than a
-    partial total that reads like a whole one.
+    Provider-reported usage is counted as-is. Requests without usable usage
+    are charged their estimated reservation, which can undercount real usage.
     """
     with _token_lock:
         return _spent_tokens
@@ -706,7 +699,7 @@ def _completion_token_cap(count: int) -> int:
 
 
 def _request_token_ceiling(source: str, count: int) -> int:
-    """Most tokens one seed request for *source* can bill.
+    """Estimated token reservation for one seed request for *source*.
 
     The completion cap plus an estimate of the prompt, which is the exact
     text :func:`chat_messages` sends: the system prompt and the sanitized,
@@ -720,9 +713,9 @@ def _request_token_ceiling(source: str, count: int) -> int:
 
 
 def _reserve_token_budget(ceiling: int) -> bool:
-    """Commit *ceiling* tokens to one request, or report the budget exhausted.
+    """Reserve the estimated *ceiling*, or report the token budget exhausted.
 
-    The check and the commit are one critical section, and the ceiling stays
+    The check and the commit are one critical section, and the reservation stays
     committed until :func:`_charge_tokens` reconciles it against what the
     provider actually billed.  Testing the budget on its own was a
     check-then-act across a network round trip: a ``match --seed-llm -j N``
@@ -744,7 +737,7 @@ def _reserve_token_budget(ceiling: int) -> bool:
 
 
 def _release_token_budget(ceiling: int) -> None:
-    """Give back a ceiling reserved by :func:`_reserve_token_budget`.
+    """Give back the estimate reserved by :func:`_reserve_token_budget`.
 
     For a request that was admitted and then never sent, so the process keeps
     the whole budget for a later call.
@@ -757,9 +750,10 @@ def _release_token_budget(ceiling: int) -> None:
 def _charge_tokens(tokens: int, *, billed_ceiling: int = 0) -> None:
     """Reconcile one in-flight request's reservation against what it billed.
 
-    *billed_ceiling* is the ceiling :func:`_reserve_token_budget` committed for
-    this request; it is given back either way, and only the provider's report
-    (or that same ceiling, when nothing usable came back) stays spent.
+    *billed_ceiling* is the estimate :func:`_reserve_token_budget` committed for
+    this request. The reservation is released and the provider's reported usage
+    is charged as-is, even if it exceeds the estimate. Missing usage is charged
+    that estimate instead.
     """
     global _spent_tokens, _reserved_tokens
     with _token_lock:
@@ -1208,10 +1202,10 @@ def _cache_seeds(key: str, seeds: list[str]) -> None:
 def _record_usage(record: SeedUsage, *, billed_ceiling: int) -> None:
     """Add *record* to the cost total this thread's run summary reports.
 
-    *billed_ceiling* is the most the request could have cost (see
-    :func:`_request_token_ceiling`).  It charges the process token budget
-    whenever the provider reported no usable ``total_tokens``, so a request
-    that was billed but never reported cannot slip past the ceiling.
+    *billed_ceiling* is the request's estimated token reservation (see
+    :func:`_request_token_ceiling`). It is charged when the provider reports no
+    usable ``total_tokens``; otherwise the reported total is charged as-is.
+    Neither the estimate nor this accounting guarantees an upper bound on spend.
     """
     total: SeedUsage | None = getattr(_usage_tls, "value", None)
     _usage_tls.value = record if total is None else merge_usage(total, record)
@@ -1229,7 +1223,7 @@ def _record_attempt(model: str, duration_s: float, *, billed_ceiling: int) -> No
     paid endpoint looks free.  The elapsed time is the only cost evidence
     there is; the token counts stay None, which ``describe()`` renders as
     "token usage unreported" rather than as a zero.  The token budget is still
-    charged the request's ceiling, because the provider may have billed it.
+    charged the request's estimate, because the provider may have billed it.
     """
     _record_usage(
         SeedUsage(
@@ -1354,9 +1348,9 @@ def _request(
 ) -> list[str]:
     """POST the prompt and return validated C seeds.
 
-    *billed_ceiling* is what the request can cost at most, priced by
-    :func:`_request_token_ceiling` and charged to the process token budget if
-    the provider reports no count.
+    *billed_ceiling* is the estimate from :func:`_request_token_ceiling`,
+    reserved before sending and charged to the token budget if the provider
+    reports no count. Reported usage can exceed that estimate.
 
     Raises on HTTP/parse failure — the no-raise guarantee for the GA is
     enforced by the caller :func:`request_seeds`.
@@ -1538,11 +1532,11 @@ def request_seeds(
     cost in the total rather than hiding it.  An identical prompt this process
     already answered is answered from :func:`_cached_seeds` instead: no HTTP,
     no request slot, and no cost record, because nothing was billed.
-    Two budgets can say no before a request is sent: the call ceiling
-    (``REBREW_LLM_MAX_REQUESTS``) and the token ceiling
-    (``REBREW_LLM_MAX_TOKENS``, which a request reserves its own worst case
-    against before it goes out, so parallel workers cannot each pass the same
-    headroom), which is what bounds a run whose per-request cost is large.
+    Two budgets can refuse a request before it is sent: the call count
+    (``REBREW_LLM_MAX_REQUESTS``) and the token admission budget
+    (``REBREW_LLM_MAX_TOKENS``). Token estimates are reserved atomically so
+    parallel workers cannot reuse the same headroom. Reported usage is charged
+    as-is and can exceed the estimate and the configured token budget.
     """
     try:
         conf = llm_config(cfg)
@@ -1611,10 +1605,7 @@ def _request_seed_answer(
     client: Any | None,
 ) -> list[str]:
     """Send the one endpoint request for *key* and cache a non-empty answer."""
-    # Price the request before it is sent: the call ceiling says how often the
-    # endpoint may be asked, this says what the answer may cost.  A cached
-    # prompt was answered by the caller, so this runs only on a request that
-    # would bill.
+    # Reserve an estimated cost before sending; cached prompts never reach here.
     billed_ceiling = _request_token_ceiling(source, count)
     if not _reserve_token_budget(billed_ceiling):
         logging.warning(
@@ -1627,7 +1618,7 @@ def _request_seed_answer(
         return []
     if not _consume_request_slot():
         # Admitted against the token budget, then refused by the call ceiling:
-        # nothing is sent, so the ceiling goes back to the pool.
+        # nothing is sent, so the reservation goes back to the pool.
         _release_token_budget(billed_ceiling)
         logging.warning(
             "LLM seeding request budget exhausted (%s calls this process; "
@@ -1667,7 +1658,7 @@ def _request_seed_answer(
         return []
     except BaseException:
         # KeyboardInterrupt, SystemExit: no cost record follows, so hand the
-        # reserved ceiling back rather than leaving it stranded for every
+        # reservation back rather than leaving it stranded for every
         # later request in this process.
         _release_token_budget(billed_ceiling)
         raise
