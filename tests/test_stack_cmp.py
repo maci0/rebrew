@@ -151,6 +151,45 @@ class TestCompareFrames:
 
 
 class TestRunStackCmp:
+    @pytest.mark.parametrize("arch", ["arm32", "mips32", "ppc32"])
+    @pytest.mark.parametrize("json_mode", [False, True])
+    def test_non_x86_is_refused_before_resolving_or_compiling(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, arch: str, json_mode: bool
+    ) -> None:
+        cfg = SimpleNamespace(arch=arch)
+        source = tmp_path / "f.c"
+        params = SimpleNamespace(
+            cfg=cfg,
+            seed_c=source,
+            seed_src="void f(void) {}",
+            cl="cl",
+            inc="",
+            cflags="",
+            symbol="f",
+            msvc_env=None,
+            cc=None,
+            target_bytes=bytes.fromhex("10d04de2"),
+            va_int=0x1000,
+        )
+        calls = []
+
+        def resolve(*args, **kwargs):
+            calls.append("resolve")
+            return params
+
+        def compile_(*args, **kwargs):
+            calls.append("compile")
+            return SimpleNamespace(ok=True, obj_bytes=bytes.fromhex("20d04de2"), error_msg="")
+
+        monkeypatch.setattr("rebrew.stack_cmp.require_config", lambda **kwargs: cfg)
+        monkeypatch.setattr("rebrew.match_sweep.resolve_arg_params", resolve)
+        monkeypatch.setattr("rebrew.matcher.compiler.build_candidate_obj_only", compile_)
+        args = (["--json"] if json_mode else []) + [str(source)]
+        result = CliRunner().invoke(app, args)
+        assert result.exit_code == EXIT_ERROR, result.output
+        assert arch in result.stderr and "x86" in result.stderr
+        assert calls == []
+
     def _patch(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, obj_bytes: bytes
     ) -> SimpleNamespace:

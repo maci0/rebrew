@@ -38,6 +38,14 @@ def run_stack_cmp(
 ) -> None:
     """Compile *seed_c* and compare its stack frame against the target."""
     cfg = require_config(target=target, json_mode=json_output)
+    arch = getattr(cfg, "arch", "")
+    if arch not in {"x86_16", "x86_32", "x86_64"}:
+        error_exit(
+            f"Stack frame comparison supports x86_16, x86_32 and x86_64; "
+            f"target architecture is {arch!r}",
+            json_mode=json_output,
+            code=EXIT_ERROR,
+        )
 
     from rebrew.match_sweep import resolve_arg_params
 
@@ -110,7 +118,7 @@ _EPILOG = (
     "  rebrew diagnose stack src/game/my_func.c  # Compare frame vs target\n\n"
     "  rebrew diagnose stack 0x10009310  # Resolve VA to its source\n\n"
     "  rebrew diagnose stack src/game/my_func.c --json  # JSON output\n\n"
-    "[dim]Derives the frame from disassembly on both sides (no PDB needed; works for MSVC 6.0 classic PDBs llvm-pdbutil cannot read).  A frame delta is a per-function flag symptom (/Oy, /O1 vs /O2, /Gs, calling convention).[/dim]\n\n"
+    "[dim]Derives x86 16/32/64-bit frames from disassembly on both sides (no PDB needed; works for MSVC 6.0 classic PDBs llvm-pdbutil cannot read). A frame delta suggests experiments with /Oy, /O1 vs /O2, /Gs and calling convention.[/dim]\n\n"
     "Exit codes: 0 frames match; 1 frame mismatch; 2 usage/config/build error; 130 interrupted; 141 output pipe closed."
 )
 

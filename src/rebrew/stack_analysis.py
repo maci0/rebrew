@@ -4,12 +4,12 @@ reccmp ``stackcmp`` adapted to rebrew's architecture.  reccmp reads
 local-variable records from the recomp PDB (cvdump, VC7+ PDBs); rebrew
 compiles per-function objects and has no recomp PDB in its pipeline, so the
 frame is derived from **disassembly on both sides** — the target bytes and
-the compiled ``.obj`` — which works for every toolchain including MSVC 6.0
+the compiled ``.obj``, for x86 16/32/64-bit code including MSVC 6.0
 (whose classic PDBs ``llvm-pdbutil`` cannot read anyway).
 
 Compared:
 
-- ``frame_size``   — max stack depth (ESP tracking across push/pop/sub/add/
+- ``frame_size``   - peak tracked depth in linear disassembly (ESP across push/pop/sub/add/
   ``lea esp``/enter/pushad)
 - ``frame_pointer`` — ebp-frame (``push ebp; mov ebp,esp``) vs esp-based
   (frame-pointer omission, ``/Oy``)
@@ -17,10 +17,9 @@ Compared:
 - ``slots``        — the set of ``[ebp±N]``/``[bp±N]`` displacements
   referenced (local-variable layout)
 
-A frame delta is a classic per-function flag symptom — frame-pointer omission
-(``/Oy``), missing/extra locals, ``/Gs`` stack probes, wrong calling
-convention — the exact signal for tuning static-CRT / vendored-zlib LIBRARY
-functions per-function (the reccmp <50% grind).
+A frame delta suggests experiments with frame-pointer omission (``/Oy``),
+locals, ``/Gs`` stack probes and calling convention when tuning library code.
+Source and control-flow differences can also produce the same delta.
 
 The library half of the ``rebrew diagnose stack`` command: deriving a frame from
 disassembly and diffing two frames is pure analysis, with no Typer app and no
@@ -44,14 +43,14 @@ _ENTER_SIZE_RE = re.compile(r"(0x[0-9a-fA-F]+|\d+)")
 
 
 def analyze_frame(code: bytes, va: int, cs_mode: int) -> dict[str, Any]:
-    """Derive the stack frame of *code* from disassembly.
+    """Derive the x86 stack frame of *code* from disassembly.
 
     Tracks ESP across explicit stack operations (push/pop/pushad/sub/add/
     ``lea esp``/enter) — ``call`` is deliberately not tracked because its
     return pops the pushed address, netting zero.  Returns:
 
-    - ``frame_size``: max stack depth in bytes (0 when the function allocates
-      nothing on the stack)
+    - ``frame_size``: peak tracked depth in linear disassembly, in bytes
+      (0 when no stack allocation is tracked); this does not follow control flow
     - ``frame_pointer``: True when an ebp/bp frame is established
       (``push ebp; mov ebp, esp`` or ``enter N, 0``)
     - ``ret_popping``: the ``ret N`` argument-pop count (0 = plain ``ret``)
@@ -153,8 +152,8 @@ def compare_frames(target: dict[str, Any], compiled: dict[str, Any]) -> dict[str
 
     Frame size / pointer / ret-popping are always compared; the ``[ebp±N]``
     slot layout only when BOTH sides use a frame pointer (an esp-based side
-    has no comparable displacement set).  Hints are flag-focused — the
-    actionable signal for per-function CFLAGS tuning.
+    has no comparable displacement set). Hints suggest CFLAGS experiments;
+    they do not establish the cause of a difference.
     """
     diffs: list[str] = []
     hints: list[str] = []
