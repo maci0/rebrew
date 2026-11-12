@@ -63,6 +63,21 @@ class TestAnalyzeFrame:
     ) -> None:
         assert analyze_frame(bytes.fromhex(code), 0x1000, mode)["frame_size"] == expected
 
+    @pytest.mark.parametrize(
+        ("mode", "prefix", "word"),
+        [(2, "", 2), (4, "", 4), (8, "", 8), (2, "66", 4), (4, "66", 2), (8, "66", 2)],
+    )
+    @pytest.mark.parametrize(
+        ("encoded_level", "saved_frames"), [(0, 1), (1, 2), (2, 3), (32, 1), (33, 2), (255, 32)]
+    )
+    def test_enter_counts_nested_frame_pointers(
+        self, mode: int, prefix: str, word: int, encoded_level: int, saved_frames: int
+    ) -> None:
+        code = bytes.fromhex(prefix + "c81000") + bytes([encoded_level, 0xC3])
+        frame = analyze_frame(code, 0x1000, mode)
+        assert frame["frame_size"] == 16 + word * saved_frames
+        assert frame["frame_pointer"] is True
+
     def test_ebp_frame_size_and_slots(self) -> None:
         f = analyze_frame(EBP_FRAME_0X28, 0x1000, 4)
         assert f["frame_size"] == 0x2C  # push ebp (4) + sub esp 0x28 (40)

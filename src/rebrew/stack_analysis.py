@@ -39,7 +39,6 @@ lazy from rebrew.utils import parse_int_literal
 
 _EBP_SLOT_RE = re.compile(r"\[(?:[er]?bp)\s*([+-])\s*(0x[0-9a-fA-F]+|\d+)\]")
 _ESP_DELTA_RE = re.compile(r"\[(?:[er]?sp)\s*([+-])\s*(0x[0-9a-fA-F]+|\d+)\]")
-_ENTER_SIZE_RE = re.compile(r"(0x[0-9a-fA-F]+|\d+)")
 
 
 def analyze_frame(code: bytes, va: int, cs_mode: int) -> dict[str, Any]:
@@ -115,10 +114,9 @@ def analyze_frame(code: bytes, va: int, cs_mode: int) -> dict[str, Any]:
                     delta = parse_int_literal(m.group(2))
                     esp += -delta if m.group(1) == "-" else delta
         elif mnem == "enter":
-            m = _ENTER_SIZE_RE.search(op_str)
-            if m:
-                size = parse_int_literal(m.group(1))
-                esp -= stack_word + size
+            size = insn.operands[0].imm
+            nesting = insn.operands[1].imm & 31
+            esp -= stack_word * (nesting + 1) + size
             frame_pointer = True
         elif mnem == "ret" and op_str:
             ret_popping = parse_int_literal(op_str)
