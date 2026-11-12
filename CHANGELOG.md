@@ -29,62 +29,52 @@
 - Repair the config-editor reference: separate the key and value in the `cfg set compiler.cflags` example and name the current `cfg target list` route.
 
 - Correct the name-normalization guide: only Ghidra `FUN_` names become `func_` during C-name sanitization; rizin discovery retains `fcn.` labels and other tool prefixes are not universally rewritten.
-### Fixed
 
 - NE imports discard truncated module-name strings instead of reporting partial or empty DLL names as complete imports.
 
 - Raw binary reads reject negative sizes before reading the file. A size of -1 previously reached Python's read-to-EOF fallback and returned every remaining byte.
 
-### Fixed
-
 - Remove stale pre-commit hook counts from the development guide; the configured pytest hook remains limited to the pre-push stage.
+
 - Remove stale architecture claims about Ghidra function deletion and separate external build-hook executables; structural sync creates functions, bookmarks and data pulls, while build hooks use the unified executable. The ecosystem guide now points field-conflict resolution to `sync pull` and separates it from MCP operations.
+
 - Correct onboarding and intake skill prerequisites: shipped profiles require images, with Docker as the default runtime and Podman or experimental unshare available as documented in the toolchain guide.
+
 - Correct `todo` help and reversing guides to describe ranking by affected byte extent, with estimated effort breaking ties. Small functions are not automatically first.
+
 - Repair the config-editor reference: separate the key and value in the `cfg set compiler.cflags` example and name the current `cfg target list` route.
+
 - Correct the name-normalization guide: only Ghidra `FUN_` names become `func_` during C-name sanitization; rizin discovery retains `fcn.` labels and other tool prefixes are not universally rewritten.
+
 - Clarify flag-sweep axes: a flag set may omit all its flags, and large tiers sample the grid. The documented combination counts include that empty choice.
-### Fixed
 
 - Document shipped Delphi whole-program builds and NE byte comparison, replacing the research-only description while retaining the per-function verification limit.
-### Fixed
 
 - Correct the SDK and name-normalization guides to separate local BinSync field export/import from live ReVa structural operations. Generic incoming names are filtered on pull.
-### Fixed
 
 - PE image and layout parsers share each image's import-slot budget across DLL descriptors, including slots with invalid names. Repeated descriptors can no longer multiply the 65,536-slot limit into billions of import reads or retained records.
-### Fixed
 
 - Repair the FLIRTDB quick start: scan its nested signature checkout directly instead of copying from a nonexistent `vc6/` directory or relying on recursive shell globs.
-### Fixed
 
 - Identify `OLDNAMES.LIB` as the CRT legacy-name alias library in the signature guide, replacing the incorrect old-iostream description.
-### Fixed
 
 - Correct measured CLI entry counts for `metadata` and `source`; the metadata summary now includes replica reconciliation and backend-neutral backups.
-### Fixed
 
 - Binary loading checks the 512 MiB file-size limit before format parsing, so oversized files are rejected before native parsers allocate for them. Previously the limit only ran when raw bytes were requested afterward.
-### Fixed
 
 - Correct the RELOC reference to describe masked-byte agreement without claiming semantic correctness or resolved bindings for uncatalogued operands.
-### Fixed
 
 - Invalid UTF-8 in a Ghidra data-label export now warns and skips the corrupt labels, like invalid JSON, instead of crashing coverage catalog loading. The legacy switch-data filename follows the same recovery path.
-### Fixed
 
 - Clarify scaffold-drift guidance: refreshing removes unchanged tracked retired skill files, while locally modified retired files are reported and retained.
-### Fixed
 
 - Repair metadata backup guidance: PostgreSQL requires a database dump plus a separate project-file copy; SQLite recovery journals must be preserved. Document `pgsql` as a supported migration destination.
-### Fixed
 
 - Sandbox sweeping keeps a tree when any part of its age cannot be read, instead of deleting live work hidden behind enumeration or stat failures. Only the current user's mode-zero overlay metadata at overlay-work/work is made readable before aging; unrelated unreadable directories remain untouched.
-### Fixed
 
 - Document that SQLite metadata backups require a separate copy of `rebrew-project.toml`; TOML bundles include the configuration file.
+
 - Correct metadata backup scope: source trees need separate backups, and configured reference binaries or BinSync directories with absolute or parent-relative paths are not included.
-### Fixed
 
 - Distinguish metadata backup copy verification from record validation: TOML backup preserves bytes, restore checks TOML syntax, and SQLite adds database schema/integrity checks.
 
