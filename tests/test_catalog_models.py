@@ -37,6 +37,17 @@ class TestFunctionEntryFromDict:
         assert e.size == 64
         assert e.name == "a"
 
+    @pytest.mark.parametrize("field", ["va", "size"])
+    @pytest.mark.parametrize("value", [-1, -1.0, "-0x1"])
+    def test_negative_extent_is_rejected(self, field: str, value: float | str) -> None:
+        row = {"va": 1, "size": 4, field: value}
+        with pytest.raises(ValueError, match="non-negative"):
+            FunctionEntry.from_dict(row)
+
+    def test_zero_extent_remains_representable(self) -> None:
+        entry = FunctionEntry.from_dict({"va": 0, "size": 0})
+        assert (entry.va, entry.size) == (0, 0)
+
     def test_missing_keys_raise(self) -> None:
         with pytest.raises(
             ValueError, match=re.escape("must contain 'va' and 'size': got ['name', 'va']")

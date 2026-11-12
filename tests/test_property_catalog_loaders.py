@@ -147,6 +147,7 @@ def test_function_structure_survive_arbitrary_json(entries: list[dict[str, Any]]
     for entry in loaded:
         assert isinstance(entry, FunctionEntry)
         assert isinstance(entry.va, int) and isinstance(entry.size, int)
+        assert entry.va >= 0 and entry.size >= 0
         assert isinstance(entry.name, str) and isinstance(entry.tool_name, str)
 
 
@@ -160,6 +161,7 @@ def test_function_entry_from_dict_types_hold(entries: list[dict[str, Any]]) -> N
         except ValueError:
             continue
         assert isinstance(entry.va, int) and isinstance(entry.size, int)
+        assert entry.va >= 0 and entry.size >= 0
         assert isinstance(entry.name, str) and isinstance(entry.tool_name, str)
 
 

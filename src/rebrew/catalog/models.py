@@ -80,6 +80,8 @@ class FunctionEntry:
             raise ValueError(f"FunctionEntry dict must contain 'va' and 'size': got {sorted(d)}")
         va = _parse_int(va)
         size = _parse_int(size)
+        if va < 0 or size < 0:
+            raise ValueError("FunctionEntry va and size must be non-negative")
         return cls(
             va=va,
             size=size,
