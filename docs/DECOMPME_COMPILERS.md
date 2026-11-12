@@ -108,7 +108,7 @@ The Processor Pack was Microsoft's free VC 6.0 add-on. Rebrew ships it as
 `archaic-msvc/msvc600_sp5_vcpp`. The pack replaces the code generator
 (`c2.dll` 13.00.9044.0), adds MASM 6.15 (`ml.exe`), and installs the
 MMX/SSE/SSE2 intrinsic headers. See
-[TOOLCHAIN.md](TOOLCHAIN.md#vc6--processor-pack-msvc-60-sp5-pp).
+[TOOLCHAIN.md](TOOLCHAIN.md) ("VC6 + Processor Pack (msvc-6.0-sp5-pp)").
 
 `cl.exe` is unchanged at 12.00.8804. `/O2` and `/O2 /G6` codegen is
 byte-identical to stock SP5 on the probe shapes, so the pack adds no corpus

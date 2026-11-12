@@ -84,7 +84,7 @@ When it finishes you get a summary like:
 Intake complete: server (msvc-8.0)
   detected family: msvc (MSVC 14.00 …)
   functions: 259, documented: 259
-  toolchain: msvc-8.0 runs through docker image rebrew/msvc:8.0-win32 — run 'rebrew toolchain build msvc-8.0' if the image is missing
+  toolchain: msvc-8.0 runs through docker image rebrew/msvc:8.0-win32; run 'rebrew toolchain build msvc-8.0' if the image is missing
   next: rebrew doctor && rebrew status --json
   first run? see the rebrew repo's docs/ONBOARDING.md for the walkthrough
 ```

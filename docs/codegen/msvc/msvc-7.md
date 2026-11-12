@@ -127,7 +127,7 @@ first to post-shift division magic.
 
 - **VC 7.0 SP1 differs from RTM on 32 distinct functions in the corpus,
   all at `/O2`.** VC 8.0 SP1 also differs on probe17 `_alloc_flags`;
-  see [RULES.md J1](../RULES.md#j-toolchain-identity--packaging).
+  see [RULES.md J1](../RULES.md#j-toolchain-identity-packaging).
   (a) The `==`/`!=` FP
   family is structurally different: `fcmp2` (`a==b`), `fc5`
   (`a!=0.0`), `fc8` (`a!=b`), `fc9` (`a==0.0`) all switch from the

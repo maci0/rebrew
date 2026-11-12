@@ -179,7 +179,7 @@ as corpus validation negatives, not claims of absence elsewhere.
   `clear_fresh` (fresh-alloc inline clear; guild 2-5× + server.dll 5× +
   pinball 2×), `clear_opaque` (inline rep-stosd memset, guild 1×),
   `byte_dead`/`byte_live2`/`fold_dead`/`f17_switch_dead` (the xor-form
-  zero-extend byte loads, guild 1-2×) and `negidm1` (the setne-neg
+  zero-extend byte loads, guild 1-2×) and `negidm1` (the setne+neg
   form, guild 1×) all hit; the `uc_add` and-form (`and eax,0xff`) is the
   single most common guild marker (29-53×).  **Negatives**: the exact
   fused `negidm2` bytes, the `test ah,0x60` flag-preamble, the
@@ -214,7 +214,7 @@ as corpus validation negatives, not claims of absence elsewhere.
   byte-exact in the scanned set; recorded as validation negatives.
 - Probe28 additions (decompedia DP + CODEGEN_PATTERNS sources): `cmp_ge1`/
   `cmp_lt1` (guild 6-8× + server.dll 1× + pinball 2×), `cmp_gt0`/
-  `cmp_le0` (guild 6-12×), `m1idiom`/`m1alt` (the setne+neg -1 compare;
+  `cmp_le0` (guild 6-12×), `m1idiom`/`m1alt` (the setne+dec -1 compare;
   guild 6-8× + server.dll 1×), `fp4` (float const form; guild 3×),
   `ret_int` (guild 8×) and `rot3`/`rot16` (shift-pair; TL 3×) all
   hit.  **Negatives**: `fp1`/`fp2`/`fp3` (the fadd/fsub const forms;

@@ -1,9 +1,9 @@
 # Flag-Sweep Tiers
 
 `rebrew match flags` (and `rebrew match batch --algorithm flags`)
-compiles a function across a grid of MSVC6 flag combinations and reports the
-best-matching variant. The grid is tiered by coverage against runtime; the two
-largest tiers are sampled (see below).
+compiles a function across the configured profile's flag grid and reports the
+best-matching variant. The MSVC6 grid below is tiered by coverage against
+runtime; its two largest tiers are sampled (see below).
 
 Tier definitions live in `src/rebrew/flag_data.py`: the
 `MSVC_SWEEP_TIERS` dict maps a tier name to a list of flag-axis IDs from
@@ -123,8 +123,9 @@ and `rebrew-matching/SKILL.md` for the AI-agent workflow that wraps the GA engin
 
 ## Non-MSVC6 sweep grids
 
-The tier table above lists the MSVC6 axes (`MSVC6_FLAGS`), which is what the
-CLI sweep runs.  `MSVC_SWEEP_TIERS` is shared with the 7.x-and-later flag set
+The tier table above lists the MSVC6 axes (`MSVC6_FLAGS`). Single-profile
+sweeps select axes and tiers for the configured compiler profile.
+`MSVC_SWEEP_TIERS` is shared with the 7.x-and-later flag set
 (`COMMON_MSVC_FLAGS`), where `normal` and `thorough` also resolve `msvc_fp`
 (`/fp:*`): an id that `MSVC6_FLAGS` does not carry, so it contributes nothing
 there.  The toolchain sweep (`rebrew match toolchains --flags`) enumerates
@@ -134,7 +135,7 @@ non-MSVC6 grids below are selected per profile.
 
 ### MSVC 1.52 (16-bit)
 
-`rebrew match toolchains --toolchains msvc-1.52 --flags`
+`rebrew match toolchains src/game/my_func.c --toolchains msvc-1.52 --flags`
 sweeps the 16-bit CL flags (`/Od /O1 /O2 /Ox` opt, `/AS /AM /AC /AL`
 **memory models**, `/G2 /G3` codegen, `/Aw /Au` far-data, `/Gs`/`/Za`
 toggles): quick=25, targeted=75, normal=450, thorough=900 combinations.
