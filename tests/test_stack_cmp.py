@@ -24,6 +24,16 @@ NOFRAME = b"\x90\x90\xc3"  # nop; nop; ret — no stack activity
 
 
 class TestAnalyzeFrame:
+    @pytest.mark.parametrize(
+        ("mode", "prefix", "expected"),
+        [(2, b"", 16), (4, b"", 32), (2, b"\x66", 32), (4, b"\x66", 16)],
+    )
+    def test_push_all_pop_all_use_decoded_operand_width(
+        self, mode: int, prefix: bytes, expected: int
+    ) -> None:
+        code = prefix + b"\x60" + prefix + b"\x61\x50\xc3"
+        assert analyze_frame(code, 0x1000, mode)["frame_size"] == expected
+
     def test_ebp_frame_size_and_slots(self) -> None:
         f = analyze_frame(EBP_FRAME_0X28, 0x1000, 4)
         assert f["frame_size"] == 0x2C  # push ebp (4) + sub esp 0x28 (40)

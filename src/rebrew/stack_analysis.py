@@ -81,10 +81,10 @@ def analyze_frame(code: bytes, va: int, cs_mode: int) -> dict[str, Any]:
 
         if mnem in ("push", "pop"):
             esp += -word if mnem == "push" else word
-        elif mnem in ("pushad", "pusha"):
-            esp -= 8 * word
-        elif mnem in ("popad", "popa"):
-            esp += 8 * word
+        elif mnem in ("pushad", "pusha", "pushal", "pushaw"):
+            esp -= 16 if mnem in ("pusha", "pushaw") else 32
+        elif mnem in ("popad", "popa", "popal", "popaw"):
+            esp += 16 if mnem in ("popa", "popaw") else 32
         elif mnem in ("sub", "add") and "sp" in op_str:
             # Only a register destination adjusts ESP — `sub dword ptr
             # [esp+4], 0x10` adjusts a stack slot, not the pointer, and
