@@ -196,7 +196,7 @@ def _parse_sse_response(text: str) -> JsonRpcResponse | None:
         if stripped.startswith("data:"):
             try:
                 decoded = json.loads(stripped[5:].lstrip())
-            except json.JSONDecodeError:
+            except ValueError:
                 continue
             if not isinstance(decoded, dict):
                 continue
@@ -395,7 +395,7 @@ def fetch_mcp_tool(
     if len(text_items) > 1:
         objects = []
         for it in text_items:
-            with contextlib.suppress(json.JSONDecodeError):
+            with contextlib.suppress(ValueError):
                 objects.append(json.loads(it.text))
         if not objects:
             logger.warning(
@@ -411,7 +411,7 @@ def fetch_mcp_tool(
         if isinstance(parsed, list):
             return parsed
         return [parsed]
-    except json.JSONDecodeError:
+    except ValueError:
         logger.warning(
             "MCP tool %s request %s returned invalid JSON text content",
             tool_name,
@@ -450,12 +450,12 @@ def fetch_mcp_tool_raw(
         raw = text_items[0].text
         try:
             return json.loads(raw)
-        except json.JSONDecodeError:
+        except ValueError:
             return raw
     # Multiple text items: parse each as JSON, collect into list
     objects = []
     for it in text_items:
-        with contextlib.suppress(json.JSONDecodeError):
+        with contextlib.suppress(ValueError):
             objects.append(json.loads(it.text))
     if not objects:
         logger.warning(

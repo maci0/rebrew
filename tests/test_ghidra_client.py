@@ -1461,3 +1461,42 @@ class TestApplyRunSummary:
             monkeypatch.setattr("httpx.Client", lambda **kw: _FakeClient(script))
             apply_commands_via_mcp([self._cmd("create-function", address="0x1")])
         assert any("1 op(s) applied in " in r.getMessage() for r in caplog.records)
+
+
+class TestMcpNumericLimits:
+    _BAD_JSON = '{"value":' + "9" * 5000 + "}"
+
+    def test_sse_skips_oversized_integer_and_reaches_the_response(self) -> None:
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {"content": [{"type": "text", "text": "ok"}]},
+        }
+        body = "data: " + self._BAD_JSON + "\ndata: " + json.dumps(payload) + "\n"
+        client, response = _mock_client(text=body, content_type="text/event-stream")
+        result = _call_mcp_tool(client, "http://x", "get-functions", {}, 1, "")
+        assert result is not None
+        assert result.content[0].text == "ok"
+        assert response.closed is True
+
+    @pytest.mark.parametrize("raw", [False, True])
+    @pytest.mark.parametrize("multiple", [False, True])
+    def test_tool_text_uses_existing_malformed_json_fallbacks(
+        self, raw: bool, multiple: bool
+    ) -> None:
+        from rebrew.ghidra import fetch_mcp_tool, fetch_mcp_tool_raw
+
+        content = [{"type": "text", "text": self._BAD_JSON}]
+        if multiple:
+            content.append({"type": "text", "text": '{"ok":true}'})
+        payload = {"jsonrpc": "2.0", "id": 1, "result": {"content": content}}
+        client, response = _mock_client(text=json.dumps(payload))
+        fetch = fetch_mcp_tool_raw if raw else fetch_mcp_tool
+        result = fetch(client, "http://x", "get-functions", {}, 1)
+        if multiple:
+            assert result == [{"ok": True}]
+        elif raw:
+            assert result == self._BAD_JSON
+        else:
+            assert result == []
+        assert response.closed is True
