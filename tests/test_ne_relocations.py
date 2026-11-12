@@ -134,6 +134,23 @@ class TestAdditiveByteFixup:
         assert sl.image == b"\x90" + bytes([expected]) + trailing
         assert sl.applied == 1
         assert sl.unapplied == {}
+class TestFixupSegmentBoundary:
+    @pytest.mark.parametrize("crosses_boundary", [False, True])
+    def test_fixup_table_stops_at_next_stored_segment(self, crosses_boundary: bool) -> None:
+        # Six bytes plus one count and record end exactly at the next sector.
+        code = b"\xff\xff\x90\x90\x90\x90"
+        records = bytearray(_records((5, 0, 0, 1, 0x20)))
+        if crosses_boundary:
+            struct.pack_into("<H", records, 0, 2)
+        data = _ne(code, bytes(records))
+        if crosses_boundary:
+            with pytest.raises(NeParseError, match="truncated fixup block"):
+                build_ne_slice(data, 1)
+        else:
+            sl = build_ne_slice(data, 1)
+            assert sl.image == b"\x20\x00" + code[2:]
+            assert sl.applied == 1
+            assert sl.unapplied == {}
 
 
 def test_a_truncated_relocation_block_is_a_parse_error() -> None:

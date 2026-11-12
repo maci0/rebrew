@@ -154,11 +154,13 @@ def read_segment_fixups(data: bytes, segment: NeSegment, raw: bytes) -> dict[int
 class _Builder:
     """Applies the fixups of one segment to a copy of its bytes."""
 
-    def __init__(self, data: bytes, header: NeHeader, ne_offset: int, segment: NeSegment) -> None:
+    def __init__(
+        self, data: bytes, header: NeHeader, ne_offset: int, segment: NeSegment, fixup_limit: int
+    ) -> None:
         self.segment = segment
         self.raw = data[segment.file_offset : segment.file_offset + segment.length]
         self.image = bytearray(self.raw)
-        self.fixups = read_segment_fixups(data, segment, self.raw)
+        self.fixups = read_segment_fixups(data[:fixup_limit], segment, self.raw)
         self.modules = [module.module for module in parse_imports(data, ne_offset, header)]
         self.imported_names = ne_offset + header.imported_names_offset
         self.data = data
@@ -271,7 +273,15 @@ def build_ne_slice(data: bytes, segment_index: int) -> NeSlice:
         raise NeParseError(f"NE segment {segment_index} has no plain bytes in the file")
     if segment.file_offset + segment.length > len(data):
         raise NeParseError(f"NE segment {segment_index} extends beyond the file")
-    builder = _Builder(data, header, ne_offset, segment)
+    fixup_limit = min(
+        (
+            s.file_offset
+            for s in segments
+            if s.on_disk and s.file_offset >= segment.file_offset + segment.length
+        ),
+        default=len(data),
+    )
+    builder = _Builder(data, header, ne_offset, segment, fixup_limit)
     for location in sorted(builder.fixups):
         builder.apply(location, builder.fixups[location])
     image = bytes(builder.image)
