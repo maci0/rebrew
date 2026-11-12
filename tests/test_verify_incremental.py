@@ -698,6 +698,41 @@ class TestPatchVerifyCacheEntries:
         assert entry["match_percent"] == 100.0
         assert entry["delta"] == 0
 
+    @pytest.mark.parametrize(
+        "percent",
+        [
+            pytest.param(10**400, id="positive"),
+            pytest.param(-(10**400), id="negative"),
+            pytest.param("bad", id="text"),
+        ],
+    )
+    @pytest.mark.parametrize("measured", [False, True])
+    @pytest.mark.parametrize("already_current", [False, True])
+    def test_patch_discards_unusable_cached_percent(
+        self, tmp_path: Path, percent: Any, measured: bool, already_current: bool
+    ) -> None:
+        from rebrew.verify_cache import patch_verify_cache_entries
+
+        cfg = _make_cfg(tmp_path)
+        status = "RELOC" if measured else "PROVEN"
+        cache_path = self._make_cache(tmp_path, cfg, status=status if already_current else "STUB")
+        data = tomllib.loads(cache_path.read_text(encoding="utf-8"))
+        data["entries"]["0x00001000"]["match_percent"] = percent
+        cache_path.write_text(cache_text(data), encoding="utf-8")
+        patch: dict[str, Any] = {"va": 0x1000, "status": status}
+        if measured:
+            patch.update(match_count=8, total=8, delta=0)
+        patch_verify_cache_entries(cfg, [patch])
+        raw = load_verify_cache_raw(cfg)
+        assert raw is not None
+        entry = raw["entries"]["0x00001000"]
+        assert entry["status"] == patch["status"]
+        if measured:
+            assert entry["match_percent"] == 100.0
+        else:
+            assert "match_percent" not in entry
+        assert entry["delta"] == (0 if measured else 3)
+
     def test_patch_keeps_cached_percent_when_none_supplied(self, tmp_path: Path) -> None:
         """A promotion with no byte counts must not zero the earned percent.
 

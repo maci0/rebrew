@@ -442,7 +442,7 @@ def _cached_percent(value: Any) -> float | None:
         return None
     try:
         return _clamp_percent(float(value))
-    except TypeError, ValueError:
+    except TypeError, ValueError, OverflowError:
         return None
 
 
@@ -1057,7 +1057,9 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
     counts ``match_count`` and ``total``, optional ``delta`` (int|None),
     optional ``match_percent`` (float).  Without ``total``, a missing
     ``delta`` keeps the cached one, and a missing ``match_percent`` keeps the
-    cached percent rather than overwriting it with 0.  When ``match_percent`` is supplied it is stored as-is —
+    usable cached percent rather than overwriting it with 0; an unusable
+    percent becomes ``None``. An explicit ``match_percent`` takes precedence
+    over byte counts and is clamped to the finite percentage range;
     recomputing ``match_count / total`` disagrees with
     :func:`rebrew.compiler.compile.classify_compare_result` whenever lengths differ
     (SIZE_MISMATCH / truncated compare), and status/todo would then rank ROI
@@ -1128,9 +1130,10 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
             # percent and dropping the candidate.
             cached_pct = _cached_percent(entry.get("match_percent"))
             pct_matches = (
-                cached_pct == match_pct
-                if cached_pct is None or match_pct is None
-                else math.isclose(float(cached_pct), float(match_pct), rel_tol=1e-7, abs_tol=1e-7)
+                entry.get("match_percent") is None and match_pct is None
+                if cached_pct is None
+                else match_pct is not None
+                and math.isclose(cached_pct, match_pct, rel_tol=1e-7, abs_tol=1e-7)
             )
             # ``context_hash`` is cache identity (see the writer), so a patch
             # that earned its metrics under a different compile context must
@@ -1147,8 +1150,7 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
             ):
                 continue  # Already in sync
             entry["status"] = p["status"]
-            if match_pct is not None:
-                entry["match_percent"] = match_pct
+            entry["match_percent"] = match_pct
             entry["passed"] = passed
             entry["delta"] = delta
             if "context_hash" in p:
