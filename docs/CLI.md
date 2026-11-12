@@ -4951,8 +4951,9 @@ NEAR_MATCHING/PROVEN → cached `match_percent`, else 0) and whole-binary measur
 (`total_code` from `.text`, `total_functions` from the function registry,
 `matched_code` from matched bytes with libraries included and alignment
 padding excluded, `complete_code` and `complete_code_percent` from the status
-code account). A byte-matched function is placed
-correctly by construction.  Upload the file as a GitHub Actions artifact
+code account). These progress measures do not establish linked-image placement;
+check that separately with `rebrew verify --text --raw-link`.
+Upload the file as a GitHub Actions artifact
 named `<version>_report` containing `report.json`, then register the repo
 at decomp.dev/manage/new.
 
