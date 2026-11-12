@@ -302,15 +302,18 @@ the 9.0 SP1 comparison remains blocked.
 
 ## Verification methodology
 
-Every byte pattern in this folder comes from compiling eleven C89
-probes (division, copies, 64-bit, long double, rotates, cmov/SSE2,
+Probe-based patterns in this folder come from C and C++ programs
+(division, copies, 64-bit, long double, rotates, cmov/SSE2,
 switches, FP constants/conversions, multiply chains, memcmp, struct
 returns, tail calls, sqrt/fdiv, bit idioms, __fastcall, 16-bit long
 arithmetic, SEH, FP loops, bitfields, divmod, stack probes, 64-bit
-compares, floor/ceil/fmod, strchr/memchr) plus three Pascal probes
-through Delphi 1.0's `DCC.EXE`, and flag-matrix passes (/G5-/G7,
-/arch:SSE2/IA32, /fp:fast); compiled through every toolchain and
-disassembling the objects.  Turbo C 2.0 is compiled from a
+compares, floor/ceil/fmod, strchr/memchr), Pascal probes through
+Delphi 1.0's `DCC.EXE`, and flag-matrix passes (/G5-/G7,
+/arch:SSE2/IA32, /fp:fast). The resulting objects are disassembled across the
+probed toolchains; not every compiler accepts every probe. The
+[corpus](#machine-readable-corpus-corpusjson) records available outputs and
+extraction gaps. An absent row does not establish equivalent codegen.
+Turbo C 2.0 is compiled from a
 pre-resolved `#`-free variant (its image's wrapper cannot run the
 preprocessor):
 
