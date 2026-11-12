@@ -30,14 +30,25 @@ reconstruct the reference from a **text-only layout package** written by
 - `header.hex`, `iat.hex`, `prefix.hex`, `bookkeeping.hex`, `data.hex`,
   `reloc.hex`: hex dumps of exactly the linker-stamped regions the fixers
   copy or check (the `prefix` is checked for drift, never copied);
-- `operands.txt`, `calls.txt`: sparse `.text` maps (offset → reference
-  value) covering every position the operand rewrites can touch.
+- `operands.txt`: sparse `.text`-relative operand offsets and reference values;
+- `calls.txt`: five hexadecimal columns per call/jump site:
+  `offset rel32 prefix2 suffix2 opcode`. The offset identifies the rel32
+  operand; the two-byte prefix and suffix exclude it and its opcode. The opcode
+  is `0xe8` (call) or `0xe9` (jump) and must match before the site validates or
+  its target is rewritten.
 
 Everything is plain text (zero binary bytes at rest) so a public checkout
 reproduces the byte-identical DLL without the original binary.  A reference
 DLL may still be passed directly; it is reduced to the same metadata in
 memory.  Regenerate the package whenever the original changes
 (`rebrew build layout --target <t>`).
+
+Older four-column `calls.txt` rows remain readable, but their unknown opcodes
+cannot validate call-map alignment or authorize target rewrites. They can make
+the alignment gate refuse a run; skipped rewrites appear in the data fixer's
+`call_targets_skipped` count when it runs. Regenerate the package from the
+reference with `rebrew build layout --target <t>` before using it with the new
+opcode checks. Writing a loaded package with unknown call opcodes is refused.
 
 ---
 

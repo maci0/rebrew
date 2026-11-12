@@ -4242,7 +4242,10 @@ the fixer reports without writing).  For byte-identical
 rebuild verification where the linker layout differs from the original.
 The CLI preserves the built `.reloc` raw offset; a full reference header copy
 requires matching section names, RVAs, and raw offsets. Remaining layout
-differences can prevent whole-file byte identity. See [Postlink](POSTLINK.md).
+differences can prevent whole-file byte identity. Regenerate old four-column
+`calls.txt` packages with `rebrew build layout --target <t>`: unknown call
+opcodes do not validate alignment or authorize target rewrites. See
+[Postlink](POSTLINK.md) for the package columns and skipped-rewrite report.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
