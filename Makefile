@@ -357,9 +357,7 @@ ensure-jpype-build:
 	jdk_ver=$$(javac -version 2>&1 | sed 's/^javac //;s/\..*//'); \
 	if [ -z "$$jdk_ver" ] || [ "$$jdk_ver" -lt "$(JDK_VERSION)" ]; then \
 	  echo "WARNING: javac $$jdk_ver is below the JPype build floor JDK_VERSION=$(JDK_VERSION) (CI installs default-jdk on ubuntu-24.04). JPype 1.7.1 usually still builds on older JDKs; upgrade when you can."; \
-	fi; \
-	jdk_full=$$(javac -version 2>&1); \
-	echo "JDK: $$jdk_full; Ant: $$(ant -version 2>&1 | head -n 1)"
+	fi
 
 # Go jobs service (CI jobs-service job).  jobs-check used to check this
 # inline; as a named preflight `make doctor` can report it alongside the

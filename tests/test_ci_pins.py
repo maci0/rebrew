@@ -1920,6 +1920,30 @@ unshare() {
         assert result.stdout.count("set policy") == int(key_exists)
         assert result.stdout.count("probe namespaces") == int(not key_exists or set_exit == 0)
 
+    def test_jpype_preflight_is_silent_when_the_jdk_meets_the_floor(self) -> None:
+        """A present JDK must not look like a missing one to ``make doctor``.
+
+        ``make doctor`` prints CHECK for any preflight that writes to stdout,
+        including a check that exited 0.  ``ensure-jpype-build`` echoed the
+        javac and Ant versions on every success, so a host that already had
+        both read ``CHECK JDK, Ant and cc/make`` next to the real gaps and
+        had no way to tell the line apart from a failure.
+        """
+        result = subprocess.run(
+            ["make", "--no-print-directory", "ensure-jpype-build"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        if result.returncode != 0:
+            pytest.skip("host has no JDK/Ant; the success path is what doctor misreads")
+        assert result.stdout == "", result.stdout
+        recipe = MAKEFILE.read_text(encoding="utf-8").split("ensure-jpype-build:\n", 1)[1]
+        recipe = recipe.split("\nwarn-go:", 1)[0]
+        assert 'echo "JDK:' not in recipe
+
     def test_vnu_is_preflighted_and_installable_locally(self) -> None:
         """The W3C skip must be visible on the dev path, and its fix runnable.
 
