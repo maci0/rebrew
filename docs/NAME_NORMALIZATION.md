@@ -96,7 +96,8 @@ case for cross-source symbol matching (see `crt_match.py`).
 
 ### Implications
 
-- **`rebrew sync push`**: only pushes labels to Ghidra for user-assigned names (skips generic `func_XXXXXXXX`).
+- **`rebrew sync push`**: exports fields to the local BinSync state directory; a decompiler plugin relays them to Ghidra.
+- **`rebrew sync pull`**: skips generic names such as `func_XXXXXXXX` when applying incoming name changes.
 - **`sanitize_name()`** in `rebrew.naming` (moved from `skeleton.py`): rewrites Ghidra `FUN_<hex>` names to `func_<hex>` for C filenames and identifiers.
 
 ---

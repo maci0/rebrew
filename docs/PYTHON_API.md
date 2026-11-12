@@ -158,8 +158,9 @@ result.ok / result.obj_bytes / result.log / result.compiler_version
 # `kind="validation"`, not as a network failure a retry could chase.
 ```
 
-The ReVa MCP client (`rebrew.ghidra`, the transport behind
-`rebrew sync push`) injects `McpHttpClient` instead: `post` and `delete`, because it
+The ReVa MCP client (`rebrew.ghidra`, the transport for
+`rebrew sync create-functions`, `bookmarks`, and `pull-data`) injects
+`McpHttpClient` instead: `post` and `delete`, because it
 opens a session and terminates it on every exit path. Both take a `url` plus
 `**kwargs` (the JSON-RPC `json=` body, the `headers` session id, the per-call
 `timeout`), so a stand-in carrying those two methods satisfies it. The reply is

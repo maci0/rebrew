@@ -47,6 +47,9 @@
 ### Fixed
 
 - Document shipped Delphi whole-program builds and NE byte comparison, replacing the research-only description while retaining the per-function verification limit.
+### Fixed
+
+- Correct the SDK and name-normalization guides to separate local BinSync field export/import from live ReVa structural operations. Generic incoming names are filtered on pull.
 
 ## [6.32.1] - 2026-11-11
 
