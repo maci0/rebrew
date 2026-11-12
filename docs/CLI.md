@@ -7402,15 +7402,15 @@ instead of matching `result.message` substrings.
 whenever a structural byte difference (`**`) exists between the compiled object and
 the target function.
 
-`rebrew test` honors the documented contract (0 EXACT or RELOC match / 1
-NEAR_MATCHING or STUB / 2 build error) on **both** the single-function and
-`--all` paths: any non-exact result exits 1 (`EXIT_MISMATCH`), any
-`COMPILE_ERROR` exits 2 (`EXIT_ERROR`).  `--dry-run` only skips STATUS writes,
-not the exit code, on every path that compiles; `test --all --dry-run` exits 0
-because it lists candidates without compiling at all.
-These semantics are intentionally distinct: a function can be
-`NEAR_MATCHING` without a structural diff (pure relocation noise), and
-`rebrew diff` is focused on interactive investigation rather than CI status
-promotion.  For CI, run both tools with `--json` and branch on `.status` (for
-`rebrew test`) or `.summary.structural` (for `rebrew diff`) rather than relying on
-the exit code alone.
+`rebrew test` exits 0 for an EXACT or RELOC match, 1 for a needs-work byte
+verdict such as NEAR_MATCHING, STUB or SIZE_MISMATCH, and 2 for tooling failures
+including COMPILE_ERROR and EXTRACT_ERROR. Both the single-function and `--all`
+paths follow this contract. `--dry-run` only skips STATUS writes on paths that
+compile; their exit-code rules still apply. `test --all --dry-run` exits 0 because
+it lists candidates without compiling at all.
+
+The tools answer different questions: register-only changes can remain
+NEAR_MATCHING under `test` while `diff --register-aware` reports no structural
+differences. For CI, run with `--json` and inspect `.status` for a single `test`
+result or `.results[].status` for a collection, and `.summary.structural` for
+`diff`, alongside the exit code.
