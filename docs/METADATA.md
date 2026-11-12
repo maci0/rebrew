@@ -418,9 +418,12 @@ version control and ignore its `.lock`. Ordinary function/data comments remain
 in their existing fields. The SHA-256 binds the parsed
 definition text, including its signature/body/comments, to the selected target.
 The review record neither asserts compiled reachability nor creates a byte
-STATUS. Renames, moves and definition edits require clearing the old record
-and reviewing evidence again; malformed or stale records warn through W031
-and cannot exempt W020. See [the CLI contract](CLI.md#rebrew-source-document-assembly).
+STATUS. Mechanical renames and file moves through the source writers carry the
+records forward. Rename hashes refresh only for evidence current before the edit;
+stale evidence stays stale. Other definition edits or unmanaged renames/moves
+require clearing the old record and reviewing evidence again. Malformed or stale
+records warn through W031 and cannot exempt W020.
+See [the CLI contract](CLI.md#rebrew-source-document-assembly).
 
 | Fact | Canonical store | Derived/cached copies |
 |---|---|---|

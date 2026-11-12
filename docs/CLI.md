@@ -1950,9 +1950,12 @@ or unparseable definition refuses before writing; malformed existing stores
 are never overwritten. `--dry-run` creates neither a store nor a lock.
 
 W020 accepts evidence only for that exact definition and target while its hash
-is current. W031 reports stale/orphaned records; after a rename, move or body
-edit, clear the old record and review evidence again before recording the new
-definition. Edits outside the definition do not invalidate it. `--clear` works
+is current. Mechanical renames and file moves through the source writers carry
+these records with the definition. A rename refreshes only hashes that were
+current before the edit; stale evidence stays stale. W031 reports stale/orphaned
+records after other definition edits or unmanaged renames/moves; clear the old
+record and review evidence again before recording the new definition.
+Edits outside the definition do not invalidate it. `--clear` works
 even after the old source is removed and preserves other targets' evidence.
 
 Evidence is a review record, not a byte verdict or automatic proof of compiled
