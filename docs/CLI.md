@@ -3170,8 +3170,11 @@ trees, project config, the GA log (`.rebrew/ga_runs.jsonl`) and the BinSync
 baselines (`.rebrew/sync/*.toml`) into `DIR/rebrew-metadata.backup.toml/`,
 verifying every copy. SQLite copies via the online backup API to
 `DIR/rebrew-metadata.backup.sqlite3` with the same `.rebrew/` sidecars beside
-it. SQLite backups do not copy `rebrew-project.toml`; preserve that file separately. Every copy is verified (schema version, row count) before success is
-reported.
+it. SQLite backups do not copy `rebrew-project.toml`; preserve that file separately.
+TOML files and sidecars are compared byte for byte with their sources;
+a manifest records each copied file's size and SHA-256. SQLite additionally
+checks its database schema and row count. Creating a TOML backup does not
+validate the metadata records.
 
 | Option | Value | Default | Description |
 | --- | --- | --- | --- |
@@ -3183,9 +3186,11 @@ reported.
 
 `rebrew metadata restore [OPTIONS]`
 
-Install a metadata backup. The backup is validated (schema version,
-integrity) before anything is written; the current stores, GA log, and
-baselines, if any, are preserved as `.before-restore` sidecars.
+Install a metadata backup. Restore verifies the manifest before writing. For
+TOML bundles, managed stores and the project config must parse as TOML; SQLite
+backups also pass database schema and integrity checks. Parsing does not
+establish TOML domain-record validity. The current stores, GA log, and baselines,
+if any, are preserved as `.before-restore` sidecars.
 
 | Option | Value | Default | Description |
 | --- | --- | --- | --- |

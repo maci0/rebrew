@@ -84,6 +84,9 @@
 
 - Document that SQLite metadata backups require a separate copy of `rebrew-project.toml`; TOML bundles include the configuration file.
 - Correct metadata backup scope: source trees need separate backups, and configured reference binaries or BinSync directories with absolute or parent-relative paths are not included.
+### Fixed
+
+- Distinguish metadata backup copy verification from record validation: TOML backup preserves bytes, restore checks TOML syntax, and SQLite adds database schema/integrity checks.
 
 ## [6.32.1] - 2026-11-11
 
