@@ -63,7 +63,7 @@ This design allows:
 
 - **Lookup in any direction**: given `FUN_10001000` from a Ghidra script, find the matching function-list name via the shared VA.
 - **Display name**: the coverage grid uses the selected source binding's name. `ghidra_name` and `list_name` remain separate provenance fields.
-- **Size arbitration**: when tools disagree on function size, `size_by_tool` records each tool's opinion and `canonical_size` resolves it (Ghidra wins on ties or when larger; a larger function-list size wins only when the extra bytes classify as jump table, padding, or out-of-line code; see `size_reason` in `catalog/registry.py`).
+- **Size arbitration**: `size_by_tool` records each tool's size and `canonical_size` resolves disagreements. Ghidra wins on ties or when larger. A larger function-list size can win for tail padding, jump tables, out-of-line code, or an x86 tail containing neither `0xC3` nor `0xC2` return bytes. These are size heuristics; `size_reason` records the selected rule in `catalog/registry.py`.
 
 ### Where This Lives
 
