@@ -771,7 +771,7 @@ It emits warnings (and applies safe defaults) if:
 `[compiler] recompile_url`, `[llm] endpoint`, and the matching
 `REBREW_RECOMPILE_URL` / `REBREW_LLM_ENDPOINT` env values share URL validation:
 non-empty values must use `http(s)`, have a hostname, carry no credentials in
-the authority (`http://user:pass@host/` is refused — credentials belong in
+the authority (`http://user:pass@host/` is refused; credentials belong in
 `REBREW_LLM_API_KEY` / `REBREW_RECOMPILE_API_KEY`, not in a committed URL),
 and use a numeric port in
 1–65535 if specified. Malformed IPv6 addresses, embedded whitespace, and control
@@ -923,13 +923,8 @@ not be the one command that cannot show it.
 
 ## Compiler profiles from `rebrew init`
 
-`rebrew init --toolchain <profile>` supports the full toolchain matrix (run
-`rebrew toolchain list` for the exact names): every MSVC variant; 4.0/4.2/5.0
-(and sp1–sp3), 6.0 (and sp1–sp6), 7.0–11.0 (rtm/sp variants), 2.0/4.1, and the
-16-bit 1.0 (`msvc-1.0`)/1.5 (`msvc-1.5`)/1.52 (`msvc-1.52`), plus borland-5.5,
-borland-3.1/borland-2.0, watcom-2.0-win32/watcom-2.0-win16, delphi-1.0,
-gcc-14.2.0/gcc-12.3.0/mingw-16.2.0/mingw-14.2.0,
-clang-18.1.8/clang-16.0.4, and ido-5.3/ido-7.1.  Every profile gets an empty `command`/`runner` in the
+`rebrew init --toolchain <profile>` accepts every registered profile;
+`rebrew toolchain list` prints the exact names.  Every profile gets an empty `command`/`runner` in the
 generated config (the docker image is the compiler); only a plugin toolchain
 registered without an image keeps a real host command.  The target
 `arch` follows the profile (`msvc-1.52` → `x86_16`); if a binary is already in

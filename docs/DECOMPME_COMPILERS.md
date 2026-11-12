@@ -17,11 +17,11 @@ clients. The `api.decomp.me` subdomain does not exist. The compiler list the
 API serves is the source in the `decompme` GitHub org:
 
 - `decompme/compilers`: the fleet. `compilers/values.yaml` holds the
-  definitions (234 at capture).
+  definitions (234 entries, 226 distinct IDs in the captured snapshot; some IDs have multiple host-architecture entries).
 - `decompme/decomp.me`: the site (Django backend, Next.js frontend).
   Routes mount at `/api/` from `site/backend/coreapp/urls.py`: `compilers`,
   `compiler`, `platform`, `library`, `search`, `stats`, `user`,
-  `users/<slug>`, `healthz`, plus the scratch routes in section 7. The
+  `users/<slug>`, `healthz`, plus the scratch routes in section 4. The
   compiler objects are built in `site/backend/coreapp/compilers.py`.
   Display names are in
   `site/frontend/src/lib/i18n/locales/en/compilers.json`.
@@ -121,7 +121,9 @@ removes the pack.
 ### `msvc8.0p` (patched 8.0)
 
 A patched snapshot of VC 8.0 (VS2005, cl 14.00.50727) from `widberg/msvc8.0`:
-`msvc8.0` is commit `d6c4aa2`, `msvc8.0p` is `52c8293`. Both are
+`values.yaml` pins `msvc8.0` to commit
+`d6c4aa208c8345c78a9f68ba6ef911ee94c6a6e1` and `msvc8.0p` to
+`52c8293f8b8d6441c594cf096542290c17a4d70e`. Both are
 `MSVCCompiler(id=…, cc=CL_WIN)` in `compilers.py`. The difference is the
 packaged binaries.
 

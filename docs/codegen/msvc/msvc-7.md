@@ -125,8 +125,9 @@ first to post-shift division magic.
 
 ## Service packs
 
-- **VC 7.0 SP1 is the only service pack with verified codegen
-  differences: ten probe functions, eighteen functions in total.**
+- **VC 7.0 SP1 differs from RTM on 32 distinct functions in the corpus,
+  all at `/O2`.** VC 8.0 SP1 also differs on probe17 `_alloc_flags`;
+  see [RULES.md J1](../RULES.md#j-toolchain-identity--packaging).
   (a) The `==`/`!=` FP
   family is structurally different: `fcmp2` (`a==b`), `fc5`
   (`a!=0.0`), `fc8` (`a!=b`), `fc9` (`a==0.0`) all switch from the
@@ -136,14 +137,13 @@ first to post-shift division magic.
   in register allocation (edx↔ecx swaps, same sizes): scheduling
   fixes, not structural.  (c) The stack-probe functions
   `sp1024`…`sp8192` differ in scheduling/layout.  (d) The FP-libcall
-  marshalling `fl`/`cl` and the probe10 64-bit `_cl`/`_fl` differ.
+  marshalling `_fl`/`_cl` in probe10 differs.
   (e) **probe14's `_s64_ret` (64-byte struct return) differs in stack
-  offsets (`[esp+0x48]` vs `[esp+0x50]`, same size): discovered by
-  the mechanical corpus sweep, missed by the hand-analysis.**  The
-  relational compares and everything else
-  are unchanged.  Verified in probes 5/7/8 at both /O1 and /O2;
-  the 18th function (`_s64_ret`) verified mechanically over the
-  corpus (docs/codegen/corpus.json).
+  offsets (`[esp+0x48]` vs `[esp+0x50]`, same size).**
+  The corpus also records differences in probe18 `_scan_recipe`, the two
+  probe22 constant-memset functions, probe23 `_div24`/`_div60`, four
+  probe29 functions and five probe30 functions. These bring the 18
+  differences through probe14 to 32. The matched `/O1` rows are identical.
   The fucompp style is shared by 7.1 (RTM+SP1) and 10.0 (RTM+SP1);
   the fcomp style by 2.0–6.0, 8.0 and 9.0, so the RTM↔SP1 flip is a
   genuine SP-level fingerprint: `da e9` = 7.0 RTM, `dc 5c 24 0c` =
@@ -211,7 +211,7 @@ first to post-shift division magic.
 
 ## Probe23: Findings 23-36 shapes (round 20)
 
-- **Probe23 (7.0)**: **idx7 uses `imul ecx,eax,7` (`6b c0 07`); the 7.x marker**; SIB index-addressing begins (`cmp word [ecx+eax*2],0`); if-conversion via `sete`+`lea`; `argslot` switches to the `push ecx` frame; FPU clamp `fcomp`+`test ah,5`; SP1 differs on the memset shapes only.  See RULES.md C27/E15/E16/F19/J1.
+- **Probe23 (7.0)**: **idx7 uses `imul ecx,eax,7` (`6b c0 07`); the 7.x marker**; SIB index-addressing begins (`cmp word [ecx+eax*2],0`); if-conversion via `sete`+`lea`; `argslot` switches to the `push ecx` frame; FPU clamp `fcomp`+`test ah,5`; SP1 differs on `_div24` and `_div60`.  See RULES.md C27/E15/E16/F19/J1.
 
 
 ## Probe24: Findings 37-43 primitives (round 21)
@@ -236,7 +236,7 @@ first to post-shift division magic.
 
 ## Probe28: decompedia/CODEGEN_PATTERNS claims (round 25)
 
-- **Probe28 (7.0)**: mirrors 6.0 (fadd const, setcc encodings, setne+neg).  See RULES.md D10/C33.
+- **Probe28 (7.0)**: mirrors 6.0 (fadd const, setcc encodings, setne+dec).  See RULES.md D10/C33.
 
 
 ## Verification

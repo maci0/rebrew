@@ -24,7 +24,7 @@ Three ideas carry the whole tool:
 2. **The compiler is the ground truth.** You are not writing "equivalent" C.
    You are writing the C that makes *that specific compiler version, with
    those specific flags,* emit *those exact bytes*. This is why rebrew runs
-   20+ compiler versions in docker images, and why `rebrew match flags` exists: half of matching is finding the flags.
+   each compiler version in its own docker image, and why `rebrew match flags` exists: half of matching is finding the flags.
 3. **Pick a scoped action.** `rebrew todo` ranks unfinished work by affected
    byte extent, then estimated effort. Setup comes first. Choose an action
    you can complete; a small leaf function can still teach you the
@@ -139,8 +139,7 @@ rebrew library scan-signatures                  # identify library functions
 `rebrew library scan-signatures` only reports matches; it writes nothing. To actually annotate them
 and drop them from your queue, run `rebrew library identify` (or settle them
 by byte comparison against the archives you link with `rebrew library match
---lib <archive>`). On a typical game binary this removes a third of the work
-before you start.
+--lib <archive>`).
 
 ### 6. Match your first function
 
@@ -167,8 +166,7 @@ rebrew test src/<target>/fcn_00401000.c
 
 You will get one of three answers:
 
-- **EXACT**: bytes identical. Done. Move to the next function. (This
-  happens more often than you expect on small functions.)
+- **EXACT**: bytes identical. Done. Move to the next function.
 - **NEAR_MATCHING (85%)**: close. Ask why:
   ```bash
   rebrew diff src/<target>/fcn_00401000.c        # side-by-side disassembly

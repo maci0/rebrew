@@ -56,14 +56,12 @@ VA (integer)  ←  canonical join key
   ├── name          "func_10001000"  (display name from the selected source binding)
   ├── ghidra_name   "FUN_10001000"   (Ghidra's name at export time)
   ├── list_name     "fcn.10001000"   (name from function list file)
-  ├── ida_name      "sub_10001000"   (IDA's name, future)
-  ├── binja_name    "sub_10001000"   (Binary Ninja's name, future)
   └── detected_by   ["ghidra", "list"] (which sources found this function)
 ```
 
 This design allows:
 
-- **Lookup in any direction**: given `FUN_10001000` from a Ghidra script, find the matching function list or IDA name instantly via the shared VA.
+- **Lookup in any direction**: given `FUN_10001000` from a Ghidra script, find the matching function-list name via the shared VA.
 - **Display name**: the coverage grid uses the selected source binding's name. `ghidra_name` and `list_name` remain separate provenance fields.
 - **Size arbitration**: when tools disagree on function size, `size_by_tool` records each tool's opinion and `canonical_size` resolves it (Ghidra wins on ties or when larger; a larger function-list size wins only when the extra bytes classify as jump table, padding, or out-of-line code; see `size_reason` in `catalog/registry.py`).
 
@@ -71,8 +69,7 @@ This design allows:
 
 | Layer | File | Key fields |
 |-------|------|------------|
-| Coverage document | `coverage-<target>.toml` (portable export) | `ghidra_name`, `list_name`, `detected_by`, `size_by_tool` |
-| Coverage document | `coverage-<target>.toml` → `functions` array | Same columns, one file per target |
+| Coverage document | `coverage-<target>.toml` (portable export, one file per target) → `functions` array | `ghidra_name`, `list_name`, `detected_by`, `size_by_tool` |
 | REST API | `GET /api/functions?target=` (`rebrew coverage serve`) | Compact arrays under `cols`: `va`, `name`, `symbol`, `size`, `status`, `module`, `files`. Provenance columns (`ghidra_name`, `list_name`) stay in the document only: the dashboard omits them from the wire (same reason it omits `markerType`). `GET /api/globals` and `GET /api/history` use the same array+`cols` shape (`va`/`name`/`decl`/`size`/`module` and `va`/`name`/`old_status`/`new_status`/`changed_at`, with `name` joined from `functions` and `''` once the VA has no function row). There is no per-VA `/api/targets/<t>/functions/<va>` route on this server; the sibling `recovery` API is separate. |
 
 ---
@@ -98,7 +95,7 @@ case for cross-source symbol matching (see `crt_match.py`).
 
 - **`rebrew sync push`**: exports fields to the local BinSync state directory; a decompiler plugin relays them to Ghidra.
 - **`rebrew sync pull`**: skips generic names such as `func_XXXXXXXX` when applying incoming name changes.
-- **`sanitize_name()`** in `rebrew.naming` (moved from `skeleton.py`): rewrites Ghidra `FUN_<hex>` names to `func_<hex>` for C filenames and identifiers.
+- **`sanitize_name()`** in `rebrew.naming`: rewrites Ghidra `FUN_<hex>` names to `func_<hex>` for C filenames and identifiers.
 
 ---
 

@@ -132,13 +132,16 @@ rebrew diff 0x10009310
 - `~~` relocation-only difference (acceptable)
 - `**` structural difference (needs fixing)
 
-### 7. If unsure about compiler flags: run the GA
+### 7. If bytes still differ: sweep flags or run the GA
 
 ```bash
 # Side-by-side diff to understand what differs
 rebrew diff src/target_name/my_func.c
 
-# Run the GA with flag sweep (brute-forces compiler flag combinations)
+# Sweep compiler flag combinations for one function
+rebrew match flags src/target_name/my_func.c
+
+# Run the GA over C source variants
 rebrew match run src/target_name/my_func.c --generations 100 --pop-size 64
 
 # Batch flag sweep on all NEAR_MATCHING functions, auto-update CFLAGS on improvement
@@ -174,8 +177,8 @@ For blocked STUBs that diff cannot classify (needs structs, SEH helper,
 reference library, etc.), set the BLOCKER programmatically:
 
 ```bash
-rebrew blocker set src/target_name/my_func.c "needs RE structs -- see struct_recover"
-rebrew blocker set 0x401000 "SEH helper -- not matchable from C"
+rebrew blocker set src/target_name/my_func.c "needs RE structs; see rebrew types recover"
+rebrew blocker set 0x401000 "SEH helper, not matchable from C"
 rebrew blocker clear src/target_name/my_func.c          # remove it again
 ```
 

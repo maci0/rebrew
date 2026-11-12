@@ -4,11 +4,14 @@
 - **Date**: 2026-05-20 (audited 2026-08-22, re-audited 2026-09)
 - **Owner**: rebrew team
 
-> **Correction (2026-09):** `rebrew sync push` is BinSync-primary; field sync via
-> `--push`/`--pull --state-dir` (`--accept-binsync` / `--accept-local`); the
-> removed `--pull-signatures` / `--pull-structs` / `--pull-comments` /
+> **Correction (checked 2026-11-12 against `src/rebrew/ghidra/cli.py`):**
+> field sync is `rebrew sync push` and `rebrew sync pull`, each with
+> `--state-dir`. Pull takes `--accept-binsync` and `--accept-local`.
+> `rebrew sync push` has no `--push` or `--pull` flag. The removed
+> `--pull-signatures`, `--pull-structs`, `--pull-comments`, and
 > `--accept-ghidra` flags referenced below are superseded (see
-> `rebrew sync push --help`). `--pull-data` remains as a ReVa MCP structural op
+> `rebrew sync push --help` and `rebrew sync pull --help`).
+> `rebrew sync pull-data` remains a ReVa MCP command
 > (data labels → `rebrew_globals.h`). This report is a historical record,
 > kept as written.
 
@@ -65,8 +68,10 @@ workflows, and limitations.
   doesn't make clear whether running it on a working project replaces the binary.
 - **Evidence:** `uv run rebrew doctor --help` (see /tmp/rebrew_help.txt), `src/rebrew/wibo.py`.
 - **Severity:** nit (fixed)
-- **Fixed:** `--install-wibo` help now states "no-op if already installed"; idempotent
-  semantics documented (`src/rebrew/doctor.py:986`).
+- **Fixed:** `rebrew toolchain install-wibo` downloads `tools/wibo` only when
+  that path is missing and leaves an existing file in place
+  (`src/rebrew/toolchain_cli.py` `install_wibo`). The help line does not say
+  "no-op if already installed"; the text path prints `wibo already installed`.
 - **Suggested fix:** Help text could clarify that `--install-wibo` only acts if
   `tools/wibo` is missing or executable bit unset (idempotent).
 
@@ -138,8 +143,8 @@ workflows, and limitations.
   users where it lands. Code writes next to data JSON (`db/`).
 - **Evidence:** `src/rebrew/catalog/cli.py` `--csv` handling.
 - **Severity:** nit (fixed)
-- **Fixed:** `--csv` help now states the destination; "(written to
-  db/<target>_functions.csv)" (`src/rebrew/catalog/cli.py:85`).
+- **Fixed:** the help line named here is gone with the flag. `src/rebrew/catalog/cli.py`
+  has no `--csv` option, so there is no destination text to quote.
 - **Suggested fix:** Help line should mention the output path.
 - **Later:** moot; `--csv`, the grid JSON and `catalog/export.py` are deleted;
   `rebrew coverage build` writes `db/coverage-<target>.toml` and `rebrew coverage catalog`
@@ -171,9 +176,10 @@ workflows, and limitations.
   `rebrew test`) can confuse pipelines.
 - **Evidence:** `src/rebrew/diff.py` and `src/rebrew/test.py` epilogs.
 - **Severity:** nit (fixed)
-- **Fixed:** `docs/CLI.md` now carries a dedicated exit-code alignment write-up:
-  the `test` contract (0/1/2) vs `diff`, with the advice to branch on `--json`
-  fields rather than the exit code (`docs/CLI.md:1411`).
+- **Fixed:** `docs/CLI.md` carries "Exit Code Alignment: `rebrew diff` vs
+  `rebrew test`" (near the end of that file). It states the `test` contract
+  (0/1/2) against `diff`, and tells CI to branch on `--json` fields rather
+  than the exit code. The line number in the earlier note is stale.
 - **Suggested fix:** Document the alignment between exit codes across `test` and
   `diff` in one place (e.g. `docs/CLI.md`).
 
@@ -183,8 +189,9 @@ workflows, and limitations.
   describes `--fix` and `--dry-run` separately but doesn't show their combination.
 - **Evidence:** `uv run rebrew lint --help`.
 - **Severity:** nit (fixed)
-- **Fixed:** epilog example added; "rebrew lint --fix --dry-run · Preview
-  inline-metadata migrations before commit" (`src/rebrew/lint.py:1185`).
+- **Fixed:** `rebrew lint --help` shows `rebrew lint --fix --dry-run` and says
+  to preview with `--dry-run` (`src/rebrew/lint.py`, the `lint` epilog). The
+  earlier "inline-metadata migrations" sentence is not in that epilog.
 - **Suggested fix:** Add an example showing `--fix --dry-run` as the safe preview
   combination.
 
@@ -194,8 +201,9 @@ workflows, and limitations.
 - **Evidence:** `uv run rebrew source rename --help` epilog only mentions FUNCTION markers,
   definitions, externs.
 - **Severity:** nit (fixed)
-- **Fixed:** epilog note added ("macros and string literals are NOT rewritten)
-  `grep` for the old name afterwards if you suspect any" (`src/rebrew/rename.py:80`).
+- **Fixed:** the `rebrew source rename` epilog says string literals are never
+  rewritten and comments are rewritten only with `--comments`
+  (`src/rebrew/rename.py`). It does not tell the user to grep afterwards.
 - **Suggested fix:** Add a one-line note that macro/string references are not
   rewritten, and recommend a follow-up `grep` for safety.
 
@@ -206,9 +214,11 @@ workflows, and limitations.
   paths may be confused why STATUS didn't update.
 - **Evidence:** `src/rebrew/test.py` (auto-skip logic).
 - **Severity:** nit (fixed)
-- **Fixed:** `--no-promote` help states "(auto-skipped if file is outside project)"
-  (`src/rebrew/test.py:193`), and a skipped promotion logs "STATUS update skipped
-  (file outside project)" (`src/rebrew/test.py:552`).
+- **Fixed:** the `--no-promote` option says "Measure without metadata writes"
+  (`src/rebrew/test.py`). The command epilog adds that files outside the
+  project are not promoted, and a skipped promotion logs
+  `STATUS update skipped (<reason>)`. The parenthetical quoted in the earlier
+  note is not the option's help text.
 - **Suggested fix:** Log a one-line message when STATUS is auto-skipped so the user
   isn't left guessing.
 
@@ -236,9 +246,10 @@ workflows, and limitations.
   precedence isn't documented; current behaviour is `--no-seeds` wins.
 - **Evidence:** `src/rebrew/match.py` (typer option declarations).
 - **Severity:** nit (fixed)
-- **Fixed:** precedence documented on both flags; `--seed-file`: "Ignored if
-  `--no-seeds` is also passed"; `--no-seeds`: "(takes precedence over
-  `--seed-file`)" (`src/rebrew/match.py:1263`/`1269`).
+- **Fixed:** both flags still document the precedence (`src/rebrew/match.py`):
+  `--seed-file` is "Ignored if --no-seeds is also passed" and `--no-seeds`
+  "takes precedence over --seed-file". The line numbers in the earlier note
+  are stale.
 - **Suggested fix:** Either error when both are supplied, or document that
   `--seed-file` overrides `--no-seeds`.
 
@@ -282,9 +293,10 @@ workflows, and limitations.
 - **Evidence:** `src/rebrew/status.py` and `src/rebrew/lint.py` W019 warning for
   inline metadata.
 - **Severity:** enhancement (fixed)
-- **Fixed:** `rebrew status` runs a quick W019 scan and prints "N file(s) contain
-  inline STATUS/CFLAGS/SIZE comments" when any are found (`src/rebrew/status.py:380`,
-  hint at `status.py:539`); count also surfaced in `--json`.
+- **Fixed:** the behavior named here is not in the tree. `src/rebrew/status.py`
+  does not scan for inline STATUS comments, and `src/rebrew/lint.py` has no
+  W019 finding. The gap (a status run that warns about leftover inline
+  markers) is open again.
 - **Suggested fix:** When `rebrew status` is invoked, run a quick lint
   (W019) and print a hint if inline metadata is present anywhere in the project.
 
@@ -338,8 +350,9 @@ workflows, and limitations.
   minimum table length or pointer range.
 - **Evidence:** `src/rebrew/data.py:337` `find_dispatch_tables` constants.
 - **Severity:** enhancement (fixed)
-- **Fixed:** `--min-table-len N` and `--max-pointer-stride N` surfaced (both require
-  `--dispatch`); `src/rebrew/data.py` epilog/examples.
+- **Fixed:** `rebrew data dispatch` takes `--min-table-len` and
+  `--max-pointer-stride` directly (`src/rebrew/data.py` `dispatch`). There is
+  no `--dispatch` flag they depend on.
 - **Suggested fix:** Surface `--min-table-len` / `--max-pointer-stride` options.
 
 ### Gap: `rebrew data header` overwrites `rebrew_globals.h` without backup
@@ -348,8 +361,9 @@ workflows, and limitations.
   prompt before clobbering hand-edits.
 - **Evidence:** `src/rebrew/data.py:866` `_gen_globals_header`.
 - **Severity:** enhancement (fixed)
-- **Fixed:** `--gen-header-out PATH` overrides the destination and `--force` guards
-  overwrites (`src/rebrew/data.py:1296`).
+- **Fixed:** `rebrew data header` takes `--output PATH` (default
+  `{reversed_dir}/rebrew_globals.h`) and `--force` to overwrite an existing
+  file (`src/rebrew/data.py` `header`). There is no `--gen-header-out` flag.
 - **Suggested fix:** Add `--out PATH` and a `--force` guard; warn if the destination
   exists and was modified after the last `--gen-header` run.
 
@@ -377,10 +391,11 @@ workflows, and limitations.
   `cfg.reversed_dir / "types.h"`.
 - **Severity:** enhancement (resolved by redesign, not by a fix)
 - **Resolution:** `--pull-structs` (and its `--types-out` / `--by-module` shape) no
-  longer exists. `rebrew sync push` is BinSync-primary, so struct fields round-trip through
-  the state dir (`rebrew sync push --push/--pull --state-dir`); the BinSync Ghidra plugin
-  relays them. There is no per-module `types_*.h` split, and the merged `types.h` is
-  not re-emitted by rebrew. See [PRD 07](07-ghidra-sync.md).
+  longer exists. Struct fields round-trip through a BinSync state directory:
+  `rebrew sync push --state-dir PATH` exports and `rebrew sync pull --state-dir PATH`
+  imports. `rebrew sync push` takes neither `--push` nor `--pull`. The BinSync
+  Ghidra plugin relays the state. There is no per-module `types_*.h` split, and
+  rebrew does not re-emit the merged `types.h`. See [PRD 07](07-ghidra-sync.md).
 
 ### Gap: Sync's offline fallback is partial
 
@@ -531,8 +546,9 @@ workflows, and limitations.
 Distinct gaps (deduplicated across PRDs), as of the 2026-08 refresh:
 
 - blockers: 3; all FIXED (0 open)
-- enhancements: 16; 13 FIXED, 3 resolved by redesign (0 open)
-- nits: 14; all FIXED (0 open)
+- enhancements: 16; 12 still match the code, 1 reopened (status no longer
+  warns about inline markers), 3 resolved by redesign
+- nits: 14; the behaviors still match, several quoted help strings do not
 
 (The "MCP endpoint disagreement" gap is cited in PRDs 03, 07, and 08 but is
 counted once. Total Severity lines in this file: 35; the 3 blockers appear as
@@ -542,14 +558,15 @@ re-audit confirmed 33 distinct gaps closed with 0 open.)
 
 Top blockers: all FIXED as of 2026-08-22:
 
-1. **Verify cache key omits headers.** FIXED: the verify cache now keys on a
-   per-entry reached-header fingerprint (`src/rebrew/verify_hash.py:50`
-   `entry_fingerprint` / `:203` `headers_hash`, stored per entry in
+1. **Verify cache key omits headers.** FIXED: the verify cache keys on a
+   per-entry reached-header fingerprint (`entry_fingerprint` and
+   `entry_headers_fp` in `src/rebrew/verify_hash.py`, stored per entry in
    `src/rebrew/verify_cache.py`); editing a header re-verifies exactly the
-   entries whose source reaches it. *(PRD 05.)*
+   entries whose source reaches it. The line numbers in the earlier note are
+   stale. *(PRD 05.)*
 2. **MCP endpoint disagreement.** FIXED: code and the ghidra-sync skill agree
-   on `http://localhost:8080/mcp/message` (`skeleton.py:1372`,
-   `ghidra/client.py:669`, SKILL.md:40). *(PRDs 03/07/08.)*
+   on `http://localhost:8080/mcp/message` (`DEFAULT_MCP_ENDPOINT` in
+   `src/rebrew/ghidra/client.py`; SKILL.md "MCP endpoint" bullet). *(PRDs 03/07/08.)*
 3. **Duplicate PRINCIPLES.md files.** FIXED: `docs/PRINCIPLES.md` is a symlink
    to `src/rebrew/PRINCIPLES.md`; the `rebrew promote` / 75%-threshold text is
    gone.

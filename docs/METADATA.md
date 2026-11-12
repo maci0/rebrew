@@ -219,7 +219,7 @@ durable: `.rebrew/source-backups/*.orig` (in-flight climb/qualifier
 rewrite copies, removed on clean finish, kept only after a kill or a
 `--force` skeleton), `*.before-restore` sidecars (what the last
 restore displaced), and `*.before-transfer` snapshots (what the last
-backend migrate replaced) — their lifetime is one restore/migrate, and
+backend migrate replaced); their lifetime is one restore/migrate, and
 the runbook above assumes the operator keeps the prior bundle as the
 older copy.
 

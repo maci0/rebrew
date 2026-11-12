@@ -117,7 +117,7 @@ MSVC-1.5x-specific (see README).
 
 ## Probe13: 16-bit char/bitfield forms: verified (TC 3.1)
 
-- **`char * 7` = `cwde` + `imul dx`**: `mov al,[bp+4]; cwde; mov
+- **`char * 7` = `cbw` + `imul dx`**: `mov al,[bp+4]; cbw; mov
   dx,7; imul dx` (the 16-bit `imul dx`), vs Watcom16's `shl ax,3;
   sub ax,dx` and MSVC 1.52's plain word ops.
 - **zero-extension via `mov ah,0` / `mov dh,0`**: no `movzx` on the
@@ -156,9 +156,9 @@ MSVC-1.5x-specific (see README).
 
 ## Probe16: TC 2.0 depth: verified
 
-- **TC 2.0 `char * 7` = `cwde` + UNSIGNED `mul dx`** where TC 3.1
+- **TC 2.0 `char * 7` = `cbw` + UNSIGNED `mul dx`** where TC 3.1
   uses `imul dx`: a verified 2.0-vs-3.1 discriminator for the same
-  source (`mov al,[bp+4]; cwde; mov dx,7; mul dx` vs `imul dx`).
+  source (`mov al,[bp+4]; cbw; mov dx,7; mul dx` vs `imul dx`).
 - **TC 2.0 keeps the loop pointer IN MEMORY**: `str_len_manual`
   increments `word ptr [bp+4]` (the pointer on the stack) where TC
   3.1 holds it in SI (`inc si`): memory-held vs register-held

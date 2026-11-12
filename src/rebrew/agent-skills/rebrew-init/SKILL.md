@@ -47,7 +47,8 @@ right for standard builds. Override with `--toolchain <profile>` when:
 - The binary is a rebuild or repack whose headers lie (guess follows the
   headers, not the codegen).
 - You already know the exact toolchain (matching SP-level profile matters:
-  `msvc-6.0-sp6` vs `msvc-6.0` is a different code generator).
+  `msvc-6.0-sp6` vs `msvc-6.0` selects different compiler binaries, CRTs
+  and headers, even where measured codegen is identical).
 - 16-bit DOS/NE binaries where the heuristic picks the wrong family: use
   `watcom-2.0-win16` for Open Watcom 2.0 wcc, `msvc-1.52` for MSVC 1.52
   (16-bit DOSBox), `borland-3.1` for Turbo C++ 3.1. List shipped profiles

@@ -1,8 +1,8 @@
 # Contributing to Rebrew
 
-Thanks for contributing!  Rebrew is a compiler-in-the-loop decompilation
-workbench for binary-matching game reversing (MSVC6 targets compiled in a
-pinned docker image).
+Rebrew is a compiler-in-the-loop decompilation workbench for binary-matching
+game reversing: C sources compile in pinned per-toolchain images and are
+compared byte for byte against the target binary.
 
 ## Start here
 
@@ -37,7 +37,7 @@ and Apache Ant** on `PATH` (plus `cc`/`make`) so CPython 3.15 can build JPype
 1.7.1 from source; CI installs `ant default-jdk build-essential` before
 `uv sync`, and `make setup` fails closed naming that prerequisite instead of
 dying inside the build. `make setup` also needs a **Rust toolchain**
-(**cargo** + **rustc**, qualified with Rust 1.99.1 and maturin 1.15.0 — see
+(**cargo** + **rustc**, qualified with Rust 1.99.1 and maturin 1.15.0; see
 README Development): `python-flirt` ships sdist-only in `uv.lock`, so the
 sync compiles it from source, and without cargo it fails inside the build.
 `make jobs-check` needs **Go** (`GO_VERSION` pin in
@@ -140,7 +140,7 @@ in `tests/test_packaging.py` fails the suite listing every distribution left
 
 ```bash
 make help                     # list contributor make targets
-make doctor                   # report every missing prerequisite (uv, ../resembl, bash, nasm, bun, JDK/ant, go, patch, rust, shellcheck, yamllint, vnu, venv extras)
+make doctor                   # report every missing prerequisite (uv, ../resembl, bash, nasm, bun, JDK/ant, go, patch, rust, cc/pkg-config/json-c, shellcheck, yamllint, vnu, venv extras)
 make clone-resembl            # clone sibling resembl pin into ../resembl (required for uv sync)
 make vnu                      # install the pinned W3C HTML validator and print the PATH line for it
 make setup                    # locked sync (extras + similarity) + pre-commit install (checks uv + ../resembl first)
@@ -149,7 +149,7 @@ make clean                    # remove build/dist artifacts and caches
 make test-one T=tests/test_annotation_roundtrip.py  # single file / nodeid (fast edit-test loop; defaults to test_annotation_roundtrip.py)
 make test-one T=tests/test_annotation_roundtrip.py FLAGS="-k roundtrip"  # narrow further with any pytest flag
 make test-one T=tests/test_dashboard.py::TestSummaryRequests   # one class
-make test                     # full suite (a few minutes; needs nasm + bun + patch + the setup extras, warns without vnu)
+make test                     # full suite (a few minutes; needs nasm + bun + cc/pkg-config/json-c + patch + the setup extras, warns without vnu)
 make coverage                 # full suite under slipcover; fails below COV_FLOOR (CI test job, 3.15)
 make lint                     # ruff check .
 make format                   # ruff format (writes)
@@ -199,13 +199,11 @@ meaning, takes a major version bump and a `**Breaking:**` changelog entry.
 On-disk format bumps (`coverage-<target>.toml` `version`, compile-cache schema)
 and a raised minimum Python are also `**Breaking:**`; they may ship in a minor,
 because the migration is a wholesale document rewrite (`coverage export` replaces each
-file whole) or a cold cache (as with the compile-cache schema `5` -> `6` bump in
-2.7.0 and the Python 3.13 floor in 2.3.0).
+file whole) or a cold cache.
 The Python import surface (module paths, functions, classes, `__all__`) and
 the `rebrew coverage serve` `/api/*` JSON are not frozen: a removal, move, or
 signature change there ships in a minor with a `**Breaking:**` entry naming
-the old and new import path or shape (as with the helper removals in 2.1.0
-and 2.2.0).  There is no deprecation window; pin the minor version if you
+the old and new import path or shape.  There is no deprecation window; pin the minor version if you
 import rebrew as a library.  `tools/public_surface.py` reads that surface out
 of the AST (`--diff <tag>` prints the delta) and
 `tests/test_public_surface.py::TestSurfaceGate` fails the build when the delta
@@ -317,8 +315,8 @@ literals stops the gate instead of reading as a table with no routes.
    input is newer than it, input list covering the `src/` directories so an
    added or deleted module rebuilds too).
 2. Keep changes minimal and scoped; match the surrounding style.
-3. Add tests for new behavior: the suite sits at ~86% line coverage
-   (`make coverage`), and new pure logic is expected to keep it there.
+3. Add tests for new behavior: `make coverage` fails below `COV_FLOOR` (85%
+   line coverage in the `Makefile`), and the floor only rises.
 4. Record user-visible change under `## [Unreleased]` in `CHANGELOG.md` when
    the change affects installs, CLI, config, or on-disk formats (see Versioning
    above).  If you edit `tools/gen_fixtures.py`, run `make gen-fixtures` and

@@ -123,7 +123,6 @@ incorrect. Entries that now have explicit operations are expanded below.
 | `match SOURCE --flag-sweep-toolchains` | `match toolchains SOURCE` |
 | `match SOURCE --flag-sweep-toolchains --flag-sweep-only` | `match toolchains SOURCE --flags` |
 | `match --ga-history` | `match history` |
-| `data` | `data list` |
 | `data --set-FIELD VA=VALUE` | `data set --FIELD VA=VALUE` |
 | `data --dispatch` / `--bss` / `--fix-bss` | `data dispatch` / `bss` / `fix-bss` |
 | `data --gen-header` / `--annotate` | `data header` / `annotate` |
@@ -139,11 +138,7 @@ incorrect. Entries that now have explicit operations are expanded below.
 | `asm --all --format nasm` | `binary asm batch` |
 | `asm --batch-stubs` | `binary asm batch --stubs` |
 | `orphans --prune` | `orphans prune` |
-| `types` / `types apply-type` | `types check` / `types apply` |
-| `cfg list-targets` / `add-target` / `remove-target` / `set-compiler` | `cfg target list` / `add` / `remove` / `set-compiler` |
-| `cfg add-module` / `remove-module` / `set-cflags` | `cfg module add` / `remove` / `set-cflags` |
 | `cfg detect-crt --write` | `cfg detect-crt apply` |
-| `cfg detect-crt` | `cfg detect-crt show` |
 
 ## Options and generated artifacts
 
@@ -161,13 +156,9 @@ The current option names below are breaking changes; no aliases are retained.
 | `types recover --apply FILE` | `types recover --output FILE` |
 | `export decompme SOURCE --flags FLAGS` | `export decompme SOURCE --cflags FLAGS` |
 
-
-- Preview-default source imports and vendor regeneration now use `--apply`:
-  `source import-splat CONFIG --apply` and `library vendor MANIFEST --apply`.
-  `types recover --output FILE` names the generated header; `--dry-run` previews it.
-  Removed flags have no aliases.
-- `export decompme --cflags` selects compiler flags; explicit `--api` overrides
-  the environment. `prove --watch-va` always parses hex, with an optional `0x` prefix.
+- `source import-splat` and `library vendor` preview by default and write with
+  `--apply`. `types recover --dry-run` previews the header `--output` names.
+- `export decompme --api` overrides the environment. `prove --watch-va` always parses hex, with an optional `0x` prefix.
 - `sync watch` is terminal-only and has no `--json` option. Cache stats/clear
   and source findings use project `--root`, without a target selector.
 - `coverage serve --print-url` reports the selected URL without serving;

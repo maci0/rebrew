@@ -94,8 +94,8 @@ does.  VC 2.0–4.2 linkers write no Rich header at all.
   eax,1` (`8d 04 80 d1 e0`) in VC 5.0–7.1; VC 2.0/4.x and 8.0+ (and
   GCC) use `add eax,eax` (`03 c0`) instead.  Verified in probe4
   (`m10`).  Shared by 5.0–7.1, not 5.0/6.0-only.
-- **`repe cmpsd` for fixed-size memcmp**: `memcmp(a,b,8/16/32)`
-  compiles to `repe cmpsd` (`f3 a6`) + sbb adjustment in VC 2.0–7.1
+- **`repe cmpsb` for fixed-size memcmp**: `memcmp(a,b,8/16/32)`
+  compiles to `repe cmpsb` (`f3 a6`) + sbb adjustment in VC 2.0–7.1
   (confirmed in the real VC 6.0 binary rt63: 1 hit); VC 8.0+ unroll
   the dword compares, and GCC/Watcom/Borland call `memcmp`.  Shared
   by 2.0–7.1.
@@ -213,7 +213,7 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
 
 ## Probe28: decompedia/CODEGEN_PATTERNS claims (round 25)
 
-- **Probe28 (5.0)**: **the FP-const quirk; `a+1.0` → `fsub qword [−1.0]` (`dc 25`) with negated const in .rdata (5.0-only)**; setne+neg -1 compare; setcc cmp encodings.  See RULES.md D10/F25/C33.
+- **Probe28 (5.0)**: **the FP-const quirk; `a+1.0` → `fsub qword [−1.0]` (`dc 25`) with negated const in .rdata (5.0-only)**; setne+dec -1 compare; setcc cmp encodings.  See RULES.md D10/F25/C33.
 
 
 ## Verification

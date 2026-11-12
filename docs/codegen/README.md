@@ -1,7 +1,8 @@
 # Codegen Patterns: per-compiler-version reference
 
-One file per compiler major version, documenting **minute byte-level codegen
-details**: prologues, register conventions, integer division, FPU, loops,
+Byte-level compiler reference for developers identifying and matching native code.
+
+One file per compiler major version covers prologues, register conventions, integer division, FPU, loops,
 string ops, padding, stack probes; how adjacent major versions differ, and
 which fingerprints are (verified) 100% unique to a version.
 
@@ -129,7 +130,7 @@ claims are explicitly downgraded in the per-version files.
 | **`and eax,0xff` zero-extension** | `25 ff 00 00 00` / `81 e1 ff 00 00 00` | **MSVC 5.0/6.0 /O2** (2.0/4.x: `xor eax,eax; mov al`; shared with bcc32; 7.0+: `movzx`; shared with GCC/Watcom) | ✓ probe13 (`uc_add`) |
 | **default-unsigned `char`** | `char < 0` → `31 c0 c3` (folded to 0) | **Open Watcom** (wcc386 + wcc16; MSVC/GCC/bcc32/TC use signed char) | ✓ probe13 (`c_cmp`) |
 | **8-byte struct return via `movsd` pair** | `a5 a5` | **Open Watcom** (MSVC 5.0+ return in EAX:EDX; bcc32 and MSVC 2.0/4.x round-trip the stack) | ✓ probe13 (`s8_make`) |
-| **64-byte memcpy = `rep movsd`** | `b9 10 00 00 00 f3 a5` | **MSVC, ALL versions** (GCC register-blocks the copy; bcc32/Watcom libcall; Zig LLVM uses `movups`-pair SSE copies) | ✓ probe14 (`cpy64_lib`) |
+| **64-byte memcpy = `rep movsd`** | `b9 10 00 00 00 f3 a5` | **MSVC, ALL versions** (GCC register-blocks the copy; bcc32/Watcom libcall; Zig LLVM uses 8-byte `movsd` SSE copies) | ✓ probe14 (`cpy64_lib`) |
 | **memory-form `inc dword ptr [g]`** | `ff 05` | **bcc32 at -O2** (MSVC/GCC/Watcom/Zig round-trip through EAX: `a1 … 40 … a3` in the same probe functions; context-dependent; VC5/6 also emit `ff 05` for memory counters in other shapes) | ✓ probe14 (`g_inc`) |
 | **64-bit shift helper tail-call** | `b9 <n> 00 00 00 e9` (`mov ecx,N; jmp __allshl/__allshr`) | **MSVC 5.0/6.0** (7.0+ inline `shld`/`shrd`; shared with GCC/bcc32/Zig; Watcom `__I8LS` uses an EBX count) | ✓ probe14 (`i64_shl`/`i64_shr`) |
 | **zero-compare: `cmp [mem],1; sbb; neg`** | `83 7c 24 04 01 1b c0 f7 d8` | **MSVC 2.0/4.x + 1.52 (16-bit)** (5.0–7.1: load+`test`; 8.0+: memory compare against the zero register) | ✓ probe14 (`zc_reg`) |
@@ -167,7 +168,7 @@ claims are explicitly downgraded in the per-version files.
 | **`leave; ret N` callee-cleanup epilogue** | `c9 c2 N N` | Delphi 1.0 (DCC) | ✓ probe3 (dpr) |
 
 **Service-pack verdicts** (probe5+7+8+9+10 sweeps): **VC 7.0 SP1 is the
-only SP with verified codegen differences on these probes: seventeen
+only SP with verified codegen differences on probes 5/7/8/9/10: seventeen
 functions.**  (a) 4 structural: the
 `==`/`!=` FP family (`fcmp2`/`fc5`/`fc8`/`fc9`) switch from the
 two-load `fucompp` (`da e9`) to `fcomp [mem]` (`dc 5c 24 0c`, 2 bytes
@@ -289,12 +290,13 @@ listing (e.g. the bcc32 C++ object).  Sweep results: the
 per-toolchain uniqueness confirmed every hand-documented marker and
 surfaced no new cross-toolchain-unique ones; the **SP equivalence is
 machine-verified over 4466 matched SP rows, 4433 byte-identical (matching each SP against its RTM
-twin by toolchain/version/flags/probe/function)**; the known VC 7.0
-SP1 delta set (18 functions incl. probe14's `_s64_ret`) now extends
-with probe22's `_arr_counter`/`_struct_counter` (7.0 SP1 emits
-`rep stosd` where RTM unrolls the 36B memset: the only probe22 SP
-delta; 6.0 SP1–SP6, 7.1 SP1, 8.0 SP1, 10.0 SP1 are byte-identical on
-all 26 probe22 functions).  The corpus also surfaced that the
+twin by toolchain/version/flags/probe/function)**. VC 7.0 SP1 differs on
+**32 distinct functions**, all at `/O2`, including probe14 `_s64_ret`,
+probe18 `_scan_recipe`, probe22 `_arr_counter`/`_struct_counter`, and
+the arithmetic tails in probes 23/29/30. In probe22, SP1 emits `rep stosd`
+where RTM unrolls the 36B memset; the other measured SPs match their RTMs
+on all 26 functions. The remaining differing row is VC 8.0 SP1 probe17
+`_alloc_flags` at `/O2` (47 B, RTM 49 B).  The corpus also surfaced that the
 VC 9.0 SP1 "workaround" objects are IA64-typed (see msvc-9.md):
 the 9.0 SP1 comparison remains blocked.
 

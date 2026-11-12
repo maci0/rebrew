@@ -4,7 +4,7 @@
 
 | Document | Description |
 |----------|-------------|
-| [GETTING_STARTED.md](GETTING_STARTED.md) | Start here (humans): the mental model, the 15-minute walkthrough, the core loop |
+| [GETTING_STARTED.md](GETTING_STARTED.md) | Start here (humans): the mental model, a first-binary walkthrough, the core loop |
 | [ONBOARDING.md](ONBOARDING.md) | First-run walkthrough: binary → intake → doctor → first match (incl. manual discovery) |
 | [WORKFLOW.md](WORKFLOW.md) | Full iteration loop: test, diff, match, prove, verify; multi-binary; JSON / CI |
 | [CORDIS_TUTORIAL.md](CORDIS_TUTORIAL.md) | Runnable component walkthrough: dependency gating, provider replacement, and owned teardown |
@@ -31,7 +31,7 @@
 | [COVERAGE_DOCUMENT.md](COVERAGE_DOCUMENT.md) | Portable `coverage-<target>.toml` document format and the dashboard REST API |
 | [dashboard-api.yaml](dashboard-api.yaml) | OpenAPI 3.1 contract for the `rebrew coverage serve` HTTP API, checked against the code by `tests/test_dashboard.py` |
 | [NAME_NORMALIZATION.md](NAME_NORMALIZATION.md) | Tool-name provenance, Ghidra C-name sanitization, and rizin discovery labels |
-| [TOOLCHAIN.md](TOOLCHAIN.md) | The toolchain zoo: compilers (MSVC 1.0–11.0, Borland C++ 5.5, Turbo C 2.0/3.1, Open Watcom, Delphi 1.0, GCC, Clang, MinGW), docker images, reproducible builds (`rebrew toolchain vendor`/`smoke`), external tools, Python deps |
+| [TOOLCHAIN.md](TOOLCHAIN.md) | Compiler profiles (`rebrew toolchain list`), docker images, reproducible builds (`rebrew toolchain vendor`/`smoke`), external tools, Python deps |
 | [SDK_MEDIA.md](SDK_MEDIA.md) | DirectX and Platform SDK media provenance: verified archive.org checksums, gaps, official and license-clean sources |
 | [OMF_NOTES.md](OMF_NOTES.md) | OMF object format research (Watcom wcc386 32-bit + MSVC 1.52 16-bit dialects, reloc decoding) |
 | [POSTLINK.md](POSTLINK.md) | `rebrew build postlink`: post-link layout normalization of a built binary onto a reference, text-only layout package from `rebrew build layout` |

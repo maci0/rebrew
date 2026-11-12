@@ -348,7 +348,9 @@ from the archive.org `turboc20` floppies; image
 `rebrew/borland:2.0-win16`, in the smoke gate; the 1988/89 compiler that
 diec reports as "Borland C/C++ 1991"; C89-strict: rejects `//` comments,
 so skeletons use `/* */` markers), and the **complete MSVC 1.0–11.0
-line** (below: 32 classic-line profiles from `msvc-1.0` to `msvc-11.0`,
+line** (below: the table lists 31 classic-line profiles from `msvc-1.0` to
+`msvc-11.0`; the registry also has `msvc-6.0-sp5-pp` and `msvc-8.0-portable`,
+which the table does not, plus `msvc-6.0-sp5-crt`,
 every version and every preserved service pack, each packaged as a
 sha256-pinned docker image `rebrew/msvc:<version>-<arch>` plus a
 host tree vendored into the recompile-toolchains checkout as the

@@ -36,16 +36,22 @@ is cheaper and faster than N sequential calls (TypeSafe documents ~11×
 on a 13-question fan-out). Shared token budget is ~32k tokens
 (~150k characters of English).
 
-Public claims (early access, [announce](https://typesafe.ai/blog/introducing-system-one-models-and-jev)):
+Vendor claims, not measured in this repo
+([announce](https://typesafe.ai/blog/introducing-system-one-models-and-jev),
+[models](https://docs.typesafe.ai/models.md), both read 2026-11-12):
 
-- End-to-end ~70–500 ms vs seconds–minutes for frontier LLMs.
-- Input `$0.042 / MTok` (`$42 / BTok`); output tokens free.
-- Model recorded in this research: `jev-1.13.0`; `jev-latest` pointed at it
-  ([models](https://docs.typesafe.ai/models.md)). Pin the versioned id
-  once thresholds are tuned: the alias moves.
-- HTTP: `POST https://api.typesafe.ai/v1/systemone`. Rate limits
-  (2026-09, can change): 250k tokens/s, 1200 req/min; `429` +
-  `retry-after`.
+- The announce describes end-to-end latency of about 70–500 ms against
+  seconds–minutes for frontier LLMs. This repo has no timing of its own.
+- The models page lists input at `$0.042 / MTok` (`$42 / BTok`) with output
+  tokens free, for both `jev-1.13` and `jev-1.14`.
+- The models page lists `jev-1.14.0` as current and keeps `jev-1.13.0`.
+  `jev-latest` is an alias and moves. The notes below were written against
+  `jev-1.13.0`; pin that id, or re-check the jaggedness notes against 1.14
+  before switching.
+- HTTP: `POST https://api.typesafe.ai/v1/systemone`. The 2026-09 note of
+  250k tokens/s and 1200 req/min is not on the current models page, which
+  says limits are per organization and a `429` carries `retry-after`.
+  Read the console figure before relying on either number.
 - Python: `typesafe-sdk` (`TYPESAFE_API_KEY`,
   [console](https://console.typesafe.ai/)).
 - Text / JSON only. No images, audio, or video.

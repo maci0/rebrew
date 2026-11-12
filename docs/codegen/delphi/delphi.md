@@ -33,7 +33,7 @@ plain Integer args too).  RTL functions use far `retf`/`retf N` (`ca`).
 
 ## Integer division
 
-- Real 16-bit `idiv`: `div3` → `mov ax,[bp+4]` · `cdq` (`99`) ·
+- Real 16-bit `idiv`: `div3` → `mov ax,[bp+4]` · `cwd` (`99`) ·
   `mov cx,3` · `idiv cx` (`f7 f9`); divisor in CX, real division,
   no magic constants (16-bit).
 

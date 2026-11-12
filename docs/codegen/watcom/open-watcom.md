@@ -77,9 +77,9 @@ fixture.
     ja; mov bx,ax; shl bx,1; jmp word ptr cs:[bx]` + `dw` entries)
     the `shl bx,1` (`d1 e3`) scaling, shared with TC (MSVC 1.52 alone
     uses `add ax,ax; xchg bx,ax`).  Verified in `sw16`.
-  - **Division**: real `xor dx,dx; div bx` (unsigned) / `cdq; idiv
+  - **Division**: real `xor dx,dx; div bx` (unsigned) / `cwd; idiv
     bx` (signed), and **no reciprocal-magic for constant divisors**
-    (`a/7` loads `mov bx,7; cdq; idiv bx`): mirroring the 32-bit
+    (`a/7` loads `mov bx,7; cwd; idiv bx`): mirroring the 32-bit
     wcc386 no-magic behavior.  Verified in `div16`.
 
 ## 100% unique to this version (family level)
@@ -101,13 +101,13 @@ fixture.
   clobbered caller-saved regs) at 16-bit width, same family trait as
   wcc386's `push ecx; push edx`; real division, no magic constants.
 - Not unique per Open Watcom *minor* (1.0 vs 2.0): only 2.0 was
-  probed; the commercial-line output was not reproduced.
+  probed; commercial 10.x/11.0 results are listed below.
 
 ## Version deltas
 
-- Not verified: no controlled compile of Open Watcom 1.0 or the
-  commercial 9.x/10.x/11.x line for this reference; family traits
-  above are 2.0-verified.
+- Open Watcom 1.0 and commercial 9.x are unverified. Commercial
+  10.x/11.0 results are in the commercial Watcom section below;
+  family traits above are 2.0-verified.
 
 ## Probe12: 16-bit switch: verified
 

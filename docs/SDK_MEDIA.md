@@ -7,9 +7,13 @@ input: struct layouts, `_inline` helpers, macros, and interface vtables in
 version must match the original build.  These media are the source trees a
 future SDK layer would vendor; rebrew has no SDK layer today.
 
-All checksums below were read from the archive.org metadata API
+Sizes and checksums below were read from the archive.org metadata API
 (`https://archive.org/metadata/<identifier>`) on 2026-09-11.  Sizes are in
 bytes.  Download URLs are `https://archive.org/download/<identifier>/<file>`.
+A re-check on 2026-11-12 of one row (`dx8sdk`, `dx8sdk.exe`: 144441256 bytes,
+MD5 `9106e17618a531ca9ec2533984fd1c78`) still matches the table.  The other
+rows were not re-fetched, so treat them as the 2026-09-11 snapshot and
+re-run the command in section 8 before pinning one.
 
 ## 1. DirectX SDKs (archive.org `directxsdks`)
 

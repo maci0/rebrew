@@ -274,8 +274,8 @@ linker-dependent addresses differ. This is the RELOC match.
 
 ## Observed NEAR_MATCHING Patterns
 
-Patterns and insights from hands-on RE work, not actionable tool ideas, but reference
-knowledge about what actually blocks byte-level matching in practice.
+Reference knowledge from hands-on reversing about what blocks byte-level
+matching in practice.
 
 ### Close NEAR_MATCHING analysis (0-3B delta)
 
@@ -291,7 +291,7 @@ Common uncontrollable blocker categories:
 
 ### Register allocation as systemic ceiling
 
-Register allocation is the primary systemic blocker for ALL remaining GAME functions. With `/O2 /Gd` (frame pointer omission), the compiler may use ebp as a callee-save register, but only if there's enough register pressure. If C source doesn't create enough demand, the compiler won't allocate ebp, producing fewer push/pop instructions and different register assignments throughout.
+Register allocation is the primary systemic blocker for the remaining game functions. With `/O2 /Gd` (`/O2` implies frame-pointer omission), the compiler may use ebp as a callee-save register, but only if there's enough register pressure. If C source doesn't create enough demand, the compiler won't allocate ebp, producing fewer push/pop instructions and different register assignments throughout.
 
 ### Dependency chains limit matchable scope
 

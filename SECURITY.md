@@ -29,7 +29,7 @@ document is:
 
 - [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md)
 
-Operators should also treat operator-supplied backup/restore paths as trusted: `rebrew match solutions --backup <dir>` / `--restore <file>` copies `.rebrew/ga_runs.jsonl` off-tree (`src/rebrew/matcher/solutions.py` `backup_ga_runs` / `restore_ga_runs`), and the SQLite metadata backup/restore (`src/rebrew/metadata/sqlite.py`) and `rebrew metadata migrate` destination snapshot (`src/rebrew/metadata_transfer.py`) handle `rebrew-metadata.sqlite3` the same way. The default TOML backup (`backup_metadata_toml` / `restore_metadata_toml` in `src/rebrew/metadata/sqlite.py`, walked recursively by `_toml_store_trees` so a nested `metadata_dir` is covered and nested projects are skipped) additionally copies and installs the project `rebrew-project.toml`, so a TOML restore also overwrites the live project config (preserved as `.before-restore`) and can re-point `metadata_dir`, endpoints, and compiler settings for the next run; a config-only bundle is refused. The same TOML/SQLite bundle also carries `.rebrew/decompme-uploads.json` when present (`_UPLOADS_REL` in `_extra_durable_sources`, `src/rebrew/metadata/sqlite.py`) — the decomp.me claim-token ledger, whose loss re-uploads already-claimed scratches inside the 90-day dedup window — and the `pgsql-before-transfer` snapshots (`.rebrew/pgsql-before-transfer/**/*.toml`, `_PGSQL_SNAPSHOT_DIR_REL`, the only copy of a destination a `metadata migrate pgsql` replaced), plus `.rebrew/extern-names.json` (`_EXTERN_NAMES_REL`), `.rebrew/name_to_va_cache.json` (`_NAME_TO_VA_CACHE_REL`), `.rebrew/verify_cache.json` (`_VERIFY_JSON_REL`), and the BinSync state dir (`1a264869`). Every `rebrew metadata backup` bundle carries a manifest (`rebrew-backup.manifest.json`, size+sha256 per file, `metadata/sqlite.py` `_write_backup_manifest`), and restore verifies it with `verify_backup_manifest` before installing anything, refusing a bundle with a missing/corrupt manifest or any missing/mismatched file. The PostgreSQL metadata backend (dsn+project in project TOML, `src/rebrew/metadata/pgsql.py`) has no rebrew-side backup: `rebrew metadata backup`/`restore` reject it and require `pg_dump`/`pg_restore` (`src/rebrew/metadata_cli.py`; see `docs/METADATA.md` PostgreSQL backup and restore; `src/rebrew/doctor.py` `check_backup_readiness` warns). Restores validate the payload and preserve the live store as `.before-restore` before replacing it, but nothing confines a backup destination or a restore source to the project — a restore file a hostile project planted is installed as the live store. Operators should treat project source, configured HTTP endpoints
+Operators should also treat operator-supplied backup/restore paths as trusted: `rebrew match solutions --backup <dir>` / `--restore <file>` copies `.rebrew/ga_runs.jsonl` off-tree (`src/rebrew/matcher/solutions.py` `backup_ga_runs` / `restore_ga_runs`), and the SQLite metadata backup/restore (`src/rebrew/metadata/sqlite.py`) and `rebrew metadata migrate` destination snapshot (`src/rebrew/metadata_transfer.py`) handle `rebrew-metadata.sqlite3` the same way. The default TOML backup (`backup_metadata_toml` / `restore_metadata_toml` in `src/rebrew/metadata/sqlite.py`, walked recursively by `_toml_store_trees` so a nested `metadata_dir` is covered and nested projects are skipped) additionally copies and installs the project `rebrew-project.toml`, so a TOML restore also overwrites the live project config (preserved as `.before-restore`) and can re-point `metadata_dir`, endpoints, and compiler settings for the next run; a config-only bundle is refused. The same TOML/SQLite bundle also carries `.rebrew/decompme-uploads.json` when present (`_UPLOADS_REL` in `_extra_durable_sources`, `src/rebrew/metadata/sqlite.py`; the decomp.me claim-token ledger, whose loss re-uploads already-claimed scratches inside the 90-day dedup window) and the `pgsql-before-transfer` snapshots (`.rebrew/pgsql-before-transfer/**/*.toml`, `_PGSQL_SNAPSHOT_DIR_REL`, the only copy of a destination a `metadata migrate pgsql` replaced), plus `.rebrew/extern-names.json` (`_EXTERN_NAMES_REL`), `.rebrew/name_to_va_cache.json` (`_NAME_TO_VA_CACHE_REL`), `.rebrew/verify_cache.json` (`_VERIFY_JSON_REL`), the BinSync state dir, and the target binary named by `rebrew-project.toml` (`_target_binary_relpaths`), the one input rebrew cannot regenerate, so an off-tree copy is a complete recovery set (absolute and `..` entries are skipped). Every `rebrew metadata backup` bundle carries a manifest (`rebrew-backup.manifest.json`, size+sha256 per file, `metadata/sqlite.py` `_write_backup_manifest`), and restore verifies it with `verify_backup_manifest` before installing anything, refusing a bundle with a missing/corrupt manifest or any missing/mismatched file. The PostgreSQL metadata backend (dsn+project in project TOML, `src/rebrew/metadata/pgsql.py`) has no rebrew-side backup: `rebrew metadata backup`/`restore` reject it and require `pg_dump`/`pg_restore` (`src/rebrew/metadata_cli.py`; see `docs/METADATA.md` PostgreSQL backup and restore; `src/rebrew/doctor.py` `check_backup_readiness` warns). Restores validate the payload and preserve the live store as `.before-restore` before replacing it, but nothing confines a backup destination or a restore source to the project: a restore file a hostile project planted is installed as the live store. Operators should treat project source, configured HTTP endpoints
 (recompile, LLM, ReVa MCP, decomp.me), GitHub release and toolchain-media
 downloads (wibo, SDK tarballs), docker/podman images (`REBREW_CONTAINER_RUNTIME`),
 cmake bridge wineprefix / profile pins (`REBREW_WINEPREFIX`, `REBREW_TOOLCHAIN`),
@@ -82,13 +82,12 @@ step through the composite action's `github-token` input, and in
 `.github/workflows/toolchain-sync.yml` it reaches the resembl clone step and
 the nightly `check-updates` run. That workflow runs nightly and reports
 toolchain pin drift without applying it. There is no publish step in this
-repository: the PyPI upload is a manual `uv publish` from a `dist/` the package
-job verified, so a release is not attributable to a workflow run. That command
-does upload a PEP 740 attestation beside the files, which names the publisher
-who uploaded them, not this repository. CI signing is limited to the SLSA
+repository: release files are attached to a GitHub release by hand from a
+`dist/` the package job verified, so a release is not attributable to a
+workflow run, and there is no package-index upload. CI signing is limited to the SLSA
 build-provenance attestation for the `package` job's wheel, sdist and SBOM
 (`dist/rebrew.cdx.json`) subjects: it records what the package job built, under the workflow's
-Sigstore identity, and is not a signature over the manually uploaded release
+Sigstore identity, and is not a signature over the manually attached release
 files.
 
 The packaged compile-cache backends refuse pickle deserialize
@@ -249,7 +248,7 @@ plugin cache backends or remove the open upstream diskcache advisory.
   exist only in the reply. A read timeout or dropped connection can therefore
   hide a create the service already committed, leaving the uploaded function
   source, ASM, and context in a public scratch that neither the analyst nor
-  `rebrew` can claim or delete. `rebrew export decompme` no longer re-POSTs after a
+  `rebrew` can claim or delete. `rebrew export decompme` does not re-POST after a
   post-send transport failure (`_never_delivered` in
   `src/rebrew/decompme.py`), so a single run does not mint a second orphan,
   but a hand-run retry still does, and the existing orphan is not discoverable
@@ -260,20 +259,19 @@ plugin cache backends or remove the open upstream diskcache advisory.
   The wibo asset and metadata fetches, the toolchain media download, and the
   `GH_TOKEN`-bearing GitHub commit lookup pass `trust_env=False`, so their
   httpx calls ignore `HTTPS_PROXY`, `SSL_CERT_FILE`, and
-  `REQUESTS_CA_BUNDLE`. The recompile, decomp.me, MCP and LLM clients now also pass
+  `REQUESTS_CA_BUNDLE`. The recompile, decomp.me, MCP and LLM clients also pass
   `trust_env=False` on their own clients (`compiler/compile.py`
   `_shared_recompile_client`/`_job_recompile_client`,
   `compiler/recompile_client.py`, `decompiler.py`, `skeleton.py`,
-  commit dddc7deb; `ghidra/client.py`, `ghidra/cli.py`, `ghidra/commands.py`,
-  commit 4266f5ed), so ambient `*_proxy` is ignored there too; ops
+  `ghidra/client.py`, `ghidra/cli.py`, `ghidra/commands.py`), so ambient `*_proxy` is ignored there too; ops
   `_download` also passes `trust_env=False` (proxy env ignored) with
   `SSL_CERT_FILE`/`SSL_CERT_DIR` re-applied explicitly, so an
   operator-pinned CA bundle is not silently dropped. The OTLP span exporter
   (`src/rebrew/telemetry.py`) is not an httpx client: its `urllib.request`
-  POST now goes through an opener built with `ProxyHandler({})`, so ambient
+  POST goes through an opener built with `ProxyHandler({})`, so ambient
   `*_proxy` variables cannot reroute it either; `REBREW_OTLP_ENDPOINT`
   admits plain `http`, so a non-loopback collector still receives spans
-  (trace/span ids, op names, status codes — no source or credentials) in
+  (trace/span ids, op names, status codes; no source or credentials) in
   cleartext, and the endpoint is operator env, not project configuration.
   The wibo asset is capped at
   64 MiB (`_MAX_WIBO_DOWNLOAD_BYTES` in `src/rebrew/wibo.py`), its release
@@ -295,7 +293,7 @@ else refused, `src/rebrew/wibo.py`), the
 - No claim that the ops worker's presigned-URL download is SSRF-proof.
   `_download` in `src/rebrew/ops.py` refuses a `url` that is not https, a
   hostless URL, or a URL carrying userinfo (`parts.username or
-  parts.password`, commit 2eb25aa0), and refuses a `url` host that resolves to a
+  parts.password`), and refuses a `url` host that resolves to a
   non-public address: `_check_download_host` resolves the hostname and
   refuses any non-`is_global` address (IP literals checked the same way)
   and any resolution failure. The refusal is bypassed only by the operator
@@ -311,32 +309,10 @@ else refused, `src/rebrew/wibo.py`), the
   the `httpx` GET cannot reach a private host. The DNS resolution itself
   is bounded to 10 s (`DNS_TIMEOUT_SECONDS`, a daemon thread in
   `_check_download_host`) so a hung resolver cannot pin a worker slot; a
-  proxy resolving the name itself is no longer a bypass, because
+  proxy resolving the name itself is not a bypass, because
   `_download` passes `trust_env=False` (ambient `*_proxy` ignored) while
   re-applying an operator-pinned `SSL_CERT_FILE`/`SSL_CERT_DIR`
   explicitly via `verify=`.
-- No claim that a Host-header spelling variant bypasses the allow-list, and no
-  claim that error/reply text is free of bidi controls. Both sides of the Host
-  comparison are folded through `fold_host` (`src/rebrew/utils.py`), which
-  now runs `strip_bidi_format` after NFC normalization and before casefold/IDNA
-  (commit 2eb25aa0), and ops error/reply text is bidi-stripped the same way
-  (`error_body` and `_bounded` in `src/rebrew/ops.py`, same commit).
-- No claim that `REBREW_OTLP_ENDPOINT` is validated only at export time.
-  The knob is now validated at startup: `OTLP_ENDPOINT_ENV` in
-  `src/rebrew/config.py` is `validate_http_url`-checked in
-  `_env_knob_parsers` / `env_knob_errors` (reported by `rebrew cfg
-  effective`), and `src/rebrew/telemetry.py` `ENDPOINT_ENV` aliases that
-  single source. The endpoint still admits plain `http` (above), and the
-  startup check does not change that.
-- No claim that a hostile splat config can escape the foreign project through
-  a path entry. `splat_config._rel` (`splat_config.py:517-531`) resolves every
-  `splat.yaml` path against the operator's base and raises `ValueError` on any
-  that escape it (`is_relative_to`), so an absolute, `../..`, or backslash-
-  separated entry is refused before any read or `shutil.copy2` into the project.
-- No claim that `rebrew build check --objects` cannot be tricked by an included makefile. The probe refuses when `build.make` or any file it includes carries make function expansion: `_MAKE_INCLUDE_RE` in `src/rebrew/build_check.py` now matches `-s?include` (the `sinclude` variants the old regex missed) and `_probe_expansion` recurses the include graph depth-capped at 32 with cycle tracking, refusing a computed (`$`-bearing) include name outright (commit dddc7deb). A makefile naming its own programs without function expansion remains the disclosed residual — see `docs/THREAT_MODEL.md` §5.
-- No claim that a native toolchain binary is resolved from `PATH`. Image-less (plugin/overlay) toolchains now resolve vendored-only: `compiler/toolchain.py` `_resolve_binary` has no `shutil.which` fallback, and a binary name containing a path separator or NUL is rejected outright, so a hostile project cannot plant `cl` on `PATH` to hijack the lookup (commit ca4d6e52).
-- Backup bundles now carry the project target binary. `metadata/sqlite.py` `_target_binary_relpaths` (commit c8aa20ec) includes the binary named by `rebrew-project.toml` in every TOML/SQLite backup bundle — the one irreplaceable input rebrew cannot regenerate — so an off-tree copy is a complete recovery set; absolute/`..` entries are skipped.
-  `--apply` is still the only opt-in.
 - No claim that PostgreSQL schema-shape validation is re-run on every store
   operation. `PgsqlStore._present` (`src/rebrew/metadata/pgsql.py`) caches the
   four-catalog-query verdict per connection id, and first-use DDL
@@ -345,17 +321,46 @@ else refused, `src/rebrew/wibo.py`), the
   serializes DDL so the verdict cannot go stale mid-transaction, and a fresh
   connection re-validates. The cache does not change the schema pin itself
   (exact column list + PK/CHECK, `statement_timeout 30s`, redacted diagnostics).
-- No claim that JSON output can carry non-finite numbers, and no claim that
-  `010` means octal in address/size parsing. `json_print`
-  (`src/rebrew/cli.py`) passes `allow_nan=False` on both tty and pipe paths so
-  `NaN`/`Infinity` cannot emit non-strict JSON (commit 84843a14), and integer
-  parsing goes through `utils.parse_int_literal` / `parse_c_integer_literal`
-  (`src/rebrew/utils.py`, commit ee94b3d7): a `0x` prefix selects base 16,
-  otherwise decimal (`010` is ten), ASCII digits only, replacing bare
-  `int(x, 0)` across binsync/catalog/prove/report/residue/switch call sites
-  that previously stored zero on a leading zero.
-- No claim that the ops worker's download client is left open after a fetch.
-  `_download` (`src/rebrew/ops.py`) now closes its `httpx.Client` via the
-  context manager (`with httpx.Client(...) as _http: _http.stream(...)`,
-  commit 73103760); the SSRF pinning, `trust_env=False`, and `verify=`
-  behaviour above are unchanged.
+
+## Hardened behavior
+
+These are checked behaviors, not guarantees beyond their stated scope.
+
+- **Host header folding.** Both sides of the Host allow-list comparison are
+  folded through `fold_host` (`src/rebrew/utils.py`), which runs
+  `strip_bidi_format` after NFC normalization and before casefold/IDNA, so a
+  spelling variant does not bypass the allow-list. Ops error/reply text is
+  bidi-stripped the same way (`error_body` and `_bounded` in
+  `src/rebrew/ops.py`).
+- **OTLP endpoint validation at startup.** `OTLP_ENDPOINT_ENV` in
+  `src/rebrew/config.py` is `validate_http_url`-checked in
+  `_env_knob_parsers` / `env_knob_errors` (reported by `rebrew cfg
+  effective`), and `src/rebrew/telemetry.py` `ENDPOINT_ENV` aliases that
+  single source. The endpoint still admits plain `http` (above).
+- **Splat path containment.** `splat_config._rel` (`splat_config.py:517-531`)
+  resolves every `splat.yaml` path against the operator's base and raises
+  `ValueError` on any that escape it (`is_relative_to`), so an absolute,
+  `../..`, or backslash-separated entry is refused before any read or
+  `shutil.copy2` into the project; `--apply` remains the only write opt-in.
+- **`rebrew build check --objects` include probe.** The probe refuses when
+  `build.make` or any file it includes carries make function expansion:
+  `_MAKE_INCLUDE_RE` in `src/rebrew/build_check.py` matches `-s?include`
+  (including `sinclude`), and `_probe_expansion` recurses the include graph,
+  depth-capped at 32 with cycle tracking, refusing a computed (`$`-bearing)
+  include name outright. A makefile naming its own programs without function
+  expansion remains the disclosed residual; see `docs/THREAT_MODEL.md` §5.
+- **No `PATH` lookup for native toolchain binaries.** Image-less
+  (plugin/overlay) toolchains resolve vendored-only: `compiler/toolchain.py`
+  `_resolve_binary` has no `shutil.which` fallback, and a binary name
+  containing a path separator or NUL is rejected, so a hostile project cannot
+  plant `cl` on `PATH` to hijack the lookup.
+- **Strict JSON and integer parsing.** `json_print` (`src/rebrew/cli.py`)
+  passes `allow_nan=False` on both tty and pipe paths, so `NaN`/`Infinity`
+  cannot emit non-strict JSON. Integer parsing goes through
+  `utils.parse_int_literal` / `parse_c_integer_literal` (`src/rebrew/utils.py`):
+  a `0x` prefix selects base 16, otherwise decimal (`010` is ten), ASCII digits
+  only, across the binsync/catalog/prove/report/residue/switch call sites.
+- **Ops download client lifetime.** `_download` (`src/rebrew/ops.py`) closes
+  its `httpx.Client` through a context manager
+  (`with httpx.Client(...) as _http: _http.stream(...)`); the SSRF pinning,
+  `trust_env=False`, and `verify=` behavior above are unchanged.

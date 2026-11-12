@@ -9,7 +9,7 @@ rebrew verify --json                    # every function in the selected target;
 rebrew verify --jobs 8 --output report.json       # parallel compile, save report
 rebrew verify --compare --json          # regressions vs last baseline
 rebrew verify --watch                   # re-verify on file change; terminal only, rejects JSON output
-rebrew verify --no-cache --json         # recompile the selected functions
+rebrew verify --no-cache --json         # recheck without saved verdicts; compiled objects may be reused
 rebrew lint src/<target>/<file>.c       # lint one file (files are POSITIONAL)
 rebrew lint --json                      # annotation correctness
 rebrew lint --fix                       # drop W029-redundant cflags; source metadata tags are errors
@@ -32,7 +32,8 @@ rebrew build check-data-placement --built build/<target>
 ```
 
 `rebrew verify` checks every function in the selected target and reuses cached
-results. `--no-cache` recompiles those functions.
+results. `--no-cache` bypasses saved verification results; compiled objects
+may still be reused.
 It syncs STATUS (SKIP preserved, PROVEN replaced by the byte result).
 EXACT/RELOC clears BLOCKER unless the source still has `__asm`, `_asm`, or `__emit`
 (kept; lint W020). Exit 1 if any function fails. `passed` counts EXACT/RELOC only.

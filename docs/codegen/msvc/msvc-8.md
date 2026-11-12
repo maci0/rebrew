@@ -70,7 +70,7 @@ codegen change of this version.
   form in every earlier version.  Unique to 8.0+ among the line (an era
   marker, not 8.0-only).
 - **Inline 2^52-bias FP→unsigned**: `(unsigned)a` compiles to the
-  x87 bias trick (`fistp qword [esp]; mov ax,[esp+0xc]; or ax,0xC0000;
+  x87 bias trick (`fistp qword [esp]; mov eax,[esp+0xc]; or eax,0xC0000;
   … fistp`) from VC 8.0 on (`0d 00 0c 00 00` = `or eax,0xC0000`); VC
   2.0–7.1 call the FP-conversion helper.  Verified in probe4
   (`d2u`/`f2u`).

@@ -31,12 +31,11 @@ images require `rebrew toolchain pull <profile>` or an authorized build from
 [recompile-toolchains](https://github.com/maci0/recompile-toolchains).
 
 ```bash
-# Preferred: prebuilt wheel from the latest GitHub release.
-# Download rebrew-*.whl from https://github.com/maci0/rebrew/releases, then:
-# It needs a Rust toolchain to build python-flirt from source, unless you
-# override it with the exact published native wheel (see Development below).
+# Preferred: rebrew-*.whl from https://github.com/maci0/rebrew/releases.
+# Installing it builds python-flirt from source, so it needs a Rust toolchain
+# unless you override it with the exact published native wheel (see Development).
 uv tool install ./rebrew-*.whl
-# Fallback: from source (also needs a Rust toolchain to build python-flirt).
+# Fallback: from source (same Rust requirement).
 uv tool install git+https://github.com/maci0/rebrew.git
 mkdir my-decomp && cd my-decomp
 rebrew intake /path/to/server.dll        # scaffold, detect compiler, discover, document stubs
@@ -47,8 +46,7 @@ rebrew todo --json                       # choose a scoped action
 ```
 
 Use `rebrew <command>` for every tool, including CMake and objdiff build hooks;
-see the
-[CLI reference](https://github.com/maci0/rebrew/blob/main/docs/CLI.md).
+see the [CLI reference](https://github.com/maci0/rebrew/blob/main/docs/CLI.md).
 `rebrew schema` prints the clispec 0.3 document and needs no project.
 `rebrew -o json <command>` selects JSON. `rebrew -o text` stays text. Each
 command's own `--json` selects the same JSON output; it is declared per
@@ -141,22 +139,15 @@ checked before installation. Free-threaded Python and musl are not qualified. Th
 needs a JDK and Apache Ant on PATH to build JPype 1.7.1 on Python 3.15
 (qualified with OpenJDK 27 and Ant 1.10.18).
 
-Clean clone needs **uv**, **Python 3.15+** (`.python-version`), **nasm** and
-**bun** `1.4.4` (CI `bun-version`; `BUN_VERSION` in the `Makefile`) on `PATH`, a **Rust toolchain** (**cargo** + **rustc**, qualified with
-Rust 1.99.1 — `make setup` builds `python-flirt` from its sdist), a sibling [`resembl`](https://github.com/maci0/resembl) checkout at
-`../resembl` (tag `v5.0.0`, matching CI `RESEMBL_REF` / `uv.lock`; `make setup`
-also requires `HEAD` to be the `RESEMBL_SHA` commit CI's `resembl-sha` pins),
-**bash** for the `make clone-resembl` step below, and **cc**, **pkg-config**
-and **json-c** development files for the native unshare runner tests
-(`build-essential pkg-config libjson-c-dev` on Debian/Ubuntu).  **bun** drives the
-`tests/dashboard_*.mjs` interaction tests, which skip without it, so `make test`
-fails on a missing bun while `make test-one` only warns (both warn on a version
-other than the CI pin); the native runner
-preflight likewise fails `make test` and passes `make test-one`, and probes
-`unshare --user` namespaces with a warning naming the AppArmor sysctl fix.  **shellcheck** is optional
-locally but not in CI: the pre-commit shell hook skips itself without it, so
-`make check` warns rather than fails, and CI's pre-commit job installs it.  See
-[`CONTRIBUTING.md`](https://github.com/maci0/rebrew/blob/main/CONTRIBUTING.md); `make help` lists targets.
+A clean clone needs **uv**, **Python 3.15+** (`.python-version`), **nasm**,
+**bun** `1.4.4` (`BUN_VERSION` in the `Makefile`), a **Rust toolchain**
+(**cargo** + **rustc**; `make setup` builds `python-flirt` from its sdist),
+**bash**, **cc**, **pkg-config** and **json-c** development files
+(`build-essential pkg-config libjson-c-dev` on Debian/Ubuntu), and a sibling
+[`resembl`](https://github.com/maci0/resembl) checkout at
+`../resembl` (tag `v5.0.0`; `make setup` also requires its `HEAD` to be the
+`RESEMBL_SHA` commit). [`CONTRIBUTING.md`](https://github.com/maci0/rebrew/blob/main/CONTRIBUTING.md)
+says which gate needs each one and which only warn; `make help` lists targets.
 Run the following from the directory that will hold both checkouts:
 
 ```bash

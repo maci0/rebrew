@@ -169,12 +169,12 @@ graph TD
 | `Failed to load: …` (doctor) | `format` doesn't match the binary | set `format = "pe"/"elf"/"macho"/"ne"` in `rebrew-project.toml` |
 | `A rebrew-project.toml already exists` | `init` in an existing project | use `rebrew intake` instead: it re-runs init only when needed |
 
-## 16-bit DOS targets
+## 16-bit targets
 
-For MZ/NE (DOS) binaries `intake` sets `arch = "x86_16"` automatically and
-the profile must be one registered with `bits = 16` (`msvc-1.0`, `msvc-1.5`,
-`msvc-1.52`, `borland-2.0`, `borland-3.1`, `watcom-2.0-win16`, `delphi-1.0`,
-or a plugin that declares the same).  `rebrew verify` byte-compares only the
+For MZ (DOS) and NE (16-bit Windows) binaries `intake` sets `arch = "x86_16"`
+automatically, and the profile must be one registered with `bits = 16` (for
+example `msvc-1.52`, `msc-6.0`, `borland-3.1`, `watcom-2.0-win16`,
+`delphi-1.0`, or a plugin that declares the same).  `rebrew verify` byte-compares only the
 ones that emit a per-function object; `delphi-1.0` emits a linked NE and is
 skipped.  `rebrew doctor` explains exactly which profile to configure.
 
@@ -187,13 +187,9 @@ integer VAs:
 ```bash
 # Ghidra: Auto-Analyze, export the function list, save as above.
 # rizin headless (the packaged discoverer's executable):
-rizin -q -c 'aaa; aflj' original/mygame.exe > /tmp/funcs.json
-python3 -c "
-import json
-funcs = json.load(open('/tmp/funcs.json'))
-out = [{'va': f['offset'], 'size': f['size'], 'name': f['name']} for f in funcs]
-json.dump(out, open('src/mygame/function_structure.json', 'w'), indent=2)
-"
+rizin -q -c 'aaa; aflj' original/mygame.exe \
+  | jq '[.[] | {va: .offset, size: .size, name: .name}]' \
+  > src/mygame/function_structure.json
 ```
 
 Then continue at step 3 (`rebrew doctor`).

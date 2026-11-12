@@ -2,8 +2,8 @@
 
 `rebrew match flags` (and `rebrew match batch --algorithm flags`)
 compiles a function across a grid of MSVC6 flag combinations and reports the
-best-matching variant. Large tiers sample that grid as described below.  To keep runtimes manageable the grid is
-tiered by coverage vs. speed.
+best-matching variant. The grid is tiered by coverage against runtime; the two
+largest tiers are sampled (see below).
 
 Tier definitions live in `src/rebrew/flag_data.py`: the
 `MSVC_SWEEP_TIERS` dict maps a tier name to a list of flag-axis IDs from
@@ -127,10 +127,10 @@ The tier table above lists the MSVC6 axes (`MSVC6_FLAGS`), which is what the
 CLI sweep runs.  `MSVC_SWEEP_TIERS` is shared with the 7.x-and-later flag set
 (`COMMON_MSVC_FLAGS`), where `normal` and `thorough` also resolve `msvc_fp`
 (`/fp:*`): an id that `MSVC6_FLAGS` does not carry, so it contributes nothing
-there.  The other grids in `flag_data.py` are reached only through the toolchain sweep
-(`rebrew match toolchains --flags`), which enumerates the image-backed
-**MSVC** toolchains (`--toolchains`/`--exclude-toolchains` filter by profile
-name or version prefix, e.g. `msvc-6.0,6.0,win16`).
+there.  The toolchain sweep (`rebrew match toolchains --flags`) enumerates
+the image-backed **MSVC** toolchains (`--toolchains`/`--exclude-toolchains`
+filter by profile name or version prefix, e.g. `msvc-6.0,6.0,win16`). The
+non-MSVC6 grids below are selected per profile.
 
 ### MSVC 1.52 (16-bit)
 

@@ -92,10 +92,10 @@ not fill is `None`, and a serialized error leaves it out.
 The clients that talk to a service take the HTTP client as an argument, so
 your tests never need a live one. `HttpClient` (from `rebrew.compiler.recompile_client`
 or `rebrew.decompme`) is the two-method shape those clients call: `.post` and
-`.get`. The two protocols differ in signature — `recompile_client` takes
+`.get`. The two protocols differ in signature: `recompile_client` takes
 typed `json`/`headers`/`follow_redirects` keywords while `decompme` takes
-`**kwargs` — so a stand-in for one is not usable for the other without
-matching its signature. What it returns is a reply, and that is typed too:
+`**kwargs`, so a stand-in for one does not fit the other unless it matches
+that signature. What it returns is a reply, and that is typed too:
 `HttpResponse` names the members each transport reads.
 `rebrew.compiler.recompile_client` needs `status_code`, `text`, `json()`,
 `content` (the artifact bytes) and `headers` (the Content-Length bound);

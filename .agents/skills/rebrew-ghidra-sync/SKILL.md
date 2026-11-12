@@ -59,7 +59,9 @@ the user `init` recorded, else `rebrew`, names both `metadata.toml` and the
 branch `binsync/<user>`; never a person's `git config user.name`. A name with
 a space or `/` is refused (exit 2). Push writes only that branch; pull imports
 every other user's branch (e.g. the Ghidra analyst's `binsync/<name>`).
-Without declib (`uv tool install --reinstall 'rebrew[binsync]'`, or `uv sync --extra binsync` from a checkout) every sync command exits 2 first.
+BinSync field sync requires declib; without it, push, pull, summary and watch
+exit 2. Install with `uv tool install --reinstall 'rebrew[binsync] @ git+https://github.com/maci0/rebrew.git'`,
+or `uv sync --extra binsync` from a checkout. Structural operations do not require declib.
 
 ## 2. Sync Commands
 

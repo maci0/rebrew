@@ -228,7 +228,8 @@ inputs and measurement time independently of ordinary `updated_by` /
 `updated_at` edits. Re-run verification after source/header/compiler changes.
 These facts survive removal of derived coverage and compile caches.
 
-`CFLAGS` is optional. When absent, the target default from `rebrew-project.toml` applies.
+`CFLAGS` is optional. Resolution uses the per-function override, then the nearest
+`rebrew-libraries.toml`, then the target default from `rebrew-project.toml`.
 
 Types have stable IDs rather than instance VAs. Put definitions in the owning
 subsystem header or private C file and bind them with `rebrew types bind`.
@@ -362,8 +363,9 @@ results are rechecked against current bindings under this policy.
 Use released Rebrew/Recoverage packages in the project's pinned environment.
 Editable checkouts are an explicit tooling-development opt-in. Remove legacy
 interpreter probes, stand-in dependencies and obsolete host tool links.
-Keep local rules in the preserved project-rules section before refreshing
-generated instructions (see the init skill).
+Before refreshing generated instructions, keep local rules below
+`<!-- rebrew: project rules below, kept by --refresh-agents -->`.
+The refresh preserves that marker and everything after it (see the init skill).
 
 Reviewed source claim changes use `rebrew source binding retire` / `rebind`.
 Preview with `--dry-run --json`, then guard apply with `--expected-digest`.

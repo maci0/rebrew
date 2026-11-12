@@ -218,7 +218,14 @@ Rebrew's value is not "MSVC6": it is the *compiler-in-the-loop workbench*:
 
 ## 3. Per-Console Research Dossier
 
-### 3.1 PlayStation 1 (PS1): MIPS R3000 (MIPS-I), 33.8 MHz
+### 3.1 PlayStation 1 (PS1): MIPS R3000 (MIPS-I), 33.8688 MHz
+
+Clock figures in this dossier are published console specifications, not
+measurements from this repo. Sony's published PS1 CPU clock is 33.8688 MHz
+(the "33.8 MHz" rounding drops the part that CD-ROM timing depends on).
+Nintendo's published figures are 93.75 MHz for the N64 VR4300 and 485 MHz
+for the GameCube Gekko. Re-check a figure against the vendor page before a
+toolchain profile uses it.
 
 | Field | Detail |
 |-------|--------|
@@ -901,7 +908,7 @@ Keep the *mechanism* (`rebrew-functions.toml` + `update_source_status`, `AGENTS.
 | `BLOCKER: mapper IRQ` | Mapper interrupt (`MMC3 IRQ`, `VRC6`): bankswitch timing. | same |
 | `BLOCKER: audio` | APU/SPC700 driver: cycle-timed audio. | same |
 
-These are additive: C-era `EXACT`/`RELOC`/`PROVEN`/`STUB`/`BLOCKER` stay. Lint `W019` and `verify --compare` treat `ASM_EXACT` as `matched` (like `EXACT`). No format break until someone needs it; then the stored function row gains a `kind` field (`c` vs `asm`) rather than a second section.
+These are additive: C-era `EXACT`/`RELOC`/`PROVEN`/`STUB`/`BLOCKER` stay. `verify --compare` and lint would treat `ASM_EXACT` as `matched` (like `EXACT`). No format break until someone needs it; then the stored function row gains a `kind` field (`c` vs `asm`) rather than a second section.
 
 ### A.7 Risks specific to ASM era
 

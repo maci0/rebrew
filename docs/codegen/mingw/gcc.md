@@ -174,7 +174,7 @@ inlining is unconditional.  Verified in a probe12 re-run with native
 - **64-byte memcpy is a register-block copy** (`8b 0a 89 08 …`;
   8-dword mov/store pairs), NOT `rep movsd`: the MSVC rep-movs form
   has no GCC counterpart; Zig (LLVM) inlines the same copy as
-  `movups`-pair SSE loads/stores.
+  8-byte `movsd` SSE loads/stores.
 - **64-bit shifts inline `shld`/`shrd`** (`0f a4 c2 04 c1 e0 04`):
   byte-identical to MSVC 7.0+ and bcc32 (shared trait, not a
   discriminator); Watcom alone calls `__I8LS`.
@@ -225,7 +225,7 @@ inlining is unconditional.  Verified in a probe12 re-run with native
 
 ## Probe23: Findings 23-36 shapes (round 20)
 
-- **Probe23 (MinGW GCC)**: idx via `lea`-family with GCC's register order; division via libgcc calls at -O2 for /60? (recorded in corpus); the SIB/if-conversion forms differ from MSVC.  See RULES.md C27/F19.
+- **Probe23 (MinGW GCC)**: idx via `lea`-family with GCC's register order; `/60` and `/24` use inline reciprocal multiplication at `-O2` (`0x88888889` and `0x2aaaaaab` for signed division); the SIB/if-conversion forms differ from MSVC.  See RULES.md C27/F19.
 
 
 ## Probe24: Findings 37-43 primitives (round 21)

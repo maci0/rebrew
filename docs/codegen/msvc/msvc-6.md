@@ -94,7 +94,7 @@ build is the only reliable SP discriminator (see below).  Linker 6.0.
   eax,edx` (`c1 ea N 8b c2`) / `sar edx,N` first.  Verified across
   20 unsigned and 13 signed divisors (probe2 + probe3 table), incl.
   every VC 6.0 SP level.
-- **`shl eax,1` for `x*10`** and **`repe cmpsd` memcmp**: shared
+- **`shl eax,1` for `x*10`** and **`repe cmpsb` memcmp**: shared
   5.0–7.1 / 2.0–7.1 era markers, see
   [msvc-5.md](msvc-5.md).
 - **TWO divisions for `x/N + x%N`**: VC 2.0–6.0 emit separate
@@ -227,7 +227,7 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
 
 ## Probe28: decompedia/CODEGEN_PATTERNS claims (round 25)
 
-- **Probe28 (6.0)**: FP const `fadd qword [+1.0]` (`dc 05`); `<=0` test+setle 2B vs `<1` cmp+setl 3B; `x==-1` setne+neg; short return `mov ax`.  See RULES.md D10/C33/C34.
+- **Probe28 (6.0)**: FP const `fadd qword [+1.0]` (`dc 05`); `<=0` test+setle 2B vs `<1` cmp+setl 3B; `x==-1` setne+dec; short return `mov ax`.  See RULES.md D10/C33/C34.
 
 
 

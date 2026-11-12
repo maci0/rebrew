@@ -1,9 +1,9 @@
 # Zig (`zig cc`): codegen patterns
 
-Zig targeting MinGW-w64 (`zig cc` → GNU ld PE output).  **Code shape is
-indistinguishable from MinGW GCC** (LLVM codegen behind a GNU-ld
-front-end): there is no verified codegen marker that separates Zig
-from MinGW GCC by bytes alone.
+Zig's `zig cc` probes target 32-bit Windows GNU. The corpus records
+LLVM code generation, which differs from MinGW GCC in several shapes.
+These differences identify compiler-family behavior; they do not establish
+a fingerprint unique to Zig among LLVM frontends.
 
 **Profiles:** `mingw-16.2.0` (structural matching only; LLVM vs GCC codegen
 means byte-exact matching is not expected).
@@ -20,20 +20,16 @@ means byte-exact matching is not expected).
 ## Register conventions / Loops / Switch
 
 - LLVM x86-32 codegen: standard cdecl, `ebx/esi/edi` callee-saved;
-  none of it Zig-distinctive vs MinGW.  No per-version Zig codegen
-  claims are made here (not probed); each of these template sections
-  is deliberately **not verified** for Zig.
+  none of it Zig-distinctive vs MinGW.  Probe results below cover Zig 0.16.0; other Zig versions are unverified.
 
 ## Integer division
 
-- Not verified: no Zig toolchain compile was performed for this
-  reference.  (LLVM emits magic-number division like MinGW; nothing
-  Zig-distinctive is claimed.)
+- Probes 29/30 record reciprocal-magic division with LLVM register
+  staging; see those sections for byte sequences.
 
 ## FPU
 
-- Not verified: see Integer division.  (LLVM is SSE2-capable like
-  MinGW with `-msse2`.)
+- Probes 24/28/29/30 record SSE FP forms; see the results below.
 
 ## Stack probes
 
@@ -41,9 +37,8 @@ means byte-exact matching is not expected).
 
 ## Prologue & frame pointer
 
-- Not verified: no Zig toolchain compile was performed for this
-  reference; the shape is MinGW-GCC-equivalent by construction (see
-  above).
+- Probes 13/15/29/30 record `push ebp; mov ebp,esp` frames.
+  Frame selection differs from GCC on these shapes.
 
 ## 100% unique to this version
 
@@ -69,7 +64,7 @@ re-verified.
 ## Probe14 re-verification: first byte-level divergences, still not Zig markers
 
 `probe14.c` (zig 0.16.0, -O2): 64-byte memcpy inlines as
-`movups`-pair SSE copies (`f2 0f 10 … f2 0f 11 …`, 4×16B) where MinGW
+eight 8-byte `movsd` SSE loads/stores (`f2 0f 10 … f2 0f 11 …`) where MinGW
 GCC emits a register-block; the first verified byte-level divergence
 in the corpus probes.  It is an LLVM codegen style, not a Zig marker
 (any LLVM-front-end PE build shows it), so the "no Zig-specific
@@ -141,7 +136,7 @@ zig-vs-gcc byte marker in either dimension.
 ## Verification
 
 PDB module scan of a real Zig-built program (`.zig-cache` paths);
-codegen claims intentionally absent.  Matching caveat documented in
+codegen bytes are recorded in [corpus.json](../corpus.json). Matching caveat documented in
 [TOOLCHAIN.md](../../TOOLCHAIN.md).
 ## Probe29: round-29 markers (Zig 0.16)
 
@@ -149,8 +144,8 @@ codegen claims intentionally absent.  Matching caveat documented in
   `cmov` for min/max (`39 c1 0f 4c c1`, like gcc/11.0), SSE2 FP
   (cvttsd2si/comisd/xorpd; the 11.0-family FP), magic division with
   `imul` staging (`ba 93 24 49 92 89 c8 f7 ea`), `0f 1f` nops.  The
-  ebp + SSE2 + imul-staged magic combination fingerprints Zig-built
-  code.  See RULES.md C39/D12.
+  ebp + SSE2 + imul-staged magic combination is observed in these Zig
+  probes; it is not proven unique to Zig.  See RULES.md C39/D12.
 ## Probe30: round-30 markers (Zig 0.16)
 
 - **zig**: ebp frames + `jmp strlen` tail-call, branchless cmov

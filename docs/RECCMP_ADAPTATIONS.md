@@ -39,9 +39,9 @@ for op in m.get_opcodes():  # DiffOpcode(tag, a_start, a_end, b_start, b_end, a,
 
 **near-diag integration.** `align_and_classify` computes `_auto_pins`:
 instructions whose raw encoding is byte-identical AND unique on both sides
-are pins; reliable landmarks register/encoding churn elsewhere cannot have
-produced. The pin-partitioned opcodes then feed the same per-pair
-classifier as before (`match` / `register` / `encoding` / `equivalent` /
+are pins, because register or encoding churn elsewhere cannot produce such
+a landmark. The pin-partitioned opcodes feed the per-pair classifier
+(`match` / `register` / `encoding` / `equivalent` /
 `reloc` / `structural`).
 
 ## near_analysis jump_swap: instruction equivalences

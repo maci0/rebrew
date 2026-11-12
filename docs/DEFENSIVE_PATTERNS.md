@@ -1,8 +1,7 @@
 # Defensive patterns
 
-Bug classes that actually bit this repo, stated as the rule preventing
-recurrence. Adapted from the DeepSeek Harness `defensive-patterns.md`;
-every entry below names the rebrew incident. Read before writing
+Bug classes that bit this repo, each stated as the rule that prevents a
+recurrence. Adapted from the DeepSeek Harness `defensive-patterns.md`. Read before writing
 lifecycle, subprocess, container-staging, or cache-key code.
 
 ## Symlinks do not survive the container mount

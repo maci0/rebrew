@@ -121,7 +121,7 @@ era).
 
 | Idiom | C shape | VC 6.0 /O2 signature | Look for |
 |---|---|---|---|
-| Nonnegative clamp `(x<=0)?0:x` | the ternary clamp | `8b 44 24 04 33 c9 85 c0 0f 9e c1 49 23 c1` (`test; setle cl; neg ecx; and eax,ecx`) | **branchless in 5.0-7.1/9.0/10.0; 2.0/4.1 branchy (`test; jg; xor`); 8.0 `setle; sub ecx,1`; 11.0 `cmovle`**: clamps are everywhere (guild 1×, sndrec32 1×) |
+| Nonnegative clamp `(x<=0)?0:x` | the ternary clamp | `8b 44 24 04 33 c9 85 c0 0f 9e c1 49 23 c1` (`test; setle cl; dec ecx; and eax,ecx`) | **branchless in 5.0-7.1/9.0/10.0; 2.0/4.1 branchy (`test; jg; xor`); 8.0 `setle; sub ecx,1`; 11.0 `cmovle`**: clamps are everywhere (guild 1×, sndrec32 1×) |
 | ×589 multiply | `x * 589` | `8b 4c 24 04 8d 04 49 c1 e0 04 03 c1 8d 04 40 8d 04 81` (5-instruction lea chain) | **2.0/4.1 four-lea chain; 5.0/6.0 five-instruction lea chain; 7.0+ single `imul eax,eax,0x24d`**: the imul-vs-lea-chain split fingerprints the era |
 | Byte-arg raw push | `callee(v, s->a, s->b)` with `unsigned char b` | `8b 44 24 04 8a 48 04 8b 10 8b 44 24 08 51 52 50 …` (`mov al,[ecx+4]; push eax`; raw, no extension) | **2.0–6.0 push the raw byte slot; 7.0/7.1 zero-extend (`xor;mov cl`); 8.0+ `movzx`**: the doc's "raw push is unreproducible" claim only holds under register pressure |
 | Byte+dword sum | `*(uchar*)(r+0xc) + *(int*)(a+0x13)` | `8b 4c 24 04 8b 54 24 08 33 c0 8a 41 0c 8b 4a 4c 03 c1` (byte loaded first) | the byte loads FIRST in every version (movzx + memory-add from 7.0) |
@@ -149,7 +149,7 @@ era).
 | FP-const add | `a + 1.0` | `dd 44 24 04 dc 05 00 00 00 00` (`fld [a]; fadd qword [+1.0]`) | **VC 5.0 is the odd one out: `fsub qword [−1.0]` (`dc 25`) with the NEGATED constant in .rdata**; a 5.0-only marker; 2.0/4.x `fld1`+fadd; 6.0-10.0 fadd; 11.0 SSE |
 | `<= 0` vs `< 1` | `x <= 0` vs `x < 1` | `85 c9 0f 9e c0` (test; setle, 2B test) vs `83 f9 01 0f 9c c0` (cmp 1; setl, 3B cmp) | **5.0-7.1: the exact-constant form is 1 byte shorter**; steerable from C (write `<= 0`, not `< 1`) |
 | Return-width | `short f() { return 5; }` | 2.0-8.0: `66 b8 05 00` (`mov ax,5`, 4B); 9.0+: `b8 05 00 00 00` (`mov eax,5`, 5B) | **short-return width changes at 9.0** (char returns `mov al,N` in every version) |
-| `x == -1` compare | `if (x==-1) return -1;` | `83 f9 ff 0f 95 c0 48` (`cmp; setne al; neg eax`) | **5.0-11.0 setne+neg (both the if-form and `(x!=-1)-1`)**; 2.0/4.1 inc/sbb family. CODEGEN_PATTERNS.md records the same split |
+| `x == -1` compare | `if (x==-1) return -1;` | `83 f9 ff 0f 95 c0 48` (`cmp; setne al; dec eax`) | **5.0-11.0 setne+dec (both the if-form and `(x!=-1)-1`)**; 2.0/4.1 inc/sbb family. CODEGEN_PATTERNS.md records the same split |
 
 ## Verified negatives (in these binaries)
 

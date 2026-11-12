@@ -39,7 +39,10 @@ of comparison state: library origin is `kind = "LIBRARY"`, while the linked
 provider must be verified separately. Function state includes `size`, `cflags`,
 `toolchain`, `status`, `blocker`, `blocker_delta`, `note`, `ghidra`, `analysis`,
 `skip`, `source`, `struct`, `callers`, `globals`, `locals`, `comments`, and
-`prove_constraints`. `source = "naked"` records an assembly reconstruction and
+`prove_constraints`. Evidence and provenance fields (`verification`,
+`similarity`, `status_history`, `binding_history`, `native_identity`,
+`origins`, `updated_by`, `updated_at`) have their own writers.
+`source = "naked"` records an assembly reconstruction and
 is never a source comment. The authoritative field shapes are
 `METADATA_FIELD_TYPES` in `rebrew.metadata.functions`.
 
