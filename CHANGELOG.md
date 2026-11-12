@@ -31,6 +31,8 @@
 - Correct the name-normalization guide: only Ghidra `FUN_` names become `func_` during C-name sanitization; rizin discovery retains `fcn.` labels and other tool prefixes are not universally rewritten.
 ### Fixed
 
+- NE imports discard truncated module-name strings instead of reporting partial or empty DLL names as complete imports.
+
 - Raw binary reads reject negative sizes before reading the file. A size of -1 previously reached Python's read-to-EOF fallback and returned every remaining byte.
 
 ## [6.32.1] - 2026-11-11

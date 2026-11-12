@@ -555,6 +555,8 @@ def _pascal_string(data: bytes, off: int) -> tuple[str, int]:
     """Read a length-prefixed (Pascal) string at *off*; return (str, next_off)."""
     ln = data[off]
     end = off + 1 + ln
+    if end > len(data):
+        raise IndexError("truncated NE Pascal string")
     return data[off + 1 : end].decode("latin-1", "replace"), end
 
 

@@ -83,6 +83,14 @@ class TestParseExports:
 
 
 class TestParseImports:
+    @pytest.mark.parametrize("remaining", [0, 1, 5])
+    def test_truncated_module_name_is_not_reported(self, remaining: int) -> None:
+        raw = make_ne(modules=["KERNEL"])
+        header = parse_ne_header(raw, 0x100)
+        name_start = 0x100 + header.imported_names_offset
+        truncated = raw[: name_start + 1 + remaining]
+        assert parse_imports(truncated, 0x100, header) == []
+
     def test_module_names(self) -> None:
         raw = make_ne(segments=[(_CODE, 0x01)], modules=["KERNEL", "USER"])
         hdr = parse_ne_header(raw, 0x100)
