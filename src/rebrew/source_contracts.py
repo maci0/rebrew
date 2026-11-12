@@ -36,6 +36,9 @@ lazy from rebrew.source_selection import collect_target_sources
 lazy from rebrew.types import type_size
 lazy from rebrew.utils import detect_source_encoding, read_source_text, source_newline
 
+# Incomplete contexts named in a reconcile refusal; the rest are counted.
+_UNKNOWN_SHOWN = 5
+
 
 @dataclass(frozen=True)
 class ContractSite:
@@ -468,13 +471,32 @@ def _resolved_contract_sites(
     return resolved, unknown
 
 
-def audit_contracts(cfg: ProjectConfig, *, name: str | None = None) -> dict[str, Any]:
+def audit_contracts(
+    cfg: ProjectConfig, *, name: str | None = None, use_image_headers: bool = False
+) -> dict[str, Any]:
+    """Audit contracts, optionally resolving SDK includes from admitted compiler images."""
+    from contextlib import nullcontext
+
+    from rebrew.compiler.image_headers import ImageHeaders
+
+    with ImageHeaders() if use_image_headers else nullcontext() as headers:
+        report = _audit_contracts(cfg, name=name, image_headers=headers)
+        if headers is not None:
+            headers.verify()
+            report["compiler_images"] = {p: tree["id"] for p, tree in headers.trees.items()}
+            report = headers.normalize(report)
+        return report
+
+
+def _audit_contracts(
+    cfg: ProjectConfig, *, name: str | None = None, image_headers: Any = None
+) -> dict[str, Any]:
     """Compare physical declarations, definitions and return-consuming call sites."""
     selection_inputs = list(metadata_store_paths(cfg.metadata_dir))
     if (cfg.root / "rebrew-project.toml").is_file():
         selection_inputs.append(cfg.root / "rebrew-project.toml")
     input_hashes = {str(p): input_digest(p) for p in selection_inputs}
-    contexts, unknown = contract_contexts(cfg)
+    contexts, unknown = contract_contexts(cfg, image_headers=image_headers)
     source_units = sorted({str(unit) for units in contexts.values() for unit in units})
     sites: list[ContractSite] = []
     calls = []
@@ -714,6 +736,37 @@ def reconcile_contract(
     *,
     dry_run: bool = False,
     expected_digest: str | None = None,
+    use_image_headers: bool = False,
+) -> dict[str, Any]:
+    """Reconcile a reviewed contract with optional image-bound SDK include resolution."""
+    from contextlib import nullcontext
+
+    from rebrew.compiler.image_headers import ImageHeaders
+
+    with ImageHeaders() if use_image_headers else nullcontext() as headers:
+        report = _reconcile_contract(
+            cfgs,
+            name,
+            header,
+            prototype,
+            dry_run=dry_run,
+            expected_digest=expected_digest,
+            image_headers=headers,
+        )
+        if headers is not None:
+            report = headers.normalize(report)
+        return report
+
+
+def _reconcile_contract(
+    cfgs: list[ProjectConfig],
+    name: str,
+    header: Path,
+    prototype: str,
+    *,
+    dry_run: bool = False,
+    expected_digest: str | None = None,
+    image_headers: Any = None,
 ) -> dict[str, Any]:
     """Preview/apply one explicitly reviewed signature across every selected context.
 
@@ -745,9 +798,17 @@ def reconcile_contract(
         or len(parsed_prototype.tree.root_node.named_children) != 1
     ):
         raise ValueError("reviewed prototype must contain exactly one declaration")
-    reports = [audit_contracts(cfg, name=name) for cfg in cfgs]
-    if any(report["unknown"] for report in reports):
-        raise ValueError("resolve incomplete source/include contexts before reconciliation")
+    reports = [_audit_contracts(cfg, name=name, image_headers=image_headers) for cfg in cfgs]
+    unknown = [item for report in reports for item in report["unknown"]]
+    if unknown:
+        shown = "; ".join(
+            f"{item.get('file') or item['context']}: {item['reason']}"
+            for item in unknown[:_UNKNOWN_SHOWN]
+        )
+        more = f" (+{len(unknown) - _UNKNOWN_SHOWN} more)" if len(unknown) > _UNKNOWN_SHOWN else ""
+        raise ValueError(
+            f"resolve incomplete source/include contexts before reconciliation: {shown}{more}"
+        )
     sites = {
         (site["file"], site["start"], site["end"]): site
         for report in reports
@@ -779,7 +840,7 @@ def reconcile_contract(
         inputs.update(Path(call["file"]) for call in report["calls"])
     # Include every audited input and authoritative selection input in the guard.
     for cfg in cfgs:
-        contexts, _unknown = contract_contexts(cfg)
+        contexts, _unknown = contract_contexts(cfg, image_headers=image_headers)
         inputs.update(contexts)
         inputs.update(metadata_store_paths(cfg.metadata_dir))
         if (cfg.root / "rebrew-project.toml").is_file():
@@ -793,12 +854,17 @@ def reconcile_contract(
             for path, digest in audit["input_hashes"].items()
         ):
             raise ValueError("contract inputs changed after audit")
-    digest = hashlib.sha256(
-        json.dumps(
-            {str(p): hashlib.sha256(raw).hexdigest() for p, raw in sorted(original.items())},
-            sort_keys=True,
-        ).encode()
-    ).hexdigest()
+    input_hashes = {str(p): hashlib.sha256(raw).hexdigest() for p, raw in sorted(original.items())}
+    digest_payload: dict[str, Any] = input_hashes
+    compiler_images = {}
+    if image_headers is not None:
+        image_headers.verify()
+        compiler_images = {p: tree["id"] for p, tree in image_headers.trees.items()}
+        digest_payload = {
+            "inputs": image_headers.normalize(input_hashes),
+            "compiler_images": compiler_images,
+        }
+    digest = hashlib.sha256(json.dumps(digest_payload, sort_keys=True).encode()).hexdigest()
     if expected_digest is not None and digest != expected_digest:
         raise ValueError("contract inputs changed; review a new preview")
     edits: dict[Path, list[tuple[int, int, bytes]]] = {}
@@ -943,6 +1009,8 @@ def reconcile_contract(
     report = {
         "dry_run": dry_run,
         "input_digest": digest,
+        "input_hashes": input_hashes,
+        **({"compiler_images": compiler_images} if image_headers is not None else {}),
         "name": name,
         "header": str(header),
         "prototype": canonical,
@@ -957,8 +1025,12 @@ def reconcile_contract(
     }
     if any(snapshot_input(path) != raw for path, raw in original.items()):
         raise ValueError("contract inputs changed during planning")
+    if image_headers is not None:
+        image_headers.verify()
     if not dry_run:
         with metadata_write_lock(cfgs[0].metadata_dir, "rebrew-functions.toml"):
+            if image_headers is not None:
+                image_headers.verify()
             if any(snapshot_input(path) != raw for path, raw in original.items()):
                 raise ValueError("contract inputs changed before publication")
             for cfg, audit in zip(cfgs, reports, strict=True):

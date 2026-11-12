@@ -337,3 +337,171 @@ def test_generic_closure_tracks_distinct_lexical_parents(tmp_path: Path):
     assert {str(other / "nested.h"), str(one / "nested.h"), str(two / "nested.h")} <= set(paths)
     with pytest.raises(ValueError, match="ambiguous symlinked include parent"):
         scan_include_closure('#include "one/api.h"\n', str(tmp_path), (), identities={})
+
+
+class TestContractImageHeaders:
+    def project(self, tmp_path):
+        from test_source_contracts import _project
+
+        cfg = _project(tmp_path)
+        owner = cfg.reversed_dir / "owner.c"
+        owner.write_text("#include <sdk.h>\n" + owner.read_text())
+        return cfg
+
+    def test_audit_opt_in_resolves_sdk_and_normalizes_report(self, tmp_path, runtime):
+        from rebrew.source_contracts import audit_contracts
+
+        state, _ = runtime
+        state["archive"] = archive({"sdk.h": b"int sdk_value;\n"})
+        cfg = self.project(tmp_path)
+        assert audit_contracts(cfg, name="queue")["unknown"]
+        first = audit_contracts(cfg, name="queue", use_image_headers=True)
+        second = audit_contracts(cfg, name="queue", use_image_headers=True)
+        assert not first["unknown"]
+        assert first == second
+        assert any(p.startswith("image://") for p in first["input_hashes"])
+        assert "rebrew-image-headers-" not in str(first)
+
+    def test_reconcile_stable_digest_and_changed_header_refusal(self, tmp_path, runtime):
+        from rebrew.source_contracts import reconcile_contract
+
+        state, _ = runtime
+        state["archive"] = archive({"sdk.h": b"int sdk_value;\n"})
+        cfg = self.project(tmp_path)
+        args = ([cfg], "queue", Path("src/api.h"), "int queue(int value)")
+        preview = reconcile_contract(*args, dry_run=True, use_image_headers=True)
+        again = reconcile_contract(
+            *args, dry_run=True, use_image_headers=True, expected_digest=preview["input_digest"]
+        )
+        assert preview == again
+        assert any(p.startswith("image://") for p in preview["input_hashes"])
+        state["archive"] = archive({"sdk.h": b"int changed;\n"})
+        with pytest.raises(ValueError, match="inputs changed"):
+            reconcile_contract(
+                *args, use_image_headers=True, expected_digest=preview["input_digest"]
+            )
+        assert "extern void queue" in (cfg.reversed_dir / "user.c").read_text()
+
+    def test_image_is_rechecked_under_publication_lock(self, tmp_path, runtime, monkeypatch):
+        from contextlib import contextmanager
+
+        import rebrew.source_contracts as contracts
+
+        state, _ = runtime
+        state["archive"] = archive({"sdk.h": b"int sdk_value;\n"})
+        cfg = self.project(tmp_path)
+        real = contracts.metadata_write_lock
+
+        @contextmanager
+        def changed(*args, **kwargs):
+            with real(*args, **kwargs):
+                state["id"] = "sha256:" + "b" * 64
+                yield
+
+        monkeypatch.setattr(contracts, "metadata_write_lock", changed)
+        before = (cfg.reversed_dir / "owner.c").read_bytes()
+        with pytest.raises(ValueError, match="image changed"):
+            contracts.reconcile_contract(
+                [cfg], "queue", Path("src/api.h"), "int queue(int value)", use_image_headers=True
+            )
+        assert (cfg.reversed_dir / "owner.c").read_bytes() == before
+
+    @pytest.mark.parametrize("command", ["contracts", "reconcile"])
+    def test_cli_flag_is_forwarded(self, tmp_path, runtime, command):
+        from unittest.mock import patch
+
+        from typer.testing import CliRunner
+
+        from rebrew.types_cli import app
+
+        state, _ = runtime
+        state["archive"] = archive({"sdk.h": b"int sdk_value;\n"})
+        cfg = self.project(tmp_path)
+        args = (
+            ["contracts", "--name", "queue"]
+            if command == "contracts"
+            else [
+                "reconcile",
+                "queue",
+                "src/api.h",
+                "--prototype",
+                "int queue(int value)",
+                "--dry-run",
+            ]
+        )
+        with (
+            patch("rebrew.types_cli.require_config", return_value=cfg),
+            patch("rebrew.workspace.config.read_config", return_value={}),
+        ):
+            result = CliRunner().invoke(app, [*args, "--image-headers", "--json"])
+        # contracts still reports the deliberately incompatible old return type.
+        assert result.exit_code == (1 if command == "contracts" else 0), result.output
+        assert "image://" in result.output
+
+    def test_preview_and_apply_in_separate_processes(self, tmp_path):
+        import json
+        import sys
+
+        cfg = self.project(tmp_path)
+        script = """
+import json, sys
+from pathlib import Path
+from unittest.mock import patch
+sys.path.insert(0, "tests")
+from test_image_headers import archive, IMAGE
+from rebrew.config import ProjectConfig
+from rebrew.source_contracts import reconcile_contract
+import subprocess
+root = Path(sys.argv[1])
+def run(args, **kwargs):
+    data = IMAGE.encode() if args[1:3] == ["image", "inspect"] else archive({"sdk.h": b"int sdk_value;\\n"})
+    return subprocess.CompletedProcess(args, 0, stdout=data, stderr=b"")
+cfg = ProjectConfig(root=root, reversed_dir=root / "src", module="GAME")
+with patch("rebrew.compiler.image_headers.run_process_group", run):
+    report = reconcile_contract([cfg], "queue", Path("src/api.h"), "int queue(int value)",
+                               dry_run=len(sys.argv) == 2, use_image_headers=True,
+                               expected_digest=sys.argv[2] if len(sys.argv) > 2 else None)
+print(json.dumps(report))
+"""
+        command = [sys.executable, "-c", script, str(cfg.root)]
+        first = subprocess.run(command, capture_output=True, text=True, check=True)
+        preview = json.loads(first.stdout)
+        second = subprocess.run(
+            [*command, preview["input_digest"]], capture_output=True, text=True, check=True
+        )
+        assert json.loads(second.stdout)["input_digest"] == preview["input_digest"]
+        assert "extern void queue" not in (cfg.reversed_dir / "user.c").read_text()
+
+
+def test_image_headers_use_the_real_process_helper(tmp_path, monkeypatch):
+    import sys
+
+    from rebrew.compiler import image_headers
+    from rebrew.utils import run_process_group
+
+    runtime = tmp_path / "runtime"
+    runtime.write_text(
+        f"#!{sys.executable}\nimport sys\n"
+        f"sys.stdout.buffer.write({IMAGE.encode()!r} if sys.argv[1:3] == ['image', 'inspect'] "
+        f"else {archive({'sdk.h': b'int sdk;\n'})!r})\n"
+    )
+    runtime.chmod(0o755)
+    monkeypatch.setattr(image_headers, "run_process_group", run_process_group)
+    with ImageHeaders(runtime=str(runtime)) as images:
+        assert (images.get("msvc-6.0-sp5-pp") / "sdk.h").read_bytes() == b"int sdk;\n"
+
+
+@pytest.mark.parametrize("failed", ["inspect", "extract"])
+def test_image_runtime_failures_are_rejected(monkeypatch, failed):
+    def run(args, **kwargs):
+        inspect = args[1:3] == ["image", "inspect"]
+        return subprocess.CompletedProcess(
+            args,
+            1 if inspect == (failed == "inspect") else 0,
+            stdout=IMAGE.encode() if inspect else b"",
+            stderr=b"failed",
+        )
+
+    monkeypatch.setattr("rebrew.compiler.image_headers.run_process_group", run)
+    with ImageHeaders() as images, pytest.raises(ValueError, match="cannot inspect|cannot extract"):
+        images.get("msvc-6.0-sp5-pp")

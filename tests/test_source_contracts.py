@@ -256,6 +256,12 @@ class TestContractReconciliation:
         with pytest.raises(ValueError):
             reconcile_contract([cfg], "queue", Path("src/api.h"), "int queue(int value)")
 
+    def test_uncertain_context_refusal_names_file_and_reason(self, tmp_path: Path) -> None:
+        cfg = _project(tmp_path)
+        (cfg.reversed_dir / "user.c").write_text("int queue(int), other(void);\n")
+        with pytest.raises(ValueError, match=r"user\.c.*multi-declarator"):
+            reconcile_contract([cfg], "queue", Path("src/api.h"), "int queue(int value)")
+
     def test_failed_publication_restores_earlier_source(self, tmp_path: Path) -> None:
         cfg = _project(tmp_path)
         before = {p: p.read_bytes() for p in cfg.reversed_dir.iterdir()}
@@ -549,3 +555,14 @@ class TestCallbackTypedefContracts:
         report = audit_contracts(cfg, name="queue")
         assert not report["unknown"] and not report["findings"]
         assert {site["key"] for site in report["sites"]} == {"int(struct Event(*)(int))"}
+
+
+def test_unrelated_unknown_context_still_blocks_reconciliation(tmp_path: Path) -> None:
+    cfg = _project(tmp_path)
+    (cfg.reversed_dir / "unrelated.c").write_text(
+        '#include "unreadable.h"\nint unrelated(void) { return 1; }\n'
+    )
+    before = snapshot(tmp_path)
+    with pytest.raises(ValueError, match=r"unrelated\.c.*incomplete"):
+        reconcile_contract([cfg], "queue", Path("src/api.h"), "int queue(int value)")
+    assert before == snapshot(tmp_path)

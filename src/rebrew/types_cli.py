@@ -287,6 +287,9 @@ def contracts_cmd(
     name: str | None = typer.Option(
         None, "--name", help="Audit one C name; defaults to every declaration"
     ),
+    image_headers: bool = typer.Option(
+        False, "--image-headers", help="Resolve SDK headers from the admitted compiler images"
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
     all_targets: bool = AllTargetsOption,
@@ -300,13 +303,17 @@ def contracts_cmd(
         all_targets=all_targets,
         json_mode=json_output,
         run_one=lambda selected: contracts_cmd(
-            name=name, json_output=json_output, target=selected, all_targets=False
+            name=name,
+            json_output=json_output,
+            target=selected,
+            all_targets=False,
+            image_headers=image_headers,
         ),
     ):
         return
     cfg = require_config(target=target, json_mode=json_output)
     try:
-        report = audit_contracts(cfg, name=name)
+        report = audit_contracts(cfg, name=name, use_image_headers=image_headers)
     except (OSError, ValueError) as exc:
         error_exit(str(exc), json_mode=json_output)
     if json_output:
@@ -329,6 +336,9 @@ def reconcile_cmd(
         None, "--expected-digest", help=EXPECTED_DIGEST_HELP
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    image_headers: bool = typer.Option(
+        False, "--image-headers", help="Resolve SDK headers from the admitted compiler images"
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Reconcile one reviewed signature and enumerate all caller verification contexts."""
@@ -350,6 +360,7 @@ def reconcile_cmd(
             prototype,
             dry_run=dry_run,
             expected_digest=expected_digest,
+            use_image_headers=image_headers,
         )
     except (OSError, ValueError, RenameError) as exc:
         error_exit(str(exc), json_mode=json_output)

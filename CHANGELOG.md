@@ -5,6 +5,8 @@
 - Every dependency is at its newest release: `uv lock --upgrade` moves 21 packages within their caps (angr, archinfo, cle and pyvex 10.0.6, click 8.5.1, pydantic 2.14.3, pydantic-core 2.50.4, tree-sitter 0.26.1, typer 0.29.1, z3-solver 5.3.3.0, ruff 0.17.4, hypothesis 6.170.15 and the rest of their trees); no cap holds back a newer major. The floors of click, tree-sitter, typer, angr, ruff and hypothesis follow the lock, and `tools/licenses.py` moves each entry to the new version after PyPI's licence metadata for both releases compared equal. The contributor resembl pin moves from `v4.0.0` to `v5.0.0` (eb8e9b4c) in the `Makefile`, the CI `uv-env` action, `uv.lock` and the setup docs.
 ### Added
 
+- `types contracts --image-headers` and `types reconcile --image-headers` resolve SDK includes from local compiler images. Reports normalize temporary extraction paths to immutable image URLs, and reconciliation pins header contents and image IDs across preview and apply. Unknown contexts remain blocking; refusal messages name the first five contexts and count the rest.
+
 - `source binding rebind --retarget-references` retargets target-owned old-name references and linker anchors in the binding's guarded transaction. It previews source rewrites and removals, preserves foreign callers, refuses ambiguous ownership and incompatible declarations, and removes an old single-body source only when no remaining function, data or support-file owner names it. Exceptions restore both sources and metadata.
 - **Breaking:** `rewrite_casts` and `declare_externs` moved from `rebrew.symbolize` to the new library module `rebrew.cast_rewrite`, which `source symbolize` and `data pair` both use; import them from there.
 - `rebrew data pair VA_A VA_B --from A --target B` gives a function's data operands one name in two targets that share its code. It decodes both reference bodies, pairs absolute operands in non-code sections by position, creates the missing side's row from the named side (name, size, type, kind), and reports conflicts and unnamed pairs; `--rewrite` turns the shared source's raw casts into `&name`. On guild-rebrew, GoldTL `fcn_00402320` spelled `*(int*) 0x675170`, so its Gold twin built from the same file missed by the address; Gold already named the global `g_675170`.
@@ -12,6 +14,8 @@
 
 
 ### Fixed
+
+- Compiler image header extraction checks subprocess return codes through the process helper’s supported interface, so live image inspection and extraction no longer fail with an unsupported `check` keyword.
 
 - Quoted config keys use their decoded leaf for credential refusal and redaction, and their resolved parts for type and URL validation. `cfg show 'llm."api_key"'` redacts the value; `cfg set 'llm."api_key"' VALUE` refuses it, including JSON and dry-run requests.
 - `data pair` checks registers, operand widths, addressing modes, prefixes and non-data constants before pairing addresses. Internal relative branches retain their offsets. External direct calls and branches may target different addresses; the report's `calls` list gives each instruction offset, both destinations and any function-row names. These call pairs are reported only and never written to metadata or source. Conflicting proposed names or overlapping extents are rejected before source rewriting, new rows must fit a non-code section, and repeated compatible writes are combined.

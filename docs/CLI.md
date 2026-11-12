@@ -7155,6 +7155,27 @@ statements that need a body repair are refused. Repair those explicitly before
 canonical-header reconciliation. Whole-header matching include guards are kept;
 comments and disabled includes cannot suppress insertion of a real declaration.
 
+Use `--image-headers` on either `types contracts` or `types reconcile` to
+resolve SDK includes from the configured compiler images. This is opt-in;
+without it, include discovery is unchanged. Headers are freshly extracted
+from local immutable image IDs. Images are never pulled. Reports include
+`compiler_images` and use `image://<id>/...` paths in `input_hashes` and other
+header references, so a preview digest remains valid across processes with
+different extraction directories. Reconciliation checks the image identity
+and extracted header contents again under the publication lock before apply.
+Changed image IDs or audited header contents require a new preview.
+
+Unknown contexts still block reconciliation even when the selected name does
+not occur in the source or resolved closure. An unreadable include can contain
+that contract, and macro expansion can introduce names absent from raw text.
+Textual absence alone cannot prove independence. Refusals name the first five
+incomplete contexts and their reasons, then count any remaining contexts.
+Image-header resolution does not preprocess C or certify SDK parse results.
+
+```bash
+rebrew types reconcile queue src/api.h --prototype 'int queue(int id)' --image-headers --dry-run --json
+```
+
 ### Link-aware source organization
 
 `rebrew source organize guards FILE... --json` inspects exact conditional

@@ -40,8 +40,8 @@ class ImageHeaders:
                 [self.runtime, "image", "inspect", "--format", "{{.Id}}", image],
                 capture_output=True,
                 timeout=30,
-                check=True,
             )
+            result.check_returncode()
         except (OSError, subprocess.SubprocessError) as exc:
             raise ValueError(f"cannot inspect compiler image {image}") from exc
         identity = image_content_id(result.stdout.decode("ascii", errors="replace"))
@@ -80,8 +80,8 @@ class ImageHeaders:
                 ],
                 capture_output=True,
                 timeout=120,
-                check=True,
             )
+            result.check_returncode()
         except (OSError, subprocess.SubprocessError) as exc:
             raise ValueError(f"cannot extract headers from compiler image {image_id}") from exc
         root = (
