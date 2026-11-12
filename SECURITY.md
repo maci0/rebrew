@@ -175,11 +175,17 @@ plugin cache backends or remove the open upstream diskcache advisory.
   expansion while the file is read, so the `build.make` CMake generates for a
   cloned project is host-executable too.
 - No claim that reading a project's build files stays inside the project
-  directory. The cmake bridge resolves and reads every `@rsp` response file
-  in its argv on the host, with no containment check on the resolved path,
-  and stages the rewritten copy in a temporary directory inside the
-  read-write project root (`src/rebrew/cmake_tc.py` `_rewrite_response_files`,
-  called from `_docker_run`).
+  directory, except the cmake bridge's `@rsp` rewrite. That rewrite reads
+  response files on the host and stages the copy in a temporary directory
+  inside the read-write project root, but each `@` path must resolve to a
+  regular file inside the project (`rebrew-project.toml` root): an absolute
+  or `..` path outside it, a symlink (even to an in-project target), a
+  directory, device or fifo, or a file over 8 MiB (`_MAX_RESPONSE_BYTES`)
+  is refused before it is copied (`src/rebrew/cmake_tc.py`
+  `_response_source` / `_rewrite_response_files`, called from `_docker_run`
+  and `_unshare_run`). The bound is the project root, not a narrower build
+  directory, so a regular file already inside the tree can still be read
+  and rewritten into that staging directory.
 - No claim that a cloned project's metadata can make rebrew read or
   write outside the project, and no claim that a command other than the
   validator enforces it. The `file` identity field is a path, and one
