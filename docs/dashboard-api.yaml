@@ -23,20 +23,20 @@ info:
     sent as `""`.
 
     Every route can answer 500, in the same `Error` envelope:
-    `database_error` when the coverage directory yielded no readable document
-    at all (only `/api/health` asks that question; a single unreadable document
-    beside readable ones is skipped with a log line and the rest are served),
-    and `internal_error` for any other fault in a route.  There is no
-    `corrupt_function_stats`: the summary aggregates are derived from the stored
-    function rows, so they cannot be unreadable, and a missing or unparseable
-    document is simply an unknown target (404).  A 500 is a server-side failure
-    a client cannot fix, so it retries later rather than changing the request.
+    `database_error` for unreadable coverage inputs, including a source with
+    no readable target on `/api/health`, and `internal_error` for other route
+    faults. Healthy live targets remain available when siblings fail; their
+    failures appear in the target list and bootstrap response, and health is
+    `degraded`. In portable mode, unreadable documents are skipped with a log
+    line. A target with no readable view answers 404 `unknown_target` on
+    target-scoped routes. A 500 is a server-side failure a client cannot fix,
+    so it retries later rather than changing the request.
 
-    Three statuses are cross-cutting and declared on every route: 304 when the
-    client's `If-None-Match` matched, 403 `host_not_allowed` for a `Host`
-    header that is not the bound host, and 405 `method_not_allowed` with
-    `Allow: GET, HEAD`.  Three more are answered before routing, so they carry
-    no path to declare them on and are stated here instead: 503 `server_busy`
+    Cached routes can answer 304 when the client's `If-None-Match` matches;
+    `/api/health` never answers 304. Every served route can answer 403
+    `host_not_allowed` for a rejected `Host` header, or 405 `method_not_allowed`
+    with `Allow: GET, HEAD`. Other statuses can be answered before routing:
+    503 `server_busy`
     with `Retry-After`, when every handler slot is already taken by a
     connection the client is still holding; and the parse rejections
     http.server raises on the request itself, 400 `bad_request`, 414
@@ -163,14 +163,15 @@ paths:
       description: |
         The exception to the caching rules: served `no-store` with no `ETag`
         at all, so a probe that reported "ok" cannot be cached or
-        revalidated into a stale "healthy" for a coverage directory that has
-        since gone unreadable.  `coverage_source` is the absolute path of the
-        coverage DIRECTORY being served, holding one
-        `coverage-<target>.toml` per target, and is present only when the
-        bound host is a loopback address.
+        revalidated into a stale "healthy" for coverage inputs that have
+        since gone unreadable. `coverage_source` is the absolute live project
+        root, or the snapshot directory selected by `--snapshots`. It is present
+        only when the bound host is a loopback address. Healthy targets remain
+        readable when a live sibling fails; health reports `degraded` and its
+        `failures` map in that case.
       responses:
         "200":
-          description: The coverage directory was read.
+          description: The coverage source was read.
           headers:
             Cache-Control: { $ref: "#/components/headers/CacheControl" }
             Vary: { $ref: "#/components/headers/Vary" }
@@ -189,7 +190,7 @@ paths:
       summary: Headers for the liveness probe.
       responses:
         "200":
-          description: The coverage directory was read.
+          description: The coverage source was read.
           headers:
             Cache-Control: { $ref: "#/components/headers/CacheControl" }
             Vary: { $ref: "#/components/headers/Vary" }
@@ -207,11 +208,12 @@ paths:
     get:
       tags: [database]
       operationId: getTargets
-      summary: Every readable target in the coverage directory, ordered by name.
+      summary: Every readable target, ordered by name.
       description: |
-        A target IS one readable `coverage-<target>.toml` document, so a
-        document that does not parse is skipped with a log line and is not
-        listed.  Unpaged: the envelope reports `paged: false`, `limit` is the
+        Live mode lists targets with readable project coverage views and
+        reports failed siblings in `failures`. Portable mode lists readable
+        `coverage-<target>.toml` documents; unparseable files are logged and
+        skipped. Unpaged: the envelope reports `paged: false`, `limit` is the
         row count, and `offset` is 0.  `limit`/`offset` are not accepted here.
       responses:
         "200":
@@ -261,8 +263,8 @@ paths:
         Collapses the cold-start waterfall (targets, then summary, then
         functions) into one round trip; filtering and paging after the first
         paint use the dedicated endpoints.  `summary` and `functions` are
-        `null` only when the directory holds no readable target, since a
-        first target listed by `/api/targets` always has a readable document to
+        `null` only when the source has no readable target, since a
+        first target listed by `/api/targets` always has a readable view to
         summarise.  This body is preloaded onto the same cold connection
         as the shell and `/app.js`, so its `functions` page is sized for first
         paint (`_BOOTSTRAP_FUNCTION_LIMIT`, 40) rather than at the interactive
@@ -616,7 +618,7 @@ components:
       required: true
       description: |
         The target name, as listed by `/api/targets`.  Missing or blank is
-        400 `missing_target`; a name with no readable coverage document is 404
+        400 `missing_target`; a name with no readable coverage view is 404
         `unknown_target`.  A repeated parameter takes its first value.
       schema: { type: string }
     Status:
@@ -827,7 +829,7 @@ components:
         paged: { type: boolean, const: false }
         target:
           type: [string, "null"]
-          description: The first target, or null when the directory has none.
+          description: The first readable target, or null when the source has none.
         summary:
           oneOf:
             - $ref: "#/components/schemas/Summary"
@@ -868,11 +870,11 @@ components:
         coverage_source:
           type: string
           description: >-
-            Absolute path of the coverage directory being served.  Absent when
+            Absolute live project root or portable snapshot directory. Absent when
             the bound host is not a loopback address: the path names the
             analyst's own disk layout and a LAN client has no use for it, so it
             is withheld exactly where exposing it would be a disclosure.
-        targets: { type: integer, minimum: 0, description: Readable coverage documents in that directory. }
+        targets: { type: integer, minimum: 0, description: Readable targets from the selected coverage source. }
         requests:
           type: integer
           minimum: 0
@@ -1205,7 +1207,7 @@ components:
 
     UnknownTarget:
       description: |
-        No target by that name has a readable coverage document
+        No target by that name has a readable coverage view
         (`unknown_target`).  A path the
         server does not serve answers this same status with `not_found`
         whatever the method, since there is no resource to list methods for.
@@ -1266,8 +1268,8 @@ components:
     DatabaseError:
       description: |
         A server-side failure the client cannot fix, in the `Error`
-        envelope: `database_error` when the coverage directory yielded no
-        readable document, `internal_error` for any other fault in a route.  A client
+        envelope: `database_error` for unreadable coverage inputs, including no
+        readable target on `/api/health`; `internal_error` for other route faults. A client
         that cannot branch any finer treats every 500 alike and retries
         later; the `code` is what distinguishes them.
       headers:
