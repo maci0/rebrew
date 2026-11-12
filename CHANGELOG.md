@@ -68,6 +68,9 @@
 ### Fixed
 
 - Correct the RELOC reference to describe masked-byte agreement without claiming semantic correctness or resolved bindings for uncatalogued operands.
+### Fixed
+
+- Invalid UTF-8 in a Ghidra data-label export now warns and skips the corrupt labels, like invalid JSON, instead of crashing coverage catalog loading. The legacy switch-data filename follows the same recovery path.
 
 ## [6.32.1] - 2026-11-11
 
