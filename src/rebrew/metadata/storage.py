@@ -241,7 +241,7 @@ def _backend_factory(backend: str) -> BackendFactory:
 #: ``path -> (config identity, store)`` for the project-selected backend.
 #: Only populated when the project config exists: a config created later must
 #: still be found, so the no-config case keeps walking each call.
-_SELECTED_STORES: dict[Path, tuple[tuple[int, int, int, int], MetadataStore]] = {}
+_SELECTED_STORES: OrderedDict[Path, tuple[tuple[int, int, int, int], MetadataStore]] = OrderedDict()
 _SELECTED_STORES_LOCK = threading.Lock()
 _SELECTED_STORES_MAX = 128
 
@@ -305,9 +305,14 @@ def metadata_store(
         if factory in (TomlStore, SqliteStore):
             store = _builtin_store(path, backend, project)
             with _SELECTED_STORES_LOCK:
-                if len(_SELECTED_STORES) >= _SELECTED_STORES_MAX:
-                    _SELECTED_STORES.clear()
+                # A full clear drops every store a peer thread resolved in
+                # this same window, including ones still inside a transaction.
+                # Drop the oldest entries instead, and refresh a path that
+                # was already cached so it is not the next one evicted.
                 _SELECTED_STORES[path] = (config_identity, store)
+                _SELECTED_STORES.move_to_end(path)
+                while len(_SELECTED_STORES) > _SELECTED_STORES_MAX:
+                    _SELECTED_STORES.popitem(last=False)
             return store
         selected_store = factory(path, project)
         if not isinstance(selected_store, MetadataStore):

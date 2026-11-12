@@ -134,29 +134,42 @@ def _sys_path_fingerprint() -> tuple[tuple[Any, ...], ...]:
             continue
         with _IMPORT_DIRECTORY_LOCK:
             cached = _IMPORT_DIRECTORY_CONTENTS.get(path)
-            if cached is not None and cached[0] == stamp:
-                members = cached[1]
-            else:
-                try:
-                    with os.scandir(path) as entries:
-                        members = tuple(
-                            sorted(
-                                (
-                                    item.name,
-                                    item.stat().st_mtime_ns,
-                                    item.inode(),
-                                    item.stat().st_size,
-                                )
-                                for item in entries
-                                if item.name.lower().endswith((".dist-info", ".egg-info"))
-                                or item.name.lower() == "egg-info"
+        if cached is not None and cached[0] == stamp:
+            members = cached[1]
+        else:
+            # The scan and both stats stay outside the lock: a directory on a
+            # slow or network filesystem would otherwise stall every other
+            # fingerprint reader for the whole listing, and the lock is also
+            # what guards the dict's own mutations.
+            try:
+                with os.scandir(path) as entries:
+                    members = tuple(
+                        sorted(
+                            (
+                                item.name,
+                                item.stat().st_mtime_ns,
+                                item.inode(),
+                                item.stat().st_size,
                             )
+                            for item in entries
+                            if item.name.lower().endswith((".dist-info", ".egg-info"))
+                            or item.name.lower() == "egg-info"
                         )
-                except OSError:
-                    members = (stamp,)
-                if len(_IMPORT_DIRECTORY_CONTENTS) >= 128:
-                    _IMPORT_DIRECTORY_CONTENTS.clear()
-                _IMPORT_DIRECTORY_CONTENTS[path] = (stamp, members)
+                    )
+            except OSError:
+                members = (stamp,)
+            with _IMPORT_DIRECTORY_LOCK:
+                # A peer may have stored this stamp while the scan ran; keep
+                # its listing so the two readers agree on one tuple.  Past the
+                # cap the oldest path goes, not the whole map: a clear drops
+                # every directory a peer just scanned.
+                raced = _IMPORT_DIRECTORY_CONTENTS.get(path)
+                if raced is not None and raced[0] == stamp:
+                    members = raced[1]
+                else:
+                    _IMPORT_DIRECTORY_CONTENTS[path] = (stamp, members)
+                    while len(_IMPORT_DIRECTORY_CONTENTS) > 128:
+                        del _IMPORT_DIRECTORY_CONTENTS[next(iter(_IMPORT_DIRECTORY_CONTENTS))]
         out.append((str(entry), str(path), members))
     return tuple(out)
 

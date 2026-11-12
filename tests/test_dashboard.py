@@ -2099,6 +2099,45 @@ class TestLiteralSearch:
         gc.collect()
         assert ref() is None
 
+    def test_fold_cache_keeps_the_newest_entries(self) -> None:
+        """Overflow drops the oldest snapshot, not every cached one."""
+        from types import SimpleNamespace
+
+        import rebrew.dashboard as dash
+
+        class Snapshot(SimpleNamespace):
+            pass
+
+        dash._FOLDED.clear()
+        dash._FOLDED_GLOBALS.clear()
+        snapshots = [
+            Snapshot(
+                functions=[SimpleNamespace(name=f"FN{index}", symbol="S")],
+                globals=[SimpleNamespace(name=f"G{index}")],
+            )
+            for index in range(10)
+        ]
+        for snapshot in snapshots:
+            dash._folded_functions(snapshot)
+            dash._folded_globals(snapshot)
+        assert len(dash._FOLDED) == 8
+        assert len(dash._FOLDED_GLOBALS) == 8
+        # The two oldest are gone; the newest is served from the cache.
+        assert id(snapshots[0]) not in dash._FOLDED
+        assert id(snapshots[1]) not in dash._FOLDED
+        assert dash._folded_functions(snapshots[-1]) == (("fn9", "s"),)
+        assert dash._folded_globals(snapshots[-1]) == ("g9",)
+
+    def test_request_ids_are_unique_across_threads(self) -> None:
+        """Concurrent requests never share a correlation id."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        import rebrew.dashboard as dash
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            minted = list(pool.map(lambda _: dash._next_request_id(), range(400)))
+        assert len(set(minted)) == len(minted)
+
     def test_a_wildcard_term_matches_nothing_through_the_route(self, dashboard: Dashboard) -> None:
         assert dashboard.functions("server_dll", q="func%")["total"] == 0
         assert dashboard.functions("server_dll", q="func_")["total"] == 2

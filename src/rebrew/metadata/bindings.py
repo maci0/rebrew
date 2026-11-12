@@ -594,7 +594,7 @@ _METADATA_FILE_INDEX_MAX = 4
 _METADATA_FILE_INDEX_OWNER: dict[int, dict[tuple[str, int], dict[str, Any]]] = {}
 _METADATA_MODULE_INDEX: dict[int, dict[tuple[str, int], list[tuple[str, dict[str, Any]]]]] = {}
 _METADATA_MODULE_INDEX_OWNER: dict[int, dict[tuple[str, int], dict[str, Any]]] = {}
-#: The owner hit, the two eviction clears, and the two stores are one
+#: The owner hit, the oldest-entry eviction, and the two stores are one
 #: check-then-act over two parallel dicts; ``rebrew match batch --jobs N`` reaches
 #: this from pool threads.  Held only for the dict work — the index build below
 #: walks the whole entry table and stays outside.
@@ -612,11 +612,18 @@ def _metadata_module_index(
     for (module, va), entry in entries.items():
         index.setdefault((preset_module_key(module), va), []).append((module, entry))
     with _METADATA_FILE_INDEX_LOCK:
-        if len(_METADATA_MODULE_INDEX) >= _METADATA_FILE_INDEX_MAX:
-            _METADATA_MODULE_INDEX.clear()
-            _METADATA_MODULE_INDEX_OWNER.clear()
+        # A full clear drops the documents a peer worker is still matching
+        # against, and a second worker that built the same document while
+        # this one walked the table would overwrite a newer index.  Keep the
+        # stored one, and evict the oldest entries past the cap.
+        if _METADATA_MODULE_INDEX_OWNER.get(key) is entries:
+            return _METADATA_MODULE_INDEX[key]
         _METADATA_MODULE_INDEX[key] = index
         _METADATA_MODULE_INDEX_OWNER[key] = entries
+        while len(_METADATA_MODULE_INDEX) > _METADATA_FILE_INDEX_MAX:
+            oldest = next(iter(_METADATA_MODULE_INDEX))
+            del _METADATA_MODULE_INDEX[oldest]
+            _METADATA_MODULE_INDEX_OWNER.pop(oldest, None)
     return index
 
 
@@ -641,11 +648,15 @@ def _metadata_file_index(
         if stored:
             index.setdefault(stored, []).append((module, va, entry))
     with _METADATA_FILE_INDEX_LOCK:
-        if len(_METADATA_FILE_INDEX) >= _METADATA_FILE_INDEX_MAX:
-            _METADATA_FILE_INDEX.clear()
-            _METADATA_FILE_INDEX_OWNER.clear()
+        stored = _METADATA_FILE_INDEX.get(key)
+        if stored is not None and _METADATA_FILE_INDEX_OWNER.get(key) is entries_by_key:
+            return stored
         _METADATA_FILE_INDEX[key] = index
         _METADATA_FILE_INDEX_OWNER[key] = entries_by_key
+        while len(_METADATA_FILE_INDEX) > _METADATA_FILE_INDEX_MAX:
+            oldest = next(iter(_METADATA_FILE_INDEX))
+            del _METADATA_FILE_INDEX[oldest]
+            _METADATA_FILE_INDEX_OWNER.pop(oldest, None)
     return index
 
 

@@ -54,7 +54,6 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import itertools
 import logging
 import re
 import threading
@@ -120,7 +119,20 @@ _LOG_CONTROL_CHARS[ord("\\")] = "\\\\"
 #: Correlation id per request: the access line, the 5xx line, and the escaped
 #: traceback all carry it, so an operator can pivot from a failure back to the
 #: request that produced it even while other threads interleave their lines.
-_REQUEST_IDS = itertools.count(1)
+#: ``itertools.count``'s ``next`` is a plain read-modify-write; two handler
+#: threads (and the accept thread, which mints a refusal id) can read the same
+#: value and stamp two requests with one id, so a failure pivots to the wrong
+#: request.  An atomic counter is the whole fix: the id is still a plain int.
+_REQUEST_IDS = threading.Lock()
+_REQUEST_ID_VALUE = 0
+
+
+def _next_request_id() -> str:
+    """The next correlation id, unique across handler threads."""
+    global _REQUEST_ID_VALUE
+    with _REQUEST_IDS:
+        _REQUEST_ID_VALUE += 1
+        return f"r{_REQUEST_ID_VALUE}"
 #: The request in flight on this thread.  ``socketserver`` hands a fault to
 #: ``handle_error`` on the handler's own thread but not the handler instance,
 #: so this is what lets that fault name the request it belongs to.
@@ -1929,9 +1941,15 @@ def _folded_functions(snapshot: CoverageSnapshot) -> tuple[tuple[str, str], ...]
     folded = tuple((_fold(fn.name), _fold(fn.symbol)) for fn in snapshot.functions)
     reference = weakref.ref(snapshot)
     with _FOLD_CACHE_LOCK:
-        if len(_FOLDED) > 8:
-            _FOLDED.clear()
+        # Re-check: a peer may have stored this snapshot while the fold ran,
+        # and wiping the whole dict would drop the other snapshots a live
+        # dashboard is still serving.  Keep the newest entries instead.
+        raced = _FOLDED.get(key)
+        if raced is not None and raced[0]() is snapshot:
+            return raced[1]
         _FOLDED[key] = (reference, folded)
+        while len(_FOLDED) > 8:
+            del _FOLDED[next(iter(_FOLDED))]
     return folded
 
 
@@ -1945,9 +1963,12 @@ def _folded_globals(snapshot: CoverageSnapshot) -> tuple[str, ...]:
     folded = tuple(_fold(item.name) for item in snapshot.globals)
     reference = weakref.ref(snapshot)
     with _FOLD_CACHE_LOCK:
-        if len(_FOLDED_GLOBALS) > 8:
-            _FOLDED_GLOBALS.clear()
+        raced = _FOLDED_GLOBALS.get(key)
+        if raced is not None and raced[0]() is snapshot:
+            return raced[1]
         _FOLDED_GLOBALS[key] = (reference, folded)
+        while len(_FOLDED_GLOBALS) > 8:
+            del _FOLDED_GLOBALS[next(iter(_FOLDED_GLOBALS))]
     return folded
 
 
@@ -3536,7 +3557,7 @@ class _Handler(BaseHTTPRequestHandler):
         # id per request, shared by the access line and every error line it
         # produces.
         self._request_started = time.perf_counter()
-        self._request_id = f"r{next(_REQUEST_IDS)}"
+        self._request_id = _next_request_id()
         self._response_size = "-"
         # Reset the line with the id: a parse error never reaches ``_respond``,
         # and a stale line from the previous request on this keep-alive thread
@@ -3697,7 +3718,7 @@ class _DashboardServer(ThreadingHTTPServer):
         if active is not None:
             # Its own correlation id, not the accept thread's unset one, so the
             # refusal the client holds points at the line the log carries.
-            request_id = f"r{next(_REQUEST_IDS)}"
+            request_id = _next_request_id()
             _stamp_request(request_id, "")
             log.warning(
                 "%s refusing connection from %s trace_id=%s: %d already in flight (cap %d)",
