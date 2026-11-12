@@ -1011,3 +1011,67 @@ class TestSourcePinning:
             source_file="legacy.c",
         )
         assert [e.symbol for e in find_similar(project_root, size=9)] == ["_legacy"]
+
+
+class TestJsonParserLimits:
+    _BAD_LINE = b'{"value":' + b"9" * 5000 + b"}"
+
+    def test_readers_skip_records_exceeding_parser_limits(self, project_root: Path) -> None:
+        path = record_ga_run(
+            project_root,
+            target="SERVER",
+            va=0x1000,
+            symbol="_win",
+            matched=True,
+            size=4,
+            source_file="src/win.c",
+        )
+        valid = path.read_bytes()
+        raw = self._BAD_LINE + b"\n" + valid
+        path.write_bytes(raw)
+        assert [r["symbol"] for r in load_ga_runs(project_root)] == ["_win"]
+        assert [s.symbol for s in load_solutions_file(path)] == ["_win"]
+        assert path.read_bytes() == raw
+
+    def test_append_skips_records_exceeding_parser_limits(self, project_root: Path) -> None:
+        path = project_root / ".rebrew" / "ga_runs.jsonl"
+        bad = self._BAD_LINE + b"\n"
+        path.write_bytes(bad)
+        record_ga_run(project_root, target="SERVER", va=0x1000, symbol="_win", matched=True)
+        assert path.read_bytes().startswith(bad)
+        assert [r["symbol"] for r in load_ga_runs(project_root)] == ["_win"]
+        before = path.read_bytes()
+        record_ga_run(project_root, target="SERVER", va=0x1000, symbol="_win", matched=True)
+        assert path.read_bytes() == before
+
+    @pytest.mark.parametrize("newline", [b"", b"\n"])
+    def test_full_scan_skips_records_exceeding_parser_limits(
+        self, project_root: Path, newline: bytes
+    ) -> None:
+        path = project_root / ".rebrew" / "ga_runs.jsonl"
+        raw = self._BAD_LINE + newline
+        path.write_bytes(raw)
+        assert not solutions_module._win_present(path, "missing-run")
+        assert path.read_bytes() == raw
+
+    def test_pruning_preserves_records_exceeding_parser_limits(
+        self, project_root: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        path = project_root / ".rebrew" / "ga_runs.jsonl"
+        raw = self._BAD_LINE + b"\n"
+        path.write_bytes(raw)
+        monkeypatch.setattr(solutions_module, "_PRUNE_MIN_BYTES", 1)
+        solutions_module._prune_loss_records(path)
+        assert path.read_bytes() == raw
+
+    def test_restore_reports_parser_limits_without_touching_current_log(
+        self, project_root: Path
+    ) -> None:
+        path = record_ga_run(project_root, target="SERVER", va=0x1000, symbol="_win", matched=True)
+        before = path.read_bytes()
+        backup = project_root / "backup.jsonl"
+        backup.write_bytes(self._BAD_LINE + b"\n")
+        with pytest.raises(ValueError, match="corrupt GA run log backup .* line 1"):
+            solutions_module.restore_ga_runs(backup, project_root)
+        assert path.read_bytes() == before
+        assert not path.with_name(path.name + ".before-restore").exists()

@@ -281,7 +281,7 @@ def _iter_run_records(path: Path) -> Generator[dict[str, Any]]:
                 continue
             try:
                 record = json.loads(line)
-            except json.JSONDecodeError:
+            except ValueError:
                 bad_lines += 1
                 continue
             if isinstance(record, dict):
@@ -600,7 +600,7 @@ def _tail_records(path: Path) -> list[dict[str, Any]]:
             continue
         try:
             record = json.loads(line)
-        except json.JSONDecodeError:
+        except ValueError:
             continue
         if isinstance(record, dict):
             records.append(record)
@@ -639,14 +639,14 @@ def _win_present(path: Path, key: str) -> bool:
                         continue
                     try:
                         record = json.loads(stripped)
-                    except json.JSONDecodeError:
+                    except ValueError:
                         continue
                     if isinstance(record, dict) and _run_key(record) == key:
                         return True
             if pending.strip():
                 try:
                     record = json.loads(pending.decode("utf-8", errors="replace").strip())
-                except json.JSONDecodeError:
+                except ValueError:
                     record = None
                 if isinstance(record, dict) and _run_key(record) == key:
                     return True
@@ -961,7 +961,7 @@ def restore_ga_runs(backup: Path, project_root: Path) -> Path:
             continue
         try:
             parsed = json.loads(line)
-        except json.JSONDecodeError as exc:
+        except ValueError as exc:
             raise ValueError(f"corrupt GA run log backup {backup} line {lineno}") from exc
         if not isinstance(parsed, dict):
             raise ValueError(f"corrupt GA run log backup {backup} line {lineno}")
