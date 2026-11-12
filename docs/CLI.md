@@ -382,12 +382,14 @@ graph TD
     Collect --> Compile[compile each .c with its CFLAGS<br/>parallel --jobs N]
     Compile --> Compare[byte-compare vs target<br/>reloc-aware · padding-tolerant]
     Compare --> Classify{result}
-    Classify -->|EXACT / RELOC| Pass[pass · STATUS promoted]
-    Classify -->|NEAR_MATCHING| NM[near-match · STATUS kept]
-    Classify -->|MISMATCH / COMPILE_ERROR| Fail[fail · STATUS demoted]
+    Classify -->|EXACT / RELOC| Pass[pass · byte match]
+    Classify -->|NEAR_MATCHING| NM[near-match · byte verdict]
+    Classify -->|MISMATCH| Fail[fail · byte verdict]
+    Classify -->|COMPILE_ERROR / EXTRACT_ERROR| Error[tooling error · earned STATUS kept]
     Pass --> Report[aggregate report<br/>--json · --output file (baseline beside the selected verify cache)]
     NM --> Report
     Fail --> Report
+    Error --> Report
     Report -->|--data| Data[byte-compare built<br/>.data/.rdata per symbol]
     Data --> Text{--text?}
     Text -->|yes| TA[check .text placement<br/>vs metadata; RELOC with identical<br/>raw-link bytes → EXACT]
@@ -468,8 +470,10 @@ Status promotion is always-on: after verification, STATUS is promoted/demoted in
 `rebrew-functions.toml` metadata. Every write tags `updated_by`
 (test/verify/prove/match/lint/binsync-import/intake) with a UTC `updated_at`
 timestamp. PROVEN is not protected: verify records the byte result over it
-like over any other status.  Only parked SKIP is never overwritten, and a
-STUB is not replaced by a placeholder SIZE_MISMATCH/MISSING_SIZE.  `passed`
+like over any other status. Compile, extraction, missing-file and invalid-VA
+failures are reported without replacing earned EXACT/RELOC/PROVEN. Parked SKIP
+stays parked, and a STUB is not replaced by a placeholder
+SIZE_MISMATCH/MISSING_SIZE. `passed`
 counts byte-matched (EXACT/RELOC) functions only.
 
 **Data placement.** `verify --data` uses the link map and checked COFF sections
@@ -488,7 +492,7 @@ reference VA (the link map's function row, from `--link-map` or the `.map` besid
 the image; without a map, the `build check-text-placement` object walk) and its linked bytes `[va, va+size)` equal the reference bytes,
 with no masking. A linked EXACT means the linked bytes are identical; it is a
 byte match, not an inference. Functions whose source is newer than the built
-image stay RELOC (rebuild first). `--dry-run` and `--no-promote` write nothing.
+image stay RELOC (rebuild first). `--dry-run` and `--no-promote` skip those metadata writes.
 
 The promotion records the usual comparison inputs plus `linked_image` (path,
 project-relative when inside the root) and `linked_image_hash` (SHA-256 of the
