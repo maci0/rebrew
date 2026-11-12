@@ -1,8 +1,8 @@
 # Cross-Tool Name Normalization
 
 Reverse engineering tools each generate their own default names for auto-discovered functions.
-Rebrew normalizes these into a single canonical form so that the **virtual address (VA)** remains the
-true join key while every tool-specific name is preserved as metadata for cross-referencing.
+Rebrew joins discoveries by **virtual address (VA)** and retains tool-specific names
+for cross-referencing. Name conversion depends on the ingestion or source-generation path.
 
 ---
 
@@ -23,30 +23,27 @@ true join key while every tool-specific name is preserved as metadata for cross-
 
 ---
 
-## Canonical Form
+## Name conversion
 
-All auto-generated tool names normalize to:
+`rebrew.naming.sanitize_name()` creates safe C filenames and identifiers. It
+rewrites Ghidra's `FUN_` prefix to `func_` and lowercases that suffix. Other
+prefixes retain their spelling, with punctuation replaced by underscores:
 
-```
-func_<hex_address_lowercase>
-```
-
-For example, all of these resolve to the same canonical name:
-
-| Tool output | Canonical |
-|-------------|-----------|
+| Input | `sanitize_name()` result |
+|-------|--------------------------|
 | `FUN_10001000` | `func_10001000` |
-| `sub_10001000` | `func_10001000` |
-| `fcn.10001000` | `func_10001000` |
 | `FUN_1000AB20` | `func_1000ab20` |
+| `sub_10001000` | `sub_10001000` |
+| `fcn.10001000` | `fcn_10001000` |
 
-The normalization rules are:
+The sanitizer also removes surrounding and repeated underscores, guards leading
+digits, and caps the result at 64 characters. It can change user-assigned names
+when making a C identifier; it does not rewrite the tool's provenance column.
 
-1. Strip the tool-specific prefix (`FUN_`, `sub_`, `fcn.`)
-2. Lowercase the hex digits
-3. Prepend `func_`
-
-User-assigned names pass through unchanged.
+`rebrew.catalog.loaders.parse_rizin_afl()` handles discovery separately. It
+converts `->`, `loc`, and `sub.*` labels to `fcn.<va>` with at least eight
+lowercase hex digits. Other names, including existing `fcn.` names, pass through.
+Neither path normalizes every tool's auto-name to one shared string.
 
 ---
 
@@ -56,7 +53,7 @@ Rebrew stores tool-specific names as **parallel metadata columns**, keyed by VA:
 
 ```
 VA (integer)  ←  canonical join key
-  ├── name          "func_10001000"  (canonical display name)
+  ├── name          "func_10001000"  (display name from the selected source binding)
   ├── ghidra_name   "FUN_10001000"   (Ghidra's name at export time)
   ├── list_name     "fcn.10001000"   (name from function list file)
   ├── ida_name      "sub_10001000"   (IDA's name, future)
@@ -67,7 +64,7 @@ VA (integer)  ←  canonical join key
 This design allows:
 
 - **Lookup in any direction**: given `FUN_10001000` from a Ghidra script, find the matching function list or IDA name instantly via the shared VA.
-- **Name precedence**: user-assigned names from *any* tool override auto-generated names. The first non-generic name wins.
+- **Display name**: the coverage grid uses the selected source binding's name. `ghidra_name` and `list_name` remain separate provenance fields.
 - **Size arbitration**: when tools disagree on function size, `size_by_tool` records each tool's opinion and `canonical_size` resolves it (Ghidra wins on ties or when larger; a larger function-list size wins only when the extra bytes classify as jump table, padding, or out-of-line code; see `size_reason` in `catalog/registry.py`).
 
 ### Where This Lives
@@ -86,23 +83,16 @@ A name is **not meaningful** (auto-generated / placeholder) when
 `is_meaningful` in `binsync/importer.py` is false: shared by
 `binsync/diff.py` and `binsync/overlay.py`. That helper rejects:
 
-1. `_GENERIC_NAME_RE`: `func_`/`FUN_` hex auto-names (optional leading `_`, optional stdcall `@N`):
-   ```regex
-   ^_?(func_|FUN_)[0-9a-fA-F]+(@\d+)?$
-   ```
+1. `_GENERIC_NAME_RE`: `func_`/`FUN_` hex auto-names, including cdecl, stdcall, fastcall and vectorcall decorations.
 2. `_GHIDRA_GENERIC_RE`: Ghidra prefixes `FUN_`, `DAT_`, `switchdata`, `thunk_`
 3. `_PLACEHOLDER_GLOBAL_RE`: synthetic `g_<4–8 hex>` globals
 
-Everything else is treated as a **user-assigned** name and is preserved.
+Other nonempty names are treated as **user-assigned** by this predicate. Empty
+names are not meaningful.
 
-> [!NOTE]
-> In the current code the `func_<hex>` form is produced by
-> `rebrew.naming.sanitize_name()` (rewrites Ghidra `FUN_<hex>` names for C
-> filenames/identifiers) and `rebrew.catalog.loaders.parse_rizin_afl()`
-> (normalizes rizin `sub.*`/`loc`/`->` names to `fcn.<va>` at ingestion).
-> `rebrew.naming.normalize_name()` is unrelated to tool prefixes: it strips
-> `__imp_`, cdecl `_`, and stdcall `@N` decorations for cross-source symbol
-> matching (see `crt_match.py`).
+`rebrew.naming.normalize_name()` is separate from both ingestion and C-name
+sanitization: it strips import/calling-convention decorations and folds Unicode
+case for cross-source symbol matching (see `crt_match.py`).
 
 ### Implications
 
@@ -137,24 +127,10 @@ registry[va]["size_by_tool"]["<tool>"] = entry["size"]
 ### 3. Name Normalization
 
 Extend `is_meaningful` coverage in `binsync/importer.py` (imported by
-`binsync/diff.py` / `overlay.py`). Hex-style auto-names usually go on
-`_GENERIC_NAME_RE`; Ghidra-style prefixes may belong on `_GHIDRA_GENERIC_RE`
-instead:
-
-```diff
-- _GENERIC_NAME_RE = re.compile(r"^_?(func_|FUN_)[0-9a-fA-F]+(@\d+)?$")
-+ _GENERIC_NAME_RE = re.compile(r"^_?(func_|FUN_|sub_)[0-9a-fA-F]+(@\d+)?$")
-```
-
-And teach `sanitize_name()` (`rebrew/naming.py`) to rewrite the new prefix:
-it currently handles only the Ghidra `FUN_` form:
-
-```diff
-  if name.startswith("FUN_"):
-      return "func_" + name[4:].lower()
-+ if name.startswith("sub_"):
-+     return "func_" + name[4:].lower()
-```
+`binsync/diff.py` / `overlay.py`) for the new tool's auto-labels. Preserve the
+calling-convention decorations already recognized by `_GENERIC_NAME_RE`.
+If source generation needs a prefix rewrite, extend `sanitize_name()` in
+`rebrew/naming.py` and its tests while retaining the shared C-identifier guards.
 
 ### 4. Coverage document
 

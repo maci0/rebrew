@@ -30,7 +30,7 @@
 | [FLAG_SWEEP_TIERS.md](FLAG_SWEEP_TIERS.md) | MSVC6 flag-sweep tiers (quick/targeted/normal/thorough/full): axes and combination counts |
 | [COVERAGE_DOCUMENT.md](COVERAGE_DOCUMENT.md) | Portable `coverage-<target>.toml` document format and the dashboard REST API |
 | [dashboard-api.yaml](dashboard-api.yaml) | OpenAPI 3.1 contract for the `rebrew coverage serve` HTTP API, checked against the code by `tests/test_dashboard.py` |
-| [NAME_NORMALIZATION.md](NAME_NORMALIZATION.md) | Cross-tool function name normalization (Ghidra/r2/IDA → canonical `func_` form) |
+| [NAME_NORMALIZATION.md](NAME_NORMALIZATION.md) | Tool-name provenance, Ghidra C-name sanitization, and rizin discovery labels |
 | [TOOLCHAIN.md](TOOLCHAIN.md) | The toolchain zoo: compilers (MSVC 1.0–11.0, Borland C++ 5.5, Turbo C 2.0/3.1, Open Watcom, Delphi 1.0, GCC, Clang, MinGW), docker images, reproducible builds (`rebrew toolchain vendor`/`smoke`), external tools, Python deps |
 | [SDK_MEDIA.md](SDK_MEDIA.md) | DirectX and Platform SDK media provenance: verified archive.org checksums, gaps, official and license-clean sources |
 | [OMF_NOTES.md](OMF_NOTES.md) | OMF object format research (Watcom wcc386 32-bit + MSVC 1.52 16-bit dialects, reloc decoding) |
