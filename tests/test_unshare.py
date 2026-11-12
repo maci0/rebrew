@@ -724,7 +724,7 @@ class TestUnshareParentDeath:
             launcher = int(caller.stdout.readline())
             heartbeat = work / "heartbeat"
             try:
-                deadline = time.monotonic() + 5
+                deadline = time.monotonic() + _NATIVE_RUN_TIMEOUT
                 while (
                     not heartbeat.exists() and caller.poll() is None and time.monotonic() < deadline
                 ):
@@ -739,7 +739,7 @@ class TestUnshareParentDeath:
                     caller.pid if victim == "caller" else launcher,
                     signal.SIGINT if victim == "interrupt" else signal.SIGKILL,
                 )
-                caller.wait(timeout=5)
+                caller.wait(timeout=_NATIVE_RUN_TIMEOUT)
                 # Detached descendants would continue appending after either parent died.
                 time.sleep(0.2)
                 size = heartbeat.stat().st_size
@@ -748,7 +748,7 @@ class TestUnshareParentDeath:
             finally:
                 if caller.poll() is None:
                     caller.kill()
-                    caller.wait(timeout=5)
+                    caller.wait(timeout=_NATIVE_RUN_TIMEOUT)
                 caller.stdout.close()
                 for parent, directories, _ in os.walk(bundle, followlinks=False):
                     for name in directories:
