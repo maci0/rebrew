@@ -55,6 +55,8 @@
 
 ### Changed
 
+- **Breaking:** `rebrew.layout_meta.LayoutMetadata.calls` entries now hold `(rel32, prefix2, suffix2, opcode)`, and `calls.txt` adds the opcode column. `load_package` accepts older rows with an unknown opcode, but postlink excludes those call sites from alignment coverage and rewriting, and reports skipped targets. Regenerate the package with `rebrew build layout`; `write_package` refuses unknown-opcode entries. Call and jump opcodes must match before a target is rewritten.
+
 - Every dependency is at its newest release: `uv lock --upgrade` moves 21 packages within their caps (angr, archinfo, cle and pyvex 10.0.6, click 8.5.1, pydantic 2.14.3, pydantic-core 2.50.4, tree-sitter 0.26.1, typer 0.29.1, z3-solver 5.3.3.0, ruff 0.17.4, hypothesis 6.170.15 and the rest of their trees); no cap holds back a newer major. The floors of click, tree-sitter, typer, angr, ruff and hypothesis follow the lock, and `tools/licenses.py` moves each entry to the new version after PyPI's licence metadata for both releases compared equal. The contributor resembl pin moves from `v4.0.0` to `v5.0.0` (eb8e9b4c) in the `Makefile`, the CI `uv-env` action, `uv.lock` and the setup docs.
 ### Added
 

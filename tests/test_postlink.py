@@ -461,6 +461,90 @@ class TestDataFixer:
         assert struct.unpack_from("<I", blob, sec_off + 16)[0] == 0x1000
 
 
+class TestCallOpcodeContext:
+    @pytest.mark.parametrize("opcode", [0xE8, 0xE9])
+    @pytest.mark.parametrize("displacement", [1, 2])
+    def test_changed_opcode_neither_validates_nor_rewrites(
+        self, tmp_path: Path, opcode: int, displacement: int
+    ) -> None:
+        from rebrew.formats.binary_loader import load_binary
+        from rebrew.layout_meta import extract_layout
+        from rebrew.postlink import _fix_data, map_coverage
+
+        reference = b"\x90\x90" + bytes([opcode]) + struct.pack("<I", 1) + b"\x90\x90\xc3"
+        changed = (
+            b"\x90\x90" + bytes([opcode ^ 1]) + struct.pack("<I", displacement) + b"\x90\x90\xc3"
+        )
+        ref = _write(tmp_path, "ref.dll", make_full_pe(code=reference))
+        built = _write(tmp_path, "built.dll", make_full_pe(code=changed))
+        meta = extract_layout(ref.read_bytes(), "ref.dll")
+        info = load_binary(built)
+        assert map_coverage(built.read_bytes(), meta, info)[2:] == (0, 1)
+        with pytest.raises(ValueError, match="not position-aligned"):
+            run_fixers(built, ref, ["data"])
+        patched = bytearray(built.read_bytes())
+        report = _fix_data(patched, meta, info)
+        assert patched[_HEADERS : _HEADERS + len(changed)] == changed
+        assert report.stats["call_targets"] == 0
+        assert report.stats["call_targets_skipped"] == 1
+
+    @pytest.mark.parametrize("opcode", [0xE8, 0xE9])
+    def test_same_opcode_survives_package_roundtrip_and_rewrites(
+        self, tmp_path: Path, opcode: int
+    ) -> None:
+        from rebrew.layout_meta import load_package
+
+        code = b"\x90\x90" + bytes([opcode]) + struct.pack("<I", 1) + b"\x90\x90\xc3"
+        ref = make_full_pe(code=code)
+        pkg = _write_pkg(tmp_path, ref)
+        meta = load_package(pkg)
+        assert meta.calls[3] == (1, 0x9090, 0x9090, opcode)
+        rows = [
+            line.split()
+            for line in (pkg / "calls.txt").read_text().splitlines()
+            if not line.startswith("#")
+        ]
+        assert len(rows) == 1 and len(rows[0]) == 5
+        changed = code[:3] + struct.pack("<I", 2) + code[7:]
+        built = _write(tmp_path, "built.dll", make_full_pe(code=changed))
+        patched, reports = run_fixers(built, fixer_names=["data"], layout_dir=pkg)
+        assert patched == ref
+        assert reports[0].stats["call_targets"] == 1
+        assert reports[0].stats["call_targets_skipped"] == 0
+
+    @pytest.mark.parametrize("row", ["0x3 0x1 0x9090", "0x3 0x1 0x9090 0x9090 0x90"])
+    def test_invalid_call_context_is_rejected(self, tmp_path: Path, row: str) -> None:
+        from rebrew.layout_meta import load_package
+
+        pkg = _write_pkg(tmp_path, make_full_pe())
+        (pkg / "calls.txt").write_text(row + "\n")
+        with pytest.raises(ValueError, match="layout call"):
+            load_package(pkg)
+
+    def test_old_package_loads_but_unknown_opcode_cannot_rewrite(self, tmp_path: Path) -> None:
+        from rebrew.formats.binary_loader import load_binary
+        from rebrew.layout_meta import load_package, write_package
+        from rebrew.postlink import _fix_data, map_coverage
+
+        code = b"\x90\x90\xe8\x01\x00\x00\x00\x90\x90\xc3"
+        pkg = _write_pkg(tmp_path, make_full_pe(code=code))
+        (pkg / "calls.txt").write_text("0x3 0x1 0x9090 0x9090\n")
+        meta = load_package(pkg)
+        assert meta.calls[3] == (1, 0x9090, 0x9090, None)
+        changed = code[:2] + b"\xe9\x02" + code[4:]
+        built = _write(tmp_path, "built.dll", make_full_pe(code=changed))
+        info = load_binary(built)
+        assert map_coverage(built.read_bytes(), meta, info)[2:] == (0, 1)
+        patched = bytearray(built.read_bytes())
+        report = _fix_data(patched, meta, info)
+        assert patched[_HEADERS : _HEADERS + len(changed)] == changed
+        assert report.stats["call_targets_skipped"] == 1
+        out = tmp_path / "new-package"
+        with pytest.raises(ValueError, match="opcode"):
+            write_package(meta, out, fmt_toml=lambda _meta: "")
+        assert not out.exists()
+
+
 class TestTextAlignmentGuard:
     """The layout maps are .text-relative, so they only describe a link that
     placed every function at the reference's VA.  A shifted .text must be

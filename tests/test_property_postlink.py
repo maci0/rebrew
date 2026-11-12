@@ -45,7 +45,7 @@ def _meta_and_info(
     text_off: int,
     text_vs: int,
     operands: dict[int, int],
-    calls: dict[int, tuple[int, int, int]],
+    calls: dict[int, tuple[int, int, int, int | None]],
 ) -> tuple[LayoutMetadata, BinaryInfo]:
     """A layout package holding only the named layout-map entries, paired with
     a ``BinaryInfo`` whose ``.text`` starts at *text_off* in a built image."""
@@ -116,6 +116,7 @@ def _layout_and_built(draw: st.DrawFn) -> tuple[bytes, LayoutMetadata, BinaryInf
             draw(_u32),
             draw(_u16),
             draw(_u16),
+            draw(st.sampled_from([None, 0xE8, 0xE9])),
         )
         for _ in range(n_calls)
     }
@@ -179,7 +180,7 @@ def test_map_coverage_skips_unreadable_dwords(built_size: int, slack: int) -> No
 
     built = bytes(built_size)
     off = built_size + slack
-    meta, info = _meta_and_info(off, len(built), {0: 0xDEADBEEF}, {0: (0xDEADBEEF, 0, 0)})
+    meta, info = _meta_and_info(off, len(built), {0: 0xDEADBEEF}, {0: (0xDEADBEEF, 0, 0, 0xE8)})
     assert map_coverage(built, meta, info) == (0, 1, 0, 1)
 
 
@@ -199,9 +200,9 @@ def test_map_coverage_validates_a_call_context(built: bytes, pre: int, suf: int)
     body[off - 3 : off - 1] = pre.to_bytes(2, "big")
     body[off + 4 : off + 6] = suf.to_bytes(2, "big")
 
-    for opcode, expected in ((0xE8, 1), (0x90, 0)):
+    for opcode, expected in ((0xE8, 1), (0xE9, 0), (0x90, 0)):
         body[off - 1] = opcode
-        meta, info = _meta_and_info(0, len(bytes(body)), {}, {off: (val, pre, suf)})
+        meta, info = _meta_and_info(0, len(bytes(body)), {}, {off: (val, pre, suf, 0xE8)})
         assert map_coverage(bytes(body), meta, info) == (0, 0, expected, 1)
 
 

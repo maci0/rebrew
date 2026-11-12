@@ -428,18 +428,24 @@ def _fix_data(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo) -> Fix
 
     # ---- 2. E8/E9 relative call/jump targets (context-matched via the map) ----
     rel32 = 0
-    for off_rel, (val, pre, suf) in meta.calls.items():
+    skipped = 0
+    for off_rel, (val, pre, suf, opcode) in meta.calls.items():
         off = text.file_offset + off_rel
+        # Old packages cannot prove whether this site was a call or a jump.
+        if opcode is None or off < 3 or off + 6 > len(built) or built[off - 1] != opcode:
+            skipped += 1
+            continue
         if struct.unpack_from("<I", built, off)[0] == val:
             continue
-        if (
-            built[off - 1] in (0xE8, 0xE9)
-            and bytes(built[off - 3 : off - 1]) == pre.to_bytes(2, "big")
-            and bytes(built[off + 4 : off + 6]) == suf.to_bytes(2, "big")
-        ):
+        if bytes(built[off - 3 : off - 1]) == pre.to_bytes(2, "big") and bytes(
+            built[off + 4 : off + 6]
+        ) == suf.to_bytes(2, "big"):
             struct.pack_into("<I", built, off, val)
             rel32 += 1
+        else:
+            skipped += 1
     report.stats["call_targets"] = rel32
+    report.stats["call_targets_skipped"] = skipped
     report.changed = report.changed or rel32 > 0
 
     # ---- 3. trim the extra .text tail + fix .text VirtualSize ----
@@ -751,19 +757,20 @@ def map_coverage(
             operands_ok += 1
 
     calls_ok = 0
-    for off_rel, (val, pre, suf) in meta.calls.items():
+    for off_rel, (val, pre, suf, opcode) in meta.calls.items():
         off = text.file_offset + off_rel
         cur = dword(off)
         if cur is None:
             continue
+        opcode_matches = (
+            opcode is not None and off >= 3 and off + 6 <= len(built) and built[off - 1] == opcode
+        )
         context_matches = (
-            off >= 3
-            and off + 6 <= len(built)
-            and built[off - 1] in (0xE8, 0xE9)
+            opcode_matches
             and built[off - 3 : off - 1] == pre.to_bytes(2, "big")
             and built[off + 4 : off + 6] == suf.to_bytes(2, "big")
         )
-        if cur == val or context_matches:
+        if opcode_matches and (cur == val or context_matches):
             calls_ok += 1
 
     return operands_ok, len(meta.operands), calls_ok, len(meta.calls)
