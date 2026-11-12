@@ -149,7 +149,7 @@ era).
 | FP-const add | `a + 1.0` | `dd 44 24 04 dc 05 00 00 00 00` (`fld [a]; fadd qword [+1.0]`) | **VC 5.0 is the odd one out: `fsub qword [−1.0]` (`dc 25`) with the NEGATED constant in .rdata**; a 5.0-only marker; 2.0/4.x `fld1`+fadd; 6.0-10.0 fadd; 11.0 SSE |
 | `<= 0` vs `< 1` | `x <= 0` vs `x < 1` | `85 c9 0f 9e c0` (test; setle, 2B test) vs `83 f9 01 0f 9c c0` (cmp 1; setl, 3B cmp) | **5.0-7.1: the exact-constant form is 1 byte shorter**; steerable from C (write `<= 0`, not `< 1`) |
 | Return-width | `short f() { return 5; }` | 2.0-8.0: `66 b8 05 00` (`mov ax,5`, 4B); 9.0+: `b8 05 00 00 00` (`mov eax,5`, 5B) | **short-return width changes at 9.0** (char returns `mov al,N` in every version) |
-| `x == -1` compare | `if (x==-1) return -1;` | `83 f9 ff 0f 95 c0 48` (`cmp; setne al; dec eax`) | **5.0-11.0 setne+dec (both the if-form and `(x!=-1)-1`)**; 2.0/4.1 inc/sbb family. CODEGEN_PATTERNS.md records the same split |
+| `x == -1` compare | `if (x==-1) return -1;` | `83 f9 ff 0f 95 c0 48` (`cmp; setne al; dec eax`) | **5.0-11.0 setne then subtract one (both the if-form and `(x!=-1)-1`)**; VC 8.0 uses `sub eax,1`, the others `dec eax`; 2.0/4.1 use the inc/sbb family. The two spellings have identical bytes in the probe |
 
 ## Verified negatives (in these binaries)
 
