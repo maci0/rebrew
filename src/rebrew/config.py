@@ -567,7 +567,7 @@ class _AddressCommentLayout:
 
 #: Resolved source roots and comment dialects for one parsed document. The
 #: per-file walk otherwise called ``Path.resolve`` on every target root.
-_PROJECT_LAYOUT: dict[Path, tuple[tuple[int, int, int], _AddressCommentLayout]] = {}
+_PROJECT_LAYOUT: dict[Path, tuple[tuple[int, int, int, int], _AddressCommentLayout]] = {}
 
 
 def parse_address_comment_format(project: Any, target: Any = None) -> AddressCommentFormat:
@@ -586,13 +586,15 @@ def parse_address_comment_format(project: Any, target: Any = None) -> AddressCom
 
 #: Parsed ``rebrew-project.toml`` per path, keyed on its stat so an edit is re-read.
 #: Source discovery asks once per file (10,900 files on guild-rebrew).
-_PROJECT_TOML: dict[Path, tuple[tuple[int, int, int], dict[str, Any]]] = {}
+_PROJECT_TOML: dict[Path, tuple[tuple[int, int, int, int], dict[str, Any]]] = {}
 
 
 def _project_toml(path: Path) -> dict[str, Any]:
     """Read-only parsed project config; callers must not mutate the result."""
     st = path.stat()
-    stamp = (st.st_mtime_ns, st.st_size, st.st_ino)
+    # ctime too: a same-length rewrite can keep mtime, size and inode, and a
+    # stale parse would then bind every later source against the old config.
+    stamp = (st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns)
     hit = _PROJECT_TOML.get(path)
     if hit is not None and hit[0] == stamp:
         return hit[1]
@@ -634,7 +636,7 @@ def _cached_address_comment_layout(root: Path) -> _AddressCommentLayout:
     """Layout for *root*, reused while ``rebrew-project.toml`` is unchanged."""
     path = root / "rebrew-project.toml"
     st = path.stat()
-    stamp = (st.st_mtime_ns, st.st_size, st.st_ino)
+    stamp = (st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns)
     hit = _PROJECT_LAYOUT.get(path)
     if hit is not None and hit[0] == stamp:
         return hit[1]
