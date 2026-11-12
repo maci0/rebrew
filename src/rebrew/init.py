@@ -334,7 +334,12 @@ def _stale_scaffold_files(
         if rel_path.is_absolute() or ".." in rel_path.parts:
             continue
         path = cwd / rel
-        if not path.resolve().is_relative_to(cwd.resolve()) or not path.is_file():
+        if not path.resolve().is_relative_to(cwd.resolve()):
+            continue
+        if not rel_path.is_relative_to(Path(".agents/skills")):
+            logger.warning("ignored non-skill scaffold manifest entry %r", rel)
+            continue
+        if not path.is_file():
             continue
         reason = "stale" if _file_digest(path.read_bytes()) == digest else "stale-modified"
         stale.append((rel, reason))

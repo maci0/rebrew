@@ -1935,6 +1935,26 @@ class TestRefreshAgentsPrunesStaleSkills:
         assert (outside / "SKILL.md").read_bytes() == b"# old\n"
         assert old.is_symlink()
 
+    def test_manifest_cannot_claim_project_source_as_stale_scaffold(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import hashlib
+
+        root = self._project(tmp_path)
+        self._render(root, {"keep/SKILL.md": b"# k\n"}, monkeypatch)
+        source = root / "src/game.c"
+        source.parent.mkdir()
+        content = b"int game(void) { return 1; }\n"
+        source.write_bytes(content)
+        manifest = root / ".agents/skills/.rebrew-scaffold.json"
+        payload = json.loads(manifest.read_text(encoding="utf-8"))
+        payload["files"]["src/game.c"] = hashlib.sha256(content).hexdigest()
+        manifest.write_text(json.dumps(payload), encoding="utf-8")
+        self._render(root, {"keep/SKILL.md": b"# k\n"}, monkeypatch)
+        assert source.read_bytes() == content
+        assert "src/game.c" in caplog.text
+        assert "ignored" in caplog.text.lower()
+
     def test_manifest_outside_the_project_is_ignored(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
