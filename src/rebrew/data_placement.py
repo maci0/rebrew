@@ -67,7 +67,7 @@ def coff_data_symbols(
         valid = True
         for reloc in relocs:
             reloc_symbol = reloc.symbol
-            if reloc_symbol is None:
+            if reloc_symbol is None or reloc_symbol.section_idx > len(sections):
                 valid = False
                 break
             offset = reloc.address

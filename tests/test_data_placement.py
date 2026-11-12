@@ -77,6 +77,15 @@ def test_private_symbol_rejects_unproved_code(change: str) -> None:
     assert coff_data_symbols(body, anchors, lambda va, n: native if va == 0x1000 else b"") == {}
 
 
+@pytest.mark.parametrize("target_section", [3, 0x7FFF])
+def test_private_symbol_rejects_relocation_to_missing_section(target_section: int) -> None:
+    body = bytearray(_coff())
+    symbols_start = struct.unpack_from("<I", body, 8)[0]
+    struct.pack_into("<h", body, symbols_start + 18 + 12, target_section)
+    native = b"\xa1" + struct.pack("<I", 0x4004) + b"\xc3"
+    assert coff_data_symbols(bytes(body), {"_entry": 0x1000}, lambda va, n: native) == {}
+
+
 def test_conflicting_section_targets_remain_unresolved() -> None:
     native = b"\xa1" + struct.pack("<I", 0x4004) + b"\xa1" + struct.pack("<I", 0x5004) + b"\xc3"
     assert coff_data_symbols(_coff(duplicate=True), {"_entry": 0x1000}, lambda va, n: native) == {}
