@@ -45,9 +45,10 @@ names, CRT prefixes, and unselected archive definitions establish no owner.
 
 
 Check `summary.conflicts > 0` to decide whether `--conflicts` needs attention.
-`globals` with `"annotated": false` are plain `extern` declarations with no VA.
-Record a data row (`rebrew data annotate`) so they resolve to a section. Do not
-add inline metadata state.
+`globals` with `"annotated": false` have no native address binding; they can
+be declarations or storage definitions. Inspect `defined_in` for source owners.
+Establish the VA and canonical data identity before expecting section assignment.
+Do not add inline metadata state.
 
 ## `data bss --json`
 
