@@ -471,3 +471,74 @@ def test_json_and_objects_remain_independent(
     assert seen == {"build_dir": tmp_path, "objects": True}
     names = [param.name for param in get_command(build_check.app).params]
     assert names.index("objects") < names.index("json_output")
+
+
+class TestQueryExecutionRefusals:
+    @pytest.mark.parametrize("depth", [31, 32, 33])
+    @pytest.mark.parametrize("unsafe", [False, True])
+    def test_include_depth_is_fail_closed_with_real_make(
+        self, tmp_path: Path, depth: int, unsafe: bool
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.app.main import app
+
+        build = _tree(tmp_path, BUILD_MAKE + "\ninclude audit-1.mk\n")
+        flags = build / "flags.make"
+        flags.write_text("")
+        os.utime(flags, (100, 100))
+        for obj, _line in parse_compile_lines(BUILD_MAKE):
+            path = build / obj
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"native object")
+            os.utime(path, (200, 200))
+        for number in range(1, depth + 1):
+            leaf = (
+                "AUDIT := $(shell printf reached > audit-marker.txt)\n"
+                if unsafe
+                else "AUDIT := safe\n"
+            )
+            text = f"include audit-{number + 1}.mk\n" if number < depth else leaf
+            (build / f"audit-{number}.mk").write_text(text)
+        result = CliRunner().invoke(
+            app, ["build", "check", "--build-dir", str(build), "--objects", "--json"]
+        )
+        assert not (build / "audit-marker.txt").exists(), result.output
+        payload = cli_payload(result)
+        if depth >= 32:
+            assert result.exit_code == 2, result.output
+            assert payload["status"] == "not-configured"
+            assert "make include depth cap 32" in payload["message"]
+        elif unsafe:
+            assert result.exit_code == 2, result.output
+            assert "expands make functions" in payload["message"]
+        else:
+            assert result.exit_code == 0, result.output
+            assert payload["status"] == "ok"
+
+    @pytest.mark.parametrize("form", ["+", "@-+", "$(MAKE)", "${MAKE}"])
+    @pytest.mark.parametrize("included", [False, True])
+    def test_recursive_recipe_forms_are_refused_with_real_make(
+        self, tmp_path: Path, form: str, included: bool
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.app.main import app
+
+        prefix = form if "+" in form else ""
+        reference = "" if prefix else form
+        recipe = f"\t{prefix}printf reached > audit-marker.txt # {reference} cl "
+        text = BUILD_MAKE.replace("\tcl ", recipe, 1)
+        build = _tree(tmp_path, BUILD_MAKE + "\ninclude recipes.mk\n" if included else text)
+        (build / "flags.make").write_text("")
+        if included:
+            (build / "recipes.mk").write_text(text)
+        result = CliRunner().invoke(
+            app, ["build", "check", "--build-dir", str(build), "--objects", "--json"]
+        )
+        assert not (build / "audit-marker.txt").exists(), result.output
+        assert result.exit_code == 2, result.output
+        payload = cli_payload(result)
+        assert payload["status"] == "not-configured"
+        filename = "recipes.mk" if included else "build.make"
+        assert f"{filename}:2" in payload["message"]
