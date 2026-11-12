@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 lazy import json
 lazy import math
+lazy import os
 lazy import shlex
 lazy from collections.abc import Callable, Sequence
 lazy from pathlib import Path
@@ -1054,18 +1055,15 @@ def _extern_path_key(path: Path) -> str:
 
 def _display_path(path: Path, base: Path, base_text: str) -> str:
     """``rel_display_path`` without a path walk for a plain descendant."""
-    # base_text is built with "/" and paths reach here from iter_sources
-    # (POSIX walk). On Windows str(Path) uses "\", so the fast prefix
-    # slice would miss; fall through to rel_display_path which normalizes
-    # via as_posix(). Keeping the slice only for POSIX spellings preserves
-    # the fast path where it is valid.
-    text = str(path)
-    if text.startswith("/") and base_text.startswith("/") and text.startswith(base_text):
-        relative = text[len(base_text) :]
-        if relative and "//" not in relative and "/./" not in relative:
-            return relative
-    from rebrew.utils import rel_display_path
+    # base_text is the reversed root plus a trailing separator, and the
+    # walk yields host paths.  posix_child slices either spelling; a path
+    # with "." or a doubled separator still needs the full walk.
+    from rebrew.utils import posix_child, rel_display_path
 
+    root = base_text[:-1] if base_text.endswith(("/", "\\")) else base_text
+    relative = posix_child(str(path), root)
+    if relative and "//" not in relative and "/./" not in relative:
+        return relative
     return rel_display_path(path, base)
 
 
@@ -1208,7 +1206,9 @@ def _caller_counts(
         return counts
     cache = _begin_extern_cache(_extern_cache_dir(cfg))
     base = Path(cfg.reversed_dir)
-    base_text = str(base).rstrip("/") + "/"
+    # The trailing separator is the host's: rstrip("/") leaves a Windows
+    # drive path untouched and the child slice then never matches.
+    base_text = str(base).rstrip("/\\") + os.sep
     for path in files:
         key = _extern_path_key(path)
         stamp = _extern_source_stamp(path)

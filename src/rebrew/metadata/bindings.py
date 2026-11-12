@@ -667,15 +667,11 @@ def _relative_posix(path: Path, base: Path) -> str:
     binding pass, so an absolute *path* under an absolute *base* has the same
     relative spelling as ``os.path.relpath`` without the component walk.
     """
-    text = os.fspath(path)
-    root = os.fspath(base)
-    if text.startswith("/") and root.startswith("/"):
-        root = root.rstrip("/") or "/"
-        if text == root:
-            return "."
-        prefix = root if root == "/" else root + "/"
-        if text.startswith(prefix):
-            return text.removeprefix(prefix)
+    from rebrew.utils import posix_child
+
+    child = posix_child(os.fspath(path), os.fspath(base))
+    if child is not None:
+        return child or "."
     return os.path.relpath(path, base).replace(os.sep, "/")
 
 
@@ -992,11 +988,9 @@ def iter_source_bindings(
                 metadata_root = metadata_dir.resolve()
                 metadata_ready = True
             if metadata_root is not None and src.is_absolute() and ".." not in src.parts:
-                text = str(src)
-                root_text = str(metadata_root).rstrip("/") or "/"
-                if text == root_text or text.startswith(
-                    "/" if root_text == "/" else root_text + "/"
-                ):
+                from rebrew.utils import posix_child
+
+                if posix_child(str(src), str(metadata_root)) is not None:
                     store_rel = _relative_posix(src, metadata_root)
                 else:
                     store_rel = os.path.relpath(src.resolve(), metadata_root).replace(os.sep, "/")

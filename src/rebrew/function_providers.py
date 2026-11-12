@@ -169,7 +169,12 @@ def _bind_compiled_row(
     inside, prefix, base_text = base_facts[base]
     # Path construction dominated this per-row loop; the row only needs the
     # syscall-facing spelling, and anything unusual falls back below.
-    source_text = os.path.join(base_text, norm)  # noqa: PTH118
+    # os.path.join treats a part starting with a separator as absolute and
+    # discards the base on Windows.  A stored identity is project-relative,
+    # so a leading separator is spelling, not a drive, and must not win.
+    from rebrew.utils import join_under
+
+    source_text = join_under(base_text, norm)
     if (
         not inside
         or os.path.islink(source_text)  # noqa: PTH114

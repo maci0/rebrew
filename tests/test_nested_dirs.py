@@ -7,6 +7,7 @@ vs src/server.dll/network/init.c).
 
 from pathlib import Path
 
+import pytest
 from source_util import SourceFixture, write_source
 
 from rebrew.config import ProjectConfig
@@ -108,6 +109,37 @@ class TestRelDisplayPath:
         base = tmp_path / "unrelated"
         base.mkdir()
         assert rel_display_path(f, base) == "../other/file.c"
+
+    def test_windows_drive_slice(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A drive path slices on Windows the way a leading ``/`` does on POSIX.
+
+        ``os.path.join`` drops its base when the next part starts with a
+        separator, so the same spelling has to keep the base too.
+        """
+        import rebrew.utils as utils
+
+        def drive_absolute(text: str) -> bool:
+            return text.startswith("\\\\") or (
+                len(text) >= 3 and text[1] == ":" and text[2] in "/\\"
+            )
+
+        monkeypatch.setattr(utils, "_host_absolute", drive_absolute)
+        assert utils.posix_child(r"C:\proj\src\game\pool.c", r"C:\proj\src") == "game/pool.c"
+        assert utils.posix_child(r"C:\proj\src", r"C:\proj\src") == ""
+        assert utils.posix_child(r"C:\other\pool.c", r"C:\proj\src") is None
+        assert utils.posix_child("src/game/pool.c", r"C:\proj\src") is None
+
+        # A bare leading separator must not discard the project root.  On
+        # Windows os.path.join did exactly that; the host separator still
+        # replaces the root, because there it is a real absolute path.
+        saved = utils.os.sep
+        utils.os.sep = "\\"
+        try:
+            joined = utils.join_under(r"C:\proj", "/src/game/pool.c")
+            assert joined.replace("\\", "/").startswith("C:/proj/") and joined.endswith("pool.c")
+            assert utils.join_under(r"C:\proj", r"D:\elsewhere\pool.c") == r"D:\elsewhere\pool.c"
+        finally:
+            utils.os.sep = saved
 
 
 # ---------------------------------------------------------------------------

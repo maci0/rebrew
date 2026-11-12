@@ -19,7 +19,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 lazy import difflib
-lazy import os
 lazy from pathlib import Path
 lazy from typing import Any
 
@@ -277,12 +276,21 @@ def find_sources_block(text: str, wanted: set[str]) -> _Block | None:
 
 
 def _abs_key(root: Path, token: str) -> str:
-    cleaned = token.strip('"').replace("\\", "/")
+    cleaned = token.strip('"')
+    # A drive or UNC path is absolute and its backslashes are the path, not
+    # a separator to flatten; flattening first turned ``D:\a.c`` into
+    # ``/a.c`` and the join then buried it under the project root.
+    if not (len(cleaned) >= 2 and cleaned[1] == ":") and not cleaned.startswith("\\\\"):
+        cleaned = cleaned.replace("\\", "/")
     while cleaned.startswith("./"):
         cleaned = cleaned[2:]
     # normpath is load-bearing: it collapses `..` and `.` out of the key, which
     # the Path operator keeps, so the two sort orders would not agree.
-    return os.path.normpath(os.path.join(str(root), cleaned))  # noqa: PTH118
+    # os.path.join drops the root when its next part starts with a bare
+    # separator.  join_under keeps the root for that spelling.
+    from rebrew.utils import join_under
+
+    return join_under(str(root), cleaned)
 
 
 def _rel(root: Path, path: Path) -> str:

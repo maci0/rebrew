@@ -798,6 +798,41 @@ DEFAULT_CONTAINER_RUNTIME = "docker"
 CONTAINER_RUNTIMES = ("docker", "podman", "nerdctl")
 
 
+def join_under(root: str, text: str) -> str:
+    """``os.path.normpath(os.path.join(root, text))`` that keeps *root*.
+
+    ``os.path.join`` throws *root* away when *text* starts with ``/`` or
+    ``\\``, on Windows, so ``C:\\proj`` joined with ``\\src\\a.c`` came back
+    as ``\\src\\a.c``.  On POSIX a leading ``/`` is a real absolute path and
+    must still replace the root, which is what the plain join does.  Only a
+    bare separator on a host whose own separator differs is spelling.
+    """
+    # A drive path is absolute on every host.  normpath does not see it as
+    # one where the host separator is "/", and would glue it onto the root.
+    if len(text) >= 2 and text[1] == ":":
+        return os.path.normpath(text)
+    foreign = "/" if os.sep == "\\" else "\\"
+    if text.startswith(foreign) and not text.startswith(foreign * 2):
+        return os.path.normpath(root.rstrip("/\\") + os.sep + text.lstrip("/\\"))
+    # Path(root) / text keeps a foreign separator as a literal name, which is
+    # the bug this helper replaces; os.path.join folds the host separator.
+    return os.path.normpath(os.path.join(root, text))  # noqa: PTH118
+
+
+def _host_absolute(text: str) -> bool:
+    """True when *text* is absolute on this host, without building a ``Path``.
+
+    POSIX absolute is a leading ``/``.  Windows absolute is a drive
+    (``C:\\``, ``C:/``) or a UNC path (``\\\\server\\share``).  A relative
+    spelling is neither, on either host.
+    """
+    if not text:
+        return False
+    if os.sep == "/":
+        return text.startswith("/")
+    return text.startswith("\\\\") or (len(text) >= 3 and text[1] == ":" and text[2] in "/\\")
+
+
 def _is_absolute_runtime_path(runtime: str) -> bool:
     """True when *runtime* is an absolute path on any supported platform.
 
@@ -815,6 +850,39 @@ def _is_absolute_runtime_path(runtime: str) -> bool:
     ):
         return True
     return Path(runtime).is_absolute()
+
+
+def posix_child(text: str, root: str) -> str | None:
+    """The part of *text* under *root*, or ``None`` when it is not a child.
+
+    Both spellings are host paths (``os.fspath``).  The separator is the
+    host's, so a Windows drive path (``C:\\proj\\src``) slices the same way a
+    POSIX absolute path does.  A leading ``/`` is not the only absolute
+    spelling the supported hosts produce, and treating it as one made every
+    fast path below fall through on Windows.  ``""`` means *text* is *root*
+    itself; a missing answer means the caller must walk the path.
+    """
+    # String test, not Path.is_absolute: this runs once per source in the
+    # binding and todo loops, and building two Path objects per row was the
+    # cost the slice exists to avoid.  A UNC path and a drive path count;
+    # a relative spelling returns None and the caller walks.
+    if not _host_absolute(text) or not _host_absolute(root):
+        return None
+    if os.path.normcase(text) == os.path.normcase(root):
+        return ""
+    # Slice the original spelling only.  normcase can change length (macOS
+    # NFD), so a folded prefix match would cut the child at the wrong
+    # offset, and a case-only difference falls through to the walk.
+    # The separator is the one the path uses, not the host's: a Windows path
+    # compared on a POSIX host (a config exported elsewhere, a test) still
+    # slices, and the child comes back with forward slashes either way.
+    if root.endswith(("/", "\\")):
+        prefix = root
+        return text[len(prefix) :].replace("\\", "/") if text.startswith(prefix) else None
+    for sep in ("/", "\\"):
+        if text.startswith(root + sep):
+            return text[len(root) + 1 :].replace("\\", "/")
+    return None
 
 
 def container_runtime(runtime: str | None = None) -> str:
@@ -2350,17 +2418,15 @@ def rel_display_path(filepath: Path, base_dir: Path | None = None) -> str:
     backslashes on Windows and break matching against POSIX-stored paths).
     """
     if base_dir is not None:
-        # Common case: both spellings are absolute POSIX paths from the same
+        # Common case: both spellings are absolute host paths from the same
         # tree walk, so the relative spelling is a prefix slice.  Same answer
-        # as ``relative_to`` for a normalized in-tree path; anything unusual
-        # (relative, outside, Windows drive) falls through below.
+        # as ``relative_to`` for a normalized in-tree path; a relative path,
+        # a path outside the base, or a case-only difference falls through.
         text = os.fspath(filepath)
         root = os.fspath(base_dir)
-        if text.startswith("/") and root.startswith("/"):
-            root = root.rstrip("/") or "/"
-            prefix = root if root == "/" else root + "/"
-            if text.startswith(prefix):
-                return text[len(prefix) :]
+        child = posix_child(text, root)
+        if child:
+            return child
         try:
             return filepath.relative_to(base_dir).as_posix()
         except ValueError:
