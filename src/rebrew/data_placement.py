@@ -148,13 +148,23 @@ def private_data_symbols(cfg: ProjectConfig, built: Path, map_path: Path) -> dic
 
     commands = map_path.parent / "compile_commands.json"
     if commands.is_file():
-        for command in json.loads(read_json_text(commands)):
+        entries = json.loads(read_json_text(commands))
+        if not isinstance(entries, list):
+            raise ValueError(f"{commands}: compile commands must be an array")
+        for command in entries:
+            if not isinstance(command, dict):
+                raise ValueError(f"{commands}: compile command must be an object")
             output = command.get("output")
-            if not output:
+            if output is None or output == "":
                 continue
+            if not isinstance(output, str):
+                raise ValueError(f"{commands}: compile command output must be a path string")
             obj = Path(output)
             if not obj.is_absolute():
-                obj = Path(command["directory"]) / obj
+                directory = command.get("directory")
+                if not isinstance(directory, str) or not directory:
+                    raise ValueError(f"{commands}: relative output requires a directory path")
+                obj = Path(directory) / obj
             selected = by_object.get(obj.name, [])
             if selected and obj.is_file():
                 add(obj.read_bytes(), selected)

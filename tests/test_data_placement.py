@@ -2,6 +2,7 @@
 
 import struct
 from types import SimpleNamespace
+from typing import Any
 lazy from pathlib import Path
 
 import pytest
@@ -224,3 +225,33 @@ def test_private_symbol_selection_keeps_map_order_and_collisions(
     monkeypatch.setattr("rebrew.data_placement.coff_data_symbols", recover)
     assert private_data_symbols(SimpleNamespace(), tmp_path / "built", map_path) == {}
     assert seen == [(b"object", {}), (b"member", {"b": 3})]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"row": {}},
+        [None],
+        [7],
+        [{"output": ["one.obj"]}],
+        [{"output": "one.obj"}],
+        [{"output": "one.obj", "directory": []}],
+    ],
+)
+def test_private_symbols_reject_malformed_compile_commands(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, payload: Any
+) -> None:
+    import json
+
+    from rebrew.data_placement import private_data_symbols
+
+    map_path = tmp_path / "built.map"
+    map_path.write_text("map", encoding="utf-8")
+    (tmp_path / "compile_commands.json").write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setattr("rebrew.data_ownership.parse_link_map", lambda _: [])
+    monkeypatch.setattr("rebrew.data_ownership.cached_data_archives", lambda _: {})
+    monkeypatch.setattr(
+        "rebrew.formats.binary_loader.load_binary", lambda _: SimpleNamespace(format="pe")
+    )
+    with pytest.raises(ValueError, match="compile_commands.json"):
+        private_data_symbols(SimpleNamespace(), tmp_path / "built", map_path)
