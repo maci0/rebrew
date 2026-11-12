@@ -104,9 +104,15 @@ class PgsqlStore:
         if id(connection) in cache:
             return cache[id(connection)]
         result = self._present_uncached(connection)
-        cache[id(connection)] = result
-        with contextlib.suppress(AttributeError, TypeError):
-            connection._rebrew_present_cache = cache
+        # Cache only a present, validated schema.  Caching False would turn a
+        # failed catalog read (the connection aborts the statement and the
+        # caller turns that into "unavailable") into a remembered miss: the
+        # next call on this connection would skip validation and treat a bad
+        # or not-yet-visible schema as an empty store.
+        if result:
+            cache[id(connection)] = result
+            with contextlib.suppress(AttributeError, TypeError):
+                connection._rebrew_present_cache = cache
         return result
 
     def _present_uncached(self, connection: Any) -> bool:
@@ -133,10 +139,17 @@ class PgsqlStore:
         # revision/schema_version CHECKs, must all be present with exactly
         # the definitions this store creates.  Counts alone would accept a
         # PK on the wrong columns or a CHECK like ``revision < 0``.
+        # indkey is the key in index order; attnum is table order.  Ordering
+        # by attnum would accept PRIMARY KEY (path, project), whose ON CONFLICT
+        # (project, path) inference no longer matches this store's upsert.
+        # attnotnull rejects a primary key that names a nullable column:
+        # such a key does not back ON CONFLICT inference.
         pk_columns = connection.execute(
             "SELECT a.attname FROM pg_index i "
-            "JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY (i.indkey) "
-            "WHERE i.indrelid = to_regclass(%s) AND i.indisprimary ORDER BY a.attnum",
+            "JOIN LATERAL unnest(i.indkey) WITH ORDINALITY AS k(attnum, ord) ON true "
+            "JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.attnum "
+            "WHERE i.indrelid = to_regclass(%s) AND i.indisprimary AND a.attnotnull "
+            "ORDER BY k.ord",
             (_TABLE,),
         ).fetchall()
         if [str(name) for (name,) in pk_columns] != ["project", "path"]:

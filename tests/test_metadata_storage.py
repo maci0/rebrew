@@ -129,6 +129,18 @@ class TestBackendContract:
         assert store.read("test")["GAME.0x1000"]["size"] == 8
         assert store.fingerprint() != before
         assert store.location.stat().st_mode & 0o777 == 0o444
+        if backend == "sqlite":
+            # journal_mode=DELETE recovers a crash through the rollback
+            # journal while the database inode stays put.  The fingerprint
+            # has to move when that journal appears or disappears.
+            journal = store.location.with_name(store.location.name + "-journal")
+            settled = store.fingerprint()
+            journal.write_bytes(b"hot journal")
+            with_journal = store.fingerprint()
+            assert with_journal != settled
+            assert any(part[0] == str(journal) for part in with_journal)
+            journal.unlink()
+            assert store.fingerprint() == settled
         store.remove()
         assert not store.exists() and store.read("test") == {}
 

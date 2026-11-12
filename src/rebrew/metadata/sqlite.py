@@ -265,17 +265,54 @@ class SqliteStore:
 
     def fingerprint(self) -> tuple[tuple[str, int, int, int, int], ...]:
         """Fingerprint the committed document and its physical database."""
-        with self._reader() as connection:
-            if connection is None:
+        # Stat the rollback journal before opening.  A hot journal (a crash
+        # that has not been recovered yet) makes a mode=ro open try to write
+        # the database.  Callers fingerprint to decide whether a cached parse
+        # is stale, so that open must not become an availability error: the
+        # journal stat itself is the change, and the document revision is
+        # unknown until recovery, which a later read performs.
+        journal = self.location.with_name(self.location.name + "-journal")
+        try:
+            journal_stat = journal.stat()
+        except FileNotFoundError:
+            journal_stat = None
+        if journal_stat is not None and journal_stat.st_size:
+            # Non-empty: recovery would write, and a read-only open fails.
+            # The journal stat retires a cached parse; the revision stays 0
+            # until a read recovers the database.
+            row = (0,)
+        else:
+            with self._reader() as connection:
+                if connection is None:
+                    return ()
+                row = connection.execute(
+                    "SELECT revision FROM metadata_documents WHERE path = ?", (self.key,)
+                ).fetchone()
+            if row is None:
                 return ()
-            row = connection.execute(
-                "SELECT revision FROM metadata_documents WHERE path = ?", (self.key,)
-            ).fetchone()
-        if row is None:
-            return ()
+        # journal_mode=DELETE leaves the rollback journal beside the database.
+        # A crash recovers through that file while the database inode is
+        # unchanged, so a fingerprint of the database alone replays a stale
+        # parsed document.  A missing journal is part of the fingerprint too:
+        # its disappearance is the commit.
         stat = self.location.stat()
+        # A zero-byte journal is the committed state (SQLite truncates it on
+        # commit and may leave the inode).  Only a journal with bytes is a
+        # pending rollback, so an empty one fingerprints like a missing one
+        # and a commit does not change identity.
+        if journal_stat is None or journal_stat.st_size == 0:
+            journal_part = (str(journal), 0, 0, 0, 0)
+        else:
+            journal_part = (
+                str(journal),
+                journal_stat.st_mtime_ns,
+                journal_stat.st_ctime_ns,
+                journal_stat.st_size,
+                journal_stat.st_ino,
+            )
         return (
             (str(self.location), stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size, stat.st_ino),
+            journal_part,
             (self.key, int(row[0]), 0, 0, _SCHEMA_VERSION),
         )
 

@@ -116,7 +116,7 @@ class TestPgsqlConfig:
                 def execute(self, sql: str, params: Any = None) -> Any:
                     if sql.startswith("SELECT to_regclass"):
                         return _Cursor([("public.rebrew_metadata_documents",)])
-                    if "FROM pg_index" in sql:
+                    if "unnest(i.indkey)" in sql:
                         return _Cursor([(name,) for name in pk_columns])
                     if "pg_attribute" in sql:
                         return _Cursor(columns)
@@ -129,10 +129,21 @@ class TestPgsqlConfig:
         store = pgsql.PgsqlStore.__new__(pgsql.PgsqlStore)
         ok_pk = ["project", "path"]
         ok_checks = ["CHECK ((revision > 0))", "CHECK ((schema_version = 1))"]
-        assert store._present(make_connection(ok_pk, ok_checks)) is True
+        connection = make_connection(ok_pk, ok_checks)
+        assert store._present(connection) is True
+        # A validated schema is remembered on the connection; asking again
+        # must not re-run the catalog queries.
+        def _not_called(sql: str, params: Any = None) -> Any:
+            raise AssertionError(sql)
+
+        connection.execute = _not_called
+        assert store._present(connection) is True
         for pk_columns, check_defs in (
             ([], ok_checks),
             (["content"], ok_checks),
+            # Index order, not table order: ON CONFLICT (project, path) does
+            # not infer PRIMARY KEY (path, project).
+            (["path", "project"], ok_checks),
             (ok_pk, []),
             (ok_pk, ["CHECK ((revision < 0))"]),
             (ok_pk, ["CHECK ((schema_version = 1))"]),
@@ -142,6 +153,29 @@ class TestPgsqlConfig:
                 MetadataStorageError, match="unsupported PostgreSQL metadata schema"
             ):
                 store._present(make_connection(pk_columns, check_defs))
+
+        # Absence is not cached.  A catalog read that fails is reported as
+        # unavailable by the caller; remembering it as "no table" would make
+        # the next call on this connection skip validation.
+        class _Flaky:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def execute(self, sql: str, params: Any = None) -> Any:
+                self.calls += 1
+                if sql.startswith("SELECT to_regclass"):
+
+                    class _Empty:
+                        def fetchone(self) -> Any:
+                            return (None,)
+
+                    return _Empty()
+                raise AssertionError(sql)
+
+        flaky = _Flaky()
+        assert store._present(flaky) is False
+        assert store._present(flaky) is False
+        assert flaky.calls == 2
 
     @pytest.mark.parametrize("command", ["backup", "restore"])
     def test_file_backup_commands_reject_postgresql(
