@@ -75,9 +75,9 @@ addresses while the reference's point at *its* layout.  The fixer:
    scanning **every byte offset** (x86 operands are misaligned; a
    4-byte-aligned scan misses most of them) and covering the **full `.data`
    VirtualSize**, not just the raw size;
-2. rewrites `E8`/`E9` relative call/jump targets, but only where the
-   surrounding instruction context matches (so real code differences are
-   never overwritten);
+2. rewrites `E8`/`E9` relative call/jump targets where the local byte-context
+   check passes. This check is a layout heuristic, not proof that the target
+   change preserves behavior;
 3. trims the extra `.text` tail the build carries beyond the reference's
    content end (import thunks pulled by `/include`, `link_stubs` placeholders,
    dead-stripped-in-the-original init code) and fixes `.text` VirtualSize;
@@ -120,9 +120,10 @@ reusable across any decompilation that hits the same wall:
   the BSS tail are silently missed.
 - **Every-offset operand scan.**  Scan the `.text` at every byte offset, not
   4-aligned positions; x86 instruction operands are misaligned.
-- **Context-matched rel32 rewrite.**  Only rewrite `E8`/`E9` operands when the
-  preceding opcode and surrounding bytes match the reference, otherwise real
-  code differences would be papered over.
+- **Context-matched rel32 rewrite.** A local byte-context check reduces
+  wrong-offset rewrites; it does not establish callee identity or equivalent
+  control flow. Review the raw link and reconstruction evidence before
+  treating a rewritten target as a placement-only difference.
 - **The debug-directory trap.**  A `/debug` link emits an extra 0x1c-byte
   debug directory at the start of `.rdata` that shifts *everything* after it.
   Build the byte-identity artifact without debug info (`/Z7` + `/debug` off),
