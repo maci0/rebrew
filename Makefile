@@ -73,9 +73,9 @@ RUST_VERSION ?= 1.99.1
 # maturin release could change the wheel the sdist build produces.
 MATURIN_VERSION ?= 1.15.0
 # JDK floor for the JPype sdist build (binsync extra). CI installs
-# `default-jdk` on ubuntu-24.04 (JDK 17+); the check warns below the floor
+# `default-jdk` on ubuntu-24.04 (JDK 17); the check warns below the floor
 # rather than hard-failing, mirroring the Rust/uv drift posture.
-JDK_VERSION ?= 21
+JDK_VERSION ?= 17
 
 # Biome pin for the dashboard-JS gate (.pre-commit-config.yaml biome hook).
 # Must match the CI pre-commit job install (@biomejs/biome@<version> in

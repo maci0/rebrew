@@ -34,6 +34,7 @@
 
 - `init --refresh-agents` no longer appends part of its own template on each
   run when the template mentions the project rules marker in prose.
+- The JPype build preflight accepts JDK 17, which the Ubuntu CI runner uses.
 
 ## [6.33.0] - 2026-11-12
 
