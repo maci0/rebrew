@@ -1075,3 +1075,27 @@ class TestJsonParserLimits:
             solutions_module.restore_ga_runs(backup, project_root)
         assert path.read_bytes() == before
         assert not path.with_name(path.name + ".before-restore").exists()
+
+
+class TestUnrepresentableSolutionScore:
+    @pytest.mark.parametrize("score", [10**400, -(10**400)])
+    def test_skips_overflowing_score_without_losing_other_solutions(
+        self, project_root: Path, score: int
+    ) -> None:
+        path = project_root / ".rebrew" / "ga_runs.jsonl"
+        base = {
+            "target": "SERVER",
+            "va": "0x1000",
+            "symbol": "_bad",
+            "matched": True,
+            "cflags": "/O2",
+            "size": 4,
+            "source_file": "src/win.c",
+            "score": score,
+        }
+        good = {**base, "symbol": "_good", "score": 0.0}
+        raw = (json.dumps(base) + "\n" + json.dumps(good) + "\n").encode()
+        path.write_bytes(raw)
+        assert [s.symbol for s in load_solutions(project_root)] == ["_good"]
+        assert [s.symbol for s in load_solutions_file(path)] == ["_good"]
+        assert path.read_bytes() == raw
