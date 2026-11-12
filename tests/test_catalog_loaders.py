@@ -582,3 +582,17 @@ class TestCachedFunctionList:
         monkeypatch.setattr(loaders_mod, "_inventory_fingerprint", lambda _p: f"{next(counter)}:1")
         cfg = SimpleNamespace(reversed_dir=str(tmp_path))
         assert loaders_mod.cached_function_vas(cfg) == frozenset({0x1000})
+
+
+class TestGhidraLabelNumericLimits:
+    @pytest.mark.parametrize("filename", ["ghidra_data_labels.json", "ghidra_switchdata.json"])
+    def test_oversized_integer_warns_and_leaves_export_unchanged(
+        self, tmp_path: Path, filename: str
+    ) -> None:
+        path = tmp_path / filename
+        raw = b'[{"va":4096,"size":' + b"9" * 5000 + b"}]"
+        path.write_bytes(raw)
+        with pytest.warns(UserWarning, match="Ignoring corrupt Ghidra data labels") as caught:
+            assert load_ghidra_data_labels(tmp_path) == {}
+        assert str(path) in str(caught[0].message)
+        assert path.read_bytes() == raw
