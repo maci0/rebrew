@@ -886,3 +886,30 @@ class TestDiecPath:
         info = detect_with_die(Path(__file__).parent / "fixtures" / "tc16_hello.exe")
         assert info is not None
         assert (info.family, info.detected_by, info.confidence) == ("borlandc", "die", "high")
+
+
+class TestDiecMalformedOutput:
+    @pytest.mark.parametrize(
+        "output",
+        [
+            '{"detects": true}',
+            '{"detects": "bad"}',
+            '{"detects": {"values": []}}',
+            '{"detects": [null]}',
+            '{"detects": [{"values": [null]}]}',
+            '{"detects": [{"values": [42]}]}',
+        ],
+    )
+    def test_malformed_records_fall_back(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, output: str
+    ) -> None:
+        import subprocess
+
+        monkeypatch.setattr(
+            "rebrew.toolchain_detect.run_process_group",
+            lambda *a, **k: subprocess.CompletedProcess([], 0, stdout=output, stderr=""),
+        )
+        info = detect_with_die(tmp_path / "bad.exe", diec=Path("/opt/diec"))
+        assert info is not None
+        assert info.family == "unknown"
+        assert info.confidence == "low"

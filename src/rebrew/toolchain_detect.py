@@ -541,7 +541,11 @@ def _run_diec(path: Path, diec: Path | None = None) -> list[dict[str, object]] |
     except (json.JSONDecodeError, ValueError) as exc:
         logger.warning("diec output for %s is not JSON: %s", path, exc)
         return None
-    return data.get("detects") or []
+    dets = data.get("detects") or []
+    if not isinstance(dets, list) or any(not isinstance(det, dict) for det in dets):
+        logger.warning("diec output for %s has invalid detection records", path)
+        return None
+    return dets
 
 
 def _linker_era_hint(ver: str) -> str:
@@ -637,6 +641,8 @@ def detect_with_die(path: Path, diec: Path | None = None) -> ToolchainInfo | Non
         if not isinstance(values, list):
             continue
         for v in values:
+            if not isinstance(v, dict):
+                continue
             vtype = str(v.get("type") or "")
             name = str(v.get("name") or "")
             string = str(v.get("string") or "")
