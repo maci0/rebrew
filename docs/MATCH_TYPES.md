@@ -20,7 +20,7 @@ row's `functions.status` as the schema default `UNKNOWN`.
 ```
 UNDOCUMENTED  →  STUB  →  NEAR_MATCHING  →  RELOC  →  EXACT
    (UNKNOWN)                 ↓
-                          PROVEN (from NEAR_MATCHING or SIZE_MISMATCH via rebrew prove)
+                          PROVEN (via rebrew prove; eligibility below)
                           SKIP   (parallel track, intentionally unmatchable)
 ```
 
@@ -174,7 +174,11 @@ not every possible side effect. A timeout or incomplete exploration does not
 establish equivalence.
 
 Used when a function is stuck on NEAR_MATCHING due to compiler jitter that can't be
-resolved by flag sweeps or code restructuring.
+resolved by flag sweeps or code restructuring. Single-function proof also admits
+SIZE_MISMATCH and a STUB with a nonempty BLOCKER or nonzero BLOCKER_DELTA;
+a cached NEAR_MATCHING/SIZE_MISMATCH verdict can satisfy that admission check.
+Batch `--all` selects stored NEAR_MATCHING/SIZE_MISMATCH entries with known sizes.
+See [the proof command](CLI.md#rebrew-prove) for its options and assumptions.
 
 ```toml
 ["SERVER.0x10008880"]
