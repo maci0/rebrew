@@ -553,9 +553,10 @@ static int init_child(void *opaque) {
   if (sethostname(strfield(c->cfg, "hostname"),
                   strlen(strfield(c->cfg, "hostname"))))
     fail("hostname");
+  /* Disposable Wine state must not flush the host filesystem on teardown. */
   char overlay[PATH_MAX * 3 + 128];
   if (snprintf(overlay, sizeof(overlay),
-               "lowerdir=%s,upperdir=%s,workdir=%s,userxattr,index=off,xino=off", c->lower,
+               "lowerdir=%s,upperdir=%s,workdir=%s,userxattr,index=off,xino=off,volatile", c->lower,
                c->upper, c->overlay_work) >= (int)sizeof(overlay))
     reject("overlay paths size");
   if (mount("overlay", c->rootfs, "overlay", MS_NODEV | MS_NOSUID, overlay))

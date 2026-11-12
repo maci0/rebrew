@@ -15,6 +15,8 @@
 
 ### Fixed
 
+- Experimental unshare uses a volatile disposable root overlay so namespace teardown does not synchronize unrelated writes on its backing filesystem. Compiler output remains on the separate `/work` bind mount. This prevents completed compiles from timing out while Wine descendants wait for filesystem synchronization.
+
 - Compiler image header extraction checks subprocess return codes through the process helper’s supported interface, so live image inspection and extraction no longer fail with an unsupported `check` keyword.
 
 - Quoted config keys use their decoded leaf for credential refusal and redaction, and their resolved parts for type and URL validation. `cfg show 'llm."api_key"'` redacts the value; `cfg set 'llm."api_key"' VALUE` refuses it, including JSON and dry-run requests.

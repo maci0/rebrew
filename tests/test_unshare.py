@@ -411,6 +411,11 @@ int main(int argc, char **argv) {
     if (argc > 1 && !strcmp(argv[1], "exit125")) { fputs("compiler exit 125\n", stderr); return 125; }
     if (getuid() != 1000 || getgid() != 1000 || prctl(PR_GET_NO_NEW_PRIVS,0,0,0,0) != 1) return 10;
     for (int c=0; c<=CAP_LAST_CAP; ++c) if (prctl(PR_CAPBSET_READ,c,0,0,0) != 0) return 11;
+    FILE *mounts=fopen("/proc/self/mountinfo", "r"); if(!mounts)return 33;
+    char mountline[8192]; int volatile_root=0;
+    while (fgets(mountline,sizeof(mountline),mounts))
+        if (strstr(mountline," / / ") && strstr(mountline," - overlay ") && (strstr(mountline,",volatile") || strstr(mountline,",fsync=volatile"))) volatile_root=1;
+    fclose(mounts); if(!volatile_root)return 34;
     if (argc > 1 && !strcmp(argv[1], "sleep")) {
         if (!fork()) setsid();
         for (;;) {

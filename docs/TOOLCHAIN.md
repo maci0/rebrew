@@ -121,6 +121,10 @@ writable overlay, read-only include mounts and a writable `/work`. The image's
 Wine prefix and home are writable only in that invocation's overlay. Capabilities
 are dropped and no-new-privileges is set before executing the compiler.
 
+The disposable root overlay uses volatile mode so teardown does not synchronize
+unrelated writes on its backing filesystem. Compiler output stays on the separate
+writable `/work` bind mount.
+
 Each run kills its PID namespace and removes its private overlay on success,
 compiler failure, timeout and interruption. Parent-death signals prevent a lost
 caller or launcher from leaving Wine descendants running. SIGKILL or power loss

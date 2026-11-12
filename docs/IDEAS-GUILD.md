@@ -4909,3 +4909,11 @@ steps in sequence (rebind, delete orphaned file, rename) for 97 Gold rows.
 masked-byte hash of equal-size functions found 127 exact Gold/GoldTL twins in under a minute
 (`.scratch/xbin/twin_hash.py`). Wanted: with `--va` and `--source-va` given, compare only that
 pair; and an exact masked-hash pre-pass before similarity scoring.
+
+## Per-invocation compile timeout for diagnostic test calls
+
+2026-11-12, guild-rebrew cast review: a shell/slot budget of 900 seconds does not extend the configured compiler timeout, which defaults to 60 seconds. Repeated `rebrew test src/Develop/DieGildeAddOn/game/spiel.c --target server.dll --no-promote --json` calls fail inside the experimental unshare runner after 60 seconds under host load. Final artifacts are in `.scratch/review/src-globals/batch41-80/header10.final.stderr`. The existing public `verify_entry` API accepts a config with only `compile_timeout` replaced, so the verification experiment can extend the invocation without changing shared project configuration, compiler flags, metadata, or source. Wanted: a test/verify CLI timeout option or documented per-process setting that overrides only this runtime budget, including multi-function files, without changing shared configuration. No backend defect is established by the timeout alone.
+
+## Completed compiles blocked by disposable overlay synchronization
+
+2026-11-12, guild-rebrew cast review. A complete 1,666-byte COFF object existed while the namespace-init compiler had closed its descriptors and waited for an explorer.exe child in kernel sync_inodes_sb. Ordinary 60-second comparisons failed; extending the budget did not release cleanup. Replaying the same OCI profile and source with only the disposable root overlay set to volatile completed in under one second. Fixed unshare_runner.c; /work remains a normal host bind mount. The native fixture now requires volatile root mount options. Before: the native concurrency/cleanup test timed out after 20 seconds. After: all 61 tests/test_unshare.py tests pass in 6.31 seconds. Evidence: guild-rebrew .scratch/review/src-globals/cleanup-probe/ and unshare-test-before.log / unshare-test-after.log. No target compiler flags or image changed.
