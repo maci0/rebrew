@@ -89,6 +89,9 @@ def main(
         help=BUILT_IMAGE_HELP,
     ),
     limit: int = typer.Option(15, "--limit", help="Max misplaced symbols to print (0 = none)"),
+    offset: int = typer.Option(
+        0, "--offset", help="Skip this many misplaced symbols before listing"
+    ),
     cut: str | None = typer.Option(
         None, "--cut", help="VA of a .data cut. Score size shifts of the bytes after it"
     ),
@@ -99,6 +102,7 @@ def main(
 ) -> None:
     """Build-then-compare: .data symbol VAs of the current build vs the metadata."""
     limit = require_non_negative(option_default(limit, 15), "--limit", json_mode=json_output)
+    offset = require_non_negative(option_default(offset, 0), "--offset", json_mode=json_output)
     cfg = require_config(target=target, json_mode=json_output)
     root = Path(cfg.root)
     data_metadata = option_default(data_metadata, None)
@@ -191,6 +195,10 @@ def main(
         key=lambda s: -abs(s["mean_delta"]),
     )
 
+    placed = bads[offset:]
+    shown = placed[:limit]
+    truncated = len(placed) > limit
+
     if json_output:
         json_print(
             {
@@ -200,8 +208,11 @@ def main(
                 "misplaced": bad,
                 "misplaced_list": [
                     {"symbol": s, "expected": f"0x{e:x}", "actual": f"0x{a:x}", "delta": a - e}
-                    for s, e, a in bads[:limit]
+                    for s, e, a in shown
                 ],
+                "offset": offset,
+                "limit": limit,
+                "truncated": truncated,
                 "per_object": drifted,
                 "shift": shift_report,
             }
@@ -210,7 +221,7 @@ def main(
         console.print(
             f"symbols: {len(here)}  toml-matched: {good + bad}  correct-VA: {good}  misplaced: {bad}"
         )
-        for sym, exp, act in bads[:limit]:
+        for sym, exp, act in shown:
             console.print(
                 f"  {untrusted_ident(sym):32} exp {exp:#010x}  our {act:#010x}  d {act - exp:+#x}"
             )

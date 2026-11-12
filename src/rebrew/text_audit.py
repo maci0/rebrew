@@ -254,6 +254,9 @@ def main(
         help=BUILT_IMAGE_HELP,
     ),
     limit: int = typer.Option(15, "--limit", help="Max misplaced functions to print (0 = none)"),
+    offset: int = typer.Option(
+        0, "--offset", help="Skip this many misplaced or missing functions before listing"
+    ),
     list_correct: bool = typer.Option(
         False,
         "--list-correct",
@@ -269,6 +272,7 @@ def main(
 ) -> None:
     """Compare built .text function addresses with metadata; build the project first."""
     limit = require_non_negative(option_default(limit, 15), "--limit", json_mode=json_output)
+    offset = require_non_negative(option_default(offset, 0), "--offset", json_mode=json_output)
     cfg = require_config(target=target, json_mode=json_output)
     root = Path(cfg.root)
     if built is None:
@@ -286,7 +290,10 @@ def main(
 
     expected = _expected_functions(cfg)
     rows, n_ok, n_bad, n_missing = audit_text(expected, actual)
-    shown = [r for r in rows if r["status"] != "OK"][:limit]
+    deviations_all = [r for r in rows if r["status"] != "OK"]
+    page = deviations_all[offset:]
+    shown = page[:limit]
+    truncated = len(page) > limit
     rounding_report = audit_rounding(_expected_extents(cfg), actual) if rounding else None
 
     if json_output:
@@ -297,6 +304,9 @@ def main(
             "misplaced": n_bad,
             "missing": n_missing,
             "misplaced_list": shown,
+            "offset": offset,
+            "limit": limit,
+            "truncated": truncated,
         }
         if list_correct:
             payload["correct_list"] = correct_entries(rows)

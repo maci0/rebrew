@@ -1793,6 +1793,7 @@ app = typer.Typer(
 @app.callback(invoke_without_command=True)
 def main(
     count: int = typer.Option(20, "--limit", "-n", help="Number of items to show (0 = none)"),
+    offset: int = typer.Option(0, "--offset", help="Skip this many items before listing"),
     category: str | None = typer.Option(
         None,
         "--category",
@@ -1809,6 +1810,9 @@ def main(
     count = require_non_negative(
         option_default(count, 20), "--limit", json_mode=option_default(json_output, False)
     )
+    offset = require_non_negative(
+        option_default(offset, 0), "--offset", json_mode=option_default(json_output, False)
+    )
     if category is not None and category not in _CATEGORY_COLORS:
         error_exit(
             f"Unknown category {category!r}; choose one of: {', '.join(_CATEGORY_COLORS)}",
@@ -1821,6 +1825,7 @@ def main(
         json_mode=json_output,
         run_one=lambda n: main(
             count=count,
+            offset=offset,
             category=category,
             stats=stats,
             json_output=json_output,
@@ -1950,7 +1955,9 @@ def main(
         # coverage stats below).
         all_items = [i for i in all_items if i.category != CAT_DOCUMENTED]
 
-    display_items = all_items[:count]
+    page = all_items[offset:]
+    display_items = page[:count]
+    truncated = len(page) > count
 
     if json_output:
         cat_summary: dict[str, int] = {}
@@ -1973,6 +1980,9 @@ def main(
                 },
                 "total_items": len(all_items),
                 "count": len(display_items),
+                "offset": offset,
+                "limit": count,
+                "truncated": truncated,
                 "summary": cat_summary,
                 "items": [i.to_dict() for i in display_items],
             }
@@ -2069,7 +2079,8 @@ def main(
         border_style="blue",
     )
     console.print(panel)
-    console.print(f"  Showing top {len(display_items)} of {len(all_items)} items")
+    skipped = f", skipped {offset}" if offset else ""
+    console.print(f"  Showing {len(display_items)} of {len(all_items)} items{skipped}")
     console.print(
         "  Ranked by affected bytes; setup first, linked-match audits last. "
         "Impact is scope, not a promised coverage gain."

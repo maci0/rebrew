@@ -223,6 +223,43 @@ class TestTextAuditCli:
                 "delta": -16,
             }
         ]
+        assert payload["offset"] == 0
+        assert payload["truncated"] is False
+
+    def test_json_limit_reports_truncation(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A page of misplaced functions names the remainder instead of dropping it."""
+        from rebrew.text_audit import app
+
+        gamma = SourceFixture(
+            "/* ADDRESS: GAME 0x00001040 */\n\nint gamma(void) { return 3; }\n",
+            {"GAME.0x00001040": {"kind": "FUNCTION"}},
+        )
+        monkeypatch.chdir(
+            _project(tmp_path, {"a.c": _TWO_FUNCS_C, "b.c": _TWO_FILES_B, "c.c": gamma})
+        )
+        (tmp_path / "build" / "game").write_bytes(b"MZ")
+        # Both later functions land short of their marked VAs.
+        _patch_layout(
+            monkeypatch,
+            objects=[(0x10, {"alpha": 0}), (0x10, {"beta": 0}), (0x10, {"gamma": 0})],
+        )
+        result = CliRunner().invoke(app, ["--json", "--limit", "1"])
+        assert result.exit_code == 1
+        payload = cli_payload(result)
+        assert payload["misplaced"] == 2
+        assert len(payload["misplaced_list"]) == 1
+        assert payload["offset"] == 0
+        assert payload["limit"] == 1
+        assert payload["truncated"] is True
+
+        rest = CliRunner().invoke(app, ["--json", "--limit", "1", "--offset", "1"])
+        assert rest.exit_code == 1
+        page = cli_payload(rest)
+        assert len(page["misplaced_list"]) == 1
+        assert page["truncated"] is False
+        assert page["misplaced_list"][0]["symbol"] != payload["misplaced_list"][0]["symbol"]
 
     def test_terminal_output_lists_misplaced(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

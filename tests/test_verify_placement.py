@@ -80,6 +80,7 @@ def _patch_layout(
 
     def _offsets(obj: Path) -> tuple[int, dict[str, int]]:
         index = int(str(obj).removeprefix("/fake/obj").removesuffix(".obj"))
+        assert objects is not None
         return objects[index]
 
     monkeypatch.setattr(dl, "link_objects", lambda _root: objs)
@@ -193,6 +194,36 @@ class TestVerifyPlacement:
         assert payload["misplaced_list"] == [
             {"symbol": "sym_b", "expected": "0x3020", "actual": "0x3018", "delta": -8}
         ]
+        assert payload["offset"] == 0
+        assert payload["truncated"] is False
+
+    def test_json_limit_reports_truncation(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A page of misplaced symbols names the remainder instead of dropping it."""
+        from rebrew.verify_placement import app
+
+        monkeypatch.chdir(_project(tmp_path))
+        _patch_layout(
+            monkeypatch,
+            objects=[(16, {"sym_a": 0}), (16, {"sym_b": 8}), (16, {"sym_c": 8})],
+            expected={"sym_a": 0x3000, "sym_b": 0x3020, "sym_c": 0x3040},
+        )
+        result = CliRunner().invoke(app, ["--json", "--limit", "1"])
+        assert result.exit_code == 1
+        payload = cli_payload(result)
+        assert payload["misplaced"] == 2
+        assert len(payload["misplaced_list"]) == 1
+        assert payload["offset"] == 0
+        assert payload["limit"] == 1
+        assert payload["truncated"] is True
+
+        rest = CliRunner().invoke(app, ["--json", "--limit", "1", "--offset", "1"])
+        assert rest.exit_code == 1
+        page = cli_payload(rest)
+        assert len(page["misplaced_list"]) == 1
+        assert page["truncated"] is False
+        assert page["misplaced_list"][0]["symbol"] != payload["misplaced_list"][0]["symbol"]
 
     def test_all_correct_reports_zero_misplaced(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

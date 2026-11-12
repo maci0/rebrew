@@ -1806,6 +1806,49 @@ class TestTodoCli:
         assert data["coverage"]["matching"] == 1
         assert data["total_items"] >= 1
         assert any(i["va"] == "0x00001000" for i in data["items"])
+        assert data["offset"] == 0
+        assert data["truncated"] is False
+
+    def test_json_limit_reports_truncation(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A page shorter than the list says so, and --offset walks the rest."""
+
+        funcs = [
+            FunctionEntry(va=0x1000 + 0x100 * i, size=16, name=f"fn{i}") for i in range(3)
+        ]
+        result = self._invoke(
+            tmp_path,
+            monkeypatch,
+            ghidra_funcs=funcs,
+            existing={},
+            covered_vas={},
+            args=["--json", "--limit", "1"],
+        )
+        assert result.exit_code == 0
+        data = cli_payload(result)
+        assert data["total_items"] > 1
+        assert data["count"] == 1
+        assert data["offset"] == 0
+        assert data["limit"] == 1
+        assert data["truncated"] is True
+        first = data["items"][0]["va"]
+
+        rest = self._invoke(
+            tmp_path,
+            monkeypatch,
+            ghidra_funcs=funcs,
+            existing={},
+            covered_vas={},
+            args=["--json", "--limit", str(data["total_items"] - 1), "--offset", "1"],
+        )
+        assert rest.exit_code == 0
+        page = cli_payload(rest)
+        assert page["offset"] == 1
+        assert page["limit"] == data["total_items"] - 1
+        assert page["count"] == page["total_items"] - 1
+        assert page["truncated"] is False
+        assert first not in {item["va"] for item in page["items"]}
 
     def test_library_rows_do_not_crowd_out_new_functions(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
