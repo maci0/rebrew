@@ -7,7 +7,7 @@
 **Feature name:** Skeleton & Iteration Loop
 **One-line value:** Compress the inner loop of "write candidate C, compile,
 compare against the original, fix" into one keystroke per step, with
-auto-promoted STATUS and ROI-prioritised next actions.
+auto-promoted STATUS and next actions prioritised by affected bytes.
 
 ## Problem It Solves
 
@@ -55,9 +55,9 @@ you what to attack next.
   rejecting inline state without a legacy migration reader.
 - File operations (`split`, `merge`, `rename`) that are dry-run-friendly
   and never lose annotations.
-- A `todo` ranker that scores every eligible item by ROI and groups
-  results by category (compile-error, fix-delta, improve-match,
-  start-function, identify-library, run-prover).
+- A `todo` ranker that orders actionable work by affected bytes, then
+  estimated effort, across categories (compile-error, fix-delta,
+  improve-match, start-function, identify-library, run-prover).
 
 ## Non-Goals
 
@@ -162,7 +162,10 @@ you what to attack next.
 
 ### `rebrew todo`
 
-- Computes a continuous ROI score and emits a globally interleaved list:
+- Emits a globally interleaved list, ranking actionable work by affected
+  bytes, then an estimated-effort score. Setup steps come first; audit-only
+  items follow actionable work. Shared translation-unit compile errors
+  collapse into one action covering the unfinished spans in that file:
   - `setup`; fresh project steps.
   - `compile-error`; failed verify.
   - `extract-error`; symbol not found in `.obj`
@@ -337,8 +340,8 @@ rebrew todo
   no out-of-band STATUS writes from the source file.
 - `rebrew lint --fix --dry-run` is safe to suggest to humans: never
   surfaces a destructive change unless `--fix` is given without `--dry-run`.
-- `rebrew todo`'s ROI ranking is stable across small project changes (no
-  thrashing).
+- `rebrew todo` orders equal-impact, equal-effort actions by VA for
+  deterministic ties.
 
 ## Open Questions / Known Limitations
 
