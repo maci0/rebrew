@@ -534,6 +534,8 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
         ctime_ns = 0
         fsize = 0
         ino = 0
+    if fsize > MAX_BINARY_SIZE:
+        raise ValueError(f"Binary file too large ({fsize} bytes): {path}")
     with _load_binary_lock:
         cached = _load_binary_cache.get(cache_key)
         if cached is not None:

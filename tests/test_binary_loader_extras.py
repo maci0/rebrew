@@ -360,3 +360,31 @@ class TestObjectArch:
 
         assert object_arch((self.FIXTURES / "tg_watcom.o").read_bytes()) is None
         assert object_arch(b"\x7fELF" + b"\x00" * 8) is None
+
+
+class TestLoadBinarySize:
+    @pytest.mark.parametrize("file_size", [4, 5])
+    def test_size_limit_precedes_format_parsing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, file_size: int
+    ) -> None:
+        from rebrew.formats.binary_model import BinaryInfo
+
+        path = tmp_path / "binary"
+        path.write_bytes(b"x" * file_size)
+        parsed: list[Path] = []
+
+        def parse(binary: Path, fmt: str) -> BinaryInfo:
+            parsed.append(binary)
+            return BinaryInfo(path=binary, format=fmt)
+
+        monkeypatch.setattr(bl, "MAX_BINARY_SIZE", 4)
+        monkeypatch.setattr(bl, "is_ne", lambda _: False)
+        monkeypatch.setattr(bl, "is_mz", lambda _: False)
+        monkeypatch.setattr(bl, "_parse_regular", parse)
+        if file_size == 4:
+            assert bl.load_binary(path).path == path
+            assert parsed == [path]
+        else:
+            with pytest.raises(ValueError, match="too large"):
+                bl.load_binary(path)
+            assert parsed == []
