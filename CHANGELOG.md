@@ -3,21 +3,31 @@
 ### Changed
 
 - Every dependency is at its newest release: `uv lock --upgrade` moves 21 packages within their caps (angr, archinfo, cle and pyvex 10.0.6, click 8.5.1, pydantic 2.14.3, pydantic-core 2.50.4, tree-sitter 0.26.1, typer 0.29.1, z3-solver 5.3.3.0, ruff 0.17.4, hypothesis 6.170.15 and the rest of their trees); no cap holds back a newer major. The floors of click, tree-sitter, typer, angr, ruff and hypothesis follow the lock, and `tools/licenses.py` moves each entry to the new version after PyPI's licence metadata for both releases compared equal. The contributor resembl pin moves from `v4.0.0` to `v5.0.0` (eb8e9b4c) in the `Makefile`, the CI `uv-env` action, `uv.lock` and the setup docs.
+
 ### Fixed
 
 - MCP reads reject non-object JSON replies and malformed tool-content containers without crashing. MCP writes count malformed content as an error instead of confirming the operation applied. Responses and sessions still close on these error paths.
+
 - Strict PE header parsing rejects an undersized declared optional header even when trailing bytes are available, instead of reading section-table bytes as optional-header fields.
+
 - Archive parsing rejects a member whose declared body extends past EOF, including long-name and symbol tables, instead of passing incomplete object bytes to library analysis.
+
 - Toolchain detection falls back when Detect It Easy returns malformed JSON detection records instead of raising TypeError or AttributeError.
+
 - A decomp.me upload ledger containing invalid UTF-8 is treated as corrupt and can be replaced by the next recorded upload, instead of failing with UnicodeDecodeError.
+
 - PE resource comparison and extraction reject a truncated .rsrc payload instead of reporting two partial sections as identical or overwriting the output with incomplete bytes. Missing alignment padding remains accepted.
-### Fixed
 
 - Remove stale pre-commit hook counts from the development guide; the configured pytest hook remains limited to the pre-push stage.
+
 - Remove stale architecture claims about Ghidra function deletion and separate external build-hook executables; structural sync creates functions, bookmarks and data pulls, while build hooks use the unified executable. The ecosystem guide now points field-conflict resolution to `sync pull` and separates it from MCP operations.
+
 - Correct onboarding and intake skill prerequisites: shipped profiles require images, with Docker as the default runtime and Podman or experimental unshare available as documented in the toolchain guide.
+
 - Correct `todo` help and reversing guides to describe ranking by affected byte extent, with estimated effort breaking ties. Small functions are not automatically first.
+
 - Repair the config-editor reference: separate the key and value in the `cfg set compiler.cflags` example and name the current `cfg target list` route.
+
 - Correct the name-normalization guide: only Ghidra `FUN_` names become `func_` during C-name sanitization; rizin discovery retains `fcn.` labels and other tool prefixes are not universally rewritten.
 
 ## [6.32.1] - 2026-11-11
