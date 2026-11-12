@@ -739,7 +739,23 @@ def mask_preprocessor_comments(text: str) -> str:
     return "".join(result)
 
 
+@lru_cache(maxsize=128)
+def _cached_include_specs(text: str) -> tuple[tuple[str, str], ...]:
+    """Reuse lexical results only; resolution and file/race checks stay fresh."""
+    return tuple(_scan_include_specs(text))
+
+
 def _iter_include_specs(text: str) -> Iterator[tuple[str, str]]:
+    if "#" not in text and "??=" not in text and "%:" not in text:
+        return
+    # Retain at most 128 texts of 256 Ki characters each.
+    if len(text) <= 256 * 1024:
+        yield from _cached_include_specs(text)
+    else:
+        yield from _scan_include_specs(text)
+
+
+def _scan_include_specs(text: str) -> Iterator[tuple[str, str]]:
     """Yield ``(kind, name)`` for every ``#include`` directive in *text*.
 
     *kind* is ``"quote"`` (``#include "x.h"``), ``"angle"`` (``#include
@@ -749,8 +765,6 @@ def _iter_include_specs(text: str) -> Iterator[tuple[str, str]]:
     comments and ``#include``-shaped text outside directives are not matched
     (lines are scanned only at directive position).
     """
-    if "#" not in text and "??=" not in text and "%:" not in text:
-        return
     for raw in split_source_lines(mask_preprocessor_comments(text)):
         line = raw.lstrip()
         if line.startswith("%:"):

@@ -79,6 +79,7 @@ def collect_target_sources(
                 metadata_dir=metadata_dir,
                 project_root=project_root,
                 function_entries=function_entries,
+                with_prototypes=False,
             )
             if a.va
         ]

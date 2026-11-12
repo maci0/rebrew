@@ -48,6 +48,41 @@ class TestIncludeScanWork:
         assert 'const char *s = "#line";' in masked
         assert '#include "a.h"' in masked
 
+    def test_repeated_header_text_is_lexed_once_but_edits_are_seen(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        original = cache_module.mask_preprocessor_comments
+        visited = []
+
+        def strip(text: str) -> str:
+            visited.append(text)
+            return original(text)
+
+        monkeypatch.setattr(cache_module, "mask_preprocessor_comments", strip)
+        # Use unique content so this checks work even in a warm test process.
+        text = f'/* {tmp_path} */\n#include "first.h"\n'
+        for _ in range(3):
+            assert list(cache_module.include_specs(text)) == [("quote", "first.h")]
+        changed = text.replace("first.h", "second.h")
+        assert list(cache_module.include_specs(changed)) == [("quote", "second.h")]
+        assert visited == [text, changed]
+
+    def test_large_header_is_not_retained(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        original = cache_module.mask_preprocessor_comments
+        visited = []
+
+        def strip(text: str) -> str:
+            visited.append(len(text))
+            return original(text)
+
+        monkeypatch.setattr(cache_module, "mask_preprocessor_comments", strip)
+        text = f"/* {tmp_path} */\n" + " " * (256 * 1024) + '#include "large.h"\n'
+        for _ in range(2):
+            assert list(cache_module.include_specs(text)) == [("quote", "large.h")]
+        assert visited == [len(text), len(text)]
+
     def test_cache_tracks_msvc_and_non_msvc_nested_lookup(self, tmp_path: Path) -> None:
         source = tmp_path / "src"
         nested = source / "sub"

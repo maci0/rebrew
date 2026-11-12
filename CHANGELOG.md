@@ -15,6 +15,8 @@
 
 ### Fixed
 
+- Named source-contract audits no longer refuse on unrelated multi-declarator functions. Shared headers are traversed once per file for calls and declaration checks, typedef resolution visits only participating contexts, and identity-only source readers skip unused prototype enrichment. Include scanning reuses bounded lexical results for identical header text while keeping resolution and content checks fresh. Incomplete includes and parse errors remain blocking.
+
 - Experimental unshare uses a volatile disposable root overlay so namespace teardown does not synchronize unrelated writes on its backing filesystem. Compiler output remains on the separate `/work` bind mount. This prevents completed compiles from timing out while Wine descendants wait for filesystem synchronization.
 
 - Compiler image header extraction checks subprocess return codes through the process helper’s supported interface, so live image inspection and extraction no longer fail with an unsupported `check` keyword.

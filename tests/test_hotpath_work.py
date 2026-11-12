@@ -52,6 +52,7 @@ class TestFlagWork:
             pytest.fail("split a source that cannot contain an include directive")
 
         monkeypatch.setattr(cache, "split_source_lines", unexpected)
+        monkeypatch.setattr(cache, "_cached_include_specs", unexpected)
         assert list(cache._iter_include_specs("int f(void) { return 0; }\n" * 100)) == []
 
     def test_spaced_and_macro_include_directives_still_reach_the_resolver(self) -> None:

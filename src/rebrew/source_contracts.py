@@ -192,6 +192,7 @@ def contract_contexts(
             metadata_dir=metadata_dir,
             project_root=cfg.root,
             function_entries=function_entries,
+            with_prototypes=False,
         )
         flags = {
             resolve_compile_overrides_cached(
@@ -332,7 +333,11 @@ def _resolved_contract_sites(
 ) -> tuple[list[ContractSite], list[dict[str, Any]]]:
     aliases: dict[str, dict[str, set[str]]] = {}
     callbacks: dict[tuple[str, str, str], tuple[bytes, int, int]] = {}
+    selected_units = {site.context for site in sites}
     for path, units in contexts.items():
+        units = {unit for unit in units if str(unit) in selected_units}
+        if not units:
+            continue
         parsed = ParsedSource.parse(texts[path])
         for node in _nodes(parsed.tree.root_node):
             if node.type != "type_definition":
@@ -499,7 +504,7 @@ def _audit_contracts(
     contexts, unknown = contract_contexts(cfg, image_headers=image_headers)
     source_units = sorted({str(unit) for units in contexts.values() for unit in units})
     sites: list[ContractSite] = []
-    calls = []
+    calls: list[dict[str, Any]] = []
     source_texts: dict[Path, str] = {}
     for path, units in contexts.items():
         before, text, _encoding = _read_text(path)
@@ -507,24 +512,76 @@ def _audit_contracts(
             raise ValueError(f"source changed while auditing: {path}")
         input_hashes[str(path)] = hashlib.sha256(before).hexdigest()
         source_texts[path] = text
-        function_sites = _functions(path, path, text)
-        variables = list(find_extern_variables(text, include_definitions=True))
         parsed = ParsedSource.parse(text)
-        declarations = [n for n in _nodes(parsed.tree.root_node) if n.type == "declaration"]
+        if parsed.tree.root_node.has_error:
+            unknown.extend(
+                {
+                    "context": str(unit),
+                    "file": str(path),
+                    "reason": "C syntax contains parse errors or missing tokens",
+                }
+                for unit in sorted(units)
+            )
+        # Absence skips extraction only: closure, parse, typedef and snapshot checks stay.
+        if name is not None and name not in text:
+            continue
+        function_sites = _functions(path, path, text)
+        if name is not None:
+            function_sites = [site for site in function_sites if site.name == name]
+        variables = list(find_extern_variables(text, include_definitions=True))
+        if name is not None:
+            variables = [variable for variable in variables if variable.name == name]
+        nodes = list(_nodes(parsed.tree.root_node))
+        declarations = [n for n in nodes if n.type == "declaration"]
+        non_external = bool(name and non_external_function_declarations(parsed, name))
+        multiple = [
+            declaration
+            for declaration in declarations
+            if len(declaration.children_by_field_name("declarator")) > 1
+            and any(declares_function(d) for d in declaration.children_by_field_name("declarator"))
+            and (
+                name is None
+                or any(
+                    declarator_name(d, parsed) == name
+                    for d in declaration.children_by_field_name("declarator")
+                )
+            )
+        ]
+        call_templates = []
+        for node in nodes:
+            if node.type != "call_expression":
+                continue
+            callee = node.child_by_field_name("function")
+            arguments = node.child_by_field_name("arguments")
+            if callee is None or callee.type != "identifier":
+                continue
+            symbol = parsed.node_text(callee)
+            if name is not None and symbol != name:
+                continue
+            parent = node.parent
+            while parent is not None and parent.type == "parenthesized_expression":
+                parent = parent.parent
+            call_templates.append(
+                {
+                    "name": symbol,
+                    "file": str(path),
+                    "line": node.start_point[0] + 1,
+                    "return_used": parent is not None and parent.type != "expression_statement",
+                    "arguments": [parsed.node_text(arg) for arg in arguments.named_children]
+                    if arguments
+                    else [],
+                    "argument_kinds": [arg.type for arg in arguments.named_children]
+                    if arguments
+                    else [],
+                    "conditional": _conditional(node, path),
+                }
+            )
         declarations_by_line: dict[int, list[Any]] = {}
         for declaration in declarations:
             declarations_by_line.setdefault(declaration.start_point[0] + 1, []).append(declaration)
         for unit in sorted(units):
             sites.extend(replace(site, context=str(unit)) for site in function_sites)
-            if parsed.tree.root_node.has_error:
-                unknown.append(
-                    {
-                        "context": str(unit),
-                        "file": str(path),
-                        "reason": "C syntax contains parse errors or missing tokens",
-                    }
-                )
-            if name and non_external_function_declarations(parsed, name):
+            if non_external:
                 unknown.append(
                     {
                         "context": str(unit),
@@ -532,22 +589,14 @@ def _audit_contracts(
                         "reason": "selected name has a non-external-function declaration",
                     }
                 )
-            for declaration in declarations:
-                if (
-                    declaration.type == "declaration"
-                    and len(declaration.children_by_field_name("declarator")) > 1
-                    and any(
-                        declares_function(d)
-                        for d in declaration.children_by_field_name("declarator")
-                    )
-                ):
-                    unknown.append(
-                        {
-                            "context": str(unit),
-                            "file": str(path),
-                            "reason": "multi-declarator function declaration requires explicit review",
-                        }
-                    )
+            for _declaration in multiple:
+                unknown.append(
+                    {
+                        "context": str(unit),
+                        "file": str(path),
+                        "reason": "multi-declarator function declaration requires explicit review",
+                    }
+                )
             for variable in variables:
                 candidates = declarations_by_line.get(variable.line, [])
                 static = bool(
@@ -573,32 +622,7 @@ def _audit_contracts(
                         _conditional(candidates[0], path) if candidates else True,
                     )
                 )
-            for node in _nodes(parsed.tree.root_node):
-                if node.type != "call_expression":
-                    continue
-                callee = node.child_by_field_name("function")
-                arguments = node.child_by_field_name("arguments")
-                if callee is not None and callee.type == "identifier":
-                    parent = node.parent
-                    while parent is not None and parent.type == "parenthesized_expression":
-                        parent = parent.parent
-                    calls.append(
-                        {
-                            "name": parsed.node_text(callee),
-                            "file": str(path),
-                            "context": str(unit),
-                            "line": node.start_point[0] + 1,
-                            "return_used": parent is not None
-                            and parent.type != "expression_statement",
-                            "arguments": [parsed.node_text(arg) for arg in arguments.named_children]
-                            if arguments
-                            else [],
-                            "argument_kinds": [arg.type for arg in arguments.named_children]
-                            if arguments
-                            else [],
-                            "conditional": _conditional(node, path),
-                        }
-                    )
+            calls.extend({**call, "context": str(unit)} for call in call_templates)
     selected_sites = [site for site in sites if name is None or site.name == name]
     sites, unresolved = _resolved_contract_sites(selected_sites, contexts, source_texts)
     unknown.extend(unresolved)

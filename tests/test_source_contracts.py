@@ -79,10 +79,22 @@ class TestContracts:
             patch.object(
                 contracts, "find_extern_variables", wraps=contracts.find_extern_variables
             ) as variables,
+            patch.object(
+                contracts,
+                "non_external_function_declarations",
+                wraps=contracts.non_external_function_declarations,
+            ) as non_external,
         ):
             report = audit_contracts(cfg, name=name)
         assert sum(call.args[0] == header for call in functions.call_args_list) == 1
         assert sum(call.args[0] == header.read_text() for call in variables.call_args_list) == 1
+        if name is not None:
+            assert (
+                sum(
+                    call.args[0].data == header.read_bytes() for call in non_external.call_args_list
+                )
+                == 1
+            )
         for symbol in ("queue", "g") if name is None else (name,):
             assert {
                 site["context"]
@@ -566,3 +578,65 @@ def test_unrelated_unknown_context_still_blocks_reconciliation(tmp_path: Path) -
     with pytest.raises(ValueError, match=r"unrelated\.c.*incomplete"):
         reconcile_contract([cfg], "queue", Path("src/api.h"), "int queue(int value)")
     assert before == snapshot(tmp_path)
+
+
+class TestScopedUnknowns:
+    @pytest.mark.parametrize("affecting", [False, True])
+    def test_multi_declarator_unknown_is_name_scoped(self, tmp_path: Path, affecting: bool) -> None:
+        cfg = _project(tmp_path)
+        symbol = "queue" if affecting else "unrelated"
+        (cfg.reversed_dir / "extra.c").write_text(f"int {symbol}(int), other(void);\n")
+        if affecting:
+            with pytest.raises(ValueError, match="multi-declarator"):
+                reconcile_contract(
+                    [cfg], "queue", Path("src/api.h"), "int queue(int value)", dry_run=True
+                )
+        else:
+            assert reconcile_contract(
+                [cfg], "queue", Path("src/api.h"), "int queue(int value)", dry_run=True
+            )
+            assert audit_contracts(cfg)["unknown"]
+
+    def test_unrelated_parse_failure_cannot_prove_independence(self, tmp_path: Path) -> None:
+        cfg = _project(tmp_path)
+        (cfg.reversed_dir / "extra.c").write_text("typedef int Other INVALID(;\n")
+        with pytest.raises(ValueError, match="parse errors"):
+            reconcile_contract(
+                [cfg], "queue", Path("src/api.h"), "int queue(int value)", dry_run=True
+            )
+
+    def test_affecting_typedef_uncertainty_still_refuses(self, tmp_path: Path) -> None:
+        cfg = _project(tmp_path)
+        (cfg.reversed_dir / "owner.c").write_text("int queue(Handle value) { return 1; }\n")
+        with pytest.raises(ValueError, match="typedef"):
+            reconcile_contract(
+                [cfg], "queue", Path("src/api.h"), "int queue(int value)", dry_run=True
+            )
+
+    def test_unrelated_typedef_uncertainty_does_not_refuse(self, tmp_path: Path) -> None:
+        cfg = _project(tmp_path)
+        (cfg.reversed_dir / "extra.c").write_text("Unknown unrelated(Unknown value);\n")
+        assert reconcile_contract(
+            [cfg], "queue", Path("src/api.h"), "int queue(int value)", dry_run=True
+        )
+        assert any(
+            row["reason"] == "unresolved context-specific typedef"
+            for row in audit_contracts(cfg)["unknown"]
+        )
+
+
+def test_named_audit_does_not_extract_unrelated_bodies(tmp_path: Path) -> None:
+    import rebrew.source_contracts as contracts
+
+    cfg = _project(tmp_path)
+    other = cfg.reversed_dir / "extra.c"
+    other.write_text("int other(void) { return 1; }\n")
+    with patch.object(
+        contracts,
+        "non_external_function_declarations",
+        wraps=contracts.non_external_function_declarations,
+    ) as declarations:
+        report = audit_contracts(cfg, name="queue")
+    assert not report["unknown"]
+    assert all(call.args[0].data != other.read_bytes() for call in declarations.call_args_list)
+    assert str(other) in report["input_hashes"]

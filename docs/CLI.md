@@ -7165,12 +7165,28 @@ different extraction directories. Reconciliation checks the image identity
 and extracted header contents again under the publication lock before apply.
 Changed image IDs or audited header contents require a new preview.
 
-Unknown contexts still block reconciliation even when the selected name does
-not occur in the source or resolved closure. An unreadable include can contain
-that contract, and macro expansion can introduce names absent from raw text.
-Textual absence alone cannot prove independence. Refusals name the first five
-incomplete contexts and their reasons, then count any remaining contexts.
-Image-header resolution does not preprocess C or certify SDK parse results.
+Named audits scope per-site typedef uncertainty and multi-declarator function
+uncertainty to the selected name. Unrelated declarations remain visible in an
+unfiltered `types contracts` audit. Each physical file is extracted once; its
+sites and calls retain every translation-unit context. Reconciliation retains
+include rescanning, byte snapshots and publication checks.
+Include scanning caches only lexical directives from identical bounded header
+texts; path resolution, shadow probes, content hashes and race checks stay fresh.
+
+Incomplete include closures, unknown compiler profiles and C parse errors still
+block reconciliation even when the selected name is absent. Missing headers,
+macro expansion and parser recovery can hide affecting declarations or calls;
+raw-text absence does not prove independence. Refusals name the first five
+incomplete contexts and count the rest. `--image-headers` resolves SDK paths,
+but reports remain `preprocessed=false`.
+
+The separate `compiler.preprocessed_context.capture_msvc_context` API captures
+one explicit CMake source/output with the real pinned MSVC preprocessor. It
+requires a verified staged closure and rejects unreviewed macro/token-pasting,
+include-path and compiler-option contexts. Reconciliation does not silently
+substitute that restricted capture for every audited TU or ignore conditional
+missing includes. Those contexts need a compiler-backed audit before their
+unknowns can safely be removed.
 
 ```bash
 rebrew types reconcile queue src/api.h --prototype 'int queue(int id)' --image-headers --dry-run --json
