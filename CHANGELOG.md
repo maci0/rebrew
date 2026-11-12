@@ -56,6 +56,9 @@
 ### Fixed
 
 - Repair the FLIRTDB quick start: scan its nested signature checkout directly instead of copying from a nonexistent `vc6/` directory or relying on recursive shell globs.
+### Fixed
+
+- Identify `OLDNAMES.LIB` as the CRT legacy-name alias library in the signature guide, replacing the incorrect old-iostream description.
 
 ## [6.32.1] - 2026-11-11
 

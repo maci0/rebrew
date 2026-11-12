@@ -112,7 +112,7 @@ Each line contains:
 | CRT (multithreaded) | `toolchain/msvc/6.0-win32/source/VC98/Lib/LIBCMT.LIB` | `flirt_sigs/libcmt_vc6.pat` |
 | CRT (single-threaded) | `toolchain/msvc/6.0-win32/source/VC98/Lib/LIBC.LIB` | `flirt_sigs/libc_vc6.pat` |
 | C++ Standard Library | `toolchain/msvc/6.0-win32/source/VC98/Lib/LIBCP.LIB` | `flirt_sigs/libcp_vc6.pat` |
-| Old I/O streams | `toolchain/msvc/6.0-win32/source/VC98/Lib/OLDNAMES.LIB` | `flirt_sigs/oldnames_vc6.pat` |
+| [Legacy CRT name aliases](https://learn.microsoft.com/en-us/cpp/c-runtime-library/backward-compatibility) | `toolchain/msvc/6.0-win32/source/VC98/Lib/OLDNAMES.LIB` | `flirt_sigs/oldnames_vc6.pat` |
 
 **For third-party libraries**, build them from source with the same compiler
 version and flags, then generate a `.pat` from the resulting `.lib`:
