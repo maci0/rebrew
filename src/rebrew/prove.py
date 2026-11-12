@@ -1153,18 +1153,18 @@ _EPILOG = (
     "  # Prove a specific block\n"
     "  rebrew prove my_func --start-offset 0 --end-offset 48\n\n"
     "[bold]How it works:[/bold]\n\n"
-    "  1. Validates the function status is NEAR_MATCHING/SIZE_MISMATCH. The gate\n"
-    "     checks the effective status (metadata or the verify cache)\n\n"
+    "  1. Checks effective NEAR_MATCHING/SIZE_MISMATCH status (metadata or verify cache).\n"
+    "     Single-function mode also accepts a STUB with nonempty BLOCKER or nonzero BLOCKER_DELTA.\n\n"
     "  2. Extracts target bytes from the configured binary and compiles the C source\n\n"
     "  3. Verifies bytes still differ post-compile (matched bytes belong as RELOC, not PROVEN)\n\n"
     "  4. Loads both byte blobs into angr's symbolic execution engine\n\n"
     "  5. Proves EAX equivalence via Z3 constraint solving\n\n"
-    "  6. If proven: updates STATUS from NEAR_MATCHING/SIZE_MISMATCH → PROVEN\n\n"
+    "  6. If proven: updates the eligible function STATUS to PROVEN\n\n"
     "[dim]angr is a heavy optional dependency (~500 MB). Install with: uv tool install --reinstall 'rebrew\\[prove] @ git+https://github.com/maci0/rebrew.git'[/dim]"
 )
 
 app = typer.Typer(
-    help="Prove semantic equivalence of NEAR_MATCHING/SIZE_MISMATCH functions via symbolic execution.",
+    help="Prove semantic equivalence of eligible functions via symbolic execution.",
     rich_markup_mode="rich",
     epilog=_EPILOG,
 )
@@ -1223,7 +1223,7 @@ def main(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """Prove semantic equivalence of a NEAR_MATCHING/SIZE_MISMATCH function via symbolic execution."""
+    """Prove semantic equivalence of an eligible function via symbolic execution."""
     if option_default(watch, False) and option_default(json_output, False):
         error_exit("--watch is terminal-only; omit --json", json_mode=True)
     if option_default(watch, False):

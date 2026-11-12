@@ -157,7 +157,7 @@ options, and defaults.
 | [`rebrew doctor`](#rebrew-doctor) | 1 | Diagnostic checks for rebrew project health. |
 | [`rebrew schema`](#rebrew-schema) | 1 | Print the clispec 0.3 JSON document for this CLI. |
 | [`rebrew ops`](#rebrew-ops) | 3 | Answer one op over stdin/stdout or serve `POST /<op>` over HTTP behind a bearer token. |
-| [`rebrew prove`](#rebrew-prove) | 1 | Prove semantic equivalence of NEAR_MATCHING/SIZE_MISMATCH functions via symbolic execution. |
+| [`rebrew prove`](#rebrew-prove) | 1 | Prove semantic equivalence of eligible functions via symbolic execution. |
 | [`rebrew recommend`](#rebrew-recommend) | 1 | Deterministic project advice: TU layout, hygiene, next steps. |
 | [`rebrew sync`](#rebrew-sync) | 8 | Exchange metadata with Ghidra through BinSync and perform structural operations. |
 | [`rebrew data`](#rebrew-data) | 17 | Inspect global data, edit metadata, and generate declarations and layout repairs. |
@@ -1024,10 +1024,15 @@ JSON under `-o text`.
 `--watch-va` always reads hexadecimal addresses, including bare digits; `0x` is
 optional. Watch mode is terminal-only and cannot be combined with `--json`.
 
-Prove semantic equivalence of a NEAR_MATCHING function via angr symbolic execution + Z3 constraint solving. Requires the optional `angr` dependency (extras: `rebrew[prove]`; `make setup` syncs `--all-extras`). The source argument accepts a `.c` path, a symbol name, or a hex VA (resolved via the shared `resolve_source_arg` helper, like `rebrew diff`).
+Prove semantic equivalence of an eligible function via angr symbolic execution + Z3 constraint solving. Requires the optional `angr` dependency (extras: `rebrew[prove]`; `make setup` syncs `--all-extras`). The source argument accepts a `.c` path, a symbol name, or a hex VA (resolved via the shared `resolve_source_arg` helper, like `rebrew diff`).
 
 
-On success, updates `STATUS` from `NEAR_MATCHING`/`SIZE_MISMATCH` → `PROVEN`. On failure (timeout, path explosion, or Z3 finds a distinguishing input), status remains unchanged. Failure messages include a concrete counterexample (register/memory values from the Z3 model). `SIZE_MISMATCH` is accepted so functions whose compiled size differs structurally can still be proven semantically equivalent: the proof is what makes them PROVEN.
+Single-function mode accepts effective `NEAR_MATCHING`/`SIZE_MISMATCH` from
+metadata or the verify cache, or a `STUB` with nonempty `BLOCKER` or nonzero
+`BLOCKER_DELTA`. `--all` selects stored NEAR_MATCHING/SIZE_MISMATCH candidates
+with known sizes; it does not select blocker-documented STUBs.
+
+On success, updates the eligible function's `STATUS` to `PROVEN`. On failure (timeout, path explosion, or Z3 finds a distinguishing input), status remains unchanged. Failure messages include a concrete counterexample (register/memory values from the Z3 model). `SIZE_MISMATCH` is accepted so functions whose compiled size differs structurally can still be proven semantically equivalent: the proof is what makes them PROVEN.
 
 **64-bit returns**: Functions that return `long long`, `__int64`, `int64_t`, or `uint64_t` use the EDX:EAX register pair for their return value. `rebrew prove` auto-detects this from the C function signature and enables EDX comparison automatically: no flag needed. Pass `--check-edx` explicitly to force EDX checking even when the heuristic does not trigger.
 
