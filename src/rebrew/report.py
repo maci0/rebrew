@@ -1518,11 +1518,12 @@ def generate_decomp_dev_report(
     data:
 
     - ``EXACT``/``RELOC`` functions count as fully matched
-      (``fuzzy_match_percent`` 100) — a byte-matched function is placed
-      correctly by construction when the binary is relinked;
+      (``fuzzy_match_percent`` 100) from the stored status and evidence;
     - ``NEAR_MATCHING`` and ``PROVEN`` functions (bytes differ) carry their
       cached ``match_percent`` when the verify cache has one, else 0;
     - everything else (STUB, unannotated registry functions) is 0.
+
+    Use ``rebrew verify --text --raw-link`` to check linked placement.
 
     ``total_functions``/``total_code`` come from the SHARED progress model
     (``rebrew.status.collect_status`` — ghidra-functions ∪ annotated set and
