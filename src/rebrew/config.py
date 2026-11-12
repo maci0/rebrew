@@ -567,7 +567,9 @@ class _AddressCommentLayout:
 
 #: Resolved source roots and comment dialects for one parsed document. The
 #: per-file walk otherwise called ``Path.resolve`` on every target root.
+#: One slot per path; the cap drops projects this process stopped reading.
 _PROJECT_LAYOUT: dict[Path, tuple[tuple[int, int, int, int], _AddressCommentLayout]] = {}
+_PROJECT_CACHE_MAX = 8
 
 
 def parse_address_comment_format(project: Any, target: Any = None) -> AddressCommentFormat:
@@ -586,7 +588,22 @@ def parse_address_comment_format(project: Any, target: Any = None) -> AddressCom
 
 #: Parsed ``rebrew-project.toml`` per path, keyed on its stat so an edit is re-read.
 #: Source discovery asks once per file (10,900 files on guild-rebrew).
+#: Bounded: the key is the path, and a stamp change is a new entry, so a
+#: long-lived process that rewrites or walks many project files would
+#: otherwise retain every previous document.
 _PROJECT_TOML: dict[Path, tuple[tuple[int, int, int, int], dict[str, Any]]] = {}
+
+
+def _remember_project_cache(cache: dict[Path, Any], path: Path, value: Any) -> None:
+    """Store *value* for *path*, dropping the oldest path past the cap.
+
+    Replacing *path* moves it to the end, so a live project is not the one
+    evicted when a later path fills the map.
+    """
+    cache.pop(path, None)
+    cache[path] = value
+    while len(cache) > _PROJECT_CACHE_MAX:
+        del cache[next(iter(cache))]
 
 
 def _project_toml(path: Path) -> dict[str, Any]:
@@ -597,9 +614,12 @@ def _project_toml(path: Path) -> dict[str, Any]:
     stamp = (st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns)
     hit = _PROJECT_TOML.get(path)
     if hit is not None and hit[0] == stamp:
+        # A hit is the live project: leave it at the tail so the next insert
+        # evicts a project this process is no longer reading.
+        _PROJECT_TOML[path] = _PROJECT_TOML.pop(path)
         return hit[1]
     raw = load_tomllib(path)
-    _PROJECT_TOML[path] = (stamp, raw)
+    _remember_project_cache(_PROJECT_TOML, path, (stamp, raw))
     return raw
 
 
@@ -639,9 +659,10 @@ def _cached_address_comment_layout(root: Path) -> _AddressCommentLayout:
     stamp = (st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns)
     hit = _PROJECT_LAYOUT.get(path)
     if hit is not None and hit[0] == stamp:
+        _PROJECT_LAYOUT[path] = _PROJECT_LAYOUT.pop(path)
         return hit[1]
     layout = _address_comment_layout(root, _project_toml(path))
-    _PROJECT_LAYOUT[path] = (stamp, layout)
+    _remember_project_cache(_PROJECT_LAYOUT, path, (stamp, layout))
     return layout
 
 
