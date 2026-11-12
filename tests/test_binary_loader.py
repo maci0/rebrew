@@ -303,10 +303,36 @@ class TestPeTextSection:
         assert info.text_va == 0x400000 + 0x1000
         assert info.text_size == 0x10
         assert info.sections[".text"].va == info.text_va
-        # The PE loader states no exec flag, so is_code stays unstated rather
-        # than claiming the section is data; the name resolves it as code.
-        assert info.sections[".text"].is_code is None
+        assert info.sections[".text"].is_code is True
         assert info.sections[".text"].is_code_section is True
+
+    @pytest.mark.parametrize("name,executable", [("HOT", True), ("CODE", False), (".text", False)])
+    def test_pe_flags_classify_sections_before_names(
+        self, tmp_path: Path, name: str, executable: bool
+    ) -> None:
+        import struct
+
+        from bin_util import make_pe
+
+        from rebrew.formats.binary_loader import load_binary
+        from rebrew.formats.pe_headers import pe_layout
+
+        data = bytearray(make_pe(b"\x90\xc3", section_name=name))
+        layout = pe_layout(data)
+        assert layout is not None
+        section = layout.sections[0]
+        if not executable:
+            struct.pack_into(
+                "<I", data, section.header_offset + 36, section.characteristics & ~0x20000000
+            )
+        path = tmp_path / "flagged.exe"
+        path.write_bytes(data)
+        info = load_binary(path)
+        assert info.sections[name].is_code is executable
+        assert info.sections[name].is_code_section is executable
+        assert [s.name for s in info.sections.values() if s.is_code_section] == (
+            [name] if executable else []
+        )
 
     def test_executable_section_is_aliased_as_text(self, tmp_path: Path) -> None:
         info = self._load(tmp_path, "CODE")

@@ -440,7 +440,7 @@ def _collect_library(cfg: Any) -> list[dict[str, Any]]:
 
 
 def _is_exec_section(sec: Any) -> bool:
-    """Code-section predicate: ELF's exec flag, or the classic PE text name."""
+    """Code-section predicate using explicit flags before conventional names."""
     resolved = getattr(sec, "is_code_section", None)
     if resolved is not None:
         return bool(resolved)

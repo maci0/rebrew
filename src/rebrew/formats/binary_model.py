@@ -38,10 +38,8 @@ MAX_BINARY_SIZE = 512 * BYTES_PER_MIB  # 512 MiB
 _data_load_lock = threading.Lock()
 
 
-#: Section names that hold code when a format states no executable flag of its
-#: own.  PE and Mach-O name the text section, ELF flags it SHF_EXECINSTR, and a
-#: stripped NE image has neither, so every reader of :attr:`SectionInfo.is_code`
-#: resolves the unknown case here instead of re-deciding it per call site.
+#: Conventional code names used only when the loader supplies no explicit flag.
+#: Every reader of :attr:`SectionInfo.is_code` resolves that unknown case here.
 CODE_SECTION_NAMES = frozenset({".text", "text", "__text", "CODE"})
 
 
@@ -54,10 +52,8 @@ class SectionInfo:
     size: int  # virtual size (mapped)
     file_offset: int  # offset in the file on disk
     raw_size: int  # size on disk (may differ from virtual size)
-    # SHF_EXECINSTR.  Only the ELF loader states it; PE and Mach-O leave it
-    # None, meaning the format carries no such flag rather than that the
-    # section is data.  Read it through `is_code_section` unless the
-    # distinction is the point.
+    # Explicit code classification from format flags or the NE code probe.
+    # None leaves it unstated, so `is_code_section` falls back to known names.
     is_code: bool | None = None
 
     @property

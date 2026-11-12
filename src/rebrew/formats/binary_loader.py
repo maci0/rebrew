@@ -188,6 +188,7 @@ def _load_pe(binary: lief.PE.Binary, path: Path) -> BinaryInfo:
         vsize = section.virtual_size
         raw_offset = section.pointerto_raw_data
         raw_size = section.sizeof_raw_data
+        is_code = section.has_characteristic(exec_flag)
 
         sections[name] = SectionInfo(
             name=name,
@@ -195,8 +196,9 @@ def _load_pe(binary: lief.PE.Binary, path: Path) -> BinaryInfo:
             size=vsize,
             file_offset=raw_offset,
             raw_size=raw_size,
+            is_code=is_code,
         )
-        if section.has_characteristic(exec_flag):
+        if is_code:
             exec_names.append(name)
 
         if name == ".text":
