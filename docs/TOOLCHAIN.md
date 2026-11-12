@@ -210,11 +210,13 @@ author's *exact* GCC version.  Modern GCC (e.g. 16.x) differs from older GCC
 match only *structurally* (use `rebrew diff` structural ratio): document the
 semantic decomp and blocker the byte delta rather than forcing a pass.
 
-**ELF/x86_64 targets:** `gcc-14.2.0`/`gcc-12.3.0` and `clang-18.1.8`/`clang-16.0.4` are first-class
-ELF profiles (posix flags, `.o` objects) backed by their own images
-(`rebrew/gcc:14.2.0-linux-x64`, `rebrew/gcc:12.3.0-linux-x64`,
-`rebrew/clang:18.1.8-linux-x64`, `rebrew/clang:16.0.4-linux-x64`); the
-defaults `gcc-14.2.0`/`clang-18.1.8` are the newest of each family.  The GNU images build
+**ELF/x86_64 targets:** `gcc-16.2.0`/`gcc-14.2.0`/`gcc-12.3.0` and
+`clang-23.1.4`/`clang-18.1.8`/`clang-16.0.4` are first-class ELF profiles
+(posix flags, `.o` objects) backed by their own images
+(`rebrew/gcc:16.2.0-linux-x64`, `rebrew/gcc:14.2.0-linux-x64`,
+`rebrew/gcc:12.3.0-linux-x64`, `rebrew/clang:23.1.4-linux-x64`,
+`rebrew/clang:18.1.8-linux-x64`, `rebrew/clang:16.0.4-linux-x64`). Select the
+version that matches the reference compiler. The GNU images build
 GCC from the release tarball; the Clang images extract LLVM's prebuilt
 release.  Both carry a
 minimal posix flag-sweep axis set (`rebrew.flag_data.GCC_FLAGS`), so
