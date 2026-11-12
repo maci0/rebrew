@@ -55,9 +55,17 @@ def pascal_syntax(
     implementation = words.index(b"implementation") if b"implementation" in words else -1
     is_unit = bool(words and words[0] == b"unit")
     declarations: dict[int, list[tuple[str, str, str]]] = {}
+    # Tokens are in source order. Advance on every heading keyword, including
+    # ones rejected below, so a kept routine is not counted from a cursor past
+    # its start. Recounting to byte 0 was quadratic in the routine count.
+    line_cursor = 0
+    line_number = 1
     for idx, word in enumerate(words):
         if word not in (b"procedure", b"function", b"constructor", b"destructor"):
             continue
+        start = tokens[idx].start()
+        line_number += source.count(b"\n", line_cursor, start)
+        line_cursor = start
         if is_unit and (implementation < 0 or idx < implementation):
             continue
         j = idx + 1
@@ -104,6 +112,7 @@ def pascal_syntax(
             b"function",
         ):
             continue
-        line = source.count(b"\n", 0, tokens[idx].start()) + 1
-        declarations.setdefault(line, []).append((b"".join(name).decode("ascii"), "FUNCTION", ""))
+        declarations.setdefault(line_number, []).append(
+            (b"".join(name).decode("ascii"), "FUNCTION", "")
+        )
     return masked, comments, declarations

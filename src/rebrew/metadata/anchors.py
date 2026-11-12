@@ -186,7 +186,14 @@ def _parse_address_anchors(source: str, syntax: AddressCommentFormat) -> list[Ad
         declarations = None
     pattern = _syntax_re(syntax.regex)
     pending: list[tuple[str, int, int]] = []
+    # Comment spans come back in source order (sorted query, or the Delphi
+    # scan). Advance the line on every span, skipped ones included, so a later
+    # address is not counted from a cursor past its start.
+    line_cursor = 0
+    line_number = 1
     for start_byte, end_byte in comments:
+        line_number += src.count(b"\n", line_cursor, start_byte)
+        line_cursor = start_byte
         comment = src[start_byte:end_byte].decode("utf-8", errors="surrogateescape")
         if comment.startswith("//"):
             comment = comment.removesuffix("\r")
@@ -196,7 +203,7 @@ def _parse_address_anchors(source: str, syntax: AddressCommentFormat) -> list[Ad
         match = pattern.fullmatch(body)
         if match is None and not body.startswith("ADDRESS:"):
             continue
-        line = src.count(b"\n", 0, start_byte) + 1
+        line = line_number
         start = src.rfind(b"\n", 0, start_byte) + 1
         end = src.find(b"\n", end_byte)
         end = len(src) if end < 0 else end
@@ -282,16 +289,18 @@ def metadata_comments(
     if syntax is not None and syntax.style == "delphi":
         src = source.encode("utf-8", errors="surrogateescape")
         _, comments, _ = pascal_syntax(src)
-        return [
-            (src.count(b"\n", 0, start) + 1, key)
-            for start, end in comments
-            if (
-                key := comment_body(
-                    src[start:end].decode("utf-8", errors="surrogateescape")
-                ).partition(":")[0]
-            )
-            in _RESERVED_METADATA_KEYS
-        ]
+        found: list[tuple[int, str]] = []
+        line_cursor = 0
+        line_number = 1
+        for start, end in comments:
+            line_number += src.count(b"\n", line_cursor, start)
+            line_cursor = start
+            key = comment_body(src[start:end].decode("utf-8", errors="surrogateescape")).partition(
+                ":"
+            )[0]
+            if key in _RESERVED_METADATA_KEYS:
+                found.append((line_number, key))
+        return found
     tree, src = parse_c_source(source)
     found: list[tuple[int, str]] = []
     for node in comment_nodes(tree):

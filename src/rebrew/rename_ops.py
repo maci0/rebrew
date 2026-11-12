@@ -589,6 +589,10 @@ def _linker_reference_changes(
             except (OSError, UnicodeDecodeError) as exc:
                 raise RenameError("cannot read linker response file", files=[path]) from exc
             edits: list[SourceEdit] = []
+            # ``re.sub`` feeds matches in order. Advance on every match,
+            # unchanged options included, so a later edit is not counted from
+            # a cursor past its offset.
+            line_state = [0, 1]
 
             def replace(
                 match: re.Match[str],
@@ -598,8 +602,12 @@ def _linker_reference_changes(
                 edits: list[SourceEdit] = edits,
                 target_module_name: str = preset_module_key(target.module),
                 path: Path = path,
+                line_state: list[int] = line_state,
             ) -> str:
                 """Change internal symbols while preserving export names and other options."""
+                offset = match.start(2)
+                line_state[1] += text.count("\n", line_state[0], offset)
+                line_state[0] = offset
                 option, value = match.groups()
                 quote = '"' if value.startswith('"') else ""
                 body = value[1:-1] if quote else value
@@ -629,10 +637,9 @@ def _linker_reference_changes(
                     updated = binding
                 if updated == binding:
                     return match.group()
-                offset = match.start(2)
                 edits.append(
                     SourceEdit(
-                        text.count("\n", 0, offset) + 1,
+                        line_state[1],
                         offset - text.rfind("\n", 0, offset),
                         "linker",
                     )

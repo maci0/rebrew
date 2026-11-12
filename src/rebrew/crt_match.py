@@ -212,8 +212,13 @@ def build_crt_index(source_dir: Path, module: str) -> list[CrtSourceEntry]:
                 )
             )
         else:
+            # PROC matches are monotonic, so count newlines from the previous
+            # one instead of rescanning the whole prefix per procedure.
+            last_pos = 0
+            line = 1
             for match in _ASM_PROC_RE.finditer(text):
-                line = text.count("\n", 0, match.start()) + 1
+                line += text.count("\n", last_pos, match.start())
+                last_pos = match.start()
                 entries.append(
                     CrtSourceEntry(
                         name=match.group(1),

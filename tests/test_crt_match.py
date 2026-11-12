@@ -299,6 +299,30 @@ class TestIndexEdgeCases:
         entries = build_crt_index(Path("/nonexistent/path"), "MSVCRT")
         assert entries == []
 
+    def test_asm_proc_lines_count_past_earlier_procedures(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path / "mem.asm",
+            "\n".join(
+                [
+                    "; header",
+                    "_memcpy PROC",
+                    "ret",
+                    "_memcpy ENDP",
+                    "",
+                    "_memset PROC",
+                    "ret",
+                    "_memset ENDP",
+                    "",
+                ]
+            ),
+        )
+
+        entries = {
+            entry.name: entry.line for entry in build_crt_index(tmp_path, "MSVCRT") if entry.is_asm
+        }
+
+        assert entries == {"_memcpy": 2, "_memset": 5}
+
 
 class TestConfigIntegration:
     def test_crt_sources_config_field(self, tmp_path: Path) -> None:
