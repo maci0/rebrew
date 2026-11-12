@@ -450,6 +450,7 @@ _EXTERN_NAMES_REL = Path(".rebrew") / "extern-names.json"
 _NAME_TO_VA_CACHE_REL = Path(".rebrew") / "name_to_va_cache.json"
 _PGSQL_SNAPSHOT_DIR_REL = Path(".rebrew") / "pgsql-before-transfer"
 _SNAPSHOTS_DIR_REL = Path("snapshots")
+_SOURCE_BACKUP_DIR_REL = Path(".rebrew") / "source-backups"
 
 #: Mode the uploads ledger must keep in backups and on restore: it holds
 #: decomp.me claim tokens, so no group/other access, matching
@@ -511,6 +512,14 @@ def _validate_extra(source: Path) -> None:
                 raise MetadataStorageError(f"{source}: corrupt backup line {lineno}") from exc
             if not isinstance(parsed, dict):
                 raise MetadataStorageError(f"{source}: corrupt backup line {lineno}")
+    elif source.suffix == ".orig":
+        # A kept source pre-image is opaque bytes (any encoding the source
+        # used).  Nothing to parse; an unreadable copy is still corrupt.
+        try:
+            source.read_bytes()
+        except OSError as exc:
+            raise MetadataStorageError(f"{source}: corrupt backup: {exc}") from exc
+        return
     elif source.suffix == ".json":
         # The uploads ledger validates as one JSON object with claim-token
         # entries; the Ghidra sync state is a plain dedup hash map where only
@@ -695,6 +704,21 @@ def extra_durable_sources(root: Path) -> list[Path]:
     pgsql_snapshots = root / _PGSQL_SNAPSHOT_DIR_REL
     if pgsql_snapshots.is_dir():
         sources.extend(sorted(p for p in pgsql_snapshots.rglob("*.toml") if p.is_file()))
+    source_backups = root / _SOURCE_BACKUP_DIR_REL
+    if source_backups.is_dir():
+        # Kept pre-images of hand-edited sources a destructive command
+        # rewrote or deleted (shared import, skeleton --force).  An
+        # in-flight climb/qualifier copy is removed on a clean finish, so
+        # what remains is the only copy of bytes the live tree no longer
+        # holds.  ``*.before-restore`` is what the last restore displaced
+        # and is not a second source of truth.
+        sources.extend(
+            sorted(
+                p
+                for p in source_backups.glob("*.orig")
+                if p.is_file() and not p.name.endswith(".before-restore")
+            )
+        )
     snapshots = root / _SNAPSHOTS_DIR_REL
     if snapshots.is_dir():
         sources.extend(

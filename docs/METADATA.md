@@ -214,14 +214,18 @@ file with its own fast path: `rebrew match solutions --backup <dir>`
 copy-verifies it byte-for-byte off-tree, and `restore_ga_runs`
 validates every line and preserves the displaced log as
 `.before-restore`. GA records are fsynced before `rebrew match run`
-reports a win. Backup-adjacent staging that is deliberately *not*
-durable: `.rebrew/source-backups/*.orig` (in-flight climb/qualifier
-rewrite copies, removed on clean finish, kept only after a kill or a
-`--force` skeleton), `*.before-restore` sidecars (what the last
-restore displaced), and `*.before-transfer` snapshots (what the last
-backend migrate replaced); their lifetime is one restore/migrate, and
-the runbook above assumes the operator keeps the prior bundle as the
-older copy.
+reports a win. Kept source pre-images ride in the same bundle.
+`.rebrew/source-backups/*.orig` that survive a clean run are the only
+copy of bytes the live tree no longer holds: a shared import that
+stripped a claim, and `rebrew skeleton --force` (`*.pre-skeleton.*.orig`).
+`rebrew metadata backup` copies those `*.orig` files and restore puts
+them back. An in-flight climb or qualifier copy is removed when that run
+finishes, so a bundle taken mid-run may also hold one; it is the same
+pre-image, not a second store. `*.before-restore` sidecars (what the last
+restore displaced) and `*.before-transfer` snapshots (what the last
+backend migrate replaced) stay out of the bundle; their lifetime is one
+restore/migrate, and the runbook above assumes the operator keeps the
+prior bundle as the older copy.
 
 The configured BinSync state dir (`targets.<name>.binsync_state_dir`,
 or `--state-dir` on sync commands) is durable project state as well:
@@ -367,7 +371,7 @@ survive the switch.
 | **Canonical (durable)** | pure C sources, `rebrew-functions.toml`, `rebrew-data.toml`, `rebrew-types.toml`, `rebrew-libraries.toml`, `rebrew-project.toml` | Source/config are editable; identity and other non-derivable evidence are CLI/API-managed. Optional ADDRESS anchors bind declarations; old inline blocks and earlier schemas are rejected. Derived views are rebuilt from these plus the binary; recorded history is identified separately below. |
 | **Derived, VCS-intended** | `src/<target>/function_structure.json` (discovery inventory), `<target>.def`, `crt_region/*.c`, `src/link_stubs.c`, `src/<target>/bss_padding.c`, `src/<target>/rebrew_globals.h`, `layout/<target>/`, `[link]` config blocks, `flirt_sigs/*.pat`, `cmake/toolchain-*.cmake` | Build scaffolding generated from the binary / binary-derived facts (`rebrew build layout`, `rebrew binary functions`, `rebrew coverage catalog`, `rebrew build link-stubs`, `rebrew data fix-bss`, `rebrew data header`, signature tools).  Committed to git so a rebuild never needs `original/` around; regenerable via the generating command.  Never hand-edit. |
 | **Derived, gitignored (build output)** | `snapshots/coverage-<target>.toml`, `bin/<target>/*.bin`, `output/report/` | Rebuildable via `rebrew coverage export --output snapshots/` / `rebrew verify` / `rebrew binary extract` / `rebrew coverage report`.  Treat as build output.  `rebrew verify` writes a report file only with an explicit `--output` path; the `--compare` baseline lives beside the selected verify cache (see [`rebrew verify`](CLI.md#rebrew-verify)). The `--compare` baseline is loaded via `verify_cache.load_baseline` and written only on a passing gate. |
-| **Cache (delete-safe)** | `.rebrew/verify_cache.toml` (and its legacy JSON sidecar `.rebrew/verify_cache.json`) (or under `.rebrew/targets/<sha256-of-exact-target-name>/` once the project keeps per-target verification state), `.rebrew/compile_cache/`, `output/ga_runs/*/checkpoints/*.json`, `output/ga_runs/*/best.c`, `output/ga_runs/*/<symbol>.best.c`, `.rebrew/source-backups/*.orig`, in-memory mtime caches | Regenerated on demand.  Deleting costs a recompile/re-verify/resync at most.  The exception: `.rebrew/ga_runs.jsonl` is *history*, not cache; it accumulates GA outcomes (including winning fingerprints) re-running would not reproduce, each record is fsynced before `rebrew match run` reports the run so a host that loses power does not take the win with it, and only the non-winning lines are capped (newest `_LOSS_RECORD_RETENTION`, wins kept forever).  `.rebrew/source-backups/` holds a copy of a `.c` that `rebrew match climb` / `rebrew match qualifiers` is about to rewrite in place: it exists only while that run is in flight, is removed when the run finishes, and is the way back to the pre-run bytes after a kill that runs no cleanup (SIGKILL, OOM, power cut).  `rebrew skeleton --force` keeps its backup after a clean replacement (`*.pre-skeleton.*.orig`).  They accumulate one file per rewrite; prune the directory when the migration or the overwrite is confirmed good.  There is no per-run build diskcache: same-run compiles memoize in memory, cross-run persistence is the shared compile cache's job. |
+| **Cache (delete-safe)** | `.rebrew/verify_cache.toml` (and its legacy JSON sidecar `.rebrew/verify_cache.json`) (or under `.rebrew/targets/<sha256-of-exact-target-name>/` once the project keeps per-target verification state), `.rebrew/compile_cache/`, `output/ga_runs/*/checkpoints/*.json`, `output/ga_runs/*/best.c`, `output/ga_runs/*/<symbol>.best.c`, `.rebrew/source-backups/*.orig`, in-memory mtime caches | Regenerated on demand.  Deleting costs a recompile/re-verify/resync at most.  The exception: `.rebrew/ga_runs.jsonl` is *history*, not cache; it accumulates GA outcomes (including winning fingerprints) re-running would not reproduce, each record is fsynced before `rebrew match run` reports the run so a host that loses power does not take the win with it, and only the non-winning lines are capped (newest `_LOSS_RECORD_RETENTION`, wins kept forever).  `.rebrew/source-backups/` holds a copy of a `.c` that `rebrew match climb` / `rebrew match qualifiers` is about to rewrite in place: it exists only while that run is in flight, is removed when the run finishes, and is the way back to the pre-run bytes after a kill that runs no cleanup (SIGKILL, OOM, power cut).  Two rewrites keep their copy after a clean run, because the live file no longer holds the old bytes: `rebrew skeleton --force` (`*.pre-skeleton.*.orig`) and a shared import that strips a claim (`*.shared-import.*.orig`).  Those kept copies are carried by `rebrew metadata backup` and restored with the bundle.  They accumulate one file per rewrite; prune the directory when the migration or the overwrite is confirmed good.  There is no per-run build diskcache: same-run compiles memoize in memory, cross-run persistence is the shared compile cache's job. |
 
 ## Who owns which fact
 

@@ -575,7 +575,7 @@ def _retire_shared_stub(cfg: ProjectConfig, path: Path, claim: tuple[str, int]) 
                 path,
                 text,
                 encoding,
-                Path(cfg.root) / SOURCE_BACKUP_DIRNAME,
+                Path(cfg.root) / ".rebrew" / SOURCE_BACKUP_DIRNAME,
                 label="shared-import",
                 keep=True,
             ):
@@ -901,7 +901,7 @@ def import_shared_function(
         target_path,
         text,
         _encoding,
-        Path(cfg_dst.root) / SOURCE_BACKUP_DIRNAME,
+        Path(cfg_dst.root) / ".rebrew" / SOURCE_BACKUP_DIRNAME,
         label="shared-import",
         keep=candidate != text,
     ):

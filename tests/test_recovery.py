@@ -502,6 +502,28 @@ class TestBackupManifest:
         restore_metadata_toml(bundle, tmp_path)
         assert cached.read_text(encoding="utf-8") == '{"version": 1, "fingerprint": []}\n'
 
+    def test_kept_source_preimage_rides_along(self, tmp_path: Path) -> None:
+        # A shared import or skeleton --force leaves the only copy of the
+        # removed bytes under .rebrew/source-backups/.  Losing the tree
+        # must not lose that copy.
+        (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")
+        backups = tmp_path / ".rebrew" / "source-backups"
+        backups.mkdir(parents=True)
+        kept = backups / "f1.c.shared-import.1.abc.orig"
+        kept.write_bytes(b"int f(void) { return 1; }\n")
+        displaced = backups / "f1.c.shared-import.1.abc.orig.before-restore"
+        displaced.write_bytes(b"not a source pre-image\n")
+        bundle = backup_metadata_toml(tmp_path, tmp_path / "off-tree")
+        rel = ".rebrew/source-backups/f1.c.shared-import.1.abc.orig"
+        assert rel in verify_backup_manifest(bundle)
+        assert (bundle / rel).read_bytes() == b"int f(void) { return 1; }\n"
+        assert ".rebrew/source-backups/f1.c.shared-import.1.abc.orig.before-restore" not in (
+            verify_backup_manifest(bundle)
+        )
+        kept.unlink()
+        restore_metadata_toml(bundle, tmp_path)
+        assert kept.read_bytes() == b"int f(void) { return 1; }\n"
+
     def test_toml_backup_carries_target_binary(self, tmp_path: Path) -> None:
         # The target binary is the non-regenerable input: a bundle that
         # omits it leaves a restored tree that cannot verify.
