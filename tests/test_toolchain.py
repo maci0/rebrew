@@ -1984,6 +1984,52 @@ class TestSafeArchiveExtract:
             _safe_extract_zip(archive, dest)
         assert not (dest / "escape").exists()
 
+    @pytest.mark.parametrize("strip_components", [0, 1])
+    def test_tar_hardlinks_follow_stripped_member_paths(
+        self, tmp_path: Path, strip_components: int
+    ) -> None:
+        import io
+        import tarfile
+
+        from rebrew.toolchain_cli import _safe_extract_tar
+
+        archive = tmp_path / "hardlinks.tar"
+        with tarfile.open(archive, "w") as tf:
+            info = tarfile.TarInfo("package/bin/compiler")
+            info.size = 2
+            tf.addfile(info, io.BytesIO(b"mz"))
+            link = tarfile.TarInfo("package/bin/compiler-alias")
+            link.type = tarfile.LNKTYPE
+            link.linkname = info.name
+            tf.addfile(link)
+        dest = tmp_path / "out"
+        _safe_extract_tar(archive, dest, strip_components=strip_components)
+        output = dest if strip_components else dest / "package"
+        assert (output / "bin/compiler").read_bytes() == b"mz"
+        assert (output / "bin/compiler-alias").read_bytes() == b"mz"
+        assert (output / "bin/compiler").samefile(output / "bin/compiler-alias")
+
+    @pytest.mark.parametrize("linkname", ["../outside", "/outside", "package"])
+    def test_stripped_tar_rejects_unsafe_hardlink_target(
+        self, tmp_path: Path, linkname: str
+    ) -> None:
+        import tarfile
+
+        from rebrew.compiler.toolchain import ToolchainError
+        from rebrew.toolchain_cli import _safe_extract_tar
+
+        archive = tmp_path / "bad-link.tar"
+        with tarfile.open(archive, "w") as tf:
+            link = tarfile.TarInfo("package/link")
+            link.type = tarfile.LNKTYPE
+            link.linkname = linkname
+            tf.addfile(link)
+        dest = tmp_path / "out"
+        with pytest.raises(ToolchainError, match="unsafe tar hard link"):
+            _safe_extract_tar(archive, dest, strip_components=1)
+        assert not (dest / "link").exists()
+        assert not (tmp_path / "outside").exists()
+
     def test_tar_extracts_safe_member(self, tmp_path: Path) -> None:
         import io
         import tarfile

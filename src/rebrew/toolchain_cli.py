@@ -476,6 +476,11 @@ def _safe_extract_tar(archive: Path, dest: Path, *, strip_components: int = 0) -
             if len(parts) <= strip_components:
                 continue
             stripped = str(Path(*parts[strip_components:]))
+            if member.islnk():
+                link = Path(member.linkname)
+                if link.is_absolute() or ".." in link.parts or len(link.parts) <= strip_components:
+                    raise ToolchainError(f"refusing unsafe tar hard link: {member.linkname!r}")
+                member.linkname = str(Path(*link.parts[strip_components:]))
             member.name = stripped
             target = (dest_root / stripped).resolve()
             if not target.is_relative_to(dest_root):
