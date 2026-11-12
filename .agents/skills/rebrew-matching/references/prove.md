@@ -31,10 +31,12 @@ rejects `--json`. Selection rules are in `rebrew-workflow`.
 
 How it works: extract target bytes + compile source → angr symbolic exec both →
 parse C calling convention → hook external call relocs with `ReturnUnconstrained` →
-LoopSeer-bounded exec → Z3 compare EAX (optional EDX).
+LoopSeer-bounded exec → Z3 compare selected return registers and watched memory.
 
 **64-bit / EDX**: `long long` / `__int64` / `int64_t` / `uint64_t` use EDX:EAX.
 `--check-edx` forces EDX; return types derived from the C signature auto-enable it.
+Void functions skip return-register comparison and require at least one watched
+address through `--watch-va` or `prove_constraints.watched_vas`.
 
 Requirements: an eligible function and the `[prove]` extra (angr). `--all` selects
 only stored NEAR_MATCHING/SIZE_MISMATCH candidates with known sizes. A current

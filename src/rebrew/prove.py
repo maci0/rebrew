@@ -1158,7 +1158,7 @@ _EPILOG = (
     "  2. Extracts target bytes from the configured binary and compiles the C source\n\n"
     "  3. Verifies bytes still differ post-compile (matched bytes belong as RELOC, not PROVEN)\n\n"
     "  4. Loads both byte blobs into angr's symbolic execution engine\n\n"
-    "  5. Proves EAX equivalence via Z3 constraint solving\n\n"
+    "  5. Compares return registers and watched memory via Z3; void functions need watched memory\n\n"
     "  6. If proven: updates the eligible function STATUS to PROVEN\n\n"
     "[dim]angr is a heavy optional dependency (~500 MB). Install with: uv tool install --reinstall 'rebrew\\[prove] @ git+https://github.com/maci0/rebrew.git'[/dim]"
 )
