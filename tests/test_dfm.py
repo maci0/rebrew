@@ -11,6 +11,7 @@ from typer.testing import CliRunner
 from rebrew.app.main import app
 from rebrew.formats.dfm import (
     Binary,
+    Bool,
     Component,
     DfmError,
     False_,
@@ -25,6 +26,7 @@ from rebrew.formats.dfm import (
     encode,
     parse_form,
     parse_forms,
+    render,
     roundtrip,
     scan_forms,
 )
@@ -60,6 +62,28 @@ class TestFormCodec:
         assert [c.name for c in root.walk()] == ["Main", "Button"]
         assert roundtrip(original) == (1, [])
         assert len(scan_forms(original)[0]) == 1  # embedded TPF0 is picture data
+
+    @pytest.mark.parametrize("initial", [False, True])
+    @pytest.mark.parametrize("output", ["wire", "text"])
+    def test_boolean_edits_reach_wire_and_text(self, initial: bool, output: str) -> None:
+        value = Bool(initial)
+        component = Component("TForm", "Main", props=[("Enabled", value)])
+        value.value = not initial
+        if output == "wire":
+            decoded, _end = parse_form(b"TPF0" + encode(component))
+            assert decoded.props[0][1].value is not initial
+        else:
+            assert f"Enabled = {'False' if initial else 'True'}" in render(component)
+
+    def test_decoded_booleans_are_independent(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        data = b"TPF0" + encode(
+            Component("TForm", "Main", props=[("A", Bool(False)), ("B", Bool(False))])
+        )
+        first, _end = parse_form(data)
+        second, _end = parse_form(data)
+        monkeypatch.setattr(first.props[0][1], "value", True)
+        assert first.props[1][1].value is False
+        assert second.props[0][1].value is False
 
     @pytest.mark.parametrize("size", [0, 3, 5, 10, 22])
     def test_truncated_values_never_escape_as_index_or_struct_errors(self, size: int) -> None:

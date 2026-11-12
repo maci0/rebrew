@@ -175,8 +175,9 @@ def encode(comp: Component) -> bytes:
     out = bytearray(_short_string(comp.cls) + _short_string(comp.name))
     for name, value in comp.props:
         out += _short_string(name)
+        payload = value.encode()
         out.append(value.type_byte)
-        out += value.encode()
+        out += payload
     out.append(0)
     for kid in comp.kids:
         out += encode(kid)
@@ -194,7 +195,7 @@ def render_value(value: Value, pad: str) -> str:
     if isinstance(value, Identifier):
         return value.value
     if isinstance(value, Bool):
-        return "True" if value.type_byte == _TYPE_TRUE else "False"
+        return "True" if value.value else "False"
     if isinstance(value, SetOfIdentifiers):
         return "[" + ", ".join(value.items) + "]"
     if isinstance(value, Binary):
@@ -263,10 +264,8 @@ class Reader:
             return Str(self.short_string())
         if type_byte == _TYPE_IDENT:
             return Identifier(self.short_string())
-        if type_byte == _TYPE_FALSE:
-            return False_
-        if type_byte == _TYPE_TRUE:
-            return True_
+        if type_byte in (_TYPE_FALSE, _TYPE_TRUE):
+            return Bool(type_byte == _TYPE_TRUE)
         if type_byte == _TYPE_BINARY:
             size = struct.unpack("<I", self._take(4))[0]
             return Binary(self._take(size))
