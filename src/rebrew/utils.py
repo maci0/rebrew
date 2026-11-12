@@ -1529,7 +1529,7 @@ def atomic_write_bytes(
     miss: the replace is still atomic, but a crash may cost the new entry.
     """
     filepath.parent.mkdir(parents=True, exist_ok=True)
-    if filepath.is_file():
+    if not filepath.is_symlink() and filepath.is_file():
         try:
             # A length mismatch already proves the bytes differ, so a changed
             # write never reads the destination back.  Report and cache blobs

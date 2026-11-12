@@ -163,6 +163,23 @@ def test_atomic_write_bytes_ignores_planted_symlink(tmp_path: Path) -> None:
     assert link.read_bytes() == b"payload"
 
 
+@pytest.mark.parametrize("binary", [False, True])
+def test_atomic_write_replaces_identical_symlink(tmp_path: Path, binary: bool) -> None:
+    outside = tmp_path / "outside.txt"
+    outside.write_bytes(b"same")
+    outside.chmod(0o600)
+    link = tmp_path / "link.txt"
+    link.symlink_to(outside)
+    if binary:
+        atomic_write_bytes(link, b"same", mode=0o644)
+    else:
+        atomic_write_text(link, "same", mode=0o644)
+    assert outside.stat().st_mode & 0o777 == 0o600
+    assert not link.is_symlink()
+    assert link.read_bytes() == outside.read_bytes() == b"same"
+    assert link.stat().st_mode & 0o777 == 0o644
+
+
 def test_atomic_write_bytes_survives_a_refused_fsync(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
