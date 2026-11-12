@@ -1096,7 +1096,7 @@ the managed TOML store trees, the project config, the GA log
 into `DIR/rebrew-metadata.backup.toml/`, verifying every copy; SQLite makes
 the database copy through its online backup API at
 `DIR/rebrew-metadata.backup.sqlite3` with the same `.rebrew/` sidecars beside
-it. Both write a manifest (`rebrew-backup.manifest.json`) listing every
+it. SQLite backups do not copy `rebrew-project.toml`; preserve that file separately. Both write a manifest (`rebrew-backup.manifest.json`) listing every
 backed-up file with its size and sha256. It raises when there is nothing to
 back up. `rebrew metadata restore --file FILE` verifies that manifest and
 refuses a bundle with a missing or corrupted file, preserves the live stores
@@ -3170,7 +3170,7 @@ trees, project config, the GA log (`.rebrew/ga_runs.jsonl`) and the BinSync
 baselines (`.rebrew/sync/*.toml`) into `DIR/rebrew-metadata.backup.toml/`,
 verifying every copy. SQLite copies via the online backup API to
 `DIR/rebrew-metadata.backup.sqlite3` with the same `.rebrew/` sidecars beside
-it. Every copy is verified (schema version, row count) before success is
+it. SQLite backups do not copy `rebrew-project.toml`; preserve that file separately. Every copy is verified (schema version, row count) before success is
 reported.
 
 | Option | Value | Default | Description |
