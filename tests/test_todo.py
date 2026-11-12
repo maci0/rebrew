@@ -1814,9 +1814,7 @@ class TestTodoCli:
     ) -> None:
         """A page shorter than the list says so, and --offset walks the rest."""
 
-        funcs = [
-            FunctionEntry(va=0x1000 + 0x100 * i, size=16, name=f"fn{i}") for i in range(3)
-        ]
+        funcs = [FunctionEntry(va=0x1000 + 0x100 * i, size=16, name=f"fn{i}") for i in range(3)]
         result = self._invoke(
             tmp_path,
             monkeypatch,
