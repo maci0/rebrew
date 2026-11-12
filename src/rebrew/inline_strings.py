@@ -112,7 +112,13 @@ app = typer.Typer(
 
 
 def c_literal(data: bytes) -> str:
-    """A C string literal for *data* (fixed-width octal escapes, no hex-merge risk)."""
+    """A C string literal for *data* (fixed-width octal escapes, no hex-merge risk).
+
+    ``?`` is octal too. MSVC 6 replaces trigraphs in phase 1, before it sees
+    the quotes, so a literal ending in ``??/`` becomes a backslash that escapes
+    its own closer and the bytes after it compile as code. ``\\077`` is three
+    digits, so a following octal digit stays a separate character.
+    """
     out = ['"']
     for b in data:
         if b == 0x5C:
@@ -125,7 +131,7 @@ def c_literal(data: bytes) -> str:
             out.append("\\r")
         elif b == 0x09:
             out.append("\\t")
-        elif b < 0x20 or b >= 0x7F:
+        elif b == 0x3F or b < 0x20 or b >= 0x7F:
             out.append(f"\\{b:03o}")
         else:
             out.append(chr(b))

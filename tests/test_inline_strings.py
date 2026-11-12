@@ -21,6 +21,11 @@ class TestCLiteral:
     def test_octal_fixed_width(self) -> None:
         assert c_literal(b"\x01\xff") == '"\\001\\377"'
 
+    def test_question_mark_is_not_a_trigraph(self) -> None:
+        # ``??/`` is ``\`` in phase 1, which would escape the closing quote.
+        assert c_literal(b"??/") == '"\\077\\077/"'
+        assert "??" not in c_literal(b"??/0")
+
 
 SRC = SourceFixture(
     "/* ADDRESS: TEST 0x1000 */\nint f(void) { return s_foo_10027000[0]; }\n",
