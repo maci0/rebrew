@@ -3,6 +3,13 @@
 ### Changed
 
 - Every dependency is at its newest release: `uv lock --upgrade` moves 21 packages within their caps (angr, archinfo, cle and pyvex 10.0.6, click 8.5.1, pydantic 2.14.3, pydantic-core 2.50.4, tree-sitter 0.26.1, typer 0.29.1, z3-solver 5.3.3.0, ruff 0.17.4, hypothesis 6.170.15 and the rest of their trees); no cap holds back a newer major. The floors of click, tree-sitter, typer, angr, ruff and hypothesis follow the lock, and `tools/licenses.py` moves each entry to the new version after PyPI's licence metadata for both releases compared equal. The contributor resembl pin moves from `v4.0.0` to `v5.0.0` (eb8e9b4c) in the `Makefile`, the CI `uv-env` action, `uv.lock` and the setup docs.
+### Fixed
+
+- MCP reads reject non-object JSON replies and malformed tool-content containers without crashing. MCP writes count malformed content as an error instead of confirming the operation applied. Responses and sessions still close on these error paths.
+- Strict PE header parsing rejects an undersized declared optional header even when trailing bytes are available, instead of reading section-table bytes as optional-header fields.
+- Archive parsing rejects a member whose declared body extends past EOF, including long-name and symbol tables, instead of passing incomplete object bytes to library analysis.
+- Toolchain detection falls back when Detect It Easy returns malformed JSON detection records instead of raising TypeError or AttributeError.
+- A decomp.me upload ledger containing invalid UTF-8 is treated as corrupt and can be replaced by the next recorded upload, instead of failing with UnicodeDecodeError.
 
 ## [6.32.1] - 2026-11-11
 
@@ -11,14 +18,6 @@
 - The supported Detect It Easy is 4.0 (`docs/TOOLCHAIN.md`, `docs/ONBOARDING.md`); the 3.10 vendoring recipe with Qt 5 libraries is gone, since 4.0 links Qt 6 and ships no Ubuntu package.
 
 ### Fixed
-
-- MCP reads reject non-object JSON replies and malformed tool-content containers without crashing. MCP writes count malformed content as an error instead of confirming the operation applied. Responses and sessions still close on these error paths.
-
-- Strict PE header parsing rejects an undersized declared optional header even when trailing bytes are available, instead of reading section-table bytes as optional-header fields.
-
-- Archive parsing rejects a member whose declared body extends past EOF, including long-name and symbol tables, instead of passing incomplete object bytes to library analysis.
-
-- Toolchain detection falls back when Detect It Easy returns malformed JSON detection records instead of raising TypeError or AttributeError.
 
 - `rebrew toolchain detect` takes the compiler family from Detect It Easy again. diec reports each value's `type` in lowercase (`compiler`, `linker`), and the DIE backend compared against `Compiler` and `Linker`, so it never named a family from a real scan and left it to the weaker detectors; on guild-rebrew's server.dll it now reports `detected_by=die`, `family=msvc`, `confidence=high`. The tests fed the capitalised form; they now use diec 4.0's own output, and one runs the installed diec on `tests/fixtures/tc16_hello.exe`.
 - `rebrew toolchain detect` gets Detect It Easy's answer again for a binary reached through a symlinked directory. DIE 4.0 prints nothing, exit 0, for such a path, so detect logged `diec printed no JSON` and fell back to its weaker detectors; rebrew now hands diec the resolved path.

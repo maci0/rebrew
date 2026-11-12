@@ -595,7 +595,7 @@ def read_uploads(root: Path) -> dict[str, dict[str, str]]:
     """
     try:
         raw = _uploads_path(root).read_text(encoding="utf-8")
-    except OSError:
+    except OSError, UnicodeError:
         return {}
     try:
         data = json.loads(raw)

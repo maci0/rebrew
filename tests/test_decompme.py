@@ -997,6 +997,14 @@ class TestUploadLedger:
         assert decompme.recorded_upload(tmp_path, digest, "https://decomp.me") is None
         assert "other" in decompme.read_uploads(tmp_path)
 
+    def test_non_utf8_ledger_can_be_read_and_replaced(self, tmp_path: Path) -> None:
+        path = tmp_path / ".rebrew" / "decompme-uploads.json"
+        path.parent.mkdir()
+        path.write_bytes(b"\xff")
+        assert decompme.read_uploads(tmp_path) == {}
+        decompme.record_upload(tmp_path, "digest", "abc", "tok", "https://decomp.me")
+        assert decompme.read_uploads(tmp_path)["digest"]["slug"] == "abc"
+
     def test_corrupt_ledger_reads_as_empty(self, tmp_path: Path) -> None:
         path = tmp_path / ".rebrew" / "decompme-uploads.json"
         path.parent.mkdir(parents=True)
