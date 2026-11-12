@@ -102,7 +102,7 @@ rebrew test src/target_name/my_func.c
 |--------|---------|--------|
 | `EXACT MATCH` | Byte-for-byte identical | STATUS auto-promoted to EXACT |
 | `RELOC-NORMALIZED MATCH` | Identical except relocations | STATUS auto-promoted to RELOC |
-| `MISMATCH` with same size | Logic matches but some bytes differ | Auto-promoted to NEAR_MATCHING if ≥60%; investigate diffs |
+| `MISMATCH` with same size | Equal byte length; differing bytes do not establish semantic equivalence | Auto-promoted to NEAR_MATCHING if ≥60%; investigate diffs |
 | `MISMATCH` below 60% byte match | Significantly different codegen | Auto-demoted to STUB; investigate with diff mode |
 | `COMPILE ERROR` | C code doesn't compile | Fix syntax errors |
 | `Symbol not found` | Wrong symbol name | Check the decorated name |
@@ -144,7 +144,7 @@ rebrew match flags src/target_name/my_func.c
 # Run the GA over C source variants
 rebrew match run src/target_name/my_func.c --generations 100 --pop-size 64
 
-# Batch flag sweep on all NEAR_MATCHING functions, auto-update CFLAGS on improvement
+# Batch flag sweep on NEAR_MATCHING functions; update CFLAGS after a confirmed byte match
 rebrew match batch --fix-cflags --algorithm flags
 
 # Near-miss batch: focus on NEAR_MATCHING functions with ≤5B delta
