@@ -348,15 +348,15 @@ target-scoped routes, and `/api/health` answers 500 `database_error` only when
 the whole directory yields none: the case `rebrew coverage serve` also refuses to
 start on.
 
-There is no migration, no version gate and no `--force` unlink.  Every run
-replaces the previous document whole, so there is no half-written state to
-recover and no stale schema to migrate past; the flag exists for command lines
-that already pass it.  A previous document of another `version` contributes
-nothing, because the keys that carry history and verify rows are exactly the ones
-a foreign layout would have to be guessed at.  For a document of the current
-version the rebuild reads it for two things only: its `functions` statuses, as
-the baseline for the new `history` rows, and its `verify_results`, to keep the
-stamp of a verdict whose measurements did not move.
+Explicit exports replace each document atomically after validating the existing
+one. Malformed or foreign-version documents block overwrite. Retained history
+must first be imported into canonical metadata with `rebrew coverage import-history`;
+unimported events also block overwrite. `coverage export` has no `--force` or
+`--regen` option to bypass these checks.
+
+Project exports take history from the canonical function store. Previous
+`verify_results` preserve the measurement time when the measurements have not
+changed; exported function statuses are not the project's history authority.
 
 ---
 
