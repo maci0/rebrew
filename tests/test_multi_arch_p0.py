@@ -138,6 +138,28 @@ class TestExtentWalker:
         extent = function_extent_from_bytes(info, data, 0x1000, with_kind=with_kind)
         assert extent == ((6, kind) if with_kind else 6)
 
+    @pytest.mark.parametrize("endian", ["little", "big"])
+    @pytest.mark.parametrize("with_kind", [False, True])
+    @pytest.mark.parametrize(
+        ("words", "size", "kind"),
+        [
+            ((0xE1A00000, 0xE12FFF1E), 8, "ret"),  # nop; bx lr
+            ((0xE1A00000, 0xE12FFF10), 8, "jmp"),  # nop; bx r0
+            ((0xE1A00000, 0xE8BD8010), 8, "ret"),  # nop; pop {r4, pc}
+            ((0xE1A00000, 0xE8BD0010, 0xE1A00000, 0xE12FFF1E), 16, "ret"),
+        ],
+    )
+    def test_arm_return_detection_uses_the_branch_register_or_pop_list(
+        self, endian: str, with_kind: bool, words: tuple[int, ...], size: int, kind: str
+    ) -> None:
+        from rebrew.formats.binary_loader import function_extent_from_bytes
+
+        data = b"".join(word.to_bytes(4, endian) for word in words)
+        info = SimpleNamespace(arch="arm32", endian=endian, format="elf")
+        assert function_extent_from_bytes(info, data, 0x1000, with_kind=with_kind) == (
+            (size, kind) if with_kind else size
+        )
+
     def _extent(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, arch: str, fmt: str, raw: bytes
     ) -> int:

@@ -937,7 +937,12 @@ def function_extent_from_bytes(
                 if target >= va + len(data):
                     return None
                 forward_target = max(forward_target, target)
-            if mnem in rets and insn.address >= forward_target:
+            is_return = mnem in rets
+            if arch == "arm32":
+                is_return = (mnem == "bx" and insn.op_str == "lr") or (
+                    mnem == "pop" and "pc" in insn.op_str
+                )
+            if is_return and insn.address >= forward_target:
                 # Delayed terminators keep the following instruction,
                 # which can restore the stack or finish computing a result.
                 extent = min(offset + insn.size + delay_slot, len(data))
@@ -1002,7 +1007,7 @@ def function_extent_from_bytes(
     if arch == "arm32":
         md = _disassembler(cs_arch, mode)
         md.skipdata = False
-        return _walk(md, {"bx"}, {"b"})
+        return _walk(md, {"bx"}, {"b", "bx"})
 
     if arch == "sh2":
         md = _disassembler(cs_arch, mode)
