@@ -217,6 +217,82 @@ class TestFixtureProject:
             write_fixture_project(real)
         assert (real / "src" / "main.c").is_file()
 
+    @pytest.mark.parametrize("marker", [None, b"not an owned fixture\n"])
+    def test_real_project_config_does_not_authorize_deletion(
+        self, tmp_path: Path, marker: bytes | None
+    ) -> None:
+        from tools.check_idempotency import write_fixture_project
+
+        real = tmp_path / "real-project"
+        real.mkdir()
+        config = real / "rebrew-project.toml"
+        config.write_text('[project]\nname = "real-project"\n')
+        source = real / "important.c"
+        source.write_bytes(b"int important(void) { return 42; }\n")
+        source.chmod(0o444)
+        if marker is not None:
+            (real / ".rebrew-idempotency-fixture").write_bytes(marker)
+        before = {p.name: (p.read_bytes(), p.stat().st_mode) for p in real.iterdir()}
+        with pytest.raises(SystemExit, match="refusing"):
+            write_fixture_project(real)
+        assert {p.name: (p.read_bytes(), p.stat().st_mode) for p in real.iterdir()} == before
+
+    def test_write_named_child_does_not_authorize_sweep_deletion(self, tmp_path: Path) -> None:
+        from tools.check_idempotency import _clear_sweep_base
+
+        base = tmp_path / "real-write"
+        project = base / "write-important"
+        project.mkdir(parents=True)
+        config = project / "rebrew-project.toml"
+        config.write_text('[project]\nname = "real-project"\n')
+        source = project / "important.c"
+        source.write_bytes(b"do not delete\n")
+        with pytest.raises(SystemExit, match="refusing"):
+            _clear_sweep_base(base)
+        assert source.read_bytes() == b"do not delete\n"
+        assert config.read_text() == '[project]\nname = "real-project"\n'
+
+    @pytest.mark.parametrize("link_kind", ["directory", "marker"])
+    def test_symlinks_cannot_authorize_deletion(self, tmp_path: Path, link_kind: str) -> None:
+        from tools.check_idempotency import (
+            _SCRATCH_MARKER,
+            _SCRATCH_MARKER_CONTENT,
+            _clear_scratch,
+            write_fixture_project,
+        )
+
+        project = write_fixture_project(tmp_path / "owned")
+        config = (project / "rebrew-project.toml").read_bytes()
+        candidate = project
+        if link_kind == "directory":
+            candidate = tmp_path / "link"
+            candidate.symlink_to(project, target_is_directory=True)
+        else:
+            external = tmp_path / "marker"
+            external.write_bytes(_SCRATCH_MARKER_CONTENT)
+            marker = project / _SCRATCH_MARKER
+            marker.unlink()
+            marker.symlink_to(external)
+        with pytest.raises(SystemExit, match="refusing"):
+            _clear_scratch(candidate)
+        assert (project / "rebrew-project.toml").read_bytes() == config
+
+    def test_owned_sweep_can_be_recreated_after_config_edits(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from tools import check_idempotency as checker
+
+        monkeypatch.setattr(checker, "DEFAULT_COMMANDS", [])
+        monkeypatch.setattr(checker, "WRITE_COMMANDS", [])
+        project = tmp_path / "fixture"
+        assert checker.main(["--fixture-dir", str(project)]) == 0
+        base = tmp_path / "fixture-write"
+        child = checker.write_fixture_project(base / "write0")
+        (child / "rebrew-project.toml").write_text('[project]\nname = "edited by sweep"\n')
+        assert checker.main(["--fixture-dir", str(project)]) == 0
+        assert not child.exists()
+        assert checker._is_scratch_project(base)
+
     def test_refuses_to_clear_a_sweep_base_it_did_not_assemble(self, tmp_path: Path) -> None:
         from tools.check_idempotency import _clear_sweep_base
 

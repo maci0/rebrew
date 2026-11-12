@@ -78,19 +78,23 @@ timeout = 60
 """
 
 
-def _is_scratch_project(path: Path) -> bool:
-    """True when *path* looks like a fixture project this module assembled.
+_SCRATCH_MARKER = ".rebrew-idempotency-fixture"
+_SCRATCH_MARKER_CONTENT = b"rebrew idempotency scratch v1\n"
 
-    The write sweep deletes the directories it is handed, and both come from
-    a caller-supplied ``--fixture-dir``.  A typo, or a real project, must not
-    be removable: only a tree carrying the fixture's own config, or an empty
-    one, is scratch.
-    """
-    if not path.is_dir():
+
+def _is_scratch_project(path: Path) -> bool:
+    """True only for a real directory carrying this tool's exact ownership marker."""
+    marker = path / _SCRATCH_MARKER
+    try:
+        return (
+            path.is_dir()
+            and not path.is_symlink()
+            and marker.is_file()
+            and not marker.is_symlink()
+            and marker.read_bytes() == _SCRATCH_MARKER_CONTENT
+        )
+    except OSError:
         return False
-    if not any(path.iterdir()):
-        return True
-    return (path / "rebrew-project.toml").is_file()
 
 
 def _clear_scratch(path: Path) -> None:
@@ -99,8 +103,7 @@ def _clear_scratch(path: Path) -> None:
         return
     if not _is_scratch_project(path):
         raise SystemExit(
-            f"refusing to remove {path}: it is not an empty directory or an "
-            f"assembled fixture project (no rebrew-project.toml)"
+            f"refusing to remove {path}: it lacks this tool's idempotency fixture marker"
         )
     for p in path.rglob("*"):
         if not p.is_symlink() and p.is_file():
@@ -110,18 +113,14 @@ def _clear_scratch(path: Path) -> None:
 
 
 def _clear_sweep_base(base: Path) -> None:
-    """Remove a previous run's ``write<N>`` scratch trees under *base*.
-
-    Only a directory whose every child is one of those trees is scratch;
-    anything else means the caller pointed ``--fixture-dir`` at a real tree.
-    """
+    """Remove an owned sweep base only when every child is also an owned fixture."""
     if not base.exists():
         return
-    if not base.is_dir() or not all(
-        child.is_dir() and child.name.startswith("write") for child in base.iterdir()
+    if not _is_scratch_project(base) or not all(
+        child.name == _SCRATCH_MARKER or _is_scratch_project(child) for child in base.iterdir()
     ):
-        raise SystemExit(f"refusing to clear {base}: it is not a rebrew write-sweep scratch base")
-    shutil.rmtree(base, ignore_errors=True)
+        raise SystemExit(f"refusing to clear {base}: it is not an owned idempotency scratch base")
+    _clear_scratch(base)
 
 
 def write_fixture_project(project_dir: Path) -> Path:
@@ -140,6 +139,7 @@ def write_fixture_project(project_dir: Path) -> Path:
     """
     _clear_scratch(project_dir)
     project_dir.mkdir(parents=True, exist_ok=True)
+    (project_dir / _SCRATCH_MARKER).write_bytes(_SCRATCH_MARKER_CONTENT)
     (project_dir / "original").mkdir(exist_ok=True)
     (project_dir / "src" / "SERVER").mkdir(parents=True, exist_ok=True)
     (project_dir / "bin" / "SERVER").mkdir(parents=True, exist_ok=True)
@@ -554,6 +554,8 @@ def main(argv: list[str] | None = None) -> int:
         # index, so shrinking or reordering WRITE_COMMANDS would otherwise
         # leave the stale write7/, write8/... trees behind forever.
         _clear_sweep_base(sweep_base)
+        sweep_base.mkdir(parents=True, exist_ok=True)
+        (sweep_base / _SCRATCH_MARKER).write_bytes(_SCRATCH_MARKER_CONTENT)
         # Each command mutates its own write{index} directory, so the runs
         # share nothing but the print order, which map preserves.
         write_root = sweep_base
