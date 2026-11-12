@@ -752,6 +752,16 @@ def _check_W031_metadata_store(cfg: ProjectConfig) -> list[LintResult]:
                         raise ValueError(f"{name} must be a string, got {value!r}")
                 except (TypeError, ValueError) as exc:
                     problems.append(f"{key}: {exc}")
+            if (
+                not data_store
+                and "similarity" in lower
+                and (
+                    not entry.get("status")
+                    or not isinstance(entry.get("verification"), dict)
+                    or entry.get("status") != entry.get("verification", {}).get("status")
+                )
+            ):
+                problems.append(f"{key}: similarity requires a comparison verdict")
             if ("updated_by" in lower) != ("updated_at" in lower):
                 problems.append(
                     f"{key}: half a provenance pair (updated_by / updated_at are written together)"

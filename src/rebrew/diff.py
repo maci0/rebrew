@@ -392,6 +392,9 @@ def run_diff(
         pointer_size=ptr_size,
     )
     if isinstance(summary, dict):
+        from rebrew.alignment import measure_alignment
+
+        summary.update(measure_alignment(p.cfg, p.target_bytes, res.obj_bytes, p.va_int))
         summary["candidate_size"] = full_obj_size
         if bindings:
             summary["relocation_bindings"] = bindings

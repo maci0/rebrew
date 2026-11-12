@@ -302,6 +302,19 @@ silent metadata write that the build never honors.
 `--va`, `--symbol`, or `--target-bin`. Those flags select one function.
 `--dir`, `--module`, and `--jobs` require `--all` and exit 2 without it.
 
+`test --json` function results and `diff --json` summaries include
+`aligned_pairs`, `target_instructions`, `candidate_instructions`, `hunks`,
+and `similarity` (0–1). These use climb's normalized instruction alignment,
+with address operands folded, on the full compiled object without another
+compile. Similarity is `2 * aligned_pairs / (target_instructions +
+candidate_instructions)` (zero for no decoded instructions). Hunks count
+non-equal alignment regions. An insertion preserves later matching pairs;
+extra instructions still lower similarity. Use these alongside native evidence
+when judging SIZE_MISMATCH edits. They do not prove behavior or operand bindings,
+change STATUS, or contribute matched bytes; `match_count` remains positional.
+Promoting test/verify writes the percent as the protected function-row
+`similarity`, with counts in `verification`; `--no-promote` records neither.
+
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `SOURCE` | str | — | Source file, symbol name, or VA (hex) (omit with --all) |
@@ -433,7 +446,8 @@ base fixups by RVA and type, with the block/directory/section byte layout),
 `rsrc`, headers, plus `layout` freshness; `errors` lists binaries that failed
 to load or parse, which counts as drift).
 Per-function result rows carry `diff_lines` (structural diff count),
-`similarity`, `reg_delta` (register-encoding-only diff count), and
+`similarity` (aligned normalized instructions, 0–100 percent),
+`reg_delta` (register-encoding-only diff count), and
 `effective_match` (true when the entire delta is register allocation);
 all consumed by the coverage documents `rebrew coverage export --output snapshots/` writes.
 

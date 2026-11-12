@@ -95,6 +95,11 @@ def build_catalog_data(
         if with_data
         else None
     )
+    if data is not None and trusted is None:
+        for entry in entries:
+            function = data["functions"].get(f"0x{entry.va:08x}")
+            if function is not None and entry.similarity is not None:
+                function["similarity"] = entry.similarity / 100.0
     return {
         "target": cfg.target_name,
         "entries": entries,

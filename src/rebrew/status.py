@@ -108,6 +108,7 @@ class StatusReport:
 
     # Per-status breakdown
     status_counts: dict[str, int] = field(default_factory=dict)
+    similarity: dict[str, dict[str, float | int]] = field(default_factory=dict)
 
     # Byte-level coverage
     matched_bytes: int = 0
@@ -278,6 +279,7 @@ class StatusReport:
                 "covered": self.covered_functions,
             },
             "status": self.status_counts,
+            "similarity": self.similarity,
             "modules": self.module_status,
             "library_identified": self.library_identified,
             "coverage_pct": self.coverage_pct,
@@ -1007,6 +1009,7 @@ def collect_status(
     verify_details = load_verify_details(cfg, cache_raw) if trusted is None else {}
     verify_statuses = {va: status for va, (status, _eff) in verify_details.items()}
 
+    similarity_values: dict[str, list[float]] = {}
     # Single pass: status breakdown + byte-level coverage.
     status_counts: dict[str, int] = {}
     size_by_va: dict[int, int] = {f.va: f.size for f in ghidra_funcs}
@@ -1090,6 +1093,9 @@ def collect_status(
         if verify_details.get(va, ("", False))[1] and effective not in MATCHED_STATUSES:
             effective_matches += 1
         status_counts[effective] = status_counts.get(effective, 0) + 1
+        score = info.get("similarity")
+        if score is not None and effective == ann_status:
+            similarity_values.setdefault(effective, []).append(float(score))
         span_va, size = _span(va, info)
         inventory_size = size_by_va.get(va, 0)
         report.status_bytes[effective] = report.status_bytes.get(effective, 0) + size
@@ -1119,6 +1125,10 @@ def collect_status(
             )
             if tail is not None:
                 native_tails.append(tail)
+    report.similarity = {
+        status: {"count": len(values), "mean": sum(values) / len(values)}
+        for status, values in similarity_values.items()
+    }
     report.status_counts = status_counts
     report.library_identified = library_identified
     report.matched_bytes = matched_bytes

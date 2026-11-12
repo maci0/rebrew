@@ -78,7 +78,7 @@ def _coerce(key: str, value: Any) -> Any:
     if key in _STR_FIELDS and not isinstance(value, str):
         # Left uncoerced, `status = 5` crashed `problems()` on `.upper()`.
         raise MetadataValidationError(f"{key} must be a str, got {value!r}")
-    if key in {"status_history", "binding_history"}:
+    if key in {"status_history", "binding_history", "similarity"}:
         try:
             return validate_metadata_field(key, value)
         except ValueError as exc:
@@ -96,6 +96,7 @@ class MetadataEntry:
     cflags: str | None = None
     toolchain: str | None = None
     status: str | None = None
+    similarity: float | None = None
     blocker: str | None = None
     blocker_delta: int | None = None
     note: str | None = None

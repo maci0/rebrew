@@ -210,6 +210,7 @@ class SourceBinding:
     updated_at: str = ""
     origins: dict[str, Any] = field(default_factory=dict)
     verification: dict[str, Any] = field(default_factory=dict)
+    similarity: float | None = None
     comparison_inputs: dict[str, str] | None = field(default=None, repr=False)
     #: Identity the last comparison was measured under, stamped by verify
     #: before compiling.  The cache writer refuses to store a verdict when the

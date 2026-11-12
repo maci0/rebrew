@@ -857,3 +857,39 @@ def comparison_inputs_current(cfg: Any, source: Path, inputs: dict[str, str] | N
         )
     except OSError, AttributeError, TypeError, ValueError:
         return False
+
+
+def current_similarity(cfg: Any, entry: dict[str, Any]) -> float | None:
+    """Read a comparison percentage only while its verdict and inputs are current."""
+    from rebrew.compiler.overrides import resolve_compile_overrides_cached
+    from rebrew.metadata.functions import validate_metadata_field
+
+    value = entry.get("similarity")
+    evidence = entry.get("verification")
+    if value is None or not isinstance(evidence, dict) or not entry.get("file"):
+        return None
+    if not {"source_hash", "cflags", "headers_hash", "compiler_hash"} <= evidence.keys():
+        return None
+    if evidence.get("status") != entry.get("status") or evidence.get("similarity") != value:
+        return None
+    try:
+        validate_metadata_field("similarity", value)
+    except ValueError:
+        return None
+    source = cfg.root / entry["file"]
+    toolchain, cflags = resolve_compile_overrides_cached(
+        cfg,
+        source.parent,
+        entry.get("toolchain", ""),
+        entry.get("cflags", ""),
+        evidence.get("module", ""),
+    )
+    if (toolchain or DEFAULT_TOOLCHAIN) != evidence.get("toolchain") or cflags != evidence.get(
+        "cflags"
+    ):
+        return None
+    if str(entry.get("size")) != evidence.get("reference_size"):
+        return None
+    if not comparison_inputs_current(cfg, source, evidence):
+        return None
+    return float(value)

@@ -227,6 +227,10 @@ class TestRunDiff:
         report = json.loads(capsys.readouterr().out)
         assert report["target_size"] == 8
         assert report["candidate_size"] == candidate_size
+        assert report["candidate_instructions"] == candidate_size
+        assert report["target_instructions"] == 8
+        assert report["aligned_pairs"] == min(8, candidate_size)
+        assert report["similarity"] == 2 * min(8, candidate_size) / (8 + candidate_size)
 
     def test_human_report_uses_unclipped_candidate_size(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture

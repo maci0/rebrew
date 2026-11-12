@@ -31,6 +31,7 @@ lazy from rebrew.utils import is_safe_c_ident, preset_module_key
 # History stores only the claim and its measurement, never another copy of history.
 _PREVIOUS_FIELDS = frozenset(FUNCTION_IDENTITY_FIELDS) | {
     "status",
+    "similarity",
     "size",
     "cflags",
     "toolchain",
@@ -294,7 +295,7 @@ def _apply_change(
     entry["binding_history"] = validate_binding_history([*history, event])
     if native_size is not None and not entry.get("size"):
         entry["size"] = native_size
-    for field in (*FUNCTION_IDENTITY_FIELDS, "status", "blocker", "blocker_delta"):
+    for field in (*FUNCTION_IDENTITY_FIELDS, "status", "similarity", "blocker", "blocker_delta"):
         entry.pop(field, None)
     if identity is not None:
         entry.update(identity)

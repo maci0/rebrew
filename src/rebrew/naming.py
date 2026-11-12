@@ -370,6 +370,14 @@ def load_data(
         }
         covered_vas[entry.va] = entry.filepath
 
+    from rebrew.verify_hash import current_similarity
+
+    for va, values in existing.items():
+        row = metadata.get((values.get("module", ""), va), {})
+        score = current_similarity(cfg, row)
+        if score is not None:
+            values["similarity"] = str(score)
+
     _clip_to_next_start(ghidra_funcs, existing.keys())
     # Discovery can mistake alignment runs for functions. Keep annotations,
     # named functions, and exports; inspect only short anonymous x86 spans.

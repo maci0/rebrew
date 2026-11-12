@@ -140,6 +140,7 @@ PACKAGE_EXTERNALS: dict[str, frozenset[str]] = {
             "sources",
             "status",
             "utils",
+            "verify_hash",
             "workspace",
         }
     ),

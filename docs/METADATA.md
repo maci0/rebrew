@@ -480,6 +480,12 @@ supplies its own tag.
   The coverage document's `verify_results[]` row
   (`verified_at`, `byte_delta`, `diff_lines`, `similarity`, `reg_delta`,
   `effective_match`) is derived and a rebuild only carries it forward.
+- **Similarity belongs to the comparison.** Function rows may carry a protected
+  `similarity` percentage, copied from accepted test/verify evidence. Numeric
+  alignment counts stay in `verification`; ordinary setters cannot supply the
+  row field. Live readers omit scores with stale source/header/compiler inputs
+  or changed size/compile overrides. This score never changes STATUS or matched
+  byte accounting; see [the store format](METADATA_FORMAT.md#functions).
 - **Status history is durable.** The function metadata owner appends
   `status_history` (`old_status`, `new_status`, `changed_at`, `updated_by`)
   atomically with each accepted status transition. It validates, deduplicates and

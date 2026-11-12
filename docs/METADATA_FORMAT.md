@@ -51,6 +51,22 @@ existing fields and verdicts intact. `record_function_identity` and
 are byte matches; PROVEN is semantic evidence and is overwritten by the next byte
 comparison. Parked SKIP and unfinished STUB retain their documented writer rules.
 
+`similarity` is an optional numeric percentage in `[0, 100]`, including zero.
+Only the locked test/verify verdict writer sets it, copying
+`verification.similarity` when it accepts the comparison. Generic setters and
+removers refuse this field. A subsequent accepted comparison without a score
+clears it; retiring or replacing a source binding clears the current score while
+retaining it in binding history. Source, header, compiler, size and flag changes
+make the score stale; live readers omit stale measurements until reverified.
+
+The supporting non-negative integer counts (`aligned_pairs`,
+`target_instructions`, `candidate_instructions`, `hunks`) stay in `verification`.
+Similarity is diagnostic: it never promotes STATUS or contributes matched bytes.
+Status JSON exposes `similarity` keyed by status, with `count` and `mean` in
+percent. Catalog and coverage use the existing `similarity` field on a `[0, 1]`
+scale, including durable receipts when the delete-safe verify cache is absent.
+BinSync exports neither STATUS nor similarity.
+
 ## Data
 
 ```toml

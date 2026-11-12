@@ -753,6 +753,8 @@ def build_result_dict_from_compare(
         context_hash=cmp.context_hash,
         include_mismatches=include_mismatches,
     )
+    if cmp.alignment is not None:
+        result.update(cmp.alignment)
     if cmp.relocation_bindings is not None:
         result["relocation_bindings"] = cmp.relocation_bindings
     return result
@@ -1636,6 +1638,9 @@ def _run_test_impl(
                 json.dumps(measured_inputs, sort_keys=True, ensure_ascii=True).encode()
             ).hexdigest()
 
+    from rebrew.alignment import record_alignment
+
+    record_alignment(cfg, cmp, target_bytes, int(va_str, 16) if va_str else 0, measured_inputs)
     result_dict = build_result_dict_from_compare(
         source,
         symbol,
@@ -2301,6 +2306,9 @@ def _test_multi(
                     cmp.message = LINKED_MESSAGE
                     measured_inputs = kept
 
+            from rebrew.alignment import record_alignment
+
+            record_alignment(cfg, cmp, target_bytes, ann.va, measured_inputs)
             if json_output:
                 result_dict = build_result_dict_from_compare(
                     source,

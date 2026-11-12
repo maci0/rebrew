@@ -438,10 +438,9 @@ def import_verify_rows(
 ) -> list[tuple[Any, ...]] | None:
     """Rows for ``verify_results``, or ``None`` when the cache says nothing about this target.
 
-    The one implementation behind that table: the verify cache is the only
-    source of it, and the row mapping plus the three-state answer below are the
-    whole rule.  A second spelling of either is exactly the drift the TOML
-    module exists to remove.
+    The verify cache supplies byte/diff measurements. Current canonical function
+    receipts supply similarity even without that cache, and supersede its score.
+    Both use the same normalized field and three-state answer below.
 
     The three-state answer is the whole contract, because reading it as a list
     loses the difference between two facts:
@@ -467,20 +466,46 @@ def import_verify_rows(
         if (root_dir / "rebrew-project.toml").exists()
         else SimpleNamespace(root=root_dir, target_name=target_name)
     )
+    from rebrew.config import target_module
+    from rebrew.metadata.functions import load_metadata
+    from rebrew.verify_hash import current_similarity
+
+    durable: dict[int, dict[str, Any]] = {}
+    if hasattr(cfg, "metadata_dir"):
+        for (module, va), metadata_row in load_metadata(cfg.metadata_dir, deepcopy=False).items():
+            if module == target_module(cfg) and "similarity" in metadata_row:
+                durable[va] = metadata_row
     cache_path = cache_path_for(cfg, for_read=True)
     raw = load_verify_cache_raw(cfg)
-    # The cache stores verdicts measured against one compiler config and one
-    # binary image; the same predicate verify/status use decides whether those
-    # rows are still this project's rows.  A cache left behind by a rebuild of
-    # the target binary must not be republished as current, so the compiler and
-    # binary identity guards apply here too, not just target and version.
-    if not isinstance(raw, dict) or not _verify_cache_belongs_to_project(
+    entries = None
+    if isinstance(raw, dict) and _verify_cache_belongs_to_project(
         root_dir, target_name, raw, cfg=cfg
     ):
-        return None
-    entries = raw.get("entries")
+        entries = raw.get("entries")
     if not isinstance(entries, dict):
-        return None
+        if not durable:
+            return None
+        entries = {}
+    else:
+        entries = dict(entries)
+    keys_by_va = {}
+    for key, item in entries.items():
+        if isinstance(item, dict):
+            try:
+                keys_by_va[_parse_int_literal(str(item.get("va", key)))] = key
+            except TypeError, ValueError:
+                continue
+    for va, metadata_row in durable.items():
+        score = current_similarity(cfg, metadata_row)
+        cache_key = keys_by_va.get(va)
+        if cache_key is not None:
+            entries[cache_key] = {**entries[cache_key], "similarity": score}
+        elif score is not None:
+            entries[str(va)] = {
+                "va": va,
+                "similarity": score,
+                "measured_at": metadata_row["verification"].get("measured_at", now_iso),
+            }
 
     # verified_at is when the cache was last updated, and its file mtime is the
     # only stamp the cache document does not already carry.
@@ -512,7 +537,7 @@ def import_verify_rows(
             (
                 target_name,
                 max(0, va_int),
-                verified_at,
+                item.get("measured_at", verified_at),
                 clamp_nonneg_int(item.get("delta")),
                 clamp_nonneg_int(item.get("diff_lines")),
                 _clamp_verify_similarity(item.get("similarity")),

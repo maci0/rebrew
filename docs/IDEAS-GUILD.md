@@ -4921,3 +4921,14 @@ pair; and an exact masked-hash pre-pass before similarity scoring.
 ## Compiler-backed contract audit contexts
 
 2026-11-12: guild-rebrew `types reconcile CompareVector3WithinTolerance src/client_scene_transform.h --prototype 'int __cdecl CompareVector3WithinTolerance(float* a, float* b, float range);' --image-headers --dry-run --json` refuses on project-wide SDK parse errors and incomplete conditional includes. Server alone has 1,731 parse-error contexts, 61 multi-declarator contexts and 33 incomplete closures before the scoped audit fix. Typedef uncertainty was already name-scoped. `capture_msvc_context` captures one explicit CMake output, with strict staging/flag/macro/path checks; it cannot transparently replace the lexical all-target audit. Wanted: compiler-backed contract contexts with physical source mapping, selected-name/type/macro dependency evidence, and reusable per-TU preprocessing inputs. Missing includes and parser recovery may hide the selected name, so raw-name absence must not bypass those gates. Replay evidence and profiles: guild-rebrew `.scratch/review/rebrew-upstream-2/`.
+
+## November 12: shifted instruction streams
+
+- Implemented: expose climb's normalized instruction alignment in test/diff JSON
+  and persist the promoting measurement independently of byte STATUS. Positional
+  `match_count` rewarded shifts: GoldTL 0x459870's behavior correction dropped
+  97 to 7 positional bytes, while gm_AllocSpieler rose 859 to 909 positional
+  matches as aligned pairs fell 740 to 728 (climb scorer evidence). Replay:
+  `rebrew test src/Develop/Units/m_alloc/GOLDTL.fcn_00418bc0.c --target Europa1400Gold_TL.exe --no-promote --json`
+  in guild-rebrew. The shared aligner measures full extracted object bytes
+  without a second compile; the score remains diagnostic, never byte coverage.

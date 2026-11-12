@@ -250,12 +250,10 @@ class CompareResult:
     #: unmatched functions so the recovery-consumed ``verify_results``
     #: ``diff_lines`` column carries real data instead of NULL.
     diff_lines: int | None = None
-    #: Structural code-similarity score (0-100) between the compiled and
-    #: target bytes, computed via the optional ``resembl`` scoring core
-    #: (``None`` when not computed, e.g. the extra is not installed).  Populated
-    #: best-effort by ``rebrew verify`` for every verified function so the
-    #: ``verify_results`` ``similarity`` column carries real data.
+    #: Normalized instruction alignment as a percent; never a byte verdict.
     similarity: float | None = None
+    #: Matching pairs, instruction counts, hunks, and unit-interval similarity.
+    alignment: dict[str, int | float] | None = None
     #: Number of register-encoding-only differing instructions (the ``RR``
     #: class of the register-aware diff) - the delta size of an *effective
     #: match*.  ``None`` when the register-aware diff was not computed
@@ -315,6 +313,7 @@ class CompareResult:
             "full_obj_size": self.full_obj_size,
             "diff_lines": self.diff_lines,
             "similarity": self.similarity,
+            "alignment": self.alignment,
             "reg_delta": self.reg_delta,
             "effective_match": self.effective_match,
             "context_hash": self.context_hash,

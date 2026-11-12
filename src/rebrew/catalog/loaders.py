@@ -475,4 +475,10 @@ def scan_reversed_dir(
                 entries.append(entry)
                 seen.add((entry.module, entry.va))
 
+    if cfg is not None:
+        from rebrew.verify_hash import current_similarity
+
+        for entry in entries:
+            entry.similarity = current_similarity(cfg, metadata.get((entry.module, entry.va), {}))
+
     return entries

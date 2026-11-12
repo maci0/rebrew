@@ -16,6 +16,17 @@ license: MIT
 Deep dive into diff analysis and the GA engine.
 For the overall reversing workflow, see the `rebrew-workflow` skill.
 
+For SIZE_MISMATCH progress, use `test --json` / `diff --json` alignment fields:
+`aligned_pairs`, `target_instructions`, `candidate_instructions`, `hunks`,
+and `similarity` (0–1; twice pairs divided by both instruction counts).
+They reuse climb's normalized instructions and full object bytes. Prefer more
+pairs and fewer hunks while checking size and native behavior; positional
+`match_count` can improve just by shifting code. Alignment folds address operands,
+so it proves neither byte identity nor correct bindings. Promoting test/verify
+stores the aligned percent in function `similarity` and counts in `verification`;
+`--no-promote` leaves metadata alone. STATUS and matched-byte accounting still
+come exclusively from the byte comparison.
+
 ## When NOT to use this skill
 
 - Picking which function to work on → use `rebrew-workflow` (`rebrew todo`)

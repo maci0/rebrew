@@ -442,21 +442,9 @@ def verify_entry(
             with contextlib.suppress(Exception):
                 log.debug("diff_lines failed for 0x%x: %s", entry.va, exc)
             result.diff_lines = None
-    # Structural code-similarity score (0–100), computed for EVERY verified
-    # function with compiled bytes — matched (short-circuit ~100) and
-    # unmatched alike — so the recovery-consumed verify_results.similarity
-    # column carries a per-function value.  Reuses the optional `resembl`
-    # scoring core; best-effort like diff_lines (a missing extra or a scoring
-    # failure leaves it None rather than failing the run).
-    if result.obj_bytes:
-        try:
-            from rebrew.matcher import code_similarity
+    from rebrew.alignment import record_alignment
 
-            result.similarity = code_similarity(target_bytes, result.obj_bytes)
-        except Exception as exc:  # similarity is best-effort
-            with contextlib.suppress(Exception):  # see diff_lines above
-                log.debug("similarity failed for 0x%x: %s", entry.va, exc)
-            result.similarity = None
+    record_alignment(cfg, result, target_bytes, entry.va, entry.comparison_inputs)
     return result
 
 

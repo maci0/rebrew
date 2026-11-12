@@ -956,7 +956,13 @@ def test_verify_entry_survives_a_raising_logger(
         raise RuntimeError("disassembly unavailable")
 
     monkeypatch.setattr(matcher_mod, "diff_functions", _boom, raising=False)
-    monkeypatch.setattr(matcher_mod, "code_similarity", _boom, raising=False)
+    import rebrew.alignment as alignment_mod
+
+    monkeypatch.setattr(
+        alignment_mod,
+        "measure_alignment",
+        lambda *a, **k: (_ for _ in ()).throw(ValueError("disassembly unavailable")),
+    )
 
     cfg = _cfg(tmp_path)
     cfg.arch = "x86_32"

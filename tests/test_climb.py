@@ -19,6 +19,7 @@ import pytest
 from cli_json import cli_payload
 from source_util import SourceFixture, write_source
 
+import rebrew.alignment
 import rebrew.climb
 from rebrew.climb import _climb, _statements, _swap, _within_size_budget, function_span
 from rebrew.utils import SOURCE_BACKUP_DIRNAME
@@ -119,9 +120,34 @@ class TestScoreAligned:
 
         import rebrew.analysis
 
-        result = SimpleNamespace(obj_bytes=b"obj", full_obj_size=12, reloc_offsets=[])
+        result = SimpleNamespace(
+            obj_bytes=b"obj", full_obj_size=12, full_obj_bytes=None, reloc_offsets=[]
+        )
         monkeypatch.setattr(rebrew.climb, "compile_and_compare", lambda *a, **k: result)
         return result, rebrew.analysis
+
+    def test_score_includes_full_object_tail(self, monkeypatch, tmp_path) -> None:
+        from types import SimpleNamespace
+
+        result, _ = self._result(monkeypatch)
+        target = b"\x50\x58\xc3"
+        result.obj_bytes = b"\x90\x50\x58"
+        result.full_obj_bytes = result.obj_bytes + b"\xc3"
+        result.full_obj_size = 4
+        cfg = SimpleNamespace()
+        score, size = rebrew.climb._score_aligned(
+            cfg,
+            tmp_path / "f.c",
+            "_f",
+            target,
+            "",
+            {},
+            0x401000,
+            None,
+            rebrew.alignment.instruction_texts(cfg, target, 0x401000),
+        )
+        assert score == (3 + 1) * 5 - 1
+        assert size == 4
 
     def test_score_is_pairs_dominated_with_hunks_as_tie_break(self, monkeypatch, tmp_path) -> None:
         """Pairs dominate the score: distance first, region count breaks ties.
@@ -154,7 +180,7 @@ class TestScoreAligned:
             {},
             0x1000,
             None,
-            rebrew.climb.target_texts(cfg, b"target", 0x1000),
+            rebrew.alignment.instruction_texts(cfg, b"target", 0x1000),
         )
 
         assert score == (2 + 1) * 5 - 1  # two pairs, one hunk, scale len(target) + 2
@@ -193,9 +219,9 @@ class TestScoreAligned:
                 {},
                 0x1000,
                 None,
-                rebrew.climb.target_texts(cfg, b"target", 0x1000),
+                rebrew.alignment.instruction_texts(cfg, b"target", 0x1000),
             )[0]
-            return score, rebrew.climb._AlignedMatcher.last_visits
+            return score, rebrew.alignment.AlignedMatcher.last_visits
 
         scattered, scattered_visits = score_of(b"scattered")
         deleted, deleted_visits = score_of(b"deleted")
@@ -213,7 +239,7 @@ class TestAlignedMatcher:
     """The climb aligner returns difflib's blocks and reads fewer token positions."""
 
     def test_blocks_and_opcodes_match_difflib(self) -> None:
-        from rebrew.climb import _AlignedMatcher
+        from rebrew.alignment import AlignedMatcher
 
         streams: list[tuple[list[str], list[str]]] = [
             ([], []),
@@ -235,7 +261,7 @@ class TestAlignedMatcher:
                     )
                 )
         for left, right in streams:
-            got = _AlignedMatcher(a=left, b=right, autojunk=False)
+            got = AlignedMatcher(a=left, b=right, autojunk=False)
             ref = difflib.SequenceMatcher(a=left, b=right, autojunk=False)
             assert list(got.get_matching_blocks()) == list(ref.get_matching_blocks())
             assert got.get_opcodes() == ref.get_opcodes()
@@ -670,7 +696,12 @@ def test_preview_preserves_original_header_directory(tmp_path, monkeypatch, obje
         assert path != source and source.read_text() == original
         seen.append(path)
         return SimpleNamespace(
-            obj_bytes=b"\x90" * 4, full_obj_size=4, matched=True, match_percent=100.0, match_count=4
+            obj_bytes=b"\x90" * 4,
+            full_obj_size=4,
+            full_obj_bytes=None,
+            matched=True,
+            match_percent=100.0,
+            match_count=4,
         )
 
     monkeypatch.setattr(rebrew.climb, "require_config", lambda **kw: cfg)

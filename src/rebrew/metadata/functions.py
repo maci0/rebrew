@@ -387,6 +387,7 @@ METADATA_FIELD_TYPES: dict[str, type | tuple[type, ...]] = {
     "updated_at": str,
     "origins": dict,
     "verification": dict,
+    "similarity": (int, float),
     "status_history": list,
     "binding_history": list,
     "native_identity": dict,
@@ -440,8 +441,24 @@ def validate_provenance_table(key: str, value: Any) -> Any:
                 raise ValueError(f"origin for {field!r} must contain string facts")
     elif key == "verification":
         required = {"status", "writer", "input_hash"}
-        if not required <= value.keys() or any(not isinstance(v, str) for v in value.values()):
+        if not required <= value.keys() or any(
+            not isinstance(v, str)
+            for k, v in value.items()
+            if k
+            not in {
+                "similarity",
+                "aligned_pairs",
+                "target_instructions",
+                "candidate_instructions",
+                "hunks",
+            }
+        ):
             raise ValueError("verification requires string status, writer and input_hash")
+        if "similarity" in value:
+            validate_metadata_field("similarity", value["similarity"])
+        for count in ("aligned_pairs", "target_instructions", "candidate_instructions", "hunks"):
+            if count in value and (type(value[count]) is not int or value[count] < 0):
+                raise ValueError(f"verification {count} must be a non-negative int")
         if len(value["input_hash"]) != 64 or any(
             c not in "0123456789abcdef" for c in value["input_hash"]
         ):
@@ -463,8 +480,14 @@ def record_verification(
     old = entry.get("verification") or {}
     comparable = {k: v for k, v in old.items() if k != "measured_at"}
     evidence.pop("measured_at", None)
+    similarity = evidence.get("similarity")
+    similarity_changed = entry.get("similarity") != similarity
+    if similarity is None:
+        entry.pop("similarity", None)
+    else:
+        entry["similarity"] = similarity
     if comparable == evidence:
-        return False
+        return similarity_changed
     evidence["measured_at"] = stamp_now(now, timespec="seconds")
     entry["verification"] = evidence
     return True
@@ -485,6 +508,10 @@ def validate_metadata_field(key: str, value: Any) -> Any:
         raise ValueError(
             f"unknown metadata field {key!r} (expected one of {sorted(METADATA_FIELDS)})"
         )
+    if key == "similarity":
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 100:
+            raise ValueError("similarity must be a numeric percentage between 0 and 100")
+        return value
     if key == "status_history":
         return _merge_status_history(value, [])
     if key == "native_identity":
@@ -676,6 +703,8 @@ def set_fields(
         changed = False
         for key, value in fields.items():
             key = key.lower()
+            if key == "similarity":
+                raise ValueError("similarity is written only by test/verify evidence")
             if key in {"status_history", "binding_history", "native_identity"}:
                 raise ValueError(
                     "Use import_status_history() for comparison history; change_source_binding() for binding history; record_native_identity() for native identity"
@@ -753,6 +782,8 @@ def set_fields_batch(
             changed = False
             for key, value in fields.items():
                 key = key.lower()
+                if key == "similarity":
+                    raise ValueError("similarity is written only by test/verify evidence")
                 if key in {"status_history", "binding_history", "native_identity"}:
                     raise ValueError(
                         "Use import_status_history() for comparison history; change_source_binding() for binding history; record_native_identity() for native identity"
@@ -985,6 +1016,8 @@ def record_function_rows(
             updates: dict[str, Any] = {}
             for key, value in (row.get("fields") or {}).items():
                 key = key.lower()
+                if key == "similarity":
+                    raise ValueError("similarity is written only by test/verify evidence")
                 if key in {"status_history", "binding_history", "native_identity"}:
                     raise ValueError(
                         "Use import_status_history() for comparison history; change_source_binding() for binding history; record_native_identity() for native identity"
@@ -1147,6 +1180,8 @@ def remove_fields_batch(metadata_dir: Path | str | Any, updates: list[dict[str, 
             changed = False
             for key in keys:
                 key = key.lower() if isinstance(key, str) else key
+                if key == "similarity":
+                    raise ValueError("similarity is written only by test/verify evidence")
                 if key in {"status_history", "binding_history", "native_identity"}:
                     raise ValueError(
                         "Use import_status_history() for comparison history; change_source_binding() for binding history; record_native_identity() for native identity"
@@ -1317,6 +1352,8 @@ def update_field(
 
     """
     key = key.lower()
+    if key == "similarity":
+        raise ValueError("similarity is written only by test/verify evidence")
     if key in {"status_history", "binding_history", "native_identity"}:
         raise ValueError(
             "Use import_status_history() for comparison history; change_source_binding() for binding history; record_native_identity() for native identity"
@@ -1356,6 +1393,8 @@ def remove_field(directory: Path | str | Any, va: int, key: str, module: str) ->
 
     """
     key = key.lower()
+    if key == "similarity":
+        raise ValueError("similarity is written only by test/verify evidence")
     if key in {"status_history", "binding_history", "native_identity"}:
         raise ValueError(
             "Use import_status_history() for comparison history; change_source_binding() for binding history; record_native_identity() for native identity"
@@ -1631,6 +1670,8 @@ def update_statuses_batch(
                     entry.pop("blocker_delta", None)
             for key, value in (u.get("fields") or {}).items():
                 key = key.lower()
+                if key == "similarity":
+                    raise ValueError("similarity is written only by test/verify evidence")
                 if key in {"status_history", "binding_history", "native_identity"}:
                     raise ValueError(
                         "Use import_status_history() for comparison history; change_source_binding() for binding history; record_native_identity() for native identity"
@@ -1641,6 +1682,8 @@ def update_statuses_batch(
                 if entry.get(key) != safe:
                     entry[key] = safe
                     row_changed = True
+            if status_change and u.get("verification") is None:
+                entry.pop("similarity", None)
             evidence_changed = False
             evidence = u.get("verification")
             if evidence is not None and (current_status == new_status or status_change):

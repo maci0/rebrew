@@ -43,6 +43,12 @@ on those writes also requires `--force`. Pass `--force` to skip the prompt.
 A piped answer does not approve. Address anchors and metadata:
 `references/annotation-format.md`.
 
+For SIZE_MISMATCH progress use test/diff JSON `aligned_pairs`, `target_instructions`,
+`candidate_instructions`, `hunks`, and `similarity` (0–1, twice pairs / both counts).
+Prefer more pairs/fewer hunks alongside size and native behavior; positional `match_count` rewards shifts.
+Alignment folds addresses: it proves neither bytes nor bindings. Promoting test/verify stores percent
+in function `similarity`, counts in `verification`; `--no-promote` writes neither. STATUS/coverage stay byte-based.
+
 ## Before Writing a Helper
 
 Check current CLI help before adding a project script. For inventory, parsing,
@@ -59,7 +65,6 @@ for Ghidra/BinSync integration.
 ## 1. Pick a Function
 
 ```bash
-rebrew status --json                    # Quick overview: counts per STATUS, % coverage
 rebrew todo --json                      # Primary: highest-impact action items
 rebrew todo --category start-function --json    # --category: setup | compile-error | extract-error | fix-delta | improve-match | start-function | missing-annotation | identify-library | run-prover | documented (audit-only) | naked-reconstruction | data-drift | start-data | exact-only | postlink-mangled
 rebrew library scan-signatures --json                     # FLIRT scan: identify known library functions (fast wins)
@@ -146,7 +151,7 @@ Rebrew filters source bindings by the active `--target`. Several targets may sha
 > **Volatile metadata lives in `rebrew-functions.toml` and `rebrew-functions.d/*.toml` at `cfg.metadata_dir`.
 > Never hand-edit these TOMLs or inline volatile fields in `.c`.** Keys: STATUS, SIZE, CFLAGS,
 > TOOLCHAIN, BLOCKER/BLOCKER_DELTA, NOTE, GHIDRA, ANALYSIS, SOURCE, SKIP, GLOBALS,
-> LOCALS, COMMENTS, PROVE_CONSTRAINTS, ORIGINS, VERIFICATION, STATUS_HISTORY, BINDING_HISTORY, NATIVE_IDENTITY, UPDATED_BY/UPDATED_AT (SECTION lives in
+> LOCALS, COMMENTS, PROVE_CONSTRAINTS, ORIGINS, VERIFICATION, SIMILARITY, STATUS_HISTORY, BINDING_HISTORY, NATIVE_IDENTITY, UPDATED_BY/UPDATED_AT (SECTION lives in
 > `rebrew-data.toml`). STATUS via `rebrew test`/`verify` only; use `rebrew blocker
 > set/clear`, the locked owner APIs for metadata changes. Files are mode 0444
 > (`atomic_write_locked`). SIZE and CFLAGS are metadata-owned;
@@ -167,11 +172,6 @@ rebrew test 0x<VA> --json                  # find by VA (also accepts a symbol n
 rebrew test src/<target>/<file>.c --va 0x10001000 \
     --symbol _myfunc --size 64 --cflags "/O1 /Gd"        # one file; --va/--symbol/--size/--cflags exclude --all
 rebrew test --all --json                   # every reversed .c file in the selected target
-rebrew test --all --module GAME --json     # batch mode, filter by module
-rebrew test --all --dir src/<target>/ --json    # restrict to subdir
-rebrew test --all --jobs 8 --json              # parallel compile (default from config)
-rebrew test --all --dry-run                # list candidates without compiling
-rebrew test src/<target>/<file>.c --dry-run  # compile but PREVIEW the STATUS change (no write)
 rebrew diagnose probe src/<target>/<file>.c --json    # read-only ruler: strict + generous + aligned, never writes
 ```
 
