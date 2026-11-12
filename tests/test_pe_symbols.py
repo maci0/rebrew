@@ -273,6 +273,31 @@ class TestPeDirectories:
         assert [record.va for record in records] == slots
         assert records[0].name == "DelayApiA"
 
+    @pytest.mark.parametrize("descriptors", [1, 2])
+    @pytest.mark.parametrize("budget", [2, 3, 4, 6])
+    def test_delay_import_slot_limit_spans_all_descriptors(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, descriptors: int, budget: int
+    ) -> None:
+        from rebrew.formats.pe_headers import pe_layout
+
+        path, slots = _delay_import_pe(tmp_path, rva_based=True)
+        original = path.read_bytes()
+        layout = pe_layout(original)
+        assert layout is not None
+        section = layout.sections[-1]
+        descriptor = original[section.pointer_to_raw_data : section.pointer_to_raw_data + 32]
+        data, rva, _offset = _append_section(
+            original, ".descs", descriptor * descriptors + bytes(32)
+        )
+        path.write_bytes(_patch_directory(data, _DIR_DELAY_IMPORT, rva, 32 * (descriptors + 1)))
+        monkeypatch.setattr("rebrew.formats.pe_symbols._MAX_TABLE_ENTRIES", budget)
+        result = pe_directories(path)
+        assert len(result.delay_imports) == min(3 * descriptors, budget)
+        assert [record.va for record in result.delay_imports] == (slots * descriptors)[:budget]
+        assert any("delay-import" in note and "capped" in note for note in result.notes) == (
+            3 * descriptors > budget
+        )
+
     def test_directories_are_deterministic(self, tmp_path: Path) -> None:
         path, _handlers, _targets, _cookie = _load_config_pe(tmp_path)
         first = pe_directories(path)

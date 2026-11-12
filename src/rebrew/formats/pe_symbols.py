@@ -282,7 +282,12 @@ def _read_delay_imports(image: _Image, directory_rva: int) -> tuple[list[PeImpor
                 f"(dll={module or '?'}, iat={iat_field:#x}, names={int_field:#x})"
             )
         else:
-            records.extend(_delay_slots(image, module, iat_va, int_va))
+            for record in _delay_slots(image, module, iat_va, int_va):
+                # One directory budget prevents repeated DLL tables multiplying work.
+                if len(records) >= _MAX_TABLE_ENTRIES:
+                    notes.append(f"delay-import directory capped at {_MAX_TABLE_ENTRIES} slots")
+                    return records, notes
+                records.append(record)
     else:
         # Exhausted the shared table cap without a null terminator — same
         # corrupt-count defence _read_rva_array / _iter_name_table use.
@@ -293,31 +298,29 @@ def _read_delay_imports(image: _Image, directory_rva: int) -> tuple[list[PeImpor
     return records, notes
 
 
-def _delay_slots(image: _Image, module: str, iat_va: int, int_va: int) -> list[PeImport]:
+def _delay_slots(image: _Image, module: str, iat_va: int, int_va: int) -> Iterator[PeImport]:
     """One record per delay-import slot named by the *int_va* name table.
 
     The name table's entries follow the descriptor's own encoding, so each is
     resolved through the section table rather than assumed to be one form.
     """
-    records: list[PeImport] = []
     for slot, entry in enumerate(_iter_name_table(image, int_va)):
         va = iat_va + slot * _SLOT_SIZE
         if not _inside(image.spans, va):
             break
         if entry & _IMPORT_ORDINAL_FLAG:
-            records.append(PeImport(dll=module, name="", ordinal=entry & 0xFFFF, va=va))
+            yield PeImport(dll=module, name="", ordinal=entry & 0xFFFF, va=va)
             continue
         entry_va = image.resolve(entry & _IMPORT_NAME_MASK)
         name = _read_hint_name(image, entry_va) if entry_va is not None else ""
         if not name:
             break
-        records.append(PeImport(dll=module, name=name, ordinal=None, va=va))
-    return records
+        yield PeImport(dll=module, name=name, ordinal=None, va=va)
 
 
 def _iter_name_table(image: _Image, table_va: int) -> Iterator[int]:
-    """Yield the 32-bit entries of an import name table until its terminator."""
-    for index in range(_MAX_TABLE_ENTRIES):
+    """Yield 32-bit name entries, including one beyond the caller's slot limit."""
+    for index in range(_MAX_TABLE_ENTRIES + 1):
         raw = image.read(table_va + index * _SLOT_SIZE, _SLOT_SIZE)
         if len(raw) < _SLOT_SIZE:
             return
