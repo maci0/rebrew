@@ -41,6 +41,9 @@
 - Remove stale architecture claims about Ghidra function deletion and separate external build-hook executables; structural sync creates functions, bookmarks and data pulls, while build hooks use the unified executable. The ecosystem guide now points field-conflict resolution to `sync pull` and separates it from MCP operations.
 - Correct onboarding and intake skill prerequisites: shipped profiles require images, with Docker as the default runtime and Podman or experimental unshare available as documented in the toolchain guide.
 - Correct `todo` help and reversing guides to describe ranking by affected byte extent, with estimated effort breaking ties. Small functions are not automatically first.
+- Repair the config-editor reference: separate the key and value in the `cfg set compiler.cflags` example and name the current `cfg target list` route.
+- Correct the name-normalization guide: only Ghidra `FUN_` names become `func_` during C-name sanitization; rizin discovery retains `fcn.` labels and other tool prefixes are not universally rewritten.
+- Clarify flag-sweep axes: a flag set may omit all its flags, and large tiers sample the grid. The documented combination counts include that empty choice.
 
 ## [6.32.1] - 2026-11-11
 
