@@ -49,11 +49,12 @@ def _patch_matcher(
     sim: object | None = None,
 ) -> None:
     import rebrew.matcher as matcher
+    from rebrew.matcher import compiler
 
     def _build(*_a: object, **_k: object) -> object:
         return SimpleNamespace(ok=True, obj_bytes=obj, reloc_offsets=[], error_msg="")
 
-    monkeypatch.setattr(matcher.compiler, "build_candidate_obj_only", _build)
+    monkeypatch.setattr(compiler, "build_candidate_obj_only", _build)
     monkeypatch.setattr(
         matcher,
         "diff_functions",
@@ -266,13 +267,14 @@ class TestRunDiff:
 
         import rebrew.matcher as matcher
         from rebrew.diff import run_diff
+        from rebrew.matcher import compiler
 
         def _diff(target, obj, relocs, **kw):
             seen["obj_len"] = len(obj)
             return _summary()
 
         monkeypatch.setattr(
-            matcher.compiler,
+            compiler,
             "build_candidate_obj_only",
             lambda *a, **kw: SimpleNamespace(
                 ok=True, obj_bytes=b"\x00" * 100, reloc_offsets=[], error_msg=""
