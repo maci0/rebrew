@@ -99,7 +99,9 @@ codegen change of this version.
   verified marker separates 8.0 from 9.0/10.0: the probe objects are
   near-identical (519B vs 551B at /O2; same nops, cookie, division
   tails).  **Service pack:** 8.0 SP1 is codegen-identical to 8.0 RTM
-  (probes 1–5, /O1 and /O2).  Identity via Rich build 50727 +
+  (probes 1–5, /O1 and /O2). This does not hold for every later probe:
+  probe17 `_alloc_flags` at `/O2` differs (`lea ecx,[eax+1]` in SP1 versus
+  `mov ecx,1` in RTM, 47B versus 49B). Identity via Rich build 50727 +
   linker 8.0.
 
 ## Version deltas

@@ -167,9 +167,10 @@ claims are explicitly downgraded in the per-version files.
 | **Delphi stack-check far call in prologue** | `b8 <size>; 9a` (`lcall`) | Delphi 1.0 (DCC) | ✓ probe3 (dpr) |
 | **`leave; ret N` callee-cleanup epilogue** | `c9 c2 N N` | Delphi 1.0 (DCC) | ✓ probe3 (dpr) |
 
-**Service-pack verdicts** (probe5+7+8+9+10 sweeps): **VC 7.0 SP1 is the
-only SP with verified codegen differences on probes 5/7/8/9/10: seventeen
-functions.**  (a) 4 structural: the
+**Service-pack verdicts** (probe5+7+8+9+10 sweeps; the SP1 images probed
+for the first time): **VC 7.0 SP1 is the only SP with codegen differences
+in these early sweeps: SEVENTEEN probe functions.** Later corpus results are
+summarized [below](#machine-readable-corpus-corpusjson).  (a) 4 structural: the
 `==`/`!=` FP family (`fcmp2`/`fc5`/`fc8`/`fc9`) switch from the
 two-load `fucompp` (`da e9`) to `fcomp [mem]` (`dc 5c 24 0c`, 2 bytes
 shorter).  (b) 2 marshalling: `fl`/`cl` (floor/ceil) pass the FP
@@ -288,15 +289,14 @@ records (NE user-code segments, function boundaries inferred at
 `ret`/`retf`) and raw-code records for OMF dialects that resist symbol
 listing (e.g. the bcc32 C++ object).  Sweep results: the
 per-toolchain uniqueness confirmed every hand-documented marker and
-surfaced no new cross-toolchain-unique ones; the **SP equivalence is
-machine-verified over 4466 matched SP rows, 4433 byte-identical (matching each SP against its RTM
-twin by toolchain/version/flags/probe/function)**. VC 7.0 SP1 differs on
-**32 distinct functions**, all at `/O2`, including probe14 `_s64_ret`,
-probe18 `_scan_recipe`, probe22 `_arr_counter`/`_struct_counter`, and
-the arithmetic tails in probes 23/29/30. In probe22, SP1 emits `rep stosd`
-where RTM unrolls the 36B memset; the other measured SPs match their RTMs
-on all 26 functions. The remaining differing row is VC 8.0 SP1 probe17
-`_alloc_flags` at `/O2` (47 B, RTM 49 B).  The corpus also surfaced that the
+surfaced no new cross-toolchain-unique ones. The committed corpus has **4,550
+SP rows, of which 4,466 have an RTM counterpart** under the same
+toolchain/version/flags/probe/function key: **4,433 agree byte-for-byte and 33
+differ**. VC 7.0 SP1 accounts for 32 differing rows, including probe14's
+`_s64_ret` and probe22's `_arr_counter`/`_struct_counter`. VC 8.0 SP1 also
+differs: probe17 `_alloc_flags` at `/O2` uses `lea ecx,[eax+1]` instead of RTM's
+`mov ecx,1` (47 bytes versus 49). Rows without an RTM counterpart do not
+establish equivalence. The corpus also surfaced that the
 VC 9.0 SP1 "workaround" objects are IA64-typed (see msvc-9.md):
 the 9.0 SP1 comparison remains blocked.
 
