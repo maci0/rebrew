@@ -1905,6 +1905,62 @@ class TestSweepStaleTempDirs:
             os.utime(base, (stale, stale))
         os.utime(d, (stale, stale))
 
+    @pytest.mark.parametrize("failure", ["walk", "stat"])
+    def test_keeps_a_sandbox_when_subtree_age_cannot_be_read(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+    ) -> None:
+        live = tmp_path / "rebrew_batch_live"
+        work = live / "work"
+        work.mkdir(parents=True)
+        source = work / "main.c"
+        source.write_bytes(b"keep")
+        self._age(live, temp_dirs.STALE_TEMP_DIR_AGE_S + 4200)
+        source.touch()
+        if failure == "walk":
+
+            def denied_walk(root: Path, *, onerror: Any = None) -> Any:
+                yield str(root), ["work"], []
+                if onerror is not None:
+                    onerror(PermissionError("cannot enumerate work"))
+
+            monkeypatch.setattr(temp_dirs.os, "walk", denied_walk)
+        else:
+            real_stat = Path.stat
+
+            def denied_stat(path: Path, *args: Any, **kwargs: Any) -> Any:
+                if path == source:
+                    raise PermissionError("cannot stat work")
+                return real_stat(path, *args, **kwargs)
+
+            monkeypatch.setattr(Path, "stat", denied_stat)
+        assert temp_dirs.sweep_stale_temp_dirs(tmp_path) == []
+        assert source.read_bytes() == b"keep"
+
+    @pytest.mark.parametrize(
+        "relative, foreign_owner", [("upper/work", False), ("overlay-work/work", True)]
+    )
+    def test_unreadable_unshare_directory_outside_owned_metadata_is_kept(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relative: str, foreign_owner: bool
+    ) -> None:
+        bundle = tmp_path / "rebrew_unshare_live"
+        protected = bundle / relative
+        protected.mkdir(parents=True)
+        source = protected / "main.c"
+        source.write_bytes(b"keep")
+        self._age(bundle, temp_dirs.STALE_TEMP_DIR_AGE_S + 4200)
+        source.touch()
+        if foreign_owner:
+            uid = os.getuid()
+            monkeypatch.setattr(temp_dirs.os, "getuid", lambda: uid + 1)
+        protected.chmod(0)
+        try:
+            assert temp_dirs.sweep_stale_temp_dirs(tmp_path) == []
+            assert protected.stat().st_mode & 0o777 == 0
+        finally:
+            with contextlib.suppress(FileNotFoundError):
+                protected.chmod(0o700)
+        assert source.read_bytes() == b"keep"
+
     def test_removes_abandoned_sandbox(self, tmp_path: Path) -> None:
 
         lost = tmp_path / "rebrew_batch_abc"

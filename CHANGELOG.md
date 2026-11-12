@@ -77,6 +77,9 @@
 ### Fixed
 
 - Repair metadata backup guidance: PostgreSQL requires a database dump plus a separate project-file copy; SQLite recovery journals must be preserved. Document `pgsql` as a supported migration destination.
+### Fixed
+
+- Sandbox sweeping keeps a tree when any part of its age cannot be read, instead of deleting live work hidden behind enumeration or stat failures. Only the current user's mode-zero overlay metadata at overlay-work/work is made readable before aging; unrelated unreadable directories remain untouched.
 
 ## [6.32.1] - 2026-11-11
 

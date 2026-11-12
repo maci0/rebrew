@@ -146,21 +146,32 @@ def _newest_mtime(root: Path) -> float | None:
     anything written inside it.  A sandbox that creates ``workdir/rel`` once
     and then only writes files below it therefore keeps a creation-time root
     mtime for the whole run, so liveness is measured over the whole subtree.
-    An unreadable subtree contributes nothing, which can only understate the
-    age: a sandbox whose files cannot be stat'ed is one nobody can read either.
+    An unreadable subtree leaves the age unknown, so the sandbox is kept.
     """
+
+    def unreadable(error: OSError) -> None:
+        raise error
+
     try:
-        newest: float | None = root.stat().st_mtime
+        newest = root.stat().st_mtime
+        for parent, directories, files in os.walk(root, onerror=unreadable):
+            current = Path(parent)
+            if (
+                root.name.startswith("rebrew_unshare_")
+                and current == root / "overlay-work"
+                and "work" in directories
+                and hasattr(os, "getuid")
+            ):
+                metadata = current / "work"
+                if not metadata.is_symlink():
+                    info = metadata.stat()
+                    # Overlayfs creates this owned metadata directory with mode 000.
+                    if info.st_uid == os.getuid() and info.st_mode & 0o777 == 0:
+                        metadata.chmod(0o700)
+            for path in (current, *(current / name for name in files)):
+                newest = max(newest, path.stat().st_mtime)
     except OSError:
         return None
-    for parent, _dirs, files in os.walk(root):
-        for path in (Path(parent), *(Path(parent) / name for name in files)):
-            try:
-                mtime = path.stat().st_mtime
-            except OSError:
-                continue
-            if newest is None or mtime > newest:
-                newest = mtime
     return newest
 
 
