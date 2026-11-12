@@ -104,7 +104,7 @@ locals, and comments between analysts and tools. rebrew bridges to it at the
 - `rebrew binsync import <state-dir>` is the inverse: it reads a state
   directory produced by any BinSync-aware decompiler and applies names,
   prototypes, globals, stack vars, comments, and type definitions back into
-  rebrew, with the same conflict resolution as `rebrew sync push`
+  rebrew, with the same conflict resolution as `rebrew sync pull`
   (`--accept-binsync` / `--accept-local`, `--module`, `--dry-run`,
   `--create-missing`).
 - `rebrew binsync overlay <state-dir>` maps a related target's BinSync data
@@ -116,7 +116,8 @@ locals, and comments between analysts and tools. rebrew bridges to it at the
   sync drift in CI.
 
 BinSync is the *team/tool* boundary, complementary to the Ghidra-only ReVa
-MCP bridge (`rebrew sync push`): anything BinSync-aware can consume rebrew's
+MCP structural bridge (`rebrew sync create-functions`, `bookmarks`, and
+`pull-data`): anything BinSync-aware can consume rebrew's
 exports and feed renames back, while the Ghidra bridge stays interactive.
 Full details: [BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md).
 
@@ -159,9 +160,8 @@ Both interop loops in one view: the BinSync collaboration cycle
 (export → decompilers → import back, with `rebrew binsync diff` guarding drift)
 and the reccmp format interop (sources into the recomp build).
 
-The full external-tools table (decomp.me, LIEF, Capstone, angr, ReVa, and
-the adjacent tools) lives in the README's "Ecosystem & Related Tools"
-section.
+Compiler runtimes and external tools are documented in
+[TOOLCHAIN.md](TOOLCHAIN.md).
 
 ## Public boundary contracts
 

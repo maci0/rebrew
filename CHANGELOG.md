@@ -13,6 +13,7 @@
 - PE resource comparison and extraction reject a truncated .rsrc payload instead of reporting two partial sections as identical or overwriting the output with incomplete bytes. Missing alignment padding remains accepted.
 ### Fixed
 
+- Remove stale architecture claims about Ghidra function deletion and separate external build-hook executables; structural sync creates functions, bookmarks and data pulls, while build hooks use the unified executable. The ecosystem guide now points field-conflict resolution to `sync pull` and separates it from MCP operations.
 - Correct onboarding and intake skill prerequisites: shipped profiles require images, with Docker as the default runtime and Podman or experimental unshare available as documented in the toolchain guide.
 - Correct `todo` help and reversing guides to describe ranking by affected byte extent, with estimated effort breaking ties. Small functions are not automatically first.
 - Repair the config-editor reference: separate the key and value in the `cfg set compiler.cflags` example and name the current `cfg target list` route.

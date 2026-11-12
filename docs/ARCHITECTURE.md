@@ -91,7 +91,7 @@ flowchart LR
 | `rebrew/metadata/locking.py` | Reentrant thread and cross-process transactions (`file_transaction`, `metadata_write_lock`) that serialize every metadata read-modify-write |
 | `rebrew/matcher/` | GA engine: `scoring.py` (numpy + capstone), `mutator.py` (`ALL_MUTATIONS`: the 128 built-in mutation operators from `mutations/*.py`, tree-sitter based with regex fallbacks, plus plugin entry points), `compiler.py` (flag sweep), `solutions.py` (cross-function seeding + run history) |
 | `rebrew/catalog/` | Function registry and the coverage grid (`grid.py`) the portable `coverage-<target>.toml` export is rendered from |
-| `rebrew/ghidra/` | BinSync-primary field sync + ReVa MCP structural ops (function create/delete and similar) |
+| `rebrew/ghidra/` | BinSync-primary field sync + ReVa MCP structural ops (function creation, bookmarks and data pulls) |
 | `rebrew/coff_reloc.py` | Relocation-aware byte comparison (COFF/ELF reloc masking) |
 | `rebrew/compiler/msvc_env.py` | MSVC include/lib env for host-side compile helpers |
 | `rebrew/extract.py` | Batch extract/disassemble command (group: `list`/`show`/`batch`) |
