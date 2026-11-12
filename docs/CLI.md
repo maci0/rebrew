@@ -7025,11 +7025,16 @@ variable is unset or no workspace is given. A request needs a
 reply; an authenticated call that finds every slot busy is answered 503
 `worker-busy` with `Retry-After: 5`.
 
+Requests with an unlisted HTTP `Host` authority get 403. `--allowed-hosts`
+(or `REBREW_OPS_ALLOWED_HOSTS`) adds exact names and ports to the automatic
+Host allow-list; wildcard entries are refused. Include the port when the
+client's `Host` header carries it.
+
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `--port` | int | required | TCP port; 0 picks a free one |
 | `--host` | str | `127.0.0.1` | Address to bind (loopback by default) |
-| `--allowed-hosts` | str | none | Comma-separated exact additional HTTP Host authorities, including ports |
+| `--allowed-hosts` | str | `REBREW_OPS_ALLOWED_HOSTS`, else `""` | Comma-separated exact additional HTTP Host authorities, including ports |
 | `--filestore` | path | `REBREW_OPS_FILESTORE` | The backend's local filestore directory; request file keys resolve under it |
 | `--workspace` | path | `REBREW_OPS_WORKSPACE` | Directory analyse creates projects/<sha256> in, report output_dir resolves under, url downloads land in, and project paths must lie inside (required) |
 | `--max-download` | int | `REBREW_OPS_MAX_DOWNLOAD`, else 268435456 | Largest binary in bytes a request url may name |
