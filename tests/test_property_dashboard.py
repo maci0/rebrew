@@ -359,8 +359,7 @@ class TestContentNegotiation:
         self, body: bytes, header: str
     ) -> None:
         import gzip
-
-        import zstandard
+        from compression.zstd import decompress as zstd_decompress
 
         out, encoding = _maybe_compress(body, header)
         if encoding is None:
@@ -370,7 +369,7 @@ class TestContentNegotiation:
         # a coding the client did not ask for.
         assert encoding == _negotiate_encoding(header)
         if encoding == "zstd":
-            assert zstandard.ZstdDecompressor().decompress(out) == body
+            assert zstd_decompress(out) == body
         else:
             assert gzip.decompress(out) == body
 

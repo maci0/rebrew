@@ -540,8 +540,7 @@ class TestReportPayloadShape:
     ) -> None:
         """Static pages ship .gz/.zst sidecars so servers can skip per-request compression."""
         import gzip
-
-        import zstandard
+        from compression.zstd import decompress as zstd_decompress
 
         _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
         monkeypatch.chdir(tmp_path)
@@ -560,7 +559,7 @@ class TestReportPayloadShape:
             assert len(gzipped) < len(raw)
             assert len(zstd) < len(raw)
             assert gzip.decompress(gzipped) == raw
-            assert zstandard.ZstdDecompressor().decompress(zstd) == raw
+            assert zstd_decompress(zstd) == raw
 
     def test_large_function_table_paginates(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

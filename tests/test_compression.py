@@ -1,9 +1,9 @@
 """Tests for compression.py — the shared max-effort precompress."""
 
 import gzip
+from compression.zstd import decompress as zstd_decompress
 
 import pytest
-import zstandard
 
 from rebrew.compression import (
     GZIP_PRECOMPRESS_LEVEL,
@@ -21,7 +21,7 @@ class TestPrecompress:
         assert compressed is not None
         assert len(compressed) < len(_COMPRESSIBLE)
         if encoding == "zstd":
-            assert zstandard.ZstdDecompressor().decompress(compressed) == _COMPRESSIBLE
+            assert zstd_decompress(compressed) == _COMPRESSIBLE
         else:
             assert gzip.decompress(compressed) == _COMPRESSIBLE
 

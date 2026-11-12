@@ -54,7 +54,6 @@ dependencies = [
     "tree-sitter>=0.26.1,<1",  # C AST parsing (c_parser.py, struct_parser.py, matcher/ast_engine.py) — never regex-parse C
     "tree-sitter-c>=0.24.2,<1",  # C grammar for tree-sitter
     "typer>=0.29.1,<1",  # CLI framework (every main_entry); floor tracks lock
-    "zstandard>=0.25.0,<1",  # the dashboard's wire compression (report.py, compression.py); coverage itself is clear text
 ]
 
 [project.optional-dependencies]

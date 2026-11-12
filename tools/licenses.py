@@ -149,5 +149,4 @@ REGISTRY_LICENSES: dict[str, str] = {
     "virtualenv==21.15.6": "MIT",
     "wcwidth==0.9.4": "License :: OSI Approved :: MIT License",
     "z3-solver==5.3.3.0": "MIT License",
-    "zstandard==0.25.0": "BSD-3-Clause",
 }

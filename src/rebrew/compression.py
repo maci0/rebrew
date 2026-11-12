@@ -7,8 +7,9 @@ spent once) and both drop the result when it does not shrink the payload, so
 one function serves both instead of each keeping its own levels and its own
 size check.
 
-``zstandard`` is imported at the call, not at module scope: ``report`` is a CLI
-component and pays nothing for a codec the caller may never reach.
+The stdlib ``compression.zstd`` is imported at the call, not at module scope:
+``report`` is a CLI component and pays nothing for a codec the caller may
+never reach.
 """
 
 from __future__ import annotations
@@ -33,9 +34,9 @@ def precompress(raw: bytes, encoding: WireEncoding) -> bytes | None:
     sidecar byte-identical across rebuilds.
     """
     if encoding == "zstd":
-        import zstandard
+        from compression import zstd
 
-        compressed = zstandard.ZstdCompressor(level=ZSTD_PRECOMPRESS_LEVEL).compress(raw)
+        compressed = zstd.compress(raw, level=ZSTD_PRECOMPRESS_LEVEL)
     elif encoding == "gzip":
         compressed = gzip.compress(raw, compresslevel=GZIP_PRECOMPRESS_LEVEL, mtime=0)
     else:

@@ -1216,7 +1216,6 @@ yara /tmp/test.yar target.dll
 | **tree-sitter** | C source AST parsing for signature and struct extraction |
 | **tree-sitter-c** | Tree-sitter C language grammar (used with `tree-sitter`) |
 | **typer** | CLI framework with rich help |
-| **zstandard** | Wire compression for the dashboard (`dashboard.py`, `compression.py`) |
 
 ### Optional Dependencies
 

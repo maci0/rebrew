@@ -49,10 +49,17 @@ def test_workspace_public_api_snapshot() -> None:
 def test_workspace_without_compression_dependency(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Project resolution must not import the wire codec.
+
+    The dashboard compresses responses. Importing the workspace leaf that
+    status and verify use must not pull that codec in.
+    """
     for name in list(sys.modules):
         if name == "rebrew.workspace" or name.startswith("rebrew.workspace."):
             monkeypatch.delitem(sys.modules, name)
-    monkeypatch.setitem(sys.modules, "zstandard", None)
+    codec = {
+        name for name in sys.modules if name == "compression" or name.startswith("compression.")
+    }
 
     public = importlib.import_module("rebrew.workspace")
     for name in public.__all__:
@@ -60,6 +67,9 @@ def test_workspace_without_compression_dependency(
     (tmp_path / public.CONFIG_NAME).write_text("[project]\n", encoding="utf-8")
     assert public.find_root(tmp_path) == tmp_path
     assert public.read_config(tmp_path) == {"project": {}}
+    assert {
+        name for name in sys.modules if name == "compression" or name.startswith("compression.")
+    } == codec
 
 
 def test_submodules_import_without_rebrew_stack(monkeypatch: pytest.MonkeyPatch) -> None:

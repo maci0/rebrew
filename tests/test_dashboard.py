@@ -2357,10 +2357,9 @@ class TestEncodingNegotiation:
         self, dashboard: Dashboard, accept: str, encoding: str | None, path: str
     ) -> None:
         import gzip
+        from compression.zstd import decompress as zstd_decompress
         from io import BytesIO
         from unittest.mock import Mock
-
-        import zstandard
 
         from rebrew.dashboard import _Handler, allowed_hosts_for
 
@@ -2386,16 +2385,15 @@ class TestEncodingNegotiation:
         if encoding == "gzip":
             assert gzip.decompress(body) == expected
         elif encoding == "zstd":
-            assert zstandard.ZstdDecompressor().decompress(body) == expected
+            assert zstd_decompress(body) == expected
         else:
             assert body == expected
 
     def test_zstd_preferred_over_gzip_when_both_listed(self, dashboard: Dashboard) -> None:
         """Modern browsers list zstd; prefer it for the smaller wire body."""
+        from compression.zstd import decompress as zstd_decompress
         from io import BytesIO
         from unittest.mock import Mock
-
-        import zstandard
 
         from rebrew.dashboard import (
             _INDEX_HTML_BYTES,
@@ -2422,7 +2420,7 @@ class TestEncodingNegotiation:
         body = handler.wfile.getvalue()
         assert headers["Content-Encoding"] == "zstd"
         assert body == _index_html_zstd()
-        assert zstandard.ZstdDecompressor().decompress(body) == _INDEX_HTML_BYTES
+        assert zstd_decompress(body) == _INDEX_HTML_BYTES
         assert len(body) < len(_INDEX_HTML_BYTES)
 
     def test_boot_guard_rides_the_precompressed_shell(self, dashboard: Dashboard) -> None:
@@ -2549,7 +2547,7 @@ class TestEncodingNegotiation:
 
     @pytest.mark.parametrize(
         ("accept", "expected_body"),
-        [("zstd", 12759), ("gzip", None)],
+        [("zstd", 12780), ("gzip", None)],
     )
     def test_the_documented_entry_flight_matches_the_wire(
         self, accept: str, expected_body: int | None
@@ -2696,7 +2694,7 @@ class TestEncodingNegotiation:
         the same levels the import-time static blobs use.  The filter and paging
         routes are rebuilt on every interaction and stay at mid effort.
         """
-        import zstandard
+        from compression.zstd import decompress as zstd_decompress
 
         from rebrew.compression import (
             GZIP_PRECOMPRESS_LEVEL,
@@ -2728,9 +2726,7 @@ class TestEncodingNegotiation:
             assert len(cold) < len(mid), f"{accept}: max effort {len(cold)} >= {len(mid)}"
             assert effort < max_effort
             # Both decompress back to the served body.
-            decode = (
-                gzip.decompress if accept == "gzip" else zstandard.ZstdDecompressor().decompress
-            )
+            decode = gzip.decompress if accept == "gzip" else zstd_decompress
             assert decode(mid) == decode(cold) == body
 
     @pytest.mark.parametrize("accept", ["gzip", "zstd"])
@@ -3378,8 +3374,7 @@ class TestHostValidation:
     ) -> None:
         """Static shell and /app.js are compressed once, on first use, not per request."""
         import gzip
-
-        import zstandard
+        from compression.zstd import decompress as zstd_decompress
 
         import rebrew.dashboard as dash
         from rebrew.dashboard import _Handler, allowed_hosts_for
@@ -3424,7 +3419,7 @@ class TestHostValidation:
             # mtime=0: the body is a pure function of the uncompressed bytes.
             assert int.from_bytes(raw[4:8], "little") == 0
         else:
-            assert zstandard.ZstdDecompressor().decompress(raw) == raw_bytes
+            assert zstd_decompress(raw) == raw_bytes
 
     @pytest.mark.parametrize("control", ["\x1b", "\n", "\r", "\x7f", "\x9b"])
     def test_handler_log_escapes_controls(

@@ -15,6 +15,13 @@
   per unchanged ``rebrew-project.toml``, instead of calling ``Path.resolve``
   on those roots for every source file. Comment dialects are unchanged.
 
+### Changed
+
+- Dashboard responses and coverage-report sidecars compress with the stdlib
+  `compression.zstd` module, so the `zstandard` package is no longer a
+  dependency. The entry zstd checkpoint is 12780 bytes, inside the 13600-byte
+  budget.
+
 ## [6.33.0] - 2026-11-12
 
 ### Changed

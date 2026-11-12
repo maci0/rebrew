@@ -43,7 +43,7 @@ span's trace id, and ``REBREW_OTLP_ENDPOINT`` exports the spans over OTLP/HTTP
 Successful responses negotiate zstd then gzip with quality weights. ETags key
 on the live input version or portable file state plus the exact route/query;
 health is no-store. Static assets are content-hashed and precompressed. The
-entry checkpoint measured 12759 B zstd / 13399 B gzip against a 13600 B budget;
+entry checkpoint measured 12780 B zstd / 13399 B gzip against a 13600 B budget;
 host zlib versions can change gzip size. Tests enforce the wire budget.
 Reload re-reads the live view; view/target/filter navigation is stored in the
 URL hash. Details, API schema and transfer measurements live in
@@ -74,12 +74,12 @@ lazy import traceback
 lazy import unicodedata
 lazy import weakref
 lazy from collections.abc import Callable, Iterator, Mapping, Sequence
+lazy from compression import zstd
 lazy from email.utils import formatdate
 lazy from pathlib import Path
 lazy from urllib.parse import parse_qs, urlparse
 
 import typer
-lazy import zstandard
 lazy from rich.markup import escape
 
 from rebrew import __version__, telemetry
@@ -2802,7 +2802,7 @@ def _compress(body: bytes, encoding: _WireEncoding) -> bytes:
     bytes or the same tag serves a different body across requests.
     """
     if encoding == "zstd":
-        return zstandard.ZstdCompressor(level=_ZSTD_LEVEL).compress(body)
+        return zstd.compress(body, level=_ZSTD_LEVEL)
     if encoding == "gzip":
         return gzip.compress(body, compresslevel=_GZIP_LEVEL, mtime=0)
     raise ValueError(f"unknown wire encoding {encoding!r}; expected 'zstd' or 'gzip'")

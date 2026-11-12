@@ -911,7 +911,6 @@ class TestCycloneDxSbom:
             "tree-sitter",
             "tree-sitter-c",
             "typer",
-            "zstandard",
             "httpcore",
             "h11",
             "anyio",

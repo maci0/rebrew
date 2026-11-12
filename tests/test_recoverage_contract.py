@@ -22,7 +22,7 @@ What the consumer needs, and what this file pins:
 
 The SQLite schema's derived objects — ``section_cell_stats``, the zstd
 section-cells cache, the ``db_version`` stamp — went with the database and are
-not part of this contract; nothing here imports ``sqlite3`` or ``zstandard``.
+not part of this contract; nothing here imports ``sqlite3`` or a compression codec.
 """
 
 from __future__ import annotations
