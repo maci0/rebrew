@@ -150,7 +150,6 @@
 - Correct metadata backup scope: source trees need separate backups, and configured reference binaries or BinSync directories with absolute or parent-relative paths are not included.
 
 - Distinguish metadata backup copy verification from record validation: TOML backup preserves bytes, restore checks TOML syntax, and SQLite adds database schema/integrity checks.
-### Fixed
 
 - PE Control Flow Guard tables use the per-entry metadata width from GuardFlags, so targets after the first remain aligned. CFG and SafeSEH RVAs retain their high address bit instead of treating it as an import-ordinal flag.
 
