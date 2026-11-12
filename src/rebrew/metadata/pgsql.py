@@ -168,6 +168,27 @@ class PgsqlStore:
                 raise MetadataStorageError("unsupported PostgreSQL metadata schema")
             return str(row[0]), int(row[1])
 
+    def _revision(self) -> int | None:
+        """The stored revision, without transferring the document body.
+
+        Cache lookups call this on every read.  The body is what ``read`` and
+        ``digest`` need; pulling it here made every fingerprint hash the whole
+        document over the network.
+        """
+        with self._connection() as connection:
+            if not self._present(connection):
+                return None
+            row = connection.execute(
+                "SELECT revision, schema_version FROM public.rebrew_metadata_documents "
+                "WHERE project = %s AND path = %s",
+                (self.project, self.key),
+            ).fetchone()
+            if row is None:
+                return None
+            if row[1] != 1 or int(row[0]) < 1:
+                raise MetadataStorageError("unsupported PostgreSQL metadata schema")
+            return int(row[0])
+
     def read(
         self, description: str, *, validate: Any = None, roundtrip: bool = False
     ) -> dict[str, Any]:
@@ -212,13 +233,20 @@ class PgsqlStore:
         return hashlib.sha256(content).hexdigest() if content is not None else None
 
     def fingerprint(self) -> tuple[tuple[str, int, int, int, int], ...]:
-        """Detect remote edits and delete/recreate cycles without local file changes."""
-        row = self._row()
+        """Detect remote edits and delete/recreate cycles without local file changes.
+
+        The revision is the change token.  ``write`` advances it exactly when
+        the stored content changes, and a delete/recreate starts again at 1,
+        so hashing the document here only repeated work every cache lookup
+        already paid for by reading the row.  The connection identity stays in
+        the key: two projects must not share a fingerprint just because their
+        revisions happen to match.
+        """
+        row = self._revision()
         if row is None:
             return ()
-        token = int.from_bytes(hashlib.sha256(row[0].encode()).digest(), "big")
         scope = hashlib.sha256(repr(self.identity).encode()).hexdigest()
-        return ((scope + ":" + self.key, row[1], token, 0, 1),)
+        return ((scope + ":" + self.key, row, 0, 0, 1),)
 
     def inputs(self) -> tuple[Path, ...]:
         """Watch connection settings; remote edits are detected by fingerprints."""

@@ -28,6 +28,7 @@ Two consequences of writing TOML are load-bearing and stated once here:
 import contextlib
 import logging
 import threading
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from functools import lru_cache
 from types import MappingProxyType
@@ -1425,12 +1426,19 @@ def _read_document(path: Path, target: str) -> CoverageSnapshot:
     return snapshot_from_document(path, doc, target)
 
 
-# Memoized directory scan: ((directory, ((name, mtime_ns, size, ino, ctime_ns), ...)), snapshots).
+# Memoized directory scan: directory -> ((name, mtime_ns, size, ino, ctime_ns), ...), snapshots.
 # The key is every input the answer has — the directory and the stat of every
 # file in it — so a rebuilt file, an added target and a removed one all
 # invalidate.  load_all_coverage runs on the request path and re-reading and
 # re-parsing a 1.25 MB document per request is pure waste; one stat per
 # candidate file replaces it.
+#
+# One slot for the whole process is not enough.  A second directory's scan
+# used to replace the only entry, and the next request for the first directory
+# returned that second scan's mapping until its own parse finished — a
+# dashboard or a test runner that opens two projects in one process served one
+# project's targets as the other's.  The bound is the number of directories
+# kept, oldest evicted; identity reuse still holds inside one directory.
 #
 # Callers use the returned object's identity as their own cache key, so an
 # unchanged directory returns THE SAME snapshots, not equal copies.  The
@@ -1439,18 +1447,19 @@ def _read_document(path: Path, target: str) -> CoverageSnapshot:
 # its own equal-valued dict to a caller that then keys a cache on it.  The
 # lock covers the lookup and the publish only: the parse (unavoidably slow)
 # stays outside it.
+_CoverageKey = tuple[Path, tuple[tuple[str, int, int, int, int], ...]]
 _ALL_CACHE_LOCK = threading.Lock()
-_ALL_CACHE: (
-    tuple[tuple[Path, tuple[tuple[str, int, int, int, int], ...]], dict[str, CoverageSnapshot]]
-    | None
-) = None
+_ALL_CACHE: OrderedDict[_CoverageKey, dict[str, CoverageSnapshot]] = OrderedDict()
+#: Directories retained at once.  A dashboard process serves one project, and a
+#: batch that walks several still reuses each until the oldest falls out.
+_ALL_CACHE_MAX = 8
 #: In-flight directory scans, keyed the same way as ``_ALL_CACHE``.  A miss
 #: parses outside the lock, so without this every request that misses together
 #: re-reads and re-parses the same documents; the dashboard is a
 #: ``ThreadingHTTPServer`` and a cold start made that N full parses of the
 #: target tree.  Waiters block on the leader's event and then take the
 #: published snapshots, so one scan serves the burst.
-_ALL_INFLIGHT: dict[tuple[Path, tuple[tuple[str, int, int, int, int], ...]], threading.Event] = {}
+_ALL_INFLIGHT: dict[_CoverageKey, threading.Event] = {}
 #: Bound on a singleflight wait in :func:`load_all_coverage_from`.  A directory
 #: scan is fast and local; waiting without a deadline parks a dashboard
 #: request thread forever if the leader thread dies before setting its
@@ -1529,14 +1538,14 @@ def load_all_coverage_from(db_directory: Path) -> dict[str, CoverageSnapshot]:
     the same immutable snapshots; normal project readers use coverage_project.
     Concurrent misses for one directory scan it once and share the result.
     """
-    global _ALL_CACHE
     db_directory = Path(db_directory)
     key = (db_directory, _stat_key(db_directory))
     while True:
         with _ALL_CACHE_LOCK:
-            cached = _ALL_CACHE
-            if cached is not None and cached[0] == key:
-                return cached[1]
+            cached = _ALL_CACHE.get(key)
+            if cached is not None:
+                _ALL_CACHE.move_to_end(key)
+                return cached
             event = _ALL_INFLIGHT.get(key)
             if event is None:
                 event = threading.Event()
@@ -1566,10 +1575,14 @@ def load_all_coverage_from(db_directory: Path) -> dict[str, CoverageSnapshot]:
             except CoverageTomlError as exc:
                 log.warning("coverage_toml: skipping %s: %s", path, exc)
         with _ALL_CACHE_LOCK:
-            cached = _ALL_CACHE
-            if cached is not None and cached[0] == key:
-                return cached[1]
-            _ALL_CACHE = (key, snapshots)
+            cached = _ALL_CACHE.get(key)
+            if cached is not None:
+                _ALL_CACHE.move_to_end(key)
+                return cached
+            _ALL_CACHE[key] = snapshots
+            _ALL_CACHE.move_to_end(key)
+            while len(_ALL_CACHE) > _ALL_CACHE_MAX:
+                _ALL_CACHE.popitem(last=False)
         return snapshots
     finally:
         with _ALL_CACHE_LOCK:

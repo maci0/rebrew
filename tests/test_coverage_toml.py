@@ -1157,7 +1157,7 @@ class TestMemo:
         write(data)
         saved_cache = coverage_toml._ALL_CACHE
         saved_inflight = dict(coverage_toml._ALL_INFLIGHT)
-        coverage_toml._ALL_CACHE = None
+        coverage_toml._ALL_CACHE.clear()
         coverage_toml._ALL_INFLIGHT.clear()
         real = coverage_toml._read_document
         start = threading.Barrier(4, timeout=5)
@@ -1197,7 +1197,8 @@ class TestMemo:
             assert load_all_coverage_from(tmp_path / "db") is results[0]
             assert calls == 1
         finally:
-            coverage_toml._ALL_CACHE = saved_cache
+            coverage_toml._ALL_CACHE.clear()
+            coverage_toml._ALL_CACHE.update(saved_cache)
             coverage_toml._ALL_INFLIGHT.clear()
             coverage_toml._ALL_INFLIGHT.update(saved_inflight)
 
@@ -1374,6 +1375,37 @@ class TestMemo:
         (tmp_path / "db" / "coverage-other.dll.toml").unlink()
         assert sorted(load_all_coverage_from(tmp_path / "db")) == [TARGET]
 
+    def test_one_directory_does_not_evict_another(
+        self,
+        write: Callable[[dict[str, Any]], list[Path]],
+        data: dict[str, Any],
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A second directory's scan must not be served as the first directory.
+
+        The memo used to keep one slot for the process.  Loading directory B
+        replaced it, and the next read of A returned B's mapping until A's own
+        parse finished.
+        """
+        first_dir = tmp_path / "one"
+        second_dir = tmp_path / "two"
+        write(data)
+        (tmp_path / "db").rename(first_dir)
+
+        def other(*args: Any, **kwargs: Any) -> list[tuple[str, Any]]:
+            return [("other.dll", copy.deepcopy(data))]
+
+        monkeypatch.setattr(coverage_toml, "load_coverage_datasets", other, raising=True)
+        write_coverage_toml(tmp_path, second_dir)
+        first = load_all_coverage_from(first_dir)
+        second = load_all_coverage_from(second_dir)
+        again = load_all_coverage_from(first_dir)
+        assert again is first
+        assert load_all_coverage_from(second_dir) is second
+        assert set(again) == {TARGET}
+        assert set(second) == {"other.dll"}
+
     def test_nfd_filename_keys_the_snapshot_nfc(
         self, monkeypatch: pytest.MonkeyPatch, data: dict[str, Any], tmp_path: Path
     ) -> None:
@@ -1398,7 +1430,7 @@ class TestMemo:
         doc = tmp_path / "db" / f"coverage-{nfc}.toml"
         # Spell the file the way a decomposing filesystem stores it.
         doc.rename(tmp_path / "db" / f"coverage-{nfd}.toml")
-        coverage_toml._ALL_CACHE = None
+        coverage_toml._ALL_CACHE.clear()
 
         assert list(load_all_coverage_from(tmp_path / "db")) == [nfc]
 

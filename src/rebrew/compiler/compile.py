@@ -1191,6 +1191,12 @@ def _docker_include_rewrite(
 # Guarded: verify -j N / GA workers call ``_native_toolchain_id`` concurrently
 # while building cache keys; the eviction path is a multi-step mutation.
 # A missing or unreadable binary is not stored: that is not an identity.
+#
+# Keyed by the resolved path, not the binary's basename.  Two plugin
+# toolchains can both be named ``cc`` and resolve to different files; a
+# name-only slot served the first file's digest for the second, and the
+# compile cache then stored the second compiler's objects under the first
+# compiler's id.
 _native_binary_cache: dict[str, tuple[str, int, int, int, int, str]] = {}
 _NATIVE_BINARY_CACHE_MAX = 32
 _NATIVE_BINARY_CACHE_LOCK = threading.Lock()
@@ -1249,7 +1255,8 @@ def native_binary_id(name: str, resolved: Path | None) -> str | None:
     None when *resolved* is missing, unreadable, or the digest is not 64
     lowercase hex.  A missing identity is not memoized.  Successful ids are
     memoized per ``(path, mtime, size, inode, ctime)`` in
-    :data:`_native_binary_cache`.
+    :data:`_native_binary_cache`, under the resolved path so two binaries
+    that share a basename keep distinct digests.
     """
     if resolved is None:
         return None
@@ -1262,9 +1269,9 @@ def native_binary_id(name: str, resolved: Path | None) -> str | None:
 
     key = (resolved_path, st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns)
     with _NATIVE_BINARY_CACHE_LOCK:
-        hit = _native_cache_hit(name, key)
+        hit = _native_cache_hit(resolved_path, key)
         if hit is not None and not _valid_native_id(hit, name):
-            _native_binary_cache.pop(name, None)
+            _native_binary_cache.pop(resolved_path, None)
             hit = None
     if hit is not None:
         return hit
@@ -1275,16 +1282,16 @@ def native_binary_id(name: str, resolved: Path | None) -> str | None:
     toolchain_id = f"native:{name}@{digest}"
     with _NATIVE_BINARY_CACHE_LOCK:
         # Re-check: another worker may have filled it while we hashed.
-        hit = _native_cache_hit(name, key)
+        hit = _native_cache_hit(resolved_path, key)
         if hit is not None and _valid_native_id(hit, name):
             return hit
         if (
             len(_native_binary_cache) >= _NATIVE_BINARY_CACHE_MAX
-            and name not in _native_binary_cache
+            and resolved_path not in _native_binary_cache
         ):
             oldest = next(iter(_native_binary_cache))
             _native_binary_cache.pop(oldest, None)
-        _native_binary_cache[name] = (*key, toolchain_id)
+        _native_binary_cache[resolved_path] = (*key, toolchain_id)
     return toolchain_id
 
 

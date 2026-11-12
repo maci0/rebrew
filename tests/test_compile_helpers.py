@@ -284,7 +284,7 @@ class TestNativeToolchainId:
         os.utime(gcc, (1767226000, 1767226000))
         id_new = _native_toolchain_id(self._spec("mingw-16.2.0"))
         assert id_old != id_new
-        assert _native_binary_cache["mingw-16.2.0"][5] == id_new
+        assert _native_binary_cache[str(gcc.resolve())][5] == id_new
 
     def test_same_stat_different_bytes_changes_id(self, tmp_path: Path, monkeypatch) -> None:
         """A swapped compiler that preserves (mtime, size) still invalidates
@@ -368,6 +368,32 @@ class TestNativeToolchainId:
         )
         id_new = _native_toolchain_id(self._spec("mingw-16.2.0"))
         assert id_old != id_new
+
+    def test_same_basename_different_paths_keep_distinct_ids(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """Two compilers both named ``cc`` must not share one memo slot.
+
+        A name-only key stored the first path's digest and handed it back
+        for the second path, so the compile cache filed the second
+        compiler's objects under the first compiler's id.
+        """
+        from rebrew.compiler.compile import _native_binary_cache, native_binary_id
+
+        first = tmp_path / "a" / "cc"
+        second = tmp_path / "b" / "cc"
+        first.parent.mkdir()
+        second.parent.mkdir()
+        first.write_bytes(b"compiler-a")
+        second.write_bytes(b"compiler-b")
+        _native_binary_cache.clear()
+        id_first = native_binary_id("cc", first)
+        id_second = native_binary_id("cc", second)
+        assert id_first is not None and id_second is not None
+        assert id_first != id_second
+        assert native_binary_id("cc", first) == id_first
+        assert str(first.resolve()) in _native_binary_cache
+        assert str(second.resolve()) in _native_binary_cache
 
     def test_native_binary_cache_is_thread_safe(self, tmp_path: Path, monkeypatch) -> None:
         """Concurrent cache-key builds must not race the eviction mutation."""
