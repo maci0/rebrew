@@ -551,6 +551,27 @@ class TestBinsyncGhidraComment:
         assert comments[0].func_addr == 0x1000
         assert comments[0].comment == "[rebrew:ghidra] ghidra_name"
 
+    @pytest.mark.parametrize("mode", [0o444, 0o644])
+    @pytest.mark.parametrize("previous", ["same", "different"])
+    def test_state_write_replaces_link_without_changing_target(
+        self, tmp_path: Path, mode: int, previous: str
+    ) -> None:
+        from rebrew.binsync.serial import write_state_text
+
+        target = tmp_path / "saved.toml"
+        target.write_text(previous, encoding="utf-8")
+        target.chmod(mode)
+        state = tmp_path / "state"
+        state.mkdir()
+        artifact = state / "metadata.toml"
+        artifact.symlink_to(target)
+        write_state_text(artifact, "same")
+        assert target.read_text(encoding="utf-8") == previous
+        assert target.stat().st_mode & 0o777 == mode
+        assert not artifact.is_symlink()
+        assert artifact.read_text(encoding="utf-8") == "same"
+        assert artifact.stat().st_mode & 0o777 == 0o644
+
     def test_export_leaves_state_files_writable(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

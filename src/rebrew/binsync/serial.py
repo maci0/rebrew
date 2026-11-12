@@ -205,7 +205,7 @@ def write_state_text(path: Path, text: str) -> None:
     from rebrew.utils import atomic_write_text
 
     try:
-        if path.read_text(encoding="utf-8-sig") == text:
+        if not path.is_symlink() and path.read_text(encoding="utf-8-sig") == text:
             if not path.stat().st_mode & stat.S_IWUSR:
                 os.chmod(path, STATE_FILE_MODE)
             return
