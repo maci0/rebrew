@@ -49,9 +49,11 @@ Backends: SQLite (default), PostgreSQL, MySQL, DuckDB.
 Integration with rebrew is at the package level: the `similarity` dependency
 group selects the `resembl` checkout, and rebrew reuses
 `resembl/scoring.py` (importable without resembl's DB stack) for the
-`verify_results.similarity` column; the structural score verify reports for
-every verified function with compiled bytes, matched and unmatched alike (the
-neighbouring `diff_lines` is unmatched-only). resembl itself has no rebrew
+`verify_results.similarity` column. Verify attempts this best-effort score for
+matched and unmatched functions with compiled bytes; a missing optional scorer
+or scoring failure leaves it unscored (`None` in the result, `""` in portable
+TOML). Identical bytes can still return 100% before importing the scorer.
+The neighbouring `diff_lines` is unmatched-only. resembl itself has no rebrew
 dependency and keeps its own database.
 
 Boundary with rebrew's own matchers: `resembl` owns the *persisted corpus and

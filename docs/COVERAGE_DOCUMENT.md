@@ -175,7 +175,7 @@ document never holds a function no reader can key.
 | `verified_at` | string | ISO 8601 stamp of the measurement. |
 | `byte_delta` | integer or `""` | Differing bytes. |
 | `diff_lines` | integer or `""` | Structural differing disassembly lines; register-encoding-only differences are not counted here (see `reg_delta`). |
-| `similarity` | float or `""` | Code similarity in `[0, 1]`, from the verify cache's 0–100 `Sim %` divided by 100. |
+| `similarity` | float or `""` | Code similarity in `[0, 1]`, from the verify cache's 0–100 `Sim %` divided by 100; `""` when unscored, including an unavailable optional scorer or scoring failure. |
 | `reg_delta` | integer or `""` | Register-encoding-only differing instructions; `""` when the cache has no value. |
 | `effective_match` | `0` / `1` or `""` | `1` when the whole byte delta is register allocation. |
 
