@@ -34,6 +34,35 @@ class TestAnalyzeFrame:
         code = prefix + b"\x60" + prefix + b"\x61\x50\xc3"
         assert analyze_frame(code, 0x1000, mode)["frame_size"] == expected
 
+    @pytest.mark.parametrize(
+        ("mode", "code", "expected"),
+        [
+            (2, "6650c3", 4),
+            (4, "6650c3", 2),
+            (8, "6650c3", 2),
+            (2, "666a01c3", 4),
+            (4, "666a01c3", 2),
+            (8, "666a01c3", 2),
+            (2, "665883ec08c3", 4),
+            (4, "665883ec08c3", 6),
+            (8, "66584883ec08c3", 6),
+            (2, "66c8100000c3", 20),
+            (4, "66c8100000c3", 18),
+            (8, "66c8100000c3", 18),
+            (2, "0fa0c3", 2),
+            (4, "0fa0c3", 4),
+            (8, "0fa0c3", 8),
+            (2, "6750c3", 2),
+            (4, "6750c3", 4),
+            (8, "6750c3", 8),
+            (8, "664850c3", 8),
+        ],
+    )
+    def test_stack_delta_follows_operand_size_not_address_size(
+        self, mode: int, code: str, expected: int
+    ) -> None:
+        assert analyze_frame(bytes.fromhex(code), 0x1000, mode)["frame_size"] == expected
+
     def test_ebp_frame_size_and_slots(self) -> None:
         f = analyze_frame(EBP_FRAME_0X28, 0x1000, 4)
         assert f["frame_size"] == 0x2C  # push ebp (4) + sub esp 0x28 (40)

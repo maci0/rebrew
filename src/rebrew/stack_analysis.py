@@ -78,9 +78,14 @@ def analyze_frame(code: bytes, va: int, cs_mode: int) -> dict[str, Any]:
     for idx, insn in enumerate(insns):
         mnem = insn.mnemonic
         op_str = insn.op_str
+        stack_word = word
+        if 0x66 in insn.prefix:
+            stack_word = 4 if word == 2 else 2
+        if word == 8 and insn.rex & 8:
+            stack_word = 8
 
         if mnem in ("push", "pop"):
-            esp += -word if mnem == "push" else word
+            esp += -stack_word if mnem == "push" else stack_word
         elif mnem in ("pushad", "pusha", "pushal", "pushaw"):
             esp -= 16 if mnem in ("pusha", "pushaw") else 32
         elif mnem in ("popad", "popa", "popal", "popaw"):
@@ -113,7 +118,7 @@ def analyze_frame(code: bytes, va: int, cs_mode: int) -> dict[str, Any]:
             m = _ENTER_SIZE_RE.search(op_str)
             if m:
                 size = parse_int_literal(m.group(1))
-                esp -= word + size
+                esp -= stack_word + size
             frame_pointer = True
         elif mnem == "ret" and op_str:
             ret_popping = parse_int_literal(op_str)
