@@ -268,7 +268,7 @@ _COFF_FIXUP_WIDTHS: dict[str, int] = {
     "I386_REL32": 4,
     "I386_SECREL": 4,
     "I386_SECTION": 2,  # 16-bit section index
-    "I386_SECREL7": 2,  # 16-bit "offset minus 1" (debug-info-only on x86)
+    "I386_SECREL7": 1,  # Seven-bit section-relative offset.
     "AMD64_ADDR64": 8,
     "AMD64_ADDR32": 4,
     "AMD64_ADDR32NB": 4,
