@@ -2880,6 +2880,32 @@ def load_compile_cache_config(root: Path) -> ProjectConfig:
     return cfg
 
 
+def validate_source_directories(
+    root: Path, targets: Mapping[str, Any], target: str, shared_dir: Any = "src/shared"
+) -> None:
+    """Reject source roots that cannot have metadata-relative file identities."""
+    source_dirs = {
+        f"[targets.{name}].reversed_dir": _required_path(
+            root, data.get("reversed_dir"), f"src/{name}", f"[targets.{name}].reversed_dir"
+        )
+        for name, data in targets.items()
+    }
+    metadata_root = ProjectConfig(
+        root=root, reversed_dir=source_dirs[f"[targets.{target}].reversed_dir"]
+    ).metadata_dir.resolve()
+    if shared_dir is not None and str(shared_dir).strip():
+        source_dirs["[project].shared_dir"] = _required_path(
+            root, shared_dir, "src/shared", "[project].shared_dir"
+        )
+    for field_name, directory in source_dirs.items():
+        if not directory.resolve().is_relative_to(metadata_root):
+            raise ConfigError(
+                f"rebrew-project.toml {field_name} ({directory}) is outside metadata "
+                f"directory {metadata_root}; move the store to the project root, "
+                "or move the directory under the store"
+            )
+
+
 def load_config(
     root: Path | str | None = None,
     target: str | None = None,
@@ -3263,22 +3289,7 @@ def load_config(
         **_load_lint_settings(project_raw),
     )
 
-    metadata_root = cfg.metadata_dir.resolve()
-    source_dirs = {
-        f"[targets.{name}].reversed_dir": _required_path(
-            root, data.get("reversed_dir"), f"src/{name}", f"[targets.{name}].reversed_dir"
-        )
-        for name, data in targets_dict.items()
-    }
-    if shared_dir is not None:
-        source_dirs["[project].shared_dir"] = shared_dir
-    for field_name, directory in source_dirs.items():
-        if not directory.resolve().is_relative_to(metadata_root):
-            raise ConfigError(
-                f"rebrew-project.toml {field_name} ({directory}) is outside metadata "
-                f"directory {metadata_root}; move the store to the project root, "
-                "or move the directory under the store"
-            )
+    validate_source_directories(root, targets_dict, target, shared_dir)
 
     # Auto-detect CRT sources if not explicitly configured
     if not cfg.crt_sources:
@@ -3518,6 +3529,7 @@ __all__ = [
     "target_module",
     "validate_http_url",
     "validate_llm_model",
+    "validate_source_directories",
     "validate_target_name",
     "warn_env_dir",
 ]

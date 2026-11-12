@@ -53,6 +53,7 @@ from rebrew.config import (
     env_knob_errors,
     project_toml_lock,
     validate_http_url,
+    validate_source_directories,
     validate_target_name,
 )
 lazy from rebrew.config import find_root as _config_find_root
@@ -1143,6 +1144,20 @@ def _set_value_locked(key: str, value: str, *, dry_run: bool, json_mode: bool) -
                 json_mode=json_mode,
             )
 
+    parent[final_key] = parsed_value
+    if parts == ["project", "shared_dir"] or (
+        len(parts) == 3 and parts[0] == "targets" and final_key == "reversed_dir"
+    ):
+        try:
+            validate_source_directories(
+                toml_path.parent,
+                doc["targets"],
+                _resolve_target(doc, None, json_mode=json_mode),
+                doc.get("project", {}).get("shared_dir", "src/shared"),
+            )
+        except ConfigError as exc:
+            error_exit(str(exc), code=EXIT_ERROR, json_mode=json_mode)
+
     shown = _display_config_value(final_key, parsed_value)
     if dry_run:
         if json_mode:
@@ -1150,8 +1165,7 @@ def _set_value_locked(key: str, value: str, *, dry_run: bool, json_mode: bool) -
         else:
             console.print(f"[cyan]dry-run:[/cyan] would set {key} = {shown!r}")
         return
-    parent[final_key] = parsed_value
-    save_toml(doc, toml_path)
+    save_toml(doc, toml_path, json_mode=json_mode)
     if json_mode:
         json_print({"key": key, "value": parsed_value, "path": str(toml_path)})
         return

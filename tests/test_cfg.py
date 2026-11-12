@@ -2135,3 +2135,73 @@ def test_set_removed_marker_key_does_not_write(
     assert result.exit_code != 0
     assert "marker was replaced by module" in result.output
     assert path.read_bytes() == before
+
+
+class TestSourceRootEdits:
+    @pytest.mark.parametrize("key", ["project.shared_dir", "shared_dir"])
+    @pytest.mark.parametrize("dry_run", [False, True])
+    @pytest.mark.parametrize("json_mode", [False, True])
+    def test_set_rejects_shared_directory_outside_metadata_root(
+        self, tmp_path: Path, monkeypatch, json_mode: bool, dry_run: bool, key: str
+    ) -> None:
+        from source_util import write_store_fixture
+
+        (tmp_path / "src" / "game").mkdir(parents=True)
+        write_store_fixture(tmp_path / "src" / "rebrew-functions.toml", "")
+        root = _make_project(
+            tmp_path,
+            """[project]
+default_target = "game"
+shared_dir = "src/shared"
+[targets.game]
+binary = "game.exe"
+reversed_dir = "src/game"
+""",
+        )
+        monkeypatch.chdir(root)
+        path = root / "rebrew-project.toml"
+        before = path.read_bytes()
+        before_stat = path.stat()
+        args = ["set", key, "shared"]
+        if dry_run:
+            args.append("--dry-run")
+        if json_mode:
+            args.append("--json")
+        result = runner.invoke(cfg_app, args)
+        assert result.exit_code != 0
+        assert path.read_bytes() == before
+        assert path.stat().st_mtime_ns == before_stat.st_mtime_ns
+        assert path.stat().st_mode == before_stat.st_mode
+        assert "move the store to the project root" in result.output
+        assert "move the directory under the store" in result.output
+
+    def test_set_compiler_repairs_broken_profile(self, tmp_path: Path, monkeypatch) -> None:
+        root = _make_project(
+            tmp_path, TOML_WITH_DEFAULT_TARGET + '[compiler]\nprofile = "broken"\n'
+        )
+        monkeypatch.chdir(root)
+        result = runner.invoke(cfg_app, ["target", "set-compiler", "client", "msvc-6.0"])
+        assert result.exit_code == 0, result.output
+        doc, _ = load_toml(root)
+        assert doc["targets"]["client"]["compiler"]["profile"] == "msvc-6.0"
+
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [
+            ("shared_dir", "src/common"),
+            ("shared_dir", ""),
+            ("targets.server.dll.reversed_dir", "src/renamed"),
+        ],
+    )
+    def test_valid_source_edits_remain_writable(
+        self, tmp_path: Path, monkeypatch, key: str, value: str
+    ) -> None:
+        root = _make_project(tmp_path)
+        monkeypatch.chdir(root)
+        result = runner.invoke(cfg_app, ["set", key, value, "--json"])
+        assert result.exit_code == 0, result.output
+        doc, _ = load_toml(root)
+        if key == "shared_dir":
+            assert doc["project"]["shared_dir"] == value
+        else:
+            assert doc["targets"]["server.dll"]["reversed_dir"] == value
