@@ -74,8 +74,11 @@ rebrew recommend --json                   # all lanes: TU layout + hygiene + nex
 - `rebrew source import-related --shared` records the destination identity on
   the shared definition (`--promote` moves the file first). Optional address
   anchors follow their declarations; metadata carries every other field.
+- `rebrew source rehome 0xVA=src/<target>/file.c --dry-run` repoints rows after a
+  definition was moved by hand, without moving its text. `--from OLD --to NEW` covers a
+  renamed file, and `--json` requires `--force` off a terminal.
 - `rebrew source rename` rewrites whole identifiers only: never inside string
-  literals, inside comments only with `--comments`. Read the `--dry-run` list
+  literals, and inside comments only with `--comments`. Read the `--dry-run` list
   (`file:line:column role` plus row changes) before writing.
   Reviewed assembly provenance follows definitions and file moves. Only records
   current before the mechanical rename receive refreshed hashes; stale evidence

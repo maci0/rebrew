@@ -192,8 +192,12 @@ their cast types.
 
 Across the whole image, `rebrew binary relocs --json` lists the base relocation
 sites the build lacks or adds, with each site's symbol and pointer target.
-`--pairs START:END` maps reference targets in a range to the built targets at
-the same sites, which shows displaced globals.
+`--pairs START:END` maps reference targets in a range onto the built targets at
+those same sites, which shows displaced globals. For one function shared by two
+targets, `rebrew data pair 0xVA_A 0xVA_B --from a.exe --target b --dry-run --json`
+pairs their absolute data operands by instruction offset and names the missing side after
+the other. Conflicts are reported, never overwritten; `--rewrite f.c` then turns the raw
+casts in the shared source into `&name`. Re-test both targets afterwards.
 
 ## Whole-Image Gaps From Discarded Code
 

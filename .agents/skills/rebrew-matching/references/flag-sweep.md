@@ -30,7 +30,10 @@ rebrew match flags src/bench/<file>.c --tier full # requires authorized long-run
 | `thorough` | 258,048 | After `normal` still near: Authorized long run |
 | `full` | 6,193,152 | Last resort: Authorized long run (engine auto-samples; no `--sample` flag) |
 
-Axes are per-profile (MSVC `/` flags, Watcom `-os/-ot/…`, Borland `-O1/-O2`,
+When the profile itself is the unknown, compare profiles before any flag sweep:
+`rebrew match toolchains src/bench/<file>.c --toolchains msvc-6.0,msvc-7.0 --json`
+compiles the one function under each profile, and `--flags` adds a flag search inside it.
+Axes differ per profile (MSVC `/` flags, Watcom `-os/-ot/…`, Borland `-O1/-O2`,
 16-bit MSVC). Fetch pinned images with `rebrew toolchain pull <profile>`; execution uses the
 configured backend. Try `/O2`
 or `/O1` by hand before a blind sweep; heuristics:

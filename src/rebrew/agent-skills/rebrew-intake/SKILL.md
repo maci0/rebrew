@@ -114,9 +114,14 @@ To pin a copied signature set in the project, run
 `rebrew library init-signatures --matched-only`. Existing project files are
 retained; `scan-signatures` remains a read-only scan.
 
-Needs `rebrew cfg detect-crt apply` first or `rebrew library crt-match --all` finds nothing. FLIRT JSON:
-`matches[].names`; ambiguous hits in `ambiguous_matches`. Use
-`rebrew library crt-match --all --fix-source` to record SOURCE metadata on confirmed library hits.
+Preview the CRT dirs with `rebrew cfg detect-crt show --json` before `rebrew cfg detect-crt apply`; without it `rebrew library crt-match --all` finds nothing. FLIRT JSON:
+`matches[].names`; ambiguous hits in `ambiguous_matches`. Record SOURCE metadata on
+confirmed hits with `rebrew library crt-match --all --fix-source`. A hit names an origin,
+not the linked provider: `rebrew library adopt --dry-run --json` previews the unique archive
+member the raw-link map selected for each library-origin function, and applying that preview
+takes its `--expected-digest`. `rebrew library presence --object member.obj --json` reports
+whether one object's bodies occur in the reference, so an `/INCLUDE` does not pull a member
+the target never carried.
 
 ### 3. Build Function Catalog + Coverage Document
 

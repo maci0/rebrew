@@ -86,8 +86,11 @@ third-party site. Run it only when the user asks for a decomp.me scratch, and
 `--dry-run` first if they have not said where the source may go. Without
 `--dry-run` it performs a network upload.
 
-`rebrew verify --compare` uses the selected baseline (`.rebrew/verify_baseline.toml`,
-or the per-target file under `.rebrew/targets/`; exit 1 on regression). First run
+`rebrew binary score --built build/<target> --json` gives same-offset byte agreement
+of a built image against the reference. Read it as triage rather than a verdict: even a
+high score can hide displaced symbols, so `verify --whole-binary` stays the pass/fail.
+`rebrew verify --compare` diffs against the selected baseline (`.rebrew/verify_baseline.toml`,
+or its per-target copy under `.rebrew/targets/`; exit 1 on regression). First run
 warns and skips the diff.
 
 Local dashboards read canonical project metadata, inventory and binaries directly.
