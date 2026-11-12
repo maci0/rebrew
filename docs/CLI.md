@@ -1743,7 +1743,7 @@ With `--va`, extract a **single function** into its own file (into a subdirector
 | --- | --- | --- | --- |
 | `SOURCE` | path | required | Path to a multi-function source file |
 | `--va` | str | none | Extract a single function by VA (hex) into its own file |
-| `--occurrence` | int | none | 1-based C definition to pick when a VA has several definitions, for example under mutually exclusive preprocessor branches; requires `--va`. Definitions inside a preprocessor conditional stay refused |
+| `--occurrence` | int | none | 1-based C definition to pick when a VA has several definitions; requires `--va`. Definitions inside a preprocessor conditional stay refused |
 | `--force` | flag | `False` | Overwrite existing output files; also skips the --va extraction prompt. Without it, stdin must be a terminal; a piped answer does not approve |
 | `--output` / `-o` | path | none | Output directory |
 | `--dry-run` | flag | `False` | Preview changes without writing |

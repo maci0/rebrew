@@ -572,8 +572,8 @@ def main(
         "--occurrence",
         min=1,
         help=(
-            "1-based C definition to pick when a VA has several definitions, for example "
-            "under mutually exclusive preprocessor branches"
+            "1-based C definition to pick when a VA has several definitions; requires --va. "
+            "Definitions inside preprocessor conditionals are refused"
         ),
     ),
     output_dir: str | None = typer.Option(
