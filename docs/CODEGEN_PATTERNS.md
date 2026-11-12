@@ -81,7 +81,7 @@ disassembly with `rebrew binary asm show` or `rebrew diff` to determine which ap
 | FPU operand order | `fld [a]; fmul [b]` vs `fld [b]; fmul [a]`, both mathematically equal but produce different bytes | NOT controllable from C |
 | `BOOL retcode = TRUE` | Extends live range, affects register pressure | Initialization at declaration matters |
 | Frame pointer (`push ebp; mov ebp,esp`) | Indicates `/Oy-` flag needed | Check prologue for `push ebp` |
-| Switch with jump table | Table appears after function body | Test harness ignores table bytes |
+| Switch with jump table | Table may follow the function body | Compare the stored function extent; table bytes within that span are not automatically ignored. Audit tables outside it separately |
 | `signed` vs `unsigned` shift | `(int)x >> n` = `sar`, `(unsigned)x >> n` = `shr` | Check target's shift instructions |
 | `>= N` vs `> N-1` constants | `x >= 1` → `cmp ecx,1; jl` (exact constant); `0 < x` → `test ecx,ecx; jle` (optimized away) | Always use `>=`/`<=` with the EXACT constant from the target binary |
 | `<= 0` vs `< 1` encoding | `<= 0` → `test reg,reg; setle` (2B test); `< 1` → `cmp reg,1; setl` (3B cmp) | `<= 0` saves 1 byte; check target for `test` vs `cmp ,1` |
