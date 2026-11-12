@@ -732,8 +732,9 @@ max_line_length = 200
 The config loader fail-fasts on missing/invalid structure:
 - The file itself: a `rebrew-project.toml` that is present but is not readable
   UTF-8 TOML is an error from every reader of it (`load_config` and the
-  workspace resolvers alike), not a run with default settings. A missing file
-  is the case that falls back to defaults, since there is nothing to read.
+  workspace resolvers alike), not a run with default settings. `load_config`
+  also rejects a missing file with `ConfigNotFoundError`; the optional workspace
+  `read_config` reader returns `{}` for that case.
 - No `[targets]`, an unknown selected target name, or missing/empty `binary`.
 - A `[targets]` key that is not a plain file name: empty, `.`, `..`, carrying
   `/`, `\`, a control character, or padded with whitespace. The key becomes
