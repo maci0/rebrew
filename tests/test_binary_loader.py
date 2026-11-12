@@ -144,6 +144,19 @@ class TestBinaryInfo:
 
 
 class TestExtractBytesAtVa:
+    @pytest.mark.parametrize("va", [0x10001000, 0x10003000])
+    @pytest.mark.parametrize("size", [-1, -2])
+    def test_raw_read_rejects_negative_size(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, va: int, size: int
+    ) -> None:
+        from rebrew.formats import binary_loader
+
+        binary = tmp_path / "test.bin"
+        binary.write_bytes(b"x" * 0x3000)
+        monkeypatch.setattr(binary_loader, "load_binary", lambda path: _pe_info(binary))
+        with pytest.raises(ValueError, match="size"):
+            binary_loader.extract_raw_bytes(binary, va, size)
+
     def test_basic_extraction(self, tmp_path: Path) -> None:
         f = tmp_path / "test.bin"
         content = b"\x00" * 0x400 + b"\xab\xcd\xef\x12" + b"\x00" * 100

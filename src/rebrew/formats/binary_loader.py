@@ -784,6 +784,8 @@ def extract_raw_bytes(binary_path: Path, va: int, size: int) -> bytes:
     Falls back to a simple file-offset calculation if the VA is not in
     any known section. Neither extraction path trims trailing bytes.
     """
+    if size < 0:
+        raise ValueError("Requested size must be non-negative")
     info = load_binary(binary_path)
     data = extract_bytes_at_va(info, va, size, trim_padding=False)
     if data is not None:
