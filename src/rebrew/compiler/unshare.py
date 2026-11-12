@@ -255,13 +255,23 @@ def _image(root: Path, image_id: str) -> tuple[Path, dict[str, Any]]:
     manifest = directory / "image.json"
     if manifest.is_file() and (directory / "rootfs").is_dir():
         info = json.loads(manifest.read_text(encoding="utf-8"))
+        if not isinstance(info, dict) or not isinstance(info.get("Config"), dict):
+            raise UnshareError(f"invalid experimental image cache metadata: {directory}")
         if info.get("Id") != image_id:
             raise UnshareError(f"experimental image cache identity mismatch: {directory}")
         return directory / "rootfs", info
     runtime = container_runtime()
     inspected = _command([runtime, "image", "inspect", image_id])
     _require_success(inspected, f"cannot inspect admitted image {image_id}")
-    info = json.loads(inspected.stdout)[0]
+    records = json.loads(inspected.stdout)
+    if (
+        not isinstance(records, list)
+        or len(records) != 1
+        or not isinstance(records[0], dict)
+        or not isinstance(records[0].get("Config"), dict)
+    ):
+        raise UnshareError("invalid experimental image inspection metadata")
+    info = records[0]
     if info.get("Id") != image_id or info.get("Config", {}).get("User") not in (
         "rebrew",
         "1000",

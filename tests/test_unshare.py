@@ -764,6 +764,40 @@ class TestUnshareParentDeath:
 
 
 class TestUnshareImagePreparation:
+    @pytest.mark.parametrize(
+        "payload",
+        [[], {}, [None], [{"Id": _IMAGE_ID, "Config": None}], [{"Id": _IMAGE_ID, "Config": []}]],
+    )
+    def test_malformed_inspect_metadata_is_an_unshare_error(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, payload: Any
+    ) -> None:
+        commands: list[list[str]] = []
+
+        def command(args: list[str], **kw: Any) -> subprocess.CompletedProcess[str]:
+            commands.append(args)
+            return subprocess.CompletedProcess(args, 0, json.dumps(payload), "")
+
+        monkeypatch.setattr(unshare, "_command", command)
+        with pytest.raises(unshare.UnshareError):
+            unshare._image(tmp_path, _IMAGE_ID)
+        assert len(commands) == 1
+        assert commands[0][1:3] == ["image", "inspect"]
+        assert not (tmp_path / "images-v2").exists()
+
+    @pytest.mark.parametrize(
+        "payload", [[], {"Id": _IMAGE_ID, "Config": None}, {"Id": _IMAGE_ID, "Config": []}]
+    )
+    def test_malformed_cached_metadata_is_an_unshare_error(
+        self, tmp_path: Path, payload: Any
+    ) -> None:
+        directory = tmp_path / "images-v2" / _IMAGE_ID.removeprefix("sha256:")
+        (directory / "rootfs").mkdir(parents=True)
+        manifest = directory / "image.json"
+        manifest.write_text(json.dumps(payload), encoding="utf-8")
+        with pytest.raises(unshare.UnshareError):
+            unshare._image(tmp_path, _IMAGE_ID)
+        assert json.loads(manifest.read_text(encoding="utf-8")) == payload
+
     @pytest.mark.parametrize("fail_export", [False, True])
     def test_stopped_export_container_and_staging_are_removed(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fail_export: bool
