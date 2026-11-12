@@ -46,7 +46,7 @@ instead of retyping them:
 rebrew binsync overlay ../other-state --dry-run    # preview every proposed overlay
 rebrew binsync overlay ../other-state              # write name/prototype/note
 rebrew binsync overlay ../other-state --fields name,global
-rebrew binsync overlay ../other-state --min-score 90 --min-gap 8   # stricter matching
+rebrew binsync overlay ../other-state --min-score 98 --min-gap 8   # stricter matching
 rebrew binsync overlay ../other-state --accept-local    # keep local values on conflict
 ```
 
