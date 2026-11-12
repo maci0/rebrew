@@ -114,8 +114,12 @@ prover that promotes NEAR_MATCHING → PROVEN.
   rejected.
 - Extracts target bytes from the DLL and compiles the C source.
 - Refuses promotion when post-compile bytes already match (that is RELOC).
-- Loads both blobs into angr; uses claripy/Z3 to prove EAX equivalence
-  (`--check-edx` also compares EDX; auto-enabled for 64-bit return types).
+- Loads both blobs into angr; uses claripy/Z3 to compare the selected return
+  registers and explicitly watched memory under the modeled inputs and bounds.
+  Non-void functions compare EAX (`--check-edx` adds EDX, automatically enabled
+  for 64-bit return types). Void functions skip return registers and require at
+  least one watched VA; each watched address compares four bytes. See the
+  [proof contract](../CLI.md#rebrew-prove).
 - `--timeout N` (default 60 s) and `--loop-bound N` (default 10) govern
   the search.
 - `--start-offset` / `--end-offset` prove a sub-range of the function.
@@ -217,12 +221,14 @@ subsequent byte comparison determines byte-match status independently.
 
 - The GA explores deterministic mutations; novel "creative" rewrites
   (e.g. changing data structures) require a human edit before re-seeding.
-- `rebrew prove` checks `EAX` by default and `EDX:EAX` when
+- For non-void functions, `rebrew prove` checks `EAX` by default and `EDX:EAX` when
   `--check-edx` is passed or when the C function signature declares a
   64-bit return type (`long long`, `__int64`, `int64_t`, `uint64_t`,
   `long double`).
-  EDX checking is auto-enabled from the prototype. Memory side-effect checking
-  is opt-in per VA via `--watch-va` (compares
+  Void functions omit return-register comparisons and require watched memory.
+  EDX checking is auto-enabled from a non-void prototype (E9 v1, partially addressed).
+  Memory side-effect checking is opt-in per VA via `--watch-va` or metadata
+  `prove_constraints.watched_vas` (compares
   4 bytes at each listed VA across state pairs); general tracking of writes to
   globals or output-pointer arguments is still unimplemented, so functions
   that write there can still be falsely promoted if those writes differ.
