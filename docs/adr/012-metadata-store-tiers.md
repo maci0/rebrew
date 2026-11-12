@@ -4,9 +4,10 @@
   (superseded by [ADR-030](030-address-only-source.md), itself amended by
   [ADR-033](033-consolidated-source-evidence.md): identity and state live
   in the metadata stores, and a `.c` carries optional ADDRESS anchors
-  only), [ADR-031](031-live-coverage-views.md) (live coverage and durable
-  history), [ADR-034](034-metadata-storage-backends.md) (amended by
-  [ADR-035](035-metadata-replication.md): storage backends behind one
+  only; the inline identity and `SIZE`/`CFLAGS` co-read below is the
+  state at acceptance, not a current reader), [ADR-031](031-live-coverage-views.md)
+  (live coverage and durable history), [ADR-034](034-metadata-storage-backends.md)
+  (amended by [ADR-035](035-metadata-replication.md): storage backends behind one
   `MetadataStore`)
 - **Date**: 2026-08
 
@@ -34,7 +35,8 @@ harder to see:
   `METADATA_FIELDS` (bypassing the routing gate); module-less `0xVA`
   metadata keys could be written but never read back.
 - BinSync import still emitted the deprecated inline `// STATUS: STUB`
-  form that lint W019 exists to eliminate.
+  form (lint W019 existed then to migrate it; [ADR-030](030-address-only-source.md)
+  has since removed the inline reader and that migration).
 - Docs claimed the grid JSON was keyed by name (it is keyed by VA) and
   reported the wrong `db_version`.
 
@@ -95,6 +97,14 @@ Single-source rules enforced by code where cheap:
   through the same batch helper.
 - No module-less metadata keys; `TOOLCHAIN` is a declared metadata field.
 - BinSync import routes STATUS through the metadata gate.
+- No state is parsed from inline `.c` comments. An optional
+  `/* ADDRESS: MODULE 0xVA */` anchor binds exactly the next C definition
+  or variable declaration ([ADR-030](030-address-only-source.md)); STATUS,
+  SIZE, CFLAGS, TOOLCHAIN, reconstruction kind, STRUCT/CALLERS, and
+  support purposes all live in the metadata stores. There is no inline
+  block parser, no W019 migration, and no reader for an older store
+  format. (At acceptance this rule was narrower: only the volatile keys
+  had moved, and `SIZE`/`CFLAGS`/`TOOLCHAIN` were still co-read inline.)
 
 ## Consequences
 
@@ -110,15 +120,18 @@ Single-source rules enforced by code where cheap:
 - BinSync-created stubs no longer emit inline metadata. (The W019 lint
   that flagged it was removed with the marker parser; inline state is now
   rejected outright as E024, per [ADR-030](030-address-only-source.md).)
+  Their state lives in metadata, not in the `.c`.
 
 **Negative**
 
 - Behavioral strictness: empty-module metadata writes now raise instead of
   silently writing an unreadable key. Import paths stopped producing inline
   `// STATUS:`/`// NOTE:` (and the other volatile keys), and nothing parses
-  them back out of a `.c`. At acceptance, `lint --fix` / W019 migrated any
-  already present into `rebrew-functions.toml`; that migration is gone, and
-  a file still carrying them fails lint E024.
+  them back out of a `.c`. Readers reject an inline state block and an older
+  store format outright ([ADR-030](030-address-only-source.md)); there is no
+  `lint --fix` migration of inline keys. At acceptance, `lint --fix` / W019
+  migrated any already present into `rebrew-functions.toml`; that migration
+  is gone, and a file still carrying them fails lint E024.
 - The docs and ADR must be kept current when the store map changes (the
   ADR convention already requires this); [METADATA.md](../METADATA.md) is
   the living store map.
