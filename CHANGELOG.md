@@ -74,6 +74,9 @@
 ### Fixed
 
 - Clarify scaffold-drift guidance: refreshing removes unchanged tracked retired skill files, while locally modified retired files are reported and retained.
+### Fixed
+
+- Repair metadata backup guidance: PostgreSQL requires a database dump plus a separate project-file copy; SQLite recovery journals must be preserved. Document `pgsql` as a supported migration destination.
 
 ## [6.32.1] - 2026-11-11
 

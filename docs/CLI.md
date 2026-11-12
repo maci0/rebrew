@@ -1087,7 +1087,7 @@ verifies the destination, and then updates `[metadata].backend`. The source is
 retained. Destination-only documents listed by the preview are removed so old
 settings cannot reappear after switching back. `--expected-digest` rejects
 changes to either side since preview. Previews create no files. Existing domain
-commands and their STATUS/provenance rules work with either backend. See
+commands and their STATUS/provenance rules work with the selected backend. See
 [metadata storage](METADATA.md#storage-api-and-backend-selection).
 
 `rebrew metadata backup --dir DIR` backs up the active backend: TOML copies
@@ -1103,7 +1103,7 @@ refuses a bundle with a missing or corrupted file, preserves the live stores
 as `.before-restore` sidecars, and installs the backup, GA log, baselines
 and the rest of the `.rebrew/` extras. Both support `--json` and `--target`.
 The PostgreSQL backend has no rebrew-side backup: use `pg_dump` /
-`pg_restore` for the database and this command for the project files (see
+`pg_restore` for the database and copy the project files separately (see
 [PostgreSQL backup and restore](METADATA.md#postgresql-backup-and-restore)).
 
 ## Source
@@ -3147,13 +3147,13 @@ use the command help for conflict handling and apply options.
 
 `rebrew metadata migrate [OPTIONS] BACKEND`
 
-Copy all managed stores to `toml` or `sqlite` in one transaction and select
-the destination backend after verification. `--dry-run` previews the transfer
+Copy all managed stores to `toml`, `sqlite`, or `pgsql` and select the
+destination backend after verification. `--dry-run` previews the transfer
 without writing; `--json` emits the report as JSON.
 
 | Option | Value | Default | Description |
 | --- | --- | --- | --- |
-| `BACKEND` | `toml` / `sqlite` | required | Destination backend |
+| `BACKEND` | `toml` / `sqlite` / `pgsql` | required | Destination backend |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--expected-digest` | sha256 | none | Refuse a store changed since review |
 | `--json` | flag | `False` | Output results as JSON |
@@ -3163,7 +3163,9 @@ without writing; `--json` emits the report as JSON.
 
 `rebrew metadata backup [OPTIONS]`
 
-Copy the active metadata backend into a directory. TOML copies the store
+Copy the active TOML or SQLite backend into a directory. PostgreSQL is refused;
+use [PostgreSQL backup and restore](METADATA.md#postgresql-backup-and-restore).
+TOML copies the store
 trees, project config, the GA log (`.rebrew/ga_runs.jsonl`) and the BinSync
 baselines (`.rebrew/sync/*.toml`) into `DIR/rebrew-metadata.backup.toml/`,
 verifying every copy. SQLite copies via the online backup API to

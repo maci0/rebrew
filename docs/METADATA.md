@@ -244,11 +244,13 @@ Backup procedure: with no `rebrew` process running (the TOML writers
 hold `.lock` sidecars and the SQLite writer holds its own transaction),
 copy the project tree excluding `.rebrew/compile_cache/`, `output/`,
 `bin/`, `__pycache__/`, and any `-journal`/`-wal` sidecar. For the
-SQLite backend copy only `rebrew-metadata.sqlite3` itself, never the
-`-journal`: a journal present at copy time belongs to an in-flight
-transaction whose commit has not happened, and the database file
-without it is the last committed state. Take the copy when the writer
-is quiescent so the file is not mid-write. Keep the copy outside the
+SQLite backend, prefer the online backup command below. A manual single-file
+copy is safe only after all connections have closed cleanly and no recovery
+journal or WAL remains. A database copied during a transaction may contain
+uncommitted changes; discarding its journal can prevent recovery. Preserve the
+original database and sidecars and let SQLite recover them before taking a new
+backup. See [SQLite rollback journals](https://www.sqlite.org/lockingv3.html#the_rollback_journal)
+and the [online backup API](https://www.sqlite.org/backup.html). Keep the copy outside the
 project directory; the project `.gitignore` excludes the SQLite
 database, so git is not a backup for it. Commit the TOML stores and
 sources to git as usual. Copy the `.rebrew/` extras listed above
@@ -263,10 +265,10 @@ confirm `rebrew-project.toml` selects the backend matching the
 restored stores (`backend = "toml"` with the TOML files, or
 `"sqlite"` with `rebrew-metadata.sqlite3`), then run
 `rebrew doctor` and `rebrew verify --target <name>` for one target.
-If the SQLite database was copied while a `-journal` existed, delete
-the journal before opening; sqlite will otherwise try to roll back
-an uncommitted transaction against a database that may already have
-been replaced. A corrupt or wrong-schema database is refused with
+If a SQLite copy was taken while a transaction was active, retain that copy
+and its original sidecars for recovery; do not delete the journal to make it
+open. Restore a verified online backup or take a new backup after SQLite has
+recovered the original database. A corrupt or wrong-schema database is refused with
 `MetadataStorageError` and never silently replaced; restore it from
 the backup copy or migrate back to TOML from a TOML backup.
 
@@ -281,9 +283,12 @@ the database and the project files as separate pieces, in this order:
 # 1. Database (the durable documents). --format=custom keeps it
 #    restorable with pg_restore into a fresh cluster.
 pg_dump --format=custom --file=rebrew-metadata.backup.dump <dsn>
-# 2. Project files (sources, rebrew-project.toml, .rebrew/ extras).
-rebrew metadata backup --dir /off-tree/backups   # or the manual copy above
 ```
+
+Then make an off-tree copy of the project files using the manual copy procedure
+above, including sources, `rebrew-project.toml`, reference binaries, `.rebrew/`
+extras and any configured source or BinSync directories outside the project.
+`rebrew metadata backup` cannot perform this step while `pgsql` is selected.
 
 Restore in the same order: create the database and role, restore with
 `pg_restore --dbname=<dsn> rebrew-metadata.backup.dump`, then install
