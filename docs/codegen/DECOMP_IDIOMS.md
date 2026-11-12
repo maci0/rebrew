@@ -214,7 +214,7 @@ as corpus validation negatives, not claims of absence elsewhere.
   byte-exact in the scanned set; recorded as validation negatives.
 - Probe28 additions (decompedia DP + CODEGEN_PATTERNS sources): `cmp_ge1`/
   `cmp_lt1` (guild 6-8× + server.dll 1× + pinball 2×), `cmp_gt0`/
-  `cmp_le0` (guild 6-12×), `m1idiom`/`m1alt` (the setne+dec -1 compare;
+  `cmp_le0` (guild 6-12×), `m1idiom`/`m1alt` (the setne/subtract-one -1 compare;
   guild 6-8× + server.dll 1×), `fp4` (float const form; guild 3×),
   `ret_int` (guild 8×) and `rot3`/`rot16` (shift-pair; TL 3×) all
   hit.  **Negatives**: `fp1`/`fp2`/`fp3` (the fadd/fsub const forms;
