@@ -815,7 +815,7 @@ def _prune_loss_records(path: Path) -> None:
     # undecodable byte into U+FFFD before the write below, permanently
     # corrupting a line that was only unreadable to this decode (a foreign
     # writer, a torn tail).  Unparseable lines are kept either way; the
-    # JSON check below runs on a per-line lossy decode for that decision.
+    # JSON check below decodes strictly so an unreadable line stays unknown.
     try:
         raw_lines = path.read_bytes().splitlines(keepends=True)
     except OSError:
@@ -824,14 +824,12 @@ def _prune_loss_records(path: Path) -> None:
     keep: list[bool] = []
     losses_kept = 0
     for raw_bytes in reversed(raw_lines):
-        stripped = raw_bytes.decode("utf-8", errors="replace").strip()
         parsed: Any = None
-        if stripped:
-            with contextlib.suppress(json.JSONDecodeError):
-                parsed = json.loads(stripped)
-        is_win = isinstance(parsed, dict) and bool(parsed.get("matched"))
-        keep_now = is_win or losses_kept < _LOSS_RECORD_RETENTION
-        if not is_win and keep_now:
+        with contextlib.suppress(ValueError):
+            parsed = json.loads(raw_bytes.decode("utf-8").strip())
+        is_loss = isinstance(parsed, dict) and not bool(parsed.get("matched"))
+        keep_now = not is_loss or losses_kept < _LOSS_RECORD_RETENTION
+        if is_loss and keep_now:
             losses_kept += 1
         keep.append(keep_now)
     kept = [raw for raw, keep_now in zip(raw_lines, reversed(keep), strict=True) if keep_now]

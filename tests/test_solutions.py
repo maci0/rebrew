@@ -765,6 +765,38 @@ class TestGaRunHistory:
         # The win survives the rewrite the prune just did.
         assert [r["symbol"] for r in iter_ga_runs(project_root) if r["matched"]] == ["_win"]
 
+    @pytest.mark.parametrize(
+        "unknown",
+        [
+            b"not-json\n",
+            b'{"symbol":"_unknown"}\xff\n',
+            b'["foreign","record"]\n',
+            b'{"symbol":"\xff","matched":false}\n',
+        ],
+        ids=["invalid-json", "invalid-utf8-tail", "non-object", "invalid-utf8-string"],
+    )
+    def test_unknown_old_lines_are_never_charged_to_the_loss_quota(
+        self, project_root: Path, monkeypatch: pytest.MonkeyPatch, unknown: bytes
+    ) -> None:
+        monkeypatch.setattr(solutions_module, "_PRUNE_MIN_BYTES", 1)
+        monkeypatch.setattr(solutions_module, "_LOSS_RECORD_RETENTION", 2)
+        log_path = project_root / ".rebrew" / "ga_runs.jsonl"
+        log_path.write_bytes(unknown)
+        record_ga_run(project_root, target="T", va=0x1000, symbol="_win", matched=True)
+        for index in range(4):
+            record_ga_run(
+                project_root, target="T", va=0x2000 + index, symbol=f"_l{index}", matched=False
+            )
+
+        assert log_path.read_bytes().startswith(unknown)
+        records = load_ga_runs(project_root)
+        assert [row["symbol"] for row in records if row.get("matched")] == ["_win"]
+        assert [
+            row["symbol"]
+            for row in reversed(records)
+            if str(row.get("symbol", "")).startswith("_l")
+        ] == ["_l2", "_l3"]
+
     def test_the_prune_preserves_undecodable_bytes(
         self, project_root: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
