@@ -165,7 +165,7 @@ def _read_doc_cache(
     """
     try:
         payload = json.loads(_doc_cache_file(path).read_text(encoding="utf-8"))
-    except OSError, UnicodeError, json.JSONDecodeError, TypeError:
+    except OSError, ValueError, TypeError:
         return None
     if (
         not isinstance(payload, dict)

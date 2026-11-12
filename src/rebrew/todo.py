@@ -1106,7 +1106,7 @@ def _begin_extern_cache(directory: Path) -> dict[str, Any]:
     cache_path = directory / ".rebrew" / "extern-names.json"
     try:
         payload = json.loads(cache_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError, TypeError) as exc:
+    except (OSError, ValueError, TypeError) as exc:
         if cache_path.exists():
             logging.getLogger(__name__).warning(
                 "Ignoring unreadable extern-names cache %s: %s", cache_path, exc

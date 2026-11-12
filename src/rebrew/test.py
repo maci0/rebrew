@@ -1083,7 +1083,7 @@ def _read_name_map_payload(path: Path) -> dict[str, Any] | None:
     """Current-version cache document, or ``None`` when the file is missing or older."""
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
-    except OSError, UnicodeError, json.JSONDecodeError:
+    except OSError, ValueError:
         return None
     if not isinstance(raw, dict) or raw.get("version") != _NAME_MAP_CACHE_VERSION:
         return None

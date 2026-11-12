@@ -614,7 +614,7 @@ def _read_verify_json(cache_path: Path, st: os.stat_result) -> dict[str, Any] | 
     token = [st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns]
     try:
         payload = json.loads(_verify_json_path(cache_path).read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError, TypeError) as exc:
+    except (OSError, ValueError, TypeError) as exc:
         # A missing sidecar is the normal cold path (no log); a present-but-
         # unreadable/corrupt one is logged so it is not mistaken for cold.
         if _verify_json_path(cache_path).exists():
