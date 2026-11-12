@@ -35,6 +35,10 @@
 
 - Raw binary reads reject negative sizes before reading the file. A size of -1 previously reached Python's read-to-EOF fallback and returned every remaining byte.
 
+### Fixed
+
+- Correct `todo` help and reversing guides to describe ranking by affected byte extent, with estimated effort breaking ties. Small functions are not automatically first.
+
 ## [6.32.1] - 2026-11-11
 
 ### Changed
