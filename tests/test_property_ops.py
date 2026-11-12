@@ -25,7 +25,9 @@ structure-aware requests for one simple and one nested request class, and assert
 
 from __future__ import annotations
 
+import base64
 import json
+from dataclasses import fields
 from typing import Any
 
 import pytest
@@ -100,9 +102,12 @@ class TestParseRequestNeverCrashes:
             value = parse_request(cls, raw)
         except OpsError:
             return
-        # An accepted value is a detached instance of the request class:
-        # its declared fields carry the decoded (not raw) values.
+        # An accepted value is a detached instance of the request class, and
+        # every present field equals the decoded input. A type-only check
+        # would pass if ``code`` stayed the base64 string or ``va`` was
+        # replaced by a default.
         assert isinstance(value, cls)
+        _assert_decoded_fields(cls, raw, value)
 
     @given(
         st.dictionaries(
@@ -121,9 +126,25 @@ class TestParseRequestNeverCrashes:
             assert isinstance(value, cls)
             # Accepted fields must be the decoded form, never raw JSON values
             # leaked through (e.g. a str standing in for a bytes field).
+            _assert_decoded_fields(cls, raw, value)
             if cls is DisassembleBytesRequest:
                 assert isinstance(value.code, bytes)
                 assert isinstance(value.va, int) and isinstance(value.arch, str)
+
+
+def _assert_decoded_fields(cls: type[Any], raw: dict[str, Any], value: Any) -> None:
+    """Each supplied field equals what ``_decode`` must produce from it."""
+    for spec in fields(cls):
+        if spec.name not in raw:
+            continue
+        got = getattr(value, spec.name)
+        incoming = raw[spec.name]
+        if spec.type is bytes or spec.name == "code":
+            assert isinstance(incoming, str)
+            assert got == base64.b64decode(incoming, validate=True)
+        else:
+            assert got == incoming
+            assert type(got) is type(incoming)
 
 
 class TestBytesField:

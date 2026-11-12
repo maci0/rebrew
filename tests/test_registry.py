@@ -1490,7 +1490,12 @@ class TestMsvcVersionRegistry:
             _fake_entry_points(**{"rebrew.msvc_versions": [("p", "msvc_ver_bad:provider")]}),
         )
         rich, eras = td._merged_msvc_version_tables()
-        assert rich[8168]  # packaged build table intact
+        # A bare integer key is not ``build:<n>``: the row is dropped and the
+        # packaged table is unchanged. Non-emptiness alone would pass if the
+        # key were parsed as 8168 and ``mytc`` were appended.
+        assert rich[8168] == td._RICH_BUILD_PROFILES[8168]
+        assert "mytc" not in rich[8168]
+        assert eras == td._LINKER_ERA_PROFILES
 
     def test_empty_profiles_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import rebrew.toolchain_detect as td
@@ -1501,7 +1506,9 @@ class TestMsvcVersionRegistry:
             _fake_entry_points(**{"rebrew.msvc_versions": [("p", "msvc_ver_empty:provider")]}),
         )
         rich, eras = td._merged_msvc_version_tables()
-        assert rich[8168]  # packaged build table intact
+        # An empty profile list is skipped, not stored as a build with no names.
+        assert rich[8168] == td._RICH_BUILD_PROFILES[8168]
+        assert eras == td._LINKER_ERA_PROFILES
 
     def test_plugin_passes_version_exact_check(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import rebrew.toolchain_detect as td

@@ -290,16 +290,22 @@ class TestSkillNameNormalization:
 
         self._skill(tmp_path, "cafe-skill", "---\nname: caf\u00e9-skill\n---\nbody\n")
         monkeypatch.setenv(REBREW_SKILLS_DIR_ENV, str(tmp_path))
-        # NFD spelling on the command line, NFC in the file: same skill.
-        assert _find_skill("cafe\u0301-skill") is not None
-        assert _find_skill("caf\u00e9-skill") is not None
+        # NFD spelling on the command line, NFC in the file: the same file.
+        # ``is not None`` would also pass if a packaged skill of another name
+        # were returned, or if only one of the two spellings resolved.
+        expected = tmp_path / "cafe-skill" / "SKILL.md"
+        assert _find_skill("cafe\u0301-skill") == expected
+        assert _find_skill("caf\u00e9-skill") == expected
 
     def test_find_skill_matches_nfd_directory_name(self, tmp_path, monkeypatch) -> None:
         from rebrew.skills import REBREW_SKILLS_DIR_ENV
 
         self._skill(tmp_path, "cafe\u0301-skill", "---\nname: other\n---\nbody\n")
         monkeypatch.setenv(REBREW_SKILLS_DIR_ENV, str(tmp_path))
-        assert _find_skill("caf\u00e9-skill") is not None
+        # Directory match is the NFD folder, not the unrelated frontmatter name
+        # and not a packaged skill that merely happens to exist.
+        assert _find_skill("caf\u00e9-skill") == tmp_path / "cafe\u0301-skill" / "SKILL.md"
+        assert _find_skill("other") == tmp_path / "cafe\u0301-skill" / "SKILL.md"
 
     def test_bom_prefixed_skill_md_still_parses(self, tmp_path, monkeypatch) -> None:
         from rebrew.skills import REBREW_SKILLS_DIR_ENV

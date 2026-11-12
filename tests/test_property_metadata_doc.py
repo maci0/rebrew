@@ -15,7 +15,8 @@ truncations) and assert the invariants a caller depends on:
 * crossing the write boundary, everything a caller writes with
   ``build_metadata_doc`` + ``tomlkit.dumps`` reads back identically through
   ``load_metadata_doc`` (the before-write/after-read pair);
-* the two spellings of one VA merge instead of splitting the fields.
+* two spellings of one VA are a duplicate identity and are rejected, so a
+  later table cannot override or resurrect fields from the other spelling.
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ from typing import Any
 
 import pytest
 import tomlkit
-from hypothesis import given, settings
+from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 from source_util import write_store_fixture
 
@@ -130,15 +131,20 @@ class TestKeyAlgebra:
 
         check()
 
-    def test_duplicate_spellings_merge_into_one_entry(self) -> None:
+    def test_duplicate_spellings_are_rejected(self) -> None:
         @given(module=_named_modules, va=_vas, a=_entry(), b=_entry())
         @settings(max_examples=200)
         def check(module: str, va: int, a: dict[str, Any], b: dict[str, Any]) -> None:
             want = parse_metadata_key(qualified_key(module, va))
             assert want is not None
-            doc = {"format": 2, f"{module}.0x{va:x}": dict(a), f"{module}.0X{va:X}": dict(b)}
+            # Distinct spellings of one identity. A parser that merged them
+            # would return the second table and drop the first's fields.
+            left, right = f"{module}.0x{va:x}", f"{module}.0X{va:X}"
+            assume(left != right)
+            doc = {"format": 2, left: dict(a), right: dict(b)}
             with pytest.raises(ValueError, match="duplicate"):
                 parse_metadata_doc(doc)
+            assert doc[left] == a and doc[right] == b
 
         check()
 

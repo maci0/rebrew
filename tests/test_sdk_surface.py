@@ -555,14 +555,16 @@ class TestProjectConfigValidation:
             compiler_includes="include",
             compiler_libs="lib",
         )
-        assert isinstance(cfg.root, Path)
-        assert isinstance(cfg.target_binary, Path)
-        assert isinstance(cfg.reversed_dir, Path)
-        assert isinstance(cfg.shared_dir, Path)
-        assert isinstance(cfg.bin_dir, Path)
-        assert isinstance(cfg.output_dir, Path)
-        assert isinstance(cfg.compiler_includes, Path)
-        assert isinstance(cfg.compiler_libs, Path)
+        # Type-only checks would pass if two fields were swapped or a string
+        # path were replaced by an empty Path.
+        assert cfg.root == Path("/tmp/project")
+        assert cfg.target_binary == Path("bin/game.exe")
+        assert cfg.reversed_dir == Path("src/game")
+        assert cfg.shared_dir == Path("src/shared")
+        assert cfg.bin_dir == Path("bin")
+        assert cfg.output_dir == Path("out")
+        assert cfg.compiler_includes == Path("include")
+        assert cfg.compiler_libs == Path("lib")
 
 
 class TestUrlAndModelValidation:

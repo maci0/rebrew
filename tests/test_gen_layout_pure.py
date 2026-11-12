@@ -237,9 +237,14 @@ class TestOftZeroFallback:
         sec_raw = struct.unpack_from("<I", data, sh + 20)[0]
         imp_rva = struct.unpack_from("<I", data, opt + 96 + 8)[0]
         desc_off = sec_raw + (imp_rva - sec_va)
-        assert parse_pe(bytes(data))[2]  # fixture sanity: the OFT is bound
+        bound = parse_pe(bytes(data))[2]
+        # Fixture sanity: the OFT is bound and names real imports. A bare
+        # truthiness check would pass for header garbage with no names.
+        assert bound and all(imp.name for imp in bound)
+        bound_names = [(imp.dll, imp.name, imp.ordinal) for imp in bound]
         struct.pack_into("<I", data, desc_off, 0)  # OFT = 0
-        assert parse_pe(bytes(data))[2]
+        # The unbound descriptor must resolve the same names from the IAT.
+        assert [(imp.dll, imp.name, imp.ordinal) for imp in parse_pe(bytes(data))[2]] == bound_names
 
 
 class TestImportLibSymbolsFromImage:
