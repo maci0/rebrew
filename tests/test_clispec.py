@@ -166,7 +166,9 @@ def test_json_is_a_command_argument(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert "--verbose" not in skills
     assert "--version" not in skills
     schema_args = {arg["name"] for arg in commands["schema"].get("args", [])}
-    assert "--json" in schema_args
+    # The document is already JSON. A --json flag would be a no-op, and
+    # -o text must not turn it into prose.
+    assert "--json" not in schema_args
     asm = {arg["name"]: arg for arg in commands["binary asm show"]["args"]}
     assert "file" in asm["--output"]["description"].lower()
     assert asm["--json"]["type"] == "boolean"
@@ -176,8 +178,11 @@ def test_json_is_a_command_argument(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     after = _invoke(["skills", "list", "--json"], tmp_path, monkeypatch)
     assert after.exit_code == 0, after.output
     assert isinstance(cli_payload(after)["items"], list)
-    accepted = _invoke(["schema", "--json"], tmp_path, monkeypatch)
-    assert accepted.exit_code == 0, accepted.output
+    rejected = _invoke(["schema", "--json"], tmp_path, monkeypatch)
+    assert rejected.exit_code == 2
+    forced = _invoke(["-o", "text", "schema"], tmp_path, monkeypatch)
+    assert forced.exit_code == 0, forced.output
+    assert cli_payload(forced)["clispec"] == "0.3"
     selected = _invoke(["-o", "json", "schema", "skills", "list"], tmp_path, monkeypatch)
     assert selected.exit_code == 0, selected.output
     assert list(_commands(cli_payload(selected))) == ["skills list"]

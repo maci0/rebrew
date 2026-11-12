@@ -80,7 +80,7 @@ app = typer.Typer(
         "  rebrew schema\n\n"
         "test checks one function. test --all rechecks every file in the selected target without saved verdicts. verify covers every function and reuses cached verdicts unless --no-cache. --all-targets repeats a command for every configured target. Use test --no-promote to measure without recording metadata.\n\n"
         "Use rebrew <command> --help for inputs and examples. Commands with --target use the project default unless you select another target; a final --target lists configured targets.\n\n"
-        "The schema command prints the clispec 0.3 document. Before a subcommand, -o or --output selects auto, text, or json; auto stays text. After a command that writes a file, -o remains the destination path.\n\n"
+        "The schema command prints the clispec 0.3 document and stays JSON under -o text. Before any other subcommand, -o or --output selects auto, text, or json; auto stays text. After a command that writes a file, -o remains the destination path.\n\n"
         "Exit codes: 0 success; 1 mismatch or failed check; 2 usage/config/build error; 130 interrupted; 141 output pipe closed."
     ),
 )

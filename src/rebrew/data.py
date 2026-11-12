@@ -12,6 +12,7 @@ lazy from typing import Any
 import typer
 
 from rebrew.cli import (
+    EXIT_MISMATCH,
     EXPECTED_DIGEST_HELP,
     LINK_MAP_HELP,
     MIN_TABLE_LEN_HELP,
@@ -788,7 +789,7 @@ def audit_literals_cmd(
     else:
         console.print(report)
     if not report["complete"]:
-        raise typer.Exit(1)
+        raise typer.Exit(code=EXIT_MISMATCH)
 
 
 @app.command(

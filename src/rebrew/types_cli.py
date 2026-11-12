@@ -7,6 +7,7 @@ lazy from typing import Any
 import typer
 
 from rebrew.cli import (
+    EXIT_MISMATCH,
     EXPECTED_DIGEST_HELP,
     SOURCE_HELP,
     AllTargetsOption,
@@ -110,7 +111,7 @@ def check(
         bindings = check_types(cfg, compile_layouts=compile_layouts)
         json_print({"structs": len(declared), "findings": findings, "type_findings": bindings})
         if bindings:
-            raise typer.Exit(1)
+            raise typer.Exit(code=EXIT_MISMATCH)
         return
     console.print(f"structs: {len(declared)}  findings: {len(findings)}")
     for f in findings:
@@ -126,7 +127,7 @@ def check(
             f"  [yellow]{binding_finding['id']}:{binding_finding['module']}[/yellow] {binding_finding['issue']}"
         )
     if bindings:
-        raise typer.Exit(1)
+        raise typer.Exit(code=EXIT_MISMATCH)
 
 
 @app.command(
@@ -321,7 +322,7 @@ def contracts_cmd(
     else:
         console.print(report)
     if report["unknown"] or any(f["severity"] == "error" for f in report["findings"]):
-        raise typer.Exit(1)
+        raise typer.Exit(code=EXIT_MISMATCH)
 
 
 @app.command(

@@ -5,6 +5,7 @@ lazy from pathlib import Path
 import typer
 
 lazy from rebrew.cli import (
+    EXIT_MISMATCH,
     EXPECTED_DIGEST_HELP,
     console,
     error_exit,
@@ -80,7 +81,7 @@ def review_cmd(
     else:
         console.print(report)
     if report["problems"] or report["unknown"]:
-        raise typer.Exit(1)
+        raise typer.Exit(code=EXIT_MISMATCH)
 
 
 @app.command(
@@ -120,7 +121,7 @@ def guards_cmd(
     else:
         console.print(report)
     if report["declaration_conflicts"] or report["problems"] or report["unknown"]:
-        raise typer.Exit(1)
+        raise typer.Exit(code=EXIT_MISMATCH)
 
 
 @app.command(
@@ -142,7 +143,7 @@ def check_cmd(
     else:
         console.print(report)
     if not report["match"]:
-        raise typer.Exit(1)
+        raise typer.Exit(code=EXIT_MISMATCH)
 
 
 def main_entry() -> None:

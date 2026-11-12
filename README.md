@@ -48,7 +48,8 @@ rebrew todo --json                       # choose a scoped action
 Use `rebrew <command>` for every tool, including CMake and objdiff build hooks;
 see the [CLI reference](https://github.com/maci0/rebrew/blob/main/docs/CLI.md).
 `rebrew schema` prints the clispec 0.3 document and needs no project.
-`rebrew -o json <command>` selects JSON. `rebrew -o text` stays text. Each
+It stays JSON under `rebrew -o text`.
+`rebrew -o json <command>` selects JSON. `rebrew -o text` stays text for every other command. Each
 command's own `--json` selects the same JSON output; it is declared per
 command, so it must follow the command name. A pipe stays text until one of
 those is set.
