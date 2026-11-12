@@ -218,6 +218,29 @@ class TestLoadNeBinary:
 
 
 class TestProbeIsCode:
+    @pytest.mark.parametrize("ret_inside_budget", [False, True])
+    def test_deep_probe_stops_decoding_at_instruction_budget(
+        self, monkeypatch: pytest.MonkeyPatch, ret_inside_budget: bool
+    ) -> None:
+        import capstone
+
+        from rebrew.formats.ne_loader import PROBE_DECODE_INSTRUCTIONS
+
+        body = _CODE if ret_inside_budget else b"\x55\x8b\xec" + b"\x90" * 30 + b"\xc3"
+        segment = b"\x00" * 512 + body + b"\x90" * 100
+        decoded = 0
+        real_disasm = capstone.Cs.disasm
+
+        def counting(self: capstone.Cs, code: bytes, offset: int, count: int = 0) -> object:
+            nonlocal decoded
+            for instruction in real_disasm(self, code, offset, count):
+                decoded += 1
+                yield instruction
+
+        monkeypatch.setattr(capstone.Cs, "disasm", counting)
+        assert probe_is_code(segment, 0, len(segment)) is ret_inside_budget
+        assert 8 <= decoded <= PROBE_DECODE_INSTRUCTIONS
+
     def test_code_segment(self) -> None:
         # Real NE segments carry a 2-byte index marker before their content.
         assert probe_is_code(b"\x01\x00" + _CODE, 0, len(_CODE) + 2) is True

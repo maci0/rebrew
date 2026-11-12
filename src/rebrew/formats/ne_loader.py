@@ -186,7 +186,7 @@ def probe_is_code(data: bytes, file_offset: int, length: int, index: int = 0) ->
         if tried >= PROBE_MAX_CANDIDATES:
             break
         tried += 1
-        instructions = list(md.disasm(segment[offset:], 0))[:PROBE_DECODE_INSTRUCTIONS]
+        instructions = list(md.disasm(segment[offset:], 0, count=PROBE_DECODE_INSTRUCTIONS))
         if len(instructions) < 8:
             continue
         if any(i.mnemonic in ("ret", "retf") for i in instructions):
