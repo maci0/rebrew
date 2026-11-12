@@ -336,8 +336,9 @@ rebrew todo
 - `rebrew test` round-trip (no cache) under 1 s on a 50-line C file.
 - With cache hits, `rebrew test --all` over a 500-function project runs in
   under 5 s.
-- STATUS in `rebrew-functions.toml` always reflects the latest test result;
-  no out-of-band STATUS writes from the source file.
+- STATUS updates in `rebrew-functions.toml` follow the promotion policy;
+  tooling failures remain in the run report and preserve earned results.
+  No out-of-band STATUS writes from the source file.
 - `rebrew lint --fix --dry-run` is safe to suggest to humans: never
   surfaces a destructive change unless `--fix` is given without `--dry-run`.
 - `rebrew todo` orders equal-impact, equal-effort actions by VA for
