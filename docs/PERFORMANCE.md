@@ -781,11 +781,11 @@ the icon and the pages precompressed.
 
 ## Idempotency
 
-`tools/check_idempotency.py` runs its 18 configured offline commands twice
-as a CI step, comparing exit codes and parsed JSON after recursively removing
+`tools/check_idempotency.py` runs its 18 commands twice as an offline
+CI step, comparing exit codes and parsed JSON after recursively removing
 `timestamp` keys. JSON formatting and object-key order do not affect the
 comparison; non-JSON output is compared verbatim. This check does not establish
-raw byte identity or cover commands outside that list. See [CI.md](CI.md).
+raw byte identity or cover invocations outside that list. See [CI.md](CI.md).
 
 The same tool runs each of its 24 mutating commands (`source register`,
 `source document-unmatched`, `build link-stubs`, both `skeleton` forms, `coverage export`, `coverage import-history`, `export symbols`,

@@ -680,7 +680,7 @@ where `applied` lists `{var, struct, offsets}`.
 | --- | --- | --- | --- |
 | `ADDRESS` | str | required | Function VA (hex, e.g. 0x1000d350) |
 | `--decompiler` | str | `kuna` | Decompiler backend: auto, r2ghidra, r2dec, ghidra, kuna, m2c |
-| `--output` / `-o` | path | — | Write C to this file in text mode (default: stdout); JSON mode prints the result instead |
+| `--output` / `-o` | path | `None` | Write C to this file in text mode (default: stdout); JSON mode prints the result instead |
 | `--named` | flag | `False` | Apply known struct names to the output |
 | `--output` / `-o` | path | none | Write decompilation to this file (default: stdout) |
 | `--json` | flag | `False` | Output results as JSON |

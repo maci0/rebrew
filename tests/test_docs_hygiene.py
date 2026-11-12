@@ -374,7 +374,9 @@ def test_option_help_survives_rich_markup() -> None:
     result = CliRunner().invoke(app, ["build", "layout", "--help"])
     assert result.exit_code == 0, result.output
     assert "[link]" in result.stdout
-    assert "[targets.<t>.layout]" in result.stdout
+    assert "standalone layout TOML" in result.stdout
+    assert "rebrew-layout.toml" in result.stdout
+    assert "[targets.<t>.layout]" not in result.stdout
 
 
 #: Status values the ADR convention in ``docs/adr/README.md`` defines.  A

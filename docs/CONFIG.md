@@ -108,15 +108,19 @@ backup and preview contracts.
 | `compiler_profile` | `[compiler].profile` | Selects the toolchain's docker image and flag-sweep axes |
 | `compiler_includes` | `[compiler].includes` | Resolved path to include dir |
 
-When loading configuration, every target's `reversed_dir` and the enabled
-`[project].shared_dir` must resolve inside the selected `metadata_dir`.
-This includes inactive targets and symlink destinations. A retained store under
-`src/` cannot serve a shared source directory elsewhere in the project; that
-configuration is rejected before registration. Keep the source directories
-under their metadata root or use a common store at the project root.
-`rebrew cfg set` checks the proposed document against this rule before writing
-or previewing changes to `project.shared_dir` or a target's `reversed_dir`.
-Other edits remain available to repair broken profiles or partial configurations.
+Every target's `reversed_dir` and the enabled `[project].shared_dir` must
+resolve inside the selected `metadata_dir`. This includes inactive targets and
+symlink destinations. A retained store under `src/` cannot serve a shared source
+directory elsewhere in the project. Keep the source directories under their
+metadata root or use a common store at the project root.
+
+File-backed metadata checks this containment when loading configuration.
+`rebrew cfg set` also checks the proposed document before writing or previewing
+changes to `project.shared_dir` or a target's `reversed_dir`. Projects with a
+PostgreSQL metadata read route defer containment validation until
+`cfg.metadata_dir` resolves the actual store root, keeping configuration loads
+and these source-path edits offline. Other edits remain available to repair
+broken profiles or partial configurations.
 
 ## Architecture Presets
 
