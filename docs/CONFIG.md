@@ -630,7 +630,7 @@ rebrew receives.
   packaged skills of the same name).
 - `REBREW_OPS_FILESTORE` / `REBREW_OPS_WORKSPACE`: defaults for `rebrew ops`
   `--filestore` (the backend's local filestore directory) and `--workspace`
-  (where `analyse` creates `projects/<sha256>`, `report` output and `url`
+  (where [scoped analysis projects](CLI.md#rebrew-ops), `report` output and `url`
   downloads land, and project paths must lie). Each must be an absolute path
   to an existing directory.
 - `REBREW_OPS_MAX_DOWNLOAD` / `REBREW_OPS_CONCURRENCY`: defaults for
