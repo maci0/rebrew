@@ -29,12 +29,13 @@ def build_catalog_data(
     progress: bool = True,
     trusted: TrustedCoverage | None = None,
 ) -> dict[str, Any]:
-    """Scan, registry, and coverage-grid dict for one target (no disk writes).
+    """Build scan, registry, and coverage-grid data without changing canonical metadata.
 
+    Reads may refresh the metadata-doc and data-scan-roles disk caches.
     Shared by ``run_catalog`` (which then writes the requested artifacts)
     and ``rebrew coverage export --output snapshots/`` (which renders the dict into
     ``snapshots/coverage-<target>.toml``).  With *with_data* False the (expensive)
-    grid generation is skipped — the ``data`` value is None.
+    grid generation is skipped and the ``data`` value is None.
     """
     bin_path = cfg.target_binary
     reversed_dir = cfg.reversed_dir
