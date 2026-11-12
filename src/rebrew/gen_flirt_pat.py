@@ -342,6 +342,8 @@ def _reloc_fixup_width(reloc: Any) -> int:
     Falls back to the LIEF ``size`` field (bits) when the type is unknown.
     """
     name = str(reloc.type).rsplit(".", 1)[-1]
+    if name.endswith("_ABSOLUTE"):
+        return 0  # COFF padding records do not modify the image.
     width = _I386_FIXUP_WIDTHS.get(name)
     if width is not None:
         return width

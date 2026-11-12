@@ -574,6 +574,14 @@ class TestParseCoffObjReal:
             ("_first", first, set()),
             ("_second", second[second_start:], set()),
         ]
+    @pytest.mark.parametrize("machine", [0x14C, 0x8664, 0x1C4])
+    def test_absolute_padding_relocations_mask_no_bytes(self, machine: int) -> None:
+        from rebrew.gen_flirt_pat import parse_coff_obj
+
+        code = b"12345678"
+        obj = bytearray(make_coff_obj(code, relocs=[(1, 0, "_unused")]))
+        struct.pack_into("<H", obj, 0, machine)
+        assert list(parse_coff_obj(bytes(obj))) == [("_myfunc", code, set())]
 
     def test_static_function_symbols_yielded(self) -> None:
         """Regression: MSVC marks CRT helpers such as _initterm and
