@@ -2748,13 +2748,9 @@ KNOWN_TARGET_KEYS = {
     # "unrecognized keys" warning (and so a rewriter does not drop it).
     "raw_link",  # pre-postlink image. A missing file must not fall back to
     # the postlinked build/<target>. An unrecognised key is one a rewriter drops.
-    "layout",  # printed by `rebrew build layout --layout-config`: the position-alignment
-    # package (image base, section geometry, exports, imports).  Not read by
-    # this loader -- the layout tooling parses it directly -- but it must be
-    # recognised here: a target carrying it warned "unrecognized keys:
-    # {'layout'}" on every single rebrew invocation, and an unrecognised key is
-    # one a config rewriter will silently drop.  guild-rebrew lost its whole
-    # layout block that way.
+    "layout",  # Legacy inline layout block, retained so config rewriters preserve it.
+    # `rebrew build layout --layout-config` emits the standalone
+    # layout/<target>/rebrew-layout.toml document.
 }
 
 _KNOWN_COMPILER_KEYS = {
