@@ -6898,8 +6898,8 @@ Pretty-print the SKILL.md for the named skill.
 Answers the relumea backend's `rebrew` dispatch service. The ops, their
 request fields and their replies are the backend's contract
 (`internal/engines/rebrew` and the generated
-`contracts/dispatch/rebrew.schema.json` in the backend repository); all 39
-are served. A request with an unknown or missing field, or a field of the
+`contracts/dispatch/rebrew.schema.json` in the backend repository). The registered
+operations are served through both transports. A request with an unknown or missing field, or a field of the
 wrong JSON type, is refused. A refusal is
 `{"error","detail","status"}`: `invalid-request` (400; 413 when the request
 exceeds 16 MiB), `unknown-op` (404), `engine-error` (500),
@@ -6921,8 +6921,11 @@ Binaries are referenced, never sent:
 - An analysed binary is the `project_dir` of its rebrew project. A request
   `sha256` selects the target whose binary has that hash; without one the
   project's default target is used.
-- `rebrew.analyse` runs `rebrew intake` in `<workspace>/projects/<sha256>`,
-  so a second run re-discovers into the same project. `rebrew.report` writes
+- `rebrew.analyse` runs `rebrew intake` in `<workspace>/projects/<sha256>` when
+  `project_id` is omitted. A supplied nonempty `project_id` instead selects
+  `<workspace>/projects/scopes/<sha256-of-UTF-8-project-id>/<binary-sha256>`.
+  The same project ID and binary reuse that directory; different IDs are isolated.
+  The ID may contain at most 256 UTF-8 bytes and no NUL. `rebrew.report` writes
   its relative `output_dir` under `--workspace` and answers the summary, not
   the pages; the backend serves the pages from its own workspace's
   `reports/<binary_id>`, so they reach users only when `--workspace` is that

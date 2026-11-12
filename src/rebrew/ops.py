@@ -4125,8 +4125,8 @@ app = typer.Typer(
 
 _FILESTORE_HELP = "The backend's local filestore directory; request file keys resolve under it"
 _WORKSPACE_HELP = (
-    "Directory analyse creates projects/<sha256> in, report output_dir resolves under,"
-    " url downloads land in, and project paths must lie inside"
+    "Directory for analysis projects, report output_dir and url downloads;"
+    " project paths must lie inside"
 )
 _MAX_DOWNLOAD_HELP = "Largest binary in bytes a request url may name"
 
