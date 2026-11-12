@@ -916,7 +916,7 @@ class TestHandle:
         assert 'id="boot-status"' in body
         assert 'id="empty-state"' in body
         assert "Showing " in body and "of " in body  # truncation copy in JS
-        assert "aria-busy only" in body  # loading via aria-busy, not live-region chatter
+        assert "aria-busy only" in _APP_JS  # loading via aria-busy, not live-region chatter
         assert "Loading functions…" not in body
         assert "class=value" in body
         assert 'id="clear-filters"' in body

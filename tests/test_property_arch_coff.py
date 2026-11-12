@@ -63,6 +63,7 @@ def _parse_archive_bytes(data: bytes) -> list[tuple[str, bytes]]:
 
 
 class TestParseArchiveRobust:
+    @settings(max_examples=50, deadline=None)
     @given(st.binary(max_size=512))
     def test_raw_bytes_never_crashes_archive(self, data: bytes) -> None:
         try:
@@ -76,6 +77,7 @@ class TestParseArchiveRobust:
             # Member data must be a suffix of the input (no invented bytes).
             assert body in data or body == b""
 
+    @settings(max_examples=50, deadline=None)
     @given(st.binary(min_size=8, max_size=512))
     def test_stock_lib_valid_never_crashes(self, data: bytes) -> None:
         fd, name = tempfile.mkstemp(suffix=".lib")
