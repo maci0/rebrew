@@ -2305,16 +2305,18 @@ from **disassembly on both sides** (target bytes vs compiled `.obj`) for x86
 `llvm-pdbutil` cannot read. The analyzer uses x86 stack/register conventions;
 do not use its results to assess ARM, MIPS, PPC, SH or Xtensa frames. Compared:
 
-- `frame_size`: max stack depth (ESP tracking across push/pop/sub/add/
-  `lea esp`/enter/pushad)
+- `frame_size`: peak tracked stack depth in a linear disassembly walk
+  (push/pop/sub/add/`lea esp`/enter/pushad)
 - `frame_pointer`: ebp-frame vs esp-based (frame-pointer omission, `/Oy`)
 - `ret_popping`: `__stdcall`/`__thiscall` `ret N` vs `__cdecl`
 - `slots`: the `[ebp±N]`/`[bp±N]` displacements referenced (local layout)
 
-A frame delta is a classic per-function flag symptom (`/Oy`, `/O1` vs `/O2`,
-`/Gs` probes, calling convention): the hints point at the exact flag, which
-is the signal to act on when tuning static-CRT / vendored-zlib LIBRARY
-functions per-function.  Exits 1 when the frames differ, 2 on build failure.
+This is a diagnostic summary: the walk does not follow control-flow paths, and
+matching summaries do not prove equal runtime stack behavior. A frame delta can
+suggest per-function flags (`/Oy`, `/O1` vs `/O2`, `/Gs` probes, calling convention)
+or source-layout differences; the hints are candidates to inspect when tuning
+static-CRT / vendored-zlib LIBRARY functions. Exits 1 when the summaries differ,
+2 on build failure.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
