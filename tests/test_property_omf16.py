@@ -208,6 +208,8 @@ class TestOmf16BranchRelocations:
         actual, relocs = parse_obj_omf16(Path("branch.obj"), "main", data=data)
         assert actual == code
         assert relocs == {1: "rel16"}
+
+
 class TestOmfRecordLength:
     @pytest.mark.parametrize("rtype,body", [(0xA0, b"\x01\0\0\xc3"), (0xC2, b"\0" * 9 + b"\xc3")])
     def test_high_bit_length_does_not_admit_a_truncated_record(

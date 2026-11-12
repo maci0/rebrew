@@ -599,6 +599,8 @@ class TestArtifactRedirects:
             "https://compiler.invalid/api/v1/compile",
             "https://compiler.invalid/object.obj",
         ]
+
+
 class TestArtifactLength:
     @pytest.mark.parametrize(
         ("declared", "refused"),

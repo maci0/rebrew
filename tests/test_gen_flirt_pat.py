@@ -594,6 +594,7 @@ class TestParseCoffObjReal:
             ("_first", first, set()),
             ("_second", second[second_start:], set()),
         ]
+
     @pytest.mark.parametrize("machine", [0x14C, 0x8664, 0x1C4])
     def test_absolute_padding_relocations_mask_no_bytes(self, machine: int) -> None:
         from rebrew.gen_flirt_pat import parse_coff_obj

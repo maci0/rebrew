@@ -134,6 +134,8 @@ class TestAdditiveByteFixup:
         assert sl.image == b"\x90" + bytes([expected]) + trailing
         assert sl.applied == 1
         assert sl.unapplied == {}
+
+
 class TestFixupSegmentBoundary:
     @pytest.mark.parametrize("crosses_boundary", [False, True])
     def test_fixup_table_stops_at_next_stored_segment(self, crosses_boundary: bool) -> None:
