@@ -1098,11 +1098,13 @@ def _stop_before_write(
     return True
 
 
-def _rollback_output(output_path: Path, previous: bytes | None) -> None:
-    """Restore *output_path* to *previous*, logging but never raising.
+def _rollback_output(output_path: Path, previous: bytes | None) -> str:
+    """Restore *output_path* to *previous* and say whether it landed.
 
     A rollback failure must not mask the original error, so OSError is
-    swallowed after a warning; callers still report the original failure.
+    logged and returned instead of raised.  The empty string means the
+    previous bytes are back; anything else is the reason they are not,
+    which the caller puts in the failure it reports.
     """
     import logging
 
@@ -1117,6 +1119,8 @@ def _rollback_output(output_path: Path, previous: bytes | None) -> None:
         logging.getLogger(__name__).warning(
             "merge: could not restore %s after failure: %s", output_path, exc
         )
+        return f"{output_path}: {exc}"
+    return ""
 
 
 def _retarget_rows(
@@ -1150,7 +1154,13 @@ def _undo_retarget(
     data_done: bool,
     exc: Exception,
     json_output: bool,
+    output_note: str,
 ) -> None:
+    output_state = (
+        "The output was restored."
+        if not output_note
+        else f"The output was not restored ({output_note})."
+    )
     try:
         if data_done:
             _retarget_rows(meta, data_rows, new_file=None, writer=record_data_rows)
@@ -1158,12 +1168,12 @@ def _undo_retarget(
             _retarget_rows(meta, function_rows, new_file=None, writer=record_function_rows)
     except Exception as undo_exc:
         error_exit(
-            f"Merge did not finish ({exc}). The output was restored "
-            f"and the row retarget could not be undone ({undo_exc}).",
+            f"Merge did not finish ({exc}). {output_state} "
+            f"The row retarget could not be undone ({undo_exc}).",
             json_mode=json_output,
         )
     error_exit(
-        f"Merge did not finish ({exc}). The output was restored.",
+        f"Merge did not finish ({exc}). {output_state}",
         json_mode=json_output,
     )
 
@@ -1196,13 +1206,17 @@ def _commit_definitions(
             _retarget_rows(meta, data_rows, new_file=new_file, writer=record_data_rows)
             data_done = True
     except UnicodeEncodeError as exc:
-        if publisher is None:
-            _rollback_output(output_path, previous)
+        output_note = _rollback_output(output_path, previous) if publisher is None else ""
         offending = exc.object[exc.start : exc.end]
+        restored = (
+            ""
+            if publisher is not None or not output_note
+            else f" The output was not restored ({output_note})."
+        )
         error_exit(
             f"merged source cannot be encoded as {out_encoding} "
             f"(offending text {offending!r}); convert the inputs to a common "
-            "encoding first",
+            f"encoding first.{restored}",
             json_mode=json_output,
         )
     except Exception as exc:
@@ -1212,7 +1226,7 @@ def _commit_definitions(
             # undoing the retarget here would double-restore under a lock
             # the transaction no longer holds.  Just surface the failure.
             error_exit(f"Merge could not publish or retarget: {exc}", json_mode=json_output)
-        _rollback_output(output_path, previous)
+        output_note = _rollback_output(output_path, previous)
         _undo_retarget(
             meta,
             function_rows,
@@ -1221,6 +1235,7 @@ def _commit_definitions(
             data_done=data_done,
             exc=exc,
             json_output=json_output,
+            output_note=output_note,
         )
 
 

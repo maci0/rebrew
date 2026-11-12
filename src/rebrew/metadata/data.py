@@ -759,12 +759,15 @@ def delete_data_entries_batch(directory: Path | str | Any, targets: list[tuple[s
     if not metadata_store(path).exists():
         return 0
     removed = 0
+    # Same rule as the function store, and checked before the store is
+    # opened so a bad target cannot land a partial delete.
+    for module, va in targets:
+        if not module:
+            raise ValueError(f"data entry delete missing module: {(module, va)!r}")
     with metadata_write_lock(dir_path, DATA_METADATA_FILENAME):
         doc = load_metadata_for_write(path, "data metadata", known_fields=DATA_METADATA_FIELDS)
         key_index = build_metadata_key_index(doc)
         for module, va in targets:
-            if not module:
-                continue
             va_int = int(va)
             norm_mod = unicodedata.normalize("NFC", str(module))
             toml_key = resolve_metadata_key(doc, norm_mod, va_int, index=key_index)

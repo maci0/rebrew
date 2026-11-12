@@ -291,6 +291,17 @@ class _Session:
                 _save(self.route.state(name), self.records)
                 self.contexts.pop(name).close()
             except (OSError, MetadataStorageError) as exc:
+                # The journal already holds the commit, so a replica that
+                # refuses publication must not abort the writer.  The cause
+                # used to stop at the backend name, which left a disk-full
+                # replica and a conflict looking the same in the log.
+                logger.warning(
+                    "metadata replica %s refused publication (%s: %s); "
+                    "the recovery journal holds the commit",
+                    name,
+                    type(exc).__name__,
+                    exc,
+                )
                 self.pending.add(name)
                 stack = self.contexts.pop(name, None)
                 if stack is not None:

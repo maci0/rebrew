@@ -1643,15 +1643,28 @@ def _publish_selected_stubs(
                 or specials.read_bytes() != spec
             ):
                 raise ValueError("selected update inputs changed during publication")
-            backup.unlink()
-        except BaseException:
+        except BaseException as publication_error:
             if moved:
                 try:
                     os.link(backup, target)
                 except FileExistsError as exc:
                     raise ValueError(f"output preserved; original retained at {backup}") from exc
+                except OSError as restore_error:
+                    # The backup is the only remaining copy of the file the
+                    # publication moved aside.  Deleting it here, or letting
+                    # the restore error replace the publication error, loses
+                    # both the cause and the bytes.
+                    raise ValueError(
+                        f"stub publication failed ({publication_error}); "
+                        f"the original could not be restored ({restore_error}) "
+                        f"and is retained at {backup}"
+                    ) from publication_error
             backup.unlink(missing_ok=True)
             raise
+        else:
+            # Only after publication checked out: an unlink failure here is a
+            # leftover temp, not a reason to roll the published file back.
+            backup.unlink(missing_ok=True)
 
 
 #: Bound on linker output read from stdin: an unbounded ``read()`` lets a

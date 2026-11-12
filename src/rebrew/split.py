@@ -526,9 +526,15 @@ def _split_definitions(
                 )
             for path in created:
                 path.unlink(missing_ok=True)
-            detail = f" ({restore_exc})" if restore_exc is not None else ""
+            if restore_exc is not None:
+                detail = (
+                    f" The source could not be restored ({restore_exc}); "
+                    f"its pre-split bytes are not on disk"
+                )
+            else:
+                detail = " The source was restored."
             error_exit(
-                f"Split did not finish ({exc}). The source was restored{detail}.",
+                f"Split did not finish ({exc}).{detail}",
                 json_mode=json_output,
             )
 

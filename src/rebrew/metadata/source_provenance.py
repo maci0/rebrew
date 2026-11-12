@@ -516,10 +516,21 @@ def consolidate_source_metadata(
                 selected.write(store, "function metadata")
                 try:
                     legacy.remove()
-                except OSError:
-                    if function_raw is None:
-                        selected.remove()
-                    else:
-                        selected.write(before_store, "function metadata")
+                except OSError as original_error:
+                    # The function store already holds the imported source.
+                    # A rollback that itself fails must not replace the
+                    # removal error: both stores would then be wrong and
+                    # the log would name only the second failure.
+                    try:
+                        if function_raw is None:
+                            selected.remove()
+                        else:
+                            selected.write(before_store, "function metadata")
+                    except OSError as rollback_error:
+                        raise OSError(
+                            f"source consolidation could not retire {source_path.name} "
+                            f"({original_error}) and could not roll the function "
+                            f"store back ({rollback_error})"
+                        ) from original_error
                     raise
         return report

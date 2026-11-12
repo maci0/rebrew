@@ -1219,13 +1219,18 @@ def delete_entries_batch(metadata_dir: Path | str | Any, targets: list[tuple[str
     if not metadata_store(path).exists():
         return 0
     removed = 0
+    # A blank module used to be skipped while the rest of the batch was
+    # deleted, so the caller saw a count and the nameless row stayed behind
+    # with no signal.  Check every target before opening the store: a raise
+    # after the first deletion would leave the document half-applied.
+    for module, va in targets:
+        if not module:
+            raise ValueError(f"entry delete missing module: {(module, va)!r}")
     with metadata_write_lock(dir_path, METADATA_FILENAME):
         doc = load_metadata_for_write(path, "metadata", known_fields=_KNOWN_METADATA_FIELDS)
         doc_dict = doc
         key_index = build_metadata_key_index(doc_dict)
         for module, va in targets:
-            if not module:
-                continue
             va_int = int(va)
             norm_mod = unicodedata.normalize("NFC", str(module))
             toml_key = resolve_metadata_key(doc_dict, norm_mod, va_int, index=key_index)

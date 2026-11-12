@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 lazy import unicodedata
 lazy from pathlib import Path
 
@@ -9,9 +10,11 @@ import typer
 
 from rebrew.cli import RootOption, error_exit, json_print, require_root
 lazy from rebrew.config import load_config, target_module
-lazy from rebrew.coverage_toml import CoverageTomlError, load_coverage_from
+lazy from rebrew.coverage_toml import CoverageSnapshot, CoverageTomlError, load_coverage_from
 lazy from rebrew.metadata.functions import import_status_history
 lazy from rebrew.utils import console
+
+logger = logging.getLogger(__name__)
 
 app = typer.Typer(
     help="Import status history from portable snapshots without changing verdicts.",
@@ -41,18 +44,31 @@ def main(
     try:
         if not snapshots.is_dir():
             raise ValueError(f"{snapshots}: not a snapshot directory")
-        documents = {
-            unicodedata.normalize("NFC", path.stem.removeprefix("coverage-")): load_coverage_from(
-                snapshots, path.stem.removeprefix("coverage-")
-            )
-            for path in sorted(snapshots.glob("coverage-*.toml"))
-            if target is None
-            or unicodedata.normalize("NFC", path.stem.removeprefix("coverage-")) == target
-        }
+        documents: dict[str, CoverageSnapshot] = {}
+        unreadable: list[str] = []
+        for path in sorted(snapshots.glob("coverage-*.toml")):
+            name = unicodedata.normalize("NFC", path.stem.removeprefix("coverage-"))
+            if target is not None and name != target:
+                continue
+            try:
+                documents[name] = load_coverage_from(snapshots, name)
+            except (OSError, ValueError, CoverageTomlError) as exc:
+                # One damaged snapshot used to raise out of the dict
+                # comprehension and refuse every other target in the same
+                # directory, with the message "no readable coverage snapshots".
+                unreadable.append(f"{path.name}: {exc}")
         if not documents:
-            raise ValueError(f"{snapshots}: no readable coverage snapshots")
+            detail = "; ".join(unreadable)
+            raise ValueError(
+                f"{snapshots}: no readable coverage snapshots" + (f" ({detail})" if detail else "")
+            )
         if target is not None and target not in documents:
             raise ValueError(f"{target}: no readable coverage snapshot")
+        for problem in unreadable:
+            # A skipped snapshot is a lost history row for that target, so it
+            # stays on the warning stream whether or not the caller asked for
+            # JSON (the JSON document itself stays the successful imports).
+            logger.warning("coverage import-history: skipping %s", problem)
         prepared = []
         for name, snapshot in documents.items():
             if target is not None and name != target:
