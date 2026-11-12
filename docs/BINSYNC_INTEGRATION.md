@@ -33,11 +33,12 @@ rebrew binsync init ./binsync_state --dry-run
 
 rebrew writes as one BinSync user: the same name is the `metadata.toml` `user`
 and the branch `binsync/<user>`, because BinSync's `Client` reads the user from
-`metadata.toml` and checks out `binsync/<that user>`. The name is, in order,
-`--user`, `targets.<name>.binsync_user`, the user `rebrew binsync init`
+`metadata.toml` and checks out `binsync/<that user>`. The first nonempty name wins,
+in order: `--user`, `targets.<name>.binsync_user`, the user `rebrew binsync init`
 recorded in the state repo (`git config --local rebrew.user`), else `rebrew`.
+An empty value falls through to the next source.
 `git config user.name` is never used: it is a person's display name, usually
-with spaces. A name BinSync cannot branch on (empty, containing `/` or
+with spaces. A selected name BinSync cannot branch on (containing `/` or
 `__root__`, or failing `git check-ref-format --branch binsync/<user>`, such as
 one with a space) is refused with exit `2` before anything is written.
 

@@ -5360,7 +5360,7 @@ from the target binary's MD5 errors.
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `STATE_DIR` | path | required | BinSync state directory to initialize |
-| `--user` | str | none | BinSync user rebrew writes as (default: targets.<name>.binsync_user, the user 'rebrew binsync init' recorded, else rebrew) |
+| `--user` | str | none | BinSync user rebrew writes as (branch binsync/<user>; default: targets.<name>.binsync_user, the user 'rebrew binsync init' recorded, else rebrew) |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
