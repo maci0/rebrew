@@ -139,7 +139,7 @@ result = compile_source(
     ["/O2"],  # flags: a str is split on whitespace
     client=FakeService(),
 )
-result.ok / result.obj_bytes / result.log / result.compiler_version
+print(result.ok, result.obj_bytes, result.log, result.compiler_version)
 
 # No client means rebrew builds an httpx.Client(timeout=...) for the call and
 # closes it after. `retries=N` re-attempts a retryable RecompileError with
