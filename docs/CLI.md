@@ -6420,7 +6420,10 @@ Print the absolute path to rebrew-project.toml.
 
 `rebrew cfg set [OPTIONS] KEY VALUE`
 
-Set a scalar config key.
+Set a scalar config key. Source-directory keys follow the
+[metadata-root containment rule](CONFIG.md#what-the-config-loader-provides).
+Both normal and `--dry-run` calls reject a proposed source-root violation.
+Other edits remain available to repair broken profiles or partial configurations.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |

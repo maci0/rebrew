@@ -114,6 +114,9 @@ This includes inactive targets and symlink destinations. A retained store under
 `src/` cannot serve a shared source directory elsewhere in the project; that
 configuration is rejected before registration. Keep the source directories
 under their metadata root or use a common store at the project root.
+`rebrew cfg set` checks the proposed document against this rule before writing
+or previewing changes to `project.shared_dir` or a target's `reversed_dir`.
+Other edits remain available to repair broken profiles or partial configurations.
 
 ## Architecture Presets
 
