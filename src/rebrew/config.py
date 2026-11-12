@@ -547,6 +547,29 @@ class AddressCommentFormat:
 DEFAULT_ADDRESS_COMMENTS = AddressCommentFormat()
 
 
+@dataclass(frozen=True)
+class _AddressCommentTarget:
+    """One target's comment dialect and the resolved root its sources live under."""
+
+    module_key: str
+    source_root: Path
+    comments: AddressCommentFormat
+
+
+@dataclass(frozen=True)
+class _AddressCommentLayout:
+    """Comment dialects and resolved source roots for one project document."""
+
+    project_comments: AddressCommentFormat
+    shared_root: Path | None
+    targets: tuple[_AddressCommentTarget, ...]
+
+
+#: Resolved source roots and comment dialects for one parsed document. The
+#: per-file walk otherwise called ``Path.resolve`` on every target root.
+_PROJECT_LAYOUT: dict[Path, tuple[tuple[int, int, int], _AddressCommentLayout]] = {}
+
+
 def parse_address_comment_format(project: Any, target: Any = None) -> AddressCommentFormat:
     """Resolve project defaults and per-target overrides without reading a binary."""
     values: dict[str, str] = {}
@@ -578,6 +601,48 @@ def _project_toml(path: Path) -> dict[str, Any]:
     return raw
 
 
+def _address_comment_layout(root: Path, raw: dict[str, Any]) -> _AddressCommentLayout:
+    """Resolve source roots once per parsed document, not once per source file."""
+    project = _as_table(raw.get("project", {}), "project")
+    targets = _normalized_targets(_as_table(raw.get("targets", {}), "targets"))
+    shared = project.get("shared_dir", "src/shared")
+    shared_root = (
+        _required_path(root, shared, "src/shared", "shared_dir").resolve() if shared else None
+    )
+    rows = []
+    for name, target in targets.items():
+        target_module_name = str(target.get("module") or re.sub(r"[^A-Za-z0-9_]", "", name.upper()))
+        rows.append(
+            _AddressCommentTarget(
+                module_key=preset_module_key(target_module_name),
+                source_root=_required_path(
+                    root, target.get("reversed_dir"), f"src/{name}", "reversed_dir"
+                ).resolve(),
+                comments=parse_address_comment_format(
+                    project.get("address_comments"), target.get("address_comments")
+                ),
+            )
+        )
+    return _AddressCommentLayout(
+        project_comments=parse_address_comment_format(project.get("address_comments")),
+        shared_root=shared_root,
+        targets=tuple(rows),
+    )
+
+
+def _cached_address_comment_layout(root: Path) -> _AddressCommentLayout:
+    """Layout for *root*, reused while ``rebrew-project.toml`` is unchanged."""
+    path = root / "rebrew-project.toml"
+    st = path.stat()
+    stamp = (st.st_mtime_ns, st.st_size, st.st_ino)
+    hit = _PROJECT_LAYOUT.get(path)
+    if hit is not None and hit[0] == stamp:
+        return hit[1]
+    layout = _address_comment_layout(root, _project_toml(path))
+    _PROJECT_LAYOUT[path] = (stamp, layout)
+    return layout
+
+
 def address_comments_for_file(
     filepath: Path, *, module: str | None = None, project_root: Path | None = None
 ) -> AddressCommentFormat:
@@ -591,38 +656,19 @@ def address_comments_for_file(
     root = project_root or walk_up_to_root(filepath.parent)
     if root is None or not (root / "rebrew-project.toml").is_file():
         return DEFAULT_ADDRESS_COMMENTS
-    raw = _project_toml(root / "rebrew-project.toml")
-    project = _as_table(raw.get("project", {}), "project")
-    targets = _normalized_targets(_as_table(raw.get("targets", {}), "targets"))
-    selected = []
-    for name, target in targets.items():
-        target_module_name = str(target.get("module") or re.sub(r"[^A-Za-z0-9_]", "", name.upper()))
-        if module and preset_module_key(target_module_name) != preset_module_key(module):
-            continue
-        source_root = _required_path(
-            root, target.get("reversed_dir"), f"src/{name}", "reversed_dir"
-        )
-        shared = project.get("shared_dir", "src/shared")
-        if (
-            module
-            or filepath.resolve().is_relative_to(source_root.resolve())
-            or (
-                shared
-                and filepath.resolve().is_relative_to(
-                    _required_path(root, shared, "src/shared", "shared_dir").resolve()
-                )
-            )
-        ):
-            selected.append(
-                parse_address_comment_format(
-                    project.get("address_comments"), target.get("address_comments")
-                )
-            )
+    layout = _cached_address_comment_layout(root)
+    module_key = preset_module_key(module) if module else None
+    resolved = filepath.resolve()
+    in_shared = layout.shared_root is not None and resolved.is_relative_to(layout.shared_root)
+    selected = [
+        target.comments
+        for target in layout.targets
+        if (module_key is None or target.module_key == module_key)
+        and (module or in_shared or resolved.is_relative_to(target.source_root))
+    ]
     if len(set(selected)) > 1:
         raise ConfigError(f"{filepath}: shared source has incompatible address_comments settings")
-    return (
-        selected[0] if selected else parse_address_comment_format(project.get("address_comments"))
-    )
+    return selected[0] if selected else layout.project_comments
 
 
 @dataclass

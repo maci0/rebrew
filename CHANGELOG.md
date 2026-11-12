@@ -1,5 +1,11 @@
 ## [Unreleased]
 
+### Performance
+
+- Source discovery resolves each target's source root and shared root once
+  per unchanged ``rebrew-project.toml``, instead of calling ``Path.resolve``
+  on those roots for every source file. Comment dialects are unchanged.
+
 ## [6.33.0] - 2026-11-12
 
 ### Changed
