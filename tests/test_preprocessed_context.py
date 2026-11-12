@@ -108,6 +108,27 @@ def test_capture_preserves_target_flag_order_and_expansion(
     assert not a["line_markers_authenticate_origin"]
 
 
+class TestCompilationDatabaseSource:
+    @pytest.mark.parametrize("relative_file", ["../src/unit.c", "../src/./unit.c"])
+    def test_relative_source_uses_compile_directory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relative_file: str
+    ) -> None:
+        source, db, calls = _fixture(tmp_path, monkeypatch)
+        entries = json.loads(db.read_text())
+        entries[0]["file"] = relative_file
+        entries[0]["arguments"][-1] = relative_file
+        db.write_text(json.dumps(entries))
+        unrelated = tmp_path / "unrelated" / "child"
+        unrelated.mkdir(parents=True)
+        monkeypatch.chdir(unrelated)
+
+        report = capture.capture_msvc_context(tmp_path, db, source, output="TL.obj")
+
+        assert b"int TL(" in report["expanded"]
+        assert len(calls) == 1
+        assert str(source) in report["files"]
+
+
 def test_capture_expected_digest_detects_stale_inputs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

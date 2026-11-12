@@ -404,7 +404,9 @@ def capture_msvc_context(
     raw_database = database.read_bytes()
     entries = json.loads(raw_database)
     selected = [
-        e for e in entries if Path(e["file"]).resolve() == source and e.get("output") == output
+        e
+        for e in entries
+        if (Path(e["directory"]) / e["file"]).resolve() == source and e.get("output") == output
     ]
     if len(selected) != 1:
         raise ValueError("select exactly one source and build output in the compilation database")
