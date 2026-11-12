@@ -156,9 +156,13 @@ def _newest_mtime(root: Path) -> float | None:
         newest = root.stat().st_mtime
         for parent, directories, files in os.walk(root, onerror=unreadable):
             current = Path(parent)
+            # The metadata dir is ``overlay-work/work`` wherever the bundle
+            # stages it. Matching only ``root / "overlay-work"`` left a
+            # nested one mode 000, so the age walk failed and the abandoned
+            # bundle was kept.
             if (
                 root.name.startswith("rebrew_unshare_")
-                and current == root / "overlay-work"
+                and current.name == "overlay-work"
                 and "work" in directories
                 and hasattr(os, "getuid")
             ):

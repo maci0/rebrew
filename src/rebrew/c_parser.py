@@ -809,6 +809,22 @@ def _drop_parenthesized_array_name(text: str) -> str:
     return text
 
 
+def _has_nonempty_error(node: Any) -> bool:
+    """True when *node* has an error other than an empty identifier.
+
+    ``sizeof((int))`` parses as a cast with a zero-width operand. That
+    empty identifier is the whole error; a missing token or a real
+    ``ERROR`` node is not.
+    """
+    if node.type == "identifier" and node.start_byte == node.end_byte:
+        return False
+    if node.type == "ERROR" or node.is_missing:
+        return True
+    if node.has_error:
+        return any(_has_nonempty_error(child) for child in node.children)
+    return False
+
+
 def array_type_shape(
     type_str: str, *, int_bits: int = 32
 ) -> tuple[str, tuple[int | str | None, ...]]:
@@ -820,7 +836,8 @@ def array_type_shape(
     ``|``, and ``^`` fold too. An integer cast that does not change the
     value folds (``(int)(2 + 2)``). A constant ``?:`` folds when both
     arms do. A comma expression folds to its rightmost operand.
-    ``sizeof`` of a known 32-bit type folds (``sizeof(int)`` is 4),
+    ``sizeof`` of a known 32-bit type folds (``sizeof(int)`` is 4,
+    and so is ``sizeof((int))``),
     and ``sizeof`` of a string counts its code units plus one NUL at
     the literal's width (``sizeof("hi")`` is 3, ``sizeof(L"hi")`` is 6).
     A comparison of constants is 0 or 1. ``&&``, ``||``, and ``!`` are
@@ -854,7 +871,11 @@ def array_type_shape(
     if not bracket:
         return normalized, ()
     tree, source = parse_c_source(f"int __rebrew_array[{suffix};")
-    if tree.root_node.has_error or len(tree.root_node.named_children) != 1:
+    # ``sizeof((int))`` is a type. Tree-sitter reports the extra parentheses
+    # as a cast whose operand is an empty identifier, which is the only
+    # error in an otherwise complete declaration. Any other error is a
+    # bound that cannot be folded.
+    if _has_nonempty_error(tree.root_node) or len(tree.root_node.named_children) != 1:
         return normalized, ()
     declarator = tree.root_node.named_children[0].child_by_field_name("declarator")
     limit = (1 << (int_bits - 1)) - 1
@@ -933,6 +954,24 @@ def array_type_shape(
             value = folded[-1]
         elif node.type == "sizeof_expression":
             described = node.named_children[0] if node.named_children else None
+            # ``sizeof((int))`` is a type. Tree-sitter reads the extra
+            # parentheses as a cast whose operand is an empty identifier,
+            # wrapped in one parenthesized expression per extra pair, so
+            # peel those before the one-level expression unwrap below.
+            # A real value (``sizeof((int)(1))``, ``sizeof((2))``) keeps
+            # its operand.
+            while described is not None and described.type == "parenthesized_expression":
+                cast = described
+                while cast is not None and cast.type == "parenthesized_expression":
+                    cast = cast.named_children[0] if cast.named_children else None
+                operand = (
+                    cast.child_by_field_name("value")
+                    if cast is not None and cast.type == "cast_expression"
+                    else None
+                )
+                if operand is None or operand.start_byte != operand.end_byte:
+                    break
+                described = cast.child_by_field_name("type")
             if described is not None and described.type == "parenthesized_expression":
                 described = described.named_children[0] if described.named_children else None
             if described is None:

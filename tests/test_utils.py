@@ -1961,6 +1961,27 @@ class TestSweepStaleTempDirs:
                 protected.chmod(0o700)
         assert source.read_bytes() == b"keep"
 
+    def test_nested_mode_zero_overlay_work_is_swept(self, tmp_path: Path) -> None:
+        """An abandoned unshare bundle is swept when its metadata sits one level down.
+
+        Overlayfs leaves ``overlay-work/work`` mode 000. The age walk only
+        opened that directory when it was a direct child of the bundle, so a
+        nested one raised ``PermissionError``, the age came back unknown, and
+        the abandoned bundle was kept forever.
+        """
+        bundle = tmp_path / "rebrew_unshare_nested"
+        nested = bundle / "stage" / "overlay-work" / "work"
+        nested.mkdir(parents=True)
+        (nested / "upper").write_bytes(b"stale")
+        self._age(bundle, temp_dirs.STALE_TEMP_DIR_AGE_S + 4200)
+        nested.chmod(0)
+        try:
+            assert temp_dirs.sweep_stale_temp_dirs(tmp_path) == [bundle]
+        finally:
+            if nested.exists():
+                nested.chmod(0o700)
+        assert not bundle.exists()
+
     def test_removes_abandoned_sandbox(self, tmp_path: Path) -> None:
 
         lost = tmp_path / "rebrew_batch_abc"

@@ -623,6 +623,28 @@ class TestStructSizes:
         assert type_size("char[sizeof(u8'A')]") == 1
         assert type_size("char[sizeof('AB')]") == 4
 
+    def test_sizeof_parenthesized_type(self) -> None:
+        """``sizeof((int))`` is 4. Extra parentheses do not change the type.
+
+        Tree-sitter reads the inner parentheses as a cast with no operand,
+        so the bound stayed unknown and the following field was dropped.
+        ``sizeof((int)(1))`` stays unknown: the outer parentheses make it
+        an expression, and ``sizeof`` of an expression is not folded.
+        """
+        from rebrew.types import type_size
+
+        assert type_size("char[sizeof((int))]") == 4
+        assert type_size("char[sizeof(((int)))]") == 4
+        assert type_size("char[sizeof((const int))]") == 4
+        assert type_size("char[sizeof((unsigned))]") == 4
+        assert type_size("char[sizeof((int *))]") == 4
+        assert type_size("char[sizeof((char[2]))]") == 2
+        assert type_size("char[sizeof((int)(1))]") is None
+        s = parse_structs("typedef struct { char gap[sizeof((int))]; int tail; } S;")["S"]
+        assert s.complete
+        assert [(name, off) for name, _spelling, off in s.fields] == [("gap", 0), ("tail", 4)]
+        assert s.size == 8
+
     def test_bool_is_one_byte(self) -> None:
         """32-bit MSVC ``bool`` is 1 byte.
 
