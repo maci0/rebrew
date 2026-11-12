@@ -1,5 +1,6 @@
 """Tests for binary_loader — Mach-O loader, load_binary fmt dispatch, language detection."""
 
+import struct
 from types import SimpleNamespace
 lazy from pathlib import Path
 
@@ -10,8 +11,47 @@ import rebrew.formats.binary_loader as bl
 
 
 class TestLoadMacho:
+    @pytest.mark.parametrize("slice_offset", [0, 0x1000])
+    @pytest.mark.parametrize("fmt", ["auto", "macho"])
+    def test_section_reads_use_container_file_offsets(
+        self, tmp_path: Path, slice_offset: int, fmt: str
+    ) -> None:
+        code = b"\x90\x91\x92\xc3"
+        header = struct.pack("<IiiIIIII", 0xFEEDFACF, 0x1000007, 3, 2, 1, 152, 0, 0)
+        segment = struct.pack(
+            "<II16sQQQQiiII", 0x19, 152, b"__TEXT", 0x100000000, 0x1000, 0, 0x104, 7, 5, 1, 0
+        )
+        section = struct.pack(
+            "<16s16sQQIIIIIIII",
+            b"__text",
+            b"__TEXT",
+            0x100000100,
+            len(code),
+            0x100,
+            0,
+            0,
+            0,
+            0x80000400,
+            0,
+            0,
+            0,
+        )
+        raw = (header + segment + section).ljust(0x100, b"\0") + code
+        if slice_offset:
+            container = struct.pack(
+                ">IIiiIII", 0xCAFEBABE, 1, 0x1000007, 3, slice_offset, len(raw), 12
+            )
+            raw = container.ljust(slice_offset, b"\0") + raw
+        path = tmp_path / "image.macho"
+        path.write_bytes(raw)
+        info = bl.load_binary(path, fmt=fmt)
+        assert bl.extract_bytes_at_va(info, 0x100000100, len(code), trim_padding=False) == code
+        assert info.text_raw_offset == slice_offset + 0x100
+        assert bl.va_to_file_offset(info, 0x100000100) == slice_offset + 0x100
+
     def test_thin_binary(self, tmp_path: Path) -> None:
         macho = SimpleNamespace(
+            fat_offset=0,
             header=SimpleNamespace(cpu_type=0),
             segments=[
                 SimpleNamespace(name="__TEXT", virtual_address=0x1000),
@@ -44,6 +84,7 @@ class TestLoadMacho:
 
     def test_no_text_section(self, tmp_path: Path) -> None:
         macho = SimpleNamespace(
+            fat_offset=0,
             header=SimpleNamespace(cpu_type=0),
             segments=[SimpleNamespace(name="__DATA", virtual_address=0x2000)],
             sections=[

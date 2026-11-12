@@ -416,7 +416,8 @@ def _load_macho(fat_or_binary: lief.MachO.FatBinary | lief.MachO.Binary, path: P
         name = f"{seg_name}.{sec_name}" if seg_name else sec_name
         va = section.virtual_address
         vsize = section.size
-        raw_offset = section.offset
+        # Mach-O section offsets are relative to the slice in a fat container.
+        raw_offset = binary.fat_offset + section.offset
         raw_size = 0 if getattr(section, "type", None) in _zerofill else vsize
 
         sections[name] = SectionInfo(
