@@ -650,9 +650,11 @@ health is `rebrew doctor`'s job, not lint's.
 
 `rebrew decompile [OPTIONS] ADDRESS`
 
-Decompile one function and print the pseudo-C (raw `print()`, pipeable to a
-file).  Backend-pluggable, same backends as `types recover` (needs `kuna`
-on PATH or the rizin/MCP backend).
+Decompile one function and print the pseudo-C (pipeable to a file), or write
+C directly with `--output FILE` in text mode. The registered backends are shared
+with `types recover`; prerequisites depend on the selected provider: the `kuna`
+executable, radare2/rizin plugins, ReVa MCP, or the optional `m2c` decompiler
+from the pinned Git dependency for its supported MIPS/PPC/ARM/SH targets.
 
 `--named` applies the **known-struct naming pass** (`rebrew.name_decomp`):
 decompiler output types struct pointers as primitives (`int a1` +
@@ -678,6 +680,7 @@ where `applied` lists `{var, struct, offsets}`.
 | --- | --- | --- | --- |
 | `ADDRESS` | str | required | Function VA (hex, e.g. 0x1000d350) |
 | `--decompiler` | str | `kuna` | Decompiler backend: auto, r2ghidra, r2dec, ghidra, kuna, m2c |
+| `--output` / `-o` | path | — | Write C to this file in text mode (default: stdout); JSON mode prints the result instead |
 | `--named` | flag | `False` | Apply known struct names to the output |
 | `--output` / `-o` | path | none | Write decompilation to this file (default: stdout) |
 | `--json` | flag | `False` | Output results as JSON |
