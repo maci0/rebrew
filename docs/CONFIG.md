@@ -7,7 +7,9 @@ template: every key the loader knows, most of them commented out. Copy it to
 `rebrew-project.toml` and edit, rather than starting from the excerpts below.
 A key it does not know only warns at load, so a typo there is silent.
 
-> **Core Principle: Idempotency.** Every rebrew tool can be run repeatedly with the same result. No destructive side effects, so it is safe to retry, re-run, or chain in scripts and AI agent loops.
+> Repeated runs follow each command's contract. `rebrew skeleton --batch N`,
+> for example, selects the next uncovered functions on each run. Use a command's
+> preview mode, where available, before repeating an operation that writes files.
 
 ## `rebrew-project.toml` (Project Root)
 
