@@ -17,8 +17,8 @@
   `json_output` argument. Call it with the optional command path only.
 - Dashboard responses and coverage-report sidecars compress with the stdlib
   `compression.zstd` module, so the `zstandard` package is no longer a
-  dependency. The entry zstd checkpoint is 12780 bytes, inside the 13600-byte
-  budget.
+  dependency. The entry zstd checkpoint is 11193 bytes, inside the 13600-byte
+  budget. `/app.js` is served without its full-line comments.
 
 ### Performance
 

@@ -1184,7 +1184,7 @@ class TestChromeTokens:
         whitespace or a stray quote would paint the cell with a mark it does
         not name. The dashboard validates its token the same way.
         """
-        from rebrew.dashboard import _APP_JS
+        from rebrew.dashboard import _APP_JS_WIRE
         from rebrew.report import _function_rows_html
 
         def row(status: str) -> dict[str, object]:
@@ -1202,8 +1202,8 @@ class TestChromeTokens:
         unknown = _function_rows_html([row("FOO BAR")])
         assert "class='st'" in unknown
         assert "status-FOO" not in unknown
-        # The shell's client keeps the same rule for the dashboard tables.
-        assert "/^[A-Z][A-Z0-9_]*$/" in _APP_JS
+        # The served client keeps the same rule for the dashboard tables.
+        assert "/^[A-Z][A-Z0-9_]*$/" in _APP_JS_WIRE
 
 
 def _strings_page() -> str:

@@ -36,6 +36,7 @@ from rebrew.dashboard import (
     _APP_JS,
     _APP_JS_URL,
     _APP_JS_VERSION,
+    _APP_JS_WIRE,
     _BOOT_GUARD_JS,
     _BOOTSTRAP_FUNCTION_LIMIT,
     _DEFAULT_LIMIT,
@@ -109,7 +110,7 @@ def _run_script(script: str, **env: str) -> None:
     environ.update(env)
     result = subprocess.run(
         [bun, str(Path(__file__).with_name(script))],
-        input=_APP_JS,
+        input=_APP_JS_WIRE,
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -1012,8 +1013,14 @@ class TestHandle:
         status, content_type, body = dashboard.handle("GET", "/app.js", {})
         assert status == 200
         assert "javascript" in content_type
-        assert body is _APP_JS
+        assert body is _APP_JS_WIRE
         assert 'get("/api/bootstrap")' in body
+        # Full-line comments stay in the source, not on the wire. A comment
+        # after code stays: cutting it needs a real parse.
+        assert "// Hash" in _APP_JS
+        assert "\n//" not in body
+        source_lines = [line for line in _APP_JS.splitlines() if not line.lstrip().startswith("//")]
+        assert body.splitlines() == source_lines
 
     def test_boot_guard_is_inline_and_runs_after_the_client(self, dashboard: Dashboard) -> None:
         """The guard is inline but still ordered after the deferred client."""
@@ -2547,7 +2554,7 @@ class TestEncodingNegotiation:
 
     @pytest.mark.parametrize(
         ("accept", "expected_body"),
-        [("zstd", 12780), ("gzip", None)],
+        [("zstd", 11193), ("gzip", None)],
     )
     def test_the_documented_entry_flight_matches_the_wire(
         self, accept: str, expected_body: int | None
@@ -2601,9 +2608,9 @@ class TestEncodingNegotiation:
         that gates interactivity, and a compatibility branch there is the same
         cost.
         """
-        from rebrew.dashboard import _APP_JS, _INDEX_HTML
+        from rebrew.dashboard import _APP_JS_WIRE, _INDEX_HTML
 
-        for asset in (_INDEX_HTML, _APP_JS):
+        for asset in (_INDEX_HTML, _APP_JS_WIRE):
             assert "-webkit-overflow-scrolling" not in asset
 
     def test_va_cells_do_not_wrap_mid_address(self) -> None:
@@ -2669,9 +2676,9 @@ class TestEncodingNegotiation:
         unpaged and passes neither ``tip`` nor ``tipCapped``, so the count has
         to stand alone rather than end in a stray ``undefined``.
         """
-        from rebrew.dashboard import _APP_JS
+        from rebrew.dashboard import _APP_JS_WIRE
 
-        assert "hint.textContent = tail ? msg" in _APP_JS
+        assert "hint.textContent = tail ? msg" in _APP_JS_WIRE
 
     def test_history_rows_are_positional_only(self) -> None:
         """``historyRowHtml`` takes the ``cols`` array, not the old object row.
@@ -2681,10 +2688,10 @@ class TestEncodingNegotiation:
         renderer used to unpack is a branch no response can reach, and it ships
         on the cold path.
         """
-        from rebrew.dashboard import _APP_JS
+        from rebrew.dashboard import _APP_JS_WIRE
 
-        assert "const historyRowHtml = (r) =>" in _APP_JS
-        assert "Array.isArray(h)" not in _APP_JS
+        assert "const historyRowHtml = (r) =>" in _APP_JS_WIRE
+        assert "Array.isArray(h)" not in _APP_JS_WIRE
 
     def test_bootstrap_json_compresses_at_max_effort(self) -> None:
         """The preloaded cold-start body pays max effort, later routes do not.

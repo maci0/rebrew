@@ -43,7 +43,8 @@ span's trace id, and ``REBREW_OTLP_ENDPOINT`` exports the spans over OTLP/HTTP
 Successful responses negotiate zstd then gzip with quality weights. ETags key
 on the live input version or portable file state plus the exact route/query;
 health is no-store. Static assets are content-hashed and precompressed. The
-entry checkpoint measured 12780 B zstd / 13399 B gzip against a 13600 B budget;
+served client drops its full-line comments (they stay in the source). The
+entry checkpoint measured 11193 B zstd / 11743 B gzip against a 13600 B budget;
 host zlib versions can change gzip size. Tests enforce the wire budget.
 Reload re-reads the live view; view/target/filter navigation is stored in the
 URL hash. Details, API schema and transfer measurements live in
@@ -1642,7 +1643,27 @@ __STATUS_FORCED__
 """
 
 _APP_JS = _APP_JS.replace("__ZONELESS_INSTANT_RE__", _ZONELESS_INSTANT_RE)
-_APP_JS_BYTES = _APP_JS.encode("utf-8")
+
+
+def _script_for_wire(source: str) -> str:
+    """Drop full-line comments from a script every cold load downloads.
+
+    The comments document the client for the people editing it. A browser
+    never reads them, and they still cost the compressed body that gates
+    interactivity. A line that is only a comment is removed. A comment after
+    code stays: cutting that needs a real parse, and those lines are few.
+    """
+    kept = [line for line in source.splitlines() if not line.lstrip().startswith("//")]
+    if source.endswith("\n"):
+        return "\n".join(kept) + "\n"
+    return "\n".join(kept)
+
+
+#: What ``/app.js`` sends. ``_APP_JS`` keeps the comments the tests and the
+#: bun harness execute against; the wire copy is the same program without
+#: the lines a browser cannot use.
+_APP_JS_WIRE = _script_for_wire(_APP_JS)
+_APP_JS_BYTES = _APP_JS_WIRE.encode("utf-8")
 _APP_JS_VERSION = hashlib.sha256(_APP_JS_BYTES).hexdigest()[:16]
 _APP_JS_ETAG = f'"{_APP_JS_VERSION}"'
 _BOOT_GUARD_JS_BYTES = _BOOT_GUARD_JS.encode("utf-8")
@@ -2482,7 +2503,7 @@ class Dashboard:
         if parsed.path == "/":
             return 200, "text/html; charset=utf-8", _INDEX_HTML
         if parsed.path == "/app.js":
-            return 200, "application/javascript; charset=utf-8", _APP_JS
+            return 200, "application/javascript; charset=utf-8", _APP_JS_WIRE
         if parsed.path == _FAVICON_PATH:
             return 200, "image/svg+xml", _FAVICON_SVG
         if parsed.path == "/api/bootstrap":
@@ -3332,7 +3353,7 @@ class _Handler(BaseHTTPRequestHandler):
                     gzip_blob=_index_html_gzip(),
                     raw=_INDEX_HTML_BYTES,
                 )
-            elif body is _APP_JS:
+            elif body is _APP_JS_WIRE:
                 entry_asset = True
                 body_bytes, encoding = _precompressed_static(
                     accept,
