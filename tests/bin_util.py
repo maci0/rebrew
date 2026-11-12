@@ -783,10 +783,10 @@ def append_pe_section(pe: bytes, name: str, data: bytes) -> bytes:
     lfanew = struct.unpack_from("<I", pe, 0x3C)[0]
     n_sections = struct.unpack_from("<H", pe, lfanew + 6)[0]
     opt_size = struct.unpack_from("<H", pe, lfanew + 20)[0]
-    size_of_headers = struct.unpack_from("<I", pe, lfanew + 24 + 0x54)[0]
-    file_align = struct.unpack_from("<I", pe, lfanew + 24 + 0x3C)[0]
-    sec_align = struct.unpack_from("<I", pe, lfanew + 24 + 0x38)[0]
-    size_of_image = struct.unpack_from("<I", pe, lfanew + 24 + 0x50)[0]
+    size_of_headers = struct.unpack_from("<I", pe, lfanew + 24 + 0x3C)[0]
+    file_align = struct.unpack_from("<I", pe, lfanew + 24 + 0x24)[0]
+    sec_align = struct.unpack_from("<I", pe, lfanew + 24 + 0x20)[0]
+    size_of_image = struct.unpack_from("<I", pe, lfanew + 24 + 0x38)[0]
 
     out = bytearray(pe)
     # Section headers start right after the optional header.
@@ -818,7 +818,8 @@ def append_pe_section(pe: bytes, name: str, data: bytes) -> bytes:
     assert new_header_off + 40 <= size_of_headers, "section table overflow"
     out[new_header_off : new_header_off + 40] = hdr
     struct.pack_into("<H", out, lfanew + 6, n_sections + 1)
-    struct.pack_into("<I", out, lfanew + 24 + 0x50, va + len(data))
+    image_size = ((va + len(data) + sec_align - 1) // sec_align) * sec_align
+    struct.pack_into("<I", out, lfanew + 24 + 0x38, image_size)
     return bytes(out)
 
 

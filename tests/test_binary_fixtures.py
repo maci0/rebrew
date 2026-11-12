@@ -86,6 +86,32 @@ class TestCoffObj:
 
 
 class TestPeFixture:
+    def test_append_section_preserves_optional_header_fields(self) -> None:
+        from bin_util import append_pe_section, make_pe
+
+        from rebrew.formats.pe_headers import pe_layout
+
+        for text_va in (0x1000, 0x80001000):
+            original = make_pe(b"\xc3", text_va=text_va)
+            layout = pe_layout(original)
+            assert layout is not None
+            opt = layout.optional_header_offset
+            heap = struct.unpack_from("<I", original, opt + 0x50)[0]
+            section_alignment = struct.unpack_from("<I", original, opt + 0x20)[0]
+            next_va = struct.unpack_from("<I", original, opt + 0x38)[0]
+            appended = append_pe_section(original, ".data", b"abcd")
+            assert struct.unpack_from("<I", appended, opt + 0x50)[0] == heap
+            result = pe_layout(appended)
+            assert result is not None
+            assert result.sections[-1].virtual_address == next_va
+            image_size = (
+                (next_va + 4 + section_alignment - 1) // section_alignment * section_alignment
+            )
+            assert struct.unpack_from("<I", appended, opt + 0x38)[0] == image_size
+            third = pe_layout(append_pe_section(appended, ".reloc", b"abcd"))
+            assert third is not None
+            assert len(third.sections) == 3
+
     def test_format_detection(self) -> None:
         path = FIXTURES / "mini_pe.exe"
         assert lief.is_pe(str(path))

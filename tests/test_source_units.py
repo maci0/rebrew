@@ -22,8 +22,8 @@ class TestSourceUnits:
     def test_verified_body_follows_internal_jump_without_decoding_skipped_table(
         self, tmp_path: Path
     ) -> None:
-        code = b"\xeb\x05\x68" + struct.pack("<I", 0x500000)
-        code += b"\x68" + struct.pack("<I", 0x500020) + b"\xc3"
+        code = b"\xeb\x05\x68" + struct.pack("<I", 0x402000)
+        code += b"\x68" + struct.pack("<I", 0x402020) + b"\xc3"
         function = {
             "va": 0x401000,
             "size": len(code),
@@ -44,8 +44,8 @@ class TestSourceUnits:
         assert result["refused"] == [{"function_va": 0x900000, "reason": "no mapped bytes"}]
 
     def test_merged_discovery_extent_cannot_claim_the_next_body(self, tmp_path: Path) -> None:
-        first = b"\x68" + struct.pack("<I", 0x500000) + b"\xc3"
-        second = b"\x68" + struct.pack("<I", 0x500020) + b"\xc3"
+        first = b"\x68" + struct.pack("<I", 0x402000) + b"\xc3"
+        second = b"\x68" + struct.pack("<I", 0x402020) + b"\xc3"
         info = _image(tmp_path, first + second)
         report = source_unit_evidence(info, [{"va": 0x401000, "size": 12}])
         paths = {p["path"]: p["references"] for p in report["paths"]}
@@ -57,8 +57,8 @@ class TestSourceUnits:
         assert ref["extent_kind"] == "ret"
 
     def test_conflicting_paths_and_shared_bindings_stay_visible(self, tmp_path: Path) -> None:
-        code = b"\x68" + struct.pack("<I", 0x500000)
-        code += b"\x68" + struct.pack("<I", 0x500020) + b"\xc3"
+        code = b"\x68" + struct.pack("<I", 0x402000)
+        code += b"\x68" + struct.pack("<I", 0x402020) + b"\xc3"
         info = _image(tmp_path, code)
         bindings = [{"module": "GOLD", "va": 0x401000}, {"module": "GOLDTL", "va": 0x501000}]
         function = {
@@ -82,7 +82,7 @@ class TestSourceUnits:
             assert ref["extent_kind"] == "verified-reference"
 
     def test_jump_prefix_is_not_a_complete_body(self, tmp_path: Path) -> None:
-        code = b"\x68" + struct.pack("<I", 0x500000) + b"\xeb\x00\xc3"
+        code = b"\x68" + struct.pack("<I", 0x402000) + b"\xeb\x00\xc3"
         result = source_unit_evidence(_image(tmp_path, code), [{"va": 0x401000, "size": 8}])
         ref = result["paths"][0]["references"][0]
         assert ref["function_size"] is None
@@ -90,7 +90,7 @@ class TestSourceUnits:
         assert ref["extent_kind"] == "jmp"
 
     def test_unterminated_body_has_no_owner_claim(self, tmp_path: Path) -> None:
-        code = b"\x68" + struct.pack("<I", 0x500000) + b"\x90"
+        code = b"\x68" + struct.pack("<I", 0x402000) + b"\x90"
         result = source_unit_evidence(_image(tmp_path, code), [{"va": 0x401000, "size": 6}])
         assert result["refused"] == [{"function_va": 0x401000, "reason": "no native terminator"}]
         assert all(not path["references"] for path in result["paths"])
