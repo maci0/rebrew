@@ -161,7 +161,7 @@ options, and defaults.
 | [`rebrew recommend`](#rebrew-recommend) | 1 | Deterministic project advice: TU layout, hygiene, next steps. |
 | [`rebrew sync`](#rebrew-sync) | 8 | Exchange metadata with Ghidra through BinSync and perform structural operations. |
 | [`rebrew data`](#rebrew-data) | 17 | Inspect global data, edit metadata, and generate declarations and layout repairs. |
-| [`rebrew metadata`](#rebrew-metadata) | 4 | Preview and apply a managed-metadata backend transfer, and back up or restore the experimental SQLite database. |
+| [`rebrew metadata`](#rebrew-metadata) | 5 | Transfer metadata storage, reconcile replicas, and back up or restore metadata. |
 | [`rebrew blocker`](#rebrew-blocker) | 4 | Record, inspect, and clear function blockers in dedicated metadata. |
 | [`rebrew orphans`](#rebrew-orphans) | 4 | List or prune metadata rows without a live source binding. |
 | [`rebrew types`](#rebrew-types) | 7 | Manage type identities; check layouts; apply types to C signatures. |
@@ -171,7 +171,7 @@ options, and defaults.
 | [`rebrew library`](#rebrew-library) | 17 | Identify libraries, compare code, and manage source providers and compiler settings. |
 | [`rebrew toolchain`](#rebrew-toolchain) | 11 | Manage compiler profiles and Docker images for shipped toolchains. |
 | [`rebrew binsync`](#rebrew-binsync) | 9 | Synchronize Git-backed state or exchange raw BinSync artifacts. |
-| [`rebrew source`](#rebrew-source) | 25 | Organize, import, and inspect C sources. |
+| [`rebrew source`](#rebrew-source) | 27 | Organize, import, and inspect C sources. |
 | [`rebrew build`](#rebrew-build) | 24 | Generate build inputs and inspect linked artifacts. |
 | [`rebrew diagnose`](#rebrew-diagnose) | 7 | Explain compiler configuration and locate byte mismatches. |
 | [`rebrew binary`](#rebrew-binary) | 32 | Inspect binaries and extract functions or resources. |

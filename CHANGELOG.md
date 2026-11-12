@@ -59,6 +59,9 @@
 ### Fixed
 
 - Identify `OLDNAMES.LIB` as the CRT legacy-name alias library in the signature guide, replacing the incorrect old-iostream description.
+### Fixed
+
+- Correct measured CLI entry counts for `metadata` and `source`; the metadata summary now includes replica reconciliation and backend-neutral backups.
 
 ## [6.32.1] - 2026-11-11
 
