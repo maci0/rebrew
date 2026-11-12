@@ -27,6 +27,7 @@ from enum import StrEnum
 from pathlib import Path
 lazy import os
 lazy import re
+lazy import stat
 lazy import subprocess
 lazy import sys
 lazy import tempfile
@@ -50,7 +51,6 @@ lazy from rebrew.utils import (
     container_runtime,
     file_lock,
     load_tomllib,
-    read_compile_source,
     run_process_group,
 )
 lazy from rebrew.workspace import walk_up_to_root
@@ -365,21 +365,79 @@ def _ensure_wineprefix(prefix: Path, spec: ToolchainSpec, *, runtime: str | None
         (prefix / ".update-timestamp").write_text("", encoding="utf-8")
 
 
-def _rewrite_response_files(mode: str, args: list[str], directory: Path) -> list[str]:
-    """Copy response files with POSIX paths translated for Wine; keep originals."""
+#: CL/LINK response files are argument lists, not source.  8 MiB is far past
+#: any real CMake response file and stops a project file that names
+#: ``@/dev/zero`` (or another unbounded path) from copying it into the
+#: project tree and into the container command.
+_MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+
+
+def _response_source(raw: str, root: Path) -> Path:
+    """The response file *raw* names, when it is a regular file inside *root*.
+
+    CMake's ``@file`` arguments are the project's own response files.  A path
+    that is absolute outside the project, climbs out with ``..``, or is a
+    symlink to either would be read here and copied into the project tree
+    with the analyst's privileges, so both the path and its target have to
+    land inside *root*.  A directory, device, or fifo is not a response file.
+    """
+    spelling = raw.strip().strip('"')
+    if not spelling:
+        raise ValueError("empty response file path")
+    root_resolved = root.resolve()
+    candidate = Path(spelling)
+    if not candidate.is_absolute():
+        candidate = Path.cwd() / candidate
+    try:
+        # lstat, not stat: a symlink to a regular file outside the project
+        # would pass is_file() and then resolve() would follow it.
+        info = candidate.lstat()
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+            raise ValueError(f"response file is not a regular file: {candidate}")
+        source = candidate.resolve()
+    except OSError as exc:
+        raise ValueError(f"cannot read response file: {candidate}") from exc
+    if not source.is_relative_to(root_resolved):
+        raise ValueError(f"response file escapes the project: {source}")
+    if info.st_size > _MAX_RESPONSE_BYTES:
+        raise ValueError(f"response file exceeds {_MAX_RESPONSE_BYTES} bytes: {source}")
+    return source
+
+
+def _rewrite_response_files(
+    mode: str, args: list[str], directory: Path, *, root: Path | None = None
+) -> list[str]:
+    """Copy response files with POSIX paths translated for Wine; keep originals.
+
+    *root* is the project directory every response file must resolve inside.
+    Callers that already found it pass it; a direct call falls back to the
+    walk from the cwd.
+    """
+    if root is None:
+        root = walk_up_to_root(Path.cwd())
+    if root is None:
+        raise ValueError("no rebrew-project.toml found above the cwd")
     active: set[Path] = set()
 
     def copy_arg(arg: str) -> str:
         if not arg.startswith("@"):
             return arg
-        source = Path(arg[1:].strip('"')).resolve()
+        source = _response_source(arg[1:], root)
         if source in active:
             raise ValueError(f"Recursive response file: {source}")
         active.add(source)
-        # CMake writes response files in the host encoding; the locale default
-        # raises or mojibakes a non-ASCII path.  surrogateescape on both sides
-        # copies every byte through unchanged.
-        content = read_compile_source(source)
+        # Read one past the cap ourselves.  The lstat gate above races a
+        # replace between the check and a whole-file read, so this bound is
+        # the one the copy actually obeys.  CMake writes response files in
+        # the host encoding, so surrogateescape copies every byte through.
+        try:
+            with source.open("rb") as handle:
+                raw = handle.read(_MAX_RESPONSE_BYTES + 1)
+        except OSError as exc:
+            raise ValueError(f"cannot read response file: {source}") from exc
+        if len(raw) > _MAX_RESPONSE_BYTES:
+            raise ValueError(f"response file exceeds {_MAX_RESPONSE_BYTES} bytes: {source}")
+        content = raw.decode("utf-8", errors="surrogateescape")
 
         # Rewrite whole quoted/unquoted tokens, retaining response-file quoting.
         def rewrite(match: re.Match[str]) -> str:
@@ -451,7 +509,9 @@ def _docker_run(
     cmd.append(str(tool_root / _TOOL_EXES[mode]))
 
     with tempfile.TemporaryDirectory(prefix="rebrew-rsp-", dir=root) as rsp_dir:
-        cmd.extend(_rewrite_args(mode, _rewrite_response_files(mode, args, Path(rsp_dir))))
+        cmd.extend(
+            _rewrite_args(mode, _rewrite_response_files(mode, args, Path(rsp_dir), root=root))
+        )
         with file_lock(prefix / ".run.lock"):
             r = run_process_group(
                 cmd,
@@ -481,7 +541,9 @@ def _unshare_run(
         str(Path(spec.tool_root) / _TOOL_EXES[mode])
     ]
     with tempfile.TemporaryDirectory(prefix="rebrew-rsp-", dir=root) as rsp_dir:
-        command.extend(_rewrite_args(mode, _rewrite_response_files(mode, args, Path(rsp_dir))))
+        command.extend(
+            _rewrite_args(mode, _rewrite_response_files(mode, args, Path(rsp_dir), root=root))
+        )
         result = run_toolchain(
             replace(spec, image_entrypoint=entrypoint),
             command,

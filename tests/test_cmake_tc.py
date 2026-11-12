@@ -643,9 +643,13 @@ def test_docker_run_rejects_relative_wineprefix(
     assert "must be an absolute path" in capsys.readouterr().err
 
 
-def test_response_paths_are_rewritten_without_changing_original(tmp_path: Path) -> None:
+def test_response_paths_are_rewritten_without_changing_original(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     from rebrew.cmake_tc import _rewrite_response_files
 
+    (tmp_path / "rebrew-project.toml").write_text("", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
     response = tmp_path / "input.rsp"
     original = (
         '"/home/build dir/a.obj" /home/build/b.lib /STUB:/home/build/stub.exe /MACHINE:I386\n'
@@ -669,10 +673,14 @@ def test_absolute_link_order_file() -> None:
     ]
 
 
-def test_response_file_bytes_survive_the_rewrite(tmp_path: Path) -> None:
+def test_response_file_bytes_survive_the_rewrite(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """A non-UTF-8 path byte is copied through, not decoded with the locale."""
     from rebrew.cmake_tc import _rewrite_response_files
 
+    (tmp_path / "rebrew-project.toml").write_text("", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
     response = tmp_path / "input.rsp"
     response.write_bytes(b'"/home/caf\xe9 dir/a.obj" /MACHINE:I386\n')
     output = tmp_path / "copies"
@@ -680,6 +688,60 @@ def test_response_file_bytes_survive_the_rewrite(tmp_path: Path) -> None:
     _rewrite_response_files("link", ["@" + str(response)], output)
     rewritten = next(output.glob("*.rsp")).read_bytes()
     assert b'"Z:\\home\\caf\xe9 dir\\a.obj"' in rewritten
+
+
+def test_response_file_outside_the_project_is_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An @path outside the project is not read or copied into the tree."""
+    from rebrew.cmake_tc import _rewrite_response_files
+
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "rebrew-project.toml").write_text("", encoding="utf-8")
+    monkeypatch.chdir(project)
+    secret = tmp_path / "secret.txt"
+    secret.write_text("credential", encoding="utf-8")
+    output = project / "copies"
+    output.mkdir()
+    with pytest.raises(ValueError, match="escapes the project"):
+        _rewrite_response_files("link", ["@" + str(secret)], output)
+    assert list(output.iterdir()) == []
+    assert secret.read_text(encoding="utf-8") == "credential"
+
+
+def test_response_file_symlink_is_refused(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A symlink response file is refused even when its target is in the project."""
+    from rebrew.cmake_tc import _rewrite_response_files
+
+    (tmp_path / "rebrew-project.toml").write_text("", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    target = tmp_path / "real.rsp"
+    target.write_text("/MACHINE:I386\n", encoding="utf-8")
+    link = tmp_path / "link.rsp"
+    link.symlink_to(target)
+    output = tmp_path / "copies"
+    output.mkdir()
+    with pytest.raises(ValueError, match="not a regular file"):
+        _rewrite_response_files("link", ["@" + str(link)], output)
+    assert list(output.iterdir()) == []
+
+
+def test_response_file_over_the_size_cap_is_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A response file past the cap is refused before it is copied."""
+    from rebrew.cmake_tc import _MAX_RESPONSE_BYTES, _rewrite_response_files
+
+    (tmp_path / "rebrew-project.toml").write_text("", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    response = tmp_path / "huge.rsp"
+    response.write_bytes(b"A" * (_MAX_RESPONSE_BYTES + 1))
+    output = tmp_path / "copies"
+    output.mkdir()
+    with pytest.raises(ValueError, match="exceeds"):
+        _rewrite_response_files("link", ["@" + str(response)], output)
+    assert list(output.iterdir()) == []
 
 
 @pytest.mark.parametrize("mode", ["cl", "link", "lib"])
