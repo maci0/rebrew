@@ -17,11 +17,11 @@ multi-statement patterns that predate the query migration.
 ## How The GA Works
 
 ```
-Source (.c) ──→ mutate_code(source, rng)
+Source (.c) ──→ mutate_code(source, rng, track_mutation=True)
                   ├─ Pick random mutation from ALL_MUTATIONS (128 operators)
                   ├─ Apply AST-level transform to source text
-                  ├─ Validate syntax (fast_syntax_check)
-                  └─ Return (mutated_source, mutation_name) or None
+                  ├─ Reject obvious syntax errors (quick_validate)
+                  └─ Return (mutated_source, mutation_name) or (source, "none")
                         │
                         ▼
                   build_candidate_obj_only(source, ...)   # default; linked-exe uses build_candidate
@@ -111,7 +111,7 @@ layout and jump threading.
 | `mut_sink_return` | `ret = expr; goto end;` → `return expr;` | Inverse: direct returns reduce register pressure |
 | `mut_return_to_goto` | `return 0;` → `goto ret_false;` | Explicit goto to a label: changes basic block structure |
 | `mut_goto_to_return` | `goto ret_false;` → `return 0;` | Inverse: direct return instead of goto |
-| `mut_while_to_goto_loop` | `while (cond) { body }` → label + explicit `if/goto` | Completely different loop structure: no loop back-edge, just forward jumps |
+| `mut_while_to_goto_loop` | `while (cond) { body }` → label + explicit `if/goto` | Explicit forward exit and backward jump to the loop label |
 
 ### 4. Loop Transforms
 
@@ -449,7 +449,10 @@ inspired it.
 By default, `mutate_code()` picks uniformly at random from `ALL_MUTATIONS`.
 You can bias selection via the `mutation_weights` parameter. Set
 `track_mutation=True` to return both the source and mutation name; otherwise
-`mutate_code()` returns only the source string.
+`mutate_code()` returns only the source string. After 10 failed attempts, it
+returns the original source; tracking returns `(source, "none")`.
+`quick_validate` rejects obvious syntax errors; the compiler still checks the
+candidate.
 
 ```python
 from random import Random
