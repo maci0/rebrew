@@ -26,6 +26,9 @@ from rebrew.compiler.toolchain import (
 from rebrew.config import ProjectConfig
 
 _IMAGE_ID = "sha256:" + "a" * 64
+# Seconds a real namespace run may take: namespace exit can wait for host RCU
+# grace periods while the parallel suite runs.
+_NATIVE_RUN_TIMEOUT = 20
 
 
 def _info() -> dict[str, Any]:
@@ -470,9 +473,8 @@ class TestUnshareNative:
         (sdk / "value.h").write_text("SEVEN\n")
         env = {"HOST_NET": str(Path("/proc/self/ns/net").readlink())}
 
-        # Namespace exit can wait for host RCU grace periods during parallel builds.
         def invoke(
-            work: Path, args: list[str], timeout: int = 20
+            work: Path, args: list[str], timeout: int = _NATIVE_RUN_TIMEOUT
         ) -> subprocess.CompletedProcess[str]:
             work.mkdir(exist_ok=True)
             return unshare.run_unshare(
@@ -866,7 +868,7 @@ class TestUnshareCMakePaths:
             workdir=project,
             mounts=[],
             env={},
-            timeout=5,
+            timeout=_NATIVE_RUN_TIMEOUT,
             project_cwd=build,
         )
         assert result.returncode == 0, result.stderr
