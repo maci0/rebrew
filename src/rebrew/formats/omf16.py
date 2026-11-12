@@ -66,7 +66,8 @@ def _record_len(data: bytes, pos: int) -> int:
     """Length (incl. checksum) of the record starting at *pos*, or 0."""
     if pos + 3 > len(data):
         return 0
-    ln = (data[pos + 1] | (data[pos + 2] << 8)) & 0x7FFF
+    # The length word has no checksum flag.
+    ln = data[pos + 1] | (data[pos + 2] << 8)
     if ln < 1 or pos + 3 + ln > len(data):
         return 0
     return ln

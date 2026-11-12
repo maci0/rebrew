@@ -19,6 +19,7 @@ from rebrew.formats.omf16 import (
     Omf16Error,
     Omf16Module,
     _match_symbol,
+    _record_len,
     is_omf16,
     parse_obj_omf16,
     parse_omf16,
@@ -207,3 +208,30 @@ class TestOmf16BranchRelocations:
         actual, relocs = parse_obj_omf16(Path("branch.obj"), "main", data=data)
         assert actual == code
         assert relocs == {1: "rel16"}
+class TestOmfRecordLength:
+    @pytest.mark.parametrize("rtype,body", [(0xA0, b"\x01\0\0\xc3"), (0xC2, b"\0" * 9 + b"\xc3")])
+    def test_high_bit_length_does_not_admit_a_truncated_record(
+        self, rtype: int, body: bytes
+    ) -> None:
+        data = bytes([rtype]) + struct.pack("<H", 0x8000 | len(body)) + body
+        assert _record_len(data, 0) == 0
+        assert not is_omf16(data)
+        with pytest.raises(Omf16Error):
+            parse_omf16(data)
+
+    @pytest.mark.parametrize(
+        "name", ["tg_watcom.o", "tg_msvc16.obj", "tg_msvc16_o1.obj", "tg_msvc16_far.obj"]
+    )
+    def test_native_record_framing_reaches_exact_eof(self, name: str) -> None:
+        from pathlib import Path
+
+        data = (Path(__file__).parent / "fixtures" / name).read_bytes()
+        pos = 0
+        records = 0
+        while pos < len(data):
+            length = _record_len(data, pos)
+            assert length > 0
+            assert length == int.from_bytes(data[pos + 1 : pos + 3], "little")
+            pos += 3 + length
+            records += 1
+        assert pos == len(data) and records > 0
