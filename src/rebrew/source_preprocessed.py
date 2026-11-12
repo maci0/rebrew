@@ -17,7 +17,7 @@ lazy from rebrew.c_parser import (
     find_variable_roles,
     parse_c_source,
 )
-lazy from rebrew.source_layout import mask_for_parse
+lazy from rebrew.source_layout import mask_buffer_inplace
 
 _LINE = re.compile(rb'(?m)^[ \t]*#line[ \t]+[0-9]+[ \t]+"((?:\\.|[^"\\])*)"[^\r\n]*')
 _MODIFIER = re.compile(rb"\b(?:_inline|_cdecl|_stdcall|_fastcall)\b")
@@ -28,34 +28,47 @@ def _protect_literals(raw: bytearray) -> list[tuple[int, int, bytes]]:
     """Keep extension-looking text inside comments and literals opaque to masking."""
     protected = []
     i = 0
-    while i < len(raw):
+    n = len(raw)
+    # Integer compares: ``raw[i:i+2] == b"//"`` built a 2-byte slice per byte
+    # of the translation unit, and ``ord`` was recomputed for every byte.
+    newline, cr, hash_, slash, star = 10, 13, 35, 47, 42
+    quote_d, quote_s, backslash, x_byte = 34, 39, 92, 120
+    # Searching back to byte 0 for the previous newline on every '#' made the
+    # walk quadratic in the line length. Advance the line start as the walk
+    # passes each newline instead.
+    line_start = 0
+    while i < n:
         start = i
-        if raw[i] == ord("#") and not raw[raw.rfind(b"\n", 0, i) + 1 : i].strip(b" \t"):
+        byte = raw[i]
+        nxt = raw[i + 1] if i + 1 < n else -1
+        if byte == newline:
+            line_start = i + 1
+        elif byte == hash_ and not raw[line_start:i].strip(b" \t"):
             # A #line marker is blanked whole later; its quoted path is not a literal.
-            marker = _LINE.match(raw, raw.rfind(b"\n", 0, i) + 1)
+            marker = _LINE.match(raw, line_start)
             if marker is not None:
                 i = marker.end()
                 continue
-        if raw[i : i + 2] == b"//":
+        if byte == slash and nxt == slash:
             end = raw.find(b"\n", i + 2)
-            end = len(raw) if end < 0 else end
-        elif raw[i : i + 2] == b"/*":
+            end = n if end < 0 else end
+        elif byte == slash and nxt == star:
             end = raw.find(b"*/", i + 2)
             if end < 0:
                 break
             end += 2
-        elif raw[i] in (ord('"'), ord("'")):
-            quote = raw[i]
+        elif byte == quote_d or byte == quote_s:
+            quote = byte
             i += 1
-            while i < len(raw):
-                if raw[i] == ord("\\"):
+            while i < n:
+                if raw[i] == backslash:
                     i += 2
                     continue
                 if raw[i] == quote:
                     i += 1
                     break
                 i += 1
-            end = min(i, len(raw))
+            end = i if i < n else n
         else:
             i += 1
             continue
@@ -69,8 +82,8 @@ def _protect_literals(raw: bytearray) -> list[tuple[int, int, bytes]]:
             else (1, 1)
         )
         for pos in range(start + left, end - right):
-            if raw[pos] not in (10, 13):
-                raw[pos] = ord("x")
+            if raw[pos] != newline and raw[pos] != cr:
+                raw[pos] = x_byte
         protected.append((start, end, original))
         i = end
     return protected
@@ -97,8 +110,12 @@ def parse_msvc_preprocessed(raw: bytes) -> dict[str, Any]:
         for start, end, original in protected
         if not any(marker["start"] <= start < marker["end"] for marker in markers)
     ]
-    view = bytearray(_MODIFIER.sub(lambda match: b" " * len(match.group()), bytes(view)))
-    view = bytearray(mask_for_parse(bytes(view)))
+    # Blank in place: a fresh ``bytes(view)`` plus a new bytearray copied the
+    # whole translation unit twice more before the parser ever saw it.
+    for match in _MODIFIER.finditer(view):
+        start, end = match.span()
+        view[start:end] = b" " * (end - start)
+    mask_buffer_inplace(view)
     for start, end, original in protected:
         # An asm span may intentionally blank a protected literal or comment.
         if any(view[pos] == ord("x") for pos in range(start, end)):
@@ -124,7 +141,10 @@ def parse_msvc_preprocessed(raw: bytes) -> dict[str, Any]:
                     {"kind": node.type, "start": node.start_byte, "end": node.end_byte}
                 )
             continue
-        pending.extend(reversed(node.children))
+        # A node without an error descendant cannot hold a diagnostic, so the
+        # walk skips its children instead of visiting every expression node.
+        if node.has_error:
+            pending.extend(reversed(node.children))
     return {
         "tree": tree,
         "source_sha256": hashlib.sha256(raw).hexdigest(),

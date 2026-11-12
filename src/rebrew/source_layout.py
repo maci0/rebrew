@@ -16,6 +16,7 @@ __all__ = [
     "SourceSpan",
     "decode_span",
     "gap_is_blank",
+    "mask_buffer_inplace",
     "mask_for_parse",
     "source_layout",
     "span_extent",
@@ -223,13 +224,37 @@ def _blank(raw: bytearray, start: int, end: int) -> None:
             raw[i] = 0x20
 
 
+def _blank_spans(out: bytearray, pattern: re.Pattern[bytes]) -> None:
+    """Overwrite each *pattern* match with spaces, keeping the buffer length."""
+    for match in pattern.finditer(out):
+        start, end = match.span()
+        out[start:end] = b" " * (end - start)
+
+
 def mask_for_parse(raw: bytes) -> bytes:
     """*raw* with the constructs the C grammar cannot parse blanked, same length.
 
     Calling-convention keywords and ``__asm`` bodies.  ``__asm { ... }`` becomes an
     empty block and a brace-less ``__asm ...`` runs to the end of its line.
     """
-    out = bytearray(_CALLING_CONVENTION_RE.sub(lambda m: b" " * len(m.group(0)), raw))
+    out = bytearray(raw)
+    _blank_spans(out, _CALLING_CONVENTION_RE)
+    _mask_asm(out)
+    return bytes(out)
+
+
+def mask_buffer_inplace(out: bytearray) -> bytearray:
+    """Blank calling conventions and ``__asm`` bodies in *out*, in place.
+
+    Same result as :func:`mask_for_parse` without copying the translation unit.
+    """
+    _blank_spans(out, _CALLING_CONVENTION_RE)
+    _mask_asm(out)
+    return out
+
+
+def _mask_asm(out: bytearray) -> None:
+    """Blank ``__asm`` bodies in *out*. An unclosed brace leaves *out* as-is."""
     pos = 0
     while (m := _ASM_RE.search(out, pos)) is not None:
         if m.group(1) is None:
@@ -257,11 +282,10 @@ def mask_for_parse(raw: bytes) -> bytes:
                     end = i
                     break
         else:
-            return bytes(out)
+            return
         _blank(out, m.start(), m.end() - 1)
         _blank(out, m.end(), end)
         pos = end + 1
-    return bytes(out)
 
 
 def source_layout(text: str) -> tuple[bytes, list[SourceSpan]]:
