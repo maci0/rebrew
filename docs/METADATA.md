@@ -734,6 +734,8 @@ verdicts and source receipts before retiring `rebrew-source.toml`. See [source a
 and [ADR 030](adr/030-address-only-source.md).
 
 Source `file` identities use exact paths relative to the resolved metadata root.
+Configured source directories must resolve inside that root; see the
+[configuration rule](CONFIG.md#what-the-config-loader-provides).
 Compiled LIBRARY providers explicitly use the project root. Source readers and
 file-index helpers share that distinction; their optional `project_root` keyword
 passes known configuration context without another project lookup. Standalone

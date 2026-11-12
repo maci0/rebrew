@@ -60,8 +60,12 @@ external origins, verification evidence, STRUCT/CALLERS information, and
 owns data identity, type, extent, section, storage relationships and data
 verification. The function store owns assembly evidence for definitions without
 a native address (`source.definitions.FILE.SYMBOL.MODULE`) and target-scoped file
-purposes (`source.files.FILE.MODULE`). These records never invent a native VA. File paths are relative to
-`cfg.metadata_dir`; pass that directory to readers and writers.
+purposes (`source.files.FILE.MODULE`). These records never invent a native VA.
+Source identity paths are relative to `cfg.metadata_dir`; pass that directory
+to readers and writers. Compiled LIBRARY providers use the project root, as
+specified in the [source contract](METADATA.md#current-source-contract).
+Configured source directories must remain inside the metadata root; see the
+[configuration rule](CONFIG.md#what-the-config-loader-provides).
 
 Never hand-edit these stores. Writers use their owning metadata APIs, locks,
 and backend persistence. TOML files and SQLite databases use mode 0444 at rest;
