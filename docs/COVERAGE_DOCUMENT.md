@@ -313,7 +313,8 @@ dashboard headlines mean:
 
 - `covered_bytes` sums every code row's size, STUB placeholders included, so an
   all-STUB binary still reports high *identified* coverage.  `matched_bytes`
-  sums `EXACT` and `RELOC` sizes only, and that is the headline figure:
+  includes `EXACT` and `RELOC` spans plus identified `LIBRARY` rows regardless
+  of their status, and that is the headline figure:
   `/api/summary` divides it by `total_bytes` for `coverage_pct` and divides
   `covered_bytes` by `total_bytes` for `identified_pct`.  Data rows (`DATA`,
   `GLOBAL`, `VTABLE`, `STRING`) are in the document but not in these counts.
