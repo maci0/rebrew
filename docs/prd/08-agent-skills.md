@@ -157,6 +157,7 @@ Trigger keywords: `Ghidra`, `binsync`, `sync ghidra`, `binsync push`,
 > with `--accept-binsync` / `--accept-local` on pull. ReVa MCP handles
 > `rebrew sync create-functions`, `rebrew sync bookmarks`, and
 > `rebrew sync pull-data`.
+> See the [current sync CLI contract](../CLI.md#rebrew-sync).
 
 Scope:
 
