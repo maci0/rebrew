@@ -8,12 +8,12 @@ lazy from rebrew.utils import preset_module_key
 
 
 def validate_identity_file(value: str) -> str:
-    """Return *value* when it is a project-relative source path.
+    """Return *value* when it is a relative file identity.
 
-    The stored ``file`` identity is joined onto a project root by several
-    consumers (``verify`` compiles it, ``rename`` rewrites it, BinSync reads
-    it), and an absolute path or ``..`` segment makes that join read whatever
-    the file's author chose (``docs/THREAT_MODEL.md`` records the exposure).
+    Source ``file`` identities resolve from the metadata root; compiled-library
+    provider identities resolve from the project root. An absolute path or
+    ``..`` segment can escape either root and read whatever the file's author
+    chose (``docs/THREAT_MODEL.md`` records the exposure).
     Rejecting it at the one write gate keeps a cloned project's metadata from
     naming a path outside the clone.  An empty value stays empty: a row
     without identity is legal, and ``record_function_rows`` skips it.
