@@ -2645,6 +2645,10 @@ Discoverers are plugins: `rebrew.discoverers` entry points
 their entry-point name; a plugin that raises or returns another shape is
 skipped with a warning and counted as 0.
 
+`--offset` and `--limit` page the displayed and JSON rows after discovery.
+The `--output` inventory still contains all discovered functions, regardless
+of pagination.
+
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `BINARY` | path | none | Binary path (default: configured project target) |
@@ -2847,7 +2851,7 @@ cross-references.
 | `--section` | str (repeatable) | none | Section to scan (repeatable; default .rdata/.data/.rodata) |
 | `--filter` | str | none | Case-insensitive regex filter on string text |
 | `--xref` | flag | `False` | Show referencing code addresses |
-| `--offset` | int | `0` | Skip this many strings before listing |
+| `--offset` | int | `0` | Skip this many filtered strings before listing |
 | `--limit` | int | none | Maximum strings to list (0 = none; omitted = unlimited) |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
