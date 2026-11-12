@@ -3,6 +3,7 @@
 lazy import contextlib
 lazy import hashlib
 lazy import json
+lazy import tempfile
 lazy from functools import partial
 lazy from pathlib import Path
 lazy from typing import Any
@@ -187,32 +188,39 @@ def _snapshot_destination(
         location = root / DATABASE_FILENAME
         if not location.is_file():
             return None
-        snapshot_dir = root / ".rebrew"
-        sqlite_snapshot = snapshot_dir / (DATABASE_FILENAME + DESTINATION_SNAPSHOT_SUFFIX)
-        # Keep the first displaced destination across a later transfer, as
-        # the restore sidecars do: overwriting it discards the only copy of
-        # what the first transfer displaced.  Compare logical row content so
-        # a re-run of the same transfer (same destination bytes) is a no-op
-        # even if the physical file was rewritten.
-        if sqlite_snapshot.is_file():
-            import sqlite3
+        sqlite_snapshot = root / ".rebrew" / (DATABASE_FILENAME + DESTINATION_SNAPSHOT_SUFFIX)
+        # The copy goes outside the project first.  The snapshot dir is
+        # inside it, so a copy taken there would record the snapshot it is
+        # about to replace, and a crash mid-copy would leave that snapshot
+        # half-written.  Only a verified copy is installed, and only when
+        # the stored rows differ: a re-run of the same transfer is a no-op,
+        # and a different existing snapshot is rotated aside first so the
+        # copy of what the first transfer displaced survives.
+        import sqlite3
 
-            def _rows(db: Path) -> list[tuple[str, str]] | None:
-                try:
-                    with sqlite3.connect(db.as_uri() + "?mode=ro", uri=True, timeout=30) as conn:
-                        return conn.execute(
-                            "SELECT path, content FROM metadata_documents ORDER BY path"
-                        ).fetchall()
-                except sqlite3.Error:
-                    return None
+        def _rows(db: Path) -> list[tuple[str, str]] | None:
+            try:
+                with sqlite3.connect(db.as_uri() + "?mode=ro", uri=True, timeout=30) as conn:
+                    return conn.execute(
+                        "SELECT path, content FROM metadata_documents ORDER BY path"
+                    ).fetchall()
+            except sqlite3.Error:
+                return None
 
-            if _rows(location) == _rows(sqlite_snapshot):
+        with tempfile.TemporaryDirectory(prefix="rebrew-snapshot-") as staging:
+            dest = backup_metadata_database(root, Path(staging))
+            payload = dest.read_bytes()
+            recorded = _rows(sqlite_snapshot) if sqlite_snapshot.is_file() else None
+            copied = _rows(dest)
+            if recorded is not None and copied is not None and recorded == copied:
                 return sqlite_snapshot
-            if _rows(location) is None:
-                return sqlite_snapshot
-        dest = backup_metadata_database(root, snapshot_dir)
-        if dest != sqlite_snapshot:
-            dest.replace(sqlite_snapshot)
+            if sqlite_snapshot.is_file():
+                _rotate_snapshot(sqlite_snapshot, sqlite_snapshot.read_bytes())
+            atomic_write_bytes(sqlite_snapshot, payload, mode=0o444)
+            if sqlite_snapshot.read_bytes() != payload:
+                raise ValueError(
+                    f"metadata destination snapshot verification failed for {sqlite_snapshot}"
+                )
         return sqlite_snapshot
     snapshot: Path | None = None
     for store in destinations:
@@ -224,21 +232,26 @@ def _snapshot_destination(
             if backend == "pgsql"
             else store.location.with_name(store.location.name + DESTINATION_SNAPSHOT_SUFFIX)
         )
-        # Keep the first preserved copy across any later transfer: the
-        # sidecar is the only copy of what the first transfer displaced,
-        # so a re-run whose destination already holds the transferred
-        # bytes must not overwrite it (see restore_ga_runs).
+        # Keep every displaced copy.  A re-run of the same transfer (the
+        # destination already holds the bytes this snapshot recorded) is a
+        # no-op.  A later transfer that displaces different bytes rotates
+        # the current snapshot aside before writing the new one: the
+        # sidecar is the only copy of what a transfer replaced, and
+        # overwriting it discards that copy (see restore_ga_runs).
         if target.is_file() and target.read_bytes() == data:
             snapshot = target
             continue
-        if not target.exists():
-            atomic_write_bytes(target, data, mode=0o444)
-            if target.read_bytes() != data:
-                raise ValueError(f"metadata destination snapshot verification failed for {target}")
-            snapshot = target
-        else:
-            # A later transfer displaces different destination bytes; only
-            # publish the new snapshot when it differs from what is kept,
-            # so the first displaced copy survives.
-            snapshot = target
+        if target.exists():
+            _rotate_snapshot(target, target.read_bytes())
+        atomic_write_bytes(target, data, mode=0o444)
+        if target.read_bytes() != data:
+            raise ValueError(f"metadata destination snapshot verification failed for {target}")
+        snapshot = target
     return snapshot
+
+
+def _rotate_snapshot(target: Path, held: bytes) -> None:
+    """Move *target* aside; see :func:`rebrew.metadata.sqlite.rotate_preserved_copy`."""
+    from rebrew.metadata.sqlite import rotate_preserved_copy
+
+    rotate_preserved_copy(target, held)

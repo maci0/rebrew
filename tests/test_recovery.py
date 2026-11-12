@@ -82,6 +82,26 @@ class TestGaRunsBackup:
             encoding="utf-8"
         ) == '{"ts": "new", "matched": false}\n'
 
+    def test_second_restore_keeps_the_first_displaced_log(self, tmp_path: Path) -> None:
+        # Restoring a different backup must not overwrite the sidecar: it is
+        # the only copy of what the first restore displaced.
+        log = _seed_log(tmp_path)
+        first = backup_ga_runs(tmp_path, tmp_path / "first")
+        log.write_text('{"ts": "second", "matched": true}\n', encoding="utf-8")
+        second = backup_ga_runs(tmp_path, tmp_path / "second")
+        log.write_text('{"ts": "live", "matched": false}\n', encoding="utf-8")
+        restore_ga_runs(first, tmp_path)
+        restore_ga_runs(second, tmp_path)
+        preserved = tmp_path / ".rebrew" / "ga_runs.jsonl.before-restore"
+        # The second restore displaced the first backup; the first restore
+        # displaced the live log, which now sits in the rotated sibling.
+        assert preserved.read_bytes() == first.read_bytes()
+        assert (
+            preserved.with_name(preserved.name + ".1").read_text(encoding="utf-8")
+            == '{"ts": "live", "matched": false}\n'
+        )
+        assert log.read_bytes() == second.read_bytes()
+
     def test_corrupt_backup_leaves_log_alone(self, tmp_path: Path) -> None:
         log = _seed_log(tmp_path)
         bad = tmp_path / "bad.jsonl"
@@ -226,6 +246,36 @@ class TestSqliteBackup:
             con.close()
         assert "size = 8" in content
 
+    def test_second_restore_keeps_the_first_displaced_database(self, tmp_path: Path) -> None:
+        # Restoring a different backup must rotate the sidecar aside instead
+        # of overwriting the only copy of what the first restore displaced.
+        _project(tmp_path)
+        store = metadata_store(tmp_path / "rebrew-functions.toml", backend="sqlite", root=tmp_path)
+        store.write({"format": 2, "GAME.0x1000": {"size": 4}}, "test")
+        first = backup_metadata_database(tmp_path, tmp_path / "first")
+        store.write({"format": 2, "GAME.0x1000": {"size": 8}}, "test")
+        second = backup_metadata_database(tmp_path, tmp_path / "second")
+        store.write({"format": 2, "GAME.0x1000": {"size": 9}}, "test")
+        restore_metadata_database(first, tmp_path)
+        restore_metadata_database(second, tmp_path)
+        assert store.read("test")["GAME.0x1000"]["size"] == 8
+        import sqlite3
+
+        preserved = tmp_path / (DATABASE_FILENAME + ".before-restore")
+        rotated = preserved.with_name(preserved.name + ".1")
+
+        def _size(path: Path) -> str:
+            con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+            try:
+                return con.execute(
+                    "SELECT content FROM metadata_documents WHERE path = 'rebrew-functions.toml'"
+                ).fetchone()[0]
+            finally:
+                con.close()
+
+        assert "size = 4" in _size(preserved)
+        assert "size = 9" in _size(rotated)
+
     def test_backup_carries_uploads_ledger_owner_only(self, tmp_path: Path) -> None:
         _project(tmp_path)
         _store = metadata_store(tmp_path / "rebrew-functions.toml", backend="sqlite", root=tmp_path)
@@ -281,10 +331,17 @@ class TestSqliteBackup:
         _snapshot.parent.mkdir(parents=True, exist_ok=True)
         _snapshot.write_text("format = 2\n", encoding="utf-8")
         _snapshot.chmod(0o444)
+        # A later transfer rotates the previous snapshot aside; that copy is
+        # the only record of the earlier destination, so it rides along too.
+        _rotated = _snapshot.with_name(_snapshot.name + ".1")
+        _rotated.write_text("format = 1\n", encoding="utf-8")
+        _rotated.chmod(0o444)
         _dest = backup_metadata_database(tmp_path, tmp_path / "off-tree")
         _snapshot.unlink()
+        _rotated.unlink()
         restore_metadata_database(_dest, tmp_path)
         assert _snapshot.read_text(encoding="utf-8") == "format = 2\n"
+        assert _rotated.read_text(encoding="utf-8") == "format = 1\n"
 
     def test_restore_clears_stale_journal_and_verify_sidecar(self, tmp_path: Path) -> None:
         # A killed writer's rollback journal belongs to the pre-restore
@@ -354,6 +411,55 @@ class TestTransferSnapshot:
             con.close()
         assert "size = 7" in content  # pre-transfer destination held size 7, not 4
         assert "size = 4" not in content
+
+    def test_second_transfer_keeps_the_first_displaced_destination(self, tmp_path: Path) -> None:
+        # A later transfer displaces different bytes.  The first snapshot is
+        # the only copy of what the first transfer replaced, so the rerun
+        # must rotate it aside instead of leaving it stale or dropping it.
+        cfg = _project(tmp_path, "toml")
+        from rebrew.metadata.functions import update_field
+
+        update_field(tmp_path, 0x1000, "SIZE", 4, "GAME")
+        migrate_metadata(cfg, "sqlite")
+        store = metadata_store(tmp_path / "rebrew-functions.toml", backend="sqlite", root=tmp_path)
+        doc = store.read("test")
+        doc["GAME.0x00001000"]["size"] = 7
+        store.write(doc, "test")
+        migrate_metadata(load_config(tmp_path), "toml")
+        migrate_metadata(load_config(tmp_path), "sqlite")
+
+        # Second displacement: the sqlite destination now holds size 7 while
+        # the toml source still holds size 4, so the transfer overwrites a
+        # destination the existing snapshot does not record.
+        doc = store.read("test")
+        doc["GAME.0x00001000"]["size"] = 9
+        store.write(doc, "test")
+        migrate_metadata(load_config(tmp_path), "toml")
+        migrate_metadata(load_config(tmp_path), "sqlite")
+
+        import sqlite3
+
+        snapshot = tmp_path / ".rebrew" / (DATABASE_FILENAME + ".before-transfer")
+        rotated = snapshot.with_name(snapshot.name + ".1")
+        assert snapshot.is_file() and rotated.is_file()
+
+        def _content(path: Path) -> str:
+            con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+            try:
+                return con.execute(
+                    "SELECT content FROM metadata_documents WHERE path = 'rebrew-functions.toml'"
+                ).fetchone()[0]
+            finally:
+                con.close()
+
+        assert "size = 9" in _content(snapshot)
+        assert "size = 7" in _content(rotated)
+
+        # A rerun that displaces the same bytes again reuses the snapshot.
+        migrate_metadata(load_config(tmp_path), "toml")
+        migrate_metadata(load_config(tmp_path), "sqlite")
+        assert not snapshot.with_name(snapshot.name + ".2").exists()
+        assert "size = 9" in _content(snapshot)
 
 
 def _write_extra_durable(root: Path) -> None:
@@ -582,6 +688,27 @@ class TestTomlBackup:
         assert (
             dest.with_name(dest.name + ".before-restore").read_text(encoding="utf-8")
             == "format=3\norig=2\n"
+        )
+
+    def test_second_restore_keeps_the_first_displaced_store(self, tmp_path: Path) -> None:
+        # Restoring a different bundle must rotate the sidecar aside instead
+        # of overwriting the only copy of what the first restore displaced.
+        dest = tmp_path / "rebrew-functions.toml"
+        dest.write_text("format=3\norig=1\n", encoding="utf-8")
+        first = backup_metadata_toml(tmp_path, tmp_path / "first")
+        dest.chmod(0o644)
+        dest.write_text("format=3\norig=2\n", encoding="utf-8")
+        second = backup_metadata_toml(tmp_path, tmp_path / "second")
+        dest.chmod(0o644)
+        dest.write_text("format=3\norig=3\n", encoding="utf-8")
+        restore_metadata_toml(first, tmp_path)
+        restore_metadata_toml(second, tmp_path)
+        assert dest.read_text(encoding="utf-8") == "format=3\norig=2\n"
+        preserved = dest.with_name(dest.name + ".before-restore")
+        assert preserved.read_text(encoding="utf-8") == "format=3\norig=1\n"
+        assert (
+            preserved.with_name(preserved.name + ".1").read_text(encoding="utf-8")
+            == "format=3\norig=3\n"
         )
 
     def test_missing_stores_raise_not_empty_bundle(self, tmp_path: Path) -> None:

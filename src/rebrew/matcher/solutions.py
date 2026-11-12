@@ -970,14 +970,15 @@ def restore_ga_runs(backup: Path, project_root: Path) -> Path:
     dest = _runs_path(project_root)
     dest.parent.mkdir(parents=True, exist_ok=True)
     if dest.is_file():
-        preserved = dest.with_name(dest.name + ".before-restore")
         current = dest.read_bytes()
-        # Keep the first displaced log across any later restore, including
-        # one whose live log is the restored backup plus new runs.  The
-        # sidecar is the only copy of what the first restore displaced, so
-        # a later restore must not overwrite it.
-        if current != raw and not preserved.exists():
-            atomic_write_bytes(preserved, current, mode=0o644)
+        # Keep every displaced log.  A re-run of the same restore finds the
+        # sidecar already holding these bytes and does nothing; a later
+        # restore of a different log rotates the sidecar aside, because it
+        # is the only copy of what the first restore displaced.
+        if current != raw:
+            from rebrew.metadata.sqlite import preserve_displaced
+
+            preserve_displaced(dest, current, 0o644)
     atomic_write_bytes(dest, raw, mode=0o644)
     if dest.read_bytes() != raw:
         raise ValueError(f"GA run log restore verification failed for {dest}")

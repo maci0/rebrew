@@ -528,13 +528,15 @@ def _validate_extra(source: Path) -> None:
             _validate_uploads_ledger(source)
         else:
             _load_json_object(source)
-    else:
+    elif ".toml" in source.suffixes:
         from rebrew.utils import load_tomllib as _lt
 
         try:
             _lt(source)
         except (ValueError, OSError) as exc:
             raise MetadataStorageError(f"{source}: corrupt backup: {exc}") from exc
+    else:
+        raise MetadataStorageError(f"{source}: unrecognized durable file in backup")
 
 
 def _extra_mode(source: Path) -> int:
@@ -542,6 +544,60 @@ def _extra_mode(source: Path) -> int:
     if source.name == "decompme-uploads.json":
         return _UPLOADS_MODE
     return 0o444
+
+
+def preserve_displaced(dest: Path, current: bytes, mode: int) -> None:
+    """Record *current*, the bytes *dest* is about to lose, beside it.
+
+    The sidecar is ``<name>.before-restore``.  A re-run that displaces the
+    same bytes finds them already recorded and writes nothing.  A later run
+    that displaces different bytes rotates the sidecar aside first
+    (:func:`rotate_preserved_copy`), so every displaced copy survives and an
+    oscillation between two states reuses the two copies instead of growing
+    a new file each time.
+    """
+    preserved = dest.with_name(dest.name + ".before-restore")
+    if preserved.is_file():
+        kept = preserved.read_bytes()
+        if kept == current:
+            return
+        rotate_preserved_copy(preserved, kept)
+    from rebrew.utils import atomic_write_bytes
+
+    atomic_write_bytes(preserved, current, mode=mode)
+
+
+def rotate_preserved_copy(target: Path, held: bytes) -> None:
+    """Move *target* aside so a newer preserved copy can take its name.
+
+    A restore or transfer keeps the bytes it is about to replace under
+    ``<name>.before-restore`` / ``<name>.before-transfer``.  Re-running the
+    same operation finds those bytes already recorded and does nothing;
+    running it again against different bytes used to overwrite the sidecar,
+    which is the only copy of what the first run displaced.  Numbered
+    siblings (``<name>.1``, ``<name>.2``, …) hold the earlier copies.  An
+    identical sibling is reused, so oscillating between two states does not
+    grow the set without bound.
+
+    The copy lands before *target* is removed: a crash between the two
+    leaves both, and the next rotation reuses the sibling instead of
+    losing the bytes.
+    """
+    index = 1
+    while True:
+        sibling = target.with_name(f"{target.name}.{index}")
+        if not sibling.exists():
+            break
+        if sibling.is_file() and sibling.read_bytes() == held:
+            target.unlink()
+            return
+        index += 1
+    from rebrew.utils import atomic_write_bytes
+
+    atomic_write_bytes(sibling, held, mode=target.stat().st_mode & 0o777)
+    if sibling.read_bytes() != held:
+        raise OSError(f"preserved copy verification failed for {sibling}")
+    target.unlink()
 
 
 def _is_in_binsync_state(root: Path, source: Path) -> bool:
@@ -628,6 +684,16 @@ def verify_backup_manifest(bundle: Path) -> list[str]:
     return checked
 
 
+def _kept(path: Path) -> bool:
+    """A durable file, excluding a restore's own preserved copies.
+
+    ``<name>.before-restore`` and the numbered copies a later restore
+    rotated aside record what a restore displaced.  They are not project
+    state, and backing them up would reinstall them on the next restore.
+    """
+    return path.is_file() and ".before-restore" not in path.name
+
+
 def extra_durable_sources(root: Path) -> list[Path]:
     """GA log, BinSync baselines, upload ledger, journal, replication
     sidecar, verify cache/baseline, Ghidra sync state, the root
@@ -669,41 +735,45 @@ def extra_durable_sources(root: Path) -> list[Path]:
     """
     sources = []
     ga_runs = root / _GA_RUNS_REL
-    if ga_runs.is_file():
+    if _kept(ga_runs):
         sources.append(ga_runs)
     uploads = root / _UPLOADS_REL
-    if uploads.is_file():
+    if _kept(uploads):
         sources.append(uploads)
     for name in ("metadata-journal.toml", "metadata-replication.toml"):
         state = root / ".rebrew" / name
-        if state.is_file():
+        if _kept(state):
             sources.append(state)
     for rel in (_VERIFY_CACHE_REL, _VERIFY_BASELINE_REL):
         candidate = root / rel
-        if candidate.is_file():
+        if _kept(candidate):
             sources.append(candidate)
     targets_dir = root / _VERIFY_TARGETS_REL
     if targets_dir.is_dir():
-        sources.extend(sorted(p for p in targets_dir.rglob("verify_cache.toml") if p.is_file()))
-        sources.extend(sorted(p for p in targets_dir.rglob("verify_baseline.toml") if p.is_file()))
+        sources.extend(sorted(p for p in targets_dir.rglob("verify_cache.toml") if _kept(p)))
+        sources.extend(sorted(p for p in targets_dir.rglob("verify_baseline.toml") if _kept(p)))
     ghidra_state = root / _GHIDRA_SYNC_STATE_REL
-    if ghidra_state.is_file():
+    if _kept(ghidra_state):
         sources.append(ghidra_state)
     for rel in (_NAME_COVER_REL, _DATA_SCAN_ROLES_REL, _EXTERN_NAMES_REL, _NAME_TO_VA_CACHE_REL):
         candidate = root / rel
-        if candidate.is_file():
+        if _kept(candidate):
             sources.append(candidate)
     doc_cache_dir = root / ".rebrew" / "metadata-doc"
     if doc_cache_dir.is_dir():
         # Parsed-document caches carry hand-reviewed fingerprints; a
         # stale copy degrades to a re-parse, never a wrong verdict.
-        sources.extend(sorted(p for p in doc_cache_dir.iterdir() if p.is_file()))
+        sources.extend(sorted(p for p in doc_cache_dir.iterdir() if _kept(p)))
     sync_dir = root / _SYNC_DIR_REL
     if sync_dir.is_dir():
-        sources.extend(sorted(p for p in sync_dir.iterdir() if p.suffix == ".toml" and p.is_file()))
+        sources.extend(sorted(p for p in sync_dir.iterdir() if p.suffix == ".toml" and _kept(p)))
     pgsql_snapshots = root / _PGSQL_SNAPSHOT_DIR_REL
     if pgsql_snapshots.is_dir():
-        sources.extend(sorted(p for p in pgsql_snapshots.rglob("*.toml") if p.is_file()))
+        # ``*.toml`` is the latest snapshot; ``*.toml.<n>`` are the copies a
+        # later transfer rotated aside so they were not overwritten.
+        sources.extend(
+            sorted(p for p in pgsql_snapshots.rglob("*") if _kept(p) and ".toml" in p.suffixes)
+        )
     source_backups = root / _SOURCE_BACKUP_DIR_REL
     if source_backups.is_dir():
         # Kept pre-images of hand-edited sources a destructive command
@@ -721,15 +791,9 @@ def extra_durable_sources(root: Path) -> list[Path]:
         )
     snapshots = root / _SNAPSHOTS_DIR_REL
     if snapshots.is_dir():
-        sources.extend(
-            sorted(
-                p
-                for p in snapshots.glob("coverage-*.toml")
-                if p.is_file() and not p.name.endswith(".before-restore")
-            )
-        )
+        sources.extend(sorted(p for p in snapshots.glob("coverage-*.toml") if _kept(p)))
     verify_json = root / _VERIFY_JSON_REL
-    if verify_json.is_file():
+    if _kept(verify_json):
         sources.append(verify_json)
     return sources
 
@@ -940,7 +1004,7 @@ def restore_metadata_toml(bundle: Path, root: Path) -> tuple[Path, ...]:
         raise FileNotFoundError(f"no metadata stores in backup bundle at {bundle}")
     if not any(rel.name in _TOML_STORE_NAMES for rel in planned):
         raise FileNotFoundError(f"no metadata stores in backup bundle at {bundle}")
-    installed = []
+    installed: list[tuple[Path, int]] = []
     # Snapshot destinations first: a mid-restore failure must roll back
     # already-installed files instead of leaving a half-restored store
     # (silent data loss — the pre-restore bytes survive only in
@@ -954,28 +1018,22 @@ def restore_metadata_toml(bundle: Path, root: Path) -> tuple[Path, ...]:
             raw = (bundle / rel).read_bytes()
             dest = root / rel
             original = before[dest]
-            if original is not None and original != raw:
-                preserved = dest.with_name(dest.name + ".before-restore")
-                # Keep the first preserved copy across a re-run: overwriting
-                # it with the already-restored bytes would discard the only
-                # copy of what the restore displaced (see restore_ga_runs).
-                if not preserved.is_file() or preserved.read_bytes() != original:
-                    mode = _BINSYNC_MODE if _is_in_binsync_state(root, dest) else _extra_mode(dest)
-                    atomic_write_bytes(preserved, original, mode=mode)
             mode = _BINSYNC_MODE if _is_in_binsync_state(root, dest) else _extra_mode(dest)
+            if original is not None and original != raw:
+                preserve_displaced(dest, original, mode)
             atomic_write_bytes(dest, raw, mode=mode)
             if dest.read_bytes() != raw:
                 raise MetadataStorageError(f"{dest}: restored copy verification failed")
-            installed.append(dest)
+            installed.append((dest, mode))
     except BaseException:
-        for dest in reversed(installed):
+        for dest, mode in reversed(installed):
             original = before[dest]
             if original is None:
                 dest.unlink(missing_ok=True)
             else:
-                atomic_write_bytes(dest, original, mode=0o444)
+                atomic_write_bytes(dest, original, mode=mode)
         raise
-    return tuple(installed)
+    return tuple(dest for dest, _mode in installed)
 
 
 def backup_metadata_database(root: Path, backup_dir: Path) -> Path:
@@ -1130,14 +1188,24 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
             backup_content = _snapshot(backup)
             # A re-run of the same restore finds the live database already
             # carrying the backup's content; preserving again would replace
-            # the sidecar with the restored bytes, discarding what the first
-            # restore displaced.
+            # the sidecar with the restored bytes.  A later restore of a
+            # different backup rotates the sidecar aside first, so the copy
+            # of what the first restore displaced survives.
             if current_content not in (backup_content, preserved_content):
+                # Stage the new sidecar before touching the old one.  A crash
+                # mid-copy then leaves the previous displaced database intact,
+                # and the next restore rotates it aside instead of finding a
+                # half-written sidecar.
+                staged = preserved.with_name(f"{preserved.name}.staging")
+                # A killed restore leaves this behind; the backup API cannot
+                # open an existing database as a fresh target.
+                staged.unlink(missing_ok=True)
                 # As in backup_metadata_database: a previous restore left the
-                # preserved copy read-only (0444), and the backup API would
-                # refuse to write it on a second restore. Fail here when the
-                # mode cannot be relaxed, so the operator sees this file and
-                # not a later "readonly database" from the backup API.
+                # preserved copy read-only (0444).  Rotating it aside writes a
+                # sibling through atomic_write_bytes, which chmods the existing
+                # file writable first.  Fail here when the mode cannot be
+                # relaxed, so the operator sees this file and not a later
+                # "readonly database" from that chmod.
                 if preserved.exists():
                     try:
                         preserved.chmod(0o644)
@@ -1148,11 +1216,14 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
                         ) from exc
                 source = sqlite3.connect(location.as_uri() + "?mode=ro", uri=True, timeout=30)
                 try:
-                    with contextlib.closing(sqlite3.connect(preserved, timeout=30)) as target:
+                    with contextlib.closing(sqlite3.connect(staged, timeout=30)) as target:
                         source.backup(target)
                 finally:
                     source.close()
-                os.chmod(preserved, 0o444)
+                os.chmod(staged, 0o444)
+                if preserved.is_file() and preserved_content != current_content:
+                    rotate_preserved_copy(preserved, preserved.read_bytes())
+                staged.replace(preserved)
         import time
 
         from rebrew.utils import atomic_write_bytes as _awb
@@ -1163,44 +1234,48 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
         _before: dict[Path, bytes | None] = {}
         for _src, _dest in _siblings:
             _before[_dest] = _dest.read_bytes() if _dest.is_file() else None
-        _installed: list[Path] = []
+        _installed: list[tuple[Path, int]] = []
         try:
             for _src, _dest in _siblings:
                 _raw = _src.read_bytes()
                 _current = _before[_dest]
+                # A BinSync state file stays writable, matching the backup copy.
+                _mode = (
+                    _BINSYNC_MODE
+                    if _is_in_binsync_state(_backup_root, _src)
+                    else _extra_mode(_dest)
+                )
                 if _current is not None and _current != _raw:
-                    _preserved = _dest.with_name(_dest.name + ".before-restore")
-                    # Keep the first preserved copy across a re-run (see the
-                    # database preservation above and restore_ga_runs).
-                    if not _preserved.is_file() or _preserved.read_bytes() != _current:
-                        _awb(_preserved, _current, mode=_extra_mode(_dest))
-                _awb(_dest, _raw, mode=_extra_mode(_dest))
+                    # Keep every displaced copy (see the database
+                    # preservation above and restore_ga_runs).
+                    preserve_displaced(_dest, _current, _mode)
+                _awb(_dest, _raw, mode=_mode)
                 if _dest.read_bytes() != _raw:
                     raise MetadataStorageError(f"{_dest}: restored copy verification failed")
-                _installed.append(_dest)
+                _installed.append((_dest, _mode))
         except BaseException:
-            for _dest in reversed(_installed):
+            for _dest, _mode in reversed(_installed):
                 _original = _before[_dest]
                 if _original is None:
                     _dest.unlink(missing_ok=True)
                 else:
-                    _awb(_dest, _original, mode=_extra_mode(_dest))
+                    _awb(_dest, _original, mode=_mode)
             raise
 
         tmp = location.with_name(f"{location.name}.{os.getpid()}.{time.monotonic_ns()}.tmp")
         try:
-            source = sqlite3.connect(backup.as_uri() + "?mode=ro", uri=True, timeout=30)
+            db_source = sqlite3.connect(backup.as_uri() + "?mode=ro", uri=True, timeout=30)
             try:
                 with contextlib.closing(sqlite3.connect(tmp, timeout=30)) as target:
-                    source.backup(target)
+                    db_source.backup(target)
             finally:
-                source.close()
+                db_source.close()
             # Verify the staged copy before it becomes the live database.
-            staged = sqlite3.connect(tmp.as_uri() + "?mode=ro", uri=True, timeout=30)
+            check = sqlite3.connect(tmp.as_uri() + "?mode=ro", uri=True, timeout=30)
             try:
-                _check_database_schema(staged, tmp)
-                staged_integrity = staged.execute("PRAGMA integrity_check").fetchone()[0]
-                staged_count = staged.execute("SELECT COUNT(*) FROM metadata_documents").fetchone()[
+                _check_database_schema(check, tmp)
+                staged_integrity = check.execute("PRAGMA integrity_check").fetchone()[0]
+                staged_count = check.execute("SELECT COUNT(*) FROM metadata_documents").fetchone()[
                     0
                 ]
             except MetadataStorageError as exc:
@@ -1212,7 +1287,7 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
                     f"{backup}: restored copy verification failed: {exc}"
                 ) from exc
             finally:
-                staged.close()
+                check.close()
             if staged_integrity != "ok" or staged_count != count:
                 raise MetadataStorageError(f"{backup}: restored copy verification failed")
             # fsync the staged file, publish atomically, fsync the directory.

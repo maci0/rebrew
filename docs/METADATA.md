@@ -72,7 +72,10 @@ current `backend`, then run `rebrew metadata migrate pgsql --dry-run --json` and
 Setting `backend = "pgsql"` directly selects it without importing local documents.
 Migration back to TOML or SQLite uses the same command. Before replacing an
 inactive PostgreSQL destination, migration saves its documents under
-`.rebrew/pgsql-before-transfer/`.
+`.rebrew/pgsql-before-transfer/`. A later transfer that displaces different
+bytes rotates the previous snapshot to a numbered sibling
+(`rebrew-functions.toml.1`, `.2`, …) instead of overwriting it, so every
+displaced destination survives; an identical snapshot is reused.
 
 This experimental backend preserves TOML types and comments. Transactions span
 all documents for a project; PostgreSQL advisory locks serialize participating
@@ -213,7 +216,9 @@ The GA log (`.rebrew/ga_runs.jsonl`) is the one append-only durable
 file with its own fast path: `rebrew match solutions --backup <dir>`
 copy-verifies it byte-for-byte off-tree, and `restore_ga_runs`
 validates every line and preserves the displaced log as
-`.before-restore`. GA records are fsynced before `rebrew match run`
+`.before-restore`, rotating an older sidecar to a numbered sibling
+(`.before-restore.1`, …) when a later restore displaces different bytes.
+GA records are fsynced before `rebrew match run`
 reports a win. Kept source pre-images ride in the same bundle.
 `.rebrew/source-backups/*.orig` that survive a clean run are the only
 copy of bytes the live tree no longer holds: a shared import that
@@ -221,11 +226,12 @@ stripped a claim, and `rebrew skeleton --force` (`*.pre-skeleton.*.orig`).
 `rebrew metadata backup` copies those `*.orig` files and restore puts
 them back. An in-flight climb or qualifier copy is removed when that run
 finishes, so a bundle taken mid-run may also hold one; it is the same
-pre-image, not a second store. `*.before-restore` sidecars (what the last
-restore displaced) and `*.before-transfer` snapshots (what the last
-backend migrate replaced) stay out of the bundle; their lifetime is one
-restore/migrate, and the runbook above assumes the operator keeps the
-prior bundle as the older copy.
+pre-image, not a second store. `*.before-restore` sidecars plus their
+numbered siblings (what each restore displaced, rotated aside rather than
+overwritten) and `*.before-transfer` snapshots plus theirs
+(`.before-transfer.1`, …, what each backend migrate replaced) stay out of
+the bundle; their lifetime is one restore/migrate, and the runbook above
+assumes the operator keeps the prior bundle as the older copy.
 
 The configured BinSync state dir (`targets.<name>.binsync_state_dir`,
 or `--state-dir` on sync commands) is durable project state as well:
@@ -361,10 +367,13 @@ journal beside it is part of the file set, and a torn file copy is not a
 backup.  `rebrew.metadata.sqlite.backup_metadata_database` copies it
 transactionally with the SQLite online backup API and verifies the copy
 before reporting it; `restore_metadata_database` installs it back,
-preserving the current database as `.before-restore`.  A backend transfer
+preserving the current database as `.before-restore` and rotating an
+older sidecar to a numbered sibling when a later restore displaces
+different bytes.  A backend transfer
 (`rebrew metadata migrate`) snapshots the inactive destination
-(`.before-transfer`) before overwriting it, so the pre-transfer bytes
-survive the switch.
+(`.before-transfer`) before overwriting it, rotating an older snapshot
+aside to a numbered sibling when the bytes differ, so the pre-transfer
+bytes survive the switch and a later one.
 
 | Tier | Stores | Contract |
 |---|---|---|
