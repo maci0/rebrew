@@ -2300,9 +2300,10 @@ path, a symbol name, or a hex VA)
 Compare the stack frame of a compiled function against the target: reccmp's
 `stackcmp` adapted to rebrew's architecture.  reccmp reads local-variable
 records from the recomp PDB (cvdump, VC7+ PDBs); rebrew derives the frame
-from **disassembly on both sides** (target bytes vs compiled `.obj`), which
-works for every toolchain including MSVC 6.0 whose classic PDBs
-`llvm-pdbutil` cannot read.  Compared:
+from **disassembly on both sides** (target bytes vs compiled `.obj`) for x86
+16-, 32- and 64-bit targets, including MSVC 6.0 whose classic PDBs
+`llvm-pdbutil` cannot read. The analyzer uses x86 stack/register conventions;
+do not use its results to assess ARM, MIPS, PPC, SH or Xtensa frames. Compared:
 
 - `frame_size`: max stack depth (ESP tracking across push/pop/sub/add/
   `lea esp`/enter/pushad)
