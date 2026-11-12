@@ -54,9 +54,12 @@ conditional jumps compatible with a flipped `cmp` operand order
 index sets.
 
 **near-diag integration.** `classify_pair` treats a mirrored conditional
-jump pair with the same displacement as `equivalent`: the compiler
-flipped the `cmp` operand order, not the control flow. This must be checked
-before the same-mnemonic branch because `ja`/`jb` differ by mnemonic.
+jump pair with the same destination operand as `equivalent`, a heuristic
+instruction-family candidate. The classifier does not check the preceding
+`cmp` or prove that control flow is unchanged; review the surrounding semantics.
+Its `mov`/`lea` family also needs review because loading memory and computing an
+address differ. This check precedes the same-mnemonic branch because `ja`/`jb`
+differ by mnemonic.
 
 ## vtordisp: MI thunk detection
 

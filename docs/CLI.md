@@ -2432,10 +2432,11 @@ Compile the source and classify why it does not byte-match the target,
 which category of compiler choice is blocking the match. Every mismatching
 byte is bucketed into `register` (same instruction, different register
 allocation), `encoding` (same instruction and registers, different opcode),
-`equivalent` (semantically equal instruction selection, e.g.
-`lea` vs `mov`, a mirrored conditional jump after a flipped `cmp` operand
-order), `reloc` (relocation-masked site), or `structural` (different
-layout/block order). When the *entire* delta is register allocation the
+`equivalent` (a heuristic instruction-family candidate, such as `lea` vs
+`mov` or a mirrored conditional jump), `reloc` (relocation-masked site), or
+`structural` (different layout/block order). The `equivalent` label requires
+semantic review: it does not establish equal operands, memory effects, or a
+flipped `cmp` operand order. When the *entire* delta is register allocation the
 verdict is `EFFECTIVE` (reccmp's 100% effective-match case): the same
 instructions with different registers, not byte-identical, so `rebrew prove`
 (PROVEN) or register-nudging C tweaks are the paths forward. The verdict
