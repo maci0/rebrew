@@ -841,9 +841,9 @@ resolves through the `server.dll` key.
 
 | Subcommand | Description | Example |
 |------------|-------------|---------|
-| `list-targets` | List all defined targets | `rebrew cfg target list` |
+| `target list` | List all defined targets | `rebrew cfg target list` |
 | `show [KEY]` | Print config or a dot-separated key | `rebrew cfg show compiler.cflags` |
-| `set KEY VALUE` | Set a scalar config key (refuses non-empty secret keys such as `llm.api_key`; use `REBREW_LLM_API_KEY`; URL, boolean, format, arch, and `[llm]` budget fields are parsed by the same validator the loader uses, so a mistyped value fails here) | `rebrew cfg set compiler.cflags"/O1"` |
+| `set KEY VALUE` | Set a scalar config key (refuses non-empty secret keys such as `llm.api_key`; use `REBREW_LLM_API_KEY`; URL, boolean, format, arch, and `[llm]` budget fields are parsed by the same validator the loader uses, so a mistyped value fails here) | `rebrew cfg set compiler.cflags "/O1"` |
 | `raw` | Dump entire config as JSON (default) or TOML (`--format toml`) | `rebrew cfg raw` |
 | `effective` | Print the values in force after env and default resolution (secrets redacted, env vars named only) | `rebrew cfg effective --json` |
 | `path` | Print absolute path to `rebrew-project.toml` | `rebrew cfg path` |
