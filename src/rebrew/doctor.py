@@ -42,7 +42,7 @@ from rebrew.config import (
 )
 from rebrew.errors import RebrewError
 lazy from rebrew.metadata.storage import metadata_store
-lazy from rebrew.utils import TerminalTable, md5_file, read_json_text
+lazy from rebrew.utils import TerminalTable, md5_file, read_json_text, try_parse_int
 
 logger = logging.getLogger(__name__)
 
@@ -1695,12 +1695,9 @@ def _inventory_spans(cfg: Any) -> list[tuple[int, int]]:
     for row in rows:
         if not isinstance(row, dict):
             continue
-        try:
-            start = int(row["va"])
-            size = int(row["size"])
-        except KeyError, TypeError, ValueError:
-            continue
-        if size > 0:
+        start = try_parse_int(row.get("va"))
+        size = try_parse_int(row.get("size"))
+        if start is not None and size is not None and size > 0:
             spans.append((start, size))
     spans.sort()
     return spans

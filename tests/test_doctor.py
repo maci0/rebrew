@@ -1423,3 +1423,32 @@ class TestLibcmtIndexFailures:
         cfg = SimpleNamespace(root=str(tmp_path), compiler_profile="msvc-6.0")
         with pytest.raises(doctor_mod.LibIndexUnavailable):
             doctor_mod._libcmt_index(cfg)
+
+
+class TestInventorySpanNumbers:
+    @pytest.mark.parametrize("field", ["va", "size"])
+    @pytest.mark.parametrize("value", [float("inf"), 1.5, True])
+    def test_invalid_inventory_numbers_are_ignored(
+        self, tmp_path: Path, field: str, value: float
+    ) -> None:
+        import json
+
+        from rebrew.doctor import _inventory_spans
+
+        row = {"va": 0x1000, "size": 16, field: value}
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "function_structure.json").write_text(json.dumps([row]), encoding="utf-8")
+        assert _inventory_spans(_make_cfg(tmp_path)) == []
+
+    def test_hex_inventory_numbers_are_preserved(self, tmp_path: Path) -> None:
+        import json
+
+        from rebrew.doctor import _inventory_spans
+
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "function_structure.json").write_text(
+            json.dumps([{"va": "0x1000", "size": "0x10"}]), encoding="utf-8"
+        )
+        assert _inventory_spans(_make_cfg(tmp_path)) == [(0x1000, 16)]
