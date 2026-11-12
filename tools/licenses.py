@@ -32,7 +32,7 @@ PATH_OR_GIT_LICENSES = {
     "atheris": "Apache-2.0",
     "m2c": "GPL-3.0-only",
     "python-flirt": "License :: OSI Approved :: Apache Software License",
-    # resembl 4.0.0 declares License-Expression: GPL-3.0-only (PEP 639).
+    # resembl 5.0.0 declares License-Expression: GPL-3.0-only (PEP 639).
     # There is no free-text License field on that artifact.
     "resembl": "GPL-3.0-only",
 }

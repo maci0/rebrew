@@ -671,6 +671,32 @@ class TestPackagingMetadata:
                     f"{path.name}: unpinned m2c install: {line.strip()}"
                 )
 
+    def test_notice_versions_match_the_lock(self) -> None:
+        """NOTICE attributes a grant to a version; a lock bump must move it.
+
+        The grant text is checked elsewhere.  The version it is attached to
+        was not, so angr, pyvex, hypothesis, pycryptodome, and python-discovery
+        kept naming revisions the lock had already left.  A consumer tracing a
+        grant back to its origin would look up an artifact this tree no longer
+        ships.
+        """
+        locked: dict[str, str] = {}
+        current: str | None = None
+        for line in (ROOT / "uv.lock").read_text(encoding="utf-8").splitlines():
+            if line.startswith("name = "):
+                current = line.split("=", 1)[1].strip().strip('"')
+            elif line.startswith("version = ") and current and current not in locked:
+                locked[current] = line.split("=", 1)[1].strip().strip('"')
+        notice = (ROOT / "NOTICE").read_text(encoding="utf-8")
+        stale = [
+            f"{name} {version} (lock pins {locked[name]})"
+            for name, version in re.findall(
+                r"([A-Za-z][\w-]*) (\d+\.\d+\.\d+(?:\+[A-Za-z0-9.]+)?)", notice
+            )
+            if name in locked and locked[name] != version and not locked[name].startswith(version + "+")
+        ]
+        assert stale == [], f"NOTICE names versions the lock no longer pins: {stale}"
+
     def test_extra_install_hints_name_the_distribution(self) -> None:
         """Missing-extra hints must name the git source the README installs from.
 
@@ -765,7 +791,7 @@ class TestCycloneDxSbom:
             ("advisories", "https://github.com/maci0/rebrew/blob/main/SECURITY.md"),
         }
         by_name = {c["name"]: c for c in bom["components"]}
-        # resembl 4.0.0 declares License-Expression: GPL-3.0-only.
+        # resembl 5.0.0 declares License-Expression: GPL-3.0-only.
         assert by_name["resembl"]["licenses"] == [{"expression": "GPL-3.0-only"}]
         assert by_name["m2c"]["licenses"] == [{"expression": "GPL-3.0-only"}]
         assert by_name["pyvex"]["licenses"] == [{"expression": "BSD-2-Clause AND GPL-2.0-or-later"}]

@@ -105,11 +105,11 @@ def _license_field(source_kind: str, name: str, version: str) -> dict[str, Any]:
 # the wheel's own MIT licence file: reciprocal clauses, source availability, or
 # a notice that has to survive redistribution.  Expressions were read from the
 # locked artifacts: m2c c632946b ``License-Expression: GPL-3.0-only``, pyvex
-# 10.0.5 ``License-Expression: BSD-2-Clause AND GPL-2.0-or-later``, and the
-# MPL-2.0 packages below.  resembl 4.0.0 declares
+# 10.0.6 ``License-Expression: BSD-2-Clause AND GPL-2.0-or-later``, and the
+# MPL-2.0 packages below.  resembl 5.0.0 declares
 # ``License-Expression: GPL-3.0-only``, so the emitted component carries that
 # expression.  certifi 2026.10.23 and hypothesis
-# 6.170.14 declare ``MPL-2.0`` and every resolve pulls them in; tqdm 4.70.1
+# 6.170.15 declare ``MPL-2.0`` and every resolve pulls them in; tqdm 4.70.1
 # declares ``License-Expression: MPL-2.0 AND MIT`` and arrives with the
 # ``binsync`` extra (declib's progress bars).  lmdb 3.0.0 declares
 # ``OLDAP-2.8``, which is not reciprocal but does require a modified
