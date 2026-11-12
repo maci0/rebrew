@@ -109,6 +109,46 @@ def test_capture_preserves_target_flag_order_and_expansion(
 
 
 class TestCompilationDatabaseSource:
+    @pytest.mark.parametrize(
+        "bad_database",
+        [
+            None,
+            {},
+            [None],
+            [{}],
+            [{"file": None, "directory": "build"}],
+            [{"file": "unit.c", "directory": None}],
+        ],
+    )
+    def test_invalid_database_shape_is_a_validation_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bad_database: object
+    ) -> None:
+        source, db, calls = _fixture(tmp_path, monkeypatch)
+        db.write_text(json.dumps(bad_database))
+        with pytest.raises(ValueError, match="compilation database"):
+            capture.capture_msvc_context(tmp_path, db, source, output="TL.obj")
+        assert not calls
+
+    @pytest.mark.parametrize(
+        "bad_command",
+        [
+            {"arguments": None},
+            {"arguments": ["rebrew", "build", "driver", "cl", "--", None]},
+            {"command": None},
+        ],
+    )
+    def test_invalid_command_shape_is_a_validation_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bad_command: dict[str, object]
+    ) -> None:
+        source, db, calls = _fixture(tmp_path, monkeypatch)
+        entries = json.loads(db.read_text())
+        entries[0].pop("arguments")
+        entries[0].update(bad_command)
+        db.write_text(json.dumps(entries))
+        with pytest.raises(ValueError, match="compile command"):
+            capture.capture_msvc_context(tmp_path, db, source, output="TL.obj")
+        assert not calls
+
     @pytest.mark.parametrize("relative_file", ["../src/unit.c", "../src/./unit.c"])
     def test_relative_source_uses_compile_directory(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relative_file: str

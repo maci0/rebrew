@@ -249,7 +249,15 @@ def _command(entry: dict[str, Any], root: Path, source: Path) -> tuple[str, list
     cwd = Path(entry["directory"]).resolve()
     if not cwd.is_relative_to(root):
         raise ValueError("compile directory is outside the project")
-    words = list(entry["arguments"]) if "arguments" in entry else shlex.split(entry["command"])
+    if "arguments" in entry:
+        words = entry["arguments"]
+        if not isinstance(words, list) or not all(isinstance(word, str) for word in words):
+            raise ValueError("compile command arguments must be a list of strings")
+    else:
+        command = entry.get("command")
+        if not isinstance(command, str):
+            raise ValueError("compile command must be a string")
+        words = shlex.split(command)
     try:
         index = words.index("--")
     except ValueError as exc:
@@ -403,6 +411,13 @@ def capture_msvc_context(
         raise ValueError("preprocessing requires a verified Docker or Podman image filesystem")
     raw_database = database.read_bytes()
     entries = json.loads(raw_database)
+    if not isinstance(entries, list) or any(
+        not isinstance(entry, dict)
+        or not isinstance(entry.get("file"), str)
+        or not isinstance(entry.get("directory"), str)
+        for entry in entries
+    ):
+        raise ValueError("compilation database must contain objects with string file and directory")
     selected = [
         e
         for e in entries
