@@ -431,7 +431,7 @@ endpoint = ""                             # e.g. "http://localhost:11434/v1"; ""
 api_key = ""                              # bearer key; prefer REBREW_LLM_API_KEY, do not commit
 model = "gpt-4o-mini-2024-07-18"          # pinned id; floating aliases raise
 max_requests = 32                         # process-wide call ceiling (0 disables LLM calls)
-max_tokens = 500000                       # process-wide token ceiling (0 lifts it)
+max_tokens = 500000                       # process-wide token accounting limit (0 lifts it)
 timeout = 90                              # per-request HTTP budget, seconds (5..1800)
 ```
 
@@ -441,8 +441,8 @@ timeout = 90                              # per-request HTTP budget, seconds (5.
 | `api_key` | `string` | `""` | Bearer token. `REBREW_LLM_API_KEY` wins whenever it is present, empty included (which clears a committed key for the run). `rebrew cfg set` refuses a non-empty value here: argv is world-readable |
 | `model` | `string` | `"gpt-4o-mini-2024-07-18"` | Pinned model id. `latest` / `auto` / `default` and malformed ids raise, so a seed run is reproducible; `REBREW_LLM_MODEL` loses to this field |
 | `max_requests` | `integer` | `32` | Process-wide ceiling on LLM calls (`REBREW_LLM_MAX_REQUESTS`); `0` disables LLM calls, values above 10000 clamp with a warning |
-| `max_tokens` | `integer` | `500000` | Process-wide ceiling on billed tokens (`REBREW_LLM_MAX_TOKENS`); a request that no longer fits is refused before it is sent, `0` lifts the ceiling, values above 100000000 clamp |
-| `timeout` | `integer` | `90` | Per-request HTTP budget in seconds (`REBREW_LLM_TIMEOUT`), 5 through 1800. A timed-out request is still billed |
+| `max_tokens` | `integer` | `500000` | Process-wide token accounting limit (`REBREW_LLM_MAX_TOKENS`); requests reserve an estimated prompt cost plus the completion cap before sending. Reported usage can exceed that estimate. `0` lifts the limit, values above 100000000 clamp |
+| `timeout` | `integer` | `90` | Per-request HTTP budget in seconds (`REBREW_LLM_TIMEOUT`), 5 through 1800. Failed attempts without reported usage consume an estimated token charge |
 
 Every value is validated when the project config is read, so a typo fails
 there rather than falling back to the default; `rebrew cfg effective` reports
@@ -519,24 +519,22 @@ by the CLI layer and win for that invocation.
   counts, latency, and what the spend bought (`N seed(s) kept`, plus
   candidates the C gate rejected), so a run that bills without seeding is
   visible as such.
-- `REBREW_LLM_MAX_TOKENS`: process-wide ceiling on the tokens those calls
-  bill (default `500000`, or `[llm] max_tokens` when the variable is unset). A
-  call count does not price a run: one request
-  bills a prompt plus a capped completion, so raising
-  `REBREW_LLM_MAX_REQUESTS` multiplies both. Each request is priced before
-  it is sent and the one that no longer fits is refused with a warning, so
-  the GA continues without seeds. A request the provider billed but did not
-  report (`usage` omitted, a timeout, a 5xx after generation) is charged
-  that request's ceiling rather than nothing, so the running total is an
-  upper bound on real spend. `0` lifts the ceiling for the process. A
+- `REBREW_LLM_MAX_TOKENS`: process-wide token accounting limit
+  (default `500000`, or `[llm] max_tokens` when the variable is unset).
+  Each request reserves the prompt's character count divided by four plus
+  its completion cap. If that estimate no longer fits, the request is refused
+  with a warning and the GA continues without seeds. Reported `total_tokens`
+  replaces the reservation; missing usage and failed attempts are charged the
+  estimate. The reservation prevents concurrent requests from reusing the same
+  headroom, but reported usage can exceed the estimate and the configured limit.
+  `0` lifts the limit for the process. A
   set-but-non-integer or negative value is a `ValueError`; above
   `100000000` the value clamps with a warning. The resolved ceiling is
   reported as `llm_max_tokens` by `rebrew cfg effective`.
 - `REBREW_LLM_TIMEOUT`: per-request HTTP budget for one LLM seeding call,
   in seconds (default `90`, or `[llm] timeout` when the variable is unset). A
-  timed-out request is still billed and its
-  seeds are lost, so raise it for a local model that needs minutes for a
-  capped completion. It bounds the whole request, not each socket read: the
+  timed-out request yields no seeds. Raise it for a local model that needs
+  minutes for a capped completion. It bounds the whole request, not each socket read: the
   transport timeout is rearmed per chunk, so the response body is also read
   against a wall-clock deadline. Below `5` is a `ConfigError`; above `1800`
   clamps to `1800` with a warning. The resolved budget is reported as
