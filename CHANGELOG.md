@@ -44,6 +44,9 @@
 - Repair the config-editor reference: separate the key and value in the `cfg set compiler.cflags` example and name the current `cfg target list` route.
 - Correct the name-normalization guide: only Ghidra `FUN_` names become `func_` during C-name sanitization; rizin discovery retains `fcn.` labels and other tool prefixes are not universally rewritten.
 - Clarify flag-sweep axes: a flag set may omit all its flags, and large tiers sample the grid. The documented combination counts include that empty choice.
+### Fixed
+
+- Document shipped Delphi whole-program builds and NE byte comparison, replacing the research-only description while retaining the per-function verification limit.
 
 ## [6.32.1] - 2026-11-11
 

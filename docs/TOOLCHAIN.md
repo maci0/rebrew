@@ -222,18 +222,31 @@ headless gives correct boundaries but is slow on loaded machines.
 
 ---
 
-## Delphi 1.0 (16-bit NE compile backend: research; Borland ABI unmatchable)
+## Delphi 1.0 (16-bit NE whole-program builds)
 
-The vendored `recompile-toolchains/delphi/1.0-win16` toolchain (DCC.EXE, DOS
-DPMI app run under DOSBox headless) compiles 16-bit Windows 3.x NE
-executables; the `rebrew.compiler.delphi16.compile_ne` wrapper makes it invocable
-from Python and parses the output with the native NE loader.  Note: 16-bit
-*matching* is implemented in rebrew via the `msvc-1.52` profile (DOSBox
-CL.EXE → OMF objects), but **Delphi's Borland ABI has no matchable rebrew
-profile**, so Delphi functions are documented as blockers and this
-toolchain is for research (compile + NE parse).  See
-`recompile-toolchains/delphi/1.0-win16/source/README.md` for the recipe and
-the RTM.EXE / non-tmpfs requirements, and the NE section below for the
+The `delphi-1.0` profile compiles complete Pascal programs into Windows 3.x NE
+executables using DCC.EXE under DOSBox in its toolchain image. Select a target
+configured with that profile, then build and compare:
+
+```bash
+rebrew build delphi src/<target>/MAIN.DPR --output build/MAIN.EXE --map build/MAIN.MAP
+rebrew binary ne-compare build/MAIN.EXE --json
+```
+
+The build always rebuilds source units and writes a requested segment map from
+the same compiler invocation. `ne-compare` reports exact file/segment agreement
+separately from content overlap; it exits 1 when the complete files differ.
+Neither command writes function verdicts or managed metadata.
+
+DCC emits a linked `.exe`, not a per-function object, so this profile does not
+participate in `rebrew verify`'s C function compile/compare loop. That loop needs
+a 16-bit profile emitting `.obj` or `.o`, such as `msvc-1.52`. Intake documents
+Delphi application functions as blockers; whole-program Pascal reconstruction
+uses the build and NE comparison commands above.
+
+`rebrew.compiler.delphi16.compile_ne` exposes the build to Python callers. See
+`recompile-toolchains/delphi/1.0-win16/source/README.md` for the source recipe
+and RTM.EXE / non-tmpfs requirements, and the NE section below for the
 analysis-side support matrix.
 
 ---
