@@ -259,8 +259,6 @@ rebrew library match [OPTIONS]
 
 rebrew coverage export --output snapshots/
       --root PATH
-      --force
-      --regen
       --json
   -t, --target TEXT
 ```
