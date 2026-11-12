@@ -44,13 +44,17 @@ instead of retyping them:
 
 ```bash
 rebrew binsync overlay ../other-state --dry-run    # preview every proposed overlay
-rebrew binsync overlay ../other-state              # write name/prototype/note
+rebrew binsync overlay ../other-state              # overlay default function fields and types
 rebrew binsync overlay ../other-state --fields name,global
 rebrew binsync overlay ../other-state --min-score 98 --min-gap 8   # stricter matching
 rebrew binsync overlay ../other-state --accept-local    # keep local values on conflict
 ```
 
-`--fields` defaults to `name,prototype,note`; `--from` overrides the state
-manifest's target name. A below-threshold match is skipped, not guessed.
+Without `--fields`, the selected categories are
+`name,prototype,note,stack_vars,comments,types`; `global` remains opt-in.
+An explicit list selects only those categories. `stack_vars` covers stack locals,
+`comments` covers in-function comments, and `types` covers structs, enums, and
+typedefs together. `--from` overrides the state manifest's target name.
+A below-threshold match is skipped, not guessed.
 Overlaid names are a collaborator's content: apply them as data, and preview
 with `--dry-run` first because the write renames `.c` files.

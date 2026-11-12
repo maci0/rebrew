@@ -468,18 +468,25 @@ The source target comes from `--from`, or from the `target` key in the state
   non-empty local prototype is a conflict (whitespace-normalized compare).
 - **Notes**: a differing non-empty remote note is written to the `note`
   metadata field.
-- **Structs, enums, typedefs**: unknown definitions from the state import into
-  the destination's `binsync_types.h` as in `rebrew binsync import`; known names are
-  never overwritten.
+- **Stack variables** (`stack_vars`): normalized local-variable records retain
+  their stack-frame offsets.
+- **Comments** (`comments`): comments inside the source function's recorded
+  extent move by the matched functions' VA difference.
+- **Structs, enums, typedefs** (`types`): unknown definitions from the state
+  import into the destination's `binsync_types.h` as in `rebrew binsync import`;
+  known names are never overwritten.
 - **Globals** (opt-in via `--fields global`): a source global is matched to
   the destination by exact content, not by address. Its bytes are searched in
   the destination's same-named section and mapped only when they occur exactly
   once; a duplicate or a missing section is skipped, never guessed. The matched
   destination VA takes the source name plus `type`/`size`/`section`.
 
-`--fields name,prototype,note` restricts which fields run (add `global` to
-include content-matched globals). `--module NAME` restricts the destination to
-one module.
+Without `--fields`, the overlay selects
+`name,prototype,note,stack_vars,comments,types`; `global` remains opt-in.
+An explicit list restricts all categories: `--fields name,prototype,note`
+excludes stack variables, comments, globals, and type definitions. Select
+`types` for structs, enums, and typedefs together, or add `global` for
+content-matched globals. `--module NAME` restricts the destination to one module.
 
 A conflicting field stays local unless resolved, and unresolved conflicts make
 the command exit `1`. Other eligible fields and definitions can still be applied;

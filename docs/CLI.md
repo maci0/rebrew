@@ -5372,8 +5372,8 @@ preview before an import.
 
 `rebrew binsync overlay [OPTIONS] STATE_DIR`
 
-Overlay a related target's BinSync names/prototypes/notes onto structurally
-matched functions of this target (same code at different VAs). The source
+Overlay a related target's BinSync function fields and type definitions onto
+this target using structurally matched functions (same code at different VAs). The source
 target is `--from`, or the state `manifest.toml` `target` key when omitted;
 the destination is `--target` (the project default when omitted). Matching
 reuses the `rebrew source import-related` structural matcher, so no
@@ -5397,7 +5397,7 @@ preview before writing.
 | `--accept-local` | flag | `False` | Keep local values for all conflicts (records provenance) |
 | `--min-score` | float | `95.0` | Minimum structural similarity (0-100) to overlay |
 | `--min-gap` | float | `5.0` | Best match must beat the runner-up by at least this |
-| `--fields` | str | `name,prototype,note` | Comma-separated fields to overlay (name, prototype, note, global) |
+| `--fields` | str | `name,prototype,note,stack_vars,comments,types` | Select only these categories: name, prototype, note, stack_vars, comments, types (structs/enums/typedefs), global (opt-in) |
 | `--module` | str | none | Only overlay metadata in this module (e.g. SERVER) |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
