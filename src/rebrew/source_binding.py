@@ -32,6 +32,7 @@ lazy from rebrew.metadata.binding_history import change_source_binding, validate
 lazy from rebrew.metadata.bindings import derive_c_symbol
 lazy from rebrew.metadata.functions import get_entry, identity_file, load_metadata
 lazy from rebrew.metadata.source_provenance import function_definition_hashes
+lazy from rebrew.rename_ops import RenameError
 lazy from rebrew.sources import iter_sources
 lazy from rebrew.utils import detect_source_encoding, preset_module_key, read_source_text
 
@@ -281,6 +282,48 @@ def _unprototyped_compatible(key: str, other: str) -> bool:
     return True
 
 
+def _obsolete_body(
+    cfg: ProjectConfig, va: int, current: dict[str, Any], source: Path
+) -> Path | None:
+    """Remove only a single-body file with no remaining storage or metadata owner."""
+    from rebrew.c_parser import find_c_function_definitions, find_extern_variables
+    from rebrew.metadata.data import load_data_metadata
+    from rebrew.metadata.source_provenance import load_source_files
+
+    if not current.get("file"):
+        return None
+    root = cfg.root if current.get("kind") == "LIBRARY" else cfg.metadata_dir
+    old: Path = (root / current["file"]).absolute()
+    if old.resolve() == source or old.is_symlink() or not old.is_file():
+        return None
+    if not old.resolve().is_relative_to(cfg.root.resolve()):
+        return None
+    rows = [
+        row
+        for (module, address), row in load_metadata(cfg.metadata_dir).items()
+        if (module, address) != (target_module(cfg), va)
+    ] + list(load_data_metadata(cfg.metadata_dir).values())
+    for row in rows:
+        base = cfg.root if row.get("kind") == "LIBRARY" else cfg.metadata_dir
+        if row.get("file") and (base / row["file"]).resolve() == old.resolve():
+            return None
+    if any(
+        (cfg.metadata_dir / row.file).resolve() == old.resolve()
+        for row in load_source_files(cfg.metadata_dir)
+    ):
+        return None
+    text, _ = read_source_text(old)
+    names = find_c_function_definitions(text)
+    if len(names) != 1 or names[0][0] != current.get("name"):
+        return None
+    if any(var.is_definition for var in find_extern_variables(text, include_definitions=True)):
+        return None
+    tree, _ = parse_c_source(mask_msvc_syntax(text))
+    if tree.root_node.has_error:
+        return None
+    return old
+
+
 def _change(
     cfg: ProjectConfig,
     va: int,
@@ -292,6 +335,7 @@ def _change(
     reason: str,
     dry_run: bool,
     expected_digest: str | None,
+    retarget_references: bool = False,
 ) -> dict[str, Any]:
     module = target_module(cfg) or ""
     module_key = preset_module_key(module)
@@ -403,15 +447,103 @@ def _change(
         expected_inputs=inputs,
         project_root=cfg.root,
     )
+    retarget_plan = None
+    removed = None
+    coordinated = None
+    file_changes = []
+    watched: list[Path] = []
+    paths: list[Path] = []
+    if retarget_references:
+        from rebrew.metadata.coordinated import coordinated_inputs
+        from rebrew.rename_ops import Selection, plan_rebound_references
+
+        if identity is None or source is None:
+            raise ValueError("retargeting requires a replacement definition")
+        retarget_plan = plan_rebound_references(cfg, Selection("function", module, va), identity)
+        for change in retarget_plan.files:
+            if new_key is not None and change.path.suffix.lower() != ".rsp":
+                _refuse_conflicting_prototype(change.old_text, old_name, new_key, change.path, cfg)
+        removed = _obsolete_body(cfg, va, current, source)
+        if removed is not None:
+            retarget_plan.files = [c for c in retarget_plan.files if c.path.absolute() != removed]
+        paths = [change.path.absolute() for change in retarget_plan.files]
+        if removed is not None:
+            paths.append(removed)
+        watched = sorted({*inputs, *(Path(p) for p in retarget_plan.input_hashes)} - set(paths))
+        coordinated = coordinated_inputs(cfg.metadata_dir, paths, watched=watched)
+        file_changes = [
+            {"file": identity_file(change.path, cfg.root), "action": "rewrite"}
+            for change in retarget_plan.files
+        ]
+        if removed is not None:
+            file_changes.append({"file": identity_file(removed, cfg.root), "action": "remove"})
     digest_inputs = {str(path): digest for path, digest in inputs.items()}
     digest_inputs["metadata"] = preview["input_digest"]
+    if retarget_plan is not None:
+        digest_inputs["binding"] = json.dumps(
+            {"identity": identity, "reason": reason}, sort_keys=True
+        )
+        digest_inputs["retarget"] = retarget_plan.input_digest
+        digest_inputs["coordinated"] = json.dumps(coordinated, sort_keys=True)
+        digest_inputs["file_changes"] = json.dumps(file_changes, sort_keys=True)
     digest = hashlib.sha256(json.dumps(digest_inputs, sort_keys=True).encode()).hexdigest()
     if expected_digest is not None and digest != expected_digest:
         raise ValueError("binding review inputs changed; review a new preview")
-    result = (
-        preview
-        if dry_run
-        else change_source_binding(
+    if dry_run:
+        result = preview
+    elif retarget_plan is not None and coordinated is not None:
+        from rebrew.metadata.coordinated import coordinated_transaction, path_identity_digest
+        from rebrew.metadata.source_provenance import rename_source_provenance
+        from rebrew.metadata.storage import input_digest, managed_metadata_filenames
+        from rebrew.rename_ops import check_rename_inputs
+        from rebrew.sources import iter_sources_and_headers
+
+        discovered = {p.resolve() for p in iter_sources_and_headers(cfg.reversed_dir, cfg)}
+        expected_discovery = discovered - ({removed.resolve()} if removed else set())
+
+        def validate_after() -> None:
+            for path in watched:
+                if path.name in managed_metadata_filenames():
+                    continue
+                if input_digest(path) != coordinated.get(
+                    str(path.resolve())
+                ) or path_identity_digest(path) != coordinated.get(
+                    "path-identity:" + str(path.absolute())
+                ):
+                    raise ValueError(f"binding input changed during publication: {path}")
+            if {
+                p.resolve() for p in iter_sources_and_headers(cfg.reversed_dir, cfg)
+            } != expected_discovery:
+                raise ValueError("binding source discovery changed during publication")
+
+        with coordinated_transaction(
+            cfg.metadata_dir,
+            paths,
+            expected_inputs=coordinated,
+            watched=watched,
+            validate=lambda: check_rename_inputs(cfg, retarget_plan),
+            validate_after=validate_after,
+            allow_unconfigured=True,
+            extra_suffixes=frozenset({".rsp"}),
+        ) as staged:
+            for change in retarget_plan.files:
+                staged.publish(change.path, change.new_text.encode(change.encoding))
+            result = change_source_binding(
+                cfg.metadata_dir,
+                module,
+                va,
+                reason=reason,
+                identity=identity,
+                expected_digest=preview["input_digest"],
+                project_root=cfg.root,
+            )
+            rename_source_provenance(
+                cfg.metadata_dir,
+                {c.path: (c.old_text, c.new_text) for c in retarget_plan.files},
+                symbol_rename=(retarget_plan.old_name, retarget_plan.new_name),
+            )
+    else:
+        result = change_source_binding(
             cfg.metadata_dir,
             module,
             va,
@@ -422,12 +554,12 @@ def _change(
             expected_inputs=inputs,
             project_root=cfg.root,
         )
-    )
     return {
         **result,
         "input_digest": digest,
         "source_references": references,
-        "references_rewritten": False,
+        "references_rewritten": retarget_references,
+        "file_changes": file_changes,
     }
 
 
@@ -472,7 +604,7 @@ def retire(
             dry_run=dry_run,
             expected_digest=expected_digest,
         )
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, RenameError) as exc:
         error_exit(str(exc), json_mode=json_output)
     _emit(result, json_output)
 
@@ -494,6 +626,11 @@ def rebind(
     reason: str = typer.Option(
         ..., "--reason", help="Reviewed native evidence supporting this binding"
     ),
+    retarget_references: bool = typer.Option(
+        False,
+        "--retarget-references",
+        help="Retarget owned references and remove an unowned single-body file",
+    ),
     expected_digest: str | None = typer.Option(
         None, "--expected-digest", help=EXPECTED_DIGEST_HELP
     ),
@@ -514,8 +651,9 @@ def rebind(
             reason=reason,
             dry_run=dry_run,
             expected_digest=expected_digest,
+            retarget_references=retarget_references,
         )
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, RenameError) as exc:
         error_exit(str(exc), json_mode=json_output)
     _emit(result, json_output)
 

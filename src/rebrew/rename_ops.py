@@ -758,7 +758,95 @@ def plan_function_reference_binding(
         f"References bound to {selected.module}.0x{selected.va:08x}; identity unchanged"
     )
     plan.input_hashes = _rename_source_inputs(project, plan) | context_inputs
-    _check_rename_inputs(cfg, plan)
+    check_rename_inputs(cfg, plan)
+    return plan
+
+
+def plan_rebound_references(
+    cfg: ProjectConfig, selected: Selection, replacement: dict[str, str]
+) -> RenamePlan:
+    """Plan target-owned references while the selected old definition still exists."""
+    from rebrew.metadata.functions import get_entry, load_metadata
+    from rebrew.utils import preset_module_key
+
+    project = _Project(cfg)
+    row = get_entry(project.metadata_dir, selected.va, selected.module)
+    old_name = rename_source_name(str(row.get("name") or ""), str(row.get("symbol") or ""))
+    new_name = replacement["name"]
+    plan = RenamePlan(kind=KIND_FUNCTION, old_name=old_name, new_name=new_name)
+    if not old_name or old_name == new_name:
+        plan.input_hashes = _rename_source_inputs(project, plan) | _rename_context_inputs(cfg)
+        return plan
+    previous = project.path_for_stored(str(row.get("file") or ""))
+    if previous is None:
+        raise RenameError("retargeting requires the previous source definition", files=[])
+    old_defs = definitions(project.parsed(previous), old_name)
+    if len(old_defs) != 1 or old_defs[0].static or old_defs[0].kind != "function":
+        raise RenameError("retargeting requires one previous external function", files=[previous])
+    module = preset_module_key(selected.module)
+    hits = project.containing(old_name)
+    others = {p for p in hits if p != previous and definitions(project.parsed(p), old_name)}
+    references = _attributed_references(
+        project,
+        hits,
+        {previous},
+        others,
+        set(),
+        old_name=old_name,
+        chosen_modules=frozenset({module}),
+        other_modules=frozenset(
+            preset_module_key(mod)
+            for (mod, address), entry in load_metadata(project.metadata_dir).items()
+            if (mod, address) != (selected.module, selected.va)
+            and entry.get("file")
+            and entry.get("name") == old_name
+        ),
+    )
+    references.add(previous)
+    for path in sorted(references):
+        parsed = project.parsed(path)
+        refs = function_reference_occurrences(parsed, old_name)
+        if path == previous:
+            from rebrew.c_parser import find_function_name_in_node
+
+            bodies = [
+                node
+                for node in parsed.tree.root_node.named_children
+                if node.type == "function_definition"
+                and find_function_name_in_node(node.child_by_field_name("declarator"), parsed.data)
+                == old_name
+            ]
+            refs = [
+                o for o in refs if not any(n.start_byte <= o.start < n.end_byte for n in bodies)
+            ]
+        if not refs:
+            continue
+        mods = project.modules(path)
+        if mods is not None and module not in mods:
+            continue
+        if mods is not None and mods != frozenset({module}):
+            raise RenameError("retargeting would change references in another target", files=[path])
+        if any(
+            non_external_function_declarations(parsed, name)
+            or any(o.role == ROLE_MACRO_NAME for o in occurrences(parsed, name))
+            for name in (old_name, new_name)
+        ):
+            raise RenameError(
+                "retargeting conflicts with a local declaration or macro", files=[path]
+            )
+        change = _file_change(
+            project, path, [(o.start, o.end, o.line, o.column, o.role) for o in refs], new_name
+        )
+        if change is not None:
+            plan.files.append(change)
+    plan.files.extend(
+        _linker_reference_changes(
+            cfg,
+            {selected.module: {str(row.get("symbol") or "_" + old_name): replacement["symbol"]}},
+        )
+    )
+    plan.input_hashes = _rename_source_inputs(project, plan) | _rename_context_inputs(cfg)
+    check_rename_inputs(cfg, plan)
     return plan
 
 
@@ -1115,7 +1203,7 @@ def plan_symbol_rename(
                 "Pending owners are prospective, not native or provider proof; rebind and verify each pending identity before linking."
             )
         plan.input_hashes = _rename_source_inputs(project, plan) | context_inputs
-        _check_rename_inputs(cfg, plan)
+        check_rename_inputs(cfg, plan)
     return plan
 
 
@@ -1128,6 +1216,9 @@ def _attributed_references(
     owners: dict[Path, Path] | None = None,
     old_name: str | None = None,
     pending: dict[Path, Selection] | None = None,
+    *,
+    chosen_modules: frozenset[str] | None = None,
+    other_modules: frozenset[str] | None = None,
 ) -> set[Path]:
     """Reference files that belong to the chosen definitions.
 
@@ -1146,8 +1237,12 @@ def _attributed_references(
             mods |= found
         return frozenset(mods)
 
-    chosen_mods = union(chosen) if chosen else None
-    other_mods = union(others) if others else frozenset()
+    chosen_mods = (
+        chosen_modules if chosen_modules is not None else union(chosen) if chosen else None
+    )
+    other_mods = (
+        other_modules if other_modules is not None else union(others) if others else frozenset()
+    )
 
     def meets(mods: frozenset[str], group: frozenset[str] | None) -> bool:
         return group is None or bool(mods & group)
@@ -1157,7 +1252,7 @@ def _attributed_references(
     for path in hits:
         if path in chosen or path in others or path in statics:
             continue
-        if not others:
+        if not others and not other_mods:
             selected.add(path)
             continue
         mods = project.modules(path)
@@ -1274,7 +1369,8 @@ def _rename_source_inputs(project: _Project, plan: RenamePlan) -> dict[str, str]
     return inputs
 
 
-def _check_rename_inputs(cfg: ProjectConfig, plan: RenamePlan) -> None:
+def check_rename_inputs(cfg: ProjectConfig, plan: RenamePlan) -> None:
+    """Reject changed source discovery, contents or target context before publication."""
     try:
         project = _Project(cfg, [c.path for c in plan.files])
         current = _rename_source_inputs(project, plan) | _rename_context_inputs(
@@ -1834,7 +1930,7 @@ def _apply_coordinated_rename(cfg: ProjectConfig, plan: RenamePlan, metadata_dir
         ):
             raise ValueError("type-bound source move requires reviewed type rehoming")
         if plan.input_hashes:
-            _check_rename_inputs(cfg, plan)
+            check_rename_inputs(cfg, plan)
             if {p.resolve() for p in iter_sources_and_headers(cfg.reversed_dir, cfg)} != discovered:
                 raise ValueError("rename source discovery changed; review a new preview")
             if (
@@ -1918,7 +2014,7 @@ def apply_rename_plan(cfg: ProjectConfig, plan: RenamePlan) -> int:
     replacements may require manual reconciliation; crash recovery is not implied.
     """
     if plan.input_hashes:
-        _check_rename_inputs(cfg, plan)
+        check_rename_inputs(cfg, plan)
     from rebrew.metadata.source_provenance import (
         SOURCE_PROVENANCE_FILENAME,
         rename_source_provenance,

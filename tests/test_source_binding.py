@@ -1025,3 +1025,228 @@ def test_apply_rechecks_review_input_after_acquiring_lock(tmp_path: Path) -> Non
             expected_inputs={source: expected},
         )
     assert get_entry(cfg.metadata_dir, 0x401000, "GAME")["file"] == "src/f.c"
+
+
+class TestRetargetReferences:
+    def setup_twin(self, tmp_path):
+        cfg = _project(tmp_path)
+        twin = cfg.reversed_dir / "twin.c"
+        twin.write_text("int twin(void) { return 2; }\n")
+        record_function_identity(
+            tmp_path,
+            module="TWIN",
+            va=0x501000,
+            file="src/twin.c",
+            name="twin",
+            symbol="_twin",
+            kind="FUNCTION",
+        )
+        caller = cfg.reversed_dir / "g.c"
+        caller.write_text("extern int f(void);\nint g(void) { return f(); }\n")
+        return cfg, twin, caller
+
+    def invoke(self, cfg, twin, *extra):
+        from rebrew.source_binding import app
+
+        with patch("rebrew.source_binding.require_config", return_value=cfg):
+            return CliRunner().invoke(
+                app,
+                [
+                    "rebind",
+                    "0x401000",
+                    str(twin),
+                    "--name",
+                    "twin",
+                    "--reason",
+                    "twin proof",
+                    "--retarget-references",
+                    "--json",
+                    *extra,
+                ],
+            )
+
+    def test_retargets_callers_and_removes_old_body(self, tmp_path):
+        cfg, twin, caller = self.setup_twin(tmp_path)
+        before = caller.read_bytes()
+        preview = self.invoke(cfg, twin, "--dry-run")
+        assert preview.exit_code == 0, preview.output
+        report = cli_payload(preview)
+        assert {item["file"]: item["action"] for item in report["file_changes"]} == {
+            "src/g.c": "rewrite",
+            "src/f.c": "remove",
+        }
+        assert caller.read_bytes() == before
+        assert (cfg.reversed_dir / "f.c").exists()
+        applied = self.invoke(cfg, twin, "--expected-digest", report["input_digest"])
+        assert applied.exit_code == 0, applied.output
+        assert caller.read_text() == "extern int twin(void);\nint g(void) { return twin(); }\n"
+        assert not (cfg.reversed_dir / "f.c").exists()
+        assert get_entry(tmp_path, 0x401000, "GAME")["name"] == "twin"
+        assert get_entry(tmp_path, 0x501000, "TWIN")["name"] == "twin"
+
+    @pytest.mark.parametrize("owner", ["function", "data"])
+    def test_other_row_keeps_old_file(self, tmp_path, owner):
+        cfg, twin, caller = self.setup_twin(tmp_path)
+        if owner == "function":
+            record_function_identity(
+                tmp_path,
+                module="OTHER",
+                va=0x601000,
+                file="src/f.c",
+                name="f",
+                symbol="_f",
+                kind="FUNCTION",
+            )
+        else:
+            from rebrew.metadata.data import record_data_rows
+
+            record_data_rows(
+                tmp_path,
+                [
+                    {
+                        "module": "GAME",
+                        "va": 0x600000,
+                        "identity": {"file": "src/f.c", "name": "table", "kind": "GLOBAL"},
+                    }
+                ],
+            )
+        result = self.invoke(cfg, twin)
+        assert result.exit_code == 0, result.output
+        assert (cfg.reversed_dir / "f.c").exists()
+        assert "return twin();" in caller.read_text()
+
+    def test_retarget_keeps_name_collision_guard(self, tmp_path):
+        cfg, twin, caller = self.setup_twin(tmp_path)
+        caller.write_text("extern void twin(int);\nint g(void) { return f(); }\n")
+        result = self.invoke(cfg, twin)
+        assert result.exit_code == 2
+        assert "already declared" in cli_payload(result)["error"]
+        assert (cfg.reversed_dir / "f.c").exists()
+        assert get_entry(tmp_path, 0x401000, "GAME")["name"] == "f"
+
+    @pytest.mark.parametrize("changed", ["caller", "old"])
+    def test_digest_covers_caller_and_old_file(self, tmp_path, changed):
+        cfg, twin, caller = self.setup_twin(tmp_path)
+        preview = self.invoke(cfg, twin, "--dry-run")
+        assert preview.exit_code == 0, preview.output
+        digest = cli_payload(preview)["input_digest"]
+        path = caller if changed == "caller" else cfg.reversed_dir / "f.c"
+        path.write_text(path.read_text() + "/* changed */\n")
+        result = self.invoke(cfg, twin, "--expected-digest", digest)
+        assert result.exit_code == 2
+        assert (cfg.reversed_dir / "f.c").exists()
+        assert get_entry(tmp_path, 0x401000, "GAME")["name"] == "f"
+
+    def test_failure_rolls_back_sources_and_metadata(self, tmp_path):
+        cfg, twin, caller = self.setup_twin(tmp_path)
+        old = cfg.reversed_dir / "f.c"
+        before = {p: p.read_bytes() for p in (caller, old, tmp_path / "rebrew-functions.toml")}
+        with patch(
+            "rebrew.metadata.source_provenance.rename_source_provenance",
+            side_effect=ValueError("injected failure"),
+        ):
+            result = self.invoke(cfg, twin)
+        assert result.exit_code == 2
+        assert "injected failure" in cli_payload(result)["error"]
+        assert {p: p.read_bytes() for p in before} == before
+
+    def test_foreign_callers_keep_their_name(self, tmp_path):
+        cfg, twin, caller = self.setup_twin(tmp_path)
+        record_function_identity(
+            tmp_path,
+            module="OTHER",
+            va=0x601000,
+            file="src/f.c",
+            name="f",
+            symbol="_f",
+            kind="FUNCTION",
+        )
+        foreign = cfg.reversed_dir / "foreign.c"
+        foreign.write_text("extern int f(void);\nint foreign(void) { return f(); }\n")
+        record_function_identity(
+            tmp_path,
+            module="OTHER",
+            va=0x602000,
+            file="src/foreign.c",
+            name="foreign",
+            symbol="_foreign",
+            kind="FUNCTION",
+        )
+        before = foreign.read_bytes()
+        result = self.invoke(cfg, twin)
+        assert result.exit_code == 0, result.output
+        assert foreign.read_bytes() == before
+        assert "return twin();" in caller.read_text()
+
+    def test_ambiguous_header_is_refused(self, tmp_path):
+        cfg, twin, caller = self.setup_twin(tmp_path)
+        record_function_identity(
+            tmp_path,
+            module="OTHER",
+            va=0x601000,
+            file="src/f.c",
+            name="f",
+            symbol="_f",
+            kind="FUNCTION",
+        )
+        (cfg.reversed_dir / "common.h").write_text("extern int f(void);\n")
+        result = self.invoke(cfg, twin)
+        assert result.exit_code == 2
+        assert "ambiguous" in cli_payload(result)["error"]
+        assert "return f();" in caller.read_text()
+
+    @pytest.mark.parametrize("extra", ["int storage;\n", "int other(void) { return 3; }\n"])
+    def test_unmarked_storage_or_body_keeps_old_file(self, tmp_path, extra):
+        cfg, twin, caller = self.setup_twin(tmp_path)
+        old = cfg.reversed_dir / "f.c"
+        old.write_text(old.read_text() + extra)
+        result = self.invoke(cfg, twin)
+        assert result.exit_code == 0, result.output
+        assert old.exists()
+        assert "return twin();" in caller.read_text()
+
+    def test_old_prototype_must_match_replacement(self, tmp_path):
+        cfg, twin, caller = self.setup_twin(tmp_path)
+        caller.write_text("extern void f(int);\nint g(void) { f(1); return 0; }\n")
+        result = self.invoke(cfg, twin)
+        assert result.exit_code == 2
+        assert "already declared" in cli_payload(result)["error"]
+        assert "f(1)" in caller.read_text()
+
+    def test_kept_file_retargets_other_function_references(self, tmp_path):
+        cfg, twin, caller = self.setup_twin(tmp_path)
+        old = cfg.reversed_dir / "f.c"
+        old.write_text(old.read_text() + "int sibling(void) { return f(); }\n")
+        result = self.invoke(cfg, twin)
+        assert result.exit_code == 0, result.output
+        assert "int f(void)" in old.read_text()
+        assert "return twin();" in old.read_text()
+
+    def test_same_target_owner_still_refuses(self, tmp_path):
+        cfg, twin, caller = self.setup_twin(tmp_path)
+        record_function_identity(
+            tmp_path,
+            module="GAME",
+            va=0x403000,
+            file="src/twin.c",
+            name="twin",
+            symbol="_twin",
+            kind="FUNCTION",
+        )
+        result = self.invoke(cfg, twin)
+        assert result.exit_code == 2
+        assert "already belongs" in cli_payload(result)["error"]
+        assert "return f();" in caller.read_text()
+
+    def test_generated_name_guard_still_refuses(self, tmp_path):
+        import json
+
+        cfg, twin, caller = self.setup_twin(tmp_path)
+        twin.write_text("int fcn_00403000(void) { return 2; }\n")
+        (cfg.reversed_dir / "function_structure.json").write_text(
+            json.dumps([{"va": 0x403000, "size": 4}])
+        )
+        result = self.invoke(cfg, twin, "--name", "fcn_00403000")
+        assert result.exit_code == 2
+        assert "generated name" in cli_payload(result)["error"]
+        assert "return f();" in caller.read_text()

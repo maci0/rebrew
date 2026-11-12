@@ -4883,6 +4883,11 @@ parameter lists. The vendored source is pinned, so editing it is not an option.
 
 ## Rebinding a row onto a twin's source leaves its callers on the old name
 
+Status: implemented for `source binding rebind --retarget-references`.
+Verification and remaining scope are recorded in Guild
+`.scratch/review/rebrew-upstream/FEATURE-retarget.md`.
+`import-related --shared` integration remains open.
+
 `rebrew source import-related --shared` and `rebrew source binding rebind` move a Gold row onto
 the GoldTL twin's file and rename the row to the twin's C name (`fcn_0040b2f0` becomes
 `fcn_0040c120`), but Gold callers such as `GOLD.fcn_0040aaf0.c` keep calling `fcn_0040b2f0`, so

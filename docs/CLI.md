@@ -7020,7 +7020,7 @@ rebrew source binding retire 0x401000 --reason proof --dry-run --json
 
 ### `rebrew source binding rebind`
 
-`rebrew source binding rebind VA SOURCE --reason TEXT [--name NAME] [--symbol SYMBOL] [--expected-digest HASH]`
+`rebrew source binding rebind VA SOURCE --reason TEXT [--name NAME] [--symbol SYMBOL] [--retarget-references] [--expected-digest HASH]`
 
 Bind one unambiguous definition in the configured source universe. Names default
 to the current or last retired claim; the symbol defaults to the definition's
@@ -7029,6 +7029,24 @@ providers may live elsewhere inside the project and enter source collection.
 Reject duplicate same-target definitions/symbols and undiscoverable destinations.
 The replacement must earn its own verdict. Other targets' valid claims survive.
 Preview/apply guards, `--dry-run`, `--json` and `--target` follow `retire`.
+
+With `--retarget-references`, references to the previous C name adopt the
+replacement name in the same coordinated write as the binding. The rename
+engine resolves caller ownership by target, preserves independent foreign
+callers, and refuses ambiguous shared references or local-name conflicts.
+Existing generated-name, symbol and prototype collision guards still apply;
+old-name declarations must also agree with the replacement's types.
+Target linker response references are included. Comments and literals stay unchanged.
+
+An old source file is removed only when it contains one function body, no
+file-scope storage, and no other function row, data row or support-file record
+names it. Multi-body and still-owned files stay. References in other functions
+of a retained file are retargeted while the previous definition stays intact.
+The replacement source is never removed. `file_changes` lists each source or
+response file rewrite and removal. The digest covers their bytes and modes,
+all rename review inputs, metadata, and the planned edits. Changed inputs
+refuse apply. Exceptions restore sources and metadata together; this does not
+provide crash recovery. Rebuild and verify affected targets after applying.
 
 ```bash
 rebrew source binding rebind 0x401000 src/f.c --reason proof --dry-run
