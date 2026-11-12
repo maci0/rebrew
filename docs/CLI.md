@@ -3429,8 +3429,8 @@ TOML copies the store trees, project config, the GA log
 (`.rebrew/ga_runs.jsonl`) and the BinSync baselines (`.rebrew/sync/*.toml`)
 into `DIR/rebrew-metadata.backup.toml/`. SQLite copies the database through its
 online backup API to `DIR/rebrew-metadata.backup.sqlite3` with the same
-`.rebrew/` sidecars beside it; it does not copy `rebrew-project.toml`, so
-preserve that file separately. TOML files and sidecars are compared byte for
+`.rebrew/` sidecars beside it. Both backends include `rebrew-project.toml`.
+TOML files and sidecars are compared byte for
 byte with their sources, and a manifest (`rebrew-backup.manifest.json`) records
 each copied file's size and SHA-256. SQLite additionally checks its database
 schema and row count. Creating a TOML backup does not validate the metadata

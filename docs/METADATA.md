@@ -199,10 +199,13 @@ and contain no `..` component. Absolute paths and parent-relative paths are
 skipped. `rebrew doctor`'s Backup readiness check names the reference when present.
 
 Back up source trees separately: the metadata backup command does not walk C or
-Pascal source directories. SQLite backups also require a separate copy of
-`rebrew-project.toml`; TOML bundles include that configuration file. A complete
-recovery set combines the metadata bundle with source backups and any reference binaries or BinSync state excluded by the
-path rules above.
+Pascal source directories. Both TOML and SQLite bundles include
+`rebrew-project.toml`; restore parses and installs it before recovering
+configured reference binaries and BinSync state. A SQLite bundle without that
+file requires a separately saved matching config and manual recovery of those
+binary/state files. A complete recovery set combines the metadata bundle with
+source backups and any reference binaries or BinSync state excluded by the path
+rules above.
 
 RPO is the last successful backup of the files above; RTO is a file
 copy restore plus `rebrew verify` for the touched target. No schedule
