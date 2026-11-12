@@ -55,7 +55,7 @@ with that install hint. Drop the extra if you never want symbolic proof.
 We will use a tiny demo binary. Substitute your own game `.exe`/`.dll`
 whenever you are ready: the steps are identical.
 
-### 1. Put the binary somewhere *outside* your project dir
+### 1. Create a project directory and copy in the binary
 
 ```bash
 mkdir ~/dedemo && cd ~/dedemo
