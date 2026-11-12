@@ -133,7 +133,8 @@ alongside the uv cache. Workflow `permissions` are `contents: read` only:
 `GITHUB_TOKEN`. It does **not**
 require a target binary or MSVC toolchain.
 
-Every job that runs `uv sync` first clones the sibling `resembl` repo
+Except for the runtime-only package job described below, jobs that run
+`uv sync` first clone the sibling `resembl` repo
 (`maci0/resembl`, tag from the action's `resembl-ref` input, currently
 `v5.2.0`) into the
 directory above the workspace via `tools/ci_clone_resembl.sh` (retries on
