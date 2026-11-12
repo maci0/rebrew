@@ -450,10 +450,13 @@ function syncError() {
     || (currentView !== "functions" ? loadErrors.view : "");
   const box = $("dashboard-error");
   // A new alert scrolls into view: it renders above the tables, off screen.
-  if (message && message !== box.textContent) box.scrollIntoView?.({ block: "nearest" });
-  if (message) {
-    // Announce once via role=alert; keep status live region for load counts only.
+  // role=alert announces every textContent write, and this runs on every view
+  // switch, so an unchanged message must not be rewritten (WCAG 4.1.3).
+  if (message && message !== box.textContent) {
     box.textContent = message;
+    box.hidden = false;
+    box.scrollIntoView?.({ block: "nearest" });
+  } else if (message) {
     box.hidden = false;
   } else {
     box.textContent = "";

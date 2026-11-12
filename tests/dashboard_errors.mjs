@@ -10,7 +10,7 @@ let respond = async () => ({
 });
 globalThis.fetch = (path) => respond(path);
 
-const { start } = await loadApp(["start"]);
+const { start, syncError } = await loadApp(["start", "syncError"]);
 await start();
 await start(); // the module already ran start() once on import; this awaits a fresh run
 
@@ -43,6 +43,24 @@ assert.equal(
 	2,
 	"a different alert scrolls itself into view",
 );
+
+// View switches re-enter syncError with the alert already showing. role=alert
+// speaks on every text write, so an unchanged message must not be rewritten.
+const box = el("dashboard-error");
+let writes = 0;
+let shown = box.textContent;
+Object.defineProperty(box, "textContent", {
+	get() {
+		return shown;
+	},
+	set(value) {
+		writes += 1;
+		shown = value;
+	},
+});
+syncError();
+assert.equal(writes, 0, "the same alert is not rewritten");
+assert.equal(box.scrolled, 2, "the same alert does not scroll again");
 
 // Reload re-reads every input, so it is the way out of any load failure, not
 // just the summary one: previously it stayed hidden behind the unrevealed

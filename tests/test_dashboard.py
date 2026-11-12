@@ -977,7 +977,10 @@ class TestHandle:
         assert "loadedGlobalsCount" in body
         assert "Retry summary" in body
         # Errors announce via role=alert only (avoid double-speaking with status).
+        # role=alert speaks on every text write, and syncError runs on every
+        # view switch, so an unchanged message is left alone (WCAG 4.1.3).
         assert 'results-status").textContent = message' not in body
+        assert "message !== box.textContent" in body
 
     def test_index_html_heading_outline(self, dashboard: Dashboard) -> None:
         """One h1, then h2s only: a heading outline a screen reader can walk.
