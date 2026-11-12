@@ -105,10 +105,12 @@ Strong candidates for `rebrew prove` when the delta is very small.
 
 ## RELOC
 
-Identical after masking relocatable bytes (`call rel32`, `jmp rel32`, `mov eax,[abs32]`,
-etc.). The function's logic, register allocation, and control flow are all correct.
-Only call targets and global addresses differ, which is expected: the linker patches
-these at link time.
+Identical after masking accepted relocatable bytes (`call rel32`, `jmp rel32`,
+`mov eax,[abs32]`, etc.). This establishes byte agreement outside those operand
+slots. The relocation policy can accept an uncatalogued symbol without resolving
+its target, so RELOC alone does not prove callee/global bindings or semantic
+equivalence. The linker fills these operands; [linked EXACT](#linked-exact)
+checks the function's raw linked bytes without masking.
 
 ```
 Target:  50 e8 f0 83 00 00 8b f8 83 c4 04 a1 80 58 03 10

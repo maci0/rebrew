@@ -65,6 +65,9 @@
 ### Fixed
 
 - Binary loading checks the 512 MiB file-size limit before format parsing, so oversized files are rejected before native parsers allocate for them. Previously the limit only ran when raw bytes were requested afterward.
+### Fixed
+
+- Correct the RELOC reference to describe masked-byte agreement without claiming semantic correctness or resolved bindings for uncatalogued operands.
 
 ## [6.32.1] - 2026-11-11
 
