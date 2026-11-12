@@ -938,9 +938,8 @@ def function_extent_from_bytes(
                     return None
                 forward_target = max(forward_target, target)
             if mnem in rets and insn.address >= forward_target:
-                # MIPS terminator instructions are followed by a delay-slot
-                # instruction that is part of the function (a `nop`, or the
-                # sp restore in the epilogue) — include it.
+                # Delayed terminators keep the following instruction,
+                # which can restore the stack or finish computing a result.
                 extent = min(offset + insn.size + delay_slot, len(data))
                 return (extent, "ret") if with_kind else extent
             if mnem == "int3" and insn.address >= forward_target:
@@ -1008,7 +1007,7 @@ def function_extent_from_bytes(
     if arch == "sh2":
         md = _disassembler(cs_arch, mode)
         md.skipdata = False
-        return _walk(md, {"rts"}, {"bra", "jmp"})
+        return _walk(md, {"rts"}, {"bra", "jmp"}, delay_slot=2)
 
     # x86_16/x86_32/x86_64 (and unknown arches — default to the historical
     # x86 walker).

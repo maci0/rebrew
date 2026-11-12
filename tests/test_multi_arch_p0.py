@@ -119,6 +119,25 @@ class TestArchDetection:
 
 
 class TestExtentWalker:
+    @pytest.mark.parametrize("endian", ["little", "big"])
+    @pytest.mark.parametrize(
+        ("terminator", "kind"), [(0x000B, "ret"), (0xA7FF, "jmp"), (0x402B, "jmp")]
+    )
+    @pytest.mark.parametrize("with_kind", [False, True])
+    def test_sh2_extent_includes_the_executed_delay_slot(
+        self, endian: str, terminator: int, kind: str, with_kind: bool
+    ) -> None:
+        from rebrew.formats.binary_loader import function_extent_from_bytes
+
+        # nop; RTS/BRA/JMP; add #1,r0 (delay slot); a later function.
+        data = b"".join(
+            word.to_bytes(2, endian)
+            for word in (0x0009, terminator, 0x7001, 0x0009, 0x000B, 0x0009)
+        )
+        info = SimpleNamespace(arch="sh2", endian=endian, format="elf")
+        extent = function_extent_from_bytes(info, data, 0x1000, with_kind=with_kind)
+        assert extent == ((6, kind) if with_kind else 6)
+
     def _extent(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, arch: str, fmt: str, raw: bytes
     ) -> int:
