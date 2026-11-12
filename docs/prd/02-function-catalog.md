@@ -57,8 +57,8 @@ Function identity and state live in `rebrew-functions.toml`; `status`,
 
 ## Non-Goals
 
-- The catalog does not modify source files (data JSON/CSV are generated; `.c`
-  files are read-only).
+- The catalog does not modify source files. Requested exports and derived
+  caches may be written; `.c` files are read-only.
 - `rebrew binary extract` produces `.bin` files only, never C skeletons. Skeleton
   generation lives in PRD 03.
 - `rebrew library scan-signatures` is signature-driven; it does not infer arguments or types.
@@ -85,7 +85,9 @@ Function identity and state live in `rebrew-functions.toml`; `status`,
   (`Size disagree: N`), never per-function names.
 - Outputs in any combination of modes:
   - Default (no flags): scan + validate, and print the summary table.  No
-    artifact is written by `catalog` itself; `rebrew coverage export --output snapshots/` renders the
+    coverage export is written by `catalog` itself; derived caches under
+    `.rebrew/` may be refreshed. Default scans leave canonical metadata
+    unchanged. `rebrew coverage export --output snapshots/` renders the
     coverage document from the same in-process scan.
   - `--data-json` / `--csv` (removed): the grid JSON and the reccmp-compatible
     CSV have no replacement.  A reader that needs the grid reads
