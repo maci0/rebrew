@@ -61,6 +61,22 @@ class TestRelocationSpans:
         with pytest.raises(NotImplementedError, match="unsupported PE relocation"):
             relocation_spans(info)
 
+    @pytest.mark.parametrize("unsupported_first", [False, True])
+    def test_conflicting_types_at_one_site_refuse_the_map(
+        self, tmp_path: Path, unsupported_first: bool
+    ) -> None:
+        kinds = lief.PE.RelocationEntry.BASE_TYPES
+        info = _image(tmp_path, kinds.HIGH if unsupported_first else kinds.HIGHLOW)
+        binary = lief.PE.parse(info.path)
+        assert binary is not None
+        block = next(iter(binary.relocations))
+        block.add_entry(
+            lief.PE.RelocationEntry(4, kinds.HIGHLOW if unsupported_first else kinds.HIGH)
+        )
+        binary.write(info.path)
+        with pytest.raises(ValueError, match="conflicting PE relocation"):
+            relocation_spans(load_binary(info.path))
+
     def test_no_fixups_is_an_empty_map(self) -> None:
         assert relocation_spans(load_binary(_FIXTURE)) == []
 

@@ -38,7 +38,7 @@ def pe_relocation_sites(info: BinaryInfo) -> dict[int, str]:
     """Absolute address -> type name of every non-ABSOLUTE PE base relocation.
 
     Raises ``ValueError`` when the image does not parse as the loaded PE layout,
-    a block is not page aligned, or the table exceeds the span limit.
+    a block is not page aligned, a site has conflicting types, or the span limit is exceeded.
     """
     binary = lief.PE.parse(info.data)
     if binary is None or binary.optional_header.imagebase != info.image_base:
@@ -51,7 +51,11 @@ def pe_relocation_sites(info: BinaryInfo) -> dict[int, str]:
         for entry in block.entries:
             if entry.type == kinds.ABS:
                 continue
-            sites[info.image_base + entry.address] = entry.type.name
+            address = info.image_base + entry.address
+            kind = entry.type.name
+            if address in sites and sites[address] != kind:
+                raise ValueError(f"conflicting PE relocation types at {address:#x}")
+            sites[address] = kind
             if len(sites) > _MAX_SPANS:
                 raise ValueError("relocation span limit exceeded")
     return sites
