@@ -30,12 +30,13 @@ See [TOOLCHAIN.md](TOOLCHAIN.md) for profile/image details.
 ### 1. Initialize the project
 
 ```bash
-rebrew init --target SERVER --binary server.dll
+rebrew init --target server --binary server.dll
 ```
 
-Creates `rebrew-project.toml`, `original/`, `src/SERVER/`, metadata files,
+Creates `rebrew-project.toml`, `original/`, `src/server/`, metadata files,
 and prints the next steps.  If you have the binary handy, skip straight to
-`rebrew intake`: it runs `init` for you.
+`rebrew intake`: it runs `init` for you. The examples use the binary stem
+`server` as the target name, matching intake's default.
 
 #### Interactive wizard
 
@@ -74,7 +75,7 @@ rebrew intake original/server.dll --toolchain msvc-6.0   # or pin it explicitly
 2. runs `rebrew init` (skipped if the project already exists; re-running
    intake is a safe re-discovery)
 3. copies the binary to `original/`
-4. **enumerates functions** via discoverer plugins → `src/SERVER/function_structure.json`
+4. **enumerates functions** via discoverer plugins → `src/server/function_structure.json`
 5. **documents every function** as a STUB skeleton with a BLOCKER,
    so `rebrew status`/`rebrew todo` show the full reversing landscape
 
@@ -121,13 +122,13 @@ rebrew todo              # prioritized action list (what to work on next)
 ### 5. Start reversing
 
 ```bash
-# intake wrote one stub per function, for example src/SERVER/fcn_00401000.c;
+# intake wrote one stub per function, for example src/server/fcn_00401000.c;
 # edit that file, then:
-rebrew test src/SERVER/fcn_00401000.c   # compile, byte-compare, auto-update STATUS
-rebrew diff src/SERVER/fcn_00401000.c   # see WHY bytes differ (register/reloc/structural)
-rebrew diagnose near src/SERVER/fcn_00401000.c  # classify the delta + GA mutation hints
+rebrew test src/server/fcn_00401000.c   # compile, byte-compare, auto-update STATUS
+rebrew diff src/server/fcn_00401000.c   # see WHY bytes differ (register/reloc/structural)
+rebrew diagnose near src/server/fcn_00401000.c  # classify the delta + GA mutation hints
 rebrew verify            # bulk: compile every annotated function, compare, promote STATUS
-rebrew match run src/SERVER/fcn_00401000.c # GA engine: search for the byte-perfect C
+rebrew match run src/server/fcn_00401000.c # GA engine: search for the byte-perfect C
 rebrew skeleton 0x00401000               # only for an inventory VA with no source; prints its file
 ```
 
