@@ -475,9 +475,10 @@ supplies its own tag.
   `history[]` records status transitions only.  A store that needs an audit
   trail of removals gets one deliberately (a log the tools append to), not by
   hoping the absence is reconstructable.
-- **Identity paths are gated.**  The `file` field is joined onto the project
-  root by `verify`, `rename` and BinSync, so `validate_identity_file` refuses an
-  absolute path or a `..` segment at the write, and W034 reports rows written
+- **Identity paths are gated.** `validate_identity_file` checks the `file`
+  field before storage, refusing an absolute path or a `..` segment. Source and
+  compiled-provider identities use the distinct resolution roots in the
+  [current source contract](#current-source-contract). W034 reports rows written
   before that gate.  W035 reports a row whose module matches no target module or
   library module: invisible to `status`/`todo`, which filter by module.
 - **The store is found by directory, not by search.**  A reader is handed
