@@ -87,12 +87,19 @@ uv run --frozen rebrew library signatures toolchain/msvc/6.0-win32/source/VC98/L
 
 **How it works:**
 
-1. Parses the COFF archive to extract every object file member
-2. Finds every public function symbol in each object
+1. Reads the archive's parseable COFF object members
+2. Finds public function symbols in each object
 3. Reads the function's code bytes and COFF relocations
-4. Emits a `.pat` line with relocation bytes masked as `..`
+4. Emits retained `.pat` lines with relocation bytes masked as `..`
 
-The resulting `.pat` file looks like this:
+Not every function produces a signature. Functions shorter than four bytes are
+omitted, identical output lines are deduplicated, and weak patterns are dropped:
+fewer than 16 literal leading bytes together with a CRC window shorter than eight
+bytes. Inspect `skipped_members`, `skipped_weak` and `written` in the `--json`
+report. If no signatures survive, `written` is false and no pattern file remains;
+an existing file at the output path is removed.
+
+A retained `.pat` line looks like this:
 
 ```
 558BEC83EC0C56578B7D0C85FF0F84........8B750883C604 40 A1B2 0064 :0000 _inflate_init
