@@ -634,6 +634,29 @@ class TestVendoredObjects:
         )
         assert vendored_objects(db, tmp_path) == [vendored_obj]
 
+    @pytest.mark.parametrize("relative", [False, True])
+    @pytest.mark.parametrize("separator", ["", ":", ": "])
+    def test_quoted_object_paths_preserve_spaces(
+        self, tmp_path: Path, relative: bool, separator: str
+    ) -> None:
+        from rebrew.lib_match import vendored_objects
+
+        obj = tmp_path / "build" / "vendor output" / "ref.obj"
+        obj.parent.mkdir(parents=True)
+        obj.write_bytes(b"object")
+        output = obj.relative_to(tmp_path) if relative else obj
+        db = self._db(
+            tmp_path,
+            [
+                {
+                    "directory": str(tmp_path),
+                    "file": "/proj/references/x.c",
+                    "command": f'cl /c /Fo{separator}"{output}" /proj/references/x.c',
+                }
+            ],
+        )
+        assert vendored_objects(db, tmp_path) == [obj]
+
     def test_missing_database_is_empty(self, tmp_path: Path) -> None:
         from rebrew.lib_match import vendored_objects
 
