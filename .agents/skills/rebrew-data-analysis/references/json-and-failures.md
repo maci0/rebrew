@@ -79,8 +79,8 @@ writes them into canonical verification evidence. Incomplete reference bytes rem
 | Symptom | Cause | Fix |
 |---|---|---|
 | `rebrew-project.toml not found` / config error | Running outside a project | `cd` into the project (config discovery walks up to `rebrew-project.toml`) |
-| `target binary not found` / `could not be parsed (needed for data dispatch)` | Binary missing or unparseable | Fix `target_binary` in `rebrew-project.toml`; only `data dispatch` hard-requires the binary (plain scans degrade gracefully) |
+| `target binary not found` / `could not be parsed (needed for data dispatch)` | Binary missing or unparseable | Fix `binary` under `[targets.<name>]` in `rebrew-project.toml`; only `data dispatch` hard-requires the binary (plain scans degrade gracefully) |
 | `already exists. Use --force to overwrite.` | `data header` clobber guard | Pass `--force`, or `--output` to a new path |
 | `No annotated BSS globals - nothing to verify` | No data row or `extern` with a `.bss` VA | Record the row, then re-run `data bss` |
 | Gap size looks wrong | `size_hint` is estimated from the C type (int=4, char=1, …) | Verify the declared types of the globals on either side of the gap |
-| Small gaps not reported | Gaps < 4 bytes are alignment padding and intentionally ignored | Ignore; only ≥ 4-byte gaps are flagged |
+| Small gaps not reported | The scan omits gaps below its 4-byte reporting threshold | Inspect smaller spans separately when needed; their omission does not establish alignment padding |
