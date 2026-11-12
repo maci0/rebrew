@@ -1840,6 +1840,66 @@ class TestRefreshAgentsPrunesStaleSkills:
         monkeypatch.setattr(init_mod, "agent_skill_files", lambda _target: dict(skills))
         init_mod._refresh_agents(root, root / "rebrew-project.toml", json_output=False)
 
+    @pytest.mark.parametrize(
+        "linked",
+        [
+            "AGENTS.md",
+            "PRINCIPLES.md",
+            ".agents/skills/keep/SKILL.md",
+            ".agents/skills/keep",
+            ".agents/skills",
+        ],
+    )
+    def test_external_scaffold_destination_refuses_before_any_write(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        linked: str,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        import typer
+
+        root = self._project(tmp_path)
+        (root / "AGENTS.md").write_bytes(b"preserve instructions\n")
+        (root / "PRINCIPLES.md").write_bytes(b"preserve principles\n")
+        skill = root / ".agents/skills/keep/SKILL.md"
+        skill.parent.mkdir(parents=True)
+        skill.write_bytes(b"preserve skill\n")
+        (root / ".agents/skills/.rebrew-scaffold.json").write_bytes(b"{}")
+        destination = root / linked
+        outside = tmp_path / "external"
+        directory = destination.is_dir()
+        destination.rename(outside)
+        destination.symlink_to(outside, target_is_directory=directory)
+        before = {
+            path: (path.read_bytes(), path.stat().st_mtime_ns, path.stat().st_ino)
+            for path in tmp_path.rglob("*")
+            if path.is_file()
+        }
+        with pytest.raises(typer.Exit) as caught:
+            self._render(root, {"keep/SKILL.md": b"replacement skill\n"}, monkeypatch)
+        assert caught.value.exit_code != 0
+        message = " ".join(capsys.readouterr().err.split())
+        assert linked in message and "outside project" in message
+        assert destination.is_symlink()
+        assert {
+            path: (path.read_bytes(), path.stat().st_mtime_ns, path.stat().st_ino)
+            for path in before
+        } == before
+
+    def test_in_project_scaffold_link_keeps_existing_write_behavior(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        root = self._project(tmp_path)
+        self._render(root, {"keep/SKILL.md": b"# old\n"}, monkeypatch)
+        skill = root / ".agents/skills/keep/SKILL.md"
+        target = root / "shared-skill.md"
+        skill.rename(target)
+        skill.symlink_to(target)
+        self._render(root, {"keep/SKILL.md": b"# new\n"}, monkeypatch)
+        assert skill.is_symlink()
+        assert target.read_bytes() == b"# new\n"
+
     def test_refresh_removes_a_dropped_skill(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

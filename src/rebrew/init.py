@@ -918,6 +918,14 @@ def _refresh_agents(
     for rel, data_bytes in agent_skill_files(target_name).items():
         expected[f".agents/skills/{rel}"] = data_bytes
 
+    project_root = cwd.resolve()
+    for rel in expected:
+        if not (cwd / rel).resolve().is_relative_to(project_root):
+            error_exit(
+                f"cannot refresh {rel}: destination resolves outside project {project_root}",
+                json_mode=json_output,
+            )
+
     manifest = _load_scaffold_manifest(cwd)
     stale = _stale_scaffold_files(cwd, expected, manifest)
 
