@@ -12,6 +12,8 @@
 
 ### Fixed
 
+- Archive parsing rejects a member whose declared body extends past EOF, including long-name and symbol tables, instead of passing incomplete object bytes to library analysis.
+
 - Toolchain detection falls back when Detect It Easy returns malformed JSON detection records instead of raising TypeError or AttributeError.
 
 - `rebrew toolchain detect` takes the compiler family from Detect It Easy again. diec reports each value's `type` in lowercase (`compiler`, `linker`), and the DIE backend compared against `Compiler` and `Linker`, so it never named a family from a real scan and left it to the weaker detectors; on guild-rebrew's server.dll it now reports `detected_by=die`, `family=msvc`, `confidence=high`. The tests fed the capitalised form; they now use diec 4.0's own output, and one runs the installed diec on `tests/fixtures/tc16_hello.exe`.

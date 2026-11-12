@@ -88,6 +88,14 @@ class TestParseArchive:
         with pytest.raises(ValueError, match="not a valid archive"):
             list(parse_archive(str(bad)))
 
+    @pytest.mark.parametrize("name", ["foo.obj", "/", ""])
+    @pytest.mark.parametrize("remaining", [0, 3])
+    def test_rejects_truncated_member_body(self, tmp_path: Path, name: str, remaining: int) -> None:
+        lib = self._make_archive([(name, b"1234")], tmp_path)
+        lib.write_bytes(lib.read_bytes()[: 68 + remaining])
+        with pytest.raises(ValueError, match="truncated archive member"):
+            list(parse_archive(str(lib)))
+
     def test_empty_archive(self, tmp_path: Path) -> None:
         """Archive with only magic header yields no members."""
         lib = tmp_path / "empty.lib"

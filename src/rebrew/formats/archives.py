@@ -40,6 +40,8 @@ def parse_archive(lib_path: str) -> Iterator[tuple[str, bytes]]:
             break
 
         pos += 60
+        if pos + size > len(data):
+            raise ValueError(f"{lib_path}: truncated archive member at offset {pos}")
         member_data = data[pos : pos + size]
         pos += size
 
