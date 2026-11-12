@@ -1395,7 +1395,8 @@ def main(
     principles_src = _require_packaged_asset(_PRINCIPLES_SRC)
     principles_dest = cwd / "PRINCIPLES.md"
     if not principles_dest.exists():
-        shutil.copy2(principles_src, principles_dest)
+        # Packaged SELinux labels must not follow files onto shared project volumes.
+        shutil.copy(principles_src, principles_dest)
         console.print("[green]Created PRINCIPLES.md[/] (Project design principles)")
 
     # 8. Optionally download wibo runner

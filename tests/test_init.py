@@ -1,6 +1,7 @@
 """Tests for the rebrew init command."""
 
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -281,6 +282,32 @@ class TestBinaryStemTarget:
 
 class TestInit:
     """Tests for the main() function using tmp_path."""
+
+    @pytest.mark.skipif(not hasattr(os, "setxattr"), reason="Extended attributes unavailable")
+    def test_principles_does_not_inherit_packaged_xattrs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Package security labels must not follow scaffolds onto shared volumes."""
+        source = tmp_path / "packaged-principles.md"
+        source.write_text("Project principles\n")
+        source.chmod(0o640)
+        os.setxattr(source, "user.rebrew_test", b"package-only")
+        project = tmp_path / "project"
+        project.mkdir()
+        monkeypatch.setattr("rebrew.init._PRINCIPLES_SRC", source)
+        monkeypatch.chdir(project)
+        main(
+            target_name="server",
+            binary_name="server.dll",
+            compiler_profile="msvc-6.0",
+            install_wibo=False,
+            json_output=False,
+            write_completion_scripts=False,
+        )
+        destination = project / "PRINCIPLES.md"
+        assert destination.read_bytes() == source.read_bytes()
+        assert destination.stat().st_mode & 0o777 == 0o640
+        assert "user.rebrew_test" not in os.listxattr(destination)
 
     def test_help_advertises_toolchain_not_compiler_flag(self) -> None:
         """Shipped --help must name the real --toolchain option.

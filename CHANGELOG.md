@@ -2,6 +2,10 @@
 
 ## [6.35.0] - 2026-11-13
 
+### Fixed
+
+- Keep packaged extended attributes, including container-specific SELinux labels, out of initialized project `PRINCIPLES.md` files so shared-volume readers and backups can access them.
+
 ### Changed
 
 - Update the similarity checkout to Resembl 5.2.0, including the immutable CI pin and locked project version.
