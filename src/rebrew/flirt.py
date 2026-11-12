@@ -368,15 +368,16 @@ def find_func_size(code_data: bytes, offset: int, arch: str = "x86_32", endian: 
         return 0
     scan_end = offset + max_scan
     try:
-        import capstone
+        from rebrew.analysis import capstone_handle
 
         cs_arch, mode = _capstone_for_arch(arch, endian)
-        md: Any = capstone.Cs(cs_arch, mode)
-        # skipdata=True makes an undecodable byte emit a `.byte` pseudo-insn
-        # (the default skipdata_mnem).  With skipdata=False capstone simply
-        # STOPS at that byte, so the loop ended without a terminator and the
-        # function was reported as the full 4096-byte window.
-        md.skipdata = True
+        # skipdata keeps an undecodable byte as a `.byte` pseudo-instruction
+        # (capstone's default skipdata mnemonic).  Without it capstone stops
+        # at that byte, the loop ends with no terminator, and the function is
+        # reported as the whole 4096-byte scan window.  The handle is cached
+        # per thread: a signature scan calls this once per hit, and building
+        # a fresh ``Cs`` costs more than decoding a short function.
+        md: Any = capstone_handle(cs_arch, mode, skipdata=True)
     except Exception as exc:
         logging.getLogger(__name__).debug("capstone skipdata setup failed: %s", exc)
         md = None

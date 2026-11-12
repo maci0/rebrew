@@ -1251,13 +1251,13 @@ def _emit_cfg(payload: dict[str, Any], json_output: bool) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _get_capstone_x86() -> tuple[int, int, int, Any]:
-    """Import capstone x86 constants/classes lazily."""
+def _get_capstone_x86() -> tuple[int, int]:
+    """Import the x86 capstone arch and mode lazily."""
     try:
-        from capstone import CS_ARCH_X86, CS_MODE_32, CS_OPT_SYNTAX_INTEL, Cs
+        from capstone import CS_ARCH_X86, CS_MODE_32
     except ImportError as e:
         raise CapstoneUnavailable("capstone required. Install: uv pip install capstone") from e
-    return CS_ARCH_X86, CS_MODE_32, CS_OPT_SYNTAX_INTEL, Cs
+    return CS_ARCH_X86, CS_MODE_32
 
 
 def capstone_to_nasm(mnemonic: str, op_str: str) -> str:
@@ -1272,10 +1272,14 @@ def disassemble_to_nasm(
     label: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Disassemble bytes to NASM source with round-trip verification."""
-    cs_arch_x86, cs_mode_32, cs_opt_syntax_intel, cs_cls = _get_capstone_x86()
-    md = cs_cls(cs_arch_x86, cs_mode_32)
-    md.syntax = cs_opt_syntax_intel
-    md.detail = False
+    cs_arch_x86, cs_mode_32 = _get_capstone_x86()
+    # Intel syntax is capstone's default, so the shared handle already speaks
+    # it; constructing a ``Cs`` per function dominated decoding a short one.
+    # The syntax is not set on the cached handle: it is a handle property, and
+    # flipping it would change every other caller reusing the entry.
+    from rebrew.analysis import capstone_handle
+
+    md = capstone_handle(cs_arch_x86, cs_mode_32)
 
     instructions = list(md.disasm(code, base_va))
     total_insns = len(instructions)
@@ -1451,8 +1455,7 @@ def generate_inline_c(
     # Disassemble *code* for the per-instruction mnemonic comments (any
     # trailing bytes capstone cannot decode are emitted as bare data).
     # The comment follows the target arch: an ARM BL is not an x86 add.
-    import capstone
-
+    from rebrew.analysis import capstone_handle
     from rebrew.formats.binary_loader import capstone_config_for
     from rebrew.formats.binary_model import BinaryInfo
 
@@ -1463,9 +1466,7 @@ def generate_inline_c(
         endian=getattr(cfg, "endian", "") or "",
     )
     cs_arch, cs_mode = capstone_config_for(image)
-    md = capstone.Cs(cs_arch, cs_mode)
-    md.detail = False
-    insns = list(md.disasm(code, va))
+    insns = list(capstone_handle(cs_arch, cs_mode).disasm(code, va))
     covered = sum(len(i.bytes) for i in insns)
     leftover = code[covered:] if covered < len(code) else b""
 

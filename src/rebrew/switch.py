@@ -119,6 +119,8 @@ def find_switches(cfg: Any, va: int, window: int = 512) -> list[dict[str, Any]]:
 
     import capstone
 
+    from rebrew.analysis import capstone_handle
+
     arch = str(getattr(cfg, "arch", "") or "")
     if arch == "x86_16":
         cs_mode, entry_width = capstone.CS_MODE_16, 2
@@ -126,9 +128,9 @@ def find_switches(cfg: Any, va: int, window: int = 512) -> list[dict[str, Any]]:
         cs_mode, entry_width = capstone.CS_MODE_64, 8
     else:
         cs_mode, entry_width = capstone.CS_MODE_32, 4
-    md = capstone.Cs(capstone.CS_ARCH_X86, cs_mode)
-    md.skipdata = False
-    insns = list(md.disasm(raw, va))
+    # ``--all`` calls this once per function; a fresh ``Cs`` per function
+    # costs more than decoding the 512-byte window it scans.
+    insns = list(capstone_handle(capstone.CS_ARCH_X86, cs_mode).disasm(raw, va))
     if not insns:
         return []
 
