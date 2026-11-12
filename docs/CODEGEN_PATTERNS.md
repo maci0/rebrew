@@ -89,7 +89,7 @@ disassembly with `rebrew binary asm show` or `rebrew diff` to determine which ap
 | `if/else` nesting order | First checked condition becomes the fallthrough path; reversing nesting changes branch targets | Match the original nesting order exactly: `if (ptr != NULL)` first, not `if (ptr == NULL) { } else` |
 | `unsigned char *` vs `char *` | `char *` → `MOVSX` (sign-extend), `unsigned char *` → `AND reg, 0xFF` (zero-extend) | Check target for `movsx` vs `and 0xff` to determine signedness |
 | Short vs far branch encoding | Small target offsets (≤127B) use `jne rel8` (2B); larger use `je rel32` (6B): 4B diff per branch | Opposite condition with far jump is 4B larger; reorder blocks to minimize branch distance |
-| `if (x == -1) return -1;` idiom | Generates `inc/neg/sbb` (7B); `(x != -1) - 1` generates `setne` (13B) | Use explicit `if` + `return` for the compact form; avoid expression tricks |
+| `if (x == -1) return -1;` idiom | MSVC 2.0/4.1: `inc/sbb` family. MSVC 5.0-11.0: both the `if` form and `(x != -1) - 1` compile to `cmp; setne; neg` (`83 f9 ff 0f 95 c0 48`). Probe28 did not reproduce a 7B vs 13B split on 6.0 | Match the form the target actually emits. See [codegen/RULES.md](codegen/RULES.md) F25 |
 | `memcpy()` inlining | `memcpy()` inlines to `rep movsd/movsw/movsb`; explicit loops do NOT | Use `memcpy()` when target has `rep movs`; never hand-roll byte loops |
 | `goto` for shared error tail | `goto label;` at end of if-block controls block ordering in output | Use `goto` to merge duplicate return paths and match block layout |
 | Eliminating intermediate pointers | Removing a temp pointer var in loops can fix register allocation | If loop uses extra callee-saved reg, try inlining `arr[i].field` directly |
@@ -164,14 +164,14 @@ expressed in C.
 …then it's likely an SEH helper. Mark as STUB and move on.
 
 > `rebrew todo` auto-detects functions starting with `mov eax, fs:[0]`
-> (`64 A1 00 00 00 00`) and filters them out of actionable lists.
+> (`64 A1 00 00 00 00`) and drops them from `rebrew todo` (`detect_unmatchable` in `naming.py`).
 
 ---
 
 ## Non-Matchable Functions
 
 > `rebrew todo` auto-detects and excludes unmatchable patterns. Use
-> `rebrew todo --category start-function` to see only actionable new functions.
+> `rebrew todo --category start-function` to see only new functions still worth starting.
 
 - **IAT thunks**: 6-byte `jmp [addr]` stubs, not C code
 - **ASM builtins**: `memset`, `strcmp`, `strstr`, `strchr`, `strlen`, `strncpy`,

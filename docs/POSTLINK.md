@@ -5,10 +5,9 @@ binary, byte-for-byte, after linking.  It exists because linkers (MSVC6's
 `LINK.EXE` in particular) are **not source-order-preserving assemblers for
 every section**: several parts of the output layout are determined by the
 linker's internal hash-driven processing, so a recompilation whose *content*
-is correct can still differ from the original build in *placement*.  These
-differences are not decompilation errors; they are linker artifacts, and this
-tool normalizes them away so a byte diff measures only real code/data
-differences.
+is correct can still differ from the original build in *placement*. The fixers
+normalize placement and copy reference data/header regions as described
+below; resulting byte equality alone does not prove source recovery.
 
 ```
 rebrew build postlink <built.dll> <reference.dll> [--fix imports|data|pe-metadata|all] [--output out.dll]
@@ -85,9 +84,9 @@ addresses while the reference's point at *its* layout.  The fixer:
 4. grows `.data` to the reference's raw size and copies it, and replaces
    `.reloc` at the reference's file offset.
 
-The `.data` copy is only valid because the content is genuinely
-reconstructible: the same caveat as the project's `_emit`-dump pattern.  For
-a strict decomp it should sit behind an explicit verification-build flag.
+The `.data` fixer copies reference bytes; it does not prove that source
+reconstructed them. It has the same limitation as an `_emit` dump. For strict
+decompilation, gate it behind an explicit verification-build flag.
 
 ### 3. `pe-metadata`: toolchain-stamped headers
 
@@ -175,4 +174,4 @@ Pipeline order: `build layout-map` (measure) → `build link-order` (order) →
 ## See also
 
 - `rebrew build postlink --help`: CLI reference
-- `docs/TOOLCHAIN.md`: the MSVC6 compile/link backend
+- [TOOLCHAIN.md](TOOLCHAIN.md): the MSVC6 compile/link backend

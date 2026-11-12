@@ -89,8 +89,7 @@ rebrew binsync overlay ./binsync_state       # apply related-target evidence
 
 State files stay writable (mode 0644). BinSync's `State.dump` rewrites every
 artifact on the same working tree, so a read-only file fails its commit with
-`PermissionError`; an export makes a read-only file an older rebrew left
-writable again. rebrew's own stores (`rebrew-functions.toml`,
+`PermissionError`; an export restores mode 0644 on existing read-only files. rebrew's own stores (`rebrew-functions.toml`,
 `rebrew-data.toml`) and the baseline sidecar keep their 0444 lock.
 
 Every `binsync` and `sync` command that reads or writes state needs declib
@@ -310,8 +309,7 @@ in their own file; an unrelated source's alias cannot supply a member's width.
 Types with an omitted embedded value type are omitted as well. Block-local,
 repeated and target-conditional definitions are not hoisted into a global type;
 a conventional outer header guard is accepted. These refusals preserve existing
-remote artifacts and their shared baseline. A function's `struct` metadata by
-itself no longer creates a zero-size placeholder.
+remote artifacts and their shared baseline. A function's `struct` metadata alone does not create a zero-size placeholder.
 
 This remains a source layout model for 32-bit MSVC, not compiler layout proof.
 It does not preprocess target branches or follow includes to recover aliases
@@ -654,8 +652,8 @@ graph TD
   evaluate them.
   A peer size change without a layout change is retained and reported as skipped
   on pull; resolve the source's packing or padding locally before syncing again.
-- **Locals** have no source in rebrew, so stack variables only flow from
-  BinSync into the `locals` metadata.
+- **Locals** round-trip through `locals` metadata; they are not extracted
+  from or applied to C local-variable declarations.
 
 ### Round trip test with BinSync
 

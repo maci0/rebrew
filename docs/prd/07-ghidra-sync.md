@@ -4,11 +4,10 @@
 - **Date**: 2026-05 (updated 2026-09)
 - **Owner**: rebrew team
 
-> **Architecture note (2026-09):** `rebrew sync push` is BinSync-primary; field sync
-> (names, comments, prototypes, structs, globals) flows through a shared state
-> dir (`--push`/`--pull --state-dir`, conflicts via `--accept-binsync` /
-> `--accept-local`); ReVa MCP is used for structural ops
-> (`--create-functions`, `--bookmarks`, `--pull-data`).
+> Field sync uses `rebrew sync push` / `rebrew sync pull --state-dir PATH`
+> (names, comments, prototypes, structs, globals; conflicts via
+> `--accept-binsync` / `--accept-local`). Structural operations use
+> `rebrew sync create-functions`, `bookmarks`, and `pull-data`.
 
 **Feature name:** Bidirectional Ghidra ↔ Rebrew Sync (BinSync state dir + ReVa MCP structural ops)
 **One-line value:** Keep Rebrew's local C source the source of truth for
@@ -28,10 +27,9 @@ a text editor. Without sync:
 - Pushing rebrew's annotations back to Ghidra (so the analyst can browse
   with proper names) requires manual data entry.
 
-PRD 07 ships `rebrew sync push`, a single command for push + pull of names,
-labels, structs, prototypes, comments, and boundary corrections, using a
-BinSync state directory for field-level sync and the ReVa MCP server
-(or `ghidra-cli` bridge) for structural operations in Ghidra.
+PRD 07 covers the `rebrew sync` group: a BinSync state directory exchanges
+names, labels, structs, prototypes, and comments; ReVa MCP (or the
+`ghidra-cli` bridge) performs structural operations in Ghidra.
 
 ## Users
 
@@ -42,21 +40,21 @@ BinSync state directory for field-level sync and the ReVa MCP server
 
 ## Goals
 
-- Single command (`rebrew sync push`) with explicit push, pull, and inspect
-  modes.
+- One command group (`rebrew sync`) with push, pull, and preview operations.
 - Safe defaults:
   - Generic names (`FUN_`, `DAT_`, `func_`, `switchdata`, `thunk_`, `g_<hex>`)
-    are never overwritten.
+    never replace meaningful local names.
   - Concurrent field edits are reported as conflicts; a shared baseline lets
     remote-only edits apply automatically.
   - Tagged notes/GHIDRA comments map to their owned metadata fields; ordinary
     instruction comments remain distinct.
 - Bulk operations for labels, sizes, new function creation, struct
   pushes, signature pushes, and data-label syncing.
-- Offline field sync: `--push`/`--pull` read and write only the BinSync state
-  dir (`--state-dir`, required), so they work with Ghidra not running; only
-  the MCP structural ops need a live connection.
-- Dry-run for every mode.
+- Offline field sync: `sync push` / `sync pull` exchange the local state
+  directory (`--state-dir` or configured `binsync_state_dir`) without Ghidra.
+  Structural operations need their configured live backend.
+- Previews for every operation: `--dry-run` for writes, `summary` for
+  outgoing fields. `watch` continuously exports changes and has no dry run.
 
 ## Non-Goals
 
@@ -66,8 +64,8 @@ BinSync state directory for field-level sync and the ReVa MCP server
   optional `ghidra-cli` bridge) supports; rebrew talks via ReVa MCP HTTP by
   default, or the `ghidra-cli` subprocess backend when `ghidra_backend = "cli"`
   is set in `rebrew-project.toml`.
-- Sync does not edit Ghidra's `.gpr` directly: all writes go through
-  ReVa (or the `ghidra-cli` bridge).
+- Sync does not edit Ghidra's `.gpr` directly: field writes go through the
+  external BinSync plugin; structural writes use ReVa or `ghidra-cli`.
 - Sync does not version-control the Ghidra project; users are expected to
   commit `.gpr` (or rely on Ghidra Server) on their own.
 
@@ -75,14 +73,14 @@ BinSync state directory for field-level sync and the ReVa MCP server
 
 ### Field sync (BinSync state dir)
 
-- `--push` exports local annotations (names, comments/notes, prototypes,
+- `sync push` exports local annotations (names, comments/notes, prototypes,
   structs, globals) to the BinSync state directory (`--state-dir PATH`, or
   configured `binsync_state_dir`).
-- `--pull` imports the BinSync state directory into rebrew's C sources and
+- `sync pull` imports the BinSync state directory into rebrew's C sources and
   metadata.
-- `--summary` shows what would be pushed without writing to the state directory.
-- `--watch` watches sources/headers, metadata, config, binary, and remote state
-  (requires `--push --state-dir`).
+- `sync summary` shows what would be pushed without writing to the state directory.
+- `sync watch --state-dir PATH` watches sources/headers, metadata, config,
+  binary, and remote state, then exports changes. It has no JSON output.
 - Conflict resolution on pull:
   - Default: report conflict and skip.
   - `--accept-binsync`: accept remote field values on pull conflicts, rewriting local
@@ -94,18 +92,18 @@ BinSync state directory for field-level sync and the ReVa MCP server
 
 ### Structural operations (ReVa MCP)
 
-- `--create-functions`: creates Ghidra functions for every listed VA Ghidra has
+- `sync create-functions`: creates Ghidra functions for every listed VA Ghidra has
   not already detected (IAT thunks and entries with no canonical size are
-  skipped); when chained with `--pull`, creates the imported VAs in Ghidra.
-- `--bookmarks`: sets status bookmarks in Ghidra via ReVa MCP.
-- `--pull-data`: pulls data labels from Ghidra and generates `rebrew_globals.h`.
+  skipped); when `sync pull --create-functions` is used, creates the imported VAs in Ghidra.
+- `sync bookmarks`: sets status bookmarks in Ghidra via ReVa MCP.
+- `sync pull-data`: pulls data labels from Ghidra and generates `rebrew_globals.h`.
 - Transport fallback: ReVa MCP HTTP is the default transport; when
   `ghidra_backend = "cli"` is configured in `rebrew-project.toml`, the
   `ghidra-cli` binary backend applies the same push-direction structural
-  operations (`--create-functions`, `--bookmarks`) without contacting MCP at
+  operations (`sync create-functions`, `sync bookmarks`) without contacting MCP at
   all. A transport that dies after the MCP probe but before any op landed also
   falls back to `ghidra-cli`; an MCP that is down at the probe is refused up
-  front. Only the apply/push direction is bridged: `--pull-data` is
+  front. Only the apply/push direction is bridged: `sync pull-data` is
   ReVa MCP-only and has no `ghidra-cli` fallback.
 
 ### Runtime and common options
@@ -131,12 +129,11 @@ BinSync state directory for field-level sync and the ReVa MCP server
 1. After `rebrew coverage catalog` + initial annotations, the user runs
    `rebrew sync summary --state-dir ./state` and reviews the planned push.
 2. `rebrew sync push --state-dir ./state` exports names/comments/prototypes/
-   structs/globals into the BinSync state dir;
-   `rebrew sync bookmarks` applies both sets of structural
-   ops via ReVa MCP in one run (a `--dry-run` on the same flags previews both
-   sets together).
-3. Ghidra (via BinSync + MCP) shows meaningful names; further analysis is much
-   faster.
+   structs/globals into the BinSync state directory. Run
+   `rebrew sync create-functions` and `rebrew sync bookmarks` separately for
+   function creation and status bookmarks. Each accepts `--dry-run`.
+3. The BinSync plugin relays fields to Ghidra; the structural backend
+   creates functions and bookmarks.
 
 ### Story 2: Pulling Ghidra renames
 
@@ -152,9 +149,9 @@ BinSync state directory for field-level sync and the ReVa MCP server
 1. The user travels with no Ghidra running. `rebrew sync pull --state-dir
    ./state` imports names, comments, prototypes, structs and globals from the
    BinSync state dir; no MCP connection is involved.
-2. `--create-functions`, `--bookmarks` and `--pull-data` fail with an
-   `MCP unreachable at <endpoint>` error when ReVa MCP is down; re-run once
-   it is back.
+2. Structural commands using MCP fail with `MCP unreachable at <endpoint>`
+   when the initial probe fails. Re-run after recovery. Function creation
+   and bookmarks also support the configured `ghidra-cli` backend.
 
 ### Story 4: BinSync exchange with a teammate
 
@@ -167,21 +164,19 @@ BinSync state directory for field-level sync and the ReVa MCP server
 ## CLI Surface
 
 ```
-rebrew sync push [OPTIONS]
-  Field sync (BinSync state dir)
-      --state-dir PATH
-      --push
-      --pull
-      --summary
-      --watch
+rebrew sync push [--state-dir PATH] [--dry-run] [--json] [-t TARGET]
+rebrew sync pull [--state-dir PATH]
       --accept-binsync
       --accept-local
       --create-missing
-  Structural (ReVa MCP)
       --create-functions
-      --bookmarks
-      --pull-data
-  Runtime
+      --endpoint URL
+      --dry-run
+      --json
+  -t, --target TEXT
+rebrew sync summary [--state-dir PATH] [--json] [-t TARGET]
+rebrew sync watch [--state-dir PATH] [-t TARGET]
+rebrew sync {create-functions,bookmarks,pull-data}
       --endpoint URL   (default http://localhost:8080/mcp/message)
       --dry-run
       --json
@@ -210,26 +205,26 @@ rebrew binsync {init,diff,overlay,push,pull,summary}
 ## Success Metrics
 
 - `rebrew sync push --state-dir D --dry-run` followed by `rebrew sync push --state-dir D`
-  produces zero net diff on a second `--push` (idempotent).
+  produces zero net diff on a second push (idempotent).
 - Generic names from Ghidra never overwrite meaningful local names.
 - Pulled names from the BinSync state always update every cross-reference in
-  reversed source (no orphan references after `--pull --state-dir D --accept-binsync`).
+  reversed source (no orphan references after `rebrew sync pull --state-dir D --accept-binsync`).
 - Offline field sync applies local state-directory changes without Ghidra;
   structural operations require their configured live backend.
 - BinSync export round-trips without losing the exported BinSync fields.
 
 ## Open Questions / Known Limitations
 
-- Field sync (`--push`/`--pull --state-dir`) uses the BinSync state directory
+- Field sync (`sync push` / `sync pull --state-dir PATH`) uses the BinSync state directory
   and works offline without Ghidra running. Structural operations
-  (`--create-functions`, `--bookmarks`, `--pull-data`) require a live ReVa MCP
-  connection. `--create-functions` and `--bookmarks` additionally run on the
+  (`sync create-functions`, `sync bookmarks`, `sync pull-data`) require a live ReVa MCP
+  connection. `sync create-functions` and `sync bookmarks` additionally run on the
   `ghidra-cli` bridge backend when `ghidra_backend = "cli"` is configured;
-  `--pull-data` is ReVa MCP-only.
+  `sync pull-data` is ReVa MCP-only.
 - The MCP endpoint default is `http://localhost:8080/mcp/message` everywhere
   (code, skills, examples). Override with `--endpoint`.
 - `rebrew sync push` does not currently support pulling Ghidra *bookmarks*
   back into source; the push direction is one-way for bookmarks.
-- Conflict reporting in `--pull` uses the same JSON schema for "Ghidra/BinSync
+- Conflict reporting in `sync pull` uses the same JSON schema for "Ghidra/BinSync
   has X, local has Y" entries; tooling consumers should treat it as
   schema-versioned.

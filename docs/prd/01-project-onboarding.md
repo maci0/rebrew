@@ -76,7 +76,7 @@ commands that round-trip TOML.
   `gcc-*`, `clang-*`, `mingw-*`) runs image-backed: build or pull the image
   with `rebrew toolchain build <name>` / `rebrew toolchain pull <name>`.
   Only a plugin/overlay toolchain registered without an `image` may exec a
-  host PATH/vendored binary. The legacy `--install-wibo` host runner is
+  vendored host binary. The legacy `--install-wibo` host runner is
   ignored for image-backed profiles.
 - Doctor does not attempt to **fix** problems. It diagnoses and exits non-zero;
   fixes use the appropriate command, such as `rebrew cfg set`.
@@ -268,17 +268,17 @@ formatting.
 
 - `init` always seeds the same `AGENTS.md` template from `src/rebrew/AGENTS.md.template`;
   it cannot be customised per-project at creation time.
-- Toolchain acquisition is now docker-image based: `rebrew toolchain build
+- Toolchain acquisition is image-based: `rebrew toolchain build
   <profile>` builds the profile's image from the sibling recompile-toolchains
   checkout. The legacy `--install-wibo` host runner is a no-op for image-backed
-  profiles (kept for old host-runner configs).
-- FIXED: `doctor` now checks FLIRT signature availability (parses every
+  profiles (for image-less host-runner configurations).
+- `doctor` checks FLIRT signature availability (parses every
   `.pat`/`.sig` in `flirt_sigs/`); CRT source mirror discovery lives in
   `rebrew cfg detect-crt apply`.
 - `rebrew cfg target add` infers format/arch from the binary at the time of the call;
   if the binary is later replaced with a different arch, the stanza is stale
   (manual `cfg set targets.<name>.format/arch`, or `--force` for a binary that
   is not yet present).
-- FIXED: per-target compiler overrides are first-class now; `rebrew cfg target set-compiler
-  TARGET PROFILE` (or `cfg set targets.<name>.compiler.profile`) overrides the
-  shared `[compiler]` section per target.
+- Per-target compiler overrides use `rebrew cfg target set-compiler
+  TARGET PROFILE` (or `cfg set targets.<name>.compiler.profile`) to override
+  the shared `[compiler]` section per target.

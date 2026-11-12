@@ -50,7 +50,7 @@ first-class proof target, with PPC/ARM as the follow-on set.
 | Import/PE lane | `round_trip`, `gen_layout`, `postlink`, `link_sweep`, `imports.py`, `formats/pe_headers.py` | PE-specific: N/A for ELF targets (gate or ELF equivalents later) |
 | Known arches | `doctor.py::_KNOWN_ARCHES` | done: all ten presets |
 
-## Phase 0: Arch plumbing foundation — DONE
+## Phase 0: Arch plumbing foundation: DONE
 
 Small, behavior-neutral; unblocks every later phase. Exit was met: full suite
 green, **zero change to x86 behavior**.
@@ -84,7 +84,7 @@ green, **zero change to x86 behavior**.
    tiny MIPS/PPC ELF fixtures; reloc masking with MIPS reloc records; the full
    existing suite stays green.
 
-## Phase 1: MIPS 32-bit first-class target (proof of pipeline) — DONE
+## Phase 1: MIPS 32-bit first-class target (proof of pipeline): DONE
 
 Delivered: *a MIPS ELF binary can be onboarded, annotated, and matched with
 `gcc-*-mipsel`/`-psx` profiles*; the end-to-end milestone that validated the
@@ -570,7 +570,7 @@ rebrew cfg module set-cflags default"-O2 -G 8"    # per-overlay presets later
 rebrew binary analyze --output report.md            # toolchain, strings, SDK libs, FLIRT
 
 # 2. Triage
-rebrew todo --category start-function                # actionable funcs, filtered (skip SDK)
+rebrew todo --category start-function                # eligible funcs, filtered (skip SDK)
 rebrew similarity function 0x80001234 --limit 5            # find similar funcs to batch
 
 # 3. Skeleton → edit → match
@@ -695,7 +695,7 @@ Ideas beyond "port the existing engine": native console strengths that would be 
 | Xbox | x86 PIII | `x86_32` | `X86+32` | LE | 4 | Already ships |
 | PSP | MIPS Allegrex | `allegrex` | `MIPS+MIPS32+LE` | LE | 4 | VFPU |
 | Vita | ARM Cortex-A9 | `arm_vita` (alias `arm32`) | `ARM + ARM` | LE | 4 | Like Switch arm32 variant |
-| PS4 etc | x86_64 | `x86_64` | `X86+64` | LE | 8 | `already supported — no work` |
+| PS4 etc | x86_64 | `x86_64` | `X86+64` | LE | 8 | `already supported; no work` |
 
 \*Switch pointer size is 8 (A64); all other consoles listed are 4. PS3 PPU is 64-bit ELF64.
 
@@ -953,10 +953,10 @@ These are additive: C-era `EXACT`/`RELOC`/`PROVEN`/`STUB`/`BLOCKER` stay. Lint `
 **What to do with this list in Rebrew**
 
 1. **Lean into the retro C toolchains**: `cc65` (`ca65`/`ld65`), `GBDK`/`SDCC` (`sdcc -mz80`), Hudson `HuC`, and WDC `w65c816-cc` already *are* the `mipsel-gcc`/`mwcceppc` of the assembly era: list them as `ToolchainSpec` in §A.8 (next to `ca65`/`rgbds`/`wla`), not as footnotes. The main roadmap's GCC-proxies-for-proprietary model (§6) applies verbatim.
-2. **Label the exceptions**: every title above is `BLOCKER: verify-available — C toolchain known` (or `FLIRT: HuC/cc65/sdcc runtime`) rather than `STUB`. They are the first `verify --watch` E2E fixtures for Addendum phases A1/A2 (alongside the `hello.nes`/`hello.gb` stubs).
+2. **Label the exceptions**: every title above is `BLOCKER: verify-available; C toolchain known` (or `FLIRT: HuC/cc65/sdcc runtime`) rather than `STUB`. They are the first `verify --watch` E2E fixtures for Addendum phases A1/A2 (alongside the `hello.nes`/`hello.gb` stubs).
 3. **Don't oversell**: 95% of NES/MD/GB/SNES remains ASM. The table is not "rewrite Addendum as C": it is "the transition *already started* on SNES-GSU and TG-16 (HuC), and modern retro dev proves 6502/Z80 C is loopable; homebrew/retro is the validation corpus."
 4. **Contemporary analogue note (for reviewers):** The NES `cc65`/GB `GBDK`/TG-16 `HuC`/`SNES` WDC stories are the 8/16-bit equivalent of SDK-owned `ido`/`mwcceppc`; they demonstrate why shipping a single `mos6502` Capstone mode (Phase A0) unlocks both an ASM *and* a retro-C workflow on the same chip.
 
-*This section intentionally proposes no new deps beyond `capstone` modes already in Phase A0: `cc65`/`sdcc`/`HuC` are PATH-natives (zlib/[GBDK](), SDCC) like `ca65`/`rgbds`/`wla` per `TOOLCHAIN.md`. Rebrew's `verify` assembler path (A2) is reused; the only add is a `--cc` flag that routes through `cc65 --target nes` / `sdcc -mz80` instead of straight `ca65`/`rgbasm`, mirroring `psyq → mipsel-gcc` in §1B.*
+*This section intentionally proposes no new deps beyond `capstone` modes already in Phase A0: `cc65`/`sdcc`/`HuC` are PATH-natives (zlib/GBDK, SDCC) like `ca65`/`rgbds`/`wla` per `TOOLCHAIN.md`. Rebrew's `verify` assembler path (A2) is reused; the only add is a `--cc` flag that routes through `cc65 --target nes` / `sdcc -mz80` instead of straight `ca65`/`rgbasm`, mirroring `psyq → mipsel-gcc` in §1B.*
 
 *This addendum is the backlog for idea A2/A3/A6 in `IDEAS-GUILD.md` after Phase 4 ships. It intentionally proposes no new deps beyond `capstone` modes already added in Phase 0: assemblers are PATH natives, FLIRT packs are `.pat` files, and CHR preview reuses `matplotlib` (Available per `TOOLCHAIN.md`).*

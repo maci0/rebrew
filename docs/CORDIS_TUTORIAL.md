@@ -307,8 +307,10 @@ after explicit registration: recovered
 cleanup: 2
 ```
 
-When several inverses fail, cleanup still attempts all of them and reports
-their errors in an exception group. This does not establish that the external
+When several inverses in the current activation fail, cleanup attempts all
+of them and reports their errors in an exception group. A scope cleanup
+failure stops traversal before subsequent registrations and fences further
+managed lifecycle changes on that scope. This does not establish that the external
 resources were restored; the component author must repair failing inverses.
 See [failure behavior](CORDIS.md#failure-behavior) for cancellation, circular
 teardown requests, and the atomic startup helper's rollback boundary.

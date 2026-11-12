@@ -65,7 +65,7 @@ flowchart LR
 |---|---|
 | `rebrew/` top-level tools | One CLI command each (`test`, `verify`, `diff`, `match`, `lint`, `data`, `status`, `todo`, …), declared as `CliComponent` rows in `app/builtins.py` |
 | `rebrew/app/plugin.py` | Cordis composition runtime: `Context`, `CoeffectScope`, `activate()`, `CliComponent`. Mounts are reversible effects; inverses fire at most once. Unmet `needs` stay inactive; disposing the context closes the scope. HMR/loader tier is not built (ADR 014) |
-| `rebrew/registry.py` | Entry-point discovery and conflict policy for every component registry (single-source: a duplicate name raises `RegistryError`, except the CLI warn+skip and the optional-registry skip-with-warning groups). `refresh_all()` republishes every group under one lock for a long-lived host; readers take one generation (see "Registry snapshots" in `docs/DEVELOPMENT.md`) |
+| `rebrew/registry.py` | Entry-point discovery and conflict policy for every component registry (single-source: a duplicate name raises `RegistryError`, except CLI warn+skip, tuning-data extend/override, and optional-registry skip-with-warning groups). `refresh_all()` republishes every group under one lock for a long-lived host; readers use snapshots within each group, not across groups (see [Registry snapshots](DEVELOPMENT.md#registry-snapshots)) |
 | `rebrew/intake.py` | One-shot binary onboarding: init + toolchain detect (diec → PDB → PE metadata → heuristics) + plugin function discovery + STUB/blocker documentation |
 | `rebrew/app/main.py` | Umbrella CLI. Provides `app` (and the re-exported `console`), then `activate()`s packaged `CliComponent`s plus `rebrew.commands` / `rebrew.multicommands` plugins |
 | `rebrew/cli.py` | Shared options/helpers: `TargetOption`, `require_config`, `error_exit`, `json_print`, exit codes |
@@ -129,10 +129,9 @@ flowchart LR
 
 ## Which similarity tool
 
-Seven surfaces answer similarity questions (the last row is library
-identification, which is not a similarity score). They are not alternatives
-to each other: each measures a different thing, and picking the wrong one
-wastes the answer. Use this table before adding an eighth.
+The seven surfaces below answer different similarity questions. The last
+row identifies libraries rather than scoring similarity. Check these
+boundaries before adding another surface.
 
 | Surface | Answers | Input and cost |
 |---|---|---|
@@ -200,7 +199,7 @@ Registry publication has its own [snapshot contract](DEVELOPMENT.md#registry-sna
 - Config-driven: every tool reads `rebrew-project.toml` via `require_config`.
 - Idempotent: every tool is safe to re-run.
 - One canonical name per function: no aliases/shims/legacy wrappers.
-- STATUS promotion only via `update_source_status` (never inline in `.c`); BLOCKER only via `update_field`/`remove_field` through `rebrew blocker set/clear` or the auto-writers (`diff --fix-blocker`, `rebrew diagnose near --fix-blocker`, `document-unmatched`).
+- STATUS promotion only via `update_source_status` / `update_statuses_batch` (never inline in `.c`); BLOCKER only via `update_field`/`remove_field` through `rebrew blocker set/clear` or the auto-writers (`diff --fix-blocker`, `rebrew diagnose near --fix-blocker`, `document-unmatched`).
 - Source discovery via `iter_sources`; batch annotations via `iter_source_bindings`.
 - Registries republish as a whole: one `refresh_*` call is one generation, and a
   reader that needs two tables takes one snapshot (`registry_snapshot()`,

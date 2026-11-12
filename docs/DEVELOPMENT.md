@@ -61,7 +61,7 @@ must never replace the Git dependency.
 - `rebrew-functions.toml` keys are quoted strings: `["SERVER.0x01006364"]`.
 - **tomlkit copies plain lists on assignment**: mutating a list after
   `tbl[key] = my_list` is invisible to the document.  Re-assign after
-  mutation (this caused a real `cfg add-module` persistence bug).
+  mutation.
 - **STATUS writes/deletes are gated.**  `update_field`/`remove_field` refuse
   STATUS; use `update_source_status`.  Inline state in a `.c` file is not a
   source: lint reports the tag (E024), and every writer goes to the store.
@@ -77,8 +77,7 @@ must never replace the Git dependency.
 - **Compile paths need the source directory as an extra include dir.**  A
   `.c` using relative includes (`#include "../../Units/..."`) fails to
   compile from a temp dir unless `extra_include_dirs=[source.parent]` is
-  passed.  The GA path does this; `flag_sweep` had to learn it too
-  (a single-function `rebrew match flags` run silently returned 0 results).
+  passed. Both the GA and `flag_sweep` pass it.
 
 ## Import patterns
 

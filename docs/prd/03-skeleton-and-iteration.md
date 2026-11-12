@@ -55,7 +55,7 @@ you what to attack next.
   rejecting inline state without a legacy migration reader.
 - File operations (`split`, `merge`, `rename`) that are dry-run-friendly
   and never lose annotations.
-- A `todo` ranker that scores every actionable item by ROI and groups
+- A `todo` ranker that scores every eligible item by ROI and groups
   results by category (compile-error, fix-delta, improve-match,
   start-function, identify-library, run-prover).
 
@@ -176,7 +176,7 @@ you what to attack next.
   - `run-prover`; near-matches eligible for `rebrew prove`: delta ≤ 8 B
     and function ≤ 500 B.
   - `exact-only`; a `RELOC` function, identical with relocations masked but
-    not on its own; scored 0, below every actionable item.
+    not on its own; scored 0, below every eligible item.
   - `postlink-mangled`; a function whose bytes in `build/<target>` a
     postlink fixer rewrote, detected by diffing the span against a configured
     `raw_link`; scored 0, and absent without one.
@@ -265,7 +265,7 @@ rebrew test [SOURCE]
       --watch
       --context PATH
       --json
-  --target, --target TEXT
+  -t, --target TEXT
       --all-targets
 
 rebrew diff [SOURCE]

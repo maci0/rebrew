@@ -153,10 +153,10 @@ Trigger keywords: `Ghidra`, `binsync`, `sync ghidra`, `binsync push`,
 `binsync pull`, `state-dir`, `ReVa`, `rebrew sync push`, `create-functions`,
 `bookmarks`, `pull-data`.
 
-> **Architecture note (2026-09):** field sync is BinSync-primary
-> (`--push`/`--pull --state-dir`, `--accept-binsync` / `--accept-local`),
-> while ReVa MCP handles structural operations (`--create-functions`,
-> `--bookmarks`, `--pull-data`).
+> Field sync uses `rebrew sync push` / `rebrew sync pull --state-dir PATH`,
+> with `--accept-binsync` / `--accept-local` on pull. ReVa MCP handles
+> `rebrew sync create-functions`, `rebrew sync bookmarks`, and
+> `rebrew sync pull-data`.
 
 Scope:
 
@@ -273,14 +273,12 @@ rebrew skills show <name> --json  # name/description/path + raw content
   descriptions / trigger keywords, which are not validated against the CLI
   surface at all.)
 - The `rebrew-ghidra-sync` skill and all CLI tools share a single canonical
-  default endpoint of `http://localhost:8080/mcp/message`. (Resolved; was
-  a dual-default between 8089 and 8080; see gap report for history.)
+  default endpoint of `http://localhost:8080/mcp/message`. See the gap report for the endpoint audit.
 - `rebrew-init` ships bare-directory scaffolding for `rebrew init`
   (ADR-020). `rebrew intake` invokes the same init app in-process when no
   project exists, so a bare directory is covered by either skill; `rebrew-init`
   is the one that teaches `rebrew init` itself.
 - `rebrew skills list` / `rebrew skills show` provide built-in discovery
-  (`--json` for machine-readable output). (Resolved; was missing; agents no
-  longer need to scan the directory.)
+  (`--json` for machine-readable output).
 - Skills assume the agent has shell access to run rebrew CLI; pure
   text-only agents can read the skills but cannot execute commands.

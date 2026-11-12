@@ -1,251 +1,208 @@
-# decomp.me Compiler Infrastructure: Research Notes
+# decomp.me compiler fleet
 
-Research captured **2026-08-24** from the decomp.me platform's backing
-repos (see [Acquisition](#1-acquisition)).  Complements the corpus work:
-decomp.me is the DM source cited throughout [codegen/RULES.md](codegen/RULES.md),
-and this document records exactly what their compiler fleet contains,
-how it is packaged, and how it maps to (and differs from) rebrew's own
-toolchain infrastructure.
+How the decomp.me compiler fleet is packaged, which IDs map onto rebrew
+profiles, and what the probes of the compilers rebrew does not ship found.
+Companion to [codegen/RULES.md](codegen/RULES.md) (rules J2 and A2 cite this
+fleet) and to the per-version files. Captured 2026-08-24 from the decompme
+GitHub org, then probed (rules catalog rounds 26 and 27).
 
-## 1. Acquisition
+The checkout used for the capture is
+`~/Desktop/ai-decomp/third-party/decompme-api/` (sibling of the `decompedia/`
+practice-doc checkout).
 
-- **Live API is not directly scrapable**: `https://decomp.me/api/*`
-  returns a Cloudflare 403 challenge to non-browser clients, and the
-  `api.decomp.me` subdomain does not exist.
-- **Scraped instead** the decompme GitHub org: the backing data the
-  API serves:
-  - `decompme/compilers` (1.3 MB, shallow); the compiler fleet.
-  - `decompme/decomp.me` (4.3 MB, shallow); the site source (Django
-    backend + Next.js frontend) with the API routes and the compiler
-    definitions.
-- **Location**: `~/Desktop/ai-decomp/third-party/decompme-api/` (sibling of the
-  `decompedia/` practice-doc checkout; see that folder's
-  README).
-- **API surface** (from `site/backend/coreapp/urls.py`, mounted at
-  `/api/`): `compilers`, `compiler`, `platform`, `library`, `search`,
-  `stats`, `user`, `users/<slug>`, `healthz`.  The compiler list the
-  API serves is built from `site/backend/coreapp/compilers.py`.
+## 1. Where the definitions live
 
-## 2. Docker toolchain infrastructure
+`https://decomp.me/api/*` returns a Cloudflare 403 challenge to non-browser
+clients. The `api.decomp.me` subdomain does not exist. The compiler list the
+API serves is the source in the `decompme` GitHub org:
 
-decomp.me runs every compiler inside a Docker image: the same
-architecture idea as rebrew, with a different runtime split:
+- `decompme/compilers`: the fleet. `compilers/values.yaml` holds the
+  definitions (234 at capture).
+- `decompme/decomp.me`: the site (Django backend, Next.js frontend).
+  Routes mount at `/api/` from `site/backend/coreapp/urls.py`: `compilers`,
+  `compiler`, `platform`, `library`, `search`, `stats`, `user`,
+  `users/<slug>`, `healthz`, plus the scratch routes in section 7. The
+  compiler objects are built in `site/backend/coreapp/compilers.py`.
+  Display names are in
+  `site/frontend/src/lib/i18n/locales/en/compilers.json`.
 
-- **Dockerfile generation**: `template.py` (Jinja2) generates one
-  Dockerfile per compiler from `values.yaml` + per-platform templates
-  (`templates/win32/msvc.j2`, `templates/common/default.j2`,
-  `templates/ps1/psyq.j2`, …).  Generated files say "Do not edit
-  manually".
-- **Multi-stage build**: an `alpine` base downloads the compiler
-  tarball (e.g. `msvc6.0.tar.gz` from the OmniBlade/decomp.me
-  releases) and extracts it to `/compilers/<platform>/<id>`; a
-  `scratch` `release` stage copies only `/compilers`.  **The final
-  image is a bare compiler tree: no runtime.**
-- **Distribution**: a GitHub Action builds each image and pushes to
-  **ghcr.io**; decomp.me deployment pulls from the registry.
-- **Runtime split vs rebrew**:
+## 2. Images
 
-  | | decomp.me | rebrew |
-  |---|---|---|
-  | Image contents | bare compiler tree (scratch stage) | compiler + wine/DOSBox runtime baked in |
-  | win32 compilers run under | wibo, on the sandbox side (`WATCOM_CC = ${WIBO} wcc386.exe …`) | wine inside the image entrypoint wrapper |
-  | Registry | ghcr.io via GitHub Action | locally built `rebrew/msvc:*` |
+decomp.me runs every compiler in Docker, as rebrew does, with a different
+split of what the image contains.
 
-  Both mount the compiler dir as a drive (`Z:` on decomp.me); rebrew
-  mounts the workdir and passes `/I` include paths per version.
+`template.py` (Jinja2) generates one Dockerfile per compiler from
+`values.yaml` and the per-platform templates (`templates/win32/msvc.j2`,
+`templates/common/default.j2`, `templates/ps1/psyq.j2`). Generated files say
+"Do not edit manually". The build is multi-stage: an `alpine` stage downloads
+the compiler tarball (for example `msvc6.0.tar.gz` from the OmniBlade/decomp.me
+releases) and extracts it to `/compilers/<platform>/<id>`; a `scratch`
+`release` stage copies only `/compilers`. The published image is a bare
+compiler tree, with no runtime. A GitHub Action pushes each image to ghcr.io.
 
-## 3. The fleet
-
-- **234 compiler definitions** in `compilers/values.yaml`.
-- Platforms: `win32`, `msdos`, `n64`, `gba`, `gc_wii`, `ps1`, `ps2`,
-  `n3ds`, `nds`, `android_x86`, `macosx`, `dreamcast`, `common`, …
-- **x86-relevant subset**: the MSVC line (below), `bcc2.0`/`bcc3.1`
-  (Turbo C 2.0/3.1; we have these as `borland-tc`), and the
-  **commercial Watcom line `wcc10.0a/10.5/10.5a/10.6/11.0`** (we only
-  have Open Watcom 2.0).
-- The rest (MWCC/Metrowerks fleet, ARM compilers, console GCCs for
-  PS1/PS2/N64/GBA/NDS/3DS, clang 3.9–9.0, PPC MSVC) is non-x86 and
-  out of the corpus scope.
-
-## 4. MSVC line and SP mapping
-
-Display names from `site/frontend/src/lib/i18n/locales/en/compilers.json`:
-
-| decomp.me id | Display name | Maps to our corpus |
+| | decomp.me | rebrew |
 |---|---|---|
-| `msvc4.0` | Microsoft Visual C/C++ 4.0 | 4.0 missing; per decompedia MSVC.md, **4.0/4.1/4.2 are byte-identical to each other and to VC 2.0**: our 4.1 covers the codegen |
-| `msvc4.1` | 4.1 | ✓ (ours: msvc 4.1) |
-| `msvc4.2` | 4.2 | same as 4.1 codegen-wise (see above) |
-| `msvc6.0` | 6.0 | ✓ (ours: 6.0 RTM, cl 12.00.8168) |
-| `msvc6.3` | 6.0 SP3 | ✓ (ours: 6.0 SP3, 8447) |
-| `msvc6.4` | 6.0 SP4 | ✓ (SP4, 8804) |
-| `msvc6.5` | 6.0 SP5 | ✓ (SP5, 8966) |
-| **`msvc6.5pp`** | **6.0 SP5 w/ Processor Pack** | **missing: see §5** |
-| `msvc6.6` | 6.0 SP6 | ✓ (SP6, 9782) |
-| `msvc7.0` | 7.0 .NET 2002 | ✓ |
-| `msvc7.1` | 7.1 .NET 2003 | ✓ |
-| `msvc8.0` | 8.0 | ✓ (8.0 RTM) |
-| **`msvc8.0p`** | **8.0 (Patched)** | **missing: see §5** |
+| Image contents | bare compiler tree (scratch stage) | compiler plus wine or DOSBox, baked in |
+| win32 compilers run under | wibo, on the sandbox side (`WATCOM_CC = ${WIBO} wcc386.exe …`) | wine, inside the image entrypoint |
+| Registry | ghcr.io | locally built `rebrew/msvc:*` |
 
-The 6.0 SP mapping confirms RULES.md J2: decomp.me's 6.3–6.6 split is
-CRT/header-driven (each carries a different C1 build: 8168 RTM, 8447
-SP3, 8804 SP4+, 8966 SP5, 9782 SP6), while our corpus verified the SP
-line as **codegen-identical** across SP1–SP6 (only the 7.0 SP1 memset
-shapes differ).  So our SP rows are the codegen equivalents of their
-6.3–6.6 IDs.
+Both mount the compiler dir as a drive (`Z:` on decomp.me). Rebrew mounts the
+workdir and passes `/I` include paths per version.
 
-### The `pp` / `p` variants
+Watcom invocation, from `compilers.py`: `wcc386.exe` under wibo with
+`-zq -i="Z:${COMPILER_DIR}/h" -i="Z:${COMPILER_DIR}/h/nt"`. The compiler tree
+is the `Z:` drive and the include paths are explicit (the same shape as
+rebrew's `-I/tmp/cur_wc/h` for 16-bit wcc).
 
-- **`msvc6.5pp` = "6.0 SP5 w/ Processor Pack"**: a distinct tarball
-  (`msvc6.5pp.tar.gz`) from the same OmniBlade release set.  The
-  Processor Pack was Microsoft's free VC 6.0 add-on that upgraded cl
-  with SSE/SSE2 code generation (the `/arch:SSE`-era instruction
-  support).  A separate compiler ID because the PP cl generates code
-  stock 6.0 cannot (a unique era marker for SSE-capable 6.0).
-- **`msvc8.0p` = "8.0 (Patched)"**: a patched snapshot of VC 8.0
-  (VS2005, cl 14.00.50727) from the `widberg/msvc8.0` preservation
-  repo, two different git commits: `msvc8.0` = `d6c4aa2`, `msvc8.0p`
-  = `52c8293`.
-- Both are defined identically in `site/backend/coreapp/compilers.py`
-  (`MSVCCompiler(id=…, cc=CL_WIN)`); the variant identity lives in the
-  packaged binaries, not in the backend.
+MSVC tarball sources: `OmniBlade/decomp.me` releases (`msvcwin9x/`),
+`roblabla/MSVC-7.0-Portable`, `widberg/msvc8.0`. The `cl` binary set is the
+same one the rebrew probes use. Versions both fleets already cover add no
+new compiler binary.
 
-## 5. Sync gaps vs our corpus
+The two fleets are independent builds of the same upstream binaries
+(archaic-msvc and the OmniBlade releases). Rebrew pins sources, sha256-checked
+at image build time. decomp.me pulls its own registry images. There is no
+automated sync between them.
 
-**decomp.me has, we don't (x86-relevant):**
+## 3. ID mapping
 
-| Gap | Value for the corpus |
-|---|---|
-| `msvc6.5pp` (SP5 + Processor Pack) | the SSE-capable 6.0 cl: a unique codegen era we cannot produce today |
-| `msvc8.0p` (patched 8.0) | a patched 8.0 snapshot |
-| Commercial Watcom `wcc10.0a/10.5/10.5a/10.6/11.0` | **highest payoff**: a whole commercial codegen line we only know from Agner Fog; directly relevant to RULES.md A2's open question (AF table 5's `ax,dx,bx,cx` 4-register `__fastcall`, "not reproduced by Open Watcom 2.0; may be commercial-10.x-specific").  The `values.yaml` has the exact source tarball URLs |
-| `msvc4.0` / `msvc4.2` | **not a real gap**: decompedia MSVC.md states 4.0/4.1/4.2 are byte-identical to each other and to VC 2.0 |
+Platforms in `values.yaml`: `win32`, `msdos`, `n64`, `gba`, `gc_wii`, `ps1`,
+`ps2`, `n3ds`, `nds`, `android_x86`, `macosx`, `dreamcast`, `common`, and
+others. The non-x86 set (MWCC/Metrowerks, ARM, console GCCs for
+PS1/PS2/N64/GBA/NDS/3DS, clang 3.9-9.0, PPC MSVC) is outside the corpus.
 
-**We have, decomp.me doesn't**: msvc 2.0, 5.0, 9.0, 10.0, 11.0; the
-16-bit MSVC 1.0/1.5/1.52 line; Delphi 1.0; Zig; MinGW GCC (decomp.me
-hosts MSVC up to 8.0 only).
+| decomp.me id | Display name | Rebrew |
+|---|---|---|
+| `msvc4.0` | Microsoft Visual C/C++ 4.0 | `msvc-4.0`. 4.0/4.1/4.2 are codegen-identical to each other and to VC 2.0 |
+| `msvc4.1` | 4.1 | `msvc-4.1` |
+| `msvc4.2` | 4.2 | `msvc-4.2` (same codegen as 4.1) |
+| `msvc6.0` | 6.0 | `msvc-6.0` RTM, cl 12.00.8168 |
+| `msvc6.3` | 6.0 SP3 | `msvc-6.0-sp3`, 8447 |
+| `msvc6.4` | 6.0 SP4 | SP4, 8804 |
+| `msvc6.5` | 6.0 SP5 | SP5, 8966 |
+| `msvc6.5pp` | 6.0 SP5 w/ Processor Pack | `msvc-6.0-sp5-pp`. See below |
+| `msvc6.6` | 6.0 SP6 | SP6, 9782 |
+| `msvc7.0` | 7.0 .NET 2002 | `msvc-7.0-rtm` |
+| `msvc7.1` | 7.1 .NET 2003 | `msvc-7.1` |
+| `msvc8.0` | 8.0 | `msvc-8.0` RTM |
+| `msvc8.0p` | 8.0 (Patched) | not shipped. See below |
+| `bcc2.0` / `bcc3.1` | Turbo C 2.0 / 3.1 | `borland-2.0`, `borland-3.1` |
+| `wcc10.0a`, `wcc10.5`, `wcc10.5a`, `wcc10.6`, `wcc11.0` | commercial Watcom | not shipped. See below |
 
-**No automated sync**: the two fleets are independent builds of the
-same upstream binaries (archaic-msvc / OmniBlade releases); rebrew
-pins sources sha256-verified at image build time, decomp.me pulls its
-own registry images.
+`msvc6.3` through `msvc6.6` are separate IDs because each carries a different
+C1 build (8168 RTM, 8447 SP3, 8804 SP4 and later, 8966 SP5, 9782 SP6). The
+corpus measured SP1-SP6 codegen as byte-identical (rule J2). The split is
+CRT and headers, not instruction selection. Rebrew's SP rows are the codegen
+equivalent of those IDs. The 7.0 SP1 memset shapes are the exception, and
+they are an MSVC service pack, not a decomp.me ID.
 
-## 6. Integration details worth knowing
+Rebrew ships, and decomp.me does not: MSVC 2.0, 5.0, 9.0, 10.0, 11.0; the
+16-bit MSVC 1.0/1.5/1.52 line; Delphi 1.0; Zig; MinGW GCC. decomp.me hosts
+MSVC up to 8.0 only.
 
-- **Watcom invocation** (from `compilers.py`): decomp.me runs
-  `wcc386.exe` under wibo with `-zq -i="Z:${COMPILER_DIR}/h"
-  -i="Z:${COMPILER_DIR}/h/nt"`; the compiler tree is mounted as the
-  `Z:` drive and Watcom's include paths are passed explicitly
-  (matching our `-I/tmp/cur_wc/h` finding for 16-bit wcc).
-- **MSVC tarball sources**: `OmniBlade/decomp.me` releases
-  (`msvcwin9x/`), `roblabla/MSVC-7.0-Portable`, `widberg/msvc8.0`.
-- **CL.EXE wrapper convention**: same `cl` binary set we probe; no new
-  compiler binaries for the versions we already cover.
+### `msvc6.5pp` (Processor Pack)
 
-## 7. Open questions / next steps
+`msvc6.5pp.tar.gz` is a distinct tarball in the same OmniBlade release set.
+The Processor Pack was Microsoft's free VC 6.0 add-on. Rebrew ships it as
+`msvc-6.0-sp5-pp` (`rebrew/msvc:6.0-sp5-pp-win32`), built from
+`archaic-msvc/msvc600_sp5_vcpp`. The pack replaces the code generator
+(`c2.dll` 13.00.9044.0), adds MASM 6.15 (`ml.exe`), and installs the
+MMX/SSE/SSE2 intrinsic headers. See
+[TOOLCHAIN.md](TOOLCHAIN.md#vc6--processor-pack-msvc-60-sp5-pp).
 
-1. **Probe `msvc6.5pp`**: does the Processor Pack cl emit SSE at
-   `/O2` (a 6.0-with-SSE marker absent from our corpus)?  One tarball
-   + our wine wrapper + the `/I` table would answer it.
-2. **Probe commercial Watcom `wcc10.x`**: resolves A2's 4-register
-   fastcall question and adds the commercial codegen line (lea/div/
-   FPU forms unknown to us).
-3. **Probe `msvc8.0p`**: whether the patched snapshot differs in
-   codegen from our 8.0 RTM/SP1 rows.
-4. Keep the guild-doc re-check loop (the doc still grows between
-   sessions) and mine the remaining local codegen-claim docs
-   (docs/CODEGEN_PATTERNS.md is now fully probed via probe28).
-# decomp.me Snippet API: scrape guide
+`cl.exe` is unchanged at 12.00.8804. `/O2` and `/O2 /G6` codegen is
+byte-identical to stock SP5 on the probe shapes, so the pack adds no corpus
+rows (rule J2, [msvc-6.md](codegen/msvc/msvc-6.md)). `/arch:SSE` and `/G7`
+are rejected with D4002. `/G5`, `/G6`, and `/QIfist` are accepted. SSE/SSE2
+code comes from the pack's intrinsics, or from `.asm` through the shipped
+MASM. The `13.10.xxxx` compiler line is VC 7.1, not this pack, and SP6
+removes the pack.
 
-How to scrape decomp.me's code-snippet data ("scratches"; the code +
-compiler + flags + score records its matching platform stores) for
-codegen research, and what has been scraped so far.
+### `msvc8.0p` (patched 8.0)
 
-Companion to [DECOMPME_COMPILERS.md](DECOMPME_COMPILERS.md) (the
-compiler fleet): same scrape session, 2026-08-24.
+A patched snapshot of VC 8.0 (VS2005, cl 14.00.50727) from `widberg/msvc8.0`:
+`msvc8.0` is commit `d6c4aa2`, `msvc8.0p` is `52c8293`. Both are
+`MSVCCompiler(id=…, cc=CL_WIN)` in `compilers.py`. The difference is the
+packaged binaries.
 
-## What "snippets" are
+Probed codegen is ordinary VC 8 (the FP reload dance `d9 5c 24 04 …`, and
+`add eax,1` for an increment). No new corpus rows against rebrew's 8.0
+RTM/SP1 ([msvc-8.md](codegen/msvc/msvc-8.md), rule J2). Rebrew does not ship
+an image for it.
 
-decomp.me has no `/api/snippets` endpoint.  The snippet data lives in
-the **scratch** API (`/api/scratch`): one record per scratchpad, holding a
-user's C/C++ `source_code`, the `compiler` id, `compiler_flags`,
-`platform`, a `target_assembly`, and a match `score`/`max_score`.
-Exactly the data a codegen corpus wants: real code × real compilers ×
-real flags × match outcome.
+### Commercial Watcom 10.x / 11.0
 
-## Endpoints (from `site/backend/coreapp/urls.py` + `views/scratch.py`)
+`wcc10.0a`, `wcc10.5`, `wcc10.5a`, `wcc10.6`, and `wcc11.0` are the
+commercial line. Rebrew ships only Open Watcom 2.0. The probes ran the
+decomp.me tarballs under wibo (decomp.me's own runner) and folded 35 rows
+into the corpus under `watcom/<ver>` at `-otexan`
+([open-watcom.md](codegen/watcom/open-watcom.md), rule A2):
+
+- `wcc386` has no `__fastcall` keyword. The 4-register convention is
+  `#pragma aux parm [eax] [edx] [ebx] [ecx]`, and the wrapper loads eax, edx,
+  ebx, ecx (the 4th argument in ecx, not on the stack). That confirms Agner
+  Fog table 5. `__fastcall` is an Open Watcom keyword.
+- 10.0a, 10.5, 10.5a, and 10.6 are byte-identical across the probe set. 11.0
+  differs: its `idiv` divisor loads into ecx (`b9 0a … f7 f9`) where 10.x
+  uses ebx (`bb 0a … f7 fb`), and `idx7` swaps the register roles.
+- `/10` is a real `idiv` (signed `cdq; idiv`, unsigned `xor edx,edx; div`),
+  with no reciprocal multiply. 32-bit FP functions clean their own stack
+  (`ret 0x10` on a two-double function).
+- 34 of the 35 rows are byte-unique across the corpus. `udiv10_` on 11.0
+  shares its ecx-divisor form with Open Watcom 2.0.
+- 16-bit `wcc.exe` in the 10.5 tarball is a `binnt/wcc.exe` launcher stub
+  that references a missing `binw/wcc.exe`. The 16-bit commercial line needs
+  other release tarballs.
+
+## 4. Scratch API
+
+decomp.me stores matching records as scratches, not under `/api/snippets`.
+One scratch holds a user's `source_code`, the `compiler` id, `compiler_flags`,
+`platform`, a `target_assembly`, and `score` / `max_score`.
 
 | Endpoint | Method | Purpose |
 |---|---|---|
 | `/api/scratch` | GET | list scratches (filterable, cursor-paginated) |
-| `/api/scratch/<slug>` | GET | one scratch (full `source_code`, flags, score) |
-| `/api/scratch/<slug>/compile` | POST | compile a scratch (re-run the compiler) |
+| `/api/scratch/<slug>` | GET | one scratch (full source, flags, score) |
+| `/api/scratch/<slug>/compile` | POST | compile a scratch again |
 | `/api/scratch` | POST | create a scratch |
 | `/api/scratch-count` | GET | total count |
 
-**Filters** (`filters/scratch.py`): `?platform=<id>` (e.g. `win32`),
-`?compiler=<id>` (e.g. `msvc6.0`), `?preset=<id>`, `?has_owner=`.
-**Pagination** (`pagination.py`): cursor-based; `?page_size=N`, follow
-the `next` cursor field in the response envelope.
-
-**Scratch fields** (`models/scratch.py`): `slug`, `name`,
-`description`, `creation_time`, `last_updated`, `compiler`,
-`platform`, `compiler_flags`, `diff_flags`, `preset`,
-`target_assembly`, `source_code`, `score`, `max_score`, `family`,
+Filters (`filters/scratch.py`): `platform` (for example `win32`), `compiler`
+(for example `msvc6.0`), `preset`, `has_owner`. Pagination (`pagination.py`)
+is cursor-based: `page_size`, then the `next` field of the envelope. Fields
+(`models/scratch.py`): `slug`, `name`, `description`, `creation_time`,
+`last_updated`, `compiler`, `platform`, `compiler_flags`, `diff_flags`,
+`preset`, `target_assembly`, `source_code`, `score`, `max_score`, `family`,
 `parent`, `owner`.
 
-## The scrape procedure
-
-Script: `~/Desktop/ai-decomp/third-party/decompme-api/scrape_snippets.sh` (also in the
-scraped `compilers/`/`site/` trees).  It iterates the x86 compiler ids
-(`msvc4.0 … msvc8.0p`, `bcc2.0/3.1`, `wcc10.x`), pulls
-`/api/scratch?platform=win32&compiler=<id>&page_size=50`, saves each
-page as `snippets-x86/<id>_pN.json`, follows the `next` cursor, and
-flattens everything into `snippets-x86/all_snippets.json`.
-
-Manual equivalent (one compiler, first page):
+The capture script is
+`~/Desktop/ai-decomp/third-party/decompme-api/scrape_snippets.sh`. It walks
+the x86 compiler ids, requests
+`/api/scratch?platform=win32&compiler=<id>&page_size=50`, stores each page as
+`snippets-x86/<id>_pN.json`, follows `next`, and flattens to
+`snippets-x86/all_snippets.json`. One page by hand:
 
 ```bash
 curl -s -A "Mozilla/5.0 (X11; Linux x86_64) Firefox/128.0" \
   "https://decomp.me/api/scratch?platform=win32&compiler=msvc6.0&page_size=50"
 ```
 
-### The Cloudflare wall
+The same 403 covers `/api/scratch`, `/api/scratch-count`, `/api/compilers`,
+and `/api/platform`. A browser User-Agent does not pass it. Ways through, in
+order:
 
-`decomp.me/api/*` returns a **403 Cloudflare challenge** to non-browser
-clients (verified 2026-08-24 for `/api/scratch`,
-`/api/scratch-count`, `/api/compilers`, `/api/platform`; a browser
-User-Agent alone does not help).  Workarounds, in order of preference:
-
-1. **`cf_clearance` cookie**: pass the challenge in a real browser,
-   copy the cookie, then
+1. A `cf_clearance` cookie from a real browser:
    `COOKIE='cf_clearance=…' ./scrape_snippets.sh`.
-2. **Self-hosted instance**: `docker compose up` the `decomp.me` repo
-   (scraped in `~/Desktop/ai-decomp/third-party/decompme-api/site/`) and point `BASE` at
-   it.  This also gives you the DB seed (its scratch sample data) and
-   full API access without the CF layer.  **This is the recommended
-   route for a large scrape.**
-3. Scrape from a network without the CF block (some VPS/CI egresses
-   pass; unstable).
+2. A self-hosted instance: `docker compose up` the scraped `site/` tree and
+   point `BASE` at it. That also serves the DB seed. This is the route for a
+   large scrape.
+3. Egress that the challenge does not block. Unstable.
 
-The script stops at the first 403 per compiler: it never hammers.
+The script stops at the first 403 per compiler.
 
-## What has been scraped so far (2026-08-24)
-
-- **Live API**: blocked (CF 403); the run above confirms the block
-  and the script's safe-stop behavior.
-- **Local x86-relevant samples** → `~/Desktop/ai-decomp/third-party/decompme-api/snippets-x86/`
-  (with `manifest.json`): the only x86-compatible snippets present in
-  the repo source (frontend scratch-state fixtures + the portable C
-  from the backend tests).  The full corpus is DB-only and needs one
-  of the workarounds above.
-- **API knowledge**: endpoints, fields, filters, pagination captured
-  from the scraped `site/backend` source; documented above.
-
-## Next steps
-
-1. Run one of the CF workarounds, then `./scrape_snippets.sh`.
-2. Fold high-value snippets into the corpus as probe sources: pick
-   snippets with `compiler=msvc6.x` + `/O2` + good `score`, compile
-   them through our toolchain matrix, and cross-check our per-version
-   byte matrices against decomp.me's recorded `target_assembly`.
+As of the 2026-08-24 run the live API was blocked. The only x86-compatible
+snippets on disk are the ones in the repo source (frontend scratch-state
+fixtures and the portable C from the backend tests), under
+`snippets-x86/` with `manifest.json`. The full corpus is in the database and
+needs one of the routes above.

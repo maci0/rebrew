@@ -6,9 +6,8 @@ signatures with rebrew: **no IDA Pro required**.
 ## Background
 
 FLIRT (Fast Library Identification and Recognition Technology) signatures identify
-known library functions inside a binary by matching byte patterns. When you match
-a function to a FLIRT signature you get a **free win**: the function can be
-attributed to a specific library (CRT, zlib, Lua, etc.) without manual RE.
+known library functions inside a binary by matching byte patterns. A matching signature attributes a function to a library (CRT, zlib, Lua,
+etc.) without manually reversing its body.
 
 Rebrew uses the maintained [`python-flirt` binding](https://github.com/maci0/lancelot/releases/tag/python-flirt-v0.10.2-relumea.1)
 to load and match `.sig` / `.pat` files entirely offline. That binding is a
@@ -257,8 +256,9 @@ Each line shows:
 - The estimated **function size**
 - The **symbol name** from the signature database
 
-Functions identified this way can be marked as `LIBRARY` origin in your
-annotation headers without manually reversing them.
+Record identified functions as `kind = "LIBRARY"` in dedicated function
+metadata, using the CLI or locked metadata APIs. Headers contain declarations,
+not inventory state.
 
 ### Directory Layout
 

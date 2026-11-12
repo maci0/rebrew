@@ -19,8 +19,7 @@ security policy automatically.
 GitHub Actions (`.github/workflows/ci.yml`) runs lint, the full unit test suite
 across the supported Python versions (3.15; the pinned entry runs it as
 `make coverage`, failing below `COV_FLOOR`), plus, on that same 3.15 entry,
-a fixture-freshness
-check (`tools/gen_fixtures.py --check`) and an idempotency sweep
+a fixture-freshness check (`tools/gen_fixtures.py --check`) and an idempotency sweep
 (`tools/check_idempotency.py --fixture-dir`, which runs the offline `--json`
 CLI surface twice for output determinism and each mutating command twice
 against its own scratch project, requiring the first run to actually change
@@ -34,13 +33,15 @@ release assets sit under a moving `latest` tag) and the helper runs its
 jar with the job's `default-jdk`. `make vnu` runs that same helper for a
 contributor and prints the PATH line for the directory it installed into, so a local
 `make test` can run the gate instead of skipping it; `make doctor` reports
-a missing `vnu` and `make test` warns. A pre-commit hook-parity job (`make check` with
+a missing `vnu` and `make test` warns. The pre-commit hook-parity job runs `make check` with
 the two ruff hooks and the mypy hook skipped, since the lint job runs them; it installs
 shellcheck and yamllint first through `tools/ci_apt_install.sh`, so the shell
 and YAML hooks are enforced there; the SKILL.md command validator
 `tools/validate_skill_commands.py` runs there too, so a flag a skill
-documents but the CLI no longer accepts fails the job), a package job
-that builds the sdist/wheel via `make build` (SOURCE_DATE_EPOCH, umask 022, C/UTC,
+documents but the CLI no longer accepts fails the job.
+
+The package job builds the sdist/wheel via `make build` (SOURCE_DATE_EPOCH,
+umask 022, C/UTC,
 `PYTHONHASHSEED=0`; `tools/normalize_sdist.py` rewrites sdist tar metadata and
 wheel entry modes), checks both artifacts, the SBOM and `dist/rebrew.buildinfo` hash the same when
 `make build-repro` reruns from a `git archive` copy extracted under umask 077 at
@@ -88,9 +89,8 @@ reports the installed version and path and exits non-zero naming any of
 script the installed distribution declares, as the installer wrote it, and
 exits non-zero naming one that is missing from the bin directory or that fails
 to start. The single installed executable exposes the build hooks as subcommands;
-the CMake integration tests check tool arguments and generated build rules. A
-`cli-contract`
-job that greps the high-value `--help` surfaces. No pipeline step and no
+the CMake integration tests check tool arguments and generated build rules. The
+`cli-contract` job checks the high-value `--help` surfaces. No pipeline step and no
 Makefile recipe inlines Python: each check is a `tools/` script
 (`release_check.py` for the release preflight, `require_extras.py` for the
 `ensure-extras` mypy guard) or a Makefile target, so a failure names a file and

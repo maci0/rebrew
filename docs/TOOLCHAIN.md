@@ -20,9 +20,10 @@ over HTTP only when the URL host equals it exactly; any other HTTP URL still ref
 compensating control is the cluster NetworkPolicy: rebrew's pods must be allowed to reach that
 service and nothing else on the network, or the key travels in clear text where others can read it. The
 key is sent as a bearer credential to the configured service and its
-same-origin artifact endpoint. Each authenticated compile uses one idempotency
-key for retries within that invocation. The request and key are not saved for
-recovery across a process restart. Job-socket compiles use their own capability.
+same-origin artifact endpoint. Every compile sends a deterministic idempotency key derived from compiler,
+source, flags, filename and assembly-output choice. Identical inputs reproduce
+the key across retries and process restarts; the request itself is not saved.
+Job-socket compiles use their own capability.
 For Docker execution, the local compile cache keys an object on the inspected
 image id (`sha256:` plus 64 hex), and `docker run` uses that same id with
 `--pull=never`, so a missing image is an error rather than a daemon pull.
@@ -307,7 +308,7 @@ MSVC/Wine profiles, [experimental unshare](#experimental-unshare-backend)
 through `execution_backend`. There is no host Wine/wibo/DOSBox fallback; a
 missing image is a hard error (run `rebrew toolchain build <name>` or
 `rebrew toolchain pull <name>`). A plugin toolchain registered without an image
-execs its vendored/PATH binary directly. The image build source (Dockerfiles,
+executes its vendored binary directly; no PATH lookup is used. The image build source (Dockerfiles,
 wrappers, the shared `base`) lives in the standalone **recompile-toolchains**
 checkout: the sibling repo (overridable via `REBREW_TOOLCHAINS_DIR`),
 and `rebrew toolchain build`/`vendor` read it from there; rebrew no
@@ -347,7 +348,7 @@ from the archive.org `turboc20` floppies; image
 `rebrew/borland:2.0-win16`, in the smoke gate; the 1988/89 compiler that
 diec reports as "Borland C/C++ 1991"; C89-strict: rejects `//` comments,
 so skeletons use `/* */` markers), and the **complete MSVC 1.0–11.0
-line** (below: 32 docker profiles from `msvc-1.0` to `msvc-11.0`,
+line** (below: 32 classic-line profiles from `msvc-1.0` to `msvc-11.0`,
 every version and every preserved service pack, each packaged as a
 sha256-pinned docker image `rebrew/msvc:<version>-<arch>` plus a
 host tree vendored into the recompile-toolchains checkout as the
@@ -719,7 +720,7 @@ shows the column only when a non-packaged toolchain exists), and `rebrew
 doctor`'s Cache check reports an unregistered `[cache] backend` before the
 first compile.
 
-Three companion extension points make a plugin toolchain fully first-class:
+The following extension points complete a plugin toolchain's integration:
 
 - **`rebrew.flag_sets`**: sweep axes for the GA.  A zero-arg callable
   returning `dict[profile, (Flags, tiers)]` (tiers = `{tier: [axis ids]}`
@@ -797,7 +798,7 @@ manifest (`sources.json`), with **no compiler binaries in the repo** (every
 images document their reconstructed-media tarball prerequisite).  rebrew
 sources its `toolchain build`/`vendor` from a checkout of that repo: the
 sibling directory by default, overridable via `REBREW_TOOLCHAINS_DIR` (a
-missing checkout is an actionable error pointing at
+missing checkout errors with
 `git clone https://github.com/maci0/recompile-toolchains ../recompile-toolchains`).
 Any tool (e.g. a `recompile`-style compiler-as-a-service) can build or
 pull these images without rebrew itself.
@@ -941,9 +942,9 @@ Dockerfiles in `maci0/recompile-toolchains` currently install to
 
 ### Provenance & checksums (official releases only)
 
-Every pinned source is an **unmodified official Microsoft release**: the
-`archaic-msvc` preservation repos carry the original compiler binaries (not
-repacks), and the 16-bit trees come from the original Microsoft media.  The
+MSVC source pins preserve original Microsoft compiler binaries. Some trees
+combine official payloads or reconstruct service-pack layouts, as the table
+below records; a pinned tree is not necessarily an unmodified release archive.  The
 policy: prefer `archaic-msvc` (GitHub org) for everything it publishes; use
 archive.org / WinWorld items only for media archaic-msvc does not carry
 (16-bit 1.0/1.5/1.52, and decomp.me `msvc6.3`; the sole public SP3 tarball

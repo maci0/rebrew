@@ -341,62 +341,6 @@ inversion, stack frame padding, and argument evaluation order.
 
 ---
 
-## Discovery Origins
-
-Many mutations were discovered through manual decompilation of real MSVC6
-binaries.  The table below traces each discovery to the function that
-inspired it.
-
-| Function | Problem | Mutation | Result |
-|----------|---------|----------|--------|
-| **HandleSetupFlag** | `push ebp` frame not suppressed | `mut_register_param`: `register LPCWSTR` forced param into ESI | Frame omission → EXACT |
-| **HandleCommDlgError** | Wrong branch layout in loop | `mut_remove_loop_break`: removed `break` to match fall-through | 0 structural diffs → EXACT |
-| **NpPrintDlgProc** | `hwnd` enregistered into ESI | `mut_if_else_call_to_ternary_arg`: ternary arg reduced AST use-count | Register allocation fixed → EXACT |
-| **GetPrinterDC** | Return paths not merged | `mut_hoist_common_tail`: hoisted `MessageBoxW` out of branches | Compiler merged returns → NEAR_MATCH |
-| **SwapBytes** | Register allocation wrong for `(w >> 8) + (w << 8)` | `mut_commute_add_general`: swapped to `(w << 8) + (w >> 8)` to match eval order | Correct register assignment → EXACT |
-
----
-
-## Mutation Selection
-
-By default, `mutate_code()` picks uniformly at random from `ALL_MUTATIONS`.
-You can bias selection via the `mutation_weights` parameter. Set
-`track_mutation=True` to return both the source and mutation name; otherwise
-`mutate_code()` returns only the source string.
-
-```python
-from random import Random
-
-from rebrew.matcher import mutate_code
-
-source = "int choose(int x) { if (x) return 1; else return 2; }"
-rng = Random(0)
-weights = {"mut_swap_if_else": 3.0, "mut_for_to_while": 2.0}
-mutated, name = mutate_code(source, rng, track_mutation=True, mutation_weights=weights)
-```
-
-### Multi-Mutation
-
-Children have a 35% chance of undergoing 2–3 **chained mutations** in a
-single generation step.  This enables larger jumps in the search space
-that single mutations cannot reach.  (Bumped from 30% after expanding
-to 128 operators.)
-
----
-
-## Adding A New Mutation
-
-See the Mutations section of [`src/rebrew/matcher/AGENTS.md`](../src/rebrew/matcher/AGENTS.md#mutations).
-
-
-> Consolidation note (2026-08-08): `mut_commute_simple_add`/`mut_commute_simple_mul`
-> (identifier-only subsets of `mut_commute_add_general`/`mut_commute_mul_general`),
-> `mut_extract_args_to_temps` (subset of `mut_extract_complex_args`), and
-> `mut_split_cmp_chain`/`mut_merge_cmp_chain`/`mut_flatten_nested_if` (duplicates
-> of the Phase-3 `mut_split_and_condition`/`mut_merge_nested_ifs`) were removed;
-> they double/triple-weighted identical transforms in the GA.  Use the survivor
-> in each family.
-
 ### 21. Constant Tuning
 
 Adjust numeric literals (field offsets, sizes, magic numbers) by small
@@ -406,35 +350,6 @@ deltas.
 |----------|-----------|-----------------|
 | `mut_tweak_integer_literal` | `+ 0x70` → `+ 0x6c` (small ±deltas) | Without this mutation the GA can never FIX a wrong constant: structural mutations leave an off-by-N offset stuck at the seed score forever (a broken field offset plateaued at 5000 for 960 evals).  Small-biased deltas (±1/±2/±4/±8/±0x10) cover the off-by-N mistakes decompilation actually makes; hex vs decimal radix is preserved.  With it, the same search converges to `exact: True`. |
 | `mut_materialize_constant` | `x + 0x1000` → `int _mk_N = 0x1000;` + `x + _mk_N` | A literal folds into an immediate; a named local must be materialized into a register first.  The local's *width* is the lever (at most 0xff `unsigned char`, at most 0xffff `unsigned short`, else `int`), matching a byte-wide comparison against `0xff` that an immediate `cmp byte ptr [mem], 0xff` cannot express.  The declaration is hoisted to the function body top (C89); literals where C requires a constant expression (case labels, enum values, array bounds, bitfield widths, `static` initializers) are skipped. |
-
----
-
-### Revertible-effect tracking (inverse machinery)
-
-Beyond the operators, `mutator.py` exposes framework-level inverse support
-(`MutationLog`, `mutate_chain`) implementing the revertible-effects model of
-the Cordis paper ("A Programming Paradigm for Spatiotemporal Composability",
-§3.1): every applied mutation records its inverse (the pre-mutation source,
-captured at the point of application), inverses accumulate in reverse order
-(LIFO), and each inverse fires at most once, so `mutate_chain(src, rng)`
-followed by `log.undo_all()` restores the source **byte-identically**.
-
-- `MutationLog.apply(src, rng, mutation_weights=...)`: mutate and record
-  the inverse; returns `(mutated, name)`.
-- `MutationLog.undo()` / `undo_all()`: revert the last / all mutations
-  (LIFO); returns the restored source, `None` when the log is empty.
-- `mutate_chain(src, rng, max_steps=..., guard=...)`: apply up to
-  `max_steps` mutations; an optional `guard(current_src) -> bool` checked
-  before each step stops the chain at a step boundary (the paper's
-  step-boundary interruption, §4.3.2).
-
-The inverse is generic (framework-level) rather than per-operator: it
-restores the exact pre-mutation text, which satisfies the witness condition
-of the paper's Definition 8 for every operator without touching the 120+
-`mut_*` signatures.  The GA's evolution loop derives each child from an
-immutable base (`best_source`), so rollback there is equivalent to keeping
-the previous base; the log machinery is for code that chains mutations on a
-live buffer and needs to unwind them.
 
 ---
 
@@ -510,3 +425,90 @@ The first two were probed against the real toolchain and moved the object; the
 last three compiled but produced byte-identical objects on the minimal probe
 shapes.  They are context-dependent levers, not general rewrites: expect them
 to bite only on a function already near a register or frame boundary.
+
+---
+
+## Discovery Origins
+
+Many mutations were discovered through manual decompilation of real MSVC6
+binaries.  The table below traces each discovery to the function that
+inspired it.
+
+| Function | Problem | Mutation | Result |
+|----------|---------|----------|--------|
+| **HandleSetupFlag** | `push ebp` frame not suppressed | `mut_register_param`: `register LPCWSTR` forced param into ESI | Frame omission → EXACT |
+| **HandleCommDlgError** | Wrong branch layout in loop | `mut_remove_loop_break`: removed `break` to match fall-through | 0 structural diffs → EXACT |
+| **NpPrintDlgProc** | `hwnd` enregistered into ESI | `mut_if_else_call_to_ternary_arg`: ternary arg reduced AST use-count | Register allocation fixed → EXACT |
+| **GetPrinterDC** | Return paths not merged | `mut_hoist_common_tail`: hoisted `MessageBoxW` out of branches | Compiler merged returns → NEAR_MATCH |
+| **SwapBytes** | Register allocation wrong for `(w >> 8) + (w << 8)` | `mut_commute_add_general`: swapped to `(w << 8) + (w >> 8)` to match eval order | Correct register assignment → EXACT |
+
+---
+
+## Mutation Selection
+
+By default, `mutate_code()` picks uniformly at random from `ALL_MUTATIONS`.
+You can bias selection via the `mutation_weights` parameter. Set
+`track_mutation=True` to return both the source and mutation name; otherwise
+`mutate_code()` returns only the source string.
+
+```python
+from random import Random
+
+from rebrew.matcher import mutate_code
+
+source = "int choose(int x) { if (x) return 1; else return 2; }"
+rng = Random(0)
+weights = {"mut_swap_if_else": 3.0, "mut_for_to_while": 2.0}
+mutated, name = mutate_code(source, rng, track_mutation=True, mutation_weights=weights)
+```
+
+### Multi-Mutation
+
+Children have a 35% chance of undergoing 2–3 **chained mutations** in a
+single generation step.  This enables larger jumps in the search space
+that single mutations cannot reach.  (Bumped from 30% after expanding
+to 128 operators.)
+
+---
+
+## Adding A New Mutation
+
+See the Mutations section of [`src/rebrew/matcher/AGENTS.md`](../src/rebrew/matcher/AGENTS.md#mutations).
+
+
+> Consolidation note (2026-08-08): `mut_commute_simple_add`/`mut_commute_simple_mul`
+> (identifier-only subsets of `mut_commute_add_general`/`mut_commute_mul_general`),
+> `mut_extract_args_to_temps` (subset of `mut_extract_complex_args`), and
+> `mut_split_cmp_chain`/`mut_merge_cmp_chain`/`mut_flatten_nested_if` (duplicates
+> of the Phase-3 `mut_split_and_condition`/`mut_merge_nested_ifs`) were removed;
+> they double/triple-weighted identical transforms in the GA.  Use the survivor
+> in each family.
+
+### Revertible-effect tracking (inverse machinery)
+
+Beyond the operators, `mutator.py` exposes framework-level inverse support
+(`MutationLog`, `mutate_chain`) implementing the revertible-effects model of
+the Cordis paper ("A Programming Paradigm for Spatiotemporal Composability",
+§3.1): every applied mutation records its inverse (the pre-mutation source,
+captured at the point of application), inverses accumulate in reverse order
+(LIFO), and each inverse fires at most once, so `mutate_chain(src, rng)`
+followed by `log.undo_all()` restores the source **byte-identically**.
+
+- `MutationLog.apply(src, rng, mutation_weights=...)`: mutate and record
+  the inverse; returns `(mutated, name)`.
+- `MutationLog.undo()` / `undo_all()`: revert the last / all mutations
+  (LIFO); returns the restored source, `None` when the log is empty.
+- `mutate_chain(src, rng, max_steps=..., guard=...)`: apply up to
+  `max_steps` mutations; an optional `guard(current_src) -> bool` checked
+  before each step stops the chain at a step boundary (the paper's
+  step-boundary interruption, §4.3.2).
+
+The inverse is generic (framework-level) rather than per-operator: it
+restores the exact pre-mutation text, which satisfies the witness condition
+of the paper's Definition 8 for every operator without touching the 120+
+`mut_*` signatures.  The GA's evolution loop derives each child from an
+immutable base (`best_source`), so rollback there is equivalent to keeping
+the previous base; the log machinery is for code that chains mutations on a
+live buffer and needs to unwind them.
+
+---

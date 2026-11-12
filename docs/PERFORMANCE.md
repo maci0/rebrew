@@ -1,7 +1,6 @@
 # Rebrew Performance Notes
 
-Measured facts about where rebrew's hot paths spend time, and what was done
-(and deliberately *not* done) about it.
+Measurements of Rebrew hot paths, retained optimizations, and rejected experiments.
 
 ## Ten CPU-time microbenchmarks (2026-10-29)
 
@@ -526,8 +525,8 @@ to stay under one quadratic pass. That count does not move with scheduler load.
 
 ## Surface reads and recompile retries
 
-`tools/public_surface.surface_at_ref` used to spawn `git show` once per Python
-file. It now lists the tree and reads every blob in one `git cat-file --batch`.
+`tools/public_surface.surface_at_ref` lists the tree and reads every blob
+in one `git cat-file --batch`, avoiding one `git show` process per module.
 `public_surface` parses each module once and reuses that tree for constant
 substitution. Substitution walks signatures, bases, and literal values, not
 function bodies. The gates are `TestSurfaceWork.test_ref_is_one_cat_file_batch`
@@ -751,7 +750,7 @@ page carries the same dead declaration and it is gone there too. Gate:
 `test_entry_assets_fit_initial_congestion_window` is what forces the trade.
 
 Dashboard shell gzip is 3872 bytes (the inline guard included) and
-`/app.js` gzip is 9418 bytes (same
+`/app.js` gzip is 9418 bytes at this measurement checkpoint. Fixed
 `mtime=0` makes those bytes a function of the content, so a restart does
 not serve a different body under the same ETag. Gate:
 `test_handler_serves_precompressed_static`.

@@ -5,10 +5,9 @@ details**: prologues, register conventions, integer division, FPU, loops,
 string ops, padding, stack probes; how adjacent major versions differ, and
 which fingerprints are (verified) 100% unique to a version.
 
-This folder supersedes the former single-doc `docs/CODEGEN_REFERENCE.md`
-(deleted).  Cross-references: [TOOLCHAIN.md](../TOOLCHAIN.md) (profiles and
-detection), [CODEGEN_PATTERNS.md](../CODEGEN_PATTERNS.md) (MSVC6 C-source
-rules for byte matching).
+Cross-references: [TOOLCHAIN.md](../TOOLCHAIN.md) (profiles and detection),
+[CODEGEN_PATTERNS.md](../CODEGEN_PATTERNS.md) (MSVC6 C-source rules for byte
+matching).
 
 ## Index
 
@@ -92,8 +91,8 @@ claims are explicitly downgraded in the per-version files.
 | Signed-div sign-fix via ECX round-trip | `8b c8 c1 e9 1f 03 c1` | MSVC 5.0 & 6.0 | ✓ probe2+3, 13 divisors |
 | Magic division WITH post-shift (`shr edx,N` tail) | `c1 ea N 8b c2` | MSVC 7.0+ | ✓ probe2+3 |
 | **`rol` for rotate (`x<<n \| x>>(32-n)`)** | `d3 c0` | **MSVC 8.0+** (shift pairs in 2.0–7.1) | ✓ probe2 (`rotl`) |
-| **Memory-operand `imul dword ptr [esp+4]` in signed-div magic** | `f7 6c 24 04` | **MSVC 10.0+** (register-load in 5.0–9.0) | ✓ probe2+3, 13 divisors |
-| **`iabs` via cdq** (`x<0?-x:x`) | `99 33 c2 2b c2` | **MSVC 10.0+** (test/jns/neg in 5.0–9.0) | ✓ probe2 (`iabs`) |
+| **Memory-operand `imul dword ptr [esp+4]` in signed-div magic** | `f7 6c 24 04` | **MSVC 10.0/11.0** (`/7` only from 11.0, see C37 and C42; register-load in 5.0–9.0) | ✓ probe2+3, 13 divisors |
+| **`iabs` via cdq** (`x<0?-x:x`) | `99 33 c2 2b c2` | **MSVC 2.0/4.1 and 10.0/11.0** (branchy `test/jns/neg` in 5.0–9.0). Raw bytes also occur in a VC 6.0 corpus binary, so the marker is the probe function, not the idiom alone | ✓ probe2 (`iabs`); RULES.md C38 |
 | **`cmov` for min/max/clamp** | `0f 4f` / `0f 4c` | **MSVC 11.0 only** (branches in 2.0–10.0) | ✓ probe2 (`imax/imin/clamp`) |
 | SSE2 FP ops by default | `f2 0f 58/59/5c/5e` | MSVC 11.0 | ✓ probe1+2 (all earlier MSVC pure x87) |
 | SSE2 `movsd/addsd` handoff for FP returns | `f2 0f 10 … f2 0f 58 … dd 44 24` | MSVC 11.0 | ✓ probe2 (`fadd1`) |
@@ -103,7 +102,7 @@ claims are explicitly downgraded in the per-version files.
 | **64-bit helper args pushed from memory** | `ff 74 24 10` ×4 | **MSVC 11.0** (register loads in 4.1–10.0) | ✓ probe3 (`i64mul`/`i64div`) |
 | **`cvttsd2si` inline double→int** | `f2 0f 2c 44 24 04` | **MSVC 11.0** (2.0–10.0: `fld; jmp __ftol`; caveat: GCC with SSE2 also uses it) | ✓ probe4 (`d2i`/`f2i`) |
 | **2^52-bias inline double→unsigned** | `0d 00 0c 00 00` (or eax,0xC0000) | **MSVC 8.0+** (2.0–7.1: helper call) | ✓ probe4 (`d2u`/`f2u`) |
-| **`repe cmpsd` fixed-size memcmp** | `f3 a6` | **MSVC 2.0–7.1** (8.0+ unroll; GCC/Watcom/Borland call memcmp) | ✓ probe4 (`mc8/16/32`) + corpus rt63 |
+| **`repe cmpsb` fixed-size memcmp** | `f3 a6` | **MSVC 2.0–7.1** (8.0+ unroll; GCC/Watcom/Borland call memcmp) | ✓ probe4 (`mc8/16/32`) + corpus rt63 |
 | **`imul` for x*100 / x*1000** | `6b c0 64` / `69 c0 e8 03 00 00` | **MSVC 7.0+** (5.0/6.0 use lea chains) | ✓ probe4 (`m100`/`m1000`) |
 | **`shl eax,1` for x*10** | `8d 04 80 d1 e0` | **MSVC 5.0–7.1** (2.0/4.x + 8.0+ and GCC use `add eax,eax`) | ✓ probe4 (`m10`) |
 | **strcmp → tail `jmp strcmp`** | `e9` (reloc) | **MSVC 7.0+** (2.0–6.0: call + cleanup) | ✓ probe4 (`strc`) |
@@ -167,9 +166,9 @@ claims are explicitly downgraded in the per-version files.
 | **Delphi stack-check far call in prologue** | `b8 <size>; 9a` (`lcall`) | Delphi 1.0 (DCC) | ✓ probe3 (dpr) |
 | **`leave; ret N` callee-cleanup epilogue** | `c9 c2 N N` | Delphi 1.0 (DCC) | ✓ probe3 (dpr) |
 
-**Service-pack verdicts** (probe5+7+8+9+10 sweeps; the SP1 images probed
-for the first time): **VC 7.0 SP1 is the only SP with verified codegen
-differences; now SEVENTEEN probe functions.**  (a) 4 structural: the
+**Service-pack verdicts** (probe5+7+8+9+10 sweeps): **VC 7.0 SP1 is the
+only SP with verified codegen differences on these probes: seventeen
+functions.**  (a) 4 structural: the
 `==`/`!=` FP family (`fcmp2`/`fc5`/`fc8`/`fc9`) switch from the
 two-load `fucompp` (`da e9`) to `fcomp [mem]` (`dc 5c 24 0c`, 2 bytes
 shorter).  (b) 2 marshalling: `fl`/`cl` (floor/ceil) pass the FP
@@ -192,7 +191,7 @@ builds to compare).
 table was scanned against the corpus binaries' `.text`
 (win2k-*/bind = VC 5.0, rt63/rt7/skifree32/tcmd = VC 6.0,
 cpubench/test_sse2 = MinGW GCC 16).  Strongly confirmed (corpus hits in
-the claimed versions): `f3 a6` repe-cmpsd (rt63/rt7/tcmd), `d9 fa`
+the claimed versions): `f3 a6` repe-cmpsb (rt63/rt7/tcmd), `d9 fa`
 fsqrt, `dc 0d` reciprocal-fmul, `d9 e8` fld1, `c1 e8 01` 3-byte shift,
 `2b d2` div-zero, `0f 1f`/`0f a5 c2`/`83 e4 f8`/`0f 4f`/`0f 4c`/`d9 ee`/
 `0f 57 c0`/`f3 0f 7e`/`66 0f d6` in the MinGW binaries.  Markers whose
@@ -217,11 +216,11 @@ epilogue `pop` placement); VC 7.0 `/G5`≡`/G6` and 7.1 `/G5`≡`/G7`
 opportunities); the `/arch:SSE2` FP-comparison form (`comisd`) and the
 SSE `movq`/`pxor` copy forms are produced by VC 8.0–10.0 under
 `/arch:SSE2`, so the VC 11.0-default markers carry the flag caveat
-(see the table). the VC 6.0 SP levels
+(see the table). The VC 6.0 SP levels
 (SP1–SP6) are codegen-identical for every probe3 function: only the
-Rich-header C1 build separates them; VC 4.0/4.1/4.2 are codegen-identical
-to each other and to VC 2.0; **MSVC 1.0/1.5/1.52 are codegen-identical
-for probe4** (probed for the first time); 64-bit mul/div/shift are a
+Rich-header C1 build separates them. VC 4.0/4.1/4.2 are codegen-identical
+to each other and to VC 2.0. **MSVC 1.0/1.5/1.52 are codegen-identical
+for probe4.** 64-bit mul/div/shift are a
 helper call in **every** MSVC version: never inlined (and the helper
 *name* is the toolchain marker: `__allmul`/`__alldiv`/`__allshl` MSVC,
 `__llmul`/`__lldiv`/`__llshl` Borland, `__I8M`/`__I8D`/`__I8LS` Watcom,
@@ -289,7 +288,7 @@ records (NE user-code segments, function boundaries inferred at
 listing (e.g. the bcc32 C++ object).  Sweep results: the
 per-toolchain uniqueness confirmed every hand-documented marker and
 surfaced no new cross-toolchain-unique ones; the **SP equivalence is
-machine-verified over 2697 SP rows (matching each SP against its RTM
+machine-verified over 4466 matched SP rows, 4433 byte-identical (matching each SP against its RTM
 twin by toolchain/version/flags/probe/function)**; the known VC 7.0
 SP1 delta set (18 functions incl. probe14's `_s64_ret`) now extends
 with probe22's `_arr_counter`/`_struct_counter` (7.0 SP1 emits

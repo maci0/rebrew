@@ -123,11 +123,11 @@ first to post-shift division magic.
   Distinguish 7.0 from 7.1 via Rich build (9466/9955 = 7.0, 3077/6030
   = 7.1) and linker (7.0 vs 7.10).
 
-## Service packs (probed for the first time)
+## Service packs
 
-- **VC 7.0 SP1 is the ONLY service pack with verified codegen
-  differences: spanning TEN probe functions (EIGHTEEN functions
-  total).**  (a) The `==`/`!=` FP
+- **VC 7.0 SP1 is the only service pack with verified codegen
+  differences: ten probe functions, eighteen functions in total.**
+  (a) The `==`/`!=` FP
   family is structurally different: `fcmp2` (`a==b`), `fc5`
   (`a!=0.0`), `fc8` (`a!=b`), `fc9` (`a==0.0`) all switch from the
   two-load `fucompp` (`da e9`) to the single memory-operand

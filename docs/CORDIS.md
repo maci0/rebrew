@@ -103,16 +103,18 @@ activations immediately. Within an activation, inverses run in reverse
 installation order and are consumed at most once.
 
 Dependency loss retains a component's registration and provision reservations:
-it can activate again when its dependencies return. Retirement removes the
-registration and releases its reservations after cleanup. Use
+it can activate again when its dependencies return. Successful retirement removes the
+registration and releases its reservations after cleanup. Failed cleanup
+retains diagnostic entries and reservations and fences the scope (see
+[Failure behavior](#failure-behavior)). Use
 `scope.remove(component)` for replacement. Withdrawing any component-owned
 provision also retires that whole provider, including its other provisions.
 Host-owned bindings are withdrawn individually.
 
 A fork and a scope created inside an activation are owned effects. They end
-with that activation. Closing a scope removes its registrations; disposing a
-host context also closes its child contexts and scopes. Both operations are
-idempotent. Host disposal drains children and scopes before the remaining
+with that activation. Successful scope close removes its registrations; disposing a
+host context also closes its child contexts and scopes. Repeated successful
+cleanup is idempotent; a failed scope reports its latched error. Host disposal drains children and scopes before the remaining
 host inverses, even when an ordinary host effect was recorded later. This
 keeps host resources available during child cleanup. The remaining host
 inverses run in reverse order; there is no single LIFO order across the whole
@@ -157,7 +159,10 @@ or activation fails, it closes the scope it created, including successful
 siblings in that startup group. Use a retained `CoeffectScope` and `add()` for
 incremental registrations in a long-lived host.
 
-Cleanup attempts remaining inverses even when one raises. A single failure
+Within the current activation, cleanup attempts remaining inverses even
+when one raises. Scope traversal stops before subsequent registrations
+after a cleanup failure; that scope refuses further managed lifecycle
+changes and retains diagnostic entries and reservations. A single failure
 is re-raised; multiple failures form a `BaseExceptionGroup` (an
 `ExceptionGroup` when all members are ordinary exceptions). If activation
 and rollback both fail, both errors survive. A failing inverse is consumed,
@@ -189,7 +194,7 @@ covers lifecycle, committed views, confinement, and failure behavior.
 | `scope.add(component) -> None` | Reserve declared provisions and register the component; activate when satisfied. `component.apply` must be synchronous; async callables or awaitable returns raise `ComponentError`. Adding to a closed scope has no effect. |
 | `scope.remove(component) -> None` | Retire the first registration with that exact component object. An absent registration has no effect. |
 | `scope.unresolved() -> list[Component]` | Return registered components without active effects. Failed and retired registrations are absent. |
-| `scope.close() -> None` | Retire every registration and drain cleanup; idempotent. |
+| `scope.close() -> None` | Retire registrations and drain cleanup. Success is idempotent; cleanup failure fences the scope and repeated close reports `ComponentError` without retrying inverses. |
 | `activate(components, ctx) -> CoeffectScope` | Register a startup group, settling dependencies after registration. Failure closes this new scope. |
 
 Retain the component object when removal matters. Registering the same object
@@ -341,7 +346,7 @@ catalog remains in the [CLI reference](CLI.md#component-registration-plugins).
 | Withdrawing one key removes several services | They share a component-owned provider; withdrawal retires that entire registration. |
 | A failed component never retries | Failure removes its registration. Repair the cause and call `add()` explicitly. |
 | An installed CLI plugin is missing | Check the package is in Rebrew's environment, its entry-point shape is valid, and its command name does not collide. Restart the process. |
-| Teardown raises several errors | Inspect the exception group's members. Cleanup continues; repair inverses that failed rather than relying on repeated disposal. |
+| Teardown raises several errors | Inspect the exception group's members. The current activation drains its inverses, then the scope halts; repair failed inverses rather than relying on repeated disposal. |
 | A teardown request reports a circular lifecycle error | An inverse tried to retire its enclosing lifetime or a provider still in use. Move that request to the owner after the current lifecycle call returns. |
 
 ## Paper contracts and limits

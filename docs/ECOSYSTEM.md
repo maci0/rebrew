@@ -1,8 +1,8 @@
 # Rebrew Ecosystem
 
-Rebrew and [Resembl](https://github.com/maci0/resembl) are open-source
-projects. This guide describes their public integration boundaries and
-interoperability with third-party tools.
+This guide describes Rebrew and [Resembl](https://github.com/maci0/resembl)
+integration boundaries for contributors and tool authors. Both projects are
+open source.
 
 For Rebrew's own modules and data flow, see
 [ARCHITECTURE.md](ARCHITECTURE.md).

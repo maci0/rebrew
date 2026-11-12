@@ -40,7 +40,7 @@ Public claims (early access, [announce](https://typesafe.ai/blog/introducing-sys
 
 - End-to-end ~70–500 ms vs seconds–minutes for frontier LLMs.
 - Input `$0.042 / MTok` (`$42 / BTok`); output tokens free.
-- Current model `jev-1.13.0`. Alias `jev-latest` points at it
+- Model recorded in this research: `jev-1.13.0`; `jev-latest` pointed at it
   ([models](https://docs.typesafe.ai/models.md)). Pin the versioned id
   once thresholds are tuned: the alias moves.
 - HTTP: `POST https://api.typesafe.ai/v1/systemone`. Rate limits
@@ -152,7 +152,7 @@ expensive call; Jev is the prefilter.
 
 ### 3.3 Skill / intent routing
 
-Packaged skills: `rebrew-workflow`, `rebrew-matching`,
+Packaged skills: `rebrew-init`, `rebrew-workflow`, `rebrew-matching`,
 `rebrew-data-analysis`, `rebrew-ghidra-sync`, `rebrew-intake`. Agents
 pick the wrong one. A Choice on the utterance + `todo --json` head;
 code loads the skill.
@@ -547,7 +547,8 @@ identifier. Skip any row whose answer is already a number from
 
 #### Clone / family (intake + start-function)
 
-`rebrew similarity function` ranks STUBs by CFG against a solved function.
+`rebrew similarity function` ranks functions using mnemonic histograms,
+call/branch counts, and size agreement against a query function.
 That rank is structural, not semantic. Jev re-ranks the top 10
 the way the legal re-rank cookbook re-ranks BM25.
 

@@ -1,6 +1,7 @@
 # Rebrew Product Requirements Documents
 
-This directory records feature requirements and their implementation status.
+These product requirements describe Rebrew workflows for contributors and
+record their implementation status.
 PRDs may preserve historical examples or unshipped requirements; their status
 lines define that scope. Use [CLI.md](../CLI.md) and the current topical guides
 for executable commands and runtime contracts. Each PRD captures:
@@ -10,7 +11,7 @@ for executable commands and runtime contracts. Each PRD captures:
 - Goals / non-goals
 - Functional requirements
 - Concrete user workflows
-- The actually-shipped CLI surface (verified via `--help`)
+- The shipped CLI surface (check current syntax with `--help`)
 - Success metrics and known limitations
 
 PRDs are organised by feature area:

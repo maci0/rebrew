@@ -1,188 +1,136 @@
-# OMF object format: research notes (Open Watcom wcc386)
+# OMF object format (Open Watcom and 16-bit MSVC)
 
-Watcom's `wcc386` emits **OMF** ("8086 relocatable (Microsoft)") objects by
-default: every `-bt=`/`-fo=`/`owcc` combination tested produced OMF, not
-COFF.  LIEF cannot parse OMF; Watcom byte-matching is handled via the
-objconv→COFF conversion in `matcher/parsers.py` and the built-in 16-bit
-parser in `formats/omf16.py` (see the updates below; the README's
-"Object Parsing" is "yes" for Watcom).
-This file records the empirical findings from the 2026-08-11 investigation
-so the parser starts from ground truth.
+Watcom `wcc386` emits **OMF** ("8086 relocatable (Microsoft)") by default.
+Every `-bt=` / `-fo=` / `owcc` combination tested produced OMF, not COFF.
+LIEF cannot parse OMF. `rebrew.matcher.parsers.parse_obj_symbol_and_relocs`
+handles it: a 16-bit MSVC object goes to `rebrew.formats.omf16`, and every
+other OMF object is converted with the vendored objconv
+(`tools/objconv/objconv`) before the COFF path. The vendored binary is the
+fixed build (16-bit relocation methods and COMDAT-to-COFF sections). Stock
+objconv 2.52 crashes with "buffer overflow detected: terminated" on MSVC
+1.52 objects and on the `/O` dialect below. Rebrew prefers the vendored
+binary over a PATH objconv.
 
-## Sample object
+## Record framing
 
-```c
-int g;
-int f(void) { return g; }
-int callg(void) { return f() + g; }
-```
+Record = `[type:1][length:2 LE][data]`. Advance = `3 + length`.
 
-compiled with `wcc386 -zq -fo=tg.o tg.c` (Open Watcom 2.0 beta, Aug 2026).
+The length includes the checksum byte. Bit 15 clear means a checksum byte
+follows the data and is counted. Bit 15 set means no checksum.
 
-## Record framing (critical)
+The 16-bit MSVC dialect below does not use that checksum-in-length rule.
+`omf16._record_len` still masks bit 15 and requires the body to fit.
 
-- Record = `[type:1][length:2 LE][data]`.
-- **The length includes the checksum byte**: bit 15 of the length *clear*
-  means a checksum byte follows the data (and is counted); bit 15 *set*
-  means no checksum.  (My first walk misaligned by assuming the opposite.)
-- Record advance = `3 + length`.
+## 32-bit Open Watcom (objconv, then COFF)
 
-## Record types observed (tg.o)
+Sample (`int g; int f(void) { return g; } int callg(void) { return f() + g; }`),
+compiled `wcc386 -zq -fo=tg.o tg.c` (Open Watcom 2.0 beta, Aug 2026).
 
 | Type | Meaning | Notes |
 |------|---------|-------|
 | `0x80` | THEADR | length-prefixed source name |
-| `0x88` | LEDATA | *debug/aux data records here*, NOT code |
+| `0x88` | LEDATA | debug/aux data, not code |
 | `0x96` | EXTDEF | external symbols (name length-prefixed) |
-| `0x99` | SEGDEF | segment defs (`29 26 00 00 00 08 02 01 04` …) |
-| `0x9A` | PUBDEF | public symbols (`07 ff 02 ff 03 …`) |
+| `0x99` | SEGDEF | segment defs |
+| `0x9A` | PUBDEF | public symbols |
 | `0x8C` | FIXUPP | fixups |
-| `0xA1` | **LEDATA32-style code record** | body `01 00 00 00 00 68 04 …` = seg 1, 4-byte offset, then x86-32 code |
-| `0x9D` | fixup/reloc table | `a4 06 16 02 01 e4 0b 16 02 02 …` |
-| `0x91` | symbol table | `02 01 02 66 5f 00 00 00 00 00 06 63 61 6c 6c 67 …` |
+| `0xA1` | LEDATA32-style code | `[seg:1][offset:4 LE][code…]` |
+| `0x9D` | fixup/reloc table | pairs with `0x8C` |
+| `0x91` | symbol table | names to segment/offset |
 | `0x90` | MODEND | module end |
 
-## Key observations
+Code bytes live in type `0xA1`: `[seg:1][offset:4 LE][code…]`. In the sample,
+`68 04 00 00 00 e8 00 00 00 00 a1 00 00 00 00 c3` is `push 4; call rel32;
+mov eax,[disp32]; ret`. The reloc slots are the 4 bytes after `e8` and after
+`a1`. `0x88` bodies are debug/aux, not segment data.
 
-- The real code bytes live in **type `0xA1` records**: `[seg:1][offset:4 LE][code…]`.
-  In the sample, `68 04 00 00 00 e8 00 00 00 00 a1 00 00 00 00 c3` =
-  `push 4; call rel32; mov eax,[disp32]; ret`; the reloc slots are the
-  4 bytes after `e8` (call target) and `a1` (disp32).
-- `0x88` records in this object carry non-code data (the first `0x80`-prefixed
-  bodies are debug/aux info; do not treat them as segment data).
-- Public symbols are `0x9A` PUBDEF; the symbol table `0x91` maps names to
-  segment/offset for function extraction (`f` at `66 5f 00 00 00 00 00`, i.e.
-  offset 0x5f66?; verify against `0xA1` code layout when implementing).
-- The `0x9D` records pair with `0x8C` FIXUPP for relocations; decode the
-  LOCAT offsets to produce the reloc-offset list `parse_obj_relocs_full`
-  expects.
+`objconv -fcoff x.obj -o x.coff` is what the matcher runs. On the sample the
+converted COFF has 5 sections and 18 symbols. Open Watcom appends a trailing
+underscore (`f_`, `callg_`). `parse_obj_symbol_and_relocs` returns `callg_`
+as `68 04 00 00 00 e8 .. .. .. .. e8 .. .. .. .. 03 05 .. .. .. .. c3` with
+relocs `{6: __CHK, 11: f_, 17: _g}`.
 
-## Next steps (when implementing)
+Detection of "this is OMF" is the first record type in `0x80..0xA0` plus a
+plausible length (`matcher/parsers.py`). A 16-bit MSVC object matches that
+prefix too, so the 16-bit parser runs first.
 
-*(All four steps were implemented in the 2026-08-11 updates below; kept
-for the historical record.)*
+## 16-bit MSVC 1.52, unoptimized
 
-1. Parse records into (segments → LEDATA32/A1 code bytes, publics, externals,
-   fixups) following the framing above.
-2. Wire `matcher/parsers.py::parse_obj_symbol_and_relocs` to detect OMF
-   (first record type in `0x80..0xA0` + valid framing) and delegate.
-3. Validate reloc offsets against the `e8`/`a1` slots in the sample.
-4. Unit-test with a committed tiny OMF fixture (the tg.o bytes) so the
-   parser never needs the toolchain installed.
-
-## Update 2026-08-11: objconv adopted (32-bit OMF)
-
-**objconv** (Agner Fog's object-file converter, vendored at
-`tools/objconv/objconv`, ~840 KB single binary) is the LIEF-like tool for
-OMF: `objconv -fcoff x.obj -o x.coff` converts OMF→COFF, which the
-existing LIEF path parses unchanged.  `matcher/parsers.py` now detects OMF
-(first record type 0x80..0xA0) and auto-converts before parsing.
-
-**Verified on the Watcom `tg.o` sample** (converted COFF has 5 sections,
-18 symbols; OW appends a trailing underscore: `f_`, `callg_`):
-`parse_obj_symbol_and_relocs` returns `callg_` = `68 04 00 00 00 e8 .. .. .. .. e8 .. .. .. .. 03 05 .. .. .. .. c3` with relocs exactly at the
-predicted slots; `{6: __CHK, 11: f_, 17: _g}` (the e8 call targets and
-the `03 05` disp32).  Watcom (32-bit OMF) byte-matching is therefore
-**enabled**: the earlier custom-parser plan is superseded for 32-bit.
-
-**16-bit OMF caveat:** the *stock* objconv 2.52 **crashes** ("buffer
-overflow detected: terminated") on MSVC 1.52's 16-bit OMF objects; the
-built-in custom parser (record layout above) handles the 16-bit path.
-The vendored `tools/objconv/objconv` is the **fixed build from the objconv
-fork** (16-bit relocation methods + COMDAT→COFF-section support, see the
-fork's PR-16BIT-OMF.md); rebrew prefers the vendored binary over a PATH
-objconv, and `parse_obj_symbol_and_relocs` falls through to it when the
-custom parser cannot decode a dialect.
-
-## Update 2026-08-11: MSVC 1.52 16-bit dialect (decoding deferred)
-
-The stock objconv crashes on 16-bit OMF (the vendored fixed build does
-not), so the built-in parser was scoped as the primary 16-bit path.
-Record dump of a real `msvc16.compile_c` object (test.c: `add` + `main`):
+No `/O` flag. Record dump of a real `msvc16.compile_c` object (`add` + `main`).
 
 | Type | Meaning (observed) |
 |------|--------------------|
 | `0x80` | THEADR |
-| `0x88` | LEDATA: debug/aux data, NOT code |
-| `0x96` | EXTDEF: segment/group names ("CODE","DATA","CONST","BSS", "_TEXT"…) |
-| `0x98` | SEGDEF (`48 3c 00 0b 02 01 00`; 4 segments) |
+| `0x88` | LEDATA: debug/aux data, not code |
+| `0x96` | EXTDEF: segment/group names ("CODE", "DATA", "CONST", "BSS", "_TEXT") |
+| `0x98` | SEGDEF (4 segments) |
 | `0x99` | segment class/size records |
-| `0x9A` | PUBDEF (`0f ff 02 ff 03 ff 04 00`) |
+| `0x9A` | PUBDEF |
 | `0x9C` | COMDEF |
-| `0x8C` | FIXUPP: carries embedded names (`__aNchkstk`, `__acrtused`) |
-| `0xA0` | **code record**: `01 00 00 55 8b ec b8 00 00 e8 00 00 …` (real 16-bit code) |
-| `0x90` | MODEND: **publics live here** (`_add`, `_main` + offsets, 0x1a = main) |
-| `0xB2` | fixup table (`01 01 04 00 02 00 1e 00 02 00 00`) |
+| `0x8C` | FIXUPP, with embedded names (`__aNchkstk`, `__acrtused`) |
+| `0xA0` | code: `[seg:1][offset:2 LE][code…]` |
+| `0x90` | MODEND: publics live here (`_add`, `_main` + offsets; `0x1a` = main) |
+| `0xB2` | fixup table |
 | `0x8A` | LIDATA |
 
-This dialect diverges from both classic OMF and OW's 32-bit OMF (names in
-EXTDEF, code in 0xA0, publics in MODEND, no checksum-in-length framing).
-Reliable decoding (0xA0 offsets + 0x8C/0xB2 fixup semantics + MODEND
-public mapping) needs a focused reverse-engineering effort with more
-ground-truth objects: **deferred**; objconv covers the 32-bit Watcom path
-in the meantime.
+`rebrew.formats.omf16` concatenates `0xA0` chunks at their 16-bit offsets and
+reads `0x90` as `[len][name][offset:2 LE]` pairs. `_main` at `0x1a` lands at
+the second function in the stream. Symbols match across `_add` / `add` /
+`add_`, and a Borland Pascal uppercase spelling (`F` for `f`).
 
-## Update 2026-08-11: 16-bit MSVC dialect: code extraction DONE
+Relocs are not taken from `0x8C` / `0xB2` (those records are structural and
+identical across objects). Every `e8` / `e9` marks a 2-byte rel16 slot:
+16-bit MSVC never emits a literal call or jump opcode. Verified: `_add`
+relocs at 7 (`__aNchkstk`) and 18 (tail jmp); `_caller` at 7, 20, and 30.
 
-`rebrew.formats.omf16` now parses the MSVC 1.52 16-bit dialect (wired
-into `parse_obj_symbol_and_relocs` as the primary 16-bit path; objconv
-remains the fallback for dialects the parser cannot decode):
-- `0xA0` records → concatenated code (`[seg:1][offset:2][code...]`)
-- `0x90` MODEND → public name/offset pairs (verified: `_main @ 0x1a`
-  lands exactly at the second function in the code stream)
-- symbol matched across conventions (`_add`/`add`/`add_`)
-Verified on real compile_c objects: `_add`/`_main`/`_caller` extract
-with correct 16-bit function bytes.  **Relocs are decoded too**: every
-`e8`/`e9` opcode marks a 2-byte rel16 slot (16-bit MSVC codegen never
-emits literal call/jump opcodes; they are always linker-patched);
-verified: `_add` relocs at 7 (__aNchkstk call) + 18 (tail jmp); `_caller`
-at 7/20/30 (chkstk, intra-module call, global disp16).  The 0x8C/0xB2
-records are structural (identical across objects); the e8/e9 scan is the
-reliable reloc source.
+Turbo C and 16-bit Watcom also end an `0xA0` LEDATA with a checksum byte
+(record sum, type and length included, is 0 mod 256). MSVC 1.52 does not.
+The parser drops that byte when the sum matches, so the code slice has no
+spurious tail.
 
-## Update 2026-08-11 (2): record layout differs in the /O-optimized dialect
+## 16-bit MSVC 1.52, any `/O` flag
 
-CL 1.52 compiled with **any /O flag** (the GA flag sweep's default, and
-the init profile's default `cflags: /O1`) emits a *different* dialect than
-the unoptimized one above.  Empirically mapped on real `/O1` objects
-(`g` + `f` + `callg`; `glob1/glob2` + static `helper` + `alpha`/`beta`):
+CL 1.52 with any `/O` flag (the GA sweep default, and the init profile's
+`cflags: /O1`) emits a different dialect. Mapped on real `/O1` objects.
 
-| Type | Meaning (observed, /O1 dialect) |
-|------|----------------------------------|
+| Type | Meaning (observed, /O dialect) |
+|------|--------------------------------|
 | `0x80` | THEADR |
 | `0x88` | COMENT: compiler banner, default libs (SLIBCE, OLDNAMES.LIB) |
-| `0x96` | GRPDEF (**starts with `00`**; group/segment names) |
+| `0x96` starting with `00` | GRPDEF: group/segment names |
 | `0x98` | SEGDEF (4 segments, same shape as unoptimized) |
 | `0x9A` / `0x9C` | segment/fixup tables (structural) |
-| `0xB0` | EXTDEF: external globals (`[len][name][type...]`) |
-| `0xCA` | **static/local name list** `[len][name]...` (e.g. `helper`) |
-| `0x96` (no `00` prefix) | **public name list** `[len][name]...` (e.g. `_f`, `_callg`) |
-| `0xC2` | **code record**: `[header:7or9][code...][checksum:1]`; one per function; 7-byte header for far-code models (`SRC_TEXT`) |
+| `0xB0` | EXTDEF: external globals (`[len][name][type…]`) |
+| `0xCA` | static/local name list `[len][name]…` (e.g. `helper`) |
+| `0x96` with no `00` prefix | public name list `[len][name]…` (e.g. `_f`, `_callg`) |
+| `0xC2` | code: `[header][code…][checksum:1]`, one record per function |
 | `0x8A` | MODEND |
 
-Key facts:
-- **Code lives in `0xC2` records**, then the function bytes, then a
-  trailing checksum byte (whole record sums to 0 mod 256).  One record per
-  function.  The header length depends on the **code model**:
-  - near-code models (`/AS` small, `/AC` compact): **9-byte header**
-    (constant shape `XX 00 00 00 00 00 00 01 NN`)
-  - far-code models (`/AM` medium, `/AL` large): **7-byte header**
-    (`00 01 02 00 00 00 NN`); functions end in `retf` and far calls are
-    `lcall`/`ljmp` (`9a`/`ea`) with a 4-byte ptr16:16 patch slot
-  - The GRPDEF names the code segment `_TEXT` (near) vs `SRC_TEXT` (far);
-    the parser reads that to pick the header length.  Far-code models
-    are what 16-bit Windows 3.x games (e.g. the skifree16 NE target) use.
-- **Name records (0xCA then 0x96) are in code-record order**: function
-  `i` maps to code record `i`.  Static functions appear in 0xCA *before*
-  the 0x96 publics, in stream order, matching the 0xC2 code order.
-- The unoptimized GRPDEF `0x96` starts with a `00` group-index byte; the
-  optimized public-list `0x96` does not: that byte disambiguates the two.
-- objconv buffer-overflows on this dialect too; the built-in parser handles
-  both via `rebrew.formats.omf16` (detect 0xA0 *or* 0xC2 code records).
-- Relocs: `e8`/`e9` rel16-slot scan **plus** absolute disp16 operands
-  (`a1 00 00` = `mov ax,[global]`, and modrm `mod=00 rm=110` forms like
-  `add ax,[global]` / `push [global]`) **plus** far-call/ljmp ptr16:16
-  patch slots (`9a`/`ea`); located via capstone in 16-bit mode, which
-  pinpoints the displacement byte exactly.  Verified on real objects:
-  `_f` (near) = `{1: disp16}`, `_callg` (near) = `{1: rel16, 5: disp16}`,
-  `_callg` (far) = `{1: far16, 7: disp16}`.
+The `00` prefix is what separates GRPDEF `0x96` from the public-name `0x96`.
+
+Code lives in `0xC2`. The trailing byte makes the record sum to 0 mod 256.
+Header length depends on the code model, which the parser reads from the
+GRPDEF code-segment name:
+
+- Near-code (`/AS` small, `/AC` compact), segment `_TEXT`: 9-byte header,
+  shape `XX 00 00 00 00 00 00 01 NN`.
+- Far-code (`/AM` medium, `/AL` large), segment `SRC_TEXT`: 7-byte header,
+  `00 01 02 00 00 00 NN`. Functions end in `retf`. Far calls are `lcall` /
+  `ljmp` (`9a` / `ea`) with a 4-byte ptr16:16 patch slot. 16-bit Windows 3.x
+  games (the skifree16 NE target) use this model.
+
+Name records (`0xCA`, then `0x96`) are in code-record order: function `i`
+is code record `i`. Statics in `0xCA` precede the `0x96` publics.
+
+`is_omf16` is true when an `0xA0` or `0xC2` record is present. Relocs add,
+on top of the `e8` / `e9` scan, absolute disp16 operands (`a0`-`a3` moffs,
+and modrm `mod=00 rm=110` such as `add ax,[global]` / `push [global]`) and
+the far `9a` / `ea` slots. Capstone in 16-bit mode locates the displacement
+byte. The `e8` / `e9` scan still runs when capstone is unavailable. Verified:
+`_f` (near) = `{1: disp16}`, `_callg` (near) = `{1: rel16, 5: disp16}`,
+`_callg` (far) = `{1: far16, 7: disp16}`.
+
+If `is_omf16` matches but `parse_obj_omf16` returns no code (the `/O1` and
+far-code COMDAT models the minimal parser cannot decode), the matcher falls
+through to objconv. That conversion needs the vendored fixed build. Stock
+objconv errors, and the parse then yields no symbol.

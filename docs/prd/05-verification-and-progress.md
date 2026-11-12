@@ -37,8 +37,7 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
   detect regressions before promoting STATUS.
 - **CI bot** running `rebrew verify --compare` against the local
   `.rebrew/verify_baseline.toml` baseline to fail on regressions.
-  (>2026-09: was `db/verify_results.json`; the baseline is now a local
-  gitignored `.rebrew/` file.)
+  The baseline is local, gitignored run state.
 - **Team lead** generating `rebrew source graph --format mermaid` for design
   reviews.
 
@@ -79,9 +78,9 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
   `--dir` / `--module` compose with file scope.
 - Reports EXACT, RELOC, NEAR_MATCHING (with delta), STUB, or
   COMPILE_ERROR.
-- Writes no default report file: `--output` is explicit export only
-  (>2026-09: was `db/verify_results.json` by default; the `--compare`
-  baseline lives in `.rebrew/verify_baseline.toml` and needs no flag).
+- Writes no default report file: `--output` is explicit export only.
+  The `--compare` baseline lives in `.rebrew/verify_baseline.toml` and needs
+  no output flag.
 - `--compare` diffs against the last saved report and flags regressions
   (STATUS downgrades, new compile errors).
 - `--no-cache` ignores cache hits and re-verifies everything (edits to shared
@@ -112,7 +111,7 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
   metadata.
 - Prints:
   - Counts per STATUS (PROVEN, EXACT, RELOC, NEAR_MATCHING, STUB,
-    SKIP, …; per `metadata.KNOWN_STATUSES`; LIBRARY is a metadata classification,
+    SKIP, …; per `workspace.status.KNOWN_STATUSES`; LIBRARY is a metadata classification,
     not a status).
   - Coverage as % bytes / % functions.
   - Pointer to next action (`rebrew todo`).
@@ -168,9 +167,7 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 ### Story 1: Pre-merge regression check
 
 1. CI runs `rebrew verify --compare --json` against the local
-   `.rebrew/verify_baseline.toml` baseline (>2026-09: was the committed
-   `db/verify_results.json`; the baseline is now local gitignored run
-   state).
+   `.rebrew/verify_baseline.toml` baseline (local, gitignored run state).
 2. If any function regressed (EXACT → NEAR_MATCHING, etc.) the job fails.
 3. The author runs the same command locally to inspect the regression and
    pinpoint the offending file.
@@ -234,12 +231,12 @@ rebrew verify [file.c] [OPTIONS]
       --whole-binary
       --context PATH
       --json
-  --target, --target TEXT
+  -t, --target TEXT
       --all-targets
 
 rebrew status [OPTIONS]
       --json
-  --target, --target TEXT
+  -t, --target TEXT
       --all-targets
 
 rebrew source graph [OPTIONS]
@@ -289,14 +286,12 @@ rebrew build round-trip [OPTIONS]
 
 ## Open Questions / Known Limitations
 
-- `verify` does not detect *header* changes; users must add `--no-cache` after
-  editing any shared header. (FIXED: the verify cache now fingerprints every
-  reachable header per entry, through `VerifyCacheEntry.headers_fp` in
-  `verify_cache.py`, computed by `verify_hash.entry_headers_fp` delegating to
-  `compile_cache.header_dependency_hash`; the cache-wide `headers_hash` is
-  informational only, so editing a shared header re-verifies exactly the
-  entries whose sources reach it; `--no-cache` remains available for a hard
-  reset.)
+- Verify cache entries fingerprint reached headers through
+  `VerifyCacheEntry.headers_fp` (`verify_cache.py`), computed by
+  `verify_hash.entry_headers_fp` and `compiler.cache.header_dependency_hash`.
+  Editing a shared header re-verifies the entries whose sources reach it;
+  the cache-wide `headers_hash` is informational. `--no-cache` bypasses
+  verification results; valid compiler objects can still be reused.
 - `verify --compare` baseline lives in a single local gitignored file
   (`.rebrew/verify_baseline.toml`, with target/compiler/binary identity
   guards; first run warns + skips); branching workflows may need
@@ -309,9 +304,8 @@ rebrew build round-trip [OPTIONS]
   assembly are not resolved. (Partially fixed: function-pointer targets are
   now recoverable via `--include-dispatch` dispatch-table scanning of the
   binary, and `--from-binary` adds xref-derived edges, both opt-in.)
-- `cache stats` does not break down hit rate (only count + size); logging
-  hit/miss telemetry across the session was not exposed. (FIXED: `cache
-  stats` now reports session hits/misses and hit rate.)
+- `cache stats` reports session hits, misses and hit rate, not persistent
+  cross-process telemetry.
 - The compile cache is project-local; sharing it across CI runs requires
   caching the `.rebrew/compile_cache/` directory as a build artifact.
 - `round-trip` skips PROVEN functions (semantically equivalent, not

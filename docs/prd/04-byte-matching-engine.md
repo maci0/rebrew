@@ -217,12 +217,12 @@ subsequent byte comparison determines byte-match status independently.
 
 - The GA explores deterministic mutations; novel "creative" rewrites
   (e.g. changing data structures) require a human edit before re-seeding.
-- `rebrew prove` now checks `EAX` by default and `EDX:EAX` when
+- `rebrew prove` checks `EAX` by default and `EDX:EAX` when
   `--check-edx` is passed or when the C function signature declares a
   64-bit return type (`long long`, `__int64`, `int64_t`, `uint64_t`,
   `long double`).
-  EDX checking is auto-enabled from the prototype (E9 v1, partially addressed).
-  Memory side-effect checking is now opt-in per VA via `--watch-va` (compares
+  EDX checking is auto-enabled from the prototype. Memory side-effect checking
+  is opt-in per VA via `--watch-va` (compares
   4 bytes at each listed VA across state pairs); general tracking of writes to
   globals or output-pointer arguments is still unimplemented, so functions
   that write there can still be falsely promoted if those writes differ.

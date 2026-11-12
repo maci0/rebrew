@@ -6,7 +6,7 @@ Sync rebrew annotations with Ghidra. Field-level sync (names, comments, prototyp
 
 | Module | Role |
 |--------|------|
-| `models.py` | `JsonRpcResponse`, `McpToolResult` — the wire shapes |
+| `models.py` | `JsonRpcResponse`, `McpToolResult`: the wire shapes |
 | `client.py` | ReVa MCP HTTP client: session init, JSON-RPC tool invocation, `McpError` / `McpApplyAborted` |
 | `commands.py` | MCP command builders (`build_new_function_commands`, `build_bookmark_commands`) + apply orchestration |
 | `cli_backend.py` | `ghidra-cli` subprocess backend, the alternative transport to MCP |
@@ -16,7 +16,7 @@ Externals (the only packages this one may import): `binsync.export`, `binsync.im
 
 ## Public surface
 
-`__init__.py` resolves names lazily via `__getattr__` and does not cache: an in-tree caller that needs `DEFAULT_MCP_ENDPOINT` alone does not load the MCP client, the command builders, or the `ghidra-cli` backend, and a stand-in swapped onto `rebrew.ghidra.client` is seen through the facade. `DEFAULT_MCP_ENDPOINT` and `MCP_REQUEST_TIMEOUT_S` are the single homes of the ReVa MCP default URL and request budget; a `--endpoint` option in another module names them instead of repeating the literal. `McpHttpClient` and `McpResponse` are in the same lazy set: a library consumer that injects a transport names the protocol from the package, which the submodule-only rule would otherwise put out of reach. The lazy set carries every name in `client.py`'s `__all__` (the `fetch_*` drivers, `is_idempotent_success`, and the `MAX_MCP_*` / `MCP_HEADERS` bounds) for the same reason: a public client name the facade omits is a name a consumer cannot reach by the documented route. `tests/test_sdk_surface.py` pins that, alongside the lazy-set / `__all__` / `TYPE_CHECKING` agreement. Reach for the package (`rebrew.ghidra`), never `rebrew.ghidra.client` / `.commands` directly — a `skeleton` / `decompiler` caller that needs the module unloaded imports the package by name and reads the attribute off it, so the deferral survives the boundary.
+`__init__.py` resolves names lazily via `__getattr__` and does not cache: an in-tree caller that needs `DEFAULT_MCP_ENDPOINT` alone does not load the MCP client, the command builders, or the `ghidra-cli` backend, and a stand-in swapped onto `rebrew.ghidra.client` is seen through the facade. `DEFAULT_MCP_ENDPOINT` and `MCP_REQUEST_TIMEOUT_S` are the single homes of the ReVa MCP default URL and request budget; a `--endpoint` option in another module names them instead of repeating the literal. `McpHttpClient` and `McpResponse` are in the same lazy set: a library consumer that injects a transport names the protocol from the package, which the submodule-only rule would otherwise put out of reach. The lazy set carries every name in `client.py`'s `__all__` (the `fetch_*` drivers, `is_idempotent_success`, and the `MAX_MCP_*` / `MCP_HEADERS` bounds) for the same reason: a public client name the facade omits is a name a consumer cannot reach by the documented route. `tests/test_sdk_surface.py` pins that, alongside the lazy-set / `__all__` / `TYPE_CHECKING` agreement. Reach for the package (`rebrew.ghidra`), never `rebrew.ghidra.client` / `.commands` directly. A `skeleton` / `decompiler` caller that needs the module unloaded imports the package by name and reads the attribute off it, so the deferral survives the boundary.
 
 ## Contracts
 

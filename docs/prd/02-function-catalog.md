@@ -27,8 +27,8 @@ function metadata from Ghidra exports, the discovery inventory, FLIRT
 signatures, CRT source mirrors, and canonical function/data metadata and optional declaration-bound ADDRESS anchors, then reports the merged view in
 process: `rebrew coverage export --output snapshots/` is what writes it, as
 `snapshots/coverage-<target>.toml`.
-(>2026-09: CATALOG.md generation and `functions.txt` were removed; the same
-information lives in `rebrew-functions.toml`, served by `status`/`todo`/dashboard.)
+Function identity and state live in `rebrew-functions.toml`; `status`,
+`todo`, and the dashboard read them directly.
 
 ## Users
 
@@ -187,9 +187,10 @@ Output `.bin` files land in the configured `bin_dir`.
 
 ### Story 2: Mapping library functions to upstream source
 
-1. User has dozens of `// LIBRARY: MSVCRT 0x...` annotations with empty
-   bodies.
-2. User runs `rebrew cfg detect-crt show` so the MSVC source mirror is registered.
+1. User has dozens of `kind = "LIBRARY"` metadata rows with unresolved
+   source provenance.
+2. User previews `rebrew cfg detect-crt show`, then registers missing MSVC
+   source mirrors with `rebrew cfg detect-crt apply`.
 3. `rebrew library crt-match --all --fix-source` records each writable match's
    `SOURCE` (e.g. `vcsrc/.../strcpy.c:1234`) in `rebrew-functions.toml`.
 4. The user then runs `rebrew test` on the candidates and many promote to
@@ -285,13 +286,13 @@ rebrew coverage export --output snapshots/
   candidates and require manual disambiguation.
 - The function list ingester reads `function_structure.json` (discovery /
   Ghidra export). The former `functions.txt` format is gone.
-- `--export-ghidra` writes no cache: it prints interactive Ghidra MCP export
-  instructions for `function_structure.json` / `ghidra_data_labels.json` and
-  exits (refuses `--json`). `rebrew coverage catalog` writes no inventory file at all:
-  only `rebrew coverage export --output snapshots/` writes a file; no command in rebrew produces a
-  stamped `function_structure.json` today, so the ingester's `_generated_by`
-  filter only skips one written elsewhere. Fetch live data via
-  `rebrew sync push`.
+- `--export-ghidra` prints interactive Ghidra export instructions and exits;
+  it writes no cache and refuses `--json`. `--export-ghidra-labels` instead
+  writes `ghidra_data_labels.json` from detected data/thunk cells. Default
+  catalog runs write no inventory; `coverage export --output snapshots/`
+  writes coverage documents. Discovery/intake supplies `function_structure.json`;
+  its `_generated_by` filter excludes externally stamped rebrew inventories.
+  `rebrew sync pull-data` fetches live Ghidra labels; `sync push` exports local fields.
 - `coverage export` writes each `coverage-<target>.toml` deterministically.  It never
   migrates an older format: a document from another `version` contributes no
   history and is replaced whole on the next run, so an upgrade costs a rebuild
