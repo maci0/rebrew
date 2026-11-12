@@ -37,6 +37,7 @@
 
 ### Fixed
 
+- Correct onboarding and intake skill prerequisites: shipped profiles require images, with Docker as the default runtime and Podman or experimental unshare available as documented in the toolchain guide.
 - Correct `todo` help and reversing guides to describe ranking by affected byte extent, with estimated effort breaking ties. Small functions are not automatically first.
 
 ## [6.32.1] - 2026-11-11
