@@ -243,7 +243,7 @@ literals stops the gate instead of reading as a table with no routes.
   section never gains a line, because a reader of that tag's notes would be
   describing code it does not contain.  Later work goes back under
   `[Unreleased]`, even when the gap in the earlier section is obvious.
-  `tests/test_packaging.py::test_notes_added_after_the_tag_stay_unreleased`
+  `tests/test_packaging.py::TestPackagingMetadata::test_notes_added_after_the_tag_stay_unreleased`
   fails the build when a tagged section grows.
 - **Cut the release in this order.**  Bump `__version__`, date the
   `[<version>]` section, empty `[Unreleased]`, then `make release-check` and
@@ -283,7 +283,7 @@ literals stops the gate instead of reading as a table with no routes.
   ships half of them undocumented, so neither can be tagged out of sync with
   the version or the notes.  It also fails a patch release whose section
   carries a `**Breaking:**` entry, the same rule
-  `tests/test_packaging.py::test_patch_release_never_ships_a_breaking_entry`
+  `tests/test_packaging.py::TestPackagingMetadata::test_patch_release_never_ships_a_breaking_entry`
   enforces on the tree.
 
 ## Before submitting
