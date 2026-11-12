@@ -243,7 +243,8 @@ class TestPeDirectories:
             resolve=lambda _: 0x1000,
             read=lambda *_: struct.pack("<I", rva),
         )
-        handlers, notes = _read_safe_seh_entries(image, 0x1000, 1)
+        # This image double supplies only the parser's read/resolve interface.
+        handlers, notes = _read_safe_seh_entries(image, 0x1000, 1)  # type: ignore[arg-type]
         assert handlers == [IMAGE_BASE + rva]
         assert notes == []
 

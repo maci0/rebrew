@@ -71,6 +71,7 @@ class TestFormCodec:
         value.value = not initial
         if output == "wire":
             decoded, _end = parse_form(b"TPF0" + encode(component))
+            assert isinstance(decoded.props[0][1], Bool)
             assert decoded.props[0][1].value is not initial
         else:
             assert f"Enabled = {'False' if initial else 'True'}" in render(component)
@@ -82,6 +83,8 @@ class TestFormCodec:
         first, _end = parse_form(data)
         second, _end = parse_form(data)
         monkeypatch.setattr(first.props[0][1], "value", True)
+        assert isinstance(first.props[1][1], Bool)
+        assert isinstance(second.props[0][1], Bool)
         assert first.props[1][1].value is False
         assert second.props[0][1].value is False
 
