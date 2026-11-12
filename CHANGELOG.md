@@ -71,6 +71,9 @@
 ### Fixed
 
 - Invalid UTF-8 in a Ghidra data-label export now warns and skips the corrupt labels, like invalid JSON, instead of crashing coverage catalog loading. The legacy switch-data filename follows the same recovery path.
+### Fixed
+
+- Clarify scaffold-drift guidance: refreshing removes unchanged tracked retired skill files, while locally modified retired files are reported and retained.
 
 ## [6.32.1] - 2026-11-11
 
