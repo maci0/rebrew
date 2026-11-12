@@ -499,7 +499,7 @@ def main(
     layout_config: bool = typer.Option(
         False,
         "--layout-config",
-        help=r"Print the \[targets.<t>.layout] toml block (readable metadata) for rebrew-project.toml",
+        help="Print standalone layout TOML for layout/<target>/rebrew-layout.toml",
     ),
     data_gap: str | None = typer.Option(
         None,

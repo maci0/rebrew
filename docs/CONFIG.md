@@ -38,8 +38,6 @@ bin_dir = "bin/target_name"
 # `rebrew status` compares against this file instead of `build/<target>`, so a
 # fixer-supplied byte is not reported as a regression. A configured path that
 # does not exist is an error, never a silent fallback to the postlinked image.
-# layout = "layout/target_name"          # Position-alignment package printed by
-# `rebrew build layout --layout-config`; parsed by the layout tooling, not the loader
 
 # Add more targets as needed:
 # [targets.client_exe]
@@ -100,7 +98,7 @@ backup and preview contracts.
 | `source_ext` | `[targets.<name>].source_ext` | Source extension used when discovering and creating files; one extension (`".c"`, the default) or a comma-separated list (`".c,.cpp"`) for a mixed tree. A missing leading dot is added, and a value carrying a path separator is refused |
 | `ghidra_program_path` | `[targets.<name>].ghidra_program_path` | ReVa MCP program path override |
 | `origins` | `[targets.<name>].origins` | The target's module list, managed by `rebrew cfg module add` / `rebrew cfg module remove`. Accepted as a raw key for the editor and UI only; it is not exposed on `ProjectConfig`, and source binding filters read the metadata modules, not this list |
-| `layout` | `[targets.<name>].layout` | Inline position-alignment package (image base, section geometry, exports, imports) printed by `rebrew build layout --layout-config` and written to `layout/<target>/rebrew-layout.toml`. Not read by this loader and not exposed on `ProjectConfig`: the layout tooling parses the file directly. Recognised here so a target carrying it does not warn on every invocation and no config rewriter drops the block |
+| `layout` | `[targets.<name>].layout` | Raw editor metadata, not read by this loader or exposed on `ProjectConfig`; recognised so config editors preserve it. Current position-alignment packages live in `layout/<target>/rebrew-layout.toml`. `rebrew build layout --layout-config` prints that standalone document with a root `layout` table, not a block for this project config key |
 | `ghidra_backend` | `[targets.<name>].ghidra_backend` | Ghidra transport: `reva` (MCP, default) or `cli`; an unknown value is a config error |
 | `binsync_state_dir` | `[targets.<name>].binsync_state_dir` | BinSync state directory (default for `--state-dir`) |
 | `binsync_user` | `[targets.<name>].binsync_user` | BinSync user rebrew writes as: `metadata.toml` `user` and branch `binsync/<user>` (default: `--user`, else the user `rebrew binsync init` recorded in the state repo, else `rebrew`). Must be a valid git branch component without `/` |

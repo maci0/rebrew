@@ -4277,7 +4277,7 @@ writing; `--json` emits a machine-readable manifest.
 | --- | --- | --- | --- |
 | `--def-only` | flag | `False` | Only emit <target>.def |
 | `--link-config` | flag | `False` | Print the derived [link] toml block for rebrew-project.toml |
-| `--layout-config` | flag | `False` | Print the [targets.<t>.layout] toml block (readable metadata) for rebrew-project.toml |
+| `--layout-config` | flag | `False` | Print standalone layout TOML for layout/<target>/rebrew-layout.toml |
 | `--data-gap` | str | none | Also emit crt_region/data_restore.c: the reference's raw .data bytes [<raw-size>:raw_end] (hex, e.g. 0x3000). Copies reference scaffolding; does not check native data ownership or relocate pointers |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
