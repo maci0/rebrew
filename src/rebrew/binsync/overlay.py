@@ -178,17 +178,16 @@ def match_globals_by_content(
     for src_va, needle in src_bytes.items():
         if not needle:
             continue
-        total = 0
-        hit = -1
+        hit: int | None = None
         for span_va, span in spans:
-            count = span.count(needle)
-            if not count:
+            offset = span.find(needle)
+            if offset < 0:
                 continue
-            total += count
-            if total > 1:
+            if hit is not None or span.find(needle, offset + 1) >= 0:
+                hit = None
                 break
-            hit = span_va + span.find(needle)
-        if total == 1:
+            hit = span_va + offset
+        if hit is not None:
             out[src_va] = hit
     return out
 

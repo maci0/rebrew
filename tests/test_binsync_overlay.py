@@ -536,6 +536,14 @@ class TestMatchGlobalsByContent:
 
         assert match_globals_by_content({0x10: b"ABCD"}, [(0x1000, b"ABCD..ABCD")]) == {}
 
+    @pytest.mark.parametrize(
+        "needle,span", [(b"aaa", b"aaaa"), (b"aba", b"ababa"), (bytes(4), bytes(5))]
+    )
+    def test_overlapping_occurrences_are_not_unique(self, needle: bytes, span: bytes) -> None:
+        from rebrew.binsync.overlay import match_globals_by_content
+
+        assert match_globals_by_content({0x10: needle}, [(0x1000, span)]) == {}
+
     def test_duplicate_across_spans_not_mapped(self) -> None:
         from rebrew.binsync.overlay import match_globals_by_content
 
