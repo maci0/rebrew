@@ -19,9 +19,8 @@ content instead: the source global's bytes are searched in the destination
 binary's same-named section and mapped only when they occur exactly once.
 Globals are opt-in via ``--fields global`` (or ``--fields name,prototype,note,global``).
 
-After the per-function fields, unknown struct, enum, and typedef definitions in
-the state import into the destination's ``binsync_types.h`` (known names are
-never overwritten).
+With ``types`` selected, unknown struct, enum, and typedef definitions import
+into the destination's ``binsync_types.h`` (known names are never overwritten).
 
 Typical flow::
 
@@ -92,7 +91,15 @@ log = logging.getLogger(__name__)
 #: Overlayable fields, in report order.  ``global`` is opt-in (not in the
 #: default ``--fields`` set) because it needs the source and destination
 #: binaries, not just their function catalogs.
-_VALID_FIELDS: tuple[str, ...] = ("name", "prototype", "note", "global")
+_VALID_FIELDS: tuple[str, ...] = (
+    "name",
+    "prototype",
+    "note",
+    "stack_vars",
+    "comments",
+    "types",
+    "global",
+)
 
 #: Keys the ``--json`` payload carries (in emission order).
 _JSON_KEYS: tuple[str, ...] = (
@@ -380,7 +387,8 @@ def overlay_state(
     # Per-instruction comments (provenance comments are skipped here: note and
     # ghidra travel through the function entry instead).
     src_comments_by_func: dict[int, dict[int, dict[str, Any]]] = {}
-    for addr, comment in load_binsync_comments(state_dir).items():
+    comments_by_va = load_binsync_comments(state_dir) if "comments" in fields else {}
+    for addr, comment in comments_by_va.items():
         text = str(comment.get("comment") or "")
         if text.startswith("[rebrew:"):
             continue
@@ -556,7 +564,9 @@ def overlay_state(
 
         # LOCALS: frame offsets are address-independent, so a matched pair
         # keeps the source's stack variables unchanged.
-        normalized = normalize_stack_vars(remote.get("stack_vars"))
+        normalized = (
+            normalize_stack_vars(remote.get("stack_vars")) if "stack_vars" in fields else {}
+        )
         if normalized:
             if dry_run:
                 applied_locals += 1
@@ -736,17 +746,17 @@ def overlay_state(
                     skipped += 1
 
     applied_structs = 0
-    structs = load_binsync_structs(state_dir)
+    structs = load_binsync_structs(state_dir) if "types" in fields else {}
     if structs:
         applied_structs = import_type_definitions(cfg, structs, dry_run=dry_run, proposed=proposed)
 
     applied_enums = 0
-    enums = load_binsync_enums(state_dir)
+    enums = load_binsync_enums(state_dir) if "types" in fields else {}
     if enums:
         applied_enums = import_type_definitions(cfg, enums, dry_run=dry_run, proposed=proposed)
 
     applied_typedefs = 0
-    typedefs = load_binsync_typedefs(state_dir)
+    typedefs = load_binsync_typedefs(state_dir) if "types" in fields else {}
     if typedefs:
         applied_typedefs = import_type_definitions(
             cfg, typedefs, dry_run=dry_run, proposed=proposed
@@ -851,9 +861,9 @@ def main(
         5.0, "--min-gap", help="Best match must beat the runner-up by at least this"
     ),
     fields: str = typer.Option(
-        "name,prototype,note",
+        "name,prototype,note,stack_vars,comments,types",
         "--fields",
-        help="Comma-separated fields to overlay (name, prototype, note, global)",
+        help="Comma-separated fields to overlay (name, prototype, note, stack_vars, comments, types, global)",
     ),
     module: str | None = typer.Option(
         None, "--module", help="Only overlay metadata in this module (e.g. SERVER)"

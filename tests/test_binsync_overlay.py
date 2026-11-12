@@ -437,6 +437,65 @@ class TestJsonShape:
         assert payload["touched_vas"] == [f"0x{B_F1:08x}"]
 
 
+class TestCompleteFieldSelection:
+    def _setup(self, tmp_path: Path) -> Path:
+        from declib.artifacts import Comment, Enum, Function, StackVariable, Typedef
+
+        _make_project(tmp_path)
+        _write_dest(tmp_path)
+        state = _make_state(tmp_path)
+        func_path = state / "functions" / f"{A_F1:08x}.toml"
+        func = Function.loads(func_path.read_text(encoding="utf-8"))
+        func.size = 0x10
+        func.stack_vars[-4] = StackVariable(
+            stack_offset=-4, name="ret", type_="int", size=4, addr=A_F1
+        )
+        func_path.write_text(func.dumps(), encoding="utf-8")
+        comment = Comment(addr=A_F1 + 4, func_addr=A_F1, comment="loop")
+        (state / "comments.toml").write_text(Comment.dumps_many([comment]), encoding="utf-8")
+        structs = state / "structs"
+        structs.mkdir()
+        (structs / "Player.toml").write_text(
+            'name = "Player"\nsize = 4\n[members.0x0]\nname = "x"\noffset = 0\ntype = "int"\nsize = 4\n'
+        )
+        (state / "enums.toml").write_text(
+            Enum.dumps_many([Enum(name="E", members={"A": 0})], key_attr="name"), encoding="utf-8"
+        )
+        (state / "typedefs.toml").write_text(
+            Typedef.dumps_many([Typedef(name="word_t", type_="unsigned int")], key_attr="name"),
+            encoding="utf-8",
+        )
+        return state
+
+    @pytest.mark.parametrize("fields", [None, "name", "stack_vars", "comments", "types"])
+    @pytest.mark.parametrize("dry_run", [False, True])
+    def test_only_selected_categories_are_applied(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fields: str | None, dry_run: bool
+    ) -> None:
+        from rebrew.metadata.functions import get_entry
+
+        state = self._setup(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        extra = [] if fields is None else ["--fields", fields]
+        if dry_run:
+            extra.append("--dry-run")
+        result = _invoke(tmp_path, state, *extra, "--json")
+        assert result.exit_code == 0, result.output
+        payload = cli_payload(result)
+        selected = {"name", "stack_vars", "comments", "types"} if fields is None else {fields}
+        assert payload["applied_names"] == int("name" in selected)
+        assert payload["applied_locals"] == int("stack_vars" in selected)
+        assert payload["applied_comments"] == int("comments" in selected)
+        for category in ("structs", "enums", "typedefs"):
+            assert payload[f"applied_{category}"] == int("types" in selected)
+        entry = get_entry(tmp_path / "src", B_F1, "B")
+        assert bool(entry.get("locals")) == ("stack_vars" in selected and not dry_run)
+        assert bool(entry.get("comments")) == ("comments" in selected and not dry_run)
+        assert (tmp_path / "src" / "b" / "binsync_types.h").exists() == (
+            "types" in selected and not dry_run
+        )
+
+
 class TestFieldsAndModule:
     def test_fields_restrict_to_name(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
@@ -591,7 +650,7 @@ class TestLocalsCommentsOverlay:
         (state / "comments.toml").write_text(Comment.dumps_many([comment]), encoding="utf-8")
         monkeypatch.chdir(tmp_path)
 
-        result = _invoke(tmp_path, state, "--fields", "note", "--json")
+        result = _invoke(tmp_path, state, "--fields", "note,stack_vars,comments", "--json")
         assert result.exit_code == 0, result.output
         payload = cli_payload(result)
         assert payload["applied_locals"] == 1
