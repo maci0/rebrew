@@ -148,12 +148,13 @@ print(result.ok, result.obj_bytes, result.log, result.compiler_version)
 # `result.to_dict()` / `RecompileResult.from_dict()` store the verdict (not
 # the object bytes) the way `CompareResult` does.
 #
-# `rebrew.decompme`'s `upload_scratch` is the same shape: `client=` injects a
-# stand-in, and `retries=N` re-attempts a retryable `DecompmeError` on the
-# same backoff (`retry_backoff_delay` in `rebrew.utils`) and the same
-# transient status set, so both service clients recover from a blip the
-# same way. Its `payload` is what `build_scratch_payload` returns (a `data`
-# form mapping and a `files` multipart mapping); both keys are checked before
+# `rebrew.decompme`'s `upload_scratch` also accepts `client=` and `retries=N`,
+# with the same backoff helper (`retry_backoff_delay` in `rebrew.utils`).
+# Its retry policy is narrower: connect-stage failures and HTTP
+# 408/425/429/503 can retry; read timeouts and HTTP 500/502/504 do not,
+# because a public scratch may already have been created.
+# Its `payload` is what `build_scratch_payload` returns (a `data` form mapping
+# and a `files` multipart mapping); both keys are checked before
 # the request is built, so a payload you assembled wrongly arrives as
 # `kind="validation"`, not as a network failure a retry could chase.
 ```

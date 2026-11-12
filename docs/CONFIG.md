@@ -318,8 +318,14 @@ profile = "msvc-7.0"
 | `runner` | `string` | `""` | Win32 PE runner (`wine`, `wibo`, or empty). Auto-detected from `command` if not set explicitly. Under docker-only execution the runner is empty for image-backed profiles; `rebrew init --install-wibo` writes `tools/wibo` only for native (non-image) profiles: it is ignored for docker-backed ones. A relative runner path resolves against the project root and needs a `command` without the runner prefix |
 | `recompile_url` | `string` | `""` | Base URL of the recompile compile service (e.g. `http://localhost:8000`). When set (or `REBREW_RECOMPILE_URL`), every compile routes through `POST /api/v1/compile` instead of local docker images: the same pinned images, with optional assembly output |
 | `recompile_emit_assembly` | `bool` | `false` | Request assembly output on remote compiles. Off by default; when on, every remote compile sends it (`rebrew match run --collect-pairs` is unrelated). Current Recompile treats training consent separately. A non-boolean value is refused by `rebrew cfg set` and warned about by the loader |
-| `recompile_retries` | `integer` | `2` | Re-attempts of a retryable remote-compile failure (transport blips, `408/425/429/500/502/503/504`), with the backoff in `rebrew.utils.retry_backoff_delay`. `0` disables retries; a compile the service ran and rejected is never re-POSTed. Clamped to `20` with a warning: the count multiplies into wall-clock time (each re-attempt waits the capped backoff), so a mistyped 20000 would retry one transient error for about 44 hours |
+| `recompile_retries` | `integer` | `2` | Re-attempts of a retryable remote-compile failure (ordinary compile requests: transport blips, `408/425/429/500/502/503/504`; assembly-enabled POST limits below), with the backoff in `rebrew.utils.retry_backoff_delay`. `0` disables retries; a compile the service ran and rejected is never re-POSTed. Clamped to `20` with a warning: the count multiplies into wall-clock time (each re-attempt waits the capped backoff), so a mistyped 20000 would retry one transient error for about 44 hours |
 | `timeout` | `integer` | `60` | Compile subprocess timeout in seconds |
+
+With `recompile_emit_assembly = true`, compile POST retries are restricted to
+connection-establishment failures and HTTP `408/425/429/503`. Read timeouts and
+HTTP `500/502/504` stop automatic resends because the first request may have
+completed. After a successful compile reply identifies its artifact, retries
+only download that artifact; they do not repeat the compile POST.
 
 Per-target compiler settings (`rebrew cfg target set-compiler <target> <profile>`) are
 the supported way to vary the toolchain; `[compiler.profiles.*]` is not
