@@ -189,7 +189,7 @@ you what to attack next.
     (`// SOURCE: naked`); reproduced, not decompiled, so it stays queued
     until the real C body matches.
   - `data-drift` / `start-data`; data symbols needing `rebrew verify --data`.
-- `--count N`, `--category C` filters.
+- `--limit N`, `--category C` filters.
 - `--stats` adds coverage stats header.
 
 ## User Stories / Workflows
@@ -323,7 +323,7 @@ rebrew source rename TARGET_IDENT NEW_NAME
   -t, --target TEXT
 
 rebrew todo
-  -n, --count N (default 20)
+  -n, --limit N (default 20)
   -c, --category TEXT
   -s, --stats
       --json

@@ -7254,7 +7254,7 @@ rebrew test src/target_name/my_func.c --json      # JSON test result
 rebrew test src/target_name/my_func.c --no-promote # compile without updating STATUS
 
 # Prioritization & action queue
-rebrew todo                                        # Top 20 ROI-ranked actions
+rebrew todo                                        # Top 20 actions by affected bytes, then effort
 rebrew todo --category start-function                      # Only uncovered functions to start
 rebrew todo --category fix-delta --limit 50                     # Tiny byte diffs (quick wins)
 rebrew todo --category compile-error                       # Build failures blocking progress
