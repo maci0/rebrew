@@ -1921,6 +1921,20 @@ class TestRefreshAgentsPrunesStaleSkills:
         self._render(root, {"keep/SKILL.md": b"# k\n"}, monkeypatch)
         assert (root / ".agents/skills/keep/SKILL.md").is_file()
 
+    def test_stale_skill_directory_link_cannot_delete_outside_files(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+
+        root = self._project(tmp_path)
+        self._render(root, {"old/SKILL.md": b"# old\n", "keep/SKILL.md": b"# k\n"}, monkeypatch)
+        old = root / ".agents/skills/old"
+        outside = tmp_path / "saved-skill"
+        old.rename(outside)
+        old.symlink_to(outside, target_is_directory=True)
+        self._render(root, {"keep/SKILL.md": b"# k\n"}, monkeypatch)
+        assert (outside / "SKILL.md").read_bytes() == b"# old\n"
+        assert old.is_symlink()
+
     def test_manifest_outside_the_project_is_ignored(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
