@@ -15,8 +15,8 @@ reference in [codegen/](codegen/README.md).
 
 ## C89 Source Rules (MSVC6)
 
-MSVC6 is a strict C89 compiler. Violations produce compile errors or silent codegen
-changes that prevent matching.
+MSVC6 implements C89 with Microsoft extensions enabled by default. Keep source
+within the selected language mode; the rules below preserve C89 compatibility.
 
 **Variable declarations:**
 - Declare ALL variables at the top of each block, before any statements
@@ -24,7 +24,10 @@ changes that prevent matching.
 - No mixed declarations and code anywhere in the function body
 
 **Comments:**
-- No `//` line comments inside function bodies: use `/* */` only
+- Prefer `/* */` for C89 portability. MSVC6 also accepts `//` comments with its
+  default Microsoft extensions; `/Za` rejects them. See the
+  [Visual C++ 6.0 Language Reference](https://ftpmirror.your.org/pub/misc/bitsavers/pdf/microsoft/visual_c%2B%2B/Visual_C%2B%2B_6.0_1999/Visual_C%2B%2B_6.0_Language_Reference_Vol_5_1998.pdf#page=18),
+  printed pages 3-4.
 
 **Unsupported C99 features:**
 - No `_Bool`, `restrict`, variable-length arrays, designated initializers
