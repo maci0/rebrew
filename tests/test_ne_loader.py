@@ -128,6 +128,24 @@ class TestParseImports:
 
 
 class TestLoadNeBinary:
+    @pytest.mark.parametrize("iterated", [False, True])
+    def test_iterated_encoding_is_not_disassembled_as_stored_code(
+        self, tmp_path: Path, iterated: bool
+    ) -> None:
+        from rebrew.formats.binary_loader import load_binary
+        from rebrew.formats.ne_loader import enumerate_ne_functions
+
+        stored = struct.pack("<HH", 1, len(_CODE)) + _CODE if iterated else _CODE
+        path = tmp_path / "iterated.ne"
+        path.write_bytes(make_ne(segments=[(stored, 8 if iterated else 0)]))
+        info = load_binary(path)
+        section = info.sections["SEG1"]
+        assert section.raw_size == (0 if iterated else len(_CODE))
+        assert section.is_code_section is (not iterated)
+        assert info.ne_segments[0].is_code is (not iterated)
+        assert info.text_size == (0 if iterated else len(_CODE))
+        assert bool(enumerate_ne_functions(info)) is (not iterated)
+
     def test_full_segment_size_sentinel(self, tmp_path: Path) -> None:
         from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary
 

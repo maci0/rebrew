@@ -726,7 +726,12 @@ def load_ne_binary(path: Path) -> BinaryInfo:
         # byte-extraction and coverage math.
         raw_on_disk = max(0, len(data) - seg.file_offset)
         raw_size = 0 if (seg.is_iterated or not seg.on_disk) else min(seg.length, raw_on_disk)
-        seg.is_code = seg.on_disk and probe_is_code(data, seg.file_offset, seg.length, seg.index)
+        # Iterated bytes need expansion before an instruction probe.
+        seg.is_code = (
+            seg.on_disk
+            and not seg.is_iterated
+            and probe_is_code(data, seg.file_offset, seg.length, seg.index)
+        )
         sections[f"SEG{seg.index}"] = SectionInfo(
             name=f"SEG{seg.index}",
             va=seg.base_va,
