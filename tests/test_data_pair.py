@@ -18,17 +18,39 @@ def _section(_va: int) -> str:
 
 
 class TestPairDataOperands:
+    @pytest.mark.parametrize("opcode", ["e8", "e9"])
+    def test_external_destinations_are_reported(self, opcode: str) -> None:
+        a = bytes.fromhex(opcode + "fb1f0000")
+        b = bytes.fromhex(opcode + "fb2f0000")
+        pairs, calls = pair_data_operands(a, 0x1000, b, 0x2000, _in_data, _in_data, *X86)
+        assert pairs == []
+        assert calls == [OperandPair(0, 0x3000, 0x5000)]
+
+    def test_changed_internal_branch_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="control flow"):
+            pair_data_operands(
+                bytes.fromhex("75009090"),
+                0x1000,
+                bytes.fromhex("75019090"),
+                0x2000,
+                _in_data,
+                _in_data,
+                *X86,
+            )
+
     def test_absolute_loads_and_stores_pair_by_position(self) -> None:
         # mov eax, [A]; push eax; call rel32; mov dword [A], -1
         a = bytes.fromhex("a170516700 50 e800000000 c70570516700ffffffff".replace(" ", ""))
         b = bytes.fromhex("a1f8105f00 50 e800000000 c705f8105f00ffffffff".replace(" ", ""))
-        pairs = pair_data_operands(a, 0x402320, b, 0x401E50, _in_data, _in_data, *X86)
+        pairs, calls = pair_data_operands(a, 0x402320, b, 0x401E50, _in_data, _in_data, *X86)
         assert pairs == [OperandPair(0, 0x675170, 0x5F10F8), OperandPair(11, 0x675170, 0x5F10F8)]
+        assert calls == []
 
-    def test_code_operands_are_not_data(self) -> None:
+    def test_one_sided_data_address_is_refused(self) -> None:
         a = bytes.fromhex("a170516700")
         b = bytes.fromhex("a1f8105f00")
-        assert pair_data_operands(a, 0x1000, b, 0x2000, _in_data, lambda va: False, *X86) == []
+        with pytest.raises(ValueError, match="non-data"):
+            pair_data_operands(a, 0x1000, b, 0x2000, _in_data, lambda va: False, *X86)
 
     def test_different_code_is_refused(self) -> None:
         a = bytes.fromhex("a170516700")

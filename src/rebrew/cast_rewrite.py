@@ -53,13 +53,19 @@ def declare_externs(text: str, names: list[str]) -> tuple[str, list[str]]:
     declared or defined at file scope is left out. Returns the new text and
     the names declared.
     """
-    from rebrew.c_parser import find_extern_variables
+    from rebrew.c_parser import find_extern_variables, mask_msvc_syntax, parse_c_source
 
     lines = text.splitlines(keepends=True)
+    tree, raw = parse_c_source(mask_msvc_syntax(text))
+    nodes = tree.root_node.children
     variables = [
         var
         for var in find_extern_variables(text, include_definitions=True)
-        if not lines[var.line - 1][:1].isspace()
+        if any(
+            node.type == "declaration"
+            and node.start_point.row <= var.line - 1 <= node.end_point.row
+            for node in nodes
+        )
     ]
     declared = {var.name for var in variables}
     wanted = [name for name in dict.fromkeys(names) if name not in declared]
@@ -70,15 +76,28 @@ def declare_externs(text: str, names: list[str]) -> tuple[str, list[str]]:
             var.line
             for var in variables
             if var.line == var.end_line
-            and lines[var.line - 1].startswith("extern")
+            and lines[var.line - 1].lstrip().startswith("extern")
             and lines[var.line - 1].rstrip().endswith(";")
         ),
         None,
     )
     if anchor is None:
-        # An empty file-scope line before the first definition keeps every line number.
-        first_body = next((i for i, ln in enumerate(lines) if "{" in ln), len(lines))
-        blank = next((i for i in range(first_body) if not lines[i].strip()), None)
+        # Only gaps between top-level AST nodes are outside comments and directives.
+        first_body = next(
+            (node.start_byte for node in nodes if node.type == "function_definition"), len(raw)
+        )
+        blank = None
+        offset = 0
+        for i, line in enumerate(lines):
+            end = offset + len(line.encode("utf-8", errors="surrogateescape"))
+            if end > first_body:
+                break
+            if not line.strip() and not any(
+                node.start_byte < end and offset < node.end_byte for node in nodes
+            ):
+                blank = i
+                break
+            offset = end
         if blank is None:
             raise ValueError("no one-line top-level extern declaration or empty line to declare in")
         anchor = blank + 1

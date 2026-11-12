@@ -354,8 +354,7 @@ class TestRebindRejectingControls:
         assert "src/caller.c" in cli_payload(result)["error"]
 
     def test_unprototyped_declaration_is_compatible(self, tmp_path: Path) -> None:
-        """``extern void f();`` leaves the parameters unspecified (C89), so any
-        definition matches it."""
+        """An unspecified list permits int parameters with the same return type and ABI."""
         from rebrew.source_binding import app
 
         cfg = _project(tmp_path)

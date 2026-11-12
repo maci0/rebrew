@@ -130,7 +130,10 @@ def _is_call_target(binary: Path, va: int) -> bool:
     An inventory can miss functions; a direct call proves one starts there.
     Non-x86 or unreadable images answer False.
     """
-    from rebrew.formats.binary_loader import load_binary
+    import capstone
+    from capstone import x86
+
+    from rebrew.formats.binary_loader import capstone_config_for, load_binary
 
     try:
         info = load_binary(binary)
@@ -138,18 +141,22 @@ def _is_call_target(binary: Path, va: int) -> bool:
         return False
     if not str(info.arch).startswith("x86"):
         return False
+    md = capstone.Cs(*capstone_config_for(info))
+    md.detail = True
     for section in info.sections.values():
         if not section.is_code_section:
             continue
         data = info.data[
             section.file_offset : section.file_offset + min(section.raw_size, section.size)
         ]
-        at = data.find(b"\xe8")
-        while 0 <= at <= len(data) - 5:
-            rel = int.from_bytes(data[at + 1 : at + 5], "little", signed=True)
-            if (section.va + at + 5 + rel) & 0xFFFFFFFF == va:
+        for ins in md.disasm(data, section.va):
+            if (
+                ins.id == x86.X86_INS_CALL
+                and len(ins.operands) == 1
+                and ins.operands[0].type == x86.X86_OP_IMM
+                and ins.operands[0].imm == va
+            ):
                 return True
-            at = data.find(b"\xe8", at + 1)
     return False
 
 
@@ -206,17 +213,72 @@ def _refuse_conflicting_prototype(
 
     if name not in text:
         return
-    declaration = re.compile(rf"^(?![ \t]).*\b{re.escape(name)}\s*\(.*\)\s*;\s*$", re.M)
-    unprototyped = re.compile(rf"\b{re.escape(name)}\s*\(\s*\)")
-    for line in declaration.findall(text):
-        if unprototyped.search(line):
-            continue  # C89 `f()` leaves the parameters unspecified: compatible
-        other = prototype_type_key(line)
-        if other is not None and other != key:
+    tree, raw = parse_c_source(mask_msvc_syntax(text))
+    original = text.encode("utf-8", errors="surrogateescape")
+    pending = list(tree.root_node.named_children)
+    while pending:
+        node = pending.pop()
+        if node.type.startswith("preproc_"):
+            pending.extend(node.named_children)
+        if node.type != "declaration":
+            continue
+        declarator = node.child_by_field_name("declarator")
+        if declarator is None or find_function_name_in_node(declarator, raw) != name:
+            continue
+        line = original[node.start_byte : node.end_byte].decode("utf-8", errors="surrogateescape")
+        clean = bytearray(original[node.start_byte : node.end_byte])
+        for child in node.named_children:
+            if child.type == "storage_class_specifier":
+                start, end = child.start_byte - node.start_byte, child.end_byte - node.start_byte
+                clean[start:end] = b" " * (end - start)
+        other = prototype_type_key(clean.decode("utf-8", errors="surrogateescape"))
+        parameters = []
+        parts = [declarator]
+        while parts:
+            part = parts.pop()
+            if part.type == "function_declarator":
+                params = part.child_by_field_name("parameters")
+                if params is not None:
+                    parameters.append(params)
+            parts.extend(part.named_children)
+        unspecified = len(parameters) == 1 and not parameters[0].named_children
+        compatible = other == key
+        if unspecified and other is not None:
+            compatible = _unprototyped_compatible(key, other)
+        if other is not None and not compatible:
             raise ValueError(
                 f"{name} is already declared as `{line.strip()}` in "
                 f"{identity_file(path, cfg.root)}; rename the replacement definition first"
             )
+
+
+def _unprototyped_compatible(key: str, other: str) -> bool:
+    """Compare return/ABI types and require parameters unchanged by default promotions."""
+    prefix, opening, suffix = key.partition("(")
+    if not opening or other != prefix + "()":
+        return False
+    tree, raw = parse_c_source(mask_msvc_syntax(prefix + " f(" + suffix + ";"))
+    if tree.root_node.has_error:
+        return False
+    pending = [tree.root_node]
+    while pending:
+        node = pending.pop()
+        if node.type == "variadic_parameter":
+            return False
+        if node.type == "parameter_declaration":
+            declarator = node.child_by_field_name("declarator")
+            if declarator is not None:
+                continue  # Pointer and array parameters do not undergo scalar promotions.
+            typ = node.child_by_field_name("type")
+            if typ is None:
+                return False
+            spelling = raw[typ.start_byte : typ.end_byte].decode().split()
+            if typ.type == "type_identifier" or any(
+                word in {"float", "char", "short", "_Bool"} for word in spelling
+            ):
+                return False
+        pending.extend(node.named_children)
+    return True
 
 
 def _change(

@@ -3381,11 +3381,23 @@ instruction and pairs every absolute operand that lies in a non-code section of
 each image. A pair named on one side only yields the other side's row (same
 name, size, type and kind; an interior operand creates the row at the paired
 start) through the locked data writer. Pairs named differently on the two sides,
-or whose new start is already a row, are `conflict`s and are left alone; pairs
-named on neither side are `unnamed`. Bodies that decode to different
-instructions are refused. `--rewrite` replaces the raw `--from` address casts in
+conflicting names proposed for the same new row, and overlapping existing or
+proposed extents are `conflict`s and are left alone. Each new extent must fit
+one non-code section. Repeated compatible writes are combined. Pairs named on
+neither side are `unnamed`. Instructions must agree in registers, widths,
+addressing modes, prefixes and non-data constants. Internal relative branches
+must retain their offsets. External direct calls and branches may target different
+addresses. The JSON report includes a separate `calls` list: each entry has an
+instruction `offset`, hexadecimal destinations `a` and `b`, and `name_a` and
+`name_b` from the function rows at those destinations (`null` when unnamed).
+Text output labels these entries as call pairs. They record positional associations,
+not proof that the callees are equivalent; they never create metadata rows or
+rewrite calls. Other operand differences are refused.
+`--rewrite` replaces the raw `--from` address casts in
 the shared source with `&name` and declares the names on an existing one-line
-extern or an empty file-scope line, so line numbers do not move. Re-test both
+unconditional extern or an empty gap between top-level parser nodes, excluding
+comments and preprocessor branches. If no eligible line exists, the rewrite is
+refused. Line numbers do not move. Re-test both
 targets afterwards.
 
 ```bash

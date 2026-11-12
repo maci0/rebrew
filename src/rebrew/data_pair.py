@@ -25,7 +25,7 @@ from rebrew.cli import TargetOption, console, error_exit, json_print, require_co
 
 @dataclass(frozen=True)
 class OperandPair:
-    """One absolute data operand: its byte offset in the body and the address in each target."""
+    """An operand's byte offset in the body and destination address in each target."""
 
     offset: int
     a: int
@@ -41,8 +41,8 @@ def pair_data_operands(
     is_data_b: Any,
     cs_arch: int,
     cs_mode: int,
-) -> list[OperandPair]:
-    """Pair the absolute data operands of two bodies that are the same code.
+) -> tuple[list[OperandPair], list[OperandPair]]:
+    """Return data operand pairs and external direct control-flow pairs.
 
     Raises ``ValueError`` when the bodies decode to different instruction streams.
     """
@@ -53,32 +53,76 @@ def pair_data_operands(
     md.detail = True
     ins_a = list(md.disasm(code_a, va_a))
     ins_b = list(md.disasm(code_b, va_b))
-    if len(ins_a) != len(ins_b) or sum(i.size for i in ins_a) != len(code_a):
+    if (
+        len(ins_a) != len(ins_b)
+        or sum(i.size for i in ins_a) != len(code_a)
+        or sum(i.size for i in ins_b) != len(code_b)
+    ):
         raise ValueError("the two bodies decode to different instruction streams")
     out: list[OperandPair] = []
+    calls: list[OperandPair] = []
     for ia, ib in zip(ins_a, ins_b, strict=True):
-        if ia.mnemonic != ib.mnemonic or ia.size != ib.size or len(ia.operands) != len(ib.operands):
+        if (
+            ia.mnemonic != ib.mnemonic
+            or ia.size != ib.size
+            or ia.prefix != ib.prefix
+            or ia.rex != ib.rex
+            or len(ia.operands) != len(ib.operands)
+        ):
             raise ValueError(
                 f"bodies differ at +0x{ia.address - va_a:x}: {ia.mnemonic} / {ib.mnemonic}"
             )
         for oa, ob in zip(ia.operands, ib.operands, strict=True):
-            if oa.type != ob.type:
+            if oa.type != ob.type or oa.size != ob.size:
                 raise ValueError(f"bodies differ at +0x{ia.address - va_a:x}: operand kinds")
+            if oa.type == x86.X86_OP_REG:
+                if oa.reg != ob.reg:
+                    raise ValueError(f"bodies differ at +0x{ia.address - va_a:x}: registers")
+                continue
+            if oa.type == x86.X86_OP_MEM:
+                if (oa.mem.segment, oa.mem.base, oa.mem.index, oa.mem.scale) != (
+                    ob.mem.segment,
+                    ob.mem.base,
+                    ob.mem.index,
+                    ob.mem.scale,
+                ):
+                    raise ValueError(f"bodies differ at +0x{ia.address - va_a:x}: addressing")
+                if oa.mem.base or oa.mem.index:
+                    if oa.mem.disp != ob.mem.disp:
+                        raise ValueError(f"bodies differ at +0x{ia.address - va_a:x}: displacement")
+                    continue
             if oa.type == x86.X86_OP_MEM and not (
                 oa.mem.base or oa.mem.index or ob.mem.base or ob.mem.index
             ):
                 a, b = oa.mem.disp & 0xFFFFFFFF, ob.mem.disp & 0xFFFFFFFF
-            elif (
-                oa.type == x86.X86_OP_IMM
-                and ia.mnemonic not in ("call", "jmp")
-                and not ia.mnemonic.startswith("j")
-            ):
+            elif oa.type == x86.X86_OP_IMM:
+                if any(
+                    ia.group(group)
+                    for group in (
+                        capstone.CS_GRP_CALL,
+                        capstone.CS_GRP_JUMP,
+                        capstone.CS_GRP_BRANCH_RELATIVE,
+                    )
+                ):
+                    # Relative control flow must retain its destination within the body.
+                    internal_a = va_a <= oa.imm < va_a + len(code_a)
+                    internal_b = va_b <= ob.imm < va_b + len(code_b)
+                    if internal_a or internal_b:
+                        if not (internal_a and internal_b and oa.imm - va_a == ob.imm - va_b):
+                            raise ValueError(
+                                f"bodies differ at +0x{ia.address - va_a:x}: control flow"
+                            )
+                    else:
+                        calls.append(OperandPair(ia.address - va_a, oa.imm, ob.imm))
+                    continue
                 a, b = oa.imm & 0xFFFFFFFF, ob.imm & 0xFFFFFFFF
             else:
                 continue
             if is_data_a(a) and is_data_b(b):
                 out.append(OperandPair(ia.address - va_a, a, b))
-    return out
+            elif a != b:
+                raise ValueError(f"bodies differ at +0x{ia.address - va_a:x}: non-data value")
+    return out, calls
 
 
 def _data_predicate(info: Any) -> Any:
@@ -99,10 +143,23 @@ def _containing(
     return (start, row) if va < start + max(int(row.get("size") or 1), 1) else None
 
 
-def _create(row: dict[str, Any], action: str, occupied: Any, section: str | None) -> dict[str, Any]:
-    """The missing side's row: the named side's identity, or a conflict when its start is taken."""
+def _create(
+    row: dict[str, Any],
+    action: str,
+    start: int,
+    rows: dict[int, dict[str, Any]],
+    section_for: Any,
+) -> dict[str, Any]:
+    """Copy an identity only when the complete new extent fits unoccupied data."""
+    size = max(int(row.get("size") or 1), 1)
+    section = section_for(start)
+    conflict = start < 0 or section is None or section_for(start + size - 1) != section
+    conflict |= any(
+        start < old + max(int(existing.get("size") or 1), 1) and old < start + size
+        for old, existing in rows.items()
+    )
     return {
-        "action": "conflict" if occupied else action,
+        "action": "conflict" if conflict else action,
         "name": row["name"],
         "size": row.get("size"),
         "type": row.get("type"),
@@ -142,22 +199,45 @@ def plan_pairs(
             )
         elif ha is not None:
             new_start = p.b - (p.a - ha[0])
-            rec.update(_create(ha[1], "create-b", rows_b.get(new_start), sections_b(new_start)))
+            rec.update(_create(ha[1], "create-b", new_start, rows_b, sections_b))
             rec.update(a_row=f"0x{ha[0]:08x}", b_row=f"0x{new_start:08x}")
         elif hb is not None:
             new_start = p.a - (p.b - hb[0])
-            rec.update(_create(hb[1], "create-a", rows_a.get(new_start), sections_a(new_start)))
+            rec.update(_create(hb[1], "create-a", new_start, rows_a, sections_a))
             rec.update(a_row=f"0x{new_start:08x}", b_row=f"0x{hb[0]:08x}")
         else:
             rec["action"] = "unnamed"
         out.append(rec)
+    _check_proposals(out)
     return out
+
+
+def _check_proposals(plan: list[dict[str, Any]]) -> None:
+    """Reject all colliding proposals before any metadata or source is written."""
+    for side in ("a", "b"):
+        proposed = [p for p in plan if p["action"] == "create-" + side]
+        conflicts: set[int] = set()
+        for i, p in enumerate(proposed):
+            start = int(p[side + "_row"], 16)
+            end = start + max(int(p.get("size") or 1), 1)
+            for q in proposed[i + 1 :]:
+                other = int(q[side + "_row"], 16)
+                other_end = other + max(int(q.get("size") or 1), 1)
+                if start >= other_end or other >= end:
+                    continue
+                same = start == other and all(
+                    p.get(k) == q.get(k) for k in ("name", "size", "type", "kind", "section")
+                )
+                if not same:
+                    conflicts.update((id(p), id(q)))
+            if id(p) in conflicts:
+                p["action"] = "conflict"
 
 
 def _section_name(info: Any) -> Any:
     def name(va: int) -> str | None:
         for s in info.sections.values():
-            if s.va <= va < s.va + s.size:
+            if not s.is_code_section and s.va <= va < s.va + s.size:
                 return str(s.name)
         return None
 
@@ -207,7 +287,7 @@ def pair(
     if not code_a or not code_b or len(code_a) != size or len(code_b) != size:
         error_exit("cannot read both bodies at the given addresses", json_mode=json_output)
     try:
-        pairs = pair_data_operands(
+        pairs, call_pairs = pair_data_operands(
             code_a,
             a_va,
             code_b,
@@ -225,8 +305,11 @@ def pair(
         _section_name(info_b),
         _section_name(info_a),
     )
-    writes = [
-        {
+    writes_by_identity = {
+        (
+            mod_b if p["action"] == "create-b" else mod_a,
+            p["b_row" if p["action"] == "create-b" else "a_row"],
+        ): {
             "module": mod_b if p["action"] == "create-b" else mod_a,
             "va": int(p["b_row" if p["action"] == "create-b" else "a_row"], 16),
             "identity": {"kind": p["kind"], "name": p["name"]},
@@ -234,7 +317,22 @@ def pair(
         }
         for p in plan
         if p["action"] in ("create-a", "create-b")
-    ]
+    }
+    writes = list(writes_by_identity.values())
+    calls = []
+    if call_pairs:
+        functions_a = load_metadata(cfg_a.metadata_dir)
+        functions_b = load_metadata(cfg_b.metadata_dir)
+        calls = [
+            {
+                "offset": p.offset,
+                "a": f"0x{p.a:08x}",
+                "b": f"0x{p.b:08x}",
+                "name_a": functions_a.get((mod_a, p.a), {}).get("name"),
+                "name_b": functions_b.get((mod_b, p.b), {}).get("name"),
+            }
+            for p in call_pairs
+        ]
     rewrites: list[dict[str, Any]] = []
     if rewrite is not None:
         rewrites = _rewrite_source(rewrite, plan, dry_run=dry_run)
@@ -245,6 +343,7 @@ def pair(
         "target": mod_b,
         "dry_run": dry_run,
         "pairs": plan,
+        "calls": calls,
         "created": len(writes),
         "rewrites": rewrites,
     }
@@ -256,6 +355,11 @@ def pair(
     for p in plan:
         console.print(
             f"  {p['action']:9} {p['a']} <-> {p['b']} {p.get('name') or p.get('name_a') or ''}"
+        )
+    for call in calls:
+        console.print(
+            f"  call pair +0x{call['offset']:x} {call['a']} <-> {call['b']} "
+            f"{call['name_a'] or '?'} <-> {call['name_b'] or '?'}"
         )
 
 

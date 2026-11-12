@@ -78,13 +78,12 @@ def _display_config_value(key: str, value: Any) -> Any:
     return value
 
 
-def _url_config_label(key: str) -> str | None:
+def _url_config_label(key: str, parts: list[str]) -> str | None:
     """Return a validate_http_url label when *key* is a known HTTP URL field."""
-    leaf = key.rsplit(".", 1)[-1]
-    parts = key.split(".")
+    leaf = parts[-1]
     if leaf == "recompile_url":
         return key
-    if leaf == "endpoint" and (key == "endpoint" or "llm" in parts):
+    if leaf == "endpoint" and (len(parts) == 1 or "llm" in parts):
         return key
     return None
 
@@ -506,7 +505,9 @@ def show(
         import tomllib
 
         raw_val = tomllib.loads(tomlkit.dumps(current)) if isinstance(current, dict) else current
-        json_print({"key": key, "value": _display_config_value(key, _redact_secrets(raw_val))})
+        json_print(
+            {"key": key, "value": _display_config_value(final_key, _redact_secrets(raw_val))}
+        )
     elif isinstance(current, (dict, list)):
         if isinstance(current, dict):
             import tomllib
@@ -515,7 +516,7 @@ def show(
         else:
             print(str(current))
     else:
-        print(str(_display_config_value(key, current)))
+        print(str(_display_config_value(final_key, current)))
 
 
 #: Prefix every documented runtime knob carries (``.env.example``,
@@ -1030,10 +1031,14 @@ def _set_value_locked(key: str, value: str, *, dry_run: bool, json_mode: bool) -
             console.print(f"[dim]note: {key} is project-scoped → setting {routed}[/dim]")
         key = routed
 
+    parent, final_key, parts = _resolve_dotted_key(
+        doc, key, create_missing=True, json_mode=json_mode
+    )
+
     # Secrets on argv land in process listings / shell history.  Refuse any
     # non-empty credential write via CLI; empty clears a committed TOML key
     # without putting a secret on argv.  Prefer REBREW_LLM_API_KEY (etc.).
-    if _is_secret_key(key) and value != "":
+    if _is_secret_key(final_key) and value != "":
         error_exit(
             f"refusing to set {key} via CLI (secret would appear in argv/history) — "
             "set REBREW_LLM_API_KEY in the environment, or clear with "
@@ -1041,9 +1046,6 @@ def _set_value_locked(key: str, value: str, *, dry_run: bool, json_mode: bool) -
             code=EXIT_ERROR,
             json_mode=json_mode,
         )
-
-    # Resolve dotted key path (creates intermediate tables as needed)
-    parent, final_key, _ = _resolve_dotted_key(doc, key, create_missing=True)
 
     # Try to coerce value to int/float/bool
     parsed_value: str | int | float | bool = value
@@ -1060,15 +1062,14 @@ def _set_value_locked(key: str, value: str, *, dry_run: bool, json_mode: bool) -
                 if math.isfinite(as_float):
                     parsed_value = as_float
 
-    url_label = _url_config_label(key)
+    url_label = _url_config_label(key, parts)
     if url_label is not None:
         try:
             parsed_value = validate_http_url(str(parsed_value), url_label)
         except ValueError as exc:
             error_exit(str(exc), code=EXIT_ERROR, json_mode=json_mode)
 
-    leaf = key.rsplit(".", 1)[-1]
-    parts = key.split(".")
+    leaf = final_key
     if leaf == "marker":
         error_exit("marker was replaced by module; retain its existing value", json_mode=json_mode)
     if (
@@ -1142,7 +1143,7 @@ def _set_value_locked(key: str, value: str, *, dry_run: bool, json_mode: bool) -
                 json_mode=json_mode,
             )
 
-    shown = _display_config_value(key, parsed_value)
+    shown = _display_config_value(final_key, parsed_value)
     if dry_run:
         if json_mode:
             json_print({"key": key, "value": parsed_value, "dry_run": True})
