@@ -87,9 +87,8 @@ _DELAY_ATTR_RVA = 0x1
 #: would otherwise turn one bad dword into an unbounded read.
 _MAX_TABLE_ENTRIES = 65536
 
-#: ``/guard:cf`` table entry encoding: an entry with its high bit set is
-#: followed by one extra byte holding the entry's remaining flag bits.
-_GUARD_TABLE_EXTRA_BIT = 0x80000000
+#: GuardFlags encodes extra metadata bytes after every CFG table entry.
+_GUARD_TABLE_SIZE_MASK = 0xF0000000
 
 #: High bit of an import name-table entry: the value is an ordinal, not an RVA.
 _IMPORT_ORDINAL_FLAG = 0x80000000
@@ -376,7 +375,7 @@ def _read_safe_seh_entries(
     table_va = image.resolve(table)
     if table_va is None:
         return [], [f"SafeSEH handler table address ({_pointer_text(table)}) is not mapped"]
-    entries = _read_rva_array(image, table_va, count, extra_byte=False)
+    entries = _read_rva_array(image, table_va, count, stride=_SLOT_SIZE)
     if len(entries) < count:
         return entries, [
             f"SafeSEH handler table at {table_va:#010x} is unreadable "
@@ -386,22 +385,22 @@ def _read_safe_seh_entries(
 
 
 def _read_cfg_targets(
-    image: _Image, table: int | None, count: int | None
+    image: _Image, table: int | None, count: int | None, guard_flags: int
 ) -> tuple[list[int], list[str]]:
     """Target VAs from the load config's ``/guard:cf`` function table.
 
     Same source split as :func:`_read_safe_seh_entries`: the table address and
     count come from LIEF, the entries from the image bytes because LIEF's
-    ``guard_cf_functions`` list does not enumerate them.  An entry with its
-    high bit set is followed by one extra byte (MSVC's guard-table encoding),
-    which the walk skips to stay aligned.
+    ``guard_cf_functions`` list does not enumerate them.  GuardFlags supplies
+    a uniform count of metadata bytes following each four-byte RVA.
     """
     if not count:
         return [], []
     table_va = image.resolve(table)
     if table_va is None:
         return [], [f"/guard:cf target table address ({_pointer_text(table)}) is not mapped"]
-    entries = _read_rva_array(image, table_va, count, extra_byte=True)
+    stride = _SLOT_SIZE + ((guard_flags & _GUARD_TABLE_SIZE_MASK) >> 28)
+    entries = _read_rva_array(image, table_va, count, stride=stride)
     if len(entries) < count:
         return entries, [
             f"/guard:cf target table at {table_va:#010x} is unreadable "
@@ -415,18 +414,16 @@ def _pointer_text(value: int | None) -> str:
     return f"{value:#x}" if value else "none"
 
 
-def _read_rva_array(image: _Image, table_va: int, count: int, *, extra_byte: bool) -> list[int]:
+def _read_rva_array(image: _Image, table_va: int, count: int, *, stride: int) -> list[int]:
     """Read up to *count* RVA entries at *table_va*, keeping only mapped targets."""
     limit = min(count, _MAX_TABLE_ENTRIES)
     out: list[int] = []
-    offset = 0
-    for _ in range(limit):
-        raw = image.read(table_va + offset, _SLOT_SIZE)
-        if len(raw) < _SLOT_SIZE:
+    for index in range(limit):
+        raw = image.read(table_va + index * stride, stride)
+        if len(raw) < stride:
             break
         value = struct.unpack_from("<I", raw, 0)[0]
-        offset += 5 if extra_byte and value & _GUARD_TABLE_EXTRA_BIT else _SLOT_SIZE
-        va = image.image_base + (value & _IMPORT_NAME_MASK)
+        va = image.image_base + value
         if _inside(image.spans, va):
             out.append(va)
     return out
@@ -546,6 +543,7 @@ def _read_load_config(image: _Image, pe: Any) -> tuple[list[int], list[int], int
         image,
         _int_or_none(getattr(config, "guard_cf_function_table", None)),
         _int_or_none(getattr(config, "guard_cf_function_count", None)),
+        _int_or_none(getattr(config, "guard_flags", None)) or 0,
     )
     cookie = image.resolve(_int_or_none(getattr(config, "security_cookie", None)))
     return handlers, targets, cookie, handler_notes + target_notes

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import struct
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from bin_util import append_pe_section, make_pe
@@ -37,6 +38,7 @@ _LC_SEH_TABLE = 0x40
 _LC_SEH_COUNT = 0x44
 _LC_GUARD_CF_TABLE = 0x50
 _LC_GUARD_CF_COUNT = 0x54
+_LC_GUARD_FLAGS = 0x58
 _LC_LENGTH = 0x5C
 
 
@@ -76,7 +78,9 @@ def _patch_directory(pe: bytes, index: int, rva: int, size: int) -> bytes:
     return bytes(out)
 
 
-def _load_config_pe(tmp_path: Path) -> tuple[Path, list[int], list[int], int]:
+def _load_config_pe(
+    tmp_path: Path, *, metadata_bytes: int = 0
+) -> tuple[Path, list[int], list[int], int]:
     """A PE32 whose load config names a cookie, SafeSEH handlers and CFG targets.
 
     Returns the path plus the handler VAs, the CFG target VAs and the cookie
@@ -87,16 +91,19 @@ def _load_config_pe(tmp_path: Path) -> tuple[Path, list[int], list[int], int]:
     targets = [TEXT_VA + 0x30, TEXT_VA + 0x40]
     cookie = 0x11223344
     base = make_pe(b"\x90" * 16, image_base=IMAGE_BASE, text_va=TEXT_VA)
-    data = struct.pack("<2I", *handlers) + struct.pack("<2I", *targets) + struct.pack("<I", cookie)
+    guard_table = b"".join(struct.pack("<I", target) + bytes(metadata_bytes) for target in targets)
+    cookie_offset = 8 + len(guard_table)
+    data = struct.pack("<2I", *handlers) + guard_table + struct.pack("<I", cookie)
     pe, rdata_rva, _offset = _append_section(base, ".rdata", data)
 
     config = bytearray(_LC_LENGTH)
     struct.pack_into("<I", config, _LC_SIZE, _LC_LENGTH)
-    struct.pack_into("<I", config, _LC_SECURITY_COOKIE, rdata_rva + 16)
+    struct.pack_into("<I", config, _LC_SECURITY_COOKIE, rdata_rva + cookie_offset)
     struct.pack_into("<I", config, _LC_SEH_TABLE, rdata_rva)
     struct.pack_into("<I", config, _LC_SEH_COUNT, len(handlers))
     struct.pack_into("<I", config, _LC_GUARD_CF_TABLE, rdata_rva + 8)
     struct.pack_into("<I", config, _LC_GUARD_CF_COUNT, len(targets))
+    struct.pack_into("<I", config, _LC_GUARD_FLAGS, (metadata_bytes << 28) | 0x500)
 
     pe, lc_rva, _offset = _append_section(pe, ".lc", bytes(config))
     pe = _patch_directory(pe, _DIR_LOAD_CONFIG, lc_rva, _LC_LENGTH)
@@ -107,7 +114,7 @@ def _load_config_pe(tmp_path: Path) -> tuple[Path, list[int], list[int], int]:
         path,
         [IMAGE_BASE + va for va in handlers],
         [IMAGE_BASE + va for va in targets],
-        IMAGE_BASE + rdata_rva + 16,
+        IMAGE_BASE + rdata_rva + cookie_offset,
     )
 
 
@@ -216,6 +223,29 @@ class TestPeDirectories:
         assert [record.name for record in table.imports] == ["GetTickCount"]
         assert table.imports[0].va >= IMAGE_BASE
         assert table.notes == ()
+
+    @pytest.mark.parametrize("metadata_bytes", [0, 1])
+    def test_load_config_rva_stride(self, tmp_path: Path, metadata_bytes: int) -> None:
+        path, handlers, targets, cookie = _load_config_pe(tmp_path, metadata_bytes=metadata_bytes)
+        table = pe_directories(path)
+        assert list(table.safe_seh_handlers) == handlers
+        assert list(table.cfg_targets) == targets
+        assert table.security_cookie == cookie
+        assert table.notes == ()
+
+    def test_safe_seh_rva_high_bit_is_address_data(self) -> None:
+        from rebrew.formats.pe_symbols import _read_safe_seh_entries
+
+        rva = 0x80001000
+        image = SimpleNamespace(
+            image_base=IMAGE_BASE,
+            spans=[(IMAGE_BASE + rva, IMAGE_BASE + rva + 4)],
+            resolve=lambda _: 0x1000,
+            read=lambda *_: struct.pack("<I", rva),
+        )
+        handlers, notes = _read_safe_seh_entries(image, 0x1000, 1)
+        assert handlers == [IMAGE_BASE + rva]
+        assert notes == []
 
     def test_load_config_tables(self, tmp_path: Path) -> None:
         path, handlers, targets, cookie = _load_config_pe(tmp_path)
