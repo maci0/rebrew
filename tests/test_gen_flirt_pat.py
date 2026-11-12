@@ -39,6 +39,26 @@ class TestParseArchive:
         out.write_bytes(bytes(buf))
         return out
 
+    @pytest.mark.parametrize("consumer", ["parse", "cache"])
+    @pytest.mark.parametrize("terminator", [b"`\n", b"\0\0", b"\n\n", b"`x"])
+    def test_member_header_terminator_is_validated(
+        self, tmp_path: Path, consumer: str, terminator: bytes
+    ) -> None:
+        from rebrew.formats.archives import stock_lib_valid
+
+        archive = self._make_archive([("foo.obj", b"body")], tmp_path)
+        data = bytearray(archive.read_bytes())
+        data[66:68] = terminator
+        archive.write_bytes(data)
+        valid = terminator == b"`\n"
+        if consumer == "cache":
+            assert stock_lib_valid(archive) is valid
+        elif valid:
+            assert list(parse_archive(str(archive))) == [("foo.obj", b"body")]
+        else:
+            with pytest.raises(ValueError, match="archive member header"):
+                list(parse_archive(str(archive)))
+
     def test_valid_archive(self, tmp_path: Path) -> None:
         """Parses a valid archive and yields members."""
         lib = self._make_archive([("foo.obj", b"\x00" * 20)], tmp_path)

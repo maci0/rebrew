@@ -31,6 +31,8 @@ def parse_archive(lib_path: str) -> Iterator[tuple[str, bytes]]:
             break
 
         header = data[pos : pos + 60]
+        if header[58:60] != b"`\n":
+            raise ValueError(f"{lib_path}: invalid archive member header at offset {pos}")
         name_field = header[0:16].rstrip(b" ")
         try:
             size = int(header[48:58].strip())
@@ -111,7 +113,7 @@ def stock_lib_valid(path: Path) -> bool:
                     return False
                 stream.seek(position)
                 header = stream.read(60)
-                if len(header) != 60:
+                if len(header) != 60 or header[58:60] != b"`\n":
                     return False
                 try:
                     member_size = int(header[48:58].strip())
