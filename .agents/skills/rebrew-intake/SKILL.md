@@ -41,8 +41,9 @@ rebrew toolchain pull <profile>           # docker image for the profile (requir
 ```
 
 `rebrew intake` does **not** run FLIRT or catalog; continue with
-§1–§10 below after it (or after a manual `rebrew init`). Shipped toolchains are
-docker-only.
+§1–§10 below after it (or after a manual `rebrew init`). Shipped toolchains
+require their images. Docker is the default runtime; see `docs/TOOLCHAIN.md`
+for Podman and experimental unshare selection and prerequisites.
 
 ### Multi-target file layout
 

@@ -12,12 +12,13 @@ see [TOOLCHAIN.md](TOOLCHAIN.md).
 |------|-----------|---------|
 | Python 3.15+ + `uv` | running rebrew | [uv installer](https://docs.astral.sh/uv/getting-started/installation/) / your distro; `uv python install 3.15` |
 | rebrew itself | everything | `uv tool install 'rebrew[prove] @ git+https://github.com/maci0/rebrew.git'` (in a rebrew checkout, `make setup` instead; see CONTRIBUTING.md) |
-| **docker** | every compiler (MSVC, Borland, Watcom, Turbo C, Delphi, GCC, Clang, MinGW): execution is docker-only; the image wraps wine/DOSBox or holds the native compiler | your distro's `docker` |
+| **Docker** (default) or Podman | run shipped compiler images; the image wraps Wine/DOSBox or holds the native compiler | your distro's container runtime |
 | **rizin** (the `rizin` executable) | packaged function discoverer (`rebrew.discoverers`; alternatives plug in without host edits) | `apt install rizin` / [rizin.re](https://rizin.re) |
 | `diec` (optional) | stronger compiler detection in `rebrew doctor`/`intake` | Detect It Easy 4.0: `diec` on `PATH` (Arch: `detect-it-easy-bin`), or unpack [release 4.0.0](https://github.com/horsicq/DIE-engine/releases/tag/4.0.0) into `tools/diec/` (gitignored, not shipped) |
 
-Every compiler (including GCC, Clang and MinGW) needs docker: the image
-holds it (see `rebrew toolchain list`).
+Every shipped compiler profile needs its toolchain image. Docker is the
+default runtime; Podman and experimental unshare are also available. See
+[compile backends](TOOLCHAIN.md#compile-backends) for selection and prerequisites.
 
 Compiler runtimes depend on the profile: Windows tools use wine, 16-bit tools
 may use DOSBox, and Linux toolchains run natively inside the image. A host wine
@@ -100,7 +101,7 @@ compiler), include/lib paths, function list, sources, metadata, and more.
 Every `fail` line names its fix.  The common ones after a fresh intake:
 
 - **`Compiler`/`Toolchain`/`Runner` fail**: the docker image isn't built:
-  `rebrew toolchain build <profile>` (execution is docker-only).
+  `rebrew toolchain build <profile>` or `rebrew toolchain pull <profile>`.
 - **`Toolchain alignment` fail**: the detected compiler family doesn't match
   the configured profile: switch the profile (e.g. `rebrew cfg set
   compiler.profile msvc-6.0`) or document it as a blocker.
