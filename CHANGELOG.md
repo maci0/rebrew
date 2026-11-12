@@ -1,5 +1,14 @@
 ## [Unreleased]
 
+### Changed
+
+- **The lint ratchets take their next zero-finding step.** Ruff `RUF071`
+  (`os.path.commonprefix`, deprecated in Python 3.15 and wrong on a shared
+  string prefix that is not a path component) joins the `select` list in
+  `pyproject.toml`; the tree has no finding. `biome.json` enables the
+  `recommended` preset for the dashboard scripts, which already pass it, and
+  keeps the stricter correctness rules that were already explicit.
+
 ### Performance
 
 - Source discovery resolves each target's source root and shared root once

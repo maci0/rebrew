@@ -8,8 +8,8 @@
 	},
 	"linter": {
 		"rules": {
+			"preset": "recommended",
 			"correctness": {
-				"recommended": true,
 				"noUnusedVariables": "error",
 				"noUnusedImports": "error",
 				"noUnusedFunctionParameters": "error"
