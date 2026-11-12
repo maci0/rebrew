@@ -634,13 +634,23 @@ class TestReportPayloadShape:
         middle = _pager_nav("index", 3, 5, total, "functions")
         assert "<a href='index.html' aria-label='First page of functions'>First</a>" in middle
         assert "<a href='index-p5.html' aria-label='Last page of functions'>Last</a>" in middle
+        # Numbered links jump to a page by its address span; the current page
+        # is a label, and the window stays at two pages either side.
+        assert "aria-current='page'>Page 3 of 5</span>" in middle
+        # Page 1 and page 5 are already First and Last on a middle page.
+        assert "aria-label='Page 1 of 5 of functions'" not in middle
+        assert "aria-label='Page 5 of 5 of functions'" not in middle
+        assert "aria-label='Page 2 of 5 of functions'" in middle
+        assert ">4</a>" in middle
         # Adjacent to an end, First/Last would duplicate Previous/Next.
         second = _pager_nav("index", 2, 5, total, "functions")
         assert "First</a>" not in second
         assert "Last</a>" in second
+        assert "aria-current='page'>Page 2 of 5</span>" in second
         last = _pager_nav("index", 5, 5, total, "functions")
         assert "Last</a>" not in last
         assert "Next</a>" not in last
+        assert "aria-current='page'>Page 5 of 5</span>" in last
         spanned = _pager_nav("index", 3, 5, total, "functions", span="0x10001000\u20130x10002000")
         assert "(0x10001000\u20130x10002000)" in spanned
         assert _page_va_span([0x10001000]) == "0x10001000"

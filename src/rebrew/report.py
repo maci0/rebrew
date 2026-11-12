@@ -231,6 +231,8 @@ __STATUS_FORCED__ { color: CanvasText; font-weight: 700; }
 .pager a { color: var(--rb-accent); text-decoration: underline; min-height: 2.75rem; padding: 0.35rem 0.5rem;
            display: inline-flex; align-items: center; }
 .pager a:hover { color: var(--rb-accent-hi); }
+/* The page the reader is on is a label, not another link to itself. */
+.pager .here { font-weight: 700; padding: 0.35rem 0.35rem; }
 .mermaid-scroll { overflow-x: auto; }
 .mermaid-scroll:focus-visible { outline: 3px solid var(--rb-accent); outline-offset: 2px; }
 pre.mermaid { background: var(--rb-surface); border: 1px solid var(--rb-line);
@@ -298,7 +300,9 @@ def _pager_nav(
     """No-JS first/prev/next/last pager for multi-page report tables.
 
     *span* is the address range of this page (``0x10001000–0x10003f70``),
-    so a reader can open the page that contains an address.
+    so a reader can open the page that contains an address.  Numbered links
+    jump straight to a nearby page; First and Last cover the ends a long
+    report would otherwise take a click per page to reach.
 
     *bottom* marks the copy that repeats under the table, which a table of up
     to ``_TABLE_PAGE_SIZE`` rows otherwise pushes off the screen.
@@ -318,7 +322,22 @@ def _pager_nav(
             f"<a href='{_paged_href(stem, page - 1)}' "
             f"aria-label='Previous page of {esc_noun}'>Previous</a>"
         )
-    links.append(f"Page {page} of {total_pages}")
+    # Two pages either side.  A wider window turns a long report's pager into
+    # a second nav row; First/Last already reach the ends, so those two
+    # numbers are not linked a second time.
+    window = range(max(1, page - 2), min(total_pages, page + 2) + 1)
+    for number in window:
+        if (number == 1 and page > 2) or (number == total_pages and page < total_pages - 1):
+            continue
+        if number == page:
+            links.append(
+                f"<span class='here' aria-current='page'>Page {number} of {total_pages}</span>"
+            )
+            continue
+        links.append(
+            f"<a href='{_paged_href(stem, number)}' "
+            f"aria-label='Page {number} of {total_pages} of {esc_noun}'>{number}</a>"
+        )
     if page < total_pages:
         links.append(
             f"<a href='{_paged_href(stem, page + 1)}' aria-label='Next page of {esc_noun}'>Next</a>"
