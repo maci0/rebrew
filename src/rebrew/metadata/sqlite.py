@@ -967,10 +967,16 @@ def backup_metadata_database(root: Path, backup_dir: Path) -> Path:
     # A previous backup left this destination read-only (0444, below); the
     # backup API opens its target for writing, so a re-run would fail with
     # "attempt to write a readonly database" unless the mode is relaxed
-    # first (the copy is re-sealed 0444 after verification).
-    with contextlib.suppress(OSError):
-        if dest.exists():
+    # first (the copy is re-sealed 0444 after verification). A chmod that
+    # does not land must fail here: the backup API's later error names the
+    # database, not the permission that blocked the replacement.
+    if dest.exists():
+        try:
             dest.chmod(0o644)
+        except OSError as exc:
+            raise MetadataStorageError(
+                f"{dest}: cannot make the previous backup writable for replacement: {exc}"
+            ) from exc
     with file_transaction(location.parent, location.name):
         db_source = sqlite3.connect(location.as_uri() + "?mode=ro", uri=True, timeout=30)
         try:
@@ -1105,10 +1111,17 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
             if current_content not in (backup_content, preserved_content):
                 # As in backup_metadata_database: a previous restore left the
                 # preserved copy read-only (0444), and the backup API would
-                # refuse to write it on a second restore.
-                with contextlib.suppress(OSError):
-                    if preserved.exists():
+                # refuse to write it on a second restore. Fail here when the
+                # mode cannot be relaxed, so the operator sees this file and
+                # not a later "readonly database" from the backup API.
+                if preserved.exists():
+                    try:
                         preserved.chmod(0o644)
+                    except OSError as exc:
+                        raise MetadataStorageError(
+                            f"{preserved}: cannot make the preserved database writable "
+                            f"for replacement: {exc}"
+                        ) from exc
                 source = sqlite3.connect(location.as_uri() + "?mode=ro", uri=True, timeout=30)
                 try:
                     with contextlib.closing(sqlite3.connect(preserved, timeout=30)) as target:
@@ -1188,10 +1201,18 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
             # A stale rollback journal (or WAL sidecar) from a killed
             # writer belongs to the pre-restore database; left beside the
             # restored file SQLite would replay/rollback against the new
-            # page image.  Clear them before publishing.
+            # page image.  Clear them before publishing, and refuse to
+            # publish when one is still there: a swallowed unlink would
+            # install the new pages under the old journal.
             for _suffix in ("-journal", "-wal", "-shm"):
-                with contextlib.suppress(OSError):
-                    location.with_name(location.name + _suffix).unlink(missing_ok=True)
+                sidecar = location.with_name(location.name + _suffix)
+                try:
+                    sidecar.unlink(missing_ok=True)
+                except OSError as exc:
+                    if sidecar.exists():
+                        raise MetadataStorageError(
+                            f"{sidecar}: cannot remove stale SQLite sidecar before restore: {exc}"
+                        ) from exc
             # Restored verify caches make any pre-restore JSON sidecar
             # stale; its fingerprint would miss anyway, but leaving it
             # around invites a later stat-collision hit.

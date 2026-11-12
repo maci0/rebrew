@@ -1200,6 +1200,29 @@ class TestSwapToolchainImage:
         assert "daemon gone" in str(excinfo.value)
         assert "restored" not in str(excinfo.value).replace("NOT restored", "")
 
+    def test_failed_op_reports_a_failed_rollback(self, monkeypatch) -> None:
+        """A restore that fails after the op raised must not be dropped."""
+        from rebrew.compiler import toolchain as toolchain_mod
+        from rebrew.compiler.toolchain import ToolchainError, swap_toolchain_image
+
+        state, _calls = self._fake_docker(monkeypatch, "sha256:OLD")
+
+        def _retag(src: str, dst: str) -> None:
+            raise ToolchainError("docker tag sha256:OLD -> msvc-6.0 failed: daemon gone")
+
+        monkeypatch.setattr(toolchain_mod, "_retag_image", _retag)
+
+        def _bad_pull() -> None:
+            state["id"] = None
+            raise ToolchainError("pull died mid-way")
+
+        with pytest.raises(ToolchainError, match="previous image NOT restored") as excinfo:
+            swap_toolchain_image(self.TAG, _bad_pull)
+        assert "pull died mid-way" in str(excinfo.value)
+        assert "daemon gone" in str(excinfo.value)
+        assert "retag sha256:OLD manually" in str(excinfo.value)
+        assert excinfo.value.__cause__ is not None
+
     def test_no_backup_success_returns_id(self, monkeypatch) -> None:
         from rebrew.compiler.toolchain import swap_toolchain_image
 

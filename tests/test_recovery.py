@@ -133,6 +133,78 @@ class TestSqliteBackup:
         assert store.read("test")["GAME.0x1000"]["size"] == 4
         assert (tmp_path / (DATABASE_FILENAME + ".before-restore")).is_file()
 
+    def test_rerun_refuses_when_previous_backup_stays_readonly(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _project(tmp_path)
+        store = metadata_store(tmp_path / "rebrew-functions.toml", backend="sqlite", root=tmp_path)
+        store.write({"format": 2, "GAME.0x1000": {"size": 4}}, "test")
+        dest = backup_metadata_database(tmp_path, tmp_path / "off-tree")
+        real = Path.chmod
+
+        def _chmod(self: Path, mode: int) -> None:
+            if self == dest and mode == 0o644:
+                raise OSError("operation not permitted")
+            real(self, mode)
+
+        monkeypatch.setattr(Path, "chmod", _chmod)
+        with pytest.raises(MetadataStorageError, match="cannot make the previous backup writable"):
+            backup_metadata_database(tmp_path, tmp_path / "off-tree")
+        assert dest.stat().st_mode & 0o777 == 0o444
+        assert store.read("test")["GAME.0x1000"]["size"] == 4
+
+    def test_restore_refuses_when_journal_cannot_be_removed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _project(tmp_path)
+        store = metadata_store(tmp_path / "rebrew-functions.toml", backend="sqlite", root=tmp_path)
+        store.write({"format": 2, "GAME.0x1000": {"size": 4}}, "test")
+        dest = backup_metadata_database(tmp_path, tmp_path / "off-tree")
+        store.write({"format": 2, "GAME.0x1000": {"size": 8}}, "test")
+        journal = tmp_path / (DATABASE_FILENAME + "-journal")
+        journal.write_bytes(b"old-journal")
+        real = Path.unlink
+
+        def _unlink(self: Path, missing_ok: bool = False) -> None:
+            if self.name.endswith("-journal"):
+                raise OSError("busy")
+            real(self, missing_ok=missing_ok)
+
+        monkeypatch.setattr(Path, "unlink", _unlink)
+        with pytest.raises(MetadataStorageError, match="stale SQLite sidecar"):
+            restore_metadata_database(dest, tmp_path)
+        assert journal.read_bytes() == b"old-journal"
+        # The planted journal is what a read would replay; drop it only after
+        # proving the restore left it, then check the live rows.
+        real(journal)
+        assert store.read("test")["GAME.0x1000"]["size"] == 8
+
+    def test_second_restore_refuses_when_preserved_copy_stays_readonly(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _project(tmp_path)
+        store = metadata_store(tmp_path / "rebrew-functions.toml", backend="sqlite", root=tmp_path)
+        store.write({"format": 2, "GAME.0x1000": {"size": 4}}, "test")
+        dest = backup_metadata_database(tmp_path, tmp_path / "off-tree")
+        store.write({"format": 2, "GAME.0x1000": {"size": 8}}, "test")
+        restore_metadata_database(dest, tmp_path)
+        store.write({"format": 2, "GAME.0x1000": {"size": 9}}, "test")
+        preserved = tmp_path / (DATABASE_FILENAME + ".before-restore")
+        real = Path.chmod
+
+        def _chmod(self: Path, mode: int) -> None:
+            if self == preserved and mode == 0o644:
+                raise OSError("operation not permitted")
+            real(self, mode)
+
+        monkeypatch.setattr(Path, "chmod", _chmod)
+        with pytest.raises(
+            MetadataStorageError, match="cannot make the preserved database writable"
+        ):
+            restore_metadata_database(dest, tmp_path)
+        assert preserved.stat().st_mode & 0o777 == 0o444
+        assert store.read("test")["GAME.0x1000"]["size"] == 9
+
     def test_restore_twice_keeps_first_preserved_copy(self, tmp_path: Path) -> None:
         _project(tmp_path)
         store = metadata_store(tmp_path / "rebrew-functions.toml", backend="sqlite", root=tmp_path)

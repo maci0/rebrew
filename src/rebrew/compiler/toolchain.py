@@ -29,8 +29,7 @@ from __future__ import annotations
 import re
 import threading
 from dataclasses import dataclass, replace
-from typing import Any, Literal
-lazy import contextlib
+from typing import Any, Literal, cast
 lazy import json
 lazy import logging
 lazy import os
@@ -1058,19 +1057,43 @@ def swap_toolchain_image(tag: str, op: Callable[[], None]) -> str:
     backup = _image_id(tag)
     try:
         op()
-    except Exception:
+    except Exception as exc:
         # Rollback: restore the previous image under the tag.  A normal
         # build/pull failure leaves the old tag in place (docker only re-tags
         # on success), so the restore is a no-op check in that case; it only
         # acts when the tag was left dangling or repointed at something else.
+        # A restore that itself fails must stay attached to the original
+        # error: swallowing it reports a working toolchain that is not there.
+        rollback_note = ""
         if backup is not None:
-            with contextlib.suppress(ToolchainError):
+            try:
                 if _image_id(tag) != backup:
                     _retag_image(backup, tag)
+            except ToolchainError as restore_error:
+                rollback_note = f"; previous image NOT restored ({restore_error})"
+                if _image_id(tag) != backup:
+                    rollback_note += f"; retag {backup} manually"
         # Presence/digest may have been observed mid-failure; drop again so
         # the restored (or still-old) tag is re-inspected.
         _drop_image_presence(tag)
         invalidate_toolchain_digest(tag)
+        if isinstance(exc, ToolchainError):
+            if rollback_note:
+                # Base RebrewError types these as optional; a ToolchainError
+                # always fills both, and a missing one falls back rather than
+                # dropping the restore failure.
+                kind = cast(
+                    "ToolchainErrorKind", exc.kind if exc.kind is not None else "invocation"
+                )
+                raise ToolchainError(
+                    f"{exc}{rollback_note}",
+                    kind=kind,
+                    name=exc.name or "",
+                    retryable=exc.retryable,
+                ) from exc
+            raise
+        if rollback_note:
+            raise ToolchainError(f"{exc}{rollback_note}") from exc
         raise
     current = _image_id(tag)
     if current is None:
