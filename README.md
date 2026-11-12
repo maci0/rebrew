@@ -146,7 +146,7 @@ A clean clone needs **uv**, **Python 3.15+** (`.python-version`), **nasm**,
 **bash**, **cc**, **pkg-config** and **json-c** development files
 (`build-essential pkg-config libjson-c-dev` on Debian/Ubuntu), and a sibling
 [`resembl`](https://github.com/maci0/resembl) checkout at
-`../resembl` (tag `v5.0.0`; `make setup` also requires its `HEAD` to be the
+`../resembl` (tag `v5.2.0`; `make setup` also requires its `HEAD` to be the
 `RESEMBL_SHA` commit). [`CONTRIBUTING.md`](https://github.com/maci0/rebrew/blob/main/CONTRIBUTING.md)
 says which gate needs each one and which only warn; `make help` lists targets.
 Run the following from the directory that will hold both checkouts:
@@ -158,7 +158,7 @@ make doctor                # report every missing prerequisite (uv, ../resembl, 
                            # bun, JDK/ant, go, patch, rust, cc/pkg-config/json-c, shellcheck, yamllint, vnu, venv extras)
                            # with the fix for each; read-only, and exits non-zero only for a
                            # host tool the two steps below cannot install
-make clone-resembl         # clone sibling resembl pin (tag v5.0.0) into ../resembl
+make clone-resembl         # clone sibling resembl pin (tag v5.2.0) into ../resembl
 make setup                 # uv sync --locked --all-extras --group similarity + pre-commit hooks
 make add-dep ADD_DEP_SPEC=<spec>  # add a dependency (wraps `uv add`; prints the license-table step)
 make test-one T=tests/test_annotation_roundtrip.py   # single-file edit-test loop
