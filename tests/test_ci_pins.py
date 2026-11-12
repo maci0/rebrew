@@ -2352,6 +2352,50 @@ class TestCiAptInstall:
         assert 'sudo -n "$@"' in text
         assert re.search(r'(?m)^\s*sudo\s+"', text) is None
 
+    def test_snapshot_log_reads_deb822_and_one_line_sources(self, tmp_path: Path) -> None:
+        """The archive URI must be logged on the runner CI actually uses.
+
+        ubuntu-24.04 ships deb822 (`URIs:` on its own line in
+        ``ubuntu.sources``). A pattern that only matches the one-line
+        ``deb <uri>`` form prints nothing there, so the one floating build
+        input has no record of which snapshot a run resolved.
+        """
+        text = self.HELPER.read_text(encoding="utf-8")
+        match = re.search(
+            r"snapshot=\"\$\(\n\s*awk '\n(?P<body>.*?)\n\s*' ",
+            text,
+            re.DOTALL,
+        )
+        assert match is not None, "snapshot log must be an awk program"
+        program = textwrap.dedent(match.group("body"))
+        assert "URIs:" in program
+        assert "/^deb /" in program
+
+        def logged(sources: str) -> str:
+            listed = tmp_path / "sources"
+            listed.write_text(sources, encoding="utf-8")
+            result = subprocess.run(
+                ["awk", program.strip(), str(listed)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            assert result.returncode == 0, result.stderr
+            return result.stdout.strip()
+
+        deb822 = (
+            "Types: deb\n"
+            "URIs: http://archive.ubuntu.com/ubuntu/\n"
+            "Suites: noble noble-updates noble-backports\n"
+            "Components: main universe restricted multiverse\n"
+            "Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n"
+        )
+        assert logged(deb822) == "http://archive.ubuntu.com/ubuntu/"
+        assert logged("deb http://azure.archive.ubuntu.com/ubuntu noble main\n") == (
+            "http://azure.archive.ubuntu.com/ubuntu"
+        )
+        assert logged("Types: deb\nURIs: http://mirror.example/debian\n") == ""
+
     def test_every_apt_step_uses_the_helper(self) -> None:
         """No workflow may inline `apt-get install`: the retrying helper is the
         one place the mirror-flake policy lives, and the drift result gate's

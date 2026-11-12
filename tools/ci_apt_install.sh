@@ -101,7 +101,17 @@ fi
 # Python) is a fixed version, while `apt-get install <name>` tracks the
 # mirror's current build.  The snapshot URI is not pinned (mirrors vary),
 # but recording it in the log makes the drift visible in the job output.
-snapshot="$(awk '/^deb / && /ubuntu\.com/ {print $2; exit}' /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null || true)"
+# ubuntu-24.04 (the runner CI pins) ships deb822, one field per line
+# (`URIs: http://archive.ubuntu.com/ubuntu/`); older images and a rewritten
+# sources.list still use the one-line `deb <uri>` form.  Either match has
+# to be recorded: a pattern that only hits the one-line form prints nothing
+# on the runner this job actually uses, so the drift stays invisible.
+snapshot="$(
+  awk '
+    /^deb / && /ubuntu\.com/ { print $2; exit }
+    $1 == "URIs:" && /ubuntu\.com/ { print $2; exit }
+  ' /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null || true
+)"
 if [[ -n "${snapshot}" ]]; then
   echo "apt snapshot: ${snapshot} (floating; package versions may drift between runs)"
 fi
