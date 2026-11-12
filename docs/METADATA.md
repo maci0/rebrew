@@ -190,10 +190,15 @@ Everything else is
 regenerable: compile caches, `output/`,
 `bin/`, and toolchain images (re-pull via `rebrew toolchain pull`).
 The target binary named by each `[targets.*].binary` is the
-non-regenerable reference the whole project verifies against. Both the
-TOML and SQLite backups carry it alongside the stores, so one off-tree
-bundle is a complete recovery set; `rebrew doctor`'s Backup
-readiness check names it when present.
+non-regenerable reference the whole project verifies against. TOML and SQLite
+backups include existing binaries whose configured paths are project-relative
+and contain no `..` component. Absolute paths and parent-relative paths are
+skipped. `rebrew doctor`'s Backup readiness check names the reference when present.
+
+Back up source trees separately: the metadata backup command does not walk C or
+Pascal source directories. A complete recovery set combines the metadata bundle
+with source backups and any reference binaries or BinSync state excluded by the
+path rules above.
 
 RPO is the last successful backup of the files above; RTO is a file
 copy restore plus `rebrew verify` for the touched target. No schedule
@@ -220,11 +225,12 @@ older copy.
 The configured BinSync state dir (`targets.<name>.binsync_state_dir`,
 or `--state-dir` on sync commands) is durable project state as well:
 it is git-versioned (the plugin commits and rebase-pulls it) and is
-*carried* by `rebrew metadata backup` (every file under the state
-dir, including `.git/`, rides in the bundle and is restored with
-it). Pushing or cloning the state repo remains a valid second
-copy. `rebrew doctor`'s Backup readiness check names it when it is
-configured and present.
+carried by `rebrew metadata backup` only when its configured path is
+project-relative, contains no `..` component and exists as a directory. Then
+every file under it, including `.git/`, is copied and restored. Back up an
+absolute or parent-relative state directory separately. Pushing or cloning the
+state repo remains a valid second copy. `rebrew doctor`'s Backup readiness check
+names it when it is configured and present.
 
 Every `rebrew metadata backup` bundle carries a manifest
 (`rebrew-backup.manifest.json`, beside the SQLite database or inside

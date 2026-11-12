@@ -80,6 +80,9 @@
 ### Fixed
 
 - Sandbox sweeping keeps a tree when any part of its age cannot be read, instead of deleting live work hidden behind enumeration or stat failures. Only the current user's mode-zero overlay metadata at overlay-work/work is made readable before aging; unrelated unreadable directories remain untouched.
+### Fixed
+
+- Correct metadata backup scope: source trees need separate backups, and configured reference binaries or BinSync directories with absolute or parent-relative paths are not included.
 
 ## [6.32.1] - 2026-11-11
 
