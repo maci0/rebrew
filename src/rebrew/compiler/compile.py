@@ -60,6 +60,7 @@ lazy import os
 lazy import shlex
 lazy import shutil
 lazy import subprocess
+lazy import unicodedata
 lazy import uuid
 lazy from collections import Counter
 lazy from collections.abc import Iterator, Mapping
@@ -1461,6 +1462,11 @@ def _compile_via_recompile(
         float(getattr(cfg, "compile_timeout", DEFAULT_COMPILE_TIMEOUT) or DEFAULT_COMPILE_TIMEOUT)
         + 120.0
     )
+    # The service stores flags in NFC and caps that form's UTF-8 bytes, and
+    # both dedup tokens below hash the flag list.  Normalize once here so the
+    # Intent header and the Idempotency-Key name the same compile the service
+    # fingerprints, instead of a decomposed spelling the service rewrites.
+    all_flags = [unicodedata.normalize("NFC", flag) for flag in all_flags]
     job_socket = os.environ.get("REBREW_JOB_COMPILE_SOCKET")
     if job_socket:
         if job_socket != "/run/rebrew-job/owner.sock" or url != "http://rebrew-job":

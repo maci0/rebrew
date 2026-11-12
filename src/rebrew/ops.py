@@ -1024,13 +1024,13 @@ def parse_request[T](cls: type[T], raw: Any, where: str = "request") -> T:
     if type(raw) is not dict:
         raise _invalid(f"{where} must be a JSON object")
     if (
-        cls in {ReportRequest, CoverageReportRequest}
+        cls in {ReportRequest, CoverageReportRequest, DataListRequest}
         and not raw.get("files")
         and {"coverage_input", "coverage_input_digest", "verification_records"} & raw.keys()
     ):
         raise _invalid("coverage input requires a retained snapshot")
     if (
-        cls in {ReportRequest, CoverageReportRequest}
+        cls in {ReportRequest, CoverageReportRequest, DataListRequest}
         and raw.get("coverage_input")
         and "verification_records" not in raw
     ):
@@ -3141,6 +3141,12 @@ def data_list(config: WorkerConfig, req: DataListRequest) -> dict[str, Any]:
 
     root = project_root(config, req.project_dir)
     if req.files:
+        # Same contract as ``report`` and ``coverage_report``: a retained
+        # snapshot that names a coverage input must carry the verified one,
+        # so a caller cannot list a target under an input the other two ops
+        # would refuse.
+        if req.coverage_input.version != 1 or not req.coverage_input_digest:
+            verified_coverage_inputs_required()
         with retained_target_snapshot(
             config,
             req.files,
@@ -3150,13 +3156,12 @@ def data_list(config: WorkerConfig, req: DataListRequest) -> dict[str, Any]:
             req.binary_url,
         ) as snapshot:
             load_config(snapshot, target=req.rebrew_target)
+            checked_coverage_input(snapshot, req)
             return run_rebrew(
                 ["data", "list", "--json", f"--target={req.rebrew_target}"],
                 snapshot,
                 COMMAND_TIMEOUT_SECONDS,
             )
-    if req.coverage_input.version or req.coverage_input_digest or req.verification_records:
-        raise _invalid("coverage input requires a retained snapshot")
     return run_rebrew(
         ["data", "list", "--json", *_target_options(root, req.sha256)],
         root,

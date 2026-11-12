@@ -23,6 +23,7 @@ lazy import json as _json
 lazy import os
 lazy import re
 lazy import time
+lazy import unicodedata
 lazy from collections.abc import Callable, Mapping
 lazy from contextlib import nullcontext
 lazy from urllib.parse import urljoin, urlparse
@@ -42,8 +43,11 @@ log = logging.getLogger(__name__)
 #: flag lists 422 instead of compiling.
 _MAX_FLAGS = 64
 
-#: Single-flag length cap mirrored from the service (``_MAX_FLAG_LEN``).
-_MAX_FLAG_LEN = 256
+#: Single-flag cap mirrored from the service (``_MAX_FLAG_BYTES``).  The
+#: service measures the NFC form's UTF-8 bytes, not Python characters: a
+#: 200-character flag of two-byte code points is 400 bytes and is refused
+#: there, so counting characters here would post a request the service 422s.
+_MAX_FLAG_BYTES = 256
 
 #: Hard cap on a recompile artifact body, checked before it is written to
 #: disk and parsed. The GET has buffered the whole body (``art.content``) by
@@ -420,11 +424,21 @@ def compile_source(
             f"too many flags ({len(flags_list)} > {_MAX_FLAGS})",
             kind="validation",
         )
-    for flag in flags_list:
-        if len(flag) > _MAX_FLAG_LEN:
+    for index, flag in enumerate(flags_list):
+        # The service normalizes to NFC before it counts and before it
+        # stores, so measure and send that form.  Counting characters let a
+        # flag of 200 two-byte code points through and the service answered
+        # 422; a decomposed spelling of a flag that composes under the cap
+        # must still be sent.  Rewriting the list here keeps the
+        # Idempotency-Key, hashed from it below, on the form the service
+        # fingerprints.
+        flag = unicodedata.normalize("NFC", flag)
+        flags_list[index] = flag
+        flag_bytes = len(flag.encode("utf-8"))
+        if flag_bytes > _MAX_FLAG_BYTES:
+            shown = flag.replace(configured_key, "[redacted]") if configured_key else flag
             raise RecompileError(
-                f"flag too long ({len(flag)} > {_MAX_FLAG_LEN}): "
-                f"{flag.replace(configured_key, '[redacted]')[:40] if configured_key else flag[:40]}",
+                f"flag too long ({flag_bytes} > {_MAX_FLAG_BYTES} UTF-8 bytes): {shown[:40]}",
                 kind="validation",
             )
 

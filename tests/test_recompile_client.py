@@ -233,7 +233,7 @@ class TestCompileSource:
         assert ei.value.status_code is None
         assert ei.value.retryable is True
 
-    def test_flag_caps_are_enforced(self) -> None:
+    def test_flag_caps_are_enforced(self, monkeypatch: pytest.MonkeyPatch) -> None:
         with pytest.raises(RecompileError, match="too many flags") as ei:
             compile_source("http://svc", "msvc-6.0", "x", ["/c"] * 65)
         assert ei.value.kind == "validation"
@@ -241,6 +241,27 @@ class TestCompileSource:
         with pytest.raises(RecompileError, match="flag too long") as ei2:
             compile_source("http://svc", "msvc-6.0", "x", ["/" + "a" * 300])
         assert ei2.value.kind == "validation"
+        # The service caps the NFC form's UTF-8 bytes, not Python characters.
+        # The slash plus 200 two-byte code points is 401 bytes: counting
+        # characters posted it and the service answered 422.
+        with pytest.raises(RecompileError, match="401 > 256 UTF-8 bytes") as ei3:
+            compile_source("http://svc", "msvc-6.0", "x", ["/" + "é" * 200])
+        assert ei3.value.kind == "validation"
+        # A decomposed spelling whose composed form fits is sent composed, the
+        # form the service fingerprints, so the posted flag is under the cap.
+        sent: dict[str, Any] = {}
+
+        class _Recording(_FakeClient):
+            def post(self, url: str, json: Any = None, headers: Any = None, **_: Any) -> Any:
+                sent["flags"] = json["flags"]
+                return _Resp(422, text="stop before the artifact")
+
+        monkeypatch.setattr(httpx, "Client", lambda **kwargs: _Recording(None))
+        decomposed = "/" + "e\u0301" * 100
+        assert len(decomposed.encode("utf-8")) > 256
+        with pytest.raises(RecompileError, match="HTTP 422"):
+            compile_source("http://svc", "msvc-6.0", "x", [decomposed])
+        assert sent["flags"] == ["/" + "é" * 100]
 
     def test_invalid_base_url_fails_fast(self) -> None:
         with pytest.raises(RecompileError, match="http\\(s\\)") as ei:

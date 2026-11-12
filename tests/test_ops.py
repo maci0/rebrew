@@ -1572,6 +1572,29 @@ class TestReconstructionOps:
         )
         assert "out" not in reply["summary"]
 
+    def test_data_list_refuses_coverage_input_like_the_other_coverage_ops(
+        self, world: tuple[WorkerConfig, Path]
+    ) -> None:
+        """``data_list`` takes the same coverage fields as ``report``.
+
+        A coverage input without the retained snapshot is a 400, and one
+        without its verification records is a 409, the same two answers the
+        other coverage ops give.  Answering 200 would list a target under an
+        input those ops refuse.
+        """
+        config, project = world
+        bare = {"project_dir": str(project), "coverage_input": {}}
+        assert _refusal(config, "rebrew.data_list", json.dumps(bare).encode())["status"] == 400
+        # A file is present, so this is a retained snapshot rather than the
+        # no-snapshot case above; what it lacks is the verification records.
+        unverified = {
+            "project_dir": str(project),
+            "files": [{"path": "src/a.c", "digest": "a" * 64, "size": 1}],
+            "coverage_input": {"version": 1},
+        }
+        refusal = _refusal(config, "rebrew.data_list", json.dumps(unverified).encode())
+        assert (refusal["status"], refusal["error"]) == (409, "coverage-input-unverified")
+
     def test_data_list_and_set(self, world: tuple[WorkerConfig, Path]) -> None:
         config, project = world
         listing = _call(config, "rebrew.data_list", {"project_dir": str(project)})
