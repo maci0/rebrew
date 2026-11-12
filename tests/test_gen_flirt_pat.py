@@ -583,6 +583,31 @@ class TestParseCoffObjReal:
         struct.pack_into("<H", obj, 0, machine)
         assert list(parse_coff_obj(bytes(obj))) == [("_myfunc", code, set())]
 
+    @pytest.mark.parametrize(
+        "kind,width",
+        [
+            (1, 8),
+            (2, 4),
+            (3, 4),
+            (4, 4),
+            (5, 4),
+            (6, 4),
+            (7, 4),
+            (8, 4),
+            (9, 4),
+            (10, 2),
+            (11, 4),
+            (12, 1),
+        ],
+    )
+    def test_amd64_relocations_mask_the_declared_width(self, kind: int, width: int) -> None:
+        from rebrew.gen_flirt_pat import parse_coff_obj
+
+        code = b"0123456789abcdef"
+        obj = bytearray(make_coff_obj(code, relocs=[(2, kind, "_external")]))
+        struct.pack_into("<H", obj, 0, 0x8664)
+        assert list(parse_coff_obj(bytes(obj))) == [("_myfunc", code, set(range(2, 2 + width)))]
+
     def test_static_function_symbols_yielded(self) -> None:
         """Regression: MSVC marks CRT helpers such as _initterm and
         _parse_cmdline STATIC, so they never reach the archive symbol index.

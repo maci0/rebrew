@@ -257,10 +257,9 @@ def parse_elf_obj(
         yield str(sym.name), code, reloc_offsets
 
 
-# x86 COFF fixup widths by relocation type (bytes).  LIEF reports
-# ``reloc.size == 0`` for MSVC6 objects, so the width cannot come from the
-# size field — a DIR32/REL32 fixup occupies 4 bytes on x86.
-_I386_FIXUP_WIDTHS: dict[str, int] = {
+# x86 COFF fixup widths by relocation type (bytes); LIEF reports size 0.
+# Field widths follow https://learn.microsoft.com/en-us/windows/win32/debug/pe-format.
+_COFF_FIXUP_WIDTHS: dict[str, int] = {
     "I386_DIR16": 2,
     "I386_REL16": 2,
     "I386_SEG12": 2,
@@ -270,6 +269,18 @@ _I386_FIXUP_WIDTHS: dict[str, int] = {
     "I386_SECREL": 4,
     "I386_SECTION": 2,  # 16-bit section index
     "I386_SECREL7": 2,  # 16-bit "offset minus 1" (debug-info-only on x86)
+    "AMD64_ADDR64": 8,
+    "AMD64_ADDR32": 4,
+    "AMD64_ADDR32NB": 4,
+    "AMD64_REL32": 4,
+    "AMD64_REL32_1": 4,
+    "AMD64_REL32_2": 4,
+    "AMD64_REL32_3": 4,
+    "AMD64_REL32_4": 4,
+    "AMD64_REL32_5": 4,
+    "AMD64_SECTION": 2,
+    "AMD64_SECREL": 4,
+    "AMD64_SECREL7": 1,
 }
 
 
@@ -344,7 +355,7 @@ def _reloc_fixup_width(reloc: Any) -> int:
     name = str(reloc.type).rsplit(".", 1)[-1]
     if name.endswith("_ABSOLUTE"):
         return 0  # COFF padding records do not modify the image.
-    width = _I386_FIXUP_WIDTHS.get(name)
+    width = _COFF_FIXUP_WIDTHS.get(name)
     if width is not None:
         return width
     return max(int(reloc.size) // 8, 1)
