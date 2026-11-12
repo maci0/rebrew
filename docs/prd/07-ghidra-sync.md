@@ -80,7 +80,7 @@ names, labels, structs, prototypes, and comments; ReVa MCP (or the
   metadata.
 - `sync summary` shows what would be pushed without writing to the state directory.
 - `sync watch --state-dir PATH` watches sources/headers, metadata, config,
-  binary, and remote state, then exports changes. It has no JSON output.
+  binary, and remote state, then exports changes. It requires a terminal and has no JSON or dry-run mode.
 - Conflict resolution on pull:
   - Default: report conflict and skip.
   - `--accept-binsync`: accept remote field values on pull conflicts, rewriting local
