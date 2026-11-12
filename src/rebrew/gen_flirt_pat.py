@@ -54,10 +54,11 @@ def parse_coff_obj(obj_data: bytes) -> Iterator[tuple[str, bytes, set[int]]]:
         return
     coff, symbols, names = loaded
     # Pre-build per-section sorted symbol offsets to avoid O(n^2) scans
-    section_sym_offsets: dict[str, list[int]] = {}
+    # Section names can repeat; only the section index owns its symbol offsets.
+    section_sym_offsets: dict[int, list[int]] = {}
     for sym, sym_name in zip(symbols, names, strict=True):
         if sym.section is not None and not sym_name.startswith("$"):
-            section_sym_offsets.setdefault(str(sym.section.name), []).append(sym.value)
+            section_sym_offsets.setdefault(sym.section_idx, []).append(sym.value)
     for offsets in section_sym_offsets.values():
         offsets.sort()
 
@@ -88,7 +89,7 @@ def parse_coff_obj(obj_data: bytes) -> Iterator[tuple[str, bytes, set[int]]]:
         func_end = len(content)
 
         # Find the next symbol in the same section via sorted offsets (O(log n))
-        offsets = section_sym_offsets.get(str(section.name), [])
+        offsets = section_sym_offsets.get(sym.section_idx, [])
         idx = bisect.bisect_right(offsets, func_start)
         if idx < len(offsets):
             func_end = offsets[idx]

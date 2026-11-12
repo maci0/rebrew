@@ -550,6 +550,31 @@ class TestParseCoffObjReal:
         assert 5 not in relocs
         assert 10 not in relocs
 
+    @pytest.mark.parametrize("same_name", [False, True])
+    @pytest.mark.parametrize("second_start", [4, 12])
+    def test_symbol_boundaries_belong_to_section_indices(
+        self, same_name: bool, second_start: int
+    ) -> None:
+        from rebrew.gen_flirt_pat import parse_coff_obj
+
+        first = b"12345678"
+        second = b"abcdefghijklmnop"
+        raw_start = 20 + 2 * 40
+        headers = b""
+        for name, payload in ((b".text", first), (b".text" if same_name else b".other", second)):
+            headers += struct.pack(
+                "<8sIIIIIIHHI", name, 0, 0, len(payload), raw_start, 0, 0, 0, 0, 0x60000020
+            )
+            raw_start += len(payload)
+        file_header = struct.pack("<HHIIIHH", 0x14C, 2, 0, raw_start, 2, 0, 0)
+        symbols = struct.pack("<8sIhHBB", b"_first", 0, 1, 0x20, 2, 0)
+        symbols += struct.pack("<8sIhHBB", b"_second", second_start, 2, 0x20, 2, 0)
+        obj = file_header + headers + first + second + symbols + struct.pack("<I", 4)
+        assert list(parse_coff_obj(obj)) == [
+            ("_first", first, set()),
+            ("_second", second[second_start:], set()),
+        ]
+
     def test_static_function_symbols_yielded(self) -> None:
         """Regression: MSVC marks CRT helpers such as _initterm and
         _parse_cmdline STATIC, so they never reach the archive symbol index.
