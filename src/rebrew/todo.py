@@ -1730,7 +1730,7 @@ def _rank_by_impact(items: list[TodoItem]) -> list[TodoItem]:
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew todo  # Top 20 actions by ROI (size + similarity to target)\n\n"
+    "  rebrew todo  # Top 20 actions by affected extent, then estimated effort\n\n"
     "  rebrew todo --limit 50  # Show top 50\n\n"
     "  # Filter to quick-win near-misses (<= 20B diff)\n"
     "  rebrew todo --category fix-delta\n\n"
@@ -1743,7 +1743,7 @@ _EPILOG = (
     "  extract-error · · · · · Symbol not found in .obj: binding/symbol/implementation issue\n\n"
     "  fix-delta · · · · · · · Known tiny byte diffs (<= 20B): flag sweeps, padding, GA\n\n"
     "  improve-match · · · · · Functions in-progress without a known small delta\n\n"
-    "  start-function · · · ·  Uncovered functions, ranked by difficulty\n\n"
+    "  start-function · · · ·  Uncovered functions, ranked by affected extent\n\n"
     "  missing-annotation · ·  Found in Ghidra but missing C body or SIZE metadata\n\n"
     "  identify-library · · ·  Uncovered library-origin functions\n\n"
     "  run-prover · · · · · ·  Small nearly-matching functions (angr equivalence)\n\n"
@@ -1804,7 +1804,7 @@ def main(
     target: str | None = TargetOption,
     all_targets: bool = AllTargetsOption,
 ) -> None:
-    """Show prioritized actions ranked by ROI."""
+    """Show prioritized actions ranked by affected extent, then estimated effort."""
     category = option_default(category, None)
     count = require_non_negative(
         option_default(count, 20), "--limit", json_mode=option_default(json_output, False)

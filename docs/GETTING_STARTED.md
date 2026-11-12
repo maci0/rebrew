@@ -25,10 +25,10 @@ Three ideas carry the whole tool:
    You are writing the C that makes *that specific compiler version, with
    those specific flags,* emit *those exact bytes*. This is why rebrew runs
    20+ compiler versions in docker images, and why `rebrew match flags` exists: half of matching is finding the flags.
-3. **Work smallest-first.** `rebrew todo` ranks functions by return on
-   investment: tiny leaf functions first. A 20-byte function you match in
-   ten minutes teaches you the compiler's habits; those habits compound
-   across the whole binary.
+3. **Pick a scoped action.** `rebrew todo` ranks unfinished work by affected
+   byte extent, then estimated effort. Setup comes first. Choose an action
+   you can complete; a small leaf function can still teach you the
+   compiler's habits. See [queue ordering](CLI.md#rebrew-todo).
 
 ## Prerequisites
 
@@ -115,16 +115,16 @@ the wrong codegen.
 
 ```bash
 rebrew status        # file agreement, accounted .text, stored data verdicts, and counts
-rebrew todo          # what to do next, ranked by ROI
+rebrew todo          # what to do next, ranked by affected extent
 ```
 
 These status percentages have different denominators;
 [CLI accounting](CLI.md#rebrew-status) explains their byte buckets and library
 contributions. Stored data verdicts are not a fresh build comparison.
 
-`todo` is your work queue for the entire project. Start at the top: the
-smallest, easiest functions. Do not start with the largest blob it lists:
-start with the smallest leaf.
+`todo` is your work queue for the entire project. Its first unfinished
+items affect the most bytes. For a first match, choose a small leaf function
+whose disassembly you understand.
 
 ### 5. Rule out library code first
 

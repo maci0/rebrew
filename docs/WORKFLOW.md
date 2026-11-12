@@ -41,13 +41,14 @@ graph TD
 
 ```bash
 rebrew todo
-rebrew todo --category start-function    # easiest uncovered functions, ranked by size/difficulty
+rebrew todo --category start-function    # uncovered functions, ranked by affected extent
 rebrew todo --stats              # coverage summary
 ```
 
-`rebrew todo` evaluates the entire project and surfaces the highest Return-on-Investment
-tasks: compile errors, symbol-extraction errors (EXTRACT_ERROR), near-misses of ≤20 bytes
-(`fix-delta`), and easy new starts.  Each item carries a ready-to-run `command`: follow it verbatim.
+`rebrew todo` evaluates the entire project and ranks actions by affected byte
+extent, then estimated effort. It includes compile errors, symbol-extraction
+errors (EXTRACT_ERROR), near-misses of ≤20 bytes (`fix-delta`), and new starts.
+See [queue ordering](CLI.md#rebrew-todo). Each item carries a ready-to-run `command`.
 
 ### 2. Generate skeleton
 
