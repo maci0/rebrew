@@ -19,11 +19,13 @@ security policy automatically.
 GitHub Actions (`.github/workflows/ci.yml`) runs lint, the full unit test suite
 across the supported Python versions (3.15; the pinned entry runs it as
 `make coverage`, failing below `COV_FLOOR`), plus, on that same 3.15 entry,
-a fixture-freshness check (`tools/gen_fixtures.py --check`) and an idempotency sweep
-(`tools/check_idempotency.py --fixture-dir`, which runs the offline `--json`
-CLI surface twice for output determinism and each mutating command twice
-against its own scratch project, requiring the first run to actually change
-it; derived `.rebrew` read caches are outside the content digest), both
+a fixture-freshness
+check (`tools/gen_fixtures.py --check`) and an idempotency sweep
+(`tools/check_idempotency.py --fixture-dir`, which runs its configured offline
+commands twice, comparing exit codes and parsed JSON without `timestamp` keys,
+and each configured mutating command twice against its own scratch project,
+requiring the first run to actually change it; derived `.rebrew` read caches
+are outside the content digest), both
 version-independent. The same job also installs the W3C validator through
 `tools/ci_install_vnu.sh`, because `tests/html_validate.py` skips when
 `vnu` is off PATH and the two HTML surfaces (the dashboard shell and
