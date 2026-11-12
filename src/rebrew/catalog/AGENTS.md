@@ -10,7 +10,7 @@ Merges function sources (discovery inventory, Ghidra JSON, binary exports) into 
 | `loaders.py` | Ghidra/discovery I/O, `scan_reversed_dir`, `parse_rizin_afl` |
 | `registry.py` | `build_function_registry` + canonical size resolution |
 | `grid.py` | `build_coverage_data` (coverage grid) |
-| `pipeline.py` | `build_catalog_data` (scan/registry/grid dict; no disk writes) |
+| `pipeline.py` | `build_catalog_data` (scan/registry/grid dict; may write derived caches, no metadata changes or exports) |
 | `inventory.py` | `repair_inventory_extents` (guarded native inventory extent repairs) |
 | `cli.py` | `run_catalog` + Typer entry |
 

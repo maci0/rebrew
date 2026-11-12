@@ -16,8 +16,10 @@ flowchart LR
 
 Views are cached by project and target. Input changes invalidate affected targets;
 a failed target remains visible as a diagnostic without hiding healthy siblings.
-Reads do not compile or write project files. Status/todo byte accounting has its
-own denominators; coverage grid cells remain presentation data.
+Reads do not compile, change canonical metadata, or write exports. They may
+populate derived `.rebrew/` caches, including parsed metadata and data-scan roles.
+Status/todo byte accounting has its own denominators; coverage grid cells remain
+presentation data.
 
 | Operation | Command | Result |
 | --- | --- | --- |
