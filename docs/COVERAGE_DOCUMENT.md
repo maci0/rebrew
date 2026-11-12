@@ -165,7 +165,7 @@ document never holds a function no reader can key.
 | `backing` | string | Backing allocation for an alias. |
 | `module` | string | Origin module. |
 | `size` | integer | Bytes; display fallback `4` when the catalog gives no usable size. This is not a verification extent. |
-| `status` | string | Data verdict: `VERIFIED`, `DRIFT`, `UNCHECKED`, or `""` when never compared. |
+| `status` | string | Data verdict: `EXACT`, `VERIFIED`, `DISPLACED`, `DRIFT`, `UNCHECKED`, or `""` when no verdict is stored. |
 
 #### `verify_results`
 

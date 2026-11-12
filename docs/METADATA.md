@@ -433,7 +433,7 @@ See [the CLI contract](CLI.md#rebrew-source-document-assembly).
 | Match **STATUS** | `rebrew-functions.toml`: written **only** via `metadata.update_source_status` / `update_statuses_batch` (promotion gate: SKIP stays parked); triggered by `rebrew test` / `rebrew verify` / `rebrew prove` (also `match`, `lint`, `binsync-import`, `intake`). Every write tags `updated_by` (test/verify/prove/match/lint/binsync-import/intake) + UTC `updated_at` | the coverage document's `functions[].status` + `updated_by`/`updated_at` and its `history[]` change log; the selected verify cache's measured-result overlay at report time |
 | **BLOCKER / BLOCKER_DELTA** | `rebrew-functions.toml`: `metadata.update_field` / `remove_field` through `rebrew blocker set/clear`, `rebrew diff --fix-blocker`, `rebrew diagnose near --fix-blocker`, and `rebrew source document-unmatched`. Never hand-edited | the coverage document's `functions[].blocker`/`blockerDelta`; `rebrew status`/`todo` counts; `lint` W005 when `STUB` lacks one |
 | **cflags / toolchain** | `rebrew-functions.toml` (per-function) → `rebrew-libraries.toml` (per-library, walk-up) → project defaults, resolved by `resolve_compile_overrides` | the coverage document's `functions[].cflags` |
-| **Data symbols (globals)** | `rebrew-data.toml` (`file`/`kind` identity, plus `name`/`type`/`size`/`section`/`note`, verify-written data STATUS `VERIFIED`/`DRIFT`/`UNCHECKED`, and the `updated_by`/`updated_at` write stamp) | the coverage document's `globals[]`; `src/<target>/rebrew_globals.h` (`rebrew data header`; extern declarations for the build); `rebrew status` data counts + `rebrew todo --category data-drift` |
+| **Data symbols (globals)** | `rebrew-data.toml` (`file`/`kind` identity, plus `name`/`type`/`size`/`section`/`note`, verify-written data STATUS `EXACT`/`VERIFIED`/`DISPLACED`/`DRIFT`/`UNCHECKED`, and the `updated_by`/`updated_at` write stamp) | the coverage document's `globals[]`; `src/<target>/rebrew_globals.h` (`rebrew data header`; extern declarations for the build); `rebrew status` data counts + `rebrew todo --category data-drift` |
 | Coverage presence | the project tree | the coverage document (`rebrew coverage export --output snapshots/` renders it in-process) |
 | **Layout / PE normalization** | `layout/<target>/` package: `rebrew-layout.toml` (sections, exports, imports, export_stamp, link_options, image_base), `header.hex` (full PE header block: SizeOfImage/CheckSum/TimeDateStamp/section table), `iat.hex`, `prefix.hex`, `bookkeeping.hex`, `data.hex`, `reloc.hex`, `operands.txt`, `calls.txt` | `[link]` block (`file_align`, `stack_*`, `tsaware`, `timestamp`) consumed by `rebrew build round-trip --fix-headers` |
 | **Import order / IAT** | original binary (IAT order), captured into `layout/<target>/` | `crt_region/crt_imports.c` (`#pragma comment(linker, "/include:__imp_...")`), `layout/<target>/rebrew-layout.toml` `imports[]` |
@@ -469,7 +469,7 @@ supplies its own tag.
   upgrade a store. W031 also reports malformed metadata.
 - **The pair means "last changed", not "last checked".**  A writer that sets a
   field to the value it already holds returns without a write, so a re-run of
-  `verify --data` that finds the same `VERIFIED` / `DRIFT` / `UNCHECKED` verdict
+  `verify --data` that finds the same data verdict
   leaves the stamp where the last *change* left it.  Durable measurement evidence is the row's `verification` table;
   the coverage document's `verify_results[].verified_at` is a derived view; "who changed this, and
   when" is the pair.
@@ -492,8 +492,7 @@ supplies its own tag.
   everywhere else.  W036 reports one outside those three directories.
 - **Data store.** `set_data_field` / `set_data_fields_batch` stamp the same pair
   alongside whichever field they change, tagged by the writer that ran: `verify`
-  from `verify --data` on a
-  `VERIFIED` / `DRIFT` / `UNCHECKED` verdict, `rename` from `rebrew source rename` on a
+  from `verify --data` on a data verdict, `rename` from `rebrew source rename` on a
   renamed global, `data` from `rebrew data list`, `lint` when it fills a data
   row's missing section.
   The separate `verification` table keeps the measurement's producer, input
