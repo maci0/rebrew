@@ -41,11 +41,12 @@ def plan_registration(
     functions = load_metadata(metadata_dir)
     data = load_data_metadata(metadata_dir)
     seen: dict[tuple[str, int, bool], tuple[Path, str]] = {}
+    library_modules = {preset_module_key(m) for m in (getattr(cfg, "library_modules", ()) or ())}
     allowed = {
         preset_module_key(m)
         for m in (
             set(getattr(cfg, "target_modules", ()) or ())
-            | set(getattr(cfg, "library_modules", ()) or ())
+            | library_modules
             | set(getattr(cfg, "external_libs", ()) or ())
         )
     }
@@ -77,7 +78,7 @@ def plan_registration(
                 "DATA"
                 if is_data
                 else "LIBRARY"
-                if anchor.module in (getattr(cfg, "library_modules", ()) or ())
+                if preset_module_key(anchor.module) in library_modules
                 else "FUNCTION"
             )
             kind = str(entry.get("kind") or default_kind)

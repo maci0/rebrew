@@ -180,6 +180,26 @@ class TestSourceBindings:
 
 
 class TestRegistration:
+    @pytest.mark.parametrize("module", ["LIB", "lib"])
+    def test_library_registration_uses_project_relative_provider_identity(
+        self, tmp_path: Path, module: str
+    ) -> None:
+        metadata = tmp_path / "src"
+        metadata.mkdir()
+        source = tmp_path / "vendor.c"
+        source.write_text(f"// ADDRESS: {module} 0x1000\nint library(void) {{ return 0; }}\n")
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            metadata_dir=metadata,
+            target_modules={"GAME"},
+            library_modules={"LIB"},
+            external_libs={},
+        )
+        functions, data = plan_registration(cfg, [source])
+        assert data == []
+        assert functions[0]["identity"]["kind"] == "LIBRARY"
+        assert functions[0]["identity"]["file"] == "vendor.c"
+
     def test_registration_never_imports_source_state(self, tmp_path: Path) -> None:
         source = tmp_path / "f.c"
         source.write_text("// ADDRESS: S 0x1000\nint f(void) { return 0; }\n")
