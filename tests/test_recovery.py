@@ -142,6 +142,54 @@ def _project(root: Path, backend: str = "sqlite") -> SimpleNamespace:
 
 
 class TestSqliteBackup:
+    def test_empty_tree_restore_recovers_config_binary_and_binsync(self, tmp_path: Path) -> None:
+        _project(tmp_path)
+        config = tmp_path / "rebrew-project.toml"
+        config.write_text(
+            config.read_text().replace(
+                'module = "GAME"', 'module = "GAME"\nbinsync_state_dir = "sync/binsync"'
+            ),
+            encoding="utf-8",
+        )
+        binary = tmp_path / "game.exe"
+        binary.write_bytes(b"MZ-reference")
+        state = tmp_path / "sync" / "binsync"
+        files = {
+            ".git/HEAD": b"ref: refs/heads/binsync/rebrew\n",
+            "functions/0x1000.toml": b'name = "f"\naddr = 4096\n',
+        }
+        for relative, payload in files.items():
+            path = state / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(payload)
+        store = metadata_store(tmp_path / "rebrew-functions.toml", backend="sqlite", root=tmp_path)
+        store.write({"format": 3, "GAME.0x1000": {"size": 4}}, "test")
+        backup = backup_metadata_database(tmp_path, tmp_path / "off-tree")
+        restored = tmp_path / "restored"
+        restore_metadata_database(backup, restored)
+        assert (restored / "game.exe").read_bytes() == binary.read_bytes()
+        for relative, payload in files.items():
+            path = restored / "sync" / "binsync" / relative
+            assert path.read_bytes() == payload
+            assert path.stat().st_mode & 0o777 == 0o644
+        assert (restored / "rebrew-project.toml").read_bytes() == config.read_bytes()
+        assert "rebrew-project.toml" in verify_backup_manifest(backup.parent)
+
+    def test_corrupt_bundle_config_is_rejected_before_restore(self, tmp_path: Path) -> None:
+        _project(tmp_path)
+        store = metadata_store(tmp_path / "rebrew-functions.toml", backend="sqlite", root=tmp_path)
+        store.write({"format": 3}, "test")
+        backup = backup_metadata_database(tmp_path, tmp_path / "off-tree")
+        config = backup.parent / "rebrew-project.toml"
+        config.chmod(0o644)
+        config.write_text("[broken", encoding="utf-8")
+        _reseal_manifest(backup.parent)
+        restored = tmp_path / "restored"
+        with pytest.raises(MetadataStorageError, match="corrupt backup"):
+            restore_metadata_database(backup, restored)
+        assert not (restored / DATABASE_FILENAME).exists()
+        assert not (restored / "rebrew-project.toml").exists()
+
     def test_round_trip_and_verify(self, tmp_path: Path) -> None:
         _project(tmp_path)
         store = metadata_store(tmp_path / "rebrew-functions.toml", backend="sqlite", root=tmp_path)
@@ -869,15 +917,6 @@ class TestTomlBackup:
         binary = tmp_path / "original" / "game.exe"
         binary.parent.mkdir(parents=True, exist_ok=True)
         binary.write_bytes(b"MZ\x00\x01\x02")
-        # The backup root is the off-tree dir; its project config is the
-        # one _target_binary_relpaths reads on restore. Seed it there so
-        # the restore side can discover the binary path (the live-tree
-        # backup already read the live config above).
-        _backup_cfg = tmp_path / "off-tree" / "rebrew-project.toml"
-        _backup_cfg.parent.mkdir(parents=True, exist_ok=True)
-        _backup_cfg.write_text(
-            (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8"), encoding="utf-8"
-        )
         store = metadata_store(tmp_path / "rebrew-functions.toml", backend="sqlite", root=tmp_path)
         store.write({"format": 2}, "test")
         dest = backup_metadata_database(tmp_path, tmp_path / "off-tree")

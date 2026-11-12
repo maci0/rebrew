@@ -1076,7 +1076,7 @@ def restore_metadata_toml(bundle: Path, root: Path) -> tuple[Path, ...]:
 
 
 def backup_metadata_database(root: Path, backup_dir: Path) -> Path:
-    """Copy the SQLite metadata database to *backup_dir* via the backup API."""
+    """Copy the SQLite database, project config and durable project files to *backup_dir*."""
 
     from rebrew.metadata.locking import file_transaction
 
@@ -1134,7 +1134,9 @@ def backup_metadata_database(root: Path, backup_dir: Path) -> Path:
         if copied.read_bytes() != payload:
             raise MetadataStorageError(f"{copied}: backup verification failed")
         written.append((str(rel), payload))
-    for extra in extra_durable_sources(root):
+    config = _project_config(root)
+    extras = ([config] if config is not None else []) + extra_durable_sources(root)
+    for extra in extras:
         payload = extra.read_bytes()
         copied_extra = backup_dir / extra.relative_to(root)
         atomic_write_bytes(copied_extra, payload, mode=_extra_mode(extra))
@@ -1185,7 +1187,9 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
     # BinSync baselines all come back.  A hand-rolled sibling list
     # here once drifted from the backup list and silently dropped the
     # verify cache and Ghidra state on SQLite restore.
-    for _src in extra_durable_sources(_backup_root):
+    config = _project_config(_backup_root)
+    extras = ([config] if config is not None else []) + extra_durable_sources(_backup_root)
+    for _src in extras:
         # _validate_extra dispatches on suffix: GA log as JSONL,
         # uploads ledger / Ghidra JSON as JSON objects, rest as TOML.
         _validate_extra(_src)
