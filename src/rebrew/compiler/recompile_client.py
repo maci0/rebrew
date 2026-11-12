@@ -328,7 +328,13 @@ def _download_artifact(
             declared = str(art.headers.get("content-length", "") or "").strip()
         except AttributeError, TypeError:
             declared = ""
-        if declared.isdigit() and int(declared) > _MAX_ARTIFACT_BYTES:
+        try:
+            declared_size = int(declared) if declared.isdigit() else 0
+        except ValueError as exc:
+            raise RecompileError(
+                "recompile artifact Content-Length is invalid", kind="protocol"
+            ) from exc
+        if declared_size > _MAX_ARTIFACT_BYTES:
             raise RecompileError(
                 f"recompile artifact exceeds {_MAX_ARTIFACT_BYTES} bytes",
                 kind="protocol",

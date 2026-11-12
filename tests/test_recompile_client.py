@@ -599,6 +599,39 @@ class TestArtifactRedirects:
             "https://compiler.invalid/api/v1/compile",
             "https://compiler.invalid/object.obj",
         ]
+class TestArtifactLength:
+    @pytest.mark.parametrize(
+        ("declared", "refused"),
+        [
+            ("²", True),
+            ("9" * 5000, True),
+            ("31457281", True),
+            ("3", False),
+            ("n/a", False),
+            ("", False),
+        ],
+        ids=["nondecimal-digit", "integer-limit", "oversize", "valid", "nonnumeric", "missing"],
+    )
+    def test_content_length_cannot_escape_the_protocol_error_path(
+        self, monkeypatch: pytest.MonkeyPatch, declared: str, refused: bool
+    ) -> None:
+        post = _Resp(200, json_body={"status": "ok", "artifact_url": "/object.obj"})
+        artifact = _Resp(200, content=b"OBJ", headers={"content-length": declared})
+        client = _FakeClient(post, artifact)
+        monkeypatch.delenv("REBREW_RECOMPILE_API_KEY", raising=False)
+        if refused:
+            with pytest.raises(RecompileError) as error:
+                compile_source(
+                    "https://compiler.invalid", "msvc-6.0", "int f(void){}", [], client=client
+                )
+            assert error.value.kind == "protocol"
+            assert not error.value.retryable
+        else:
+            result = compile_source(
+                "https://compiler.invalid", "msvc-6.0", "int f(void){}", [], client=client
+            )
+            assert result.ok and result.obj_bytes == b"OBJ"
+        assert post.closed and artifact.closed
 
 
 class TestSameOriginArtifactUrl:
