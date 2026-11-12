@@ -571,10 +571,8 @@ def render_mermaid(
     lines.extend(_mermaid_class_defs())
     lines.append("")
 
-    # Deduplicate edges
     seen_edges: set[tuple[str, str]] = set()
 
-    # Nodes
     for name, info in sorted(nodes.items()):
         nid = _sanitize_id(name)
         status = info["status"]

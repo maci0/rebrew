@@ -400,7 +400,6 @@ def export_state(
     if module is not None:
         entries = [e for e in entries if getattr(e, "module", "") == module]
 
-    # Partition annotations
     func_entries = [e for e in entries if e.is_function]
     global_entries = [e for e in entries if e.is_data]
 

@@ -1458,8 +1458,6 @@ def set_compiler(
 
     Run 'rebrew toolchain list' to inspect available compiler profiles.
     """
-    # Import profile presets from init_profiles (single source of truth,
-    # registry-merged)
     from rebrew.init_profiles import profile_defaults, profile_hint
 
     defaults = profile_defaults()

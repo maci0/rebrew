@@ -603,8 +603,7 @@ def _set_field(
 
     with metadata_write_lock(dir_path, METADATA_FILENAME):
         doc = load_metadata_for_write(path, "metadata", known_fields=_KNOWN_METADATA_FIELDS)
-        doc_dict = doc
-        _, entry = _ensure_entry_table(doc_dict, module, va)
+        _, entry = _ensure_entry_table(doc, module, va)
 
         # Same-value short-circuit (mirrors set_fields / update_statuses_batch):
         # a retry that re-sets the stored value must not rewrite the TOML.
@@ -697,8 +696,7 @@ def set_fields(
 
     with metadata_write_lock(dir_path, METADATA_FILENAME):
         doc = load_metadata_for_write(path, "metadata", known_fields=_KNOWN_METADATA_FIELDS)
-        doc_dict = doc
-        _, entry = _ensure_entry_table(doc_dict, module, va)
+        _, entry = _ensure_entry_table(doc, module, va)
 
         changed = False
         for key, value in fields.items():
@@ -759,8 +757,7 @@ def set_fields_batch(
     changed_entries = 0
     with metadata_write_lock(metadata_dir, METADATA_FILENAME):
         doc = load_metadata_for_write(path, "metadata", known_fields=_KNOWN_METADATA_FIELDS)
-        doc_dict = doc
-        key_index = build_metadata_key_index(doc_dict)
+        key_index = build_metadata_key_index(doc)
         for u in updates:
             module = u.get("module") or ""
             if not module:
@@ -778,7 +775,7 @@ def set_fields_batch(
                     f"field update for {module!r} 0x{va_int:x} names unknown "
                     f"provenance tag {tag!r}, not in {sorted(PROVENANCE_TAGS)}"
                 )
-            _, entry = _ensure_entry_table(doc_dict, module, va_int, key_index)
+            _, entry = _ensure_entry_table(doc, module, va_int, key_index)
             changed = False
             for key, value in fields.items():
                 key = key.lower()
@@ -932,10 +929,9 @@ def import_status_history(
     changed = 0
     with metadata_write_lock(root, METADATA_FILENAME):
         doc = load_metadata_for_write(path, "metadata", known_fields=_KNOWN_METADATA_FIELDS)
-        doc_dict = doc
-        index = build_metadata_key_index(doc_dict)
+        index = build_metadata_key_index(doc)
         for va, events in prepared.items():
-            _, entry = _ensure_entry_table(doc_dict, module, va, index)
+            _, entry = _ensure_entry_table(doc, module, va, index)
             old = entry.get("status_history", [])
             merged = _merge_status_history(old, events)
             if old != merged:
@@ -1005,14 +1001,13 @@ def record_function_rows(
     path = (dir_path / METADATA_FILENAME).resolve()
     with metadata_write_lock(dir_path, METADATA_FILENAME):
         doc = load_metadata_for_write(path, "metadata", known_fields=_KNOWN_METADATA_FIELDS)
-        doc_dict = doc
-        key_index = build_metadata_key_index(doc_dict)
+        key_index = build_metadata_key_index(doc)
         changed = False
         for row in rows:
             module = str(row.get("module") or "")
             _require_module(module)
             va_int = int(row["va"])
-            _, entry = _ensure_entry_table(doc_dict, module, va_int, key_index)
+            _, entry = _ensure_entry_table(doc, module, va_int, key_index)
             updates: dict[str, Any] = {}
             for key, value in (row.get("fields") or {}).items():
                 key = key.lower()
@@ -1161,8 +1156,7 @@ def remove_fields_batch(metadata_dir: Path | str | Any, updates: list[dict[str, 
     changed_entries = 0
     with metadata_write_lock(dir_path, METADATA_FILENAME):
         doc = load_metadata_for_write(path, "metadata", known_fields=_KNOWN_METADATA_FIELDS)
-        doc_dict = doc
-        key_index = build_metadata_key_index(doc_dict)
+        key_index = build_metadata_key_index(doc)
         for u in updates:
             module = u.get("module") or ""
             if not module:
@@ -1173,10 +1167,10 @@ def remove_fields_batch(metadata_dir: Path | str | Any, updates: list[dict[str, 
             keys = u.get("keys") or ()
             if not keys:
                 continue
-            toml_key = resolve_metadata_key(doc_dict, str(module), int(va), index=key_index)
-            if toml_key not in doc_dict:
+            toml_key = resolve_metadata_key(doc, str(module), int(va), index=key_index)
+            if toml_key not in doc:
                 continue
-            entry = typing.cast("dict[str, Any]", doc_dict[toml_key])
+            entry = typing.cast("dict[str, Any]", doc[toml_key])
             changed = False
             for key in keys:
                 key = key.lower() if isinstance(key, str) else key
@@ -1228,15 +1222,14 @@ def delete_entries_batch(metadata_dir: Path | str | Any, targets: list[tuple[str
             raise ValueError(f"entry delete missing module: {(module, va)!r}")
     with metadata_write_lock(dir_path, METADATA_FILENAME):
         doc = load_metadata_for_write(path, "metadata", known_fields=_KNOWN_METADATA_FIELDS)
-        doc_dict = doc
-        key_index = build_metadata_key_index(doc_dict)
+        key_index = build_metadata_key_index(doc)
         for module, va in targets:
             va_int = int(va)
             norm_mod = unicodedata.normalize("NFC", str(module))
-            toml_key = resolve_metadata_key(doc_dict, norm_mod, va_int, index=key_index)
-            if toml_key not in doc_dict:
+            toml_key = resolve_metadata_key(doc, norm_mod, va_int, index=key_index)
+            if toml_key not in doc:
                 continue
-            del doc_dict[toml_key]
+            del doc[toml_key]
             key_index.pop((norm_mod, va_int), None)
             removed += 1
         if removed:
@@ -1268,12 +1261,10 @@ def _mutate_entry_doc(
         if not doc:
             return False
 
-        # Use dict access for type checking on tomlkit Container
-        doc_dict = doc
-        toml_key = resolve_metadata_key(doc_dict, module, va)
-        if toml_key not in doc_dict:
+        toml_key = resolve_metadata_key(doc, module, va)
+        if toml_key not in doc:
             return False
-        if not mutate(doc_dict, toml_key):
+        if not mutate(doc, toml_key):
             return False
         stamp_format(doc, version=FUNCTION_FORMAT_VERSION)
         metadata_store(path).write(doc, "metadata")
@@ -1591,8 +1582,7 @@ def update_statuses_batch(
     with metadata_write_lock(dir_path, METADATA_FILENAME):
         # Single read for the whole batch
         doc = load_metadata_for_write(path, "metadata", known_fields=_KNOWN_METADATA_FIELDS)
-        doc_dict = doc
-        key_index = build_metadata_key_index(doc_dict)
+        key_index = build_metadata_key_index(doc)
 
         for u in updates:
             module = u.get("module") or ""
@@ -1614,7 +1604,7 @@ def update_statuses_batch(
                     f"unknown STATUS {new_status!r} (expected one of {sorted(KNOWN_STATUSES)})"
                 )
             va_int = int(va)
-            _, entry = _ensure_entry_table(doc_dict, module, va_int, key_index)
+            _, entry = _ensure_entry_table(doc, module, va_int, key_index)
 
             from rebrew.metadata.binding_history import retired_binding
 

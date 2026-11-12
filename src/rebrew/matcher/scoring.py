@@ -1001,7 +1001,6 @@ def diff_functions(
         if match_char == "  " and (i < len(target_insns) or i < len(cand_insns)):
             match_char = "**"
 
-        # Track counts
         if match_char == "==":
             exact_count += 1
         elif match_char == "~~":

@@ -3047,7 +3047,6 @@ def run_verification(
                                     f"{untrusted_ident(exc)}"
                                 )
                             result = _failed_result("INTERNAL_ERROR", f"INTERNAL_ERROR: {exc}")
-                        # Refill the pool slot with the next entry (if any).
                         with contextlib.suppress(StopIteration):
                             e = next(entry_iter)
                             futures[pool.submit(_verify, e)] = e
@@ -3519,7 +3518,6 @@ def _print_results(
 
         res_by_va = {int(r["va"], 16): r for r in results}
 
-        # Sort failures: lowest match_percent first, then by VA
         def _fail_sort_key(item: tuple[SourceBinding, str]) -> tuple[float, int]:
             entry, _ = item
             return (_row_match_pct(res_by_va.get(entry.va)), entry.va)

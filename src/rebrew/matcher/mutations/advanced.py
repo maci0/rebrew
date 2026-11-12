@@ -511,6 +511,34 @@ _QUERY_FUNC_PARAM = LazyQuery(
 )
 
 
+def _toggle_param_register(s: str, rng: random.Random, *, add: bool) -> str | None:
+    """Add or drop ``register`` on one parameter; both operators share the walk."""
+    b_source = encode_source(s)
+    tree = parse_c_ast(b_source)
+    cursor = query_cursor(_QUERY_FUNC_PARAM)
+    matches = cursor.matches(tree.root_node)
+
+    valid = []
+    for match in matches:
+        caps = first_caps(match[1])
+        param = caps["param"]
+        text = b_source[param.start_byte : param.end_byte]
+        if add:
+            if b"register" not in text and b"..." not in text:
+                valid.append(param)
+        elif b"register " in text:
+            valid.append(param)
+
+    if not valid:
+        return None
+
+    param = rng.choice(valid)
+    text = b_source[param.start_byte : param.end_byte]
+    new_text = b"register " + text if add else text.replace(b"register ", b"", 1)
+    result = b_source[: param.start_byte] + new_text + b_source[param.end_byte :]
+    return decode_source(result)
+
+
 def mut_register_param(s: str, rng: random.Random) -> str | None:
     """Add 'register' keyword to a function parameter declaration.
 
@@ -518,51 +546,12 @@ def mut_register_param(s: str, rng: random.Random) -> str | None:
     forces the parameter into a callee-saved register (ESI/EDI) and can
     suppress ``push ebp`` frame setup entirely.
     """
-    b_source = encode_source(s)
-    tree = parse_c_ast(b_source)
-    cursor = query_cursor(_QUERY_FUNC_PARAM)
-    matches = cursor.matches(tree.root_node)
-
-    valid = []
-    for match in matches:
-        caps = first_caps(match[1])
-        param = caps["param"]
-        text = b_source[param.start_byte : param.end_byte]
-        if b"register" not in text and b"..." not in text:
-            valid.append(param)
-
-    if not valid:
-        return None
-
-    param = rng.choice(valid)
-    text = b_source[param.start_byte : param.end_byte]
-    result = b_source[: param.start_byte] + b"register " + text + b_source[param.end_byte :]
-    return decode_source(result)
+    return _toggle_param_register(s, rng, add=True)
 
 
 def mut_unregister_param(s: str, rng: random.Random) -> str | None:
     """Remove 'register' keyword from a function parameter declaration."""
-    b_source = encode_source(s)
-    tree = parse_c_ast(b_source)
-    cursor = query_cursor(_QUERY_FUNC_PARAM)
-    matches = cursor.matches(tree.root_node)
-
-    valid = []
-    for match in matches:
-        caps = first_caps(match[1])
-        param = caps["param"]
-        text = b_source[param.start_byte : param.end_byte]
-        if b"register " in text:
-            valid.append(param)
-
-    if not valid:
-        return None
-
-    param = rng.choice(valid)
-    text = b_source[param.start_byte : param.end_byte]
-    new_text = text.replace(b"register ", b"", 1)
-    result = b_source[: param.start_byte] + new_text + b_source[param.end_byte :]
-    return decode_source(result)
+    return _toggle_param_register(s, rng, add=False)
 
 
 # --- Loop break mutations ---
