@@ -79,8 +79,10 @@ Function identity and state live in `rebrew-functions.toml`; `status`,
   - Ghidra functions
   - Bare discovery entries (size-only, no name)
 - Resolves canonical sizes (catalog wins over the annotation). Ghidra's size
-  wins by default, but the function list wins when the extra bytes are tail
-  padding, a jump table, out-of-line code, or a terminator-less code tail.
+  wins by default, but byte heuristics can select the larger function-list
+  size for tail padding, a jump table, or out-of-line code. An additional
+  x86-only heuristic selects it when the extra bytes contain neither RET
+  encoding (`0xC3` / `0xC2`); that byte test does not prove a code tail.
   `--summary` reports only the aggregate count of size disagreements
   (`Size disagree: N`), never per-function names.
 - Outputs in any combination of modes:
