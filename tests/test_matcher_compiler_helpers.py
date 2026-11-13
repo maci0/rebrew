@@ -221,3 +221,41 @@ class TestDockerBackedProfiles:
         )
         refresh_all()
         assert "plugin-native" not in compiler_mod.docker_backed_profiles()
+
+
+def _native_gnu_profiles() -> list[str]:
+    from rebrew.compiler.toolchain import TOOLCHAINS
+
+    return sorted(
+        name
+        for name, spec in TOOLCHAINS.items()
+        if spec.image
+        and spec.image.split(":")[0] in ("rebrew/gcc", "rebrew/clang", "rebrew/mingw")
+        and spec.image.endswith(("-linux-x64", "-win32"))
+    )
+
+
+class TestNativeGnuProfilesHaveFlagSets:
+    """Every packaged x86 Linux/MinGW gcc and clang profile can be flag-swept."""
+
+    def test_the_profile_list_is_not_empty(self) -> None:
+        assert {"gcc-16.2.0", "clang-23.1.4"} <= set(_native_gnu_profiles())
+
+    @pytest.mark.parametrize("profile", _native_gnu_profiles())
+    def test_flag_sweep_accepts_the_profile(self, profile: str) -> None:
+        from rebrew.matcher.compiler import flag_sweep
+
+        # An expired deadline starts no compile; a profile with no registered
+        # flag set raises before the deadline is read.
+        result = flag_sweep(
+            "int f(void) { return 0; }",
+            b"\x31\xc0\xc3",
+            "cc",
+            "",
+            "",
+            "f",
+            profile=profile,
+            deadline=0.0,
+            clock=lambda: 1.0,
+        )
+        assert result == []

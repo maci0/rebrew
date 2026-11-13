@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- `rebrew match flags` sweeps `gcc-16.2.0` and `clang-23.1.4` with the GCC axes instead of refusing them for lacking a registered flag set, like their older gcc and clang siblings.
+
 ## [6.37.0] - 2026-11-13
 
 ### Changed

@@ -218,11 +218,9 @@ semantic decomp and blocker the byte delta rather than forcing a pass.
 `rebrew/clang:18.1.8-linux-x64`, `rebrew/clang:16.0.4-linux-x64`). Select the
 version that matches the reference compiler. The GNU images build
 GCC from the release tarball; the Clang images extract LLVM's prebuilt
-release.  `gcc-14.2.0`/`gcc-12.3.0` and `clang-18.1.8`/`clang-16.0.4` carry
-a minimal posix flag-sweep axis set (`rebrew.flag_data.GCC_FLAGS`), so
-`rebrew match flags SOURCE` emits flags these compilers accept rather than
-the MSVC fallback. `gcc-16.2.0` and `clang-23.1.4` have no registered flag
-set yet, so `rebrew match flags` refuses them; `rebrew match run` works.
+release.  All six carry a minimal posix flag-sweep axis set
+(`rebrew.flag_data.GCC_FLAGS`), so `rebrew match flags SOURCE` emits flags
+these compilers accept rather than the MSVC fallback.
 
 **Analysis note:** rizin's `aaa` mis-merges functions on this toolchain;
 use `aa; aap` (function-prelude analysis) for the function list.  Ghidra

@@ -135,10 +135,12 @@ _PACKAGED_FLAGS_MAP: dict[str, Flags] = {
     "borland-3.1": BORLAND_FLAGS,
     "borland-2.0": BORLAND_FLAGS,
     "borland-5.5": BORLAND_FLAGS,
+    "gcc-16.2.0": GCC_FLAGS,
     "gcc-14.2.0": GCC_FLAGS,
     "gcc-12.3.0": GCC_FLAGS,  # same GCC flag family
     "mingw-16.2.0": GCC_FLAGS,  # MinGW accepts the same GCC flag family
     "mingw-14.2.0": GCC_FLAGS,
+    "clang-23.1.4": GCC_FLAGS,
     "clang-18.1.8": GCC_FLAGS,
     "clang-16.0.4": GCC_FLAGS,
 }
@@ -146,10 +148,12 @@ _PACKAGED_FLAGS_MAP: dict[str, Flags] = {
 #: Packaged sweep-tier dispatch: profile → {tier: [flag-axis ids]}.  Profiles
 #: without an entry fall back to MSVC_SWEEP_TIERS (the historic default).
 _PACKAGED_FLAG_TIERS: dict[str, dict[str, list[str] | None]] = {
+    "gcc-16.2.0": GCC_SWEEP_TIERS,
     "gcc-14.2.0": GCC_SWEEP_TIERS,
     "gcc-12.3.0": GCC_SWEEP_TIERS,
     "mingw-16.2.0": GCC_SWEEP_TIERS,
     "mingw-14.2.0": GCC_SWEEP_TIERS,
+    "clang-23.1.4": GCC_SWEEP_TIERS,
     "clang-18.1.8": GCC_SWEEP_TIERS,
     "clang-16.0.4": GCC_SWEEP_TIERS,
     "watcom-2.0-win32": WATCOM_SWEEP_TIERS,
