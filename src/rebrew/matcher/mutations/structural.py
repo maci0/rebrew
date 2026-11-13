@@ -1239,13 +1239,13 @@ def mut_compare_negate_to_ternary(s: str, rng: random.Random) -> str | None:
 
     MSVC6 compiles the negated comparison to ``setne`` plus ``neg``, seven
     bytes larger than the fused ``sub``/``neg``/``sbb`` compare-and-negate the
-    reference uses.  The ternary spelling reaches the fused form; ``==`` maps
-    to the mirrored ``(a == b ? 0 : -1)``.  Both spellings yield 0 or -1.
+    reference uses.  The ternary spelling reaches the fused form; ``==`` is
+    rewritten the same way, ``(a == b ? -1 : 0)``, so the value is unchanged.
     """
     b_source = encode_source(s)
     tree = parse_c_ast(b_source)
 
-    candidates: list[tuple[ts.Node, ts.Node, bytes]] = []
+    candidates: list[tuple[ts.Node, ts.Node]] = []
     for _idx, caps in query_cursor(QUERY_NEGATED_COMPARISON).matches(tree.root_node):
         cap = first_caps(caps)
         unary = cap.get("un")
@@ -1258,15 +1258,14 @@ def mut_compare_negate_to_ternary(s: str, rng: random.Random) -> str | None:
         cmp_op = cmp_node.child_by_field_name("operator")
         if cmp_op is None or cmp_op.text not in (b"==", b"!="):
             continue
-        candidates.append((unary, cmp_node, cmp_op.text))
+        candidates.append((unary, cmp_node))
 
     if not candidates:
         return None
 
-    unary, cmp_node, cmp_op_text = rng.choice(candidates)
+    unary, cmp_node = rng.choice(candidates)
     cmp_txt = _node_text(cmp_node, b_source)
-    true_val, false_val = ("-1", "0") if cmp_op_text == b"!=" else ("0", "-1")
-    new = f"(({cmp_txt}) ? {true_val} : {false_val})"
+    new = f"(({cmp_txt}) ? -1 : 0)"
     result = b_source[: unary.start_byte] + encode_source(new) + b_source[unary.end_byte :]
     return decode_source(result)
 

@@ -85,11 +85,12 @@ class TestCompareNegateToTernary:
         assert "((x != 0xe) ? -1 : 0)" in out
         assert quick_validate(out)
 
-    def test_rewrites_eq_to_the_mirror(self) -> None:
+    def test_rewrites_eq_preserving_its_value(self) -> None:
+        # -(x == 0xe) is -1 when x == 0xe and 0 otherwise; the ternary must agree.
         src = "int f(int x) {\n    return -(x == 0xe);\n}\n"
         out = _first(mut_compare_negate_to_ternary, src)
         assert out is not None
-        assert "((x == 0xe) ? 0 : -1)" in out
+        assert "((x == 0xe) ? -1 : 0)" in out
         assert quick_validate(out)
 
     def test_ignores_a_non_comparison_operand(self) -> None:
