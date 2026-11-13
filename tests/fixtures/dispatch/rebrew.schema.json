@@ -81,6 +81,46 @@
               "inventory_path": {
                 "type": "string"
               },
+              "metadata": {
+                "additionalProperties": false,
+                "properties": {
+                  "backend": {
+                    "type": "string"
+                  },
+                  "documents": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "logical_sha256": {
+                          "type": "string"
+                        },
+                        "path": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "path",
+                        "logical_sha256"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "migration_input_digest": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "backend",
+                  "path",
+                  "documents",
+                  "migration_input_digest"
+                ],
+                "type": "object"
+              },
               "report_path": {
                 "type": "string"
               },
@@ -1351,8 +1391,6 @@
         "required": [
           "project_dir",
           "sha256",
-          "va",
-          "backend",
           "rebrew_target",
           "source_revision",
           "source_snapshot_sha256",
@@ -1361,7 +1399,9 @@
           "generation",
           "analysis_manifest",
           "analysis_manifest_sha256",
-          "analysis_files"
+          "analysis_files",
+          "va",
+          "backend"
         ],
         "type": "object"
       },
@@ -1883,6 +1923,46 @@
               },
               "inventory_path": {
                 "type": "string"
+              },
+              "metadata": {
+                "additionalProperties": false,
+                "properties": {
+                  "backend": {
+                    "type": "string"
+                  },
+                  "documents": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "logical_sha256": {
+                          "type": "string"
+                        },
+                        "path": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "path",
+                        "logical_sha256"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "migration_input_digest": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "backend",
+                  "path",
+                  "documents",
+                  "migration_input_digest"
+                ],
+                "type": "object"
               },
               "report_path": {
                 "type": "string"
@@ -2685,7 +2765,6 @@
         "required": [
           "project_dir",
           "sha256",
-          "min_severity",
           "rebrew_target",
           "source_revision",
           "source_snapshot_sha256",
@@ -2694,7 +2773,8 @@
           "generation",
           "analysis_manifest",
           "analysis_manifest_sha256",
-          "analysis_files"
+          "analysis_files",
+          "min_severity"
         ],
         "type": "object"
       },

@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** fresh `rebrew.ops.capture_fresh_analysis` and `rebrew.analyse` captures use version 2 with a SQLite metadata artifact and the `metadata` descriptor (`backend`, `path`, `documents[{path, logical_sha256}]`, `migration_input_digest`). Import uses the reviewed expected digest before selecting SQLite; the receipt is custody-bound and distinct from physical and logical hashes. Version 1 TOML retained captures stay accepted, existing worker workspaces keep their backend, and public source-upload limits are unchanged.
+
 ## [6.36.0] - 2026-11-13
 
 ### Changed

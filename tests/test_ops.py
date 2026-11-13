@@ -1156,6 +1156,9 @@ class TestReconstructionOps:
         assert status == 409, body
 
     def test_analyse_same_binary_has_isolated_project_workspaces(self, tmp_path: Path) -> None:
+        from rebrew.config import load_config
+        from rebrew.metadata.sqlite import DATABASE_FILENAME
+
         filestore, workspace = _worker_dirs(tmp_path)
         config = WorkerConfig(filestore.resolve(), workspace.resolve())
 
@@ -1165,7 +1168,7 @@ class TestReconstructionOps:
             assert status == 200, body
             report = json.loads(body)
             capture = report["analysis_capture"]
-            assert capture["version"] == 1
+            assert capture["version"] == 2
             assert capture["binary_sha256"] == SHA256
             assert capture["target"] == report["targets"][0]["name"]
             assert report["targets"][0]["sha256"] == SHA256
@@ -1177,7 +1180,10 @@ class TestReconstructionOps:
             for function in report["targets"][0]["functions"]:
                 if "source_path" in function:
                     assert function["source_path"] in source_paths
-            return Path(report["project"])
+            project = Path(report["project"])
+            assert load_config(project).metadata_backend == "toml"
+            assert not (project / DATABASE_FILENAME).exists()
+            return project
 
         first = analyse("tenant-a")
         second = analyse("tenant-b")

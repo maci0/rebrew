@@ -45,6 +45,30 @@ transaction can cover all four stores in that database. This experimental
 backend adds no relational query API or performance promise. See
 [ADR 034](adr/034-metadata-storage-backends.md).
 
+### Isolated worker captures
+
+Fresh independent captures from `rebrew.analyse` import the intake's TOML stores
+through the reviewed migration API, passing the preview's expected digest. SQLite
+is selected only after the import verifies. Existing worker workspaces keep their
+current backend, and standalone projects still default to TOML.
+
+Capture version 2 includes a closed, self-contained `rebrew-metadata.sqlite3`
+backup. Its file entry records the physical size and SHA-256. The `metadata`
+descriptor contains `backend`, `path`, sorted `documents` entries with `path` and
+`logical_sha256`, and `migration_input_digest`. Logical hashes cover each stored
+TOML document's bytes; they are distinct from the database file's hash.
+`migration_input_digest` is an opaque producer receipt bound by backend custody,
+rather than an authentication token or a digest to recompute in another staging
+directory. Config remains TOML, and the inventory and normalized report remain JSON.
+
+Retained verification accepts the SQLite artifact after schema, integrity,
+logical-document and file checks. Journal, WAL and SHM dependencies are refused;
+measure-only verification must leave the captured database unchanged. Version 1
+TOML captures remain readable. Metadata readsets retain the shared 8 MiB per-file,
+32 MiB aggregate and 32768-file bounds. Public source uploads keep their separate
+limit. Proposal publication and migration of existing worker workspaces are
+separate operations.
+
 ### PostgreSQL
 
 Install the optional `rebrew[pgsql]` extra and the system `libpq` client library.

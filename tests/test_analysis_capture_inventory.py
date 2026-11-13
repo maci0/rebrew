@@ -100,10 +100,20 @@ def test_large_producer_metadata_is_captured(
 
     monkeypatch.setattr(ops, "_run_intake", run)
     capture, _ = _capture(tmp_path)
-    (entry,) = [item for item in capture["entries"] if item["path"] == "rebrew-functions.toml"]
-    assert entry["size"] == len(produced)
-    assert entry["digest"] == hashlib.sha256(produced).hexdigest()
-    assert base64.b64decode(entry["data"], validate=True) == produced
+    from rebrew.metadata.sqlite import DATABASE_FILENAME, SqliteStore
+
+    (entry,) = [item for item in capture["entries"] if item["path"] == DATABASE_FILENAME]
+    payload = base64.b64decode(entry["data"], validate=True)
+    assert entry["size"] == len(payload) > 1024 * 1024
+    assert entry["digest"] == hashlib.sha256(payload).hexdigest()
+    staged = tmp_path / "captured-metadata"
+    staged.mkdir()
+    (staged / DATABASE_FILENAME).write_bytes(payload)
+    assert SqliteStore(staged / "rebrew-functions.toml", staged).snapshot() == produced
+    assert {
+        "path": "rebrew-functions.toml",
+        "logical_sha256": hashlib.sha256(produced).hexdigest(),
+    } in capture["metadata"]["documents"]
 
 
 def test_capture_refuses_file_over_eight_mib(

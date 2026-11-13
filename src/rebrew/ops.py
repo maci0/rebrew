@@ -1347,7 +1347,7 @@ def _stage_retained_files(config: WorkerConfig, root: Path, files: Any, *, exclu
     for entry in files:
         if (
             entry.size < 0
-            or entry.size > 1024 * 1024
+            or entry.size > MAX_READSET_FILE_BYTES
             or not re.fullmatch(r"[0-9a-f]{64}", entry.digest)
         ):
             raise _invalid("invalid retained source manifest entry")
@@ -2143,6 +2143,50 @@ def analyse(config: WorkerConfig, req: AnalyseRequest) -> dict[str, Any]:
     return {**report, "project": str(project), "intake": intake, "analysis_capture": capture}
 
 
+def _fresh_sqlite_metadata(root: Path, target: str, scratch: Path) -> dict[str, Any]:
+    """Import the independent intake before selecting SQLite and closing its readset."""
+    from rebrew.config import load_config
+    from rebrew.metadata.sqlite import (
+        DATABASE_FILENAME,
+        metadata_database_documents,
+        snapshot_metadata_database,
+    )
+    from rebrew.metadata.storage import project_metadata_stores
+    from rebrew.metadata_transfer import migrate_metadata
+
+    cfg = load_config(root, target=target)
+    if cfg.metadata_read_backends != ("toml",) or cfg.metadata_write_backends != ("toml",):
+        raise _capture_failed("fresh analysis requires an independent TOML intake")
+    confined_snapshot_config(cfg, root)
+    logical = {
+        store.path.relative_to(root).as_posix(): store.digest()
+        for store in project_metadata_stores(root, recursive=True)
+    }
+    if "rebrew-functions.toml" not in logical:
+        raise _capture_failed("fresh analysis requires function metadata before import")
+    preview = migrate_metadata(cfg, "sqlite", dry_run=True)
+    migrate_metadata(cfg, "sqlite", expected_digest=preview["input_digest"])
+    cfg = load_config(root, target=target)
+    if cfg.metadata_read_backends != ("sqlite",) or cfg.metadata_write_backends != ("sqlite",):
+        raise _capture_failed("fresh analysis metadata import did not select SQLite")
+    with tempfile.TemporaryDirectory(prefix="metadata-snapshot-", dir=scratch) as temp:
+        snapshot = snapshot_metadata_database(root, Path(temp) / DATABASE_FILENAME)
+        documents = metadata_database_documents(snapshot)
+        if documents != logical:
+            raise _capture_failed("fresh analysis metadata import changed logical documents")
+        os.replace(snapshot, root / DATABASE_FILENAME)
+    return {
+        "backend": "sqlite",
+        "path": DATABASE_FILENAME,
+        "documents": [
+            {"path": path, "logical_sha256": documents[path]}
+            for path in sorted(documents, key=lambda value: value.encode("utf-8"))
+        ],
+        # The migration's staging paths make this an opaque producer receipt.
+        "migration_input_digest": preview["input_digest"],
+    }
+
+
 def capture_fresh_analysis(
     config: WorkerConfig, binary: Path, sha256: str, target: str
 ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -2159,6 +2203,12 @@ def capture_fresh_analysis(
         for path in root.rglob("*"):
             if path.is_symlink():
                 raise _capture_failed("fresh analysis capture contains a symlink")
+        try:
+            metadata = _fresh_sqlite_metadata(root, target, scratch)
+        except OpsError:
+            raise
+        except (OSError, ValueError, RebrewError) as exc:
+            raise _capture_failed(f"fresh analysis metadata migration failed: {exc}") from exc
         cfg = load_config(root, target=target)
         confined_snapshot_config(cfg, root)
         if cfg.raw_link is not None:
@@ -2289,7 +2339,13 @@ def capture_fresh_analysis(
             for field in ("document", "path"):
                 if item[field]:
                     item[field] = str(Path(item[field]).relative_to(root))
-        capture = {"version": 1, "binary_sha256": sha256, "target": target, "entries": entries}
+        capture = {
+            "version": 2,
+            "binary_sha256": sha256,
+            "target": target,
+            "metadata": metadata,
+            "entries": entries,
+        }
         if (
             selected is not None
             and selected["kind"] == "file"
@@ -2848,19 +2904,35 @@ def retained_target_snapshot(
         destination = _stage_retained_snapshot(
             config, root, files, target_name, sha256, binary_key, binary_url, exclusive=False
         )
+        from rebrew.metadata.sqlite import DATABASE_FILENAME, metadata_database_documents
+        from rebrew.metadata.storage import backend_routes
+        from rebrew.workspace import read_config
+
+        reads, writes = backend_routes(read_config(root).get("metadata", {}))
+        if reads not in {("toml",), ("sqlite",)} or writes != reads:
+            raise _invalid("retained target requires one local metadata backend")
+        if reads == ("sqlite",):
+            try:
+                documents = metadata_database_documents(root / DATABASE_FILENAME)
+            except (ValueError, OSError, RebrewError) as exc:
+                raise _invalid(str(exc)) from exc
+            if "rebrew-functions.toml" not in documents:
+                raise _invalid("retained target requires SQLite function metadata")
         rewritten = apply_project_cflags(root, target_name, project_cflags)
         cfg = load_config(root, target=target_name)
         confined_snapshot_config(cfg, root)
-        required = (
-            inventory_path_for(cfg.reversed_dir, cfg),
-            cfg.metadata_dir / "rebrew-functions.toml",
+        registry = (
+            root / DATABASE_FILENAME
+            if reads == ("sqlite",)
+            else cfg.metadata_dir / "rebrew-functions.toml"
         )
-        if cfg.metadata_backend != "toml" or any(
+        required = (inventory_path_for(cfg.reversed_dir, cfg), registry)
+        if any(
             not path.is_file()
             or path.relative_to(root).as_posix() not in {entry.path for entry in files}
             for path in required
         ):
-            raise _invalid("retained target requires its inventory and TOML function metadata")
+            raise _invalid("retained target requires its inventory and function metadata")
         yield root
         if _file_sha256(destination) != sha256:
             raise _invalid("snapshot target binary changed during operation")
