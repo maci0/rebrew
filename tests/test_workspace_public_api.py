@@ -29,11 +29,13 @@ def test_workspace_public_api_snapshot() -> None:
         "EARNED_STATUSES",
         "KNOWN_STATUSES",
         "MATCHED_STATUSES",
+        "PLACEHOLDER_NAME_PATTERN",
         "VA_MAX",
         "WorkspaceConfigError",
         "WorkspaceNotFound",
         "default_target",
         "find_root",
+        "is_placeholder_name",
         "parse_va_candidates",
         "project_table",
         "read_config",
@@ -79,7 +81,7 @@ def test_submodules_import_without_rebrew_stack(monkeypatch: pytest.MonkeyPatch)
             monkeypatch.delitem(sys.modules, name)
 
     before = set(sys.modules)
-    for module in ("config", "status", "va"):
+    for module in ("config", "names", "status", "va"):
         mod = importlib.import_module(f"rebrew.workspace.{module}")
         assert mod.__name__ == f"rebrew.workspace.{module}"
     pulled = {
@@ -93,6 +95,7 @@ def test_submodules_import_without_rebrew_stack(monkeypatch: pytest.MonkeyPatch)
         "rebrew.errors",
         "rebrew.workspace",
         "rebrew.workspace.config",
+        "rebrew.workspace.names",
         "rebrew.workspace.status",
         "rebrew.workspace.va",
     }, pulled

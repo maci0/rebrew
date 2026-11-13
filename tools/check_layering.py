@@ -166,6 +166,7 @@ PACKAGE_EXTERNALS: dict[str, frozenset[str]] = {
             "types",
             "utils",
             "verify_hash",
+            "workspace.names",
         }
     ),
     "ghidra": frozenset(

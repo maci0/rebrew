@@ -55,3 +55,16 @@ def test_cache_files_name_every_file_the_verify_cache_writes(tmp_path: Path) -> 
     }
     assert "verify_cache.toml" in written
     assert written <= set(reply["cache_files"])
+
+
+def test_placeholder_name_is_the_rule_rebrew_applies(tmp_path: Path) -> None:
+    import re
+
+    from rebrew.workspace.names import is_placeholder_name
+
+    status, reply = _call(_config(tmp_path), "rebrew.vocabulary", {})
+    assert status == 200, reply
+    rule = re.compile(reply["placeholder_name"])
+    for name in ("", "FUN_00401000", "sub_401000", "fcn_00401000", "real_name", "sub_menu"):
+        assert (rule.fullmatch(name) is not None) == is_placeholder_name(name), name
+    assert rule.fullmatch("FUN_00401000") and not rule.fullmatch("real_name")

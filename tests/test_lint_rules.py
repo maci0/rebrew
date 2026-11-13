@@ -103,3 +103,31 @@ class TestE015StubStatus:
         cfg = SimpleNamespace(library_modules={"MSVCRT"})
         _check_E015_kind_consistency(r, "FUNCTION", "MSVCRT", "EXACT", cfg)
         assert any(e[1] == "E015" for e in r.errors)
+
+
+class TestW023DefaultFunctionNames:
+    """W023 flags exactly the names the shared placeholder rule accepts."""
+
+    def _warnings(self, tmp_path: Path, source: str, *, pedantic: bool = True) -> list[str]:
+        from rebrew.lint import lint_file
+
+        path = tmp_path / "f.c"
+        path.write_text(source, encoding="utf-8")
+        return [w[2] for w in lint_file(path, pedantic=pedantic).warnings if w[1] == "W023"]
+
+    def test_placeholder_definitions_warn(self, tmp_path: Path) -> None:
+        source = (
+            "int FUN_00401000(void) { return 0; }\n"
+            "int fcn_00401010(void) { return 0; }\n"
+            "int thunk_CreateWindowA(void) { return 0; }\n"
+            "int real_name(void) { return 0; }\n"
+            "int sub_menu(void) { return 0; }\n"
+        )
+        warnings = self._warnings(tmp_path, source)
+        assert len(warnings) == 3
+        assert all("default name" in w for w in warnings)
+        assert any("'fcn_00401010'" in w for w in warnings)
+        assert not any("real_name" in w or "sub_menu" in w for w in warnings)
+
+    def test_not_pedantic_is_silent(self, tmp_path: Path) -> None:
+        assert self._warnings(tmp_path, "int fcn(void) { return 0; }\n", pedantic=False) == []

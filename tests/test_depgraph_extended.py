@@ -299,3 +299,15 @@ class TestFocusByVa:
         filtered, f_edges, _ = _focus_graph(nodes, edges, "0x1000", depth=1)
         assert "func_a" in filtered  # the real function at the VA
         assert filtered["func_a"]["va"] == 0x1000
+
+    def test_focus_va_skips_unsuffixed_placeholder(self) -> None:
+        from rebrew.depgraph import _focus_graph
+
+        # The graph's own `fn_0x<va>` node for an unnamed target is a
+        # placeholder too: a VA focus matching nothing must not land on it.
+        nodes = {
+            "func_a": {"status": "EXACT", "va": 0x1000, "file": "a.c"},
+            "fn_0x9999": {"status": "STUB", "va": 0, "file": ""},
+        }
+        filtered, f_edges, _ = _focus_graph(nodes, [("func_a", "fn_0x9999")], "0x9999", depth=1)
+        assert filtered == {} and f_edges == []

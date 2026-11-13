@@ -2499,8 +2499,11 @@ def vocabulary(_config: WorkerConfig, _req: VocabularyRequest) -> dict[str, Any]
     failures themselves, and the legacy spellings ``canonical_status`` folds
     (after trimming and upper-casing). ``cache_files`` are the file names of
     derived caches rebrew writes in a project, which a client never retains as input.
+    ``placeholder_name`` is :data:`rebrew.workspace.names.PLACEHOLDER_NAME_PATTERN`:
+    a name is a generated label when the whole name matches it.
     """
     from rebrew.verify_cache import CACHE_FILENAMES
+    from rebrew.workspace.names import PLACEHOLDER_NAME_PATTERN
     from rebrew.workspace.status import (
         EARNED_STATUSES,
         INFRASTRUCTURE_STATUSES,
@@ -2521,6 +2524,7 @@ def vocabulary(_config: WorkerConfig, _req: VocabularyRequest) -> dict[str, Any]
             ],
         },
         "cache_files": list(CACHE_FILENAMES),
+        "placeholder_name": PLACEHOLDER_NAME_PATTERN,
     }
 
 

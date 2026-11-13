@@ -79,6 +79,7 @@ lazy from rebrew.utils import (
     preset_module_key,
     strip_body,
 )
+lazy from rebrew.workspace.names import is_placeholder_name
 
 log = logging.getLogger(__name__)
 
@@ -112,15 +113,6 @@ app = typer.Typer(
 )
 
 
-# Generic auto-names that should not overwrite a meaningful rename.
-# ``@@N`` is vectorcall and ``@name@N`` is fastcall; one ``@N`` left
-# those decorated labels looking like user names.
-_GENERIC_NAME_RE = re.compile(r"^@?_?(?:func_|FUN_)[0-9a-fA-F]+(?:@@?\d+)?$")
-_GHIDRA_GENERIC_RE = re.compile(r"^(FUN_|DAT_|switchdata|thunk_)")
-# Our own synthetic placeholder for DATA/GLOBAL entries with missing declarations
-_PLACEHOLDER_GLOBAL_RE = re.compile(r"^g_[0-9a-fA-F]{4,8}$")
-
-
 def resolve_state_dir(state_dir: Path, *, json_mode: bool) -> Path:
     """Resolve *state_dir*; abort when it is not an existing directory."""
     try:
@@ -138,13 +130,9 @@ def is_meaningful(name: str) -> bool:
     """Return True when *name* looks user-assigned rather than an auto-label.
 
     Shared by import, diff, and overlay so placeholder names
-    (``func_``/``FUN_``/``DAT_``/``g_<hex>``) are treated consistently.
+    (:func:`rebrew.workspace.names.is_placeholder_name`) are treated consistently.
     """
-    return bool(name) and not (
-        _GENERIC_NAME_RE.match(name)
-        or _GHIDRA_GENERIC_RE.match(name)
-        or _PLACEHOLDER_GLOBAL_RE.match(name)
-    )
+    return not is_placeholder_name(name)
 
 
 #: Global fields a BinSync ``GlobalVariable`` carries (declib has no section).

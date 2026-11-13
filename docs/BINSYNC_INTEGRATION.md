@@ -124,7 +124,8 @@ Push and pull compare each field with the last shared value:
 Without a baseline, import keeps the conservative meaningful-name/prototype
 conflict rules. `--accept-binsync` chooses remote conflict values;
 `--accept-local` keeps local values (and retains alternate function names as
-GHIDRA). Generic incoming names never replace meaningful names.
+GHIDRA). Generic incoming names never replace meaningful names; a name is
+generic when `rebrew.workspace.names.is_placeholder_name` accepts it.
 
 The binary-scoped baseline is a local `.rebrew/sync/<hash>.toml` sidecar keyed
 by resolved state-directory path and module. A peer branch is reconciled

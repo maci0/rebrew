@@ -6975,7 +6975,16 @@ Op details the contract leaves open:
   `cache_files` are the exact file names of derived caches rebrew writes in a
   project (`rebrew.verify_cache.CACHE_FILENAMES`: the verify cache, its JSON
   sidecar and its lock); a client never retains a file with one of these names
-  as project input.
+  as project input. `placeholder_name` is
+  `rebrew.workspace.names.PLACEHOLDER_NAME_PATTERN`, the one placeholder-name
+  rule (BinSync import, lint W023, `recommend`, the dependency graph): a
+  regular expression anchored with `^` and `$`, written in the syntax Python
+  `re` and RE2 read alike; a name is a generated label when the whole name
+  matches. It matches the empty name, `fcn`/`fn`/`fun`, anything starting
+  `FUN_`, `DAT_`, `thunk_` or `switchdata`, `FUN_`/`func_`/`sub_`/`fcn_` plus
+  hex (optionally `_`/`@`-prefixed and `@N`/`@@N`-decorated), `fcn.<hex>`,
+  `g_` plus 4 to 8 hex digits, and `fn_0x<hex>` optionally followed by `_` and
+  anything. Prefixes are case-sensitive; hex digits take either case.
 - `rebrew.check_cflags` `{cflags}` answers `{cflags}`: the flag string as every
   compiling op uses it (`rebrew.ops.checked_cflags`), tokens joined by single
   spaces. A string over 256 characters, a token that is not a plain option, or

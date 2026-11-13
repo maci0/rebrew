@@ -87,22 +87,11 @@ lazy from rebrew.utils import (
     resolved_path,
     untrusted_ident,
 )
+lazy from rebrew.workspace.names import is_placeholder_name
 lazy from rebrew.workspace.status import EARNED_STATUSES, KNOWN_STATUSES, MATCHED_STATUSES
 
 log = logging.getLogger(__name__)
 
-
-# Patterns for default function names (to be used with --pedantic flag).
-# Pre-compiled: W023 runs ``fullmatch`` per function in the TU.
-DEFAULT_FUNC_NAME_PATTERNS = [
-    re.compile(r"\bfcn\b"),
-    re.compile(r"\bfn\b"),
-    re.compile(r"\bfun\b"),
-    re.compile(r"\bFUN_[0-9A-Fa-f]+\b"),
-    re.compile(r"\bsub_[0-9A-Fa-f]+\b"),
-    re.compile(r"\bfunc_[0-9A-Fa-f]+\b"),
-    re.compile(r"\bthunk_[0-9A-Fa-f]+\b"),
-]
 _FUNC_DEF_STYLE_RE = re.compile(
     r"([a-zA-Z_][a-zA-Z0-9_]*)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\([^)]*\)\s*\{"
 )
@@ -1928,8 +1917,8 @@ def _check_W022_zero_init_bss(
 def _check_W023_default_func_names(result: LintResult, lines: list[str], pedantic: bool) -> None:
     """Warn about functions with default names (W023) when --pedantic is used.
 
-    Looks for function names that match common default patterns from decompilers
-    like fcn, fn, fun, FUN_<addr>, sub_<addr>, etc.
+    A default name is one :func:`rebrew.workspace.names.is_placeholder_name` accepts
+    (fcn, fn, fun, FUN_<addr>, sub_<addr>, fcn_<addr>, ...).
     """
     if not pedantic:
         return
@@ -1959,14 +1948,12 @@ def _check_W023_default_func_names(result: LintResult, lines: list[str], pedanti
         line_num += code.count("\n", last_pos, match.start())
         last_pos = match.start()
 
-        for pattern in DEFAULT_FUNC_NAME_PATTERNS:
-            if pattern.fullmatch(func_name):
-                result.warning(
-                    line_num,
-                    "W023",
-                    f"Function '{func_name}' has a default name; consider renaming to something meaningful",
-                )
-                break
+        if is_placeholder_name(func_name):
+            result.warning(
+                line_num,
+                "W023",
+                f"Function '{func_name}' has a default name; consider renaming to something meaningful",
+            )
 
 
 _SNAKE_CASE_RE = re.compile(r"[a-z_][a-z0-9_]*")

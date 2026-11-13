@@ -4156,6 +4156,9 @@
             },
             "type": "array"
           },
+          "placeholder_name": {
+            "type": "string"
+          },
           "statuses": {
             "additionalProperties": false,
             "properties": {
@@ -4215,7 +4218,8 @@
         },
         "required": [
           "statuses",
-          "cache_files"
+          "cache_files",
+          "placeholder_name"
         ],
         "type": "object"
       }

@@ -77,15 +77,18 @@ This design allows:
 ## Detecting Auto-Generated vs User-Assigned Names
 
 A name is **not meaningful** (auto-generated / placeholder) when
-`is_meaningful` in `binsync/importer.py` is false: shared by
-`binsync/diff.py` and `binsync/overlay.py`. That helper rejects:
+`rebrew.workspace.names.is_placeholder_name` accepts it: the one rule behind
+`is_meaningful` in `binsync/importer.py` (shared by `binsync/diff.py` and
+`binsync/overlay.py`), lint W023, the default-names recommendation and the
+dependency graph's focus lookup, and the `placeholder_name` the
+`rebrew.vocabulary` op publishes. `PLACEHOLDER_NAME_PATTERN` in that module
+lists the accepted forms: the empty name, bare `fcn`/`fn`/`fun`, Ghidra's
+`FUN_`, `DAT_`, `thunk_` and `switchdata` labels, `FUN_`/`func_`/`sub_`/`fcn_`
+hex labels with their calling-convention decorations, rebrew's `fcn.<hex>`
+catalog labels and synthetic `g_<4 to 8 hex>` globals, and the dependency
+graph's `fn_0x<hex>` nodes.
 
-1. `_GENERIC_NAME_RE`: `func_`/`FUN_` hex auto-names, including cdecl, stdcall, fastcall and vectorcall decorations.
-2. `_GHIDRA_GENERIC_RE`: Ghidra prefixes `FUN_`, `DAT_`, `switchdata`, `thunk_`
-3. `_PLACEHOLDER_GLOBAL_RE`: synthetic `g_<4–8 hex>` globals
-
-Other nonempty names are treated as **user-assigned** by this predicate. Empty
-names are not meaningful.
+Other names are treated as **user-assigned**.
 
 `rebrew.naming.normalize_name()` is separate from both ingestion and C-name
 sanitization: it strips import/calling-convention decorations and folds Unicode
@@ -124,9 +127,10 @@ registry[va]["size_by_tool"]["<tool>"] = entry["size"]
 
 ### 3. Name Normalization
 
-Extend `is_meaningful` coverage in `binsync/importer.py` (imported by
-`binsync/diff.py` / `overlay.py`) for the new tool's auto-labels. Preserve the
-calling-convention decorations already recognized by `_GENERIC_NAME_RE`.
+Extend `PLACEHOLDER_NAME_PATTERN` in `rebrew/workspace/names.py` for the new
+tool's auto-labels, in syntax Python `re` and RE2 read alike, with cases in
+`tests/test_workspace_names.py`. Preserve the calling-convention decorations it
+already recognizes.
 If source generation needs a prefix rewrite, extend `sanitize_name()` in
 `rebrew/naming.py` and its tests while retaining the shared C-identifier guards.
 

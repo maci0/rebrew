@@ -1,4 +1,4 @@
-"""Lightweight project resolution and shared STATUS/address vocabulary.
+"""Lightweight project resolution and shared STATUS, address and placeholder-name vocabulary.
 
 No coverage directory or database is configured here. Consumers resolve a project
 root; portable export directories are explicit inputs to the coverage reader.
@@ -19,6 +19,7 @@ lazy from rebrew.workspace.config import (
     targets_table,
     walk_up_to_root,
 )
+lazy from rebrew.workspace.names import PLACEHOLDER_NAME_PATTERN, is_placeholder_name
 lazy from rebrew.workspace.status import EARNED_STATUSES, KNOWN_STATUSES, MATCHED_STATUSES
 lazy from rebrew.workspace.va import VA_MAX, parse_va_candidates
 
@@ -28,11 +29,13 @@ __all__ = [
     "EARNED_STATUSES",
     "KNOWN_STATUSES",
     "MATCHED_STATUSES",
+    "PLACEHOLDER_NAME_PATTERN",
     "VA_MAX",
     "WorkspaceConfigError",
     "WorkspaceNotFound",
     "default_target",
     "find_root",
+    "is_placeholder_name",
     "parse_va_candidates",
     "project_table",
     "read_config",

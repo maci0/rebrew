@@ -39,6 +39,7 @@ lazy from rebrew.rename_ops import c_name_from_symbol
 lazy from rebrew.sources import iter_sources
 lazy from rebrew.status_style import DISPLAY_STATUSES, STATUS_HEX
 lazy from rebrew.utils import atomic_write_text, fold_ident
+lazy from rebrew.workspace.names import is_placeholder_name
 
 log = logging.getLogger(__name__)
 
@@ -80,9 +81,6 @@ _MERMAID_INIT = (
 # cannot be passed through; ``monospace`` is the family every fontconfig
 # resolves the stack to.
 _DOT_FONT = "monospace"
-
-# Placeholder node names the graph synthesises for unnamed call targets.
-_PLACEHOLDER_NAME_RE = re.compile(r"fn_0x[0-9a-f]+_")
 
 # Standard library / compiler intrinsics filtered out of the call graph to
 # reduce visual noise — they show up in nearly every reversed function and
@@ -447,8 +445,8 @@ def _focus_graph(
     all_edges = edges + dispatch_edges
 
     # Find focus node: exact name (key or symbol label), then (for
-    # hex-looking input) VA match, then partial name — a `fn_0x..._*`
-    # placeholder must not shadow the real function at the VA.
+    # hex-looking input) VA match, then partial name; a placeholder name
+    # (`fn_0x<hex>`) must not shadow the real function at the VA.
     #
     # fold_ident (NFC + casefold), not str.lower, matching every other
     # symbol-name lookup (cli.select_annotation, match_sweep, naming): a
@@ -473,12 +471,12 @@ def _focus_graph(
     if not focus_name:
         # The substring pass must not shadow a VA lookup with a placeholder:
         # when the focus looks like a VA and no real node matched it, skip
-        # `fn_0x..._*` placeholder names (their hex is a fragment, not the
-        # function the user asked about).
+        # placeholder names such as `fn_0x<hex>` (their hex is a fragment, not
+        # the function the user asked about).
         for name, info in nodes.items():
             haystacks = (fold_ident(name), fold_ident(info.get("symbol", "") or ""))
             if any(focus_folded in h for h in haystacks):
-                if va_int is not None and _PLACEHOLDER_NAME_RE.match(fold_ident(name)):
+                if va_int is not None and is_placeholder_name(name):
                     continue
                 focus_name = name
                 break

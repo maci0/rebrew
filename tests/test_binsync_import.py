@@ -154,6 +154,14 @@ class TestBinsyncImportHelpers:
         assert not is_meaningful("_func_10001000@8")
         assert is_meaningful("func_hook")
 
+    def test_ida_and_rebrew_labels_are_not_meaningful(self) -> None:
+        """IDA (`sub_<hex>`) and rebrew (`fcn_<hex>`) labels never replace a chosen name."""
+        from rebrew.binsync.importer import is_meaningful
+
+        assert not is_meaningful("sub_00401000")
+        assert not is_meaningful("fcn_00401000")
+        assert is_meaningful("sub_menu")
+
     def test_load_binsync_state(self, tmp_path: Path) -> None:
         from rebrew.binsync.state import load_binsync_state
 

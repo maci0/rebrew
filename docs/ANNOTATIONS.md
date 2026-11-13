@@ -108,7 +108,7 @@ source comments or rewrites obsolete blocks.
 | W020 | Undocumented assembly. Names each definition using `__asm`/`_emit`, using only its selected-target metadata. Its own `BLOCKER`, or current file/symbol/target evidence recorded by `rebrew source document-assembly`, documents original-assembly provenance and suppresses only that definition's warning. Another function's status, blocker or naked body does not affect it. Foreign-only target files/definitions are excluded. Naked assembly is handled by **E023**. Non-stub statuses appear in the warning, but a byte match alone does not establish original assembly provenance |
 | W021 | Duplicate global. Conflicting addresses for one module/name, or initialized definitions in more than one file; same-address extern references are allowed |
 | W022 | Zero-init `.bss` global: file-scope `= 0` initializer on a `.bss`-style global |
-| W023 | Default function name. Function named `fcn`/`fn`/`fun`/... (pedantic only): rename it; a descriptive name is what the call graph and reports key on |
+| W023 | Default function name. Function named with a placeholder (`fcn`, `FUN_<hex>`, `sub_<hex>`, `fcn_<hex>`, ...; `rebrew.workspace.names.is_placeholder_name`; pedantic only): rename it; a descriptive name is what the call graph and reports key on |
 | W024 | Function name does not match project naming convention (`lint_naming_convention` in config) |
 | W025 | Opening brace style does not match project configuration (`lint_brace_style` in config) |
 | W026 | Line indent style does not match project configuration (`lint_indent_style` in config) |

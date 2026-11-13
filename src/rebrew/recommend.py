@@ -52,6 +52,7 @@ from rebrew.cli import (
 lazy from rebrew.config import ProjectConfig, inventory_path_for
 lazy from rebrew.rename_ops import c_name_from_symbol
 lazy from rebrew.utils import TerminalTable, last_change_ns, untrusted_ident
+lazy from rebrew.workspace.names import is_placeholder_name
 lazy from rebrew.workspace.status import EARNED_STATUSES
 
 log = logging.getLogger(__name__)
@@ -703,11 +704,7 @@ def recommend_default_names(
     named: list[tuple[int, str]],
 ) -> list[Recommendation]:
     """Advise renaming functions still carrying decompiler default names."""
-    from rebrew.lint import DEFAULT_FUNC_NAME_PATTERNS
-
-    hits = sorted(
-        va for va, name in named if any(p.fullmatch(name) for p in DEFAULT_FUNC_NAME_PATTERNS)
-    )
+    hits = sorted(va for va, name in named if is_placeholder_name(name))
     if not hits:
         return []
     return [

@@ -24,6 +24,8 @@
 
 - New dispatch op `rebrew.rename_identifier` applies ordered identifier renames to one C text with `rebrew.c_rename.rename_identifier` (identifiers, type names and macro-body code are rewritten; comments, literals, struct members, labels and tags are not) and answers, per rename, the replaced UTF-8 byte offsets or the reason it was skipped.
 
+- One placeholder-name rule, `rebrew.workspace.names.is_placeholder_name` (`PLACEHOLDER_NAME_PATTERN`), replaces the private rules of BinSync import, lint W023 with the default-names recommendation, and the dependency graph's focus lookup; `rebrew.vocabulary` publishes it as `placeholder_name`. Changed answers: BinSync import treats `sub_<hex>`, `fcn_<hex>`, `fcn.<hex>`, `fcn`, `fn`, `fun`, `fn_0x<hex>` and `_`/`@`-prefixed or `@N`-decorated `sub_`/`fcn_` labels as generic, so they no longer replace a chosen name. W023 and `recommend` default names also flag `fcn_<hex>`, `_func_<hex>`, `g_<4 to 8 hex>`, `fn_0x<hex>` and every name starting `FUN_`, `DAT_`, `thunk_` or `switchdata` (before: `FUN_`, `sub_`, `func_` and `thunk_` only with hex). The dependency graph's VA-focus substring pass skips every placeholder, including `fn_0x<hex>` without a `_` suffix, and reads the `fn_0x` prefix case-sensitively.
+
 ### Fixed
 
 - `rebrew.decompile_snapshot` and `rebrew.security_scan_snapshot` accept analysis capture files up to the shared 8 MiB per-file and 32 MiB aggregate readset bounds instead of 1 MiB and 8 MiB, so a capture the backend retained under those bounds, such as a SQLite store over 1 MiB, is no longer refused. The 1,024-entry capture limit is unchanged.

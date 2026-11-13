@@ -1,12 +1,13 @@
 # AGENTS.md: workspace/
 
-`rebrew-project.toml` lookup, and the STATUS / VA vocabulary the coverage consumers share.
+`rebrew-project.toml` lookup, the STATUS / VA vocabulary the coverage consumers share, and the placeholder-name rule.
 
 ## Modules
 
 | Module | Role |
 |--------|------|
 | `config.py` | `find_root`, `read_config`, `targets_table`, `WorkspaceNotFound`, `WorkspaceConfigError` |
+| `names.py` | `PLACEHOLDER_NAME_PATTERN`, `is_placeholder_name`: the one placeholder-name rule (published by `rebrew.vocabulary`) |
 | `status.py` | `KNOWN_STATUSES`, `EARNED_STATUSES`, `MATCHED_STATUSES`, `NEAR_MATCH_CANDIDATE_STATUSES`, `FUZZY_STATUSES`, `COVERAGE_DB_STATUSES`, `comparison_verdict_valid` |
 | `va.py` | `VA_MAX`, `parse_va_candidates` |
 
