@@ -14,6 +14,7 @@ lazy import tomlkit
 lazy from tomlkit import TOMLDocument
 
 lazy from rebrew.metadata.locking import file_transaction, project_transaction
+lazy from rebrew.metadata.records import metadata_records
 lazy from rebrew.utils import (
     atomic_write_bytes,
     atomic_write_locked,
@@ -103,30 +104,6 @@ def metadata_digest(path: Path) -> str | None:
     """Hash every file and its name; ``None`` means the whole store is absent."""
     content = metadata_bytes(path)
     return hashlib.sha256(content).hexdigest() if content is not None else None
-
-
-def _records(doc: Any, path: Path) -> Iterator[tuple[tuple[str, ...], Any]]:
-    """Walk record boundaries, keeping shared schema containers separate from records."""
-    depths = {
-        "rebrew-source.toml": {"definitions": 4, "files": 3},
-        "rebrew-types.toml": {"types": 3},
-    }.get(path.name, {})
-
-    def walk(
-        value: Any, keys: tuple[str, ...], depth: int
-    ) -> Iterator[tuple[tuple[str, ...], Any]]:
-        if len(keys) == depth:
-            yield keys, value
-        else:
-            for key, child in value.items():
-                yield from walk(child, (*keys, key), depth)
-
-    for key, value in doc.items():
-        if key == "source" and path.name == "rebrew-functions.toml":
-            for kind, records in value.items():
-                yield from walk(records, (key, kind), 5 if kind == "definitions" else 4)
-        elif key != "format":
-            yield from walk(value, (key,), depths.get(key, 1))
 
 
 def _set_record(doc: Any, keys: tuple[str, ...], value: Any) -> None:
@@ -227,7 +204,7 @@ def load_metadata_collection(
             if "format" in merged and merged["format"] != doc["format"]:
                 raise ValueError(f"{member}: inconsistent metadata format")
             merged["format"] = doc["format"]
-        for keys, value in _records(doc, path):
+        for keys, value in metadata_records(doc, path):
             if keys in owners:
                 raise ValueError(
                     f"duplicate metadata record {keys!r} in {owners[keys]} and {member}"
@@ -252,7 +229,7 @@ def write_metadata_collection(path: Path, doc: dict[str, Any], description: str)
     owners: dict[tuple[str, ...], Path] = {}
     original_records: dict[tuple[str, ...], Any] = {}
     for member, original in originals.items():
-        for keys, value in _records(original, path):
+        for keys, value in metadata_records(original, path):
             if keys in owners:
                 raise ValueError(
                     f"duplicate metadata record {keys!r} in {owners[keys]} and {member}"
@@ -271,7 +248,7 @@ def write_metadata_collection(path: Path, doc: dict[str, Any], description: str)
             copied.add(member)
         return value
 
-    remaining = dict(_records(doc, path))
+    remaining = dict(metadata_records(doc, path))
     for keys, member in owners.items():
         if keys not in remaining:
             _delete_record(writable(member), keys)
