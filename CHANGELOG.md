@@ -18,7 +18,7 @@
 
 - `rebrew.verify_function` replies and the `rebrew.apply_candidate` result add `compile_inputs` (the files and settings document the compile read, with digests) and `verdict_valid` (`rebrew.workspace.status.comparison_verdict_valid`: the comparison's counts agree with its status), so a client no longer guesses compile inputs by extension or re-checks the counts.
 
-- New dispatch op `rebrew.vocabulary` publishes the function status table (known, matched, earned, infrastructure statuses and spelling aliases).
+- New dispatch op `rebrew.vocabulary` publishes the function status table (known, matched, earned, infrastructure statuses and spelling aliases) and `cache_files`, the derived cache file names (`rebrew.verify_cache.CACHE_FILENAMES`) a client must not retain, in place of a `verify_cache` substring filter.
 
 ### Fixed
 

@@ -34,3 +34,24 @@ def test_the_status_table_is_the_one_rebrew_writes(tmp_path: Path) -> None:
 def test_the_request_takes_no_fields(tmp_path: Path) -> None:
     status, _body = dispatch(_config(tmp_path), "rebrew.vocabulary", b'{"x": 1}')
     assert status == 400
+
+
+def test_cache_files_name_every_file_the_verify_cache_writes(tmp_path: Path) -> None:
+    from test_target_result_cache import _cfg, _rows
+
+    from rebrew.verify_cache import cache_path_for, load_verify_cache, save_verify_cache
+
+    status, reply = _call(_config(tmp_path / "worker"), "rebrew.vocabulary", {})
+    assert status == 200, reply
+    project = tmp_path / "project"
+    project.mkdir()
+    cfg = _cfg(project, "Gold")
+    entries, rows = _rows(cfg, 0x1000)
+    before = {path for path in project.rglob("*") if path.is_file()}
+    save_verify_cache(cache_path_for(cfg), cfg, rows, entries)
+    assert load_verify_cache(cache_path_for(cfg), cfg) is not None
+    written = {path.name for path in project.rglob("*") if path.is_file()} - {
+        path.name for path in before
+    }
+    assert "verify_cache.toml" in written
+    assert written <= set(reply["cache_files"])

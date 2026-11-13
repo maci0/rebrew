@@ -58,6 +58,14 @@ _VERIFY_JSON_VERSION = 2
 #: `.rebrew/targets/<sha256>/` once the project keeps per-target state.
 CACHE_FILENAME = "verify_cache.toml"
 
+#: Every file the verify cache keeps: the document, its parsed JSON sidecar
+#: (``_verify_json_path``) and its writer lock. Derived state, never project input.
+CACHE_FILENAMES: tuple[str, ...] = (
+    CACHE_FILENAME,
+    CACHE_FILENAME.removesuffix(".toml") + ".json",
+    CACHE_FILENAME + ".lock",
+)
+
 
 def _result_path(cfg: Any, filename: str) -> Path:
     root = Path(cfg.root) / ".rebrew"

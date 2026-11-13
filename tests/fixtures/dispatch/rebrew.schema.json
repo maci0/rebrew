@@ -4047,6 +4047,12 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "cache_files": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "statuses": {
             "additionalProperties": false,
             "properties": {
@@ -4105,7 +4111,8 @@
           }
         },
         "required": [
-          "statuses"
+          "statuses",
+          "cache_files"
         ],
         "type": "object"
       }

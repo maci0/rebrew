@@ -2,8 +2,9 @@ rebrew.schema.json is the dispatch contract shared with ai.relumea.app.backend-g
 which mirrors it byte-identically at contracts/dispatch/rebrew.schema.json
 (generated there with `go run ./cmd/surface-tracker`). The metadata operations
 (rebrew.metadata_describe, rebrew.metadata_diff, rebrew.metadata_carry, the
-version 3 capture descriptor and the apply_candidate metadata field) were
-extended here first; the rest is the copy of backend commit
+version 3 capture descriptor, the apply_candidate metadata and
+attested_registry_digest fields), rebrew.project_targets and rebrew.vocabulary
+were extended here first; the rest is the copy of backend commit
 80314a46a1ae26d9ef3d56d90e1d454c561f5928.
-SHA-256: 0720f1a9b98614e7d3850530cffd74d5d4afc0a3f53a401df758bddb70d7585a.
+SHA-256: b89e060b1e7aa62d9793048adb581c2c37c069f9d5133a95b0b86ae34a28b3a1.
 tests/test_ops.py validates every op request and reply against it.

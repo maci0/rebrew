@@ -6972,6 +6972,10 @@ Op details the contract leaves open:
   which is no byte match), `infrastructure` (tool failures, never a verdict) and
   `aliases` (`{alias, canonical}` spellings `canonical_status` folds after
   trimming and upper-casing). A client reads this table instead of keeping a copy.
+  `cache_files` are the exact file names of derived caches rebrew writes in a
+  project (`rebrew.verify_cache.CACHE_FILENAMES`: the verify cache, its JSON
+  sidecar and its lock); a client never retains a file with one of these names
+  as project input.
 - `rebrew.project_targets` `{files}` answers `{targets}`: the `[targets]` tables
   of the set's `rebrew-project.toml`, keyed in the NFC spelling the config loader
   uses and sorted by UTF-8 bytes. The set uses the retained-snapshot file entries

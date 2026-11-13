@@ -2480,8 +2480,10 @@ def vocabulary(_config: WorkerConfig, _req: VocabularyRequest) -> dict[str, Any]
     ``statuses`` is the function STATUS table: every status a row may hold, the
     byte matches, the earned results a tool failure may not overwrite, the tool
     failures themselves, and the legacy spellings ``canonical_status`` folds
-    (after trimming and upper-casing).
+    (after trimming and upper-casing). ``cache_files`` are the file names of
+    derived caches rebrew writes in a project, which a client never retains as input.
     """
+    from rebrew.verify_cache import CACHE_FILENAMES
     from rebrew.workspace.status import (
         EARNED_STATUSES,
         INFRASTRUCTURE_STATUSES,
@@ -2500,7 +2502,8 @@ def vocabulary(_config: WorkerConfig, _req: VocabularyRequest) -> dict[str, Any]
                 {"alias": alias, "canonical": STATUS_ALIASES[alias]}
                 for alias in sorted(STATUS_ALIASES)
             ],
-        }
+        },
+        "cache_files": list(CACHE_FILENAMES),
     }
 
 
