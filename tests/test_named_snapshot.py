@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import copy
 import hashlib
 import http.client
@@ -262,6 +263,59 @@ def test_sqlite_capture_refuses_source_metadata_documents(
     assert result["detail"] == (
         f"source {path} cannot replace the analysis capture's SQLite metadata"
     )
+
+
+def _edited_store(config: WorkerConfig, original: dict[str, Any], statement: str) -> bytes:
+    """The captured SQLite store after *statement* ran on a private copy of it."""
+    import sqlite3
+    import tempfile
+
+    assert config.filestore is not None
+    (row,) = [r for r in original["analysis_files"] if r["path"] == DATABASE_FILENAME]
+    with tempfile.TemporaryDirectory(dir=config.filestore.parent) as temp:
+        store = Path(temp) / DATABASE_FILENAME
+        store.write_bytes((config.filestore / row["key"]).read_bytes())
+        with contextlib.closing(sqlite3.connect(store)) as connection, connection:
+            connection.execute(statement)
+        return store.read_bytes()
+
+
+def test_sqlite_capture_accepts_only_the_attested_store(
+    sample: tuple[WorkerConfig, dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An applied proposal publishes the SQLite store; the source copy then replaces the capture's."""
+    config, original = sample
+    published = _edited_store(
+        config,
+        original,
+        "UPDATE metadata_documents SET content = content || '# reviewed\n', "
+        "revision = revision + 1 WHERE path = 'rebrew-functions.toml'",
+    )
+    staged: list[bytes] = []
+
+    def decompile(_backend: str, _binary: Path, _va: int, root: Path) -> tuple[str, str]:
+        staged.append((root / DATABASE_FILENAME).read_bytes())
+        return "int a0;\n", "kuna"
+
+    monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", decompile)
+    request = _with_source_files(config, original, {DATABASE_FILENAME: published})
+    digest = hashlib.sha256(published).hexdigest()
+    for attested in ("", "0" * 64):
+        status, result = _call(config, {**request, "attested_registry_digest": attested})
+        assert status == 400 and result["detail"] == "invalid retained analysis capture"
+    assert staged == []
+    status, result = _call(config, {**request, "attested_registry_digest": digest})
+    assert status == 200, result
+    assert staged == [published]
+    empty = _edited_store(
+        config, original, "DELETE FROM metadata_documents WHERE path = 'rebrew-functions.toml'"
+    )
+    request = _with_source_files(config, original, {DATABASE_FILENAME: empty})
+    status, result = _call(
+        config, {**request, "attested_registry_digest": hashlib.sha256(empty).hexdigest()}
+    )
+    assert status == 400 and result["detail"] == "invalid retained analysis capture"
+    assert staged == [published]
 
 
 def _with_capture(original: dict[str, Any], capture: dict[str, Any]) -> dict[str, Any]:

@@ -360,3 +360,93 @@ def test_fresh_capture_refuses_missing_function_document(
     monkeypatch.setattr(ops, "_run_intake", missing)
     with pytest.raises(ops.OpsError, match="requires function metadata before import"):
         _capture(tmp_path)
+
+
+def test_applied_candidate_store_is_what_later_retained_reads_see(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fresh capture, apply over its store, then a retained verification of the published store."""
+    from typer.testing import CliRunner
+
+    from rebrew.app.main import app as umbrella
+    from rebrew.compiler.compile import CompareResult
+
+    capture, _ = _capture(tmp_path / "capture")
+    files, workspace = _worker_dirs(tmp_path)
+    config = WorkerConfig(files.resolve(), workspace.resolve())
+    retained: dict[str, FlagSearchFile] = {}
+    for captured in capture["entries"]:
+        if captured["kind"] == "file":
+            data = base64.b64decode(captured["data"], validate=True)
+            digest, key = _store(files, data)
+            retained[captured["path"]] = FlagSearchFile(captured["path"], digest, len(data), key)
+    source = "src/mini/fcn_00401000.c"
+    head = [retained[path] for path in ("rebrew-project.toml", source, DATABASE_FILENAME)]
+
+    def promote(args: Any, root: Path, *unused: Any, **kwargs: Any) -> dict[str, Any]:
+        monkeypatch.chdir(root)
+        result = CliRunner().invoke(umbrella, [str(a) for a in args])
+        payload: dict[str, Any] = json.loads(result.stdout)
+        return payload
+
+    monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://127.0.0.1:1")
+    with monkeypatch.context() as patch:
+        patch.setattr(ops, "run_rebrew", promote)
+        patch.setattr(
+            "rebrew.test.compile_and_compare",
+            lambda *a, **k: CompareResult(
+                matched=True,
+                status="EXACT",
+                match_percent=100.0,
+                delta=0,
+                obj_bytes=b"\xc3" * 11,
+                reloc_offsets=[],
+            ),
+        )
+        applied = ops.apply_candidate(
+            config,
+            ops.ApplyCandidateRequest(
+                project_dir=str(workspace),
+                source=source,
+                candidate="int __stdcall add(int a, int b) { return a + b; }\n",
+                sha256=SHA256,
+                va=0x401000,
+                size=11,
+                files=head,
+                rebrew_target="mini",
+                source_sha256=retained[source].digest,
+                binary_key=KEY,
+            ),
+        )
+    assert [item["path"] for item in applied["files"]] == [source, DATABASE_FILENAME]
+    for item in applied["files"]:
+        data = base64.b64decode(item["data"], validate=True)
+        digest, key = _store(files, data)
+        assert digest == item["digest"]
+        retained[item["path"]] = FlagSearchFile(item["path"], digest, len(data), key)
+    published = list(retained.values())
+    with ops.retained_target_snapshot(config, published, "mini", SHA256, KEY, "") as root:
+        row = SqliteStore(root / "rebrew-functions.toml", root).read("test")["MINI.0x00401000"]
+        assert (row["name"], row["symbol"], row["status"]) == ("add", "_add@8", "EXACT")
+
+    def verify(arguments: list[str], root: Path, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        return _verify_cli(root, arguments[1:], monkeypatch)
+
+    live = workspace / "project"
+    live.mkdir()
+    (live / "rebrew-project.toml").write_bytes(
+        (files / retained["rebrew-project.toml"].key).read_bytes()
+    )
+    monkeypatch.setattr(ops, "run_rebrew", verify)
+    verified = ops.verify_target(
+        config,
+        ops.VerifyTargetRequest(
+            project_dir=str(live),
+            sha256=SHA256,
+            no_promote=True,
+            files=published,
+            rebrew_target="mini",
+            binary_key=KEY,
+        ),
+    )
+    assert verified["summary"]["exact"] == 2

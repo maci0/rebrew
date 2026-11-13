@@ -307,3 +307,98 @@ def test_misplaced_anchor_reaches_real_test_cli(
     result = json.loads(reply)
     assert (result["result"] if op.endswith("apply_candidate") else result)["status"] == "EXACT"
     assert bool("--no-promote" in promote_in_process[0]) == (op == "rebrew.verify_function")
+
+
+def _sqlite_entries(root: Path, config: WorkerConfig) -> list[dict[str, Any]]:
+    """The staged entries of the fixture project after the reviewed import into SQLite."""
+    from rebrew.config import load_config
+    from rebrew.metadata.sqlite import DATABASE_FILENAME
+    from rebrew.metadata_transfer import migrate_metadata
+
+    project = root / "producer"
+    (project / "src").mkdir(parents=True)
+    (project / "rebrew-project.toml").write_bytes(PROJECT)
+    (project / "rebrew-functions.toml").write_bytes(FUNCTIONS)
+    (project / "rebrew-data.toml").write_bytes(DATA)
+    (project / "src/stub.c").write_bytes(STUB)
+    cfg = load_config(project, target="mini")
+    preview = migrate_metadata(cfg, "sqlite", dry_run=True)
+    migrate_metadata(cfg, "sqlite", expected_digest=preview["input_digest"])
+    assert config.filestore is not None
+    entries = []
+    for name in ("rebrew-project.toml", "src/stub.c", DATABASE_FILENAME):
+        data = (project / name).read_bytes()
+        digest = hashlib.sha256(data).hexdigest()
+        (config.filestore / "binaries" / digest).write_bytes(data)
+        entries.append(
+            {"path": name, "digest": digest, "size": len(data), "key": f"binaries/{digest}"}
+        )
+    return entries
+
+
+DATA = b'format = 2\n\n["MINI.0x00402000"]\nname = "g_counter"\nsize = 4\n'
+
+
+def test_a_sqlite_project_returns_its_closed_store_as_the_registry(
+    tmp_path: Path, promote_in_process: list[list[str]]
+) -> None:
+    from rebrew.metadata.sqlite import DATABASE_FILENAME, metadata_database_documents
+
+    config, _ = _stage(tmp_path)
+    entries = _sqlite_entries(tmp_path, config)
+    before = (config.filestore / entries[2]["key"]).read_bytes()
+    status, reply = dispatch(config, "rebrew.apply_candidate", _request(entries, cflags="/O1 /Gd"))
+    assert status == 200, reply
+    body = json.loads(reply)
+    assert body["result"]["status"] == "EXACT" and "--no-promote" not in promote_in_process[0]
+    files = {f["path"]: base64.b64decode(f["data"]) for f in body["files"]}
+    assert set(files) == {"src/stub.c", DATABASE_FILENAME}
+    for f in body["files"]:
+        data = base64.b64decode(f["data"])
+        assert f["size"] == len(data) and f["digest"] == hashlib.sha256(data).hexdigest()
+    store = tmp_path / "published" / DATABASE_FILENAME
+    store.parent.mkdir()
+    store.write_bytes(files[DATABASE_FILENAME])
+    documents = metadata_database_documents(store)
+    assert set(documents) == {"rebrew-functions.toml", "rebrew-data.toml"}
+    assert documents["rebrew-data.toml"] == hashlib.sha256(DATA).hexdigest()
+    import sqlite3
+
+    with sqlite3.connect(store.as_uri() + "?mode=ro", uri=True) as connection:
+        (content,) = connection.execute(
+            "SELECT content FROM metadata_documents WHERE path = 'rebrew-functions.toml'"
+        ).fetchone()
+    registry = tomllib.loads(content)
+    entry = registry["MINI.0x00401000"]
+    assert entry["status"] == "EXACT" and entry["cflags"] == "/O1 /Gd"
+    assert entry["kind"] == "FUNCTION" and entry["symbol"] == "_add@8" and entry["name"] == "add"
+    assert registry["MINI.0x00401020"]["status"] == "STUB"
+    # The retained store the request named is unchanged.
+    assert (config.filestore / entries[2]["key"]).read_bytes() == before
+
+
+@pytest.mark.parametrize("backend", ["sqlite", "toml"])
+def test_apply_refuses_the_registry_its_config_ignores(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str
+) -> None:
+    from rebrew import ops
+
+    config, toml_entries = _stage(tmp_path)
+    entries = _sqlite_entries(tmp_path, config)
+    if backend == "sqlite":
+        entries.append(toml_entries[2])
+        ignored = "rebrew-functions.toml"
+    else:
+        entries[0] = toml_entries[0]
+        ignored = "rebrew-metadata.sqlite3"
+
+    def forbidden(*args: Any, **kwargs: Any) -> None:
+        pytest.fail("an ignored registry reached the compiler")
+
+    monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://127.0.0.1:18953")
+    monkeypatch.setattr(ops, "run_rebrew", forbidden)
+    status, reply = dispatch(config, "rebrew.apply_candidate", _request(entries))
+    assert status == 400, reply
+    assert json.loads(reply)["detail"] == (
+        f"the retained project carries {ignored}, which its {backend} metadata ignores"
+    )

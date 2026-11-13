@@ -2662,7 +2662,9 @@ def verify_candidate(config: WorkerConfig, req: VerifyRequest) -> dict[str, Any]
     return _run_candidate(config, req, apply=False)
 
 
-#: Files an applied candidate may change; nothing else in the snapshot leaves the op.
+#: The function registry of a TOML project. A SQLite project's registry is its
+#: ``rebrew-metadata.sqlite3`` store; an applied candidate returns its source and
+#: the registry its config reads, and nothing else leaves the op.
 APPLY_METADATA_FILE = "rebrew-functions.toml"
 
 
@@ -2672,7 +2674,8 @@ def apply_candidate(config: WorkerConfig, req: ApplyCandidateRequest) -> dict[st
     The candidate takes the function's address anchor, ``rebrew test`` runs in promote mode with the attempt's
     flags, so rebrew's own writers record STATUS, SIZE and CFLAGS, and the function's identity (symbol and
     name) follows the candidate through rebrew's identity writer. A result that is not EXACT or RELOC is
-    refused: nothing is published from a candidate that no longer matches.
+    refused: nothing is published from a candidate that no longer matches. A SQLite project returns a
+    closed, verified copy of its store in place of ``rebrew-functions.toml``.
     """
     return _run_candidate(config, req, apply=True)
 
@@ -2770,9 +2773,11 @@ def _run_candidate(
         confined_snapshot_config(cfg, root)
         retained_compile_refusal(cfg, [source])
         symbol = definitions[0][0]
+        registry = ""
         if applying is not None:
             if cfg.metadata_dir.resolve() != root:
                 raise _invalid("the retained project keeps its function registry outside its root")
+            registry = _applied_registry(root, paths)
             symbol = _move_identity(cfg, applying, module, definitions[0][0])
         flags = checked_cflags(req.cflags)
         result = run_rebrew(
@@ -2797,7 +2802,7 @@ def _run_candidate(
         ):
             raise _invalid("snapshot candidate or binary changed during verification")
         for entry in req.files:
-            if entry.path == req.source or (apply and entry.path == APPLY_METADATA_FILE):
+            if entry.path in {req.source, registry}:
                 continue
             path = _project_file(root, entry.path, "source file")
             size, digest = (
@@ -2809,7 +2814,7 @@ def _run_candidate(
                 raise _invalid("snapshot source changed during verification")
         result["source"] = req.source
         if applying is not None:
-            return _applied(root, applying, result)
+            return _applied(root, applying, result, registry)
         return result
 
 
@@ -2842,13 +2847,50 @@ def _move_identity(cfg: Any, req: ApplyCandidateRequest, module: str, name: str)
     return symbol
 
 
-def _applied(root: Path, req: ApplyCandidateRequest, result: dict[str, Any]) -> dict[str, Any]:
+def _applied_registry(root: Path, staged: list[str]) -> str:
+    """The staged registry an apply writes: the one the config reads, never beside the other."""
+    from rebrew.metadata.sqlite import DATABASE_FILENAME
+
+    backend = retained_metadata_backend(root)
+    registry, ignored = (
+        (APPLY_METADATA_FILE, DATABASE_FILENAME)
+        if backend == "toml"
+        else (DATABASE_FILENAME, APPLY_METADATA_FILE)
+    )
+    if ignored in staged:
+        raise _invalid(
+            f"the retained project carries {ignored}, which its {backend} metadata ignores"
+        )
+    if registry not in staged:
+        raise _invalid(f"the retained project carries no {registry}")
+    return registry
+
+
+def _applied(
+    root: Path, req: ApplyCandidateRequest, result: dict[str, Any], registry: str
+) -> dict[str, Any]:
     """Finish an apply: refuse a result that is not a byte match, return the changed files."""
+    from rebrew.metadata.sqlite import (
+        DATABASE_FILENAME,
+        metadata_database_documents,
+        snapshot_metadata_database,
+    )
+
     if result.get("status") not in {"EXACT", "RELOC"}:
         raise _invalid(f"the candidate no longer matches: {result.get('status')}")
     changed = []
-    for relative in (req.source, APPLY_METADATA_FILE):
-        data = _project_file(root, relative, "applied file").read_bytes()
+    for relative in (req.source, registry):
+        if relative == DATABASE_FILENAME:
+            # The live store may hold a rollback journal; publish a closed backup.
+            with tempfile.TemporaryDirectory(prefix="applied-metadata-", dir=root.parent) as temp:
+                try:
+                    copy = snapshot_metadata_database(root, Path(temp) / DATABASE_FILENAME)
+                    metadata_database_documents(copy)
+                except (ValueError, OSError, RebrewError) as exc:
+                    raise _invalid(f"the applied metadata store is invalid: {exc}") from exc
+                data = copy.read_bytes()
+        else:
+            data = _project_file(root, relative, "applied file").read_bytes()
         if len(data) > 1024 * 1024:
             raise _invalid("an applied file exceeds the 1 MiB limit")
         changed.append(
@@ -2860,6 +2902,28 @@ def _applied(root: Path, req: ApplyCandidateRequest, result: dict[str, Any]) -> 
             }
         )
     return {"result": result, "files": changed}
+
+
+def retained_metadata_backend(root: Path) -> str:
+    """The one local metadata backend a staged retained root reads, its SQLite store checked."""
+    from rebrew.metadata.sqlite import DATABASE_FILENAME, metadata_database_documents
+    from rebrew.metadata.storage import backend_routes
+    from rebrew.workspace import read_config
+
+    try:
+        reads, writes = backend_routes(read_config(root).get("metadata", {}))
+    except ValueError as exc:
+        raise _invalid(str(exc)) from exc
+    if reads not in {("toml",), ("sqlite",)} or writes != reads:
+        raise _invalid("retained target requires one local metadata backend")
+    if reads == ("sqlite",):
+        try:
+            documents = metadata_database_documents(root / DATABASE_FILENAME)
+        except (ValueError, OSError, RebrewError) as exc:
+            raise _invalid(str(exc)) from exc
+        if APPLY_METADATA_FILE not in documents:
+            raise _invalid("retained target requires SQLite function metadata")
+    return reads[0]
 
 
 def confined_snapshot_config(cfg: Any, root: Path) -> None:
@@ -2904,25 +2968,14 @@ def retained_target_snapshot(
         destination = _stage_retained_snapshot(
             config, root, files, target_name, sha256, binary_key, binary_url, exclusive=False
         )
-        from rebrew.metadata.sqlite import DATABASE_FILENAME, metadata_database_documents
-        from rebrew.metadata.storage import backend_routes
-        from rebrew.workspace import read_config
+        from rebrew.metadata.sqlite import DATABASE_FILENAME
 
-        reads, writes = backend_routes(read_config(root).get("metadata", {}))
-        if reads not in {("toml",), ("sqlite",)} or writes != reads:
-            raise _invalid("retained target requires one local metadata backend")
-        if reads == ("sqlite",):
-            try:
-                documents = metadata_database_documents(root / DATABASE_FILENAME)
-            except (ValueError, OSError, RebrewError) as exc:
-                raise _invalid(str(exc)) from exc
-            if "rebrew-functions.toml" not in documents:
-                raise _invalid("retained target requires SQLite function metadata")
+        backend = retained_metadata_backend(root)
         rewritten = apply_project_cflags(root, target_name, project_cflags)
         cfg = load_config(root, target=target_name)
         confined_snapshot_config(cfg, root)
         registry, ignored = (root / DATABASE_FILENAME, cfg.metadata_dir / "rebrew-functions.toml")
-        if reads == ("toml",):
+        if backend == "toml":
             registry, ignored = ignored, registry
         staged = {entry.path for entry in files}
         required = (inventory_path_for(cfg.reversed_dir, cfg), registry)
@@ -2934,7 +2987,7 @@ def retained_target_snapshot(
         # The other backend's registry would be staged and never read.
         if ignored.relative_to(root).as_posix() in staged:
             raise _invalid(
-                f"retained target carries {ignored.name}, which its {reads[0]} metadata ignores"
+                f"retained target carries {ignored.name}, which its {backend} metadata ignores"
             )
         yield root
         if _file_sha256(destination) != sha256:

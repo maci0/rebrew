@@ -66,8 +66,7 @@ logical-document and file checks. Journal, WAL and SHM dependencies are refused;
 measure-only verification must leave the captured database unchanged. Version 1
 TOML captures remain readable. Metadata readsets retain the shared 8 MiB per-file,
 32 MiB aggregate and 32768-file bounds. Public source uploads keep their separate
-limit. Proposal publication and migration of existing worker workspaces are
-separate operations.
+limit. Migration of existing worker workspaces is a separate operation.
 
 A retained target reads only the registry its project config selects, so its file
 set may not carry the other one: a SQLite config refuses a `rebrew-functions.toml`,
@@ -76,7 +75,17 @@ and `rebrew.security_scan_snapshot` accept either capture version, as the backen
 stores it. Over a version 2 capture, the source tree may supply no document the
 descriptor lists, including a `rebrew-functions.toml` with a matching
 `attested_registry_digest`, and the captured store must hold exactly the listed
-documents. The attested registry applies only to version 1 TOML captures.
+documents.
+
+`rebrew.apply_candidate` over a SQLite snapshot writes the promoted function into
+the staged store and returns a closed, integrity-checked copy of
+`rebrew-metadata.sqlite3` as the registry, in place of `rebrew-functions.toml`.
+The backend publishes that store in the target's source tree. The attested
+registry is the TOML registry over a version 1 capture and the SQLite store over a
+version 2 capture: a source `rebrew-metadata.sqlite3` whose SHA-256 is the
+`attested_registry_digest` replaces the captured store whole, after the same
+schema and integrity checks, and must hold `rebrew-functions.toml`. Any other
+source store is refused.
 
 ### PostgreSQL
 

@@ -6995,7 +6995,10 @@ Op details the contract leaves open:
   comparison in promote mode in the private snapshot: the candidate takes the function's `ADDRESS` anchor, the
   registry entry moves to the candidate's name and derived symbol, `rebrew test` records STATUS, SIZE and the
   explicit CFLAGS, and a result that is not EXACT or RELOC answers 400. The reply is `{result, files}`, the changed
-  source file and `rebrew-functions.toml` (path, size, sha256, base64); no other file leaves the op.
+  source file and the registry the snapshot's config reads (path, size, sha256, base64): `rebrew-functions.toml`
+  under TOML metadata, or a closed, integrity-checked copy of `rebrew-metadata.sqlite3` under SQLite metadata. No
+  other file leaves the op. The snapshot must carry that registry and not the other backend's, and each returned
+  file stays within 1 MiB.
 - `verify_function`, `verify_target` and `build` take an optional `project_cflags` (the same rules as `cflags`),
   the target's flags: the private snapshot they run in gets them as its project `cflags`
   (`[compiler] cflags`, and the target's own compiler override when it sets cflags), so a function's own

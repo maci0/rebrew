@@ -283,6 +283,7 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
             if field in capture:
                 canonical[field] = capture[field]
         documents: dict[str, str] = {}
+        attested_store = None
         if capture["version"] == 2:
             canonical["metadata"] = _capture_metadata(capture["metadata"])
             documents = {
@@ -304,28 +305,31 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
                 raise ops._invalid(
                     f"source {entry.path} cannot replace the analysis capture's SQLite metadata"
                 )
-            # A source may carry only the attested TOML registry, and never the SQLite store.
-            if entry.path == DATABASE_FILENAME or (
-                entry.path == _REGISTRY_FILE
-                and not (
-                    req.attested_registry_digest and entry.digest == req.attested_registry_digest
-                )
+            # A source may carry only the registry an applied proposal attested: the TOML
+            # registry over version 1, the SQLite store over version 2.
+            registry = DATABASE_FILENAME if documents else _REGISTRY_FILE
+            if entry.path in (DATABASE_FILENAME, _REGISTRY_FILE) and not (
+                entry.path == registry
+                and req.attested_registry_digest
+                and entry.digest == req.attested_registry_digest
             ):
                 raise ValueError("protected capture path")
             if prior and not (
                 prior["kind"] == "file"
                 and (
                     (
-                        entry.path in ("rebrew-project.toml", _REGISTRY_FILE)
+                        entry.path in ("rebrew-project.toml", registry)
                         and prior.get("role") == "analysis"
                     )
                     or (
-                        entry.path not in ("rebrew-project.toml", _REGISTRY_FILE)
+                        entry.path not in ("rebrew-project.toml", registry)
                         and prior.get("role") == "source"
                     )
                 )
             ):
                 raise ValueError("protected capture path")
+            if entry.path == DATABASE_FILENAME:
+                attested_store = entry
             selected[entry.path] = entry
         for entry in req.analysis_files:
             with ops.binary_file(config, entry.key, entry.url, entry.digest, "key") as source:
@@ -339,6 +343,14 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
                     and metadata_database_documents(source) != documents
                 ):
                     raise ValueError("capture metadata differs from its store")
+        if attested_store is not None:
+            # The attested store replaces the captured one whole; it must still be a
+            # closed, valid store holding the function registry.
+            with ops.binary_file(
+                config, attested_store.key, attested_store.url, attested_store.digest, "key"
+            ) as source:
+                if _REGISTRY_FILE not in metadata_database_documents(source):
+                    raise ValueError("attested metadata store has no function registry")
         return [selected[p] for p in sorted(selected)], binary_path, binary_size
     except KeyError, TypeError, ValueError, UnicodeError, RecursionError, StopIteration:
         raise ops._invalid("invalid retained analysis capture") from None
