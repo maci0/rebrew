@@ -373,6 +373,9 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "attested_registry_digest": {
+            "type": "string"
+          },
           "files": {
             "items": {
               "additionalProperties": false,
@@ -455,7 +458,8 @@
         "required": [
           "result",
           "files",
-          "metadata"
+          "metadata",
+          "attested_registry_digest"
         ],
         "type": "object"
       }
@@ -2325,6 +2329,9 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "attested_registry_digest": {
+            "type": "string"
+          },
           "files": {
             "items": {
               "additionalProperties": false,
@@ -2410,7 +2417,8 @@
         "required": [
           "files",
           "remove",
-          "metadata"
+          "metadata",
+          "attested_registry_digest"
         ],
         "type": "object"
       }

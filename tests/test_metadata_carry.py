@@ -349,6 +349,10 @@ def test_carry_moves_a_toml_target_with_applied_names_to_sqlite(
     }
     assert b"fresh" in documents["rebrew-data.toml"]
     assert reply["remove"] == [REGISTRY]
+    # The backend attests the carried store; a retained snapshot then reads it.
+    assert (
+        reply["attested_registry_digest"] == hashlib.sha256(carried[DATABASE_FILENAME]).hexdigest()
+    )
     assert reply["metadata"] == {
         "files": [
             {
@@ -498,6 +502,7 @@ def test_carry_of_a_toml_target_without_applied_proposals_moves_only_its_config(
     assert status == 200, reply
     carried = _applied_files(reply)
     assert set(carried) == {CONFIG} and reply["remove"] == []
+    assert reply["attested_registry_digest"] == ""
     assert b'backend = "sqlite"' in carried[CONFIG]
     assert reply["metadata"] == capture["metadata"]
 

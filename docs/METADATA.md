@@ -154,6 +154,15 @@ now selecting the capture's backend, and the carried store when the target had
 published metadata), `remove` lists target metadata paths the new config no
 longer reads, and `metadata` describes what the target reads afterwards.
 
+**Attestation.** `rebrew.apply_candidate` and `rebrew.metadata_carry` replies carry
+`attested_registry_digest`: the SHA-256 of the registry file among the returned
+`files` (the SQLite store, or `rebrew-functions.toml` under TOML), or `""` when the
+reply publishes none. After publishing the reply's files, the client records this
+value and passes it as `attested_registry_digest` to later retained snapshot
+operations; a source copy of the registry is accepted only with that digest. A
+carry with `""` leaves the target reading the capture's own store, so the client
+clears its attestation.
+
 ### PostgreSQL
 
 Install the optional `rebrew[pgsql]` extra and the system `libpq` client library.

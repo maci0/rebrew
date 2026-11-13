@@ -161,6 +161,7 @@ class TestDiff:
             [registry] if backend == "toml" else [DATABASE_FILENAME]
         )
         assert reply["after"]["files"] == [{"path": registry, "sha256": _sha(published[registry])}]
+        assert applied["attested_registry_digest"] == _sha(published[registry])
         (change,) = reply["changes"]
         assert {key: change[key] for key in ("document", "store", "key", "module", "va")} == {
             "document": "rebrew-functions.toml",

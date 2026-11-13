@@ -2538,7 +2538,20 @@ def metadata_carry(config: WorkerConfig, req: MetadataCarryRequest) -> dict[str,
                 "files": files,
                 "remove": [item["path"] for item in published["files"] if item["path"] not in kept],
                 "metadata": metadata,
+                "attested_registry_digest": _attested_registry_digest(files),
             }
+
+
+def _attested_registry_digest(published: list[dict[str, Any]]) -> str:
+    """The digest a client attests for the registry among *published* files, else ``""``.
+
+    The registry is the store under SQLite and ``rebrew-functions.toml`` under TOML;
+    a later retained snapshot accepts a source copy of it only with this digest.
+    """
+    from rebrew.metadata.sqlite import DATABASE_FILENAME
+
+    digests = {item["path"]: item["digest"] for item in published}
+    return str(digests.get(DATABASE_FILENAME, digests.get(APPLY_METADATA_FILE, "")))
 
 
 def import_project(config: WorkerConfig, req: ImportRequest) -> dict[str, Any]:
@@ -3012,7 +3025,12 @@ def _applied(
                 "data": base64.b64encode(data).decode("ascii"),
             }
         )
-    return {"result": result, "files": changed, "metadata": _published_metadata(root, changed)}
+    return {
+        "result": result,
+        "files": changed,
+        "metadata": _published_metadata(root, changed),
+        "attested_registry_digest": _attested_registry_digest(changed),
+    }
 
 
 def _published_metadata(root: Path, published: list[dict[str, Any]]) -> dict[str, Any]:
