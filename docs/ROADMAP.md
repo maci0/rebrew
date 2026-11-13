@@ -86,7 +86,7 @@ green, **zero change to x86 behavior**.
    tiny MIPS/PPC ELF fixtures; reloc masking with MIPS reloc records; the full
    existing suite stays green.
 
-## Phase 1: MIPS 32-bit first-class target (proof of pipeline): DONE
+## Phase 1: MIPS 32-bit first-class target (proof of pipeline): DONE except item 6
 
 Delivered: *a MIPS ELF binary can be onboarded, annotated, and matched with
 `gcc-*-mipsel`/`-psx` profiles*; the end-to-end milestone that validated the
@@ -107,7 +107,7 @@ header note).
 4. `stack_cmp.py`: minimal MIPS frame analyzer (sp/fp/ra slots) or explicit
    "N/A on this arch" gate; default: gate.
 5. `catalog/registry.py::is_jump_table`: MIPS variant (word-pointer tables).
-6. **End-to-end fixture** (unverified: `tests/test_multi_arch_p0.py` is synthetic and defers real fixtures to Phase 1): compile a small C sample with a `gcc-*-mipsel`
+6. **End-to-end fixture** (open: no MIPS fixture is checked into `tests/fixtures/`, and `tests/test_multi_arch_p0.py` uses synthetic bytes only): compile a small C sample with a `gcc-*-mipsel`
    profile into an ELF, `rebrew init` it, run discover → skeleton →
    `rebrew test`/`verify` → EXACT on a matching function and NEAR_MATCHING on
    a perturbed one. Checked into `tests/fixtures/` so CI exercises the whole
