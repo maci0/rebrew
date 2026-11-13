@@ -2,6 +2,7 @@
 
 ### Changed
 
+- **Breaking:** `rebrew.cli.CREATE_MISSING_HELP` and its re-exports `rebrew.binsync.cli.CREATE_MISSING_HELP`, `rebrew.binsync.importer.CREATE_MISSING_HELP` and `rebrew.ghidra.cli.CREATE_MISSING_HELP` now read "Create STUB files for catalog-known BinSync functions with no local source". `rebrew.binary_score` no longer re-exports `BUILT_IMAGE_HELP`; it uses the new `rebrew.cli.BUILT_IMAGE_REQUIRED_HELP`, and `BUILT_IMAGE_HELP` stays importable from `rebrew.cli`.
 - `rebrew data bss`, `data fix-bss` and `data dispatch` warn when given `--link-map`, and their `--help` says so: only `data list` reads the map. The option stays so existing invocations keep parsing.
 
 ### Fixed

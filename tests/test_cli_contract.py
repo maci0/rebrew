@@ -36,6 +36,7 @@ from rebrew.cli import (
     ALL_ITEMS_HELP_SUFFIX,
     ALL_TARGETS_HELP,
     BUILT_IMAGE_HELP,
+    BUILT_IMAGE_REQUIRED_HELP,
     CREATE_MISSING_HELP,
     EXPECTED_DIGEST_HELP,
     JOBS_HELP,
@@ -183,7 +184,7 @@ class TestSharedOptionHelp:
                 f"{JOBS_HELP}. Requires --all",
                 f"{JOBS_HELP}. Requires --flags",
             },
-            "--built": {BUILT_IMAGE_HELP},
+            "--built": {BUILT_IMAGE_HELP, BUILT_IMAGE_REQUIRED_HELP},
             "--watch": {WATCH_FILE_HELP, WATCH_TREE_HELP},
             "--min-len": {MIN_STRING_LEN_HELP},
         }

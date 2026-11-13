@@ -2555,7 +2555,7 @@ non-zero, so zero-initialized layout padding cannot inflate it.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `--built` | path | required | Built image |
+| `--built` | path | required | Built image to compare |
 | `--reference` | path | none | Reference image (default: the target's binary) |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |

@@ -126,6 +126,7 @@ EXPECTED_DIGEST_HELP = "Require the input digest from a reviewed preview"
 CREATE_MISSING_HELP = "Create STUB files for catalog-known BinSync functions with no local source"
 JOBS_HELP = "Parallel jobs (default: project.jobs, or 4)"
 BUILT_IMAGE_HELP = "Built image (default: build/<target>)"
+BUILT_IMAGE_REQUIRED_HELP = "Built image to compare"
 TIER_HELP = "Flag sweep tier: quick, targeted, normal, thorough, or full"
 CFLAGS_HELP = "Compiler flags (default: resolved metadata or project config)"
 SIZE_HELP = "Target size in bytes (default: stored SIZE)"
@@ -1521,6 +1522,7 @@ __all__ = [
     "ALL_ITEMS_HELP_SUFFIX",
     "ALL_TARGETS_HELP",
     "BUILT_IMAGE_HELP",
+    "BUILT_IMAGE_REQUIRED_HELP",
     "CFLAGS_HELP",
     "CREATE_MISSING_HELP",
     "DIR_HELP",
