@@ -53,10 +53,14 @@ def toml_sample(tmp_path_factory: pytest.TempPathFactory) -> tuple[WorkerConfig,
     """
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr("rebrew.ops._fresh_sqlite_metadata", lambda *_args: {})
-        return _sample(tmp_path_factory.mktemp("named-snapshot-toml"))
+        return _sample(tmp_path_factory.mktemp("named-snapshot-toml"), legacy=True)
 
 
-def _sample(directory: Path) -> tuple[WorkerConfig, dict[str, Any]]:
+def _sample(directory: Path, *, legacy: bool = False) -> tuple[WorkerConfig, dict[str, Any]]:
+    """The decompile request over a fresh capture, as the backend forwards it.
+
+    *legacy* writes the version 1 manifest of a TOML capture.
+    """
     filestore, workspace = _worker_dirs(directory)
     config = WorkerConfig(filestore.resolve(), workspace.resolve())
     status, body = dispatch(config, "rebrew.analyse", json.dumps(_analyse_request()).encode())
@@ -94,12 +98,15 @@ def _sample(directory: Path) -> tuple[WorkerConfig, dict[str, Any]]:
         "version": 1,
     }
     source_manifest = _json(source_document)
+    assert capture["version"] == 2
+    # The field order of the backend's stored manifest (store.AnalysisCapture).
     analysis_manifest = _json(
         {
-            "version": 1,
+            "version": 1 if legacy else 2,
             "binary_sha256": SHA256,
             "target": capture["target"],
             **{key: capture[key] for key in ("inventory_path", "report_path") if key in capture},
+            **({} if legacy else {"metadata": capture["metadata"]}),
             "entries": analysis_entries,
         }
     )
@@ -173,27 +180,21 @@ def _with_source_files(
 
 
 def _request_with_source_registry(
-    config: WorkerConfig, original: dict[str, Any], data: bytes, captured: str
+    config: WorkerConfig, original: dict[str, Any], data: bytes
 ) -> tuple[dict[str, Any], str]:
-    """The request whose source snapshot carries its own ``rebrew-functions.toml`` of *data*.
-
-    *captured* is the analysis file that holds the capture's own function registry.
-    """
+    """The request whose source snapshot carries its own ``rebrew-functions.toml`` of *data*."""
     capture = {e["path"]: e for e in json.loads(original["analysis_manifest"])["entries"]}
-    assert capture.keys() & {"rebrew-functions.toml", DATABASE_FILENAME} == {captured}
-    assert capture[captured]["kind"] == "file" and capture[captured]["role"] == "analysis"
+    captured = capture["rebrew-functions.toml"]
+    assert captured["kind"] == "file" and captured["role"] == "analysis"
+    assert DATABASE_FILENAME not in capture
     request = _with_source_files(config, original, {"rebrew-functions.toml": data})
     return request, hashlib.sha256(data).hexdigest()
 
 
-@pytest.mark.parametrize(
-    ("fixture", "captured"),
-    [("sample", DATABASE_FILENAME), ("toml_sample", "rebrew-functions.toml")],
-)
 def test_source_registry_is_accepted_only_with_its_attested_digest(
-    fixture: str, captured: str, request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+    toml_sample: tuple[WorkerConfig, dict[str, Any]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    config, original = request.getfixturevalue(fixture)
+    config, original = toml_sample
     decompiled: list[str] = []
 
     def decompile(*_args: object) -> tuple[str, str]:
@@ -201,7 +202,7 @@ def test_source_registry_is_accepted_only_with_its_attested_digest(
         return "int a0;\n*(char *)(a0 + 0x10) = 1;\n", "kuna"
 
     monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", decompile)
-    snapshot, digest = _request_with_source_registry(config, original, b"format = 3\n", captured)
+    snapshot, digest = _request_with_source_registry(config, original, b"format = 3\n")
     status, result = _call(config, snapshot)
     assert status == 400, result
     assert decompiled == []
@@ -211,9 +212,7 @@ def test_source_registry_is_accepted_only_with_its_attested_digest(
     status, result = _call(config, {**snapshot, "attested_registry_digest": digest})
     assert status == 200, result
     assert decompiled == ["ran"]
-    changed, _ = _request_with_source_registry(
-        config, original, b"format = 3\n# edited\n", captured
-    )
+    changed, _ = _request_with_source_registry(config, original, b"format = 3\n# edited\n")
     status, result = _call(config, {**changed, "attested_registry_digest": digest})
     assert status == 400, result
 
@@ -240,6 +239,60 @@ def test_source_metadata_database_cannot_replace_captured_registry(
     monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", forbidden)
     status, result = _call(config, _with_source_files(config, original, files))
     assert status == 400, result
+
+
+@pytest.mark.parametrize("path", ["rebrew-functions.toml", "rebrew-data.toml"])
+def test_sqlite_capture_refuses_source_metadata_documents(
+    sample: tuple[WorkerConfig, dict[str, Any]], monkeypatch: pytest.MonkeyPatch, path: str
+) -> None:
+    """Nothing reads a source copy of a document the capture keeps in its SQLite store."""
+    config, original = sample
+    documents = json.loads(original["analysis_manifest"])["metadata"]["documents"]
+    assert path in {item["path"] for item in documents}
+
+    def forbidden(*_args: object) -> tuple[str, str]:
+        raise AssertionError("decompiler must not run")
+
+    monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", forbidden)
+    data = b"format = 3\n"
+    request = _with_source_files(config, original, {path: data})
+    attested = {**request, "attested_registry_digest": hashlib.sha256(data).hexdigest()}
+    status, result = _call(config, attested)
+    assert status == 400, result
+    assert result["detail"] == (
+        f"source {path} cannot replace the analysis capture's SQLite metadata"
+    )
+
+
+def _with_capture(original: dict[str, Any], capture: dict[str, Any]) -> dict[str, Any]:
+    manifest = _json(capture)
+    return {
+        **original,
+        "analysis_manifest": manifest,
+        "analysis_manifest_sha256": _digest(manifest),
+    }
+
+
+def test_sqlite_capture_descriptor_must_match_its_store(
+    sample: tuple[WorkerConfig, dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config, original = sample
+
+    def forbidden(*_args: object) -> tuple[str, str]:
+        raise AssertionError("decompiler must not run")
+
+    monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", forbidden)
+    capture = json.loads(original["analysis_manifest"])
+    altered = copy.deepcopy(capture)
+    altered["metadata"]["documents"][0]["logical_sha256"] = "0" * 64
+    legacy = {key: value for key, value in capture.items() if key != "metadata"}
+    unversioned = copy.deepcopy(capture)
+    unversioned["version"] = 1
+    reordered = {"metadata": capture["metadata"], **legacy}
+    for document in (altered, {**legacy, "version": 2}, unversioned, reordered):
+        status, result = _call(config, _with_capture(original, document))
+        assert status == 400, result
+        assert result["detail"] == "invalid retained analysis capture"
 
 
 def test_legacy_capture_without_selected_paths_remains_readable(

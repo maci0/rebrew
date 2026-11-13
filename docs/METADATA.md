@@ -69,6 +69,15 @@ TOML captures remain readable. Metadata readsets retain the shared 8 MiB per-fil
 limit. Proposal publication and migration of existing worker workspaces are
 separate operations.
 
+A retained target reads only the registry its project config selects, so its file
+set may not carry the other one: a SQLite config refuses a `rebrew-functions.toml`,
+and a TOML config refuses a `rebrew-metadata.sqlite3`. `rebrew.decompile_snapshot`
+and `rebrew.security_scan_snapshot` accept either capture version, as the backend
+stores it. Over a version 2 capture, the source tree may supply no document the
+descriptor lists, including a `rebrew-functions.toml` with a matching
+`attested_registry_digest`, and the captured store must hold exactly the listed
+documents. The attested registry applies only to version 1 TOML captures.
+
 ### PostgreSQL
 
 Install the optional `rebrew[pgsql]` extra and the system `libpq` client library.

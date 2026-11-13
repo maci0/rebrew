@@ -106,9 +106,54 @@ def _validate_manifest(req: Any) -> None:
         raise ops._invalid("invalid retained source manifest") from None
 
 
+def _capture_metadata(value: Any) -> dict[str, Any]:
+    """The canonical SQLite descriptor of a version 2 capture."""
+    from rebrew import ops
+    from rebrew.metadata.replication import STATE_PATH
+    from rebrew.metadata.sqlite import DATABASE_FILENAME
+    from rebrew.metadata.storage import managed_metadata_filenames
+
+    if (
+        type(value) is not dict
+        or set(value) != {"backend", "path", "documents", "migration_input_digest"}
+        or value["backend"] != "sqlite"
+        or value["path"] != DATABASE_FILENAME
+        or type(value["migration_input_digest"]) is not str
+        or not re.fullmatch(r"[0-9a-f]{64}", value["migration_input_digest"])
+        or type(value["documents"]) is not list
+        or not 1 <= len(value["documents"]) <= ops.MAX_READSET_FILES
+    ):
+        raise ValueError("invalid capture metadata")
+    documents = []
+    previous = b""
+    for item in value["documents"]:
+        if (
+            type(item) is not dict
+            or set(item) != {"path", "logical_sha256"}
+            or type(item["path"]) is not str
+            or type(item["logical_sha256"]) is not str
+            or not _valid_path(item["path"])
+            or item["path"].encode("utf-8") <= previous
+            or (
+                item["path"].rsplit("/", 1)[-1] not in managed_metadata_filenames()
+                and item["path"] != STATE_PATH
+            )
+            or not re.fullmatch(r"[0-9a-f]{64}", item["logical_sha256"])
+        ):
+            raise ValueError("invalid capture metadata document")
+        previous = item["path"].encode("utf-8")
+        documents.append({"path": item["path"], "logical_sha256": item["logical_sha256"]})
+    return {
+        "backend": "sqlite",
+        "path": DATABASE_FILENAME,
+        "documents": documents,
+        "migration_input_digest": value["migration_input_digest"],
+    }
+
+
 def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
     from rebrew import ops
-    from rebrew.metadata.sqlite import DATABASE_FILENAME
+    from rebrew.metadata.sqlite import DATABASE_FILENAME, metadata_database_documents
 
     try:
         if type(req.analysis_manifest) is not str:
@@ -120,13 +165,24 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
         ):
             raise ValueError("capture digest differs")
         capture = json.loads(req.analysis_manifest, object_pairs_hook=unique_json_object)
+        # Version 1 keeps its registry as TOML; version 2 keeps every metadata document in
+        # the captured SQLite store its ``metadata`` descriptor lists.
         if (
             type(capture) is not dict
             or not {"version", "binary_sha256", "target", "entries"} <= set(capture)
             or set(capture)
-            - {"version", "binary_sha256", "target", "inventory_path", "report_path", "entries"}
+            - {
+                "version",
+                "binary_sha256",
+                "target",
+                "inventory_path",
+                "report_path",
+                "metadata",
+                "entries",
+            }
             or type(capture["version"]) is not int
-            or capture["version"] != 1
+            or capture["version"] not in (1, 2)
+            or ("metadata" in capture) != (capture["version"] == 2)
             or capture["binary_sha256"] != req.sha256
             or capture["target"] != req.rebrew_target
             or type(capture["entries"]) is not list
@@ -219,13 +275,22 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
             if item is None or item["kind"] != "file" or item.get("role") != "analysis":
                 raise ValueError("selected capture path is not an analysis file")
         canonical = {
-            "version": 1,
+            "version": capture["version"],
             "binary_sha256": req.sha256,
             "target": req.rebrew_target,
         }
         for field in ("inventory_path", "report_path"):
             if field in capture:
                 canonical[field] = capture[field]
+        documents: dict[str, str] = {}
+        if capture["version"] == 2:
+            canonical["metadata"] = _capture_metadata(capture["metadata"])
+            documents = {
+                item["path"]: item["logical_sha256"] for item in canonical["metadata"]["documents"]
+            }
+            database = reserved.get(DATABASE_FILENAME)
+            if database is None or database["kind"] != "file" or database.get("role") != "analysis":
+                raise ValueError("capture metadata store is not an analysis file")
         canonical["entries"] = ordered
         if json.dumps(canonical, ensure_ascii=False, separators=(",", ":")).encode("utf-8") != raw:
             raise ValueError("noncanonical capture")
@@ -234,8 +299,12 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
                 if entry.path.startswith(path + "/") or path.startswith(entry.path + "/"):
                     raise ValueError("overlapping capture paths")
             prior = reserved.get(entry.path)
-            # A capture keeps its registry as the TOML file or inside the SQLite store, and
-            # either is protected: a source may carry only the attested TOML, never the store.
+            if entry.path in documents:
+                # Nothing reads a TOML copy beside the SQLite store, attested or not.
+                raise ops._invalid(
+                    f"source {entry.path} cannot replace the analysis capture's SQLite metadata"
+                )
+            # A source may carry only the attested TOML registry, and never the SQLite store.
             if entry.path == DATABASE_FILENAME or (
                 entry.path == _REGISTRY_FILE
                 and not (
@@ -264,6 +333,12 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
                     data = handle.read(entry.size + 1)
                 if len(data) != entry.size or hashlib.sha256(data).hexdigest() != entry.digest:
                     raise ValueError("capture content differs")
+                if (
+                    documents
+                    and entry.path == DATABASE_FILENAME
+                    and metadata_database_documents(source) != documents
+                ):
+                    raise ValueError("capture metadata differs from its store")
         return [selected[p] for p in sorted(selected)], binary_path, binary_size
     except KeyError, TypeError, ValueError, UnicodeError, RecursionError, StopIteration:
         raise ops._invalid("invalid retained analysis capture") from None

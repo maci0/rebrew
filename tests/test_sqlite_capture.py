@@ -276,6 +276,35 @@ def test_retained_sqlite_refuses_invalid_artifacts(
         pytest.fail("invalid retained metadata was accepted")
 
 
+@pytest.mark.parametrize("backend", ["sqlite", "toml"])
+def test_retained_target_refuses_the_registry_its_backend_ignores(
+    tmp_path: Path, backend: str
+) -> None:
+    import tomlkit
+
+    config, entries, project = _sqlite_manifest(tmp_path)
+    assert config.filestore is not None
+    extra = {"rebrew-functions.toml": (project / "rebrew-functions.toml").read_bytes()}
+    if backend == "toml":
+        doc = tomlkit.parse((project / "rebrew-project.toml").read_text())
+        del doc["metadata"]
+        extra["rebrew-project.toml"] = tomlkit.dumps(doc).encode()
+    entries = [entry for entry in entries if entry.path not in extra]
+    for path, data in extra.items():
+        digest, key = _store(config.filestore, data)
+        entries.append(FlagSearchFile(path, digest, len(data), key))
+    if backend == "toml":
+        readable = [entry for entry in entries if entry.path != DATABASE_FILENAME]
+        with ops.retained_target_snapshot(config, readable, "mini", SHA256, KEY, "") as root:
+            assert load_config(root, target="mini").metadata_backend == "toml"
+    ignored = "rebrew-functions.toml" if backend == "sqlite" else DATABASE_FILENAME
+    with (
+        pytest.raises(ops.OpsError, match=f"carries {ignored}, which its {backend} metadata"),
+        ops.retained_target_snapshot(config, entries, "mini", SHA256, KEY, ""),
+    ):
+        pytest.fail("an unread registry was accepted")
+
+
 def test_changed_sqlite_metadata_during_retained_read_is_refused(tmp_path: Path) -> None:
     from rebrew.metadata.functions import update_field
 

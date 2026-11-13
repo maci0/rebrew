@@ -2921,18 +2921,21 @@ def retained_target_snapshot(
         rewritten = apply_project_cflags(root, target_name, project_cflags)
         cfg = load_config(root, target=target_name)
         confined_snapshot_config(cfg, root)
-        registry = (
-            root / DATABASE_FILENAME
-            if reads == ("sqlite",)
-            else cfg.metadata_dir / "rebrew-functions.toml"
-        )
+        registry, ignored = (root / DATABASE_FILENAME, cfg.metadata_dir / "rebrew-functions.toml")
+        if reads == ("toml",):
+            registry, ignored = ignored, registry
+        staged = {entry.path for entry in files}
         required = (inventory_path_for(cfg.reversed_dir, cfg), registry)
         if any(
-            not path.is_file()
-            or path.relative_to(root).as_posix() not in {entry.path for entry in files}
+            not path.is_file() or path.relative_to(root).as_posix() not in staged
             for path in required
         ):
             raise _invalid("retained target requires its inventory and function metadata")
+        # The other backend's registry would be staged and never read.
+        if ignored.relative_to(root).as_posix() in staged:
+            raise _invalid(
+                f"retained target carries {ignored.name}, which its {reads[0]} metadata ignores"
+            )
         yield root
         if _file_sha256(destination) != sha256:
             raise _invalid("snapshot target binary changed during operation")
