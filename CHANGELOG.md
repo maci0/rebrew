@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.36.0] - 2026-11-13
+
 ### Changed
 
 - **Breaking:** `rebrew.app.builtins.BUILTIN_COMPONENTS` and its re-export `rebrew.app.main.BUILTIN_COMPONENTS` change the `prove` summary to "Prove semantic equivalence of eligible functions via symbolic execution.", matching the command help, instead of naming NEAR_MATCHING/SIZE_MISMATCH functions.
