@@ -4037,6 +4037,79 @@
         "type": "object"
       }
     },
+    "rebrew.vocabulary": {
+      "request": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "statuses": {
+            "additionalProperties": false,
+            "properties": {
+              "aliases": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "alias": {
+                      "type": "string"
+                    },
+                    "canonical": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "alias",
+                    "canonical"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "earned": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "infrastructure": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "known": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "matched": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "known",
+              "matched",
+              "earned",
+              "infrastructure",
+              "aliases"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "statuses"
+        ],
+        "type": "object"
+      }
+    },
     "rebrew.xrefs": {
       "request": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",

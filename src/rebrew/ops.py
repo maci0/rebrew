@@ -829,6 +829,11 @@ class FlagSearchFile:
 
 
 @dataclass(frozen=True)
+class VocabularyRequest:
+    """No fields: the vocabulary is the worker's own."""
+
+
+@dataclass(frozen=True)
 class FileSetRequest:
     files: list[FlagSearchFile]
 
@@ -2469,6 +2474,36 @@ def _metadata_answer[T](read: Callable[[], T]) -> T:
         raise _invalid(f"invalid metadata set: {exc}") from exc
 
 
+def vocabulary(_config: WorkerConfig, _req: VocabularyRequest) -> dict[str, Any]:
+    """The names rebrew owns that a client must match rather than copy.
+
+    ``statuses`` is the function STATUS table: every status a row may hold, the
+    byte matches, the earned results a tool failure may not overwrite, the tool
+    failures themselves, and the legacy spellings ``canonical_status`` folds
+    (after trimming and upper-casing).
+    """
+    from rebrew.workspace.status import (
+        EARNED_STATUSES,
+        INFRASTRUCTURE_STATUSES,
+        KNOWN_STATUSES,
+        MATCHED_STATUSES,
+        STATUS_ALIASES,
+    )
+
+    return {
+        "statuses": {
+            "known": sorted(KNOWN_STATUSES),
+            "matched": list(MATCHED_STATUSES),
+            "earned": list(EARNED_STATUSES),
+            "infrastructure": list(INFRASTRUCTURE_STATUSES),
+            "aliases": [
+                {"alias": alias, "canonical": STATUS_ALIASES[alias]}
+                for alias in sorted(STATUS_ALIASES)
+            ],
+        }
+    }
+
+
 def project_targets(config: WorkerConfig, req: FileSetRequest) -> dict[str, Any]:
     """The targets a supplied project config declares, as the config loader keys them."""
     from rebrew.workspace import read_config, targets_table
@@ -3774,6 +3809,7 @@ OPS: dict[str, Op] = {
     "rebrew.source_rename": Op(RenameRequest, source_rename),
     "rebrew.source_split": Op(SplitRequest, source_split),
     "rebrew.source_merge": Op(MergeRequest, source_merge),
+    "rebrew.vocabulary": Op(VocabularyRequest, vocabulary),
     "rebrew.retained_source_operation": Op(SnapshotMutationRequest, retained_source_operation),
 }
 

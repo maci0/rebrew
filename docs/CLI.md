@@ -6966,6 +6966,12 @@ Op details the contract leaves open:
   count, and the counts agree with its status (EXACT and RELOC cover every byte,
   with relocations only for RELOC; NEAR_MATCHING, STUB and SIZE_MISMATCH stay below
   a full match). Any other status, a tooling failure, is no verdict.
+- `rebrew.vocabulary` `{}` answers the names rebrew owns. `statuses` is the
+  function STATUS table from `rebrew.workspace.status`: `known` (every status a
+  row may hold), `matched` (byte matches: EXACT, RELOC), `earned` (adds PROVEN,
+  which is no byte match), `infrastructure` (tool failures, never a verdict) and
+  `aliases` (`{alias, canonical}` spellings `canonical_status` folds after
+  trimming and upper-casing). A client reads this table instead of keeping a copy.
 - `rebrew.project_targets` `{files}` answers `{targets}`: the `[targets]` tables
   of the set's `rebrew-project.toml`, keyed in the NFC spelling the config loader
   uses and sorted by UTF-8 bytes. The set uses the retained-snapshot file entries

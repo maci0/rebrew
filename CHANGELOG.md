@@ -18,6 +18,8 @@
 
 - `rebrew.verify_function` replies and the `rebrew.apply_candidate` result add `compile_inputs` (the files and settings document the compile read, with digests) and `verdict_valid` (`rebrew.workspace.status.comparison_verdict_valid`: the comparison's counts agree with its status), so a client no longer guesses compile inputs by extension or re-checks the counts.
 
+- New dispatch op `rebrew.vocabulary` publishes the function status table (known, matched, earned, infrastructure statuses and spelling aliases).
+
 ### Fixed
 
 - `rebrew.decompile_snapshot` and `rebrew.security_scan_snapshot` accept analysis capture files up to the shared 8 MiB per-file and 32 MiB aggregate readset bounds instead of 1 MiB and 8 MiB, so a capture the backend retained under those bounds, such as a SQLite store over 1 MiB, is no longer refused. The 1,024-entry capture limit is unchanged.
