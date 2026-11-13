@@ -10,6 +10,10 @@
 
 - **Breaking:** `rebrew.ops.retained_target_snapshot`, and so every retained-target request (`rebrew.report`, `rebrew.verify_target`, `rebrew.build`, `rebrew.coverage_report`, `rebrew.data_list`, `rebrew.retained_source_operation`, the named snapshot operations), refuses a file set carrying the registry its config does not read: `rebrew-functions.toml` under a SQLite config, `rebrew-metadata.sqlite3` under a TOML config, since the staged file would never be read.
 
+- **Breaking:** fresh `rebrew.analyse` captures use version 3, whose `metadata` descriptor is backend-neutral: `files[{path, sha256}]` (the physical metadata files) and `documents[{path, logical_sha256}]`, replacing `backend`, `path` and `migration_input_digest`. `rebrew.apply_candidate` replies add the same descriptor as `metadata`. Stored version 1 and 2 captures stay readable. See [the dispatch metadata contract](docs/METADATA.md#dispatch-metadata-contract).
+
+- New read-only dispatch ops `rebrew.metadata_describe` (the descriptor of a file set) and `rebrew.metadata_diff` (the per-record field changes between two file sets, read through the storage layer), and `rebrew.metadata_carry`, which carries a retained target's published function registry onto a fresh capture of its binary through the reviewed metadata migration. A dispatch client no longer needs to parse or name rebrew's metadata files.
+
 ### Fixed
 
 - `rebrew.decompile_snapshot` and `rebrew.security_scan_snapshot` accept analysis capture files up to the shared 8 MiB per-file and 32 MiB aggregate readset bounds instead of 1 MiB and 8 MiB, so a capture the backend retained under those bounds, such as a SQLite store over 1 MiB, is no longer refused. The 1,024-entry capture limit is unchanged.

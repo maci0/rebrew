@@ -52,27 +52,24 @@ through the reviewed migration API, passing the preview's expected digest. SQLit
 is selected only after the import verifies. Existing worker workspaces keep their
 current backend, and standalone projects still default to TOML.
 
-Capture version 2 includes a closed, self-contained `rebrew-metadata.sqlite3`
-backup. Its file entry records the physical size and SHA-256. The `metadata`
-descriptor contains `backend`, `path`, sorted `documents` entries with `path` and
-`logical_sha256`, and `migration_input_digest`. Logical hashes cover each stored
-TOML document's bytes; they are distinct from the database file's hash.
-`migration_input_digest` is an opaque producer receipt bound by backend custody,
-rather than an authentication token or a digest to recompute in another staging
-directory. Config remains TOML, and the inventory and normalized report remain JSON.
+Capture version 3 includes a closed, self-contained `rebrew-metadata.sqlite3`
+backup and declares its metadata in the backend-neutral descriptor below. Config
+remains TOML, and the inventory and normalized report remain JSON. Stored version 2
+captures (descriptor fields `backend`, `path`, `documents`,
+`migration_input_digest`) and version 1 TOML captures (no descriptor) stay
+readable by every retained operation.
 
 Retained verification accepts the SQLite artifact after schema, integrity,
 logical-document and file checks. Journal, WAL and SHM dependencies are refused;
-measure-only verification must leave the captured database unchanged. Version 1
-TOML captures remain readable. Metadata readsets retain the shared 8 MiB per-file,
-32 MiB aggregate and 32768-file bounds. Public source uploads keep their separate
-limit. Migration of existing worker workspaces is a separate operation.
+measure-only verification must leave the captured database unchanged. Metadata
+readsets retain the shared 8 MiB per-file, 32 MiB aggregate and 32768-file
+bounds. Public source uploads keep their separate limit.
 
 A retained target reads only the registry its project config selects, so its file
 set may not carry the other one: a SQLite config refuses a `rebrew-functions.toml`,
 and a TOML config refuses a `rebrew-metadata.sqlite3`. `rebrew.decompile_snapshot`
-and `rebrew.security_scan_snapshot` accept either capture version, as the backend
-stores it. Over a version 2 capture, the source tree may supply no document the
+and `rebrew.security_scan_snapshot` accept every capture version, as the backend
+stores it. Over a SQLite capture, the source tree may supply no document the
 descriptor lists, including a `rebrew-functions.toml` with a matching
 `attested_registry_digest`, and the captured store must hold exactly the listed
 documents.
@@ -82,10 +79,67 @@ the staged store and returns a closed, integrity-checked copy of
 `rebrew-metadata.sqlite3` as the registry, in place of `rebrew-functions.toml`.
 The backend publishes that store in the target's source tree. The attested
 registry is the TOML registry over a version 1 capture and the SQLite store over a
-version 2 capture: a source `rebrew-metadata.sqlite3` whose SHA-256 is the
+later capture: a source `rebrew-metadata.sqlite3` whose SHA-256 is the
 `attested_registry_digest` replaces the captured store whole, after the same
 schema and integrity checks, and must hold `rebrew-functions.toml`. Any other
 source store is refused.
+
+### Dispatch metadata contract
+
+Rebrew owns its metadata files. A dispatch client (the backend) treats them as
+opaque files named by rebrew and never parses, opens or names them itself;
+everything it needs comes from the operations below, over files it already holds.
+File sets use the retained-snapshot entry (`path`, `digest`, `size`, `key` or
+`url`), the same staging, digest checks and readset bounds as
+`rebrew.decompile_snapshot`, and must include `rebrew-project.toml`, whose
+`[metadata]` selection decides which files are metadata. Files that are not
+metadata are ignored. A set carrying a metadata file its config does not read, a
+config selecting anything but one local backend, or an invalid store answers 400.
+
+**Descriptor.** `{files: [{path, sha256}], documents: [{path, logical_sha256}]}`.
+`files` are the physical metadata files the config reads (TOML stores and their
+`.d` drop-ins, or `rebrew-metadata.sqlite3`), with the SHA-256 of their bytes;
+each is also a capture entry or a file in the set. `documents` are the logical
+documents (`rebrew-functions.toml`, `rebrew-data.toml`, `rebrew-types.toml`,
+`rebrew-libraries.toml`, nested copies, `.rebrew/metadata-replication.toml`), each
+hashed over the storage layer's complete snapshot, so a TOML store and its SQLite
+import report the same logical digests. Both lists are sorted by UTF-8 path. A
+capture's `metadata` field, `rebrew.metadata_describe`, both sides of
+`rebrew.metadata_diff`, and the `metadata` field of the `rebrew.apply_candidate`
+and `rebrew.metadata_carry` replies all use this shape.
+
+**`rebrew.metadata_describe`** `{files}` answers the descriptor of that set. It
+replaces any client-side registry naming, SQLite inspection or config parsing:
+a stored version 1 or 2 capture, a source tree and an applied result are all
+described the same way.
+
+**`rebrew.metadata_diff`** `{before, after}` (two file sets) answers
+`{before, after, changes}`: both descriptors and every changed record, read
+through the storage layer, so the two sides may use different backends.
+A record is a top-level table of a logical document; the document's top-level
+scalars (`format`) form the record with key `""`. Each change carries `document`
+(logical path), `store` (`functions`, `data`, `types`, `libraries` or
+`replication`), `key` (as stored, such as `SERVER.0x1000`), `module` and `va`
+(parsed from an address key, else `""` and `null`), `change` (`added`, `removed`
+or `changed`), and `fields`: `{field, before, after}` for every field whose value
+differs, with JSON values (TOML dates and times as RFC 3339 strings) and `null` for
+an absent field. A whole document added or removed lists each of its records.
+Changes are sorted by document, then key. The answer is computed by a separate
+call over bytes the caller supplies, never taken from the producing worker's
+report; a policy such as "an applied proposal changed only its own function's
+`name`, `symbol` and earned fields" is enforced by the caller on this answer.
+
+**`rebrew.metadata_carry`** `{capture, target}` carries a retained target onto a
+fresh capture of its binary. `capture` is the new capture's config and metadata
+files; `target` is the target's published `rebrew-project.toml` plus the metadata
+files its last applied proposal or carry published, if any. Rebrew builds the
+target's new metadata from the capture's documents with the target's function
+registry carried over, through the reviewed `metadata migrate` preview and apply,
+and checks the result's logical documents. The reply's `files` are the files to
+publish in the target's source tree (`{path, size, digest, data}`: the config,
+now selecting the capture's backend, and the carried store when the target had
+published metadata), `remove` lists target metadata paths the new config no
+longer reads, and `metadata` describes what the target reads afterwards.
 
 ### PostgreSQL
 
