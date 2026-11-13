@@ -998,7 +998,8 @@ that list. It is an argument of each command that declares it.
 `rebrew -o text <command> --json` stays text.
 
 Effects follow the full command path, not the last word. `lint`, `diff`,
-`binary extract show`, and `binary asm show` are `non_idempotent`. The same
+`binary extract show`, `binary asm show`, and `match solutions` (its `--backup`
+and `--restore` write) are `non_idempotent`. The same
 last word on another command stays `read_only` (`binsync diff`, `skills show`,
 `blocker show`, `binary extract list`).
 

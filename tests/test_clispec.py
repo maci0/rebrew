@@ -94,7 +94,7 @@ def _schema(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict:
     return cli_payload(result)
 
 
-_WRITING = ("lint", "diff", "binary extract show", "binary asm show")
+_WRITING = ("lint", "diff", "binary extract show", "binary asm show", "match solutions")
 _SAME_LEAF_READERS = ("binsync diff", "skills show", "blocker show", "binary extract list")
 _NEGATIVES = (
     ("init", "--wizard", "--no-wizard"),

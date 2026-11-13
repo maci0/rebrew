@@ -101,7 +101,6 @@ _READ_ONLY_PATHS = frozenset(
         "diagnose stack",
         "library presence",
         "match history",
-        "match solutions",
         "similarity binary",
         "source organize guards",
         "source security",
@@ -123,6 +122,8 @@ _READ_ONLY_PATHS = frozenset(
 # read-only metadata, so it stays read_only despite its server name.
 # ``diagnose near --fix-blocker`` and ``coverage catalog --fix-sizes``
 # write metadata; their --dry-run/--force modes are the preview/bypass.
+# ``match solutions --backup`` writes a copy and ``--restore`` replaces the
+# GA log; without them it only reads.
 _WRITING_PATHS = frozenset(
     {
         "binary analyze",
@@ -136,6 +137,7 @@ _WRITING_PATHS = frozenset(
         "diagnose near",
         "diff",
         "lint",
+        "match solutions",
     }
 )
 
