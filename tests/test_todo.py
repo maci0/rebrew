@@ -1760,6 +1760,16 @@ class TestCollectNewFunctionsExtended:
 class TestTodoCli:
     """CLI-level tests for todo.main() via CliRunner."""
 
+    def test_help_lists_less_common_categories(self) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.todo import app
+
+        result = CliRunner().invoke(app, ["--help"], terminal_width=200)
+        assert result.exit_code == 0
+        assert "naked-reconstruction" in result.output
+        assert "postlink-mangled" in result.output
+
     def _invoke(
         self,
         tmp_path: Path,

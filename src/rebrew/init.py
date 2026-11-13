@@ -1033,9 +1033,9 @@ def _render_agents_md(
         "1. rebrew todo --json                          # get highest-impact action items\n"
         "2. rebrew library match --lib <runtime>.LIB --va 0x<VA>   # is it already in a library?\n"
         "3. rebrew skeleton 0x<VA>                      # only for an inventory VA without source\n"
-        f"4. rebrew test src/{target_name}/<func>.c --json  # compile + compare\n"
+        "4. rebrew test 0x<VA> --json                  # compile + compare\n"
         "5. # iterate code until STATUS: EXACT or RELOC\n"
-        "6. rebrew test --all --json                    # batch promote all ready functions\n"
+        "6. rebrew test --all --json                    # recheck eligible files in the selected target\n"
         "```"
     )
     template = _AGENTS_MD_TEMPLATE.read_text(encoding="utf-8")

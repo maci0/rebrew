@@ -447,6 +447,8 @@ class TestInit:
         assert agents_path.exists()
         content = agents_path.read_text()
         assert "prog.exe" in content
+        assert "rebrew test 0x<VA> --json" in content
+        assert "rebrew test src/main/<func>.c" not in content
         assert "released Rebrew/Recoverage packages" in content
         assert "explicit tooling-development opt-in" in content
         assert "Use editable project dependencies" not in content

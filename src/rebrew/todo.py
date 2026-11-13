@@ -1798,7 +1798,7 @@ def main(
         None,
         "--category",
         "-c",
-        help="Filter by category (fix-delta, start-function, compile-error, ...)",
+        help=f"Filter by category ({', '.join(_CATEGORY_COLORS)})",
     ),
     stats: bool = typer.Option(False, "--stats", "-s", help="Show coverage stats header"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),

@@ -382,6 +382,9 @@ def test_generate_toolchain_file(tmp_path: Path) -> None:
     assert out.name == "toolchain-msvc-6.0-docker.cmake"
     text = out.read_text(encoding="utf-8")
     assert spec.image in text
+    assert "configured execution backend" in text
+    assert "docker runs against" not in text
+    assert "-DCMAKE_TOOLCHAIN_FILE=" in text
     assert 'CMAKE_C_COMPILER_ID "MSVC"' in text
     assert 'CMAKE_C_OUTPUT_EXTENSION ".obj"' in text
 

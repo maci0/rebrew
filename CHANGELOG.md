@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- Generated quick-start tests use function addresses so shared source directories work. CMake toolchain instructions describe the configured backend and use the CMake 3.19-compatible toolchain option. TODO help lists every supported category.
+
 ## [6.52.0] - 2026-11-16
 
 ### Fixed
