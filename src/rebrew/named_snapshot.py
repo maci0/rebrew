@@ -238,7 +238,7 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
                 if (
                     role not in ("source", "analysis")
                     or not key
-                    or size > 1024 * 1024
+                    or size > ops.MAX_READSET_FILE_BYTES
                     or not re.fullmatch(r"[0-9a-f]{64}", digest)
                 ):
                     raise ValueError("invalid file capture")
@@ -260,7 +260,7 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
             next(refs, None) is not None
             or not binary_path
             or not baseline_config
-            or total > 8 * 1024 * 1024
+            or total > ops.MAX_READSET_BYTES
         ):
             raise ValueError("invalid capture bounds")
         for field in ("inventory_path", "report_path"):

@@ -8,6 +8,10 @@
 
 - **Breaking:** `rebrew.ops.retained_target_snapshot`, and so every retained-target request (`rebrew.report`, `rebrew.verify_target`, `rebrew.build`, `rebrew.coverage_report`, `rebrew.data_list`, `rebrew.retained_source_operation`, the named snapshot operations), refuses a file set carrying the registry its config does not read: `rebrew-functions.toml` under a SQLite config, `rebrew-metadata.sqlite3` under a TOML config, since the staged file would never be read.
 
+### Fixed
+
+- `rebrew.decompile_snapshot` and `rebrew.security_scan_snapshot` accept analysis capture files up to the shared 8 MiB per-file and 32 MiB aggregate readset bounds instead of 1 MiB and 8 MiB, so a capture the backend retained under those bounds, such as a SQLite store over 1 MiB, is no longer refused. The 1,024-entry capture limit is unchanged.
+
 ## [6.36.0] - 2026-11-13
 
 ### Changed

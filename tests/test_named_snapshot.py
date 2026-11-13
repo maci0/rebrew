@@ -295,6 +295,46 @@ def test_sqlite_capture_descriptor_must_match_its_store(
         assert result["detail"] == "invalid retained analysis capture"
 
 
+def test_named_decompile_reads_a_store_over_one_mib(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Capture files keep the shared readset bounds the backend retains them under."""
+    import rebrew.ops
+    from rebrew.config import load_config
+    from rebrew.metadata.functions import record_function_rows
+
+    intake = rebrew.ops._run_intake
+
+    def seed(binary: Path, root: Path, target: str) -> Any:
+        result = intake(binary, root, target)
+        record_function_rows(
+            load_config(root, target=target).metadata_dir,
+            [
+                {
+                    "module": "MINI",
+                    "va": 0x500000 + index * 16,
+                    "identity": {"name": f"synthetic_function_{index:05d}"},
+                    "fields": {"size": 16, "blocker": f"Synthetic function {index:05d}." * 4},
+                }
+                for index in range(6144)
+            ],
+            updated_by="intake",
+        )
+        return result
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(rebrew.ops, "_run_intake", seed)
+        config, request = _sample(tmp_path_factory.mktemp("named-snapshot-large"))
+    (database,) = [row for row in request["analysis_files"] if row["path"] == DATABASE_FILENAME]
+    assert 1024 * 1024 < database["size"] <= rebrew.ops.MAX_READSET_FILE_BYTES
+    monkeypatch.setattr(
+        "rebrew.decompiler.fetch_decompilation",
+        lambda *_args: ("int a0;\n*(char *)(a0 + 0x10) = 1;\n", "kuna"),
+    )
+    status, result = _call(config, request)
+    assert status == 200, result
+
+
 def test_legacy_capture_without_selected_paths_remains_readable(
     sample: tuple[WorkerConfig, dict], monkeypatch: pytest.MonkeyPatch
 ) -> None:
