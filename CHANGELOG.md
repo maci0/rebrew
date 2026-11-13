@@ -20,6 +20,8 @@
 
 - New dispatch op `rebrew.vocabulary` publishes the function status table (known, matched, earned, infrastructure statuses and spelling aliases) and `cache_files`, the derived cache file names (`rebrew.verify_cache.CACHE_FILENAMES`) a client must not retain, in place of a `verify_cache` substring filter.
 
+- New dispatch op `rebrew.check_cflags` answers a compiler flag string normalized as every compiling op uses it, or the 400 `invalid-cflags:` refusal they give (`rebrew.ops.checked_cflags`), so a client checks flags where they are written instead of keeping a copy of the rule.
+
 ### Fixed
 
 - `rebrew.decompile_snapshot` and `rebrew.security_scan_snapshot` accept analysis capture files up to the shared 8 MiB per-file and 32 MiB aggregate readset bounds instead of 1 MiB and 8 MiB, so a capture the backend retained under those bounds, such as a SQLite store over 1 MiB, is no longer refused. The 1,024-entry capture limit is unchanged.

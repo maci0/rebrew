@@ -753,6 +753,34 @@
         "type": "object"
       }
     },
+    "rebrew.check_cflags": {
+      "request": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "cflags": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "cflags"
+        ],
+        "type": "object"
+      },
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "cflags": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "cflags"
+        ],
+        "type": "object"
+      }
+    },
     "rebrew.control_flow_graph": {
       "request": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",

@@ -834,6 +834,12 @@ class VocabularyRequest:
 
 
 @dataclass(frozen=True)
+class CheckCflagsRequest:
+    cflags: str
+
+
+
+@dataclass(frozen=True)
 class FileSetRequest:
     files: list[FlagSearchFile]
 
@@ -2507,6 +2513,12 @@ def vocabulary(_config: WorkerConfig, _req: VocabularyRequest) -> dict[str, Any]
     }
 
 
+def check_cflags(_config: WorkerConfig, req: CheckCflagsRequest) -> dict[str, Any]:
+    """The flag string as every compiling op would use it, or the 400 they would answer."""
+    return {"cflags": checked_cflags(req.cflags)}
+
+
+
 def project_targets(config: WorkerConfig, req: FileSetRequest) -> dict[str, Any]:
     """The targets a supplied project config declares, as the config loader keys them."""
     from rebrew.workspace import read_config, targets_table
@@ -3813,6 +3825,7 @@ OPS: dict[str, Op] = {
     "rebrew.source_split": Op(SplitRequest, source_split),
     "rebrew.source_merge": Op(MergeRequest, source_merge),
     "rebrew.vocabulary": Op(VocabularyRequest, vocabulary),
+    "rebrew.check_cflags": Op(CheckCflagsRequest, check_cflags),
     "rebrew.retained_source_operation": Op(SnapshotMutationRequest, retained_source_operation),
 }
 

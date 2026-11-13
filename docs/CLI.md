@@ -6976,6 +6976,11 @@ Op details the contract leaves open:
   project (`rebrew.verify_cache.CACHE_FILENAMES`: the verify cache, its JSON
   sidecar and its lock); a client never retains a file with one of these names
   as project input.
+- `rebrew.check_cflags` `{cflags}` answers `{cflags}`: the flag string as every
+  compiling op uses it (`rebrew.ops.checked_cflags`), tokens joined by single
+  spaces. A string over 256 characters, a token that is not a plain option, or
+  one that names a file or changes the command answers 400 `invalid-request`
+  whose detail starts with `invalid-cflags:` and names the token.
 - `rebrew.project_targets` `{files}` answers `{targets}`: the `[targets]` tables
   of the set's `rebrew-project.toml`, keyed in the NFC spelling the config loader
   uses and sorted by UTF-8 bytes. The set uses the retained-snapshot file entries
