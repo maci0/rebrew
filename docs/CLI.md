@@ -6955,6 +6955,17 @@ Op details the contract leaves open:
   read and carry metadata file sets; the client never parses or names
   rebrew's metadata files. See
   [the dispatch metadata contract](METADATA.md#dispatch-metadata-contract).
+- `rebrew.verify_function` replies, and the `result` of `rebrew.apply_candidate`,
+  add `compile_inputs` and `verdict_valid`. `compile_inputs` has the metadata
+  descriptor shape: `files` are the compiled source (the candidate as compiled,
+  with its anchor) and `rebrew-project.toml`, with their SHA-256; `documents` the
+  nearest `rebrew-libraries.toml` settings document, if any, by logical digest. A
+  retained compile reads no project header, since one is refused before
+  compiling. `verdict_valid` is `rebrew.workspace.status.comparison_verdict_valid`:
+  true only when the reply names the requested source, VA and size, carries every
+  count, and the counts agree with its status (EXACT and RELOC cover every byte,
+  with relocations only for RELOC; NEAR_MATCHING, STUB and SIZE_MISMATCH stay below
+  a full match). Any other status, a tooling failure, is no verdict.
 - `rebrew.project_targets` `{files}` answers `{targets}`: the `[targets]` tables
   of the set's `rebrew-project.toml`, keyed in the NFC spelling the config loader
   uses and sorted by UTF-8 bytes. The set uses the retained-snapshot file entries

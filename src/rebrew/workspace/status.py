@@ -197,3 +197,58 @@ NEAR_MATCH_CANDIDATE_STATUSES: tuple[str, ...] = ("NEAR_MATCHING", "SIZE_MISMATC
 # (delta fallback when no verify row exists) read this; a byte match is
 # :data:`MATCHED_STATUSES` and is excluded.
 FUZZY_STATUSES: tuple[str, ...] = ("NEAR_MATCHING", "PROVEN")
+
+
+#: Comparison statuses that report a partial byte comparison of a real body.
+PARTIAL_COMPARISON_STATUSES: tuple[str, ...] = ("NEAR_MATCHING", "STUB", "SIZE_MISMATCH")
+
+
+def _count(result: Mapping[str, Any], key: str) -> int | None:
+    value = result.get(key)
+    return value if type(value) is int and value >= 0 else None
+
+
+def comparison_verdict_valid(result: Mapping[str, Any], source: str, va: int, size: int) -> bool:
+    """Whether one ``rebrew test --json`` comparison is a complete verdict.
+
+    It must name *source*, *va* and *size*, carry every count, and the counts must
+    agree with its status: a byte match covers all *size* bytes (with relocations
+    only for RELOC), a partial comparison stays below a full match, and any other
+    status (a tooling failure) is no verdict.
+    """
+    status = result.get("status")
+    counts = [_count(result, key) for key in ("match_count", "total", "obj_size", "reloc_count")]
+    mismatches = result.get("mismatches")
+    raw_va = result.get("va")
+    try:
+        address = int(raw_va, 0) if isinstance(raw_va, str) else None
+    except ValueError:
+        address = None
+    if (
+        result.get("source") != source
+        or result.get("size") != size
+        or size <= 0
+        or address != va
+        or not isinstance(mismatches, list)
+        or None in counts
+    ):
+        return False
+    matches, total, obj_size, relocs = (int(count or 0) for count in counts)
+    if total <= 0 or matches > total:
+        return False
+    if status in MATCHED_STATUSES:
+        return (
+            total == matches == obj_size == size
+            and (relocs > 0) == (status == "RELOC")
+            and not mismatches
+        )
+    if status not in PARTIAL_COMPARISON_STATUSES:
+        return False
+    compared = min(size, obj_size)
+    if relocs or total != max(size, obj_size) or matches > compared or len(mismatches) > compared:
+        return False
+    if status == "SIZE_MISMATCH":
+        return obj_size != size
+    if status == "NEAR_MATCHING":
+        return obj_size == size and matches < size
+    return matches < size

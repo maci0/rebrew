@@ -2948,10 +2948,45 @@ def _run_candidate(
             )
             if path.stat().st_size != size or _file_sha256(path) != digest:
                 raise _invalid("snapshot source changed during verification")
+        from rebrew.workspace.status import comparison_verdict_valid
+
         result["source"] = req.source
+        result["compile_inputs"] = _compile_inputs(root, source, candidate.encode("utf-8"))
+        result["verdict_valid"] = comparison_verdict_valid(result, req.source, req.va, req.size)
         if applying is not None:
             return _applied(root, applying, result, registry)
         return result
+
+
+def _compile_inputs(root: Path, source: Path, compiled: bytes) -> dict[str, Any]:
+    """The project inputs a retained candidate compile read, in the descriptor shape.
+
+    ``files`` are the compiled source and the project config (flags, toolchain);
+    ``documents`` the library settings document that overrides them, if any. A
+    retained compile reads no project header: ``retained_compile_refusal`` refuses one.
+    """
+    from rebrew.metadata.functions import nearest_library_metadata_path
+    from rebrew.metadata.storage import metadata_store
+
+    config = root / "rebrew-project.toml"
+    files = [
+        {
+            "path": source.relative_to(root).as_posix(),
+            "sha256": hashlib.sha256(compiled).hexdigest(),
+        },
+        {"path": config.name, "sha256": _file_sha256(config)},
+    ]
+    documents = []
+    library = nearest_library_metadata_path(source.parent, root)
+    if library is not None:
+        digest = metadata_store(library).digest()
+        if digest is None:
+            raise _invalid("the library settings changed during verification")
+        documents.append({"path": library.relative_to(root).as_posix(), "logical_sha256": digest})
+    return {
+        "files": sorted(files, key=lambda item: item["path"].encode("utf-8")),
+        "documents": documents,
+    }
 
 
 def _move_identity(cfg: Any, req: ApplyCandidateRequest, module: str, name: str) -> str:
