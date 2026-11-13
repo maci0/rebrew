@@ -10,6 +10,8 @@
 
 ### Fixed
 
+- Candidate verification and apply place the retained function's ADDRESS comment directly above its definition, preserving includes and types even when the submitted anchor starts the file. Conflicting addresses are refused, and global/function scan errors identify the project-relative source file.
+
 - Fresh isolated analysis accepts readset files up to 8 MiB, including generated function metadata larger than 1 MiB, while retaining the 32 MiB total and 32768-file limits.
 
 - Escape literal pipes in threat-model tables so transport, source and control descriptions render in their intended columns.

@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, TypeGuard, cast
 lazy import hashlib
+lazy import os
 lazy import struct
 lazy from pathlib import Path
 
@@ -458,8 +459,11 @@ def build_name_to_va(
         # validate" to every caller — verify/test would then silently skip
         # reloc validation, masking wrong-callee calls as valid RELOC.  Raise
         # so the run errors instead of shipping a false RELOC.
+        detail = str(exc)
+        if root := getattr(cfg, "root", None):
+            detail = detail.replace(str(root) + os.sep, "")
         raise CatalogScanError(
-            f"global/function scan failed, reloc validation unavailable: {exc}"
+            f"global/function scan failed, reloc validation unavailable: {detail}"
         ) from exc
     return name_to_va
 

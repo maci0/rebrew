@@ -795,7 +795,12 @@ def _collect_scan_file_facts(
     )
     if not stored_modules and not is_header and cfile.resolve() in inactive_sources:
         return {"apply": False}
-    if not _source_visible_to_target(lines, cfg, stored_modules):
+    try:
+        visible = _source_visible_to_target(lines, cfg, stored_modules)
+    except ValueError as exc:
+        display = rel_display_path(cfile, getattr(cfg, "root", None) or src_dir)
+        raise ValueError(f"{display}: {exc}") from exc
+    if not visible:
         return {"apply": False, "fname": fname, "header": is_header}
 
     bindings = source_bindings(

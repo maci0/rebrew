@@ -2621,6 +2621,47 @@ def apply_candidate(config: WorkerConfig, req: ApplyCandidateRequest) -> dict[st
     return _run_candidate(config, req, apply=True)
 
 
+def _candidate_with_anchor(candidate: str, module: str, va: int) -> str:
+    """Keep the retained identity immediately above the candidate's definition."""
+    from rebrew.c_parser import comment_nodes, find_c_function_definitions, parse_c_source
+    from rebrew.config import DEFAULT_ADDRESS_COMMENT_REGEX
+    from rebrew.metadata.anchors import address_comment, comment_body
+
+    tree, raw = parse_c_source(candidate)
+    removals = []
+    for node in comment_nodes(tree):
+        comment = raw[node.start_byte : node.end_byte].decode("utf-8")
+        body = comment_body(comment)
+        if not body.startswith("ADDRESS:"):
+            continue
+        match = re.fullmatch(DEFAULT_ADDRESS_COMMENT_REGEX, body)
+        if match is None:
+            raise _invalid("invalid candidate ADDRESS comment")
+        if int(match["va"], 16) != va:
+            raise _invalid("candidate ADDRESS comment names a different VA")
+        start = raw.rfind(b"\n", 0, node.start_byte) + 1
+        end = raw.find(b"\n", node.end_byte)
+        end = len(raw) if end < 0 else end + 1
+        if (
+            "\n" in comment
+            or raw[start : node.start_byte].strip()
+            or raw[node.end_byte : end].strip()
+        ):
+            raise _invalid("candidate ADDRESS comment must occupy one full line")
+        if module:
+            removals.append((start, end))
+    if not module:
+        return candidate
+    for start, end in reversed(removals):
+        raw = raw[:start] + raw[end:]
+    candidate = raw.decode("utf-8")
+    ((_, line),) = find_c_function_definitions(candidate)
+    newline = "\r\n" if "\r\n" in candidate else "\n"
+    lines = split_source_lines(candidate, keepends=True)
+    lines.insert(line - 1, address_comment(module, va) + newline)
+    return "".join(lines)
+
+
 def _run_candidate(
     config: WorkerConfig, req: VerifyRequest | ApplyCandidateRequest, *, apply: bool
 ) -> dict[str, Any]:
@@ -2661,22 +2702,12 @@ def _run_candidate(
             raise _invalid("candidate source must be a C file")
         if _file_sha256(source) != req.source_sha256:
             raise _invalid("source does not match its retained digest")
-        candidate = req.candidate
-        module = ""
-        if apply:
-            from rebrew.metadata.anchors import address_comment
-            from rebrew.metadata.bindings import module_for_va
+        from rebrew.metadata.bindings import module_for_va
 
-            module = module_for_va(source, req.va)
-            if not module:
-                raise _invalid("the function has no address anchor in the retained source")
-            if f"0x{req.va:08x}" not in candidate.lower():
-                # rebrew wants the anchor directly above the one declaration it names, whatever
-                # includes and types the candidate keeps above it.
-                lines = split_source_lines(candidate, keepends=True)
-                at = definitions[0][1] - 1
-                lines.insert(at, address_comment(module, req.va) + "\n")
-                candidate = "".join(lines)
+        module = module_for_va(source, req.va)
+        if apply and not module:
+            raise _invalid("the function has no address anchor in the retained source")
+        candidate = _candidate_with_anchor(req.candidate, module, req.va)
         source.write_text(candidate, encoding="utf-8")
         rewritten = apply_project_cflags(root, req.rebrew_target, req.project_cflags)
         cfg = load_config(root, target=req.rebrew_target)
@@ -2706,7 +2737,7 @@ def _run_candidate(
             outcome_exit=True,
         )
         if _file_sha256(destination) != req.sha256 or (
-            not apply and source.read_text(encoding="utf-8") != req.candidate
+            not apply and source.read_bytes() != candidate.encode("utf-8")
         ):
             raise _invalid("snapshot candidate or binary changed during verification")
         for entry in req.files:

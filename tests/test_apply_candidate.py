@@ -184,3 +184,126 @@ def test_a_candidate_that_no_longer_matches_is_refused(
     )
     stored = (tmp_path / "files" / "binaries" / hashlib.sha256(FUNCTIONS).hexdigest()).read_bytes()
     assert stored == FUNCTIONS and b"_add" not in stored
+
+
+@pytest.mark.parametrize("op", ["rebrew.verify_function", "rebrew.apply_candidate"])
+@pytest.mark.parametrize("shape", ["misplaced", "correct", "absent", "string", "duplicate", "line"])
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+def test_candidate_anchor_is_canonical_for_verify_and_apply(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, op: str, shape: str, newline: str
+) -> None:
+    from rebrew import ops
+    from rebrew.coff_reloc import build_name_to_va
+    from rebrew.config import load_config
+    from rebrew.metadata.anchors import parse_address_anchors
+    from rebrew.metadata.functions import update_source_status
+
+    # Same module, VA and line layout as the reported candidate; only the binary is a fixture.
+    va = 0x01004116
+    anchor = "/* ADDRESS: NOTEPAD 0x01004116 */"
+    original = STUB.replace(b"MINI 0x00401000", b"NOTEPAD 0x01004116")
+    project = PROJECT.replace(
+        b'reversed_dir = "src"\n', b'reversed_dir = "src"\nmodule = "NOTEPAD"\n'
+    )
+    metadata = FUNCTIONS.replace(b"MINI.", b"NOTEPAD.").replace(b"0x00401000", b"0x01004116")
+    monkeypatch.setitem(globals(), "STUB", original)
+    monkeypatch.setitem(globals(), "PROJECT", project)
+    monkeypatch.setitem(globals(), "FUNCTIONS", metadata)
+    config, entries = _stage(tmp_path)
+    prefix = "/* recovered candidate */\n#include <windows.h>\n\n"
+    definition = "void fcn_00401000(void) {}\n"
+    candidate = (
+        anchor + "\n" + prefix + definition
+        if shape == "misplaced"
+        else prefix + (anchor + "\n" if shape == "correct" else "") + definition
+    )
+    if shape == "duplicate":
+        candidate = anchor + "\n" + prefix + anchor + "\n" + definition
+    if shape == "line":
+        candidate = "// ADDRESS: NOTEPAD 0x01004116\n" + prefix + definition
+    if shape == "string":
+        candidate = 'const char *label = "/* ADDRESS: OTHER 0x99999999 */";\n' + candidate
+    candidate = candidate.replace("\n", newline)
+    seen = []
+    monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://127.0.0.1:18953")
+
+    def run(args: Any, root: Path, *unused: Any, **kwargs: Any) -> dict[str, Any]:
+        source = root / "src/stub.c"
+        text = source.read_bytes().decode()
+        build_name_to_va(load_config(root))
+        (bound,) = parse_address_anchors(text)
+        assert bound.va == va and bound.module == "NOTEPAD"
+        assert text.splitlines()[bound.definition_line - 2] == anchor
+        assert "#include <windows.h>" in text
+        if shape == "string":
+            assert '"/* ADDRESS: OTHER 0x99999999 */"' in text
+        assert text.count(anchor) == 1
+        if newline == "\r\n":
+            assert "\n" not in text.replace("\r\n", "")
+        seen.append(text)
+        if op == "rebrew.apply_candidate":
+            update_source_status(root, "EXACT", "NOTEPAD", va, force=True)
+        return {"status": "EXACT"}
+
+    monkeypatch.setattr(ops, "run_rebrew", run)
+    status, reply = dispatch(
+        config,
+        op,
+        _request(
+            entries, candidate=candidate, va=va, source_sha256=hashlib.sha256(original).hexdigest()
+        ),
+    )
+    assert status == 200, reply
+    assert len(seen) == 1
+    assert (config.filestore / entries[1]["key"]).read_bytes() == original
+
+
+@pytest.mark.parametrize("op", ["rebrew.verify_function", "rebrew.apply_candidate"])
+def test_candidate_cannot_claim_a_different_address(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, op: str
+) -> None:
+    from rebrew import ops
+
+    config, entries = _stage(tmp_path)
+    monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://127.0.0.1:18953")
+
+    def forbidden(*args: Any, **kwargs: Any) -> None:
+        pytest.fail("a conflicting candidate anchor reached the compiler")
+
+    monkeypatch.setattr(ops, "run_rebrew", forbidden)
+    status, reply = dispatch(
+        config,
+        op,
+        _request(entries, candidate="/* ADDRESS: MINI 0x00401020 */\n" + CANDIDATE),
+    )
+    assert status == 400 and b"different VA" in reply
+
+
+@pytest.mark.parametrize("op", ["rebrew.verify_function", "rebrew.apply_candidate"])
+def test_misplaced_anchor_reaches_real_test_cli(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    promote_in_process: list[list[str]],
+    op: str,
+) -> None:
+    from rebrew import ops
+    from rebrew.coff_reloc import build_name_to_va
+    from rebrew.config import load_config
+
+    config, entries = _stage(tmp_path)
+    candidate = (
+        "/* ADDRESS: MINI 0x00401000 */\n/* recovered candidate */\n"
+        "#include <windows.h>\n\nvoid fcn_00401000(void) {}\n"
+    )
+    run_cli = ops.run_rebrew
+
+    def scan_and_run(args: Any, root: Path, *unused: Any, **kwargs: Any) -> dict[str, Any]:
+        build_name_to_va(load_config(root))
+        return run_cli(args, root, *unused, **kwargs)
+
+    monkeypatch.setattr(ops, "run_rebrew", scan_and_run)
+    status, reply = dispatch(config, op, _request(entries, candidate=candidate))
+    assert status == 200, reply
+    result = json.loads(reply)
+    assert (result["result"] if op.endswith("apply_candidate") else result)["status"] == "EXACT"
+    assert bool("--no-promote" in promote_in_process[0]) == (op == "rebrew.verify_function")

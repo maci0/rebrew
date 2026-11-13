@@ -589,3 +589,16 @@ def test_ambiguous_callee_blocks_only_its_own_operand(tmp_path: Path, strict: bo
         names,
         strict=strict,
     )[0]
+
+
+def test_scan_anchor_error_names_project_relative_file(tmp_path: Path) -> None:
+    from rebrew.coff_reloc import CatalogScanError
+
+    (tmp_path / "rebrew-project.toml").write_text(PROJECT_TOML)
+    source = tmp_path / "src/parse_me.c"
+    source.parent.mkdir()
+    source.write_text(
+        "/* ADDRESS: GAME 0x1000 */\n/* recovered candidate */\n#include <windows.h>\n\nvoid f(void) {}\n"
+    )
+    with pytest.raises(CatalogScanError, match=r"src/parse_me\.c:.*address must precede"):
+        build_name_to_va(load_config(tmp_path))
