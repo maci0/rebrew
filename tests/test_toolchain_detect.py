@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import pytest
 
@@ -729,6 +729,55 @@ class TestOptLevelFingerprint:
         )
         info = detect_toolchain(Path("/tmp/nonexistent-prog.exe"))
         assert info.opt_level == ""
+
+
+class TestCodegenCorpusOptLevel:
+    """The packaged ``codegen_corpus.json`` states the rule the functions apply.
+
+    Other detectors pin that file instead of porting the thresholds, so a
+    threshold, pattern or case that changes on one side only fails here.
+    """
+
+    @staticmethod
+    def _opt_level() -> dict[str, Any]:
+        import json
+        from importlib.resources import files
+
+        corpus = json.loads(files("rebrew").joinpath("codegen_corpus.json").read_bytes())
+        assert corpus["schema_version"] == 1
+        return corpus["opt_level"]
+
+    def test_wrapper_patterns_and_thresholds_match_the_detector(self) -> None:
+        import rebrew.toolchain_detect as td
+
+        rule = self._opt_level()
+        assert [bytes.fromhex(p) for p in rule["o2_wrappers"]] == list(td._O2_WRAPPERS)
+        assert [bytes.fromhex(p) for p in rule["o1_wrappers"]] == list(td._O1_WRAPPERS)
+        sites, ratio = rule["min_sites"], rule["dominance_ratio"]
+        assert sites == td._OPT_MIN_SITES
+        assert td.opt_level_from_counts(sites, 0) == "/O2"
+        assert td.opt_level_from_counts(sites - 1, 0) == ""
+        assert td.opt_level_from_counts(sites * ratio, sites) == "/O2"
+        assert td.opt_level_from_counts(sites * ratio - 1, sites).startswith("mixed")
+
+    def test_level_cases(self) -> None:
+        from rebrew.toolchain_detect import opt_level_from_counts
+
+        cases = self._opt_level()["level_cases"]
+        assert cases
+        for case in cases:
+            assert opt_level_from_counts(case["o2"], case["o1"]) == case["level"], case
+
+    def test_program_cases(self) -> None:
+        from rebrew.toolchain_detect import opt_level_without_library
+
+        cases = self._opt_level()["program_cases"]
+        assert cases
+        for case in cases:
+            got = opt_level_without_library(
+                case["o2"], case["o1"], case["library_o2"], case["library_o1"]
+            )
+            assert got == case["level"], case
 
 
 class TestBackendDisplayName:

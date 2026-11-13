@@ -136,7 +136,7 @@ zig-vs-gcc byte marker in either dimension.
 ## Verification
 
 PDB module scan of a real Zig-built program (`.zig-cache` paths);
-codegen bytes are recorded in [corpus.json](../corpus.json). Matching caveat documented in
+codegen bytes are recorded in [codegen_corpus.json](../../../src/rebrew/codegen_corpus.json). Matching caveat documented in
 [TOOLCHAIN.md](../../TOOLCHAIN.md).
 ## Probe29: round-29 markers (Zig 0.16)
 

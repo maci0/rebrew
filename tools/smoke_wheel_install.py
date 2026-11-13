@@ -42,6 +42,7 @@ RUNTIME_ENTRIES: tuple[tuple[str, str], ...] = (
     ("agent-skills", "dir"),
     ("AGENTS.md.template", "file"),
     ("PRINCIPLES.md", "file"),
+    ("codegen_corpus.json", "file"),
     # PEP 561 markers. METADATA claims ``Typing :: Typed``; a wheel whose
     # ``**/py.typed`` glob stops matching installs and runs fine, and only the
     # consumer's type-checker notices, as ``rebrew`` silently turning untyped.

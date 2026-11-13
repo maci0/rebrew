@@ -3,7 +3,7 @@
 Categorized reference of **codegen rules**: behavior-level statements
 about how each toolchain/version generates code.  Complements the
 [uniqueness table](README.md) (byte markers), the per-toolchain files
-(verified records), and [corpus.json](corpus.json) (machine-readable
+(verified records), and [codegen_corpus.json](../../src/rebrew/codegen_corpus.json) (machine-readable
 bytes).  Where a rule is empirically verified, its probe and corpus
 records are cited; where it is documented from an external source, the
 source is cited and the verification status is marked.
@@ -247,5 +247,5 @@ present in this checkout), decomp.me's per-compiler practice docs (DP).
 
 1. Prefer **V**: write the trigger probe, compile through the toolchains, verify against every other toolchain's objects, record the corpus rows.
 2. **D** rules come from the cited sources (AF manual, DM fleet, GD doc) and must state their verification status honestly.
-3. Each rule maps to corpus records: query them via `corpus.json` (see the README corpus section for the query idiom).
+3. Each rule maps to corpus records: query them via `codegen_corpus.json` (see the README corpus section for the query idiom).
 4. Categorize into the table whose dimension matches; add new categories only when the existing ones genuinely don't fit.

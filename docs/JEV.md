@@ -1015,7 +1015,7 @@ Two concrete assets transfer directly:
 - `runs/jevopt-embench` decision traces as a prior on which inline
   decisions move size (inline-vs-call is one more shape family in the
   §4 beam, alongside loop form / addressing / live-range / flags).
-- [corpus.json](codegen/corpus.json) (17938 per-function byte records
+- [codegen_corpus.json](../src/rebrew/codegen_corpus.json) (17938 per-function byte records
   across toolchains/flags) as a labeled eval set: ask a Jev Choice over
   a short option list given counted idiom buckets, score against the
   recorded bytes. Same A/B bar as §5.14, if the Choice does not beat

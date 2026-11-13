@@ -902,6 +902,8 @@ class CodegenSignals:
 
 # MSVC /O2 loads a wrapper argument, then pushes the register.
 # MSVC /O1 pushes the stack slot directly. advance-by-length matches bytes.count.
+# codegen_corpus.json publishes these patterns, _OPT_MIN_SITES and the 2x
+# dominance ratio as ``opt_level``; TestCodegenCorpusOptLevel keeps them equal.
 _O2_WRAPPERS: tuple[bytes, ...] = (
     bytes.fromhex("8b 44 24 04 50 e8"),
     bytes.fromhex("8b 44 24 08 8b 4c 24 04"),

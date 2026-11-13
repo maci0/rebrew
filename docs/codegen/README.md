@@ -41,7 +41,7 @@ disassembly look-fors (calling conventions, register allocation,
 arithmetic, FP, memory ops, control flow, frames, 64-bit, C++, toolchain
 identity) across all toolchains with verification status; the
 **[uniqueness table](#uniqueness-table)** lists byte markers; and
-**[corpus.json](corpus.json)** holds the machine-readable per-function
+**[codegen_corpus.json](../../src/rebrew/codegen_corpus.json)** holds the machine-readable per-function
 bytes (see below).
 
 ## Shared file template
@@ -254,11 +254,33 @@ the MSVC 8.0+ rotate idiom and Delphi 1.0's set-membership bit: the
 replacement vs 16-bit `rol ax,cl` in `x in s`), so neither is a
 standalone raw-byte marker.
 
-## Machine-readable corpus: `corpus.json`
+## Machine-readable corpus: `codegen_corpus.json`
 
-[`corpus.json`](corpus.json) is the machine-readable codegen corpus:
-**17938 records**, one per (toolchain, version, SP, flags, probe,
-function) with `{toolchain, version, sp, flags, probe, function,
+[`codegen_corpus.json`](../../src/rebrew/codegen_corpus.json) is the
+machine-readable codegen corpus. The wheel ships it as
+`rebrew/codegen_corpus.json`, so another detector can pin the file by rebrew
+version and SHA-256 instead of copying values out of rebrew source or reading a
+checkout. Top-level keys:
+
+- `schema_version` (currently `1`) increases when a key is removed or changes
+  meaning. Adding records or cases does not change it; the file's SHA-256 does.
+- `opt_level` is the MSVC `/O1` versus `/O2` wrapper-count rule that
+  `rebrew.toolchain_detect.opt_level_from_counts` and
+  `opt_level_without_library` apply. `o2_wrappers` and `o1_wrappers` are the
+  counted hex byte patterns. A style wins with at least `min_sites` sites and at
+  least `dominance_ratio` times the other style's count; both styles at
+  `min_sites` or more is `mixed (/O1 + /O2)`; anything else is `""`.
+  `level_cases` pin `opt_level_from_counts(o2, o1)`. `program_cases` pin
+  `opt_level_without_library(o2, o1, library_o2, library_o1)`, where `null`
+  means the library split explains nothing. `tests/test_toolchain_detect.py`
+  fails when the functions and this section disagree.
+- `meta` and `records`: the measured corpus below.
+
+A regenerated corpus must keep `schema_version` and `opt_level`; the test
+fails without them.
+
+`records` holds **17938 records**, one per (toolchain, version, SP, flags,
+probe, function) with `{toolchain, version, sp, flags, probe, function,
 size, bytes}`; generated from every probe 1-30 object + the commercial Watcom 10.x line (all 13 MSVC
 versions 1.0-11.0 at /O2 and /O1 + all SP images, bcc32, Watcom
 32/16, TC 2.0/3.1, MinGW GCC, Zig, the 16-bit MSVC set).  Query
@@ -267,7 +289,7 @@ examples:
 ```python
 import json
 
-d = json.load(open("docs/codegen/corpus.json"))
+d = json.load(open("src/rebrew/codegen_corpus.json"))
 # every version's strlen bytes
 [
     r["version"] + " " + r["bytes"]

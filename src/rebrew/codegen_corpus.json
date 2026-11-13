@@ -1,4 +1,37 @@
 {
+ "schema_version": 1,
+ "opt_level": {
+  "o2_wrappers": ["8b44240450e8", "8b4424088b4c2404"],
+  "o1_wrappers": ["ff742404e8", "ff742408ff742404"],
+  "min_sites": 3,
+  "dominance_ratio": 2,
+  "level_cases": [
+   {"o2": 3, "o1": 1, "level": "/O2"},
+   {"o2": 6, "o1": 3, "level": "/O2"},
+   {"o2": 5, "o1": 3, "level": "mixed (/O1 + /O2)"},
+   {"o2": 1, "o1": 3, "level": "/O1"},
+   {"o2": 3, "o1": 6, "level": "/O1"},
+   {"o2": 3, "o1": 5, "level": "mixed (/O1 + /O2)"},
+   {"o2": 4, "o1": 4, "level": "mixed (/O1 + /O2)"},
+   {"o2": 3, "o1": 2, "level": ""},
+   {"o2": 2, "o1": 0, "level": ""},
+   {"o2": 1, "o1": 1, "level": ""},
+   {"o2": 0, "o1": 0, "level": ""}
+  ],
+  "program_cases": [
+   {"o2": 3, "o1": 4, "library_o2": 1, "library_o1": 4, "level": "/O2"},
+   {"o2": 1, "o1": 4, "library_o2": 0, "library_o1": 4, "level": "/O2"},
+   {"o2": 9, "o1": 4, "library_o2": 0, "library_o1": 1, "level": "/O2"},
+   {"o2": 4, "o1": 3, "library_o2": 4, "library_o1": 1, "level": "/O1"},
+   {"o2": 4, "o1": 1, "library_o2": 4, "library_o1": 0, "level": "/O1"},
+   {"o2": 4, "o1": 4, "library_o2": 1, "library_o1": 1, "level": "mixed (/O1 + /O2)"},
+   {"o2": 4, "o1": 4, "library_o2": 3, "library_o1": 3, "level": "mixed (/O1 + /O2)"},
+   {"o2": 4, "o1": 4, "library_o2": 4, "library_o1": 4, "level": ""},
+   {"o2": 3, "o1": 4, "library_o2": 0, "library_o1": 0, "level": null},
+   {"o2": 1, "o1": 1, "library_o2": 2, "library_o1": 0, "level": null},
+   {"o2": 1, "o1": 1, "library_o2": -1, "library_o1": 0, "level": null}
+  ]
+ },
  "meta": {
   "schema": [
    "toolchain",

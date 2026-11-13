@@ -3,7 +3,7 @@
 For each idiom a decomp project actually matches (probes 19-20): the C
 shape, the per-version signature (VC 6.0 /O2 unless noted), and what
 to look for in the disassembly.  The machine-readable bytes are in
-[corpus.json](corpus.json) (probes 19-20); verified across MSVC
+[codegen_corpus.json](../../src/rebrew/codegen_corpus.json) (probes 19-20); verified across MSVC
 2.0-11.0 at /O2 and /O1 + SPs plus bcc32/Watcom/GCC/Zig and the
 16-bit set.  "Version-agnostic" = the idiom cannot fingerprint the
 version (useful: it means the shape is reliable regardless of MSVC
