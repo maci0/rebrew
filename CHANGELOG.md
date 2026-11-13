@@ -2,6 +2,8 @@
 
 ### Changed
 
+- **Breaking:** `rebrew.lint.DEFAULT_FUNC_NAME_PATTERNS` is removed. Generated-name checks use `rebrew.workspace.names.is_placeholder_name` and `rebrew.workspace.names.PLACEHOLDER_NAME_PATTERN` instead.
+
 - **Breaking:** fresh `rebrew.ops.capture_fresh_analysis` and `rebrew.analyse` captures use version 2 with a SQLite metadata artifact and the `metadata` descriptor (`backend`, `path`, `documents[{path, logical_sha256}]`, `migration_input_digest`). Import uses the reviewed expected digest before selecting SQLite; the receipt is custody-bound and distinct from physical and logical hashes. Version 1 TOML retained captures stay accepted, existing worker workspaces keep their backend, and public source-upload limits are unchanged.
 
 - **Breaking:** `rebrew.decompile_snapshot` and `rebrew.security_scan_snapshot` accept version 2 analysis manifests as the backend stores them (`metadata` after `report_path`, before `entries`) and refuse one whose captured `rebrew-metadata.sqlite3` does not hold exactly the listed documents. Over a version 2 capture they refuse a source copy of any listed document, including a `rebrew-functions.toml` with a matching `attested_registry_digest`, because the SQLite store stays the registry; over a version 1 capture a source `rebrew-functions.toml` still needs that digest. Over a version 2 capture a source `rebrew-metadata.sqlite3` whose SHA-256 is the `attested_registry_digest` replaces the captured store whole once it passes the schema and integrity checks and holds `rebrew-functions.toml`; any other source store is refused, as is every source store over a version 1 capture.

@@ -54,6 +54,7 @@ from typing import TYPE_CHECKING, Any, override
 if TYPE_CHECKING:
     from rebrew.analysis import CapstoneUnavailable as CapstoneUnavailable
     from rebrew.app.plugin import ComponentError as ComponentError
+    from rebrew.c_rename import IdentifierRenameRefused as IdentifierRenameRefused
     from rebrew.coff_reloc import CatalogScanError as CatalogScanError
     from rebrew.coff_reloc import UnresolvedSymbolError as UnresolvedSymbolError
     from rebrew.compiler.compile import CompareResultError as CompareResultError
@@ -279,6 +280,7 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "DosboxError": ("rebrew.compiler.dosbox", "DosboxError"),
     "ExportParseError": ("rebrew.formats.binary_loader", "ExportParseError"),
     "FingerprintError": ("rebrew.fingerprints", "FingerprintError"),
+    "IdentifierRenameRefused": ("rebrew.c_rename", "IdentifierRenameRefused"),
     "KunaNoBodyError": ("rebrew.decompiler", "KunaNoBodyError"),
     "LibraryOverrideError": ("rebrew.metadata.functions", "LibraryOverrideError"),
     "LibIndexUnavailable": ("rebrew.doctor", "LibIndexUnavailable"),
@@ -382,6 +384,7 @@ __all__ = [
     "DosboxError",
     "ExportParseError",
     "FingerprintError",
+    "IdentifierRenameRefused",
     "KunaNoBodyError",
     "LibIndexUnavailable",
     "LibraryOverrideError",

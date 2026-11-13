@@ -25,6 +25,7 @@ from functools import lru_cache
 from typing import Any
 lazy import bisect
 
+from rebrew.errors import RebrewError
 lazy from rebrew.c_parser import find_function_name_in_node, mask_msvc_syntax, parse_c_source
 
 # ---------------------------------------------------------------------------
@@ -861,7 +862,7 @@ def file_scope_type(src: ParsedSource, path: str, name: str) -> list[str | None]
     return tokens
 
 
-class IdentifierRenameRefused(ValueError):
+class IdentifierRenameRefused(RebrewError, ValueError):
     """An identifier rename does not apply to the source; the message says why."""
 
 
