@@ -82,7 +82,7 @@ PS1/PS2/N64/GBA/NDS/3DS, clang 3.9-9.0, PPC MSVC) is outside the corpus.
 | `msvc6.5` | 6.0 SP5 | SP5, 8966 |
 | `msvc6.5pp` | 6.0 SP5 w/ Processor Pack | `msvc-6.0-sp5-pp`. See below |
 | `msvc6.6` | 6.0 SP6 | SP6, 9782 |
-| `msvc7.0` | 7.0 .NET 2002 | `msvc-7.0-rtm` |
+| `msvc7.0` | 7.0 .NET 2002 | `msvc-7.0`, `msvc-7.0-rtm` |
 | `msvc7.1` | 7.1 .NET 2003 | `msvc-7.1` |
 | `msvc8.0` | 8.0 | `msvc-8.0` RTM |
 | `msvc8.0p` | 8.0 (Patched) | not shipped. See below |

@@ -147,7 +147,7 @@ _COMPILER_MAP: dict[str, str] = {
     "msvc-6.0-sp4": "msvc6.0",
     "msvc-6.0-sp5": "msvc6.0",
     "msvc-6.0-sp6": "msvc6.0",
-    "msvc-7.0": "msvc7.1",
+    "msvc-7.0": "msvc7.0",
     "msvc-7.0-rtm": "msvc7.0",
     "msvc-7.0-sp1": "msvc7.0",
     "msvc-7.1": "msvc7.1",

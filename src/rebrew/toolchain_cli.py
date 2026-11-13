@@ -3017,7 +3017,7 @@ _SMOKE_GOLDEN: dict[
         "9e42bfe45c02ff046d13ce6c32b7fc1d422b30bf225ff4b64f659a16cadd9f4b",
         "t.c",
         (4, 8),
-    ),  # COFF TimeDateStamp — identical masked object to msvc-7.1 (same CL)
+    ),  # COFF TimeDateStamp — identical masked object to msvc-7.0-rtm (same CL)
     "msvc-7.0-rtm": (
         ["/c", "t.c"],
         "t.obj",

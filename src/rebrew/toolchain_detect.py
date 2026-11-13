@@ -206,15 +206,15 @@ _MSVC_LINKER_VERSIONS: dict[str, tuple[int, int]] = {
 #: each image's linker records the front-end build, which for the VC 6.0
 #: service packs is the C1.DLL build (8168 RTM, 8447 SP3, 8966 SP5, 9782
 #: SP6 — SP builds are NOT the same compiler).  A tuple = profiles sharing
-#: the same build (e.g. 3077 is carried by both msvc-7.0 and msvc-7.1).
+#: the same build (e.g. 9466 is carried by msvc-7.0, msvc-7.0-rtm and msvc-7.0-sp1).
 _RICH_BUILD_PROFILES: dict[int, tuple[str, ...]] = {
     8168: ("msvc-6.0", "msvc-6.0-sp1", "msvc-6.0-sp2"),  # 12.00.8168 (VC6 RTM..SP3 driver)
     8447: ("msvc-6.0-sp3",),  # 12.00.8447
     8966: ("msvc-6.0-sp4", "msvc-6.0-sp5"),  # 12.00.8966 (SP4 = SP5 C1)
     9782: ("msvc-6.0-sp6",),  # 12.00.9782
-    9466: ("msvc-7.0-rtm", "msvc-7.0-sp1"),  # 13.00.9466
+    9466: ("msvc-7.0", "msvc-7.0-rtm", "msvc-7.0-sp1"),  # 13.00.9466
     9955: ("msvc-7.0-sp1",),  # 13.00.9955 (7.0 SP1 C1)
-    3077: ("msvc-7.1", "msvc-7.0"),  # 13.10.3077 (both profiles carry this build)
+    3077: ("msvc-7.1",),  # 13.10.3077
     6030: ("msvc-7.1-sp1",),  # 13.10.6030
     50727: ("msvc-8.0", "msvc-8.0-sp1"),  # 14.00.50727 (+.762 for SP1)
     21022: ("msvc-9.0",),  # 15.00.21022
@@ -246,8 +246,8 @@ _LINKER_ERA_PROFILES: dict[tuple[int, int], tuple[str, ...]] = {
         "msvc-6.0-sp5-pp",
         "msvc-6.0-sp6",
     ),
-    (13, 0): ("msvc-7.0-rtm", "msvc-7.0-sp1"),
-    (13, 10): ("msvc-7.0", "msvc-7.1", "msvc-7.1-sp1"),
+    (13, 0): ("msvc-7.0", "msvc-7.0-rtm", "msvc-7.0-sp1"),
+    (13, 10): ("msvc-7.1", "msvc-7.1-sp1"),
     (14, 0): ("msvc-8.0", "msvc-8.0-sp1"),
     (15, 0): ("msvc-9.0", "msvc-9.0-sp1"),
     (16, 0): ("msvc-10.0", "msvc-10.0-sp1"),

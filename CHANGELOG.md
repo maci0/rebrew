@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Toolchain detection and the decomp.me compiler map treat `msvc-7.0` as the VC 7.0 RTM compiler (13.00.9466) it builds: Rich build 9466 and linker 13.0 now suggest it, and build 3077 / linker 13.10 suggest only the 7.1 profiles.
 - `rebrew match flags` sweeps `gcc-16.2.0` and `clang-23.1.4` with the GCC axes instead of refusing them for lacking a registered flag set, like their older gcc and clang siblings.
 
 ## [6.37.0] - 2026-11-13

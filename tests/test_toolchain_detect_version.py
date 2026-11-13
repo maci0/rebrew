@@ -53,7 +53,9 @@ class TestVersionTables:
         # SP5 kept it) - both can byte-match.
         assert "msvc-6.0-sp5" in _RICH_BUILD_PROFILES[8966]
         assert _RICH_BUILD_PROFILES[9782] == ("msvc-6.0-sp6",)
+        # msvc-7.0 builds the VC 7.0 RTM compiler, so it carries 9466 too.
         assert 9466 in _RICH_BUILD_PROFILES and _RICH_BUILD_PROFILES[9466] == (
+            "msvc-7.0",
             "msvc-7.0-rtm",
             "msvc-7.0-sp1",
         )

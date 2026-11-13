@@ -1479,7 +1479,11 @@ class TestMsvcVersionRegistry:
         assert rich[8168][0] == "msvc-6.0"
         assert "mytc" in eras[(12, 0)]
         assert eras[(12, 0)][0] == "msvc-6.0"
-        assert rich[3077] == ("msvc-7.1", "msvc-7.0")  # both carry the 13.10.3077 build
+        # msvc-7.0 builds the VC 7.0 RTM compiler (13.00.9466), not the 7.1 build.
+        assert rich[3077] == ("msvc-7.1",)
+        assert "msvc-7.0" in rich[9466]
+        assert "msvc-7.0" in eras[(13, 0)]
+        assert "msvc-7.0" not in eras[(13, 10)]
 
     def test_bad_key_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import rebrew.toolchain_detect as td
