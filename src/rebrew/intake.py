@@ -819,11 +819,13 @@ def main(
             # tree symlink is a build-source nicety, not an execution
             # requirement.  Say so instead of "symlink tools/ yourself".
             from rebrew.compiler.toolchain import TOOLCHAINS
+            from rebrew.utils import container_runtime
 
             spec = TOOLCHAINS.get(profile)
             if spec is not None and spec.image is not None:
+                backend = getattr(cfg, "execution_backend", "") or container_runtime()
                 console.print(
-                    f"  toolchain: {profile} runs through docker image "
+                    f"  toolchain: {profile} runs through the {backend} image "
                     f"{spec.image} — run 'rebrew toolchain build {profile}' "
                     "if the image is missing"
                 )
@@ -835,7 +837,10 @@ def main(
         for note in notes:
             console.print(f"  [yellow]note:[/yellow] {note}")
         console.print("  next: rebrew doctor && rebrew status --json")
-        console.print("  first run? see the rebrew repo's docs/ONBOARDING.md for the walkthrough")
+        console.print(
+            "  first run? see the rebrew repo's docs/GETTING_STARTED.md for the walkthrough"
+            " and docs/ONBOARDING.md for first-run errors"
+        )
 
 
 def main_entry() -> None:

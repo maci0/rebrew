@@ -10,7 +10,7 @@ summary.  Rizin's subprocess is stubbed for determinism (its output is
 environment-dependent); everything else — binary, detection, scaffold,
 doctor — is real.
 
-Also asserts that `rebrew init`'s "Next steps" points at docs/ONBOARDING.md.
+Also asserts that `rebrew init`'s "Next steps" points at docs/GETTING_STARTED.md.
 """
 
 from __future__ import annotations
@@ -123,7 +123,21 @@ class TestOnboardingJourney:
         combined = result.stdout + result.stderr
         assert "Intake complete" in combined
         assert "next: rebrew doctor" in combined
+        assert "GETTING_STARTED.md" in combined
         assert "ONBOARDING.md" in combined
+
+    def test_intake_names_the_configured_container_runtime(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        runner = self._patch_env(monkeypatch, tmp_path)
+        monkeypatch.setenv("REBREW_CONTAINER_RUNTIME", "podman")
+        result = runner.invoke(main_mod.app, ["intake", str(FIXTURE)])
+        assert result.exit_code == 0, result.output
+        combined = result.stdout + result.stderr
+        if "runs through" not in combined:
+            pytest.skip("the fixture's detected profile has no image")
+        assert "runs through the podman image" in combined
+        assert "docker image" not in combined
 
     def test_rerun_intake_is_idempotent(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -149,5 +163,5 @@ class TestInitOutput:
         assert result.exit_code == 0, result.output
         combined = result.stdout + result.stderr
         assert "Initialization complete" in combined
-        assert "ONBOARDING.md" in combined
+        assert "GETTING_STARTED.md" in combined
         assert (tmp_path / "rebrew-project.toml").exists()

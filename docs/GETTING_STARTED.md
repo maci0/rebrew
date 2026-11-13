@@ -85,9 +85,9 @@ skeleton plus a BLOCKER for each one. You will see something like:
 Intake complete: game (msvc-8.0)
   detected family: msvc (MSVC 8.0)
   functions: 259, documented: 259
-  toolchain: msvc-8.0 runs through docker image rebrew/msvc:8.0-win32 — run 'rebrew toolchain build msvc-8.0' if the image is missing
+  toolchain: msvc-8.0 runs through the docker image rebrew/msvc:8.0-win32 — run 'rebrew toolchain build msvc-8.0' if the image is missing
   next: rebrew doctor && rebrew status --json
-  first run? see the rebrew repo's docs/ONBOARDING.md for the walkthrough
+  first run? see the rebrew repo's docs/GETTING_STARTED.md for the walkthrough and docs/ONBOARDING.md for first-run errors
 ```
 
 Two things to notice: the **detected profile** (`msvc-8.0`), that is the

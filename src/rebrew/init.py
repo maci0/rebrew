@@ -1479,7 +1479,8 @@ def main(
         console.print("2. Verify your compiler paths in rebrew-project.toml")
         console.print("3. Run 'rebrew todo' to get started!")
         console.print(
-            "4. First time with rebrew? See the rebrew repo's docs/ONBOARDING.md for the walkthrough"
+            "4. First time with rebrew? See the rebrew repo's docs/GETTING_STARTED.md"
+            " for the walkthrough"
         )
         if wizard_ran:
             console.print("5. Run 'rebrew doctor' to check project health and toolchain setup")
