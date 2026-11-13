@@ -15,10 +15,12 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 import pytest
 from test_ops import ENTRY_VA, KEY, SHA256, _analyse_request, _free_port, _store, _worker_dirs
 
+from rebrew.metadata.sqlite import DATABASE_FILENAME
 from rebrew.named_snapshot import unique_json_object
 from rebrew.ops import OPS, WorkerConfig, dispatch
 
@@ -38,8 +40,24 @@ def _digest(value: str) -> str:
 
 
 @pytest.fixture(scope="module")
-def sample(tmp_path_factory: pytest.TempPathFactory) -> tuple[WorkerConfig, dict]:
-    filestore, workspace = _worker_dirs(tmp_path_factory.mktemp("named-snapshot"))
+def sample(tmp_path_factory: pytest.TempPathFactory) -> tuple[WorkerConfig, dict[str, Any]]:
+    """A request over a fresh capture, whose function registry is in its SQLite artifact."""
+    return _sample(tmp_path_factory.mktemp("named-snapshot"))
+
+
+@pytest.fixture(scope="module")
+def toml_sample(tmp_path_factory: pytest.TempPathFactory) -> tuple[WorkerConfig, dict[str, Any]]:
+    """A request over a capture whose function registry is ``rebrew-functions.toml``.
+
+    Skipping the SQLite import reproduces the TOML capture an earlier worker recorded.
+    """
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr("rebrew.ops._fresh_sqlite_metadata", lambda *_args: {})
+        return _sample(tmp_path_factory.mktemp("named-snapshot-toml"))
+
+
+def _sample(directory: Path) -> tuple[WorkerConfig, dict[str, Any]]:
+    filestore, workspace = _worker_dirs(directory)
     config = WorkerConfig(filestore.resolve(), workspace.resolve())
     status, body = dispatch(config, "rebrew.analyse", json.dumps(_analyse_request()).encode())
     assert status == 200, body
@@ -131,19 +149,16 @@ def test_named_decompile_uses_only_snapshot(
     assert result["generation"] == request["generation"]
 
 
-def _request_with_source_registry(
-    config: WorkerConfig, original: dict, data: bytes
-) -> tuple[dict, str]:
-    """The request whose source snapshot carries its own ``rebrew-functions.toml`` of *data*."""
+def _with_source_files(
+    config: WorkerConfig, original: dict[str, Any], files: dict[str, bytes]
+) -> dict[str, Any]:
+    """The request whose source snapshot carries *files*, replacing entries at the same paths."""
     assert config.filestore is not None
     request = copy.deepcopy(original)
-    capture = json.loads(request["analysis_manifest"])
-    captured = [e for e in capture["entries"] if e["path"] == "rebrew-functions.toml"]
-    assert captured and captured[0]["role"] == "analysis"
-    digest, key = _store(config.filestore, data)
-    request["files"].append(
-        {"path": "rebrew-functions.toml", "digest": digest, "size": len(data), "key": key}
-    )
+    request["files"] = [row for row in request["files"] if row["path"] not in files]
+    for path, data in files.items():
+        digest, key = _store(config.filestore, data)
+        request["files"].append({"path": path, "digest": digest, "size": len(data), "key": key})
     request["files"].sort(key=lambda row: row["path"])
     document = {
         "complete": True,
@@ -154,13 +169,31 @@ def _request_with_source_registry(
     }
     request["source_manifest"] = _json(document)
     request["source_snapshot_sha256"] = _digest(request["source_manifest"])
-    return request, digest
+    return request
 
 
+def _request_with_source_registry(
+    config: WorkerConfig, original: dict[str, Any], data: bytes, captured: str
+) -> tuple[dict[str, Any], str]:
+    """The request whose source snapshot carries its own ``rebrew-functions.toml`` of *data*.
+
+    *captured* is the analysis file that holds the capture's own function registry.
+    """
+    capture = {e["path"]: e for e in json.loads(original["analysis_manifest"])["entries"]}
+    assert capture.keys() & {"rebrew-functions.toml", DATABASE_FILENAME} == {captured}
+    assert capture[captured]["kind"] == "file" and capture[captured]["role"] == "analysis"
+    request = _with_source_files(config, original, {"rebrew-functions.toml": data})
+    return request, hashlib.sha256(data).hexdigest()
+
+
+@pytest.mark.parametrize(
+    ("fixture", "captured"),
+    [("sample", DATABASE_FILENAME), ("toml_sample", "rebrew-functions.toml")],
+)
 def test_source_registry_is_accepted_only_with_its_attested_digest(
-    sample: tuple[WorkerConfig, dict], monkeypatch: pytest.MonkeyPatch
+    fixture: str, captured: str, request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    config, original = sample
+    config, original = request.getfixturevalue(fixture)
     decompiled: list[str] = []
 
     def decompile(*_args: object) -> tuple[str, str]:
@@ -168,18 +201,44 @@ def test_source_registry_is_accepted_only_with_its_attested_digest(
         return "int a0;\n*(char *)(a0 + 0x10) = 1;\n", "kuna"
 
     monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", decompile)
-    request, digest = _request_with_source_registry(config, original, b"format = 3\n")
-    status, result = _call(config, request)
+    snapshot, digest = _request_with_source_registry(config, original, b"format = 3\n", captured)
+    status, result = _call(config, snapshot)
     assert status == 400, result
     assert decompiled == []
-    status, result = _call(config, {**request, "attested_registry_digest": "0" * 64})
+    status, result = _call(config, {**snapshot, "attested_registry_digest": "0" * 64})
     assert status == 400, result
     assert decompiled == []
-    status, result = _call(config, {**request, "attested_registry_digest": digest})
+    status, result = _call(config, {**snapshot, "attested_registry_digest": digest})
     assert status == 200, result
     assert decompiled == ["ran"]
-    changed, _ = _request_with_source_registry(config, original, b"format = 3\n# edited\n")
+    changed, _ = _request_with_source_registry(
+        config, original, b"format = 3\n# edited\n", captured
+    )
     status, result = _call(config, {**changed, "attested_registry_digest": digest})
+    assert status == 400, result
+
+
+def test_source_metadata_database_cannot_replace_captured_registry(
+    sample: tuple[WorkerConfig, dict[str, Any]],
+    toml_sample: tuple[WorkerConfig, dict[str, Any]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A source SQLite store and a config selecting it would bypass the captured TOML registry."""
+    sqlite_config, sqlite_request = sample
+    config, original = toml_sample
+    assert sqlite_config.filestore is not None
+    stored = {row["path"]: row for row in sqlite_request["analysis_files"]}
+    files = {
+        path: (sqlite_config.filestore / stored[path]["key"]).read_bytes()
+        for path in (DATABASE_FILENAME, "rebrew-project.toml")
+    }
+    assert b'backend = "sqlite"' in files["rebrew-project.toml"]
+
+    def forbidden(*_args: object) -> tuple[str, str]:
+        raise AssertionError("decompiler must not run")
+
+    monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", forbidden)
+    status, result = _call(config, _with_source_files(config, original, files))
     assert status == 400, result
 
 

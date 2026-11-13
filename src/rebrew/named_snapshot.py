@@ -108,6 +108,7 @@ def _validate_manifest(req: Any) -> None:
 
 def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
     from rebrew import ops
+    from rebrew.metadata.sqlite import DATABASE_FILENAME
 
     try:
         if type(req.analysis_manifest) is not str:
@@ -233,15 +234,21 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
                 if entry.path.startswith(path + "/") or path.startswith(entry.path + "/"):
                     raise ValueError("overlapping capture paths")
             prior = reserved.get(entry.path)
+            # A capture keeps its registry as the TOML file or inside the SQLite store, and
+            # either is protected: a source may carry only the attested TOML, never the store.
+            if entry.path == DATABASE_FILENAME or (
+                entry.path == _REGISTRY_FILE
+                and not (
+                    req.attested_registry_digest and entry.digest == req.attested_registry_digest
+                )
+            ):
+                raise ValueError("protected capture path")
             if prior and not (
                 prior["kind"] == "file"
                 and (
-                    (entry.path == "rebrew-project.toml" and prior.get("role") == "analysis")
-                    or (
-                        entry.path == _REGISTRY_FILE
+                    (
+                        entry.path in ("rebrew-project.toml", _REGISTRY_FILE)
                         and prior.get("role") == "analysis"
-                        and bool(req.attested_registry_digest)
-                        and entry.digest == req.attested_registry_digest
                     )
                     or (
                         entry.path not in ("rebrew-project.toml", _REGISTRY_FILE)
