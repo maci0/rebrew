@@ -3,7 +3,7 @@
 Owns the canonical STATUS sets so :mod:`rebrew.workspace` stays free of the
 metadata writers.  Import from here (or :mod:`rebrew.workspace`).  Reportal's
 portal status set is a superset: it also carries ``MATCHED``, the aggregate display label, so
-portal statuses are not interchangeable with this tuple.
+portal statuses are not interchangeable with :data:`KNOWN_STATUSES`.
 """
 
 from __future__ import annotations

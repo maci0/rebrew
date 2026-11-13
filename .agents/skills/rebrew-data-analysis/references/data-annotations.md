@@ -22,7 +22,7 @@ are rejected. Extern declarations never establish storage ownership.
 | `size` | Size in bytes |
 | `section` | PE section (`.data`, `.rdata`, `.bss`) |
 | `note` | Local analysis description; native BinSync globals do not carry notes |
-| `status` | Data verdict written by `rebrew verify --data`: `EXACT` (bytes and placement agree), `VERIFIED` (bytes agree, placement unproven), `DISPLACED` (linked provider is away from its reference VA), `DRIFT` (bytes differ or are missing), `UNCHECKED` (not compared); counted in `rebrew status` and `rebrew todo --category data-drift` |
+| `status` | Data verdict written by `rebrew verify --data`: `EXACT` (bytes and placement agree), `VERIFIED` (bytes agree, placement unproven), `DISPLACED` (linked provider is away from its reference VA), `DRIFT` (bytes differ or are missing), `UNCHECKED` (not compared). `rebrew status` counts every verdict; `rebrew todo --category data-drift` lists `DRIFT` and `DISPLACED` |
 
 `rebrew data set` accepts multiple fields atomically. Preview with `--dry-run --json`; apply the same
 request with `--expected-digest HASH` from `input_digest`. Definition, identity and placement edits
@@ -43,6 +43,6 @@ an unknown-sized symbol cannot earn `VERIFIED`.
 
 > [!CAUTION]
 > **Never manually edit `rebrew-data.toml`.** `rebrew data set`, `rebrew data annotate`,
-> and `rebrew sync pull --state-dir <dir>` write it. `rebrew data list` and
-> `rebrew data fix-bss` do not write metadata.
+> and `rebrew sync pull --state-dir <dir>` write it. `rebrew data list` does not write
+> metadata; `rebrew data fix-bss` writes the gap rows it generates.
 > Entries are keyed `"MODULE.0xVA"` (qualified, same scheme as `rebrew-functions.toml`).

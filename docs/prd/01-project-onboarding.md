@@ -71,9 +71,8 @@ commands that round-trip TOML.
 
 - Onboarding is not responsible for **finding** the binary; the user must drop it
   into `original/<filename>` themselves.
-- `rebrew init` does not download or build the toolchain. Every shipped
-  compiler profile (`msvc-*`, `borland-*`, `watcom-*`, `delphi-1.0`, `ido-*`,
-  `gcc-*`, `clang-*`, `mingw-*`) runs image-backed: build or pull the image
+- `rebrew init` does not download or build the toolchain. Every packaged
+  compiler profile (`rebrew toolchain list`) runs image-backed: build or pull the image
   with `rebrew toolchain build <name>` / `rebrew toolchain pull <name>`.
   Only a plugin/overlay toolchain registered without an `image` may exec a
   vendored host binary. The legacy `--install-wibo` host runner is

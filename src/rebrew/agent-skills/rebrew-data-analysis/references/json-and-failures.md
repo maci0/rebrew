@@ -16,7 +16,8 @@ is taken from; `declared_bytes` is the raw sum of the declared type sizes):
 {"globals": {"g_name": {"name": "g_name", "type": "int *", "va": "0x10025000",
                         "section": ".bss", "declared_in": ["server/main.c"],
                         "defined_in": ["server/owner.c"], "referenced_in": ["server/main.c"],
-                        "library_owners": [],
+                        "library_owners": [], "storage_kind": "object", "size": 4,
+                        "backing": "", "link_symbol": "", "generated_owners": [],
                         "annotated": true}},
  "data_annotations": [{"va": "0x10025000", "name": "g_sprite_lut", "size": 256,
                        "section": ".rdata", "note": "lookup table", "filepath": "server/main.c"}],
@@ -53,8 +54,9 @@ Do not add inline metadata state.
 ## `data bss --json`
 
 `{"bss_va", "bss_size", "known_entries": [{"name", "va", "size_hint", "source_file"}],
- "gaps": [{"offset", "size", "between": [before, after]}], "coverage_pct",
- "summary": {"total_globals", "gaps", "total_gap_bytes"}}`.
+ "gaps": [{"offset", "size", "between": [before, after]}], "coverage_bytes", "coverage_pct",
+ "summary": {"total_globals", "gaps", "total_gap_bytes"}}`. `bss_va`, entry `va` and gap
+`offset` are `0x`-prefixed hex strings; `coverage_pct` is a string such as `"12.5%"`.
 
 A gap is uncovered inventory, not proof of missing storage. Check complete extents,
 alignment, interior views, and linked library storage before using `data fix-bss`.
@@ -63,8 +65,9 @@ alignment, interior views, and linked library storage before using `data fix-bss
 
 A list of tables:
 `[{"va", "section", "num_entries", "resolved", "coverage", "entries": [{"target_va",
-"name", "status"}]}]`. `status` is `EXACT`/`RELOC`/`NEAR_MATCHING`/`STUB` or `""`
-(unknown). Low `coverage` means the table's targets have no reversed source yet,
+"name", "status"}]}]`. `coverage` is a floored percent string (`"99%"`). `status`
+is the target's stored function status (any STATUS value) or `""` for a name with
+no source binding. Low `coverage` means the table's targets have no reversed source yet,
 which makes them good next-matching candidates.
 
 ## Failure modes
@@ -79,9 +82,9 @@ writes them into canonical verification evidence. Incomplete reference bytes rem
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `rebrew-project.toml not found` / config error | Running outside a project | `cd` into the project (config discovery walks up to `rebrew-project.toml`) |
+| `Could not find rebrew-project.toml in any parent of the current directory` / `Config not found: <path>` | Running outside a project | `cd` into the project (config discovery walks up to `rebrew-project.toml`) |
 | `target binary not found` / `could not be parsed (needed for data dispatch)` | Binary missing or unparseable | Fix `binary` under `[targets.<name>]` in `rebrew-project.toml`; only `data dispatch` hard-requires the binary (plain scans degrade gracefully) |
 | `already exists. Use --force to overwrite.` | `data header` clobber guard | Pass `--force`, or `--output` to a new path |
-| `No annotated BSS globals - nothing to verify` | No data row or `extern` with a `.bss` VA | Record the row, then re-run `data bss` |
+| `No annotated BSS globals — nothing to verify` | No data row or `extern` with a `.bss` VA | Record the row, then re-run `data bss` |
 | Gap size looks wrong | `size_hint` is estimated from the C type (int=4, char=1, …) | Verify the declared types of the globals on either side of the gap |
 | Small gaps not reported | The scan omits gaps below its 4-byte reporting threshold | Inspect smaller spans separately when needed; their omission does not establish alignment padding |

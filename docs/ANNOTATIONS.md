@@ -97,7 +97,7 @@ source comments or rewrites obsolete blocks.
 | E013 | Duplicate address ownership across definitions or files. |
 | E015 | Stored classification conflicts with the configured module classification. |
 | E017 | STUB classification conflicts with stored comparison state. |
-| E023 | Whole-function naked asm: `__declspec(naked)` + `__asm`/`__emit` body beyond 1-2 padding bytes (`nop` / `0x90` / `0xCC`). Only 1-2 alignment nops are allowed as minor padding; a whole-function naked dump must be decompiled to C |
+| E023 | Whole-function naked asm: `__declspec(naked)` + `__asm`/`__emit` body beyond 1-2 padding bytes (`nop` / `0x90` / `0xCC`). Only 1-2 alignment nops are allowed as minor padding; a whole-function naked dump must be decompiled to C unless its original assembly is documented with `rebrew source document-assembly` (that definition is exempt) |
 | E024 | Source contains a metadata tag; put all state in the dedicated stores. No fix or migration parser reads these blocks. |
 | W003 | A bound or support file contains no implementation. |
 | W005 | An unfinished function lacks a stored blocker explanation. |

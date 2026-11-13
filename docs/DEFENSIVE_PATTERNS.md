@@ -56,9 +56,8 @@ Testing a module's app alone misses registration in `app/builtins.py`: the
 module works while `rebrew <cmd>` fails (the `residue` incident,
 [ADDING_A_COMMAND.md](ADDING_A_COMMAND.md)). Test the mounted command through
 the umbrella. `test_docs_hygiene.py::test_every_component_main_has_callback_decorator`
-checks module wiring, and `[project.scripts]` installs only `rebrew`. External
-build hooks run as `rebrew build driver` and `rebrew build objdiff-driver`
-([ADR 027](adr/027-build-hooks-under-umbrella.md)).
+checks module wiring; the single-executable rule is in
+[CLI conventions](../AGENTS.md#cli-conventions).
 
 ## Uncommitted work poisons `git add -A` releases
 

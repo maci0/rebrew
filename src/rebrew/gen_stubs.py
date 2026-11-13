@@ -19,16 +19,13 @@ thread entries), the big non-tentative BSS arrays, the ``g_bss_tail`` pad
 and a verbatim footer (e.g. a ``_fltused`` marker) are **not** rebrew's
 business; supply them via ``--specials <toml>`` / ``--footer <file>``:
 
+    bss_arrays = [["g_player_slot_0", 0x264264]]  # non-tentative, kept out of COMMON
+    bss_tail_size = 0x1269f30  # emits g_bss_tail[N]
+    keep_stub_exceptions = ["_vfs_Crc32Update"]   # lib-tagged, but still stub
+
     [specials.thread_proc]
     decl = "extern int __cdecl ServerMainThread(void*);"
     impl = "int __stdcall thread_proc(void* param)\n{\n\treturn ServerMainThread(param);\n}"
-
-    [[bss_arrays]]            # non-tentative, kept out of COMMON
-    name = "g_player_slot_0"
-    size = 0x264264
-
-    bss_tail_size = 0x1269f30  # emits g_bss_tail[N]
-    keep_stub_exceptions = ["_vfs_Crc32Update"]   # lib-tagged, but still stub
 
 Usage:
     # Build without stubs and generate from the linker errors:

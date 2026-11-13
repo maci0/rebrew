@@ -5,7 +5,7 @@ matching; codegen-identical to VC 5.0 for the probe, with the SP levels
 indistinguishable by code shape.
 
 **Profiles:** `msvc-6.0` + `msvc-6.0-sp1..sp6`.  Rich-header C1 builds:
-**8168 (RTM–SP3), 8447 (SP3), 8966 (SP4/SP5), 9782 (SP6)**; the exact
+**8168 (RTM, SP1, SP2), 8447 (SP3), 8966 (SP4/SP5), 9782 (SP6)**; the exact
 build is the only reliable SP discriminator (see below).  Linker 6.0.
 
 ## Prologue & frame pointer

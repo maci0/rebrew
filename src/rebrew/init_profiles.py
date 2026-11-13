@@ -170,8 +170,8 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_32",
         "lang": "C89",
     },
-    # The "7.0-win32" dir/image actually holds the VC 7.1 compiler
-    # (cl 13.10.3077) — the 7.0 name is a historical mislabel, not an alias.
+    # The "7.0-win32" dir/image holds the VC 7.0 RTM compiler (cl 13.00.9466),
+    # the same source as msvc-7.0-rtm; VC 7.1 is msvc-7.1.
     "msvc-7.0": {
         "runner": "wine",
         "command": "wine toolchain/msvc/7.0-win32/source/Bin/cl.exe",

@@ -12,7 +12,7 @@ rebrew verify --watch                   # re-verify on file change; terminal onl
 rebrew verify --no-cache --json         # recheck without saved verdicts; compiled objects may be reused
 rebrew lint src/bench/<file>.c       # lint one file (files are POSITIONAL)
 rebrew lint --json                      # annotation correctness
-rebrew lint --fix                       # drop W029-redundant cflags; source metadata tags are errors
+rebrew lint --fix                       # drop W029-redundant cflags, backfill known SECTION metadata (W016)
 rebrew lint --fix --dry-run
 rebrew lint --summary
 rebrew lint --quiet                     # errors only
@@ -47,7 +47,7 @@ acknowledgement it counts them and writes nothing. A rebuilt image with
 different bytes returns them to RELOC on the next verify; re-run the promotion.
 `rebrew lint` exits 1 on errors. Record link-only file purposes with
 `rebrew source register <file> --support "<reason>"`; the purpose lives in
-`rebrew-functions.toml` under `[source]`.
+`rebrew-functions.toml` under `[source.files]`.
 
 `verify --data` and `verify --whole-binary` inspect existing images without a
 function scan, compiler runner, or function cache/baseline writes. Add

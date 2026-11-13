@@ -84,7 +84,7 @@ flowchart LR
 | `rebrew/formats/pe_image.py` | PE32 section/export/import walk and the MSVC LINK options read off those header fields. Shared by `rebrew build layout` and `rebrew build sweep-link-flags`; the command modules do not own the parser |
 | `rebrew/pseudo_c.py` | Deterministic rewrite of decompiler pseudo-C into C89 tokens (`sanitize_tokens`). Shared by `rebrew source fix` and Kuna seeding |
 | `rebrew/app/` | CLI composition layer: `main.py` (console script), `builtins.py` (`CliComponent` rows), `plugin.py` (component runtime). Nothing outside it imports it at module scope |
-| `rebrew/compiler/` | Compile execution and the compile cache: `compile.py`, `cache.py`, `toolchain.py` + spec/data/paths, `overrides.py`, `context.py`, `recompile_client.py`, the 16-bit DOSBox drivers |
+| `rebrew/compiler/` | Compile execution and the compile cache: `compile.py`, `cache.py`, `toolchain.py` + spec/data/paths, `overrides.py`, `context.py`, `recompile_client.py`, `unshare.py` (experimental rootless backend), the 16-bit DOSBox drivers, among others |
 | `rebrew/formats/` | Executable, object and archive parsers (`binary_loader.py`, `binary_model.py`, PE/NE/OMF/LZEXE, `import_table.py`, `relocations.py`, `archives.py`); imports only `errors`, `registry`, `utils` |
 | `rebrew/metadata/` | Source annotations and the locked stores: `functions.py` (`rebrew-functions.toml`), `data.py` (`rebrew-data.toml`), `document.py`, `model.py`, `anchors.py`, `bindings.py`, `source_provenance.py` |
 | `rebrew/metadata/storage.py` | Backend-neutral store access: the `MetadataStore` protocol, TOML/SQLite selection, input discovery and review snapshots ([ADR 034](adr/034-metadata-storage-backends.md)); `files.py` is the default TOML backend, `sqlite.py` the experimental one |
@@ -98,7 +98,7 @@ flowchart LR
 | `rebrew/crt_match.py` | CRT source cross-reference matcher (index, match, ASM detection) |
 | `rebrew/flirt.py` | FLIRT signature scanning |
 | `rebrew/prove.py` | Symbolic equivalence prover via angr (optional dep) |
-| `rebrew/compiler/delphi16.py` | Delphi 1.0 (16-bit) compile support: headless DOSBox sandbox + NE parse (ADR-001 foundation) |
+| `rebrew/compiler/delphi16.py` | Delphi 1.0 (16-bit) whole-program NE build through the `rebrew/delphi:1.0-win16` image (ADR-001 foundation) |
 | `rebrew/compiler/msvc16.py` | MSVC 1.0 / 1.5 / 1.52 (16-bit) compile support: DOSBox + 16-bit OMF objects |
 | `rebrew/compiler/dosbox.py` | Shared headless DOSBox runner (mount sandbox as C:, FAT-uppercase reads) |
 | `rebrew/compiler/toolchain.py` | Toolchain abstraction: spec registry + container-only runner for every shipped profile (plugin toolchains without `image` may run as a host binary), plus the project-side MSVC layout table (`resolve_msvc_toolchain` / `toolchain_link_candidates`) init and config resolve against |

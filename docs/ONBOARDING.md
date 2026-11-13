@@ -1,29 +1,15 @@
 # Onboarding: your first rebrew project
 
-This is the first-run walkthrough: from a binary to a documented, verified
-decomp project.  It takes ~5 minutes and covers every step the tools
-automate, plus the errors a new user can actually hit and what each one
-means.  For the full command reference see [CLI.md](CLI.md); for toolchains
+The first-run companion to [Getting started](GETTING_STARTED.md): what
+`init` and `intake` automate (including the init wizard), the health check,
+the errors a new user can hit and what each one means, 16-bit targets, and
+manual function discovery.  For the full command reference see [CLI.md](CLI.md); for toolchains
 see [TOOLCHAIN.md](TOOLCHAIN.md).
 
 ## Prerequisites
 
-| Tool | Needed for | Install |
-|------|-----------|---------|
-| Python 3.15+ + `uv` | running rebrew | [uv installer](https://docs.astral.sh/uv/getting-started/installation/) / your distro; `uv python install 3.15` |
-| rebrew itself | everything | `uv tool install 'rebrew[prove] @ git+https://github.com/maci0/rebrew.git'` (in a rebrew checkout, `make setup` instead; see CONTRIBUTING.md) |
-| **Docker** (default) or Podman | run shipped compiler images; the image wraps Wine/DOSBox or holds the native compiler | your distro's container runtime |
-| **rizin** (the `rizin` executable) | packaged function discoverer (`rebrew.discoverers`; alternatives plug in without host edits) | `apt install rizin` / [rizin.re](https://rizin.re) |
-| `diec` (optional) | stronger compiler detection in `rebrew doctor`/`intake` | Detect It Easy 4.0: `diec` on `PATH` (Arch: `detect-it-easy-bin`), or unpack [release 4.0.0](https://github.com/horsicq/DIE-engine/releases/tag/4.0.0) into `tools/diec/` (gitignored, not shipped) |
-
-Every shipped compiler profile needs its toolchain image. Docker is the
-default runtime; Podman and experimental unshare are also available. See
-[compile backends](TOOLCHAIN.md#compile-backends) for selection and prerequisites.
-
-Compiler runtimes depend on the profile: Windows tools use wine, 16-bit tools
-may use DOSBox, and Linux toolchains run natively inside the image. A host wine
-or wibo install does not provide a fallback for a shipped compiler profile.
-See [TOOLCHAIN.md](TOOLCHAIN.md) for profile/image details.
+Install rebrew and the host tools in
+[Getting started: prerequisites](GETTING_STARTED.md#prerequisites).
 
 ## The 5-minute path
 
@@ -79,16 +65,8 @@ rebrew intake original/server.dll --toolchain msvc-6.0   # or pin it explicitly
 5. **documents every function** as a STUB skeleton with a BLOCKER,
    so `rebrew status`/`rebrew todo` show the full reversing landscape
 
-When it finishes you get a summary like:
-
-```
-Intake complete: server (msvc-8.0)
-  detected family: msvc (MSVC 14.00 …)
-  functions: 259, documented: 259
-  toolchain: msvc-8.0 runs through docker image rebrew/msvc:8.0-win32; run 'rebrew toolchain build msvc-8.0' if the image is missing
-  next: rebrew doctor && rebrew status --json
-  first run? see the rebrew repo's docs/ONBOARDING.md for the walkthrough
-```
+The summary names the detected profile, the function count and the next
+command; [Getting started](GETTING_STARTED.md#2-onboard-it) shows a sample.
 
 ### 3. Health check
 
@@ -112,51 +90,19 @@ Every `fail` line names its fix.  The common ones after a fresh intake:
   not a failure.  Every shipped profile is docker-backed; only a plugin
   toolchain registered without an image uses real host paths.
 
-### 4. See where you stand
+### 4. Status, library code, first match
 
-```bash
-rebrew status            # progress overview, per-status counts, per-module breakdown
-rebrew todo              # prioritized action list (what to work on next)
-```
-
-### 5. Start reversing
-
-```bash
-# intake wrote one stub per function, for example src/server/fcn_00401000.c;
-# edit that file, then:
-rebrew test src/server/fcn_00401000.c   # compile, byte-compare, auto-update STATUS
-rebrew diff src/server/fcn_00401000.c   # see WHY bytes differ (register/reloc/structural)
-rebrew diagnose near src/server/fcn_00401000.c  # classify the delta + GA mutation hints
-rebrew verify            # bulk: compile every annotated function, compare, promote STATUS
-rebrew match run src/server/fcn_00401000.c # GA engine: search for the byte-perfect C
-rebrew skeleton 0x00401000               # only for an inventory VA with no source; prints its file
-```
-
-Before reversing, rule out library code: statically linked CRT sits in
-`.text` looking exactly like target code:
-
-```bash
-rebrew library init-signatures --matched-only   # copy matching signatures into flirt_sigs/ (needs ReconDB)
-rebrew library scan-signatures flirt_sigs/              # identify library functions via FLIRT
-rebrew library crt-match --all --fix-source   # auto-annotate MSVCRT functions
-```
+Continue at [Getting started step 4](GETTING_STARTED.md#4-review-project-status):
+`rebrew status` / `rebrew todo`, ruling out library code, then the
+`test` / `diff` / `diagnose near` / `match` loop on the stubs intake wrote
+(for example `src/server/fcn_00401000.c`). For statically linked MSVCRT,
+`rebrew library crt-match --all --fix-source` also records the accepted CRT
+source references in `rebrew-functions.toml`.
 
 The agent skills in `.agents/skills/` (`rebrew-init`, `rebrew-intake`,
 `rebrew-workflow`, `rebrew-matching`, `rebrew-data-analysis`,
 `rebrew-ghidra-sync`) walk the same loop with step-by-step instructions for
 AI agents.
-
-```mermaid
-graph TD
-    Init[rebrew intake] --> Doctor[rebrew doctor]
-    Doctor --> Todo[rebrew todo]
-    Todo --> Skeleton[rebrew skeleton 0xVA]
-    Skeleton --> Test[rebrew test]
-    Test -->|EXACT / RELOC| Done[first function matched]
-    Test -->|MISMATCH| Edit[edit C · rebrew diff]
-    Edit --> Test
-    Done --> Loop[WORKFLOW.md for the full loop]
-```
 
 ## First-run errors and what they mean
 

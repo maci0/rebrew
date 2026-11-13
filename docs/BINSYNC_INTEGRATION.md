@@ -83,8 +83,10 @@ rebrew binsync overlay ./binsync_state       # apply related-target evidence
   lists them in `peers`. A plain state directory (no `binsync/__root__`) is
   fast-forwarded with `git pull --ff-only` and imported from its working tree.
   Unresolved conflicts exit `1`, like raw import.
-- **`summary`** calls export and import in dry-run mode and reports the counts
-  each direction would change. It writes no state or project file and moves no
+- **`summary`** calls export and import in dry-run mode. Its push side reports
+  the artifact totals export would emit (unchanged functions included); its
+  pull side reports what import would apply and the conflicts. Use
+  `binsync diff` for divergence. It writes no state or project file and moves no
   branch; in a BinSync repo it reads the peers through the same temporary
   worktrees as `pull`.
 
@@ -93,8 +95,9 @@ artifact on the same working tree, so a read-only file fails its commit with
 `PermissionError`; an export restores mode 0644 on existing read-only files. rebrew's own stores (`rebrew-functions.toml`,
 `rebrew-data.toml`) and the baseline sidecar keep their 0444 lock.
 
-Every `binsync` and `sync` command that reads or writes state needs declib
-(the `binsync` extra). Without it they exit `2` with the install command before
+Every `binsync` and `sync` command that exchanges native state needs declib
+(the `binsync` extra; `binsync init` only creates the Git envelope and does
+not). Without it they exit `2` with the install command before
 touching anything, and `rebrew doctor` fails its BinSync check when a state
 directory is configured.
 
@@ -578,15 +581,11 @@ rebrew binsync export ./binsync_state --json
 
 ## Coverage by Status
 
-| Status | Name | Prototype | Metadata comment |
-|--------|------|-----------|-----------------|
-| EXACT / RELOC / PROVEN | yes | yes (if a C signature is available) | yes |
-| NEAR_MATCHING | yes | yes (if a C signature is available) | yes |
-| STUB | yes | yes (if a C signature is available) | yes |
-| LIBRARY | yes | yes (if a C signature is available) | yes |
-| (no STATUS) | yes | yes (if a C signature is available) | omitted |
+Export writes the name and, when a C signature is available, the prototype for
+every function whatever its STATUS (no STATUS included), plus a metadata comment
+when a note or differing Ghidra name exists.
 
-The metadata-comment column is notes and differing Ghidra names only:
+The metadata comment is notes and differing Ghidra names only:
 `STATUS` is comparison-earned; CFLAGS are local compilation inputs. Both stay local.
 
 ---
@@ -602,9 +601,9 @@ The metadata-comment column is notes and differing Ghidra names only:
 ## `rebrew sync push`: feature matrix and known issues
 
 `rebrew sync push` is BinSync-primary: field sync (names, prototypes, structs,
-globals) goes through the shared state dir above, and ReVa MCP remains only
-for the structural ops the state dir cannot express (create-functions,
-bookmarks, pull-data).  For the product vision see [prd/07-ghidra-sync.md](prd/07-ghidra-sync.md);
+globals) goes through the shared state dir above, and the structural ops the state dir cannot express use the Ghidra bridge:
+`pull-data` over ReVa MCP, `create-functions` and `bookmarks` over the
+configured `ghidra_backend` ([transport](CLI.md#local-field-exchange-and-ghidra)).  For the product vision see [prd/07-ghidra-sync.md](prd/07-ghidra-sync.md);
 for flags see [CLI.md](CLI.md#rebrew-sync-push).
 
 ```mermaid
@@ -613,9 +612,9 @@ graph TD
     Push --> Relay[external BinSync plugin relays into Ghidra]
     Sync --> Pull[rebrew sync pull --state-dir D]
     Pull --> Names[names + prototypes + structs + globals + notes]
-    Pull --> Create[--create-functions chains MCP function creation]
+    Pull --> Create[--create-functions chains structural function creation]
     Sync --> Struct[create-functions · bookmarks · pull-data]
-    Struct --> MCP[ReVa MCP structural ops]
+    Struct --> MCP[ReVa MCP, or ghidra-cli for create-functions and bookmarks]
     Names --> Conflict{conflict?}
     Conflict -->|yes| Decide[--accept-binsync / --accept-local]
     Decide --> Update[update metadata]
@@ -628,7 +627,7 @@ graph TD
 | Export fields to a BinSync state dir | Local → file | Done | `rebrew sync push --state-dir D` |
 | Import a BinSync state dir into rebrew | File → Local | Done | `rebrew sync pull --state-dir D` |
 | Import structs / notes / global types+sizes | File → Local | Done | `rebrew sync pull` (structs → `binsync_types.h`, notes → metadata, global type/size → `rebrew-data.toml`) |
-| Create missing functions in Ghidra | Local → Ghidra | Done | `rebrew sync pull --create-functions` (MCP create op over imported VAs) |
+| Create missing functions in Ghidra | Local → Ghidra | Done | `rebrew sync pull --create-functions` (create op over imported VAs, through the configured `ghidra_backend`) |
 | Status bookmarks | Local → Ghidra | Done | `rebrew sync bookmarks` (category `rebrew`, status in the comment) |
 | Custom MCP endpoint URL | n/a | Done | `--endpoint URL` |
 | Summary / dry-run preview | n/a | Done | `rebrew sync summary`, `rebrew sync pull --dry-run` |

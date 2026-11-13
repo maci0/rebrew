@@ -186,7 +186,7 @@ you what to attack next.
   - `documented`; IAT thunks / non-reproducible code (audit only, hidden
     from the default list).
   - `naked-reconstruction`; byte-exact via a generated naked skeleton
-    (`// SOURCE: naked`); reproduced, not decompiled, so it stays queued
+    (`source = "naked"` in `rebrew-functions.toml`); reproduced, not decompiled, so it stays queued
     until the real C body matches.
   - `data-drift` / `start-data`; data symbols needing `rebrew verify --data`.
 - `--limit N`, `--category C` filters.

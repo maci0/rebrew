@@ -101,8 +101,8 @@ function source counts do not measure matched bytes.
 > the provider stays unresolved. `library crt-match` errors with "No crt_sources
 > configured" until they are registered: run `rebrew cfg detect-crt apply`
 > once, then retry. `--stock-lib` extracts the archive from the
-> profile's docker image (a pull when it is not cached), so `rebrew toolchain
-> pull <profile>` may be needed first. It also refuses a `.scratch/` cache that
+> profile's local image and never pulls it, so run `rebrew toolchain pull <profile>`
+> or `build` first when the image is missing. It also refuses a `.scratch/` cache that
 > hashes differently from the image's copy: delete the cached archive to
 > re-extract, or drop `--stock-lib` for that run.
 

@@ -4,6 +4,10 @@
 - **Date**: 2026-05-20 (audited 2026-08-22, re-audited 2026-09)
 - **Owner**: rebrew team
 
+> **Correction:** `rebrew coverage build` and its `db/coverage-<target>.toml`,
+> named in the 2026-09 notes below, were later replaced by
+> `rebrew coverage export --output <dir>` ([ADR 031](../adr/031-live-coverage-views.md)).
+>
 > **Correction (checked 2026-11-12 against `src/rebrew/ghidra/cli.py`):**
 > field sync is `rebrew sync push` and `rebrew sync pull`, each with
 > `--state-dir`. Pull takes `--accept-binsync` and `--accept-local`.

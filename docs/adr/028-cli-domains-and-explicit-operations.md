@@ -1,6 +1,6 @@
 # ADR-028: CLI domains and explicit operations
 
-- **Status**: Accepted. Amends [ADR-027](027-build-hooks-under-umbrella.md) (command paths `cmake-driver`/`objdiff-build` become `build driver`/`build objdiff-driver`; single-executable decision retained) and [ADR-009](009-cross-target-import.md) (command path `cross-import` becomes `source import-related`).
+- **Status**: Accepted. Amends [ADR-027](027-build-hooks-under-umbrella.md) (command paths `cmake-driver`/`objdiff-build` become `build driver`/`build objdiff-driver`; single-executable decision retained) and [ADR-009](009-cross-target-import.md) (command path `cross-import` becomes `source import-related`). Amended by [ADR-031](031-live-coverage-views.md) (`coverage build` became the explicit `coverage export --output`).
 - **Date**: 2026-10
 
 ## Context

@@ -1,6 +1,6 @@
 # ADR-004: Intake re-discovery prunes only exact auto-stubs
 
-- **Status**: Accepted
+- **Status**: Amended by [ADR-030](030-address-only-source.md) (the auto-stub pattern is now an ADDRESS anchor plus the generated body; the prune invariant is unchanged)
 - **Date**: 2026-08
 
 ## Context

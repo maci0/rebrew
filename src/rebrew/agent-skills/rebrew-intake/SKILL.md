@@ -82,12 +82,13 @@ and `rebrew source security`: `references/binary-recon.md`.
 ```bash
 rebrew doctor                           # validate config, binary, toolchain, metadata
 rebrew doctor --json                    # machine-readable per-check report
-rebrew toolchain pull <profile>         # fetch the profile's docker image when the toolchain check fails
+rebrew toolchain pull <profile>         # fetch a prebuilt image when the toolchain check fails (its fix names build)
 rebrew cfg target list # confirm target is configured
 ```
 
-Exit 2 on any `fail`. `--json` → `checks[].fix` repair commands. Missing image →
-`rebrew toolchain pull <profile>`; `build` compiles it from the sibling
+Exit 2 on any `fail`. `--json` → `checks[].fix` repair commands. Missing image → the
+check's fix is `rebrew toolchain build <profile>`; `rebrew toolchain pull <profile>`
+fetches a prebuilt one instead, and `build` compiles it from the sibling
 recompile-toolchains checkout. Prefer a pull for setup; build when image-building
 is part of the authorized task. Otherwise clarify before a long build. Config fail → `rebrew init` or `rebrew intake`.
 Missing binary → place at configured path. Missing FLIRT →:

@@ -95,9 +95,9 @@ rebrew data list --conflicts --json # only globals with type conflicts (same nam
 rebrew data dispatch --json # detect dispatch tables / vtables in .data/.rdata
 rebrew data dispatch --min-table-len 5 --json # require >= 5 entries per table
 rebrew data dispatch --max-pointer-stride 8 # allow 8-byte stride between slots (sparse tables)
-rebrew data bss --json # verify .bss layout, detect gaps from missing externs
+rebrew data bss --json # verify .bss layout; report uncovered gaps of 4+ bytes between known entries (a gap is not proof of missing storage)
 rebrew data fix-bss --dry-run # preview bss_padding.c + metadata changes, write nothing
-rebrew data fix-bss # generate bss_padding.c; no SIZE/SECTION/NOTE metadata writes (run --dry-run first)
+rebrew data fix-bss # generate bss_padding.c and record each new gap's size/section/note through the locked writers (run --dry-run first)
 rebrew data mark-literals --dry-run --json # rows at ??_C@/__real@ map VAs -> storage_kind=literal + link_symbol
 rebrew build check-tu-data --json # per-object [data][literals] order: TU boundaries, s_* literal pools
 rebrew data header --dry-run # preview rebrew_globals.h contents
@@ -114,7 +114,7 @@ rebrew data layout fill # emit _dpad_<addr>[N] for uncovered .data runs (preview
 rebrew data layout own --dry-run # materialize link_stubs.c globals into owner TUs
 rebrew data layout converge --dry-run # adjust _dlead_<tu> pads vs build/bench; does not rebuild
 rebrew verify --data --built build/bench     # compare built data bytes and placement per symbol
-rebrew todo --category data-drift --json                # data symbols whose built bytes differ from the reference
+rebrew todo --category data-drift --json                # DRIFT (built bytes differ) and DISPLACED (linked away from the reference VA) symbols
 ```
 
 `--data` reports comparisons but writes stored verdicts/evidence only with

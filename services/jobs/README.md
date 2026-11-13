@@ -47,20 +47,22 @@ distributed execution, tenant authorization and independent settlement
 verification remain unqualified. The loopback token authorizes one local owner;
 it is not a tenant authorization boundary.
 
-Run `go test -race ./...` for the local owner. To qualify the isolated Docker
+From the repo root, `make jobs-check` runs the CI jobs-service gate (gofmt, vet,
+builds, `go test -race`) and `make jobs-build` builds `rebrew-jobs`. To qualify the isolated Docker
 provider against a locally available image containing `/opt/venv/bin/rebrew`,
 set `REBREW_TEST_DOCKER_IMAGE` to its full `sha256:` image ID. The executable
 requires `REBREW_WORKSPACE`, `REBREW_JOB_DIR`, and a `REBREW_JOB_TOKEN` of at
 least 32 bytes. Set `REBREW_BINARY` to an absolute CLI path for the direct
 provider, or set `REBREW_DOCKER_BINARY` and `REBREW_JOB_DOCKER_IMAGE` for the
-Docker candidate. It listens on `127.0.0.1:8089`. The job directory must be
+Docker candidate. It listens on `127.0.0.1:8089`; `REBREW_JOBS_ADDR` may move it to another
+loopback address only (non-loopback is refused at startup). The job directory must be
 private and outside the workspace. A single local owner holds an exclusive
 filesystem lock. Reconnect to `/jobs/{id}/events` for retained state snapshots;
 `/jobs/{id}/output` returns currently retained partial output. Output is not an
 independently settled result.
 
 To enable the candidate managed path, configure `REBREW_MANAGED_RECOMPILE_URL`,
-`REBREW_MANAGED_COMPILE_LIMIT` and the comma-separated compiler IDs in
+`REBREW_MANAGED_COMPILE_LIMIT` (1..1000) and the comma-separated compiler IDs in
 `REBREW_MANAGED_COMPILERS`. Include the scoped caller credential in the
 `X-Rebrew-Compile-Credential` header on admission as the raw scoped API key,
 in addition to the local job API token. The credential is held in owner memory,

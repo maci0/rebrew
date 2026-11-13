@@ -18,6 +18,9 @@ those decisions stay in the output:
 
 ## Facts, measured with LINK 6.00.8447 and MSVCRT 6.0.8797
 
+These were measured on a downstream project's link, not reproduced by a test in
+this repository.
+
 - **Load order.** All command-line `/INCLUDE` symbols enter the unresolved list
   first, then each object's references in object order. A `/include` in an
   object's `.drectve` (`#pragma comment(linker, "/include:...")`) enters when

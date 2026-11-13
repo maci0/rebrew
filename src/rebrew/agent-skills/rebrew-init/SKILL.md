@@ -67,8 +67,8 @@ rebrew doctor
 Run it right after `rebrew init`. Doctor must report healthy
 (warnings for unconfigured optionals such as FLIRT, Ghidra, BinSync are fine;
 failures are not) before handing off. The commonest failure is the toolchain
-image missing: run `rebrew toolchain pull <profile>` (a docker image pull).
-`rebrew toolchain build <profile>` compiles the image from the sibling
+image missing: doctor's `fix` names `rebrew toolchain build <profile>`;
+`rebrew toolchain pull <profile>` fetches a prebuilt image instead. `build` compiles the image from the sibling
 recompile-toolchains checkout, which is a long job and fails without that
 checkout. Use a pull for setup; build when the task calls for building the image
 or the user has already authorized it. Otherwise clarify before a long build.

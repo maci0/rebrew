@@ -163,8 +163,10 @@ expected to reproduce the original codegen.
   `dinput.h` under LGPL-2.1+ (GitHub reports the multi-license tree as
   `NOASSERTION`).
 - ReactOS (`reactos/reactos`): LGPL/GPL-style reimplementations.
-- MinGW-w64 (`mingw-w64/mingw-w64`): permissive mix, ships `d3d9.h`,
-  `dsound.h`, `dinput.h`, no DirectX 3-7 headers.
+- MinGW-w64 (`mingw-w64/mingw-w64`): ships `d3d9.h`, `dsound.h`, `dinput.h`
+  and legacy DirectDraw/Direct3D reimplementations (`ddraw.h` with
+  `IDirectDraw3/4/7`, `d3d.h` with `IDirect3D2/3/7`); several of those files
+  carry Wine's LGPL-2.1-or-later notice, so check each file's grant.
 
 Use these to make a decompile compile.  Use the original SDK media in
 sections 1 and 2 to match bytes.

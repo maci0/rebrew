@@ -401,7 +401,7 @@ Leftovers:
   merge / leave / curator. Merge is the expensive mistake: three
   Score levels, no fitted threshold, companion Nouls naming the
   disagreeing field.
-- **Type-conflict triage** (`rebrew lint` W016 etc.): Choice of
+- **Type-conflict triage** (the `rebrew data list --conflicts` report): Choice of
   which TU's declaration wins, confidence-gate to a human.
 
 Sync itself (`rebrew sync push` / `rebrew sync pull`) stays BinSync. Apply a

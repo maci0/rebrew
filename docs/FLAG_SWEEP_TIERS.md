@@ -18,8 +18,8 @@ the empty choice; total combinations multiply.
 | `quick` | 3 | 192 | < 1 min | First attempt on a new STUB; rules out most /O and /G variants fast |
 | `targeted` | 5 | 1,152 | 1–3 min | Default for `rebrew match flags`; adds /Oy and /Op |
 | `normal` | 5 | 5,376 | 3–10 min | Follow-up when `targeted` is close but not EXACT; adds /ML-/MTd runtime-library axis |
-| `thorough` | 9 | 258,048 | hours | Use when `normal` still leaves a near-match; adds struct alignment and debug-info toggles |
-| `full` | 13 | 6,193,152 | hours | Last resort; sweeps every known axis including /TP, /GR, /GX |
+| `thorough` | 9 | 258,048 | hours | Use when `normal` still leaves a near-match; adds struct alignment (`/Zp*`), stack checking (`/Gs`), exception handling (`/GX`) and runtime checks (`/GZ`) |
+| `full` | 13 | 6,193,152 | hours | Last resort; sweeps every known axis; adds /TP and /GR |
 
 `thorough` and `full` are too large to materialize as a full set (~400 MB):
 `generate_flag_combinations` stride-samples the product stream down to a

@@ -4,9 +4,10 @@ MinGW GCC targeting PE/x86_32 (`i686-w64-mingw32-gcc`).  Byte-exact
 matching requires the author's *exact* GCC version: modern GCC (16.x)
 and old GCC (4.x–7.x) differ in argument passing, stack probing and
 scheduling, so old MinGW-built binaries usually match only
-structurally.  Verified with **GCC 16.1** at `/O1`/`/O2`.
+structurally.  Recorded with native **GCC 16.1** at `/O1`/`/O2`.
 
-**Profiles:** `mingw-16.2.0`.
+**Profiles:** `mingw-16.2.0`, used for structural matching of this family
+(its bytes are not the 16.1 rows').
 
 ## Prologue & frame pointer
 

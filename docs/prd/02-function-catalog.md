@@ -118,7 +118,8 @@ Three subcommands:
   un-reversed functions (N defaults to 20), optionally offset into the
   sorted list.
 
-All three accept `--binary`/`--min-size`/`--max-size` filters and `--json`.
+All three accept `--binary` and `--json`; `list` and `batch` also take
+`--min-size`/`--max-size`.
 Output `.bin` files land in the configured `bin_dir`.
 
 ### `rebrew library scan-signatures`

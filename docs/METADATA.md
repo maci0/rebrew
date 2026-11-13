@@ -766,8 +766,8 @@ until that program changes with it.
    `update_source_status` / `update_statuses_batch` (STATUS),
    `update_field` / `remove_field` (function metadata, incl. `rebrew blocker`
    for BLOCKER), `set_data_field` / `set_data_fields_batch` (data metadata;
-   keys limited to `DATA_METADATA_FIELDS`, STATUS to the three data
-   verdicts, so a function-only field such as BLOCKER raises), `rebrew library set`
+   keys limited to `DATA_METADATA_FIELDS`, STATUS to `DATA_STATUSES`
+   (see [data verdicts](METADATA_FORMAT.md#data)), so a function-only field such as BLOCKER raises), `rebrew library set`
    (library overrides).  **Do not hand-edit `rebrew-functions.toml`,
    `rebrew-data.toml`, `rebrew-types.toml`, or `rebrew-libraries.toml`**:
    every write goes through `metadata_write_lock`, and the two function/data
@@ -837,21 +837,12 @@ provenance rather than a byte verdict; recording them does not verify storage.
 
 ## Current source contract
 
-Functions use format 3; data uses format 2. Qualified `MODULE.0xVA` tables hold function/data
-identity and state; `kind` classifies the row. Source accepts only optional
-ADDRESS anchors immediately above C declarations. `source = "naked"`, structure
-and caller information are function metadata. Assembly evidence and support file
-purposes use `[source.definitions]` and `[source.files]` in the function store.
-BinSync manifests retain schema 2: synchronized field records did not change
-when the local function container gained its addressless source section.
-
-`rebrew source register` records current declaration-bound identities without
-importing state from comments. Older schemas and inline blocks are rejected;
-ordinary readers have no legacy fallback. To upgrade, preview
-`rebrew source consolidate --dry-run --json`, then apply with its
-`--expected-digest`. This explicit one-shot migration preserves function rows,
-verdicts and source receipts before retiring `rebrew-source.toml`. See [source addresses](ANNOTATIONS.md)
-and [ADR 030](adr/030-address-only-source.md).
+Store formats, row fields and the `source consolidate` migration are in
+[METADATA_FORMAT.md](METADATA_FORMAT.md); ADDRESS anchor syntax and
+`rebrew source register` are in [ANNOTATIONS.md](ANNOTATIONS.md) (decision:
+[ADR 030](adr/030-address-only-source.md)). BinSync manifests retain schema 2:
+synchronized field records did not change when the local function container
+gained its addressless source section.
 
 Source `file` identities use exact paths relative to the resolved metadata root.
 Configured source directories must resolve inside that root; see the

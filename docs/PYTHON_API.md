@@ -172,11 +172,6 @@ added, over a `_Reply` that also carries `headers` and `raise_for_status()`.
 (probed via `close_response`), so a stand-in holding no connection to release
 is still a valid answer; only the `decompme` protocol requires `close()`.
 
-Rebrew is 6.x. The CLI command names and flags and the
-`rebrew-project.toml` schema are frozen from 1.0.0: removing or renaming one,
-or changing a config key's meaning, takes a major version bump. The Python
-import surface and the dashboard `/api/*` JSON are
-not: a removal, move, or signature change there ships in a minor release with
-a `**Breaking:**` entry in the changelog, and there is no deprecation window,
-so pin the minor version if you import rebrew as a library. See
-[CONTRIBUTING.md](../CONTRIBUTING.md#versioning-and-releases).
+The Python import surface is not frozen and has no deprecation window, so pin
+the minor version if you import rebrew as a library. The full compatibility
+policy is in [CONTRIBUTING.md](../CONTRIBUTING.md#versioning-and-releases).

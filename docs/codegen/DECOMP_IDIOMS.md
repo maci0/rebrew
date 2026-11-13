@@ -1,11 +1,12 @@
 # Decomp Project Idioms: codegen cheat-sheet
 
-For each idiom a decomp project actually matches (probes 19-20): the C
+For each idiom a decomp project actually matches (probes 19-30): the C
 shape, the per-version signature (VC 6.0 /O2 unless noted), and what
 to look for in the disassembly.  The machine-readable bytes are in
-[codegen_corpus.json](../../src/rebrew/codegen_corpus.json) (probes 19-20); verified across MSVC
-2.0-11.0 at /O2 and /O1 + SPs plus bcc32/Watcom/GCC/Zig and the
-16-bit set.  "Version-agnostic" = the idiom cannot fingerprint the
+[codegen_corpus.json](../../src/rebrew/codegen_corpus.json) (probes 19-30); the probe 19-20 rows are verified across the
+corpus's MSVC versions 2.0-11.0 (no 4.0/4.2 rows) at /O2 and /O1 + SPs plus
+bcc32/Watcom/GCC/Zig, and the 16-bit MSVC 1.52 and Turbo C 3.1 at /O1 (MSVC 1.0,
+1.5 and Turbo C 2.0 have no probe 19-20 rows).  "Version-agnostic" = the idiom cannot fingerprint the
 version (useful: it means the shape is reliable regardless of MSVC
 era).
 

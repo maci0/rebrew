@@ -1,6 +1,7 @@
 # CI integration
 
-Suggested gates for reverse-engineering workspaces that use rebrew.
+This repo's own CI pipeline, then suggested gates for reverse-engineering
+workspaces that use rebrew.
 
 ## Package CI (this repo)
 
@@ -46,8 +47,9 @@ contributor and prints the PATH line for the directory it installed into, so a l
 `make test` can run the gate instead of skipping it; `make doctor` reports
 a missing `vnu` and `make test` warns. The pre-commit hook-parity job runs `make check` with
 the two ruff hooks and the mypy hook skipped, since the lint job runs them; it installs
-shellcheck and yamllint first through `tools/ci_apt_install.sh`, so the shell
-and YAML hooks are enforced there; the SKILL.md command validator
+shellcheck and yamllint first through `tools/ci_apt_install.sh`, and biome
+through `tools/ci_install_biome.sh`, so the shell, YAML and dashboard-JS hooks
+are enforced there; the SKILL.md command validator
 `tools/validate_skill_commands.py` runs there too, so a flag a skill
 documents but the CLI no longer accepts fails the job.
 
@@ -128,7 +130,7 @@ The lint job also runs
 `make audit` (`uv audit --locked`; diskcache's unfixed pickle advisory is
 `--ignore-until-fixed` until upstream ships a fix). Every job installs uv
 through the local composite action `.github/actions/uv-env`, which holds the
-one `uv-version` / `python-version` / `resembl-ref` pin set both workflows
+one `uv-version` / `python-version` / `resembl-ref` / `resembl-sha` pin set both workflows
 share (commit-SHA-pinned `setup-uv` / `checkout` Actions; Dependabot scans the
 action's directory as well as `.github/workflows/`).
 Lint, pre-commit, package, cli-contract, and toolchain-sync pin the exact
@@ -252,7 +254,7 @@ id, with the `test` matrix expanded per entry, so the required contexts are
 | `jobs-service` | Go formatting, vet, and race tests using a SHA-256 verified Go release; Docker and real-peer tests require separate fixtures |
 | `lint` | ruff, ruff format, mypy, `uv audit` |
 | `test` | the full suite on Python 3.15 under the coverage floor, fixture freshness, idempotency sweep, W3C validation of the HTML surfaces |
-| `pre-commit` | hook parity, including shellcheck and yamllint |
+| `pre-commit` | hook parity, including shellcheck, yamllint and biome |
 | `package` | reproducible sdist/wheel/SBOM/buildinfo, smoke install, sdist member diff, SBOM |
 | `cli-contract` | the public `--help` surfaces |
 

@@ -22,21 +22,11 @@ guard.
 Conventions (`tests/test_cli_contract.py` and CLI review flag drift):
 
 - `TargetOption` + `require_config()`: never build config manually.
-- Param order: `--json` before `--target`, both last. Batch tools put
-  `--all-targets` after `--target`.
-- Selection flags (`--all`, `--all-targets`, `--source-targets`) reuse
-  `all_items_option`, `AllTargetsOption` and `SourceTargetsOption`, each with
-  one meaning.
-- Exact help strings: `--json` → `"Output results as JSON"`,
-  `--dry-run` → `"Preview changes without writing"`.
-- `--help/-h` works at every depth. Shared options go in the Project
-  (root/target), Output (JSON/previews/destinations) and Global options
-  (version/verbosity) panels; task-specific options keep their domain panels.
+- Param order, selection-flag helpers, exact help strings, help panels, output
+  and `error_exit`: [CLI conventions](../AGENTS.md#cli-conventions).
 - Group landing pages stay concise: a clear purpose, copyable examples, and
   accurate preview/write behavior. Do not advertise parent flags removed when
   an operation became a subcommand.
-- `console.print()` for humans; raw `print()` only for piped data.
-- `error_exit(msg, json_mode=json_output)` for failures.
 - A "how many rows" option (`--count`, `--limit`, `--top`) runs through
   `require_non_negative(value, "--count", json_mode=json_output)`. Without it
   a negative bound reaches the slice and returns a tail under exit 0; 0 stays
@@ -65,13 +55,12 @@ callable component can supply `epilog`. Default `needs` are `cli` and
 [tutorial](CORDIS_TUTORIAL.md) for a complete lifetime. Do not add a parallel
 dispatcher or a compatibility alias.
 
-Leave `pyproject.toml` `[project.scripts]` alone. People use one executable,
-`rebrew`; CMake/objdiff hooks also run as subcommands
-([ADR 027](adr/027-build-hooks-under-umbrella.md)). `main_entry()` supports
+Leave `pyproject.toml` `[project.scripts]` alone ([CLI conventions](../AGENTS.md#cli-conventions)). `main_entry()` supports
 direct module execution for development, not another installed executable.
 
 Third-party commands skip this step: they register through the
-`rebrew.commands` entry-point group and are discovered at startup
+`rebrew.commands` (callables) or `rebrew.multicommands` (Typer groups)
+entry-point group and are discovered at startup
 (`plugin.entry_point_components`). A name colliding with a built-in is
 ignored with a warning: built-ins win.
 
@@ -84,9 +73,8 @@ ignored with a warning: built-ins win.
 - Agent skill: name the command in a `SKILL.md` or `references/*.md`
   under `src/rebrew/agent-skills/`, or add the carve-out to
   `_SKILL_OUT_OF_SCOPE` in `tests/test_docs_hygiene.py` with a reason.
-  Then run `make gen-skills` (renders `src/rebrew/agent-skills` into
-  `.agents/skills` with target substitution via `tools/render_skills.py`;
-  tested by `tests/test_render_skills.py` and `tests/test_skills_sync.py`).
+  Then regenerate the rendered copies
+  ([generated surfaces](STYLE.md#maintain-the-generated-surfaces)).
 - Moving an existing route: update its CLI reference, canonical skills and
   rendered copies, generated callers, and [migration guidance](CLI_MIGRATION.md)
   together.

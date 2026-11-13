@@ -25,7 +25,8 @@ owns compiler/platform support.
 
 ## Quick Start
 
-Use Python 3.15+ and Linux x86_64 with Docker for shipped compiler profiles.
+Use Python 3.15+ and Linux x86_64 with Docker (default) or Podman for shipped
+compiler profiles.
 Wine, DOSBox, and native compiler runtimes live inside their images; missing
 images require `rebrew toolchain pull <profile>` or an authorized build from
 [recompile-toolchains](https://github.com/maci0/recompile-toolchains).
@@ -60,7 +61,7 @@ BinSync needs the `binsync` extra; combine extras as `rebrew[prove,binsync]`
 when using both. Contributor checkouts use `make setup`.
 
 `intake` does not run library detection or build coverage documents. Continue
-with the [onboarding guide](https://github.com/maci0/rebrew/blob/main/docs/ONBOARDING.md).
+with [Getting started](https://github.com/maci0/rebrew/blob/main/docs/GETTING_STARTED.md#3-check-the-projects-health).
 Project commands find `rebrew-project.toml` by walking up from the working directory;
 standalone binary inspection commands can accept a binary path.
 
@@ -140,36 +141,25 @@ checked before installation. Free-threaded Python and musl are not qualified. Th
 needs a JDK and Apache Ant on PATH to build JPype 1.7.1 on Python 3.15
 (qualified with OpenJDK 27 and Ant 1.10.18).
 
-A clean clone needs **uv**, **Python 3.15+** (`.python-version`), **nasm**,
-**bun** `1.4.4` (`BUN_VERSION` in the `Makefile`), a **Rust toolchain**
-(**cargo** + **rustc**; `make setup` builds `python-flirt` from its sdist),
-**bash**, **cc**, **pkg-config** and **json-c** development files
-(`build-essential pkg-config libjson-c-dev` on Debian/Ubuntu), and a sibling
-[`resembl`](https://github.com/maci0/resembl) checkout at
-`../resembl` (tag `v5.2.0`; `make setup` also requires its `HEAD` to be the
-`RESEMBL_SHA` commit). [`CONTRIBUTING.md`](https://github.com/maci0/rebrew/blob/main/CONTRIBUTING.md)
-says which gate needs each one and which only warn; `make help` lists targets.
-Run the following from the directory that will hold both checkouts:
+A contributor checkout also needs a sibling
+[`resembl`](https://github.com/maci0/resembl) checkout at `../resembl`
+(tag `v5.2.0`) and the host tools listed in
+[CONTRIBUTING.md](https://github.com/maci0/rebrew/blob/main/CONTRIBUTING.md#bootstrap-clean-clone),
+which also says which gate needs each one. From the directory that will hold
+both checkouts:
 
 ```bash
 git clone https://github.com/maci0/rebrew.git
 cd rebrew/
-make doctor                # report every missing prerequisite (uv, ../resembl, bash, nasm,
-                           # bun, JDK/ant, go, patch, rust, cc/pkg-config/json-c, shellcheck, yamllint, vnu, venv extras)
-                           # with the fix for each; read-only, and exits non-zero only for a
-                           # host tool the two steps below cannot install
-make clone-resembl         # clone sibling resembl pin (tag v5.2.0) into ../resembl
+make doctor                # report every missing prerequisite and its fix (read-only)
+make clone-resembl         # clone the pinned resembl into ../resembl
 make setup                 # uv sync --locked --all-extras --group similarity + pre-commit hooks
-make add-dep ADD_DEP_SPEC=<spec>  # add a dependency (wraps `uv add`; prints the license-table step)
 make test-one T=tests/test_annotation_roundtrip.py   # single-file edit-test loop
-make test                  # full suite (needs nasm, bun, patch, and cc/pkg-config/json-c)
-make lint                  # ruff check (same as CI)
-make format                # ruff format (writes)
-make all                   # local gates: format-check, lint, mypy, audit, coverage, gen-fixtures-check, gen-skills-check, cycles-check, layering-check, idempotency-check, cli-contract, jobs-check
-make check                 # pre-commit hook parity (before a PR)
-make build                 # sdist + wheel + dist/rebrew.buildinfo (CI package job)
-make clean                 # remove build/dist artifacts and caches
+make test                  # full suite
+make pr-check              # the local CI gates, before a pull request
 ```
+
+`make help` lists the contributor targets.
 
 Flag-axis refresh from decomp.me (maintainer, needs network):
 `make gen-flags` (`FLAGS_REF=<commit-or-tag>` to sync a pinned ref instead of the

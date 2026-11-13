@@ -10,7 +10,7 @@ percentage of bytes match today" with caching so it's cheap to ask, and
 guard against regressions when changes ship.
 
 > **Scope:** behavior spec (CLI contracts, goals, metrics) for `verify` /
-> `status` / `graph` / `cache` / `round-trip`.  For the coverage document's
+> `status` / `source graph` / `cache` / `build round-trip`.  For the coverage document's
 > fields see
 > [../COVERAGE_DOCUMENT.md](../COVERAGE_DOCUMENT.md).
 
@@ -27,7 +27,7 @@ Once a project has more than a handful of functions, the user needs:
 - A regression detector for CI ("PR turns 3 EXACT → NEAR_MATCHING").
 - A dependency graph that shows how reversed functions connect.
 
-PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
+PRD 05 collects these into `verify`, `status`, `source graph`, and `cache`.
 
 ## Users
 
@@ -63,8 +63,8 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 - `graph` does not run dataflow analysis; direct call edges come from
   identifiers found in reversed source files, optionally augmented with
   binary-derived edges (`--include-dispatch`, `--from-binary`).
-- `cache` does not manage other on-disk artifacts (e.g. `db/coverage-<target>.toml`
-  belongs to PRD 02). It only handles `.rebrew/compile_cache/`.
+- `cache` does not manage other on-disk artifacts (e.g. the `coverage-<target>.toml` that
+  `rebrew coverage export --output` writes belongs to PRD 02). It only handles `.rebrew/compile_cache/`.
 - Coverage in `status` is computed from source bindings and dedicated metadata,
   not from a live recompile (use `verify` for that).
 

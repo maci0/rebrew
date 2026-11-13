@@ -1,4 +1,4 @@
-"""Experimental rootless image runner for explicitly opted-in verification.
+"""Experimental rootless image runner, used when ``execution_backend = "unshare"``.
 
 Docker prepares an immutable local image once. Compiler invocations use the
 packaged native namespace helper and a disposable rootless overlay. This is a

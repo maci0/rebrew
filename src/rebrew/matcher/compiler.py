@@ -124,7 +124,7 @@ def _map_symbol_re(symbol: str) -> re.Pattern[str]:
 # _merged_flag_sets below).
 _PACKAGED_FLAGS_MAP: dict[str, Flags] = {
     "msvc": COMMON_MSVC_FLAGS,
-    "msvc-7.0": COMMON_MSVC_FLAGS,  # legacy 7.0 profile — cl 13.10.3077 (the 7.1 build)
+    "msvc-7.0": COMMON_MSVC_FLAGS,  # VC 7.0 RTM, cl 13.00.9466 (same source as msvc-7.0-rtm)
     "msvc-7.0-rtm": COMMON_MSVC_FLAGS,
     "msvc-7.1": COMMON_MSVC_FLAGS,
     "msvc-8.0": COMMON_MSVC_FLAGS,

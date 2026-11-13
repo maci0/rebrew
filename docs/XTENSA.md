@@ -75,8 +75,8 @@ inline-C stub would add a prologue and epilogue. Recover plain C instead.
 `tests/test_xtensa.py` covers ELF/config detection, real stock CALL8/L32R
 encodings, exact resolved output, wrong-callee and adjacent-byte controls,
 zero-address bindings, explicit addends, jump-range endpoints, malformed RELA
-entries, and unsupported forms. A real XCC 14.04 assembly/link probe also
-reproduced CALL8 and L32R bytes through Rebrew's compile-and-compare API. The
+entries, and unsupported forms. Manual runs (not reproduced by the test suite, which mocks the native tools):
+a real XCC 14.04 assembly/link probe reproduced CALL8 and L32R bytes through Rebrew's compile-and-compare API. The
 recovered stock `fls` source matches all 95 bytes through the native linker,
 including its bundled conditional branches; native disassembly covers every
 byte of that same stock window. A recovered startup `main` also matches all 28

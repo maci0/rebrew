@@ -1,9 +1,8 @@
 """app/main.py — umbrella CLI entry point for rebrew.
 
 The ``rebrew`` app is composed from components.  Every built-in tool is a
-:class:`rebrew.app.plugin.CliComponent` in :data:`rebrew.app.builtins.BUILTIN_COMPONENTS`
-;
-third-party components come from the ``rebrew.commands`` and
+:class:`rebrew.app.plugin.CliComponent` in
+:data:`rebrew.app.builtins.BUILTIN_COMPONENTS`; third-party components come from the ``rebrew.commands`` and
 ``rebrew.multicommands`` entry-point groups.  Both mount through the same
 :func:`rebrew.app.plugin.activate` call, so built-ins hold no privileged path and a
 component's declared service dependencies decide activation order.

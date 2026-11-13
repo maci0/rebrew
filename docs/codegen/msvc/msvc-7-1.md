@@ -3,7 +3,7 @@
 MSVC 7.1 (VS .NET 2003, CL 13.10.3077; SP1 = 13.10.6030).  The last pure
 x87 MSVC of the .NET era; codegen-identical to 7.0 for the probe.
 
-**Profiles:** `msvc-7.0`, `msvc-7.1`, `msvc-7.1-sp1`; Rich builds 3077
+**Profiles:** `msvc-7.1`, `msvc-7.1-sp1`; Rich builds 3077
 (RTM), 6030 (SP1); linker 7.10.
 
 ## Prologue & frame pointer

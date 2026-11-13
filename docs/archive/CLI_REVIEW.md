@@ -11,7 +11,7 @@ entries, 150 routes including the root and groups, and 139 distinct callbacks**.
 All 150 help and 150 version invocations returned exit 0. Third-party extension APIs remain
 subject to the existing [component registration contract](../CLI.md#component-registration-plugins).
 
-The current CLI has **33 root entries and 225 surfaces**, including the root,
+The 2026-10-14 pass recorded **33 root entries and 225 surfaces**, including the root,
 32 groups, and 195 distinct callbacks. The earlier organization pass produced
 196 routes; the original route disposition below records that historical pass.
 The accepted organization is [ADR 028](../adr/028-cli-domains-and-explicit-operations.md).

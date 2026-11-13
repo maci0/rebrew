@@ -17,55 +17,39 @@ compared byte for byte against the target binary.
 
 ## Bootstrap (clean clone)
 
-Needs **uv** (CI pins `uv-version` in `.github/actions/uv-env/action.yml`,
-currently `0.13.6`), **Python 3.15+** (see `.python-version`), **nasm** on `PATH`
-(CI installs nasm for asm round-trip tests), and **bun** `1.4.4` on `PATH` (CI
-pins `bun-version` in `.github/workflows/ci.yml`; `BUN_VERSION` in the
-`Makefile` mirrors it and warns on drift; the
-`tests/dashboard_*.mjs` interaction tests skip without it, so a host with no
-bun cannot run the dashboard JS exercised by CI; `make test` fails on a
-missing bun, while `make test-one` only warns). Native runner tests also need
-**cc**, **pkg-config** and **json-c development files**; on Debian/Ubuntu install
-`build-essential pkg-config libjson-c-dev`. `make test`, `make coverage` and
-`make doctor` check these before running the suite; `ensure-unshare-build` also
-probes `unshare --user --map-root-user true` (the same probe CI runs after
-relaxing AppArmor's `kernel.apparmor_restrict_unprivileged_userns`) and warns
-when namespaces are denied, instead of letting the native tests skip silently.
-The `binsync` extra
-(`declib` → `pyghidra` → `jpype1`, sdist-only in `uv.lock`) also needs a **JDK
-and Apache Ant** on `PATH` (plus `cc`/`make`) so CPython 3.15 can build JPype
-1.7.1 from source; CI installs `ant default-jdk build-essential` before
-`uv sync`, and `make setup` fails closed naming that prerequisite instead of
-dying inside the build. `make setup` also needs a **Rust toolchain**
-(**cargo** + **rustc**, qualified with Rust 1.99.1 and maturin 1.15.0; see
-README Development): `python-flirt` ships sdist-only in `uv.lock`, so the
-sync compiles it from source, and without cargo it fails inside the build.
-`make jobs-check` needs **Go** (`GO_VERSION` pin in
-the `Makefile`, matching `services/jobs/go.mod` and CI), and the vendor tests
-and `rebrew library vendor` need **GNU patch** (CI installs it in the test
-job); `make doctor` reports both.
-`make clone-resembl` also needs
-**bash**: it runs `tools/ci_clone_resembl.sh`, and the target says so instead of
-printing `bash: not found`.  **shellcheck** is optional locally
-but not in CI: the pre-commit shell hook exits 0 without the binary, so
-`make check` on a host without it can pass where CI's pre-commit job (which
-installs shellcheck) fails; `make check` warns when it is missing.  The W3C
-validator **vnu** is optional locally for the same reason: `tests/html_validate.py`
-skips the dashboard shell and the generated report pages without it, the CI test
-job installs it, and `make test` / `make coverage` warn when it is missing.
-`make vnu` installs the pinned archive (the same helper and the same sha256 the
-CI job uses) into `~/.cache/rebrew/vnu` and prints the `export PATH=` line to
-eval.  `uv sync` also
-needs the sibling
-[`resembl`](https://github.com/maci0/resembl) checkout at `../resembl`: the
-path pin in `pyproject.toml` / `uv.lock` (tag `v5.2.0`, same as CI's
-`resembl-ref`).  Without it, sync fails with a cryptic “Distribution not found”
-path error; `make setup` fails closed if `uv` is missing, if `../resembl`'s
-`version` does not match `RESEMBL_REF`, or if that checkout's `HEAD` is not
-`RESEMBL_SHA` (the commit CI's `resembl-sha` pin requires; a moved tag keeps
-the version string and still fails here).  It warns (still continues) when `uv`
-is older than `UV_VERSION`, and when `../resembl` is not a git checkout so the
-commit cannot be checked.
+`make doctor` checks every prerequisite below except Python (uv selects it
+from `.python-version`) at once and prints the fix for
+each. It is read-only. It reports the two items the next bootstrap steps
+install (`../resembl` and the venv extras) separately from host tools, so on a
+clean clone it exits 0 and names `make clone-resembl` / `make setup` as the
+next step; it exits non-zero only for a missing uv, bash, nasm, bun,
+cc/pkg-config/json-c, JDK/Ant, Rust, Go or patch. A version drift or a
+missing optional tool prints a CHECK line and still exits 0.
+Each check still guards its own target: a missing nasm fails `make test`
+whether or not `make doctor` ran.
+
+| Prerequisite | Pin | Needed by | Without it |
+|--------------|-----|-----------|------------|
+| **uv** | `UV_VERSION` (`0.13.6`, CI's `uv-version` in `.github/actions/uv-env/action.yml`) | every target that runs `uv run` | fails with `ERROR: uv not on PATH`; an older uv warns |
+| **Python 3.15+** | `.python-version` | everything | |
+| sibling [`resembl`](https://github.com/maci0/resembl) at `../resembl` | `RESEMBL_REF` (tag `v5.2.0`, CI's `resembl-ref`) and `RESEMBL_SHA` | `uv sync` (path pin in `pyproject.toml` / `uv.lock`) | `make setup` fails if its `version` is not `RESEMBL_REF` or its `HEAD` is not `RESEMBL_SHA` (a moved tag keeps the version string and still fails); warns when it is not a git checkout; a bare `uv sync` fails with a "Distribution not found" path error |
+| **bash** | | `make clone-resembl` (`tools/ci_clone_resembl.sh`) | fails, naming bash |
+| **nasm** | | asm round-trip tests | fails `make test` / `make coverage`; `make test-one` and `make setup` warn |
+| **bun** | `BUN_VERSION` (`1.4.4`, CI's `bun-version` in `.github/workflows/ci.yml`) | `tests/dashboard_*.mjs` interaction tests | fails `make test` / `make coverage`; `make test-one` and `make setup` warn; a different version warns |
+| **cc**, **pkg-config**, **json-c** development files | | native runner tests (`build-essential pkg-config libjson-c-dev` on Debian/Ubuntu) | fails `make test` / `make coverage`; `make test-one` and `make setup` warn |
+| **JDK**, **Apache Ant**, cc/make | | JPype 1.7.1 sdist build for the `binsync` extra (`declib` → `pyghidra` → `jpype1`) | `make setup` fails naming it instead of dying in the build; CI installs `ant default-jdk build-essential` |
+| **Rust** (cargo + rustc) | `RUST_VERSION` (`1.99.1`, `rust-toolchain.toml`), maturin `1.15.0` | `python-flirt` sdist build in `make setup` (sdist-only in `uv.lock`) | `make setup` fails naming it; another rustc or maturin version warns |
+| **Go** | `GO_VERSION` (matches `services/jobs/go.mod` and CI) | `make jobs-check` | fails `make jobs-check`; `make setup` warns |
+| **GNU patch** | | vendor tests, `rebrew library vendor` | fails `make test` / `make coverage`; `make test-one` and `make setup` warn |
+| **shellcheck**, **yamllint** | | pre-commit shell and YAML hooks | warns: the hooks exit 0 locally, so `make check` can pass where CI's pre-commit job fails |
+| **biome** | `tools/ci_install_biome.sh` | pre-commit dashboard-JS hook | warns, same shape; `make biome` installs the pin |
+| **vnu** (W3C validator) | `tools/ci_install_vnu.sh` | `tests/html_validate.py` (dashboard shell, report pages) | warns: the tests skip, CI runs them; `make vnu` installs the pin into `~/.cache/rebrew/vnu` |
+| venv `prove` extra and `similarity` group | | `make mypy`, `make test`, `make coverage` | those targets fail naming the fix; `make test-one` warns |
+
+`ensure-unshare-build` also probes `unshare --user --map-root-user true` (the
+probe CI runs after relaxing AppArmor's
+`kernel.apparmor_restrict_unprivileged_userns`) and warns when namespaces are
+denied, instead of letting the native tests skip silently.
 
 ```bash
 # from the directory that will hold both checkouts:
@@ -75,46 +59,24 @@ make doctor                   # report every missing prerequisite, with the fix 
 make clone-resembl            # clones sibling resembl pin (tag v5.2.0) into ../resembl
 make setup                    # uv sync --locked --all-extras --group similarity + pre-commit/pre-push hooks
 make vnu                      # optional: the W3C HTML gate skips without it, CI runs it
+make biome                    # optional: the dashboard-JS hook skips without it, CI runs it
 make test-one T=tests/test_annotation_roundtrip.py   # smoke the edit-test loop
 ```
 
-`make doctor` is read-only and runs every preflight the other targets use (uv
-and its version, the sibling `../resembl` checkout, bash, nasm, bun, JDK/ant,
-go, patch, rust, shellcheck,
-yamllint, vnu, cc/pkg-config/json-c, and
-the `prove` extra / `similarity` group in `.venv`), so a host missing several of
-them sees all of them at once instead of one failed target at a time.  It
-separates the two that the next two bootstrap steps install (`../resembl` and
-the venv extras) from a host tool the bootstrap cannot install, so on a clean
-clone it exits 0 and prints `make clone-resembl` / `make setup` as the next
-step, and it exits non-zero only for a missing uv, bash, nasm, bun, JDK/ant,
-go, patch, rust or native
-runner build prerequisites. Every line still prints its own fix. The
-checks still guard their own targets: a missing nasm surfaces at `make test`
-whether or not `make doctor` was run.
+`make vnu` and `make biome` print an `export PATH=` line to eval.
 
 `make setup` installs the `prove` extra and the `similarity` group. Those
 pull the attributed components named in [`NOTICE`](NOTICE) (`pyvex`/LibVEX,
 `OLDAP-2.8` lmdb, and GPL-3.0-only `resembl`). Rebrew's own source stays under
 [`LICENSE`](LICENSE).
 
-`make setup` is what puts the `prove` extra in `.venv`, and that is what
-`make mypy` type-checks against: a bare `uv sync` never installs optional
-extras, and without angr every `angr`/`claripy` reference collapses to `Any`
-(unknown `SimProcedure` base, `import-not-found`, unused `type: ignore`).
-The `similarity` group (`rapidfuzz`, `resembl`) is the same class of gap:
-`src/rebrew/matcher/scoring.py` imports both, and both ship type
-information, so without them mypy reports `import-not-found` there. `make
-mypy` checks for both before running and names the fix instead of printing
-the cascade; the same check runs in the pre-commit `mypy` hook. `make test`
-and `make coverage` run the same preflight for the same reason on the other
-gate: those tests skip without the groups, so a venv that never saw `make
-setup` would report a green suite that never exercised the code CI's test job
-runs. `make test-one`
-only warns, like its nasm and bun checks, so an unrelated file stays
-runnable. Every target that
-shells out to `uv run` likewise fails with `ERROR: uv not on PATH` rather than
-a bare `uv: not found`.
+The extras matter to the gates: a bare `uv sync` never installs them. Without
+angr, `make mypy` sees every `angr`/`claripy` reference as `Any` (unknown
+`SimProcedure` base, `import-not-found`, unused `type: ignore`); without
+`rapidfuzz`/`resembl`, it reports `import-not-found` in
+`src/rebrew/matcher/scoring.py`. The tests using them skip, so `make test`
+would report a green suite that never ran the code CI's test job runs. The
+pre-commit `mypy` hook runs the same check.
 
 ## Adding a dependency
 
@@ -138,42 +100,15 @@ in `tests/test_packaging.py` fails the suite listing every distribution left
 
 ## Quick commands
 
+`make help` lists the contributor targets with a one-line description and the
+bootstrap steps; it is the one list to keep current. The edit-test loop:
+
 ```bash
-make help                     # list contributor make targets
-make doctor                   # report every missing prerequisite (uv, ../resembl, bash, nasm, bun, JDK/ant, go, patch, rust, cc/pkg-config/json-c, shellcheck, yamllint, vnu, venv extras)
-make clone-resembl            # clone sibling resembl pin into ../resembl (required for uv sync)
-make vnu                      # install the pinned W3C HTML validator and print the PATH line for it
-make setup                    # locked sync (extras + similarity) + pre-commit install (checks uv + ../resembl first)
-make add-dep ADD_DEP_SPEC=<spec>  # add a dependency (wraps `uv add`; prints the license-table step)
-make clean                    # remove build/dist artifacts and caches
-make test-one T=tests/test_annotation_roundtrip.py  # single file / nodeid (fast edit-test loop; defaults to test_annotation_roundtrip.py)
-make test-one T=tests/test_annotation_roundtrip.py FLAGS="-k roundtrip"  # narrow further with any pytest flag
-make test-one T=tests/test_dashboard.py::TestSummaryRequests   # one class
-make test                     # full suite (a few minutes; needs nasm + bun + cc/pkg-config/json-c + patch + the setup extras, warns without vnu)
-make coverage                 # full suite under slipcover; fails below COV_FLOOR (CI test job, 3.15)
-make lint                     # ruff check .
-make format                   # ruff format (writes)
-make format-check             # ruff format --check
-make mypy                     # mypy type check (matches CI lint job)
-make audit                    # uv audit --locked --ignore-until-fixed PYSEC-2026-2447 (matches CI lint job)
-make check                    # pre-commit hook parity (CI pre-commit job)
-make build                    # reproducible sdist+wheel + dist/rebrew.buildinfo (CI package job)
-make sbom                     # CycloneDX 1.5 JSON from uv.lock (offline)
-make cli-contract             # high-value --help greps (CI cli-contract job)
-make jobs-check               # Go jobs service: gofmt -l, go vet ./..., go test -race ./... (CI jobs-service job)
-make all                      # local mirror of CI lint+test+cli-contract+jobs-service gates
-make pr-check                 # full local CI verification (all + check + build + sdist-check + smoke-wheel + build-repro + verify-dist + sbom)
-make sdist-check              # build a wheel from the sdist, diff it against dist/*.whl
-make build-repro              # rebuild HEAD under .scratch/ at another path/mode/TZ/locale, diff the hashes (clean tree)
-make smoke-wheel              # install dist/*.whl into .venv-pkg and smoke-import it
-make gen-fixtures             # regenerate tests/fixtures/ after editing tools/gen_fixtures.py
-make gen-fixtures-check       # fixtures still match the generator
-make gen-skills               # regenerate .agents/skills/ after editing src/rebrew/agent-skills/
-make gen-skills-check         # rendered .agents/skills/ match the packaged source
-make cycles-check             # module-level import cycles (also runs in make check)
-make layering-check           # wrong-direction imports (also runs in make check)
-make idempotency-check        # every --json command run twice (CI test job)
-make release-check            # version/changelog/tag preflight before tagging
+make test-one                                              # defaults to tests/test_annotation_roundtrip.py
+make test-one T=tests/test_annotation_roundtrip.py FLAGS="-k roundtrip"  # narrow with any pytest flag
+make test-one T=tests/test_dashboard.py::TestSummaryRequests              # one class
+make test                     # full suite, a few minutes
+make all                      # CI lint, test, cli-contract and jobs-service gates; make pr-check adds the rest
 ```
 
 ## Documentation, templates, and skills

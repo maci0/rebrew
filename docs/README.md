@@ -5,7 +5,7 @@
 | Document | Description |
 |----------|-------------|
 | [GETTING_STARTED.md](GETTING_STARTED.md) | Start here (humans): the mental model, a first-binary walkthrough, the core loop |
-| [ONBOARDING.md](ONBOARDING.md) | First-run walkthrough: binary → intake → doctor → first match (incl. manual discovery) |
+| [ONBOARDING.md](ONBOARDING.md) | First-run companion: init wizard, what intake automates, doctor fixes, first-run errors, 16-bit targets, manual discovery |
 | [WORKFLOW.md](WORKFLOW.md) | Full iteration loop: test, diff, match, prove, verify; multi-binary; JSON / CI |
 | [CORDIS_TUTORIAL.md](CORDIS_TUTORIAL.md) | Runnable component walkthrough: dependency gating, provider replacement, and owned teardown |
 | [CODEGEN_PATTERNS.md](CODEGEN_PATTERNS.md) | MSVC6 codegen patterns table, SEH helpers, C89 rules, matching idioms |
@@ -24,7 +24,7 @@
 | [ANNOTATIONS.md](ANNOTATIONS.md) | Dedicated function (format 3) and data (format 2) identities (`MODULE.0xVA`), optional ADDRESS anchors, library provenance, and lint diagnostics |
 | [METADATA_FORMAT.md](METADATA_FORMAT.md) | TOML metadata files (`rebrew-functions.toml`, `rebrew-data.toml`): volatile fields, status lifecycle |
 | [METADATA.md](METADATA.md) | The full store map: canonical vs derived vs cache tiers, who owns which fact, precedence rules |
-| [MATCH_TYPES.md](MATCH_TYPES.md) | EXACT / RELOC / NEAR_MATCHING / PROVEN / SKIP: byte-level examples and relocation masking |
+| [MATCH_TYPES.md](MATCH_TYPES.md) | EXACT / RELOC / NEAR_MATCHING / STUB / PROVEN / SKIP: byte-level examples and relocation masking |
 | [RECCMP_ADAPTATIONS.md](RECCMP_ADAPTATIONS.md) | reccmp-adapted modules: pinned diff, asm equivalences, vtordisp, float consts |
 | [GA_MUTATIONS.md](GA_MUTATIONS.md) | All 128 GA mutation operators: categories, rationale, discovery origins |
 | [FLAG_SWEEP_TIERS.md](FLAG_SWEEP_TIERS.md) | MSVC6 flag-sweep tiers (quick/targeted/normal/thorough/full): axes and combination counts |
@@ -36,7 +36,7 @@
 | [OMF_NOTES.md](OMF_NOTES.md) | OMF object format research (Watcom wcc386 32-bit + MSVC 1.52 16-bit dialects, reloc decoding) |
 | [POSTLINK.md](POSTLINK.md) | `rebrew build postlink`: post-link layout normalization of a built binary onto a reference, text-only layout package from `rebrew build layout` |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Module map, data flow, metadata routing rules, architectural conventions |
-| [CI.md](CI.md) | CI pipeline: lint/test/package/cli-contract jobs, gates, reproducibility |
+| [CI.md](CI.md) | CI pipeline: jobs, merge gates, reproducibility |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Developer workflow |
 | [PERFORMANCE.md](PERFORMANCE.md) | Performance notes and hot paths ([PERFORMANCE_TEN_HOTPATHS.md](PERFORMANCE_TEN_HOTPATHS.md), [PERFORMANCE_6_6_0.md](PERFORMANCE_6_6_0.md), [PERFORMANCE_6_7_0.md](PERFORMANCE_6_7_0.md)) |
 | [STYLE.md](STYLE.md) | Documentation style: one-home-per-fact, slop checklist |

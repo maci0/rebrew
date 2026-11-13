@@ -32,7 +32,7 @@ and libraries:
 
 | Repository | URL | Coverage |
 |------------|-----|----------|
-| **Maktm/FLIRTDB** | [github.com/Maktm/FLIRTDB](https://github.com/Maktm/FLIRTDB) | MSVC, Borland, MinGW, Lua, etc. Has VC6 signatures |
+| **Maktm/FLIRTDB** | [github.com/Maktm/FLIRTDB](https://github.com/Maktm/FLIRTDB) | MSVC, Borland, MinGW, Lua, etc. No VC6-named signature files in its tree (filename search of all 596 paths at commit `c0889810`, `gh api repos/Maktm/FLIRTDB/git/trees/c0889810e6ec8aea58d9793fbfd3518f6126b8c9?recursive=1`, 2026-11-13); build VC6 signatures from the matching `.lib` with `rebrew library signatures` |
 | **push0ebp/sig-database** | [github.com/push0ebp/sig-database](https://github.com/push0ebp/sig-database) | Broad MSVC coverage (VC12+) |
 | **Mandiant/siglib** | [github.com/mandiant/siglib](https://github.com/mandiant/siglib) | FLARE team sigs, strong on malware-adjacent CRTs |
 

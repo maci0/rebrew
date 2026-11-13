@@ -24,7 +24,7 @@ acceptance checks stay with their projects. Reusable operations belong here.
 | Run reachability, arity and switch experiments | Holiday `reach_*`, `arity_probe.py`, `switch_sweep.py`, `byte_match.py` | Migrate compiler/parser dependencies; retain experiment policy and measured receipts |
 | Audit generated documents and reconstruction | Holiday `audit_*`, `converge.py`, `verify.sh`, `progress.sh` | Retain project-specific acceptance and generation orchestration |
 | Generate linker game anchors | Guild `scripts/gen_game_includes.py` | Implemented `build anchors`; exact 251-function/34-data response-file parity; old generator retired |
-| Force native import ordering | Guild `scripts/gen_import_includes.py` | Retained local load-order recipe; public import API now exposes hint/name RVA; caller patch proven byte-identical, pending a released package containing the field |
+| Force native import ordering | Guild `scripts/gen_import_includes.py` | Retained local load-order recipe; public import API exposes hint/name RVA (released since v5.4.0); caller patch proven byte-identical |
 | Emit exact BSS layout | Guild `scripts/gen_bss_layout.py` | Audit against existing data/header/layout tools; preserve game/CRT allocation ownership |
 | Read native link/archive timestamps | Guild `scripts/native_timestamps.py` | CMake consumes `binary pe` JSON; independent configure passes; old parser retired |
 | Gate and summarize project objectives | Guild `gate.sh`, `verify_objective.py`, `update_state_table.py`, `wine_load_check.sh` | Retain independent acceptance and project-specific orchestration |
@@ -66,8 +66,8 @@ server-specific storage recipe. Existing ownership/span APIs are the supported
 general model; this algorithm is not lifted and its emitted storage is not
 changed here. Stock CRT objects remain the storage owners where established.
 
-Rebrew validation passes 11,891 tests (42 optional/integration skips) at 88%
-coverage, plus lint, types, cycles/layering, CLI contracts and fixture drift.
+At the time of this audit, Rebrew validation passed 11,891 tests (42
+optional/integration skips) at 88% coverage, plus lint, types, cycles/layering, CLI contracts and fixture drift.
 Wheel/sdist equivalence, isolated wheel smoke, distribution provenance and the
 116-component SBOM pass. Release validation rebuilds both distributions from a clean HEAD at a different
 path, timezone and file mode before the verified CI artifacts are published.

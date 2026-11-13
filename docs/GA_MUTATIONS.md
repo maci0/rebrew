@@ -32,9 +32,10 @@ Source (.c) ──→ mutate_code(source, rng, track_mutation=True)
                         │
                         ▼
                   score_candidate(candidate_bytes, target_bytes, relocs)
-                  ├─ Normalize relocations and register diffs
+                  ├─ Mask relocation slots, align mnemonics
                   ├─ Byte-level + mnemonic-level similarity
-                  └─ Return Score (lower = better, 0 = perfect)
+                  └─ Return Score (lower = better; exact is 0, or -100 with
+                     the prologue bonus; EXACT_SCORE_THRESHOLD = 0.1)
                         │
                         ▼
                   [Repeat: mutate → compile → score for N generations]
@@ -187,8 +188,8 @@ sequences.
 | `mut_add_redundant_parens` | `x` → `(x)` | Redundant parens should be no-ops but can change AST structure in edge cases |
 | `mut_fold_constant_add` | `a + 1 + 1` → `a + 2` | Constant folding reduces instruction count |
 | `mut_unfold_constant_add` | `a + 4` → `a + 1 + 1 + 1 + 1` | Unfolding may produce different `inc`/`add` sequences |
-| `mut_combine_ptr_arith` | `*(p + i * 4)` → `p[i]` | Combined pointer arithmetic uses `lea` addressing modes |
-| `mut_split_ptr_arith` | `p[i]` → `*(p + i)` | Split forces manual offset calculation |
+| `mut_combine_ptr_arith` | `p = p + 2; p = p + 3;` → `p = p + 5;` | Merging consecutive pointer additions drops an `add`/`lea` |
+| `mut_split_ptr_arith` | `p = p + 6;` → `p = p + 3; p = p + 3;` | Splitting a constant addition can change register choice and scheduling |
 
 ### 9. Pointer & Array Access
 
@@ -395,8 +396,9 @@ linger invisible in the preamble.  File-level pragmas (`pack`, `warning`,
   practice, and `remove_intrinsic` covers the frequent direction.
 
 **Toolchain note**: MSVC 6 accepts all of the above.  mingw-16.2.0 (posix)
-ignores them with a warning: the GA explores them on MSVC targets
-and wastes nothing on posix ones.
+ignores them with a warning. The GA does not filter them by flag style, so on
+posix targets they can still be selected and spend attempts and compiles
+without changing codegen.
 
 ---
 
@@ -410,7 +412,7 @@ the levers that a register-only diff otherwise leaves unreachable.
 | Operator | Transform | MSVC6 Rationale |
 |----------|-----------|-----------------|
 | `mut_ternary_lift_constant` | `p + (c ? K : K)` → `(c) ? (p + K) : (p + K)` | Equal constant arms fold, which kills the byte's liveness and yields the `xor`-form preamble.  Lifting the conditional over the enclosing expression keeps the comparison and the byte live, producing the `and reg,0xff` preamble the reference uses.  Probed: 8 → 10 bytes on a minimal function. |
-| `mut_compare_negate_to_ternary` | `-(a != b)` → `(a != b ? -1 : 0)`, `-(a == b)` → `(a == b ? 0 : -1)` | The negated comparison compiles to `setne` plus `neg`; the ternary spelling reaches the fused `sub`/`neg`/`sbb` compare-and-negate.  Probed: 15 → 12 bytes.  Both forms yield 0 or -1. |
+| `mut_compare_negate_to_ternary` | `-(a != b)` → `(a != b ? -1 : 0)`, `-(a == b)` → `(a == b ? 0 : -1)` | The negated comparison compiles to `setne` plus `neg`; the ternary spelling reaches the fused `sub`/`neg`/`sbb` compare-and-negate.  Probed: 15 → 12 bytes.  The `!=` rewrite preserves the value; the `==` rewrite inverts it (`-(a == b)` is -1 when equal, the ternary 0), so this operator does not preserve what the C computes for `==`. |
 | `mut_walk_in_parameter` | `cur = cursor + 0x14; ... cur = cur + 0x14;` → the same walk written into `cursor` | A local copy is a second live range over one pointer, so MSVC6 spends a callee-saved register on it and rotates every assignment in the function.  Advancing the parameter merges the ranges. |
 | `mut_home_byte_in_param_slot` | `unsigned char b; ... b ...` → `((unsigned char*)&arg)[0 or 1]` | A byte that must survive across a loop has no register home, so it gets a fresh spill dword and the frame grows by four.  A parameter the body no longer reads already owns a dead slot, and its spare bytes are legal homes.  Byte 2 loses the frame instead, so only bytes 0 and 1 are used. |
 | `mut_call_prototype_view` | `f(a, b)` → `((int (*)(int, unsigned char)) f)(a, b)` | The caller-side prototype decides how an argument is materialized: a raw byte load for `unsigned char`, `movsx` for `char`, `xor` plus a byte load for an explicit cast.  Reproduces a prototype view the callee's current definition no longer declares.  Argument types are inferred, so a wrong guess costs one failed compile. |
@@ -509,9 +511,9 @@ followed by `log.undo_all()` restores the source **byte-identically**.
 The inverse is generic (framework-level) rather than per-operator: it
 restores the exact pre-mutation text, which satisfies the witness condition
 of the paper's Definition 8 for every operator without touching the 120+
-`mut_*` signatures.  The GA's evolution loop derives each child from an
-immutable base (`best_source`), so rollback there is equivalent to keeping
-the previous base; the log machinery is for code that chains mutations on a
+`mut_*` signatures.  The GA's evolution loop builds each child from immutable
+parent strings (a tournament pick, or a crossover of two), so rollback there
+is equivalent to keeping the parent; the log machinery is for code that chains mutations on a
 live buffer and needs to unwind them.
 
 ---

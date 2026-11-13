@@ -236,7 +236,9 @@ rebrew verify  # rechecks tracked functions, reusing unchanged verdicts; auto-up
 ```
 
 `verify` promotes and corrects drifted statuses, PROVEN included (see
-section 9).  Only parked SKIP is left alone.
+section 9).  The writer keeps parked SKIP, keeps a STUB against
+`SIZE_MISMATCH` / `MISSING_SIZE`, and keeps earned EXACT/RELOC/PROVEN against
+tooling failures (`should_promote_status` in `src/rebrew/metadata/functions.py`).
 
 ### 11. Lint source bindings and metadata
 

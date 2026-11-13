@@ -97,7 +97,8 @@ equivalent of those IDs. The 7.0 SP1 memset shapes are the exception, and
 they are an MSVC service pack, not a decomp.me ID.
 
 Rebrew ships, and decomp.me does not: MSVC 2.0, 5.0, 9.0, 10.0, 11.0; the
-16-bit MSVC 1.0/1.5/1.52 line; Delphi 1.0; Zig; MinGW GCC. decomp.me hosts
+16-bit MSVC 1.0/1.5/1.52 line; Delphi 1.0; MinGW GCC. (Zig binaries are
+fingerprinted by toolchain detection, but no Zig compiler profile is packaged.) decomp.me hosts
 MSVC up to 8.0 only.
 
 ### `msvc6.5pp` (Processor Pack)

@@ -1,7 +1,8 @@
 # MSVC 4.x: codegen patterns
 
 MSVC 4.0 / 4.1 / 4.2 (1995–1996, CL 10.00/10.10/10.20).  The last
-real-`div` era; codegen-identical to VC 2.0 for the probe.
+real-`div` era; 4.1 is codegen-identical to VC 2.0 for the probe (4.0 and
+4.2 were not recorded).
 
 **Profiles:** `msvc-4.0` (4.0, linker 3.0), `msvc-4.1` (4.1, linker 3.10),
 `msvc-4.2` (4.2, linker 4.20).  No Rich header: the linker version names

@@ -5,7 +5,7 @@ compilers; `CL.EXE` is a Phar Lap TNT DOS-extender binary run under
 DOSBox.  Emits 16-bit OMF objects.
 
 **Profiles:** `msvc-1.52`, `msvc-1.5`, `msvc-1.0`; images
-`rebrew/msvc:{1.52,1.5,1.0}-win16` (cl16 wrapper).
+`rebrew/msvc:{1.52,1.5,1.0}-win16` (`cl16` / `cl15` / `cl10` wrappers).
 
 ## Prologue & frame pointer
 

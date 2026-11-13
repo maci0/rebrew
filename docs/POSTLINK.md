@@ -151,7 +151,7 @@ build needs neither the original DLL nor any binary blob:
 ```cmake
 add_custom_command(TARGET server_dll POST_BUILD
   COMMAND rebrew build postlink "$<TARGET_FILE:server_dll>"
-          --layout "${PROJECT_SOURCE_DIR}/layout/server.dll"
+          --layout "${PROJECT_SOURCE_DIR}/layout/server"
   VERBATIM)
 ```
 

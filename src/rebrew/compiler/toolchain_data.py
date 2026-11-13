@@ -190,8 +190,8 @@ SOURCES: dict[str, ToolchainSource] = {
         host_dir="msvc/7.0-sp1-win32",
     ),
     "msvc-7.1": ToolchainSource(
-        # archaic-msvc/msvc710 — VC 7.1 (.NET 2003; cl.exe 13.10.3077, the
-        # same build the legacy msvc-7.0 profile carries).  Vc7/bin/cl.exe.
+        # archaic-msvc/msvc710 — VC 7.1 (.NET 2003; cl.exe 13.10.3077).
+        # Vc7/bin/cl.exe.
         url="https://codeload.github.com/archaic-msvc/msvc710/tar.gz/refs/heads/master",
         sha256="618e876bc06431498fa98e71a408d822a5fad979219ce3253318d099a6917b27",
         commit="2932d76fe417b0bc49010b26d4be2e5b743cc4be",

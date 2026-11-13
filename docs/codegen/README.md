@@ -21,8 +21,8 @@ One folder per compiler class; one file per version inside.
 | [msvc/msvc-4.md](msvc/msvc-4.md) | MSVC 4.0 / 4.1 / 4.2 | `msvc-4.0`, `msvc-4.1`, `msvc-4.2` |
 | [msvc/msvc-5.md](msvc/msvc-5.md) | MSVC 5.0 (SP1–SP3) | `msvc-5.0`, `msvc-5.0-sp1..sp3` |
 | [msvc/msvc-6.md](msvc/msvc-6.md) | MSVC 6.0 (RTM + SP1–SP6) | `msvc-6.0`, `msvc-6.0-sp1..sp6` |
-| [msvc/msvc-7.md](msvc/msvc-7.md) | MSVC 7.0 (.NET 2002) | `msvc-7.0-rtm`, `msvc-7.0-sp1` |
-| [msvc/msvc-7-1.md](msvc/msvc-7-1.md) | MSVC 7.1 (.NET 2003) | `msvc-7.0`, `msvc-7.1`, `msvc-7.1-sp1` |
+| [msvc/msvc-7.md](msvc/msvc-7.md) | MSVC 7.0 (.NET 2002) | `msvc-7.0`, `msvc-7.0-rtm`, `msvc-7.0-sp1` |
+| [msvc/msvc-7-1.md](msvc/msvc-7-1.md) | MSVC 7.1 (.NET 2003) | `msvc-7.1`, `msvc-7.1-sp1` |
 | [msvc/msvc-8.md](msvc/msvc-8.md) | MSVC 8.0 (VS 2005) | `msvc-8.0`, `msvc-8.0-sp1` |
 | [msvc/msvc-9.md](msvc/msvc-9.md) | MSVC 9.0 (VS 2008) | `msvc-9.0`, `msvc-9.0-sp1` |
 | [msvc/msvc-10.md](msvc/msvc-10.md) | MSVC 10.0 (VS 2010) | `msvc-10.0`, `msvc-10.0-sp1` |
@@ -36,7 +36,7 @@ One folder per compiler class; one file per version inside.
 
 Cross-cutting references: the **[rules catalog](RULES.md)** categorizes
 behavior-level codegen rules, and the **[decomp idiom cheat-sheet](DECOMP_IDIOMS.md)**
-maps the 30 probe19/20 game idioms to their per-version signatures and
+maps the probe 19-30 game idioms to their per-version signatures and
 disassembly look-fors (calling conventions, register allocation,
 arithmetic, FP, memory ops, control flow, frames, 64-bit, C++, toolchain
 identity) across all toolchains with verification status; the
@@ -85,7 +85,7 @@ claims are explicitly downgraded in the per-version files.
 | Unique marker | Bytes | Claimed by | Verified |
 |---|---|---|---|
 | `sub edx,edx` div zero-extend | `2b d2` | MSVC 2.0 & 4.x (real-div era) | ✓ probe |
-| `fld1` for FP `+1.0` | `d9 e8` before `fadd [esp+4]` | MSVC 2.0 & 4.x | ✓ probe2 (`fadd1`) |
+| `fld1; fadd [esp+4]` for FP `+1.0` | `d9 e8 dc 44 24 04` (the pair; `fld1` alone also appears in later FP-loop accumulators) | MSVC 2.0 & 4.x | ✓ probe2 (`fadd1`) |
 | **3-byte shift-by-1 encoding** | `c1 e8 01` / `c1 f8 01` | **MSVC 2.0 & 4.x** (5.0+ use 2-byte `d1 e8`/`d1 f8`) | ✓ probe3 (`u2`/`s2`) |
 | **FP adds via `fsub` with negated `.rdata` constants** | `dc 25` after `fld`; `-1.0`/`-3.0` in .rdata | **MSVC 5.0 only** | ✓ probe2 + .rdata dump |
 | Magic division WITHOUT post-shift (`mov eax,edx` tail) | `8b c2 c1 e8 N` | MSVC 5.0 & 6.0 | ✓ probe2+3, 20 divisors |
@@ -220,8 +220,8 @@ SSE `movq`/`pxor` copy forms are produced by VC 8.0–10.0 under
 `/arch:SSE2`, so the VC 11.0-default markers carry the flag caveat
 (see the table). The VC 6.0 SP levels
 (SP1–SP6) are codegen-identical for every probe3 function: only the
-Rich-header C1 build separates them. VC 4.0/4.1/4.2 are codegen-identical
-to each other and to VC 2.0. **MSVC 1.0/1.5/1.52 are codegen-identical
+Rich-header C1 build separates them. VC 4.1 is codegen-identical to VC 2.0 on
+the probed functions; 4.0 and 4.2 have no corpus rows. **MSVC 1.0/1.5/1.52 are codegen-identical
 for probe4.** 64-bit mul/div/shift are a
 helper call in **every** MSVC version: never inlined (and the helper
 *name* is the toolchain marker: `__allmul`/`__alldiv`/`__allshl` MSVC,
@@ -274,25 +274,27 @@ checkout. Top-level keys:
   `opt_level_without_library(o2, o1, library_o2, library_o1)`, where `null`
   means the library split explains nothing. `tests/test_toolchain_detect.py`
   fails when the functions and this section disagree.
-- `meta` and `records`: the measured corpus below. `meta.gaps` names probe objects that
-  yielded no records, by path relative to the rebrew checkout; the packaged
-  file holds no absolute or home-directory paths, which a test enforces.
+- `meta` and `records`: the measured corpus below. `meta.gaps` lists probe objects that
+  yielded no records, by path relative to the rebrew checkout (the packaged
+  file holds no absolute or home-directory paths, which a test enforces);
+  `meta.gap_count` is a separate figure and does not equal the list length.
 
 A regenerated corpus must keep `schema_version` and `opt_level`; the test
 fails without them.
 
 `records` holds **17938 records**, one per (toolchain, version, SP, flags,
 probe, function) with `{toolchain, version, sp, flags, probe, function,
-size, bytes}`; generated from every probe 1-30 object + the commercial Watcom 10.x line (all 13 MSVC
-versions 1.0-11.0 at /O2 and /O1 + all SP images, bcc32, Watcom
-32/16, TC 2.0/3.1, MinGW GCC, Zig, the 16-bit MSVC set).  Query
+size, bytes}`; generated from the probe objects plus the commercial Watcom 10.x line: MSVC
+1.0, 1.5, 1.52, 2.0, 4.1, 5.0, 6.0, 7.0, 7.1, 8.0, 9.0, 10.0 and 11.0 (1.0/1.5/1.52
+at /O1 only; 4.0 and 4.2 have no rows) with their SP images, bcc32, Watcom 32/16,
+TC 2.0/3.1, MinGW GCC 16.1, Zig and Delphi 1.0.  Query
 examples:
 
 ```python
 import json
 
 d = json.load(open("src/rebrew/codegen_corpus.json"))
-# every version's strlen bytes
+# the probe19/20 `_str_len_lib` rows (other strlen-shaped functions have other names)
 [
     r["version"] + " " + r["bytes"]
     for r in d["records"]
@@ -314,13 +316,9 @@ records (NE user-code segments, function boundaries inferred at
 listing (e.g. the bcc32 C++ object).  Sweep results: the
 per-toolchain uniqueness confirmed every hand-documented marker and
 surfaced no new cross-toolchain-unique ones. The committed corpus has **4,550
-SP rows, of which 4,466 have an RTM counterpart** under the same
-toolchain/version/flags/probe/function key: **4,433 agree byte-for-byte and 33
-differ**. VC 7.0 SP1 accounts for 32 differing rows, including probe14's
-`_s64_ret` and probe22's `_arr_counter`/`_struct_counter`. VC 8.0 SP1 also
-differs: probe17 `_alloc_flags` at `/O2` uses `lea ecx,[eax+1]` instead of RTM's
-`mov ecx,1` (47 bytes versus 49). Rows without an RTM counterpart do not
-establish equivalence. The corpus also surfaced that the
+SP rows**; the SP-versus-RTM counts and VC 8.0 SP1's `_alloc_flags` are rule
+[J1](RULES.md); the differing VC 7.0 SP1 rows include probe14's `_s64_ret` and
+probe22's `_arr_counter`/`_struct_counter`. The corpus also surfaced that the
 VC 9.0 SP1 "workaround" objects are IA64-typed (see msvc-9.md):
 the 9.0 SP1 comparison remains blocked.
 
@@ -343,11 +341,11 @@ preprocessor):
 
 | Toolchain | Image / binary | Flags |
 |-----------|----------------|-------|
-| MSVC 2.0 – 11.0 | `rebrew/msvc:{2.0,4.0,4.1,4.2,5.0,6.0,7.0,7.1,8.0,9.0,10.0,11.0}-win32` | `/O1`, `/O2` |
+| MSVC 2.0 – 11.0 | `rebrew/msvc:{2.0,4.1,5.0,6.0,7.0,7.1,8.0,9.0,10.0,11.0}-win32` (4.0 and 4.2 not in the recorded set) | `/O1`, `/O2` |
 | MSVC 6.0 SP1–SP6 | `rebrew/msvc:6.0-sp{1..6}-win32` | `/O2` (probe2 SP matrix) |
-| MSVC 1.52 | `rebrew/msvc:1.52-win16` (cl16 wrapper) | `/O1` |
+| MSVC 1.0 / 1.5 / 1.52 | `rebrew/msvc:{1.0,1.5,1.52}-win16` (`cl10` / `cl15` / `cl16` wrappers) | `/O1` |
 | Turbo C 2.0 / 3.1 | `rebrew/borland:{2.0,3.1}-win16` (tcc wrapper) | `-O1` |
-| Borland C++ 5.5 | `rebrew/borland:5.5-win32` (bcc32) | `-O1` |
+| Borland C++ 5.5 | `rebrew/borland:5.5-win32` (bcc32) | `-O2` (stored as `/O2`) |
 | Open Watcom 2.0 | `rebrew/watcom:2.0-win32` (wcc386 entrypoint) | `-otexan` |
 | MinGW GCC 16.1 | `i686-w64-mingw32-gcc` (native) | `-O1`, `-O2` |
 

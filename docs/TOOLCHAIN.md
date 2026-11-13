@@ -218,10 +218,11 @@ semantic decomp and blocker the byte delta rather than forcing a pass.
 `rebrew/clang:18.1.8-linux-x64`, `rebrew/clang:16.0.4-linux-x64`). Select the
 version that matches the reference compiler. The GNU images build
 GCC from the release tarball; the Clang images extract LLVM's prebuilt
-release.  Both carry a
-minimal posix flag-sweep axis set (`rebrew.flag_data.GCC_FLAGS`), so
+release.  `gcc-14.2.0`/`gcc-12.3.0` and `clang-18.1.8`/`clang-16.0.4` carry
+a minimal posix flag-sweep axis set (`rebrew.flag_data.GCC_FLAGS`), so
 `rebrew match flags SOURCE` emits flags these compilers accept rather than
-the MSVC fallback.
+the MSVC fallback. `gcc-16.2.0` and `clang-23.1.4` have no registered flag
+set yet, so `rebrew match flags` refuses them; `rebrew match run` works.
 
 **Analysis note:** rizin's `aaa` mis-merges functions on this toolchain;
 use `aa; aap` (function-prelude analysis) for the function list.  Ghidra
@@ -316,53 +317,54 @@ checkout: the sibling repo (overridable via `REBREW_TOOLCHAINS_DIR`),
 and `rebrew toolchain build`/`vendor` read it from there; rebrew no
 longer vendors build files in-repo.
 
-Current toolchains (`rebrew toolchain list`): `msvc-6.0` (image
-`rebrew/msvc:6.0-win32` built+verified; MSVC 6.0 under wine in a
-container, from the sha256-pinned archaic-msvc `msvc600` tarball,
-CL.EXE 12.00.8168), `delphi-1.0`
-(DOSBox; image `rebrew/delphi:1.0-win16` built+verified; a
-containerized Delphi 1.0 compile produces a genuine NE 6.01 executable),
-`mingw-16.2.0`/`mingw-14.2.0` (MinGW-w64 i686; image `rebrew/mingw:16.2.0-win32` /
-`rebrew/mingw:14.2.0-win32`; the driver is a Windows PE binary, so the
-image's wrapper runs it under wine), `gcc-14.2.0`/`gcc-12.3.0` (GNU GCC 14.2.0 / 12.3.0 ELF
-images, built C-only from the GNU release tarball), `clang-18.1.8`/`clang-16.0.4` (Clang
-18.1.8 / 16.0.4 ELF images from LLVM's prebuilt releases), `watcom-2.0-win32` (Open
-Watcom 2.0 x86 32-bit; image `rebrew/watcom:2.0-win32` built and verified;
-the docker-first compile produces the same object + relocs as the host
-path), `msvc-1.52` (16-bit, DOSBox via `rebrew.compiler.msvc16`; image
-`rebrew/msvc:1.52-win16` built+verified; containerized CL.EXE
-produces a genuine 16-bit OMF object; the `cl16` wrapper takes the source
-as its single argument and adds `/nologo /c` itself), `borland-5.5`
-(Borland C++ 5.5 free command-line tools under wine; image
-`rebrew/borland:5.5-win32` built+verified; bcc32 emits OMF objects that
-parse via objconv; vendored from the archive.org `BorlandC55` item),
-`watcom-2.0-win16` (Open Watcom 2.0 `wcc`, 16-bit DOS; image
-`rebrew/watcom:2.0-win16`, the compiler running natively inside it; pinned
-to the dated 2026-09-01 snapshot), `borland-3.1` (Turbo C++ 3.1, 16-bit DOS under DOSBox via
-`rebrew.compiler.tc16`; image `rebrew/borland:3.1-win16`; TCC.EXE produces
-Borland 16-bit OMF that parses via `rebrew.formats.omf16`; vendored
-from the archive.org `turboc3.1_202112` item; the classic
-DOS-game compiler, e.g. id Software's early titles; verified:
-`compile_and_compare` returns EXACT against a TCC-built object),
-`borland-2.0` (Turbo C 2.0, 16-bit DOS under DOSBox via the same `rebrew.compiler.tc16`
-module with `version="2.0"`; tree `recompile-toolchains/borland/2.0-win16` assembled
-from the archive.org `turboc20` floppies; image
-`rebrew/borland:2.0-win16`, in the smoke gate; the 1988/89 compiler that
-diec reports as "Borland C/C++ 1991"; C89-strict: rejects `//` comments,
-so skeletons use `/* */` markers), and the **complete MSVC 1.0–11.0
-line** (below: the table lists 31 classic-line profiles from `msvc-1.0` to
-`msvc-11.0`, and the registry adds `msvc-6.0-sp5-crt`, `msvc-6.0-sp5-pp`
-and `msvc-8.0-portable`, which the table omits; every version and every
-preserved service pack is packaged as a
-sha256-pinned docker image `rebrew/msvc:<version>-<arch>` plus a
-host tree vendored into the recompile-toolchains checkout as the
-byte-identical build source; the 4.0/4.2/5.0 trees are archaic-msvc /
-itsmattkc snapshots, pinned sha256 sources shared with `rebrew toolchain vendor`),
-and `ido-5.3`/`ido-7.1` (SGI IDO reimplementations; MIPS-II big-endian, N64;
-native-Linux images `rebrew/ido:5.3-linux`/`rebrew/ido:7.1-linux` built+verified
-from the sha256-pinned decompals/ido-static-recomp v1.2 release assets; the
-recomp `cc` runs natively, no wine; in the smoke gate, objects byte-identical
-across runs).
+`rebrew toolchain list` is the inventory (`--json` adds each profile's image,
+runtime and flag style). Notes on the families documented here:
+
+- `msvc-6.0`: image `rebrew/msvc:6.0-win32`, MSVC 6.0 under wine from the
+  sha256-pinned archaic-msvc `msvc600` tarball, CL.EXE 12.00.8168.
+- The **complete MSVC 1.0-11.0 line** ([matrix below](#the-msvc-10110-matrix-complete-docker-packaged)):
+  the table lists 31 classic-line profiles from `msvc-1.0` to `msvc-11.0`;
+  the registry adds `msvc-6.0-sp5-crt`, `msvc-6.0-sp5-pp` and
+  `msvc-8.0-portable`, which the table omits. Every version and preserved
+  service pack is a sha256-pinned image `rebrew/msvc:<version>-<arch>` plus a
+  host tree vendored into the recompile-toolchains checkout as the
+  byte-identical build source; the 4.0/4.2/5.0 trees are archaic-msvc /
+  itsmattkc snapshots, pinned sha256 sources shared with `rebrew toolchain vendor`.
+- `msvc-1.52`: 16-bit, DOSBox via `rebrew.compiler.msvc16`; image
+  `rebrew/msvc:1.52-win16`; CL.EXE produces a genuine 16-bit OMF object.
+  The `cl16` wrapper takes the source as its single argument and adds
+  `/nologo /c` itself.
+- `delphi-1.0`: DOSBox; image `rebrew/delphi:1.0-win16`; a containerized
+  compile produces a genuine NE 6.01 executable.
+- `mingw-16.2.0`/`mingw-14.2.0`: MinGW-w64 i686; images
+  `rebrew/mingw:16.2.0-win32` / `rebrew/mingw:14.2.0-win32`. The driver is a
+  Windows PE binary, so the image's wrapper runs it under wine.
+- `gcc-*` and `clang-*` ELF images: see [ELF/x86_64 targets](#mingw-gcc-mingw-1620-profile-for-pex86_32-targets).
+- `watcom-2.0-win32`: Open Watcom 2.0 x86 32-bit; image
+  `rebrew/watcom:2.0-win32`; the docker compile produces the same object and
+  relocations as the host path. `watcom-2.0-win16`: Open Watcom 2.0 `wcc`,
+  16-bit DOS; image `rebrew/watcom:2.0-win16`, the compiler running natively
+  inside it; pinned to the dated 2026-09-01 snapshot.
+- `borland-5.5`: Borland C++ 5.5 free command-line tools under wine; image
+  `rebrew/borland:5.5-win32`; bcc32 emits OMF objects that parse via
+  objconv; vendored from the archive.org `BorlandC55` item.
+- `borland-3.1`: Turbo C++ 3.1, 16-bit DOS under DOSBox via
+  `rebrew.compiler.tc16`; image `rebrew/borland:3.1-win16`; TCC.EXE produces
+  Borland 16-bit OMF that parses via `rebrew.formats.omf16`; vendored from the
+  archive.org `turboc3.1_202112` item (the classic DOS-game compiler, e.g. id
+  Software's early titles); `compile_and_compare` returns EXACT against a
+  TCC-built object.
+- `borland-2.0`: Turbo C 2.0, 16-bit DOS under DOSBox via the same
+  `rebrew.compiler.tc16` module with `version="2.0"`; tree
+  `recompile-toolchains/borland/2.0-win16` assembled from the archive.org
+  `turboc20` floppies; image `rebrew/borland:2.0-win16`, in the smoke gate.
+  diec reports this 1988/89 compiler as "Borland C/C++ 1991". C89-strict: it
+  rejects `//` comments, so skeletons use `/* */` markers.
+- `ido-5.3`/`ido-7.1`: SGI IDO reimplementations; MIPS-II big-endian (N64);
+  native-Linux images `rebrew/ido:5.3-linux`/`rebrew/ido:7.1-linux` from the
+  sha256-pinned decompals/ido-static-recomp v1.2 release assets; the recomp
+  `cc` runs natively, no wine; in the smoke gate, objects byte-identical
+  across runs.
 
 **Every registry toolchain with a pinned source has a verified containerized
 path.** The compile pipeline has no fallback to host-installed Wine/DOSBox;
@@ -387,8 +389,8 @@ ahead of the image.  A `Last-CI-build` release tag is re-downloaded and
 re-hashed; a `refs/heads/...` branch tarball is resolved by asking the
 GitHub API for the branch head (no download).  Every other pin (the dated
 Open Watcom snapshots, decomp.me / archive.org payloads, the 16-bit media
-in the recompile-toolchains checkout) is immutable and reported as static.  Runs on a schedule (or ad-hoc) with `GH_TOKEN` mapped onto the
-resembl-clone and `check-updates` steps for generous API limits.
+in the recompile-toolchains checkout) is immutable and reported as static.  The scheduled workflow and its token
+mapping are described in [CI.md](CI.md).
 
 > **Headless by construction:** shipped Windows/DOS profiles use the image
 > runtime through Docker/Podman or, for supported MSVC/Wine profiles, unshare.
@@ -401,8 +403,10 @@ resembl-clone and `check-updates` steps for generous API limits.
 > selects the PE runtime per run via `REBREW_RUNNER`, defaulting to **wine**
 > (`${REBREW_RUNNER:-wine}`): the most compatible option.  `wibo` is opt-in
 > (`REBREW_RUNNER=wibo`) and faster for plain console tools, but **fails on
-> some tools**, so rebrew never steers projects toward it: the only shipped
-> wibo-runtime profile is the opt-in `msvc-6.0-win9x`, `rebrew doctor`
+> some tools**, so rebrew never steers projects toward it: the only wibo-runtime MSVC
+> profile is the opt-in `msvc-6.0-win9x` (several non-MSVC families, such as
+> `mwccarm-*`, `mwccpsp-*`, most `mwcps2-*` and `gcc-*-sn*`, ship with wibo;
+> the GameCube/Wii `mwcc-*` profiles use wine), `rebrew doctor`
 > reports a present wibo binary as informational only, and
 > `rebrew toolchain install-wibo` downloads it but leaves an image-backed
 > project's `runner` config untouched.
@@ -572,7 +576,7 @@ best-first:
 1. **Detect It Easy** (`diec -j --heuristicscan`): the strongest signatures
    for MSVC (per-version, e.g. `12.00.9782` = MSVC 6.0), Borland/Delphi,
    linkers.  Used when `diec` is on PATH or vendored at `tools/diec/diec`
-   with the Qt 6 libraries it loads in `tools/diec/lib/`.  The supported
+   with the bundled libraries it loads in `tools/diec/lib/`.  The supported
    version is Detect It Easy 4.0 (release `4.0.0`,
    https://github.com/horsicq/DIE-engine/releases/tag/4.0.0; on Arch the
    `detect-it-easy-bin` package); 3.x is not supported.
@@ -621,7 +625,7 @@ best-first:
    era 12.00 (MSVC 6.0), because the compiler and the CRT/linker eras are
    independent fingerprints.  This was the missing signal for the Europa 1400
    server (guild-rebrew): its player-init loop caches 1000 in ebx, which
-   neither vendored 6.0 compiler (SP0 12.00.8168 or SP6 12.00.8804) produces;
+   neither vendored 6.0 compiler (RTM, C1 8168, or SP6, C1 9782) produces;
    only MSVC 4.2/5.0 codegen does, so per-function matching of such loops
    needs the pre-6.0 toolchain (msvc-5.0/msvc-4.2), not msvc-6.0.
 
@@ -728,10 +732,9 @@ The following extension points complete a plugin toolchain's integration:
 
 - **`rebrew.flag_sets`**: sweep axes for the GA.  A zero-arg callable
   returning `dict[profile, (Flags, tiers)]` (tiers = `{tier: [axis ids]}`
-  with `"full": None` meaning all axes).  Without one, a profile sweeps the
-  axes its spec's `flags_style` implies (a posix compiler gets the GCC axes,
-  not MSVC's); a posix profile with no registered set refuses a
-  `rebrew match flags` run rather than compiling invalid combinations.
+  with `"full": None` meaning all axes).  Without one, `rebrew match flags`
+  refuses a posix-style profile rather than compiling invalid combinations,
+  and an MSVC-style profile falls back to the `msvc-6.0` axes.
 - **`rebrew.toolchain_detectors`**: detection-family alignment.  A zero-arg
   callable returning `dict[family, list[profile]]`; the profile is then
   accepted by `rebrew doctor`'s family check and `rebrew init
@@ -776,15 +779,10 @@ packaged family sets (union).
 
 The most complete collection is the **`archaic-msvc`** GitHub org: one repo
 per compiler version, from VC 2.0 through VC 10.0 (every VC 6.0 SP level,
-VC 5.0 + SPs, VC 7.0/7.1, VC 8.0/9.0/10.0).  Download via codeload tarball:
+VC 5.0 + SPs, VC 7.0/7.1, VC 8.0/9.0/10.0). `rebrew toolchain vendor <name>`
+fetches and verifies the pinned tree for a profile (repo names in the matrix
+below).
 
-```bash
-cd tools
-for r in msvc-4.2-win32 msvc-5.0-win32; do   # repo names are lowercase: msvc-4.2 msvc500 ...
-  curl -L -o $r.tar.gz "https://codeload.github.com/archaic-msvc/${r,,}/tar.gz/refs/heads/master"
-  mkdir -p $r && tar xzf $r.tar.gz --strip-components=1 -C $r
-done
-```
 ### The MSVC 1.0–11.0 matrix (complete, docker-packaged)
 
 Rebrew now vendors and containerizes the **entire classic MSVC line**, every
@@ -828,10 +826,10 @@ pull these images without rebrew itself.
 | `msvc-6.0-sp5` | 6.0 SP5 | 12.00.8804 | (same CL) | archaic-msvc `msvc600_sp5` | docker |
 | `msvc-6.0-sp6` | 6.0 SP6 | 12.00.8804 | (same CL) | archaic-msvc `msvc600_sp6` | docker |
 | `msvc-6.0-win9x` | 6.0 (Win9x target) | 12.00.8168 | distinct C2.DLL, wibo runtime | vendored `msvc/6.0-win9x-win32` | docker (wibo) |
-| `msvc-7.0` | 7.0 (2002) | 13.10.3077 | .NET 2003 build | archaic-msvc `msvc-7.1` | docker |
+| `msvc-7.0` | 7.0 (2002) | 13.00.9466 | VC 7.0 RTM, canonical `7.0-win32` dir | archaic-msvc `msvc700` | docker |
 | `msvc-7.0-rtm` | 7.0 RTM | 13.00.9466 | true 7.0 | archaic-msvc `msvc700` | docker |
 | `msvc-7.0-sp1` | 7.0 SP1 | 13.00.9466 | (same CL) | archaic-msvc `msvc700_sp1` | docker |
-| `msvc-7.1` | 7.1 (2003) | 13.10.3077 | | archaic-msvc `msvc-7.1` | docker |
+| `msvc-7.1` | 7.1 (2003) | 13.10.3077 | | archaic-msvc `msvc710` | docker |
 | `msvc-7.1-sp1` | 7.1 SP1 | 13.10.6030 | | archaic-msvc `msvc710_sp1` | docker |
 | `msvc-8.0` | 8.0 (2005) | 14.00.50727 | | archaic-msvc `msvc800` | docker |
 | `msvc-8.0-sp1` | 8.0 SP1 | 14.00.50727.762 | | archaic-msvc `msvc800_sp1` | docker |
@@ -881,9 +879,10 @@ Notes:
   registry names are `msvc-6.0-sp3` / `msvc-6.0-sp6`, and a config naming the
   old aliases is an unknown profile and fails to load.
   The `msvc6.3` string still appears in doctor's legacy-path download hints,
-  where it names the decomp.me tarball, not a profile.  `msvc-7.0` keeps its
-  historical 13.10.3077 compiler (the canonical `7.0-win32` dir), while
-  `msvc-7.0-rtm` is the true VC 7.0 build in `7.0-rtm-win32`.
+  where it names the decomp.me tarball, not a profile.  `msvc-7.0` and
+  `msvc-7.0-rtm` both build the VC 7.0 RTM compiler (13.00.9466) from
+  `msvc700`, into the `7.0-win32` and `7.0-rtm-win32` dirs; the 13.10.3077
+  build is `msvc-7.1`.
 
 #### Service packs: what differs, and how to tell which one a target used
 
@@ -983,8 +982,7 @@ with a `Bin/`; the archaic `msvc600_sp3` repo has headers/libs only).
 | archive.org `en_vc152` | VC 1.5 (1993) 16-bit media | pinned `msvc15.tar.xz` |
 | archive.org `en_vc152_202512` | VC 1.52 (1995) 16-bit media | pinned `msvc152.tar.xz` |
 | WinWorld `visual-c/1x` (3.5\" floppy set) | VC 1.0 Professional (1992) 16-bit media | pinned `msvc10.tar.xz` |
-|
-| **Gap preservation repos** | the toolchains archaic-msvc does not carry: VC 1.0/1.5/1.52/4.0, 6.0-SP1/SP2/SP4 with their Bin (SP1/SP2 reconstructed from the official SP payloads, SP1 documented as not preserved standalone), 9.0-SP1's 15.00.30729 compiler, plus the non-MSV C line (Borland C++ 5.5, Turbo C 2.0/3.1, Open Watcom 2.0, Delphi 1.0), are published one-per-repo at **`github.com/archaic-toolchains`**, same tree format, READMEs with provenance + checksums | n/a |
+| **Gap preservation repos** | the toolchains archaic-msvc does not carry: VC 1.0/1.5/1.52/4.0, 6.0-SP1/SP2/SP4 with their Bin (SP1/SP2 reconstructed from the official SP payloads, SP1 documented as not preserved standalone), 9.0-SP1's 15.00.30729 compiler, plus the non-MSVC line (Borland C++ 5.5, Turbo C 2.0/3.1, Open Watcom 2.0, Delphi 1.0), are published one-per-repo at **`github.com/archaic-toolchains`**, same tree format, READMEs with provenance + checksums | n/a |
 
 Full sha256 values live in `SOURCES` (`src/rebrew/compiler/toolchain_data.py`): the
 Dockerfiles verify them at build time and `rebrew toolchain vendor` refuses a
@@ -1080,7 +1078,7 @@ msvc6.0/6.3/6.4/6.5/6.5pp/6.6/7.0 only, no Lib dir):
 | msvc6.0 | `msvc6.0.tar.gz` (6.2 MB) | 12.00.x | same SP line as the local master |
 | msvc-6.0-sp3-win32 | `msvc6.3.tar.gz` (6.6 MB) | 12.00.8168 | **SP3: codegen differs from SP6** |
 | msvc-6.0-sp6-win32 | `msvc6.6.tar.gz` (6.6 MB) | 12.00.8804 | **SP4+ driver: distinct from `msvc-6.0`'s RTM..SP3 8168** |
-| msvc-7.0-win32 | `msvc7.0.tar.gz` (33 MB) | 13.10.3077 | **VC7: enables the `msvc-7.0` profile** |
+| msvc-7.0-win32 | `msvc7.0.tar.gz` (33 MB) | 13.10.3077 | compile-only mirror the config layer can resolve for `msvc-7.0`; its CL is the 7.1 build, not the `msvc-7.0` image's |
 | msvc4.x/7.1/8.0 | not published | n/a | document + skip |
 
 Layout notes (differ from the local `recompile-toolchains/msvc/6.0-win32/source/VC98/...`):
@@ -1094,24 +1092,13 @@ When the master (`recompile-toolchains/msvc/6.0-win32`,
 --toolchain msvc-6.0|msvc-7.0` and the config layer resolve the best present layout
 instead (newest mirror first) so a fresh project compiles out of the box
 rather than pointing at a master path that does not exist.
-  Case matters on Linux: point `[compiler] command` at the lowercase file.
-
-Fetch + extract (kept out of git; `tools/` is ignored; ~75 MB total):
-
-```bash
-cd tools
-for pair in msvc-6.0-sp3-win32:msvc6.3 msvc-6.0-sp6-win32:msvc6.6 msvc-7.0-win32:msvc7.0; do
-  v=${pair%%:*} asset=${pair#*:}
-  curl -L -o $v.tar.gz https://github.com/archaic-toolchains/msvc600-win9x/releases/download/2026-11-10/$asset.tar.gz
-  mkdir -p $v && tar xzf $v.tar.gz -C $v
-done
-```
 
 `rebrew init --toolchain msvc-6.0-sp3|msvc-6.0-sp6` sets up the profiles (the
 dir names above are the decomp.me mirror names; the registry ids are
-`msvc-6.0-sp3` / `msvc-6.0-sp6`); each is proven by
-`tests/test_toolchain_roundtrip.py` (compile → compare → EXACT; skipped when the
-tarballs are absent).  Round-trip validation: compile a snippet with the
+`msvc-6.0-sp3` / `msvc-6.0-sp6`). `tests/test_toolchain_roundtrip.py` is
+parameterized with both names but maps them to the `msvc-6.0` image, so it does
+not prove either service pack (compile → compare → EXACT; skipped when the
+image is not built).  Round-trip validation: compile a snippet with the
 toolchain, link against a full toolchain's Lib, intake the result, and
 `rebrew test` the source; the profile is correct when it classifies EXACT.
 ---
@@ -1230,7 +1217,6 @@ yara /tmp/test.yar target.dll
 
 | Library | Purpose |
 |---------|---------|
-| **pyelftools** | ELF parsing (not needed for PE32) |
 | **matplotlib** | Plotting / visualization |
 | **r2pipe** | Programmatic radare2 access from Python |
 | **keystone** | Assembler engine (x86 → bytes) |

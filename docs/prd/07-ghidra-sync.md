@@ -42,8 +42,8 @@ names, labels, structs, prototypes, and comments; ReVa MCP (or the
 
 - One command group (`rebrew sync`) with push, pull, and preview operations.
 - Safe defaults:
-  - Generic names (`FUN_`, `DAT_`, `func_`, `switchdata`, `thunk_`, `g_<hex>`)
-    never replace meaningful local names.
+  - Placeholder names (`rebrew.workspace.names.is_placeholder_name`) never
+    replace meaningful local names.
   - Concurrent field edits are reported as conflicts; a shared baseline lets
     remote-only edits apply automatically.
   - Tagged notes/GHIDRA comments map to their owned metadata fields; ordinary

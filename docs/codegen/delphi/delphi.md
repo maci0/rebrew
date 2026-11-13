@@ -1,9 +1,10 @@
 # Delphi 1.0: codegen patterns
 
 Borland Delphi 1.0 (1995, `DCC.EXE`): 16-bit Windows 3.x Pascal
-compiler producing genuine NE 6.01 executables.  The toolchain has no
-matchable profile (Delphi codegen cannot be reproduced from C for byte
-matching; documented blocker), but the codegen itself is now **probe-
+compiler producing genuine NE 6.01 executables.  The `delphi-1.0`
+profile builds the NE through `DCC`, but C byte matching cannot reproduce
+Delphi codegen, so doctor reports the family as unmatched for C comparison
+(documented blocker); still, the codegen itself is now **probe-
 verified**: a Pascal probe (`probe.dpr`: `add`, `div3`, `fmul`, `fadd1`,
 `loopy`, referenced from the program body so the linker retains them)
 compiled with `DCC.EXE` through `rebrew/delphi:1.0-win16` and the NE

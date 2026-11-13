@@ -59,15 +59,17 @@ round, Gold `0x005dfb95` matched `_strtok` in
 (`inftrees.c.obj`). The project already compiles `references/zlib/*.c` for 113
 LIBRARY rows, so the zlib bodies are already accounted for by the library.
 
-No supported writer applies that evidence to a row that already contains a
-FUNCTION binding. `library identify` never touches annotated functions, and
+At the time (before `library adopt`), no supported writer applied that evidence
+to a row that already contained a FUNCTION binding. `library identify` never touches annotated functions, and
 both `library review-native` and `library bind-source` require an existing
 LIBRARY declaration. The row therefore stays misclassified: a local FUNCTION
 body for the same code duplicates a linked library member, and leaving it STUB
 means the link has no bytes for that VA.
 
-Proposed capability: `library adopt --va 0x... --object <archive>:<member>
---symbol <symbol> --reason <reviewed evidence>`. It would preview and then
+Original proposal (2026-10-23; the shipped command takes the VA as a
+positional argument and derives the member from the match, see
+`rebrew library adopt --help`): `library adopt --va 0x... --object
+<archive>:<member> --symbol <symbol> --reason <reviewed evidence>`. It would preview and then
 retire the existing FUNCTION claim, record `kind = LIBRARY` with the archive,
 member and symbol, keep the previous binding in `binding_history`, and bind the
 preview digest to the operation. Verification should locate the proved member
@@ -306,6 +308,8 @@ workflow failures without an additional authority or storage system.
   --measured` staging only link-tested files. Evidence: workflow-traps §1.
 
 - [ ] **`test`/`verify` must honour the CMake per-file toolchain pin.**
+  Current: `rebrew test` reads the pin when metadata names no toolchain
+  (`_cmake_pin_for` in `src/rebrew/test.py`); `rebrew verify` still does not.
   Pain: `CMakeLists.txt` pins three files to `/REBREW_TOOLCHAIN:msvc-6.0-sp5-pp`
   and the real link applies it (confirmed in `build.make`), but `rebrew test`
   and `rebrew verify` compile those files with the project default (sp6) and
@@ -321,6 +325,9 @@ workflow failures without an additional authority or storage system.
   `docs/TODO.md` round 842.
 
 - [ ] **`test`/`verify` must read the CMake per-file flags, not just the metadata.**
+  Current: `rebrew test` copies the pin's flags when metadata `cflags` are
+  empty and refuses `--cflags` that differ from a pin; `rebrew verify` still
+  compiles from metadata only.
   Pain: `CMakeLists.txt` sets per-file options for pinned files
   (`set_source_files_properties(... COMPILE_OPTIONS ...)`) and the real link honours
   them, but `rebrew test`/`verify` compile with the metadata's `cflags` only. For
@@ -496,7 +503,8 @@ workflow failures without an additional authority or storage system.
   are gaps to the *next inventory entry*. Reading a size divergence as "missing
   functions" produced a four-round false lead in guild-rebrew, including a
   proposed tool fix for a defect that does not exist.
-  Feature: have `verify` report the annotation count beside the inventory count,
+  Feature: have `verify` report the annotation count beside the inventory count
+  (shipped: the text summary prints both and JSON carries `inventory_count`),
   and label a size divergence as an inventory-coarseness fact rather than a
   coverage gap.
   Evidence: guild-rebrew `docs/workflow-traps.md` §17.
@@ -524,11 +532,14 @@ workflow failures without an additional authority or storage system.
   being 15x smaller. The blocker is the harness, not the C.
   Feature: seed each import-thunk address with an unconstrained stub (return-symbolic or
   skip-and-continue) so calls through `[0x10024xxx]` do not dead-end the CFG; expose a
-  `--stub-thunks` flag so runs that need real semantics can opt out.
+  `--stub-thunks` flag so runs that need real semantics can opt out. (Shipped as the
+  opt-in `rebrew prove --stub-thunks`; seeding every import slot by default is still open.)
   Evidence: guild-rebrew `src/server.dll/DieGildeAddOnServer/server_c/ServerMainThread.c` header,
   "PROVEN is NOT reachable for this function" block (rounds 6-9 probes).
 
-- **`rebrew orphans prune` deletes metadata for block-comment `/* DATA: SERVER 0x... */` markers.**
+- **`rebrew orphans prune` deleted metadata for block-comment `/* DATA: SERVER 0x... */` markers (2026-10 observation).**
+  Current: `find_orphans` decides from source bindings, the function inventory and
+  `.idata`/`.edata`, not from comment markers, and inline markers are retired.
   Pain: pruned 260 lines from `rebrew-data.toml` + 3 GOLDTL function entries, orphaning live source
   DATA markers (vfs4.c `0x1002944c..0x100294a0` range form, vfs_OpenStream.c `0x100294a4`) and
   tripping W016 ("DATA marker missing // SECTION") + W022. The orphan detector appears to match only
@@ -1776,7 +1787,7 @@ verdict; validate source edits separately with the target compiler and raw link.
 
 ## Audit managed type layouts across all configured targets (2026-10-15)
 
-Problem: `rebrew types check --all-targets --json` exits2 because the option is
+Open. Problem: `rebrew types check --all-targets --json` exits 2 because the option is
 not supported, although `types contracts` already supports it. Guild's shared
 `amt.office_slot` layout has separate SERVER/GOLDTL/GOLD bindings and pinned
 compilers. A default-target success does not check either client binding.
@@ -3655,7 +3666,9 @@ check the byte match between cycles.
 ## `build symbol-stubs` gives alias data rows their own storage (2026-10-29)
 
 `rebrew build symbol-stubs` works from unresolved linker symbols and knows nothing
-about the data store, so an alias row becomes a second definition. In the
+about the data store, so an alias row becomes a second definition. (Current: the
+linker-error path still ignores alias rows; `--update-data-symbol` refuses alias
+and span rows.) In the
 guild-rebrew client store `GOLDTL.0x007f4c00` is `name = "g_7f4c00"`,
 `storage_kind = "alias"`, `link_symbol = "_g_current_year"`, in a region the
 reference reaches through `_g_current_year`. The generated stub TU defines both
@@ -3704,8 +3717,9 @@ compiling the TU and parsing the object relocations. Ten guild-rebrew NEAR rows
 were blocked on exactly this: each called `gm_AddObjekt()` where the reference
 calls `gm_FindNextFilteredEntity` (`0x503e80`), and the diff never said so.
 
-Proposed: for an `XX` call whose candidate operand is a relocation, print the
-relocation's symbol name and target VA (or `unresolved`). Replay: run
+Current: the JSON row carries `candidate.relocations[].symbol`; the text line can
+still show a bare address. Proposed: for an `XX` call whose candidate operand is a
+relocation, print the relocation's symbol name and target VA (or `unresolved`). Replay: run
 `rebrew diff 0x00501d20 --json` on the guild-rebrew project and read the `XX`
 instruction entry.
 

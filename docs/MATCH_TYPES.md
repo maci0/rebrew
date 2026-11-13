@@ -60,7 +60,10 @@ rebrew skeleton 0x10008880  # generate .c skeleton → transitions to STUB
 
 A `.c` file exists but the implementation is a placeholder, either empty, contains
 `TODO`, or compiles to something radically different from the target (< 60% byte match).
-A size mismatch is its own verdict (`SIZE_MISMATCH`), not STUB.
+A size mismatch is otherwise its own verdict (`SIZE_MISMATCH`), with two
+exceptions: a minimal body (at most 8 bytes) against a target of at least 12
+bytes and more than twice its size classifies as STUB (a fresh skeleton), and a
+stored STUB keeps its status against a `SIZE_MISMATCH` verdict.
 
 Also assigned automatically by `rebrew test` when a previously-matching function
 regresses below the 60% match threshold (demotion).
@@ -216,8 +219,9 @@ status = "SKIP"
 skip = "IAT thunk: jmp [__imp_CreateFileA]"
 ```
 
-SKIP functions are excluded from the "unmatched" count in coverage metrics: they
-are treated as intentionally resolved, not as open work items.
+SKIP parks the work item and earns no match credit: in executable-byte
+accounting a non-library SKIP span still counts as unmatched (see
+[status accounting](CLI.md#rebrew-status)).
 
 ```bash
 rebrew todo --json    # surface likely SKIP candidates
@@ -231,12 +235,11 @@ rebrew todo --json    # surface likely SKIP candidates
 flowchart TD
     A[Compile C to .obj] --> B[Extract obj bytes]
     B --> C[Extract target bytes from DLL]
-    C --> D{target == output?}
-    D -- Yes --> E[EXACT]
-    D -- No --> F[Mask relocation bytes]
-    F --> G{masked target == masked output?}
-    G -- Yes --> H[RELOC]
-    G -- No --> I[Compute similarity score]
+    C --> D{bytes equal after validating<br/>and masking object relocations?}
+    D -- Yes, no relocation slots --> E[EXACT]
+    D -- Yes, relocation slots accepted --> H[RELOC]
+    D -- No records, zero-spans align --> H
+    D -- No --> I[Compute similarity score]
     I --> J{score >= 60%?}
     J -- Yes --> K[NEAR_MATCHING]
     J -- No --> L[STUB demotion]
@@ -246,17 +249,32 @@ flowchart TD
 1. Compile .c file to .obj with MSVC6 (toolchain docker image)
 2. Extract symbol bytes from .obj (COFF parser)
 3. Extract target bytes from DLL at the given VA
-4. Compare:
-   a. target_bytes == output_bytes               → EXACT
-   b. masked_target == masked_output             → RELOC
+4. Compare with the object's relocation records (smart_reloc_compare):
+   a. equal, no accepted relocation slots        → EXACT
+   b. equal once accepted slots are masked       → RELOC
    c. similarity >= 60%                          → NEAR_MATCHING
    d. similarity < 60%                          → STUB (demotion)
 ```
 
 ## Relocation Masking Details
 
-The normalizer (`_zero_reloc_fields`, driven by `_normalize_and_mnems_x86_32`) walks the x86
-instruction stream and zeros out bytes that are expected to differ between compilations:
+`test` and `verify` mask by the compiled object's relocation records
+(`smart_reloc_compare` in `src/rebrew/coff_reloc.py`): a DIR32 slot is accepted
+when the target holds `symbol_va + addend`, a REL32 slot when it holds
+`symbol_va + addend - pc` (masked without the absolute check when the section VA
+is unknown), and a DIR32 into the import address table is masked without name
+validation. In normal agreement mode an uncatalogued symbol is masked, and a
+DIR32 whose value matches no other catalogued symbol is tolerated; an ambiguous
+symbol is rejected. `strict=True` (proof mode) rejects every other slot that
+does not equal its resolved symbol, uncatalogued ones included;
+`check_known_bindings=True` rejects a conflicting mapped operand but keeps the
+tolerant rule for uncatalogued symbols. The IAT exception applies in every mode. With no relocation records the comparator falls back to zero-span detection
+(`00 00 00 00` runs in the object aligned with non-zero target bytes).
+
+The GA's candidate scoring uses a separate opcode heuristic, the normalizer
+`_zero_reloc_fields` (driven by `_normalize_and_mnems_x86_32` in
+`src/rebrew/matcher/scoring.py`), which zeros these fields without relocation
+records:
 
 | Pattern | Opcode | Bytes zeroed | Why |
 |---------|--------|-------------|-----|
@@ -271,19 +289,21 @@ instruction stream and zeros out bytes that are expected to differ between compi
 | `mov [abs32], reg` | `89 0D/15/1D/25/2D/35/3D` | bytes 2-5 | Global variable stores |
 | `call/jmp dword ptr [abs32]` | `FF 15/25` | bytes 2-5 | Indirect call/jump through an IAT slot |
 
-After masking, if the bytes are identical, the code is structurally the same: only the
-linker-dependent addresses differ. This is the RELOC match.
+For both, identical bytes after masking mean the code agrees outside the masked
+fields, not a proof that only addresses differ (the GA heuristic masks any
+large `mov` immediate). Only the comparator's verdict earns RELOC.
 
 ---
 
 ## Observed NEAR_MATCHING Patterns
 
-Reference knowledge from hands-on reversing about what blocks byte-level
-matching in practice.
+Observations from one MSVC6 `/O2 /Gd` game project, kept as examples of what
+blocked byte matching there. The sizes and counts below are that project's,
+not general limits.
 
 ### Close NEAR_MATCHING analysis (0-3B delta)
 
-GA mutations (100 gen, pop 64) consistently fail to improve close NEAR_MATCHING functions. All blockers are compiler-internal decisions that C source mutations cannot influence.
+There, GA mutations (100 gen, pop 64) did not improve close NEAR_MATCHING functions; the remaining deltas were compiler-internal decisions the tried mutations did not influence.
 
 Common uncontrollable blocker categories:
 1. **Register allocation**: ebx vs edi, eax vs ecx swaps (most common)
@@ -295,17 +315,18 @@ Common uncontrollable blocker categories:
 
 ### Register allocation as systemic ceiling
 
-Register allocation is the primary systemic blocker for the remaining game functions. With `/O2 /Gd` (`/O2` implies frame-pointer omission), the compiler may use ebp as a callee-save register, but only if there's enough register pressure. If C source doesn't create enough demand, the compiler won't allocate ebp, producing fewer push/pop instructions and different register assignments throughout.
+Register allocation was the primary blocker for that project's remaining game functions. With `/O2 /Gd` (`/O2` implies frame-pointer omission), the compiler may use ebp as a callee-save register, but only if there's enough register pressure. If C source doesn't create enough demand, the compiler won't allocate ebp, producing fewer push/pop instructions and different register assignments throughout.
 
-### Dependency chains limit matchable scope
+### Dependency chains
 
-Dependency chains make many CRT functions permanently unreachable:
+In that project, unreversed helpers held back work on the CRT functions that
+depend on them (a caller can still byte-match with an unreversed callee, since
+the comparison checks the caller's bytes and relocations):
 - `memmove` (hand-written ASM) blocks `fread`, `fwrite`
 - SEH functions block `_stricmp`, `_strnicmp`
 - `strcat` (hand-written ASM) blocks downstream functions
 - `FreeHeapBlockWithRuntimeLock` (SEH) blocks ~33 other functions
 
-These form a "dependency ceiling" that limits what can be matched regardless of tooling.
 
 ### STUB conversion notes
 

@@ -97,8 +97,8 @@ must never replace the Git dependency.
   hook); a PEP 810 `lazy import` still counts.  Function bodies and
   `if TYPE_CHECKING:` guards are skipped by the detector.
 - `tools/check_layering.py` enforces import *direction*, which the cycle
-  detector cannot see: `rebrew.utils` imports no rebrew module (it is the leaf
-  every module may reach for), and only the composition layer (`plugin`,
+  detector cannot see: `rebrew.utils` imports no rebrew module except `rebrew.errors`
+  (`LEAF_ALLOWED_IMPORTS`; it is the leaf every module may reach for), and only the composition layer (`plugin`,
   `builtins`, `main`, `dashboard`) may import the composition layer at module
   scope.  A command registers itself with the umbrella inside its own
   `register()`, and `errors` re-exports `ComponentError` under
@@ -114,9 +114,9 @@ must never replace the Git dependency.
 ## Registry snapshots
 
 Every component registry (the `rebrew.registry` entry-point groups: toolchains,
-decompiler backends, GA mutations, flag sets, library presets, detection tables,
-binary loaders, cache backends, discoverers) is discovered at import and
-republished **as a whole** by its `refresh_*` function.  A reader that needs two
+decompiler backends, GA mutations, flag sets, library presets, metadata backends,
+detection tables, MSVC version tables, binary loaders, cache backends, discoverers) is discovered at import
+(metadata backends at first use) and republished **as a whole** by its `refresh_*` function.  A reader that needs two
 tables from one refresh must take them from the same generation:
 
 - `rebrew.compiler.toolchain.registry_snapshot()`: the registry and its origins
@@ -174,36 +174,18 @@ published globals around every test in that module.
 
 ## Validation commands
 
-System deps for a green local suite: **nasm** on `PATH` (asm round-trip tests;
-CI installs it) and **bun** on `PATH` (the `tests/dashboard_*.mjs` interaction
-tests, which `tests/test_dashboard.py` skips without it). Native runner tests
-require **cc**, **pkg-config** and **json-c development files**
-(`apt install build-essential pkg-config libjson-c-dev` on Debian/Ubuntu);
-`make test`, `make coverage` and `make doctor` preflight them. Bootstrap also needs
-sibling `../resembl` at tag `v5.2.0`
-whose `HEAD` is the `RESEMBL_SHA` commit (CI `resembl-sha`): `make setup`
-checks both and prints the clone or checkout line when either is wrong.  `make help`
-lists every contributor target.
+Prerequisites (nasm, bun, cc/pkg-config/json-c, the sibling `../resembl` at
+tag `v5.2.0` and the rest) and what each gate does without them are in
+[CONTRIBUTING.md](../CONTRIBUTING.md#bootstrap-clean-clone); `make doctor`
+reports them, and `make help` lists the contributor targets. Notes that live
+only here:
 
 ```bash
-make doctor                             # report every missing prerequisite (uv, ../resembl, bash, nasm,
-                                        # bun, JDK/ant, go, patch, cc/pkg-config/json-c, shellcheck, yamllint, vnu, venv extras) with the fix for each;
-                                        # read-only; on a clean clone ../resembl and the venv extras are the
-                                        # next step (clone-resembl, setup), so the exit code is 1 only
-                                        # for a host tool the bootstrap cannot install
-make setup                              # --locked sync (extras + similarity) + pre-commit/pre-push hooks (push runs
-                                        # make test, needs nasm; SKIP=pytest git push to skip)
-make test-one T=tests/test_source_bindings.py  # single file / pytest nodeid
-make test-one T=tests/test_source_bindings.py FLAGS="-k metadata"   # narrow further
-make test-one T=tests/test_dashboard.py::TestSummaryRequests        # one class
-make test                               # full suite (ANSI-safe; same as CI)
-make lint                             # ruff check . (same scope as the pre-commit hook)
-make format-check                     # ruff format --check
-make mypy                             # type check (0 issues expected; strict,
-                                        # covers src/rebrew + tools + every tests/ module
-                                        # that has come clean; the rest is not yet clean)
-make check                            # pre-commit hooks; pytest runs only
-                                        # at the pre-push stage.
+make setup                              # also installs a pre-push hook that runs make test
+                                        # (needs nasm; SKIP=pytest git push to skip)
+make mypy                               # strict; 0 issues expected. Covers src/rebrew, tools and every
+                                        # tests/ module that has come clean; the rest is not yet clean
+make check                              # pre-commit hooks; pytest runs only at the pre-push stage.
                                         # Exports NO_COLOR / TERM=dumb /
                                         # _TYPER_FORCE_DISABLE_TERMINAL first, so a
                                         # FORCE_COLOR or GITHUB_ACTIONS export in the
@@ -213,29 +195,11 @@ make check                            # pre-commit hooks; pytest runs only
                                         # why the make target is the documented one.
 NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
   uv run --frozen pre-commit run --all-files   # same pre-commit hooks, ANSI-safe by hand
-make all                                # local gates: format-check, lint, mypy, audit, coverage, gen-fixtures-check, gen-skills-check, cycles-check, layering-check, idempotency-check, cli-contract, jobs-check
-make cli-contract                       # high-value --help greps (CI cli-contract job)
-make jobs-check                         # Go jobs service: gofmt -l, go vet ./..., go test -race ./... (CI jobs-service job)
-make gen-fixtures                       # regenerate tests/fixtures/ (then commit)
-make build                              # sdist+wheel (CI package job; run before a PR)
-make coverage                           # full suite under slipcover, fails below COV_FLOOR
 # Bare pytest is also ANSI-safe (pytest_ansi_env plugin); prefer make test-one.
 ```
 
 ## Performance notes (GA scoring hot loop)
 
-Profiled `score_candidate` (512-byte functions, 40 reloc offsets, 5000 iters):
-
-- **capstone disasm ≈ 40 %** of per-call time: C library, not vectorizable.
-- **difflib.SequenceMatcher ≈ 27 %**: mnemonic-sequence diff; scoring
-  weights are calibrated to it, so swapping it changes behavior.
-- Remaining ≈ 30 %: numpy byte compare (already vectorized), prologue
-  checks, the reloc-mask slice loop (µs-scale at realistic reloc counts).
-
-The GA hot path already precomputes the target side once per function
-(`precompute_target` → `_pre_norm_target` / `_pre_target_mnems`, wired in
-`match_ga.py` and `matcher/compiler.py`); per-candidate cost is dominated by
-the unavoidable candidate disassembly.  A numpy fancy-indexing prototype
-for `_normalize_with_reloc_offsets` measured **slower** (0.7×) than the
-existing slice-assignment loop: do not "vectorize" it.  The `_pre_*`
-contract is locked by `TestPrecomputedTarget` in tests/test_scoring.py.
+The `score_candidate` profile, the target precomputation contract
+(`TestPrecomputedTarget`) and the rejected vectorization experiment are in
+[PERFORMANCE.md](PERFORMANCE.md#ga-scoring-hot-loop-score_candidate).

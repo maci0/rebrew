@@ -117,9 +117,9 @@ locals, and comments between analysts and tools. rebrew bridges to it at the
   1 on any divergence, JSON output) for previewing imports and guarding
   sync drift in CI.
 
-BinSync is the *team/tool* boundary, complementary to the Ghidra-only ReVa
-MCP structural bridge (`rebrew sync create-functions`, `bookmarks`, and
-`pull-data`): anything BinSync-aware can consume rebrew's
+BinSync is the *team/tool* boundary, complementary to the Ghidra structural
+bridge (`rebrew sync create-functions`, `bookmarks` and `pull-data`; ReVa MCP,
+or ghidra-cli for the first two): anything BinSync-aware can consume rebrew's
 exports and feed renames back, while the Ghidra bridge stays interactive.
 Full details: [BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md).
 

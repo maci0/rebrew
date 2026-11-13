@@ -24,7 +24,13 @@ channel. Acknowledgement and fix timing depend on maintainer availability.
 
 ## Security model (summary)
 
-Rebrew is a local compiler-in-the-loop reversing workbench (CLI). It is not a multi-tenant network service. Two bearer-token network listeners exist, both plain HTTP: rebrew ops serve (workspace-confined write ops plus bearer-gated GET/HEAD `/health` and `/metrics` aggregates, `src/rebrew/ops.py` `_not_post` / `OpsServer.metrics_snapshot`; a browser-origin POST with a non-empty `Origin`/`Referer` is refused 403 `cross-origin` before the bearer check, and `/metrics` carries bounded per-op RED counters) and the Go jobs owner `rebrew-jobs` (`services/jobs/`, loopback `127.0.0.1:8089` by default, unauthenticated `GET/HEAD /healthz`+`/health` returning only `{"status":"ok"}`), `REBREW_JOBS_ADDR` to override only to another loopback address (non-loopback is refused at startup, `isLoopbackAddr` in `services/jobs/cmd/rebrew-jobs/main.go`), `REBREW_WORKSPACE`/`REBREW_JOB_DIR`/`REBREW_JOB_TOKEN` required (token at least 32 bytes, checked at startup, `services/jobs/cmd/rebrew-jobs/main.go`); `REBREW_MANAGED_RECOMPILE_URL`, when set, additionally requires a valid https-or-loopback upstream (`validateManagedUpstream`) plus `REBREW_MANAGED_COMPILE_LIMIT`/`REBREW_MANAGED_COMPILERS` with a non-blank list); the coverage dashboard is loopback by default and unauthenticated. The living attack-surface and trust-boundary
+Rebrew is a local compiler-in-the-loop reversing workbench (CLI). It is not a multi-tenant network service. It has three network listeners, all plain HTTP:
+
+- **`rebrew ops serve`** (bearer token): workspace-confined write ops plus bearer-gated GET/HEAD `/health` and `/metrics` aggregates (`src/rebrew/ops.py` `_not_post` / `OpsServer.metrics_snapshot`). A browser-origin POST with a non-empty `Origin`/`Referer` is refused 403 `cross-origin` before the bearer check. `/metrics` carries bounded per-op RED counters.
+- **`rebrew-jobs`**, the Go jobs owner (`services/jobs/`, bearer token): loopback `127.0.0.1:8089` by default, with unauthenticated `GET/HEAD /healthz` and `/health` returning only `{"status":"ok"}`. `REBREW_JOBS_ADDR` overrides it only to another loopback address (non-loopback is refused at startup, `isLoopbackAddr`). `REBREW_WORKSPACE`, `REBREW_JOB_DIR` and `REBREW_JOB_TOKEN` are required, the token at least 32 bytes, checked at startup (`services/jobs/cmd/rebrew-jobs/main.go`). `REBREW_MANAGED_RECOMPILE_URL`, when set, also requires a valid https-or-loopback upstream (`validateManagedUpstream`) plus `REBREW_MANAGED_COMPILE_LIMIT` and a non-blank `REBREW_MANAGED_COMPILERS` list.
+- **The coverage dashboard**: loopback by default and unauthenticated.
+
+The living attack-surface and trust-boundary
 document is:
 
 - [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md)
@@ -60,7 +66,8 @@ deleted by `sweep_stale_temp_dirs` on the next compile
 also deletes, by the same age rule, directories under the project at
 `.rebrew/climb` and `.rebrew/qualsweep`, where the prefix it matches is
 declared by the caller and derived from the function's symbol name
-(`src/rebrew/climb.py` `:911`, `src/rebrew/qual_sweep.py` `:294`), so a
+(the `sweep_stale_temp_dirs` calls in `src/rebrew/climb.py` and
+`src/rebrew/qual_sweep.py`), so a
 symbol name in shipped metadata decides what a later run may remove from
 those two rebrew-owned scratch directories, and nothing else. And
 `XAUTHORITY` names the X cookie file rebrew
@@ -151,7 +158,7 @@ plugin cache backends or remove the open upstream diskcache advisory.
   open pickle advisory is mitigated for packaged backends by `NoPickleDisk`,
   not by claiming the upstream advisory is fixed.
 - No claim that library helpers which invoke host DOSBox
-  (`rebrew.compiler.msvc16` / `tc16` / `delphi16` via `rebrew.compiler.dosbox`) are covered by
+  (`rebrew.compiler.msvc16` / `tc16` via `rebrew.compiler.dosbox`) are covered by
   the docker-only compile guarantee on the shipped CLI compile path.
   There is no `pdb_cvdump` module and no `REBREW_CVDUMP` setting. PDB reads
   on the shipped path run host `llvm-pdbutil`

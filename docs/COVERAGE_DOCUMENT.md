@@ -175,7 +175,7 @@ document never holds a function no reader can key.
 | `verified_at` | string | ISO 8601 stamp of the measurement. |
 | `byte_delta` | integer or `""` | Differing bytes. |
 | `diff_lines` | integer or `""` | Structural differing disassembly lines; register-encoding-only differences are not counted here (see `reg_delta`). |
-| `similarity` | float or `""` | Code similarity in `[0, 1]`, from the verify cache's 0–100 `Sim %` divided by 100; `""` when unscored, including an unavailable optional scorer or scoring failure. |
+| `similarity` | float or `""` | Code similarity in `[0, 1]`: the current canonical function receipt's score when one exists, else the verify cache's 0–100 `Sim %` divided by 100; `""` when unscored, including an unavailable optional scorer or scoring failure. |
 | `reg_delta` | integer or `""` | Register-encoding-only differing instructions; `""` when the cache has no value. |
 | `effective_match` | `0` / `1` or `""` | `1` when the whole byte delta is register allocation. |
 
@@ -183,8 +183,11 @@ The rows come from the selected verify cache (`.rebrew/verify_cache.toml`, or
 `.rebrew/targets/<sha256-of-exact-target-name>/verify_cache.toml` once the
 project keeps per-target verification state), imported by `rebrew coverage export --output snapshots/`;
 `rebrew verify` writes no coverage document (only its `--output` JSON report).
-A cache that says nothing about the target
-keeps the document's previous rows, and a row whose measurements did not move
+Canonical function receipts also supply rows (similarity only) when there is no
+cache. A stored receipt `similarity` takes precedence even when its inputs have
+changed: a stale receipt clears the cached score, and with no cache it yields an
+empty row set that replaces the previous rows. When neither the cache nor any
+receipt says anything about the target, the document keeps its previous rows, and a row whose measurements did not move
 keeps its earlier `verified_at`: a rebuild re-measures the same verdicts, and
 the cache file's own mtime is not when a verdict was first measured.
 

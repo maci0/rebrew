@@ -57,10 +57,9 @@ provenance and per-file atomicity.
 
 ## Functional Requirements
 
-**Status (2026-09):** the `rebrew binsync` umbrella ships (`push` / `pull` /
-`summary` / `init` / `diff` / `overlay`) alongside the flat
-`binsync export` / `binsync import` / `binsync diff` / `binsync init` /
-`binsync overlay` commands.  Conflict accept-flags
+**Status (2026-09):** `rebrew binsync` ships eight subcommands: `export` /
+`import` exchange raw state, `push` / `pull` add the Git steps, and `init` /
+`diff` / `overlay` / `summary` are shared.  Conflict accept-flags
 (`--accept-binsync` / `--accept-local`) ship on pull/import.  Declib
 serialization ships (`rebrew[binsync]`), including structs with fields,
 enums, typedefs, `LOCALS`, and per-instruction `COMMENTS`.  Still open:
@@ -81,8 +80,8 @@ rebrew binsync diff <state-dir>      # per-VA diff: where do rebrew + BinSync di
 rebrew binsync overlay ...           # overlay a related target's BinSync data
 ```
 
-Flat commands remain as peers (not only aliases): `binsync export`,
-`binsync import`, `binsync diff`, `binsync init`, `binsync overlay`.
+`binsync export` and `binsync import` are the raw-state peers of `push` and
+`pull`.
 
 Shared flags: `--target`, `--json`; `--module FILTER` on every subcommand except `init`; `--dry-run` on the writing subcommands (`push`, `pull`, `init`, `overlay`; `summary` and `diff` are read-only).
 
@@ -101,7 +100,7 @@ named the layer `libbs`; the shipped dependency is `declib>=4.5.0,<5`.)*
 
 For each function in the BinSync state:
 
-- **Name** → if generic per `rebrew.binsync.importer.is_meaningful` (`func_<hex>`, `FUN_`, `DAT_`, `switchdata`, `thunk_`, `g_<hex>`), skip. If meaningful and rebrew already has a meaningful different name, report CONFLICT. Else update the managed function identity and C declaration through the rename owner, including bound cross-references. Optional ADDRESS anchors retain the same module/VA.
+- **Name** → if a placeholder per `rebrew.workspace.names.is_placeholder_name`, skip. If meaningful and rebrew already has a meaningful different name, report CONFLICT. Else update the managed function identity and C declaration through the rename owner, including bound cross-references. Optional ADDRESS anchors retain the same module/VA.
 - **Prototype** → update the C function declaration via the prototype-rewrite path in `rebrew.binsync.importer` (the `--pull-signatures` flag it replaced is removed).
 - **Stack frame / locals** → write to a new `[locals]` block in `rebrew-functions.toml`. See F4.
 - **Per-instruction comments** → store native-address-keyed comment fields in dedicated function metadata. No ANALYSIS state is written into C source.
@@ -120,9 +119,11 @@ Shipped: `[locals]` in `rebrew-functions.toml` (offset-keyed
 `{name, type, size}`), round-tripped via declib `Function.stack_vars`:
 
 ```toml
+format = 3
+
 ["SERVER.0x10008880"]
 status = "EXACT"
-[SERVER.0x10008880.locals]
+["SERVER.0x10008880".locals]
 "-4" = { name = "ret_val",   type = "int" }
 "-8" = { name = "tmp",       type = "char *" }
 "8"  = { name = "arg_count", type = "size_t" }
@@ -196,7 +197,7 @@ rebrew binsync diff <state-dir>                  # read-only divergence report (
 Common flags on all three: `--target NAME`, `--json`; `--dry-run` on
 export/import (`binsync diff` is read-only and needs no dry-run).
 
-Shipped (umbrella; flat commands above remain peers):
+Shipped:
 
 ```bash
 rebrew binsync init <state-dir>                  # git init + skeleton

@@ -63,8 +63,9 @@ differ by mnemonic.
 
 ## vtordisp: MI thunk detection
 
-MSVC multiple-inheritance thunks adjust `this` (`sub ecx, imm8`) and jump
-to the base implementation. Three shapes: `{disp, 0}` (8 bytes),
+MSVC multiple-inheritance thunks subtract the vtordisp value loaded from
+`[ecx + disp8]` from `this` (`2b 49 <disp8>`, `sub ecx, [ecx + disp8]`), apply an
+optional constant adjustment, and jump to the base implementation. Three shapes: `{disp, 0}` (8 bytes),
 `{disp, +addend}` (14), `{disp, -addend}` (11).
 
 ```python

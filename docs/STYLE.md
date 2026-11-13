@@ -13,7 +13,7 @@ Each fact lives in exactly one document; everywhere else links there.
 |---|---|---|
 | `README.md` | What rebrew is + 5-minute install | Flag tables, procedures, rationale |
 | `docs/GETTING_STARTED.md` | Human tutorial: mental model → first match | Exhaustive flags (→ CLI.md) |
-| `docs/ONBOARDING.md` | First-run error catalog | Concepts (→ GETTING_STARTED.md) |
+| `docs/ONBOARDING.md` | First-run companion: wizard, intake, doctor, first-run errors | Concepts (→ GETTING_STARTED.md) |
 | `docs/CLI.md` | Per-command flags and examples | Design rationale (→ ADRs) |
 | `docs/*.md` topical | One subject each (config, toolchain, metadata…) | Other subjects' facts |
 | `docs/adr/` | Why a decision was made, what was given up | Current behavior narration |

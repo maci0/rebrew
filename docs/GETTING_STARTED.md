@@ -36,9 +36,11 @@ Three ideas carry the whole tool:
 |----------|-----|-------------|
 | Linux x86_64 | all compiler images target it | n/a |
 | Python 3.15+ and `uv` | runs rebrew | [uv installer](https://docs.astral.sh/uv/getting-started/installation/); `uv python install 3.15` |
-| docker | **every** compiler runs inside an image (wine/DOSBox live there; there is no host-wine path) | your distro's `docker` |
-| rizin | the main function discoverer (capstone sweep / eh_frame / pdata are fallbacks) | `apt install rizin` |
-| ReconDB (optional) | signature sets for `rebrew library init-signatures --matched-only`, which copies the matching subset into the project's `flirt_sigs/`; `rebrew library scan-signatures` reads that project directory (plus the checkout when present). From a source checkout rebrew looks for a sibling of that checkout, so clone it next to rebrew (not next to the project); a wheel install finds no checkout, so set `REBREW_FLIRT_SIGS_DIR` at the checkout. A value that is not a directory fails `rebrew library scan-signatures` outright | `git clone https://github.com/relumea/recondb ../recondb` next to your rebrew checkout, then `export REBREW_FLIRT_SIGS_DIR=../recondb` if rebrew is installed as a package |
+| Rust (cargo + rustc) | installing rebrew builds the `python-flirt` binding from source; managed deployments can use the published native wheel instead ([README Development](../README.md#development)) | [rustup](https://rustup.rs) or your distro |
+| Docker (default) or Podman | **every** shipped compiler runs inside an image: Windows tools use wine, 16-bit tools may use DOSBox, Linux toolchains run natively there. A host wine or wibo install is no fallback. Experimental unshare is a third backend; see [compile backends](TOOLCHAIN.md#compile-backends) | your distro's container runtime |
+| rizin | the packaged function discoverer (`rebrew.discoverers`; capstone sweep / eh_frame / pdata are fallbacks, and other discoverers plug in without host edits) | `apt install rizin` / [rizin.re](https://rizin.re) |
+| `diec` (optional) | stronger compiler detection in `rebrew doctor`/`intake` | Detect It Easy 4.0: `diec` on `PATH` (Arch: `detect-it-easy-bin`), or, in a rebrew source checkout, unpack [release 4.0.0](https://github.com/horsicq/DIE-engine/releases/tag/4.0.0) so `tools/diec/diec` and `tools/diec/lib/` exist (gitignored, not shipped) |
+| ReconDB (optional) | signature sets for `rebrew library init-signatures --matched-only`, which copies the matching subset into the project's `flirt_sigs/`; `rebrew library scan-signatures` reads that project directory plus the ReconDB checkout when present. A rebrew source checkout finds a sibling `../recondb` (next to rebrew, not next to the project); a wheel install has no checkout, so set `REBREW_FLIRT_SIGS_DIR`. A relative value resolves against the working directory, so an absolute path is safest; a value that is not a directory fails `rebrew library scan-signatures` outright | `git clone https://github.com/relumea/recondb` next to your rebrew checkout, or anywhere plus `export REBREW_FLIRT_SIGS_DIR=/abs/path/to/recondb` |
 | A binary | the thing you are reversing | yours |
 
 Install rebrew itself:
@@ -49,6 +51,8 @@ uv tool install 'rebrew[prove] @ git+https://github.com/maci0/rebrew.git'
 
 The `[prove]` extra is what installs angr; without it `rebrew prove` exits
 with that install hint. Drop the extra if you never want symbolic proof.
+In a rebrew checkout, use `make setup` instead (see
+[CONTRIBUTING.md](../CONTRIBUTING.md#bootstrap-clean-clone)).
 
 ## Walkthrough
 
@@ -81,7 +85,7 @@ skeleton plus a BLOCKER for each one. You will see something like:
 Intake complete: game (msvc-8.0)
   detected family: msvc (MSVC 8.0)
   functions: 259, documented: 259
-  toolchain: msvc-8.0 runs through docker image rebrew/msvc:8.0-win32; run 'rebrew toolchain build msvc-8.0' if the image is missing
+  toolchain: msvc-8.0 runs through docker image rebrew/msvc:8.0-win32 — run 'rebrew toolchain build msvc-8.0' if the image is missing
   next: rebrew doctor && rebrew status --json
   first run? see the rebrew repo's docs/ONBOARDING.md for the walkthrough
 ```

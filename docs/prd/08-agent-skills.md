@@ -11,9 +11,8 @@ tool" each turn.
 
 ## Problem It Solves
 
-Rebrew exposes 242 surfaces: 208 leaf commands and 34 groups, including the
-root (see `docs/CLI.md` header, measured against the Typer tree)
-and dozens of options. An agent that has
+Rebrew exposes hundreds of commands ([CLI.md](../CLI.md) gives the measured
+count) and dozens of options. An agent that has
 to discover the workflow on the fly:
 
 - Burns context tokens reading help output.
@@ -58,9 +57,9 @@ recipes for each phase of a project.
 
 ### `rebrew-init` (bare-directory scaffolding)
 
-Trigger keywords: `init`, `scaffold`, `new project`, `bare directory`,
-`create project`, `initialize project`, `init project`, `project setup`,
-`set up rebrew`, `rebrew init`, `guess-compiler`, `refresh-agents`.
+Trigger keywords: the shipped `description` frontmatter in
+`src/rebrew/agent-skills/rebrew-init/SKILL.md`, the single source of truth for
+the trigger list.
 
 Scope:
 
@@ -93,9 +92,9 @@ Ghidra sync.
 
 ### `rebrew-intake` (binary onboarding)
 
-Trigger keywords: `intake`, `onboard`, `onboard binary`, `new binary`,
-`new target`, `import binary`, `binary recon`, `FLIRT scan`, `first triage`,
-`coverage catalog`, `coverage export`, `cfg detect-crt`, `build layout`.
+Trigger keywords: the shipped `description` frontmatter in
+`src/rebrew/agent-skills/rebrew-intake/SKILL.md`, the single source of truth for
+the trigger list.
 
 Scope:
 
@@ -133,9 +132,9 @@ Excludes: picking what to match, skeleton/edit, global-data debugging.
 
 ### `rebrew-data-analysis` (globals & BSS)
 
-Trigger keywords: `global`, `global variable`, `data section`, `BSS`,
-`vtable`, `dispatch table`, `bss gap`, `bss padding`, `fix bss`,
-`extern`, `missing extern`, `type conflict`.
+Trigger keywords: the shipped `description` frontmatter in
+`src/rebrew/agent-skills/rebrew-data-analysis/SKILL.md`, the single source of truth for
+the trigger list.
 
 Scope:
 
@@ -149,9 +148,9 @@ Excludes: function bodies, deep matching.
 
 ### `rebrew-ghidra-sync` (Ghidra ↔ rebrew)
 
-Trigger keywords: `Ghidra`, `binsync`, `sync ghidra`, `binsync push`,
-`binsync pull`, `state-dir`, `ReVa`, `rebrew sync push`, `create-functions`,
-`bookmarks`, `pull-data`.
+Trigger keywords: the shipped `description` frontmatter in
+`src/rebrew/agent-skills/rebrew-ghidra-sync/SKILL.md`, the single source of truth for
+the trigger list.
 
 > Field sync uses `rebrew sync push` / `rebrew sync pull --state-dir PATH`,
 > with `--accept-binsync` / `--accept-local` on pull. ReVa MCP handles
@@ -173,9 +172,9 @@ Excludes: source editing, picking functions, data analysis without Ghidra.
 
 ### Story 1: Agent routes correctly by keyword
 
-1. User: "the FLIRT scan flagged a bunch of MSVCRT funcs, what now?"
-2. Agent loads `rebrew-intake` (keyword "FLIRT scan") and follows the
-   intake procedure that includes the CRT match step.
+1. User: "onboard this binary".
+2. Agent loads `rebrew-intake` (its frontmatter trigger) and follows the
+   intake procedure, which includes library detection and the CRT match step.
 
 ### Story 2: Agent escalates to matching
 
@@ -248,7 +247,7 @@ rebrew skills show <name> --json  # name/description/path + raw content
 - An agent presented with a fresh project completes intake purely from
   `rebrew-intake` instructions.
 - An agent never edits `rebrew-functions.toml` by hand because every
-  skill emphasises `update_source_status` / the CLI tools.
+  skill routes metadata writes through CLI commands.
 - Skill files stay ≤250 lines (enforced: `tests/test_skills_sync.py`
   `MAX_SKILL_LINES`) so the agent always loads them in one fetch.
 - A regression test asserts that example commands in each SKILL.md use real
