@@ -135,9 +135,20 @@ report; a policy such as "an applied proposal changed only its own function's
 fresh capture of its binary. `capture` is the new capture's config and metadata
 files; `target` is the target's published `rebrew-project.toml` plus the metadata
 files its last applied proposal or carry published, if any. Rebrew builds the
-target's new metadata from the capture's documents with the target's function
-registry carried over, through the reviewed `metadata migrate` preview and apply,
-and checks the result's logical documents. The reply's `files` are the files to
+target's new metadata from the capture's documents, merging each function
+registry the target published per record:
+
+- a function in both keeps the published row whole, since it carries applied
+  proposals;
+- a function only the fresh analysis found is added as found;
+- a function only the published registry holds is kept;
+- a fresh-only function whose `name` or `symbol` a published row already uses
+  keeps its address placeholder (`fcn_<va>`, symbol `_fcn_<va>`) instead, so no
+  published identity is renamed.
+
+Data, types, libraries and replication documents come from the fresh capture.
+The result goes through the reviewed `metadata migrate` preview and apply, and its
+logical documents are checked against the merged inputs. The reply's `files` are the files to
 publish in the target's source tree (`{path, size, digest, data}`: the config,
 now selecting the capture's backend, and the carried store when the target had
 published metadata), `remove` lists target metadata paths the new config no

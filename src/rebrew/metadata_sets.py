@@ -263,12 +263,52 @@ def _document_texts(root: Path, backend: str) -> dict[str, bytes]:
     return texts
 
 
+def _set_record(document: Any, keys: tuple[str, ...], value: Any) -> None:
+    table = document
+    for key in keys[:-1]:
+        if key not in table:
+            table[key] = tomlkit.table()
+        table = table[key]
+    table[keys[-1]] = value
+
+
+def _merged_registry(path: str, published: bytes, fresh: bytes) -> bytes:
+    """The published function registry with the records only a fresh analysis found.
+
+    A record in both keeps the published one whole: it carries applied proposals.
+    A fresh function whose name or symbol a published row already uses keeps its
+    address placeholder instead, so no published identity is renamed.
+    """
+    from rebrew.metadata.bindings import derive_c_symbol
+
+    merged = tomlkit.parse(published.decode("utf-8"))
+    kept = dict(metadata_records(merged, Path(path)))
+    names = {row.get("name") for row in kept.values() if isinstance(row, dict)} - {None}
+    symbols = {row.get("symbol") for row in kept.values() if isinstance(row, dict)} - {None}
+    for keys, value in metadata_records(tomlkit.parse(fresh.decode("utf-8")), Path(path)):
+        if keys in kept:
+            continue
+        address = parse_metadata_key(keys[0]) if len(keys) == 1 else None
+        if (
+            address is not None
+            and isinstance(value, dict)
+            and (value.get("name") in names or value.get("symbol") in symbols)
+        ):
+            placeholder = f"fcn_{address[1]:08x}"
+            value["name"] = placeholder
+            value["symbol"] = derive_c_symbol(placeholder, "")
+            if placeholder in names or value["symbol"] in symbols:
+                raise MetadataSetError(f"{keys[0]}: its placeholder name is already published")
+        _set_record(merged, keys, value)
+    return tomlkit.dumps(merged).encode("utf-8")
+
+
 def carry_metadata(capture: Path, target: Path, into: Path) -> None:
     """Write into *into* a target's metadata carried onto a fresh capture of its binary.
 
     *into* gets the target's ``rebrew-project.toml`` and the capture's logical
-    documents, every function registry document taken from the target when it
-    published one. A SQLite capture is imported through the reviewed migration
+    documents, each function registry the target published merged per record
+    (``_merged_registry``). A SQLite capture is imported through the reviewed migration
     (preview, then apply with its expected digest), which selects SQLite in the
     config; the result must hold exactly the documents written.
     """
@@ -278,13 +318,11 @@ def carry_metadata(capture: Path, target: Path, into: Path) -> None:
     backend = metadata_backend(capture)
     captured = _document_texts(capture, backend)
     published = _document_texts(target, metadata_backend(target))
-    registry = {path: text for path, text in published.items() if Path(path).name == _REGISTRY}
-    documents = {
-        path: text
-        for path, text in captured.items()
-        if not registry or Path(path).name != _REGISTRY
-    }
-    documents.update(registry)
+    documents = dict(captured)
+    for relative, text in published.items():
+        if Path(relative).name == _REGISTRY:
+            fresh = captured.get(relative)
+            documents[relative] = text if fresh is None else _merged_registry(relative, text, fresh)
     if not any(Path(path).name == _REGISTRY for path in documents):
         raise MetadataSetError(f"carried metadata holds no {_REGISTRY}")
     config = tomlkit.parse((target / "rebrew-project.toml").read_text(encoding="utf-8"))

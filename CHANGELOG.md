@@ -12,7 +12,7 @@
 
 - **Breaking:** fresh `rebrew.analyse` captures use version 3, whose `metadata` descriptor is backend-neutral: `files[{path, sha256}]` (the physical metadata files) and `documents[{path, logical_sha256}]`, replacing `backend`, `path` and `migration_input_digest`. `rebrew.apply_candidate` replies add the same descriptor as `metadata`. Stored version 1 and 2 captures stay readable. See [the dispatch metadata contract](docs/METADATA.md#dispatch-metadata-contract).
 
-- New read-only dispatch ops `rebrew.metadata_describe` (the descriptor of a file set) and `rebrew.metadata_diff` (the per-record field changes between two file sets, read through the storage layer), and `rebrew.metadata_carry`, which carries a retained target's published function registry onto a fresh capture of its binary through the reviewed metadata migration. A dispatch client no longer needs to parse or name rebrew's metadata files.
+- New read-only dispatch ops `rebrew.metadata_describe` (the descriptor of a file set) and `rebrew.metadata_diff` (the per-record field changes between two file sets, read through the storage layer), and `rebrew.metadata_carry`, which carries a retained target onto a fresh capture of its binary through the reviewed metadata migration, merging its published function registry per record: published rows win, fresh-only rows are added (with their address placeholder when their name or symbol is already published), and published-only rows stay. A dispatch client no longer needs to parse or name rebrew's metadata files.
 
 ### Fixed
 

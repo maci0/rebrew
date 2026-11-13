@@ -393,6 +393,100 @@ def test_carry_keeps_an_attested_store_on_a_new_capture(
     _read_names(config, reanalysed, sqlite_tree | carried, monkeypatch)
 
 
+FRESH_VA = 0x500000
+COLLIDING_VA = 0x500010
+PUBLISHED_VA = 0x600000
+PUBLISHED_ONLY = (
+    b'\n["MINI.0x00600000"]\nfile = "src/mini/published_only.c"\nsymbol = "_published_only"\n'
+    b'name = "published_only"\nkind = "STUB"\nsize = 4\nstatus = "STUB"\n'
+)
+
+
+def _with_fresh_rows() -> Any:
+    """An intake that also finds two functions the published registry lacks, one named as
+    the published applied function."""
+    from rebrew.metadata.functions import record_function_rows
+
+    intake = ops._run_intake
+
+    def seed(binary: Path, root: Path, target: str) -> Any:
+        result = intake(binary, root, target)
+        cfg = load_config(root, target=target)
+        record_function_rows(
+            cfg.metadata_dir,
+            [
+                {
+                    "module": "MINI",
+                    "va": va,
+                    "identity": {"name": name, "symbol": f"_{name}"},
+                    "fields": {"size": 16},
+                }
+                for va, name in ((FRESH_VA, "fresh_only"), (COLLIDING_VA, APPLIED))
+            ],
+            updated_by="intake",
+        )
+        return result
+
+    return seed
+
+
+@pytest.mark.parametrize("published", ["toml", "sqlite"])
+def test_carry_merges_the_function_registry_per_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, published: str
+) -> None:
+    import tomllib
+
+    from rebrew.metadata.document import qualified_key
+
+    filestore, workspace = _worker_dirs(tmp_path)
+    config = WorkerConfig(filestore.resolve(), workspace.resolve())
+    tree = _v1_target_with_applied_name(config)
+    tree[REGISTRY] += PUBLISHED_ONLY
+    registry = REGISTRY
+    if published == "sqlite":
+        status, reply = _carry(config, tree, _analyse(config)["analysis_capture"], REGISTRY)
+        assert status == 200, reply
+        tree = {path: data for path, data in tree.items() if path != REGISTRY}
+        tree |= _applied_files(reply)
+        registry = DATABASE_FILENAME
+        before = _documents(tree[DATABASE_FILENAME], tmp_path / "published")[REGISTRY]
+    else:
+        before = tree[REGISTRY]
+    with monkeypatch.context() as patch:
+        patch.setattr(ops, "_run_intake", _with_fresh_rows())
+        capture = _analyse(config)["analysis_capture"]
+    status, reply = _carry(config, tree, capture, registry)
+    assert status == 200, reply
+    carried = _documents(_applied_files(reply)[DATABASE_FILENAME], tmp_path / "carried")
+    fresh = _documents(_captured(capture)[DATABASE_FILENAME], tmp_path / "fresh")
+    rows = tomllib.loads(carried[REGISTRY].decode())
+    published_rows = tomllib.loads(before.decode())
+    fresh_rows = tomllib.loads(fresh[REGISTRY].decode())
+
+    # A function in both keeps the published row whole; one only published stays.
+    applied = qualified_key("MINI", RENAMED_VA)
+    assert fresh_rows[applied]["name"] != APPLIED
+    assert {key: rows[key] for key in published_rows} == published_rows
+    assert rows[applied]["name"] == APPLIED
+    assert rows[qualified_key("MINI", PUBLISHED_VA)]["name"] == "published_only"
+    assert qualified_key("MINI", PUBLISHED_VA) not in fresh_rows
+    # A function only the fresh analysis found is added as found.
+    assert rows[qualified_key("MINI", FRESH_VA)] == fresh_rows[qualified_key("MINI", FRESH_VA)]
+    # A fresh name a published row uses falls back to the address placeholder.
+    colliding = qualified_key("MINI", COLLIDING_VA)
+    assert fresh_rows[colliding]["name"] == APPLIED
+    assert rows[colliding] == {
+        **fresh_rows[colliding],
+        "name": f"fcn_{COLLIDING_VA:08x}",
+        "symbol": f"_fcn_{COLLIDING_VA:08x}",
+    }
+    assert set(rows) == set(published_rows) | set(fresh_rows)
+    # The other documents come from the fresh capture.
+    assert {p: d for p, d in carried.items() if p != REGISTRY} == {
+        p: d for p, d in fresh.items() if p != REGISTRY
+    }
+
+
 def test_carry_of_a_toml_target_without_applied_proposals_moves_only_its_config(
     tmp_path: Path,
 ) -> None:
