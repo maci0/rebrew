@@ -6951,6 +6951,10 @@ Op details the contract leaves open:
   `constant` finding also has `va` and `section`.
 - `rebrew.import-project`: live coverage is always read refreshed; `build_db`
   asks for exactly that and only excludes `snapshots`.
+- `rebrew.metadata_describe`, `rebrew.metadata_diff` and `rebrew.metadata_carry`
+  read and carry metadata file sets; the client never parses or names
+  rebrew's metadata files. See
+  [the dispatch metadata contract](METADATA.md#dispatch-metadata-contract).
 - `rebrew.binary_function_digests`: the image is parsed once; every byte a
   typed fixup covers (PE or ELF, x86_32 and x86_64 only; other images are
   refused) is zeroed before SHA-256 (`sha256-relocations-v1`). At most 128

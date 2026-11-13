@@ -1168,7 +1168,7 @@ class TestReconstructionOps:
             assert status == 200, body
             report = json.loads(body)
             capture = report["analysis_capture"]
-            assert capture["version"] == 2
+            assert capture["version"] == 3
             assert capture["binary_sha256"] == SHA256
             assert capture["target"] == report["targets"][0]["name"]
             assert report["targets"][0]["sha256"] == SHA256

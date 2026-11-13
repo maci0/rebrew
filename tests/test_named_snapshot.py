@@ -99,11 +99,11 @@ def _sample(directory: Path, *, legacy: bool = False) -> tuple[WorkerConfig, dic
         "version": 1,
     }
     source_manifest = _json(source_document)
-    assert capture["version"] == 2
+    assert capture["version"] == 3
     # The field order of the backend's stored manifest (store.AnalysisCapture).
     analysis_manifest = _json(
         {
-            "version": 1 if legacy else 2,
+            "version": 1 if legacy else 3,
             "binary_sha256": SHA256,
             "target": capture["target"],
             **{key: capture[key] for key in ("inventory_path", "report_path") if key in capture},
@@ -343,10 +343,45 @@ def test_sqlite_capture_descriptor_must_match_its_store(
     unversioned = copy.deepcopy(capture)
     unversioned["version"] = 1
     reordered = {"metadata": capture["metadata"], **legacy}
-    for document in (altered, {**legacy, "version": 2}, unversioned, reordered):
+    other_store = copy.deepcopy(capture)
+    other_store["metadata"]["files"][0]["sha256"] = "0" * 64
+    for document in (
+        altered,
+        {**legacy, "version": 2},
+        {**legacy, "version": 3},
+        unversioned,
+        reordered,
+        other_store,
+    ):
         status, result = _call(config, _with_capture(original, document))
         assert status == 400, result
         assert result["detail"] == "invalid retained analysis capture"
+
+
+def test_stored_version_2_capture_remains_readable(
+    sample: tuple[WorkerConfig, dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A capture the backend stored before version 3 names its store by backend and path."""
+    config, original = sample
+    monkeypatch.setattr(
+        "rebrew.decompiler.fetch_decompilation", lambda *_args: ("int f(void);", "kuna")
+    )
+    capture = json.loads(original["analysis_manifest"])
+    stored = {key: value for key, value in capture.items() if key not in {"metadata", "entries"}}
+    stored["version"] = 2
+    stored["metadata"] = {
+        "backend": "sqlite",
+        "path": DATABASE_FILENAME,
+        "documents": capture["metadata"]["documents"],
+        "migration_input_digest": "1" * 64,
+    }
+    stored["entries"] = capture["entries"]
+    status, result = _call(config, _with_capture(original, stored))
+    assert status == 200, result
+    tampered = copy.deepcopy(stored)
+    tampered["metadata"]["backend"] = "toml"
+    status, result = _call(config, _with_capture(original, tampered))
+    assert status == 400, result
 
 
 def test_named_decompile_reads_a_store_over_one_mib(

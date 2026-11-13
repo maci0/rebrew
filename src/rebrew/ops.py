@@ -829,6 +829,23 @@ class FlagSearchFile:
 
 
 @dataclass(frozen=True)
+class MetadataDescribeRequest:
+    files: list[FlagSearchFile]
+
+
+@dataclass(frozen=True)
+class MetadataDiffRequest:
+    before: list[FlagSearchFile]
+    after: list[FlagSearchFile]
+
+
+@dataclass(frozen=True)
+class MetadataCarryRequest:
+    capture: list[FlagSearchFile]
+    target: list[FlagSearchFile]
+
+
+@dataclass(frozen=True)
 class DecompileSnapshotRequest:
     project_dir: str
     sha256: str
@@ -2152,6 +2169,7 @@ def _fresh_sqlite_metadata(root: Path, target: str, scratch: Path) -> dict[str, 
         snapshot_metadata_database,
     )
     from rebrew.metadata.storage import project_metadata_stores
+    from rebrew.metadata_sets import describe_metadata
     from rebrew.metadata_transfer import migrate_metadata
 
     cfg = load_config(root, target=target)
@@ -2175,16 +2193,10 @@ def _fresh_sqlite_metadata(root: Path, target: str, scratch: Path) -> dict[str, 
         if documents != logical:
             raise _capture_failed("fresh analysis metadata import changed logical documents")
         os.replace(snapshot, root / DATABASE_FILENAME)
-    return {
-        "backend": "sqlite",
-        "path": DATABASE_FILENAME,
-        "documents": [
-            {"path": path, "logical_sha256": documents[path]}
-            for path in sorted(documents, key=lambda value: value.encode("utf-8"))
-        ],
-        # The migration's staging paths make this an opaque producer receipt.
-        "migration_input_digest": preview["input_digest"],
-    }
+    descriptor = describe_metadata(root, exclusive=False)
+    if {item["path"]: item["logical_sha256"] for item in descriptor["documents"]} != logical:
+        raise _capture_failed("fresh analysis metadata changed after import")
+    return descriptor
 
 
 def capture_fresh_analysis(
@@ -2340,7 +2352,7 @@ def capture_fresh_analysis(
                 if item[field]:
                     item[field] = str(Path(item[field]).relative_to(root))
         capture = {
-            "version": 2,
+            "version": 3,
             "binary_sha256": sha256,
             "target": target,
             "metadata": metadata,
@@ -2428,6 +2440,105 @@ def capture_fresh_analysis(
                 )
                 capture["report_path"] = report_path
         return capture, report
+
+
+@contextlib.contextmanager
+def _staged_metadata_set(config: WorkerConfig, files: list[FlagSearchFile]) -> Iterator[Path]:
+    """Stage a supplied metadata file set under the retained-snapshot rules."""
+    from rebrew.utils import portable_path_parts
+
+    _check_manifest_size(files)
+    paths = {entry.path for entry in files}
+    if len(paths) != len(files) or any(not portable_path_parts(path) for path in paths):
+        raise _invalid("duplicate or invalid metadata set path")
+    if "rebrew-project.toml" not in paths:
+        raise _invalid("a metadata set requires rebrew-project.toml")
+    scratch = config.require_workspace() / SCRATCH_DIR
+    scratch.mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="metadata-set-", dir=scratch) as temp:
+        root = Path(temp).resolve()
+        _stage_retained_files(config, root, files, exclusive=True)
+        yield root
+
+
+def _metadata_answer[T](read: Callable[[], T]) -> T:
+    """Run a metadata read, answering 400 for a set rebrew cannot read."""
+    try:
+        return read()
+    except (OSError, ValueError, RebrewError) as exc:
+        raise _invalid(f"invalid metadata set: {exc}") from exc
+
+
+def metadata_describe(config: WorkerConfig, req: MetadataDescribeRequest) -> dict[str, Any]:
+    """The backend-neutral descriptor of the metadata a supplied file set reads."""
+    from rebrew.metadata_sets import describe_metadata
+
+    with _staged_metadata_set(config, req.files) as root:
+        return _metadata_answer(lambda: describe_metadata(root))
+
+
+def metadata_diff(config: WorkerConfig, req: MetadataDiffRequest) -> dict[str, Any]:
+    """Every metadata record that differs between two supplied file sets, field by field."""
+    from rebrew.metadata_sets import describe_metadata, diff_metadata
+
+    with (
+        _staged_metadata_set(config, req.before) as before,
+        _staged_metadata_set(config, req.after) as after,
+    ):
+        return _metadata_answer(
+            lambda: {
+                "before": describe_metadata(before),
+                "after": describe_metadata(after),
+                "changes": diff_metadata(before, after),
+            }
+        )
+
+
+def metadata_carry(config: WorkerConfig, req: MetadataCarryRequest) -> dict[str, Any]:
+    """Carry a retained target's published function registry onto a fresh capture.
+
+    The new metadata holds the capture's documents with every function registry
+    document taken from the target's published metadata, imported through the
+    reviewed migration into the capture's backend; its logical documents must equal
+    those inputs. Without published metadata the target reads the capture's own.
+    """
+    from rebrew.metadata_sets import carry_metadata, describe_metadata
+
+    with (
+        _staged_metadata_set(config, req.capture) as capture,
+        _staged_metadata_set(config, req.target) as target,
+    ):
+        scratch = config.require_workspace() / SCRATCH_DIR
+        with tempfile.TemporaryDirectory(prefix="metadata-carry-", dir=scratch) as temp:
+            carried = Path(temp).resolve()
+            published = _metadata_answer(lambda: describe_metadata(target))
+            _metadata_answer(lambda: carry_metadata(capture, target, carried))
+            reads = carried if published["files"] else capture
+            metadata = _metadata_answer(lambda: describe_metadata(reads))
+            paths = ["rebrew-project.toml"]
+            if published["files"]:
+                paths.extend(item["path"] for item in metadata["files"])
+            files = []
+            for relative in paths:
+                data = (carried / relative).read_bytes()
+                if len(data) > MAX_READSET_FILE_BYTES:
+                    raise _readset_limit(
+                        f"carried metadata {relative}", len(data), MAX_READSET_FILE_BYTES, "bytes"
+                    )
+                files.append(
+                    {
+                        "path": relative,
+                        "size": len(data),
+                        "digest": hashlib.sha256(data).hexdigest(),
+                        "data": base64.b64encode(data).decode("ascii"),
+                    }
+                )
+            kept = set(paths)
+            return {
+                "files": files,
+                "remove": [item["path"] for item in published["files"] if item["path"] not in kept],
+                "metadata": metadata,
+            }
 
 
 def import_project(config: WorkerConfig, req: ImportRequest) -> dict[str, Any]:
@@ -2901,7 +3012,24 @@ def _applied(
                 "data": base64.b64encode(data).decode("ascii"),
             }
         )
-    return {"result": result, "files": changed}
+    return {"result": result, "files": changed, "metadata": _published_metadata(root, changed)}
+
+
+def _published_metadata(root: Path, published: list[dict[str, Any]]) -> dict[str, Any]:
+    """Describe *root*'s metadata as published: a returned file's digest replaces the live one's.
+
+    A SQLite store is published as a closed copy, whose bytes differ from the live database.
+    """
+    from rebrew.metadata_sets import describe_metadata
+
+    digests = {item["path"]: item["digest"] for item in published}
+    try:
+        descriptor = describe_metadata(root, exclusive=False)
+    except (OSError, ValueError, RebrewError) as exc:
+        raise _invalid(f"the applied metadata is invalid: {exc}") from exc
+    for item in descriptor["files"]:
+        item["sha256"] = digests.get(item["path"], item["sha256"])
+    return descriptor
 
 
 def retained_metadata_backend(root: Path) -> str:
@@ -3561,6 +3689,9 @@ OPS: dict[str, Op] = {
     "rebrew.security_scan_snapshot": Op(SecuritySnapshotRequest, security_scan_snapshot),
     "rebrew.analyse": Op(AnalyseRequest, analyse),
     "rebrew.import-project": Op(ImportRequest, import_project),
+    "rebrew.metadata_carry": Op(MetadataCarryRequest, metadata_carry),
+    "rebrew.metadata_describe": Op(MetadataDescribeRequest, metadata_describe),
+    "rebrew.metadata_diff": Op(MetadataDiffRequest, metadata_diff),
     "rebrew.reference_flirt": Op(ReferenceFlirtRequest, reference_flirt),
     "rebrew.verify_function": Op(VerifyRequest, verify_function),
     "rebrew.apply_candidate": Op(ApplyCandidateRequest, apply_candidate),

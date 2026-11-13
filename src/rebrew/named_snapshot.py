@@ -106,21 +106,44 @@ def _validate_manifest(req: Any) -> None:
         raise ops._invalid("invalid retained source manifest") from None
 
 
-def _capture_metadata(value: Any) -> dict[str, Any]:
-    """The canonical SQLite descriptor of a version 2 capture."""
+def _capture_metadata(value: Any, version: int) -> dict[str, Any]:
+    """The canonical SQLite descriptor of a version 2 or 3 capture.
+
+    Version 3 names the store in ``files``; version 2 in ``backend`` and ``path``.
+    """
     from rebrew import ops
     from rebrew.metadata.replication import STATE_PATH
     from rebrew.metadata.sqlite import DATABASE_FILENAME
     from rebrew.metadata.storage import managed_metadata_filenames
 
-    if (
+    if version == 3:
+        files = value.get("files") if type(value) is dict else None
+        if (
+            type(value) is not dict
+            or set(value) != {"files", "documents"}
+            or type(files) is not list
+            or len(files) != 1
+            or type(files[0]) is not dict
+            or set(files[0]) != {"path", "sha256"}
+            or files[0]["path"] != DATABASE_FILENAME
+            or type(files[0]["sha256"]) is not str
+            or not re.fullmatch(r"[0-9a-f]{64}", files[0]["sha256"])
+        ):
+            raise ValueError("invalid capture metadata")
+        canonical: dict[str, Any] = {"files": [dict(files[0])]}
+    elif (
         type(value) is not dict
         or set(value) != {"backend", "path", "documents", "migration_input_digest"}
         or value["backend"] != "sqlite"
         or value["path"] != DATABASE_FILENAME
         or type(value["migration_input_digest"]) is not str
         or not re.fullmatch(r"[0-9a-f]{64}", value["migration_input_digest"])
-        or type(value["documents"]) is not list
+    ):
+        raise ValueError("invalid capture metadata")
+    else:
+        canonical = {"backend": "sqlite", "path": DATABASE_FILENAME}
+    if (
+        type(value["documents"]) is not list
         or not 1 <= len(value["documents"]) <= ops.MAX_READSET_FILES
     ):
         raise ValueError("invalid capture metadata")
@@ -143,12 +166,10 @@ def _capture_metadata(value: Any) -> dict[str, Any]:
             raise ValueError("invalid capture metadata document")
         previous = item["path"].encode("utf-8")
         documents.append({"path": item["path"], "logical_sha256": item["logical_sha256"]})
-    return {
-        "backend": "sqlite",
-        "path": DATABASE_FILENAME,
-        "documents": documents,
-        "migration_input_digest": value["migration_input_digest"],
-    }
+    canonical["documents"] = documents
+    if version == 2:
+        canonical["migration_input_digest"] = value["migration_input_digest"]
+    return canonical
 
 
 def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
@@ -165,8 +186,8 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
         ):
             raise ValueError("capture digest differs")
         capture = json.loads(req.analysis_manifest, object_pairs_hook=unique_json_object)
-        # Version 1 keeps its registry as TOML; version 2 keeps every metadata document in
-        # the captured SQLite store its ``metadata`` descriptor lists.
+        # Version 1 keeps its registry as TOML; versions 2 and 3 keep every metadata
+        # document in the captured SQLite store its ``metadata`` descriptor lists.
         if (
             type(capture) is not dict
             or not {"version", "binary_sha256", "target", "entries"} <= set(capture)
@@ -181,8 +202,8 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
                 "entries",
             }
             or type(capture["version"]) is not int
-            or capture["version"] not in (1, 2)
-            or ("metadata" in capture) != (capture["version"] == 2)
+            or capture["version"] not in (1, 2, 3)
+            or ("metadata" in capture) != (capture["version"] != 1)
             or capture["binary_sha256"] != req.sha256
             or capture["target"] != req.rebrew_target
             or type(capture["entries"]) is not list
@@ -284,13 +305,21 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
                 canonical[field] = capture[field]
         documents: dict[str, str] = {}
         attested_store = None
-        if capture["version"] == 2:
-            canonical["metadata"] = _capture_metadata(capture["metadata"])
+        if capture["version"] != 1:
+            canonical["metadata"] = _capture_metadata(capture["metadata"], capture["version"])
             documents = {
                 item["path"]: item["logical_sha256"] for item in canonical["metadata"]["documents"]
             }
             database = reserved.get(DATABASE_FILENAME)
-            if database is None or database["kind"] != "file" or database.get("role") != "analysis":
+            if (
+                database is None
+                or database["kind"] != "file"
+                or database.get("role") != "analysis"
+                or any(
+                    item["sha256"] != database["digest"]
+                    for item in canonical["metadata"].get("files", ())
+                )
+            ):
                 raise ValueError("capture metadata store is not an analysis file")
         canonical["entries"] = ordered
         if json.dumps(canonical, ensure_ascii=False, separators=(",", ":")).encode("utf-8") != raw:
@@ -306,7 +335,7 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
                     f"source {entry.path} cannot replace the analysis capture's SQLite metadata"
                 )
             # A source may carry only the registry an applied proposal attested: the TOML
-            # registry over version 1, the SQLite store over version 2.
+            # registry over version 1, the SQLite store over later versions.
             registry = DATABASE_FILENAME if documents else _REGISTRY_FILE
             if entry.path in (DATABASE_FILENAME, _REGISTRY_FILE) and not (
                 entry.path == registry

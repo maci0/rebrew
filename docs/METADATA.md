@@ -102,8 +102,8 @@ config selecting anything but one local backend, or an invalid store answers 400
 each is also a capture entry or a file in the set. `documents` are the logical
 documents (`rebrew-functions.toml`, `rebrew-data.toml`, `rebrew-types.toml`,
 `rebrew-libraries.toml`, nested copies, `.rebrew/metadata-replication.toml`), each
-hashed over the storage layer's complete snapshot, so a TOML store and its SQLite
-import report the same logical digests. Both lists are sorted by UTF-8 path. A
+hashed over the storage layer's complete snapshot: a single-file TOML store hashes
+its bytes, and its SQLite import reports the same digest. Both lists are sorted by UTF-8 path. A
 capture's `metadata` field, `rebrew.metadata_describe`, both sides of
 `rebrew.metadata_diff`, and the `metadata` field of the `rebrew.apply_candidate`
 and `rebrew.metadata_carry` replies all use this shape.

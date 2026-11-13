@@ -5,7 +5,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import re
 from pathlib import Path
 from typing import Any
 
@@ -107,23 +106,19 @@ def test_fresh_capture_has_verified_self_contained_sqlite(
     monkeypatch.setattr(ops, "_run_intake", seed)
     monkeypatch.setattr(transfer, "migrate_metadata", observe)
     capture, report = _capture(tmp_path)
-    assert capture["version"] == 2
+    assert capture["version"] == 3
     assert len(calls) == 2
     assert calls[0]["backend"] == calls[1]["backend"] == "sqlite"
     assert calls[0]["dry_run"] is True
     assert calls[1]["expected_digest"] == calls[0]["report"]["input_digest"]
-    descriptor = capture["metadata"]
-    assert descriptor == {
-        "backend": "sqlite",
-        "path": DATABASE_FILENAME,
+    (entry,) = [item for item in capture["entries"] if item["path"] == DATABASE_FILENAME]
+    assert capture["metadata"] == {
+        "files": [{"path": DATABASE_FILENAME, "sha256": entry["digest"]}],
         "documents": [
             {"path": path, "logical_sha256": expected_documents[path]}
             for path in sorted(expected_documents)
         ],
-        "migration_input_digest": calls[0]["report"]["input_digest"],
     }
-    assert re.fullmatch(r"[0-9a-f]{64}", descriptor["migration_input_digest"])
-    (entry,) = [item for item in capture["entries"] if item["path"] == DATABASE_FILENAME]
     payload = base64.b64decode(entry["data"], validate=True)
     assert len(payload) == entry["size"] > 1024 * 1024
     assert hashlib.sha256(payload).hexdigest() == entry["digest"]
