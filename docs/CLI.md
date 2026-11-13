@@ -6981,6 +6981,16 @@ Op details the contract leaves open:
   spaces. A string over 256 characters, a token that is not a plain option, or
   one that names a file or changes the command answers 400 `invalid-request`
   whose detail starts with `invalid-cflags:` and names the token.
+- `rebrew.rename_identifier` `{source, renames: [{old, new}]}` answers
+  `{source, renames: [{applied, reason, offsets}]}`. Each rename is applied to
+  the previous result, in order, with `rebrew.c_rename.rename_identifier`:
+  identifiers, type names and macro-body code are rewritten; comments, string
+  and character literals, struct members, labels and tags are not. `offsets`
+  are the ascending UTF-8 byte offsets in the text the rename was applied to
+  where `old` was replaced. A rename is skipped with a `reason` when either name
+  is no C identifier or is a keyword, the names are equal, `old` is not an
+  identifier in the text, or `new` already names something ordinary or a
+  macro there. An empty list or one over 256 renames answers 400.
 - `rebrew.project_targets` `{files}` answers `{targets}`: the `[targets]` tables
   of the set's `rebrew-project.toml`, keyed in the NFC spelling the config loader
   uses and sorted by UTF-8 bytes. The set uses the retained-snapshot file entries

@@ -22,6 +22,8 @@
 
 - New dispatch op `rebrew.check_cflags` answers a compiler flag string normalized as every compiling op uses it, or the 400 `invalid-cflags:` refusal they give (`rebrew.ops.checked_cflags`), so a client checks flags where they are written instead of keeping a copy of the rule.
 
+- New dispatch op `rebrew.rename_identifier` applies ordered identifier renames to one C text with `rebrew.c_rename.rename_identifier` (identifiers, type names and macro-body code are rewritten; comments, literals, struct members, labels and tags are not) and answers, per rename, the replaced UTF-8 byte offsets or the reason it was skipped.
+
 ### Fixed
 
 - `rebrew.decompile_snapshot` and `rebrew.security_scan_snapshot` accept analysis capture files up to the shared 8 MiB per-file and 32 MiB aggregate readset bounds instead of 1 MiB and 8 MiB, so a capture the backend retained under those bounds, such as a SQLite store over 1 MiB, is no longer refused. The 1,024-entry capture limit is unchanged.

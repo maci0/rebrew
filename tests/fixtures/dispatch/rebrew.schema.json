@@ -2924,6 +2924,81 @@
         "type": "object"
       }
     },
+    "rebrew.rename_identifier": {
+      "request": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "renames": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "new": {
+                  "type": "string"
+                },
+                "old": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "old",
+                "new"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "renames"
+        ],
+        "type": "object"
+      },
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "renames": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "applied": {
+                  "type": "boolean"
+                },
+                "offsets": {
+                  "items": {
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "applied",
+                "reason",
+                "offsets"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "renames"
+        ],
+        "type": "object"
+      }
+    },
     "rebrew.report": {
       "request": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",

@@ -3,9 +3,9 @@ which mirrors it byte-identically at contracts/dispatch/rebrew.schema.json
 (generated there with `go run ./cmd/surface-tracker`). The metadata operations
 (rebrew.metadata_describe, rebrew.metadata_diff, rebrew.metadata_carry, the
 version 3 capture descriptor, the apply_candidate metadata and
-attested_registry_digest fields), rebrew.project_targets, rebrew.vocabulary and
-rebrew.check_cflags
+attested_registry_digest fields), rebrew.project_targets, rebrew.vocabulary,
+rebrew.check_cflags and rebrew.rename_identifier
 were extended here first; the rest is the copy of backend commit
 80314a46a1ae26d9ef3d56d90e1d454c561f5928.
-SHA-256: ca9493c4b75a4bc61848012fd932ff2c5a81c48a2fe97f900f374a0d3166aa95.
+SHA-256: a63892063ee92250d9ae88965cf7413364db5117038c5a5ee0fc2801407bdc02.
 tests/test_ops.py validates every op request and reply against it.

@@ -861,6 +861,27 @@ def file_scope_type(src: ParsedSource, path: str, name: str) -> list[str | None]
     return tokens
 
 
+class IdentifierRenameRefused(ValueError):
+    """An identifier rename does not apply to the source; the message says why."""
+
+
+def rename_identifier(src: ParsedSource, old_name: str, new_name: str) -> tuple[str, list[int]]:
+    """Rename every ordinary occurrence of *old_name* in one C text.
+
+    Identifiers, type names and macro-body code (:data:`ORDINARY_ROLES`) are
+    rewritten; comments, literals, members, labels and tags stay. Refused when
+    *old_name* has no such occurrence, or when *new_name* already names
+    something ordinary or a macro. Returns the new text and the UTF-8 byte
+    offsets in *src* where *old_name* was replaced, ascending.
+    """
+    spans = [(o.start, o.end) for o in occurrences(src, old_name) if o.role in ORDINARY_ROLES]
+    if not spans:
+        raise IdentifierRenameRefused("old name is not an identifier in the source")
+    if any(o.role in ORDINARY_ROLES | {ROLE_MACRO_NAME} for o in occurrences(src, new_name)):
+        raise IdentifierRenameRefused("new name is already used in the source")
+    return rewrite(src, spans, new_name), [start for start, _end in spans]
+
+
 def rename_function_source(source: str, new_name: str) -> str:
     """Rename one complete function and its references without capturing a name.
 

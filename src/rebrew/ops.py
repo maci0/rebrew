@@ -838,6 +838,17 @@ class CheckCflagsRequest:
     cflags: str
 
 
+@dataclass(frozen=True)
+class IdentifierRename:
+    old: str
+    new: str
+
+
+@dataclass(frozen=True)
+class RenameIdentifierRequest:
+    source: str
+    renames: list[IdentifierRename]
+
 
 @dataclass(frozen=True)
 class FileSetRequest:
@@ -2518,6 +2529,47 @@ def check_cflags(_config: WorkerConfig, req: CheckCflagsRequest) -> dict[str, An
     return {"cflags": checked_cflags(req.cflags)}
 
 
+#: Bound on the renames of one ``rebrew.rename_identifier`` call.
+MAX_IDENTIFIER_RENAMES = 256
+
+
+def rename_identifier(_config: WorkerConfig, req: RenameIdentifierRequest) -> dict[str, Any]:
+    """Apply ordered identifier renames to one C text, each against the previous result.
+
+    Every rename answers ``applied`` with the UTF-8 byte ``offsets`` of the
+    replaced occurrences in the text it was applied to, or a ``reason`` it was
+    skipped; a skipped rename leaves the text as it was.
+    """
+    from rebrew.c_rename import IdentifierRenameRefused, ParsedSource
+    from rebrew.c_rename import rename_identifier as rename
+    from rebrew.rename_ops import is_valid_new_name
+
+    if not req.renames:
+        raise _invalid("renames must not be empty")
+    if len(req.renames) > MAX_IDENTIFIER_RENAMES:
+        raise _invalid(f"more than {MAX_IDENTIFIER_RENAMES} renames")
+    text = req.source
+    parsed: ParsedSource | None = None
+    results: list[dict[str, Any]] = []
+    for entry in req.renames:
+        offsets: list[int] = []
+        reason = ""
+        if not (is_valid_new_name(entry.old) and is_valid_new_name(entry.new)):
+            reason = "not a C identifier"
+        elif entry.old == entry.new:
+            reason = "name unchanged"
+        else:
+            if parsed is None:
+                parsed = ParsedSource.parse(text)
+            try:
+                text, offsets = rename(parsed, entry.old, entry.new)
+            except IdentifierRenameRefused as exc:
+                reason = str(exc)
+            else:
+                parsed = None
+        results.append({"applied": not reason, "reason": reason, "offsets": offsets})
+    return {"source": text, "renames": results}
+
 
 def project_targets(config: WorkerConfig, req: FileSetRequest) -> dict[str, Any]:
     """The targets a supplied project config declares, as the config loader keys them."""
@@ -3826,6 +3878,7 @@ OPS: dict[str, Op] = {
     "rebrew.source_merge": Op(MergeRequest, source_merge),
     "rebrew.vocabulary": Op(VocabularyRequest, vocabulary),
     "rebrew.check_cflags": Op(CheckCflagsRequest, check_cflags),
+    "rebrew.rename_identifier": Op(RenameIdentifierRequest, rename_identifier),
     "rebrew.retained_source_operation": Op(SnapshotMutationRequest, retained_source_operation),
 }
 
