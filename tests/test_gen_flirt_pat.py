@@ -746,27 +746,27 @@ class TestGenFlirtPatEndToEnd:
 
 
 class TestWeakSignatureFilter:
-    """_is_weak_signature: crc_len=0 sigs with <16 literal lead bytes are
+    """is_weak_signature: crc_len=0 sigs with <16 literal lead bytes are
     false-positive generators and must be dropped at generation time."""
 
     def test_weak_when_no_crc_and_few_literals(self) -> None:
-        from rebrew.gen_flirt_pat import _is_weak_signature
+        from rebrew.gen_flirt_pat import is_weak_signature
 
         line = "558BEC83EC0000 00 0000 0008 :0000 _weak"
-        assert _is_weak_signature(line) is True
+        assert is_weak_signature(line) is True
 
     def test_strong_when_no_crc_but_many_literals(self) -> None:
-        from rebrew.gen_flirt_pat import _is_weak_signature
+        from rebrew.gen_flirt_pat import is_weak_signature
 
         line = "558BEC83EC00FF742408E8........5959C300000000 00 0000 0016 :0000 _ok"
-        assert _is_weak_signature(line) is False
+        assert is_weak_signature(line) is False
 
     def test_strong_when_crc_present(self) -> None:
-        from rebrew.gen_flirt_pat import _is_weak_signature
+        from rebrew.gen_flirt_pat import is_weak_signature
 
         # crc_len != 00 → the CRC protects the tail regardless of lead size.
         line = "558BEC83EC0000 08 1234 0010 :0000 _protected"
-        assert _is_weak_signature(line) is False
+        assert is_weak_signature(line) is False
 
 
 class TestWeakSignatureCli:
@@ -805,16 +805,16 @@ class TestWeakSignatureBoundary:
     almost nothing."""
 
     def test_tiny_crc_window_weak(self) -> None:
-        from rebrew.gen_flirt_pat import _is_weak_signature
+        from rebrew.gen_flirt_pat import is_weak_signature
 
         line = "558BEC83EC00 01 1234 0008 :0000 _w"
-        assert _is_weak_signature(line) is True
+        assert is_weak_signature(line) is True
 
     def test_crc_window_of_8_strong(self) -> None:
-        from rebrew.gen_flirt_pat import _is_weak_signature
+        from rebrew.gen_flirt_pat import is_weak_signature
 
         line = "558BEC83EC00 08 1234 000F :0000 _ok"
-        assert _is_weak_signature(line) is False
+        assert is_weak_signature(line) is False
 
 
 _HAS_GCC = bool(__import__("shutil").which("gcc"))

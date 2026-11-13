@@ -841,12 +841,12 @@ def test_build_coverage_data_reorder_invariant(statuses: list[str]) -> None:
 @settings(max_examples=100, deadline=None)
 @given(st.binary(min_size=1, max_size=64))
 def test_code_relocs_are_valid_slots(code: bytes) -> None:
-    """The 16-bit reloc scan (omf16._code_relocs) must always return
+    """The 16-bit reloc scan (omf16.code_relocs) must always return
     distinct, in-bounds offsets — never overlapping positions or out-of-
     range indices, on arbitrary bytes."""
-    from rebrew.formats.omf16 import _code_relocs
+    from rebrew.formats.omf16 import code_relocs
 
-    relocs = _code_relocs(code, 0, len(code))
+    relocs = code_relocs(code, 0, len(code))
     assert len(relocs) == len(set(relocs))  # no duplicate offsets
     for off, kind in relocs.items():
         assert 0 <= off < len(code)
@@ -858,6 +858,14 @@ def test_code_relocs_are_valid_slots(code: bytes) -> None:
     for off, kind in relocs.items():
         if kind == "rel16":
             assert code[off - 1] in (0xE8, 0xE9)
+
+
+def test_code_relocs_reports_each_slot_kind_relative_to_start() -> None:
+    """``nop; call rel16; mov ax,[moffs]; lcall ptr16:16`` scanned from byte 1."""
+    from rebrew.formats.omf16 import code_relocs
+
+    code = bytes.fromhex("90" + "e80000" + "a13412" + "9a00000000")
+    assert code_relocs(code, 1, len(code)) == {1: "rel16", 4: "disp16", 7: "far16"}
 
 
 # ---------------------------------------------------------------------------

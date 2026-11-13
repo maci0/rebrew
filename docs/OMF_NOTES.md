@@ -22,7 +22,10 @@ The 16-bit parser locates near-call/jump `rel16` operands from decoded `E8`/`E9`
 instructions with two-byte immediates. Those byte values inside another
 instruction's immediate are not branch relocations; decoder initialization
 failure does not enable a raw-byte scan. Absolute `disp16` and far `ptr16:16`
-operands also use decoded instruction positions. The dated updates below retain
+operands also use decoded instruction positions.
+`rebrew.formats.omf16.code_relocs(code, start, end)` returns these slots for
+`code[start:end]` as offsets relative to `start`, each mapped to `"rel16"`,
+`"disp16"` or `"far16"`. The dated updates below retain
 historical observations and labels; their raw `e8`/`e9` scan descriptions are
 superseded by this contract.
 

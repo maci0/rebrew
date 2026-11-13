@@ -26,9 +26,9 @@ from rebrew.formats.archives import parse_archive
 from rebrew.formats.coff import _coff_symbol_names, load_coff
 from rebrew.gen_flirt_pat import (
     _crc16_flirt,
-    _is_weak_signature,
     _reloc_span,
     bytes_to_pat_line,
+    is_weak_signature,
     parse_coff_aliases,
     parse_coff_obj,
     parse_elf_obj,
@@ -63,7 +63,7 @@ def _assert_obj_results(data: bytes, results: list[tuple[str, bytes, set[int]]])
         assert int(parts[3], 16) == len(code)
         # Determinism on exactly the same bytes.
         assert bytes_to_pat_line(name, code, relocs) == line
-        assert isinstance(_is_weak_signature(line), bool)
+        assert isinstance(is_weak_signature(line), bool)
 
 
 def TestOneInput(data: bytes) -> None:

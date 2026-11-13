@@ -29,6 +29,8 @@
 
 - `rebrew.coverage_input_contract.plan_coverage_config(root, target)` returns a retained snapshot's effective target config, with paths relative to the snapshot, and the source and header paths scanned under the target's `reversed_dir`. It refuses config paths outside the snapshot with `CoverageInputError`. It restores the function 6.26.0 removed, which consumers had since rebuilt from 19 `ProjectConfig` attributes.
 
+- `rebrew.formats.omf16.code_relocs` and `rebrew.gen_flirt_pat.is_weak_signature` are the public names of the 16-bit relocation-slot scan and the weak `.pat` line test, previously `_code_relocs` and `_is_weak_signature`. Behavior is unchanged; signature tooling outside rebrew calls them instead of the private names.
+
 ## [6.36.0] - 2026-11-13
 
 ### Changed

@@ -437,7 +437,7 @@ def bytes_to_pat_line(
 _MIN_LITERAL_LEAD_BYTES = 16
 
 
-def _is_weak_signature(line: str) -> bool:
+def is_weak_signature(line: str) -> bool:
     """True when a generated .pat line is too weak to be useful.
 
     A line is weak when its lead has fewer than 16 literal bytes AND the CRC
@@ -505,7 +505,7 @@ def generate_pat(lib_file: Path, out_path: Path) -> dict[str, int | bool]:
                     if line in seen:
                         continue
                     seen.add(line)
-                    if _is_weak_signature(line):
+                    if is_weak_signature(line):
                         # Generic-prolog-only sigs would false-positive across
                         # the whole binary — drop them rather than emit noise.
                         weak_skipped += 1

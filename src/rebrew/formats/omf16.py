@@ -186,7 +186,7 @@ _CS_PREFIXES = {0x66, 0x67, 0x26, 0x2E, 0x36, 0x3E, 0x64, 0x65, 0xF0, 0xF2, 0xF3
 _CS_MOFFS = {0xA0, 0xA1, 0xA2, 0xA3}  # mov al/ax, moffs / mov moffs, al/ax
 
 
-def _code_relocs(code: bytes, start: int, end: int) -> dict[int, str]:
+def code_relocs(code: bytes, start: int, end: int) -> dict[int, str]:
     """Reloc slots within ``code[start:end]``, offsets relative to *start*.
 
     Near calls and jumps (``e8``/``e9``) carry 2-byte rel16 operands.
@@ -254,12 +254,12 @@ def _match_symbol(mod: Omf16Module, symbol: str) -> tuple[bytes | None, dict[int
             for other in mod.publics.values():
                 if other > off and other < end:
                     end = other
-            return mod.code[off:end], _code_relocs(mod.code, off, end)
+            return mod.code[off:end], code_relocs(mod.code, off, end)
         if name in mod.names:  # optimized dialect: order-mapped records
             idx = mod.names.index(name)
             if idx < len(mod.code_records):
                 rec = mod.code_records[idx]
-                return rec, _code_relocs(rec, 0, len(rec))
+                return rec, code_relocs(rec, 0, len(rec))
     return None, {}
 
 
@@ -312,4 +312,4 @@ def parse_obj_omf16(
     return _match_symbol(mod, symbol)
 
 
-__all__ = ["Omf16Error", "Omf16Module", "is_omf16", "parse_obj_omf16", "parse_omf16"]
+__all__ = ["Omf16Error", "Omf16Module", "code_relocs", "is_omf16", "parse_obj_omf16", "parse_omf16"]

@@ -98,6 +98,8 @@ fewer than 16 literal leading bytes together with a CRC window shorter than eigh
 bytes. Inspect `skipped_members`, `skipped_weak` and `written` in the `--json`
 report. If no signatures survive, `written` is false and no pattern file remains;
 an existing file at the output path is removed.
+`rebrew.gen_flirt_pat.is_weak_signature(line)` applies the weak-pattern test to
+one `.pat` line, for tools that filter patterns from other generators.
 
 A retained `.pat` line looks like this:
 
