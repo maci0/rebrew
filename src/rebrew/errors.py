@@ -89,6 +89,7 @@ if TYPE_CHECKING:
     from rebrew.metadata.replication import MetadataConflictError as MetadataConflictError
     from rebrew.metadata.sqlite import MetadataStorageError as MetadataStorageError
     from rebrew.metadata.sqlite import MetadataUnavailableError as MetadataUnavailableError
+    from rebrew.metadata_sets import MetadataSetError as MetadataSetError
     from rebrew.ops import OpsError as OpsError
     from rebrew.orphans import OrphanInventoryError as OrphanInventoryError
     from rebrew.pdb_export import PdbExportError as PdbExportError
@@ -284,6 +285,7 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "McpApplyAborted": ("rebrew.ghidra.client", "McpApplyAborted"),
     "McpError": ("rebrew.ghidra.client", "McpError"),
     "MetadataConflictError": ("rebrew.metadata.replication", "MetadataConflictError"),
+    "MetadataSetError": ("rebrew.metadata_sets", "MetadataSetError"),
     "MetadataStorageError": ("rebrew.metadata.sqlite", "MetadataStorageError"),
     "MetadataUnavailableError": ("rebrew.metadata.sqlite", "MetadataUnavailableError"),
     "MetadataValidationError": ("rebrew.metadata.model", "MetadataValidationError"),
@@ -387,6 +389,7 @@ __all__ = [
     "McpError",
     "McpErrorKind",
     "MetadataConflictError",
+    "MetadataSetError",
     "MetadataStorageError",
     "MetadataUnavailableError",
     "MetadataValidationError",
