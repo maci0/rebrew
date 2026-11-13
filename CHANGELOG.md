@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.37.0] - 2026-11-13
+
 ### Changed
 
 - **Breaking:** `rebrew.lint.DEFAULT_FUNC_NAME_PATTERNS` is removed. Generated-name checks use `rebrew.workspace.names.is_placeholder_name` and `rebrew.workspace.names.PLACEHOLDER_NAME_PATTERN` instead.
