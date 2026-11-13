@@ -3735,7 +3735,7 @@ rebrew data dispatch --json
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `--link-map` | path | none | Accepted but never read by this command; its `--help` text describes `data list`, the only command that loads library owners |
+| `--link-map` | path | none | Accepted but not read here; only `data list` loads library owners (passing it prints a warning) |
 | `--min-table-len` | int | `3` | Minimum number of entries to qualify as a dispatch table |
 | `--max-pointer-stride` | int | `4` | Maximum byte stride between pointer slots when scanning for tables |
 | `--json` | flag | `False` | Output results as JSON |
@@ -3754,7 +3754,7 @@ rebrew data bss --json
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `--link-map` | path | none | Accepted but never read by this command; its `--help` text describes `data list`, the only command that loads library owners |
+| `--link-map` | path | none | Accepted but not read here; only `data list` loads library owners (passing it prints a warning) |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
 
@@ -3771,7 +3771,7 @@ rebrew data fix-bss --dry-run --json
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `--link-map` | path | none | Accepted but never read by this command; its `--help` text describes `data list`, the only command that loads library owners |
+| `--link-map` | path | none | Accepted but not read here; only `data list` loads library owners (passing it prints a warning) |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |

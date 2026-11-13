@@ -638,6 +638,13 @@ def execute_data(
         section_summary,
     )
 
+    if link_map is not None and (bss or fix_bss or dispatch):
+        command = "fix-bss" if fix_bss else "bss" if bss else "dispatch"
+        console.print(
+            f"[yellow]warning:[/yellow] --link-map is not read by `data {command}`; "
+            "only `data list` loads library owners from a link map"
+        )
+
     if bss or fix_bss:
         bss_report = verify_bss_layout(scan, sections)
         if fix_bss:
@@ -1026,6 +1033,11 @@ def mark_literals(
         console.print(f"  [yellow]conflict[/] {row['va']}: {untrusted_ident(row['reason'])}")
 
 
+#: ``--link-map`` stays on these subcommands so existing invocations keep
+#: parsing; only ``data list`` reads the map.
+_UNREAD_LINK_MAP_HELP = "Accepted but not read here; only `data list` loads library owners"
+
+
 @app.command(
     "dispatch",
     epilog=(
@@ -1035,7 +1047,7 @@ def mark_literals(
     ),
 )
 def dispatch(
-    link_map: Path | None = typer.Option(None, "--link-map", help=LINK_MAP_HELP),
+    link_map: Path | None = typer.Option(None, "--link-map", help=_UNREAD_LINK_MAP_HELP),
     min_table_len: int = typer.Option(
         3,
         "--min-table-len",
@@ -1069,7 +1081,7 @@ def dispatch(
     ),
 )
 def bss(
-    link_map: Path | None = typer.Option(None, "--link-map", help=LINK_MAP_HELP),
+    link_map: Path | None = typer.Option(None, "--link-map", help=_UNREAD_LINK_MAP_HELP),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -1086,7 +1098,7 @@ def bss(
     ),
 )
 def fix_bss(
-    link_map: Path | None = typer.Option(None, "--link-map", help=LINK_MAP_HELP),
+    link_map: Path | None = typer.Option(None, "--link-map", help=_UNREAD_LINK_MAP_HELP),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,

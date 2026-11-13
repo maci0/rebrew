@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Changed
+
+- `rebrew data bss`, `data fix-bss` and `data dispatch` warn when given `--link-map`, and their `--help` says so: only `data list` reads the map. The option stays so existing invocations keep parsing.
+
 ### Fixed
 
 - The `mut_compare_negate_to_ternary` GA mutation rewrites `-(a == b)` as `(a == b ? -1 : 0)`, preserving its value; it produced the inverted `(a == b ? 0 : -1)`.

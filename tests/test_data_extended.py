@@ -956,6 +956,32 @@ class TestDataCli:
         data = cli_payload(result)
         assert data["bss_size"] == 0x100
 
+    def test_bss_reports_that_link_map_is_unused(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Only `data list` loads library owners; a map passed here must not
+        look as if it shaped the BSS report."""
+        cfg = _cfg(tmp_path)
+        self._write_global(cfg)
+        monkeypatch.setattr(
+            "rebrew.formats.binary_loader.load_binary",
+            lambda p: SimpleNamespace(
+                image_base=0,
+                text_raw_offset=0,
+                data=b"\x00" * 16,
+                sections={
+                    ".bss": SimpleNamespace(va=0x1000, size=0x100, file_offset=0, raw_size=0x100)
+                },
+            ),
+        )
+        (tmp_path / "fake.dll").write_bytes(b"\x00" * 16)
+        link_map = tmp_path / "raw.map"
+        link_map.write_text("", encoding="utf-8")
+        result = self._invoke(tmp_path, monkeypatch, ["bss", "--link-map", str(link_map), "--json"])
+        assert result.exit_code == 0, result.output
+        assert cli_payload(result)["bss_size"] == 0x100
+        assert "--link-map is not read by `data bss`" in result.stderr
+
     def test_fix_bss_writes_padding(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg = _cfg(tmp_path)
         self._write_global(cfg)
