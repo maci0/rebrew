@@ -197,6 +197,7 @@ help:
 		'  make verify-dist        # re-check dist/rebrew.buildinfo against the artifacts actually in dist/' \
 		'  make smoke-wheel        # install dist/*.whl into .venv-pkg and smoke-import it (CI package job)' \
 		'  make jobs-check         # Go jobs service: gofmt -l, go vet ./..., go test -race ./... (CI jobs-service job)' \
+		'  make jobs-build         # build the rebrew-jobs binary (same flags as CI)' \
 		'  make all                # local mirror of CI lint+test(+coverage floor)+cli-contract+jobs-service gates' \
 		'  make pr-check           # full local CI verification (all + check + build + sdist-check + smoke-wheel + build-repro + verify-dist + sbom)' \
 		'  make gen-fixtures       # regenerate tests/fixtures/ from tools/gen_fixtures.py' \
@@ -396,7 +397,7 @@ ensure-go:
 warn-patch:
 	@set -eu; \
 	if ! command -v patch >/dev/null 2>&1; then \
-	  echo "WARNING: GNU patch not on PATH (required for the vendor tests and `rebrew library vendor`, same as CI; they skip in make test-one)."; \
+	  echo "WARNING: GNU patch not on PATH (required for the vendor tests and `rebrew library vendor`, same as CI; the vendor tests fail without it)."; \
 	  echo "Install it before running the full suite: e.g. apt install patch / pacman -S patch / dnf install patch"; \
 	fi
 

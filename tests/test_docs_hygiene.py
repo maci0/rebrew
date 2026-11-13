@@ -686,6 +686,30 @@ def test_every_makefile_target_is_phony() -> None:
     )
 
 
+#: Targets that are prerequisites of other targets, not entry points a
+#: contributor runs; ``ensure-*`` / ``warn-*`` preflights are exempt by prefix.
+_MAKE_HELP_INTERNAL = frozenset({"help", "require-dist"})
+
+
+def test_every_contributor_target_is_in_make_help() -> None:
+    """``make help`` is the one target list CONTRIBUTING and README defer to.
+
+    ``jobs-build`` was a real target that ``make help`` left out, so the docs
+    that call ``make help`` the complete list were wrong without any check
+    noticing.
+    """
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    defined = set(re.findall(r"^([a-z][a-z0-9-]*):", makefile, re.MULTILINE))
+    listed = set(re.findall(r"'\s+make ([a-z][a-z0-9-]*)", makefile))
+    public = {
+        name
+        for name in defined
+        if name not in _MAKE_HELP_INTERNAL and not name.startswith(("ensure-", "warn-", "phony"))
+    }
+    missing = sorted(public - listed)
+    assert not missing, f"targets missing from make help: {missing}"
+
+
 #: Repo-relative file references a rule file may cite. Only trees this repo
 #: owns are checked: ``rebrew-project.toml`` and friends are files of a user's
 #: workspace, not of this package.
