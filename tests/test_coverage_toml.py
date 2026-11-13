@@ -25,8 +25,8 @@ import pytest
 
 from rebrew import coverage_toml, utils
 from rebrew.coverage_db import (
-    _KNOWN_CELL_STATES,
     HISTORY_RETENTION,
+    KNOWN_CELL_STATES,
     clamp_nonneg_int,
     dedupe_cell_rows,
     normalize_cell_row,
@@ -66,7 +66,7 @@ STATE_CELLS: list[dict[str, Any]] = [
         "state": state,
         "functions": [f"fn_{state}"],
     }
-    for index, state in enumerate(sorted(_KNOWN_CELL_STATES))
+    for index, state in enumerate(sorted(KNOWN_CELL_STATES))
 ]
 
 SAMPLE_DATA: dict[str, Any] = {
@@ -276,7 +276,7 @@ class TestParityWithBuildDb:
 
     def test_every_known_state_round_trips(self, written: dict[str, Any]) -> None:
         states = {row["state"] for row in written["sections"][".text"]["cells"]}
-        assert set(_KNOWN_CELL_STATES) <= states
+        assert set(KNOWN_CELL_STATES) <= states
         # Case-folded by _canonical_cell_state, not stored verbatim.
         assert "exact" in states
         assert "EXACT" not in states

@@ -25,7 +25,7 @@ from cli_json import cli_payload
 from typer.testing import CliRunner
 
 from rebrew.build_db import app
-from rebrew.coverage_db import _KNOWN_CELL_STATES
+from rebrew.coverage_db import KNOWN_CELL_STATES
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -810,7 +810,7 @@ class TestCellStateVocabulary:
             if line.startswith("| `")
             for state in re.findall(r"`([a-z_]+)`", line.split("|")[1])
         }
-        assert documented == _KNOWN_CELL_STATES
+        assert documented == KNOWN_CELL_STATES
 
     def test_every_known_state_round_trips_into_a_document(
         self,
@@ -820,7 +820,7 @@ class TestCellStateVocabulary:
         catalog: FakeCatalog,
     ) -> None:
         """No state is coerced to ``unknown``: each one is stored verbatim."""
-        states = sorted(_KNOWN_CELL_STATES)
+        states = sorted(KNOWN_CELL_STATES)
         catalog.per_target["vocab"] = {
             "sections": {
                 ".text": {

@@ -259,3 +259,52 @@ def test_readset_gains_shared_sources_when_src_shared_appears(tmp_path):
     (tmp_path / "src" / "shared").mkdir()
     (tmp_path / "src" / "shared" / "common.h").write_text("int x;\n", encoding="utf-8")
     assert rebrew_coverage_paths(tmp_path, "A") - before == {"src/shared/common.h"}
+
+
+def test_plan_coverage_config_reports_snapshot_relative_paths_and_sources(tmp_path):
+    from rebrew.coverage_input_contract import plan_coverage_config
+
+    _project_without_shared(tmp_path)
+    (tmp_path / "src" / "A").mkdir()
+    (tmp_path / "src" / "A" / "a.c").write_text("int a(void) { return 1; }\n", encoding="utf-8")
+    (tmp_path / "src" / "A" / "a.h").write_text("int a(void);\n", encoding="utf-8")
+    config, sources = plan_coverage_config(tmp_path, "A")
+    assert config["target"] == "A"
+    assert config["binary"] == "A.exe"
+    assert config["reversed_dir"] == "src/A"
+    assert config["compiler_profile"] == "msvc-6.0"
+    assert set(config) == {
+        "target",
+        "binary",
+        "reversed_dir",
+        "shared_dir",
+        "inventory",
+        "metadata_dir",
+        "compiler_includes",
+        "compiler_libs",
+        "raw_link",
+        "source_ext",
+        "module",
+        "arch",
+        "binary_format",
+        "compiler_profile",
+        "cflags",
+        "base_cflags",
+        "defines",
+        "external_libs",
+        "crt_sources",
+    }
+    assert sources == ["src/A/a.c", "src/A/a.h"]
+
+
+def test_plan_coverage_config_refuses_a_binary_outside_the_snapshot(tmp_path):
+    from rebrew.coverage_input_contract import plan_coverage_config
+
+    root = tmp_path / "snapshot"
+    root.mkdir()
+    _project_without_shared(root)
+    (root / "rebrew-project.toml").write_text(
+        '[project]\ndefault_target = "A"\n[targets.A]\nbinary = "../A.exe"\n', encoding="utf-8"
+    )
+    with pytest.raises(CoverageInputError, match="escapes the snapshot"):
+        plan_coverage_config(root, "A")

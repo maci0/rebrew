@@ -231,7 +231,7 @@ _GAP_AND_DATA_CELL_STATES: frozenset[str] = frozenset(
         DATA_STATUS_UNCHECKED.lower(),
     }
 )
-_KNOWN_CELL_STATES: frozenset[str] = (
+KNOWN_CELL_STATES: frozenset[str] = (
     frozenset(s.lower() for s in KNOWN_STATUSES) | _GAP_AND_DATA_CELL_STATES
 )
 
@@ -245,7 +245,7 @@ def _canonical_cell_state(value: Any) -> str | None:
     """Return the known cell state *value* names, or ``None`` if it names none.
 
     Case and surrounding whitespace are normalized first: every entry in
-    :data:`_KNOWN_CELL_STATES` is lower-case by construction, so a hand-edited
+    :data:`KNOWN_CELL_STATES` is lower-case by construction, so a hand-edited
     ``"EXACT"`` or ``"Stub"`` names a state the store already holds rather than
     an unknown one.  A cell left in the wrong case silently counted as neither
     its own state nor a known gap state in ``section_cell_stats`` and in the
@@ -253,7 +253,7 @@ def _canonical_cell_state(value: Any) -> str | None:
     literals.
     """
     state = str(value or "none").strip().lower()
-    return state if state in _KNOWN_CELL_STATES else None
+    return state if state in KNOWN_CELL_STATES else None
 
 
 def normalize_cell_row(target_name: str, sec_name: str, cell: dict[str, Any]) -> _CellRow:
@@ -267,7 +267,7 @@ def normalize_cell_row(target_name: str, sec_name: str, cell: dict[str, Any]) ->
             "build_db: cell state %r not in known set — coercing to "
             "'unknown' (check the generator or hand-edited JSON); known: %s",
             cell.get("state"),
-            ", ".join(sorted(_KNOWN_CELL_STATES)),
+            ", ".join(sorted(KNOWN_CELL_STATES)),
         )
         state = "unknown"
     functions = cell.get("functions", [])

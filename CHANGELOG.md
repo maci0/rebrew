@@ -23,6 +23,11 @@
 ### Fixed
 
 - `rebrew.decompile_snapshot` and `rebrew.security_scan_snapshot` accept analysis capture files up to the shared 8 MiB per-file and 32 MiB aggregate readset bounds instead of 1 MiB and 8 MiB, so a capture the backend retained under those bounds, such as a SQLite store over 1 MiB, is no longer refused. The 1,024-entry capture limit is unchanged.
+### Added
+
+- `rebrew.coverage_db.KNOWN_CELL_STATES` publishes the storable cell-state vocabulary that was the private `_KNOWN_CELL_STATES`, so a coverage renderer can check that it maps every state without importing a private name.
+
+- `rebrew.coverage_input_contract.plan_coverage_config(root, target)` returns a retained snapshot's effective target config, with paths relative to the snapshot, and the source and header paths scanned under the target's `reversed_dir`. It refuses config paths outside the snapshot with `CoverageInputError`. It restores the function 6.26.0 removed, which consumers had since rebuilt from 19 `ProjectConfig` attributes.
 
 ## [6.36.0] - 2026-11-13
 
