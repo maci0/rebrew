@@ -67,6 +67,64 @@ def _report(capture: dict[str, Any], report: dict[str, Any]) -> dict[str, Any]:
     return artifact
 
 
+def test_large_producer_metadata_is_captured(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from rebrew.metadata.functions import record_function_rows
+
+    intake = ops._run_intake
+    produced = b""
+
+    def run(binary: Path, root: Path, target: str) -> Any:
+        nonlocal produced
+        result = intake(binary, root, target)
+        cfg = load_config(root, target=target)
+        record_function_rows(
+            cfg.metadata_dir,
+            [
+                {
+                    "module": "MINI",
+                    "va": 0x500000 + index * 16,
+                    "identity": {"name": f"synthetic_function_{index:05d}"},
+                    "fields": {
+                        "size": 16,
+                        "blocker": f"Synthetic function {index:05d}: recover argument types, control flow and data references before compiling the implementation.",
+                    },
+                }
+                for index in range(6144)
+            ],
+        )
+        produced = (cfg.metadata_dir / "rebrew-functions.toml").read_bytes()
+        assert 1024 * 1024 < len(produced) < 8 * 1024 * 1024
+        return result
+
+    monkeypatch.setattr(ops, "_run_intake", run)
+    capture, _ = _capture(tmp_path)
+    (entry,) = [item for item in capture["entries"] if item["path"] == "rebrew-functions.toml"]
+    assert entry["size"] == len(produced)
+    assert entry["digest"] == hashlib.sha256(produced).hexdigest()
+    assert base64.b64decode(entry["data"], validate=True) == produced
+
+
+def test_capture_refuses_file_over_eight_mib(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    intake = ops._run_intake
+    limit = 8 * 1024 * 1024
+
+    def run(binary: Path, root: Path, target: str) -> Any:
+        result = intake(binary, root, target)
+        cfg = load_config(root, target=target)
+        (cfg.reversed_dir / "too-large.h").write_bytes(b" " * (limit + 1))
+        return result
+
+    monkeypatch.setattr(ops, "_run_intake", run)
+    with pytest.raises(ops.OpsError, match=f"over the limit of {limit}") as caught:
+        _capture(tmp_path)
+    assert caught.value.code == ops.READSET_TOO_LARGE
+    assert caught.value.status == 422
+
+
 def test_default_inventory_and_real_worker_dispatch(tmp_path: Path) -> None:
     files, workspace = _worker_dirs(tmp_path)
     status, raw = ops.dispatch(
@@ -241,7 +299,8 @@ def test_oversized_report_has_no_producer_evidence(
     def oversized(root: Path, *args: Any, **kwargs: Any) -> dict[str, Any]:
         result = report(root, *args, **kwargs)
         result["targets"][0]["functions"] = [
-            {"va": index, "size": 1, "name": "x" * 4096, "status": "STUB"} for index in range(300)
+            {"va": index, "size": 1, "name": "x" * 4096, "status": "STUB"}
+            for index in range(ops.MAX_READSET_FILE_BYTES // 4096 + 1)
         ]
         return result
 

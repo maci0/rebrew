@@ -10,6 +10,8 @@
 
 ### Fixed
 
+- Fresh isolated analysis accepts readset files up to 8 MiB, including generated function metadata larger than 1 MiB, while retaining the 32 MiB total and 32768-file limits.
+
 - Escape literal pipes in threat-model tables so transport, source and control descriptions render in their intended columns.
 
 - Escape C pipe operators in six codegen table rows so their scope, evidence and assembly columns render intact.
