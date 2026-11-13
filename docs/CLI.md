@@ -5456,7 +5456,7 @@ state directory is fast-forwarded and imported from its working tree.
 | `--accept-binsync` | flag | `False` | Accept BinSync values for all conflicts |
 | `--accept-local` | flag | `False` | Keep local values for all conflicts (records provenance) |
 | `--module` | str | none | Only import this module (e.g. SERVER) |
-| `--create-missing` | flag | `False` | Create STUB files for BinSync functions not in the project catalog |
+| `--create-missing` | flag | `False` | Create STUB files for catalog-known BinSync functions with no local source |
 | `--remote` | str | `origin` | Git remote to fetch user branches from |
 | `--user` | str | none | BinSync user rebrew writes as (default: targets.<name>.binsync_user, the user 'rebrew binsync init' recorded, else rebrew) |
 | `--dry-run` | flag | `False` | Preview changes without writing |
@@ -5522,7 +5522,7 @@ them as STUB files.
 | `--module` | str | none | Only import this module (e.g. SERVER) |
 | `--accept-binsync` | flag | `False` | Accept BinSync names for all conflicts |
 | `--accept-local` | flag | `False` | Keep local names for all conflicts (records provenance) |
-| `--create-missing` | flag | `False` | Create STUB files for BinSync functions not in the project catalog |
+| `--create-missing` | flag | `False` | Create STUB files for catalog-known BinSync functions with no local source |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
@@ -6183,7 +6183,7 @@ host binary).  See [TOOLCHAIN.md](TOOLCHAIN.md) for the full model.
 | `rebrew toolchain list` | List known toolchains and how each is invoked. |
 | `rebrew toolchain status` | Show how one toolchain resolves (image built? vendored tree present?). |
 | `rebrew toolchain detect` | Detect which compiler/toolchain built a binary; check profile alignment. |
-| `rebrew toolchain pull` | Pull a toolchain image with the configured container runtime. |
+| `rebrew toolchain pull` | Pull a toolchain image with REBREW_CONTAINER_RUNTIME (default docker). |
 | `rebrew toolchain vendor` | Assemble the host toolchain tree from the pinned source. |
 | `rebrew toolchain smoke` | Compile the fixed smoke source in each image and verify the object hash matches the golden bytes (reproducibility gate). |
 | `rebrew toolchain build` | Build a toolchain's docker image from the recompile-toolchains checkout. |
@@ -6233,7 +6233,7 @@ Detect which compiler/toolchain built a binary; check profile alignment.
 
 `rebrew toolchain pull [OPTIONS] NAME`
 
-Pull a toolchain's docker image.
+Pull a toolchain image with REBREW_CONTAINER_RUNTIME (default docker).
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |

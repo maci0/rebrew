@@ -413,7 +413,7 @@ def pull_cmd(
     name: str = typer.Argument(..., help="Toolchain name (e.g. delphi-1.0)"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
-    """Pull a toolchain's docker image."""
+    """Pull a toolchain image with REBREW_CONTAINER_RUNTIME (default docker)."""
     try:
         tag, was_present = pull_toolchain(name)
     except ToolchainError as exc:

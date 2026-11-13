@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- Help text: `binary score --built` no longer claims a `build/<target>` default for a required option, `--create-missing` (`sync pull`, `binsync pull`, `binsync import`) says it stubs catalog-known functions with no local source, and `toolchain pull` names `REBREW_CONTAINER_RUNTIME` instead of always saying docker.
 - `rebrew intake` names the configured container runtime (`docker`, `podman`, or the `execution_backend`) in its toolchain line instead of always saying docker, and intake and `rebrew init` point first-time users at `docs/GETTING_STARTED.md` for the walkthrough.
 - The `mut_compare_negate_to_ternary` GA mutation rewrites `-(a == b)` as `(a == b ? -1 : 0)`, preserving its value; it produced the inverted `(a == b ? 0 : -1)`.
 - Toolchain detection and the decomp.me compiler map treat `msvc-7.0` as the VC 7.0 RTM compiler (13.00.9466) it builds: Rich build 9466 and linker 13.0 now suggest it, and build 3077 / linker 13.10 suggest only the 7.1 profiles.

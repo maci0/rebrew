@@ -23,7 +23,6 @@ lazy from typing import Any
 import typer
 
 from rebrew.cli import (
-    BUILT_IMAGE_HELP,
     TargetOption,
     console,
     error_exit,
@@ -155,7 +154,9 @@ def score(reference: bytes, built: bytes, reference_sections: dict[str, Any]) ->
 
 @app.callback(invoke_without_command=True)
 def main(
-    built: Path = typer.Option(..., "--built", exists=True, dir_okay=False, help=BUILT_IMAGE_HELP),
+    built: Path = typer.Option(
+        ..., "--built", exists=True, dir_okay=False, help="Built image to score"
+    ),
     reference: Path | None = typer.Option(
         None, "--reference", help="Reference image (default: the target's binary)"
     ),

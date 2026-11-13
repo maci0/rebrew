@@ -123,7 +123,7 @@ NO_CACHE_HELP = (
     "The compiler-object cache may still be reused."
 )
 EXPECTED_DIGEST_HELP = "Require the input digest from a reviewed preview"
-CREATE_MISSING_HELP = "Create STUB files for BinSync functions not in the project catalog"
+CREATE_MISSING_HELP = "Create STUB files for catalog-known BinSync functions with no local source"
 JOBS_HELP = "Parallel jobs (default: project.jobs, or 4)"
 BUILT_IMAGE_HELP = "Built image (default: build/<target>)"
 TIER_HELP = "Flag sweep tier: quick, targeted, normal, thorough, or full"
