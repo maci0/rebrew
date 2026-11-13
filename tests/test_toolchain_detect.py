@@ -7,9 +7,11 @@ alignment check and the decomp projects).
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, ClassVar
+lazy from collections.abc import Iterator
 
 import pytest
 
@@ -731,6 +733,49 @@ class TestOptLevelFingerprint:
         assert info.opt_level == ""
 
 
+def _packaged_corpus() -> dict[str, Any]:
+    """The ``codegen_corpus.json`` the wheel ships, as parsed JSON."""
+    import json
+    from importlib.resources import files
+
+    corpus: dict[str, Any] = json.loads(
+        files("rebrew").joinpath("codegen_corpus.json").read_bytes()
+    )
+    return corpus
+
+
+# An absolute POSIX path with at least two components, or a Windows drive path.
+# Single-component strings such as the "/O2" flag do not match.
+_HOST_PATH = re.compile(r"(?:^|[\s:])/[\w.-]+/|\b[A-Za-z]:[\\/]|~/")
+
+
+class TestCodegenCorpusContents:
+    """The packaged corpus is public data: it must not name the builder's host."""
+
+    def test_no_absolute_or_home_paths(self) -> None:
+        def strings(value: Any) -> Iterator[str]:
+            if isinstance(value, str):
+                yield value
+            elif isinstance(value, dict):
+                for key, item in value.items():
+                    yield key
+                    yield from strings(item)
+            elif isinstance(value, list):
+                for item in value:
+                    yield from strings(item)
+
+        found = [s for s in strings(_packaged_corpus()) if _HOST_PATH.search(s)]
+        assert found == []
+
+    def test_host_path_pattern_flags_paths_and_spares_flags(self) -> None:
+        assert _HOST_PATH.search("/home/user/x.obj: no symbols")
+        assert _HOST_PATH.search("unclassified: /srv/build/a.o")
+        assert _HOST_PATH.search(r"C:\build\a.obj")
+        assert _HOST_PATH.search("~/probe/a.obj")
+        for kept in ("/O2", "/O2 /G5", "/arch:SSE2", ".cache/fp_probe/out5/a.obj: no symbols"):
+            assert not _HOST_PATH.search(kept), kept
+
+
 class TestCodegenCorpusOptLevel:
     """The packaged ``codegen_corpus.json`` states the rule the functions apply.
 
@@ -740,10 +785,7 @@ class TestCodegenCorpusOptLevel:
 
     @staticmethod
     def _opt_level() -> dict[str, Any]:
-        import json
-        from importlib.resources import files
-
-        corpus = json.loads(files("rebrew").joinpath("codegen_corpus.json").read_bytes())
+        corpus = _packaged_corpus()
         assert corpus["schema_version"] == 1
         return corpus["opt_level"]
 

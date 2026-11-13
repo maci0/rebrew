@@ -170,7 +170,7 @@ claims are explicitly downgraded in the per-version files.
 **Service-pack verdicts** (probe5+7+8+9+10 sweeps; the SP1 images probed
 for the first time): **VC 7.0 SP1 is the only SP with codegen differences
 in these early sweeps: SEVENTEEN probe functions.** Later corpus results are
-summarized [below](#machine-readable-corpus-corpusjson).  (a) 4 structural: the
+summarized [below](#machine-readable-corpus-codegen_corpusjson).  (a) 4 structural: the
 `==`/`!=` FP family (`fcmp2`/`fc5`/`fc8`/`fc9`) switch from the
 two-load `fucompp` (`da e9`) to `fcomp [mem]` (`dc 5c 24 0c`, 2 bytes
 shorter).  (b) 2 marshalling: `fl`/`cl` (floor/ceil) pass the FP
@@ -274,7 +274,9 @@ checkout. Top-level keys:
   `opt_level_without_library(o2, o1, library_o2, library_o1)`, where `null`
   means the library split explains nothing. `tests/test_toolchain_detect.py`
   fails when the functions and this section disagree.
-- `meta` and `records`: the measured corpus below.
+- `meta` and `records`: the measured corpus below. `meta.gaps` names probe objects that
+  yielded no records, by path relative to the rebrew checkout; the packaged
+  file holds no absolute or home-directory paths, which a test enforces.
 
 A regenerated corpus must keep `schema_version` and `opt_level`; the test
 fails without them.
@@ -333,7 +335,7 @@ compares, floor/ceil/fmod, strchr/memchr), Pascal probes through
 Delphi 1.0's `DCC.EXE`, and flag-matrix passes (/G5-/G7,
 /arch:SSE2/IA32, /fp:fast). The resulting objects are disassembled across the
 probed toolchains; not every compiler accepts every probe. The
-[corpus](#machine-readable-corpus-corpusjson) records available outputs and
+[corpus](#machine-readable-corpus-codegen_corpusjson) records available outputs and
 extraction gaps. An absent row does not establish equivalent codegen.
 Turbo C 2.0 is compiled from a
 pre-resolved `#`-free variant (its image's wrapper cannot run the

@@ -31,7 +31,7 @@
 
 - `rebrew.formats.omf16.code_relocs` and `rebrew.gen_flirt_pat.is_weak_signature` are the public names of the 16-bit relocation-slot scan and the weak `.pat` line test, previously `_code_relocs` and `_is_weak_signature`. Behavior is unchanged; signature tooling outside rebrew calls them instead of the private names.
 
-- The wheel ships the codegen corpus as `rebrew/codegen_corpus.json` (moved from `docs/codegen/corpus.json`, about 210 KB compressed). It gains `schema_version` 1 and an `opt_level` section holding the MSVC `/O1`/`/O2` wrapper patterns, the three-site minimum, the 2x dominance ratio, and expected results for `rebrew.toolchain_detect.opt_level_from_counts` and `opt_level_without_library`. Other detectors can pin the file by rebrew version and SHA-256 instead of porting the thresholds or reading a checkout's docs; a test fails when the section and the functions disagree. See `docs/codegen/README.md`.
+- The wheel ships the codegen corpus as `rebrew/codegen_corpus.json` (moved from `docs/codegen/corpus.json`, about 210 KB compressed). It gains `schema_version` 1 and an `opt_level` section holding the MSVC `/O1`/`/O2` wrapper patterns, the three-site minimum, the 2x dominance ratio, and expected results for `rebrew.toolchain_detect.opt_level_from_counts` and `opt_level_without_library`. Other detectors can pin the file by rebrew version and SHA-256 instead of porting the thresholds or reading a checkout's docs; a test fails when the section and the functions disagree. Probe paths in `meta.gaps` are relative to the rebrew checkout, so the wheel names no build host directory. See `docs/codegen/README.md`.
 
 ## [6.36.0] - 2026-11-13
 

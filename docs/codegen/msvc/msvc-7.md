@@ -128,7 +128,7 @@ first to post-shift division magic.
 - **VC 7.0 SP1 has 32 differing rows with RTM counterparts in the current
   corpus.** The early-probe differences described here are not the complete
   set; VC 8.0 SP1 also differs on probe17 `_alloc_flags`. See the
-  [current corpus comparison](../README.md#machine-readable-corpus-corpusjson).  (a) The `==`/`!=` FP
+  [current corpus comparison](../README.md#machine-readable-corpus-codegen_corpusjson).  (a) The `==`/`!=` FP
   family is structurally different: `fcmp2` (`a==b`), `fc5`
   (`a!=0.0`), `fc8` (`a!=b`), `fc9` (`a==0.0`) all switch from the
   two-load `fucompp` (`da e9`) to the single memory-operand
