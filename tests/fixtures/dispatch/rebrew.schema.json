@@ -2705,7 +2705,10 @@
                   "type": "array"
                 },
                 "key": {
-                  "type": "string"
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
                 },
                 "module": {
                   "type": "string"

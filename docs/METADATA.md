@@ -116,14 +116,16 @@ described the same way.
 **`rebrew.metadata_diff`** `{before, after}` (two file sets) answers
 `{before, after, changes}`: both descriptors and every changed record, read
 through the storage layer, so the two sides may use different backends.
-A record is a top-level table of a logical document; the document's top-level
-scalars (`format`) form the record with key `""`. Each change carries `document`
-(logical path), `store` (`functions`, `data`, `types`, `libraries` or
-`replication`), `key` (as stored, such as `SERVER.0x1000`), `module` and `va`
-(parsed from an address key, else `""` and `null`), `change` (`added`, `removed`
-or `changed`), and `fields`: `{field, before, after}` for every field whose value
-differs, with JSON values (TOML dates and times as RFC 3339 strings) and `null` for
-an absent field. A whole document added or removed lists each of its records.
+A record is what the storage layer edits as one unit: a function or data row
+(`SERVER.0x1000`), a type, or a `[source]` definition or file purpose. The
+document's top-level scalars (`format`) form the record with the empty key. Each
+change carries `document` (logical path), `store` (`functions`, `data`, `types`,
+`libraries` or `replication`), `key` (the record's key path in the document, such
+as `["SERVER.0x1000"]`), `module` and `va` (parsed from a one-part address key,
+else `""` and `null`), `change` (`added`, `removed` or `changed`), and `fields`:
+`{field, before, after}` for every field whose value differs, with JSON values
+(TOML dates and times as ISO 8601 strings) and `null` for an absent field. A whole
+document added or removed lists each of its records.
 Changes are sorted by document, then key. The answer is computed by a separate
 call over bytes the caller supplies, never taken from the producing worker's
 report; a policy such as "an applied proposal changed only its own function's
