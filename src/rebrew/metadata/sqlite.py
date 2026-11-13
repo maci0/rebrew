@@ -6,6 +6,7 @@ lazy import hashlib
 lazy import os
 lazy import sqlite3
 lazy import tomllib
+lazy import unicodedata
 lazy from collections.abc import Callable, Iterator
 lazy from pathlib import Path
 lazy from typing import Any
@@ -26,11 +27,13 @@ __all__ = [
     "backup_metadata_database",
     "backup_metadata_toml",
     "extra_durable_sources",
+    "metadata_database_documents",
     "metadata_paths",
     "preserve_displaced",
     "restore_metadata_database",
     "restore_metadata_toml",
     "rotate_preserved_copy",
+    "snapshot_metadata_database",
     "toml_store_trees",
     "verify_backup_manifest",
 ]
@@ -1075,15 +1078,16 @@ def restore_metadata_toml(bundle: Path, root: Path) -> tuple[Path, ...]:
     return tuple(dest for dest, _mode in installed)
 
 
-def backup_metadata_database(root: Path, backup_dir: Path) -> Path:
-    """Copy the SQLite database, project config and durable project files to *backup_dir*."""
+def snapshot_metadata_database(root: Path, dest: Path) -> Path:
+    """Create and verify a closed, single-file SQLite backup at *dest*."""
 
     from rebrew.metadata.locking import file_transaction
 
     location = root / DATABASE_FILENAME
     if not location.is_file():
         raise FileNotFoundError(f"no metadata database at {location}")
-    dest = backup_dir / METADATA_BACKUP_FILENAME
+    if dest.resolve() == location.resolve():
+        raise ValueError("database snapshot must not replace its source")
     dest.parent.mkdir(parents=True, exist_ok=True)
     # A previous backup left this destination read-only (0444, below); the
     # backup API opens its target for writing, so a re-run would fail with
@@ -1109,6 +1113,8 @@ def backup_metadata_database(root: Path, backup_dir: Path) -> Path:
     check = sqlite3.connect(dest.as_uri() + "?mode=ro", uri=True, timeout=30)
     try:
         _check_database_schema(check, dest)
+        if check.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+            raise MetadataStorageError(f"{dest}: backup integrity check failed")
         count = check.execute("SELECT COUNT(*) FROM metadata_documents").fetchone()[0]
     except sqlite3.Error as exc:
         raise MetadataStorageError(f"{dest}: backup verification failed: {exc}") from exc
@@ -1124,6 +1130,52 @@ def backup_metadata_database(root: Path, backup_dir: Path) -> Path:
             src.close()
         if src_count:
             raise MetadataStorageError(f"{dest}: backup is empty but source holds {src_count} rows")
+    return dest
+
+
+def metadata_database_documents(database: Path) -> dict[str, str]:
+    """Validate an isolated database and hash every persisted logical document."""
+    from rebrew.metadata.replication import STATE_PATH
+    from rebrew.metadata.storage import managed_metadata_filenames
+    from rebrew.utils import portable_path_parts
+
+    if not database.is_file() or database.is_symlink():
+        raise MetadataStorageError(f"{database}: missing isolated metadata database")
+    for suffix in ("-journal", "-wal", "-shm"):
+        if database.with_name(database.name + suffix).exists():
+            raise MetadataStorageError(f"{database}: isolated metadata has a {suffix} sidecar")
+    try:
+        with contextlib.closing(
+            sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=30)
+        ) as connection:
+            connection.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, database.stat().st_size)
+            _check_database_schema(connection, database)
+            if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                raise MetadataStorageError(f"{database}: metadata integrity check failed")
+            documents = {}
+            for path, content in connection.execute(
+                "SELECT path, content FROM metadata_documents ORDER BY path"
+            ):
+                if (
+                    not isinstance(path, str)
+                    or not portable_path_parts(path)
+                    or unicodedata.normalize("NFC", path) != path
+                    or len(path.split("/")) > 32
+                    or len(path.encode("utf-8")) > 1024
+                    or (Path(path).name not in managed_metadata_filenames() and path != STATE_PATH)
+                    or not isinstance(content, str)
+                ):
+                    raise MetadataStorageError(f"{database}: invalid isolated metadata document")
+                tomllib.loads(content)
+                documents[path] = hashlib.sha256(content.encode("utf-8")).hexdigest()
+            return documents
+    except (sqlite3.Error, ValueError, UnicodeError) as exc:
+        raise MetadataStorageError(f"{database}: invalid isolated metadata: {exc}") from exc
+
+
+def backup_metadata_database(root: Path, backup_dir: Path) -> Path:
+    """Copy the SQLite database, project config and durable project files to *backup_dir*."""
+    dest = snapshot_metadata_database(root, backup_dir / METADATA_BACKUP_FILENAME)
     from rebrew.utils import atomic_write_bytes
 
     written: list[tuple[str, bytes]] = [(METADATA_BACKUP_FILENAME, dest.read_bytes())]

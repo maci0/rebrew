@@ -2,6 +2,8 @@
 
 ### Changed
 
+- **Breaking:** fresh `rebrew.ops.capture_fresh_analysis` and `rebrew.analyse` captures use version 2 with a SQLite metadata artifact and the `metadata` descriptor (`backend`, `path`, `documents[{path, logical_sha256}]`, `migration_input_digest`). Import uses the reviewed expected digest before selecting SQLite; the receipt is custody-bound and distinct from physical and logical hashes. Version 1 TOML retained captures stay accepted, existing worker workspaces keep their backend, and public source-upload limits are unchanged.
+
 - **Breaking:** `rebrew.app.builtins.BUILTIN_COMPONENTS` and its re-export `rebrew.app.main.BUILTIN_COMPONENTS` change the `prove` summary to "Prove semantic equivalence of eligible functions via symbolic execution.", matching the command help, instead of naming NEAR_MATCHING/SIZE_MISMATCH functions.
 
 - **Breaking:** `rebrew.binsync.overlay.main` changes its default `fields` value from `name,prototype,note` to `name,prototype,note,stack_vars,comments,types`. Default transfers are unchanged; an explicit selector now restricts stack variables, comments and types as well as the original categories. `global` remains opt-in.
