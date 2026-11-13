@@ -1,5 +1,325 @@
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** `rebrew.app.builtins.BUILTIN_COMPONENTS` and its re-export `rebrew.app.main.BUILTIN_COMPONENTS` change the `prove` summary to "Prove semantic equivalence of eligible functions via symbolic execution.", matching the command help, instead of naming NEAR_MATCHING/SIZE_MISMATCH functions.
+
+- **Breaking:** `rebrew.binsync.overlay.main` changes its default `fields` value from `name,prototype,note` to `name,prototype,note,stack_vars,comments,types`. Default transfers are unchanged; an explicit selector now restricts stack variables, comments and types as well as the original categories. `global` remains opt-in.
+
+- **Breaking:** `rebrew.layout_meta.LayoutMetadata.calls` entries now hold `(rel32, prefix2, suffix2, opcode)`, and `calls.txt` adds the opcode column. `load_package` accepts older rows with an unknown opcode, but postlink excludes those call sites from alignment coverage and rewriting, and reports skipped targets. Regenerate the package with `rebrew build layout`; `write_package` refuses unknown-opcode entries. Call and jump opcodes must match before a target is rewritten.
+
+### Fixed
+
+- Escape literal pipes in threat-model tables so transport, source and control descriptions render in their intended columns.
+
+- Escape C pipe operators in six codegen table rows so their scope, evidence and assembly columns render intact.
+
+- Restore codegen table continuity so 25 later rules render as rows instead of pipe-delimited paragraphs.
+
+- Give the codegen shift-encoding rule its own E29 identifier, preserving E11 for the memset rule referenced by the version notes.
+
+- Restore the codegen name-mangling rule as table row A10, removing a leftover placeholder that broke the calling-convention table.
+
+- Correct the flag-sweep guide to select grids by compiler profile for ordinary CLI sweeps, while keeping the tier table scoped to MSVC6.
+
+- Distinguish the init wizard's normalized target suggestion from intake's unchanged binary-stem default in the init skill.
+
+- Use one target name throughout the onboarding walkthrough so intake writes stubs under the source directory created by init.
+
+- Document the default section scope of binary xrefs instead of promising every code reference.
+
+- Remove unsupported coverage export force and regen flags from the shipped catalog PRD.
+
+- Correct the iteration PRD's todo limit flag and align the CLI quick-reference ranking example with affected-byte priority.
+
+- Scope the shipped catalog PRD's no-RET size heuristic to x86 and distinguish the byte test from proof of a code tail.
+
+- Clarify that catalog scans may refresh derived caches in the shipped catalog PRD, while default scans leave source files and canonical metadata unchanged.
+
+- Replace retired sync mode flags in the agent-skills PRD with the current field-sync and structural subcommands.
+
+- Correct the shipped iteration PRD to distinguish stored STATUS promotion policy from the latest verification run result.
+
+- Solution seeding skips saved scores too large to represent as a finite float, retaining the other usable wins instead of failing the entire load with an overflow.
+
+- GA log readers and duplicate scans skip JSON integers that exceed Python's conversion limit. A corrupt line no longer blocks recording a completed run, pruning or later solution seeding; restoring such a backup reports its file and line without changing the live log.
+
+- Ghidra label and legacy switch-data exports containing integers beyond Python's conversion limit now produce the existing corrupt-export warning and empty result instead of crashing coverage.
+
+- ReVa MCP parsing applies its malformed-JSON fallbacks to oversized integers in SSE events and tool text. One bad event or content item no longer aborts a structural pull or hides a later valid result.
+
+- Intake refuses an unconfigured target in an existing project before writing files, including when the binary stem differs only in case from a configured target. The usage error lists configured targets and the command to add one; explicit configured selections keep working.
+
+- Intake rediscovery uses the selected target's configured source directory, module and metadata root for inventories, stubs and stale-stub pruning, keeping custom layouts and module namespaces visible to the project.
+
+- Verify, name-coverage, data-role, extern-name, metadata-document and name-map JSON sidecars with oversized integers now use their existing cache-miss handling instead of aborting analysis.
+
+- Verify-cache patches treat a saved match percentage too large to convert to float as unusable. A corrupt percentage no longer blocks publishing fresh match counts or a status-only update, and an unusable old percentage is cleared to unknown.
+
+- Document the host-make query trust boundary and known refusal forms; object freshness checks require trusted build files and are not a sandbox.
+
+- Clarify source-boundary validation timing: file-backed metadata checks configuration loads and source-path edits immediately; PostgreSQL read routes defer containment checks until the actual metadata root is resolved.
+
+- Correct the shipped iteration PRD to rank todo actions by affected bytes before estimated effort, matching the current command.
+
+- Correct the verification PRD cache examples to use project roots instead of the removed target selector.
+
+- Align the shipped matching PRD with void-function proof observables and explicit watched-memory requirements.
+
+- Update the shipped Ghidra-sync PRD to explicit operations and the current watch, preview and state-directory rules.
+
+- Remove the unsupported preprocessor-branch example from source split occurrence help.
+
+- Correct BinSync user precedence: empty values fall through, and init reuses its recorded user before the built-in default.
+
+- Correct diff/test exit guidance for extraction errors and register-only differences, including collection JSON status paths.
+
+- Correct the MSVC6 comment rules: default Microsoft extensions accept line comments, while strict `/Za` mode rejects them.
+
+- Correct codegen methodology scope: the corpus includes C++ probes and unsupported or missing outputs, beyond the original C89 probe set.
+
+- Correct ops workspace guidance for project-scoped analyses and remove the stale handler count.
+
+- Include EXACT and DISPLACED in coverage-export and metadata-ownership data-verdict references.
+
+- Correct portable-export replacement guidance: invalid existing documents and unimported history block overwrite, and removed force flags remain errors.
+
+- Align coverage aggregate documentation: identified library spans count toward matched bytes, and only percentages are capped at the text extent.
+
+- Refresh service-pack corpus comparisons and document the VC 8.0 SP1 probe difference instead of claiming universal RTM equivalence.
+
+- Correct the minus-one idiom cheat sheet: opcode `48` is `dec eax`, matching the stored probe bytes.
+
+- Describe stack-frame diagnostics as linear disassembly summaries and flag hints, without claiming path-sensitive stack bounds or a unique cause.
+
+- Scope stack-comparison guidance to x86 targets; the analyzer does not model other architectures' stack frames.
+
+- Repair contributor-guide pytest node IDs for the release-note and patch-release checks.
+
+- Correct OMF record-length framing notes and distinguish current decoded branch-operand extraction from the historical byte-scan implementation.
+
+- Correct the MSVC6 minus-one idiom comparison using the committed probe corpus: both spellings emit the same bytes under the tested optimization flags.
+
+- Describe near-diagnosis `equivalent` results as instruction-family candidates requiring semantic review, without claiming proof of equal behavior.
+
+- Correct switch-table matching guidance: comparisons do not automatically omit table bytes inside the selected function span.
+
+- Correct data-edit guidance: classification changes invalidate the current verdict, and definition edits retain historical comparison evidence.
+
+- Correct the assembly-evidence guide: source writers preserve records through mechanical renames and moves, while stale evidence still requires review.
+
+- Document the ops server Host allow-list option and environment setting.
+
+- List metadata reconciliation options, including target configuration selection.
+
+- Document binary function/string pagination and the unpaged function-inventory output.
+
+- Document decompile file output and provider-specific prerequisites.
+
+- Clarify optional structural similarity scoring and how unscored results are exported.
+
+- Correct service-client retry guidance for scratch creation and assembly-enabled compilation.
+
+- Document source-directory validation in config-editor previews and writes while retaining repair edits.
+
+- Remove the coverage-report guide's unsupported linked-placement guarantee.
+
+- Distinguish missing-config behavior in the full loader from optional workspace readers.
+
+- Clarify that explicit target selection bypasses the configured default-target requirement.
+
+- Align the getting-started directory instruction with the project that intake creates in the current directory.
+
+- Document source-directory containment within the selected metadata root, including legacy stores and symlink destinations.
+
+- Correct the metadata directory lookup and no-store fallback in the config reference.
+
+- Remove the stale claim that all metadata identity paths resolve from the project root.
+
+- Correct architecture API names and the scope of registry refresh and snapshot consistency.
+
+- Document every sibling-overlay field selector and its default coverage, including stack variables, comments and types.
+
+- Explain idempotency fixture ownership checks and how to start a local sweep after upgrading from unmarked fixtures.
+
+- Replace the config guide's blanket repeatability guarantee with the documented queue-command behavior.
+
+- Correct layout-config help and guidance to describe the standalone layout document it prints.
+
+- Document layout call-map opcodes and regeneration of older packages that lack them.
+
+- Align the function-status reference with single-function proof eligibility and batch selection.
+
+- Correct development notes on binary fixture builders and capturing console output in tests.
+
+- Include the shipped GCC 16.2 and Clang 23.1 ELF profiles in the toolchain guide and remove stale latest-version claims.
+
+- Scope the idempotency guide to the configured sweep and its normalized JSON comparison.
+
+- Make the stricter sibling-overlay example raise both matching thresholds above their defaults.
+
+- Document that BinSync overlay can apply independent fields before exiting with unresolved conflicts.
+
+- Scope postlink call-target context checks to layout evidence rather than a behavior-preservation guarantee.
+
+- Correct postlink guidance on preserved relocation offsets and the conditions for copying reference PE headers.
+
+- Correct environment-only seeding setup: an endpoint enables it, the key is optional, and the model has a default.
+
+- Correct model-id validation guidance: only three exact aliases are rejected, and sampled seed generation has no provider-side replay seed.
+
+- Describe seeding token limits as estimated admission/accounting controls and correct timeout and usage-total claims.
+
+- Document signature-generation filtering and removal of the output file when no usable patterns remain.
+
+- Clarify that unbound globals can have storage definitions; missing address annotations do not imply extern-only declarations.
+
+- Correct data troubleshooting to name the target binary config key and treat omitted small BSS gaps as a reporting threshold rather than proven padding.
+
+- Include EXACT and DISPLACED in data-verdict guidance and distinguish placement evidence from byte-only agreement.
+
+- Describe proof observation selection and the watched-memory requirement for void functions; counterexamples apply to distinguishing inputs, not timeouts.
+
+- Document single-function proof eligibility for blocker-documented STUBs in command help and matching guidance, while retaining the narrower batch selector.
+
+- Update backup guidance for SQLite configuration bundles and config-first restore; bundles without configuration still require separate config and binary/state recovery.
+
+- Update the human dashboard API summary for live coverage and degraded targets; remove the schema tag's blanket target-parameter requirement.
+
+- Align dashboard API descriptions with live project coverage, degraded target reporting, portable snapshots, and the uncached health route.
+
+- Document that tooling failures preserve earned function statuses, and distinguish verification results from guarded metadata updates.
+
+- Qualify the CI sibling-checkout requirement with the runtime-only package job's existing exception.
+
+- Keep the matching workflow's diff diagnostics separate from complete byte verdicts and semantic proof; treat flag sensitivity as a recommendation.
+
+- Clarify that live coverage reads can populate derived project caches while leaving canonical metadata and exports unchanged.
+
+- Correct workflow claims about equal-length mismatches and flag sweeps: similarity does not prove behavior, and `--fix-cflags` requires a confirmed match.
+
+- Point mutation contributor rules at the public `operand_bytes` and `under_postfix` precedence helpers.
+
+- Correct related-target import guidance: failed copied imports retain their written source and comparison verdict; shared-import stub preservation is a separate path.
+
+- Make the Python API fake-service example print result fields instead of dividing incompatible values.
+
+- Document the x86 code-tail heuristic that can select a larger function-list size during discovery arbitration.
+
+- Correct the GA mutation guide to use `quick_validate`, describe unchanged-source returns after failed attempts, and retain the goto loop's backward jump.
+
+- Clarify metadata permissions in contributor rules and agent workflows: TOML files and SQLite databases use mode 0444; PostgreSQL uses database permissions and advisory locks.
+
+- **Security:** `build check --objects` refuses make include chains at the depth cap and recursive recipe forms (`+`, `$(MAKE)` and `${MAKE}`) that run even in query mode. Refusals name the cap or file and line; host make remains outside a sandbox and requires trusted build files.
+
+- Config loading and source-directory edits stay offline for PostgreSQL metadata. Source roots are checked against the actual metadata directory when it is first resolved, before sources are used; file-backed stores retain validation at load and edit time.
+
+- SQLite restore rolls back companion file bytes and permissions when copying or database staging fails before publication. Bundled configs and preserved copies keep their original permissions.
+
+- SQLite metadata backup bundles include the project config in their checksum manifest and restore it before dependent files. Restoring into an empty tree now recovers configured reference binaries and BinSync state instead of silently skipping them; restored BinSync files retain writable mode 0644.
+
+- PE delay-import parsing shares its slot limit across DLL descriptors and reports when it caps a directory, preventing repeated lookup tables from multiplying parsing work.
+
+- PE relocation maps reject conflicting fixup types at one address, so a later supported entry cannot hide an unsupported relocation from byte-comparison masks.
+
+- BinSync state writes replace destination symlinks even when their target already has identical text, preserving the linked file and its permissions instead of making that file writable.
+
+- Atomic writes replace destination symlinks even when their targets already contain identical bytes, leaving the target file and its permissions untouched.
+
+- Delphi form booleans decode into independent values, and edits to them appear in both binary and text output instead of changing other properties or retaining the old wire value.
+
+- COFF function extraction keeps symbol boundaries separate for sections with the same name, preventing unrelated offsets from truncating or dropping library functions.
+
+- x86 COFF SECREL7 fixups mask their single-byte field without hiding a change to the following byte.
+
+- AMD64 COFF address, relative-address and section fixups mask their declared widths instead of only one byte when LIEF reports size zero, so library signatures cover complete link-time fields.
+
+- COFF absolute padding relocations no longer mask unchanged instruction bytes in library matching and generated signatures.
+
+- PE sections retain their execute flags for code classification. Executable sections with custom names remain visible to native review and analysis, and non-executable sections named CODE or .text are treated as data.
+
+- Function-inventory JSON rejects negative addresses and sizes before they enter registry and coverage calculations. Zero addresses and unresolved zero sizes remain accepted.
+
+- The idempotency checker deletes only fixture and sweep directories carrying its own exact marker. A project config or write-prefixed child name no longer authorizes recursive deletion; existing unmarked directories are refused.
+
+- BinSync global-content matching rejects overlapping duplicate occurrences instead of treating them as a unique destination address.
+
+- BinSync overlay applies only explicitly selected fields, including the new stack_vars, comments and types selectors. The default still includes all existing function/type transfers, with global matching opt-in. Selecting only name no longer writes locals, comments or type definitions.
+
+- The 16-bit OMF reader locates call and jump relocations at decoded instruction boundaries instead of mistaking opcode-like immediate bytes for relocations and masking unrelated mismatches.
+
+- `rebrew cfg set` checks proposed shared and target source directories against the canonical metadata root before writing, including previews, so it refuses the same invalid paths as project loading without changing the config file. Compiler repair commands still work without loading unrelated settings.
+
+- Project loading rejects shared or per-target source directories outside the canonical metadata directory, including symlink escapes, instead of failing later when registration cannot store their relative identities. The error names the directory and explains where to move the store or sources.
+
+- Fat Mach-O binaries translate section offsets from the selected slice to the outer file before extracting bytes, instead of reading container padding or unrelated data. Thin Mach-O offsets are unchanged.
+
+- Toolchain tar extraction strips wrapper components from hard-link targets as well as member names, so valid linked files extract correctly. Absolute, parent-traversing and fully stripped hard-link targets remain rejected.
+
+- The experimental namespace runner rejects malformed image-inspection and cached image-metadata containers with its preparation error instead of leaking AttributeError or IndexError. Rejected metadata cannot start an image export.
+
+- Scaffold cleanup accepts manifest ownership only under `.agents/skills/`, matching the paths its writer records. Entries naming other project files are ignored with a warning, even when their stored digest matches.
+
+- Scaffold refresh ignores stale manifest paths that resolve outside the project through symlinks, preserving external files instead of deleting them during old-skill cleanup.
+
+- Raw-link private-data placement validates compile-command containers and output paths, reporting malformed build databases by path instead of leaking AttributeError, TypeError or KeyError. Entries with no output remain ignored.
+
+- Private-data placement rejects COFF relocations whose target symbol names a nonexistent section instead of crashing with IndexError during raw-link verification.
+
+- `rebrew ops serve --port 0` builds its default Host allowlist from the actual bound port, so health requests to the assigned port work while foreign hosts and port-zero Host headers remain refused.
+
+- Compiler-image header inspection and extraction check the process result explicitly instead of passing an unsupported `check` argument to the process-group runner. Include reviews now reach the runtime, and failed inspect/extract commands retain their contextual errors.
+
+- Doctor parses inventory addresses and sizes with the shared integer parser: hexadecimal strings remain usable, while non-finite, fractional and boolean values are ignored instead of crashing or inventing function extents.
+
+- Source registration recognizes configured library modules with the same normalized spelling used by its module validator, preserving LIBRARY kind and project-relative provider paths for lowercase address anchors.
+
+- Scaffold refresh resolves every generated destination before writing and refuses paths outside the project, including file and directory symlinks. A refusal leaves the existing scaffold, manifest and external files unchanged.
+
+- OMF framing uses the full unsigned 16-bit record length instead of treating its high bit as a checksum flag, so a truncated high-bit-length record cannot masquerade as a shorter complete record.
+
+- Type and prototype extraction walk source trees iteratively, so deeply nested function bodies no longer raise RecursionError or prevent later declarations from reaching compile contexts and type sync. Declaration order and filtering stay unchanged.
+
+- `rebrew diagnose stack` refuses non-x86 targets before resolving or compiling a source, instead of disassembling other architectures as x86 and potentially reporting a false frame match. The supported modes remain x86_16, x86_32 and x86_64.
+
+- Stack analysis recognizes Capstone's push-all/pop-all mnemonics and their decoded 16/32-bit operand widths, including operand-size overrides, instead of ignoring those instructions or computing the wrong frame depth.
+
+- Stack analysis includes the saved frame pointers selected by the low five bits of an `ENTER` nesting operand.
+
+- Stack analysis accounts for the effective operand width of PUSH, POP and ENTER, including 0x66 overrides and 64-bit REX.W precedence, when tracking frame depth.
+
+- Preprocessing capture reports malformed compilation-database records and commands as validation errors before starting the compiler.
+
+- Preprocessing capture resolves relative compilation-database source paths against their compile directory, independent of the caller's working directory.
+
+- Library matching discovers vendored object files whose `/Fo` output paths contain quoted spaces.
+
+- NE decompiler slices apply additive byte relocations at the final byte of a segment instead of silently omitting them.
+
+- NE decompiler slices reject relocation blocks that run into another stored segment instead of treating its payload as fixup records.
+
+- NE code probing limits native disassembly to its per-candidate instruction budget instead of decoding the entire segment before truncating results.
+
+- GA resume warns and starts fresh for checkpoint JSON with invalid root shapes, overflowing counters or excessively nested RNG state instead of crashing.
+
+- NE loading excludes unexpanded iterated segments from code probing and function discovery instead of interpreting their encoded records as instructions.
+
+- Static archive parsing and stock-library cache admission reject corrupt member-header terminators instead of treating malformed records as valid members.
+
+- Recompile artifact downloads refuse redirects even when an injected HTTP client enables them, preserving the same-origin restriction for unauthenticated requests.
+
+- Recompile artifact responses with unparseable digit-like or excessively long numeric Content-Length values raise a protocol error instead of leaking ValueError.
+
+- ELF program-header fallback aliases `.text` only to an executable load region, avoiding larger data/string-table sections and leaving data-only images without a code alias.
+
+- SH-2 function extents include the executed two-byte delay slot after `RTS`, `BRA` and `JMP`, preserving the final epilogue instruction.
+
+- ARM32 extent analysis recognizes `POP` restoring `pc` as a return and distinguishes `BX lr` from register tail jumps instead of treating every `BX` as a complete returned body.
+
+- GA history pruning retains unreadable and non-object lines byte-for-byte outside the loss quota, preserving unknown records even after enough newer losses arrive.
+
+- PE Control Flow Guard tables use the per-entry metadata width from GuardFlags, so targets after the first remain aligned. CFG and SafeSEH RVAs retain their high address bit instead of treating it as an import-ordinal flag.
+
 ## [6.35.0] - 2026-11-13
 
 ### Fixed
@@ -54,12 +374,6 @@
 ## [6.33.0] - 2026-11-12
 
 ### Changed
-
-- **Breaking:** `rebrew.app.builtins.BUILTIN_COMPONENTS` and its re-export `rebrew.app.main.BUILTIN_COMPONENTS` change the `prove` summary to "Prove semantic equivalence of eligible functions via symbolic execution.", matching the command help, instead of naming NEAR_MATCHING/SIZE_MISMATCH functions.
-
-- **Breaking:** `rebrew.binsync.overlay.main` changes its default `fields` value from `name,prototype,note` to `name,prototype,note,stack_vars,comments,types`. Default transfers are unchanged; an explicit selector now restricts stack variables, comments and types as well as the original categories. `global` remains opt-in.
-
-- **Breaking:** `rebrew.layout_meta.LayoutMetadata.calls` entries now hold `(rel32, prefix2, suffix2, opcode)`, and `calls.txt` adds the opcode column. `load_package` accepts older rows with an unknown opcode, but postlink excludes those call sites from alignment coverage and rewriting, and reports skipped targets. Regenerate the package with `rebrew build layout`; `write_package` refuses unknown-opcode entries. Call and jump opcodes must match before a target is rewritten.
 
 - Every dependency is at its newest release: `uv lock --upgrade` moves 21 packages within their caps (angr, archinfo, cle and pyvex 10.0.6, click 8.5.1, pydantic 2.14.3, pydantic-core 2.50.4, tree-sitter 0.26.1, typer 0.29.1, z3-solver 5.3.3.0, ruff 0.17.4, hypothesis 6.170.15 and the rest of their trees); no cap holds back a newer major. The floors of click, tree-sitter, typer, angr, ruff and hypothesis follow the lock, and `tools/licenses.py` moves each entry to the new version after PyPI's licence metadata for both releases compared equal. The contributor resembl pin moves from `v4.0.0` to `v5.0.0` (eb8e9b4c) in the `Makefile`, the CI `uv-env` action, `uv.lock` and the setup docs.
 ### Added
@@ -154,8 +468,6 @@
 - Correct metadata backup scope: source trees need separate backups, and configured reference binaries or BinSync directories with absolute or parent-relative paths are not included.
 
 - Distinguish metadata backup copy verification from record validation: TOML backup preserves bytes, restore checks TOML syntax, and SQLite adds database schema/integrity checks.
-
-- PE Control Flow Guard tables use the per-entry metadata width from GuardFlags, so targets after the first remain aligned. CFG and SafeSEH RVAs retain their high address bit instead of treating it as an import-ordinal flag.
 
 
 ## [6.32.1] - 2026-11-11
