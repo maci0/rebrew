@@ -47,3 +47,10 @@ class TestHelpAccuracy:
         text = _command(["toolchain", "pull"]).help or ""
         assert "REBREW_CONTAINER_RUNTIME" in text
         assert "docker image" not in text
+
+    def test_source_fix_names_the_file_it_writes(self) -> None:
+        """`source fix raw.c` writes raw.c.fixed.c (the suffix is appended)."""
+        cmd = _command(["source", "fix"])
+        text = (cmd.epilog or "") + _option_help(["source", "fix"], "--output")
+        assert "raw.c.fixed.c" in text
+        assert "raw.fixed.c" not in text

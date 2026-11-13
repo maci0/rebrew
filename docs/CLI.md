@@ -1583,7 +1583,7 @@ shipping a fix that does not compile.
 | `SOURCE_FILE` | path | required | Path to the pseudo-C file to fix |
 | `--compile-check` | flag | `False` | Compile the fixed source; on failure, banner the error into the output and exit nonzero |
 | `--dry-run` | flag | `False` | Preview changes without writing |
-| `--output` / `-o` | path | none | Write the fixed source to this path (default: <file>.fixed.c) |
+| `--output` / `-o` | path | none | Write the fixed source to this path (default: raw.c.fixed.c for raw.c) |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
 

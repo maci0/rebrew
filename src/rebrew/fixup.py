@@ -166,7 +166,7 @@ def fixup_source(source: str, compile_errors: str | None = None) -> FixupResult:
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
-    "  rebrew source fix raw.c  # Write raw.fixed.c, print a diff summary\n\n"
+    "  rebrew source fix raw.c  # Write raw.c.fixed.c, print a diff summary\n\n"
     "  rebrew source fix raw.c --dry-run  # Report the fixes without writing\n\n"
     "  # Write elsewhere and compile it\n"
     "  rebrew source fix raw.c --output cleaned.c --compile-check\n\n"
@@ -224,7 +224,10 @@ def main(
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     out: Path | None = typer.Option(
-        None, "--output", "-o", help="Write the fixed source to this path (default: <file>.fixed.c)"
+        None,
+        "--output",
+        "-o",
+        help="Write the fixed source to this path (default: raw.c.fixed.c for raw.c)",
     ),
     compile_check: bool = typer.Option(
         False,
