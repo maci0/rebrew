@@ -102,7 +102,7 @@ class TestDescribe:
     @pytest.mark.parametrize(
         ("change", "detail"),
         [
-            ("no-config", "a metadata set requires rebrew-project.toml"),
+            ("no-config", "a file set requires rebrew-project.toml"),
             (
                 "foreign-toml",
                 "invalid metadata set: rebrew-functions.toml is not read by this project's"

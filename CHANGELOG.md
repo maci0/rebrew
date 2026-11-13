@@ -14,6 +14,8 @@
 
 - New read-only dispatch ops `rebrew.metadata_describe` (the descriptor of a file set) and `rebrew.metadata_diff` (the per-record field changes between two file sets, read through the storage layer), and `rebrew.metadata_carry`, which carries a retained target onto a fresh capture of its binary through the reviewed metadata migration, merging its published function registry per record: published rows win, fresh-only rows are added (with their address placeholder when their name or symbol is already published), and published-only rows stay. A dispatch client no longer needs to parse or name rebrew's metadata files.
 
+- New dispatch op `rebrew.project_targets` lists the targets a supplied `rebrew-project.toml` declares, so a client no longer parses `[targets]` itself.
+
 ### Fixed
 
 - `rebrew.decompile_snapshot` and `rebrew.security_scan_snapshot` accept analysis capture files up to the shared 8 MiB per-file and 32 MiB aggregate readset bounds instead of 1 MiB and 8 MiB, so a capture the backend retained under those bounds, such as a SQLite store over 1 MiB, is no longer refused. The 1,024-entry capture limit is unchanged.

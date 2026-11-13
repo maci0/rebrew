@@ -6955,6 +6955,10 @@ Op details the contract leaves open:
   read and carry metadata file sets; the client never parses or names
   rebrew's metadata files. See
   [the dispatch metadata contract](METADATA.md#dispatch-metadata-contract).
+- `rebrew.project_targets` `{files}` answers `{targets}`: the `[targets]` tables
+  of the set's `rebrew-project.toml`, keyed in the NFC spelling the config loader
+  uses and sorted by UTF-8 bytes. The set uses the retained-snapshot file entries
+  and limits; an unreadable config answers 400.
 - `rebrew.binary_function_digests`: the image is parsed once; every byte a
   typed fixup covers (PE or ELF, x86_32 and x86_64 only; other images are
   refused) is zeroed before SHA-256 (`sha256-relocations-v1`). At most 128

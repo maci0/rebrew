@@ -5,5 +5,5 @@ which mirrors it byte-identically at contracts/dispatch/rebrew.schema.json
 version 3 capture descriptor and the apply_candidate metadata field) were
 extended here first; the rest is the copy of backend commit
 80314a46a1ae26d9ef3d56d90e1d454c561f5928.
-SHA-256: 79b83448d5d0dfd3de67f7cd66610f096ccb6d88b1b50964b5d99aa89f346d24.
+SHA-256: cba101ab973b6fb573b60c1b207557bff156fb840c6e84675f61a8b1a859739c.
 tests/test_ops.py validates every op request and reply against it.

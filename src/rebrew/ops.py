@@ -829,7 +829,7 @@ class FlagSearchFile:
 
 
 @dataclass(frozen=True)
-class MetadataDescribeRequest:
+class FileSetRequest:
     files: list[FlagSearchFile]
 
 
@@ -2443,19 +2443,19 @@ def capture_fresh_analysis(
 
 
 @contextlib.contextmanager
-def _staged_metadata_set(config: WorkerConfig, files: list[FlagSearchFile]) -> Iterator[Path]:
-    """Stage a supplied metadata file set under the retained-snapshot rules."""
+def _staged_file_set(config: WorkerConfig, files: list[FlagSearchFile]) -> Iterator[Path]:
+    """Stage a supplied project file set under the retained-snapshot rules."""
     from rebrew.utils import portable_path_parts
 
     _check_manifest_size(files)
     paths = {entry.path for entry in files}
     if len(paths) != len(files) or any(not portable_path_parts(path) for path in paths):
-        raise _invalid("duplicate or invalid metadata set path")
+        raise _invalid("duplicate or invalid file set path")
     if "rebrew-project.toml" not in paths:
-        raise _invalid("a metadata set requires rebrew-project.toml")
+        raise _invalid("a file set requires rebrew-project.toml")
     scratch = config.require_workspace() / SCRATCH_DIR
     scratch.mkdir(exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="metadata-set-", dir=scratch) as temp:
+    with tempfile.TemporaryDirectory(prefix="file-set-", dir=scratch) as temp:
         root = Path(temp).resolve()
         _stage_retained_files(config, root, files, exclusive=True)
         yield root
@@ -2469,11 +2469,23 @@ def _metadata_answer[T](read: Callable[[], T]) -> T:
         raise _invalid(f"invalid metadata set: {exc}") from exc
 
 
-def metadata_describe(config: WorkerConfig, req: MetadataDescribeRequest) -> dict[str, Any]:
+def project_targets(config: WorkerConfig, req: FileSetRequest) -> dict[str, Any]:
+    """The targets a supplied project config declares, as the config loader keys them."""
+    from rebrew.workspace import read_config, targets_table
+
+    with _staged_file_set(config, req.files) as root:
+        try:
+            table = targets_table(read_config(root))
+        except (OSError, ValueError, RebrewError) as exc:
+            raise _invalid(f"invalid project config: {exc}") from exc
+    return {"targets": sorted(table, key=lambda name: name.encode("utf-8"))}
+
+
+def metadata_describe(config: WorkerConfig, req: FileSetRequest) -> dict[str, Any]:
     """The backend-neutral descriptor of the metadata a supplied file set reads."""
     from rebrew.metadata_sets import describe_metadata
 
-    with _staged_metadata_set(config, req.files) as root:
+    with _staged_file_set(config, req.files) as root:
         return _metadata_answer(lambda: describe_metadata(root))
 
 
@@ -2482,8 +2494,8 @@ def metadata_diff(config: WorkerConfig, req: MetadataDiffRequest) -> dict[str, A
     from rebrew.metadata_sets import describe_metadata, diff_metadata
 
     with (
-        _staged_metadata_set(config, req.before) as before,
-        _staged_metadata_set(config, req.after) as after,
+        _staged_file_set(config, req.before) as before,
+        _staged_file_set(config, req.after) as after,
     ):
         return _metadata_answer(
             lambda: {
@@ -2505,8 +2517,8 @@ def metadata_carry(config: WorkerConfig, req: MetadataCarryRequest) -> dict[str,
     from rebrew.metadata_sets import carry_metadata, describe_metadata
 
     with (
-        _staged_metadata_set(config, req.capture) as capture,
-        _staged_metadata_set(config, req.target) as target,
+        _staged_file_set(config, req.capture) as capture,
+        _staged_file_set(config, req.target) as target,
     ):
         scratch = config.require_workspace() / SCRATCH_DIR
         with tempfile.TemporaryDirectory(prefix="metadata-carry-", dir=scratch) as temp:
@@ -3707,8 +3719,9 @@ OPS: dict[str, Op] = {
     "rebrew.security_scan_snapshot": Op(SecuritySnapshotRequest, security_scan_snapshot),
     "rebrew.analyse": Op(AnalyseRequest, analyse),
     "rebrew.import-project": Op(ImportRequest, import_project),
+    "rebrew.project_targets": Op(FileSetRequest, project_targets),
     "rebrew.metadata_carry": Op(MetadataCarryRequest, metadata_carry),
-    "rebrew.metadata_describe": Op(MetadataDescribeRequest, metadata_describe),
+    "rebrew.metadata_describe": Op(FileSetRequest, metadata_describe),
     "rebrew.metadata_diff": Op(MetadataDiffRequest, metadata_diff),
     "rebrew.reference_flirt": Op(ReferenceFlirtRequest, reference_flirt),
     "rebrew.verify_function": Op(VerifyRequest, verify_function),
