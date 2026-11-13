@@ -1093,10 +1093,9 @@ rather than pointing at a master path that does not exist.
 
 `rebrew init --toolchain msvc-6.0-sp3|msvc-6.0-sp6` sets up the profiles (the
 dir names above are the decomp.me mirror names; the registry ids are
-`msvc-6.0-sp3` / `msvc-6.0-sp6`). `tests/test_toolchain_roundtrip.py` is
-parameterized with both names but maps them to the `msvc-6.0` image, so it does
-not prove either service pack (compile → compare → EXACT; skipped when the
-image is not built).  Round-trip validation: compile a snippet with the
+`msvc-6.0-sp3` / `msvc-6.0-sp6`); each is proven by
+`tests/test_toolchain_roundtrip.py` against its own image (compile → compare →
+EXACT; skipped when that image is not built).  Round-trip validation: compile a snippet with the
 toolchain, link against a full toolchain's Lib, intake the result, and
 `rebrew test` the source; the profile is correct when it classifies EXACT.
 ---

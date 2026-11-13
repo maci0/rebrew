@@ -35,19 +35,9 @@ int f(int n)
 """
 
 
-#: Legacy vendored toolchain dir -> rebrew profile (docker image).
-_TOOLCHAIN_PROFILES = {
-    "msvc-7.0-win32": "msvc-7.0",
-    "msvc-4.2-win32": "msvc-4.2",
-    "msvc-5.0-win32": "msvc-5.0",
-    "msvc-4.0-win32": "msvc-4.0",
-}
-
-
-def _cfg(root: Path, toolchain: str) -> SimpleNamespace:
-    """Build a compile config that routes through the toolchain's docker
-    image (execution is docker-only; the vendored tree is never exec'd)."""
-    profile = _TOOLCHAIN_PROFILES.get(toolchain, "msvc-6.0")
+def _cfg(root: Path, profile: str) -> SimpleNamespace:
+    """Build a compile config that routes through the profile's docker image
+    (execution is docker-only; the vendored tree is never exec'd)."""
     return SimpleNamespace(
         root=root,
         compiler_command="",
@@ -62,25 +52,28 @@ def _cfg(root: Path, toolchain: str) -> SimpleNamespace:
     )
 
 
-def _toolchain_available(toolchain: str) -> bool:
-    """True when the toolchain's docker image is built locally."""
+def _image_present(profile: str) -> bool:
+    """True when the profile's docker image is built locally.
+
+    ``TOOLCHAINS[profile]`` raises for an unregistered name, so a typo fails
+    the test instead of running another profile's image.
+    """
     from rebrew.compiler.toolchain import TOOLCHAINS, image_present
 
-    profile = _TOOLCHAIN_PROFILES.get(toolchain, "msvc-6.0")
     spec = TOOLCHAINS[profile]
     return spec.image is not None and image_present(spec.image)
 
 
-def _compile_extract_compare(tmp_path: Path, toolchain: str, cflags: list[str]) -> str:
+def _compile_extract_compare(tmp_path: Path, profile: str, cflags: list[str]) -> str:
     """Compile SNIPPET, extract _f, re-compare, return status."""
     src = tmp_path / "rt.c"
     src.write_text(SNIPPET, encoding="utf-8")
-    cfg = _cfg(tmp_path, toolchain)
+    cfg = _cfg(tmp_path, profile)
     # The compile workdir must be docker-visible (mounted at /work), so it
     # lives under the repo's .cache/ instead of pytest's tmp dir.  The name
     # carries the pid and a fresh suffix: a shared per-toolchain directory
     # would have two concurrent runs deleting each other's staged sources.
-    workdir = _REPO / ".cache" / "rt" / f"{toolchain}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
+    workdir = _REPO / ".cache" / "rt" / f"{profile}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
     workdir.mkdir(parents=True, exist_ok=True)
 
     obj_path, err = compile_to_obj(cfg, src, cflags, workdir, use_cache=False)
@@ -97,20 +90,20 @@ def _compile_extract_compare(tmp_path: Path, toolchain: str, cflags: list[str]) 
 
 
 @pytest.mark.parametrize(
-    ("toolchain", "cflags"),
+    ("profile", "cflags"),
     [
         ("msvc-6.0-sp3", ["/O2", "/Gd"]),
         ("msvc-6.0-sp6", ["/O2", "/Gd"]),
-        ("msvc-7.0-win32", ["/O2", "/Ob0", "/Gd"]),
-        ("msvc-4.2-win32", ["/O2", "/Gd"]),
-        ("msvc-5.0-win32", ["/O2", "/Gd"]),
-        ("msvc-4.0-win32", ["/O2", "/Gd"]),
+        ("msvc-7.0", ["/O2", "/Ob0", "/Gd"]),
+        ("msvc-4.2", ["/O2", "/Gd"]),
+        ("msvc-5.0", ["/O2", "/Gd"]),
+        ("msvc-4.0", ["/O2", "/Gd"]),
     ],
 )
-def test_toolchain_roundtrip_exact(tmp_path: Path, toolchain: str, cflags: list[str]) -> None:
-    if not _toolchain_available(toolchain):
+def test_toolchain_roundtrip_exact(tmp_path: Path, profile: str, cflags: list[str]) -> None:
+    if not _image_present(profile):
         pytest.skip(
-            f"{toolchain} docker image not built (run `rebrew toolchain build <name>` first)"
+            f"{profile} docker image not built (run `rebrew toolchain build {profile}` first)"
         )
-    status = _compile_extract_compare(tmp_path, toolchain, cflags)
-    assert status == "EXACT", f"{toolchain} round-trip expected EXACT, got {status}"
+    status = _compile_extract_compare(tmp_path, profile, cflags)
+    assert status == "EXACT", f"{profile} round-trip expected EXACT, got {status}"
