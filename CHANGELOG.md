@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** `rebrew.compiler.recompile_client.compile_source` sends a random `Idempotency-Key` per call, resent only by that call's retries after a lost reply, instead of a digest of compiler, source, flags, filename and `emit_assembly`. Recompile replays the first outcome of a key, so every later compile of an unchanged source was a replay: a retained capacity refusal came back on every run, a second member of the same Platform account got 409, and a rebuilt image never applied to that source. A later call, after a failure or an image update, is now a new attempt. The job-socket `X-Rebrew-Compile-Intent` stays a digest of the compile input.
+
 ### Fixed
 
 - `rebrew.compiler.recompile_client.compile_source` refuses a source, flag, compiler or filename that is not UTF-8 text (a lone surrogate, which `compile_to_obj` reads for every byte of a cp1252 comment) with `RecompileError(kind="validation")` before sending anything. httpx raised `UnicodeEncodeError` while encoding the body, which the client reported as an unreachable service and retried; a surrogate in a flag escaped as a bare `UnicodeEncodeError`.

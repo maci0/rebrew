@@ -20,9 +20,10 @@ over HTTP only when the URL host equals it exactly; any other HTTP URL still ref
 compensating control is the cluster NetworkPolicy: rebrew's pods must be allowed to reach that
 service and nothing else on the network, or the key travels in clear text where others can read it. The
 key is sent as a bearer credential to the configured service and its
-same-origin artifact endpoint. Every compile sends a deterministic idempotency key derived from compiler,
-source, flags, filename and assembly-output choice. Identical inputs reproduce
-the key across retries and process restarts; the request itself is not saved.
+same-origin artifact endpoint. Every compile call is one attempt with its own random
+`Idempotency-Key`: a retry after a lost reply resends it, so the service reconciles that
+attempt instead of compiling twice, and a later compile of the same input, after a failure
+or an image update, is a new attempt with a new key. Neither key nor request is saved.
 Job-socket compiles use their own capability.
 For Docker execution, the local compile cache keys an object on the inspected
 image id (`sha256:` plus 64 hex), and `docker run` uses that same id with

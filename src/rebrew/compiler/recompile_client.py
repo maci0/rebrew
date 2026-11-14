@@ -18,10 +18,9 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, runtime_checkable
-lazy import hashlib
-lazy import json as _json
 lazy import os
 lazy import re
+lazy import secrets
 lazy import time
 lazy import unicodedata
 lazy from collections.abc import Callable, Mapping
@@ -56,6 +55,10 @@ _MAX_FLAG_BYTES = 256
 #: A single-function COFF object is at most a few MiB for MSVC/Watcom/DOS
 #: toolchains; 30 MiB is generous headroom.
 _MAX_ARTIFACT_BYTES = 30 * 1024**2
+
+#: Random bytes in one ``Idempotency-Key``; the service takes exactly 12
+#: lowercase hex digits (recompile ``docs/API.md``).
+_IDEMPOTENCY_KEY_BYTES = 6
 
 #: How a :class:`RecompileError` arose — callers branch on this instead of
 #: matching message substrings.
@@ -403,9 +406,14 @@ def compile_source(
     short-lived client covers both the compile POST and the artifact GET.
 
     ``REBREW_RECOMPILE_API_KEY`` supplies a bearer credential to this service and its
-    same-origin artifact endpoint. Authenticated POST retries share one key for
-    this invocation; neither key nor request is persisted across process restarts.
-    Job-socket compiles use their own capability and never forward this credential.
+    same-origin artifact endpoint. Job-socket compiles use their own capability and
+    never forward this credential.
+
+    Every call is one logical attempt with its own random ``Idempotency-Key``. A
+    retry after a lost reply resends that key, so the service reconciles the
+    attempt it may already have run instead of running another. A later call,
+    including one after a failure or an image update, sends a new key and never
+    replays an earlier call. Neither key nor request is persisted.
 
     *retries* re-attempts after a :class:`RecompileError` with
     ``retryable=True``.  Non-retryable errors (validation, 4xx other than
@@ -447,9 +455,7 @@ def compile_source(
         # stores, so measure and send that form.  Counting characters let a
         # flag of 200 two-byte code points through and the service answered
         # 422; a decomposed spelling of a flag that composes under the cap
-        # must still be sent.  Rewriting the list here keeps the
-        # Idempotency-Key, hashed from it below, on the form the service
-        # fingerprints.
+        # must still be sent, in the form the service fingerprints.
         flag = unicodedata.normalize("NFC", flag)
         flags_list[index] = flag
         _require_utf8(flag, "flag")
@@ -510,29 +516,13 @@ def compile_source(
         )
     safe_url = url.replace(api_key, "[redacted]") if api_key else url
     auth_headers = {"Authorization": f"Bearer {api_key}"} if api_key else None
-    # Idempotency-Key: deterministic digest of the logical compile (compiler,
-    # source, flags, filename, emit_assembly) so a retry, a crash-restart, or a
-    # re-run of the same compile in another process presents the same key.
-    # The server can then dedup a duplicate POST (e.g. emit_assembly's
-    # train.jsonl append) instead of treating each attempt as new.  Previously
-    # unauthenticated calls sent no key at all, and authenticated calls sent a
-    # fresh random token per invocation, so every retry looked new.
-    _idem_digest = hashlib.sha256(
-        _json.dumps(
-            {
-                "compiler": compiler,
-                "source": source,
-                "flags": flags_list,
-                "filename": filename,
-                "emit_assembly": emit_assembly,
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-    ).hexdigest()[:12]
-    post_headers: dict[str, str] = {"Idempotency-Key": _idem_digest}
-    if auth_headers:
-        post_headers = {**auth_headers, "Idempotency-Key": _idem_digest}
+    # The service replays the first outcome of a key (recompile docs/API.md),
+    # so the key names this attempt, never its input: a digest of the input
+    # made every later compile of an unchanged source a replay of the first.
+    post_headers: dict[str, str] = {
+        **(auth_headers or {}),
+        "Idempotency-Key": secrets.token_hex(_IDEMPOTENCY_KEY_BYTES),
+    }
     payload = {
         "compiler": compiler,
         "source": source,

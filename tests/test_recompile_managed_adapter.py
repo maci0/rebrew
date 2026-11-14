@@ -45,18 +45,37 @@ def test_authenticated_retry_replays_exact_original_and_fetches_same_origin(monk
     assert seen[2].url.host == "compiler.test" and "idempotency-key" not in seen[2].headers
 
 
-def test_idempotency_key_tracks_compile_inputs(monkeypatch):
+def test_idempotency_key_names_one_call_not_its_input(monkeypatch):
+    """A retry after a lost reply resends the key; a later call of the same input does not.
+
+    The key was a digest of the input, so the service treated every later
+    compile of an unchanged source as a replay of the first one: a retained
+    refusal came back on every run, a second member of the account got 409,
+    and a rebuilt image never applied to that source.
+    """
     monkeypatch.delenv("REBREW_RECOMPILE_API_KEY", raising=False)
     monkeypatch.delenv("REBREW_JOB_COMPILE_SOCKET", raising=False)
     keys = []
 
     def handler(req):
         keys.append(req.headers["idempotency-key"])
-        return httpx.Response(200, json={"status": "error", "log": "fixture"})
+        if len(keys) == 1:
+            raise httpx.ReadTimeout("lost reply", request=req)
+        body = {"status": "error", "error_code": "toolchain_failure", "log": "fixture"}
+        return httpx.Response(200, json=body)
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
-        for source in ("int a;", "int a;", "int b;"):
-            compile_source("http://compiler.test", "gcc-14.2.0", source, [], client=client)
+        for _ in range(2):
+            compile_source(
+                "http://compiler.test",
+                "gcc-14.2.0",
+                "int a;",
+                [],
+                client=client,
+                retries=1,
+                sleep=lambda _: None,
+            )
+    assert len(keys) == 3
     assert keys[0] == keys[1] != keys[2]
     assert all(re.fullmatch("[0-9a-f]{12}", key) for key in keys)
 
