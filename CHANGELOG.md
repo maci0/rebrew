@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.39.0] - 2026-11-15
+
 ### Added
 
 - `rebrew ops` op `rebrew.import_archive` installs an uploaded rebrew project archive (tar, tar.gz or zip, by filestore key or presigned URL, checked against its SHA-256) as a stored binary's project and answers what `rebrew.analyse` answers, capture included. `rebrew.project_archive.unpack_project_archive` unpacks it under bounds (32768 entries, 256 MiB, regular files and directories under portable names, no links, devices or `..`); the target whose binary in the archive has the binary's hash is imported; a compiler `command`, `runner`, `execution_backend` or `recompile_url`, a target `raw_link`, or non-TOML metadata refuses it (422 `project-import-refused`). `rebrew.metadata_transfer.scope_metadata_to_module` drops the other modules' function and data records before the metadata moves to SQLite. Nothing from the archive runs.
