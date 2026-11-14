@@ -179,11 +179,9 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
     try:
         if type(req.analysis_manifest) is not str:
             raise ValueError("capture must be a string")
+        # The request bound (``ops.MAX_REQUEST_BYTES``) bounds the manifest text.
         raw = req.analysis_manifest.encode("utf-8")
-        if (
-            len(raw) > 2 * 1024 * 1024
-            or hashlib.sha256(raw).hexdigest() != req.analysis_manifest_sha256
-        ):
+        if hashlib.sha256(raw).hexdigest() != req.analysis_manifest_sha256:
             raise ValueError("capture digest differs")
         capture = json.loads(req.analysis_manifest, object_pairs_hook=unique_json_object)
         # Version 1 keeps its registry as TOML; versions 2 and 3 keep every metadata
@@ -207,7 +205,9 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
             or capture["binary_sha256"] != req.sha256
             or capture["target"] != req.rebrew_target
             or type(capture["entries"]) is not list
-            or not 1 <= len(capture["entries"]) <= 1024
+            # One stub per discovered function: the bound rebrew's own capture
+            # (``ops.capture_fresh_analysis``) and the backend store use.
+            or not 1 <= len(capture["entries"]) <= ops.MAX_READSET_FILES
             or not re.fullmatch(r"[0-9a-f]{32}", req.generation)
         ):
             raise ValueError("invalid capture")
@@ -290,7 +290,7 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
             path = capture[field]
             if type(path) is not str or not _valid_path(path):
                 raise ValueError("invalid selected capture path")
-            if field == "report_path" and path != ".relumea/analysis-report.json":
+            if field == "report_path" and path != ops.ANALYSIS_REPORT_PATH:
                 raise ValueError("invalid captured report path")
             item = reserved.get(path)
             if item is None or item["kind"] != "file" or item.get("role") != "analysis":
@@ -410,7 +410,6 @@ def retained_snapshot(
         or bool(req.binary_key) == bool(req.binary_url)
     ):
         raise ops._invalid("invalid retained snapshot request")
-    ops.confined_dir(config, req.project_dir, "project_dir")
     scratch = config.require_workspace() / ops.SCRATCH_DIR
     if scratch.is_symlink() or (scratch.exists() and not scratch.is_dir()):
         raise ops._invalid("invalid worker scratch directory")

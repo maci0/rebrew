@@ -1341,8 +1341,9 @@ def save_verify_cache(
         # A tooling crash is not a verification verdict — never cache it: a
         # transient worker failure would otherwise be re-served forever as a
         # phantom failure (status count, coverage overlay, todo "0B diff"
-        # quick-win) until a --no-cache re-verify.
-        if result.get("status") == "INTERNAL_ERROR":
+        # quick-win) until a --no-cache re-verify.  The same holds for a row
+        # carrying ``error``: the remote compile service gave no verdict.
+        if result.get("status") == "INTERNAL_ERROR" or result.get("error") is not None:
             continue
         mtime, source_hash = file_info
 

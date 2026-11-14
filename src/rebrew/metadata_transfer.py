@@ -4,6 +4,7 @@ lazy import contextlib
 lazy import hashlib
 lazy import json
 lazy import tempfile
+lazy import unicodedata
 lazy from functools import partial
 lazy from pathlib import Path
 lazy from typing import Any
@@ -16,6 +17,7 @@ lazy from rebrew.metadata.document import (
     FUNCTION_FORMAT_VERSION,
     metadata_format,
     parse_metadata_doc,
+    parse_metadata_key,
 )
 lazy from rebrew.metadata.functions import (
     FUNCTION_IDENTITY_FIELDS,
@@ -74,6 +76,46 @@ def reconcile_metadata(cfg: ProjectConfig, *, dry_run: bool = False) -> dict[str
     if not isinstance(selected, RoutedStore):
         raise ValueError("configure multiple metadata read_backends/write_backends to reconcile")
     return selected.reconcile(dry_run=dry_run, validate=validate_store_document)
+
+
+#: The stores whose records are keyed MODULE.0xVA; module scoping drops the other modules' records from these.
+MODULE_KEYED_STORES = frozenset({"rebrew-functions.toml", "rebrew-data.toml"})
+
+
+def scope_metadata_to_module(cfg: ProjectConfig, module: str) -> int:
+    """Remove every function and data record of a module other than *module*; return how many were removed.
+
+    A project imported for one target keeps that target's own records (its
+    ``MODULE.0xVA`` keys) and every record without a module key, such as the
+    format stamp; the type and library stores are unchanged.  Each store is
+    read with its owning schema and rewritten through its backend under the
+    project and store locks.
+    """
+    root = cfg.root.resolve()
+    module = unicodedata.normalize("NFC", module)
+    removed = 0
+    with project_toml_lock(root):
+        for store in _stores(cfg):
+            if store.path.name not in MODULE_KEYED_STORES:
+                continue
+            with store.transaction():
+                doc = store.read(
+                    "module scope",
+                    validate=partial(validate_store_document, store.path),
+                    roundtrip=True,
+                )
+                foreign = [
+                    key
+                    for key in doc
+                    if (parsed := parse_metadata_key(key)) is not None and parsed[0] != module
+                ]
+                if not foreign:
+                    continue
+                for key in foreign:
+                    del doc[key]
+                store.write(doc, "module scope")
+                removed += len(foreign)
+    return removed
 
 
 def migrate_metadata(

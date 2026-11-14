@@ -96,7 +96,9 @@ version = { attr = "rebrew.__version__" }
 # future non-markdown reference file cannot silently drop out of the wheel.
 # ``codegen_corpus.json`` is the versioned data file other detectors pin
 # (docs/codegen/README.md#machine-readable-corpus-codegen_corpusjson).
-rebrew = ["agent-skills/**/*", "*.template", "PRINCIPLES.md", "codegen_corpus.json", "compiler/*.c", "**/py.typed", "py.typed"]
+# ``compiler/toolchains.json`` is the vendored recompile-toolchains release
+# manifest the toolchain source pins come from (docs/TOOLCHAIN.md).
+rebrew = ["agent-skills/**/*", "*.template", "PRINCIPLES.md", "codegen_corpus.json", "compiler/*.c", "compiler/toolchains.json", "**/py.typed", "py.typed"]
 
 # Contributor-only AGENTS.md under subpackages (app/, matcher/, compiler/, formats/, metadata/, catalog/, ghidra/,
 # binsync/, workspace/) must not

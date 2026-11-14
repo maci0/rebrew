@@ -1470,9 +1470,9 @@ def _compile_via_recompile(
         + 120.0
     )
     # The service stores flags in NFC and caps that form's UTF-8 bytes, and
-    # both dedup tokens below hash the flag list.  Normalize once here so the
-    # Intent header and the Idempotency-Key name the same compile the service
-    # fingerprints, instead of a decomposed spelling the service rewrites.
+    # the job Intent below hashes the flag list.  Normalize once here so the
+    # Intent names the compile the service fingerprints, instead of a
+    # decomposed spelling the service rewrites.
     all_flags = [unicodedata.normalize("NFC", flag) for flag in all_flags]
     job_socket = os.environ.get("REBREW_JOB_COMPILE_SOCKET")
     if job_socket:
@@ -1488,12 +1488,12 @@ def _compile_via_recompile(
             return None, "Job compile capability unavailable"
         if len(capability) != 64 or any(c not in "0123456789abcdef" for c in capability):
             return None, "Invalid job compile capability"
-        # Intent is the dedup token for a logical compile: deterministic
+        # Intent is the job's dedup token for a logical compile: deterministic
         # from (compiler, source, flags, filename, emit_assembly), never
-        # random, so a retry or crash-restart replays the same intent and
-        # the mediator returns the retained result instead of re-executing
-        # the upstream compile. The Idempotency-Key already uses this
-        # digest; the Intent must match it, or every retry looks new.
+        # random, so a crash-restart inside the job replays the same intent
+        # and the mediator returns the retained result instead of re-executing
+        # the upstream compile. The mediator sends upstream its own random
+        # Idempotency-Key per new intent (services/jobs/compile_mediator.go).
         intent = hashlib.sha256(
             _json.dumps(
                 {

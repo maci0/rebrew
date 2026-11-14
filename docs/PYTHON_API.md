@@ -70,9 +70,10 @@ except RebrewError as exc:
 # compile boundary.
 if result.status == "COMPILE_ERROR" and result.error is not None:
     if result.error.retryable:
-        ...  # compile service unreachable / 503 - retry later
+        ...  # service unreachable / 503 / at capacity (error_code) - retry later
     else:
         ...  # the service rejected the request; rebrewing the C will not help
+# result.error is None on a COMPILE_ERROR: the compiler rejected the source.
 ```
 
 Persisting that result keeps the decision: `CompareResult.to_dict()` writes
@@ -144,7 +145,12 @@ print(result.ok, result.obj_bytes, result.log, result.compiler_version)
 # No client means rebrew builds an httpx.Client(timeout=...) for the call and
 # closes it after. `retries=N` re-attempts a retryable RecompileError with
 # exponential backoff; `RecompileError.kind` is "network" / "http" /
-# "validation" / "protocol" and `status_code` is set for the "http" ones.
+# "validation" / "protocol" / "service" and `status_code` is set for the
+# "http" ones. A failed compile reply is read by its `error_code`:
+# "toolchain_failure" is `result.ok == False` with the compiler log; the
+# service's own failures raise kind "service" carrying that `error_code`
+# (retryable for capacity, timeout, runner_unavailable, publish_failed and
+# provenance_unavailable). A reply without a known `error_code` is "protocol".
 # `result.to_dict()` / `RecompileResult.from_dict()` store the verdict (not
 # the object bytes) the way `CompareResult` does.
 #

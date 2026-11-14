@@ -401,6 +401,13 @@ graph TD
 ```
 
 
+A remote compile the recompile service could not run (at capacity, timed out,
+no runner, failed to publish, no admitted pin, or a store or idempotency-key
+fault) is reported as `COMPILE_ERROR` and counted as a failure, but it is no
+verdict on the source: the stored STATUS and the cached verify result stay as
+they were, and the JSON row carries `error`, the structured
+`RecompileError` (`kind`, `error_code`, `retryable`, `message`).
+
 The progress bar and `Verification: passed/total` headline count all checked
 functions, including library-attributed source functions. When libraries are
 included, the next line separates game and library results; only game functions
@@ -6319,18 +6326,20 @@ reported as static.
 
 `rebrew toolchain update [OPTIONS] NAME`
 
-Re-pin a toolchain source to the current upstream and rebuild.
+Report the pin a toolchain source would take from its current upstream.
 
-Dry-run (default): downloads the current source and reports the
-old -> new pin (sha256 + commit).  --apply additionally rewrites
-SOURCES, clears + re-vendors the host tree, rebuilds the docker
-image, regenerates the smoke golden (verified stable across two
-compiles) and runs the smoke gate for that toolchain.
+Downloads the current source and reports the old -> new pin (sha256 +
+commit). The pins are recompile-toolchains': set the new one in its
+`sources.json` and regenerate there, then vendor the released
+`toolchains.json` into rebrew ([TOOLCHAIN.md](TOOLCHAIN.md)); `rebrew
+toolchain vendor`, `build` and `smoke --print-goldens` then rebuild the
+tree, the image and the smoke golden. `--json` prints `{toolchain, status}`
+with `sha256` when current, or `old` and `new` (`{sha256, commit}`) when
+drifted.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `NAME` | str | required | Toolchain name (e.g. msvc-6.0, watcom-2.0-win32) |
-| `--apply` | flag | `False` | Apply the re-pin, re-vendor, rebuild and re-golden |
 | `--json` | flag | `False` | Output results as JSON |
 
 ### `rebrew toolchain install-wibo`
@@ -6906,9 +6915,13 @@ request fields and their replies are the backend's contract
 operations are served through both transports. A request with an unknown or missing field, or a field of the
 wrong JSON type, is refused. A refusal is
 `{"error","detail","status"}`: `invalid-request` (400; 413 when the request
-exceeds 16 MiB), `unknown-op` (404), `engine-error` (500),
-`remote-compile-headers` (422, see below), or, from
-`serve` only, `worker-busy` (503). An engine
+exceeds 16 MiB; also a wrapped command's `usage` error, with its message),
+`unknown-op` (404), `engine-error` (500),
+`remote-compile-headers` (422, see below), `invalid-project-config` (400, see
+`rebrew.project_targets`), `project-import-refused` (422, see
+`rebrew.import_archive` below), or, from
+`serve` only, `worker-busy` (503), `deadline-exceeded` (504) and
+`caller-gone` (499, written to a caller that has already closed). An engine
 failure answers a fixed detail and logs its cause on stderr.
 
 Binaries are referenced, never sent:
@@ -6921,7 +6934,9 @@ Binaries are referenced, never sent:
   downloads it into `<workspace>/.scratch` without following redirects,
   refuses a body over `--max-download`, and deletes the file when the
   call ends. Either way the bytes must hash to `sha256`. A refusal never
-  echoes the URL, whose query string is a credential.
+  echoes the URL, whose query string is a credential. A well-formed key that
+  names no stored file, or a file of another digest, answers 500
+  `engine-error`: the worker's filestore failed, not the request.
 - An analysed binary is the `project_dir` of its rebrew project. A request
   `sha256` selects the target whose binary has that hash; without one the
   project's default target is used.
@@ -6929,7 +6944,13 @@ Binaries are referenced, never sent:
   `project_id` is omitted. A supplied nonempty `project_id` instead selects
   `<workspace>/projects/scopes/<sha256-of-UTF-8-project-id>/<binary-sha256>`.
   The same project ID and binary reuse that directory; different IDs are isolated.
-  The ID may contain at most 256 UTF-8 bytes and no NUL. `rebrew.report` writes
+  The ID may contain at most 256 UTF-8 bytes and no NUL. For a binary with one
+  target the `analysis_capture` holds the analysis report at its `report_path`,
+  `.relumea/analysis-report.json` (`rebrew.ops.ANALYSIS_REPORT_PATH`):
+  `{version, binary_sha256, target, functions: [{va, name, size}], stubs: [{va,
+  name}]}`, both lists sorted by `va`, written as compact JSON with sorted keys.
+  The dispatch schema publishes that shape under `documents`, keyed by the path.
+  `rebrew.report` writes
   its relative `output_dir` under `--workspace` and answers the summary, not
   the pages; the backend serves the pages from its own workspace's
   `reports/<binary_id>`, so they reach users only when `--workspace` is that
@@ -6938,13 +6959,24 @@ Binaries are referenced, never sent:
 Project paths (`project_dir`, `snapshots`) must be absolute. With a
 `--workspace` they must also resolve, symlinks followed, inside it; `serve`
 requires one, so no HTTP caller reaches a project outside it. A local
-`call` worker without `--workspace` reads any absolute project path.
+`call` worker without `--workspace` reads any absolute project path. A
+retained request (one carrying `files`, and `rebrew.decompile_snapshot` /
+`rebrew.security_scan_snapshot`) reads only its snapshot and never its
+`project_dir`, which need not exist on this worker.
 
 Op details the contract leaves open:
 
 - `rebrew.disassemble`: `arch` overrides the target's arch in every format
   and must be a rebrew arch name (`x86_16`, `x86_32`, `arm32`, ...); `nasm`
-  covers `x86_32` only.
+  covers `x86_32` only. `size` is 1 byte to 1 MiB, the bound of the other
+  extent ops.
+- `rebrew.xrefs`: `kinds` narrows the reply to at most 64 reference kinds,
+  each one a reference can have (`rebrew.analysis.is_xref_kind`: `call`,
+  `jmp`, `iat_call`, `iat_jmp`, `push`, `push_mem`, `mov`, `cmp`, `lea`,
+  `mov_mem`, `mov_mem_store`, `indexed_mem`, or a mnemonic plus `_mem`);
+  anything else answers 400.
+- `rebrew.report`, `rebrew.coverage_report` and `rebrew.data_list`: a
+  `coverage_input` carries all eight fields or answers 400.
 - `rebrew.structs`: `limit` caps the annotated functions decompiled; `0`
   means no cap. A run where the decompiler returns nothing is an
   `engine-error` naming the skipped count.
@@ -6952,6 +6984,25 @@ Op details the contract leaves open:
   `constant` finding also has `va` and `section`.
 - `rebrew.import-project`: live coverage is always read refreshed; `build_db`
   asks for exactly that and only excludes `snapshots`.
+- `rebrew.import_archive` installs an uploaded project archive (`archive_key`
+  or `archive_url`, checked against `archive_sha256`) as the project of the
+  binary whose hash is `sha256`, in the directory `rebrew.analyse` would use
+  for `project_id`, and answers what `rebrew.analyse` answers. The archive is a
+  tar (plain or compressed) or zip with `rebrew-project.toml` at its top or in
+  its one top-level directory. It is unpacked into scratch first: at most
+  32768 entries and 256 MiB unpacked, regular files and directories only,
+  under portable relative names; a link, device, FIFO, absolute or `..` name,
+  repeated or case-colliding name, or a member under a file refuses it. The
+  one target whose binary inside the archive hashes to `sha256` is imported;
+  it may not set `raw_link`. No compiler table may set `command`, `runner`,
+  `execution_backend` or `recompile_url`, and metadata must be TOML. The
+  function and data records of other modules are dropped (`intake.dropped_records`
+  counts them), the metadata moves to SQLite, and the project is captured as an
+  analysis is. Nothing from the archive runs. Each refusal of the archive is
+  422 `project-import-refused` naming the entry or setting; a
+  `rebrew-project.toml` rebrew cannot read is 400 `invalid-project-config`, as for
+  `rebrew.project_targets` and retained snapshots; a capture over the
+  readset bounds is 422 `readset-too-large`.
 - `rebrew.metadata_describe`, `rebrew.metadata_diff` and `rebrew.metadata_carry`
   read and carry metadata file sets; the client never parses or names
   rebrew's metadata files. See
@@ -7004,7 +7055,9 @@ Op details the contract leaves open:
 - `rebrew.project_targets` `{files}` answers `{targets}`: the `[targets]` tables
   of the set's `rebrew-project.toml`, keyed in the NFC spelling the config loader
   uses and sorted by UTF-8 bytes. The set uses the retained-snapshot file entries
-  and limits; an unreadable config answers 400.
+  and limits; a config rebrew cannot read answers 400 `invalid-project-config`
+  whose detail starts `invalid project config:` and names the file within the
+  set, never the worker's scratch path.
 - `rebrew.binary_function_digests`: the image is parsed once; every byte a
   typed fixup covers (PE or ELF, x86_32 and x86_64 only; other images are
   refused) is zeroed before SHA-256 (`sha256-relocations-v1`). At most 128
@@ -7015,25 +7068,29 @@ Op details the contract leaves open:
   project. `splat_parse` opens nothing the config names and refuses a config
   over 256 KiB.
 - Reconstruction ops (`reference_flirt`, `verify_function`, `verify_target`,
-  `build`, `skeleton`, `coverage_export`, `coverage_report`,
-  `source_variants`, `decompme_export`, `data_list`, `data_set`,
-  `source_rename`, `source_split`, `source_merge`) take `project_dir` and an
-  optional target `sha256`. Their `source`, `sources` and `output` are
-  project-relative and may not leave the project; `coverage_export`'s
-  `output_dir` is relative to `--workspace`. Ops wrapping a command
-  (`verify`, `build round-trip`, `match run`, `export
-  decompme`, `data list`/`set`, `source rename`/`split`/`merge`,
-  `library scan-signatures`) run it as a child process in the project and
-  answer the JSON it prints; `verify_target`, `build` and `source_variants`
-  are bounded at 3600 s, the others at 600 s. For `verify_target`, `build`
-  and `source_variants` exit 1 (a mismatch) still answers the report.
+  `build`, `skeleton`, `coverage_report`, `data_list`, `data_set`) take
+  `project_dir` and an optional target `sha256`. Their `source` is
+  project-relative and may not leave the project. Ops wrapping a command
+  (`verify`, `build round-trip`, `data list`/`set`, `library
+  scan-signatures`, and the `match run`, `export decompme` and `source
+  rename`/`split`/`merge` that `retained_source_operation` runs on a
+  snapshot) run it as a child process and answer the JSON it prints;
+  `verify_target`, `build` and the retained variant search are bounded at
+  3600 s, the others at 600 s. For `verify_target`, `build` and the variant
+  search, exit 1 (a mismatch) still answers the report.
 - While the compile backend is the remote recompile service
   (`REBREW_RECOMPILE_URL` or `[compiler] recompile_url`), `verify_function`,
-  `verify_target`, `build` and `source_variants` refuse 422
+  `verify_target`, `build` and the retained variant search refuse 422
   `remote-compile-headers` when a source they would compile includes a
   header found under its directory or the project's `/I` directories, or
-  computes an include: the service receives the source text alone. Local
-  backends are unaffected.
+  computes an include: the service receives the source text alone. The
+  detail names the first such source and the header it includes and, when
+  the op compiles several sources, how many of them read project headers.
+  Local backends are unaffected.
+- A retained snapshot (`files`) whose staged `rebrew-project.toml` rebrew
+  refuses to load is a 400 `invalid-project-config`: `invalid project config:`
+  then the config error, prefixed `rebrew-project.toml:` and without the
+  worker's scratch path.
 - `verify_function` takes an optional `cflags`: plain option tokens (each starts
   with `/` or `-`, characters `A-Za-z0-9_:=.+-`, 256 characters at most) that
   replace the project's compiler flags for that one comparison, passed to
@@ -7074,7 +7131,10 @@ call, or `http://127.0.0.1:PORT` reaches `rebrew ops serve` with the token in
 
 Reads the JSON request on stdin and writes the reply on stdout. A refusal
 writes the error object on stdout and exits 2. Anything rebrew prints while
-answering goes to stderr.
+answering goes to stderr. SIGTERM cancels the call: a child command it runs
+(in its own session, outside the caller's process group) is stopped with its
+process tree, a retained snapshot is removed, no reply is written, and the
+command exits 143.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
@@ -7094,6 +7154,14 @@ variable is unset or no workspace is given. A request needs a
 `--concurrency` at once, counted from reading the body to writing the
 reply; an authenticated call that finds every slot busy is answered 503
 `worker-busy` with `Retry-After: 5`.
+
+A call is cancelled when its caller closes the connection, or once the seconds
+its optional `X-Rebrew-Timeout` header names (a positive number; anything else
+answers 400) have passed. A cancelled call stops the child command it is running
+(checked every 0.5 s) with its process tree, so its slot is free for the next
+call, and answers 504 `deadline-exceeded`, or 499 `caller-gone` to a closed
+caller. Work an op runs in the worker process itself is not interrupted and
+holds the slot until it returns.
 
 Requests with an unlisted HTTP `Host` authority get 403. `--allowed-hosts`
 (or `REBREW_OPS_ALLOWED_HOSTS`) adds exact names and ports to the automatic
@@ -7452,7 +7520,10 @@ by either tool's status logic.
 A compile that fails inside the remote recompile backend
 (`[compiler] recompile_url` / `REBREW_RECOMPILE_URL`) is reported as
 `status = "COMPILE_ERROR"` with the structured
-`rebrew.compiler.recompile_client.RecompileError` on `CompareResult.error`, so a
+`rebrew.compiler.recompile_client.RecompileError` on `CompareResult.error`, and
+`rebrew verify` / `rebrew test --all` write no STATUS and cache no result for it.
+The compiler rejecting the source (`error_code` `toolchain_failure`) carries no
+`error` and is recorded like a local compile error. A
 library consumer branches on `result.error.kind` / `result.error.retryable`
 instead of matching `result.message` substrings.
 

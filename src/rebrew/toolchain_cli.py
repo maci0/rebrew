@@ -10,7 +10,7 @@ invoked (docker image vs vendored path vs PATH binary).
 from __future__ import annotations
 
 import threading
-from typing import TYPE_CHECKING, Any
+from typing import Any
 lazy import logging
 lazy import re
 lazy import shutil
@@ -41,16 +41,11 @@ lazy from rebrew.compiler.toolchain import (
 )
 lazy from rebrew.utils import (
     RETRYABLE_HTTP_STATUS,
-    SOURCE_CHECKOUT,
     TerminalTable,
-    atomic_write_text,
     container_runtime,
     read_capped_body,
     run_process_group,
 )
-
-if TYPE_CHECKING:
-    from re import Match
 
 
 def _stream_sha256(path: Path) -> str:
@@ -488,32 +483,6 @@ def _safe_extract_tar(archive: Path, dest: Path, *, strip_components: int = 0) -
             tf.extract(member, dest, filter="data")
 
 
-def _safe_extract_zip(archive: Path, dest: Path) -> None:
-    """Extract *archive* into *dest*, refusing absolute / ``..`` zip members."""
-    import zipfile
-
-    dest.mkdir(parents=True, exist_ok=True)
-    dest_root = dest.resolve()
-    with zipfile.ZipFile(archive) as zf:
-        for info in zf.infolist():
-            name = info.filename
-            parts = Path(name).parts
-            if Path(name).is_absolute() or ".." in parts:
-                raise ToolchainError(f"refusing unsafe zip member: {name!r}")
-            # Unix create_system=3 encodes the file type in external_attr.
-            # Allow regular files / directories / unset; refuse symlinks (0o120000)
-            # and other special types so a compromised pin cannot plant a link
-            # that later resolves outside *dest*.
-            if info.create_system == 3:
-                unix_mode = (info.external_attr >> 16) & 0o170000
-                if unix_mode not in (0, 0o100000, 0o040000):
-                    raise ToolchainError(f"refusing non-regular zip member: {name!r}")
-            target = (dest_root / name).resolve()
-            if not target.is_relative_to(dest_root):
-                raise ToolchainError(f"refusing path escape in zip member: {name!r}")
-            zf.extract(info, dest)
-
-
 def _download_pinned_url(
     url: str,
     dest: Path,
@@ -664,17 +633,18 @@ def vendor_cmd(
 ) -> None:
     """Assemble the host toolchain tree from the pinned source.
 
-    Downloads (sha256-verified) or extracts the pinned tarball into <family>/<version>-<arch>/source under the recompile-toolchains checkout, the same source the docker image builds from, so host trees and containers are byte-identical.  A complete tree is an idempotent success (already_present), matching pull.  An incomplete source/ from a failed prior run is removed so retry converges; unexpected non-meta content still refuses to clobber.
+    Downloads (sha256-verified) or extracts the pinned tarball into <family>/<version>-<arch>/source under the recompile-toolchains checkout.  The pin is the image's own, from the vendored recompile-toolchains release manifest, so host trees and containers are byte-identical.  A complete tree is an idempotent success (already_present), matching pull.  An incomplete source/ from a failed prior run is removed so retry converges; unexpected non-meta content still refuses to clobber.
     """
     import tempfile
 
     from rebrew.compiler.toolchain import get_toolchain, require_toolchains_repo
-    from rebrew.compiler.toolchain_data import SOURCES
+    from rebrew.compiler.toolchain_data import pinned_sources
 
     repo = require_toolchains_repo()
-    src = SOURCES.get(name)
+    sources = pinned_sources()
+    src = sources.get(name)
     if src is None:
-        msg = f"no pinned source for toolchain {name!r} (known: {sorted(SOURCES)})"
+        msg = f"no pinned source for toolchain {name!r} (known: {sorted(sources)})"
         error_exit(msg, json_mode=json_output)
 
     host = repo / src.host_dir
@@ -734,36 +704,7 @@ def vendor_cmd(
                 if actual != src.sha256:
                     msg = f"sha256 mismatch for {name}: expected {src.sha256}, got {actual}"
                     error_exit(msg, json_mode=json_output)
-                if src.layout == "zip-installshield":
-                    zip_dir = td_path / "zip"
-                    _safe_extract_zip(archive, zip_dir)
-                    installer = next(zip_dir.iterdir())
-                    payload = td_path / "pay"
-                    _7z = run_process_group(
-                        ["7z", "x", "-y", str(installer), f"-o{payload}"],
-                        capture_output=True,
-                        stdin=subprocess.DEVNULL,
-                        timeout=_EXTRACT_TIMEOUT_S,
-                    )
-                    if _7z.returncode != 0:
-                        raise subprocess.CalledProcessError(
-                            _7z.returncode, _7z.args, output=_7z.stdout, stderr=_7z.stderr
-                        )
-                    payload_root = payload.resolve()
-                    for sub in ("Bin", "Include", "Lib"):
-                        src_sub = payload / sub
-                        if src_sub.is_symlink() or not src_sub.is_dir():
-                            raise ToolchainError(
-                                f"refusing unsafe InstallShield payload entry: {sub!r}"
-                            )
-                        # Contain the move: the extracted tree must not escape
-                        # the payload dir via a nested symlink.
-                        if not src_sub.resolve().is_relative_to(payload_root):
-                            raise ToolchainError(
-                                f"refusing unsafe InstallShield payload entry: {sub!r}"
-                            )
-                        shutil.move(src_sub, extract_dir / sub)
-                elif src.layout == "7z-strip1":
+                if src.layout == "7z-strip1":
                     # A .7z with the same single top-level wrapper dir
                     # (mingw-builds archives carry mingw32/).
                     extract_tmp = td_path / "7z"
@@ -796,12 +737,11 @@ def vendor_cmd(
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
         _abort_incomplete_vendor(extract_dir, f"vendor {name} failed: {exc}", json_mode=json_output)
     except Exception as exc:
-        # tarfile.ReadError / FilterError / zipfile.BadZipFile — keep the
-        # vendor tree retryable instead of leaving a partial extract.
+        # tarfile.ReadError / FilterError — keep the vendor tree retryable
+        # instead of leaving a partial extract.
         import tarfile
-        import zipfile
 
-        if not isinstance(exc, (tarfile.TarError, zipfile.BadZipFile, zipfile.LargeZipFile)):
+        if not isinstance(exc, tarfile.TarError):
             raise
         _abort_incomplete_vendor(extract_dir, f"vendor {name} failed: {exc}", json_mode=json_output)
 
@@ -3733,11 +3673,11 @@ def check_updates_cmd(
     """
     import tempfile
 
-    from rebrew.compiler.toolchain_data import SOURCES
+    from rebrew.compiler.toolchain_data import pinned_sources
 
     rows: dict[str, str] = {}
     drifted: list[str] = []
-    for name, src in sorted(SOURCES.items()):
+    for name, src in sorted(pinned_sources().items()):
         if src.in_repo:
             rows[name] = STATUS_STATIC_TARBALL
             continue
@@ -3792,93 +3732,9 @@ def check_updates_cmd(
         console.print(
             "[red]drifted: "
             + ", ".join(drifted)
-            + " — run 'rebrew toolchain update <name> --apply'[/red]"
+            + " — 'rebrew toolchain update <name>' prints the new pin for"
+            " recompile-toolchains' sources.json[/red]"
         )
-
-
-def _splice_block(path: Path, text: str, block: Match[str], body: str) -> None:
-    """Write *text* with *body* substituted for the matched block's group 1."""
-    spliced = (
-        text[: block.start()]
-        + text[block.start() : block.end()].replace(block.group(1), body)
-        + text[block.end() :]
-    )
-    atomic_write_text(path, spliced, encoding="utf-8")
-
-
-def _rewrite_source_pin(name: str, sha256: str, commit: str) -> None:
-    """Rewrite the SOURCES entry for *name* in compiler/toolchain_data.py (sha256 + commit).
-
-    The entry block is located by the unique '"name": ToolchainSource('
-    header; only the pinned sha256/commit lines inside it are touched, so a
-    shared checksum across entries never mutates a neighbour."""
-    import re
-
-    path = Path(__file__).resolve().parent / "compiler" / "toolchain_data.py"
-    text = path.read_text(encoding="utf-8")
-    esc = re.escape(name)
-    block = re.search('"' + esc + '": ToolchainSource\\((.*?)\\n\\s*\\),', text, re.S)
-    if block is None:
-        raise ToolchainError(f"could not locate SOURCES entry for {name!r}")
-    body = block.group(1)
-    m = re.search(r'sha256="[0-9a-f]{64}"', body)
-    if m is None:
-        raise ToolchainError(f"no sha256 pin found for {name!r}")
-    body = body[: m.start()] + f'sha256="{sha256}"' + body[m.end() :]
-    if re.search(r'commit="[0-9a-f]{40}"', body):
-        body = re.sub(r'commit="[0-9a-f]{40}"', f'commit="{commit}"', body, count=1)
-    else:
-        body = re.sub(
-            r'(sha256="[0-9a-f]{64}",)(\n\s*)',
-            r'\1\2commit="' + commit + r'",\2',
-            body,
-            count=1,
-        )
-    _splice_block(path, text, block, body)
-
-
-def _rewrite_golden(name: str, golden: str) -> None:
-    """Rewrite the _SMOKE_GOLDEN entry for *name* (the golden hex line)."""
-    import re
-
-    path = Path(__file__).resolve().parents[0] / "toolchain_cli.py"
-    text = path.read_text(encoding="utf-8")
-    esc = re.escape(name)
-    block = re.search('"' + esc + '": \\(\\n(.*?)\\n\\s*\\),', text, re.S)
-    if block is None:
-        raise ToolchainError(f"no _SMOKE_GOLDEN entry for {name!r}")
-    body = block.group(1)
-    m = re.search(r'\n\s*"[0-9a-f]{64}",', body)
-    if m is None:
-        raise ToolchainError(f"no golden hex found for {name!r}")
-    body = body[: m.start()] + '\n        "' + golden + '",' + body[m.end() :]
-    _splice_block(path, text, block, body)
-
-
-def _rewrite_dockerfile_sha(name: str, sha256: str) -> None:
-    """Rewrite the sha256 pin embedded in the toolchain's Dockerfile.
-
-    The Dockerfiles hardcode the sha256 (verified at build time with
-    `sha256sum -c`), mirroring SOURCES — a re-pin must update both or the
-    image rebuild fails."""
-    import re
-
-    from rebrew.compiler.toolchain import get_toolchain
-    from rebrew.compiler.toolchain_paths import toolchains_repo
-
-    spec = get_toolchain(name)
-    if spec.image is None or ":" not in spec.image:
-        return
-    tag, verarch = spec.image.rsplit(":", 1)
-    df = toolchains_repo() / spec.family / verarch / "Dockerfile"
-    if not df.exists():
-        return
-    text = df.read_text(encoding="utf-8")
-    m = re.search(r"[0-9a-f]{64}", text)
-    if m is None:
-        return
-    text = text[: m.start()] + sha256 + text[m.end() :]
-    atomic_write_text(df, text, encoding="utf-8")
 
 
 @app.command(
@@ -3887,163 +3743,68 @@ def _rewrite_dockerfile_sha(name: str, sha256: str) -> None:
 )
 def update_cmd(
     name: str = typer.Argument(..., help="Toolchain name (e.g. msvc-6.0, watcom-2.0-win32)"),
-    apply: bool = typer.Option(
-        False, "--apply", help="Apply the re-pin, re-vendor, rebuild and re-golden"
-    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
-    """Re-pin a toolchain source to the current upstream and rebuild.
+    """Report the pin a toolchain source would take from its current upstream.
 
-    Dry-run (default): downloads the current source and reports the old -> new pin (sha256 + commit).  --apply additionally rewrites SOURCES, clears + re-vendors the host tree, rebuilds the docker image, regenerates the smoke golden (verified stable across two compiles) and runs the smoke gate for that toolchain.
+    Downloads the current source and reports the old -> new pin (sha256 + commit).  The pins are recompile-toolchains': set the new one in its sources.json and regenerate there, then vendor the released toolchains.json into rebrew (the rebrew repo's docs/TOOLCHAIN.md); `rebrew toolchain vendor`, `build` and `smoke --print-goldens` then rebuild the tree, the image and the smoke golden.
     """
-    import shutil
     import tempfile
-    from dataclasses import replace
 
-    from rebrew.compiler.toolchain import get_toolchain, require_toolchains_repo
-    from rebrew.compiler.toolchain_data import SOURCES
+    from rebrew.compiler.toolchain_data import pinned_sources
 
-    repo = require_toolchains_repo()
-    if apply and SOURCE_CHECKOUT is None:
-        # --apply rewrites pins in rebrew's own .py sources; in a wheel
-        # install those live in site-packages and must not be mutated.
-        msg = "toolchain update --apply needs an editable rebrew checkout (uv pip install -e .)"
-        error_exit(msg, json_mode=json_output)
-    src = SOURCES.get(name)
+    sources = pinned_sources()
+    src = sources.get(name)
     if src is None:
-        msg = f"no pinned source for toolchain {name!r} (known: {sorted(SOURCES)})"
+        msg = f"no pinned source for toolchain {name!r} (known: {sorted(sources)})"
         error_exit(msg, json_mode=json_output)
     if src.in_repo:
         msg = f"toolchain {name!r} is a pinned tarball (static) — nothing to update"
         error_exit(msg, json_mode=json_output)
-    url = src.url
     with tempfile.TemporaryDirectory(prefix="rebrew_update_") as td:
         archive = Path(td) / "src.bin"
         try:
-            _download_pinned_url(url, archive, timeout=1800)
+            _download_pinned_url(src.url, archive, timeout=1800)
         except ToolchainError as exc:
             error_exit(str(exc), json_mode=json_output)
         actual_sha = _stream_sha256(archive)
-        if actual_sha == src.sha256:
-            msg = f"toolchain {name!r} is already current (sha256 {src.sha256[:16]}…)"
-            if json_output:
-                json_print({"toolchain": name, "status": "current", "sha256": src.sha256})
-            else:
-                console.print(f"[green]{msg}[/green]")
-            return
-        m = _codeload_pattern().match(url)
-        live_commit = ""
-        if m:
-            try:
-                live_commit = _live_commit_sha(m.group(1), m.group(2), m.group(3))
-            except Exception as exc:
-                # Pin still advances by sha256; an empty commit string must not
-                # look like "upstream has no commit" when the lookup just failed.
-                logging.getLogger(__name__).warning(
-                    "Could not resolve live commit for %s — pinning sha256 only: %s",
-                    name,
-                    exc,
-                )
-                live_commit = ""
-        old_pin = f"sha256={src.sha256[:12]}…" + (
-            f" commit={src.commit[:12]}" if src.commit else ""
-        )
-        new_pin = f"sha256={actual_sha[:12]}…" + (
-            f" commit={live_commit[:12]}" if live_commit else ""
-        )
+    if actual_sha == src.sha256:
+        msg = f"toolchain {name!r} is already current (sha256 {src.sha256[:16]}…)"
         if json_output:
-            json_print({"toolchain": name, "old": old_pin, "new": new_pin, "applied": False})
+            json_print({"toolchain": name, "status": "current", "sha256": src.sha256})
         else:
-            console.print(f"[yellow]{name}:[/yellow] {old_pin} -> {new_pin}")
-        if not apply:
-            console.print(
-                "[dim]dry-run — pass --apply to re-pin, re-vendor, rebuild and re-golden[/dim]"
+            console.print(f"[green]{msg}[/green]")
+        return
+    m = _codeload_pattern().match(src.url)
+    live_commit = ""
+    if m:
+        try:
+            live_commit = _live_commit_sha(m.group(1), m.group(2), m.group(3))
+        except Exception as exc:
+            # The sha256 still names the new pin; an empty commit string must not
+            # look like "upstream has no commit" when the lookup just failed.
+            logging.getLogger(__name__).warning(
+                "Could not resolve live commit for %s — reporting sha256 only: %s",
+                name,
+                exc,
             )
-            return
-        # 1-3. Rewrite pin → clear + re-vendor → rebuild, transactionally:
-        #      a failure at any step must not leave the source pin ahead of
-        #      the image (a half-registered state) — restore the previous pin
-        #      before propagating.  The vendored host tree is a reproducible
-        #      artifact; the pin (the registration) is what the rollback
-        #      restores, so the repo state matches the unchanged image.
-        try:
-            # 1. rewrite the pin in SOURCES (file) + the in-memory dict so
-            #    vendor_cmd below verifies against the new sha256.
-            _rewrite_source_pin(name, actual_sha, live_commit)
-            _rewrite_dockerfile_sha(name, actual_sha)
-            SOURCES[name] = replace(src, sha256=actual_sha, commit=live_commit)
-            # 2. clear the vendored host tree (keep Dockerfile/wrappers) + re-vendor.
-            host = repo / src.host_dir
-            if host.exists():
-                for child in list(host.iterdir()):
-                    if any(child.match(p) for p in _TRACKED_META_PATTERNS):
-                        continue
-                    if child.is_dir():
-                        # No ignore_errors: a child that survives the wipe would
-                        # make vendor_cmd re-populate on top of a stale tree,
-                        # and the next completeness probe would call it fresh.
-                        shutil.rmtree(child)
-                    else:
-                        child.unlink()
-            vendor_cmd(name, json_output=False)
-            # 3. rebuild the docker image.
-            build_cmd(name, json_output=False)
-        except Exception:
-            # Rollback the pin (file + Dockerfile + in-memory SOURCES) to the
-            # pre-update values.  A rollback failure must not mask the
-            # original error.
-            SOURCES[name] = src
-            try:
-                _rewrite_source_pin(name, src.sha256, src.commit)
-                _rewrite_dockerfile_sha(name, src.sha256)
-            except Exception as rb_exc:
-                logging.getLogger(__name__).warning(
-                    "update %s: pin rollback failed (%s); original error still raised",
-                    name,
-                    rb_exc,
-                )
-            raise
-        # 4. regenerate the smoke golden (stable across two compiles) + write it.
-        from rebrew.compiler.temp_dirs import remove_temp_dir, writable_temp_dir
-
-        workdir = writable_temp_dir("rebrew_smoke_")
-        try:
-            h1 = _image_smoke_hash(name, workdir)
-            h2 = _image_smoke_hash(name, workdir)
-            if h1 is None or h2 is None:
-                msg = f"update {name}: smoke compile failed after rebuild — golden not updated"
-                error_exit(msg, json_mode=json_output)
-            if h1 != h2:
-                msg = f"update {name}: smoke hash unstable ({h1[:12]} vs {h2[:12]}) — golden not updated"
-                error_exit(msg, json_mode=json_output)
-            golden_changed = name in _SMOKE_GOLDEN and _SMOKE_GOLDEN[name][2] != h1
-            if name in _SMOKE_GOLDEN:
-                _rewrite_golden(name, h1)
-            if json_output:
-                json_print(
-                    {
-                        "toolchain": name,
-                        "sha256": actual_sha,
-                        "commit": live_commit,
-                        "golden": h1,
-                        "golden_changed": golden_changed,
-                        "applied": True,
-                    }
-                )
-            else:
-                console.print(f"[green]{name} re-pinned:[/green] {new_pin}")
-                console.print(
-                    f"  host tree re-vendored, image rebuilt ({get_toolchain(name).image})"
-                )
-                if name in _SMOKE_GOLDEN:
-                    if golden_changed:
-                        console.print(f"  smoke golden updated: {h1[:16]}…")
-                    else:
-                        console.print(f"  smoke golden unchanged ({h1[:16]}…)")
-                else:
-                    console.print("[dim]  no smoke golden for this toolchain[/dim]")
-        finally:
-            remove_temp_dir(workdir)
+    if json_output:
+        json_print(
+            {
+                "toolchain": name,
+                "status": "drifted",
+                "old": {"sha256": src.sha256, "commit": src.commit},
+                "new": {"sha256": actual_sha, "commit": live_commit},
+            }
+        )
+        return
+    old_pin = f"sha256={src.sha256[:12]}…" + (f" commit={src.commit[:12]}" if src.commit else "")
+    new_pin = f"sha256={actual_sha} " + (f"commit={live_commit}" if live_commit else "")
+    console.print(f"[yellow]{name}:[/yellow] {old_pin} -> {new_pin.strip()}")
+    console.print(
+        "[dim]set it in recompile-toolchains' sources.json, regenerate there, and vendor "
+        "the released toolchains.json into rebrew (the rebrew repo's docs/TOOLCHAIN.md)[/dim]"
+    )
 
 
 @app.command(

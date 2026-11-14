@@ -204,10 +204,97 @@ class TestCompileSource:
         _patch(monkeypatch, _Resp(200, json_body=body), _Resp(200, content=b"OBJ"))
         assert compile_source("http://svc/", "msvc-6.0", "int f(void){}", ["/c"]).execution is None
 
-    def test_service_error_is_not_ok(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        _patch(monkeypatch, _Resp(200, json_body={"status": "error", "log": "syntax error"}))
+    def test_toolchain_failure_is_not_ok(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        body = {"status": "error", "error_code": "toolchain_failure", "log": "syntax error"}
+        _patch(monkeypatch, _Resp(200, json_body=body))
         res = compile_source("http://svc", "msvc-6.0", "bad", [])
         assert not res.ok and "syntax error" in res.log
+
+    @pytest.mark.parametrize(
+        "code",
+        ["capacity", "timeout", "runner_unavailable", "publish_failed", "provenance_unavailable"],
+    )
+    def test_infrastructure_failure_is_a_retryable_service_error(
+        self, monkeypatch: pytest.MonkeyPatch, code: str
+    ) -> None:
+        """recompile answers its own failures with HTTP 200 and an ``error_code``.
+
+        They were read as the compiler rejecting the source, so verify recorded
+        COMPILE_ERROR over the function and nothing retried.
+        """
+        body = {"status": "error", "error_code": code, "log": "server at capacity (max 4)"}
+        _patch(monkeypatch, _Resp(200, json_body=body))
+        with pytest.raises(RecompileError, match=f"could not compile \\({code}\\)") as ei:
+            compile_source("http://svc", "msvc-6.0", "int f(void){}", [])
+        assert ei.value.kind == "service"
+        assert ei.value.error_code == code
+        assert ei.value.retryable is True
+        assert ei.value.to_dict()["error_code"] == code
+
+    @pytest.mark.parametrize("code", ["missing_artifact", "replay_rejected"])
+    def test_store_failure_is_a_service_error_that_is_not_retried(
+        self, monkeypatch: pytest.MonkeyPatch, code: str
+    ) -> None:
+        body = {"status": "error", "error_code": code, "log": "job id is already associated"}
+        client = _patch(monkeypatch, _Resp(200, json_body=body))
+        sleeps: list[float] = []
+        with pytest.raises(RecompileError) as ei:
+            compile_source("http://svc", "msvc-6.0", "x", [], retries=2, sleep=sleeps.append)
+        assert (ei.value.kind, ei.value.error_code, ei.value.retryable) == ("service", code, False)
+        assert len(client.calls) == 1 and sleeps == []
+
+    @pytest.mark.parametrize("code", [None, "", "new_kind", ["capacity"], {"a": 1}])
+    def test_failure_without_a_known_code_is_a_protocol_error(
+        self, monkeypatch: pytest.MonkeyPatch, code: Any
+    ) -> None:
+        """Without a known code the reply cannot say whose failure it was."""
+        body: dict[str, Any] = {"status": "error", "log": "x"}
+        if code is not None:
+            body["error_code"] = code
+        _patch(monkeypatch, _Resp(200, json_body=body))
+        with pytest.raises(RecompileError, match="error_code") as ei:
+            compile_source("http://svc", "msvc-6.0", "x", [])
+        assert (ei.value.kind, ei.value.retryable) == ("protocol", False)
+
+    def test_infrastructure_failure_is_retried_as_a_new_attempt(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The refused attempt is over: the retry sends a new key.
+
+        A hosted recompile keeps a capacity refusal under its key, so a retry
+        with the same key would read the refusal back.
+        """
+        keys: list[str] = []
+        refusal = {"status": "error", "error_code": "capacity", "log": "server at capacity"}
+        replies = [
+            _Resp(200, json_body=refusal),
+            _Resp(200, json_body={"status": "ok", "artifact_url": "/api/v1/artifacts/x.obj"}),
+        ]
+
+        class _Keyed(_FakeClient):
+            def post(self, url: str, json: Any = None, headers: Any = None, **_: Any) -> Any:
+                keys.append(headers["Idempotency-Key"])
+                return replies.pop(0)
+
+        client = _Keyed(None, _Resp(200, content=b"OBJ"))
+        sleeps: list[float] = []
+        res = compile_source(
+            "http://svc", "msvc-6.0", "x", [], client=client, retries=1, sleep=sleeps.append
+        )
+        assert res.ok and res.obj_bytes == b"OBJ"
+        assert len(keys) == 2 and keys[0] != keys[1]
+        assert sleeps == [0.25]
+
+    @pytest.mark.parametrize(("code", "retryable"), [("capacity", True), ("timeout", False)])
+    def test_emit_assembly_retries_only_a_compile_that_never_ran(
+        self, monkeypatch: pytest.MonkeyPatch, code: str, retryable: bool
+    ) -> None:
+        """Same rule as the HTTP statuses: an older service may have kept the listing."""
+        body = {"status": "error", "error_code": code, "log": "x"}
+        _patch(monkeypatch, _Resp(200, json_body=body))
+        with pytest.raises(RecompileError) as ei:
+            compile_source("http://svc", "msvc-6.0", "x", [], emit_assembly=True)
+        assert ei.value.retryable is retryable
 
     def test_http_error_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch(monkeypatch, _Resp(500, text="boom"))
@@ -268,6 +355,34 @@ class TestCompileSource:
             compile_source("ftp://svc", "msvc-6.0", "x", [])
         assert ei.value.kind == "validation"
         assert ei.value.retryable is False
+
+    @pytest.mark.parametrize(
+        ("source", "flags", "named"),
+        [
+            # A cp1252 comment read with surrogateescape, as compile_to_obj reads it.
+            (
+                b"/* caf\xe9 */ int f(void){return 0;}".decode("utf-8", "surrogateescape"),
+                [],
+                "source",
+            ),
+            ("int f(void){return 0;}", ["/D" + b"\xe9".decode("utf-8", "surrogateescape")], "flag"),
+        ],
+    )
+    def test_text_that_is_not_utf8_is_refused_before_any_request(
+        self, monkeypatch: pytest.MonkeyPatch, source: str, flags: list[str], named: str
+    ) -> None:
+        """The service compiles UTF-8 text only, so the request could never be sent.
+
+        httpx raised ``UnicodeEncodeError`` while encoding the body, which the
+        client reported as an unreachable service and retried.
+        """
+        client = _patch(monkeypatch, _Resp(200, json_body={"status": "ok"}))
+        sleeps: list[float] = []
+        with pytest.raises(RecompileError, match=f"{named} is not UTF-8") as ei:
+            compile_source("http://svc", "msvc-6.0", source, flags, retries=2, sleep=sleeps.append)
+        assert ei.value.kind == "validation"
+        assert ei.value.retryable is False
+        assert client.calls == [] and sleeps == []
 
     def test_retries_retryable_http_then_succeeds(self, monkeypatch: pytest.MonkeyPatch) -> None:
         body = {
@@ -1127,3 +1242,52 @@ class TestCompileViaRecompile:
         assert isinstance(result.error, RecompileError)
         assert result.error.kind == "network"
         assert result.error.retryable is True
+
+    @pytest.mark.parametrize("retries", [0, 1])
+    def test_service_capacity_reply_is_retried_or_reported_as_retryable(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, retries: int
+    ) -> None:
+        """A capacity reply is the service's failure: retried, else a retryable error.
+
+        It used to come back as a compiler verdict with ``result.error`` None.
+        """
+        from rebrew.compiler.compile import compile_and_compare
+
+        monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
+        monkeypatch.setattr(compile_mod, "_recompile_clients", {})
+        refusal = {"status": "error", "error_code": "capacity", "log": "server at capacity"}
+        ok = {"status": "ok", "artifact_url": "/api/v1/artifacts/x.obj"}
+        client = _sequence_client(
+            monkeypatch,
+            [_Resp(200, json_body=refusal), _Resp(200, json_body=ok)],
+            [_Resp(200, content=b"not an object file")],
+        )
+        monkeypatch.setattr("rebrew.compiler.recompile_client.time.sleep", lambda _s: None)
+        src = tmp_path / "f.c"
+        src.write_text("int f(void) { return 0; }")
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            recompile_url="http://svc",
+            recompile_emit_assembly=False,
+            recompile_retries=retries,
+            compile_timeout=30,
+            compiler_profile="msvc-6.0",
+            compiler_command="",
+            base_cflags="",
+            compiler_includes=tmp_path,
+            compiler_runner="",
+        )
+
+        result = compile_and_compare(cfg, src, "_f", b"\x55\x8b\xec", [], use_cache=False)
+
+        posts = [call for call in client.calls if call[0] == "post"]
+        if retries:
+            # The artifact arrived: whatever extraction decides, no compile error.
+            assert len(posts) == 2
+            assert result.status != "COMPILE_ERROR" and result.error is None
+        else:
+            assert len(posts) == 1
+            assert result.status == "COMPILE_ERROR"
+            assert isinstance(result.error, RecompileError)
+            assert (result.error.kind, result.error.error_code) == ("service", "capacity")
+            assert result.error.retryable is True

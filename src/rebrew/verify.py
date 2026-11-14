@@ -2250,7 +2250,8 @@ def patch_cache_from_results(cfg: Any, v_results: list[dict[str, Any]]) -> None:
 
     Used by ``rebrew test --all`` so promoted statuses show up in status/todo
     immediately.  A worker crash (INTERNAL_ERROR) is not a verdict and is
-    never patched.
+    never patched, nor is a row whose remote compile the service could not
+    run (it carries ``error``).
     """
     from rebrew.verify_cache import patch_verify_cache_entries
 
@@ -2260,7 +2261,7 @@ def patch_cache_from_results(cfg: Any, v_results: list[dict[str, Any]]) -> None:
         if va_int is None:
             log.warning("verify-cache patch skipped for malformed result %r", r.get("va"))
             continue
-        if r.get("status") == "INTERNAL_ERROR":
+        if r.get("status") == "INTERNAL_ERROR" or r.get("error") is not None:
             continue
         # No byte counts: the row carries only a percent, and a percent-scale
         # total would fill a missing byte delta with 100 - percent (todo.py's
@@ -3068,37 +3069,41 @@ def run_verification(
                         # An INTERNAL_ERROR is a tooling failure, not a verification
                         # verdict — never let it overwrite the function's real STATUS
                         # in rebrew-functions.toml (an EXACT/NEAR_MATCHING function would
-                        # be permanently demoted to COMPILE_ERROR).
-                        if not is_internal_error:
+                        # be permanently demoted to COMPILE_ERROR).  Neither is a
+                        # remote compile the service could not run (``result.error``).
+                        if not is_internal_error and result.error is None:
                             deferred_fixes.append((entry, result.status, result.delta))
 
-                        results.append(
-                            order_result_row(
-                                {
-                                    "va": f"0x{entry.va:08x}",
-                                    "name": name,
-                                    "symbol": _entry_symbol(entry),
-                                    "module": getattr(entry, "module", ""),
-                                    "filepath": getattr(entry, "filepath", ""),
-                                    "size": getattr(entry, "size", 0),
-                                    "status": result.status,
-                                    "message": result.message,
-                                    "passed": result.matched,
-                                    "match_percent": result.match_percent,
-                                    "delta": result.delta,
-                                    "diff_lines": result.diff_lines,
-                                    "similarity": result.similarity,
-                                    "reg_delta": result.reg_delta,
-                                    "effective_match": result.effective_match,
-                                    "context_hash": result.context_hash,
-                                    **(
-                                        {"relocation_bindings": result.relocation_bindings}
-                                        if result.relocation_bindings is not None
-                                        else {}
-                                    ),
-                                }
-                            )
+                        row = order_result_row(
+                            {
+                                "va": f"0x{entry.va:08x}",
+                                "name": name,
+                                "symbol": _entry_symbol(entry),
+                                "module": getattr(entry, "module", ""),
+                                "filepath": getattr(entry, "filepath", ""),
+                                "size": getattr(entry, "size", 0),
+                                "status": result.status,
+                                "message": result.message,
+                                "passed": result.matched,
+                                "match_percent": result.match_percent,
+                                "delta": result.delta,
+                                "diff_lines": result.diff_lines,
+                                "similarity": result.similarity,
+                                "reg_delta": result.reg_delta,
+                                "effective_match": result.effective_match,
+                                "context_hash": result.context_hash,
+                                **(
+                                    {"relocation_bindings": result.relocation_bindings}
+                                    if result.relocation_bindings is not None
+                                    else {}
+                                ),
+                            }
                         )
+                        if result.error is not None:
+                            # The structured backend failure; the cache writers
+                            # skip a row that carries one.
+                            row["error"] = result.error.to_dict()
+                        results.append(row)
         workers_stopped = True
     finally:
         # Batch-published .obj files are no longer needed — drop this pass's

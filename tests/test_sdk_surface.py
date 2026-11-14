@@ -158,6 +158,7 @@ class TestErrorsLazyExports:
             "OpsError",
             "OrphanInventoryError",
             "PdbExportError",
+            "ProjectArchiveError",
             "ProjectCoverageError",
             "RecompileError",
             "RegistryError",
@@ -228,6 +229,7 @@ class TestErrorsLazyExports:
             "OpsError",
             "OrphanInventoryError",
             "PdbExportError",
+            "ProjectArchiveError",
             "ProjectCoverageError",
             "RebrewError",
             "RecompileError",
@@ -694,7 +696,11 @@ class TestRecompileClientFlagsFlexibility:
                 captured["json"] = json
                 return SimpleNamespace(
                     status_code=200,
-                    json=lambda: {"status": "error", "log": "compiled"},
+                    json=lambda: {
+                        "status": "error",
+                        "error_code": "toolchain_failure",
+                        "log": "compiled",
+                    },
                     close=lambda: None,
                 )
 

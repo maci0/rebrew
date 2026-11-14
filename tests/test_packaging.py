@@ -1248,6 +1248,12 @@ class TestPackagedDataFiles:
         skill_mds = list(skills.glob("*/SKILL.md"))
         assert len(skill_mds) >= 6, skill_mds
 
+    def test_vendored_toolchains_manifest_ships(self) -> None:
+        """The toolchain source pins are read from this file at run time."""
+        data = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
+        assert "compiler/toolchains.json" in data["tool"]["setuptools"]["package-data"]["rebrew"]
+        assert (PKG / "compiler" / "toolchains.json").is_file()
+
     def test_package_data_globs_cover_skills(self) -> None:
         data = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
         pkg_data = data["tool"]["setuptools"]["package-data"]["rebrew"]
@@ -1598,7 +1604,42 @@ class TestReleaseCheck:
         monkeypatch.setattr(release_check, "CHANGELOG", tmp_path / "CHANGELOG.md")
         monkeypatch.setattr(release_check, "_package_version", lambda: version)
         monkeypatch.setattr(release_check, "_last_tag", lambda: "v1.2.2")
+        monkeypatch.setattr(release_check, "_resembl_problems", list)
         return release_check.main()
+
+    #: ``git ls-remote https://github.com/maci0/resembl.git refs/tags/v5.2.0
+    #: 'refs/tags/v5.2.0^{}'`` on 2026-11-14.
+    _V5_2_0 = (
+        "08ecc3a1306dc2e2d9543af01de5118160d83dfa\trefs/tags/v5.2.0\n"
+        "529b9df24a8d39d67df8369da154ac570036d107\trefs/tags/v5.2.0^{}\n"
+    )
+
+    def test_resembl_pin_must_be_the_commit_its_tag_resolves_to(self) -> None:
+        """6.37.0 pinned v5.2.0 at 15108fa, eight commits past the tag, so the
+        CI clone and ``make setup`` refused every fresh checkout."""
+        stale = release_check._resembl_pin_problems(
+            "v5.2.0", "15108fa1c4c941c3249a7442e78dc59f39927447", self._V5_2_0
+        )
+        assert len(stale) == 1 and "resolves to 529b9df24a8d" in stale[0]
+        good = "529b9df24a8d39d67df8369da154ac570036d107"
+        assert release_check._resembl_pin_problems("v5.2.0", good, self._V5_2_0) == []
+        # A lightweight tag lists only its commit.
+        lightweight = f"{good}\trefs/tags/v5.2.0\n"
+        assert release_check._resembl_pin_problems("v5.2.0", good, lightweight) == []
+
+    def test_an_unpublished_or_unreadable_resembl_tag_fails(self) -> None:
+        good = "529b9df24a8d39d67df8369da154ac570036d107"
+        assert "not published" in release_check._resembl_pin_problems("v9.9.9", good, "")[0]
+        assert "ls-remote failed" in release_check._resembl_pin_problems("v5.2.0", good, None)[0]
+
+    def test_release_check_reads_the_shipped_resembl_pin(self, monkeypatch: Any) -> None:
+        monkeypatch.setattr(release_check, "MAKEFILE", ROOT / "Makefile")
+        listed: list[str] = []
+        monkeypatch.setattr(release_check, "_ls_remote_tag", lambda ref: listed.append(ref))
+        problems = release_check._resembl_problems()
+        pinned = re.search(r"(?m)^RESEMBL_REF \?= (v\S+)$", (ROOT / "Makefile").read_text())
+        assert pinned is not None and listed == [pinned.group(1)]
+        assert len(problems) == 1 and "ls-remote failed" in problems[0]
 
     def test_github_release_needs_no_package_index_environment(
         self, tmp_path: Path, monkeypatch: Any

@@ -1,5 +1,6 @@
 """Extended tests for rebrew data.py — scan branches, renderers, gen-header, CLI."""
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -803,6 +804,17 @@ class TestDataCli:
         assert row["section"] == ".text" and row["storage_kind"] == "span"
         assert row["size"] == 20 and row["kind"] == "DATA"
         assert "status" not in row and "verification" not in row
+
+    def test_rejected_value_is_a_usage_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The JSON error names ``usage``, so a dispatch worker answers 400, not 500."""
+        args = ["set", "--storage-kind", "0x1000=bogus", "--json"]
+        result = self._invoke(tmp_path, monkeypatch, args)
+        assert result.exit_code == 2
+        error = json.loads(result.stderr.strip().splitlines()[-1])["error"]
+        assert (error["kind"], error["message"]) == ("usage", "invalid storage_kind 'bogus'")
+        assert not (tmp_path / "rebrew-data.toml").exists()
 
     def test_json_output(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg = _cfg(tmp_path)

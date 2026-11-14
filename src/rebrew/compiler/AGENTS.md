@@ -13,7 +13,7 @@ Compile execution and the compile cache: resolve a toolchain profile, run its do
 | `overrides.py` | Effective `TOOLCHAIN` / `CFLAGS` per source (function → `rebrew-libraries.toml` → project) |
 | `xtensa.py` | Core-aware XCC relocation/relaxation linking and verified native disassembly |
 | `toolchain.py` | Toolchain registry, image id admission, `run_toolchain` (image-backed for shipped profiles) |
-| `toolchain_spec.py` / `toolchain_data.py` | `ToolchainSpec` value types and the packaged profile table |
+| `toolchain_spec.py` / `toolchain_data.py` | `ToolchainSpec` value types, the packaged profile table, and the source pins (`pinned_sources`) read from the vendored `toolchains.json` |
 | `toolchain_paths.py` | Location of the sibling recompile-toolchains checkout (`REBREW_TOOLCHAINS_DIR`) |
 | `unshare.py` / `unshare_runner.c` | Experimental rootless OCI-profile execution, immutable image export and disposable overlay cleanup |
 | `recompile_client.py` | HTTP client for the remote recompile service |
@@ -37,3 +37,4 @@ Externals (the only packages this one may import): `coff_reloc`, `config`, `erro
   MSVC/Wine profile; never fall back after setup failure. Every invocation owns
   its private overlay; PID-namespace teardown kills detached Wine descendants.
   Helper and profile content participate in object and verification cache keys.
+- **Source pins are recompile-toolchains'.** `toolchains.json` is that repository's release manifest, vendored byte for byte and pinned by `TOOLCHAINS_MANIFEST_SHA256`; never edit it or keep a second copy of a pin here. Re-pin in recompile-toolchains, then re-vendor the release (docs/TOOLCHAIN.md). Nothing here edits a file in the recompile-toolchains checkout except the host trees `rebrew toolchain vendor` assembles.

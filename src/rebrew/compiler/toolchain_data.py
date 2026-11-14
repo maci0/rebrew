@@ -2,462 +2,139 @@
 
 Profiles in config.py map to these by name; the runner builds the public
 TOOLCHAINS from BUILTIN_TOOLCHAINS plus entry-point providers and the
-project overlay.
+project overlay.  Source pins are read from the vendored recompile-toolchains
+manifest, the one copy the images build from.
 """
 
 from __future__ import annotations
 
+from functools import lru_cache  # decorator: definition-time use
+from pathlib import Path  # module statement: definition-time use
+from typing import Any
+lazy import hashlib
+lazy import json
+lazy from collections.abc import Mapping
+lazy from types import MappingProxyType
+
 from rebrew.compiler.toolchain_paths import vendored_path
 from rebrew.compiler.toolchain_spec import ToolchainSource, ToolchainSpec
 
-#: Pinned sources for assembling each toolchain (used by ``rebrew toolchain
-#: vendor`` and mirrored in the Dockerfiles).  Same sha256 as the images
-#: download, so host trees and containers are byte-identical.
-SOURCES: dict[str, ToolchainSource] = {
-    "gcc-16.2.0": ToolchainSource(
-        url="https://ftp.gnu.org/gnu/gcc/gcc-16.2.0/gcc-16.2.0.tar.xz",
-        sha256="e6738e29597f733270731aa90600f37ffdc045079dfc27ec7e8192cc81085c3e",
-        layout="tar-strip1",
-        host_dir="gcc/16.2.0-linux-x64",
-    ),
-    "clang-23.1.4": ToolchainSource(
-        url="https://github.com/llvm/llvm-project/releases/download/llvmorg-23.1.4/LLVM-23.1.4-Linux-X64.tar.xz",
-        sha256="25d814fda50d5fb0084b42be09605d8b1595d49d5e2e03a3345d7e112ff6f9f3",
-        layout="tar-strip1",
-        host_dir="clang/23.1.4-linux-x64",
-    ),
-    "msvc-6.0": ToolchainSource(
-        # archaic-msvc/msvc600 — the flagship MSVC 6.0 base (VC98/Bin/CL.EXE,
-        # 12.00.8168).  Byte-reproducible with the old decomp.me msvc6.0
-        # source (masked-object sha256 identical), now pinned to the
-        # archaic-msvc org per the "get everything from archaic-msvc" rule.
-        url="https://codeload.github.com/archaic-msvc/msvc600/tar.gz/refs/heads/master",
-        sha256="19b72020c8225f91d7345b16aa0acf1b31a4608ae1299693021491e7338d0ee8",
-        commit="34d4fc4004e880b8d5c44ae5babd7229eeaad993",
-        layout="tar-strip1",
-        host_dir="msvc/6.0-win32",
-    ),
-    "msvc-2.0": ToolchainSource(
-        # archaic-msvc/msvc200 — VC 2.0 (1994), the first 32-bit compiler; bin/cl.exe.
-        url="https://codeload.github.com/archaic-msvc/msvc200/tar.gz/refs/heads/master",
-        sha256="0b058f103fe6b615987a85d518d7fd23389fab67c9df3cadfae22f5a70d5d000",
-        commit="6bf022c590fdea0526dc94975f3d91add444ac1a",
-        layout="tar-strip1",
-        host_dir="msvc/2.0-win32",
-    ),
-    "msvc-4.1": ToolchainSource(
-        # archaic-msvc/msvc410 — VC 4.1 (1996); bin/CL.EXE (10.10.6038).
-        url="https://codeload.github.com/archaic-msvc/msvc410/tar.gz/refs/heads/master",
-        sha256="21486aecd108397bdced6e2cf6a5170a3cc30280a3eba97a4a8f92985a9cc5c4",
-        commit="373f5e621ac8fb7b219873b37334ef1d0a2149e6",
-        layout="tar-strip1",
-        host_dir="msvc/4.1-win32",
-    ),
-    "msvc-5.0-sp1": ToolchainSource(
-        # archaic-msvc/msvc500sp1 — VC 5.0 SP1 (CL.EXE identical to base 11.00.7022).
-        url="https://codeload.github.com/archaic-msvc/msvc500sp1/tar.gz/refs/heads/master",
-        sha256="f41e9e5a05bd7a4da97fdcc9d168aaac7898e5bfec11791c630735a7da13d303",
-        commit="401174749393c9991a6b91425a795e04e8bdeedb",
-        layout="tar-strip1",
-        host_dir="msvc/5.0-sp1-win32",
-    ),
-    "msvc-5.0-sp2": ToolchainSource(
-        # archaic-msvc/msvc500sp2 — VC 5.0 SP2.
-        url="https://codeload.github.com/archaic-msvc/msvc500sp2/tar.gz/refs/heads/master",
-        sha256="551137506a6a98ca890bfe20df7d5833bc475cf7e2279d959eccce0485525c8e",
-        commit="4ebf02022705b4c9e9108d3ed3f286ed80ba2ed9",
-        layout="tar-strip1",
-        host_dir="msvc/5.0-sp2-win32",
-    ),
-    "msvc-5.0-sp3": ToolchainSource(
-        # archaic-msvc/msvc500sp3 — VC 5.0 SP3.
-        url="https://codeload.github.com/archaic-msvc/msvc500sp3/tar.gz/refs/heads/master",
-        sha256="cdba2878eaacd07cb289b73f08250e2c39596fc9b31a2ad7a4fd887879be1e38",
-        commit="259a03f0bc863de5baf657ec064cb60cb20a2cdc",
-        layout="tar-strip1",
-        host_dir="msvc/5.0-sp3-win32",
-    ),
-    "msvc-6.0-sp1": ToolchainSource(
-        # archaic-toolchains/msvc600_sp1 — VC 6.0 SP1 (1998).  The full RTM
-        # product tree (archaic-msvc msvc600 + VS6 Enterprise CD1 CRT/debug/
-        # redist) plus the files SP1 is documented to have fixed (strftime.c,
-        # MFC sources) taken in cumulative state from the official SP2 payload
-        # the standalone SP1 payload (VSE600SP1.EXE) is not preserved in any
-        # public archive.  CL.EXE 12.00.8168 (the RTM..SP3 driver, byte-identical
-        # to the base 6.0 compiler).
-        url="https://codeload.github.com/archaic-toolchains/msvc600_sp1/tar.gz/refs/heads/main",
-        sha256="2c3d1a6d2e7d6248f1bcb5e46a54cd2bea94704df032056abef53828b0b79888",
-        commit="6d9787482473ca46a1e6fb70be020755951eb16a",
-        layout="tar-strip1",
-        host_dir="msvc/6.0-sp1-win32",
-    ),
-    "msvc-6.0-sp2": ToolchainSource(
-        # archaic-toolchains/msvc600_sp2 — VC 6.0 SP2 (1999).  The full RTM
-        # tree plus the entire official SP2 payload (crt/src, debug, lib,
-        # mfc/src, mfc/lib from the MSDN Disc 18 VS6SP2 CABs) and the SP2
-        # redistributable runtimes.  SP2 changed no compiler binaries and no
-        # headers — CL.EXE stays 12.00.8168 (byte-identical to the base).
-        url="https://codeload.github.com/archaic-toolchains/msvc600_sp2/tar.gz/refs/heads/main",
-        sha256="088cd189ce0ae3c7ff96a71bb3f364a397b2fe6c19e6a8f252cc575be3783574",
-        commit="79157a87dec5e5ff014178f817f27a70098fd862",
-        layout="tar-strip1",
-        host_dir="msvc/6.0-sp2-win32",
-    ),
-    "msvc-6.0-sp4": ToolchainSource(
-        # archaic-toolchains/msvc600_sp4 — VC 6.0 SP4 (2000) full tree with
-        # Bin: the archaic-msvc msvc600_sp4 headers/libs plus the decomp.me
-        # msvc6.4 Bin (CL.EXE 12.00.8804 — the SP4+ driver; sha-verified
-        # byte-identical to the official SP4 CD's cl/c1/c1xx/link/cvtres).
-        url="https://codeload.github.com/archaic-toolchains/msvc600_sp4/tar.gz/refs/heads/main",
-        sha256="7aeb03f65858000bb6988a64cc066a4a2aec9fc591400db400ffe6fc99ae2dbc",
-        commit="0ca69bae9e3ca739c5ce38c8cf39ffc51582080d",
-        layout="tar-strip1",
-        host_dir="msvc/6.0-sp4-win32",
-    ),
-    "msvc-6.0-sp3": ToolchainSource(
-        # OmniBlade decomp.me msvc6.3 — VC 6.0 SP3 (CL.EXE 12.00.8168, the
-        # RTM..SP3 build; identical to the flagship msvc-6.0 compiler).  The
-        # archaic-msvc msvc600_sp3 repo carries no Bin/, so OmniBlade's
-        # decomp.me tarball (which matches the vendored tree byte-for-byte) is
-        # pinned, from our copy in archaic-toolchains/msvc600-win9x.
-        url="https://github.com/archaic-toolchains/msvc600-win9x/releases/download/2026-11-10/msvc6.3.tar.gz",
-        sha256="84f73e718b3671bfd5de3b7764622b07633b572ee826ca3b77602d224c128608",
-        layout="tar",
-        host_dir="msvc/6.0-sp3-win32",
-    ),
-    "msvc-6.0-sp5": ToolchainSource(
-        # archaic-msvc/msvc600_sp5 — VC 6.0 SP5 full product tree (VC98/Bin,
-        # CL.EXE 12.00.8804).  The archaic sp3/sp4 repos carry no Bin/, and
-        # decomp.me's msvc6.4/6.5 mislabel the SP6 compiler, so SP5 is the
-        # earliest real SP with its own preserved compiler binary.
-        url="https://codeload.github.com/archaic-msvc/msvc600_sp5/tar.gz/refs/heads/master",
-        sha256="a95a9c17cbcbe0d97a3e80ef9596f12404eb28f36bab24e89aabcbe37acbbef6",
-        commit="b0b07e29108e2695eb0274c2a377a7b7d7326150",
-        layout="tar-strip1",
-        host_dir="msvc/6.0-sp5-win32",
-    ),
-    "msvc-6.0-sp5-pp": ToolchainSource(
-        # archaic-msvc/msvc600_sp5_vcpp — VC 6.0 SP5 with the Visual C++ 6.0
-        # Processor Pack already applied (extracted tree, so no installer
-        # runs).  The pack replaces the code generator (c2.dll 13.00.9044.0),
-        # adds MASM 6.15 (ml.exe), and ships the MMX/SSE/SSE2 intrinsic
-        # headers (mmintrin.h, xmmintrin.h, emmintrin.h, ...).  cl.exe itself
-        # is unchanged (12.00.8804) and there is no /arch option: SSE/SSE2
-        # code is written with the pack's intrinsics.  The pack is SP5-only:
-        # SP6 removes it.
-        url="https://codeload.github.com/archaic-msvc/msvc600_sp5_vcpp/tar.gz/refs/heads/master",
-        sha256="1bbf177489054698fd5d29bf042692efdb5bec8719f9dc889b9b1c618c645991",
-        commit="762e9382c751613c341daa766f0e22cdeb07152c",
-        layout="tar-strip1",
-        host_dir="msvc/6.0-sp5-pp-win32",
-    ),
-    "msvc-6.0-sp6": ToolchainSource(
-        # archaic-msvc/msvc600_sp6 — VC 6.0 SP6 full product tree
-        # (VC98/Bin/CL.EXE, 12.00.8804 — the same compiler the SP4 CD and
-        # SP5 carry).  The repo stashes mspdb60.dll under Common/MSDev98/Bin
-        # (the vendor + Dockerfile relocate it — CL imports it in-dir).
-        url="https://codeload.github.com/archaic-msvc/msvc600_sp6/tar.gz/refs/heads/master",
-        sha256="7c2aa3dd4c56b8054cc1ae0e00cd976005dd5b9b43ea8c33b22798a15c9c15c3",
-        commit="1f4223a77122220d28e8670788b3f9fd6bb2c4d1",
-        layout="tar-strip1",
-        host_dir="msvc/6.0-sp6-win32",
-    ),
-    "msvc-7.0": ToolchainSource(
-        # Match the canonical VC 7.0 RTM image; VC 7.1 has its own profile.
-        url="https://codeload.github.com/archaic-msvc/msvc700/tar.gz/refs/heads/master",
-        sha256="5f75462fb6134ad56c3ae28cf8b1e3b2869578d4171568b7a1fcdfb0bf97830b",
-        commit="97fe4cdeaeb0bb934591d4b05eb52c2e8ab3e34b",
-        layout="tar-strip1",
-        host_dir="msvc/7.0-win32",
-    ),
-    "msvc-7.0-rtm": ToolchainSource(
-        # archaic-msvc/msvc700 — the true VC 7.0 (2002) compiler (13.00.9466;
-        # 7.0-SP1 shipped the identical binary).  Vc7/bin/cl.exe layout; the
-        # canonical 7.0-win32 dir stays with the established msvc-7.0 profile.
-        url="https://codeload.github.com/archaic-msvc/msvc700/tar.gz/refs/heads/master",
-        sha256="5f75462fb6134ad56c3ae28cf8b1e3b2869578d4171568b7a1fcdfb0bf97830b",
-        commit="97fe4cdeaeb0bb934591d4b05eb52c2e8ab3e34b",
-        layout="tar-strip1",
-        host_dir="msvc/7.0-rtm-win32",
-    ),
-    "msvc-7.0-sp1": ToolchainSource(
-        # archaic-msvc/msvc700_sp1 — VC 7.0 SP1 (same 13.00.9466 compiler,
-        # updated headers/libs).
-        url="https://codeload.github.com/archaic-msvc/msvc700_sp1/tar.gz/refs/heads/master",
-        sha256="bc1300625c89e855e1c0160b43c6fe2576ad68426483bd73c3cde2682165ba8a",
-        commit="8bd9502d74274667de198247a459d63dbd431068",
-        layout="tar-strip1",
-        host_dir="msvc/7.0-sp1-win32",
-    ),
-    "msvc-7.1": ToolchainSource(
-        # archaic-msvc/msvc710 — VC 7.1 (.NET 2003; cl.exe 13.10.3077).
-        # Vc7/bin/cl.exe.
-        url="https://codeload.github.com/archaic-msvc/msvc710/tar.gz/refs/heads/master",
-        sha256="618e876bc06431498fa98e71a408d822a5fad979219ce3253318d099a6917b27",
-        commit="2932d76fe417b0bc49010b26d4be2e5b743cc4be",
-        layout="tar-strip1",
-        host_dir="msvc/7.1-win32",
-    ),
-    "msvc-7.1-sp1": ToolchainSource(
-        # archaic-msvc/msvc710_sp1 — VC 7.1 SP1 (cl.exe 13.10.6030).
-        url="https://codeload.github.com/archaic-msvc/msvc710_sp1/tar.gz/refs/heads/master",
-        sha256="44246ff2980d715c2d05eaed505344a0b87850a04606482c13ba4832ddf5ec70",
-        commit="cf62606064633dd8441aa2feffe34792099cc366",
-        layout="tar-strip1",
-        host_dir="msvc/7.1-sp1-win32",
-    ),
-    "msvc-8.0": ToolchainSource(
-        # archaic-msvc/msvc800 — VC 8.0 (2005; cl.exe 14.00.50727).  VC/bin.
-        url="https://codeload.github.com/archaic-msvc/msvc800/tar.gz/refs/heads/master",
-        sha256="ab819164ebd9e9d367c1178a86eb9c3337b1a8d85d1357322a3252b63ad64453",
-        commit="00ddaf58d09788f0b12e475dae5fb5674dd32578",
-        layout="tar-strip1",
-        host_dir="msvc/8.0-win32",
-    ),
-    "msvc-8.0-sp1": ToolchainSource(
-        # archaic-msvc/msvc800_sp1 — VC 8.0 SP1 (cl.exe 14.00.50727.762).
-        url="https://codeload.github.com/archaic-msvc/msvc800_sp1/tar.gz/refs/heads/master",
-        sha256="9b53b515d79839c7404944c29cdae862d3a8c1ff0d0a27a202bfc37a31f587c5",
-        commit="4b1bafba636f67eb76f548f0f0e7f38864091a4a",
-        layout="tar-strip1",
-        host_dir="msvc/8.0-sp1-win32",
-    ),
-    "msvc-9.0": ToolchainSource(
-        # archaic-msvc/msvc900 — VC 9.0 (2008; cl.exe 15.00.21022).  VC/bin;
-        # the repo carries no SP1 tarball (VC 2008 SP1's 15.00.30729 compiler
-        # is not preserved publicly) — the base 9.0 profile is the matchable
-        # target for VS2008-era binaries.
-        url="https://codeload.github.com/archaic-msvc/msvc900/tar.gz/refs/heads/master",
-        sha256="9121d184d9cb88c13b95d3d2e770c8d8ae9d2531a5d8ea90c53a14f765e3f904",
-        commit="c9d710cef9a3dec08d7d2dca78a3b494335a5baa",
-        layout="tar-strip1",
-        host_dir="msvc/9.0-win32",
-    ),
-    "msvc-9.0-sp1": ToolchainSource(
-        # archaic-toolchains/msvc900_sp1 — VC 9.0 SP1 (2008): the msvc-9.0 base
-        # plus the 15.00.30729.01 compiler (cl/c1/c1xx/c2/link/mspdb80,
-        # Professional-edition series) and 122 SP1 headers/libs, extracted
-        # from the official VS2008 SP1 DVD (VS90sp1-KB945140-X86-ENU.msp).
-        # Closes the "VC 2008 SP1 compiler has no public tarball" gap.
-        url="https://codeload.github.com/archaic-toolchains/msvc900_sp1/tar.gz/refs/heads/main",
-        sha256="33a66c779da39ab40518f24b75656f1f93cb1837a3d65a9b79188f41c2f2bd97",
-        commit="cebb3c9740c92de36937a401a3a3141358c8ac29",
-        layout="tar-strip1",
-        host_dir="msvc/9.0-sp1-win32",
-    ),
-    "msvc-11.0": ToolchainSource(
-        # archaic-msvc/msvc1100 — VC 11.0 / VS 2012 (cl.exe 17.00.50522.1).
-        # VC/bin + Windows Kits + a wine/ runner dir; the newest compiler the
-        # archaic-msvc org carries.
-        url="https://codeload.github.com/archaic-msvc/msvc1100/tar.gz/refs/heads/master",
-        sha256="adba1882eb076cb774b7a5d0f2b1067544da7cd2f0bf0b12f284361516cbc825",
-        commit="89087a636aea5e6f9450ee7e840ea71e08740ee1",
-        layout="tar-strip1",
-        host_dir="msvc/11.0-win32",
-    ),
-    "msvc-10.0": ToolchainSource(
-        # archaic-msvc/msvc1000 — VC 10.0 (2010; cl.exe 16.00.30319).  VC/bin.
-        url="https://codeload.github.com/archaic-msvc/msvc1000/tar.gz/refs/heads/master",
-        sha256="5f0b4486eb68e0069bb11506bcc8834710ac92ac1e7f311b3e4400a9d5d9409f",
-        commit="f8977e2cacbe6cab4f9e73eb2c05695a88519bfe",
-        layout="tar-strip1",
-        host_dir="msvc/10.0-win32",
-    ),
-    "msvc-10.0-sp1": ToolchainSource(
-        # archaic-msvc/msvc1000_sp1 — VC 10.0 SP1 (cl.exe 16.00.40219).
-        url="https://codeload.github.com/archaic-msvc/msvc1000_sp1/tar.gz/refs/heads/master",
-        sha256="2e5fbb9b71ed8cb2673594484d6a8fad7484c809ecefffaf3319e0164af6f89b",
-        commit="09a53c11f781ec9ab5e66772ba720b9d85e4c2a4",
-        layout="tar-strip1",
-        host_dir="msvc/10.0-sp1-win32",
-    ),
-    "msvc-1.5": ToolchainSource(
-        # archaic-toolchains/msvc15 — the pinned codeload tarball the
-        # rebrew/msvc:1.5-win16 image builds from (VC 1.5, 1993, 16-bit).
-        url="https://codeload.github.com/archaic-toolchains/msvc15/tar.gz/refs/heads/main",
-        sha256="5cd1e4d9fd70fe97587fd3edfd0cebe3276e7b59ea5eb0848510f15c95d79aec",
-        commit="3649e12977c169bd60662362400677f28a716ef1",
-        layout="tar-strip1",
-        host_dir="msvc/1.5-win16",
-    ),
-    "msvc-1.0": ToolchainSource(
-        # archaic-toolchains/msvc10 — the pinned codeload tarball the
-        # rebrew/msvc:1.0-win16 image builds from.  CL.EXE is a Phar Lap TNT
-        # DOS-extender (PE32) like 1.5/1.52 — runs headless under DOSBox and
-        # produces 16-bit OMF (verified).
-        url="https://codeload.github.com/archaic-toolchains/msvc10/tar.gz/refs/heads/main",
-        sha256="4858446b957fe327fedbb3a511316bebc060b72f22557a47397b905522668ce9",
-        commit="0cd3d8a2024119b6b08b384fd3487a64a59a25eb",
-        layout="tar-strip1",
-        host_dir="msvc/1.0-win16",
-    ),
-    "msvc-1.52": ToolchainSource(
-        # archaic-toolchains/msvc152 — the pinned codeload tarball the
-        # rebrew/msvc:1.52-win16 image builds from.
-        url="https://codeload.github.com/archaic-toolchains/msvc152/tar.gz/refs/heads/main",
-        sha256="18fbdb547aa6a6cdbb3a77b00b5453f6fd9ae2b543a1c4842552643384e4711b",
-        commit="3beb967dfc075d34a1a8f7d30e0428e447432270",
-        layout="tar-strip1",
-        host_dir="msvc/1.52-win16",
-    ),
-    "delphi-1.0": ToolchainSource(
-        # archaic-toolchains/delphi10 — the pinned codeload tarball the
-        # rebrew/delphi:1.0-win16 image builds from.  The tarball keeps the
-        # RTL/VCL units in ``delphi-lib/``; `rebrew toolchain vendor` renames
-        # them to DELPHI/LIB the way the image's recipe does.
-        url="https://codeload.github.com/archaic-toolchains/delphi10/tar.gz/refs/heads/main",
-        sha256="24cd23f0ef555f3582eda27b4bb655e17215366b556dfaabd9f2ba5daf61b55e",
-        commit="fd12406eeaa6b44099013c5a56d083919676967c",
-        layout="tar-strip1",
-        host_dir="delphi/1.0-win16",
-    ),
-    "ido-5.3": ToolchainSource(
-        # decompals/ido-static-recomp v1.2 — statically recompiled SGI IDO 5.3
-        # (MIPS-II big-endian, N64).  Native Linux x86_64 binaries; the same
-        # sha256 the rebrew/ido:5.3-linux image downloads at build time.
-        url="https://github.com/decompals/ido-static-recomp/releases/download/v1.2/ido-5.3-recomp-linux.tar.gz",
-        sha256="ab5c741561f80913d58c8b074771f23941a3edd312505a8ebed6d1dfeb65e506",
-        layout="tar",
-        host_dir="ido/5.3-linux",
-    ),
-    "ido-7.1": ToolchainSource(
-        # decompals/ido-static-recomp v1.2 — statically recompiled SGI IDO 7.1
-        # (MIPS-II big-endian, N64).  Native Linux x86_64 binaries; the same
-        # sha256 the rebrew/ido:7.1-linux image downloads at build time.
-        url="https://github.com/decompals/ido-static-recomp/releases/download/v1.2/ido-7.1-recomp-linux.tar.gz",
-        sha256="0d411696e178fcca34c31c3bf02011b928d7fd9c1fa7f8bf45070e0781b58e15",
-        layout="tar",
-        host_dir="ido/7.1-linux",
-    ),
-    "clang-18.1.8": ToolchainSource(
-        # LLVM's official prebuilt x86_64 Linux release (llvmorg-18.1.8 — the
-        # only x86_64 Linux asset that release published).  Native ELF
-        # binaries; the same sha256 the rebrew/clang:18.1.8-linux-x64 image
-        # downloads at build time.
-        url="https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/clang+llvm-18.1.8-x86_64-linux-gnu-ubuntu-18.04.tar.xz",
-        sha256="54ec30358afcc9fb8aa74307db3046f5187f9fb89fb37064cdde906e062ebf36",
-        layout="tar-strip1",
-        host_dir="clang/18.1.8-linux-x64",
-    ),
-    "clang-16.0.4": ToolchainSource(
-        # llvmorg-16.0.4 — the newest 16.x release with an x86_64 Linux
-        # asset (16.0.5/16.0.6 shipped aarch64 and powerpc64le only).
-        url="https://github.com/llvm/llvm-project/releases/download/llvmorg-16.0.4/clang+llvm-16.0.4-x86_64-linux-gnu-ubuntu-22.04.tar.xz",
-        sha256="fd464333bd55b482eb7385f2f4e18248eb43129a3cda4c0920ad9ac3c12bdacf",
-        layout="tar-strip1",
-        host_dir="clang/16.0.4-linux-x64",
-    ),
-    "gcc-14.2.0": ToolchainSource(
-        # GNU GCC 14.2.0 release tarball; the image builds C-only from it.
-        url="https://ftp.gnu.org/gnu/gcc/gcc-14.2.0/gcc-14.2.0.tar.xz",
-        sha256="a7b39bc69cbf9e25826c5a60ab26477001f7c08d85cec04bc0e29cabed6f3cc9",
-        layout="tar-strip1",
-        host_dir="gcc/14.2.0-linux-x64",
-    ),
-    "gcc-12.3.0": ToolchainSource(
-        # GNU GCC 12.3.0 release tarball; the image builds C-only from it.
-        url="https://ftp.gnu.org/gnu/gcc/gcc-12.3.0/gcc-12.3.0.tar.xz",
-        sha256="949a5d4f99e786421a93b532b22ffab5578de7321369975b91aec97adfda8c3b",
-        layout="tar-strip1",
-        host_dir="gcc/12.3.0-linux-x64",
-    ),
-    "mingw-16.2.0": ToolchainSource(
-        # niXman/mingw-builds-binaries — the i686-w64-mingw32 target, Windows
-        # host (the driver is a PE32 binary the image runs under wine); the
-        # archive wraps its tree in mingw32/.
-        url="https://github.com/niXman/mingw-builds-binaries/releases/download/16.2.0-rt_v14-rev1/i686-16.2.0-release-posix-dwarf-msvcrt-rt_v14-rev1.7z",
-        sha256="9773342cba88efe50e6f3ddd021ac6f1d9ac1957301705fe64def22f501f0dd4",
-        layout="7z-strip1",
-        host_dir="mingw/16.2.0-win32",
-    ),
-    "mingw-14.2.0": ToolchainSource(
-        url="https://github.com/niXman/mingw-builds-binaries/releases/download/14.2.0-rt_v12-rev2/i686-14.2.0-release-posix-dwarf-msvcrt-rt_v12-rev2.7z",
-        sha256="895d22c902e22d4b7b1c1b4160d1b3d70bbd6fc653b04f46b7736ef0ef5e4bc2",
-        layout="7z-strip1",
-        host_dir="mingw/14.2.0-win32",
-    ),
-    "watcom-2.0-win16": ToolchainSource(
-        # Open Watcom 2.0 snapshot, dated 2026-09-01.  The Last-CI-build tag
-        # the `watcom` pin uses is republished on every CI run, so its
-        # recorded sha256 no longer resolves upstream; the dated release is
-        # immutable and this image rebuilds reproducibly from it.
-        url="https://github.com/open-watcom/open-watcom-v2/releases/download/2026-09-01-Build/ow-snapshot.tar.xz",
-        sha256="bac354f3c75ffa49ff8d70a44e475de7e7c1823fff04b80c14787bd0792c9bdf",
-        layout="tar-strip1",
-        host_dir="watcom/2.0-win16",
-    ),
-    "borland-5.5": ToolchainSource(
-        # archive.org BorlandC55 `Borland C++ 5.5.zip`, from our copy in
-        # archaic-toolchains/borlandc55.
-        url="https://github.com/archaic-toolchains/borlandc55/releases/download/2026-11-10/Borland-C-5.5.zip",
-        sha256="12affb942db2b9823292697faaa6f465b18c381ba347f9f4bf8efae6ff34cca1",
-        layout="zip-installshield",
-        host_dir="borland/5.5-win32",
-    ),
-    "borland-2.0": ToolchainSource(
-        # archaic-toolchains/tc20 — the pinned codeload tarball the
-        # rebrew/borland:2.0-win16 image builds from (TCC.EXE 2.0/TLINK.EXE/
-        # CPP.EXE + runtime libs + headers).
-        url="https://codeload.github.com/archaic-toolchains/tc20/tar.gz/refs/heads/main",
-        sha256="2eca4c26c1b30ce2bd7e61573eb9f40096994405fc173c28143f06a93da269d1",
-        commit="64b5ef09a7c18b65c38902a217bcfec67c4b113b",
-        layout="tar-strip1",
-        host_dir="borland/2.0-win16",
-    ),
-    "borland-3.1": ToolchainSource(
-        # archaic-toolchains/tc31 — the pinned codeload tarball the
-        # rebrew/borland:3.1-win16 image builds from.
-        url="https://codeload.github.com/archaic-toolchains/tc31/tar.gz/refs/heads/main",
-        sha256="3d534741ebdc31ffdceb87db8de3b7d494ad5c912b7cd1a4f326b4a94d0c2ba1",
-        commit="ba6af878392be5ea20f6bb54f7dd2359b3845b7b",
-        layout="tar-strip1",
-        host_dir="borland/3.1-win16",
-    ),
-    "watcom-2.0-win32": ToolchainSource(
-        # The rolling `Last-CI-build` tag is republished on every CI run, so a
-        # recorded sha256 stops resolving upstream; the dated release is
-        # immutable and this image rebuilds reproducibly from it (the same
-        # snapshot the 16-bit image uses).
-        url="https://github.com/open-watcom/open-watcom-v2/releases/download/2026-09-01-Build/ow-snapshot.tar.xz",
-        sha256="bac354f3c75ffa49ff8d70a44e475de7e7c1823fff04b80c14787bd0792c9bdf",
-        commit="",
-        layout="tar-strip1",
-        host_dir="watcom/2.0-win32",
-    ),
-    "msvc-4.2": ToolchainSource(
-        # archaic-msvc snapshot — the vendored toolchain/msvc/4.2-win32 tree
-        # is a byte-identical extraction of this repo tarball (verified: file
-        # list + CL.EXE match), pinned so a fresh clone can reproduce it via
-        # `rebrew toolchain vendor`.
-        url="https://codeload.github.com/archaic-msvc/msvc420/tar.gz/refs/heads/master",
-        sha256="651db241202416be7e870ff8d98928179b94515068e7895008b8a82cb0b7001c",
-        commit="b42c244f0a83ba15ba2ffb62b0dc240d7b2dea50",
-        layout="tar-strip1",
-        host_dir="msvc/4.2-win32",
-    ),
-    "msvc-5.0": ToolchainSource(
-        # archaic-msvc snapshot — vendored toolchain/msvc/5.0-win32 is a
-        # byte-identical extraction (verified).  Same sha256 the doctor hint
-        # for the 5.0 layout already pointed at (codeload archaic-msvc/msvc500).
-        url="https://codeload.github.com/archaic-msvc/msvc500/tar.gz/refs/heads/master",
-        sha256="46745771c0805310212415450f097134f3871d1786434e86c080e0b8cb9a38fb",
-        commit="8abf95ce980161ad87b0b02402269cce76988953",
-        layout="tar-strip1",
-        host_dir="msvc/5.0-win32",
-    ),
-    "msvc-4.0": ToolchainSource(
-        # itsmattkc/MSVC400 (its master tarball, from our copy in
-        # archaic-toolchains/msvc400) — the classic MSVC 4.0 (1995) tree; BIN/CL.EXE
-        # at the repo root.  Completes the msvc4x/5/6/7 profile set (config,
-        # init, and the detector already knew msvc-4.0; only the toolchain
-        # registry lacked it).
-        url="https://github.com/archaic-toolchains/msvc400/releases/download/2026-11-10/MSVC400-master.tar.gz",
-        sha256="c076ab51bb5a52c805c85603d565ac406beec1a0accf3829127369294f1aff11",
-        commit="821e942fd95bd16d01649401de7943ef87ae9f54",
-        layout="tar-strip1",
-        host_dir="msvc/4.0-win32",
-    ),
+#: recompile-toolchains' generated consumer manifest, vendored byte for byte from
+#: release :data:`TOOLCHAINS_RELEASE` (``toolchains.json``): every profile's
+#: image tag and the source pin (url, sha256, commit) that image builds from.
+#: Re-vendor it from a new release, not by hand: docs/TOOLCHAIN.md.
+TOOLCHAINS_MANIFEST = Path(__file__).with_name("toolchains.json")
+TOOLCHAINS_RELEASE = "1.15.0"
+TOOLCHAINS_MANIFEST_SHA256 = "f850d0755b68d489fc501575a199e4ad94d6e6098bee1fb838cd24d85c84970a"
+
+#: The profiles ``rebrew toolchain vendor`` assembles on the host, and how it
+#: unpacks each one's pinned archive: the shape the image's own install recipe
+#: extracts (``tar-strip1`` drops the archive's one top directory, as codeload
+#: tarballs carry).  The pins come from :func:`pinned_sources`.
+SOURCE_LAYOUTS: dict[str, str] = {
+    "gcc-16.2.0": "tar-strip1",
+    "clang-23.1.4": "tar-strip1",
+    "msvc-6.0": "tar-strip1",
+    "msvc-2.0": "tar-strip1",
+    "msvc-4.1": "tar-strip1",
+    "msvc-5.0-sp1": "tar-strip1",
+    "msvc-5.0-sp2": "tar-strip1",
+    "msvc-5.0-sp3": "tar-strip1",
+    "msvc-6.0-sp1": "tar-strip1",
+    "msvc-6.0-sp2": "tar-strip1",
+    "msvc-6.0-sp4": "tar-strip1",
+    "msvc-6.0-sp3": "tar-strip1",
+    "msvc-6.0-sp5": "tar-strip1",
+    "msvc-6.0-sp5-pp": "tar-strip1",
+    "msvc-6.0-sp6": "tar-strip1",
+    "msvc-7.0": "tar-strip1",
+    "msvc-7.0-rtm": "tar-strip1",
+    "msvc-7.0-sp1": "tar-strip1",
+    "msvc-7.1": "tar-strip1",
+    "msvc-7.1-sp1": "tar-strip1",
+    "msvc-8.0": "tar-strip1",
+    "msvc-8.0-sp1": "tar-strip1",
+    "msvc-9.0": "tar-strip1",
+    "msvc-9.0-sp1": "tar-strip1",
+    "msvc-11.0": "tar-strip1",
+    "msvc-10.0": "tar-strip1",
+    "msvc-10.0-sp1": "tar-strip1",
+    "msvc-1.5": "tar-strip1",
+    "msvc-1.0": "tar-strip1",
+    "msvc-1.52": "tar-strip1",
+    "delphi-1.0": "tar-strip1",
+    # decompals/ido-static-recomp release assets hold the binaries at the top.
+    "ido-5.3": "tar",
+    "ido-7.1": "tar",
+    "clang-18.1.8": "tar-strip1",
+    "clang-16.0.4": "tar-strip1",
+    "gcc-14.2.0": "tar-strip1",
+    "gcc-12.3.0": "tar-strip1",
+    # niXman/mingw-builds-binaries 7z archives wrap their tree in mingw32/.
+    "mingw-16.2.0": "7z-strip1",
+    "mingw-14.2.0": "7z-strip1",
+    "watcom-2.0-win16": "tar-strip1",
+    "borland-5.5": "tar-strip1",
+    "borland-2.0": "tar-strip1",
+    "borland-3.1": "tar-strip1",
+    "watcom-2.0-win32": "tar-strip1",
+    "msvc-4.2": "tar-strip1",
+    "msvc-5.0": "tar-strip1",
+    "msvc-4.0": "tar-strip1",
 }
+
+
+def toolchains_manifest() -> dict[str, Any]:
+    """The vendored recompile-toolchains manifest, checked against its pinned sha256.
+
+    Raises :class:`rebrew.compiler.toolchain.ToolchainError` (``kind
+    "validation"``) when the file holds other bytes than the vendored release.
+    """
+    from rebrew.compiler.toolchain import ToolchainError
+
+    data = TOOLCHAINS_MANIFEST.read_bytes()
+    if hashlib.sha256(data).hexdigest() != TOOLCHAINS_MANIFEST_SHA256:
+        raise ToolchainError(
+            f"{TOOLCHAINS_MANIFEST.name} is not the recompile-toolchains "
+            f"{TOOLCHAINS_RELEASE} manifest (sha256 differs); re-vendor it",
+            kind="validation",
+        )
+    manifest: dict[str, Any] = json.loads(data)
+    return manifest
+
+
+@lru_cache(maxsize=1)
+def pinned_sources() -> Mapping[str, ToolchainSource]:
+    """The pinned source of every profile in :data:`SOURCE_LAYOUTS`.
+
+    ``url``, ``sha256`` and ``commit`` are the image's own pin from the vendored
+    manifest, so a host tree is the image's tree.  ``host_dir`` is the image's
+    directory in the recompile-toolchains checkout: ``rebrew/<family>:<dir>``
+    builds from ``<family>/<dir>`` (its ``build.sh`` tag rule).
+    """
+    from rebrew.compiler.toolchain import ToolchainError
+
+    published = {entry["id"]: entry for entry in toolchains_manifest()["toolchains"]}
+    sources: dict[str, ToolchainSource] = {}
+    for name, layout in SOURCE_LAYOUTS.items():
+        entry = published.get(name)
+        if entry is None:
+            raise ToolchainError(
+                f"recompile-toolchains {TOOLCHAINS_RELEASE} publishes no profile {name!r}",
+                kind="validation",
+                name=name,
+            )
+        pin = entry["source"]
+        family, _, directory = entry["image"]["tag"].removeprefix("rebrew/").partition(":")
+        sources[name] = ToolchainSource(
+            url=pin["url"],
+            sha256=pin["sha256"],
+            commit=pin.get("commit") or "",
+            layout=layout,
+            host_dir=f"{family}/{directory}",
+        )
+    return MappingProxyType(sources)
+
 
 #: The ENTRYPOINT wrapper each image declares, keyed by image tag.  The
 #: Dockerfile in the recompile-toolchains checkout is the source (rebrew pins

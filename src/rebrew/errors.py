@@ -94,6 +94,7 @@ if TYPE_CHECKING:
     from rebrew.ops import OpsError as OpsError
     from rebrew.orphans import OrphanInventoryError as OrphanInventoryError
     from rebrew.pdb_export import PdbExportError as PdbExportError
+    from rebrew.project_archive import ProjectArchiveError as ProjectArchiveError
     from rebrew.registry import RegistryError as RegistryError
     from rebrew.rename_ops import RenameError as RenameError
     from rebrew.residue import ResidueError as ResidueError
@@ -298,6 +299,7 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "Omf16Error": ("rebrew.formats.omf16", "Omf16Error"),
     "OrphanInventoryError": ("rebrew.orphans", "OrphanInventoryError"),
     "PdbExportError": ("rebrew.pdb_export", "PdbExportError"),
+    "ProjectArchiveError": ("rebrew.project_archive", "ProjectArchiveError"),
     "RecompileError": ("rebrew.compiler.recompile_client", "RecompileError"),
     "RegistryError": ("rebrew.registry", "RegistryError"),
     "RenameError": ("rebrew.rename_ops", "RenameError"),
@@ -404,6 +406,7 @@ __all__ = [
     "OpsError",
     "OrphanInventoryError",
     "PdbExportError",
+    "ProjectArchiveError",
     "ProjectCoverageError",
     "RebrewError",
     "RecompileError",

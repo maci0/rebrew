@@ -9,6 +9,7 @@ beside it).  The project the function and project ops read is the one
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import http.client
 import http.server
@@ -18,6 +19,7 @@ import os
 import secrets
 import select
 import shutil
+import signal
 import socket
 import ssl
 import struct
@@ -282,6 +284,19 @@ class TestListingOps:
         refusal = _refusal(config, "rebrew.disassemble", json.dumps(request).encode())
         assert (refusal["status"], refusal["detail"]) == (400, "unsupported arch: vax")
 
+    @pytest.mark.parametrize("fmt", ["asm", "hex"])
+    def test_disassemble_extent_is_bounded_like_the_other_extent_ops(
+        self, world: tuple[WorkerConfig, Path], fmt: str
+    ) -> None:
+        """The size was unchecked: the listing read to the end of the file."""
+        config, project = world
+        request = {"project_dir": str(project), "va": ENTRY_VA, "size": 2**40, "format": fmt}
+        refusal = _refusal(config, "rebrew.disassemble", json.dumps(request).encode())
+        assert (refusal["status"], refusal["detail"]) == (
+            400,
+            f"size must be at most {1 << 20} bytes, got {2**40}",
+        )
+
     def test_disassemble_bytes(self) -> None:
         code = base64.b64encode(b"\x55\x48\x89\xe5\xc3").decode()
         reply = _call(
@@ -303,6 +318,17 @@ class TestFunctionOps:
         config, project = world
         reply = _call(config, "rebrew.xrefs", self._address(project, kinds=["call"]))
         assert (reply["target"], reply["count"]) == (ENTRY_VA, 0)
+        reply = _call(config, "rebrew.xrefs", self._address(project, kinds=["iat_call", "and_mem"]))
+        assert reply["count"] == 0
+
+    @pytest.mark.parametrize("kinds", [["bogus"], ["call", ""], ["_mem"], ["call"] * 65])
+    def test_xrefs_refuses_a_kind_no_reference_can_have(
+        self, world: tuple[WorkerConfig, Path], kinds: list[str]
+    ) -> None:
+        """An unknown kind matched nothing and answered an empty list as a result."""
+        config, project = world
+        body = json.dumps(self._address(project, kinds=kinds)).encode()
+        assert _refusal(config, "rebrew.xrefs", body)["status"] == 400
 
     def test_describe(self, world: tuple[WorkerConfig, Path]) -> None:
         config, project = world
@@ -850,28 +876,34 @@ class TestRefusals:
         )
 
     @pytest.mark.parametrize(
-        ("key", "sha256", "detail"),
+        ("key", "sha256", "detail", "status"),
         [
-            ("../escape", SHA256, "file key must be a clean relative filestore key"),
-            ("/abs", SHA256, "file key must be a clean relative filestore key"),
-            ("binaries/missing", SHA256, "no stored file for the key"),
-            (KEY, "0" * 64, "the stored file does not match its sha256"),
-            (KEY, "ABC", "sha256 must be 64 lowercase hex digits"),
+            ("../escape", SHA256, "file key must be a clean relative filestore key", 400),
+            ("/abs", SHA256, "file key must be a clean relative filestore key", 400),
+            (KEY, "ABC", "sha256 must be 64 lowercase hex digits", 400),
+            # A well-formed key the filestore cannot serve is the worker's
+            # storage (a missing mount, a corrupt object), not the request.
+            ("binaries/missing", SHA256, "no stored file for the key", 500),
+            (KEY, "0" * 64, "the stored file does not match its sha256", 500),
         ],
     )
     def test_stored_file_references(
-        self, world: tuple[WorkerConfig, Path], key: str, sha256: str, detail: str
+        self, world: tuple[WorkerConfig, Path], key: str, sha256: str, detail: str, status: int
     ) -> None:
         config, _project = world
         body = json.dumps({**_binary_file(), "key": key, "sha256": sha256}).encode()
-        assert _refusal(config, "rebrew.fingerprint", body)["detail"] == detail
+        refusal = _refusal(config, "rebrew.fingerprint", body)
+        assert (refusal["detail"], refusal["status"]) == (detail, status)
 
     def test_symlink_out_of_the_filestore(self, tmp_path: Path) -> None:
         filestore, _workspace = _worker_dirs(tmp_path)
         (filestore / "binaries" / "link").symlink_to(BINARY.resolve())
         body = json.dumps({**_binary_file(), "key": "binaries/link"}).encode()
         refusal = _refusal(WorkerConfig(filestore.resolve()), "rebrew.fingerprint", body)
-        assert refusal["detail"] == "the key does not name a stored file"
+        assert (refusal["detail"], refusal["status"]) == (
+            "the key does not name a stored file",
+            500,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1043,64 +1075,75 @@ def _with_project_header(project: Path) -> str:
     return "src/mini/uses_header.c"
 
 
+def _retained_coverage_request(
+    tmp_path: Path,
+) -> tuple[WorkerConfig, dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """A retained ``coverage_report`` request over a fresh analysis, no records.
+
+    Returns the worker configuration, the request, the analyse reply and the
+    coverage envelope.
+    """
+    from rebrew.coverage_input_contract import coverage_input_digest, plan_coverage_readset
+    from rebrew.ops import FlagSearchFile, retained_target_snapshot
+
+    filestore, workspace = _worker_dirs(tmp_path)
+    config = WorkerConfig(filestore.resolve(), workspace.resolve())
+    status, raw = dispatch(config, "rebrew.analyse", json.dumps(_analyse_request()).encode())
+    assert status == 200, raw
+    analysed = json.loads(raw)
+    capture = analysed["analysis_capture"]
+    files = []
+    source_paths = {entry["path"] for entry in capture["entries"] if entry.get("role") == "source"}
+    for entry in capture["entries"]:
+        if entry["kind"] != "file":
+            continue
+        data = base64.b64decode(entry["data"])
+        digest, key = _store(filestore, data)
+        files.append({"path": entry["path"], "size": len(data), "digest": digest, "key": key})
+    target = capture["target"]
+    with retained_target_snapshot(
+        config, [FlagSearchFile(**item) for item in files], target, SHA256, KEY, ""
+    ) as staged:
+        plan = plan_coverage_readset(staged, target)
+    envelope = {
+        "version": 1,
+        "source_revision": "a" * 64,
+        "generation": "b" * 32,
+        "binary_sha256": SHA256,
+        "target": target,
+        "analysis_manifest": "c" * 64,
+        "verification_digest": hashlib.sha256(b"[]").hexdigest(),
+        "readset": [
+            {
+                **row,
+                "origin": "source"
+                if row["path"] in source_paths or row["path"] == "rebrew-project.toml"
+                else "analysis",
+            }
+            for row in plan
+        ],
+    }
+    request = {
+        "project_dir": analysed["project"],
+        "sha256": SHA256,
+        "files": files,
+        "rebrew_target": target,
+        "binary_key": KEY,
+        "coverage_input": envelope,
+        "coverage_input_digest": coverage_input_digest(envelope),
+        "verification_records": [],
+    }
+    return config, request, analysed, envelope
+
+
 class TestReconstructionOps:
     def test_retained_reports_require_and_use_verified_readset(self, tmp_path: Path) -> None:
         from rebrew.coverage_input_contract import (
             coverage_input_digest,
-            plan_coverage_readset,
             verification_records_digest,
         )
-        from rebrew.ops import FlagSearchFile, retained_target_snapshot
 
-        filestore, workspace = _worker_dirs(tmp_path)
-        config = WorkerConfig(filestore.resolve(), workspace.resolve())
-        status, raw = dispatch(config, "rebrew.analyse", json.dumps(_analyse_request()).encode())
-        assert status == 200, raw
-        analysed = json.loads(raw)
-        capture = analysed["analysis_capture"]
-        files = []
-        source_paths = {
-            entry["path"] for entry in capture["entries"] if entry.get("role") == "source"
-        }
-        for entry in capture["entries"]:
-            if entry["kind"] != "file":
-                continue
-            data = base64.b64decode(entry["data"])
-            digest, key = _store(filestore, data)
-            files.append({"path": entry["path"], "size": len(data), "digest": digest, "key": key})
-        target = capture["target"]
-        with retained_target_snapshot(
-            config, [FlagSearchFile(**item) for item in files], target, SHA256, KEY, ""
-        ) as staged:
-            plan = plan_coverage_readset(staged, target)
-        envelope = {
-            "version": 1,
-            "source_revision": "a" * 64,
-            "generation": "b" * 32,
-            "binary_sha256": SHA256,
-            "target": target,
-            "analysis_manifest": "c" * 64,
-            "verification_digest": hashlib.sha256(b"[]").hexdigest(),
-            "readset": [
-                {
-                    **row,
-                    "origin": "source"
-                    if row["path"] in source_paths or row["path"] == "rebrew-project.toml"
-                    else "analysis",
-                }
-                for row in plan
-            ],
-        }
-        request = {
-            "project_dir": analysed["project"],
-            "sha256": SHA256,
-            "files": files,
-            "rebrew_target": target,
-            "binary_key": KEY,
-            "coverage_input": envelope,
-            "coverage_input_digest": coverage_input_digest(envelope),
-            "verification_records": [],
-        }
+        config, request, analysed, envelope = _retained_coverage_request(tmp_path)
         status, body = dispatch(config, "rebrew.coverage_report", json.dumps(request).encode())
         assert status == 200, body
         assert json.loads(body)["report"]["measures"]["matched_functions"] == 0
@@ -1154,6 +1197,42 @@ class TestReconstructionOps:
         request["coverage_input_digest"] = "d" * 64
         status, body = dispatch(config, "rebrew.coverage_report", json.dumps(request).encode())
         assert status == 409, body
+
+    def test_retained_build_names_an_invalid_project_config(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A staged rebrew-project.toml rebrew refuses is the caller's to fix: say what, not "see the log"."""
+        filestore, workspace = _worker_dirs(tmp_path)
+        config = WorkerConfig(filestore.resolve(), workspace.resolve())
+        status, raw = dispatch(config, "rebrew.analyse", json.dumps(_analyse_request()).encode())
+        assert status == 200, raw
+        analysed = json.loads(raw)
+        capture = analysed["analysis_capture"]
+        files = []
+        for entry in capture["entries"]:
+            if entry["kind"] != "file":
+                continue
+            data = base64.b64decode(entry["data"])
+            if entry["path"] == "rebrew-project.toml":
+                assert b"\n[compiler]\n" in data, "the generated config has a compiler table"
+                data = data.replace(
+                    b"\n[compiler]\n", b'\n[compiler]\nexecution_backend = "unshare"\n', 1
+                )
+            digest, key = _store(filestore, data)
+            files.append({"path": entry["path"], "size": len(data), "digest": digest, "key": key})
+        monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://127.0.0.1:9")
+        request = {
+            "project_dir": analysed["project"],
+            "sha256": SHA256,
+            "files": files,
+            "rebrew_target": capture["target"],
+            "binary_key": KEY,
+        }
+        refusal = _refusal(config, "rebrew.build", json.dumps(request).encode())
+        assert (refusal["error"], refusal["status"]) == ("invalid-project-config", 400)
+        assert refusal["detail"] == (
+            "invalid project config: rebrew-project.toml: compiler.execution_backend = unshare conflicts with remote recompile"
+        )
 
     def test_analyse_same_binary_has_isolated_project_workspaces(self, tmp_path: Path) -> None:
         from rebrew.config import load_config
@@ -1238,6 +1317,49 @@ class TestReconstructionOps:
             json.dumps({"project_dir": str(project)}).encode(),
         )
         assert status == 400
+
+    def test_retained_ops_do_not_read_project_dir(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A retained request reads only its snapshot, as recoverage's do.
+
+        Each op first required ``project_dir`` to be a live rebrew project in
+        the worker's workspace, so a replica without that directory (or a
+        project the isolated runner recorded elsewhere) answered 400.
+        """
+        config, request, _analysed, _envelope = _retained_coverage_request(tmp_path)
+        gone = str(tmp_path / "elsewhere" / "project")
+        retained = {**request, "project_dir": gone}
+        _call(config, "rebrew.coverage_report", retained)
+        site = {**retained, "binary_id": 1, "output_dir": "reports/generated/" + "f" * 32}
+        assert _call(config, "rebrew.report", site)["manifest"]
+        commands: list[list[str]] = []
+
+        def run_rebrew(arguments: list[str], project: Path, *_a: Any, **_k: Any) -> Any:
+            assert project.is_relative_to(config.workspace) and project.name.startswith(
+                "retained-target-"
+            )
+            commands.append(arguments)
+            return {"items": [], "total": 0}
+
+        monkeypatch.setattr("rebrew.ops.run_rebrew", run_rebrew)
+        # Retained target commands compile only through the operator's service.
+        monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://recompile.test")
+        status, body = dispatch(config, "rebrew.data_list", json.dumps(retained).encode())
+        assert status == 200, body
+        target_request = {
+            key: retained[key]
+            for key in ("project_dir", "sha256", "files", "rebrew_target", "binary_key")
+        }
+        for op, extra in (("rebrew.verify_target", {"no_promote": True}), ("rebrew.build", {})):
+            body = json.dumps({**target_request, **extra}).encode()
+            status, reply = dispatch(config, op, body)
+            assert status == 200, reply
+        assert [arguments[:2] for arguments in commands] == [
+            ["data", "list"],
+            ["verify", "--json"],
+            ["build", "round-trip"],
+        ]
 
     def test_analysed_elf_reports_defined_symbol_names_and_sizes(self, tmp_path: Path) -> None:
         import lief
@@ -1554,15 +1676,56 @@ class TestReconstructionOps:
             "status"
         ] == (400)
 
-    def test_coverage_export_round_trips_through_import(
+    def test_the_analysis_report_follows_its_published_shape(self, tmp_path: Path) -> None:
+        """The backend parses ``.relumea/analysis-report.json`` from the capture, so
+        its path and shape are rebrew's contract, published beside the ops (R4-022).
+        They lived only in code on both sides."""
+        filestore, workspace = _worker_dirs(tmp_path)
+        config = WorkerConfig(filestore.resolve(), workspace.resolve())
+        capture = _call(config, "rebrew.analyse", _analyse_request())["analysis_capture"]
+        documents = _CONTRACT["documents"]
+        assert list(documents) == [capture["report_path"]]
+        entry = next(e for e in capture["entries"] if e["path"] == capture["report_path"])
+        report = json.loads(base64.b64decode(entry["data"]))
+        _validate(documents[capture["report_path"]], report)
+        assert [(f["va"], f["size"]) for f in report["functions"]] == [
+            (0x401000, 11),
+            (0x401010, 10),
+        ]
+        # A report the schema refuses is caught by the same validator.
+        with pytest.raises(AssertionError):
+            _validate(documents[capture["report_path"]], {**report, "extra": 1})
+
+    @pytest.mark.parametrize(
+        "op",
+        [
+            "rebrew.coverage_export",
+            "rebrew.source_variants",
+            "rebrew.decompme_export",
+            "rebrew.source_rename",
+            "rebrew.source_split",
+            "rebrew.source_merge",
+        ],
+    )
+    def test_ops_without_a_caller_are_not_served(self, op: str) -> None:
+        """No backend code, client or engine calls these (R4-017), yet they wrote
+        project files, the workspace or a decomp.me scratch against a live project.
+        ``rebrew.retained_source_operation`` does the source work on snapshots."""
+        assert op not in _CONTRACT["ops"]
+        refusal = _refusal(WorkerConfig(), op, b"{}")
+        assert (refusal["status"], refusal["error"]) == (404, "unknown-op")
+
+    def test_import_project_reads_portable_coverage_documents(
         self, world: tuple[WorkerConfig, Path]
     ) -> None:
+        from rebrew.coverage_toml import write_coverage_toml
+
         config, project = world
         assert config.workspace is not None
-        request = {"project_dir": str(project), "sha256": SHA256, "output_dir": "exports/cov"}
-        reply = _call(config, "rebrew.coverage_export", request)
         out = config.workspace / "exports" / "cov"
-        assert reply == {"output_dir": str(out), "documents": [str(out / "coverage-mini.toml")]}
+        assert write_coverage_toml(project, out, target="mini", json_output=True) == [
+            out / "coverage-mini.toml"
+        ]
         imported = _call(
             config, "rebrew.import-project", {"project_dir": str(project), "snapshots": str(out)}
         )
@@ -1601,6 +1764,29 @@ class TestReconstructionOps:
         refusal = _refusal(config, "rebrew.data_list", json.dumps(unverified).encode())
         assert (refusal["status"], refusal["error"]) == (409, "coverage-input-unverified")
 
+    @pytest.mark.parametrize("op", ["rebrew.report", "rebrew.coverage_report", "rebrew.data_list"])
+    def test_a_partial_coverage_input_is_an_invalid_request(
+        self, world: tuple[WorkerConfig, Path], op: str
+    ) -> None:
+        """The schema requires all eight fields; the missing ones were defaulted and
+        the request was refused later as 409 coverage-input-unverified."""
+        config, project = world
+        request = {
+            "binary_id": 1,
+            "project_dir": str(project),
+            "output_dir": "reports/generated/" + "b" * 32,
+            "files": [{"path": "src/a.c", "digest": "a" * 64, "size": 1}],
+            "rebrew_target": "mini",
+            "coverage_input": {"version": 1},
+            "coverage_input_digest": "c" * 64,
+            "verification_records": [],
+        }
+        if op != "rebrew.report":
+            del request["binary_id"], request["output_dir"]
+        refusal = _refusal(config, op, json.dumps(request).encode())
+        assert (refusal["status"], refusal["error"]) == (400, "invalid-request")
+        assert refusal["detail"] == "request.coverage_input is missing source_revision"
+
     def test_data_list_and_set(self, world: tuple[WorkerConfig, Path]) -> None:
         config, project = world
         listing = _call(config, "rebrew.data_list", {"project_dir": str(project)})
@@ -1613,43 +1799,22 @@ class TestReconstructionOps:
             "data_set needs at least one field to set"
         )
 
-    def test_source_rename_preview(self, world: tuple[WorkerConfig, Path]) -> None:
+    @pytest.mark.parametrize(
+        ("field", "value", "message"),
+        [
+            ("storage_kind", "bogus", "invalid storage_kind 'bogus'"),
+            ("name", "not an identifier", "--name wants a C identifier"),
+        ],
+    )
+    def test_data_set_value_the_command_rejects_is_an_invalid_request(
+        self, world: tuple[WorkerConfig, Path], field: str, value: str, message: str
+    ) -> None:
+        """The command's usage refusal answered 500 engine-error, its kind dropped."""
         config, project = world
-        request = {
-            "project_dir": str(project),
-            "kind": "function",
-            "old_name": "fcn_00401000",
-            "new_name": "entry_fn",
-            "dry_run": True,
-        }
-        reply = _call(config, "rebrew.source_rename", request)
-        assert (reply["new_symbol"], reply["dry_run"]) == ("_entry_fn", True)
-
-    def test_source_merge_preview_and_split_refusal(self, world: tuple[WorkerConfig, Path]) -> None:
-        config, project = world
-        sources = ["src/mini/fcn_00401000.c", "src/mini/fcn_00401010.c"]
-        request = {
-            "project_dir": str(project),
-            "sources": sources,
-            "output": "src/mini/merged.c",
-            "dry_run": True,
-        }
-        reply = _call(config, "rebrew.source_merge", request)
-        assert (reply["count"], reply["vas"]) == (2, ["0x00401000", "0x00401010"])
-        assert not (project / "src" / "mini" / "merged.c").exists()
-        split = {"project_dir": str(project), "source": sources[0], "dry_run": True}
-        refusal = _refusal(config, "rebrew.source_split", json.dumps(split).encode())
-        assert refusal["detail"].startswith("rebrew source split failed: Input must contain")
-
-    def test_decompme_export_preview(self, world: tuple[WorkerConfig, Path]) -> None:
-        config, project = world
-        request = {
-            "project_dir": str(project),
-            "source": "src/mini/fcn_00401000.c",
-            "dry_run": True,
-        }
-        reply = _call(config, "rebrew.decompme_export", request)
-        assert (reply["dry_run"], reply["va"], reply["platform"]) == (True, "0x00401000", "win32")
+        request = {"project_dir": str(project), "va": 0x401050, field: value, "dry_run": True}
+        refusal = _refusal(config, "rebrew.data_set", json.dumps(request).encode())
+        assert (refusal["status"], refusal["error"]) == (400, "invalid-request")
+        assert message in refusal["detail"]
 
     @pytest.mark.parametrize("source", ["../escape.c", "/etc/passwd", "src/mini/missing.c"])
     def test_source_paths_stay_in_the_project(
@@ -1665,10 +1830,6 @@ class TestReconstructionOps:
             ("rebrew.verify_function", {"source": "src/mini/uses_header.c"}),
             ("rebrew.verify_target", {}),
             ("rebrew.build", {}),
-            (
-                "rebrew.source_variants",
-                {"source": "src/mini/uses_header.c", "generations": 1, "population": 2, "seed": 1},
-            ),
         ],
     )
     def test_remote_compile_refuses_project_headers(
@@ -1684,7 +1845,13 @@ class TestReconstructionOps:
         body = json.dumps({"project_dir": str(project), **extra}).encode()
         refusal = _refusal(config, op, body)
         assert (refusal["error"], refusal["status"]) == ("remote-compile-headers", 422)
-        assert refusal["detail"].startswith("src/mini/uses_header.c reads project headers")
+        assert refusal["detail"].startswith(
+            "src/mini/uses_header.c includes the project header src/mini/local.h"
+        )
+        assert "compile with a local backend" in refusal["detail"]
+        assert str(project) not in refusal["detail"]
+        if op in {"rebrew.verify_target", "rebrew.build"}:
+            assert "1 of " in refusal["detail"], "a whole-target refusal says how many sources"
 
 
 # ---------------------------------------------------------------------------
@@ -1722,6 +1889,61 @@ class TestExecTransport:
         assert (code, reply) == (0, {"text": "push ebp\n"})
         _validate(_op_schema("rebrew.disassemble", "response"), reply)
 
+    def test_sigterm_stops_the_child_command_and_removes_the_snapshot(self, tmp_path: Path) -> None:
+        """The backend cancels an exec call with SIGTERM to the worker's process group.
+
+        The child command runs in its own session, outside that group, and the
+        worker died without stopping it: it kept running and the retained
+        snapshot under ``.scratch`` stayed on disk.
+        """
+        config, request, _analysed, _envelope = _retained_coverage_request(tmp_path)
+        assert config.filestore is not None and config.workspace is not None
+        pid_file = tmp_path / "child.pid"
+        launcher = tmp_path / "launch.py"
+        # The worker's own interpreter, with the sleeping stand-in as the
+        # sys.executable its child commands start.
+        launcher.write_text(
+            "import runpy\nimport sys\n\n"
+            "sys.executable = sys.argv[1]\n"
+            'sys.argv = ["rebrew", *sys.argv[2:]]\n'
+            'runpy.run_module("rebrew.app.main", run_name="__main__")\n'
+        )
+        argv = [
+            sys.executable,
+            str(launcher),
+            str(_sleeping_python(tmp_path)),
+            "ops",
+            "call",
+            "--filestore",
+            str(config.filestore),
+            "--workspace",
+            str(config.workspace),
+            "rebrew.data_list",
+        ]
+        with (tmp_path / "worker.log").open("wb") as log:
+            worker = subprocess.Popen(
+                argv,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=log,
+                env={**os.environ, _CHILD_PID_ENV: str(pid_file)},
+                start_new_session=True,
+            )
+        assert worker.stdin is not None
+        worker.stdin.write(json.dumps(request).encode())
+        worker.stdin.close()
+        child = _child_pid(pid_file)
+        try:
+            os.killpg(worker.pid, signal.SIGTERM)
+            assert worker.wait(timeout=WAIT_SECONDS) == 128 + signal.SIGTERM
+            assert _stopped(child, _STOP_SECONDS)
+            assert not list((config.workspace / ".scratch").glob("retained-target-*"))
+        finally:
+            _kill_leftover(child)
+            if worker.poll() is None:
+                worker.kill()
+                worker.wait(timeout=WAIT_SECONDS)
+
     def test_refusal_exits_2_with_the_error_on_stdout(self, tmp_path: Path) -> None:
         request = {"project_dir": str(tmp_path), "va": 0, "size": 1, "format": "asm"}
         code, reply = self._exec(_rebrew("ops", "call"), "rebrew.disassemble", request)
@@ -1737,6 +1959,143 @@ def _free_port() -> int:
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         return int(probe.getsockname()[1])
+
+
+#: Environment variable naming the file the sleeping child writes its pid to.
+_CHILD_PID_ENV = "REBREW_TEST_CHILD_PID"
+
+
+def _sleeping_python(directory: Path) -> Path:
+    """A stand-in for the interpreter a child command runs under: it records its pid and sleeps.
+
+    ``run_rebrew`` starts ``sys.executable -P -m rebrew.app.main ...``; with this
+    as ``sys.executable`` the child never finishes on its own.
+    """
+    script = directory / "sleeping-python"
+    script.write_text(f'#!/bin/sh\necho $$ > "${_CHILD_PID_ENV}"\nexec sleep {WAIT_SECONDS}\n')
+    script.chmod(0o755)
+    return script
+
+
+def _child_pid(path: Path) -> int:
+    deadline = time.monotonic() + WAIT_SECONDS
+    while not path.is_file() or not path.read_text().strip():
+        assert time.monotonic() < deadline, "the child command never started"
+        time.sleep(0.05)
+    return int(path.read_text())
+
+
+def _stopped(pid: int, within: float) -> bool:
+    """Whether process *pid* is gone (killed and reaped) within *within* seconds."""
+    deadline = time.monotonic() + within
+    while True:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.05)
+
+
+def _kill_leftover(pid: int) -> None:
+    """Stop a child an unfixed worker left running, by its exact pid."""
+    with contextlib.suppress(ProcessLookupError):
+        os.kill(pid, signal.SIGKILL)
+
+
+#: Seconds a cancelled call may take to stop its child command.
+_STOP_SECONDS = 20
+
+
+class TestHttpCancellation:
+    """A call stops when its caller gives up, and its slot serves the next call."""
+
+    @contextlib.contextmanager
+    def _serving(
+        self, world: tuple[WorkerConfig, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> Any:
+        """A one-slot worker whose child commands sleep; yields (port, pid file, request)."""
+        from rebrew.ops import OpsServer
+
+        config, project = world
+        pid_file = tmp_path / "child.pid"
+        monkeypatch.setattr(sys, "executable", str(_sleeping_python(tmp_path)))
+        monkeypatch.setenv(_CHILD_PID_ENV, str(pid_file))
+        body = json.dumps({"project_dir": str(project)}).encode()
+        with OpsServer(("127.0.0.1", 0), config, TOKEN, 1) as server:
+            thread = threading.Thread(
+                target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+            )
+            thread.start()
+            try:
+                yield server.server_address[1], pid_file, body
+            finally:
+                if pid_file.is_file():
+                    _kill_leftover(int(pid_file.read_text()))
+                server.shutdown()
+                thread.join(timeout=WAIT_SECONDS)
+
+    @staticmethod
+    def _request(port: int, body: bytes, extra: str = "") -> bytes:
+        return (
+            f"POST /rebrew.data_list HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n"
+            f"Authorization: Bearer {TOKEN}\r\nContent-Type: application/json\r\n"
+            f"Content-Length: {len(body)}\r\n{extra}\r\n"
+        ).encode() + body
+
+    def test_a_caller_that_closes_the_connection_stops_the_call(
+        self, world: tuple[WorkerConfig, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The backend gives up at its dispatch timeout and closes the connection.
+
+        Nothing watched the socket, so the child command ran on to its own
+        bound (up to an hour) holding one of the worker's slots.
+        """
+        with self._serving(world, tmp_path, monkeypatch) as (port, pid_file, body):
+            caller = socket.create_connection(("127.0.0.1", port), timeout=WAIT_SECONDS)
+            caller.sendall(self._request(port, body))
+            child = _child_pid(pid_file)
+            caller.close()
+            assert _stopped(child, _STOP_SECONDS)
+            status, _reply = TestHttpTransport()._wait_for_a_free_slot(
+                port, time.monotonic() + _STOP_SECONDS
+            )
+            assert status == 404
+
+    def test_a_call_past_its_deadline_answers_504_and_stops(
+        self, world: tuple[WorkerConfig, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        with self._serving(world, tmp_path, monkeypatch) as (port, pid_file, body):
+            caller = socket.create_connection(("127.0.0.1", port), timeout=WAIT_SECONDS)
+            try:
+                caller.sendall(self._request(port, body, "X-Rebrew-Timeout: 1\r\n"))
+                child = _child_pid(pid_file)
+                reply = b"".join(iter(lambda: caller.recv(4096), b""))
+            finally:
+                caller.close()
+            head, _, payload = reply.partition(b"\r\n\r\n")
+            assert head.split(b"\r\n", 1)[0].split(b" ", 2)[1] == b"504"
+            assert json.loads(payload)["error"] == "deadline-exceeded"
+            assert _stopped(child, _STOP_SECONDS)
+
+    @pytest.mark.parametrize("value", ["0", "-1", "soon", "nan", "inf"])
+    def test_a_malformed_deadline_is_refused(
+        self,
+        world: tuple[WorkerConfig, Path],
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        value: str,
+    ) -> None:
+        with self._serving(world, tmp_path, monkeypatch) as (port, pid_file, body):
+            status, reply = TestHttpTransport()._post(
+                port,
+                "/rebrew.data_list",
+                body,
+                {"Authorization": f"Bearer {TOKEN}", "X-Rebrew-Timeout": value},
+            )
+            assert (status, reply["error"]) == (400, "invalid-request")
+            assert not pid_file.exists()
 
 
 class TestHttpTransport:
@@ -2337,3 +2696,186 @@ def test_export_stats_are_zero_without_an_exporter() -> None:
     from rebrew import telemetry
 
     assert telemetry.export_stats() == {"dropped": 0, "failed": 0}
+
+
+# ---------------------------------------------------------------------------
+# Project archive import
+# ---------------------------------------------------------------------------
+
+
+def _analysed_project(tmp_path: Path) -> tuple[WorkerConfig, Path, Path]:
+    """A worker, its filestore, and an analysed project directory to archive."""
+    filestore, workspace = _worker_dirs(tmp_path)
+    config = WorkerConfig(filestore.resolve(), workspace.resolve())
+    reply = _call(config, "rebrew.analyse", {**_analyse_request(), "project_id": "source"})
+    return config, filestore, Path(reply["project"])
+
+
+def _tar_bytes(members: list[tuple[str, bytes | None, str]]) -> bytes:
+    """A tar.gz of (name, data, kind) members; kind is file, dir, symlink, hardlink or fifo."""
+    import io
+    import tarfile
+
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        for name, data, kind in members:
+            info = tarfile.TarInfo(name)
+            if kind == "file":
+                info.size = len(data or b"")
+                archive.addfile(info, io.BytesIO(data or b""))
+                continue
+            info.type = {
+                "dir": tarfile.DIRTYPE,
+                "symlink": tarfile.SYMTYPE,
+                "hardlink": tarfile.LNKTYPE,
+                "fifo": tarfile.FIFOTYPE,
+            }[kind]
+            info.linkname = (data or b"").decode()
+            archive.addfile(info)
+    return buffer.getvalue()
+
+
+def _project_members(project: Path, prefix: str = "") -> list[tuple[str, bytes | None, str]]:
+    """Every regular file of *project* as tar members, skipping rebrew's lock and cache files."""
+    members: list[tuple[str, bytes | None, str]] = []
+    for path in sorted(project.rglob("*")):
+        relative = path.relative_to(project).as_posix()
+        if path.is_file() and not path.name.endswith(".lock") and "/.rebrew/" not in f"/{relative}":
+            members.append((prefix + relative, path.read_bytes(), "file"))
+    return members
+
+
+def _import(config: WorkerConfig, filestore: Path, archive: bytes) -> tuple[int, dict[str, Any]]:
+    digest, key = _store(filestore, archive)
+    request = {
+        "binary_id": 1,
+        "project_id": "imported",
+        "sha256": SHA256,
+        "archive_sha256": digest,
+        "archive_key": key,
+    }
+    _validate(_op_schema("rebrew.import_archive", "request"), request)
+    status, body = dispatch(config, "rebrew.import_archive", json.dumps(request).encode())
+    return status, json.loads(body)
+
+
+class TestImportArchive:
+    def test_imports_the_matching_target_with_its_statuses_and_capture(
+        self, tmp_path: Path
+    ) -> None:
+        from rebrew.config import load_config, target_module
+        from rebrew.metadata.functions import update_field, update_source_status
+
+        config, filestore, project = _analysed_project(tmp_path)
+        module = target_module(load_config(project))
+        assert update_source_status(project, "EXACT", module, ENTRY_VA, force=True)
+        update_field(project, 0x500000, "NOTE", "a record of another module", "OTHERMOD")
+        status, reply = _import(config, filestore, _tar_bytes(_project_members(project, "export/")))
+        assert status == 200, reply
+        _validate(_op_schema("rebrew.import_archive", "response"), reply)
+        installed = Path(reply["project"])
+        scope = hashlib.sha256(b"imported").hexdigest()
+        assert installed == config.workspace / "projects" / "scopes" / scope / SHA256
+        [target] = reply["targets"]
+        assert target["sha256"] == SHA256
+        assert {row["va"]: row["status"] for row in target["functions"]}[ENTRY_VA] == "EXACT"
+        capture = reply["analysis_capture"]
+        assert (capture["binary_sha256"], capture["target"]) == (SHA256, target["name"])
+        assert sum(entry["kind"] == "binary" for entry in capture["entries"]) == 1
+        assert reply["intake"]["module"] == module
+        assert reply["intake"]["dropped_records"] == 1
+        assert "OTHERMOD." not in (installed / "rebrew-functions.toml").read_text()
+
+    def test_refuses_an_archive_whose_binary_is_not_the_project_binary(
+        self, tmp_path: Path
+    ) -> None:
+        config, filestore, project = _analysed_project(tmp_path)
+        members = [
+            (name, b"MZ not the stored binary" if data == BINARY.read_bytes() else data, kind)
+            for name, data, kind in _project_members(project)
+        ]
+        status, reply = _import(config, filestore, _tar_bytes(members))
+        assert (status, reply["error"]) == (422, "project-import-refused"), reply
+        assert SHA256 in reply["detail"]
+
+    @pytest.mark.parametrize(
+        ("member", "why"),
+        [
+            (("../escape.txt", b"x", "file"), "../escape.txt"),
+            (("/etc/evil", b"x", "file"), "/etc/evil"),
+            (("link", b"/etc/passwd", "symlink"), "link"),
+            (("hard", b"rebrew-project.toml", "hardlink"), "hard"),
+            (("pipe", None, "fifo"), "pipe"),
+        ],
+    )
+    def test_refuses_unsafe_entries_before_writing_them(
+        self, tmp_path: Path, member: tuple[str, bytes | None, str], why: str
+    ) -> None:
+        config, filestore, project = _analysed_project(tmp_path)
+        status, reply = _import(config, filestore, _tar_bytes([*_project_members(project), member]))
+        assert (status, reply["error"]) == (422, "project-import-refused"), reply
+        assert why in reply["detail"]
+        assert not (tmp_path / "escape.txt").exists()
+        assert not (
+            config.workspace / "projects" / "scopes" / hashlib.sha256(b"imported").hexdigest()
+        ).exists()
+
+    def test_refuses_more_entries_than_the_bound(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.project_archive
+
+        config, filestore, project = _analysed_project(tmp_path)
+        members = _project_members(project)
+        monkeypatch.setattr(rebrew.project_archive, "ARCHIVE_MAX_ENTRIES", len(members) - 1)
+        status, reply = _import(config, filestore, _tar_bytes(members))
+        assert (status, reply["error"]) == (422, "project-import-refused"), reply
+        assert "entries" in reply["detail"]
+
+    @pytest.mark.parametrize(
+        ("setting", "named"),
+        [
+            ('execution_backend = "unshare"', "execution_backend"),
+            ('command = "sh -c true"', "command"),
+            ('recompile_url = "http://127.0.0.1:9"', "recompile_url"),
+        ],
+    )
+    def test_refuses_settings_that_run_or_reach_something(
+        self, tmp_path: Path, setting: str, named: str
+    ) -> None:
+        config, filestore, project = _analysed_project(tmp_path)
+        members = []
+        for name, data, kind in _project_members(project):
+            if name == "rebrew-project.toml":
+                assert data is not None
+                table = f'[targets."{target_name("mini.exe")}".compiler]'
+                data += f"\n{table}\n{setting}\n".encode()
+            members.append((name, data, kind))
+        status, reply = _import(config, filestore, _tar_bytes(members))
+        assert (status, reply["error"]) == (422, "project-import-refused"), reply
+        assert named in reply["detail"]
+
+    def test_an_unreadable_config_is_invalid_project_config(self, tmp_path: Path) -> None:
+        """An archive config rebrew cannot read answers the code every supplied config refusal shares."""
+        config, filestore, project = _analysed_project(tmp_path)
+        members = [
+            (name, b"[targets\n" if name == "rebrew-project.toml" else data, kind)
+            for name, data, kind in _project_members(project)
+        ]
+        status, reply = _import(config, filestore, _tar_bytes(members))
+        assert (status, reply["error"]) == (400, "invalid-project-config"), reply
+        assert reply["detail"].startswith("invalid project config: rebrew-project.toml")
+        assert str(config.workspace) not in reply["detail"]
+
+    def test_a_zip_archive_imports_like_a_tar(self, tmp_path: Path) -> None:
+        import io
+        import zipfile
+
+        config, filestore, project = _analysed_project(tmp_path)
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            for name, data, _kind in _project_members(project):
+                archive.writestr(name, data or b"")
+        status, reply = _import(config, filestore, buffer.getvalue())
+        assert status == 200, reply
+        assert reply["targets"][0]["sha256"] == SHA256

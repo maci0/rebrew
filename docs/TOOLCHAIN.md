@@ -20,9 +20,10 @@ over HTTP only when the URL host equals it exactly; any other HTTP URL still ref
 compensating control is the cluster NetworkPolicy: rebrew's pods must be allowed to reach that
 service and nothing else on the network, or the key travels in clear text where others can read it. The
 key is sent as a bearer credential to the configured service and its
-same-origin artifact endpoint. Every compile sends a deterministic idempotency key derived from compiler,
-source, flags, filename and assembly-output choice. Identical inputs reproduce
-the key across retries and process restarts; the request itself is not saved.
+same-origin artifact endpoint. Every compile call is one attempt with its own random
+`Idempotency-Key`: a retry after a lost reply resends it, so the service reconciles that
+attempt instead of compiling twice, and a later compile of the same input, after a failure
+or an image update, is a new attempt with a new key. Neither key nor request is saved.
 Job-socket compiles use their own capability.
 For Docker execution, the local compile cache keys an object on the inspected
 image id (`sha256:` plus 64 hex), and `docker run` uses that same id with
@@ -377,13 +378,20 @@ GitHub-codeload pin (archaic-msvc, archaic-toolchains, itsmattkc)
 records the branch commit it was taken from, and the checker compares
 the live commit sha via the GitHub API (no download); a changed
 upstream repo (e.g. a preservation fix) is reported as `DRIFTED`
-before any build fails.  `rebrew toolchain update <name> --apply`
-re-pins (sha256 + commit), re-vendors the host tree, rebuilds the
-docker image and regenerates the smoke golden (verified stable across
-two compiles).  The image swap is transactional: a failed build/pull
-restores the previously registered image under the tag, and a failed
-`update --apply` restores the previous source pin; the pin never stays
-ahead of the image.  A `Last-CI-build` release tag is re-downloaded and
+before any build fails.  The pins are recompile-toolchains': rebrew reads
+them from that repository's generated `toolchains.json`, vendored byte for
+byte as `src/rebrew/compiler/toolchains.json` from the release
+`TOOLCHAINS_RELEASE` names and checked against `TOOLCHAINS_MANIFEST_SHA256`
+(`src/rebrew/compiler/toolchain_data.py`) on every read.  To re-pin,
+`rebrew toolchain update <name>` prints the new sha256 and commit; set them
+in recompile-toolchains' `sources.json`, run `make generate docs` there and
+release, then copy the release's `toolchains.json` over the vendored file
+and update both constants.  `rebrew toolchain vendor`, `build` and `smoke
+--print-goldens` rebuild the host tree, the image and the smoke golden.
+rebrew edits no file in the recompile-toolchains checkout except the host
+trees `vendor` assembles.  The image swap is transactional: a failed
+build/pull restores the previously registered image under the tag.  A
+`Last-CI-build` release tag is re-downloaded and
 re-hashed; a `refs/heads/...` branch tarball is resolved by asking the
 GitHub API for the branch head (no download).  Every other pin (the dated
 Open Watcom snapshots, decomp.me / archive.org payloads, the 16-bit media
@@ -982,8 +990,9 @@ with a `Bin/`; the archaic `msvc600_sp3` repo has headers/libs only).
 | WinWorld `visual-c/1x` (3.5\" floppy set) | VC 1.0 Professional (1992) 16-bit media | pinned `msvc10.tar.xz` |
 | **Gap preservation repos** | the toolchains archaic-msvc does not carry: VC 1.0/1.5/1.52/4.0, 6.0-SP1/SP2/SP4 with their Bin (SP1/SP2 reconstructed from the official SP payloads, SP1 documented as not preserved standalone), 9.0-SP1's 15.00.30729 compiler, plus the non-MSVC line (Borland C++ 5.5, Turbo C 2.0/3.1, Open Watcom 2.0, Delphi 1.0), are published one-per-repo at **`github.com/archaic-toolchains`**, same tree format, READMEs with provenance + checksums | n/a |
 
-Full sha256 values live in `SOURCES` (`src/rebrew/compiler/toolchain_data.py`): the
-Dockerfiles verify them at build time and `rebrew toolchain vendor` refuses a
+Full sha256 values live in the vendored recompile-toolchains `toolchains.json`
+(`rebrew.compiler.toolchain_data.pinned_sources`), the same pins the
+Dockerfiles verify at build time; `rebrew toolchain vendor` refuses a
 mismatch, so a changed source fails loudly.  `rebrew toolchain smoke` then
 gates byte-reproducibility: every image-backed MSVC profile; `msvc-1.0`
 (16-bit) included; has a golden object hash.

@@ -75,6 +75,7 @@ def test_retained_proposals_and_candidate(tmp_path: Path, monkeypatch: Any) -> N
         return {"ok": True}
 
     real_run = ops.run_rebrew
+    real_refusal = ops.remote_header_refusal
     monkeypatch.setattr(ops, "run_rebrew", run)
     monkeypatch.setattr(ops, "remote_header_refusal", lambda *args: None)
     config = ops.WorkerConfig(filestore.resolve(), workspace.resolve())
@@ -210,3 +211,23 @@ def test_retained_proposals_and_candidate(tmp_path: Path, monkeypatch: Any) -> N
     proposal = json.loads(body)["files"]
     entry = next(item for item in proposal if item["path"] == "rebrew-data.toml")
     assert b"g_new" in base64.b64decode(entry["content"])
+    # The remote service compiles the candidate's text alone, so a variant
+    # search over one that reads a project header is refused before it runs.
+    monkeypatch.setattr(ops, "remote_header_refusal", real_refusal)
+    header = b"#define ONE 1\n"
+    digest, key = store(header)
+    with_header = '#include "local.h"\nint add(int a, int b) { return ONE; }\n'
+    request.update(
+        files=[*files, {"path": "src/local.h", "digest": digest, "size": len(header), "key": key}],
+        operation="variants",
+        size=11,
+        generations=1,
+        population=1,
+        candidate=with_header,
+        candidate_sha256=hashlib.sha256(with_header.encode()).hexdigest(),
+    )
+    status, body = ops.dispatch(
+        config, "rebrew.retained_source_operation", json.dumps(request).encode()
+    )
+    refusal = json.loads(body)
+    assert (status, refusal["error"]) == (422, "remote-compile-headers"), body
