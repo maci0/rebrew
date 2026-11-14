@@ -1,5 +1,6 @@
 """Tests for rebrew.compiler.cache — CompileCache, key builder, module-level registry."""
 
+import hashlib
 import os
 import sqlite3
 from pathlib import Path
@@ -879,6 +880,38 @@ class TestHeaderDependencyHash:
     entries that include it, and an edit to an unreached header is a hit.
     """
 
+    def test_digest_ignores_header_stat_metadata(self, tmp_path: Path) -> None:
+        """Identical header bytes give the identical digest after touch, copy or relink.
+
+        The digest is stored as ``headers_hash`` in committed type and
+        verification metadata, so mtime, inode and change time (which differ on
+        every clone and move on a hard-link change) must not feed it.
+        """
+        from rebrew.compiler.cache import header_dependency_hash
+
+        inc = tmp_path / "inc"
+        inc.mkdir()
+        header = inc / "a.h"
+        header.write_text("typedef int A;\n")
+        src = "#include <a.h>\nint f(void){return 1;}\n"
+        first = header_dependency_hash(src, None, [str(inc)])
+
+        stat = header.stat()
+        os.utime(header, ns=(stat.st_atime_ns, stat.st_mtime_ns + 5_000_000_000))
+        link = tmp_path / "hardlink.h"
+        os.link(header, link)
+        link.unlink()
+        assert header_dependency_hash(src, None, [str(inc)]) == first
+
+        copy = inc / "a.h.new"
+        copy.write_bytes(header.read_bytes())
+        os.replace(copy, header)
+        assert header.stat().st_ino != stat.st_ino
+        assert header_dependency_hash(src, None, [str(inc)]) == first
+
+        header.write_text("typedef long A;\n")
+        assert header_dependency_hash(src, None, [str(inc)]) != first
+
     def test_include_next_tracks_later_header(self, tmp_path: Path) -> None:
         from rebrew.compiler.cache import header_dependency_hash, scan_include_closure
 
@@ -974,7 +1007,7 @@ class TestHeaderDependencyHash:
         assert header_dependency_hash("int g(void){return 2;}", None, ["/inc"]) == d
 
     def test_unreadable_reached_header_changes_key(self, tmp_path: Path) -> None:
-        """A reached header that cannot be stat'ed must still move the key.
+        """A reached header that cannot be read must still move the key.
 
         Dropping it made the closure identical to one without that header, so
         the cached .obj was served against a different include set.
@@ -986,20 +1019,19 @@ class TestHeaderDependencyHash:
         header = inc / "a.h"
         header.write_text("typedef int A;\n")
         good = _header_key_entries((str(header),), None, [str(inc)])
-        st = header.stat()
-        assert good == [(0, "a.h", st.st_size, st.st_mtime_ns, st.st_ino)]
+        assert good == [(0, "a.h", hashlib.sha256(b"typedef int A;\n").hexdigest())]
 
-        real_stat = Path.stat
+        real_read = Path.read_bytes
 
-        def _fail(self: Path, *, follow_symlinks: bool = True) -> os.stat_result:
+        def _fail(self: Path) -> bytes:
             if self.name == "a.h":
-                raise OSError("simulated stat failure")
-            return real_stat(self, follow_symlinks=follow_symlinks)
+                raise OSError("simulated read failure")
+            return real_read(self)
 
         with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(Path, "stat", _fail)
+            mp.setattr(Path, "read_bytes", _fail)
             unreadable = _header_key_entries((str(header),), None, [str(inc)])
-        assert unreadable == [(0, "a.h", -1, -1, -1)]
+        assert unreadable == [(0, "a.h", "unreadable")]
         assert unreadable != good
 
     def test_unreached_header_edit_keeps_key(self, tmp_path: Path) -> None:
@@ -1030,7 +1062,7 @@ class TestHeaderDependencyHash:
 
         def _counting(
             paths: tuple[str, ...], source_dir: str | None, include_dirs: list[str]
-        ) -> list[tuple[int, str, int, int, int]]:
+        ) -> list[tuple[int, str, str]]:
             calls["n"] += 1
             return real(paths, source_dir, include_dirs)
 
@@ -1043,9 +1075,12 @@ class TestHeaderDependencyHash:
         assert header_dependency_hash(src_b, None, dirs) == first
         assert calls["n"] == 1
 
+        # A touch moves the memo identity, so the digest is rebuilt, but the
+        # bytes are unchanged and so is the digest (it is stored in committed
+        # metadata, where stat fields are machine-local).
         stat = header.stat()
         os.utime(header, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000_000))
-        assert header_dependency_hash(src_a, None, dirs) != first
+        assert header_dependency_hash(src_a, None, dirs) == first
         assert calls["n"] == 2
 
         real_b = tmp_path / "b"

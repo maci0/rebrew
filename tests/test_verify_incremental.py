@@ -2282,7 +2282,7 @@ class TestEntryFingerprint:
             assert header in reads
             assert scans == [False, True]
             assert after.source_hash == first.source_hash
-            assert after.headers_fp != first.headers_fp
+            assert (after.headers_fp != first.headers_fp) == (operation == "edit")
 
     def test_library_override_edit_invalidates_warm_fingerprint(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
@@ -2538,9 +2538,14 @@ class TestCurrentWriterCacheIdentity:
         count, cached = _prepare_cached(cfg)
         assert count == 2
         assert cached == count
+        # A touch alone keeps the stored header digest (it is content-based and
+        # committed), so the entries still hit; an in-process content edit must
+        # not be hidden by the memo.
         before = shared.stat().st_mtime_ns
         _bump_mtime(shared)
         assert shared.stat().st_mtime_ns != before
+        assert _prepare_cached(cfg) == (2, 2)
+        shared.write_text(shared.read_text(encoding="utf-8") + "/* edited */\n", encoding="utf-8")
         count, cached = _prepare_cached(cfg)
         assert count == 2
         assert cached == 0

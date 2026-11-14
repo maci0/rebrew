@@ -1411,15 +1411,17 @@ def scan_include_closure(
 
 def _header_key_entries(
     paths: tuple[str, ...], source_dir: str | None, include_dirs: list[str]
-) -> list[tuple[int, str, int, int, int]]:
-    """Map resolved header paths to sorted ``(anchor, rel_path, size, mtime, ino)``.
+) -> list[tuple[int, str, str]]:
+    """Map resolved header paths to sorted ``(anchor, rel_path, content_sha256)``.
 
     *anchor* is the index of the search dir the header lives under — 0 for
     the source directory, ``i + 1`` for ``include_dirs[i]`` — so the key is
-    stable across runs of one project.  Paths unreachable from any anchor
-    fall back to their basename.  Entries are stat'ed fresh (an edit to an
-    already-resolved header is picked up within a process); a file that
-    vanished mid-run gets a ``-1`` size/mtime/inode sentinel, so its key
+    stable across runs, clones and machines.  Paths unreachable from any
+    anchor fall back to their basename.  Entries are read fresh (an edit to
+    an already-resolved header is picked up within a process).  Only bytes
+    feed the entry: the digest is stored as ``headers_hash`` in committed
+    metadata, where mtime, inode and change time are machine-local.  A file
+    that vanished mid-run gets the ``"unreadable"`` sentinel, so its key
     differs from both a present and a never-existing file and the compile
     misses.
     """
@@ -1428,7 +1430,7 @@ def _header_key_entries(
         anchors.append(resolved_path(Path(source_dir)))
     anchors += [resolved_path(Path(d)) for d in include_dirs]
 
-    entries: list[tuple[int, str, int, int, int]] = []
+    entries: list[tuple[int, str, str]] = []
     for p_str in paths:
         p = resolved_path(Path(p_str))
         rel = p.name
@@ -1441,15 +1443,15 @@ def _header_key_entries(
             except ValueError:
                 continue
         try:
-            st = p.stat()
+            digest = hashlib.sha256(p.read_bytes()).hexdigest()
         except OSError:
             # Omitting the header makes this key identical to one where the
             # file does not exist, so a .obj compiled before the read failure
-            # is served from cache.  -1 is not a reachable size, mtime_ns, or
-            # inode, so the marker cannot collide with a real entry.
-            entries.append((anchor_idx, rel, -1, -1, -1))
+            # is served from cache.  "unreadable" is not a hex digest, so the
+            # marker cannot collide with a real entry.
+            entries.append((anchor_idx, rel, "unreadable"))
             continue
-        entries.append((anchor_idx, rel, st.st_size, st.st_mtime_ns, st.st_ino))
+        entries.append((anchor_idx, rel, digest))
     return sorted(entries)
 
 
@@ -1611,8 +1613,11 @@ def header_dependency_hash(
     """SHA-256 over the translation unit's reached-header dependencies.
 
     Resolves the transitive ``#include`` closure of *source_content* and
-    hashes each reached header's identity and content digest in sorted order.  An edit to a reached header changes the digest; an edit
-    to an unreached header does not.  Falls back to conservative per-directory
+    hashes each reached header's search anchor, relative path and content
+    digest in sorted order.  An edit to a reached header changes the digest;
+    an edit to an unreached header does not, and neither do mtime, inode or
+    change time, so the value stored as ``headers_hash`` in committed metadata
+    is the same on every clone.  Falls back to conservative per-directory
     fingerprints when the closure cannot be resolved statically (non-literal
     ``#include``, or ``/FI``-style force-includes — the caller forces this).
     Returns :data:`_NO_DEPS_HASH` for a unit with no header dependencies
@@ -1636,14 +1641,9 @@ def header_dependency_hash(
             _HEADER_DIGESTS.move_to_end(ident)
             return cached
     h = hashlib.sha256()
-    h.update(repr(ident[-1]).encode())
-    for anchor_idx, rel, size, mtime_ns, ino in _header_key_entries(
-        paths, source_dir, include_dirs
-    ):
+    for anchor_idx, rel, content_digest in _header_key_entries(paths, source_dir, include_dirs):
         h.update(
-            f"{anchor_idx}\0{rel}\0{size}\0{mtime_ns}\0{ino}\0".encode(
-                "utf-8", errors="surrogateescape"
-            )
+            f"{anchor_idx}\0{rel}\0{content_digest}\0".encode("utf-8", errors="surrogateescape")
         )
     digest = h.hexdigest()
     # A stat that moved while the digest was built belongs to the new file.

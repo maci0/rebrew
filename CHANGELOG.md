@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- The reached-header digest (`compiler.cache.header_dependency_hash`, stored as `headers_hash` in type evidence and function verification metadata) hashes each header's search anchor, relative path and content, not its size, mtime, inode and change time. Identical header bytes now give the same value on every clone, so a fresh checkout, `touch`, `git checkout` or a hard-link count change no longer marks committed type evidence stale (lint W031) or forces re-verification. Content edits still change the digest. Stored `headers_hash` values written by earlier versions change once after upgrading; rebind the reported types with `rebrew types bind` and re-run `rebrew verify`.
+
 ## [6.38.0] - 2026-11-14
 
 ### Changed
