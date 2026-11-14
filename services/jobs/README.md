@@ -27,7 +27,10 @@ no-network job request pinned, budgeted managed compiles without exposing the
 caller credential to the container. The owner retains each original request
 and idempotency key before dispatch; ambiguous outcomes require an explicit
 reconciliation with the original caller credential. The worker's capability
-permits only its job's compile requests and returned artifact paths.
+permits only its job's compile requests, their returned artifact paths, and
+`GET /api/v1/features`, which the owner answers from the upstream without its
+credential so the worker can check for include bundles before it sends one; a
+compile request's `includes` and `source_dir` pass through unchanged.
 
 This is not ready for deployment. A file-by-file copy is not an atomic filesystem
 snapshot, and same-user code can change the sealed original. The digest pins

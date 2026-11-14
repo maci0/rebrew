@@ -76,14 +76,32 @@ type compileOriginal struct {
 	LastHTTPStatus   int    `json:"last_http_status,omitempty"`
 }
 
+// compileBody is recompile's CompileRequest. The bundle fields travel only
+// when the source reads project headers; the upstream checks their bounds
+// and path rules, and the body is forwarded as received (compacted).
 type compileBody struct {
-	Compiler        string   `json:"compiler"`
-	Source          string   `json:"source"`
-	Flags           []string `json:"flags"`
-	Filename        string   `json:"filename"`
-	EmitAssembly    bool     `json:"emit_assembly"`
-	TrainingConsent bool     `json:"training_consent"`
+	Compiler        string        `json:"compiler"`
+	Source          string        `json:"source"`
+	Flags           []string      `json:"flags"`
+	Filename        string        `json:"filename"`
+	EmitAssembly    bool          `json:"emit_assembly"`
+	TrainingConsent bool          `json:"training_consent"`
+	SourceDir       string        `json:"source_dir,omitempty"`
+	Includes        []includeFile `json:"includes,omitempty"`
 }
+
+// includeFile is one header of recompile's include bundle.
+type includeFile struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+}
+
+// featuresPath is where recompile lists its optional request features; a
+// worker asks it before it sends an include bundle.
+const featuresPath = "/api/v1/features"
+
+// maxFeaturesBytes bounds the forwarded features document (a few dozen bytes).
+const maxFeaturesBytes = 64 * 1024
 
 func readCompileIndex(dir string) ([]string, error) {
 	b, err := os.ReadFile(filepath.Join(dir, "index.json"))
@@ -229,6 +247,44 @@ type traceparentContextKey struct{}
 func traceIDFromContext(ctx context.Context) string {
 	tp, _ := ctx.Value(traceparentContextKey{}).(string)
 	return traceID(tp)
+}
+
+// forwardFeatures answers the upstream's features document, so a worker can
+// tell whether the service takes an include bundle before it sends one. The
+// route is public upstream: the owner credential is not sent. An upstream
+// older than the route answers 404, and so does this; anything else that is
+// not a bounded JSON document is the upstream's fault (502).
+func (m *CompileMediator) forwardFeatures(w http.ResponseWriter, r *http.Request) {
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, m.upstream+featuresPath, nil)
+	if err != nil {
+		apiError(w, "features unavailable", http.StatusBadGateway)
+		return
+	}
+	if tp := r.Header.Get("traceparent"); validTraceparent(tp) {
+		req.Header.Set("traceparent", tp)
+	}
+	resp, err := m.client.Do(req)
+	if err != nil {
+		apiError(w, "features unavailable", http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		apiError(w, "not found", http.StatusNotFound)
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxFeaturesBytes+1))
+	var doc struct {
+		Features []string `json:"features"`
+	}
+	if err != nil || resp.StatusCode != http.StatusOK || len(body) > maxFeaturesBytes || json.Unmarshal(body, &doc) != nil || doc.Features == nil {
+		apiError(w, "features unavailable", http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodHead {
+		_ = json.NewEncoder(w).Encode(doc)
+	}
 }
 
 func validArtifact(p string) bool {
@@ -508,10 +564,19 @@ func (m *CompileMediator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		log.Printf("level=info msg=compile_artifact_ok intent=%q bytes=%d", id, len(body))
 		return
 	}
+	if (r.Method == http.MethodGet || r.Method == http.MethodHead) && r.URL.Path == featuresPath {
+		m.forwardFeatures(w, r)
+		return
+	}
 	// Known path with wrong method: 405 with Allow, like the jobs API /
 	// dashboard / ops on a served path, rather than 404 which would claim
 	// the resource is missing.  HEAD mirrors GET (RFC 9110 §9.3.2) exactly
 	// as the jobs API advertises Allow: GET, HEAD on its readable routes.
+	if r.URL.Path == featuresPath {
+		w.Header().Set("Allow", "GET, HEAD")
+		apiError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	if r.URL.Path == "/api/v1/compile" {
 		w.Header().Set("Allow", http.MethodPost)
 		apiError(w, "method not allowed", http.StatusMethodNotAllowed)
