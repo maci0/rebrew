@@ -1198,49 +1198,6 @@ class TestReconstructionOps:
         status, body = dispatch(config, "rebrew.coverage_report", json.dumps(request).encode())
         assert status == 409, body
 
-    def test_retained_ops_do_not_read_project_dir(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A retained request reads only its snapshot, as recoverage's do.
-
-        Each op first required ``project_dir`` to be a live rebrew project in
-        the worker's workspace, so a replica without that directory (or a
-        project the isolated runner recorded elsewhere) answered 400.
-        """
-        config, request, _analysed, _envelope = _retained_coverage_request(tmp_path)
-        gone = str(tmp_path / "elsewhere" / "project")
-        retained = {**request, "project_dir": gone}
-        _call(config, "rebrew.coverage_report", retained)
-        site = {**retained, "binary_id": 1, "output_dir": "reports/generated/" + "f" * 32}
-        assert _call(config, "rebrew.report", site)["manifest"]
-        commands: list[list[str]] = []
-
-        def run_rebrew(arguments: list[str], project: Path, *_a: Any, **_k: Any) -> Any:
-            assert project.is_relative_to(config.workspace) and project.name.startswith(
-                "retained-target-"
-            )
-            commands.append(arguments)
-            return {"items": [], "total": 0}
-
-        monkeypatch.setattr("rebrew.ops.run_rebrew", run_rebrew)
-        # Retained target commands compile only through the operator's service.
-        monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://recompile.test")
-        status, body = dispatch(config, "rebrew.data_list", json.dumps(retained).encode())
-        assert status == 200, body
-        target_request = {
-            key: retained[key]
-            for key in ("project_dir", "sha256", "files", "rebrew_target", "binary_key")
-        }
-        for op, extra in (("rebrew.verify_target", {"no_promote": True}), ("rebrew.build", {})):
-            body = json.dumps({**target_request, **extra}).encode()
-            status, reply = dispatch(config, op, body)
-            assert status == 200, reply
-        assert [arguments[:2] for arguments in commands] == [
-            ["data", "list"],
-            ["verify", "--json"],
-            ["build", "round-trip"],
-        ]
-
     def test_analyse_same_binary_has_isolated_project_workspaces(self, tmp_path: Path) -> None:
         from rebrew.config import load_config
         from rebrew.metadata.sqlite import DATABASE_FILENAME
@@ -1324,6 +1281,49 @@ class TestReconstructionOps:
             json.dumps({"project_dir": str(project)}).encode(),
         )
         assert status == 400
+
+    def test_retained_ops_do_not_read_project_dir(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A retained request reads only its snapshot, as recoverage's do.
+
+        Each op first required ``project_dir`` to be a live rebrew project in
+        the worker's workspace, so a replica without that directory (or a
+        project the isolated runner recorded elsewhere) answered 400.
+        """
+        config, request, _analysed, _envelope = _retained_coverage_request(tmp_path)
+        gone = str(tmp_path / "elsewhere" / "project")
+        retained = {**request, "project_dir": gone}
+        _call(config, "rebrew.coverage_report", retained)
+        site = {**retained, "binary_id": 1, "output_dir": "reports/generated/" + "f" * 32}
+        assert _call(config, "rebrew.report", site)["manifest"]
+        commands: list[list[str]] = []
+
+        def run_rebrew(arguments: list[str], project: Path, *_a: Any, **_k: Any) -> Any:
+            assert project.is_relative_to(config.workspace) and project.name.startswith(
+                "retained-target-"
+            )
+            commands.append(arguments)
+            return {"items": [], "total": 0}
+
+        monkeypatch.setattr("rebrew.ops.run_rebrew", run_rebrew)
+        # Retained target commands compile only through the operator's service.
+        monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://recompile.test")
+        status, body = dispatch(config, "rebrew.data_list", json.dumps(retained).encode())
+        assert status == 200, body
+        target_request = {
+            key: retained[key]
+            for key in ("project_dir", "sha256", "files", "rebrew_target", "binary_key")
+        }
+        for op, extra in (("rebrew.verify_target", {"no_promote": True}), ("rebrew.build", {})):
+            body = json.dumps({**target_request, **extra}).encode()
+            status, reply = dispatch(config, op, body)
+            assert status == 200, reply
+        assert [arguments[:2] for arguments in commands] == [
+            ["data", "list"],
+            ["verify", "--json"],
+            ["build", "round-trip"],
+        ]
 
     def test_analysed_elf_reports_defined_symbol_names_and_sizes(self, tmp_path: Path) -> None:
         import lief
