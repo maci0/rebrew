@@ -6,8 +6,11 @@ every other push.  ``make release-check`` runs it before the tag is cut, so a
 release whose ``__version__`` is not past the last tag, whose working tree is
 dirty, whose changelog notes are split across ``[Unreleased]`` and
 ``[<version>]``, whose bump is a patch while the dated section carries a
-``**Breaking:**`` entry fails with a named reason instead of shipping
-half-documented files. GitHub release artifacts are verified separately.
+``**Breaking:**`` entry, or whose resembl pin (``RESEMBL_REF`` /
+``RESEMBL_SHA``) names a commit the published tag does not resolve to
+(``git ls-remote``) fails with a named reason instead of shipping
+half-documented files or a pin every fresh clone refuses. GitHub release
+artifacts are verified separately.
 
 The checks live here rather than in the Makefile recipe because the version
 comes out of the package: a shell recipe had to read it with ``python -c``,
@@ -29,6 +32,13 @@ lazy import re
 lazy import subprocess
 
 CHANGELOG = Path("CHANGELOG.md")
+MAKEFILE = Path("Makefile")
+
+#: Where the sibling resembl checkout is cloned from (tools/ci_clone_resembl.sh).
+RESEMBL_REMOTE = "https://github.com/maci0/resembl.git"
+
+#: Bound on the one network call, so an unreachable remote fails the check.
+_LS_REMOTE_TIMEOUT_SECONDS = 60
 
 _NO_TAG = "v0.0.0"
 
@@ -158,6 +168,65 @@ def _bump_problems(version: str, last: str, text: str) -> list[str]:
     return problems
 
 
+def _resembl_pin() -> tuple[str, str]:
+    """``RESEMBL_REF`` and ``RESEMBL_SHA`` as the Makefile pins them."""
+    text = MAKEFILE.read_text(encoding="utf-8")
+    ref = re.search(r"(?m)^RESEMBL_REF\s*\?=\s*(\S+)\s*$", text)
+    sha = re.search(r"(?m)^RESEMBL_SHA\s*\?=\s*(\S+)\s*$", text)
+    if ref is None or sha is None:
+        raise ValueError(f"{MAKEFILE} pins no RESEMBL_REF / RESEMBL_SHA")
+    return ref.group(1), sha.group(1)
+
+
+def _ls_remote_tag(ref: str) -> str | None:
+    """``git ls-remote`` lines for tag *ref* of :data:`RESEMBL_REMOTE`, None when unreadable.
+
+    No in-process git protocol client is installed, so this runs git.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "ls-remote", "--", RESEMBL_REMOTE, f"refs/tags/{ref}", f"refs/tags/{ref}^{{}}"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            timeout=_LS_REMOTE_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return None
+    return result.stdout if result.returncode == 0 else None
+
+
+def _resembl_pin_problems(ref: str, sha: str, listing: str | None) -> list[str]:
+    """A problem unless the published tag *ref* resolves to commit *sha*.
+
+    An annotated tag lists its object under ``refs/tags/<ref>`` and the commit
+    under ``refs/tags/<ref>^{}``; a lightweight tag lists only the commit.
+    """
+    if listing is None:
+        return [f"cannot list resembl tags on {RESEMBL_REMOTE} (git ls-remote failed)"]
+    objects: dict[str, str] = {}
+    for line in listing.splitlines():
+        object_id, _, name = line.partition("\t")
+        objects[name] = object_id
+    commit = objects.get(f"refs/tags/{ref}^{{}}") or objects.get(f"refs/tags/{ref}")
+    if commit is None:
+        return [f"resembl tag {ref} is not published on {RESEMBL_REMOTE}"]
+    if commit != sha:
+        return [
+            f"resembl {ref} resolves to {commit} on {RESEMBL_REMOTE}, but RESEMBL_SHA is {sha}"
+            " (Makefile and .github/actions/uv-env/action.yml); every fresh clone is refused"
+        ]
+    return []
+
+
+def _resembl_problems() -> list[str]:
+    """Whether the pinned resembl tag still resolves to the pinned commit."""
+    ref, sha = _resembl_pin()
+    return _resembl_pin_problems(ref, sha, _ls_remote_tag(ref))
+
+
 def main() -> int:
     """Print every reason the tree is not ready to tag, or confirm it is."""
     version = _package_version()
@@ -179,6 +248,7 @@ def main() -> int:
 
     problems += _problems(version, _changelog())
     problems += _bump_problems(version, last, _changelog())
+    problems += _resembl_problems()
 
     if problems:
         for problem in problems:

@@ -9,6 +9,8 @@
 
 ### Fixed
 
+- `make release-check` fails when the published resembl tag (`RESEMBL_REF`) does not resolve to `RESEMBL_SHA` on https://github.com/maci0/resembl.git (`git ls-remote`). 6.37.0 shipped `v5.2.0` pinned at `15108fa1`, eight commits past the `529b9df2` the tag names, and the CI clone and `make setup` refused every fresh checkout until 6.38.0 re-pinned.
+
 - `rebrew.compiler.recompile_client.compile_source` refuses a source, flag, compiler or filename that is not UTF-8 text (a lone surrogate, which `compile_to_obj` reads for every byte of a cp1252 comment) with `RecompileError(kind="validation")` before sending anything. httpx raised `UnicodeEncodeError` while encoding the body, which the client reported as an unreachable service and retried; a surrogate in a flag escaped as a bare `UnicodeEncodeError`.
 
 ## [6.38.0] - 2026-11-14
