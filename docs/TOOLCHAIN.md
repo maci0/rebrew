@@ -30,8 +30,11 @@ A source that reads project headers ships them with the compile as an include
 bundle (`compiler.compile.remote_include_bundle`): every header its include
 closure reaches through the directories a local compile searches, by its
 project-relative path, with `source_dir` (the source's project-relative
-directory) and the include flags rewritten relative to it. The service runs
-the compiler in `source_dir` on `filename`, so `__FILE__` in the source,
+directory) and the include flags rewritten relative to it. A `[compiler]
+includes` directory under the project's `toolchain/` layout or outside the
+project is the toolchain's own header tree, which the service's image
+carries, so it is neither searched nor shipped. The service runs the compiler
+in `source_dir` on `filename`, so `__FILE__` in the source,
 `#pragma once`, and the search order (the including file's directory first,
 then the include flags in order) match the local compile; the local compile
 searches the source's directory first too. One difference stays: `__FILE__`

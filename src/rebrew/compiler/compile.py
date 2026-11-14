@@ -1450,6 +1450,11 @@ class RemoteBundle:
         return h.hexdigest()
 
 
+#: The project directory toolchain layouts live in (``toolchain/msvc/...``,
+#: :func:`rebrew.compiler.toolchain.resolve_msvc_toolchain`).
+_PROJECT_TOOLCHAIN_DIR = "toolchain"
+
+
 def _within(path: Path, root: Path) -> bool:
     return path == root or path.is_relative_to(root)
 
@@ -1489,8 +1494,11 @@ def remote_include_bundle(
     text alone.  Otherwise the bundle holds every header the include closure
     (:func:`rebrew.compiler.cache.scan_include_closure`) reaches through the
     directories a local compile searches, in its order
-    (:func:`local_include_order`), and its flags name those directories
-    relative to the source's directory (relumea ADR 0010, decision 4).
+    (:func:`local_include_order`), except a ``[compiler] includes`` directory
+    under the project's ``toolchain/`` layout or outside the project: that is
+    the toolchain's own header tree, which the service's image carries.  Its
+    flags name the directories relative to the source's directory (relumea
+    ADR 0010, decision 4).
 
     Raises :class:`~rebrew.compiler.recompile_client.RecompileError`
     (``kind="validation"``) when the headers cannot ship: an ``#include`` a
@@ -1502,6 +1510,15 @@ def remote_include_bundle(
 
     root = Path(cfg.root).resolve()
     lead, tail = local_include_order(cfg, src_parent, flags, extra_include_dirs)
+    # [compiler] includes outside the project, or in its toolchain layout
+    # (``toolchain/``, resolve_msvc_toolchain), is the toolchain's own header
+    # tree, which the service's image carries: neither searched nor shipped.
+    tail = [
+        d
+        for d in tail
+        if _within(Path(d).resolve(), root)
+        and not Path(d).resolve().is_relative_to(root / _PROJECT_TOOLCHAIN_DIR)
+    ]
     search = [*lead, *extract_include_dirs(flags), *tail]
     anchor = next(
         (Path(d).resolve() for d in lead if _within(Path(d).resolve(), root)),

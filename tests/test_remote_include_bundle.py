@@ -364,3 +364,32 @@ class TestShippedHeadersAreReported:
                 "src/game/plant.h",
             )
         ]
+
+
+class TestToolchainHeadersStayInTheImage:
+    @pytest.mark.usefixtures("host_toolchain")
+    def test_the_sdk_include_directory_is_not_shipped(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """``[compiler] includes`` under ``toolchain/`` is the image's own SDK tree."""
+        root = tmp_path / "project"
+        source = _project(
+            root,
+            {
+                "src/game/plant.c": '#include <sdk.h>\n#include "plant.h"\nint f;\n',
+                "src/game/plant.h": "#define PLANT 1\n",
+            },
+        )
+        sdk = root / "toolchain/msvc/6.0-win32/source/VC98/Include"
+        sdk.mkdir(parents=True)
+        (sdk / "sdk.h").write_bytes(b"/* \xa9 vendor */\n#define SDK 1\n")
+        cfg = _cfg(root, remote=True)
+        cfg.compiler_includes = str(sdk)
+        service = _Recompile(tmp_path / "service")
+        service.install(monkeypatch)
+        workdir = tmp_path / "remote"
+        workdir.mkdir()
+        compile_to_obj(cfg, source, "", workdir, use_cache=False)
+        (sent,) = service.compiles
+        assert [item["path"] for item in sent["includes"]] == ["src/game/plant.h"]
+        assert not any("toolchain" in flag for flag in sent["flags"])
