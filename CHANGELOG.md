@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.38.0] - 2026-11-14
+
 ### Changed
 
 - Update the similarity checkout to Resembl 5.3.0 (`e5776fd`), including the CI pin and locked project version. The upstream `v5.2.0` tag now names the release commit `529b9df`, not the `15108fa` commit the previous pin required, so CI's moved-tag guard stopped every job.
