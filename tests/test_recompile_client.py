@@ -269,6 +269,34 @@ class TestCompileSource:
         assert ei.value.kind == "validation"
         assert ei.value.retryable is False
 
+    @pytest.mark.parametrize(
+        ("source", "flags", "named"),
+        [
+            # A cp1252 comment read with surrogateescape, as compile_to_obj reads it.
+            (
+                b"/* caf\xe9 */ int f(void){return 0;}".decode("utf-8", "surrogateescape"),
+                [],
+                "source",
+            ),
+            ("int f(void){return 0;}", ["/D" + b"\xe9".decode("utf-8", "surrogateescape")], "flag"),
+        ],
+    )
+    def test_text_that_is_not_utf8_is_refused_before_any_request(
+        self, monkeypatch: pytest.MonkeyPatch, source: str, flags: list[str], named: str
+    ) -> None:
+        """The service compiles UTF-8 text only, so the request could never be sent.
+
+        httpx raised ``UnicodeEncodeError`` while encoding the body, which the
+        client reported as an unreachable service and retried.
+        """
+        client = _patch(monkeypatch, _Resp(200, json_body={"status": "ok"}))
+        sleeps: list[float] = []
+        with pytest.raises(RecompileError, match=f"{named} is not UTF-8") as ei:
+            compile_source("http://svc", "msvc-6.0", source, flags, retries=2, sleep=sleeps.append)
+        assert ei.value.kind == "validation"
+        assert ei.value.retryable is False
+        assert client.calls == [] and sleeps == []
+
     def test_retries_retryable_http_then_succeeds(self, monkeypatch: pytest.MonkeyPatch) -> None:
         body = {
             "status": "ok",

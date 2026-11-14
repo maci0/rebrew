@@ -358,6 +358,22 @@ def _download_artifact(
         close_response(art)
 
 
+def _require_utf8(text: str, what: str) -> None:
+    """Refuse *text* the service cannot receive: a lone surrogate has no UTF-8 form.
+
+    A source read with ``surrogateescape`` (``compile_to_obj``) carries one per
+    byte that is not UTF-8, such as a cp1252 comment.
+    """
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise RecompileError(
+            f"{what} is not UTF-8 text (character {exc.start}); "
+            "the recompile service compiles UTF-8 text only",
+            kind="validation",
+        ) from None
+
+
 def compile_source(
     base_url: str,
     compiler: str,
@@ -436,6 +452,7 @@ def compile_source(
         # fingerprints.
         flag = unicodedata.normalize("NFC", flag)
         flags_list[index] = flag
+        _require_utf8(flag, "flag")
         flag_bytes = len(flag.encode("utf-8"))
         if flag_bytes > _MAX_FLAG_BYTES:
             shown = flag.replace(configured_key, "[redacted]") if configured_key else flag
@@ -443,6 +460,9 @@ def compile_source(
                 f"flag too long ({flag_bytes} > {_MAX_FLAG_BYTES} UTF-8 bytes): {shown[:40]}",
                 kind="validation",
             )
+    _require_utf8(compiler, "compiler")
+    _require_utf8(filename, "filename")
+    _require_utf8(source, "source")
 
     # Fail fast on a mistyped base URL before opening a client / posting.
     display_base = base_url.replace(configured_key, "[redacted]") if configured_key else base_url

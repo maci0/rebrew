@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- `rebrew.compiler.recompile_client.compile_source` refuses a source, flag, compiler or filename that is not UTF-8 text (a lone surrogate, which `compile_to_obj` reads for every byte of a cp1252 comment) with `RecompileError(kind="validation")` before sending anything. httpx raised `UnicodeEncodeError` while encoding the body, which the client reported as an unreachable service and retried; a surrogate in a flag escaped as a bare `UnicodeEncodeError`.
+
 ## [6.38.0] - 2026-11-14
 
 ### Changed
