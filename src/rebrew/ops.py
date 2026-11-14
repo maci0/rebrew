@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+from contextvars import ContextVar  # module statement: definition-time use
 from dataclasses import MISSING, dataclass, field, fields
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -51,8 +52,10 @@ lazy import itertools
 lazy import json
 lazy import os
 lazy import re
+lazy import select
 lazy import shutil
 lazy import signal
+lazy import socket
 lazy import subprocess
 lazy import sys
 lazy import tempfile
@@ -257,6 +260,13 @@ DEFAULT_CONCURRENCY = 4
 #: ``Retry-After`` seconds of the 503 ``serve`` answers when every slot is busy.
 BUSY_RETRY_AFTER_SECONDS = 5
 
+#: Request header naming the seconds the caller waits for the call; ``serve``
+#: cancels the call once they pass.
+TIMEOUT_HEADER = "X-Rebrew-Timeout"
+
+#: Seconds between a running call's checks for its caller having given up.
+CANCEL_POLL_SECONDS = 0.5
+
 #: Default of ``--max-download``: the largest binary a ``url`` may name.
 #: It matches the backend's default upload cap (``max_upload_bytes``).
 DEFAULT_MAX_DOWNLOAD_BYTES = 256 << 20
@@ -351,6 +361,10 @@ INVALID_REQUEST = "invalid-request"
 UNKNOWN_OP = "unknown-op"
 ENGINE_ERROR = "engine-error"
 WORKER_BUSY = "worker-busy"
+#: The caller closed the connection before the reply (499, after nginx).
+CALLER_GONE = "caller-gone"
+#: The call outlived the seconds its caller named in :data:`TIMEOUT_HEADER`.
+DEADLINE_EXCEEDED = "deadline-exceeded"
 #: A remote compile of a source that reads project headers (relumea ADR 0010, decision 4).
 REMOTE_HEADERS = "remote-compile-headers"
 
@@ -469,6 +483,34 @@ def _capture_failed(detail: str) -> OpsError:
 
 def _refused(detail: str) -> OpsError:
     return OpsError(detail)
+
+
+class _Cancellation:
+    """The refusal a transport gives the running call once its caller has given up."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._refusal: tuple[str, str, int] | None = None
+
+    def cancel(self, detail: str, code: str, status: int) -> None:
+        """Record the first reason; later ones change nothing."""
+        with self._lock:
+            if self._refusal is None:
+                self._refusal = (detail, code, status)
+
+    def check(self) -> None:
+        """Raise the refusal once the call is cancelled."""
+        if self._refusal is not None:
+            detail, code, status = self._refusal
+            raise OpsError(detail, code=code, status=status)
+
+
+#: The running call's cancellation, set by the HTTP transport around ``dispatch``.
+#: ``run_rebrew`` checks it while its child command runs; in-process work runs
+#: to its own end.
+_CANCELLATION: ContextVar[_Cancellation | None] = ContextVar(
+    "rebrew_ops_cancellation", default=None
+)
 
 
 def error_body(code: str, detail: str, status: int) -> bytes:
@@ -2103,6 +2145,9 @@ def run_rebrew(
     the command's JSON error message.
     """
     name = " ".join(word for word in arguments[:2] if not word.startswith("-"))
+    cancellation = _CANCELLATION.get()
+    if cancellation is not None:
+        cancellation.check()
     # -P keeps the project cwd off sys.path so a rebrew/ tree inside the
     # project cannot shadow the installed rebrew.app.main (code exec).
     command = [sys.executable, "-P", "-m", "rebrew.app.main"]
@@ -2120,8 +2165,8 @@ def run_rebrew(
         start_new_session=True,
     )
     try:
-        stdout, stderr = process.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
+        stdout, stderr = _communicate(process, timeout, cancellation)
+    except (subprocess.TimeoutExpired, OpsError) as stopped:
         from rebrew.utils import kill_process_group
 
         kill_process_group(process)
@@ -2137,6 +2182,8 @@ def run_rebrew(
 
             stop_process_tree(process)
             release_captured_pipes(process)
+        if isinstance(stopped, OpsError):  # the call was cancelled
+            raise
         raise _refused(f"rebrew {name} did not finish within {timeout} s") from None
     except BaseException:
         # KeyboardInterrupt / SystemExit during communicate(): without this
@@ -2166,6 +2213,31 @@ def run_rebrew(
     if not isinstance(report, dict):
         raise _refused(f"rebrew {name} answered a report that is not an object")
     return report
+
+
+def _communicate(
+    process: subprocess.Popen[str], timeout: float, cancellation: _Cancellation | None
+) -> tuple[str, str]:
+    """``process.communicate(timeout=timeout)`` that also ends when the call is cancelled.
+
+    Raises ``subprocess.TimeoutExpired`` at *timeout*, and the call's
+    :class:`OpsError` once *cancellation* is set; the caller stops the child
+    either way.
+    """
+    if cancellation is None:
+        stdout, stderr = process.communicate(timeout=timeout)
+        return stdout, stderr
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            stdout, stderr = process.communicate(
+                timeout=min(CANCEL_POLL_SECONDS, max(0.0, deadline - time.monotonic()))
+            )
+            return stdout, stderr
+        except subprocess.TimeoutExpired:
+            cancellation.check()
+            if time.monotonic() >= deadline:
+                raise
 
 
 def _command_refusal(stderr: str) -> tuple[str, str]:
@@ -4441,6 +4513,16 @@ class _OpsHandler(BaseHTTPRequestHandler):
         if not 0 <= length <= MAX_REQUEST_BYTES:
             self._refuse(INVALID_REQUEST, f"request exceeds {MAX_REQUEST_BYTES} bytes", 413)
             return
+        deadline: float | None = None
+        if (seconds := self.headers.get(TIMEOUT_HEADER)) is not None:
+            try:
+                budget = float(seconds)
+            except ValueError:
+                budget = 0.0
+            if not 0 < budget < float("inf"):
+                self._refuse(INVALID_REQUEST, f"{TIMEOUT_HEADER} must be positive seconds", 400)
+                return
+            deadline = time.monotonic() + budget
         # Read in chunks under the same bound so a stalled or truncated
         # stream cannot leave a half-read buffer queued behind the socket
         # timeout: each chunk is a fresh read, and the total never exceeds
@@ -4455,7 +4537,46 @@ class _OpsHandler(BaseHTTPRequestHandler):
             chunks.append(chunk)
             remaining -= len(chunk)
         body = b"".join(chunks)
-        self._send(*dispatch(server.config, urlsplit(self.path).path.removeprefix("/"), body))
+        cancellation = _Cancellation()
+        answered = threading.Event()
+        watcher = threading.Thread(
+            target=self._watch_caller, args=(cancellation, answered, deadline), daemon=True
+        )
+        token = _CANCELLATION.set(cancellation)
+        watcher.start()
+        try:
+            reply = dispatch(server.config, urlsplit(self.path).path.removeprefix("/"), body)
+        finally:
+            answered.set()
+            _CANCELLATION.reset(token)
+            watcher.join()
+        self._send(*reply)
+
+    def _watch_caller(
+        self, cancellation: _Cancellation, answered: threading.Event, deadline: float | None
+    ) -> None:
+        """Cancel the call once its caller closes the connection or its deadline passes."""
+        while not answered.wait(CANCEL_POLL_SECONDS):
+            if deadline is not None and time.monotonic() >= deadline:
+                cancellation.cancel(
+                    f"the call outlived its {TIMEOUT_HEADER}", DEADLINE_EXCEEDED, 504
+                )
+                return
+            if self._caller_gone():
+                cancellation.cancel("the caller closed the connection", CALLER_GONE, 499)
+                return
+
+    def _caller_gone(self) -> bool:
+        """True when the caller closed (or reset) the connection, read without consuming.
+
+        A caller only waits for the reply, so a readable socket at end of stream
+        is a close; pipelined bytes are left for the next request.
+        """
+        try:
+            readable, _, _ = select.select([self.connection], [], [], 0)
+            return bool(readable) and self.connection.recv(1, socket.MSG_PEEK) == b""
+        except OSError:
+            return True
 
     def _not_post(self) -> None:
         server = typing.cast("OpsServer", self.server)
@@ -4614,6 +4735,12 @@ app = typer.Typer(
     ),
 )
 
+
+def _exit_on_signal(signum: int, _frame: Any) -> None:
+    """Unwind the running call with the shell's exit status for *signum* (128 + signal)."""
+    raise SystemExit(128 + signum)
+
+
 _FILESTORE_HELP = "The backend's local filestore directory; request file keys resolve under it"
 _WORKSPACE_HELP = (
     "Directory for analysis projects, report output_dir and url downloads;"
@@ -4656,9 +4783,18 @@ def call_command(
     # read(MAX+1) lets dispatch answer over-limit input with 413; truncating
     # here would turn it into a 400 "not JSON" for the same client mistake
     # the HTTP transport answers 413.
-    # stdout carries only the reply; anything rebrew prints goes to stderr.
-    with contextlib.redirect_stdout(sys.stderr):
-        status, reply = dispatch(config, op, body)
+    # A caller cancels with SIGTERM to this process's group. The child commands
+    # run in their own sessions, so the call unwinds instead of dying: the
+    # child's process tree is stopped and the retained snapshot removed.
+    sigterm = getattr(signal, "SIGTERM", None)
+    previous = signal.signal(sigterm, _exit_on_signal) if sigterm is not None else None
+    try:
+        # stdout carries only the reply; anything rebrew prints goes to stderr.
+        with contextlib.redirect_stdout(sys.stderr):
+            status, reply = dispatch(config, op, body)
+    finally:
+        if sigterm is not None:
+            signal.signal(sigterm, previous)
     sys.stdout.buffer.write(reply + b"\n")
     sys.stdout.flush()
     if status != 200:

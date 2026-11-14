@@ -6916,7 +6916,8 @@ wrong JSON type, is refused. A refusal is
 exceeds 16 MiB; also a wrapped command's `usage` error, with its message),
 `unknown-op` (404), `engine-error` (500),
 `remote-compile-headers` (422, see below), or, from
-`serve` only, `worker-busy` (503). An engine
+`serve` only, `worker-busy` (503), `deadline-exceeded` (504) and
+`caller-gone` (499, written to a caller that has already closed). An engine
 failure answers a fixed detail and logs its cause on stderr.
 
 Binaries are referenced, never sent:
@@ -7095,7 +7096,10 @@ call, or `http://127.0.0.1:PORT` reaches `rebrew ops serve` with the token in
 
 Reads the JSON request on stdin and writes the reply on stdout. A refusal
 writes the error object on stdout and exits 2. Anything rebrew prints while
-answering goes to stderr.
+answering goes to stderr. SIGTERM cancels the call: a child command it runs
+(in its own session, outside the caller's process group) is stopped with its
+process tree, a retained snapshot is removed, no reply is written, and the
+command exits 143.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
@@ -7115,6 +7119,14 @@ variable is unset or no workspace is given. A request needs a
 `--concurrency` at once, counted from reading the body to writing the
 reply; an authenticated call that finds every slot busy is answered 503
 `worker-busy` with `Retry-After: 5`.
+
+A call is cancelled when its caller closes the connection, or once the seconds
+its optional `X-Rebrew-Timeout` header names (a positive number; anything else
+answers 400) have passed. A cancelled call stops the child command it is running
+(checked every 0.5 s) with its process tree, so its slot is free for the next
+call, and answers 504 `deadline-exceeded`, or 499 `caller-gone` to a closed
+caller. Work an op runs in the worker process itself is not interrupted and
+holds the slot until it returns.
 
 Requests with an unlisted HTTP `Host` authority get 403. `--allowed-hosts`
 (or `REBREW_OPS_ALLOWED_HOSTS`) adds exact names and ports to the automatic

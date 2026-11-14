@@ -9,6 +9,7 @@ beside it).  The project the function and project ops read is the one
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import http.client
 import http.server
@@ -18,6 +19,7 @@ import os
 import secrets
 import select
 import shutil
+import signal
 import socket
 import ssl
 import struct
@@ -1846,6 +1848,61 @@ class TestExecTransport:
         assert (code, reply) == (0, {"text": "push ebp\n"})
         _validate(_op_schema("rebrew.disassemble", "response"), reply)
 
+    def test_sigterm_stops_the_child_command_and_removes_the_snapshot(self, tmp_path: Path) -> None:
+        """The backend cancels an exec call with SIGTERM to the worker's process group.
+
+        The child command runs in its own session, outside that group, and the
+        worker died without stopping it: it kept running and the retained
+        snapshot under ``.scratch`` stayed on disk.
+        """
+        config, request, _analysed, _envelope = _retained_coverage_request(tmp_path)
+        assert config.filestore is not None and config.workspace is not None
+        pid_file = tmp_path / "child.pid"
+        launcher = tmp_path / "launch.py"
+        # The worker's own interpreter, with the sleeping stand-in as the
+        # sys.executable its child commands start.
+        launcher.write_text(
+            "import runpy\nimport sys\n\n"
+            "sys.executable = sys.argv[1]\n"
+            'sys.argv = ["rebrew", *sys.argv[2:]]\n'
+            'runpy.run_module("rebrew.app.main", run_name="__main__")\n'
+        )
+        argv = [
+            sys.executable,
+            str(launcher),
+            str(_sleeping_python(tmp_path)),
+            "ops",
+            "call",
+            "--filestore",
+            str(config.filestore),
+            "--workspace",
+            str(config.workspace),
+            "rebrew.data_list",
+        ]
+        with (tmp_path / "worker.log").open("wb") as log:
+            worker = subprocess.Popen(
+                argv,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=log,
+                env={**os.environ, _CHILD_PID_ENV: str(pid_file)},
+                start_new_session=True,
+            )
+        assert worker.stdin is not None
+        worker.stdin.write(json.dumps(request).encode())
+        worker.stdin.close()
+        child = _child_pid(pid_file)
+        try:
+            os.killpg(worker.pid, signal.SIGTERM)
+            assert worker.wait(timeout=WAIT_SECONDS) == 128 + signal.SIGTERM
+            assert _stopped(child, _STOP_SECONDS)
+            assert not list((config.workspace / ".scratch").glob("retained-target-*"))
+        finally:
+            _kill_leftover(child)
+            if worker.poll() is None:
+                worker.kill()
+                worker.wait(timeout=WAIT_SECONDS)
+
     def test_refusal_exits_2_with_the_error_on_stdout(self, tmp_path: Path) -> None:
         request = {"project_dir": str(tmp_path), "va": 0, "size": 1, "format": "asm"}
         code, reply = self._exec(_rebrew("ops", "call"), "rebrew.disassemble", request)
@@ -1861,6 +1918,143 @@ def _free_port() -> int:
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         return int(probe.getsockname()[1])
+
+
+#: Environment variable naming the file the sleeping child writes its pid to.
+_CHILD_PID_ENV = "REBREW_TEST_CHILD_PID"
+
+
+def _sleeping_python(directory: Path) -> Path:
+    """A stand-in for the interpreter a child command runs under: it records its pid and sleeps.
+
+    ``run_rebrew`` starts ``sys.executable -P -m rebrew.app.main ...``; with this
+    as ``sys.executable`` the child never finishes on its own.
+    """
+    script = directory / "sleeping-python"
+    script.write_text(f'#!/bin/sh\necho $$ > "${_CHILD_PID_ENV}"\nexec sleep {WAIT_SECONDS}\n')
+    script.chmod(0o755)
+    return script
+
+
+def _child_pid(path: Path) -> int:
+    deadline = time.monotonic() + WAIT_SECONDS
+    while not path.is_file() or not path.read_text().strip():
+        assert time.monotonic() < deadline, "the child command never started"
+        time.sleep(0.05)
+    return int(path.read_text())
+
+
+def _stopped(pid: int, within: float) -> bool:
+    """Whether process *pid* is gone (killed and reaped) within *within* seconds."""
+    deadline = time.monotonic() + within
+    while True:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.05)
+
+
+def _kill_leftover(pid: int) -> None:
+    """Stop a child an unfixed worker left running, by its exact pid."""
+    with contextlib.suppress(ProcessLookupError):
+        os.kill(pid, signal.SIGKILL)
+
+
+#: Seconds a cancelled call may take to stop its child command.
+_STOP_SECONDS = 20
+
+
+class TestHttpCancellation:
+    """A call stops when its caller gives up, and its slot serves the next call."""
+
+    @contextlib.contextmanager
+    def _serving(
+        self, world: tuple[WorkerConfig, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> Any:
+        """A one-slot worker whose child commands sleep; yields (port, pid file, request)."""
+        from rebrew.ops import OpsServer
+
+        config, project = world
+        pid_file = tmp_path / "child.pid"
+        monkeypatch.setattr(sys, "executable", str(_sleeping_python(tmp_path)))
+        monkeypatch.setenv(_CHILD_PID_ENV, str(pid_file))
+        body = json.dumps({"project_dir": str(project)}).encode()
+        with OpsServer(("127.0.0.1", 0), config, TOKEN, 1) as server:
+            thread = threading.Thread(
+                target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+            )
+            thread.start()
+            try:
+                yield server.server_address[1], pid_file, body
+            finally:
+                if pid_file.is_file():
+                    _kill_leftover(int(pid_file.read_text()))
+                server.shutdown()
+                thread.join(timeout=WAIT_SECONDS)
+
+    @staticmethod
+    def _request(port: int, body: bytes, extra: str = "") -> bytes:
+        return (
+            f"POST /rebrew.data_list HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n"
+            f"Authorization: Bearer {TOKEN}\r\nContent-Type: application/json\r\n"
+            f"Content-Length: {len(body)}\r\n{extra}\r\n"
+        ).encode() + body
+
+    def test_a_caller_that_closes_the_connection_stops_the_call(
+        self, world: tuple[WorkerConfig, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The backend gives up at its dispatch timeout and closes the connection.
+
+        Nothing watched the socket, so the child command ran on to its own
+        bound (up to an hour) holding one of the worker's slots.
+        """
+        with self._serving(world, tmp_path, monkeypatch) as (port, pid_file, body):
+            caller = socket.create_connection(("127.0.0.1", port), timeout=WAIT_SECONDS)
+            caller.sendall(self._request(port, body))
+            child = _child_pid(pid_file)
+            caller.close()
+            assert _stopped(child, _STOP_SECONDS)
+            status, _reply = TestHttpTransport()._wait_for_a_free_slot(
+                port, time.monotonic() + _STOP_SECONDS
+            )
+            assert status == 404
+
+    def test_a_call_past_its_deadline_answers_504_and_stops(
+        self, world: tuple[WorkerConfig, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        with self._serving(world, tmp_path, monkeypatch) as (port, pid_file, body):
+            caller = socket.create_connection(("127.0.0.1", port), timeout=WAIT_SECONDS)
+            try:
+                caller.sendall(self._request(port, body, "X-Rebrew-Timeout: 1\r\n"))
+                child = _child_pid(pid_file)
+                reply = b"".join(iter(lambda: caller.recv(4096), b""))
+            finally:
+                caller.close()
+            head, _, payload = reply.partition(b"\r\n\r\n")
+            assert head.split(b"\r\n", 1)[0].split(b" ", 2)[1] == b"504"
+            assert json.loads(payload)["error"] == "deadline-exceeded"
+            assert _stopped(child, _STOP_SECONDS)
+
+    @pytest.mark.parametrize("value", ["0", "-1", "soon", "nan", "inf"])
+    def test_a_malformed_deadline_is_refused(
+        self,
+        world: tuple[WorkerConfig, Path],
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        value: str,
+    ) -> None:
+        with self._serving(world, tmp_path, monkeypatch) as (port, pid_file, body):
+            status, reply = TestHttpTransport()._post(
+                port,
+                "/rebrew.data_list",
+                body,
+                {"Authorization": f"Bearer {TOKEN}", "X-Rebrew-Timeout": value},
+            )
+            assert (status, reply["error"]) == (400, "invalid-request")
+            assert not pid_file.exists()
 
 
 class TestHttpTransport:
