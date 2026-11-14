@@ -122,6 +122,9 @@ A confirmation prompt rejects non-terminal stdin before reading it.
 terminal or `--force`. A piped answer does not approve. The refusal exits 2.
 In JSON mode the kind is `confirmation_required`, and those writes require
 `--force` instead of prompting.
+A compile the toolchain ran and rejected (`rebrew test`'s COMPILE ERROR) exits 2
+with kind `toolchain_rejected` and the compiler's diagnostics as the message; a
+toolchain or compile service that could not run is kind `failure`.
 Continuous watch modes are terminal-only. `--watch --json` is rejected.
 `sync watch` has no `--json` option. `rebrew -o json sync watch` exits 2
 before export or the watch loop. For one structured result, use `sync push --json`.
@@ -6917,7 +6920,9 @@ wrong JSON type, is refused. A refusal is
 `{"error","detail","status"}`: `invalid-request` (400; 413 when the request
 exceeds 16 MiB; also a wrapped command's `usage` error, with its message),
 `unknown-op` (404), `engine-error` (500),
-`remote-compile-headers` (422, see below), `invalid-project-config` (400, see
+`remote-compile-headers` (422, see below), `toolchain-rejected` (422: the toolchain
+ran and rejected the source; the detail carries its diagnostics, and there is no
+verdict), `invalid-project-config` (400, see
 `rebrew.project_targets`), `project-import-refused` (422, see
 `rebrew.import_archive` below), or, from
 `serve` only, `worker-busy` (503), `deadline-exceeded` (504) and
@@ -7524,15 +7529,17 @@ Both `rebrew test` (auto-promote after single test) and `rebrew verify`
 (always-on batch promotion) call `update_source_status`.  The `.c` file is **never modified**
 by either tool's status logic.
 
-A compile that fails inside the remote recompile backend
-(`[compiler] recompile_url` / `REBREW_RECOMPILE_URL`) is reported as
-`status = "COMPILE_ERROR"` with the structured
-`rebrew.compiler.recompile_client.RecompileError` on `CompareResult.error`, and
-`rebrew verify` / `rebrew test --all` write no STATUS and cache no result for it.
-The compiler rejecting the source (`error_code` `toolchain_failure`) carries no
-`error` and is recorded like a local compile error. A
-library consumer branches on `result.error.kind` / `result.error.retryable`
-instead of matching `result.message` substrings.
+A compile that never reached the toolchain's verdict on the source is reported as
+`status = "COMPILE_ERROR"` with a structured error on `CompareResult.error`: a
+`rebrew.compiler.recompile_client.RecompileError` when the remote recompile
+backend (`[compiler] recompile_url` / `REBREW_RECOMPILE_URL`) could not compile,
+a `rebrew.compiler.toolchain.ToolchainError` when a local toolchain or the
+compile setup could not run. `rebrew verify` / `rebrew test --all` write no
+STATUS and cache no result for either. The compiler rejecting the source (a
+local compiler's nonzero exit, recompile's `error_code` `toolchain_failure`)
+carries no `error` and is recorded as a compile error. A library consumer
+branches on `result.error.kind` / `result.error.retryable` instead of matching
+`result.message` substrings.
 
 ## Exit Code Alignment: `rebrew diff` vs `rebrew test`
 

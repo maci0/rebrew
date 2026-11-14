@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+import http.server
 import json
-from typing import Any
+import threading
+from typing import Any, override
 lazy from pathlib import Path
 
 import pytest
@@ -144,3 +146,50 @@ def test_compile_inputs_name_the_headers_a_remote_compile_shipped(
     shipped[0]["sha256"] = "0" * 64
     status, raw = dispatch(config, "rebrew.verify_function", _request(entries, candidate=candidate))
     assert status == 400, raw
+
+
+class _RejectingRecompile(http.server.BaseHTTPRequestHandler):
+    """A recompile whose toolchain rejects every source, over real HTTP for a child process."""
+
+    def do_POST(self) -> None:
+        self.rfile.read(int(self.headers["Content-Length"]))
+        body = json.dumps(
+            {
+                "status": "error",
+                "error_code": "toolchain_failure",
+                "log": "stub.c(4) : error C2065: 'nope' : undeclared identifier\n",
+            }
+        ).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    @override
+    def log_message(self, format: str, *args: Any) -> None:
+        del format, args
+
+
+def test_a_retained_toolchain_rejection_is_a_verdictless_422(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The retained comparison runs ``rebrew test`` as a child; its rejection keeps its kind."""
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _RejectingRecompile)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        monkeypatch.setenv("REBREW_RECOMPILE_URL", f"http://127.0.0.1:{server.server_port}")
+        config, entries = _stage(tmp_path)
+        candidate = "void fcn_00401000(void)\n{\n    nope;\n}\n"
+        answers = [
+            dispatch(config, op, _request(entries, candidate=candidate))
+            for op in ("rebrew.verify_function", "rebrew.apply_candidate")
+        ]
+    finally:
+        server.shutdown()
+        server.server_close()
+    for status, raw in answers:
+        refusal = json.loads(raw)
+        assert (status, refusal["error"]) == (422, "toolchain-rejected"), raw
+        assert "error C2065" in refusal["detail"]

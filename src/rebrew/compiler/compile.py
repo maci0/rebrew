@@ -94,6 +94,7 @@ lazy from rebrew.compiler.headless import XVFB_RUN_SERVER_ARGS, ensure_xvfb_sess
 lazy from rebrew.compiler.msvc_env import msvc_env_from_config, resolve_runner_path
 lazy from rebrew.compiler.toolchain import (
     ToolchainError,
+    ToolchainErrorKind,
     ToolchainSpec,
     bind_mount,
     cached_image_digest,
@@ -271,13 +272,15 @@ class CompareResult:
     #: compile input, so a result recorded under one digest says nothing
     #: about a build under another.
     context_hash: str | None = None
-    #: The structured backend failure behind a ``COMPILE_ERROR`` /
-    #: ``EXTRACT_ERROR`` verdict, or ``None`` when the compile ran and failed
-    #: on the source itself.  Only the remote recompile backend produces one
-    #: today (a :class:`rebrew.compiler.recompile_client.RecompileError` carrying
-    #: ``kind`` / ``status_code`` / ``retryable``); without this field a
-    #: consumer could not tell "the compile service was unreachable" from
-    #: "your C does not build" except by matching ``message`` substrings.
+    #: The structured failure behind a ``COMPILE_ERROR`` / ``EXTRACT_ERROR``
+    #: verdict when the compile never reached the toolchain's verdict on the
+    #: source: a :class:`rebrew.compiler.recompile_client.RecompileError` from
+    #: the remote backend (``kind`` / ``status_code`` / ``retryable``), or a
+    #: :class:`rebrew.compiler.toolchain.ToolchainError` for a local toolchain
+    #: or setup that could not run.  ``None`` with ``COMPILE_ERROR`` means the
+    #: toolchain ran and rejected the source.  Without this field a consumer
+    #: could not tell "the compiler could not run" from "your C does not
+    #: build" except by matching ``message`` substrings.
     error: RebrewError | None = None
     #: Operand diagnostics when the target enables known-binding checks.
     relocation_bindings: list[dict[str, Any]] | None = None
@@ -1461,6 +1464,25 @@ class RemoteBundle:
 _PROJECT_TOOLCHAIN_DIR = "toolchain"
 
 
+def _not_run(
+    backend_errors: list[RebrewError] | None,
+    message: str,
+    *,
+    kind: ToolchainErrorKind,
+    name: str,
+) -> tuple[None, str]:
+    """A compile that never reached the toolchain's verdict on the source.
+
+    Records a :class:`ToolchainError` in *backend_errors*, so the
+    :class:`CompareResult` carries ``error`` and its ``COMPILE_ERROR`` is a
+    tooling failure; a ``COMPILE_ERROR`` without one is the toolchain
+    rejecting the source.
+    """
+    if backend_errors is not None:
+        backend_errors.append(ToolchainError(message, kind=kind, name=name))
+    return None, message
+
+
 def _within(path: Path, root: Path) -> bool:
     return path == root or path.is_relative_to(root)
 
@@ -1653,7 +1675,12 @@ def _compile_via_recompile(
         try:
             source_text = source_path.read_text(encoding="utf-8", errors="surrogateescape")
         except OSError as exc:
-            return None, f"Failed to read source for recompile upload: {exc}"
+            return _not_run(
+                backend_errors,
+                f"Failed to read source for recompile upload: {exc}",
+                kind="invocation",
+                name=profile,
+            )
     timeout = (
         float(getattr(cfg, "compile_timeout", DEFAULT_COMPILE_TIMEOUT) or DEFAULT_COMPILE_TIMEOUT)
         + 120.0
@@ -1666,7 +1693,12 @@ def _compile_via_recompile(
     job_socket = os.environ.get("REBREW_JOB_COMPILE_SOCKET")
     if job_socket:
         if job_socket != "/run/rebrew-job/owner.sock" or url != "http://rebrew-job":
-            return None, "Invalid job compile transport configuration"
+            return _not_run(
+                backend_errors,
+                "Invalid job compile transport configuration",
+                kind="validation",
+                name=profile,
+            )
         import json as _json
 
         import httpx
@@ -1674,9 +1706,16 @@ def _compile_via_recompile(
         try:
             capability = Path("/run/rebrew-job/capability").read_text(encoding="ascii").strip()
         except OSError, UnicodeError:
-            return None, "Job compile capability unavailable"
+            return _not_run(
+                backend_errors,
+                "Job compile capability unavailable",
+                kind="invocation",
+                name=profile,
+            )
         if len(capability) != 64 or any(c not in "0123456789abcdef" for c in capability):
-            return None, "Invalid job compile capability"
+            return _not_run(
+                backend_errors, "Invalid job compile capability", kind="validation", name=profile
+            )
         # Intent is the job's dedup token for a logical compile: deterministic
         # from (compiler, source, flags, filename, emit_assembly, and the
         # include bundle's digest when there is one), never random, so a
@@ -1744,7 +1783,12 @@ def _compile_via_recompile(
     try:
         obj_file.write_bytes(res.obj_bytes)
     except OSError as exc:
-        return None, f"Failed to write recompile artifact: {exc}"
+        return _not_run(
+            backend_errors,
+            f"Failed to write recompile artifact: {exc}",
+            kind="invocation",
+            name=profile,
+        )
     record: dict[str, Any] = {"flags": list(all_flags), "execution": res.execution}
     if bundle is not None:
         record["source_dir"] = bundle.source_dir
@@ -1978,8 +2022,15 @@ def compile_to_obj(
     Returns:
         (obj_path, error_msg) - obj_path is ``None`` on failure;
         error_msg is an empty string on success."""
+    profile = getattr(cfg, "compiler_profile", "")
+    active = toolchain or profile
     if getattr(cfg, "execution_backend", "") == "unshare" and recompile_url(cfg):
-        return None, "execution_backend = unshare conflicts with remote recompile"
+        return _not_run(
+            backend_errors,
+            "execution_backend = unshare conflicts with remote recompile",
+            kind="validation",
+            name=active,
+        )
     source_path = Path(source_path)
     workdir = Path(workdir)
 
@@ -1990,9 +2041,13 @@ def compile_to_obj(
     if obj_name != Path(obj_name).name:
         # A separator would write the object outside the workdir (and the
         # docker mount) - reject it instead of silently losing the output.
-        return None, f"obj_name must be a plain filename, got {obj_name!r}"
+        return _not_run(
+            backend_errors,
+            f"obj_name must be a plain filename, got {obj_name!r}",
+            kind="validation",
+            name=active,
+        )
     inc_path = compiler_dir(cfg.compiler_includes)
-    profile = getattr(cfg, "compiler_profile", "")
     # Per-function toolchain override (metadata TOOLCHAIN, e.g. "msvc-5.0"):
     # compile with THAT toolchain's image.  Every compile runs through the
     # standardized runner - there is no host wine path.
@@ -2000,14 +2055,20 @@ def compile_to_obj(
     if toolchain:
         tc_spec = toolchain_registry.TOOLCHAINS.get(toolchain)
         if tc_spec is None:
-            return None, (
-                f"per-function toolchain {toolchain!r} is unknown (known: {sorted(toolchain_registry.TOOLCHAINS)})"
+            return _not_run(
+                backend_errors,
+                f"per-function toolchain {toolchain!r} is unknown (known: {sorted(toolchain_registry.TOOLCHAINS)})",
+                kind="unknown",
+                name=active,
             )
         if tc_spec.image is None and tc_spec.runtime != "native":
-            return None, (
+            return _not_run(
+                backend_errors,
                 f"per-function toolchain {toolchain!r} has no docker image - "
                 "all compiles run through their docker images; "
-                f"run `rebrew toolchain build {toolchain}` first"
+                f"run `rebrew toolchain build {toolchain}` first",
+                kind="missing",
+                name=active,
             )
     spec = (
         tc_spec
@@ -2043,7 +2104,9 @@ def compile_to_obj(
     try:
         source_bytes = source_path.read_bytes()
     except OSError as e:
-        return None, f"Failed to read source: {e}"
+        return _not_run(
+            backend_errors, f"Failed to read source: {e}", kind="invocation", name=active
+        )
     compile_text = contextualized_source(
         context, source_bytes.decode("utf-8", errors="surrogateescape"), src_name
     )
@@ -2087,7 +2150,12 @@ def compile_to_obj(
             try:
                 obj_file.write_bytes(cached_obj)
             except OSError as e:
-                return None, f"Failed to write cached object to workdir: {e}"
+                return _not_run(
+                    backend_errors,
+                    f"Failed to write cached object to workdir: {e}",
+                    kind="invocation",
+                    name=active,
+                )
             return str(obj_file), ""
 
     # The compiler is the only consumer of the workdir source copy, so it
@@ -2102,7 +2170,12 @@ def compile_to_obj(
         if context is not None or local_src.resolve() != source_path.resolve():
             local_src.write_bytes(compile_text.encode("utf-8", errors="surrogateescape"))
     except OSError as e:
-        return None, f"Failed to copy source into workdir: {e}"
+        return _not_run(
+            backend_errors,
+            f"Failed to copy source into workdir: {e}",
+            kind="invocation",
+            name=active,
+        )
 
     if recompile_url(cfg) is not None:
         # Remote backend: one POST carries source text + resolved flags, and
@@ -2110,7 +2183,6 @@ def compile_to_obj(
         # artifact bytes come back over HTTP.  No mounts, no local image.
         from rebrew.compiler.recompile_client import RecompileError
 
-        active = toolchain or profile
         try:
             bundle = remote_include_bundle(
                 cfg, spec, compile_text, all_flags, src_parent, extra_include_dirs
@@ -2231,6 +2303,8 @@ def compile_to_obj(
                 **execution_options,
             )
         except ToolchainError as exc:
+            if backend_errors is not None:
+                backend_errors.append(exc)
             return None, str(exc)
         obj_file = workdir / obj_name
         if arg_style == "dos" and not obj_file.exists():
@@ -2260,10 +2334,13 @@ def compile_to_obj(
 
     # Unknown/unregistered profile: nothing to run.  Execution is docker-
     # (or native-runner-)only; a plain command string cannot be exec'd.
-    return None, (
+    return _not_run(
+        backend_errors,
         f"profile {profile!r} is not a docker/native toolchain - every compile "
         "runs through the standardized runner; "
-        "run `rebrew toolchain list` for the available profiles"
+        "run `rebrew toolchain list` for the available profiles",
+        kind="unknown",
+        name=active,
     )
 
 
@@ -3288,8 +3365,16 @@ def compile_and_compare(
                 classify_compare_result(False, f"EXTRACT_ERROR: {exc}", target_bytes, None, None)
             )
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError, ValueError) as exc:
+        # The compile could not run: no verdict on the source (see _not_run).
+        not_run = ToolchainError(
+            str(exc),
+            kind="invocation",
+            name=toolchain or str(getattr(cfg, "compiler_profile", "") or ""),
+        )
         return _pin(
-            classify_compare_result(False, f"COMPILE_ERROR: {exc}", target_bytes, None, None)
+            classify_compare_result(
+                False, f"COMPILE_ERROR: {exc}", target_bytes, None, None, error=not_run
+            )
         )
     finally:
         if workdir is not None:

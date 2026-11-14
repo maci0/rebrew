@@ -613,6 +613,24 @@ def _install_click_error_hook() -> None:
 _install_click_error_hook()
 
 
+#: The ``error_exit`` kind of a compile the toolchain ran and rejected: the
+#: source does not build, as opposed to a toolchain that could not run.
+TOOLCHAIN_REJECTED_KIND = "toolchain_rejected"
+
+
+class CommandExit(typer.Exit):
+    """The exit :func:`error_exit` raises: its JSON error *kind* and *message* ride along.
+
+    A caller running a command's library function in process (``rebrew ops``)
+    reads the kind the JSON envelope carries for a child process.
+    """
+
+    def __init__(self, code: int, *, kind: str, message: str) -> None:
+        super().__init__(code=code)
+        self.kind = kind
+        self.message = message
+
+
 def _emit_outcome(message: str, *, json_mode: bool) -> None:
     """Report an exit-1 mismatch without an error envelope."""
     if json_mode:
@@ -631,7 +649,7 @@ def error_exit(
     kind: str = "failure",
     hint: str = "",
 ) -> NoReturn:
-    """Print *msg* as an error and ``raise typer.Exit(code)``.
+    """Print *msg* as an error and raise :class:`CommandExit` (a ``typer.Exit``).
 
     JSON mode writes ``{"error": {"kind", "message", "hint"}}`` as one stderr
     line. Exit :data:`EXIT_MISMATCH` is an outcome, not an error kind: stdout
@@ -656,7 +674,7 @@ def error_exit(
         console.print(
             f"[red bold]error:[/red bold] {safe}{suffix}", soft_wrap=not console.is_terminal
         )
-    raise typer.Exit(code=code)
+    raise CommandExit(code, kind=kind, message=msg)
 
 
 def json_print(data: dict[str, Any] | list[Any]) -> None:
@@ -1543,11 +1561,13 @@ __all__ = [
     "SOURCE_HELP",
     "SOURCE_TARGETS_HELP",
     "TIER_HELP",
+    "TOOLCHAIN_REJECTED_KIND",
     "VERBOSE_HELP",
     "VERSION_HELP",
     "WATCH_FILE_HELP",
     "WATCH_TREE_HELP",
     "AllTargetsOption",
+    "CommandExit",
     "RootOption",
     "SourceTargetsOption",
     "TargetOption",

@@ -1907,6 +1907,32 @@ class TestReconstructionOps:
         assert sent["source_dir"] == "src/mini"
         assert sent["includes"] == [{"path": "src/mini/local.h", "content": "#define ONE 1\n"}]
 
+    def test_a_toolchain_rejection_is_a_verdictless_422(
+        self, world: tuple[WorkerConfig, Path], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The compiler said no to the source: the caller's input, with its diagnostics."""
+        config, project = _project_copy(world, "verify_function_rejected")
+        source = min((project / "src" / "mini").glob("*.c")).relative_to(project).as_posix()
+        monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://recompile.test")
+        serve_recompile(monkeypatch, features=["include-bundles"])
+        body = json.dumps({"project_dir": str(project), "source": source, "no_promote": True})
+        refusal = _refusal(config, "rebrew.verify_function", body.encode())
+        assert (refusal["status"], refusal["error"]) == (422, "toolchain-rejected"), refusal
+        assert "error C2065" in refusal["detail"]
+
+    def test_a_service_that_cannot_compile_stays_an_engine_failure(
+        self, world: tuple[WorkerConfig, Path], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The compile never ran: no verdict on the source, and not the caller's fault."""
+        config, project = _project_copy(world, "verify_function_unavailable")
+        source = min((project / "src" / "mini").glob("*.c")).relative_to(project).as_posix()
+        monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://recompile.test")
+        monkeypatch.setattr("rebrew.compiler.recompile_client.time.sleep", lambda _s: None)
+        serve_recompile(monkeypatch, features=["include-bundles"], error_code="runner_unavailable")
+        body = json.dumps({"project_dir": str(project), "source": source, "no_promote": True})
+        refusal = _refusal(config, "rebrew.verify_function", body.encode())
+        assert (refusal["status"], refusal["error"]) == (500, "engine-error"), refusal
+
 
 # ---------------------------------------------------------------------------
 # Transports, end to end through the installed command

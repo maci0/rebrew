@@ -42,6 +42,7 @@ from rebrew.cli import (
     MODULE_HELP,
     SIZE_HELP,
     SOURCE_HELP,
+    TOOLCHAIN_REJECTED_KIND,
     WATCH_FILE_HELP,
     AllTargetsOption,
     SourceTargetsOption,
@@ -1568,7 +1569,13 @@ def _run_test_impl(
             measured_inputs = kept
 
     if cmp.status == "COMPILE_ERROR":
-        error_exit(f"COMPILE ERROR:\n{cmp.message}", json_mode=json_output, code=EXIT_ERROR)
+        # No error behind it: the toolchain ran and rejected the source.
+        error_exit(
+            f"COMPILE ERROR:\n{cmp.message}",
+            json_mode=json_output,
+            code=EXIT_ERROR,
+            kind="failure" if cmp.error is not None else TOOLCHAIN_REJECTED_KIND,
+        )
 
     # --fix-sizes: a SIZE_MISMATCH where every common byte matched is a stale
     # SIZE annotation, not a decompilation problem.  Write the compiled size

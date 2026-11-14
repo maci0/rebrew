@@ -3070,7 +3070,7 @@ def run_verification(
                         # verdict — never let it overwrite the function's real STATUS
                         # in rebrew-functions.toml (an EXACT/NEAR_MATCHING function would
                         # be permanently demoted to COMPILE_ERROR).  Neither is a
-                        # remote compile the service could not run (``result.error``).
+                        # compile that could not run, remote or local (``result.error``).
                         if not is_internal_error and result.error is None:
                             deferred_fixes.append((entry, result.status, result.delta))
 

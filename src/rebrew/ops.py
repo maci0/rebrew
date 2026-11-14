@@ -365,11 +365,15 @@ WORKER_BUSY = "worker-busy"
 CALLER_GONE = "caller-gone"
 #: The call outlived the seconds its caller named in :data:`TIMEOUT_HEADER`.
 DEADLINE_EXCEEDED = "deadline-exceeded"
-#: A remote compile of a source that reads project headers (relumea ADR 0010, decision 4).
+#: A remote compile of a source whose project headers cannot ship (relumea ADR 0010, decision 4).
 REMOTE_HEADERS = "remote-compile-headers"
 #: A supplied ``rebrew-project.toml`` rebrew cannot read (400); the detail
 #: starts ``invalid project config:``.
 INVALID_PROJECT_CONFIG = "invalid-project-config"
+#: The toolchain ran and rejected the source (422): no verdict, and the detail
+#: carries the compiler's diagnostics.  A toolchain that could not run stays
+#: 500 ``engine-error``.
+TOOLCHAIN_REJECTED = "toolchain-rejected"
 
 
 class OpsError(RebrewError):
@@ -513,6 +517,11 @@ def _capture_failed(detail: str) -> OpsError:
 
 def _refused(detail: str) -> OpsError:
     return OpsError(detail)
+
+
+def _toolchain_rejected(diagnostics: str) -> OpsError:
+    """The toolchain ran and rejected the source: 422 with its diagnostics, no verdict."""
+    return OpsError(_bounded(diagnostics), code=TOOLCHAIN_REJECTED, status=422)
 
 
 class _Cancellation:
@@ -2186,6 +2195,10 @@ def run_rebrew(
         if kind == "usage":
             # The command rejected its input (clispec ``usage``): the caller's request.
             raise _invalid(f"rebrew {name} refused: {message}")
+        from rebrew.cli import TOOLCHAIN_REJECTED_KIND
+
+        if kind == TOOLCHAIN_REJECTED_KIND:
+            raise _toolchain_rejected(message)
         logger.error(
             "rebrew %s exited %d: %s", name, process.returncode, _escape_log_text(stderr.strip())
         )
@@ -4083,6 +4096,10 @@ def _answer(config: WorkerConfig, name: str, body: bytes) -> Mapping[str, Any]:
     except OpsError:
         raise
     except typer.Exit as exc:
+        from rebrew.cli import TOOLCHAIN_REJECTED_KIND, CommandExit
+
+        if isinstance(exc, CommandExit) and exc.kind == TOOLCHAIN_REJECTED_KIND:
+            raise _toolchain_rejected(exc.message) from None
         raise _refused(f"rebrew refused {name} (exit {exc.exit_code})") from None
     except UnsupportedBinaryFormat as exc:
         raise OpsError(str(exc), code=UNSUPPORTED_BINARY_FORMAT, status=422) from None

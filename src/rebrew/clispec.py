@@ -227,6 +227,15 @@ def build_schema(root: typer.Typer, *, path: str | None = None) -> dict[str, Any
                 "description": "The command could not finish.",
             },
             {
+                "kind": "toolchain_rejected",
+                "exit_code": 2,
+                "retryable": False,
+                "description": (
+                    "The toolchain ran and rejected the source; the message carries "
+                    "its diagnostics. A toolchain that could not run is a failure."
+                ),
+            },
+            {
                 "kind": "confirmation_required",
                 "exit_code": 2,
                 "retryable": False,

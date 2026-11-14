@@ -498,3 +498,31 @@ class TestOneSearchOrder:
         local_bytes = Path(single).read_bytes()
         assert Path(batch[id(entries[0])]).read_bytes() == local_bytes
         assert Path(remote).read_bytes() == local_bytes
+
+
+class TestARejectionIsNotAFailureToRun:
+    @pytest.mark.usefixtures("host_toolchain")
+    def test_a_rejected_source_carries_no_error_and_a_missing_compiler_does(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """``COMPILE_ERROR`` without ``error`` is the toolchain's verdict on the source."""
+        from rebrew.compiler.compile import compile_and_compare
+        from rebrew.compiler.toolchain import ToolchainError
+
+        root = tmp_path / "project"
+        source = _project(root, {"src/game/plant.c": "int f(void) { return nope; }\n"})
+        rejected = compile_and_compare(
+            _cfg(root, remote=False), source, "f", b"\x00", "", use_cache=False
+        )
+        assert rejected.status == "COMPILE_ERROR" and rejected.error is None
+        assert "nope" in rejected.message
+
+        def missing(_spec: object) -> None:
+            return None
+
+        monkeypatch.setattr("rebrew.compiler.toolchain.vendored_binary", missing)
+        not_run = compile_and_compare(
+            _cfg(root, remote=False), source, "f", b"\x00", "", use_cache=False
+        )
+        assert not_run.status == "COMPILE_ERROR"
+        assert isinstance(not_run.error, ToolchainError)
