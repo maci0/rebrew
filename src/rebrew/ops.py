@@ -2873,6 +2873,8 @@ def remote_header_refusal(cfg: Any, sources: Iterable[Path]) -> None:
     include bundles exist, a source whose include closure reaches a header
     under its directory or the project's ``/I`` directories, or that computes
     an include, is refused before anything compiles.  Local compiles pass.
+    The refusal names the first such source and what it includes, and for
+    several sources how many are affected, so the caller sees the extent.
     """
     from rebrew.compiler.compile import recompile_url
 
@@ -2881,21 +2883,40 @@ def remote_header_refusal(cfg: Any, sources: Iterable[Path]) -> None:
     from rebrew.compiler.cache import scan_include_closure
     from rebrew.compiler.compile import effective_compile_flags, extract_include_dirs
 
+    def shown(path: Path) -> str:
+        return path.relative_to(cfg.root).as_posix() if path.is_relative_to(cfg.root) else path.name
+
+    first = ""
+    affected = total = 0
     for source in sources:
+        total += 1
         flags = effective_compile_flags(cfg, None, "", source.parent)
         headers, computed, _snapshots, _consistent = scan_include_closure(
             source.read_text(encoding="utf-8", errors="surrogateescape"),
             str(source.parent),
             tuple(extract_include_dirs(flags)),
         )
-        if headers or computed:
-            shown = source.relative_to(cfg.root) if source.is_relative_to(cfg.root) else source
-            raise OpsError(
-                f"{shown} reads project headers, which a remote compile cannot ship yet;"
-                " compile it with a local backend",
-                code=REMOTE_HEADERS,
-                status=422,
+        if not headers and not computed:
+            continue
+        affected += 1
+        if not first:
+            first = (
+                f"{shown(source)} includes the project header {shown(Path(headers[0]))}"
+                + (f" and {len(headers) - 1} more" if len(headers) > 1 else "")
+                if headers
+                else f"{shown(source)} computes an #include"
             )
+    if not affected:
+        return
+    extent = f"; {affected} of {total} sources read project headers" if total > 1 else ""
+    raise OpsError(
+        _bounded(
+            f"{first}{extent}. A remote compile receives the source file alone (include bundles"
+            " are not available yet): compile with a local backend"
+        ),
+        code=REMOTE_HEADERS,
+        status=422,
+    )
 
 
 def retained_compile_refusal(cfg: Any, sources: Iterable[Path]) -> None:
@@ -3296,6 +3317,23 @@ def confined_snapshot_config(cfg: Any, root: Path) -> None:
         raise _invalid(str(exc)) from exc
 
 
+def retained_config(root: Path, target_name: str) -> Any:
+    """The staged snapshot's project config; a config rebrew refuses is the caller's to fix: 400 invalid-project-config."""
+    from rebrew.config import load_config
+    from rebrew.errors import ConfigError
+
+    try:
+        return load_config(root, target=target_name)
+    except ConfigError as exc:
+        # The detail is the request's own file: name it relative to the snapshot, never the worker's scratch path.
+        detail = str(exc).replace(f"{root}{os.sep}", "").replace(str(root), ".")
+        if not detail.startswith("rebrew-project.toml"):
+            detail = f"rebrew-project.toml: {detail}"
+        raise OpsError(
+            _bounded(f"invalid project config: {detail}"), code=INVALID_PROJECT_CONFIG, status=400
+        ) from None
+
+
 @contextlib.contextmanager
 def retained_target_snapshot(
     config: WorkerConfig,
@@ -3310,7 +3348,7 @@ def retained_target_snapshot(
 
     *project_cflags*, when set, become the project cflags of the private copy (``apply_project_cflags``).
     """
-    from rebrew.config import inventory_path_for, load_config
+    from rebrew.config import inventory_path_for
     from rebrew.utils import portable_path_parts
 
     if not target_name or not files:
@@ -3331,7 +3369,7 @@ def retained_target_snapshot(
 
         backend = retained_metadata_backend(root)
         rewritten = apply_project_cflags(root, target_name, project_cflags)
-        cfg = load_config(root, target=target_name)
+        cfg = retained_config(root, target_name)
         confined_snapshot_config(cfg, root)
         registry, ignored = (root / DATABASE_FILENAME, cfg.metadata_dir / "rebrew-functions.toml")
         if backend == "toml":

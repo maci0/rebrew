@@ -1198,6 +1198,42 @@ class TestReconstructionOps:
         status, body = dispatch(config, "rebrew.coverage_report", json.dumps(request).encode())
         assert status == 409, body
 
+    def test_retained_build_names_an_invalid_project_config(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A staged rebrew-project.toml rebrew refuses is the caller's to fix: say what, not "see the log"."""
+        filestore, workspace = _worker_dirs(tmp_path)
+        config = WorkerConfig(filestore.resolve(), workspace.resolve())
+        status, raw = dispatch(config, "rebrew.analyse", json.dumps(_analyse_request()).encode())
+        assert status == 200, raw
+        analysed = json.loads(raw)
+        capture = analysed["analysis_capture"]
+        files = []
+        for entry in capture["entries"]:
+            if entry["kind"] != "file":
+                continue
+            data = base64.b64decode(entry["data"])
+            if entry["path"] == "rebrew-project.toml":
+                assert b"\n[compiler]\n" in data, "the generated config has a compiler table"
+                data = data.replace(
+                    b"\n[compiler]\n", b'\n[compiler]\nexecution_backend = "unshare"\n', 1
+                )
+            digest, key = _store(filestore, data)
+            files.append({"path": entry["path"], "size": len(data), "digest": digest, "key": key})
+        monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://127.0.0.1:9")
+        request = {
+            "project_dir": analysed["project"],
+            "sha256": SHA256,
+            "files": files,
+            "rebrew_target": capture["target"],
+            "binary_key": KEY,
+        }
+        refusal = _refusal(config, "rebrew.build", json.dumps(request).encode())
+        assert (refusal["error"], refusal["status"]) == ("invalid-project-config", 400)
+        assert refusal["detail"] == (
+            "invalid project config: rebrew-project.toml: compiler.execution_backend = unshare conflicts with remote recompile"
+        )
+
     def test_analyse_same_binary_has_isolated_project_workspaces(self, tmp_path: Path) -> None:
         from rebrew.config import load_config
         from rebrew.metadata.sqlite import DATABASE_FILENAME
@@ -1809,7 +1845,13 @@ class TestReconstructionOps:
         body = json.dumps({"project_dir": str(project), **extra}).encode()
         refusal = _refusal(config, op, body)
         assert (refusal["error"], refusal["status"]) == ("remote-compile-headers", 422)
-        assert refusal["detail"].startswith("src/mini/uses_header.c reads project headers")
+        assert refusal["detail"].startswith(
+            "src/mini/uses_header.c includes the project header src/mini/local.h"
+        )
+        assert "compile with a local backend" in refusal["detail"]
+        assert str(project) not in refusal["detail"]
+        if op in {"rebrew.verify_target", "rebrew.build"}:
+            assert "1 of " in refusal["detail"], "a whole-target refusal says how many sources"
 
 
 # ---------------------------------------------------------------------------

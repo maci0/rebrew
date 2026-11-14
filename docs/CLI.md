@@ -7063,8 +7063,14 @@ Op details the contract leaves open:
   `verify_target`, `build` and the retained variant search refuse 422
   `remote-compile-headers` when a source they would compile includes a
   header found under its directory or the project's `/I` directories, or
-  computes an include: the service receives the source text alone. Local
-  backends are unaffected.
+  computes an include: the service receives the source text alone. The
+  detail names the first such source and the header it includes and, when
+  the op compiles several sources, how many of them read project headers.
+  Local backends are unaffected.
+- A retained snapshot (`files`) whose staged `rebrew-project.toml` rebrew
+  refuses to load is a 400 `invalid-project-config`: `invalid project config:`
+  then the config error, prefixed `rebrew-project.toml:` and without the
+  worker's scratch path.
 - `verify_function` takes an optional `cflags`: plain option tokens (each starts
   with `/` or `-`, characters `A-Za-z0-9_:=.+-`, 256 characters at most) that
   replace the project's compiler flags for that one comparison, passed to
