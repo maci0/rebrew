@@ -48,6 +48,21 @@ def test_the_targets_are_the_config_tables_in_their_loader_spelling(tmp_path: Pa
     assert reply == {"targets": ["café", "client", "server"]}
 
 
+def test_an_unreadable_config_has_its_own_code(tmp_path: Path) -> None:
+    """A config rebrew cannot read answers 400 ``invalid-project-config``.
+
+    The backend told it apart only by the ``invalid project config:`` detail
+    prefix, which stays; the detail never names the worker's scratch copy.
+    """
+    config = _config(tmp_path)
+    assert config.workspace is not None
+    request = {"files": [_ref(config, "rebrew-project.toml", b"[targets\n")]}
+    status, reply = _call(config, "rebrew.project_targets", request)
+    assert (status, reply["error"], reply["status"]) == (400, "invalid-project-config", 400)
+    assert reply["detail"].startswith("invalid project config: ")
+    assert str(config.workspace) not in reply["detail"], reply["detail"]
+
+
 @pytest.mark.parametrize(
     ("files", "detail"),
     [

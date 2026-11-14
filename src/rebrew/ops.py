@@ -367,6 +367,9 @@ CALLER_GONE = "caller-gone"
 DEADLINE_EXCEEDED = "deadline-exceeded"
 #: A remote compile of a source that reads project headers (relumea ADR 0010, decision 4).
 REMOTE_HEADERS = "remote-compile-headers"
+#: A supplied ``rebrew-project.toml`` rebrew cannot read (400); the detail
+#: starts ``invalid project config:``.
+INVALID_PROJECT_CONFIG = "invalid-project-config"
 
 
 class OpsError(RebrewError):
@@ -2634,7 +2637,13 @@ def project_targets(config: WorkerConfig, req: FileSetRequest) -> dict[str, Any]
         try:
             table = targets_table(read_config(root))
         except (OSError, ValueError, RebrewError) as exc:
-            raise _invalid(f"invalid project config: {exc}") from exc
+            # The caller's own file: name it within the set, never the worker's scratch path.
+            detail = str(exc).replace(f"{root}{os.sep}", "").replace(str(root), ".")
+            raise OpsError(
+                _bounded(f"invalid project config: {detail}"),
+                code=INVALID_PROJECT_CONFIG,
+                status=400,
+            ) from exc
     return {"targets": sorted(table, key=lambda name: name.encode("utf-8"))}
 
 

@@ -6917,7 +6917,8 @@ wrong JSON type, is refused. A refusal is
 `{"error","detail","status"}`: `invalid-request` (400; 413 when the request
 exceeds 16 MiB; also a wrapped command's `usage` error, with its message),
 `unknown-op` (404), `engine-error` (500),
-`remote-compile-headers` (422, see below), or, from
+`remote-compile-headers` (422, see below), `invalid-project-config` (400, see
+`rebrew.project_targets`), or, from
 `serve` only, `worker-busy` (503), `deadline-exceeded` (504) and
 `caller-gone` (499, written to a caller that has already closed). An engine
 failure answers a fixed detail and logs its cause on stderr.
@@ -7034,7 +7035,9 @@ Op details the contract leaves open:
 - `rebrew.project_targets` `{files}` answers `{targets}`: the `[targets]` tables
   of the set's `rebrew-project.toml`, keyed in the NFC spelling the config loader
   uses and sorted by UTF-8 bytes. The set uses the retained-snapshot file entries
-  and limits; an unreadable config answers 400.
+  and limits; a config rebrew cannot read answers 400 `invalid-project-config`
+  whose detail starts `invalid project config:` and names the file within the
+  set, never the worker's scratch path.
 - `rebrew.binary_function_digests`: the image is parsed once; every byte a
   typed fixup covers (PE or ELF, x86_32 and x86_64 only; other images are
   refused) is zeroed before SHA-256 (`sha256-relocations-v1`). At most 128
