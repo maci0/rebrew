@@ -526,3 +526,66 @@ class TestARejectionIsNotAFailureToRun:
         )
         assert not_run.status == "COMPILE_ERROR"
         assert isinstance(not_run.error, ToolchainError)
+
+
+class TestTheReachedHeaderDigestAgreesWithTheBundle:
+    """The compile cache key, the verification fingerprint and the bundle read one header set.
+
+    ``[compiler] includes`` (``inc_last``) and an include flag both hold
+    ``shared.h``; the compile reads the flag's copy, so that copy is the
+    header every digest names.
+    """
+
+    @staticmethod
+    def _tree(tmp_path: Path) -> tuple[SimpleNamespace, Path]:
+        root = tmp_path / "project"
+        source = _project(root)
+        (root / "inc_last").mkdir()
+        (root / "inc_last/shared.h").write_text("#define SHARED 9\n", encoding="utf-8")
+        cfg = _cfg(root, remote=False)
+        cfg.compiler_includes = str(root / "inc_last")
+        return cfg, source
+
+    @pytest.mark.usefixtures("host_toolchain")
+    def test_an_edit_to_the_header_the_compile_reads_is_a_cache_miss(self, tmp_path: Path) -> None:
+        from rebrew.compiler.cache import CompileCache
+
+        cfg, source = self._tree(tmp_path)
+        cache = CompileCache(tmp_path / "cache")
+        first = tmp_path / "first"
+        first.mkdir()
+        obj, error = compile_to_obj(cfg, source, "", first, cache=cache, obj_name="plant.o")
+        assert obj is not None, error
+        before = Path(obj).read_bytes()
+        shared = cfg.root / "include/shared.h"
+        shared.write_text(shared.read_text().replace("SHARED 3", "SHARED 4"), encoding="utf-8")
+        second = tmp_path / "second"
+        second.mkdir()
+        obj, error = compile_to_obj(cfg, source, "", second, cache=cache, obj_name="plant.o")
+        assert obj is not None, error
+        assert Path(obj).read_bytes() != before, "the edited header served a stale object"
+
+    @pytest.mark.usefixtures("host_toolchain")
+    def test_the_fingerprint_moves_with_exactly_the_bundled_headers(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        from rebrew.compiler.compile import effective_compile_flags, remote_include_bundle
+        from rebrew.verify_hash import entry_headers_fp
+
+        cfg, source = self._tree(tmp_path)
+        cfg.shared_dir = None
+        bundle = remote_include_bundle(
+            cfg,
+            None,
+            source.read_text(encoding="utf-8"),
+            effective_compile_flags(cfg, None, "", source.parent),
+            source.parent,
+        )
+        assert bundle is not None
+        headers = sorted(path.relative_to(cfg.root).as_posix() for path in cfg.root.rglob("*.h"))
+        for header in headers:
+            before = entry_headers_fp(cfg, source, "")
+            path = cfg.root / header
+            path.write_text(path.read_text() + "/* edited */\n", encoding="utf-8")
+            moved = entry_headers_fp(cfg, source, "") != before
+            assert moved == (header in bundle.includes), header

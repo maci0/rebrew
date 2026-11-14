@@ -749,23 +749,26 @@ def entry_headers_fp(
         dir_fingerprint_hash,
         header_dependency_hash,
     )
-    from rebrew.compiler.compile import extract_include_dirs, resolve_include_flags
+    from rebrew.compiler.compile import (
+        extract_include_dirs,
+        local_include_order,
+        resolve_include_flags,
+    )
 
     source_dir = filepath.parent
-    inc_path = compiler_dir(getattr(cfg, "compiler_includes", None))
     flags = list(_split_flags(getattr(cfg, "base_cflags", "") or "")) + list(
         _split_flags(cflags_str)
     )
     flags = resolve_include_flags(flags, source_dir, cfg.root)
-    include_dirs = [d for d in [inc_path, str(source_dir), *extract_include_dirs(flags)] if d]
+    flag_dirs = extract_include_dirs(flags)
     shared = getattr(cfg, "shared_dir", None)
     if shared is not None:
         try:
             shared_path = resolved_path(Path(shared))
             if path_is_relative_to(resolved_path(Path(source_dir)), shared_path):
                 shared_str = str(shared_path)
-                if shared_str not in include_dirs:
-                    include_dirs.append(shared_str)
+                if shared_str not in flag_dirs:
+                    flag_dirs.append(shared_str)
         except (OSError, ValueError) as exc:
             # Dropping shared_dir here hashes the source over a different
             # include path than the compile used, so the mismatch is silent.
@@ -775,6 +778,12 @@ def entry_headers_fp(
                 source_dir,
                 exc,
             )
+
+    # The compile's search order (local_include_order): the source's directory,
+    # the flags' /I dirs, then [compiler] includes, so the header hashed for a
+    # name is the one the compiler opens and the one an include bundle ships.
+    lead, tail = local_include_order(cfg, source_dir, flags, None)
+    include_dirs = list(dict.fromkeys([*lead, *flag_dirs, *tail]))
 
     force_include = any(f.startswith(FORCE_INCLUDE_PREFIXES) for f in flags)
     if force_include:

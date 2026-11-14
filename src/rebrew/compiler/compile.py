@@ -1499,10 +1499,11 @@ def local_include_order(
     original source's directory when the compile runs a temp copy), as a
     compiler run in the source's directory searches it; the configured
     ``[compiler] includes`` directory comes last unless the toolchain image
-    already carries it.  :func:`remote_include_bundle` keeps the same order.
+    already carries it.  :func:`remote_include_bundle`, the compile cache key and
+    ``verify_hash.entry_headers_fp`` keep the same order.
     """
     lead = [str(src_parent), *(d for d in extra_include_dirs or [] if d)]
-    inc_path = compiler_dir(cfg.compiler_includes)
+    inc_path = compiler_dir(getattr(cfg, "compiler_includes", None))
     tail = [inc_path] if inc_path and not _is_vendored_toolchain_tree(Path(inc_path)) else []
     known = set(extract_include_dirs(flags))
     return [d for d in lead if d not in known], [d for d in tail if d not in known]
@@ -1853,7 +1854,6 @@ def _cache_key_for(
     source_content: str,
     src_name: str,
     all_flags: list[str],
-    inc_path: str,
     src_parent: Path,
     extra_include_dirs: list[str] | None,
     source_ext: str,
@@ -1897,25 +1897,13 @@ def _cache_key_for(
             return None
     else:
         return None
-    # extra_include_dirs feed the /I flags and bind mounts - they are
-    # compile inputs and must shape the key (two functions whose
-    # relative #include resolves differently would otherwise share
-    # a cache entry and one would get the other's object).  The /I dirs
-    # carried by the flags themselves join the search set too, so their
-    # headers participate in the per-source dependency fingerprints
-    # (a dir only reachable via a flag's /I would otherwise be untracked).
-    include_dirs = [
-        d
-        for d in dict.fromkeys(
-            [
-                inc_path,
-                str(src_parent),
-                *(extra_include_dirs or []),
-                *extract_include_dirs(all_flags),
-            ]
-        )
-        if d
-    ]
+    # The key resolves the headers the compile reads, in the compile's own
+    # search order (local_include_order: the source's directory and
+    # extra_include_dirs, the flags' /I dirs, then [compiler] includes), so
+    # the header it hashes for a name is the one the compiler opens and the
+    # one a remote include bundle ships.
+    lead, tail = local_include_order(cfg, src_parent, all_flags, extra_include_dirs)
+    include_dirs = list(dict.fromkeys([*lead, *extract_include_dirs(all_flags), *tail]))
     return compile_cache_key(
         source_content=source_content,
         source_filename=src_name,
@@ -2134,7 +2122,6 @@ def compile_to_obj(
             compile_text,
             src_name,
             key_flags,
-            inc_path,
             src_parent,
             extra_include_dirs,
             source_ext,
@@ -2706,7 +2693,6 @@ def precompile_batch(
                         text,
                         _cache_src_name(cfile.name),
                         flags,
-                        compiler_dir(cfg.compiler_includes),
                         src_parent,
                         None,
                         cfile.suffix or ".c",
@@ -2904,7 +2890,6 @@ def precompile_batch(
                     staged_text,
                     _cache_src_name(src.name),
                     member_flags,
-                    compiler_dir(cfg.compiler_includes),
                     src_parent,
                     None,
                     src.suffix or ".c",

@@ -318,7 +318,7 @@ class TestUnshareCacheIdentity:
 
         cfg = ProjectConfig(root=tmp_path)
         spec = TOOLCHAINS["msvc-6.0-sp5"]
-        args = (spec, "int f(void){return 1;}", "f.c", ["/O2"], "", tmp_path, None, ".c")
+        args = (spec, "int f(void){return 1;}", "f.c", ["/O2"], tmp_path, None, ".c")
         normal = compiler._cache_key_for(cfg, *args, image_id=_IMAGE_ID)
         experimental = compiler._cache_key_for(
             replace(cfg, execution_backend="unshare"), *args, image_id=_IMAGE_ID
@@ -333,7 +333,7 @@ class TestUnshareCacheIdentity:
 
         cfg = ProjectConfig(root=tmp_path)
         spec = ToolchainSpec(name="host-probe", image=None, binary=sys.executable)
-        args = (spec, "int f(void){return 1;}", "f.c", [], "", tmp_path, None, ".c")
+        args = (spec, "int f(void){return 1;}", "f.c", [], tmp_path, None, ".c")
         assert compiler._cache_key_for(cfg, *args) is not None
         assert compiler._cache_key_for(replace(cfg, execution_backend="unshare"), *args) is None
 
