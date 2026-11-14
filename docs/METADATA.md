@@ -69,7 +69,9 @@ A retained target reads only the registry its project config selects, so its fil
 set may not carry the other one: a SQLite config refuses a `rebrew-functions.toml`,
 and a TOML config refuses a `rebrew-metadata.sqlite3`. `rebrew.decompile_snapshot`
 and `rebrew.security_scan_snapshot` accept every capture version, as the backend
-stores it. Over a SQLite capture, the source tree may supply no document the
+stores it, with up to 32768 entries, the bound of rebrew's own capture (one stub
+per discovered function); the request bound (16 MiB) bounds the manifest text.
+Over a SQLite capture, the source tree may supply no document the
 descriptor lists, including a `rebrew-functions.toml` with a matching
 `attested_registry_digest`, and the captured store must hold exactly the listed
 documents.

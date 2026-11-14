@@ -179,11 +179,9 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
     try:
         if type(req.analysis_manifest) is not str:
             raise ValueError("capture must be a string")
+        # The request bound (``ops.MAX_REQUEST_BYTES``) bounds the manifest text.
         raw = req.analysis_manifest.encode("utf-8")
-        if (
-            len(raw) > 2 * 1024 * 1024
-            or hashlib.sha256(raw).hexdigest() != req.analysis_manifest_sha256
-        ):
+        if hashlib.sha256(raw).hexdigest() != req.analysis_manifest_sha256:
             raise ValueError("capture digest differs")
         capture = json.loads(req.analysis_manifest, object_pairs_hook=unique_json_object)
         # Version 1 keeps its registry as TOML; versions 2 and 3 keep every metadata
@@ -207,7 +205,9 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
             or capture["binary_sha256"] != req.sha256
             or capture["target"] != req.rebrew_target
             or type(capture["entries"]) is not list
-            or not 1 <= len(capture["entries"]) <= 1024
+            # One stub per discovered function: the bound rebrew's own capture
+            # (``ops.capture_fresh_analysis``) and the backend store use.
+            or not 1 <= len(capture["entries"]) <= ops.MAX_READSET_FILES
             or not re.fullmatch(r"[0-9a-f]{32}", req.generation)
         ):
             raise ValueError("invalid capture")

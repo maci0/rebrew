@@ -157,6 +157,44 @@ def test_named_decompile_uses_only_snapshot(
     assert result["generation"] == request["generation"]
 
 
+def _with_entries(original: dict[str, Any], count: int) -> dict[str, Any]:
+    """The request whose capture lists *count* entries, padded with absent stubs."""
+    request = copy.deepcopy(original)
+    capture = json.loads(request["analysis_manifest"])
+    pad = count - len(capture["entries"])
+    capture["entries"] += [
+        {"path": f"src/mini/fcn_{index:08x}.c", "kind": "absent", "size": 0, "digest": ""}
+        for index in range(pad)
+    ]
+    capture["entries"].sort(key=lambda row: row["path"])
+    request["analysis_manifest"] = _json(capture)
+    request["analysis_manifest_sha256"] = _digest(request["analysis_manifest"])
+    return request
+
+
+@pytest.mark.parametrize(("count", "status"), [(1100, 200), (32768, 200), (32769, 400)])
+def test_capture_entries_follow_the_readset_bound(
+    sample: tuple[WorkerConfig, dict],
+    monkeypatch: pytest.MonkeyPatch,
+    count: int,
+    status: int,
+) -> None:
+    """Intake writes one stub per function and captures up to 32768 entries.
+
+    The named snapshot ops refused more than 1024 entries (or 2 MiB of
+    manifest), so a binary of about a thousand functions could not be read.
+    """
+    config, original = sample
+    monkeypatch.setattr(
+        "rebrew.decompiler.fetch_decompilation",
+        lambda *_args: ("int a0;\n*(char *)(a0 + 0x10) = 1;\n", "kuna"),
+    )
+    result_status, result = _call(config, _with_entries(original, count))
+    assert result_status == status, result
+    if status == 400:
+        assert result["detail"] == "invalid retained analysis capture"
+
+
 def _with_source_files(
     config: WorkerConfig, original: dict[str, Any], files: dict[str, bytes]
 ) -> dict[str, Any]:
