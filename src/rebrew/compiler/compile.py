@@ -1426,6 +1426,169 @@ def _close_recompile_client() -> None:
 atexit.register(_close_recompile_client)
 
 
+@dataclass(frozen=True)
+class RemoteBundle:
+    """The project headers a remote compile ships beside its source.
+
+    *source_dir* is the source's project-relative directory (``""`` for the
+    project root), where the service runs the compiler.  *includes* maps each
+    header's project-relative path to its text.  *flags* are the compile flags
+    with every project include directory spelled relative to *source_dir*.
+    """
+
+    source_dir: str
+    includes: dict[str, str]
+    flags: list[str]
+
+    @property
+    def digest(self) -> str:
+        """SHA-256 over the source directory and each header's path and bytes."""
+        h = hashlib.sha256(self.source_dir.encode("utf-8") + b"\0")
+        for path, text in sorted(self.includes.items()):
+            h.update(path.encode("utf-8") + b"\0")
+            h.update(hashlib.sha256(text.encode("utf-8")).digest())
+        return h.hexdigest()
+
+
+def _within(path: Path, root: Path) -> bool:
+    return path == root or path.is_relative_to(root)
+
+
+def local_include_order(
+    cfg: ProjectConfig,
+    src_parent: Path,
+    flags: list[str],
+    extra_include_dirs: list[str] | None,
+) -> tuple[list[str], list[str]]:
+    """Include directories a local compile searches before and after *flags*' own.
+
+    The source's directory comes first, then *extra_include_dirs* (the
+    original source's directory when the compile runs a temp copy), as a
+    compiler run in the source's directory searches it; the configured
+    ``[compiler] includes`` directory comes last unless the toolchain image
+    already carries it.  :func:`remote_include_bundle` keeps the same order.
+    """
+    lead = [str(src_parent), *(d for d in extra_include_dirs or [] if d)]
+    inc_path = compiler_dir(cfg.compiler_includes)
+    tail = [inc_path] if inc_path and not _is_vendored_toolchain_tree(Path(inc_path)) else []
+    known = set(extract_include_dirs(flags))
+    return [d for d in lead if d not in known], [d for d in tail if d not in known]
+
+
+def remote_include_bundle(
+    cfg: ProjectConfig,
+    spec: ToolchainSpec | None,
+    source_text: str,
+    flags: list[str],
+    src_parent: Path,
+    extra_include_dirs: list[str] | None = None,
+) -> RemoteBundle | None:
+    """The include bundle a remote compile of *source_text* ships, or None.
+
+    None when the source reads no project header: the service compiles the
+    text alone.  Otherwise the bundle holds every header the include closure
+    (:func:`rebrew.compiler.cache.scan_include_closure`) reaches through the
+    directories a local compile searches, in its order
+    (:func:`local_include_order`), and its flags name those directories
+    relative to the source's directory (relumea ADR 0010, decision 4).
+
+    Raises :class:`~rebrew.compiler.recompile_client.RecompileError`
+    (``kind="validation"``) when the headers cannot ship: an ``#include`` a
+    macro computes, a header outside the project root or not UTF-8, or a DOS
+    toolchain, whose wrapper stages its own include tree.
+    """
+    from rebrew.compiler.cache import scan_include_closure
+    from rebrew.compiler.recompile_client import RecompileError
+
+    root = Path(cfg.root).resolve()
+    lead, tail = local_include_order(cfg, src_parent, flags, extra_include_dirs)
+    search = [*lead, *extract_include_dirs(flags), *tail]
+    anchor = next(
+        (Path(d).resolve() for d in lead if _within(Path(d).resolve(), root)),
+        root,
+    )
+    msvc = spec is None or spec.flags_style == "msvc"
+    contents: dict[str, bytes] = {}
+    try:
+        headers, computed, _stats, _consistent = scan_include_closure(
+            source_text,
+            str(anchor),
+            tuple(dict.fromkeys(search)),
+            contents=contents,
+            msvc_include_parents=msvc,
+        )
+    except ValueError as exc:
+        raise RecompileError(
+            f"has an #include a bundle cannot resolve ({exc})", kind="validation"
+        ) from None
+    if computed:
+        raise RecompileError(
+            "computes an #include (a macro names the header), which a bundle cannot resolve",
+            kind="validation",
+        )
+    if not headers:
+        return None
+    if spec is not None and spec.effective_arg_style == "dos":
+        raise RecompileError(
+            f"reads project headers, and the {spec.name} wrapper stages its own include tree",
+            kind="validation",
+        )
+    includes: dict[str, str] = {}
+    for header in headers:
+        path = Path(header)
+        if not _within(path, root):
+            raise RecompileError(f"reads {path}, outside the project root", kind="validation")
+        name = path.relative_to(root).as_posix()
+        try:
+            includes[name] = contents[header].decode("utf-8")
+        except UnicodeDecodeError:
+            raise RecompileError(
+                f"reads {name}, which is not UTF-8 text", kind="validation"
+            ) from None
+
+    def spelled(directory: str) -> str | None:
+        resolved = Path(directory).resolve()
+        if not Path(directory).is_absolute() or not _within(resolved, root):
+            return None
+        return Path(os.path.relpath(resolved, anchor)).as_posix()
+
+    prefix = "/I" if msvc else "-I"
+    rewritten: list[str] = [prefix + d for d in map(spelled, lead) if d is not None]
+    for flag in _merged_include_tokens(flags):
+        directory = _include_dir_of(flag)
+        relative = spelled(directory) if directory else None
+        rewritten.append(flag if relative is None else flag[:2] + relative)
+    rewritten += [prefix + d for d in map(spelled, tail) if d is not None]
+    return RemoteBundle(
+        source_dir="" if anchor == root else anchor.relative_to(root).as_posix(),
+        includes=includes,
+        flags=rewritten,
+    )
+
+
+def remote_bundles_supported(cfg: ProjectConfig) -> bool | None:
+    """Whether the configured recompile service takes include bundles.
+
+    ``None`` when no remote backend is configured, or the service could not be
+    asked (unreachable, a malformed reply): the compile itself then reports
+    that failure.  Uses the client the compile would use.
+    """
+    from rebrew.compiler.recompile_client import RecompileError, accepts_include_bundles
+
+    url = recompile_url(cfg)
+    if url is None or os.environ.get("REBREW_JOB_COMPILE_SOCKET"):
+        # A job compile asks through its own socket client, per compile.
+        return None
+    timeout = float(getattr(cfg, "compile_timeout", DEFAULT_COMPILE_TIMEOUT) or 0) + 120.0
+    client = _shared_recompile_client(timeout)
+    try:
+        return accepts_include_bundles(url, client=client)
+    except RecompileError:
+        return None
+    finally:
+        _recompile_release(client)
+
+
 def _compile_via_recompile(
     cfg: ProjectConfig,
     source_path: Path,
@@ -1436,15 +1599,15 @@ def _compile_via_recompile(
     emit_assembly: bool,
     source_text: str | None = None,
     backend_errors: list[RebrewError] | None = None,
+    bundle: RemoteBundle | None = None,
 ) -> tuple[str | None, str]:
     """Compile one source through the recompile HTTP service.
 
-    Single-file model: the source text plus the fully-resolved flag list go
-    in one ``POST /api/v1/compile``; the returned artifact bytes are written
-    to *workdir* / *obj_name*.  Include dirs are NOT shipped — the service
-    compiles its own image-local tree (plus the single source), so sources
-    with project-relative ``#include`` resolve only when they travel with
-    the source text.
+    The source text plus the fully-resolved flag list go in one
+    ``POST /api/v1/compile``; the returned artifact bytes are written to
+    *workdir* / *obj_name*.  A source that reads project headers ships them
+    as *bundle* (:func:`remote_include_bundle`); the caller then passes the
+    bundle's flags, whose include directories are paths inside it.
 
     *source_text* overrides the file's own content: the caller passes the
     merged context+source compile unit, so the service compiles exactly what
@@ -1489,23 +1652,23 @@ def _compile_via_recompile(
         if len(capability) != 64 or any(c not in "0123456789abcdef" for c in capability):
             return None, "Invalid job compile capability"
         # Intent is the job's dedup token for a logical compile: deterministic
-        # from (compiler, source, flags, filename, emit_assembly), never
-        # random, so a crash-restart inside the job replays the same intent
-        # and the mediator returns the retained result instead of re-executing
-        # the upstream compile. The mediator sends upstream its own random
+        # from (compiler, source, flags, filename, emit_assembly, and the
+        # include bundle's digest when there is one), never random, so a
+        # crash-restart inside the job replays the same intent and the
+        # mediator returns the retained result instead of re-executing the
+        # upstream compile. The mediator sends upstream its own random
         # Idempotency-Key per new intent (services/jobs/compile_mediator.go).
+        logical: dict[str, Any] = {
+            "compiler": profile,
+            "source": source_text,
+            "flags": all_flags,
+            "filename": source_path.name,
+            "emit_assembly": emit_assembly,
+        }
+        if bundle is not None:
+            logical["bundle"] = bundle.digest
         intent = hashlib.sha256(
-            _json.dumps(
-                {
-                    "compiler": profile,
-                    "source": source_text,
-                    "flags": all_flags,
-                    "filename": source_path.name,
-                    "emit_assembly": emit_assembly,
-                },
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode("utf-8")
+            _json.dumps(logical, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
         client = httpx.Client(
             timeout=timeout,
@@ -1528,6 +1691,8 @@ def _compile_via_recompile(
             timeout=timeout,
             emit_assembly=emit_assembly,
             client=client,
+            includes=bundle.includes if bundle is not None else None,
+            source_dir=bundle.source_dir if bundle is not None else "",
             # Transient 503/timeout on the compile service is common under
             # load; retries with backoff beat a hard COMPILE_ERROR that would
             # demote STATUS for a healthy source.  The count is
@@ -1554,9 +1719,16 @@ def _compile_via_recompile(
         obj_file.write_bytes(res.obj_bytes)
     except OSError as exc:
         return None, f"Failed to write recompile artifact: {exc}"
+    record: dict[str, Any] = {"flags": list(all_flags), "execution": res.execution}
+    if bundle is not None:
+        record["source_dir"] = bundle.source_dir
+        record["includes"] = [
+            {"path": path, "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest()}
+            for path, text in sorted(bundle.includes.items())
+        ]
     global _last_remote_compile
     with _last_remote_compile_lock:
-        _last_remote_compile = {"flags": list(all_flags), "execution": res.execution}
+        _last_remote_compile = record
     return str(obj_file), ""
 
 
@@ -1569,7 +1741,10 @@ _last_remote_compile_lock = threading.Lock()
 def last_remote_compile() -> dict[str, Any] | None:
     """The flags and execution provenance of the last remote compile, or None.
 
-    None means no remote compile ran (local backend), so nothing is claimed.
+    ``{"flags", "execution"}``, plus ``source_dir`` and ``includes`` (each
+    shipped header's project-relative ``path`` and ``sha256``) when the compile
+    shipped an include bundle.  None means no remote compile ran (local
+    backend), so nothing is claimed.
     """
     with _last_remote_compile_lock:
         return _last_remote_compile
@@ -1918,16 +2093,27 @@ def compile_to_obj(
         return None, f"Failed to copy source into workdir: {e}"
 
     if recompile_url(cfg) is not None:
-        # Remote backend: one POST carries source text + resolved flags; the
+        # Remote backend: one POST carries source text + resolved flags, and
+        # the project headers the source reads as an include bundle; the
         # artifact bytes come back over HTTP.  No mounts, no local image.
+        from rebrew.compiler.recompile_client import RecompileError
+
         active = toolchain or profile
-        remote_flags = all_flags
+        try:
+            bundle = remote_include_bundle(
+                cfg, spec, compile_text, all_flags, src_parent, extra_include_dirs
+            )
+        except RecompileError as exc:
+            if backend_errors is not None:
+                backend_errors.append(exc)
+            return None, f"cannot ship {source_path.name} to the recompile service: it {exc}"
+        remote_flags = all_flags if bundle is None else bundle.flags
         if (
             spec is not None
             and spec.effective_arg_style in ("posix", "pipeline", "borland")
-            and "-c" not in all_flags
+            and "-c" not in remote_flags
         ):
-            remote_flags = [*all_flags, "-c"]
+            remote_flags = [*remote_flags, "-c"]
         obj_path, remote_err = _compile_via_recompile(
             cfg,
             source_path,
@@ -1938,6 +2124,7 @@ def compile_to_obj(
             emit_assembly=bool(getattr(cfg, "recompile_emit_assembly", False)),
             source_text=compile_text,
             backend_errors=backend_errors,
+            bundle=bundle,
         )
         return obj_path, remote_err
 
@@ -1971,26 +2158,29 @@ def compile_to_obj(
             # ACTIVE spec (a per-function TOOLCHAIN override may swap in a
             # 16-bit toolchain under a 32-bit project profile).
             if spec.effective_arg_style != "dos":
-                extra_inc: list[str] = []
                 prefix = "/I" if spec.flags_style == "msvc" else "-I"
-                if src_parent.resolve() == workdir.resolve():
-                    # /work loses the original ancestors of parent-relative includes.
-                    mounts.append((str(src_parent), str(src_parent)))
-                    all_flags.append(f"{prefix}{src_parent}")
-                else:
-                    extra_inc.append(str(src_parent))
-                if inc_path and not _is_vendored_toolchain_tree(Path(inc_path)):
-                    extra_inc.append(str(inc_path))
-                # The GA / diff paths compile from a temp source copy and
-                # pass the original source's parent (for relative includes)
-                # mount those dirs too.
-                extra_inc.extend(d for d in (extra_include_dirs or []) if d)
-                for d in extra_inc:
-                    rewritten, extra_mounts = _docker_include_rewrite(
-                        [f"{prefix}{d}"], workdir, allowed_roots=allowed
-                    )
-                    mounts += extra_mounts
-                    all_flags += rewritten
+                # The source's own directory (and the original's, for a GA /
+                # diff temp copy) is searched before the flags' directories,
+                # as a compiler run in that directory does and as the remote
+                # include bundle does; the [compiler] includes dir comes last.
+                lead, tail = local_include_order(cfg, src_parent, key_flags, extra_include_dirs)
+
+                def container_flags(dirs: list[str]) -> list[str]:
+                    out: list[str] = []
+                    for d in dirs:
+                        if Path(d).resolve() == workdir.resolve():
+                            # /work loses the original ancestors of parent-relative includes.
+                            mounts.append((d, d))
+                            out.append(f"{prefix}{d}")
+                            continue
+                        rewritten, extra_mounts = _docker_include_rewrite(
+                            [f"{prefix}{d}"], workdir, allowed_roots=allowed
+                        )
+                        mounts.extend(extra_mounts)
+                        out += rewritten
+                    return out
+
+                all_flags = container_flags(lead) + all_flags + container_flags(tail)
                 # Same-path mounts may repeat across dirs - docker rejects
                 # duplicate -v targets.
                 mounts = list(dict.fromkeys(mounts))
@@ -2006,6 +2196,11 @@ def compile_to_obj(
         elif arg_style == "watcom":
             args = all_flags + [f"-fo={obj_name}", "-zq", src_name]
         elif arg_style in ("posix", "pipeline"):
+            if spec.image is None:
+                # Native: the container branch above did not place the
+                # source's directory first; a later duplicate -I is ignored.
+                lead, _tail = local_include_order(cfg, src_parent, key_flags, extra_include_dirs)
+                all_flags = [f"-I{d}" for d in lead] + all_flags
             inc_flags = [f"-I{inc_path}"] if inc_path else []
             args = all_flags + inc_flags + [f"-I{src_parent!s}", "-c", "-o", obj_name, src_name]
         else:
@@ -3472,6 +3667,7 @@ __all__ = [
     "CompareResult",
     "CompareResultError",
     "CompareStatus",
+    "RemoteBundle",
     "build_linked_link_cmd",
     "classify_compare_result",
     "classify_match_status",
@@ -3490,12 +3686,15 @@ __all__ = [
     "last_remote_compile",
     "linked_pad_size",
     "linked_shell_source",
+    "local_include_order",
     "matched_byte_count",
     "maybe_headless_wine",
     "native_binary_id",
     "precompile_batch",
     "publish_obj_cache",
     "recompile_url",
+    "remote_bundles_supported",
+    "remote_include_bundle",
     "resolve_cl_command",
     "resolve_compiler_env",
     "resolve_include_flags",

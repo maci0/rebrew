@@ -30,6 +30,7 @@ Externals (the only packages this one may import): `coff_reloc`, `config`, `erro
 - **One admitted image id.** A local compile's cache key, `docker run`, and publish share one full `sha256:` + 64 hex image id (`toolchain.image_content_id`). A missing or malformed id still compiles against the tag but the cache is neither read nor written. Remote results are never cached: the service response carries no image id.
 - **Compile runs never pull.** `run_toolchain` passes `--pull=never` and `--network=none`; a missing image is a local error, not a fetch. Build and pull stay explicit (`rebrew toolchain build` / `pull`). Every `docker run` goes through `docker_hardening_args()` (`--cap-drop=ALL`, `--security-opt=no-new-privileges`, `--pids-limit=256`, `--memory=2g`, `--cpus=2`); `--read-only` stays off because images write a wineprefix under `/opt/wineprefix` and `$HOME` on every compile.
 - **Bump `CACHE_SCHEMA_VERSION` in `cache.py`** when what a compile result depends on changes, so an upgrade reads a cold cache instead of a wrong hit.
+- **Local and remote search the same directories.** `local_include_order` places the source's directory first and `[compiler] includes` last for every local compile; `remote_include_bundle` ships the headers that order reaches and spells the directories relative to the source. A change to one changes both, or the two backends compile different headers.
 
 - **Execution selection stays explicit.** `cfg.execution_backend` selects Docker,
   Podman or experimental unshare. Image admission, compile and timeout cleanup

@@ -25,6 +25,29 @@ same-origin artifact endpoint. Every compile call is one attempt with its own ra
 attempt instead of compiling twice, and a later compile of the same input, after a failure
 or an image update, is a new attempt with a new key. Neither key nor request is saved.
 Job-socket compiles use their own capability.
+
+A source that reads project headers ships them with the compile as an include
+bundle (`compiler.compile.remote_include_bundle`): every header its include
+closure reaches through the directories a local compile searches, by its
+project-relative path, with `source_dir` (the source's project-relative
+directory) and the include flags rewritten relative to it. The service runs
+the compiler in `source_dir` on `filename`, so `__FILE__` in the source,
+`#pragma once`, and the search order (the including file's directory first,
+then the include flags in order) match the local compile; the local compile
+searches the source's directory first too. One difference stays: `__FILE__`
+expanded while the compiler reads a header spells that header's path as each
+compile found it (an absolute host path locally, a path relative to
+`source_dir` remotely); a macro defined in a header and used in the source
+expands to the source's name on both. A source without project headers sends
+no bundle. Before the first bundle, rebrew reads the service's
+`GET /api/v1/features` and refuses the compile (`RecompileError`,
+`kind="validation"`) unless it lists `include-bundles`; recompile releases
+before the route answer 404 there. A source whose headers cannot ship is
+refused the same way: an `#include` a macro computes, a header outside the
+project root or not UTF-8, a DOS toolchain (its wrapper stages its own include
+tree), or a bundle over the service's bounds (256 files, 2,000,000 bytes each,
+6,000,000 in all, mirrored in `recompile_client.MAX_INCLUDE_*`). A refusal is a
+tooling failure, not a byte verdict: `rebrew verify` keeps the earned STATUS.
 For Docker execution, the local compile cache keys an object on the inspected
 image id (`sha256:` plus 64 hex), and `docker run` uses that same id with
 `--pull=never`, so a missing image is an error rather than a daemon pull.

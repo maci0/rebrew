@@ -108,3 +108,39 @@ def test_verify_function_reports_its_compile_inputs_and_verdict(
         else []
     )
     assert reply["verdict_valid"] is True
+
+
+def test_compile_inputs_name_the_headers_a_remote_compile_shipped(
+    tmp_path: Path,
+    promote_in_process: list[list[str]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A verdict earned with an include bundle depends on its headers too."""
+    from rebrew import ops
+
+    header = b"#define ONE 1\n"
+    config, entries = _stage(tmp_path)
+    entries.append(_ref(config, "src/stub.h", header))
+    run = ops.run_rebrew
+    shipped = [{"path": "src/stub.h", "sha256": hashlib.sha256(header).hexdigest()}]
+
+    def remote(args: Any, root: Path, *rest: Any, **kwargs: Any) -> dict[str, Any]:
+        result = run(args, root, *rest, **kwargs)
+        result["compile"] = {
+            "flags": [],
+            "execution": None,
+            "source_dir": "src",
+            "includes": shipped,
+        }
+        return result
+
+    monkeypatch.setattr(ops, "run_rebrew", remote)
+    candidate = "void fcn_00401000(void)\n{\n}\n"
+    status, raw = dispatch(config, "rebrew.verify_function", _request(entries, candidate=candidate))
+    assert status == 200, raw
+    files = json.loads(raw)["compile_inputs"]["files"]
+    assert {"path": "src/stub.h", "sha256": shipped[0]["sha256"]} in files
+
+    shipped[0]["sha256"] = "0" * 64
+    status, raw = dispatch(config, "rebrew.verify_function", _request(entries, candidate=candidate))
+    assert status == 400, raw

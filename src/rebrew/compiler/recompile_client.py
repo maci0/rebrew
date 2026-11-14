@@ -16,6 +16,7 @@ client does not request corpus retention.
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, runtime_checkable
 lazy import os
@@ -59,6 +60,31 @@ _MAX_ARTIFACT_BYTES = 30 * 1024**2
 #: Random bytes in one ``Idempotency-Key``; the service takes exactly 12
 #: lowercase hex digits (recompile ``docs/API.md``).
 _IDEMPOTENCY_KEY_BYTES = 6
+
+#: Include bundle bounds mirrored from the service (recompile ``models.py``
+#: ``MAX_INCLUDE_*``, ``docs/API.md`` "Include bundles"): a larger bundle 422s.
+MAX_INCLUDE_FILES = 256
+MAX_INCLUDE_FILE_BYTES = 2_000_000
+MAX_INCLUDE_TOTAL_BYTES = 6_000_000
+MAX_INCLUDE_PATH_BYTES = 1024
+
+#: The ``GET /api/v1/features`` entry of a service that takes ``includes`` and
+#: ``source_dir``.  An older service refuses those fields as unknown with a
+#: bare 422, so a bundle is never sent before the service names it.
+INCLUDE_BUNDLES_FEATURE = "include-bundles"
+
+#: Where the service lists its optional request features (recompile
+#: ``docs/API.md``).  Not ``/``: a hosted ingress sends that to Platform.
+_FEATURES_PATH = "/api/v1/features"
+
+#: Longest features reply read; the document is a few dozen bytes.
+_MAX_FEATURES_BYTES = 64 * 1024
+
+#: Base URLs whose features listed :data:`INCLUDE_BUNDLES_FEATURE` in this
+#: process.  Only support is remembered, so an upgraded service is seen
+#: without a restart.
+_bundle_services: set[str] = set()
+_bundle_services_lock = threading.Lock()
 
 #: How a :class:`RecompileError` arose — callers branch on this instead of
 #: matching message substrings.  ``service`` is a compile the service answered
@@ -407,6 +433,88 @@ def _require_utf8(text: str, what: str) -> None:
         ) from None
 
 
+def _check_bundle(includes: Mapping[str, str], source_dir: str) -> None:
+    """Refuse a bundle over the service's bounds, or not UTF-8, before it is sent."""
+    if len(includes) > MAX_INCLUDE_FILES:
+        raise RecompileError(
+            f"{len(includes)} include files exceed the service's {MAX_INCLUDE_FILES}",
+            kind="validation",
+        )
+    total = 0
+    for path in (source_dir, *includes):
+        _require_utf8(path, "include path")
+        if len(path.encode("utf-8")) > MAX_INCLUDE_PATH_BYTES:
+            raise RecompileError(
+                f"include path longer than {MAX_INCLUDE_PATH_BYTES} UTF-8 bytes: {path[:60]}",
+                kind="validation",
+            )
+    for path, text in includes.items():
+        _require_utf8(text, path)
+        size = len(text.encode("utf-8"))
+        if size > MAX_INCLUDE_FILE_BYTES:
+            raise RecompileError(
+                f"{path} is {size} bytes, over the service's {MAX_INCLUDE_FILE_BYTES} per file",
+                kind="validation",
+            )
+        total += size
+    if total > MAX_INCLUDE_TOTAL_BYTES:
+        raise RecompileError(
+            f"include files total {total} bytes, over the service's {MAX_INCLUDE_TOTAL_BYTES}",
+            kind="validation",
+        )
+
+
+def accepts_include_bundles(base_url: str, *, client: HttpClient) -> bool:
+    """Whether the service's ``GET /api/v1/features`` lists :data:`INCLUDE_BUNDLES_FEATURE`.
+
+    A service older than include bundles answers 404 there, or a list without
+    the feature; it would refuse the fields with a bare 422, so the caller
+    refuses the compile instead.  The route needs no credential, so none is
+    sent.  A transport failure or another reply raises :class:`RecompileError`
+    (``network`` and transient HTTP codes are retryable).  Support is
+    remembered per base URL for the life of the process.
+    """
+    url = base_url.rstrip("/")
+    with _bundle_services_lock:
+        if url in _bundle_services:
+            return True
+    try:
+        reply = client.get(f"{url}{_FEATURES_PATH}", follow_redirects=False)
+    except Exception as exc:
+        raise RecompileError(
+            f"recompile service at {url} unreachable: {exc}", kind="network", retryable=True
+        ) from exc
+    try:
+        if reply.status_code == 404:
+            return False
+        if reply.status_code != 200:
+            raise RecompileError(
+                f"recompile service returned HTTP {reply.status_code} for {_FEATURES_PATH}",
+                kind="http",
+                status_code=reply.status_code,
+                retryable=reply.status_code in RETRYABLE_HTTP_STATUS,
+            )
+        if len(reply.content) > _MAX_FEATURES_BYTES:
+            raise RecompileError(f"recompile {_FEATURES_PATH} reply is too large", kind="protocol")
+        try:
+            body = reply.json()
+        except Exception as exc:
+            raise RecompileError(
+                f"recompile service returned non-JSON for {_FEATURES_PATH}: {exc}",
+                kind="protocol",
+            ) from exc
+    finally:
+        close_response(reply)
+    features = body.get("features") if isinstance(body, dict) else None
+    if not isinstance(features, list):
+        raise RecompileError(f"recompile {_FEATURES_PATH} has no feature list", kind="protocol")
+    if INCLUDE_BUNDLES_FEATURE not in features:
+        return False
+    with _bundle_services_lock:
+        _bundle_services.add(url)
+    return True
+
+
 def compile_source(
     base_url: str,
     compiler: str,
@@ -419,6 +527,8 @@ def compile_source(
     client: HttpClient | None = None,
     retries: int = 0,
     sleep: Callable[[float], None] | None = None,
+    includes: Mapping[str, str] | None = None,
+    source_dir: str = "",
 ) -> RecompileResult:
     """Compile *source* via ``POST <base_url>/api/v1/compile``.
 
@@ -472,6 +582,16 @@ def compile_source(
     unprocessed (connect failure, 408/425/429/503, ``capacity``); a read
     timeout, 500/502/504 or another infrastructure failure may follow a
     completed compile, so it fails instead.
+
+    *includes* (bundle path -> header text) and *source_dir* (the source's
+    directory in that tree) are the include bundle: the service writes the
+    headers at their paths and compiles the source in *source_dir*.  A bundle
+    over the service's bounds or not UTF-8 is refused unsent; before the first
+    POST the service's ``GET /api/v1/features`` must list ``include-bundles``
+    (:func:`accepts_include_bundles`), else the call raises
+    :class:`RecompileError` (``kind="validation"``) and nothing is compiled.
+    Without a bundle neither field is sent, so an older service still compiles
+    the source.
     """
     import httpx
 
@@ -507,6 +627,9 @@ def compile_source(
     _require_utf8(compiler, "compiler")
     _require_utf8(filename, "filename")
     _require_utf8(source, "source")
+    bundled = bool(includes) or bool(source_dir)
+    if bundled:
+        _check_bundle(includes or {}, source_dir)
 
     # Fail fast on a mistyped base URL before opening a client / posting.
     display_base = base_url.replace(configured_key, "[redacted]") if configured_key else base_url
@@ -561,13 +684,21 @@ def compile_source(
         **(auth_headers or {}),
         "Idempotency-Key": secrets.token_hex(_IDEMPOTENCY_KEY_BYTES),
     }
-    payload = {
+    payload: dict[str, Any] = {
         "compiler": compiler,
         "source": source,
         "flags": flags_list,
         "filename": filename,
         "emit_assembly": emit_assembly,
     }
+    if bundled:
+        payload["source_dir"] = source_dir
+        payload["includes"] = [
+            {"path": path, "content": text} for path, text in sorted((includes or {}).items())
+        ]
+    # A bundle goes only to a service that names the feature (checked once, in
+    # the first attempt, so a lost reply rides the retry rules below).
+    bundle_checked = not bundled
 
     attempts = retries + 1
     last_exc: RecompileError | None = None
@@ -588,6 +719,15 @@ def compile_source(
         )
         try:
             with cm as http:
+                if not bundle_checked:
+                    if not accepts_include_bundles(url, client=http):
+                        raise RecompileError(
+                            f"recompile service at {safe_url} does not accept include bundles "
+                            f"(it does not list {INCLUDE_BUNDLES_FEATURE!r}); upgrade it, "
+                            "or compile this source with a local backend",
+                            kind="validation",
+                        )
+                    bundle_checked = True
                 if pending is None:
                     try:
                         with telemetry.span(
@@ -750,10 +890,16 @@ def compile_source(
 
 
 __all__ = [
+    "INCLUDE_BUNDLES_FEATURE",
+    "MAX_INCLUDE_FILES",
+    "MAX_INCLUDE_FILE_BYTES",
+    "MAX_INCLUDE_PATH_BYTES",
+    "MAX_INCLUDE_TOTAL_BYTES",
     "HttpClient",
     "HttpResponse",
     "RecompileError",
     "RecompileErrorKind",
     "RecompileResult",
+    "accepts_include_bundles",
     "compile_source",
 ]

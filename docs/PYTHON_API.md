@@ -154,6 +154,13 @@ print(result.ok, result.obj_bytes, result.log, result.compiler_version)
 # `result.to_dict()` / `RecompileResult.from_dict()` store the verdict (not
 # the object bytes) the way `CompareResult` does.
 #
+# `includes={"inc/a.h": text, ...}` and `source_dir="src"` send an include
+# bundle: the service writes the headers at those paths and compiles the
+# source in `source_dir`. Before the first POST the client reads the
+# service's `GET /api/v1/features` (a stand-in answers it on `.get` too) and
+# raises kind "validation" unless it lists "include-bundles";
+# `accepts_include_bundles(base_url, client=...)` asks the same question.
+#
 # `rebrew.decompme`'s `upload_scratch` also accepts `client=` and `retries=N`,
 # with the same backoff helper (`retry_backoff_delay` in `rebrew.utils`).
 # Its retry policy is narrower: connect-stage failures and HTTP

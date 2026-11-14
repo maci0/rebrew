@@ -25,11 +25,17 @@ def test_recompile_client_public_all() -> None:
     import rebrew.compiler.recompile_client as rc
 
     assert rc.__all__ == [
+        "INCLUDE_BUNDLES_FEATURE",
+        "MAX_INCLUDE_FILES",
+        "MAX_INCLUDE_FILE_BYTES",
+        "MAX_INCLUDE_PATH_BYTES",
+        "MAX_INCLUDE_TOTAL_BYTES",
         "HttpClient",
         "HttpResponse",
         "RecompileError",
         "RecompileErrorKind",
         "RecompileResult",
+        "accepts_include_bundles",
         "compile_source",
     ]
     for name in rc.__all__:

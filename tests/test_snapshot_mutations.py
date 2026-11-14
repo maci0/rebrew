@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from recompile_stub import serve_recompile
 from source_util import write_source
 
 from rebrew import ops
@@ -211,9 +212,10 @@ def test_retained_proposals_and_candidate(tmp_path: Path, monkeypatch: Any) -> N
     proposal = json.loads(body)["files"]
     entry = next(item for item in proposal if item["path"] == "rebrew-data.toml")
     assert b"g_new" in base64.b64decode(entry["content"])
-    # The remote service compiles the candidate's text alone, so a variant
-    # search over one that reads a project header is refused before it runs.
+    # A recompile older than include bundles cannot take the candidate's
+    # project header, so a variant search over it is refused before it runs.
     monkeypatch.setattr(ops, "remote_header_refusal", real_refusal)
+    posted = serve_recompile(monkeypatch, features=None)
     header = b"#define ONE 1\n"
     digest, key = store(header)
     with_header = '#include "local.h"\nint add(int a, int b) { return ONE; }\n'
@@ -231,3 +233,5 @@ def test_retained_proposals_and_candidate(tmp_path: Path, monkeypatch: Any) -> N
     )
     refusal = json.loads(body)
     assert (status, refusal["error"]) == (422, "remote-compile-headers"), body
+    assert "does not accept include bundles" in refusal["detail"]
+    assert posted == []

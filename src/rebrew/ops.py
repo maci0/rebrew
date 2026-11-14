@@ -30,8 +30,8 @@ output paths inside a project are project-relative and may not leave it.
 
 Ops whose rebrew command prints its report instead of returning it run that
 command as a child process in the project (:func:`run_rebrew`).  Ops that
-compile refuse, while a remote compile backend is configured, a source that
-reads project headers (:func:`remote_header_refusal`).
+compile refuse, while a remote compile backend is configured, a source whose
+project headers cannot ship to it (:func:`remote_header_refusal`).
 """
 
 from __future__ import annotations
@@ -3040,54 +3040,70 @@ def _flag(enabled: bool, option: str) -> list[str]:
 
 
 def remote_header_refusal(cfg: Any, sources: Iterable[Path]) -> None:
-    """Refuse a remote compile of a source that reads project headers.
+    """Refuse a remote compile of a source whose project headers cannot ship.
 
-    The recompile service compiles the source text against its image's own
-    include tree; no project header travels with it, so such a source would
-    not compile as it does locally (relumea ADR 0010, decision 4).  Until
-    include bundles exist, a source whose include closure reaches a header
-    under its directory or the project's ``/I`` directories, or that computes
-    an include, is refused before anything compiles.  Local compiles pass.
-    The refusal names the first such source and what it includes, and for
-    several sources how many are affected, so the caller sees the extent.
+    A remote compile ships the project headers a source reads as an include
+    bundle (``compiler.compile.remote_include_bundle``; relumea ADR 0010,
+    decision 4).  A source is refused before anything compiles when its
+    bundle cannot be built (an ``#include`` a macro computes, a header outside
+    the project root or not UTF-8, a DOS toolchain), or when sources need one
+    and the configured recompile service does not accept bundles; that
+    refusal names the first such source and the header it includes, and for
+    several sources how many need one.  A service that cannot be asked is not
+    a refusal: the compile reports that failure.  Local compiles pass.
     """
     from rebrew.compiler.compile import recompile_url
 
-    if recompile_url(cfg) is None:
+    url = recompile_url(cfg)
+    if url is None:
         return
-    from rebrew.compiler.cache import scan_include_closure
-    from rebrew.compiler.compile import effective_compile_flags, extract_include_dirs
+    from rebrew.compiler import toolchain as toolchain_registry
+    from rebrew.compiler.compile import (
+        effective_compile_flags,
+        remote_bundles_supported,
+        remote_include_bundle,
+    )
+    from rebrew.compiler.recompile_client import RecompileError
 
     def shown(path: Path) -> str:
         return path.relative_to(cfg.root).as_posix() if path.is_relative_to(cfg.root) else path.name
 
+    spec = toolchain_registry.TOOLCHAINS.get(getattr(cfg, "compiler_profile", "") or "")
     first = ""
     affected = total = 0
     for source in sources:
         total += 1
-        flags = effective_compile_flags(cfg, None, "", source.parent)
-        headers, computed, _snapshots, _consistent = scan_include_closure(
-            source.read_text(encoding="utf-8", errors="surrogateescape"),
-            str(source.parent),
-            tuple(extract_include_dirs(flags)),
-        )
-        if not headers and not computed:
+        parent = source.resolve().parent
+        try:
+            bundle = remote_include_bundle(
+                cfg,
+                spec,
+                source.read_text(encoding="utf-8", errors="surrogateescape"),
+                effective_compile_flags(cfg, spec, "", parent),
+                parent,
+            )
+        except RecompileError as exc:
+            raise OpsError(
+                _bounded(f"{shown(source)} {exc}; compile it with a local backend"),
+                code=REMOTE_HEADERS,
+                status=422,
+            ) from None
+        if bundle is None:
             continue
         affected += 1
         if not first:
-            first = (
-                f"{shown(source)} includes the project header {shown(Path(headers[0]))}"
-                + (f" and {len(headers) - 1} more" if len(headers) > 1 else "")
-                if headers
-                else f"{shown(source)} computes an #include"
+            header = min(bundle.includes)
+            more = len(bundle.includes) - 1
+            first = f"{shown(source)} includes the project header {header}" + (
+                f" and {more} more" if more else ""
             )
-    if not affected:
+    if not affected or remote_bundles_supported(cfg) is not False:
         return
     extent = f"; {affected} of {total} sources read project headers" if total > 1 else ""
     raise OpsError(
         _bounded(
-            f"{first}{extent}. A remote compile receives the source file alone (include bundles"
-            " are not available yet): compile with a local backend"
+            f"{first}{extent}. The recompile service at {url} does not accept include bundles:"
+            " upgrade it, or compile with a local backend"
         ),
         code=REMOTE_HEADERS,
         status=422,
@@ -3313,19 +3329,25 @@ def _run_candidate(
         from rebrew.workspace.status import comparison_verdict_valid
 
         result["source"] = req.source
-        result["compile_inputs"] = _compile_inputs(root, source, candidate.encode("utf-8"))
+        result["compile_inputs"] = _compile_inputs(
+            root, source, candidate.encode("utf-8"), result.get("compile")
+        )
         result["verdict_valid"] = comparison_verdict_valid(result, req.source, req.va, req.size)
         if applying is not None:
             return _applied(root, applying, result, registry)
         return result
 
 
-def _compile_inputs(root: Path, source: Path, compiled: bytes) -> dict[str, Any]:
+def _compile_inputs(
+    root: Path, source: Path, compiled: bytes, remote: Any = None
+) -> dict[str, Any]:
     """The project inputs a retained candidate compile read, in the descriptor shape.
 
-    ``files`` are the compiled source and the project config (flags, toolchain);
-    ``documents`` the library settings document that overrides them, if any. A
-    retained compile reads no project header: ``retained_compile_refusal`` refuses one.
+    ``files`` are the compiled source, the project config (flags, toolchain)
+    and each project header the remote compile shipped in its include bundle
+    (*remote*, the ``compile`` block ``rebrew test --json`` reports); a header
+    whose bytes are not the snapshot's is refused.  ``documents`` is the
+    library settings document that overrides the flags, if any.
     """
     from rebrew.metadata.functions import nearest_library_metadata_path
     from rebrew.metadata.storage import metadata_store
@@ -3338,6 +3360,18 @@ def _compile_inputs(root: Path, source: Path, compiled: bytes) -> dict[str, Any]
         },
         {"path": config.name, "sha256": _file_sha256(config)},
     ]
+    shipped = remote.get("includes", []) if isinstance(remote, dict) else []
+    if not isinstance(shipped, list):
+        raise _refused("the compile reported a malformed include bundle")
+    for header in shipped:
+        if not isinstance(header, dict) or not all(
+            isinstance(header.get(key), str) for key in ("path", "sha256")
+        ):
+            raise _refused("the compile reported a malformed include bundle")
+        path = _project_file(root, header["path"], "include")
+        if _file_sha256(path) != header["sha256"]:
+            raise _invalid("snapshot source changed during verification")
+        files.append({"path": header["path"], "sha256": header["sha256"]})
     documents = []
     library = nearest_library_metadata_path(source.parent, root)
     if library is not None:

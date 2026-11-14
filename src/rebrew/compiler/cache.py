@@ -79,7 +79,7 @@ from rebrew.utils import BYTES_PER_MIB, path_identity, resolved_path, split_sour
 logger = logging.getLogger(__name__)
 
 # Bump on key semantics changes to invalidate stale entries.
-CACHE_SCHEMA_VERSION = 15
+CACHE_SCHEMA_VERSION = 16
 
 # Warn once per process *and per operation*: a corrupt/contended store
 # degrades every get/put, and one line per lookup would flood a GA batch's

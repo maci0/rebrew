@@ -32,6 +32,7 @@ from typing import Any, override
 
 import pytest
 from bin_util import append_pe_section
+from recompile_stub import serve_recompile
 
 from rebrew.ops import OPS, WorkerConfig, dispatch, target_name
 
@@ -1832,26 +1833,79 @@ class TestReconstructionOps:
             ("rebrew.build", {}),
         ],
     )
-    def test_remote_compile_refuses_project_headers(
+    def test_remote_compile_refuses_headers_a_service_cannot_take(
         self,
         world: tuple[WorkerConfig, Path],
         monkeypatch: pytest.MonkeyPatch,
         op: str,
         extra: dict[str, Any],
     ) -> None:
+        """A recompile older than include bundles is refused before anything compiles."""
         config, project = _project_copy(world, op.removeprefix("rebrew."))
         _with_project_header(project)
-        monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://127.0.0.1:9")
+        monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://recompile.test")
+        posted = serve_recompile(monkeypatch, features=None)
         body = json.dumps({"project_dir": str(project), **extra}).encode()
         refusal = _refusal(config, op, body)
         assert (refusal["error"], refusal["status"]) == ("remote-compile-headers", 422)
         assert refusal["detail"].startswith(
             "src/mini/uses_header.c includes the project header src/mini/local.h"
         )
+        assert (
+            "The recompile service at http://recompile.test does not accept include bundles"
+            in (refusal["detail"])
+        )
         assert "compile with a local backend" in refusal["detail"]
         assert str(project) not in refusal["detail"]
         if op in {"rebrew.verify_target", "rebrew.build"}:
             assert "1 of " in refusal["detail"], "a whole-target refusal says how many sources"
+        assert posted == []
+
+    @pytest.mark.parametrize(
+        ("op", "extra"),
+        [
+            ("rebrew.verify_function", {"source": "src/mini/computed.c"}),
+            ("rebrew.verify_target", {}),
+            ("rebrew.build", {}),
+        ],
+    )
+    def test_remote_compile_refuses_headers_that_cannot_ship(
+        self,
+        world: tuple[WorkerConfig, Path],
+        monkeypatch: pytest.MonkeyPatch,
+        op: str,
+        extra: dict[str, Any],
+    ) -> None:
+        config, project = _project_copy(world, "unshippable_" + op.removeprefix("rebrew."))
+        (project / "src" / "mini" / "computed.c").write_text(
+            "#define HEADER <local.h>\n#include HEADER\nint computed(void) { return 1; }\n"
+        )
+        monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://recompile.test")
+        posted = serve_recompile(monkeypatch, features=["include-bundles"])
+        body = json.dumps({"project_dir": str(project), **extra}).encode()
+        refusal = _refusal(config, op, body)
+        assert (refusal["error"], refusal["status"]) == ("remote-compile-headers", 422)
+        assert refusal["detail"].startswith("src/mini/computed.c computes an #include")
+        assert posted == []
+
+    def test_remote_compile_ships_project_headers(
+        self, world: tuple[WorkerConfig, Path], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A source that reads a project header compiles remotely with its bundle."""
+        config, project = _project_copy(world, "verify_function_bundle")
+        bound = min((project / "src" / "mini").glob("*.c"))
+        bound.write_text('#include "local.h"\n' + bound.read_text())
+        (project / "src" / "mini" / "local.h").write_text("#define ONE 1\n")
+        source = bound.relative_to(project).as_posix()
+        monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://recompile.test")
+        posted = serve_recompile(monkeypatch, features=["include-bundles"])
+        body = json.dumps({"project_dir": str(project), "source": source, "no_promote": True})
+        _status, reply = dispatch(config, "rebrew.verify_function", body.encode())
+        # The stand-in rejects every compile; the op reaches it, it is not refused.
+        assert json.loads(reply).get("error") != "remote-compile-headers", reply
+        (sent,) = posted
+        assert sent["source_dir"] == "src/mini"
+        assert sent["includes"] == [{"path": "src/mini/local.h", "content": "#define ONE 1\n"}]
 
 
 # ---------------------------------------------------------------------------

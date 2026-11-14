@@ -7011,9 +7011,10 @@ Op details the contract leaves open:
   add `compile_inputs` and `verdict_valid`. `compile_inputs` has the metadata
   descriptor shape: `files` are the compiled source (the candidate as compiled,
   with its anchor) and `rebrew-project.toml`, with their SHA-256; `documents` the
-  nearest `rebrew-libraries.toml` settings document, if any, by logical digest. A
-  retained compile reads no project header, since one is refused before
-  compiling. `verdict_valid` is `rebrew.workspace.status.comparison_verdict_valid`:
+  nearest `rebrew-libraries.toml` settings document, if any, by logical digest.
+  `files` also name each project header the remote compile shipped in its include
+  bundle (the `includes` of the reply's `compile` block), and a header whose bytes
+  are not the snapshot's answers 400. `verdict_valid` is `rebrew.workspace.status.comparison_verdict_valid`:
   true only when the reply names the requested source, VA and size, carries every
   count, and the counts agree with its status (EXACT and RELOC cover every byte,
   with relocations only for RELOC; NEAR_MATCHING, STUB and SIZE_MISMATCH stay below
@@ -7080,12 +7081,16 @@ Op details the contract leaves open:
   search, exit 1 (a mismatch) still answers the report.
 - While the compile backend is the remote recompile service
   (`REBREW_RECOMPILE_URL` or `[compiler] recompile_url`), `verify_function`,
-  `verify_target`, `build` and the retained variant search refuse 422
-  `remote-compile-headers` when a source they would compile includes a
-  header found under its directory or the project's `/I` directories, or
-  computes an include: the service receives the source text alone. The
-  detail names the first such source and the header it includes and, when
-  the op compiles several sources, how many of them read project headers.
+  `verify_target`, `build` and the retained variant search ship the project
+  headers a source reads as an include bundle
+  ([TOOLCHAIN.md](TOOLCHAIN.md#compile-backends)), and refuse 422
+  `remote-compile-headers` before compiling when a source's headers cannot
+  ship (an `#include` a macro computes, a header outside the project root or
+  not UTF-8, a DOS toolchain, a bundle over the service's bounds) or when the
+  service's `GET /api/v1/features` does not list `include-bundles`; that
+  detail names the first such source and the header it includes and, when the
+  op compiles several sources, how many of them read project headers. A
+  service that cannot be asked is not refused here; the compile reports it.
   Local backends are unaffected.
 - A retained snapshot (`files`) whose staged `rebrew-project.toml` rebrew
   refuses to load is a 400 `invalid-project-config`: `invalid project config:`
@@ -7101,7 +7106,9 @@ Op details the contract leaves open:
   answers 400 `invalid-request` naming it. Without `cflags` the project's flags
   and the function's metadata apply. The reply carries `compile`: the flags the
   last remote compile ran with and the service's `execution` provenance block
-  verbatim, or null when no remote compile ran or the service sent none.
+  verbatim, plus `source_dir` and `includes` (each shipped header's `path` and
+  `sha256`) when it shipped an include bundle, or null when no remote compile
+  ran or the service sent none.
 - `apply_candidate` takes `verify_function`'s candidate fields (`cflags`, `project_cflags` included) and runs the
   comparison in promote mode in the private snapshot: the candidate takes the function's `ADDRESS` anchor, the
   registry entry moves to the candidate's name and derived symbol, `rebrew test` records STATUS, SIZE and the
