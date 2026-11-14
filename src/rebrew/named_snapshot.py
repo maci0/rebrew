@@ -290,7 +290,7 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
             path = capture[field]
             if type(path) is not str or not _valid_path(path):
                 raise ValueError("invalid selected capture path")
-            if field == "report_path" and path != ".relumea/analysis-report.json":
+            if field == "report_path" and path != ops.ANALYSIS_REPORT_PATH:
                 raise ValueError("invalid captured report path")
             item = reserved.get(path)
             if item is None or item["kind"] != "file" or item.get("role") != "analysis":

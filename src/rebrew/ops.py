@@ -451,6 +451,11 @@ _LATENCY_BUCKETS_MS = (100.0, 1000.0, 10000.0, 60000.0, float("inf"))
 MAX_READSET_BYTES = 32 * 1024 * 1024
 MAX_READSET_FILE_BYTES = 8 * 1024 * 1024
 
+#: Where a fresh analysis capture holds the analysis report (the discovered
+#: functions and stubs).  Its shape is published in the dispatch schema under
+#: ``documents``.
+ANALYSIS_REPORT_PATH = ".relumea/analysis-report.json"
+
 READSET_TOO_LARGE = "readset-too-large"
 ANALYSIS_CAPTURE_FAILED = "analysis-capture-failed"
 UNSUPPORTED_BINARY_FORMAT = "unsupported-binary-format"
@@ -2463,7 +2468,7 @@ def capture_fresh_analysis(
                     seen.add(va)
                     result.append(entry)
                 result.sort(key=lambda row: row["va"])
-            report_path = ".relumea/analysis-report.json"
+            report_path = ANALYSIS_REPORT_PATH
             report_location = root / report_path
             if (
                 report_location.exists()

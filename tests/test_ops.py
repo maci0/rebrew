@@ -1640,6 +1640,26 @@ class TestReconstructionOps:
             "status"
         ] == (400)
 
+    def test_the_analysis_report_follows_its_published_shape(self, tmp_path: Path) -> None:
+        """The backend parses ``.relumea/analysis-report.json`` from the capture, so
+        its path and shape are rebrew's contract, published beside the ops (R4-022).
+        They lived only in code on both sides."""
+        filestore, workspace = _worker_dirs(tmp_path)
+        config = WorkerConfig(filestore.resolve(), workspace.resolve())
+        capture = _call(config, "rebrew.analyse", _analyse_request())["analysis_capture"]
+        documents = _CONTRACT["documents"]
+        assert list(documents) == [capture["report_path"]]
+        entry = next(e for e in capture["entries"] if e["path"] == capture["report_path"])
+        report = json.loads(base64.b64decode(entry["data"]))
+        _validate(documents[capture["report_path"]], report)
+        assert [(f["va"], f["size"]) for f in report["functions"]] == [
+            (0x401000, 11),
+            (0x401010, 10),
+        ]
+        # A report the schema refuses is caught by the same validator.
+        with pytest.raises(AssertionError):
+            _validate(documents[capture["report_path"]], {**report, "extra": 1})
+
     @pytest.mark.parametrize(
         "op",
         [

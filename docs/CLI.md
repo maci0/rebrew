@@ -6942,7 +6942,13 @@ Binaries are referenced, never sent:
   `project_id` is omitted. A supplied nonempty `project_id` instead selects
   `<workspace>/projects/scopes/<sha256-of-UTF-8-project-id>/<binary-sha256>`.
   The same project ID and binary reuse that directory; different IDs are isolated.
-  The ID may contain at most 256 UTF-8 bytes and no NUL. `rebrew.report` writes
+  The ID may contain at most 256 UTF-8 bytes and no NUL. For a binary with one
+  target the `analysis_capture` holds the analysis report at its `report_path`,
+  `.relumea/analysis-report.json` (`rebrew.ops.ANALYSIS_REPORT_PATH`):
+  `{version, binary_sha256, target, functions: [{va, name, size}], stubs: [{va,
+  name}]}`, both lists sorted by `va`, written as compact JSON with sorted keys.
+  The dispatch schema publishes that shape under `documents`, keyed by the path.
+  `rebrew.report` writes
   its relative `output_dir` under `--workspace` and answers the summary, not
   the pages; the backend serves the pages from its own workspace's
   `reports/<binary_id>`, so they reach users only when `--workspace` is that
