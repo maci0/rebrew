@@ -410,7 +410,6 @@ def retained_snapshot(
         or bool(req.binary_key) == bool(req.binary_url)
     ):
         raise ops._invalid("invalid retained snapshot request")
-    ops.confined_dir(config, req.project_dir, "project_dir")
     scratch = config.require_workspace() / ops.SCRATCH_DIR
     if scratch.is_symlink() or (scratch.exists() and not scratch.is_dir()):
         raise ops._invalid("invalid worker scratch directory")

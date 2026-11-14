@@ -157,6 +157,20 @@ def test_named_decompile_uses_only_snapshot(
     assert result["generation"] == request["generation"]
 
 
+def test_named_decompile_does_not_read_project_dir(
+    sample: tuple[WorkerConfig, dict], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The snapshot is the whole input; a project recorded outside this worker is fine."""
+    config, original = sample
+    monkeypatch.setattr(
+        "rebrew.decompiler.fetch_decompilation",
+        lambda *_args: ("int a0;\n*(char *)(a0 + 0x10) = 1;\n", "kuna"),
+    )
+    request = {**original, "project_dir": str(tmp_path / "elsewhere" / "project")}
+    status, result = _call(config, request)
+    assert status == 200, result
+
+
 def _with_entries(original: dict[str, Any], count: int) -> dict[str, Any]:
     """The request whose capture lists *count* entries, padded with absent stubs."""
     request = copy.deepcopy(original)

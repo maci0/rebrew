@@ -1997,7 +1997,6 @@ def report(config: WorkerConfig, req: ReportRequest) -> dict[str, Any]:
     from rebrew.config import load_config
     from rebrew.report import generate_report
 
-    root = project_root(config, req.project_dir)
     out = _inside(config.require_workspace(), req.output_dir, "output_dir")
     if req.files:
         if req.coverage_input.version != 1 or not req.coverage_input_digest:
@@ -2049,7 +2048,7 @@ def report(config: WorkerConfig, req: ReportRequest) -> dict[str, Any]:
             raise
     if req.coverage_input.version or req.coverage_input_digest or req.verification_records:
         raise _invalid("coverage input requires a retained snapshot")
-    return generate_report(load_config(root), out)
+    return generate_report(load_config(project_root(config, req.project_dir)), out)
 
 
 def security_scan(config: WorkerConfig, req: SecurityScanRequest) -> dict[str, Any]:
@@ -3337,7 +3336,6 @@ def _run_target_command(
     from rebrew.config import load_config
     from rebrew.sources import iter_sources
 
-    root = project_root(config, req.project_dir)
     if req.files:
         with retained_target_snapshot(
             config,
@@ -3358,6 +3356,7 @@ def _run_target_command(
             )
     if req.project_cflags:
         raise _invalid("project_cflags needs a retained source snapshot")
+    root = project_root(config, req.project_dir)
     cfg = target_config(root, req.sha256)
     remote_header_refusal(cfg, iter_sources(cfg.reversed_dir, cfg))
     return run_rebrew(
@@ -3468,7 +3467,6 @@ def coverage_report(config: WorkerConfig, req: CoverageReportRequest) -> dict[st
     if req.files:
         if req.coverage_input.version != 1 or not req.coverage_input_digest:
             verified_coverage_inputs_required()
-        project_root(config, req.project_dir)
         with retained_target_snapshot(
             config,
             req.files,
@@ -3619,7 +3617,6 @@ def data_list(config: WorkerConfig, req: DataListRequest) -> dict[str, Any]:
     """The target's global data inventory and section summary (``rebrew data list --json``)."""
     from rebrew.config import load_config
 
-    root = project_root(config, req.project_dir)
     if req.files:
         # Same contract as ``report`` and ``coverage_report``: a retained
         # snapshot that names a coverage input must carry the verified one,
@@ -3642,6 +3639,7 @@ def data_list(config: WorkerConfig, req: DataListRequest) -> dict[str, Any]:
                 snapshot,
                 COMMAND_TIMEOUT_SECONDS,
             )
+    root = project_root(config, req.project_dir)
     return run_rebrew(
         ["data", "list", "--json", *_target_options(root, req.sha256)],
         root,

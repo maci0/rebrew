@@ -6945,7 +6945,10 @@ Binaries are referenced, never sent:
 Project paths (`project_dir`, `snapshots`) must be absolute. With a
 `--workspace` they must also resolve, symlinks followed, inside it; `serve`
 requires one, so no HTTP caller reaches a project outside it. A local
-`call` worker without `--workspace` reads any absolute project path.
+`call` worker without `--workspace` reads any absolute project path. A
+retained request (one carrying `files`, and `rebrew.decompile_snapshot` /
+`rebrew.security_scan_snapshot`) reads only its snapshot and never its
+`project_dir`, which need not exist on this worker.
 
 Op details the contract leaves open:
 

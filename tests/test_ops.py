@@ -1067,64 +1067,75 @@ def _with_project_header(project: Path) -> str:
     return "src/mini/uses_header.c"
 
 
+def _retained_coverage_request(
+    tmp_path: Path,
+) -> tuple[WorkerConfig, dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """A retained ``coverage_report`` request over a fresh analysis, no records.
+
+    Returns the worker configuration, the request, the analyse reply and the
+    coverage envelope.
+    """
+    from rebrew.coverage_input_contract import coverage_input_digest, plan_coverage_readset
+    from rebrew.ops import FlagSearchFile, retained_target_snapshot
+
+    filestore, workspace = _worker_dirs(tmp_path)
+    config = WorkerConfig(filestore.resolve(), workspace.resolve())
+    status, raw = dispatch(config, "rebrew.analyse", json.dumps(_analyse_request()).encode())
+    assert status == 200, raw
+    analysed = json.loads(raw)
+    capture = analysed["analysis_capture"]
+    files = []
+    source_paths = {entry["path"] for entry in capture["entries"] if entry.get("role") == "source"}
+    for entry in capture["entries"]:
+        if entry["kind"] != "file":
+            continue
+        data = base64.b64decode(entry["data"])
+        digest, key = _store(filestore, data)
+        files.append({"path": entry["path"], "size": len(data), "digest": digest, "key": key})
+    target = capture["target"]
+    with retained_target_snapshot(
+        config, [FlagSearchFile(**item) for item in files], target, SHA256, KEY, ""
+    ) as staged:
+        plan = plan_coverage_readset(staged, target)
+    envelope = {
+        "version": 1,
+        "source_revision": "a" * 64,
+        "generation": "b" * 32,
+        "binary_sha256": SHA256,
+        "target": target,
+        "analysis_manifest": "c" * 64,
+        "verification_digest": hashlib.sha256(b"[]").hexdigest(),
+        "readset": [
+            {
+                **row,
+                "origin": "source"
+                if row["path"] in source_paths or row["path"] == "rebrew-project.toml"
+                else "analysis",
+            }
+            for row in plan
+        ],
+    }
+    request = {
+        "project_dir": analysed["project"],
+        "sha256": SHA256,
+        "files": files,
+        "rebrew_target": target,
+        "binary_key": KEY,
+        "coverage_input": envelope,
+        "coverage_input_digest": coverage_input_digest(envelope),
+        "verification_records": [],
+    }
+    return config, request, analysed, envelope
+
+
 class TestReconstructionOps:
     def test_retained_reports_require_and_use_verified_readset(self, tmp_path: Path) -> None:
         from rebrew.coverage_input_contract import (
             coverage_input_digest,
-            plan_coverage_readset,
             verification_records_digest,
         )
-        from rebrew.ops import FlagSearchFile, retained_target_snapshot
 
-        filestore, workspace = _worker_dirs(tmp_path)
-        config = WorkerConfig(filestore.resolve(), workspace.resolve())
-        status, raw = dispatch(config, "rebrew.analyse", json.dumps(_analyse_request()).encode())
-        assert status == 200, raw
-        analysed = json.loads(raw)
-        capture = analysed["analysis_capture"]
-        files = []
-        source_paths = {
-            entry["path"] for entry in capture["entries"] if entry.get("role") == "source"
-        }
-        for entry in capture["entries"]:
-            if entry["kind"] != "file":
-                continue
-            data = base64.b64decode(entry["data"])
-            digest, key = _store(filestore, data)
-            files.append({"path": entry["path"], "size": len(data), "digest": digest, "key": key})
-        target = capture["target"]
-        with retained_target_snapshot(
-            config, [FlagSearchFile(**item) for item in files], target, SHA256, KEY, ""
-        ) as staged:
-            plan = plan_coverage_readset(staged, target)
-        envelope = {
-            "version": 1,
-            "source_revision": "a" * 64,
-            "generation": "b" * 32,
-            "binary_sha256": SHA256,
-            "target": target,
-            "analysis_manifest": "c" * 64,
-            "verification_digest": hashlib.sha256(b"[]").hexdigest(),
-            "readset": [
-                {
-                    **row,
-                    "origin": "source"
-                    if row["path"] in source_paths or row["path"] == "rebrew-project.toml"
-                    else "analysis",
-                }
-                for row in plan
-            ],
-        }
-        request = {
-            "project_dir": analysed["project"],
-            "sha256": SHA256,
-            "files": files,
-            "rebrew_target": target,
-            "binary_key": KEY,
-            "coverage_input": envelope,
-            "coverage_input_digest": coverage_input_digest(envelope),
-            "verification_records": [],
-        }
+        config, request, analysed, envelope = _retained_coverage_request(tmp_path)
         status, body = dispatch(config, "rebrew.coverage_report", json.dumps(request).encode())
         assert status == 200, body
         assert json.loads(body)["report"]["measures"]["matched_functions"] == 0
@@ -1178,6 +1189,49 @@ class TestReconstructionOps:
         request["coverage_input_digest"] = "d" * 64
         status, body = dispatch(config, "rebrew.coverage_report", json.dumps(request).encode())
         assert status == 409, body
+
+    def test_retained_ops_do_not_read_project_dir(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A retained request reads only its snapshot, as recoverage's do.
+
+        Each op first required ``project_dir`` to be a live rebrew project in
+        the worker's workspace, so a replica without that directory (or a
+        project the isolated runner recorded elsewhere) answered 400.
+        """
+        config, request, _analysed, _envelope = _retained_coverage_request(tmp_path)
+        gone = str(tmp_path / "elsewhere" / "project")
+        retained = {**request, "project_dir": gone}
+        _call(config, "rebrew.coverage_report", retained)
+        site = {**retained, "binary_id": 1, "output_dir": "reports/generated/" + "f" * 32}
+        assert _call(config, "rebrew.report", site)["manifest"]
+        commands: list[list[str]] = []
+
+        def run_rebrew(arguments: list[str], project: Path, *_a: Any, **_k: Any) -> Any:
+            assert project.is_relative_to(config.workspace) and project.name.startswith(
+                "retained-target-"
+            )
+            commands.append(arguments)
+            return {"items": [], "total": 0}
+
+        monkeypatch.setattr("rebrew.ops.run_rebrew", run_rebrew)
+        # Retained target commands compile only through the operator's service.
+        monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://recompile.test")
+        status, body = dispatch(config, "rebrew.data_list", json.dumps(retained).encode())
+        assert status == 200, body
+        target_request = {
+            key: retained[key]
+            for key in ("project_dir", "sha256", "files", "rebrew_target", "binary_key")
+        }
+        for op, extra in (("rebrew.verify_target", {"no_promote": True}), ("rebrew.build", {})):
+            body = json.dumps({**target_request, **extra}).encode()
+            status, reply = dispatch(config, op, body)
+            assert status == 200, reply
+        assert [arguments[:2] for arguments in commands] == [
+            ["data", "list"],
+            ["verify", "--json"],
+            ["build", "round-trip"],
+        ]
 
     def test_analyse_same_binary_has_isolated_project_workspaces(self, tmp_path: Path) -> None:
         from rebrew.config import load_config
