@@ -6913,7 +6913,8 @@ request fields and their replies are the backend's contract
 operations are served through both transports. A request with an unknown or missing field, or a field of the
 wrong JSON type, is refused. A refusal is
 `{"error","detail","status"}`: `invalid-request` (400; 413 when the request
-exceeds 16 MiB), `unknown-op` (404), `engine-error` (500),
+exceeds 16 MiB; also a wrapped command's `usage` error, with its message),
+`unknown-op` (404), `engine-error` (500),
 `remote-compile-headers` (422, see below), or, from
 `serve` only, `worker-busy` (503). An engine
 failure answers a fixed detail and logs its cause on stderr.
@@ -6928,7 +6929,9 @@ Binaries are referenced, never sent:
   downloads it into `<workspace>/.scratch` without following redirects,
   refuses a body over `--max-download`, and deletes the file when the
   call ends. Either way the bytes must hash to `sha256`. A refusal never
-  echoes the URL, whose query string is a credential.
+  echoes the URL, whose query string is a credential. A well-formed key that
+  names no stored file, or a file of another digest, answers 500
+  `engine-error`: the worker's filestore failed, not the request.
 - An analysed binary is the `project_dir` of its rebrew project. A request
   `sha256` selects the target whose binary has that hash; without one the
   project's default target is used.

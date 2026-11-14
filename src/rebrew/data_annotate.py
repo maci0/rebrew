@@ -278,9 +278,27 @@ def patch_data_fields(
     expected_digest: str | None = None,
 ) -> dict[str, Any]:
     """Normalize CLI fields, then preview/apply one locked non-verdict patch."""
+    from rebrew.metadata.data import patch_data_fields_batch
+
+    updates, rows = data_field_updates(cfg, specifications)
+    report = patch_data_fields_batch(
+        cfg.metadata_dir, updates, dry_run=dry_run, expected_digest=expected_digest
+    )
+    return {**report, "set": rows}
+
+
+def data_field_updates(
+    cfg: ProjectConfig, specifications: dict[str, list[str]]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """The data patch updates and per-row summaries ``rebrew data set`` options name.
+
+    Raises ValueError naming the first specification it rejects, before any
+    metadata is read: a malformed ``0xVA=VALUE``, a value outside its field's
+    vocabulary (``validate_data_field``), or a ``--file`` that names no source.
+    """
     from rebrew.config import target_module
     from rebrew.metadata.bindings import DATA_KINDS
-    from rebrew.metadata.data import patch_data_fields_batch
+    from rebrew.metadata.data import validate_data_field
     from rebrew.metadata.functions import identity_file, validate_identity_file
 
     module = target_module(cfg) or ""
@@ -320,13 +338,11 @@ def patch_data_fields(
                 if not source.is_file():
                     raise ValueError(f"--file names a missing source: {value}")
                 value = validate_identity_file(identity_file(source, cfg.metadata_dir))
+            value = validate_data_field(field, value)
             updates.append({"module": module, "va": va, "fields": {field: value}})
             row = rows.setdefault(va, {"va": f"0x{va:x}", "module": module})
             row[field] = value
-    report = patch_data_fields_batch(
-        cfg.metadata_dir, updates, dry_run=dry_run, expected_digest=expected_digest
-    )
-    return {**report, "set": list(rows.values())}
+    return updates, list(rows.values())
 
 
 def _set_global_field(

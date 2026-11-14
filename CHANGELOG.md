@@ -9,6 +9,8 @@
 
 ### Fixed
 
+- A dispatch op that runs a rebrew command answers 400 `invalid-request` with the command's message when the command rejects its input (JSON error kind `usage`), instead of 500 `engine-error` with the kind dropped. `rebrew data set` reports a value its option cannot take (an unknown `--storage-kind`, a `--name` that is no C identifier) as `usage`, so `rebrew.data_set` and `rebrew.retained_source_operation` answer 400 for it. A well-formed filestore key that names no stored file, or a file of another digest, answers 500 `engine-error` instead of 400: the worker's filestore failed, not the request.
+
 - Retained `rebrew.report`, `rebrew.coverage_report`, `rebrew.data_list`, `rebrew.verify_target` and `rebrew.build` (requests carrying `files`), `rebrew.decompile_snapshot` and `rebrew.security_scan_snapshot` no longer read `project_dir`. They read only the staged snapshot, but required `project_dir` to be a rebrew project (or, for the snapshot ops, a path) inside this worker's workspace, so a replica without that directory, or a project recorded by another worker, answered 400.
 
 - `rebrew.decompile_snapshot` and `rebrew.security_scan_snapshot` accept an analysis capture of up to 32768 entries, the bound of rebrew's own capture (`ops.capture_fresh_analysis`, one stub per discovered function) and the backend's stored capture, instead of 1024 entries and 2 MiB of manifest text; a binary with about a thousand functions answered 400 "invalid retained analysis capture". The 16 MiB request bound still bounds the manifest.

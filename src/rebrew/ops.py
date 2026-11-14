@@ -1140,14 +1140,16 @@ def stored_file(config: WorkerConfig, key: str, sha256: str) -> Path:
     parts = key.split("/")
     if not key or "\\" in key or "\0" in key or any(p in ("", ".", "..") for p in parts):
         raise _invalid("file key must be a clean relative filestore key")
+    # A well-formed key the filestore cannot serve is this worker's storage (a
+    # missing mount, a corrupt or substituted object), not the request: 500.
     try:
         path = root.joinpath(*parts).resolve(strict=True)
     except FileNotFoundError:
-        raise _invalid("no stored file for the key") from None
+        raise _refused("no stored file for the key") from None
     if not path.is_relative_to(root) or not path.is_file():
-        raise _invalid("the key does not name a stored file")
+        raise _refused("the key does not name a stored file")
     if _file_sha256(path) != wanted:
-        raise _invalid("the stored file does not match its sha256")
+        raise _refused("the stored file does not match its sha256")
     return path
 
 
@@ -2146,10 +2148,14 @@ def run_rebrew(
         stop_process_tree(process)
         raise
     if process.returncode != 0 and not (outcome_exit and process.returncode == 1):
+        kind, message = _command_refusal(stderr)
+        if kind == "usage":
+            # The command rejected its input (clispec ``usage``): the caller's request.
+            raise _invalid(f"rebrew {name} refused: {message}")
         logger.error(
             "rebrew %s exited %d: %s", name, process.returncode, _escape_log_text(stderr.strip())
         )
-        raise _refused(f"rebrew {name} failed: {_command_refusal(stderr)}")
+        raise _refused(f"rebrew {name} failed: {message}")
     try:
         report = json.loads(stdout)
     except json.JSONDecodeError:
@@ -2162,14 +2168,15 @@ def run_rebrew(
     return report
 
 
-def _command_refusal(stderr: str) -> str:
-    """The message of a command's JSON error line, or its exit being unexplained."""
+def _command_refusal(stderr: str) -> tuple[str, str]:
+    """The kind and message of a command's JSON error line, or its exit being unexplained."""
     for line in reversed(stderr.splitlines()):
         with contextlib.suppress(json.JSONDecodeError):
             payload = json.loads(line)
             if isinstance(payload, dict) and isinstance(payload.get("error"), dict):
-                return _bounded(str(payload["error"].get("message", "")))
-    return "no error report"
+                error = payload["error"]
+                return str(error.get("kind", "")), _bounded(str(error.get("message", "")))
+    return "", "no error report"
 
 
 def analyse(config: WorkerConfig, req: AnalyseRequest) -> dict[str, Any]:

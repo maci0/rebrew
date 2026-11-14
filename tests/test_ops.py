@@ -874,28 +874,34 @@ class TestRefusals:
         )
 
     @pytest.mark.parametrize(
-        ("key", "sha256", "detail"),
+        ("key", "sha256", "detail", "status"),
         [
-            ("../escape", SHA256, "file key must be a clean relative filestore key"),
-            ("/abs", SHA256, "file key must be a clean relative filestore key"),
-            ("binaries/missing", SHA256, "no stored file for the key"),
-            (KEY, "0" * 64, "the stored file does not match its sha256"),
-            (KEY, "ABC", "sha256 must be 64 lowercase hex digits"),
+            ("../escape", SHA256, "file key must be a clean relative filestore key", 400),
+            ("/abs", SHA256, "file key must be a clean relative filestore key", 400),
+            (KEY, "ABC", "sha256 must be 64 lowercase hex digits", 400),
+            # A well-formed key the filestore cannot serve is the worker's
+            # storage (a missing mount, a corrupt object), not the request.
+            ("binaries/missing", SHA256, "no stored file for the key", 500),
+            (KEY, "0" * 64, "the stored file does not match its sha256", 500),
         ],
     )
     def test_stored_file_references(
-        self, world: tuple[WorkerConfig, Path], key: str, sha256: str, detail: str
+        self, world: tuple[WorkerConfig, Path], key: str, sha256: str, detail: str, status: int
     ) -> None:
         config, _project = world
         body = json.dumps({**_binary_file(), "key": key, "sha256": sha256}).encode()
-        assert _refusal(config, "rebrew.fingerprint", body)["detail"] == detail
+        refusal = _refusal(config, "rebrew.fingerprint", body)
+        assert (refusal["detail"], refusal["status"]) == (detail, status)
 
     def test_symlink_out_of_the_filestore(self, tmp_path: Path) -> None:
         filestore, _workspace = _worker_dirs(tmp_path)
         (filestore / "binaries" / "link").symlink_to(BINARY.resolve())
         body = json.dumps({**_binary_file(), "key": "binaries/link"}).encode()
         refusal = _refusal(WorkerConfig(filestore.resolve()), "rebrew.fingerprint", body)
-        assert refusal["detail"] == "the key does not name a stored file"
+        assert (refusal["detail"], refusal["status"]) == (
+            "the key does not name a stored file",
+            500,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1713,6 +1719,23 @@ class TestReconstructionOps:
         assert _refusal(config, "rebrew.data_set", json.dumps(empty).encode())["detail"] == (
             "data_set needs at least one field to set"
         )
+
+    @pytest.mark.parametrize(
+        ("field", "value", "message"),
+        [
+            ("storage_kind", "bogus", "invalid storage_kind 'bogus'"),
+            ("name", "not an identifier", "--name wants a C identifier"),
+        ],
+    )
+    def test_data_set_value_the_command_rejects_is_an_invalid_request(
+        self, world: tuple[WorkerConfig, Path], field: str, value: str, message: str
+    ) -> None:
+        """The command's usage refusal answered 500 engine-error, its kind dropped."""
+        config, project = world
+        request = {"project_dir": str(project), "va": 0x401050, field: value, "dry_run": True}
+        refusal = _refusal(config, "rebrew.data_set", json.dumps(request).encode())
+        assert (refusal["status"], refusal["error"]) == (400, "invalid-request")
+        assert message in refusal["detail"]
 
     def test_source_rename_preview(self, world: tuple[WorkerConfig, Path]) -> None:
         config, project = world

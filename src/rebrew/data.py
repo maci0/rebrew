@@ -353,8 +353,13 @@ def execute_data(
         "note": set_note,
     }
     if any(specifications.values()):
-        from rebrew.data_annotate import patch_data_fields
+        from rebrew.data_annotate import data_field_updates, patch_data_fields
 
+        try:
+            data_field_updates(cfg, specifications)
+        except ValueError as exc:
+            # A value the option cannot take: the invocation, not the metadata.
+            error_exit(str(exc), json_mode=json_output, kind="usage")
         try:
             report = patch_data_fields(
                 cfg, specifications, dry_run=dry_run, expected_digest=expected_digest
