@@ -36,8 +36,10 @@ project is the toolchain's own header tree, which the service's image
 carries, so it is neither searched nor shipped. The service runs the compiler
 in `source_dir` on `filename`, so `__FILE__` in the source,
 `#pragma once`, and the search order (the including file's directory first,
-then the include flags in order) match the local compile; the local compile
-searches the source's directory first too. One difference stays: `__FILE__`
+then the include flags in order) match the local compile. Every local compile,
+single-file and batch, searches the same order: the source's directory, the
+flags' include directories in order, then `[compiler] includes`, where MSVC
+searches `INCLUDE` (after every `/I`). One difference stays: `__FILE__`
 expanded while the compiler reads a header spells that header's path as each
 compile found it (an absolute host path locally, a path relative to
 `source_dir` remotely); a macro defined in a header and used in the source

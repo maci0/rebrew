@@ -454,3 +454,47 @@ class TestConcurrentCompilesReportTheirOwn:
             "src/game/plant.h",
         ]
         assert "includes" not in reports["second"]
+
+
+class TestOneSearchOrder:
+    @pytest.mark.usefixtures("host_toolchain")
+    def test_batch_single_file_and_remote_compiles_read_the_same_headers(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Source directory, then the flags' include directories, then ``[compiler] includes``.
+
+        That is MSVC's order with ``[compiler] includes`` as ``INCLUDE``
+        (searched after every ``/I``); ``shared.h`` in the includes directory
+        is searched last, so ``include/shared.h`` wins everywhere.
+        """
+        from rebrew.compiler.compile import precompile_batch
+
+        root = tmp_path / "project"
+        source = _project(root)
+        (root / "src/game/other.c").write_text("int other(void) { return 1; }\n", encoding="utf-8")
+        (root / "inc_last").mkdir()
+        (root / "inc_last/shared.h").write_text("#define SHARED 9\n", encoding="utf-8")
+        monkeypatch.setattr(
+            "rebrew.compiler.overrides.resolve_compile_overrides", lambda *a, **k: (None, "")
+        )
+
+        def cfg(*, remote: bool) -> SimpleNamespace:
+            made = _cfg(root, remote=remote)
+            made.compiler_includes = str(root / "inc_last")
+            made.reversed_dir = root / "src/game"
+            return made
+
+        single, error = _compile(cfg(remote=False), source, tmp_path / "single")
+        assert single is not None, error
+        entries = [
+            SimpleNamespace(filepath="plant.c", toolchain="", cflags="", module="", name="f"),
+            SimpleNamespace(filepath="other.c", toolchain="", cflags="", module="", name="o"),
+        ]
+        batch = precompile_batch(cfg(remote=False), entries)
+        assert id(entries[0]) in batch, "plant.c was not batch-built"
+        _Recompile(tmp_path / "service").install(monkeypatch)
+        remote, error = _compile(cfg(remote=True), source, tmp_path / "remote")
+        assert remote is not None, error
+        local_bytes = Path(single).read_bytes()
+        assert Path(batch[id(entries[0])]).read_bytes() == local_bytes
+        assert Path(remote).read_bytes() == local_bytes

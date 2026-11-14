@@ -2482,6 +2482,7 @@ class TestPrecompileBatchCleanup:
                         name="mingw-16.2.0",
                         image="rebrew/mingw:16.2.0-win32",
                         effective_arg_style="posix",
+                        flags_style="posix",
                     )
                 }
             ),

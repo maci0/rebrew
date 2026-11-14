@@ -2767,16 +2767,21 @@ def precompile_batch(
                 safe_shlex_split(group_flags) if isinstance(group_flags, str) else list(group_flags)
             )
             flags += [f for f in dict.fromkeys(member_includes) if f not in flags]
-            # Single-file parity: base_cflags first (it carries project-wide
-            # /I like references/zlib-1.1.3), then the group + unioned dirs.
-            # Resolve relative /I against the project root (single-file
-            # resolves against src_parent; the batch workdir has no
-            # tree-relative meaning) before the container rewrite.
-            flags = effective_compile_flags(cfg, spec, flags, Path(cfg.root))
+            # Single-file parity: every member sits directly in reversed_dir
+            # (the grouping above), so its flags are the single-file ones
+            # for that directory: base_cflags first (project-wide /I like
+            # references/zlib-1.1.3), then the group + unioned dirs, relative
+            # /I resolved against the source directory, then the root.
+            flags = effective_compile_flags(cfg, spec, flags, rev_resolved)
+            # Same search order as the single-file path (local_include_order):
+            # the source directory, the flags' directories, then
+            # [compiler] includes, as MSVC searches INCLUDE after every /I.
+            inc_prefix = "/I" if spec.flags_style == "msvc" else "-I"
+            lead, tail = local_include_order(cfg, rev_resolved, flags, None)
+            flags = [inc_prefix + d for d in lead] + flags + [inc_prefix + d for d in tail]
             # Same container setup as the single-file path: project root
-            # same-path mounted (relative ../../ includes resolve), unioned
-            # /I rewritten for the container, global compiler_includes
-            # added (it covers tree-root headers like rebrew_types.h).
+            # same-path mounted (relative ../../ includes resolve), the
+            # include dirs rewritten for the container.
             batch_mounts: list[tuple[str, str]] = []
             allowed: list[Path] = [workdir]
             root_dir = getattr(cfg, "root", None)
@@ -2785,10 +2790,6 @@ def precompile_batch(
                 if root_p.exists():
                     batch_mounts.append((str(root_p), str(root_p)))
                     allowed.append(root_p)
-            inc_path = compiler_dir(getattr(cfg, "compiler_includes", None))
-            if inc_path:
-                inc_prefix = "/I" if spec.flags_style == "msvc" else "-I"
-                flags = [f"{inc_prefix}{inc_path}"] + flags
             flags, extra_mounts = _docker_include_rewrite(flags, workdir, allowed_roots=allowed)
             batch_mounts += extra_mounts
 
