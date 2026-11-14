@@ -281,6 +281,11 @@ class CompareResult:
     error: RebrewError | None = None
     #: Operand diagnostics when the target enables known-binding checks.
     relocation_bindings: list[dict[str, Any]] | None = None
+    #: What the remote compile that made ``obj_bytes`` ran with:
+    #: ``{"flags", "execution"}``, plus ``source_dir`` and ``includes`` (each
+    #: shipped header's ``path`` and ``sha256``) when it shipped an include
+    #: bundle.  ``None`` when no remote compile produced this result.
+    remote_compile: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         """Reject a ``matched`` flag that contradicts ``status``."""
@@ -324,6 +329,7 @@ class CompareResult:
                 if self.relocation_bindings is not None
                 else {}
             ),
+            **({"remote_compile": self.remote_compile} if self.remote_compile is not None else {}),
         }
 
     @classmethod
@@ -1617,6 +1623,7 @@ def _compile_via_recompile(
     source_text: str | None = None,
     backend_errors: list[RebrewError] | None = None,
     bundle: RemoteBundle | None = None,
+    remote_compiles: list[dict[str, Any]] | None = None,
 ) -> tuple[str | None, str]:
     """Compile one source through the recompile HTTP service.
 
@@ -1634,7 +1641,9 @@ def _compile_via_recompile(
     *backend_errors* when given, so a caller that returns the result to a
     library consumer (``compile_and_compare``) can attach the structured
     fields — ``kind``, ``status_code``, ``retryable`` — to the
-    :class:`CompareResult` instead of leaving a message string behind.
+    :class:`CompareResult` instead of leaving a message string behind.  A
+    successful compile appends what it ran with (``CompareResult.remote_compile``)
+    to *remote_compiles* when given.
     """
     from rebrew.compiler.recompile_client import RecompileError, compile_source
 
@@ -1743,28 +1752,9 @@ def _compile_via_recompile(
             {"path": path, "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest()}
             for path, text in sorted(bundle.includes.items())
         ]
-    global _last_remote_compile
-    with _last_remote_compile_lock:
-        _last_remote_compile = record
+    if remote_compiles is not None:
+        remote_compiles.append(record)
     return str(obj_file), ""
-
-
-#: What the most recent successful remote compile of this process ran with,
-#: for the one-shot ``rebrew test --json`` run that reports it.
-_last_remote_compile: dict[str, Any] | None = None
-_last_remote_compile_lock = threading.Lock()
-
-
-def last_remote_compile() -> dict[str, Any] | None:
-    """The flags and execution provenance of the last remote compile, or None.
-
-    ``{"flags", "execution"}``, plus ``source_dir`` and ``includes`` (each
-    shipped header's project-relative ``path`` and ``sha256``) when the compile
-    shipped an include bundle.  None means no remote compile ran (local
-    backend), so nothing is claimed.
-    """
-    with _last_remote_compile_lock:
-        return _last_remote_compile
 
 
 def contextualized_source(
@@ -1926,6 +1916,7 @@ def compile_to_obj(
     extra_include_dirs: list[str] | None = None,
     context: CompileContext | None = None,
     backend_errors: list[RebrewError] | None = None,
+    remote_compiles: list[dict[str, Any]] | None = None,
 ) -> tuple[str | None, str]:
     """Compile a .c file to .obj through the toolchain's container image.
 
@@ -1979,6 +1970,10 @@ def compile_to_obj(
             that returns a :class:`CompareResult` can hand the consumer the
             ``kind`` / ``status_code`` / ``retryable`` fields the error
             message string does not carry.
+        remote_compiles: Optional sink for what a remote compile ran with: a
+            successful one appends its flags, execution provenance and shipped
+            include bundle (``CompareResult.remote_compile``).  Per call, so
+            concurrent compiles in one process never report each other's.
 
     Returns:
         (obj_path, error_msg) - obj_path is ``None`` on failure;
@@ -2142,6 +2137,7 @@ def compile_to_obj(
             source_text=compile_text,
             backend_errors=backend_errors,
             bundle=bundle,
+            remote_compiles=remote_compiles,
         )
         return obj_path, remote_err
 
@@ -3219,6 +3215,7 @@ def compile_and_compare(
 
     def _pin(result: CompareResult) -> CompareResult:
         result.context_hash = context_hash
+        result.remote_compile = remote_compiles[-1] if remote_compiles else None
         if result.relocation_bindings is not None:
             summary = binding_summary(result.relocation_bindings)
             if summary:
@@ -3227,6 +3224,7 @@ def compile_and_compare(
 
     workdir: Path | None = None
     backend_errors: list[RebrewError] = []
+    remote_compiles: list[dict[str, Any]] = []
     try:
         obj_path: str | None
         if _precompiled_obj is not None and Path(_precompiled_obj).is_file():
@@ -3252,6 +3250,7 @@ def compile_and_compare(
                 context=context,
                 extra_include_dirs=extra_include_dirs,
                 backend_errors=backend_errors,
+                remote_compiles=remote_compiles,
             )
         if obj_path is None:
             return _pin(
@@ -3700,7 +3699,6 @@ __all__ = [
     "extract_linked_slice",
     "filter_wine_stderr",
     "is_matched",
-    "last_remote_compile",
     "linked_pad_size",
     "linked_shell_source",
     "local_include_order",

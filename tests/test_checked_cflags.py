@@ -79,22 +79,24 @@ def test_fuzz_an_accepted_string_is_stable_plain_tokens(text: str) -> None:
 
 
 def test_a_remote_compile_reports_its_flags_and_execution_in_the_test_result() -> None:
-    from rebrew.compiler import compile as compile_module
-    from rebrew.test import _result_dict_body
+    from rebrew.compiler.compile import CompareResult
+    from rebrew.test import build_result_dict_from_compare
 
-    def result() -> dict[str, object]:
-        return _result_dict_body(
-            "a.c", "f", "0x1000", 1, "EXACT", True, 1, 1, [], b"\x90", [], None, None
+    def result(remote: dict[str, object] | None) -> dict[str, object]:
+        cmp = CompareResult(
+            matched=True,
+            status="EXACT",
+            match_percent=100.0,
+            delta=0,
+            obj_bytes=b"\x90",
+            reloc_offsets=[],
+            remote_compile=remote,
         )
+        return build_result_dict_from_compare("a.c", "f", "0x1000", 1, cmp, b"\x90")
 
-    compile_module._last_remote_compile = None
-    assert result()["compile"] is None
+    assert result(None)["compile"] is None
     record = {"flags": ["/nologo", "/O1"], "execution": {"status": "admitted"}}
-    compile_module._last_remote_compile = record
-    try:
-        assert result()["compile"] == record
-    finally:
-        compile_module._last_remote_compile = None
+    assert result(record)["compile"] == record
 
 
 def test_project_cflags_go_into_the_snapshot_config_and_a_target_override(tmp_path: Path) -> None:

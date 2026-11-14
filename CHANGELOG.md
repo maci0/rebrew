@@ -14,6 +14,8 @@
 
 - The reached-header digest (`compiler.cache.header_dependency_hash`, stored as `headers_hash` in type evidence and function verification metadata) hashes each header's search anchor, relative path and content, not its size, mtime, inode and change time. Identical header bytes now give the same value on every clone, so a fresh checkout, `touch`, `git checkout` or a hard-link count change no longer marks committed type evidence stale (lint W031) or forces re-verification. Content edits still change the digest. Stored `headers_hash` values written by earlier versions change once after upgrading; rebind the reported types with `rebrew types bind` and re-run `rebrew verify`.
 
+- **Breaking:** the remote compile that made a comparison is reported per call: `CompareResult.remote_compile` (`{flags, execution}`, plus `source_dir` and `includes` for an include bundle; also in `to_dict()`) carries it, filled through the new `compile_to_obj(remote_compiles=...)` sink, and `rebrew test --json` reads its `compile` block from there. `compiler.compile.last_remote_compile` is removed: it held the last remote compile of the whole process, so in `rebrew ops serve` a `verify_function` running beside another call could report that call's flags, execution and include bundle as its own.
+
 ## [6.39.0] - 2026-11-15
 
 ### Added

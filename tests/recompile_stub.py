@@ -43,6 +43,4 @@ def serve_recompile(
     monkeypatch.setattr("rebrew.compiler.recompile_client._bundle_services", set())
     monkeypatch.setattr(compile_module, "_shared_recompile_client", lambda _timeout: client)
     monkeypatch.setattr(compile_module, "_recompile_release", lambda _client: None)
-    # The last remote compile is reported per process; restore it after the test.
-    monkeypatch.setattr(compile_module, "_last_remote_compile", None)
     return posted

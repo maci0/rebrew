@@ -76,7 +76,6 @@ lazy from rebrew.compiler.compile import (
     compile_and_compare,
     compile_to_obj,
     is_matched,
-    last_remote_compile,
     matched_byte_count,
 )
 lazy from rebrew.compiler.context import CompileContext
@@ -752,6 +751,7 @@ def build_result_dict_from_compare(
         obj_size=obj_len,
         context_hash=cmp.context_hash,
         include_mismatches=include_mismatches,
+        remote_compile=cmp.remote_compile,
     )
     if cmp.alignment is not None:
         result.update(cmp.alignment)
@@ -776,6 +776,7 @@ def _result_dict_body(
     obj_size: int | None = None,
     context_hash: str | None = None,
     include_mismatches: bool = True,
+    remote_compile: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     mismatches: list[dict[str, str | int]] = []
     if include_mismatches and not matched and obj_bytes:
@@ -806,9 +807,10 @@ def _result_dict_body(
         # null when the function was compiled without one.
         "context_hash": context_hash,
         "mismatches": mismatches,
-        # The flags and execution provenance of the remote compile that made
-        # obj_bytes; null when no remote compile ran or the service sent none.
-        "compile": last_remote_compile(),
+        # The flags, execution provenance and include bundle of the remote
+        # compile that made obj_bytes (CompareResult.remote_compile); null when
+        # a local compile made them.
+        "compile": remote_compile,
     }
 
 

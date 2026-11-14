@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -81,13 +82,18 @@ def _cfg(root: Path, *, remote: bool) -> SimpleNamespace:
 
 
 class _Recompile:
-    """The recompile HTTP contract, compiling with the host C compiler."""
+    """The recompile HTTP contract, compiling with the host C compiler.
+
+    Compiles may arrive concurrently: each gets its own job number, tree and
+    artifact.
+    """
 
     def __init__(self, work: Path, *, features: tuple[str, ...] = ("include-bundles",)) -> None:
         self.work = work
         self.features = features
         self.compiles: list[dict[str, Any]] = []
-        self.artifact = b""
+        self.artifacts: dict[str, bytes] = {}
+        self._lock = threading.Lock()
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         if request.method == "GET" and request.url.path == "/api/v1/features":
@@ -97,8 +103,10 @@ class _Recompile:
             return httpx.Response(200, json={"features": list(self.features)})
         if request.method == "POST" and request.url.path == "/api/v1/compile":
             payload = json.loads(request.content)
-            self.compiles.append(payload)
-            tree = self.work / f"job{len(self.compiles)}"
+            with self._lock:
+                self.compiles.append(payload)
+                job = f"{len(self.compiles):012x}"
+            tree = self.work / f"job{job}"
             for item in payload.get("includes", []):
                 (tree / item["path"]).parent.mkdir(parents=True, exist_ok=True)
                 (tree / item["path"]).write_bytes(item["content"].encode("utf-8"))
@@ -128,17 +136,18 @@ class _Recompile:
                         "log": done.stderr,
                     },
                 )
-            self.artifact = (cwd / (Path(payload["filename"]).stem + ".o")).read_bytes()
+            with self._lock:
+                self.artifacts[job] = (cwd / (Path(payload["filename"]).stem + ".o")).read_bytes()
             return httpx.Response(
                 200,
-                json={
-                    "status": "ok",
-                    "artifact_url": "/api/v1/artifacts/0123456789ab.o",
-                    "log": "",
-                },
+                json={"status": "ok", "artifact_url": f"/api/v1/artifacts/{job}.o", "log": ""},
             )
-        if request.method == "GET" and request.url.path == "/api/v1/artifacts/0123456789ab.o":
-            return httpx.Response(200, content=self.artifact)
+        prefix = "/api/v1/artifacts/"
+        if request.method == "GET" and request.url.path.startswith(prefix):
+            with self._lock:
+                artifact = self.artifacts.get(request.url.path[len(prefix) :].removesuffix(".o"))
+            if artifact is not None:
+                return httpx.Response(200, content=artifact)
         return httpx.Response(404, json={"detail": "not found"})
 
     def install(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -167,8 +176,6 @@ def host_toolchain(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr("rebrew.compiler.toolchain.vendored_binary", lambda _spec: Path(compiler))
     monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
     monkeypatch.delenv("REBREW_JOB_COMPILE_SOCKET", raising=False)
-    # The report is per process; restore it so later tests read their own.
-    monkeypatch.setattr(compile_module, "_last_remote_compile", None)
 
 
 def _compile(cfg: SimpleNamespace, source: Path, workdir: Path) -> tuple[str | None, str]:
@@ -339,20 +346,21 @@ class TestUnshippableSources:
 
 class TestShippedHeadersAreReported:
     @pytest.mark.usefixtures("host_toolchain")
-    def test_the_last_remote_compile_names_the_headers_it_shipped(
+    def test_the_compare_result_names_the_headers_it_shipped(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         """``rebrew test --json`` reports them, so a verdict can name what it read."""
         import hashlib
 
-        from rebrew.compiler.compile import last_remote_compile
+        from rebrew.compiler.compile import compile_and_compare
 
         root = tmp_path / "project"
         source = _project(root)
         _Recompile(tmp_path / "service").install(monkeypatch)
-        obj, error = _compile(_cfg(root, remote=True), source, tmp_path / "remote")
-        assert obj is not None, error
-        report = last_remote_compile()
+        cmp = compile_and_compare(
+            _cfg(root, remote=True), source, "f", b"\x00" * 8, "", use_cache=False
+        )
+        report = cmp.remote_compile
         assert report is not None
         assert report["source_dir"] == "src/game"
         assert report["includes"] == [
@@ -393,3 +401,56 @@ class TestToolchainHeadersStayInTheImage:
         (sent,) = service.compiles
         assert [item["path"] for item in sent["includes"]] == ["src/game/plant.h"]
         assert not any("toolchain" in flag for flag in sent["flags"])
+
+
+class TestConcurrentCompilesReportTheirOwn:
+    @pytest.mark.usefixtures("host_toolchain")
+    def test_each_result_names_its_own_remote_compile(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Two compiles in one process (``ops serve`` threads) each report their own.
+
+        The first waits between its compile and its report until the second
+        has finished, the order a busy worker can take.
+        """
+        from rebrew.compiler.compile import compile_and_compare
+        from rebrew.test import build_result_dict_from_compare
+
+        root = tmp_path / "project"
+        bundled = _project(root)
+        plain = root / "src/game/plain.c"
+        plain.write_text("int g(void) { return 2; }\n", encoding="utf-8")
+        _Recompile(tmp_path / "service").install(monkeypatch)
+        cfg = _cfg(root, remote=True)
+        second_done = threading.Event()
+        real_extract = compile_module._extract_and_compare
+
+        def extract_after_the_second(*args: Any, **kwargs: Any) -> Any:
+            if threading.current_thread().name == "first":
+                assert second_done.wait(30), "the second compile never finished"
+            return real_extract(*args, **kwargs)
+
+        monkeypatch.setattr(compile_module, "_extract_and_compare", extract_after_the_second)
+        reports: dict[str, dict[str, Any]] = {}
+
+        def verify(name: str, source: Path, symbol: str) -> None:
+            cmp = compile_and_compare(cfg, source, symbol, b"\x00" * 8, "", use_cache=False)
+            reports[name] = build_result_dict_from_compare(
+                str(source), symbol, "0x0", 8, cmp, b"\x00" * 8
+            )["compile"]
+            if name == "second":
+                second_done.set()
+
+        first = threading.Thread(target=verify, args=("first", bundled, "f"), name="first")
+        first.start()
+        second = threading.Thread(target=verify, args=("second", plain, "g"), name="second")
+        second.start()
+        first.join(60)
+        second.join(60)
+        assert [item["path"] for item in reports["first"]["includes"]] == [
+            "include/nested.h",
+            "include/shared.h",
+            "src/common/once.h",
+            "src/game/plant.h",
+        ]
+        assert "includes" not in reports["second"]

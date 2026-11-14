@@ -7105,10 +7105,10 @@ Op details the contract leaves open:
   `-isystem`, `-iquote`, `-specs`, `-wrapper`, `-Xlinker`, `-fplugin`, `-dump*`)
   answers 400 `invalid-request` naming it. Without `cflags` the project's flags
   and the function's metadata apply. The reply carries `compile`: the flags the
-  last remote compile ran with and the service's `execution` provenance block
+  call's remote compile ran with and the service's `execution` provenance block
   verbatim, plus `source_dir` and `includes` (each shipped header's `path` and
-  `sha256`) when it shipped an include bundle, or null when no remote compile
-  ran or the service sent none.
+  `sha256`) when it shipped an include bundle, or null when the compile was
+  local.
 - `apply_candidate` takes `verify_function`'s candidate fields (`cflags`, `project_cflags` included) and runs the
   comparison in promote mode in the private snapshot: the candidate takes the function's `ADDRESS` anchor, the
   registry entry moves to the candidate's name and derived symbol, `rebrew test` records STATUS, SIZE and the
