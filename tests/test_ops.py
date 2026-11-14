@@ -1640,15 +1640,36 @@ class TestReconstructionOps:
             "status"
         ] == (400)
 
-    def test_coverage_export_round_trips_through_import(
+    @pytest.mark.parametrize(
+        "op",
+        [
+            "rebrew.coverage_export",
+            "rebrew.source_variants",
+            "rebrew.decompme_export",
+            "rebrew.source_rename",
+            "rebrew.source_split",
+            "rebrew.source_merge",
+        ],
+    )
+    def test_ops_without_a_caller_are_not_served(self, op: str) -> None:
+        """No backend code, client or engine calls these (R4-017), yet they wrote
+        project files, the workspace or a decomp.me scratch against a live project.
+        ``rebrew.retained_source_operation`` does the source work on snapshots."""
+        assert op not in _CONTRACT["ops"]
+        refusal = _refusal(WorkerConfig(), op, b"{}")
+        assert (refusal["status"], refusal["error"]) == (404, "unknown-op")
+
+    def test_import_project_reads_portable_coverage_documents(
         self, world: tuple[WorkerConfig, Path]
     ) -> None:
+        from rebrew.coverage_toml import write_coverage_toml
+
         config, project = world
         assert config.workspace is not None
-        request = {"project_dir": str(project), "sha256": SHA256, "output_dir": "exports/cov"}
-        reply = _call(config, "rebrew.coverage_export", request)
         out = config.workspace / "exports" / "cov"
-        assert reply == {"output_dir": str(out), "documents": [str(out / "coverage-mini.toml")]}
+        assert write_coverage_toml(project, out, target="mini", json_output=True) == [
+            out / "coverage-mini.toml"
+        ]
         imported = _call(
             config, "rebrew.import-project", {"project_dir": str(project), "snapshots": str(out)}
         )
@@ -1739,44 +1760,6 @@ class TestReconstructionOps:
         assert (refusal["status"], refusal["error"]) == (400, "invalid-request")
         assert message in refusal["detail"]
 
-    def test_source_rename_preview(self, world: tuple[WorkerConfig, Path]) -> None:
-        config, project = world
-        request = {
-            "project_dir": str(project),
-            "kind": "function",
-            "old_name": "fcn_00401000",
-            "new_name": "entry_fn",
-            "dry_run": True,
-        }
-        reply = _call(config, "rebrew.source_rename", request)
-        assert (reply["new_symbol"], reply["dry_run"]) == ("_entry_fn", True)
-
-    def test_source_merge_preview_and_split_refusal(self, world: tuple[WorkerConfig, Path]) -> None:
-        config, project = world
-        sources = ["src/mini/fcn_00401000.c", "src/mini/fcn_00401010.c"]
-        request = {
-            "project_dir": str(project),
-            "sources": sources,
-            "output": "src/mini/merged.c",
-            "dry_run": True,
-        }
-        reply = _call(config, "rebrew.source_merge", request)
-        assert (reply["count"], reply["vas"]) == (2, ["0x00401000", "0x00401010"])
-        assert not (project / "src" / "mini" / "merged.c").exists()
-        split = {"project_dir": str(project), "source": sources[0], "dry_run": True}
-        refusal = _refusal(config, "rebrew.source_split", json.dumps(split).encode())
-        assert refusal["detail"].startswith("rebrew source split failed: Input must contain")
-
-    def test_decompme_export_preview(self, world: tuple[WorkerConfig, Path]) -> None:
-        config, project = world
-        request = {
-            "project_dir": str(project),
-            "source": "src/mini/fcn_00401000.c",
-            "dry_run": True,
-        }
-        reply = _call(config, "rebrew.decompme_export", request)
-        assert (reply["dry_run"], reply["va"], reply["platform"]) == (True, "0x00401000", "win32")
-
     @pytest.mark.parametrize("source", ["../escape.c", "/etc/passwd", "src/mini/missing.c"])
     def test_source_paths_stay_in_the_project(
         self, world: tuple[WorkerConfig, Path], source: str
@@ -1791,10 +1774,6 @@ class TestReconstructionOps:
             ("rebrew.verify_function", {"source": "src/mini/uses_header.c"}),
             ("rebrew.verify_target", {}),
             ("rebrew.build", {}),
-            (
-                "rebrew.source_variants",
-                {"source": "src/mini/uses_header.c", "generations": 1, "population": 2, "seed": 1},
-            ),
         ],
     )
     def test_remote_compile_refuses_project_headers(

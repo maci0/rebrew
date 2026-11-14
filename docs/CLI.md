@@ -7039,21 +7039,19 @@ Op details the contract leaves open:
   project. `splat_parse` opens nothing the config names and refuses a config
   over 256 KiB.
 - Reconstruction ops (`reference_flirt`, `verify_function`, `verify_target`,
-  `build`, `skeleton`, `coverage_export`, `coverage_report`,
-  `source_variants`, `decompme_export`, `data_list`, `data_set`,
-  `source_rename`, `source_split`, `source_merge`) take `project_dir` and an
-  optional target `sha256`. Their `source`, `sources` and `output` are
-  project-relative and may not leave the project; `coverage_export`'s
-  `output_dir` is relative to `--workspace`. Ops wrapping a command
-  (`verify`, `build round-trip`, `match run`, `export
-  decompme`, `data list`/`set`, `source rename`/`split`/`merge`,
-  `library scan-signatures`) run it as a child process in the project and
-  answer the JSON it prints; `verify_target`, `build` and `source_variants`
-  are bounded at 3600 s, the others at 600 s. For `verify_target`, `build`
-  and `source_variants` exit 1 (a mismatch) still answers the report.
+  `build`, `skeleton`, `coverage_report`, `data_list`, `data_set`) take
+  `project_dir` and an optional target `sha256`. Their `source` is
+  project-relative and may not leave the project. Ops wrapping a command
+  (`verify`, `build round-trip`, `data list`/`set`, `library
+  scan-signatures`, and the `match run`, `export decompme` and `source
+  rename`/`split`/`merge` that `retained_source_operation` runs on a
+  snapshot) run it as a child process and answer the JSON it prints;
+  `verify_target`, `build` and the retained variant search are bounded at
+  3600 s, the others at 600 s. For `verify_target`, `build` and the variant
+  search, exit 1 (a mismatch) still answers the report.
 - While the compile backend is the remote recompile service
   (`REBREW_RECOMPILE_URL` or `[compiler] recompile_url`), `verify_function`,
-  `verify_target`, `build` and `source_variants` refuse 422
+  `verify_target`, `build` and the retained variant search refuse 422
   `remote-compile-headers` when a source they would compile includes a
   header found under its directory or the project's `/I` directories, or
   computes an include: the service receives the source text alone. Local

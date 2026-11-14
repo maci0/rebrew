@@ -251,7 +251,7 @@ INTAKE_TIMEOUT_SECONDS = 600
 COMMAND_TIMEOUT_SECONDS = 600
 
 #: Wall-clock bound on the child commands that compile every function or
-#: search mutations: ``verify_target``, ``build`` and ``source_variants``.
+#: search mutations: ``verify_target``, ``build`` and the retained variant search.
 SEARCH_TIMEOUT_SECONDS = 3600
 
 #: Default of ``--concurrency``: calls ``serve`` runs at once.
@@ -858,23 +858,6 @@ class SkeletonRequest:
 
 
 @dataclass(frozen=True)
-class CoverageExportRequest:
-    project_dir: str
-    output_dir: str
-    sha256: str = ""
-
-
-@dataclass(frozen=True)
-class SourceVariantsRequest:
-    project_dir: str
-    source: str
-    generations: int
-    population: int
-    seed: int
-    sha256: str = ""
-
-
-@dataclass(frozen=True)
 class FlagSearchFile:
     path: str
     digest: str
@@ -979,14 +962,6 @@ class FlagSearchRequest:
 
 
 @dataclass(frozen=True)
-class DecompmeRequest:
-    project_dir: str
-    source: str
-    sha256: str = ""
-    dry_run: bool = False
-
-
-@dataclass(frozen=True)
 class DataSetRequest:
     project_dir: str
     va: int
@@ -1001,34 +976,6 @@ class DataSetRequest:
     backing: str = ""
     link_symbol: str = ""
     source_file: str = ""
-    dry_run: bool = False
-
-
-@dataclass(frozen=True)
-class RenameRequest:
-    project_dir: str
-    kind: str
-    old_name: str
-    new_name: str
-    sha256: str = ""
-    dry_run: bool = False
-
-
-@dataclass(frozen=True)
-class SplitRequest:
-    project_dir: str
-    source: str
-    sha256: str = ""
-    va: int = 0
-    dry_run: bool = False
-
-
-@dataclass(frozen=True)
-class MergeRequest:
-    project_dir: str
-    sources: list[str]
-    output: str
-    sha256: str = ""
     dry_run: bool = False
 
 
@@ -3484,22 +3431,6 @@ def skeleton(config: WorkerConfig, req: SkeletonRequest) -> dict[str, Any]:
     return {"source": generate_skeleton(cfg, va, ghidra_name, target_module(cfg), req.name or None)}
 
 
-def coverage_export(config: WorkerConfig, req: CoverageExportRequest) -> dict[str, Any]:
-    """Write portable coverage documents into ``output_dir`` under the workspace.
-
-    ``rebrew coverage export``: one ``coverage-<target>.toml`` for the
-    selected target, or for every target when ``sha256`` is empty.
-    ``import-project`` reads the directory back as its ``snapshots``.
-    """
-    from rebrew.coverage_toml import write_coverage_toml
-
-    root = project_root(config, req.project_dir)
-    out = _inside(config.require_workspace(), req.output_dir, "output_dir")
-    target = target_config(root, req.sha256).target_name if req.sha256 else None
-    written = write_coverage_toml(root, out, target=target, json_output=True)
-    return {"output_dir": str(out), "documents": [str(path) for path in written]}
-
-
 def verified_coverage_inputs_required() -> None:
     """Coverage metadata needs producer custody, not merely a supplied manifest."""
     raise OpsError(
@@ -3583,34 +3514,6 @@ def coverage_report(config: WorkerConfig, req: CoverageReportRequest) -> dict[st
     return {"summary": {k: v for k, v in summary.items() if k != "out"}, "report": report}
 
 
-def source_variants(config: WorkerConfig, req: SourceVariantsRequest) -> dict[str, Any]:
-    """Search source mutations of one function for a byte match (``rebrew match run --json``).
-
-    A run that finds no match is a result.  ``seed`` makes the search
-    reproducible.
-    """
-    if req.generations < 1 or req.population < 1 or req.seed < 0:
-        raise _invalid("generations and population must be positive and seed not negative")
-    root = project_root(config, req.project_dir)
-    cfg = target_config(root, req.sha256)
-    source = _project_file(root, req.source, "source")
-    remote_header_refusal(cfg, [source])
-    arguments = [
-        "match",
-        "run",
-        "--json",
-        f"--generations={req.generations}",
-        f"--pop-size={req.population}",
-        f"--seed={req.seed}",
-    ]
-    return run_rebrew(
-        [*arguments, *_target_options(root, req.sha256), "--", str(source)],
-        root,
-        SEARCH_TIMEOUT_SECONDS,
-        outcome_exit=True,
-    )
-
-
 def flag_search(config: WorkerConfig, req: FlagSearchRequest) -> dict[str, Any]:
     """Run a bounded flag or compiler profile sweep for one project source."""
     if req.va < 0 or req.tier not in {"quick", "targeted", "normal", "thorough", "full"}:
@@ -3676,22 +3579,6 @@ def flag_search(config: WorkerConfig, req: FlagSearchRequest) -> dict[str, Any]:
         return result
 
 
-def decompme_export(config: WorkerConfig, req: DecompmeRequest) -> dict[str, Any]:
-    """Upload one function as a decomp.me scratch (``rebrew export decompme --json``).
-
-    ``dry_run`` builds the payload and answers its summary without uploading.
-    The worker reaches decomp.me (``REBREW_DECOMPME_API``) itself.
-    """
-    root = project_root(config, req.project_dir)
-    source = _project_file(root, req.source, "source")
-    arguments = ["export", "decompme", "--json", *_flag(req.dry_run, "--dry-run")]
-    return run_rebrew(
-        [*arguments, *_target_options(root, req.sha256), "--", str(source)],
-        root,
-        COMMAND_TIMEOUT_SECONDS,
-    )
-
-
 def data_list(config: WorkerConfig, req: DataListRequest) -> dict[str, Any]:
     """The target's global data inventory and section summary (``rebrew data list --json``)."""
     from rebrew.config import load_config
@@ -3747,64 +3634,6 @@ def data_set(config: WorkerConfig, req: DataSetRequest) -> dict[str, Any]:
     arguments = ["data", "set", "--json", *options, *_flag(req.dry_run, "--dry-run")]
     return run_rebrew(
         [*arguments, *_target_options(root, req.sha256)], root, COMMAND_TIMEOUT_SECONDS
-    )
-
-
-def source_rename(config: WorkerConfig, req: RenameRequest) -> dict[str, Any]:
-    """Rename a function, global, type or struct member project-wide (``rebrew source rename``).
-
-    ``kind`` is ``function`` (a name, symbol, file, VA or MODULE.0xVA),
-    ``data`` (a global), ``type`` (a tag or typedef) or ``field``
-    (``STRUCT.MEMBER``).
-    """
-    selector = RENAME_KINDS.get(req.kind)
-    if selector is None:
-        raise _invalid(f"kind must be one of {', '.join(RENAME_KINDS)}")
-    root = project_root(config, req.project_dir)
-    arguments = ["source", "rename", "--json", *selector, *_flag(req.dry_run, "--dry-run")]
-    return run_rebrew(
-        [*arguments, *_target_options(root, req.sha256), "--", req.old_name, req.new_name],
-        root,
-        COMMAND_TIMEOUT_SECONDS,
-    )
-
-
-def source_split(config: WorkerConfig, req: SplitRequest) -> dict[str, Any]:
-    """Split a multi-function source into one file per function (``rebrew source split``).
-
-    ``va``, when non-zero, extracts that one function instead.
-    """
-    root = project_root(config, req.project_dir)
-    source = _project_file(root, req.source, "source")
-    extract = [f"--va=0x{_address(req.va):x}"] if req.va else []
-    arguments = ["source", "split", "--json", *extract, *_flag(req.dry_run, "--dry-run")]
-    return run_rebrew(
-        [*arguments, *_target_options(root, req.sha256), "--", str(source)],
-        root,
-        COMMAND_TIMEOUT_SECONDS,
-    )
-
-
-def source_merge(config: WorkerConfig, req: MergeRequest) -> dict[str, Any]:
-    """Merge single-function sources into ``output``, a new project file (``rebrew source merge``)."""
-    if len(req.sources) < 2:
-        raise _invalid("sources must name at least two files")
-    root = project_root(config, req.project_dir)
-    sources = [str(_project_file(root, source, "source")) for source in req.sources]
-    output = _inside(root, req.output, "output", "project_dir")
-    if output.exists():
-        raise _invalid("output must name a file that does not exist yet")
-    arguments = ["source", "merge", "--json", f"--output={output}"]
-    return run_rebrew(
-        [
-            *arguments,
-            *_flag(req.dry_run, "--dry-run"),
-            *_target_options(root, req.sha256),
-            "--",
-            *sources,
-        ],
-        root,
-        COMMAND_TIMEOUT_SECONDS,
     )
 
 
@@ -3968,16 +3797,10 @@ OPS: dict[str, Op] = {
     "rebrew.verify_target": Op(VerifyTargetRequest, verify_target),
     "rebrew.build": Op(BuildRequest, build),
     "rebrew.skeleton": Op(SkeletonRequest, skeleton),
-    "rebrew.coverage_export": Op(CoverageExportRequest, coverage_export),
     "rebrew.coverage_report": Op(CoverageReportRequest, coverage_report),
-    "rebrew.source_variants": Op(SourceVariantsRequest, source_variants),
     "rebrew.flag_search": Op(FlagSearchRequest, flag_search),
-    "rebrew.decompme_export": Op(DecompmeRequest, decompme_export),
     "rebrew.data_list": Op(DataListRequest, data_list),
     "rebrew.data_set": Op(DataSetRequest, data_set),
-    "rebrew.source_rename": Op(RenameRequest, source_rename),
-    "rebrew.source_split": Op(SplitRequest, source_split),
-    "rebrew.source_merge": Op(MergeRequest, source_merge),
     "rebrew.vocabulary": Op(VocabularyRequest, vocabulary),
     "rebrew.check_cflags": Op(CheckCflagsRequest, check_cflags),
     "rebrew.rename_identifier": Op(RenameIdentifierRequest, rename_identifier),
