@@ -281,6 +281,12 @@ DETAIL_MAX_CHARS = 400
 #: Listing formats ``disassemble`` accepts.
 DISASM_FORMATS = frozenset({"nasm", "asm", "hex"})
 
+#: Largest extent ``disassemble`` lists, the bound of the other extent ops.
+DISASSEMBLE_MAX_BYTES = 1 << 20
+
+#: Most reference kinds one ``xrefs`` call may narrow to.
+XREFS_MAX_KINDS = 64
+
 #: The one ISA rebrew's NASM source decodes.  ``disassemble_bytes`` lists every
 #: other ISA in the ``asm`` format.
 NASM_ARCH = "x86_32"
@@ -581,14 +587,21 @@ class CoverageInputEntry:
 
 @dataclass(frozen=True)
 class CoverageInput:
-    version: int = 0
-    source_revision: str = ""
-    generation: str = ""
-    binary_sha256: str = ""
-    target: str = ""
-    readset: list[CoverageInputEntry] = field(default_factory=list)
-    analysis_manifest: str = ""
-    verification_digest: str = ""
+    """The retained coverage envelope; a request that sends one sends every field."""
+
+    version: int
+    source_revision: str
+    generation: str
+    binary_sha256: str
+    target: str
+    readset: list[CoverageInputEntry]
+    analysis_manifest: str
+    verification_digest: str
+
+
+def _no_coverage_input() -> CoverageInput:
+    """What a request without ``coverage_input`` carries: version 0, nothing else."""
+    return CoverageInput(0, "", "", "", "", [], "", "")
 
 
 @dataclass(frozen=True)
@@ -616,7 +629,7 @@ class ReportRequest:
     rebrew_target: str = ""
     binary_key: str = ""
     binary_url: str = ""
-    coverage_input: CoverageInput = field(default_factory=CoverageInput)
+    coverage_input: CoverageInput = field(default_factory=_no_coverage_input)
     coverage_input_digest: str = ""
     verification_records: list[CoverageVerification] = field(default_factory=list)
 
@@ -708,7 +721,7 @@ class DataListRequest:
     rebrew_target: str = ""
     binary_key: str = ""
     binary_url: str = ""
-    coverage_input: CoverageInput = field(default_factory=CoverageInput)
+    coverage_input: CoverageInput = field(default_factory=_no_coverage_input)
     coverage_input_digest: str = ""
     verification_records: list[CoverageVerification] = field(default_factory=list)
 
@@ -719,7 +732,7 @@ class CoverageReportRequest(TargetRequest):
     rebrew_target: str = ""
     binary_key: str = ""
     binary_url: str = ""
-    coverage_input: CoverageInput = field(default_factory=CoverageInput)
+    coverage_input: CoverageInput = field(default_factory=_no_coverage_input)
     coverage_input_digest: str = ""
     verification_records: list[CoverageVerification] = field(default_factory=list)
 
@@ -1500,6 +1513,8 @@ def disassemble(config: WorkerConfig, req: DisassembleRequest) -> dict[str, Any]
         raise _invalid(f"format must be one of {', '.join(sorted(DISASM_FORMATS))}")
     if req.size <= 0:
         raise _invalid(f"size must be positive, got {req.size}")
+    if req.size > DISASSEMBLE_MAX_BYTES:
+        raise _invalid(f"size must be at most {DISASSEMBLE_MAX_BYTES} bytes, got {req.size}")
     va = _address(req.va)
     cfg = target_config(project_root(config, req.project_dir), req.sha256)
     if req.arch and req.arch != cfg.arch:
@@ -1552,8 +1567,14 @@ def control_flow_graph(config: WorkerConfig, req: AddressRequest) -> dict[str, A
 
 def xrefs(config: WorkerConfig, req: AddressRequest) -> dict[str, Any]:
     """References to ``va``, narrowed to ``kinds`` when given."""
+    from rebrew.analysis import is_xref_kind
     from rebrew.xrefs import build_xrefs_payload
 
+    if len(req.kinds) > XREFS_MAX_KINDS:
+        raise _invalid(f"kinds holds {len(req.kinds)} entries, over the limit of {XREFS_MAX_KINDS}")
+    for kind in req.kinds:
+        if not is_xref_kind(kind):
+            raise _invalid(f"kinds: {_bounded(repr(kind))} is no reference kind")
     cfg = target_config(project_root(config, req.project_dir), req.sha256)
     return build_xrefs_payload(cfg.target_binary, _address(req.va), req.kinds or None)
 

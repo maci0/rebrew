@@ -77,6 +77,7 @@ class Xref:
     - ``call`` / ``jmp``      — direct relative call/jump
     - ``iat_call`` / ``iat_jmp`` — ``call [slot]`` / ``jmp [slot]`` (IAT)
     - ``push``                — ``push imm32`` (string/address load)
+    - ``push_mem``            — ``push [abs]`` (global read)
     - ``mov``                 — ``mov reg/[mem], imm32`` (address load/store)
     - ``cmp``                 — ``cmp reg/[mem], imm`` (possible pointer comparison)
     - ``lea``                 — ``lea reg, [abs]``
@@ -85,11 +86,41 @@ class Xref:
     - ``indexed_mem``         — indexed memory displacement (opt-in base candidate,
       not a resolved effective address or IAT call)
     - otherwise               — mnemonic + ``_mem`` (e.g. ``and_mem``)
+
+    :func:`is_xref_kind` tells whether a reference can have a given kind.
     """
 
     kind: str
     from_va: int
     to_va: int
+
+
+#: The fixed :attr:`Xref.kind` values; every other kind is a mnemonic plus ``_mem``.
+XREF_KINDS = frozenset(
+    {
+        "call",
+        "jmp",
+        "iat_call",
+        "iat_jmp",
+        "push",
+        "push_mem",
+        "mov",
+        "cmp",
+        "lea",
+        "mov_mem",
+        "mov_mem_store",
+        "indexed_mem",
+    }
+)
+
+#: A capstone mnemonic (lowercase, with a prefix such as ``rep`` after a space)
+#: plus ``_mem``.
+_MEM_XREF_KIND = re.compile(r"[a-z][a-z0-9. ]*_mem")
+
+
+def is_xref_kind(kind: str) -> bool:
+    """Whether some :class:`Xref` can have *kind*."""
+    return kind in XREF_KINDS or _MEM_XREF_KIND.fullmatch(kind) is not None
 
 
 @dataclass

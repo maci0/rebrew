@@ -6951,7 +6951,15 @@ Op details the contract leaves open:
 
 - `rebrew.disassemble`: `arch` overrides the target's arch in every format
   and must be a rebrew arch name (`x86_16`, `x86_32`, `arm32`, ...); `nasm`
-  covers `x86_32` only.
+  covers `x86_32` only. `size` is 1 byte to 1 MiB, the bound of the other
+  extent ops.
+- `rebrew.xrefs`: `kinds` narrows the reply to at most 64 reference kinds,
+  each one a reference can have (`rebrew.analysis.is_xref_kind`: `call`,
+  `jmp`, `iat_call`, `iat_jmp`, `push`, `push_mem`, `mov`, `cmp`, `lea`,
+  `mov_mem`, `mov_mem_store`, `indexed_mem`, or a mnemonic plus `_mem`);
+  anything else answers 400.
+- `rebrew.report`, `rebrew.coverage_report` and `rebrew.data_list`: a
+  `coverage_input` carries all eight fields or answers 400.
 - `rebrew.structs`: `limit` caps the annotated functions decompiled; `0`
   means no cap. A run where the decompiler returns nothing is an
   `engine-error` naming the skipped count.

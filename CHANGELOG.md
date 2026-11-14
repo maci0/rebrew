@@ -9,6 +9,8 @@
 
 ### Fixed
 
+- `rebrew.disassemble` refuses a `size` over 1 MiB with 400, the bound of the other extent ops; the listing read to the end of the file and a very large size answered 500. `rebrew.xrefs` refuses more than 64 `kinds` or a kind no reference can have (`rebrew.analysis.is_xref_kind`, new with `rebrew.analysis.XREF_KINDS`), which answered an empty list as a result. `rebrew.report`, `rebrew.coverage_report` and `rebrew.data_list` refuse a `coverage_input` missing any of its eight fields with 400 `invalid-request`, as the dispatch schema requires; the missing fields were defaulted and the request was refused later as 409 `coverage-input-unverified`.
+
 - `make release-check` fails when the published resembl tag (`RESEMBL_REF`) does not resolve to `RESEMBL_SHA` on https://github.com/maci0/resembl.git (`git ls-remote`). 6.37.0 shipped `v5.2.0` pinned at `15108fa1`, eight commits past the `529b9df2` the tag names, and the CI clone and `make setup` refused every fresh checkout until 6.38.0 re-pinned.
 
 - `rebrew.compiler.recompile_client.compile_source` refuses a source, flag, compiler or filename that is not UTF-8 text (a lone surrogate, which `compile_to_obj` reads for every byte of a cp1252 comment) with `RecompileError(kind="validation")` before sending anything. httpx raised `UnicodeEncodeError` while encoding the body, which the client reported as an unreachable service and retried; a surrogate in a flag escaped as a bare `UnicodeEncodeError`.

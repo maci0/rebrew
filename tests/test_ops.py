@@ -282,6 +282,19 @@ class TestListingOps:
         refusal = _refusal(config, "rebrew.disassemble", json.dumps(request).encode())
         assert (refusal["status"], refusal["detail"]) == (400, "unsupported arch: vax")
 
+    @pytest.mark.parametrize("fmt", ["asm", "hex"])
+    def test_disassemble_extent_is_bounded_like_the_other_extent_ops(
+        self, world: tuple[WorkerConfig, Path], fmt: str
+    ) -> None:
+        """The size was unchecked: the listing read to the end of the file."""
+        config, project = world
+        request = {"project_dir": str(project), "va": ENTRY_VA, "size": 2**40, "format": fmt}
+        refusal = _refusal(config, "rebrew.disassemble", json.dumps(request).encode())
+        assert (refusal["status"], refusal["detail"]) == (
+            400,
+            f"size must be at most {1 << 20} bytes, got {2**40}",
+        )
+
     def test_disassemble_bytes(self) -> None:
         code = base64.b64encode(b"\x55\x48\x89\xe5\xc3").decode()
         reply = _call(
@@ -303,6 +316,17 @@ class TestFunctionOps:
         config, project = world
         reply = _call(config, "rebrew.xrefs", self._address(project, kinds=["call"]))
         assert (reply["target"], reply["count"]) == (ENTRY_VA, 0)
+        reply = _call(config, "rebrew.xrefs", self._address(project, kinds=["iat_call", "and_mem"]))
+        assert reply["count"] == 0
+
+    @pytest.mark.parametrize("kinds", [["bogus"], ["call", ""], ["_mem"], ["call"] * 65])
+    def test_xrefs_refuses_a_kind_no_reference_can_have(
+        self, world: tuple[WorkerConfig, Path], kinds: list[str]
+    ) -> None:
+        """An unknown kind matched nothing and answered an empty list as a result."""
+        config, project = world
+        body = json.dumps(self._address(project, kinds=kinds)).encode()
+        assert _refusal(config, "rebrew.xrefs", body)["status"] == 400
 
     def test_describe(self, world: tuple[WorkerConfig, Path]) -> None:
         config, project = world
@@ -1600,6 +1624,29 @@ class TestReconstructionOps:
         }
         refusal = _refusal(config, "rebrew.data_list", json.dumps(unverified).encode())
         assert (refusal["status"], refusal["error"]) == (409, "coverage-input-unverified")
+
+    @pytest.mark.parametrize("op", ["rebrew.report", "rebrew.coverage_report", "rebrew.data_list"])
+    def test_a_partial_coverage_input_is_an_invalid_request(
+        self, world: tuple[WorkerConfig, Path], op: str
+    ) -> None:
+        """The schema requires all eight fields; the missing ones were defaulted and
+        the request was refused later as 409 coverage-input-unverified."""
+        config, project = world
+        request = {
+            "binary_id": 1,
+            "project_dir": str(project),
+            "output_dir": "reports/generated/" + "b" * 32,
+            "files": [{"path": "src/a.c", "digest": "a" * 64, "size": 1}],
+            "rebrew_target": "mini",
+            "coverage_input": {"version": 1},
+            "coverage_input_digest": "c" * 64,
+            "verification_records": [],
+        }
+        if op != "rebrew.report":
+            del request["binary_id"], request["output_dir"]
+        refusal = _refusal(config, op, json.dumps(request).encode())
+        assert (refusal["status"], refusal["error"]) == (400, "invalid-request")
+        assert refusal["detail"] == "request.coverage_input is missing source_revision"
 
     def test_data_list_and_set(self, world: tuple[WorkerConfig, Path]) -> None:
         config, project = world
