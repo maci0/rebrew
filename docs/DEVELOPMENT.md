@@ -175,7 +175,7 @@ published globals around every test in that module.
 ## Validation commands
 
 Prerequisites (nasm, bun, cc/pkg-config/json-c, the sibling `../resembl` at
-tag `v5.2.0` and the rest) and what each gate does without them are in
+tag `v5.3.0` and the rest) and what each gate does without them are in
 [CONTRIBUTING.md](../CONTRIBUTING.md#bootstrap-clean-clone); `make doctor`
 reports them, and `make help` lists the contributor targets. Notes that live
 only here:

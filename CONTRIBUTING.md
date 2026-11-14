@@ -32,7 +32,7 @@ whether or not `make doctor` ran.
 |--------------|-----|-----------|------------|
 | **uv** | `UV_VERSION` (`0.13.6`, CI's `uv-version` in `.github/actions/uv-env/action.yml`) | every target that runs `uv run` | fails with `ERROR: uv not on PATH`; an older uv warns |
 | **Python 3.15+** | `.python-version` | everything | |
-| sibling [`resembl`](https://github.com/maci0/resembl) at `../resembl` | `RESEMBL_REF` (tag `v5.2.0`, CI's `resembl-ref`) and `RESEMBL_SHA` | `uv sync` (path pin in `pyproject.toml` / `uv.lock`) | `make setup` fails if its `version` is not `RESEMBL_REF` or its `HEAD` is not `RESEMBL_SHA` (a moved tag keeps the version string and still fails); warns when it is not a git checkout; a bare `uv sync` fails with a "Distribution not found" path error |
+| sibling [`resembl`](https://github.com/maci0/resembl) at `../resembl` | `RESEMBL_REF` (tag `v5.3.0`, CI's `resembl-ref`) and `RESEMBL_SHA` | `uv sync` (path pin in `pyproject.toml` / `uv.lock`) | `make setup` fails if its `version` is not `RESEMBL_REF` or its `HEAD` is not `RESEMBL_SHA` (a moved tag keeps the version string and still fails); warns when it is not a git checkout; a bare `uv sync` fails with a "Distribution not found" path error |
 | **bash** | | `make clone-resembl` (`tools/ci_clone_resembl.sh`) | fails, naming bash |
 | **nasm** | | asm round-trip tests | fails `make test` / `make coverage`; `make test-one` and `make setup` warn |
 | **bun** | `BUN_VERSION` (`1.4.4`, CI's `bun-version` in `.github/workflows/ci.yml`) | `tests/dashboard_*.mjs` interaction tests | fails `make test` / `make coverage`; `make test-one` and `make setup` warn; a different version warns |
@@ -56,7 +56,7 @@ denied, instead of letting the native tests skip silently.
 git clone https://github.com/maci0/rebrew.git
 cd rebrew
 make doctor                   # report every missing prerequisite, with the fix for each
-make clone-resembl            # clones sibling resembl pin (tag v5.2.0) into ../resembl
+make clone-resembl            # clones sibling resembl pin (tag v5.3.0) into ../resembl
 make setup                    # uv sync --locked --all-extras --group similarity + pre-commit/pre-push hooks
 make vnu                      # optional: the W3C HTML gate skips without it, CI runs it
 make biome                    # optional: the dashboard-JS hook skips without it, CI runs it

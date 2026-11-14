@@ -149,7 +149,7 @@ require a target binary or MSVC toolchain.
 Except for the runtime-only package job described below, jobs that run
 `uv sync` first clone the sibling `resembl` repo
 (`maci0/resembl`, tag from the action's `resembl-ref` input, currently
-`v5.2.0`) into the
+`v5.3.0`) into the
 directory above the workspace via `tools/ci_clone_resembl.sh` (retries on
 network flake; each attempt clones into a sibling staging directory that
 replaces `../resembl` by rename only after the SHA check, so a retargeted tag

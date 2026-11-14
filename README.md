@@ -143,7 +143,7 @@ needs a JDK and Apache Ant on PATH to build JPype 1.7.1 on Python 3.15
 
 A contributor checkout also needs a sibling
 [`resembl`](https://github.com/maci0/resembl) checkout at `../resembl`
-(tag `v5.2.0`) and the host tools listed in
+(tag `v5.3.0`) and the host tools listed in
 [CONTRIBUTING.md](https://github.com/maci0/rebrew/blob/main/CONTRIBUTING.md#bootstrap-clean-clone),
 which also says which gate needs each one. From the directory that will hold
 both checkouts:

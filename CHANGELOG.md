@@ -2,6 +2,7 @@
 
 ### Changed
 
+- Update the similarity checkout to Resembl 5.3.0 (`e5776fd`), including the CI pin and locked project version. The upstream `v5.2.0` tag now names the release commit `529b9df`, not the `15108fa` commit the previous pin required, so CI's moved-tag guard stopped every job.
 - **Breaking:** `rebrew.cli.CREATE_MISSING_HELP` and its re-exports `rebrew.binsync.cli.CREATE_MISSING_HELP`, `rebrew.binsync.importer.CREATE_MISSING_HELP` and `rebrew.ghidra.cli.CREATE_MISSING_HELP` now read "Create STUB files for catalog-known BinSync functions with no local source". `rebrew.binary_score` no longer re-exports `BUILT_IMAGE_HELP`; it uses the new `rebrew.cli.BUILT_IMAGE_REQUIRED_HELP`, and `BUILT_IMAGE_HELP` stays importable from `rebrew.cli`.
 - `rebrew data bss`, `data fix-bss` and `data dispatch` warn when given `--link-map`, and their `--help` says so: only `data list` reads the map. The option stays so existing invocations keep parsing.
 
