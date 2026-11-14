@@ -694,7 +694,11 @@ class TestRecompileClientFlagsFlexibility:
                 captured["json"] = json
                 return SimpleNamespace(
                     status_code=200,
-                    json=lambda: {"status": "error", "log": "compiled"},
+                    json=lambda: {
+                        "status": "error",
+                        "error_code": "toolchain_failure",
+                        "log": "compiled",
+                    },
                     close=lambda: None,
                 )
 

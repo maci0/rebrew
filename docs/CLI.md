@@ -401,6 +401,13 @@ graph TD
 ```
 
 
+A remote compile the recompile service could not run (at capacity, timed out,
+no runner, failed to publish, no admitted pin, or a store or idempotency-key
+fault) is reported as `COMPILE_ERROR` and counted as a failure, but it is no
+verdict on the source: the stored STATUS and the cached verify result stay as
+they were, and the JSON row carries `error`, the structured
+`RecompileError` (`kind`, `error_code`, `retryable`, `message`).
+
 The progress bar and `Verification: passed/total` headline count all checked
 functions, including library-attributed source functions. When libraries are
 included, the next line separates game and library results; only game functions
@@ -7452,7 +7459,10 @@ by either tool's status logic.
 A compile that fails inside the remote recompile backend
 (`[compiler] recompile_url` / `REBREW_RECOMPILE_URL`) is reported as
 `status = "COMPILE_ERROR"` with the structured
-`rebrew.compiler.recompile_client.RecompileError` on `CompareResult.error`, so a
+`rebrew.compiler.recompile_client.RecompileError` on `CompareResult.error`, and
+`rebrew verify` / `rebrew test --all` write no STATUS and cache no result for it.
+The compiler rejecting the source (`error_code` `toolchain_failure`) carries no
+`error` and is recorded like a local compile error. A
 library consumer branches on `result.error.kind` / `result.error.retryable`
 instead of matching `result.message` substrings.
 

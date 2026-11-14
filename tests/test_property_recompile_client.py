@@ -62,6 +62,7 @@ _JSON_VALUES = st.recursive(
 
 _REPLY_KEYS = (
     "status",
+    "error_code",
     "artifact_url",
     "log",
     "compiler_version",
@@ -133,6 +134,10 @@ def _service_reply(draw: st.DrawFn) -> dict[str, Any]:
         body["status"] = draw(_STATUS_VALUES)
     if draw(st.booleans()):
         body["artifact_url"] = draw(_url_text())
+    if draw(st.booleans()):
+        body["error_code"] = draw(
+            st.sampled_from(["toolchain_failure", "capacity", "replay_rejected", "Capacity", ""])
+        )
     return body
 
 
@@ -229,7 +234,8 @@ def test_hostile_reply_never_escapes_as_an_untyped_error(body: dict[str, Any]) -
     try:
         res = _run(client)
     except RecompileError as exc:
-        assert exc.kind in ("network", "http", "validation", "protocol")
+        assert exc.kind in ("network", "http", "validation", "protocol", "service")
+        assert (exc.kind == "service") == (exc.error_code is not None)
         return
     assert isinstance(res, RecompileResult)
     if res.ok:

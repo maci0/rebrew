@@ -107,7 +107,8 @@ def test_job_socket_never_receives_ambient_managed_key(monkeypatch):
 
     def handler(req):
         assert "authorization" not in req.headers
-        return httpx.Response(200, json={"status": "error", "log": "fixture"})
+        body = {"status": "error", "error_code": "toolchain_failure", "log": "fixture"}
+        return httpx.Response(200, json=body)
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as c:
         assert not compile_source("http://rebrew-job", "gcc-14.2.0", "int f;", [], client=c).ok
@@ -185,7 +186,8 @@ def test_compile_failure_log_does_not_expose_key(monkeypatch):
     monkeypatch.delenv("REBREW_JOB_COMPILE_SOCKET", raising=False)
 
     def handler(req):
-        return httpx.Response(200, json={"status": "error", "log": "echo rck_synthetic"})
+        body = {"status": "error", "error_code": "toolchain_failure", "log": "echo rck_synthetic"}
+        return httpx.Response(200, json=body)
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as c:
         result = compile_source("https://compiler.test", "gcc-14.2.0", "int f;", [], client=c)

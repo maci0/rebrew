@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 import tomlkit
+from cache_util import cache_text
 from cli_json import cli_payload
 from source_util import write_source
 from typer.testing import CliRunner
@@ -1720,6 +1721,89 @@ class TestVerifyWatch:
         result = CliRunner().invoke(app, ["--watch"])
         assert result.exit_code == 0
         assert calls["n"] == 1
+
+
+class TestRemoteServiceFailureIsNoVerdict:
+    """A remote compile the service could not run says nothing about the source."""
+
+    @pytest.mark.parametrize("stored", ["NEAR_MATCHING", "STUB"])
+    def test_status_and_cache_keep_the_last_verdict(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stored: str
+    ) -> None:
+        """A capacity refusal used to overwrite the row with COMPILE_ERROR.
+
+        The run still reports the failure, with the structured error, and fails.
+        """
+        from rebrew.compiler.compile import classify_compare_result
+        from rebrew.compiler.recompile_client import RecompileError
+        from rebrew.metadata.functions import get_entry, save_metadata
+        from rebrew.verify import app
+        from rebrew.verify_cache import load_verify_cache
+
+        cfg = _cfg(tmp_path)
+        (cfg.reversed_dir / "f.c").write_text("int my_func(void) { return 1; }\n", encoding="utf-8")
+        save_metadata(tmp_path, {("SERVER", 0x1000): {"status": stored, "size": 64}})
+        monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
+        entry = _ann(0x1000, status=stored)
+        monkeypatch.setattr(
+            "rebrew.verify.prepare_entries",
+            lambda *a, **k: ([entry], 0, 0, [], [], 0, [], [], [], {}, 0),
+        )
+        refusal = RecompileError(
+            "recompile service could not compile (capacity): server at capacity",
+            kind="service",
+            error_code="capacity",
+            retryable=True,
+        )
+
+        def _verify(e: Any, cfg: Any, cache: Any = None, **kw: Any) -> Any:
+            # What compile_and_compare returns for a service refusal.
+            return classify_compare_result(
+                False,
+                f"COMPILE_ERROR: recompile service error: {refusal}",
+                b"\x90" * 64,
+                None,
+                None,
+                error=refusal,
+            )
+
+        monkeypatch.setattr("rebrew.verify.verify_entry", _verify)
+        monkeypatch.setattr("rebrew.compiler.cache.get_compile_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.coff_reloc.build_name_to_va", lambda cfg: {})
+        monkeypatch.setattr("rebrew.verify_cache.load_baseline", lambda _cfg: (None, None))
+        monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
+
+        result = CliRunner().invoke(app, ["--json"])
+
+        assert result.exit_code == 1
+        (row,) = cli_payload(result)["results"]
+        assert row["status"] == "COMPILE_ERROR" and row["passed"] is False
+        assert row["error"]["error_code"] == "capacity"
+        assert row["error"]["retryable"] is True
+        assert get_entry(tmp_path, 0x1000, "SERVER").get("status") == stored
+        cached = load_verify_cache(cfg.root / ".rebrew" / "verify_cache.toml", cfg)
+        assert cached is None or "0x00001000" not in cached.entries
+
+    def test_batch_cache_patch_skips_a_service_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``rebrew test --all`` patches cached verdicts from its rows."""
+        import rebrew.verify_cache as vc_mod
+        from rebrew.verify import patch_cache_from_results
+
+        monkeypatch.setattr(vc_mod, "_VERIFY_CACHE_MEMO", {})
+        (tmp_path / ".rebrew").mkdir()
+        path = tmp_path / ".rebrew" / "verify_cache.toml"
+        row = {"status": "NEAR_MATCHING", "va": "0x00001000", "match_percent": 80.0, "delta": 7}
+        path.write_text(cache_text({"entries": {"0x00001000": row}}), encoding="utf-8")
+        cfg = SimpleNamespace(root=tmp_path, target_name="GAME", reversed_dir=tmp_path)
+        monkeypatch.setattr(vc_mod, "cache_identity_matches", lambda _raw, _cfg: True)
+        failure = {"error_code": "capacity", "kind": "service", "retryable": True}
+        patch_cache_from_results(
+            cfg, [{"va": "0x00001000", "status": "COMPILE_ERROR", "error": failure}]
+        )
+        cached = tomllib.loads(path.read_text(encoding="utf-8"))["entries"]["0x00001000"]
+        assert cached["status"] == "NEAR_MATCHING"
 
 
 class TestProvenIsNotAPass:

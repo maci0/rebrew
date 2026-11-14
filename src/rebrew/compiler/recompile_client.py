@@ -61,13 +61,33 @@ _MAX_ARTIFACT_BYTES = 30 * 1024**2
 _IDEMPOTENCY_KEY_BYTES = 6
 
 #: How a :class:`RecompileError` arose — callers branch on this instead of
-#: matching message substrings.
+#: matching message substrings.  ``service`` is a compile the service answered
+#: but could not run; its ``error_code`` names why.
 RecompileErrorKind = Literal[
     "network",
     "http",
     "validation",
     "protocol",
+    "service",
 ]
+
+#: The one ``error_code`` that is the compiler's verdict on the source
+#: (recompile ``models.CompileFailureKind``).
+_TOOLCHAIN_FAILURE = "toolchain_failure"
+
+#: ``error_code`` values for the service's own infrastructure, or a pin it could
+#: not admit: no verdict on the source, and recompile says to retry them.
+_INFRASTRUCTURE_FAILURES = frozenset(
+    {"capacity", "timeout", "runner_unavailable", "publish_failed", "provenance_unavailable"}
+)
+
+#: ``error_code`` values for the artifact store or the idempotency key: no
+#: verdict on the source, and not retryable as sent.
+_STORE_FAILURES = frozenset({"missing_artifact", "replay_rejected"})
+
+#: Infrastructure failures of a compile the service refused before running it,
+#: so a re-sent ``emit_assembly`` request cannot repeat a retention side effect.
+_NOT_RUN_FAILURES = frozenset({"capacity"})
 
 #: Retryable statuses that may arrive AFTER the service already ran the
 #: compile (and may have performed service-side retention).
@@ -188,10 +208,18 @@ class RecompileError(RebrewError, RuntimeError):
 
     Structured fields let callers recover without string-matching ``str(exc)``:
 
-    - ``kind`` — ``"network"`` / ``"http"`` / ``"validation"`` / ``"protocol"``
+    - ``kind`` — ``"network"`` / ``"http"`` / ``"validation"`` / ``"protocol"`` /
+      ``"service"``
     - ``status_code`` — HTTP status when ``kind == "http"``, else ``None``
-    - ``retryable`` — ``True`` for transport blips and transient HTTP codes
+    - ``error_code`` — the service's failure kind when ``kind == "service"``
+      (``capacity``, ``timeout``, ``runner_unavailable``, ``publish_failed``,
+      ``provenance_unavailable``, ``missing_artifact``, ``replay_rejected``),
+      else ``None``
+    - ``retryable`` — ``True`` for transport blips, transient HTTP codes and
+      the service's infrastructure failures
     """
+
+    STRUCTURED_FIELDS = (*RebrewError.STRUCTURED_FIELDS, "error_code")
 
     def __init__(
         self,
@@ -200,11 +228,13 @@ class RecompileError(RebrewError, RuntimeError):
         kind: RecompileErrorKind = "protocol",
         status_code: int | None = None,
         retryable: bool = False,
+        error_code: str | None = None,
     ) -> None:
         super().__init__(message)
         self.kind = kind
         self.status_code = status_code
         self.retryable = retryable
+        self.error_code = error_code
 
 
 #: Names the one in-cluster service host that may receive the API key over plain HTTP.
@@ -393,11 +423,16 @@ def compile_source(
     """Compile *source* via ``POST <base_url>/api/v1/compile``.
 
     Returns :class:`RecompileResult` with the downloaded artifact bytes on
-    ``status == "ok"``.  A ``status == "error"`` reply maps to
-    ``ok=False`` with the service log (compile failure, not transport
-    failure).  Unreachable service / non-2xx / malformed replies raise
-    :class:`RecompileError` — callers decide whether that is fatal or a
-    local-docker fallback.
+    ``status == "ok"``.  A ``status == "error"`` reply is read by its
+    ``error_code``: ``toolchain_failure`` (the compiler rejected the source)
+    maps to ``ok=False`` with the service log; the service's own failures
+    raise :class:`RecompileError` with ``kind="service"`` and that
+    ``error_code``, retryable for ``capacity``, ``timeout``,
+    ``runner_unavailable``, ``publish_failed`` and ``provenance_unavailable``
+    and not for ``missing_artifact`` and ``replay_rejected``; a missing or
+    unknown code is a protocol error.  Unreachable service / non-2xx /
+    malformed replies raise :class:`RecompileError` — callers decide whether
+    that is fatal or a local-docker fallback.
 
     *client*, when given, must be an ``httpx.Client`` (or compatible stand-in
     with ``.post`` / ``.get``).  The caller owns its lifetime and its timeout
@@ -411,7 +446,9 @@ def compile_source(
 
     Every call is one logical attempt with its own random ``Idempotency-Key``. A
     retry after a lost reply resends that key, so the service reconciles the
-    attempt it may already have run instead of running another. A later call,
+    attempt it may already have run instead of running another; a retry after
+    a ``kind="service"`` refusal is a new attempt with a new key, because a
+    hosted service keeps the refusal under the old one. A later call,
     including one after a failure or an image update, sends a new key and never
     replays an earlier call. Neither key nor request is persisted.
 
@@ -432,8 +469,9 @@ def compile_source(
     Older services may retain assembly output as a side effect, so a lost
     artifact GET only retries the same ``artifact_url``. A failed
     ``emit_assembly`` POST is re-sent only when the service is treated as
-    unprocessed (connect failure, 408/425/429/503); a read timeout or
-    500/502/504 may follow a completed compile, so it fails instead.
+    unprocessed (connect failure, 408/425/429/503, ``capacity``); a read
+    timeout, 500/502/504 or another infrastructure failure may follow a
+    completed compile, so it fails instead.
     """
     import httpx
 
@@ -608,7 +646,25 @@ def compile_source(
                             failure_log = str(body.get("log", ""))
                             if api_key:
                                 failure_log = failure_log.replace(api_key, "[redacted]")
-                            return RecompileResult(ok=False, log=failure_log)
+                            code = body.get("error_code")
+                            if code == _TOOLCHAIN_FAILURE:
+                                return RecompileResult(ok=False, log=failure_log)
+                            if not isinstance(code, str) or (
+                                code not in _INFRASTRUCTURE_FAILURES and code not in _STORE_FAILURES
+                            ):
+                                raise RecompileError(
+                                    "recompile service returned a failed compile with "
+                                    f"unknown error_code {code!r}"[:300],
+                                    kind="protocol",
+                                )
+                            raise RecompileError(
+                                f"recompile service could not compile ({code}): "
+                                f"{failure_log[:300]}",
+                                kind="service",
+                                error_code=code,
+                                retryable=code in _INFRASTRUCTURE_FAILURES
+                                and (not emit_assembly or code in _NOT_RUN_FAILURES),
+                            )
                         artifact_url = body.get("artifact_url")
                         if not artifact_url:
                             raise RecompileError(
@@ -667,6 +723,10 @@ def compile_source(
                     retry_log_detail(exc),
                 )
                 raise
+            if exc.kind == "service":
+                # The service answered this attempt, and a hosted recompile
+                # keeps the refusal under its key: the retry is a new attempt.
+                post_headers["Idempotency-Key"] = secrets.token_hex(_IDEMPOTENCY_KEY_BYTES)
             # Immediate re-POST of a 503/timeout hammers a recovering service;
             # exponential backoff (capped) gives it room without unbounded wait.
             delay = retry_backoff_delay(attempt)
