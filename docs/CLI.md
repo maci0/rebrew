@@ -6326,18 +6326,20 @@ reported as static.
 
 `rebrew toolchain update [OPTIONS] NAME`
 
-Re-pin a toolchain source to the current upstream and rebuild.
+Report the pin a toolchain source would take from its current upstream.
 
-Dry-run (default): downloads the current source and reports the
-old -> new pin (sha256 + commit).  --apply additionally rewrites
-SOURCES, clears + re-vendors the host tree, rebuilds the docker
-image, regenerates the smoke golden (verified stable across two
-compiles) and runs the smoke gate for that toolchain.
+Downloads the current source and reports the old -> new pin (sha256 +
+commit). The pins are recompile-toolchains': set the new one in its
+`sources.json` and regenerate there, then vendor the released
+`toolchains.json` into rebrew ([TOOLCHAIN.md](TOOLCHAIN.md)); `rebrew
+toolchain vendor`, `build` and `smoke --print-goldens` then rebuild the
+tree, the image and the smoke golden. `--json` prints `{toolchain, status}`
+with `sha256` when current, or `old` and `new` (`{sha256, commit}`) when
+drifted.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `NAME` | str | required | Toolchain name (e.g. msvc-6.0, watcom-2.0-win32) |
-| `--apply` | flag | `False` | Apply the re-pin, re-vendor, rebuild and re-golden |
 | `--json` | flag | `False` | Output results as JSON |
 
 ### `rebrew toolchain install-wibo`

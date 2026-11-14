@@ -121,7 +121,7 @@ class ToolchainSource:
     in_repo: str = ""  # path relative to the recompile-toolchains checkout
     # (no profile uses this today: every source is a pinned download; kept
     # for a media tree that has no public URL)
-    layout: str = "tar"  # tar | tar-strip1 | zip-installshield | 7z-strip1
+    layout: str = "tar"  # tar | tar-strip1 | 7z-strip1
     host_dir: str = ""  # <family>/<version>-<arch> (host tree target)
     commit: str = ""  # GitHub default-branch commit sha the pin was taken from
     # (codeload URLs).  `rebrew toolchain check-updates` compares the live

@@ -142,3 +142,12 @@ psycopg 3.3.8 declares License-Expression: LGPL-3.0-only.
 Rebrew uses the unmodified upstream Python driver through the optional pgsql
 extra. The driver dynamically loads the system PostgreSQL libpq library.
 Source and license: https://github.com/psycopg/psycopg/tree/3.3.8
+
+Vendored data — recompile-toolchains toolchains.json
+----------------------------------------------------
+
+``src/rebrew/compiler/toolchains.json`` is the unmodified ``toolchains.json``
+of recompile-toolchains release 1.15.0 (https://github.com/maci0/recompile-toolchains,
+tag v1.15.0), the manifest the toolchain source pins come from. It is under the
+MIT License, Copyright (c) 2026 rebrew-toolchains contributors; the license
+text is the repository's LICENSE.

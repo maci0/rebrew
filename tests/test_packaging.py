@@ -1248,6 +1248,12 @@ class TestPackagedDataFiles:
         skill_mds = list(skills.glob("*/SKILL.md"))
         assert len(skill_mds) >= 6, skill_mds
 
+    def test_vendored_toolchains_manifest_ships(self) -> None:
+        """The toolchain source pins are read from this file at run time."""
+        data = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
+        assert "compiler/toolchains.json" in data["tool"]["setuptools"]["package-data"]["rebrew"]
+        assert (PKG / "compiler" / "toolchains.json").is_file()
+
     def test_package_data_globs_cover_skills(self) -> None:
         data = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
         pkg_data = data["tool"]["setuptools"]["package-data"]["rebrew"]
