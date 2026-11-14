@@ -1,5 +1,10 @@
 ## [Unreleased]
 
+### Added
+
+- `rebrew ops` op `rebrew.import_archive` installs an uploaded rebrew project archive (tar, tar.gz or zip, by filestore key or presigned URL, checked against its SHA-256) as a stored binary's project and answers what `rebrew.analyse` answers, capture included. `rebrew.project_archive.unpack_project_archive` unpacks it under bounds (32768 entries, 256 MiB, regular files and directories under portable names, no links, devices or `..`); the target whose binary in the archive has the binary's hash is imported; a compiler `command`, `runner`, `execution_backend` or `recompile_url`, a target `raw_link`, or non-TOML metadata refuses it (422 `project-import-refused`). `rebrew.metadata_transfer.scope_metadata_to_module` drops the other modules' function and data records before the metadata moves to SQLite. Nothing from the archive runs.
+- `rebrew.ops.capture_project` captures any project root as `capture_fresh_analysis` captures a fresh intake (which now calls it), and `project_report` takes `only` to report one target.
+
 ### Changed
 
 - `rebrew.project_targets` refuses a `rebrew-project.toml` it cannot read with its own code, 400 `invalid-project-config` (`rebrew.ops.INVALID_PROJECT_CONFIG`), instead of `invalid-request`, so a client no longer matches the detail. The detail still starts `invalid project config:`, and names the file within the set instead of the worker's scratch path.

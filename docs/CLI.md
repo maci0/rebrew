@@ -6918,7 +6918,8 @@ wrong JSON type, is refused. A refusal is
 exceeds 16 MiB; also a wrapped command's `usage` error, with its message),
 `unknown-op` (404), `engine-error` (500),
 `remote-compile-headers` (422, see below), `invalid-project-config` (400, see
-`rebrew.project_targets`), or, from
+`rebrew.project_targets`), `project-import-refused` (422, see
+`rebrew.import_archive` below), or, from
 `serve` only, `worker-busy` (503), `deadline-exceeded` (504) and
 `caller-gone` (499, written to a caller that has already closed). An engine
 failure answers a fixed detail and logs its cause on stderr.
@@ -6983,6 +6984,23 @@ Op details the contract leaves open:
   `constant` finding also has `va` and `section`.
 - `rebrew.import-project`: live coverage is always read refreshed; `build_db`
   asks for exactly that and only excludes `snapshots`.
+- `rebrew.import_archive` installs an uploaded project archive (`archive_key`
+  or `archive_url`, checked against `archive_sha256`) as the project of the
+  binary whose hash is `sha256`, in the directory `rebrew.analyse` would use
+  for `project_id`, and answers what `rebrew.analyse` answers. The archive is a
+  tar (plain or compressed) or zip with `rebrew-project.toml` at its top or in
+  its one top-level directory. It is unpacked into scratch first: at most
+  32768 entries and 256 MiB unpacked, regular files and directories only,
+  under portable relative names; a link, device, FIFO, absolute or `..` name,
+  repeated or case-colliding name, or a member under a file refuses it. The
+  one target whose binary inside the archive hashes to `sha256` is imported;
+  it may not set `raw_link`. No compiler table may set `command`, `runner`,
+  `execution_backend` or `recompile_url`, and metadata must be TOML. The
+  function and data records of other modules are dropped (`intake.dropped_records`
+  counts them), the metadata moves to SQLite, and the project is captured as an
+  analysis is. Nothing from the archive runs. Each refusal of the archive is
+  422 `project-import-refused` naming the entry or setting; a capture over the
+  readset bounds is 422 `readset-too-large`.
 - `rebrew.metadata_describe`, `rebrew.metadata_diff` and `rebrew.metadata_carry`
   read and carry metadata file sets; the client never parses or names
   rebrew's metadata files. See

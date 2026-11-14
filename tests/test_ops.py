@@ -2696,3 +2696,174 @@ def test_export_stats_are_zero_without_an_exporter() -> None:
     from rebrew import telemetry
 
     assert telemetry.export_stats() == {"dropped": 0, "failed": 0}
+
+
+# ---------------------------------------------------------------------------
+# Project archive import
+# ---------------------------------------------------------------------------
+
+
+def _analysed_project(tmp_path: Path) -> tuple[WorkerConfig, Path, Path]:
+    """A worker, its filestore, and an analysed project directory to archive."""
+    filestore, workspace = _worker_dirs(tmp_path)
+    config = WorkerConfig(filestore.resolve(), workspace.resolve())
+    reply = _call(config, "rebrew.analyse", {**_analyse_request(), "project_id": "source"})
+    return config, filestore, Path(reply["project"])
+
+
+def _tar_bytes(members: list[tuple[str, bytes | None, str]]) -> bytes:
+    """A tar.gz of (name, data, kind) members; kind is file, dir, symlink, hardlink or fifo."""
+    import io
+    import tarfile
+
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        for name, data, kind in members:
+            info = tarfile.TarInfo(name)
+            if kind == "file":
+                info.size = len(data or b"")
+                archive.addfile(info, io.BytesIO(data or b""))
+                continue
+            info.type = {
+                "dir": tarfile.DIRTYPE,
+                "symlink": tarfile.SYMTYPE,
+                "hardlink": tarfile.LNKTYPE,
+                "fifo": tarfile.FIFOTYPE,
+            }[kind]
+            info.linkname = (data or b"").decode()
+            archive.addfile(info)
+    return buffer.getvalue()
+
+
+def _project_members(project: Path, prefix: str = "") -> list[tuple[str, bytes | None, str]]:
+    """Every regular file of *project* as tar members, skipping rebrew's lock and cache files."""
+    members: list[tuple[str, bytes | None, str]] = []
+    for path in sorted(project.rglob("*")):
+        relative = path.relative_to(project).as_posix()
+        if path.is_file() and not path.name.endswith(".lock") and "/.rebrew/" not in f"/{relative}":
+            members.append((prefix + relative, path.read_bytes(), "file"))
+    return members
+
+
+def _import(config: WorkerConfig, filestore: Path, archive: bytes) -> tuple[int, dict[str, Any]]:
+    digest, key = _store(filestore, archive)
+    request = {
+        "binary_id": 1,
+        "project_id": "imported",
+        "sha256": SHA256,
+        "archive_sha256": digest,
+        "archive_key": key,
+    }
+    _validate(_op_schema("rebrew.import_archive", "request"), request)
+    status, body = dispatch(config, "rebrew.import_archive", json.dumps(request).encode())
+    return status, json.loads(body)
+
+
+class TestImportArchive:
+    def test_imports_the_matching_target_with_its_statuses_and_capture(
+        self, tmp_path: Path
+    ) -> None:
+        from rebrew.config import load_config, target_module
+        from rebrew.metadata.functions import update_field, update_source_status
+
+        config, filestore, project = _analysed_project(tmp_path)
+        module = target_module(load_config(project))
+        assert update_source_status(project, "EXACT", module, ENTRY_VA, force=True)
+        update_field(project, 0x500000, "NOTE", "a record of another module", "OTHERMOD")
+        status, reply = _import(config, filestore, _tar_bytes(_project_members(project, "export/")))
+        assert status == 200, reply
+        _validate(_op_schema("rebrew.import_archive", "response"), reply)
+        installed = Path(reply["project"])
+        scope = hashlib.sha256(b"imported").hexdigest()
+        assert installed == config.workspace / "projects" / "scopes" / scope / SHA256
+        [target] = reply["targets"]
+        assert target["sha256"] == SHA256
+        assert {row["va"]: row["status"] for row in target["functions"]}[ENTRY_VA] == "EXACT"
+        capture = reply["analysis_capture"]
+        assert (capture["binary_sha256"], capture["target"]) == (SHA256, target["name"])
+        assert sum(entry["kind"] == "binary" for entry in capture["entries"]) == 1
+        assert reply["intake"]["module"] == module
+        assert reply["intake"]["dropped_records"] == 1
+        assert "OTHERMOD." not in (installed / "rebrew-functions.toml").read_text()
+
+    def test_refuses_an_archive_whose_binary_is_not_the_project_binary(
+        self, tmp_path: Path
+    ) -> None:
+        config, filestore, project = _analysed_project(tmp_path)
+        members = [
+            (name, b"MZ not the stored binary" if data == BINARY.read_bytes() else data, kind)
+            for name, data, kind in _project_members(project)
+        ]
+        status, reply = _import(config, filestore, _tar_bytes(members))
+        assert (status, reply["error"]) == (422, "project-import-refused"), reply
+        assert SHA256 in reply["detail"]
+
+    @pytest.mark.parametrize(
+        ("member", "why"),
+        [
+            (("../escape.txt", b"x", "file"), "../escape.txt"),
+            (("/etc/evil", b"x", "file"), "/etc/evil"),
+            (("link", b"/etc/passwd", "symlink"), "link"),
+            (("hard", b"rebrew-project.toml", "hardlink"), "hard"),
+            (("pipe", None, "fifo"), "pipe"),
+        ],
+    )
+    def test_refuses_unsafe_entries_before_writing_them(
+        self, tmp_path: Path, member: tuple[str, bytes | None, str], why: str
+    ) -> None:
+        config, filestore, project = _analysed_project(tmp_path)
+        status, reply = _import(config, filestore, _tar_bytes([*_project_members(project), member]))
+        assert (status, reply["error"]) == (422, "project-import-refused"), reply
+        assert why in reply["detail"]
+        assert not (tmp_path / "escape.txt").exists()
+        assert not (
+            config.workspace / "projects" / "scopes" / hashlib.sha256(b"imported").hexdigest()
+        ).exists()
+
+    def test_refuses_more_entries_than_the_bound(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.project_archive
+
+        config, filestore, project = _analysed_project(tmp_path)
+        members = _project_members(project)
+        monkeypatch.setattr(rebrew.project_archive, "ARCHIVE_MAX_ENTRIES", len(members) - 1)
+        status, reply = _import(config, filestore, _tar_bytes(members))
+        assert (status, reply["error"]) == (422, "project-import-refused"), reply
+        assert "entries" in reply["detail"]
+
+    @pytest.mark.parametrize(
+        ("setting", "named"),
+        [
+            ('execution_backend = "unshare"', "execution_backend"),
+            ('command = "sh -c true"', "command"),
+            ('recompile_url = "http://127.0.0.1:9"', "recompile_url"),
+        ],
+    )
+    def test_refuses_settings_that_run_or_reach_something(
+        self, tmp_path: Path, setting: str, named: str
+    ) -> None:
+        config, filestore, project = _analysed_project(tmp_path)
+        members = []
+        for name, data, kind in _project_members(project):
+            if name == "rebrew-project.toml":
+                assert data is not None
+                table = f'[targets."{target_name("mini.exe")}".compiler]'
+                data += f"\n{table}\n{setting}\n".encode()
+            members.append((name, data, kind))
+        status, reply = _import(config, filestore, _tar_bytes(members))
+        assert (status, reply["error"]) == (422, "project-import-refused"), reply
+        assert named in reply["detail"]
+
+    def test_a_zip_archive_imports_like_a_tar(self, tmp_path: Path) -> None:
+        import io
+        import zipfile
+
+        config, filestore, project = _analysed_project(tmp_path)
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            for name, data, _kind in _project_members(project):
+                archive.writestr(name, data or b"")
+        status, reply = _import(config, filestore, buffer.getvalue())
+        assert status == 200, reply
+        assert reply["targets"][0]["sha256"] == SHA256

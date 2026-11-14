@@ -2188,6 +2188,264 @@
         "type": "object"
       }
     },
+    "rebrew.import_archive": {
+      "request": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "archive_key": {
+            "type": "string"
+          },
+          "archive_sha256": {
+            "type": "string"
+          },
+          "archive_url": {
+            "type": "string"
+          },
+          "binary_id": {
+            "type": "integer"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "binary_id",
+          "sha256",
+          "archive_sha256"
+        ],
+        "type": "object"
+      },
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "analysis_capture": {
+            "additionalProperties": false,
+            "properties": {
+              "binary_sha256": {
+                "type": "string"
+              },
+              "entries": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "contentEncoding": "base64",
+                      "type": "string"
+                    },
+                    "digest": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    },
+                    "role": {
+                      "type": "string"
+                    },
+                    "size": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "kind",
+                    "size",
+                    "digest",
+                    "data"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "inventory_path": {
+                "type": "string"
+              },
+              "metadata": {
+                "additionalProperties": false,
+                "properties": {
+                  "documents": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "logical_sha256": {
+                          "type": "string"
+                        },
+                        "path": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "path",
+                        "logical_sha256"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "files": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "path": {
+                          "type": "string"
+                        },
+                        "sha256": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "path",
+                        "sha256"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "files",
+                  "documents"
+                ],
+                "type": "object"
+              },
+              "report_path": {
+                "type": "string"
+              },
+              "target": {
+                "type": "string"
+              },
+              "version": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "version",
+              "binary_sha256",
+              "target",
+              "entries"
+            ],
+            "type": "object"
+          },
+          "coverage_dir": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "intake": true,
+          "project": {
+            "type": "string"
+          },
+          "targets": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "arch": {
+                  "type": "string"
+                },
+                "document": {
+                  "type": "string"
+                },
+                "format": {
+                  "type": "string"
+                },
+                "functions": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "size": {
+                        "type": "integer"
+                      },
+                      "source_path": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "type": "string"
+                      },
+                      "va": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "va",
+                      "name",
+                      "size",
+                      "status"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "sha256": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "integer"
+                },
+                "stubs": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "va": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "va",
+                      "name"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "name",
+                "arch",
+                "format",
+                "document",
+                "functions",
+                "stubs",
+                "sha256",
+                "path",
+                "size"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "project",
+          "coverage_dir",
+          "targets"
+        ],
+        "type": "object"
+      }
+    },
     "rebrew.imports": {
       "request": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",

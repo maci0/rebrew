@@ -462,6 +462,9 @@ ANALYSIS_REPORT_PATH = ".relumea/analysis-report.json"
 READSET_TOO_LARGE = "readset-too-large"
 ANALYSIS_CAPTURE_FAILED = "analysis-capture-failed"
 UNSUPPORTED_BINARY_FORMAT = "unsupported-binary-format"
+#: A project archive the worker will not import: an unsafe or oversized entry, no matching
+#: target binary, or a setting that would run something.  The caller's to fix.
+PROJECT_IMPORT_REFUSED = "project-import-refused"
 
 
 def _readset_limit(what: str, count: int, limit: int, unit: str = "files") -> OpsError:
@@ -482,6 +485,11 @@ def _check_manifest_size(files: Any) -> None:
     size = sum(f.size for f in files)
     if size > MAX_READSET_BYTES:
         raise _readset_limit("retained source manifest", size, MAX_READSET_BYTES, "bytes")
+
+
+def _import_refused(detail: str) -> OpsError:
+    """A project archive refused for what it holds; *detail* names the entry or setting."""
+    return OpsError(_bounded(detail), code=PROJECT_IMPORT_REFUSED, status=422)
 
 
 def _capture_failed(detail: str) -> OpsError:
@@ -698,6 +706,16 @@ class AnalyseRequest:
     name: str
     file_key: str = ""
     url: str = ""
+    project_id: str = ""
+
+
+@dataclass(frozen=True)
+class ImportArchiveRequest:
+    binary_id: int
+    sha256: str
+    archive_sha256: str
+    archive_key: str = ""
+    archive_url: str = ""
     project_id: str = ""
 
 
@@ -2206,23 +2224,29 @@ def _command_refusal(stderr: str) -> tuple[str, str]:
     return "", "no error report"
 
 
+def _binary_project(config: WorkerConfig, project_id: str, sha256: str) -> str:
+    """The workspace-relative directory of a stored binary's project in *project_id*'s scope."""
+    if len(project_id.encode("utf-8")) > 256 or "\x00" in project_id:
+        raise _invalid("project_id must be at most 256 UTF-8 bytes without NUL")
+    workspace = config.require_workspace()
+    if not project_id:
+        relative = f"projects/{_sha256(sha256)}"
+    else:
+        scope = hashlib.sha256(project_id.encode("utf-8")).hexdigest()
+        relative = f"projects/scopes/{scope}/{_sha256(sha256)}"
+    if _inside(workspace, relative, "analysis project") != workspace / relative:
+        raise _invalid("analysis project must not traverse symlinks")
+    return relative
+
+
 def analyse(config: WorkerConfig, req: AnalyseRequest) -> dict[str, Any]:
     """Onboard a stored binary into its project-scoped workspace and report its coverage.
 
     A second run re-discovers into the same project.  ``intake`` is the onboarding report.
     """
-    project_id = req.project_id
-    if len(project_id.encode("utf-8")) > 256 or "\x00" in project_id:
-        raise _invalid("project_id must be at most 256 UTF-8 bytes without NUL")
     workspace = config.require_workspace()
-    if not project_id:
-        relative = f"projects/{_sha256(req.sha256)}"
-    else:
-        scope = hashlib.sha256(project_id.encode("utf-8")).hexdigest()
-        relative = f"projects/scopes/{scope}/{_sha256(req.sha256)}"
+    relative = _binary_project(config, req.project_id, req.sha256)
     project = workspace / relative
-    if _inside(workspace, relative, "analysis project") != project:
-        raise _invalid("analysis project must not traverse symlinks")
     with binary_file(config, req.file_key, req.url, req.sha256, "file_key") as binary:
         project.mkdir(parents=True, exist_ok=True)
         if _inside(workspace, relative, "analysis project") != project:
@@ -2279,10 +2303,6 @@ def capture_fresh_analysis(
     config: WorkerConfig, binary: Path, sha256: str, target: str
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Capture the complete baseline readset from a new, independent intake."""
-    from rebrew.config import inventory_path_for, load_config
-    from rebrew.coverage_project import coverage_inputs
-    from rebrew.sources import iter_headers, iter_sources
-
     scratch = config.require_workspace() / SCRATCH_DIR
     scratch.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="analysis-capture-", dir=scratch) as temp:
@@ -2297,225 +2317,366 @@ def capture_fresh_analysis(
             raise
         except (OSError, ValueError, RebrewError) as exc:
             raise _capture_failed(f"fresh analysis metadata migration failed: {exc}") from exc
-        cfg = load_config(root, target=target)
-        confined_snapshot_config(cfg, root)
-        if cfg.raw_link is not None:
-            raise _capture_failed("fresh analysis capture cannot include an unverified raw link")
-        if not cfg.target_binary.is_file() or _file_sha256(cfg.target_binary) != sha256:
-            raise _invalid("fresh analysis binary does not match the request")
-        inventory = inventory_path_for(cfg.reversed_dir, cfg).resolve()
-        source_paths = {p.resolve() for p in iter_sources(cfg.reversed_dir, cfg)}
-        source_paths.update(p.resolve() for p in iter_headers(cfg.reversed_dir, cfg))
-        paths = {Path(entry[0]) for entry in coverage_inputs(cfg)}
-        entries: list[dict[str, Any]] = []
-        total = 0
-        captured_count = sum(1 for path in paths if path.resolve().is_relative_to(root))
-        if captured_count > MAX_READSET_FILES:
-            raise _readset_limit("fresh analysis capture", captured_count, MAX_READSET_FILES)
-        for path in sorted(
-            paths, key=lambda value: str(value).encode("utf-8", errors="surrogateescape")
-        ):
-            resolved = path.resolve()
-            if not resolved.is_relative_to(root):
-                if path.exists() or path.is_symlink():
-                    raise _capture_failed("fresh analysis reads an ambient input")
-                continue
-            relative = resolved.relative_to(root).as_posix()
-            if path.is_symlink() or relative == ".":
-                raise _capture_failed("invalid fresh analysis readset")
-            if not path.exists():
-                entries.append(
-                    {"path": relative, "kind": "absent", "size": 0, "digest": "", "data": ""}
-                )
-                continue
-            if not path.is_file():
-                raise _capture_failed("fresh analysis readset contains an unsupported directory")
-            if "verify_cache" in path.name:
-                raise _capture_failed("fresh analysis capture must not contain verification cache")
-            if resolved == cfg.target_binary.resolve():
-                entries.append(
-                    {
-                        "path": relative,
-                        "kind": "binary",
-                        "size": path.stat().st_size,
-                        "digest": sha256,
-                        "data": "",
-                    }
-                )
-                continue
-            size = path.stat().st_size
-            total += size
-            if size > MAX_READSET_FILE_BYTES:
-                raise _readset_limit(
-                    f"fresh analysis input {relative}", size, MAX_READSET_FILE_BYTES, "bytes"
-                )
-            if total > MAX_READSET_BYTES:
-                raise _readset_limit("fresh analysis capture", total, MAX_READSET_BYTES, "bytes")
-            data = path.read_bytes()
-            if len(data) != size:
-                raise _capture_failed("fresh analysis input changed during capture")
+        return capture_project(root, sha256, target, metadata, "fresh analysis")
+
+
+def capture_project(
+    root: Path, sha256: str, target: str, metadata: dict[str, Any] | None, what: str
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Capture the complete readset of the project at *root* for *target* and report it.
+
+    *metadata* is the SQLite metadata descriptor already selected in *root*;
+    *what* names the project in refusals ("fresh analysis", "project import").
+    """
+    from rebrew.config import inventory_path_for, load_config
+    from rebrew.coverage_project import coverage_inputs
+    from rebrew.sources import iter_headers, iter_sources
+
+    cfg = load_config(root, target=target)
+    confined_snapshot_config(cfg, root)
+    if cfg.raw_link is not None:
+        raise _capture_failed(f"{what} capture cannot include an unverified raw link")
+    if not cfg.target_binary.is_file() or _file_sha256(cfg.target_binary) != sha256:
+        raise _invalid(f"{what} binary does not match the request")
+    inventory = inventory_path_for(cfg.reversed_dir, cfg).resolve()
+    source_paths = {p.resolve() for p in iter_sources(cfg.reversed_dir, cfg)}
+    source_paths.update(p.resolve() for p in iter_headers(cfg.reversed_dir, cfg))
+    paths = {Path(entry[0]) for entry in coverage_inputs(cfg)}
+    entries: list[dict[str, Any]] = []
+    total = 0
+    captured_count = sum(1 for path in paths if path.resolve().is_relative_to(root))
+    if captured_count > MAX_READSET_FILES:
+        raise _readset_limit(f"{what} capture", captured_count, MAX_READSET_FILES)
+    for path in sorted(
+        paths, key=lambda value: str(value).encode("utf-8", errors="surrogateescape")
+    ):
+        resolved = path.resolve()
+        if not resolved.is_relative_to(root):
+            if path.exists() or path.is_symlink():
+                raise _capture_failed(f"{what} reads an ambient input")
+            continue
+        relative = resolved.relative_to(root).as_posix()
+        if path.is_symlink() or relative == ".":
+            raise _capture_failed(f"invalid {what} readset")
+        if not path.exists():
+            entries.append(
+                {"path": relative, "kind": "absent", "size": 0, "digest": "", "data": ""}
+            )
+            continue
+        if not path.is_file():
+            raise _capture_failed(f"{what} readset contains an unsupported directory")
+        if "verify_cache" in path.name:
+            raise _capture_failed(f"{what} capture must not contain verification cache")
+        if resolved == cfg.target_binary.resolve():
             entries.append(
                 {
                     "path": relative,
-                    "kind": "file",
-                    "role": "source" if resolved in source_paths else "analysis",
-                    "size": size,
-                    "digest": hashlib.sha256(data).hexdigest(),
-                    "data": base64.b64encode(data).decode("ascii"),
+                    "kind": "binary",
+                    "size": path.stat().st_size,
+                    "digest": sha256,
+                    "data": "",
                 }
             )
-        report = project_report(root, None, include_source=True)
-        # The report is an assertion by this worker, so its complete captured
-        # readset must still match after the report was constructed.
-        current_paths = {Path(entry[0]) for entry in coverage_inputs(cfg)}
-        current_sources = {p.resolve() for p in iter_sources(cfg.reversed_dir, cfg)}
-        current_sources.update(p.resolve() for p in iter_headers(cfg.reversed_dir, cfg))
-        if current_paths != paths or current_sources != source_paths:
-            raise _capture_failed("fresh analysis input changed during reporting")
-        for captured in entries:
+            continue
+        size = path.stat().st_size
+        total += size
+        if size > MAX_READSET_FILE_BYTES:
+            raise _readset_limit(f"{what} input {relative}", size, MAX_READSET_FILE_BYTES, "bytes")
+        if total > MAX_READSET_BYTES:
+            raise _readset_limit(f"{what} capture", total, MAX_READSET_BYTES, "bytes")
+        data = path.read_bytes()
+        if len(data) != size:
+            raise _capture_failed(f"{what} input changed during capture")
+        entries.append(
+            {
+                "path": relative,
+                "kind": "file",
+                "role": "source" if resolved in source_paths else "analysis",
+                "size": size,
+                "digest": hashlib.sha256(data).hexdigest(),
+                "data": base64.b64encode(data).decode("ascii"),
+            }
+        )
+    report = project_report(root, None, include_source=True, only=target)
+    # The report is an assertion by this worker, so its complete captured
+    # readset must still match after the report was constructed.
+    current_paths = {Path(entry[0]) for entry in coverage_inputs(cfg)}
+    current_sources = {p.resolve() for p in iter_sources(cfg.reversed_dir, cfg)}
+    current_sources.update(p.resolve() for p in iter_headers(cfg.reversed_dir, cfg))
+    if current_paths != paths or current_sources != source_paths:
+        raise _capture_failed(f"{what} input changed during reporting")
+    for captured in entries:
+        path = root / captured["path"]
+        if any(
+            part.is_symlink()
+            for part in (path, *path.parents)
+            if part != root and part.is_relative_to(root)
+        ):
+            raise _capture_failed(f"{what} input changed during reporting")
+        if captured["kind"] == "absent":
+            if path.exists():
+                raise _capture_failed(f"{what} input changed during reporting")
+        elif (
+            not path.is_file()
+            or path.stat().st_size != captured["size"]
+            or _file_sha256(path) != captured["digest"]
+        ):
+            raise _capture_failed(f"{what} input changed during reporting")
+    selected = None
+    if inventory.is_relative_to(root):
+        relative_inventory = inventory.relative_to(root).as_posix()
+        selected = next((entry for entry in entries if entry["path"] == relative_inventory), None)
+    if selected is not None and selected["kind"] == "file" and selected.get("role") == "analysis":
+        project_config = next(
+            (entry for entry in entries if entry["path"] == "rebrew-project.toml"), None
+        )
+        if project_config is None or project_config["kind"] != "file":
+            raise _capture_failed(f"{what} configuration is not captured")
+        for captured in (project_config, selected):
             path = root / captured["path"]
-            if any(
-                part.is_symlink()
-                for part in (path, *path.parents)
-                if part != root and part.is_relative_to(root)
-            ):
-                raise _capture_failed("fresh analysis input changed during reporting")
-            if captured["kind"] == "absent":
-                if path.exists():
-                    raise _capture_failed("fresh analysis input changed during reporting")
-            elif (
-                not path.is_file()
+            if (
+                any(
+                    part.is_symlink()
+                    for part in (path, *path.parents)
+                    if part != root and part.is_relative_to(root)
+                )
+                or not path.is_file()
                 or path.stat().st_size != captured["size"]
                 or _file_sha256(path) != captured["digest"]
             ):
-                raise _capture_failed("fresh analysis input changed during reporting")
-        selected = None
-        if inventory.is_relative_to(root):
-            relative_inventory = inventory.relative_to(root).as_posix()
-            selected = next(
-                (entry for entry in entries if entry["path"] == relative_inventory), None
-            )
-        if (
-            selected is not None
-            and selected["kind"] == "file"
-            and selected.get("role") == "analysis"
+                raise _capture_failed(f"{what} input changed during reporting")
+        if not cfg.target_binary.is_file() or _file_sha256(cfg.target_binary) != sha256:
+            raise _capture_failed(f"{what} input changed during reporting")
+        current = load_config(root, target=target)
+        if inventory_path_for(current.reversed_dir, current).resolve() != inventory:
+            raise _capture_failed(f"{what} inventory changed during reporting")
+    for item in report["targets"]:
+        for part in ("document", "path"):
+            if item[part]:
+                item[part] = str(Path(item[part]).relative_to(root))
+    capture = {
+        "version": 3,
+        "binary_sha256": sha256,
+        "target": target,
+        "metadata": metadata,
+        "entries": entries,
+    }
+    if selected is not None and selected["kind"] == "file" and selected.get("role") == "analysis":
+        capture["inventory_path"] = selected["path"]
+    if len(report["targets"]) == 1:
+        item = report["targets"][0]
+        if item["name"] != target or item["sha256"] != sha256:
+            raise _capture_failed(f"{what} report has a different target")
+        functions: list[dict[str, Any]] = []
+        stubs: list[dict[str, Any]] = []
+        seen: set[int] = set()
+        for raw, result, size_field in (
+            (item["functions"], functions, True),
+            (item["stubs"], stubs, False),
         ):
-            project_config = next(
-                (entry for entry in entries if entry["path"] == "rebrew-project.toml"), None
-            )
-            if project_config is None or project_config["kind"] != "file":
-                raise _capture_failed("fresh analysis configuration is not captured")
-            for captured in (project_config, selected):
-                path = root / captured["path"]
+            for row in raw:
+                va, name = row["va"], row["name"]
                 if (
-                    any(
-                        part.is_symlink()
-                        for part in (path, *path.parents)
-                        if part != root and part.is_relative_to(root)
-                    )
-                    or not path.is_file()
-                    or path.stat().st_size != captured["size"]
-                    or _file_sha256(path) != captured["digest"]
+                    type(va) is not int
+                    or not 0 <= va <= 2**63 - 1
+                    or va in seen
+                    or not isinstance(name, str)
+                    or not name
+                    or len(name.encode("utf-8")) > 4096
                 ):
-                    raise _capture_failed("fresh analysis input changed during reporting")
-            if not cfg.target_binary.is_file() or _file_sha256(cfg.target_binary) != sha256:
-                raise _capture_failed("fresh analysis input changed during reporting")
-            current = load_config(root, target=target)
-            if inventory_path_for(current.reversed_dir, current).resolve() != inventory:
-                raise _capture_failed("fresh analysis inventory changed during reporting")
-        for item in report["targets"]:
-            for field in ("document", "path"):
-                if item[field]:
-                    item[field] = str(Path(item[field]).relative_to(root))
-        capture = {
-            "version": 3,
-            "binary_sha256": sha256,
-            "target": target,
-            "metadata": metadata,
-            "entries": entries,
-        }
+                    raise _capture_failed(f"invalid {what} report identity")
+                entry = {"va": va, "name": name}
+                if size_field:
+                    size = row["size"]
+                    if type(size) is not int or not 0 <= size <= 2**63 - 1:
+                        raise _capture_failed(f"invalid {what} report extent")
+                    entry["size"] = size
+                seen.add(va)
+                result.append(entry)
+            result.sort(key=lambda row: row["va"])
+        report_path = ANALYSIS_REPORT_PATH
+        report_location = root / report_path
         if (
-            selected is not None
-            and selected["kind"] == "file"
-            and selected.get("role") == "analysis"
+            report_location.exists()
+            or any(
+                part.is_symlink()
+                for part in (report_location, *report_location.parents)
+                if part != root and part.is_relative_to(root)
+            )
+            or any(e["path"] == report_path for e in entries)
         ):
-            capture["inventory_path"] = selected["path"]
-        if len(report["targets"]) == 1:
-            item = report["targets"][0]
-            if item["name"] != target or item["sha256"] != sha256:
-                raise _capture_failed("fresh analysis report has a different target")
-            functions: list[dict[str, Any]] = []
-            stubs: list[dict[str, Any]] = []
-            seen: set[int] = set()
-            for raw, result, size_field in (
-                (item["functions"], functions, True),
-                (item["stubs"], stubs, False),
-            ):
-                for row in raw:
-                    va, name = row["va"], row["name"]
-                    if (
-                        type(va) is not int
-                        or not 0 <= va <= 2**63 - 1
-                        or va in seen
-                        or not isinstance(name, str)
-                        or not name
-                        or len(name.encode("utf-8")) > 4096
-                    ):
-                        raise _capture_failed("invalid fresh analysis report identity")
-                    entry = {"va": va, "name": name}
-                    if size_field:
-                        size = row["size"]
-                        if type(size) is not int or not 0 <= size <= 2**63 - 1:
-                            raise _capture_failed("invalid fresh analysis report extent")
-                        entry["size"] = size
-                    seen.add(va)
-                    result.append(entry)
-                result.sort(key=lambda row: row["va"])
-            report_path = ANALYSIS_REPORT_PATH
-            report_location = root / report_path
-            if (
-                report_location.exists()
-                or any(
-                    part.is_symlink()
-                    for part in (report_location, *report_location.parents)
-                    if part != root and part.is_relative_to(root)
-                )
-                or any(e["path"] == report_path for e in entries)
-            ):
-                raise _capture_failed("fresh analysis report path already exists")
-            normalized = json.dumps(
+            raise _capture_failed(f"{what} report path already exists")
+        normalized = json.dumps(
+            {
+                "version": 1,
+                "binary_sha256": sha256,
+                "target": target,
+                "functions": functions,
+                "stubs": stubs,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+        if (
+            len(normalized) <= MAX_READSET_FILE_BYTES
+            and total + len(normalized) <= MAX_READSET_BYTES
+            and len(entries) < MAX_READSET_FILES
+        ):
+            entries.append(
                 {
-                    "version": 1,
-                    "binary_sha256": sha256,
-                    "target": target,
-                    "functions": functions,
-                    "stubs": stubs,
-                },
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-                allow_nan=False,
-            ).encode("utf-8")
-            if (
-                len(normalized) <= MAX_READSET_FILE_BYTES
-                and total + len(normalized) <= MAX_READSET_BYTES
-                and len(entries) < MAX_READSET_FILES
-            ):
-                entries.append(
-                    {
-                        "path": report_path,
-                        "kind": "file",
-                        "role": "analysis",
-                        "size": len(normalized),
-                        "digest": hashlib.sha256(normalized).hexdigest(),
-                        "data": base64.b64encode(normalized).decode("ascii"),
-                    }
+                    "path": report_path,
+                    "kind": "file",
+                    "role": "analysis",
+                    "size": len(normalized),
+                    "digest": hashlib.sha256(normalized).hexdigest(),
+                    "data": base64.b64encode(normalized).decode("ascii"),
+                }
+            )
+            entries.sort(key=lambda entry: entry["path"].encode("utf-8", errors="surrogateescape"))
+            capture["report_path"] = report_path
+    return capture, report
+
+
+#: Compiler settings an imported project may not carry: each would run a program of the
+#: project's choosing or reach a host of its choosing.  An empty value is the default.
+_IMPORT_FORBIDDEN_COMPILER = ("command", "runner", "execution_backend", "recompile_url")
+
+
+def _import_settings_refusal(raw: dict[str, Any]) -> None:
+    """Refuse an imported configuration that would run or reach something, or keep metadata off TOML."""
+    from rebrew.metadata.storage import backend_routes
+    from rebrew.workspace import targets_table
+
+    tables: list[tuple[str, Any]] = [("compiler", raw.get("compiler"))]
+    tables += [
+        (f"targets.{name}.compiler", entry.get("compiler"))
+        for name, entry in targets_table(raw).items()
+    ]
+    for where, table in tables:
+        if not isinstance(table, dict):
+            continue
+        for key in _IMPORT_FORBIDDEN_COMPILER:
+            if table.get(key, "") != "":
+                raise _import_refused(
+                    f"rebrew-project.toml sets [{where}] {key}; an imported project compiles"
+                    " only through the hosted compile service, so remove it"
                 )
-                entries.sort(
-                    key=lambda entry: entry["path"].encode("utf-8", errors="surrogateescape")
-                )
-                capture["report_path"] = report_path
-        return capture, report
+    try:
+        routes = backend_routes(raw.get("metadata", {}))
+    except ValueError as exc:
+        raise _import_refused(f"rebrew-project.toml [metadata]: {exc}") from None
+    if routes != (("toml",), ("toml",)):
+        raise _import_refused(
+            "rebrew-project.toml selects a metadata backend other than TOML; export the project"
+            " with `rebrew metadata migrate toml` first"
+        )
+
+
+def _import_target(root: Path, raw: dict[str, Any], sha256: str) -> str:
+    """The one target whose binary inside the archive hashes to *sha256*."""
+    from rebrew.workspace import target_binary, targets_table
+
+    matches = []
+    for name, entry in sorted(targets_table(raw).items()):
+        binary = target_binary(root, entry)
+        if binary is None or not binary.resolve().is_relative_to(root) or not binary.is_file():
+            continue
+        if _file_sha256(binary) == sha256:
+            matches.append(name)
+    if not matches:
+        raise _import_refused(
+            f"no target in rebrew-project.toml names a binary inside the archive with sha256 {sha256}"
+            " (the project binary); include that exact file at the target's binary path"
+        )
+    if len(matches) > 1:
+        raise _import_refused(f"targets {', '.join(matches)} all name the project binary; keep one")
+    entry = targets_table(raw)[matches[0]]
+    if entry.get("raw_link"):
+        raise _import_refused(
+            f"rebrew-project.toml sets raw_link for target {matches[0]}; an imported raw link is an"
+            " unverified build output, so remove it"
+        )
+    return matches[0]
+
+
+def import_archive(config: WorkerConfig, req: ImportArchiveRequest) -> dict[str, Any]:
+    """Install an uploaded rebrew project archive as a stored binary's project and report it.
+
+    The archive is unpacked under the bounds of :mod:`rebrew.project_archive` into
+    scratch, its target whose binary hashes to ``sha256`` is selected, the
+    metadata is scoped to that target's module and moved to SQLite, and the
+    project is captured as an analysis is.  Only then does it replace the
+    binary's project directory in ``project_id``'s scope.  Nothing from the
+    archive runs: no intake, toolchain, execution backend or script.
+    """
+    from rebrew.config import load_config, target_module
+    from rebrew.errors import ConfigError
+    from rebrew.metadata.storage import metadata_store
+    from rebrew.metadata_transfer import scope_metadata_to_module
+    from rebrew.project_archive import ProjectArchiveError, unpack_project_archive
+    from rebrew.workspace import read_config
+
+    workspace = config.require_workspace()
+    relative = _binary_project(config, req.project_id, req.sha256)
+    scratch = workspace / SCRATCH_DIR
+    scratch.mkdir(exist_ok=True)
+    with (
+        binary_file(
+            config, req.archive_key, req.archive_url, req.archive_sha256, "archive_key"
+        ) as archive,
+        tempfile.TemporaryDirectory(prefix="project-import-", dir=scratch) as temp,
+    ):
+        unpacked = Path(temp).resolve() / "project"
+        unpacked.mkdir()
+        try:
+            root = unpack_project_archive(archive, unpacked)
+            raw = read_config(root)
+        except (ProjectArchiveError, RebrewError) as exc:
+            raise _import_refused(str(exc).replace(f"{unpacked}{os.sep}", "")) from None
+        _import_settings_refusal(raw)
+        target = _import_target(root, raw, req.sha256)
+        try:
+            cfg = load_config(root, target=target)
+        except ConfigError as exc:
+            detail = str(exc).replace(f"{root}{os.sep}", "").replace(str(root), ".")
+            raise _import_refused(f"rebrew-project.toml: {detail}") from None
+        try:
+            confined_snapshot_config(cfg, root)
+        except OpsError as exc:
+            raise _import_refused(str(exc)) from None
+        if not metadata_store(root / "rebrew-functions.toml").exists():
+            raise _import_refused("the archive has no rebrew-functions.toml function metadata")
+        module = target_module(cfg)
+        try:
+            dropped = scope_metadata_to_module(cfg, module)
+            metadata = _fresh_sqlite_metadata(root, target, scratch)
+        except OpsError:
+            raise
+        except (OSError, ValueError, RebrewError) as exc:
+            detail = str(exc).replace(f"{root}{os.sep}", "")
+            raise _import_refused(f"the archive's metadata cannot be imported: {detail}") from None
+        capture, report = capture_project(root, req.sha256, target, metadata, "project import")
+        project = workspace / relative
+        project.parent.mkdir(parents=True, exist_ok=True)
+        if _inside(workspace, relative, "analysis project") != project:
+            raise _invalid("analysis project must not traverse symlinks")
+        if project.exists():
+            project.rename(Path(temp) / "replaced")
+        root.rename(project)
+    for item in report["targets"]:
+        for part in ("document", "path"):
+            if item[part]:
+                item[part] = str(project / item[part])
+    intake = {
+        "source": "archive",
+        "archive_sha256": req.archive_sha256,
+        "target": target,
+        "module": module,
+        "dropped_records": dropped,
+    }
+    return {**report, "project": str(project), "intake": intake, "analysis_capture": capture}
 
 
 @contextlib.contextmanager
@@ -2757,11 +2918,12 @@ def import_project(config: WorkerConfig, req: ImportRequest) -> dict[str, Any]:
 
 
 def project_report(
-    root: Path, snapshots: Path | None, *, include_source: bool = False
+    root: Path, snapshots: Path | None, *, include_source: bool = False, only: str | None = None
 ) -> dict[str, Any]:
     """The backend's ``ProjectReport`` of *root*: targets, functions and import stubs.
 
     Live coverage is read unless *snapshots* names a portable export directory.
+    *only*, when set, reports that one target; the other targets' coverage may fail.
     """
     from rebrew.config import load_config
     from rebrew.coverage_project import load_project_coverage
@@ -2772,12 +2934,15 @@ def project_report(
 
     if snapshots is None:
         view = load_project_coverage(root, refresh=True)
-        if view.failures:
-            raise _refused(f"coverage failed for targets: {', '.join(sorted(view.failures))}")
+        failures = {name for name in view.failures if only is None or name == only}
+        if failures:
+            raise _refused(f"coverage failed for targets: {', '.join(sorted(failures))}")
         coverage = dict(view.snapshots)
     else:
         names = sorted(p.stem.removeprefix("coverage-") for p in snapshots.glob("coverage-*.toml"))
         coverage = {name: load_coverage_from(snapshots, name) for name in names}
+    if only is not None:
+        coverage = {name: value for name, value in coverage.items() if name == only}
     if not coverage:
         raise _invalid("the project has no coverage targets")
     table = targets_table(read_config(root))
@@ -3839,6 +4004,7 @@ OPS: dict[str, Op] = {
     "rebrew.security_scan_snapshot": Op(SecuritySnapshotRequest, security_scan_snapshot),
     "rebrew.analyse": Op(AnalyseRequest, analyse),
     "rebrew.import-project": Op(ImportRequest, import_project),
+    "rebrew.import_archive": Op(ImportArchiveRequest, import_archive),
     "rebrew.project_targets": Op(FileSetRequest, project_targets),
     "rebrew.metadata_carry": Op(MetadataCarryRequest, metadata_carry),
     "rebrew.metadata_describe": Op(FileSetRequest, metadata_describe),
