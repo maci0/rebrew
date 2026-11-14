@@ -2855,6 +2855,18 @@ class TestImportArchive:
         assert (status, reply["error"]) == (422, "project-import-refused"), reply
         assert named in reply["detail"]
 
+    def test_an_unreadable_config_is_invalid_project_config(self, tmp_path: Path) -> None:
+        """An archive config rebrew cannot read answers the code every supplied config refusal shares."""
+        config, filestore, project = _analysed_project(tmp_path)
+        members = [
+            (name, b"[targets\n" if name == "rebrew-project.toml" else data, kind)
+            for name, data, kind in _project_members(project)
+        ]
+        status, reply = _import(config, filestore, _tar_bytes(members))
+        assert (status, reply["error"]) == (400, "invalid-project-config"), reply
+        assert reply["detail"].startswith("invalid project config: rebrew-project.toml")
+        assert str(config.workspace) not in reply["detail"]
+
     def test_a_zip_archive_imports_like_a_tar(self, tmp_path: Path) -> None:
         import io
         import zipfile

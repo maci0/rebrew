@@ -487,6 +487,20 @@ def _check_manifest_size(files: Any) -> None:
         raise _readset_limit("retained source manifest", size, MAX_READSET_BYTES, "bytes")
 
 
+def _invalid_project_config(root: Path, exc: Exception) -> OpsError:
+    """A supplied ``rebrew-project.toml`` rebrew cannot read: 400 :data:`INVALID_PROJECT_CONFIG`.
+
+    The detail is the caller's own file, named within *root* and never by the
+    worker's scratch path.
+    """
+    detail = str(exc).replace(f"{root}{os.sep}", "").replace(str(root), ".")
+    if not detail.startswith("rebrew-project.toml"):
+        detail = f"rebrew-project.toml: {detail}"
+    return OpsError(
+        _bounded(f"invalid project config: {detail}"), code=INVALID_PROJECT_CONFIG, status=400
+    )
+
+
 def _import_refused(detail: str) -> OpsError:
     """A project archive refused for what it holds; *detail* names the entry or setting."""
     return OpsError(_bounded(detail), code=PROJECT_IMPORT_REFUSED, status=422)
@@ -2632,16 +2646,18 @@ def import_archive(config: WorkerConfig, req: ImportArchiveRequest) -> dict[str,
         unpacked.mkdir()
         try:
             root = unpack_project_archive(archive, unpacked)
+        except ProjectArchiveError as exc:
+            raise _import_refused(str(exc)) from None
+        try:
             raw = read_config(root)
-        except (ProjectArchiveError, RebrewError) as exc:
-            raise _import_refused(str(exc).replace(f"{unpacked}{os.sep}", "")) from None
+        except RebrewError as exc:
+            raise _invalid_project_config(root, exc) from None
         _import_settings_refusal(raw)
         target = _import_target(root, raw, req.sha256)
         try:
             cfg = load_config(root, target=target)
         except ConfigError as exc:
-            detail = str(exc).replace(f"{root}{os.sep}", "").replace(str(root), ".")
-            raise _import_refused(f"rebrew-project.toml: {detail}") from None
+            raise _invalid_project_config(root, exc) from None
         try:
             confined_snapshot_config(cfg, root)
         except OpsError as exc:
@@ -2798,13 +2814,7 @@ def project_targets(config: WorkerConfig, req: FileSetRequest) -> dict[str, Any]
         try:
             table = targets_table(read_config(root))
         except (OSError, ValueError, RebrewError) as exc:
-            # The caller's own file: name it within the set, never the worker's scratch path.
-            detail = str(exc).replace(f"{root}{os.sep}", "").replace(str(root), ".")
-            raise OpsError(
-                _bounded(f"invalid project config: {detail}"),
-                code=INVALID_PROJECT_CONFIG,
-                status=400,
-            ) from exc
+            raise _invalid_project_config(root, exc) from exc
     return {"targets": sorted(table, key=lambda name: name.encode("utf-8"))}
 
 
@@ -3490,13 +3500,7 @@ def retained_config(root: Path, target_name: str) -> Any:
     try:
         return load_config(root, target=target_name)
     except ConfigError as exc:
-        # The detail is the request's own file: name it relative to the snapshot, never the worker's scratch path.
-        detail = str(exc).replace(f"{root}{os.sep}", "").replace(str(root), ".")
-        if not detail.startswith("rebrew-project.toml"):
-            detail = f"rebrew-project.toml: {detail}"
-        raise OpsError(
-            _bounded(f"invalid project config: {detail}"), code=INVALID_PROJECT_CONFIG, status=400
-        ) from None
+        raise _invalid_project_config(root, exc) from None
 
 
 @contextlib.contextmanager
