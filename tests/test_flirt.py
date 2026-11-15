@@ -98,6 +98,28 @@ class TestLoadSignatures:
         sigs = load_signatures("/some/dir")
         assert sigs == []
 
+    @pytest.mark.parametrize(
+        "index",
+        [
+            pytest.param("[]", id="array"),
+            pytest.param("1", id="number"),
+            pytest.param('{"files": []}', id="files-array"),
+        ],
+    )
+    def test_index_of_another_shape_does_not_filter(self, tmp_path: Path, index: str) -> None:
+        """A signature checkout's ``index.json`` is read like a malformed one
+        when its top level or its ``files`` is not an object: every signature
+        file loads, rather than the scan failing with ``AttributeError``."""
+        from rebrew.flirt import load_signatures_for
+        from rebrew.gen_flirt_pat import bytes_to_pat_line
+
+        sig_dir = tmp_path / "sigs"
+        sig_dir.mkdir()
+        line = bytes_to_pat_line("_f", bytes(range(40)), set())
+        (sig_dir / "lib.pat").write_text(line + "\n---\n", encoding="utf-8")
+        (sig_dir / "index.json").write_text(index, encoding="utf-8")
+        assert len(load_signatures_for([sig_dir], "x86")) == 1
+
 
 class TestSmallSectionGuard:
     """Edge cases for find_func_size with very small inputs."""

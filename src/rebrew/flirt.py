@@ -265,7 +265,11 @@ def _arch_index(dirs: list[Path]) -> dict[str, str]:
                 data = json.loads(read_json_text(candidate))
             except OSError, ValueError:
                 continue
-            for name, meta in data.get("files", {}).items():
+            # An index of another shape is unreadable like a malformed one.
+            files = data.get("files", {}) if isinstance(data, dict) else None
+            if not isinstance(files, dict):
+                continue
+            for name, meta in files.items():
                 index.setdefault(name, str(meta.get("arch", "") if isinstance(meta, dict) else ""))
     return index
 
