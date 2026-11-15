@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.44.0] - 2026-11-16
+
 ### Fixed
 
 - `rebrew build residue`'s name column holds exactly 40 terminal columns when a symbol name ends in a zero-width joiner: the padding is measured on the padded text, since the joiner took the first padding space into its cluster and the column came out one short.
