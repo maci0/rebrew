@@ -2995,6 +2995,26 @@ class TestImportArchive:
         assert [path.name for path in left.rglob("PRINCIPLES.md")] == ["PRINCIPLES.md"]
         assert any(str(left) in record.getMessage() for record in caplog.records)
 
+    def test_an_import_parses_the_function_store_once_with_its_formatting(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A format-preserving parse is the import's dearest step on a whole-game store: the
+        private copy is migrated with one, not a preview and a migration."""
+        import rebrew.metadata.files as files
+
+        config, filestore, project = _analysed_project(tmp_path)
+        reads: list[str] = []
+        load = files.load_toml_for_write_strict
+
+        def counted(path: Path, description: str) -> Any:
+            reads.append(Path(path).name)
+            return load(path, description)
+
+        monkeypatch.setattr(files, "load_toml_for_write_strict", counted)
+        status, reply = _import(config, filestore, _tar_bytes(_project_members(project)))
+        assert status == 200, reply
+        assert reads.count("rebrew-functions.toml") == 1
+
     def test_a_zip_archive_imports_like_a_tar(self, tmp_path: Path) -> None:
         import io
         import zipfile

@@ -2297,7 +2297,7 @@ def _fresh_sqlite_metadata(root: Path, target: str, scratch: Path) -> dict[str, 
     )
     from rebrew.metadata.storage import project_metadata_stores
     from rebrew.metadata_sets import describe_metadata
-    from rebrew.metadata_transfer import migrate_metadata
+    from rebrew.metadata_transfer import migrate_metadata, migration_input_digest
 
     cfg = load_config(root, target=target)
     if cfg.metadata_read_backends != ("toml",) or cfg.metadata_write_backends != ("toml",):
@@ -2309,8 +2309,9 @@ def _fresh_sqlite_metadata(root: Path, target: str, scratch: Path) -> dict[str, 
     }
     if "rebrew-functions.toml" not in logical:
         raise _capture_failed("fresh analysis requires function metadata before import")
-    preview = migrate_metadata(cfg, "sqlite", dry_run=True)
-    migrate_metadata(cfg, "sqlite", expected_digest=preview["input_digest"])
+    # One migration pinned to its input digest: hashing the stores costs nothing beside the
+    # format-preserving parse a preview would add, and a change in between still refuses.
+    migrate_metadata(cfg, "sqlite", expected_digest=migration_input_digest(cfg, "sqlite"))
     cfg = load_config(root, target=target)
     if cfg.metadata_read_backends != ("sqlite",) or cfg.metadata_write_backends != ("sqlite",):
         raise _capture_failed("fresh analysis metadata import did not select SQLite")

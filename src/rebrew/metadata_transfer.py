@@ -115,6 +115,26 @@ def scope_metadata_to_module(cfg: ProjectConfig, module: str) -> int:
     return removed
 
 
+def _input_digest(
+    stores: tuple[MetadataStore, ...], destinations: tuple[MetadataStore, ...], config: Path
+) -> str:
+    """The digest a migration pins: every source and destination snapshot and the project config."""
+    inputs = {f"source:{store.path}": store.digest() for store in stores}
+    inputs.update({f"destination:{store.path}": store.digest() for store in destinations})
+    inputs[str(config)] = _sha256_file(config)
+    return hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()
+
+
+def migration_input_digest(cfg: ProjectConfig, backend: str) -> str:
+    """The ``input_digest`` a preview of migrating to *backend* would report, without reading any store's records.
+
+    A caller that needs no preview report pins a migration with it
+    (``expected_digest``) for the cost of hashing the stores' bytes.
+    """
+    root = cfg.root.resolve()
+    return _input_digest(_stores(cfg), _stores(cfg, backend), root / "rebrew-project.toml")
+
+
 def migrate_metadata(
     cfg: ProjectConfig, backend: str, *, dry_run: bool = False, expected_digest: str | None = None
 ) -> dict[str, Any]:
@@ -135,10 +155,7 @@ def migrate_metadata(
         metadata_format(root / "rebrew-functions.toml")
         stores = _stores(cfg)
         destinations = _stores(cfg, backend)
-        inputs = {f"source:{store.path}": store.digest() for store in stores}
-        inputs.update({f"destination:{store.path}": store.digest() for store in destinations})
-        inputs[str(config_path)] = _sha256_file(config_path)
-        digest = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()
+        digest = _input_digest(stores, destinations, config_path)
         if expected_digest is not None and digest != expected_digest:
             raise ValueError("metadata inputs changed since preview; review a new preview")
         documents = []
@@ -149,7 +166,7 @@ def migrate_metadata(
                 roundtrip=True,
             )
             documents.append((store.path, doc))
-        if any(store.digest() != inputs[f"source:{store.path}"] for store in stores):
+        if _input_digest(stores, destinations, config_path) != digest:
             raise ValueError("metadata changed while preparing transfer; retry")
         return (
             stores,

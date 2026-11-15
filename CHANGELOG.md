@@ -12,6 +12,8 @@
 
 ### Fixed
 
+- A fresh analysis and `rebrew.import_archive` migrate their private metadata copy to SQLite once, pinned with the new `rebrew.metadata_transfer.migration_input_digest` (the preview's `input_digest` from the stores' bytes, no record parse), instead of a preview and then the migration: one format-preserving parse of the function store instead of two. A change between the digest and the migration still refuses before SQLite is selected. The import of guild-rebrew's server project takes 22-23 s locally, from 67-70 s on 6.39.0.
+
 - `rebrew.metadata_transfer.migrate_metadata` reads its source stores once when it migrates, under the locks it writes with, instead of once more before taking them; a preview still reads them once. On the import of guild-rebrew's server project the migration takes 19.8 s instead of 31-32 s.
 
 - `rebrew.metadata_transfer.scope_metadata_to_module` reads each store with the plain TOML parser and validates only the records it keeps, instead of a format-preserving parse and validation of the whole store: on guild-rebrew's 22 MB `rebrew-functions.toml` it takes 5.6 s instead of 26.2 s. The scoped store is rewritten without the original's comments and layout.

@@ -107,10 +107,10 @@ def test_fresh_capture_has_verified_self_contained_sqlite(
     monkeypatch.setattr(transfer, "migrate_metadata", observe)
     capture, report = _capture(tmp_path)
     assert capture["version"] == 3
-    assert len(calls) == 2
-    assert calls[0]["backend"] == calls[1]["backend"] == "sqlite"
-    assert calls[0]["dry_run"] is True
-    assert calls[1]["expected_digest"] == calls[0]["report"]["input_digest"]
+    assert len(calls) == 1
+    assert calls[0]["backend"] == "sqlite"
+    assert "dry_run" not in calls[0], "the capture pins the migration without a preview parse"
+    assert calls[0]["expected_digest"] == calls[0]["report"]["input_digest"]
     (entry,) = [item for item in capture["entries"] if item["path"] == DATABASE_FILENAME]
     assert capture["metadata"] == {
         "files": [{"path": DATABASE_FILENAME, "sha256": entry["digest"]}],
@@ -316,17 +316,15 @@ def test_fresh_capture_stale_migration_never_selects_sqlite(
 ) -> None:
     from rebrew.metadata.functions import update_field
 
+    digest = transfer.migration_input_digest
     migrate = transfer.migrate_metadata
-    preview_digest = ""
 
-    def change(cfg: Any, backend: str, **kwargs: Any) -> dict[str, Any]:
-        nonlocal preview_digest
-        if kwargs.get("dry_run"):
-            report = migrate(cfg, backend, **kwargs)
-            preview_digest = report["input_digest"]
-            update_field(cfg.metadata_dir, 0x401000, "blocker", "changed after preview", "MINI")
-            return report
-        assert kwargs["expected_digest"] == preview_digest
+    def pin_then_change(cfg: Any, backend: str) -> str:
+        pinned = digest(cfg, backend)
+        update_field(cfg.metadata_dir, 0x401000, "blocker", "changed after the digest", "MINI")
+        return pinned
+
+    def guarded(cfg: Any, backend: str, **kwargs: Any) -> dict[str, Any]:
         sources = {path: path.read_bytes() for path in cfg.reversed_dir.rglob("*.c")}
         try:
             return migrate(cfg, backend, **kwargs)
@@ -335,7 +333,8 @@ def test_fresh_capture_stale_migration_never_selects_sqlite(
             assert not (cfg.root / DATABASE_FILENAME).exists()
             assert all(path.read_bytes() == data for path, data in sources.items())
 
-    monkeypatch.setattr(transfer, "migrate_metadata", change)
+    monkeypatch.setattr(transfer, "migration_input_digest", pin_then_change)
+    monkeypatch.setattr(transfer, "migrate_metadata", guarded)
     with pytest.raises(ops.OpsError, match="metadata inputs changed since preview"):
         _capture(tmp_path)
 

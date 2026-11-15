@@ -699,3 +699,14 @@ class TestMigrateReadsOnce:
         reads.clear()
         migrate_metadata(cfg, "sqlite", expected_digest=preview["input_digest"])
         assert reads.count("rebrew-functions.toml") == 1
+
+    def test_the_input_digest_without_a_preview_is_the_preview_digest(self, tmp_path: Path) -> None:
+        from rebrew.metadata_transfer import migration_input_digest
+
+        cfg = _project(tmp_path)
+        update_source_status(tmp_path, "EXACT", "GAME", 0x1000, force=True)
+        pinned = migration_input_digest(cfg, "sqlite")
+        assert pinned == migrate_metadata(cfg, "sqlite", dry_run=True)["input_digest"]
+        update_field(tmp_path, 0x1000, "NOTE", "changed", "GAME")
+        with pytest.raises(ValueError, match="changed since preview"):
+            migrate_metadata(cfg, "sqlite", expected_digest=pinned)
