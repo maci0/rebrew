@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.43.0] - 2026-11-16
+
 ### Removed
 
 - **Breaking:** `rebrew.metadata.functions.is_table_field` is gone. Nothing called it since `lint --fix` stopped migrating inline keys; read `METADATA_FIELD_TYPES[key.lower()] is dict` instead.
