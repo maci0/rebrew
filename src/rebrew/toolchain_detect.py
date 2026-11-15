@@ -614,6 +614,10 @@ def _diec_version_hint(dets: list[dict[str, object]]) -> str:
     return ""
 
 
+#: The evidence line of a detection that had no Detect It Easy to run.
+DIE_UNAVAILABLE = "Detect It Easy not available"
+
+
 def detect_with_die(path: Path, diec: Path | None = None) -> ToolchainInfo | None:
     """Detect via Detect It Easy.
 
@@ -625,17 +629,16 @@ def detect_with_die(path: Path, diec: Path | None = None) -> ToolchainInfo | Non
         diec = _find_diec()
     if diec is None:
         info = ToolchainInfo(detected_by="die")
-        info.add("DIE: diec not found (PATH or tools/diec) — install for stronger detection")
+        info.add(DIE_UNAVAILABLE)
         return info
 
     dets = _run_diec(path, diec)
     if not dets:
         info = ToolchainInfo(detected_by="die")
-        info.add(f"DIE: diec present at {diec} but did not produce a scan result")
+        info.add("Detect It Easy produced no scan result")
         return info
 
     info = ToolchainInfo(detected_by="die")
-    info.add(f"DIE: diec at {diec}")
     for det in dets:
         values = det.get("values") or []
         if not isinstance(values, list):
@@ -1194,7 +1197,7 @@ def _msvc_version_hint(version: str, profiles: tuple[str, ...] | None) -> str:
     era = next((h for p, h in _MSVC_VERSION_HINTS.items() if version.startswith(p)), "")
     hint = f"{era} (cl {version})" if era else f"MSVC {version}"
     if profiles:
-        hint += f" — matches {', '.join(profiles)}"
+        hint += f": matches {', '.join(profiles)}"
     return hint
 
 
@@ -1378,7 +1381,7 @@ def _detect_toolchain_core(
         if pe_info.suggested_profiles:
             info.suggested_profiles = pe_info.suggested_profiles
         if pe_info.family == "msvc":
-            # The precise PE-meta hint ("MSVC 12.00.8168 — matches msvc-6.0")
+            # The precise PE-meta hint ("MSVC 6.0 (cl 12.00.8168): matches msvc-6.0")
             # always beats a coarser DIE/PDB era hint ("MSVC 6.0").
             if pe_info.msvc_version:
                 info.version_hint = pe_info.version_hint
@@ -1465,7 +1468,10 @@ def _detect_toolchain_core(
         lz_ver = None
     if lz_ver is not None:
         info.packed = f"lzexe 0.{lz_ver}"
-        info.add(f"packed with LZEXE 0.{lz_ver} — run `rebrew binary unpack-lzexe` before analysis")
+        info.add(
+            f"packed with LZEXE 0.{lz_ver} (unpack it with `rebrew binary unpack-lzexe`"
+            " before analysis)"
+        )
 
     # PKLITE (PKWARE, 1990s): the stub carries its copyright banner near
     # the header; the visible strings are the packer's (or compressed
@@ -1480,8 +1486,8 @@ def _detect_toolchain_core(
         if b"PKLITE" in head:
             info.packed = "pklite"
             info.add(
-                "packed with PKLITE (PKWARE) — no built-in unpacker; find an "
-                "unpacked copy before analysis"
+                "packed with PKLITE (PKWARE): rebrew has no unpacker for it, so "
+                "analysis needs an unpacked copy"
             )
 
     try:
@@ -1753,8 +1759,8 @@ def _detect_toolchain_core(
         elif info.opt_level.startswith("mixed"):
             info.add(
                 f"both wrapper styles present ({o1_wrappers} push-[mem], "
-                f"{o2_wrappers} load-first) — per-file mixed optimization; "
-                f"use per-function flag sweeps instead of one project-wide level"
+                f"{o2_wrappers} load-first): optimization is mixed per file, so "
+                f"per-function flag sweeps fit better than one project-wide level"
             )
 
     # --- pre-6.0 constant-caching fingerprint ---
@@ -1791,7 +1797,7 @@ def _detect_toolchain_core(
     if signals.fp_prologues:
         info.add(
             f"{signals.fp_prologues} frame-pointer prologues "
-            "(push ebp; mov ebp,esp) — /Oy- or unoptimized"
+            "(push ebp; mov ebp,esp): /Oy- or unoptimized"
         )
     if signals.mov_edi_edi >= 2:
         info.add(f"{signals.mov_edi_edi} mov edi,edi 2-byte nops (MSVC-style padding)")
@@ -2133,17 +2139,17 @@ def profile_matches_detection(profile: str, info: ToolchainInfo) -> tuple[bool, 
         if info.family == "delphi":
             return (
                 False,
-                "Borland Delphi ABI — no rebrew compiler profile can match; document as blocker.",
+                "Borland Delphi ABI: no rebrew compiler profile can match; document as blocker.",
             )
         return False, (
-            f"{info.family} ABI — no rebrew compiler profile can match; document as blocker "
+            f"{info.family} ABI: no rebrew compiler profile can match; document as blocker "
             "(no supported toolchain)."
         )
     if profile not in compatible:
         return (
             False,
             f"configured profile '{profile}' does not align with detected family '{info.family}' "
-            f"({', '.join(sorted(compatible))} would fit) — see the rebrew repo's"
+            f"({', '.join(sorted(compatible))} would fit); see the rebrew repo's"
             " docs/TOOLCHAIN.md",
         )
     # Version-exact check: when the PE metadata pinned the exact MSVC build
@@ -2154,7 +2160,7 @@ def profile_matches_detection(profile: str, info: ToolchainInfo) -> tuple[bool, 
     if info.family == "msvc" and info.suggested_profiles and profile not in info.suggested_profiles:
         return (
             False,
-            f"binary was built with MSVC {info.msvc_version} — profile '{profile}' is a "
+            f"binary was built with MSVC {info.msvc_version}, and profile '{profile}' is a "
             "different compiler build; switch to one of: "
             f"{', '.join(sorted(info.suggested_profiles))}",
         )
@@ -2170,14 +2176,14 @@ def profile_matches_detection(profile: str, info: ToolchainInfo) -> tuple[bool, 
         if info.codegen == "processor-pack" and not is_pack:
             return (
                 False,
-                f"binary's x87 compares are Processor-Pack codegen — profile '{profile}' is a "
+                f"binary's x87 compares are Processor-Pack codegen, but profile '{profile}' is a "
                 f"plain VC6 generator; switch to {', '.join(sorted(pack_profiles))} "
                 "(game code compiled with the pack cannot be reproduced by an SP6 profile)",
             )
         if info.codegen == "plain" and is_pack:
             return (
                 False,
-                f"binary's x87 compares are plain VC6 codegen — profile '{profile}' carries the "
+                f"binary's x87 compares are plain VC6 codegen, but profile '{profile}' carries the "
                 "Processor Pack; switch to a plain VC6 profile "
                 "(e.g. msvc-6.0-sp6) or the FP-comparing functions will not match",
             )
@@ -2193,19 +2199,19 @@ def profile_matches_detection(profile: str, info: ToolchainInfo) -> tuple[bool, 
         return (
             False,
             f"detected 16-bit binary but profile '{profile}' is a 32/64-bit "
-            f"compiler — switch to one of: {', '.join(bitness16_profiles())} "
+            f"compiler; switch to one of: {', '.join(bitness16_profiles())} "
             "(e.g. msvc-1.52 / borland-3.1 / borland-2.0) or document the functions as blockers",
         )
     if info.arch and info.arch != "x86_16" and profile in bitness16_profiles():
         return (
             False,
             f"profile '{profile}' is a 16-bit compiler but the binary is "
-            f"{info.arch} — use a 32/64-bit profile (e.g. msvc-6.0)",
+            f"{info.arch}; use a 32/64-bit profile (e.g. msvc-6.0)",
         )
     if info.family == "zig":
         return (
             True,
-            "binary looks Zig-built (LLVM codegen) — mingw-16.2.0 may only match structurally; "
+            "binary looks Zig-built (LLVM codegen): mingw-16.2.0 may only match structurally; "
             "see the rebrew repo's docs/TOOLCHAIN.md",
         )
     return True, None

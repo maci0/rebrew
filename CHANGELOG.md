@@ -12,6 +12,8 @@
 
 - **Breaking:** `rebrew.ops.FlagSearchFile` is renamed `rebrew.ops.RetainedFile` (`FlagSearchFile.key` and `FlagSearchFile.url` are `RetainedFile.key` and `RetainedFile.url`), and `retained_target_snapshot` and every request carrying a manifest take that type: it is every retained manifest's file entry, not the flag search's. Its fields and the wire are unchanged.
 
+- The toolchain detector's evidence lines, version hints and profile explanations (`rebrew.identify_compiler`, `rebrew toolchain detect`, `rebrew doctor`, `rebrew init`) carry no em dash: `MSVC 6.0 (cl 12.00.8168): matches msvc-6.0`, `2 frame-pointer prologues (push ebp; mov ebp,esp): /Oy- or unoptimized`. A missing Detect It Easy is the evidence line `Detect It Easy not available` (`rebrew.toolchain_detect.DIE_UNAVAILABLE`) instead of an install hint naming the search paths, and a Detect It Easy run no longer records the worker's `diec` path.
+
 - `rebrew.retained_source_operation` refuses a variant search whose `generations` or `population` is over 100 (`rebrew.ops.VARIANT_MAX_GENERATIONS`, `VARIANT_MAX_POPULATION`) with 400 `invalid-request` naming the cap, before the snapshot is staged; they had no upper bound, so a search of 10**6 generations was accepted and ran until its deadline. At both caps the search compiles at most 10,000 candidates, about 1,460 s at the measured 585 ms per compile and compare (`docs/PERFORMANCE.md`) over the GA's default 4 parallel jobs, inside the op's 3600 s deadline. The lower bounds are checked before staging too.
 
 ### Performance

@@ -616,7 +616,9 @@ best-first:
    with the bundled libraries it loads in `tools/diec/lib/`.  The supported
    version is Detect It Easy 4.0 (release `4.0.0`,
    https://github.com/horsicq/DIE-engine/releases/tag/4.0.0; on Arch the
-   `detect-it-easy-bin` package); 3.x is not supported.
+   `detect-it-easy-bin` package); 3.x is not supported.  Without it the
+   evidence records `Detect It Easy not available` and the other backends
+   decide.
 2. **PDB** (`llvm-pdbutil`), when a sibling `.pdb` exists: the `S_COMPILE3`
    record carries the compiler version and, for MSVC PDBs, the exact
    compiler flags (auto-surfaced in the doctor report).  A `.zig-cache`

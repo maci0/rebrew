@@ -142,13 +142,45 @@ class TestProfileMatches:
         assert "borlandc" in (expl or "")
 
 
+class TestDetectionText:
+    def test_no_string_the_detector_writes_holds_an_em_dash(self) -> None:
+        """Every evidence line, version hint and explanation is a literal of this module.
+
+        Users read them in the backend's compiler panel, where an em dash and a
+        clause after it read as a dangling aside.  Docstrings and comments are
+        not output.
+        """
+        import ast
+
+        import rebrew.toolchain_detect as detect
+
+        tree = ast.parse(Path(detect.__file__).read_text(encoding="utf-8"))
+        docstrings = {
+            id(node.body[0].value)
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef))
+            and node.body
+            and isinstance(node.body[0], ast.Expr)
+            and isinstance(node.body[0].value, ast.Constant)
+        }
+        dashed = [
+            node.value
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and "\u2014" in node.value
+            and id(node) not in docstrings
+        ]
+        assert dashed == []
+
+
 class TestDetectWithDie:
     def test_diec_missing_reports_status(self, monkeypatch) -> None:
         monkeypatch.setattr("rebrew.toolchain_detect._find_diec", lambda: None)
         info = detect_with_die(Path("x.exe"))
         assert info is not None
         assert info.family == "unknown"
-        assert any("diec not found" in e for e in info.evidence)
+        assert info.evidence == ["Detect It Easy not available"]
 
     def test_msvc_compiler_detection(self, monkeypatch) -> None:
         dets = [

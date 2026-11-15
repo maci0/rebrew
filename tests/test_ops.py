@@ -1033,6 +1033,34 @@ class TestStoredFileOps:
         assert {"family", "confidence", "evidence", "detected_by", "profile"} <= set(reply)
         assert isinstance(reply["evidence"], list)
 
+    @pytest.mark.parametrize("diec", [True, False])
+    def test_identify_compiler_text_is_plain_facts(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, diec: bool
+    ) -> None:
+        """The evidence users read has no em dash, no install hint and no worker path.
+
+        It said "DIE: diec not found (PATH or tools/diec) — install for stronger
+        detection" and "2 frame-pointer prologues (push ebp; mov ebp,esp) — /Oy-
+        or unoptimized", and named the worker's diec path when DIE ran.
+        """
+        import rebrew.toolchain_detect as detect
+
+        if not diec:
+            monkeypatch.setattr(detect, "_find_diec", lambda: None)
+        filestore, workspace = _worker_dirs(tmp_path)
+        config = WorkerConfig(filestore.resolve(), workspace.resolve())
+        reply = _call(config, "rebrew.identify_compiler", _binary_file())
+        text = json.dumps(reply, ensure_ascii=False)
+        assert "—" not in text
+        assert "install" not in text
+        assert "/usr/" not in text and "tools/diec" not in text
+        if not diec:
+            assert "Detect It Easy not available" in reply["evidence"]
+        assert (
+            "2 frame-pointer prologues (push ebp; mov ebp,esp): /Oy- or unoptimized"
+            in (reply["evidence"])
+        )
+
     def test_splat_parse(self) -> None:
         reply = _call(WorkerConfig(), "rebrew.splat_parse", {"config": SPLAT_YAML})
         assert (reply["platform"], reply["compiler"], reply["target_path"]) == (

@@ -543,7 +543,11 @@ def check_toolchain_alignment(cfg: ProjectConfig) -> CheckResult:
         return CheckResult(name="Toolchain alignment", status=_SKIP, message="binary not available")
 
     from rebrew.toolchain_cli import external_ranges
-    from rebrew.toolchain_detect import detect_toolchain, profile_matches_detection
+    from rebrew.toolchain_detect import (
+        DIE_UNAVAILABLE,
+        detect_toolchain,
+        profile_matches_detection,
+    )
 
     try:
         # Game code only: library bands (`external_ranges`) were compiled with
@@ -570,7 +574,7 @@ def check_toolchain_alignment(cfg: ProjectConfig) -> CheckResult:
         from rebrew.toolchain_detect import backend_display_name
 
         detail += f" via {backend_display_name(info.detected_by)}"
-    if any("diec not found" in e for e in info.evidence):
+    if DIE_UNAVAILABLE in info.evidence:
         detail += "; diec not found (add tools/diec or PATH diec for stronger detection)"
     if info.flags:
         detail += f"; PDB flags: {' '.join(info.flags)}"
