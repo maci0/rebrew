@@ -883,10 +883,16 @@ def _fold_name(name: str) -> str:
     return unicodedata.normalize("NFC", name).casefold()
 
 
-def _folded_children(directory: Path) -> dict[str, tuple[str, ...]]:
-    """Child paths of *directory*, grouped by :func:`_fold_name` of their names."""
+def _folded_children(
+    directory: Path, st: os.stat_result | None = None
+) -> dict[str, tuple[str, ...]]:
+    """Child paths of *directory*, grouped by :func:`_fold_name` of their names.
+
+    *st* is the caller's ``directory.stat()`` when it already took one.
+    """
     global _dir_index_names
-    st = directory.stat()
+    if st is None:
+        st = directory.stat()
     identity = (st.st_dev, st.st_ino, st.st_mtime_ns)
     key = str(directory)
     with _DIR_INDEX_LOCK:
@@ -918,22 +924,26 @@ def _walk_include_path_checked(
     if not parts or parts[-1] == "..":
         return None
     try:
-        if not stat.S_ISDIR(directory.stat().st_mode):
-            return None
+        directory_st = directory.stat()
     except FileNotFoundError, NotADirectoryError:
         return None
+    if not stat.S_ISDIR(directory_st.st_mode):
+        return None
+    st: os.stat_result | None = directory_st
     candidate = directory
     for index, part in enumerate(parts):
         if part == "..":
             candidate = candidate / part
+            st = None
             continue
-        matches = _folded_children(candidate).get(_fold_name(part), ())
+        matches = _folded_children(candidate, st).get(_fold_name(part), ())
         if len(matches) > 1:
             raise ValueError("ambiguous case-insensitive include component")
         if not matches:
             return None
         child = Path(matches[0])
-        mode = child.stat().st_mode
+        st = child.stat()
+        mode = st.st_mode
         if not (stat.S_ISREG(mode) if index == len(parts) - 1 else stat.S_ISDIR(mode)):
             return None
         candidate = child
