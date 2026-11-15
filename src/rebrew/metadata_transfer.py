@@ -88,7 +88,9 @@ def scope_metadata_to_module(cfg: ProjectConfig, module: str) -> int:
     A project imported for one target keeps that target's own records (its
     ``MODULE.0xVA`` keys) and every record without a module key, such as the
     format stamp; the type and library stores are unchanged.  Each store is
-    read with its owning schema and rewritten through its backend under the
+    read without its formatting (a format-preserving parse of a whole-game
+    store costs most of an import), the records kept are validated with the
+    owning schema, and the store is rewritten through its backend under the
     project and store locks.
     """
     root = cfg.root.resolve()
@@ -99,22 +101,17 @@ def scope_metadata_to_module(cfg: ProjectConfig, module: str) -> int:
             if store.path.name not in MODULE_KEYED_STORES:
                 continue
             with store.transaction():
-                doc = store.read(
-                    "module scope",
-                    validate=partial(validate_store_document, store.path),
-                    roundtrip=True,
-                )
-                foreign = [
-                    key
-                    for key in doc
-                    if (parsed := parse_metadata_key(key)) is not None and parsed[0] != module
-                ]
-                if not foreign:
+                doc = store.read("module scope")
+                kept = {
+                    key: value
+                    for key, value in doc.items()
+                    if (parsed := parse_metadata_key(key)) is None or parsed[0] == module
+                }
+                if len(kept) == len(doc):
                     continue
-                for key in foreign:
-                    del doc[key]
-                store.write(doc, "module scope")
-                removed += len(foreign)
+                validate_store_document(store.path, kept)
+                store.write(kept, "module scope")
+                removed += len(doc) - len(kept)
     return removed
 
 

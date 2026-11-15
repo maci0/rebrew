@@ -12,6 +12,8 @@
 
 ### Fixed
 
+- `rebrew.metadata_transfer.scope_metadata_to_module` reads each store with the plain TOML parser and validates only the records it keeps, instead of a format-preserving parse and validation of the whole store: on guild-rebrew's 22 MB `rebrew-functions.toml` it takes 5.6 s instead of 26.2 s. The scoped store is rewritten without the original's comments and layout.
+
 - `rebrew.import_archive` no longer fails at the end when the binary's earlier project holds a file the worker may not delete (in production a `PRINCIPLES.md` an older rebrew copied with an earlier pod's SELinux category: `PermissionError` from the temporary directory's cleanup, 500 after a finished import). The earlier project leaves the temporary directory, is deleted best effort, and what remains stays under `<workspace>/.scratch/replaced-*` with a warning.
 
 - The reached-header digest (`compiler.cache.header_dependency_hash`, stored as `headers_hash` in type evidence and function verification metadata) hashes each header's search anchor, relative path and content, not its size, mtime, inode and change time. Identical header bytes now give the same value on every clone, so a fresh checkout, `touch`, `git checkout` or a hard-link count change no longer marks committed type evidence stale (lint W031) or forces re-verification. Content edits still change the digest. Stored `headers_hash` values written by earlier versions change once after upgrading; rebind the reported types with `rebrew types bind` and re-run `rebrew verify`.

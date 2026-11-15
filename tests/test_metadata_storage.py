@@ -649,3 +649,28 @@ def test_project_root_cache_evicts_only_least_recently_used(
     assert len(storage._PROJECT_ROOTS) == storage._PROJECT_ROOTS_MAX
     assert dirs[0] in storage._PROJECT_ROOTS
     assert dirs[1] not in storage._PROJECT_ROOTS
+
+
+class TestScopeMetadataToModule:
+    def test_keeps_the_module_records_exactly_and_drops_the_others(self, tmp_path: Path) -> None:
+        import tomllib
+
+        from rebrew.metadata.data import set_data_field
+        from rebrew.metadata_transfer import scope_metadata_to_module
+
+        cfg = _project(tmp_path)
+        update_source_status(tmp_path, "EXACT", "GAME", 0x1000, force=True)
+        update_field(tmp_path, 0x1000, "NOTE", "kept", "GAME")
+        update_field(tmp_path, 0x2000, "NOTE", "dropped", "OTHER")
+        update_field(tmp_path, 0x3000, "NOTE", "dropped too", "OTHER")
+        set_data_field(tmp_path, 0x4000, "size", 4, "OTHER")
+        functions = tmp_path / "rebrew-functions.toml"
+        before = tomllib.loads(functions.read_text())
+        assert scope_metadata_to_module(cfg, "GAME") == 3
+        after = tomllib.loads(functions.read_text())
+        assert after == {
+            key: value for key, value in before.items() if not key.startswith("OTHER.")
+        }
+        assert get_entry(tmp_path, 0x1000, "GAME")["status"] == "EXACT"
+        assert "OTHER." not in (tmp_path / "rebrew-data.toml").read_text()
+        assert scope_metadata_to_module(load_config(tmp_path), "GAME") == 0
