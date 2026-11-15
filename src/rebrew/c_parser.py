@@ -2076,18 +2076,20 @@ def find_extern_variables(
     results: list[ExternVar] = []
 
     def walk(node: Any) -> None:
+        # Read once: each access is a call into the binding, on every node.
+        kind = node.type
         if (
-            node.type == "function_definition"
+            kind == "function_definition"
             and function_filter is not None
             and not function_filter(node.start_point[0] + 1)
         ):
             return
-        if node.type == "declaration" and node.has_error:
+        if kind == "declaration" and node.has_error:
             # Error recovery splices tokens from neighbouring lines into the
             # declaration (`a];` became a type with an unmatched `]`), so
             # neither its name nor its type can be trusted.
             return
-        if node.type == "declaration":
+        if kind == "declaration":
             has_extern = False
             has_dllimport = False
             for child in node.children:
