@@ -1596,6 +1596,59 @@ def _as_table(value: Any, field_name: str) -> dict[str, Any]:
     return value
 
 
+#: ``rebrew-project.toml`` sections every :func:`load_config` reads as tables.
+_PROJECT_TABLE_SECTIONS = ("project", "targets", "compiler", "link")
+
+
+def check_project_document(raw: Mapping[str, Any]) -> None:
+    """Raise :class:`ConfigError` unless *raw* has the shape every reader assumes.
+
+    [project], [targets], [compiler] and [link] must be tables when present,
+    and every ``[targets.X]`` must be a table.  ``load_config``, the ``cfg``
+    editor, ``build driver``, ``calibrate-bss`` and ``init --refresh-agents``
+    all read the parsed document through these sections.
+    """
+    for name in _PROJECT_TABLE_SECTIONS:
+        _as_table(raw.get(name), name)
+    for name, target in _as_table(raw.get("targets"), "targets").items():
+        if not isinstance(target, dict):
+            raise ConfigError(f"rebrew-project.toml [targets.{name}] must be a TOML table")
+
+
+def read_project_toml(path: Path) -> dict[str, Any]:
+    """The ``rebrew-project.toml`` at *path*, parsed and :func:`check_project_document`-checked.
+
+    Raises :class:`ConfigError` when it does not parse or has the wrong shape,
+    and ``OSError`` when it cannot be read.
+    """
+    try:
+        raw = load_tomllib(path)
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
+        raise ConfigError(f"{path}: {exc}") from exc
+    check_project_document(raw)
+    return raw
+
+
+def project_default_target(raw: Mapping[str, Any]) -> str | None:
+    """``[project].default_target`` of a checked document, or ``None`` when unset.
+
+    Raises :class:`ConfigError` when it is set to anything but a non-empty string.
+    """
+    target = _as_table(raw.get("project"), "project").get("default_target")
+    if target is None:
+        return None
+    if not isinstance(target, str):
+        raise ConfigError(
+            f"rebrew-project.toml [project].default_target must be a string, "
+            f"got {type(target).__name__}"
+        )
+    if not target.strip():
+        first = next(iter(_as_table(raw.get("targets"), "targets")), None)
+        hint = "" if first is None else f'. Add: default_target = "{first}"'
+        raise ConfigError(f"rebrew-project.toml [project].default_target must not be empty{hint}")
+    return str(target)
+
+
 def _as_str(value: Any, default: str, field_name: str) -> str:
     """Return a string config value, warning and using *default* on bad types.
 
@@ -2971,10 +3024,7 @@ def load_config(
     if not toml_path.exists():
         raise ConfigNotFoundError(f"Config not found: {toml_path}")
 
-    try:
-        raw = load_tomllib(toml_path)
-    except (tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
-        raise ConfigError(f"{toml_path}: {exc}") from exc
+    raw = read_project_toml(toml_path)
 
     project_raw = _as_table(raw.get("project", {}), "project")
     targets_dict = _normalized_targets(_as_table(raw.get("targets", {}), "targets"))
@@ -3001,33 +3051,31 @@ def load_config(
             _config_warn(
                 f"rebrew-project.toml [{sec_name}]: unrecognized keys: {sorted(unknown_sec)}",
             )
+    # read_project_toml has held every [targets.X] to a table.
     for tgt_name, tgt_data in targets_dict.items():
-        if isinstance(tgt_data, dict):
-            if "marker" in tgt_data:
-                raise ConfigError(
-                    f"rebrew-project.toml [targets.{tgt_name}]: marker was replaced by module; "
-                    "rename the key and retain its existing value"
-                )
-            unknown_tgt = set(tgt_data) - KNOWN_TARGET_KEYS
-            if unknown_tgt:
-                _config_warn(
-                    f"rebrew-project.toml [targets.{tgt_name}]: unrecognized keys: {sorted(unknown_tgt)}",
-                )
-            # Compiler settings belong to the selected target. A malformed
-            # sibling must fail its own run without poisoning a healthy one.
-            sibling_compiler = tgt_data.get("compiler", {})
-            unknown_target_compiler = (
-                set(sibling_compiler) - _KNOWN_COMPILER_KEYS
-                if isinstance(sibling_compiler, dict)
-                else set()
+        if "marker" in tgt_data:
+            raise ConfigError(
+                f"rebrew-project.toml [targets.{tgt_name}]: marker was replaced by module; "
+                "rename the key and retain its existing value"
             )
-            if unknown_target_compiler:
-                _config_warn(
-                    f"rebrew-project.toml [targets.{tgt_name}.compiler]: "
-                    f"unrecognized keys: {sorted(unknown_target_compiler)}",
-                )
-        else:
-            raise ConfigError(f"rebrew-project.toml [targets.{tgt_name}] must be a TOML table")
+        unknown_tgt = set(tgt_data) - KNOWN_TARGET_KEYS
+        if unknown_tgt:
+            _config_warn(
+                f"rebrew-project.toml [targets.{tgt_name}]: unrecognized keys: {sorted(unknown_tgt)}",
+            )
+        # Compiler settings belong to the selected target. A malformed
+        # sibling must fail its own run without poisoning a healthy one.
+        sibling_compiler = tgt_data.get("compiler", {})
+        unknown_target_compiler = (
+            set(sibling_compiler) - _KNOWN_COMPILER_KEYS
+            if isinstance(sibling_compiler, dict)
+            else set()
+        )
+        if unknown_target_compiler:
+            _config_warn(
+                f"rebrew-project.toml [targets.{tgt_name}.compiler]: "
+                f"unrecognized keys: {sorted(unknown_target_compiler)}",
+            )
 
     if not targets_dict:
         raise ConfigKeyError("rebrew-project.toml has no [targets] section")
@@ -3038,20 +3086,10 @@ def load_config(
     global_compiler = global_compiler_raw
 
     if target is None:
-        target = project_raw.get("default_target")
+        target = project_default_target(raw)
         if target is None:
             raise ConfigKeyError(
                 "rebrew-project.toml [project] is missing 'default_target'. "
-                f'Add: default_target = "{all_target_names[0]}"'
-            )
-        if not isinstance(target, str):
-            raise ConfigError(
-                f"rebrew-project.toml [project].default_target must be a string, "
-                f"got {type(target).__name__}"
-            )
-        if not target.strip():
-            raise ConfigError(
-                "rebrew-project.toml [project].default_target must not be empty. "
                 f'Add: default_target = "{all_target_names[0]}"'
             )
     # Same reason the keys are NFC: a target name copied off a macOS volume
@@ -3559,6 +3597,7 @@ __all__ = [
     "check_env_source_date_epoch",
     "check_env_toolchain_pin",
     "check_env_wineprefix",
+    "check_project_document",
     "compiler_dir",
     "detect_crt_sources",
     "env_dir_path",
@@ -3578,7 +3617,9 @@ __all__ = [
     "parse_env_bool",
     "parse_env_log_level",
     "profile_flags_style",
+    "project_default_target",
     "project_toml_lock",
+    "read_project_toml",
     "source_date_epoch",
     "target_module",
     "validate_http_url",

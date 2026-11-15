@@ -436,6 +436,7 @@ files = [
     "tests/test_postlink.py",
     "tests/test_probe.py",
     "tests/test_project_toml_example.py",
+    "tests/test_project_toml_shape.py",
     "tests/test_public_surface.py",
     "tests/test_reccmp_adaptations.py",
     "tests/test_refactor.py",

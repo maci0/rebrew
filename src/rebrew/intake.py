@@ -39,11 +39,15 @@ from rebrew.utils import (
     SOURCE_CHECKOUT,
     atomic_write_text,
     c_comment_safe,
-    load_tomllib,
     read_json_text,
 )
 lazy from rebrew.cli import EXIT_OK, console, error_exit, json_print, require_config
-lazy from rebrew.config import ConfigError, target_module, validate_target_name
+lazy from rebrew.config import (
+    ConfigError,
+    read_project_toml,
+    target_module,
+    validate_target_name,
+)
 lazy from rebrew.metadata.bindings import derive_c_symbol, iter_source_bindings
 lazy from rebrew.metadata.storage import metadata_store
 lazy from rebrew.sources import iter_sources
@@ -600,9 +604,8 @@ def main(
     project_existed = project_config.exists()
     if project_existed:
         try:
-            targets = load_tomllib(project_config).get("targets", {})
-            if not isinstance(targets, dict):
-                raise ConfigError("rebrew-project.toml [targets] must be a TOML table")
+            # The arch/format patch below edits [targets.X] as a table.
+            targets = read_project_toml(project_config).get("targets", {})
             configured = [validate_target_name(name) for name in targets]
         except (OSError, ValueError) as exc:
             error_exit(f"Cannot read {project_config}: {exc}", json_mode=json_output)

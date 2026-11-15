@@ -50,7 +50,9 @@ from rebrew.config import (
     KNOWN_PROJECT_KEYS,
     KNOWN_TARGET_KEYS,
     ConfigError,
+    check_project_document,
     env_knob_errors,
+    project_default_target,
     project_toml_lock,
     validate_http_url,
     validate_source_directories,
@@ -272,7 +274,24 @@ def load_toml(
             json_mode=json_mode,
             code=EXIT_ERROR,
         )
+    # Every command below indexes [project], [targets] and [targets.X] as tables.
+    try:
+        check_project_document(doc)
+    except ConfigError as exc:
+        error_exit(f"Config error: {exc}", json_mode=json_mode, code=EXIT_ERROR)
     return doc, toml_path
+
+
+def _default_target(doc: tomlkit.TOMLDocument, *, json_mode: bool) -> str | None:
+    """``[project].default_target``, or an error exit when it is not a non-empty string.
+
+    Checked where it is read, not at load: ``cfg set project.default_target``
+    must still be able to replace a wrong value.
+    """
+    try:
+        return project_default_target(doc)
+    except ConfigError as exc:
+        error_exit(f"Config error: {exc}", json_mode=json_mode, code=EXIT_ERROR)
 
 
 def save_toml(
@@ -317,11 +336,7 @@ def _resolve_target(
             json_mode=json_mode,
         )
     if target is None:
-        project = doc.get("project", {})
-        if isinstance(project, dict):
-            target = project.get("default_target")
-        if target is None:
-            target = next(iter(targets))
+        target = _default_target(doc, json_mode=json_mode) or next(iter(targets))
     if target not in targets:
         error_exit(
             f"Target '{target}' not found. Available: {list(targets)}",

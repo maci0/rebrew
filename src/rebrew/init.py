@@ -32,6 +32,7 @@ lazy from rebrew.config import (
     DEFAULT_COMPILE_TIMEOUT,
     DEFAULT_PROJECT_JOBS,
     ConfigError,
+    read_project_toml,
     validate_target_name,
 )
 lazy from rebrew.init_profiles import (
@@ -51,7 +52,7 @@ if TYPE_CHECKING:
     from rebrew.toolchain_detect import ToolchainInfo
 lazy from rebrew.cli import console
 lazy from rebrew.compiler.toolchain import toolchain_link_candidates
-lazy from rebrew.utils import ascii_slug, atomic_write_text, read_json_text, read_toml_text
+lazy from rebrew.utils import ascii_slug, atomic_write_text, read_json_text
 lazy from rebrew.workspace.config import target_module
 
 logger = logging.getLogger(__name__)
@@ -871,11 +872,12 @@ def _refresh_agents(
     rewrites it.  With *check*, report drift and exit non-zero instead of
     writing anything. With *dry_run*, preview that drift without a mismatch exit.
     """
-    import tomllib
-
     if not toml_path.exists():
         error_exit(f"no rebrew-project.toml in {cwd}", json_mode=json_output)
-    data = tomllib.loads(read_toml_text(toml_path))
+    try:
+        data = read_project_toml(toml_path)
+    except ConfigError as exc:
+        error_exit(f"Config error: {exc}", json_mode=json_output)
     targets = data.get("targets", {})
     if not targets:
         error_exit("rebrew-project.toml declares no [targets]", json_mode=json_output)
@@ -888,7 +890,14 @@ def _refresh_agents(
             json_mode=json_output,
         )
     target_cfg = targets[target_name]
-    compiler = {**data.get("compiler", {}), **target_cfg.get("compiler", {})}
+    target_compiler = target_cfg.get("compiler", {})
+    if not isinstance(target_compiler, dict):
+        error_exit(
+            f"Config error: rebrew-project.toml [targets.{target_name}.compiler] "
+            "must be a TOML table",
+            json_mode=json_output,
+        )
+    compiler = {**data.get("compiler", {}), **target_compiler}
     compiler_profile = str(compiler.get("profile", "")).strip()
     if not compiler_profile:
         error_exit("rebrew-project.toml has no [compiler] profile", json_mode=json_output)

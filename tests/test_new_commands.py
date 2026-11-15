@@ -548,3 +548,65 @@ class TestCommandWiring:
             cli_payload(r)["error"]
             == "postlink fixer data failed: layout package has no .rdata section"
         )
+
+    @pytest.mark.parametrize(
+        ("baseline", "problem"),
+        [
+            pytest.param("[]", "must be a JSON object, got list", id="array"),
+            pytest.param("{", "cannot read baseline", id="not-json"),
+            pytest.param('{"text_differing": "x"}', "text_differing must be an integer", id="text"),
+            pytest.param('{"functions": 5}', "functions must be an array", id="functions"),
+            pytest.param('{"functions": [5]}', "functions[0] must be an object", id="row"),
+            pytest.param(
+                '{"functions": [{"name": "f", "bytes": "x"}]}',
+                "functions[0] must be an object with a string name and integer bytes",
+                id="bytes",
+            ),
+        ],
+    )
+    def test_residue_refuses_a_malformed_baseline(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, baseline: str, problem: str
+    ) -> None:
+        """``--baseline`` is a user-supplied file: anything but a residue report
+        names the file and the bad field instead of raising out of the command."""
+        from test_postlink import make_full_pe
+        from typer.testing import CliRunner
+
+        from rebrew.residue import app
+
+        reference = make_full_pe()
+        self._residue_project(tmp_path, reference, reference)
+        path = tmp_path / "old.json"
+        path.write_text(baseline, encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        r = CliRunner().invoke(app, ["--json", "--baseline", str(path)])
+        assert r.exit_code == 2, r.exception
+        error = cli_payload(r)["error"]
+        assert str(path) in error
+        assert problem in error
+
+    def test_residue_baseline_is_read_before_new_baseline_writes_it(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The same path for ``--baseline`` and ``--new-baseline`` compares
+        against the previous report, then replaces it."""
+        import json
+
+        from test_postlink import make_full_pe
+        from typer.testing import CliRunner
+
+        from rebrew.residue import app
+
+        reference = make_full_pe()
+        self._residue_project(tmp_path, reference, reference)
+        path = tmp_path / "base.json"
+        path.write_text(json.dumps({"text_differing": 7, "functions": []}), encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        r = CliRunner().invoke(
+            app, ["--json", "--baseline", str(path), "--new-baseline", str(path)]
+        )
+        assert r.exit_code == 0, r.exception
+        delta = cli_payload(r)["delta_vs_baseline"]
+        assert delta["text_before"] == 7
+        assert delta["text_delta"] == -7
+        assert json.loads(path.read_text(encoding="utf-8"))["text_differing"] == 0

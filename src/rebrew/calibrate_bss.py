@@ -26,15 +26,14 @@ lazy import re
 lazy import shlex
 lazy import subprocess
 lazy import tempfile
-lazy import tomllib
 
 import typer
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, untrusted_ident
+lazy from rebrew.errors import ConfigError
 lazy from rebrew.formats.pe_headers import find_section
 lazy from rebrew.utils import (
     atomic_write_text,
-    load_tomllib,
     read_source_text,
     run_process_group,
     safe_shlex_split,
@@ -67,18 +66,17 @@ def _layout_data_vs(root: Path, target: str | None = None) -> int | None:
 
     *target* selects its ``layout/<target>/`` package; without it the
     project's ``default_target`` applies (falling back to a package scan).
+    A ``rebrew-project.toml`` that does not parse or has the wrong shape
+    raises :class:`~rebrew.errors.ConfigError`.
     """
+    from rebrew.config import project_default_target, read_project_toml
     from rebrew.layout_meta import read_layout_geometry
 
     if target:
         targets = [target]
     else:
-        default = ""
-        with contextlib.suppress(OSError, tomllib.TOMLDecodeError):
-            default = str(
-                load_tomllib(root / "rebrew-project.toml").get("project", {}).get("default_target")
-                or ""
-            )
+        toml = root / "rebrew-project.toml"
+        default = project_default_target(read_project_toml(toml)) if toml.is_file() else None
         targets = [default] if default else []
         targets += [
             p.parent.name
@@ -142,7 +140,10 @@ def main(
     if not stub.exists():
         error_exit(f"stub file not found: {stub}", json_mode=json_output)
     if target_vs is None:
-        target_vs_int = _layout_data_vs(root, target=target)
+        try:
+            target_vs_int = _layout_data_vs(root, target=target)
+        except ConfigError as exc:
+            error_exit(f"Config error: {exc}", json_mode=json_output)
         if target_vs_int is None:
             error_exit(
                 "no target VS given and no .data vs in the layout metadata", json_mode=json_output

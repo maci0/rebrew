@@ -31,7 +31,6 @@ lazy import stat
 lazy import subprocess
 lazy import sys
 lazy import tempfile
-lazy import tomllib
 lazy import uuid
 lazy from dataclasses import replace
 lazy from typing import Any
@@ -45,12 +44,16 @@ lazy from rebrew.compiler.toolchain import (
     bind_mount,
     docker_hardening_args,
 )
-lazy from rebrew.config import ConfigError, check_env_wineprefix, source_date_epoch
+lazy from rebrew.config import (
+    ConfigError,
+    check_env_wineprefix,
+    read_project_toml,
+    source_date_epoch,
+)
 lazy from rebrew.utils import (
     atomic_write_text,
     container_runtime,
     file_lock,
-    load_tomllib,
     run_process_group,
 )
 lazy from rebrew.workspace import walk_up_to_root
@@ -138,26 +141,32 @@ def _docker_user_args() -> list[str]:
     return []
 
 
-def _load_profile(root: Path) -> str:
+def _project_document(root: Path) -> dict[str, Any]:
+    """*root*'s ``rebrew-project.toml`` checked by ``read_project_toml``, or an error exit."""
+    path = root / "rebrew-project.toml"
     try:
-        cfg = load_tomllib(root / "rebrew-project.toml")
-    except (OSError, tomllib.TOMLDecodeError) as exc:
-        error_exit(f"cannot read {root}/rebrew-project.toml: {exc}")
+        return read_project_toml(path)
+    except ConfigError as exc:
+        error_exit(f"Config error: {exc}")
+    except OSError as exc:
+        error_exit(f"cannot read {path}: {exc}")
+
+
+def _load_profile(cfg: dict[str, Any]) -> str:
+    """The compiler profile CMake builds with, from a checked project document."""
     # A target may override the project compiler profile.  CMake fixes one
     # compiler for the whole tree and has no Rebrew target identity, so fall
     # back to the project's default target: building with the project-level
     # profile there emits the wrong code generator for any target that
     # overrides it (a Processor-Pack target compiled as plain SP5 produces the
     # non-PP x87 compare idiom).
-    project = cfg.get("project", {})
-    default_target = project.get("default_target") if isinstance(project, dict) else None
-    targets = cfg.get("targets", {})
-    if isinstance(default_target, str) and isinstance(targets, dict):
-        target = targets.get(default_target)
-        if isinstance(target, dict):
-            target_compiler = target.get("compiler")
-            if isinstance(target_compiler, dict) and target_compiler.get("profile"):
-                return str(target_compiler["profile"])
+    # read_project_toml has held [project], [targets], each target and
+    # [compiler] to tables; a target's own compiler table is not checked.
+    default_target = cfg.get("project", {}).get("default_target")
+    if isinstance(default_target, str) and default_target in cfg.get("targets", {}):
+        target_compiler = cfg["targets"][default_target].get("compiler")
+        if isinstance(target_compiler, dict) and target_compiler.get("profile"):
+            return str(target_compiler["profile"])
     return str(cfg.get("compiler", {}).get("profile", "msvc-6.0"))
 
 
@@ -584,14 +593,13 @@ def driver_main(
             pinned = a.split(":", 1)[1]
         else:
             argv.append(a)
-    name = pinned or os.environ.get("REBREW_TOOLCHAIN", "").strip() or _load_profile(root)
+    project = _project_document(root)
+    name = pinned or os.environ.get("REBREW_TOOLCHAIN", "").strip() or _load_profile(project)
     spec = _resolve_spec(name)
     from rebrew.compiler.toolchain import ToolchainError
 
     # CMake has a profile pin, but no Rebrew target identity: use the project backend.
-    backend = (
-        load_tomllib(root / "rebrew-project.toml").get("compiler", {}).get("execution_backend", "")
-    )
+    backend = project.get("compiler", {}).get("execution_backend", "")
     if backend not in ("", "docker", "podman", "unshare"):
         error_exit("compiler.execution_backend must be docker, podman, or unshare")
     try:

@@ -220,6 +220,49 @@ def _nonmatching_from_cache(cfg: Any, image_base: int, text_rva: int) -> list[tu
     return out
 
 
+def _is_int(value: Any) -> bool:
+    """True for a JSON integer (``bool`` is an ``int`` subclass but not one)."""
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _load_baseline(path: Path) -> tuple[int | None, dict[str, int]]:
+    """``(text_differing, {function name: bytes})`` from a ``--new-baseline`` report.
+
+    The file is user-supplied, so anything but the report's own shape raises
+    :class:`ResidueError` naming *path* and the offending field: unreadable or
+    invalid JSON, a top level that is not an object, a non-integer
+    ``text_differing``, a ``functions`` that is not an array, or a row without
+    a string ``name`` and an integer ``bytes``.
+    """
+    import json
+
+    try:
+        old = json.loads(read_json_text(path))
+    except (OSError, ValueError) as exc:
+        raise ResidueError(f"cannot read baseline {path}: {exc}") from exc
+    if not isinstance(old, dict):
+        raise ResidueError(f"baseline {path} must be a JSON object, got {type(old).__name__}")
+    text_differing = old.get("text_differing")
+    if text_differing is not None and not _is_int(text_differing):
+        raise ResidueError(f"baseline {path}: text_differing must be an integer")
+    rows = old.get("functions", [])
+    if not isinstance(rows, list):
+        raise ResidueError(f"baseline {path}: functions must be an array")
+    functions: dict[str, int] = {}
+    for n, row in enumerate(rows):
+        if (
+            not isinstance(row, dict)
+            or not isinstance(row.get("name"), str)
+            or not _is_int(row.get("bytes"))
+        ):
+            raise ResidueError(
+                f"baseline {path}: functions[{n}] must be an object with a string "
+                "name and integer bytes"
+            )
+        functions[row["name"]] = row["bytes"]
+    return text_differing, functions
+
+
 def layout_map_gate_note(cover: tuple[int, int, int, int]) -> str | None:
     """Warning text for a ``map_coverage`` result, or None when it passes.
 
@@ -274,6 +317,15 @@ def main(
     built_path = Path(built) if built else Path(cfg.root) / "build" / cfg.target_name
     if not built_path.is_file():
         error_exit(f"Built image not found: {built_path}", json_mode=json_output)
+    # Read before anything runs or --new-baseline writes, so a bad file fails
+    # first and the same path names the previous report.
+    old_text: int | None = None
+    old_map: dict[str, int] = {}
+    if baseline:
+        try:
+            old_text, old_map = _load_baseline(Path(baseline))
+        except ResidueError as exc:
+            error_exit(str(exc), json_mode=json_output)
 
     from rebrew.formats.binary_loader import load_binary
     from rebrew.layout_meta import load_package
@@ -335,8 +387,6 @@ def main(
         atomic_write_text(Path(new_baseline), json.dumps(summary, indent=2), encoding="utf-8")
         console.print(f"baseline written ({untrusted_ident(new_baseline)})")
     if baseline:
-        old = json.loads(read_json_text(Path(baseline)))
-        old_map = {f["name"]: f["bytes"] for f in old.get("functions", [])}
         new_map = {f["name"]: f["bytes"] for f in summary["functions"]}
         delta_rows = [
             {
@@ -349,9 +399,9 @@ def main(
             if old_map.get(name, 0) != new_map.get(name, 0)
         ]
         summary["delta_vs_baseline"] = {
-            "text_before": old.get("text_differing"),
+            "text_before": old_text,
             "text_after": summary["text_differing"],
-            "text_delta": summary["text_differing"] - (old.get("text_differing") or 0),
+            "text_delta": summary["text_differing"] - (old_text or 0),
             "functions": delta_rows,
         }
 
