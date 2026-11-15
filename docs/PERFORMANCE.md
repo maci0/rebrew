@@ -2,6 +2,71 @@
 
 Measurements of Rebrew hot paths, retained optimizations, and rejected experiments.
 
+## Ten profiled hot-path rounds (2026-11-15)
+
+Baseline `ec604a1f` (6.40.1), candidate `c4f90954`. Each workload ran 10 times
+per side from one guild-rebrew snapshot (5,703 C files, 14.4 MB), with the same
+interpreter and the source tree chosen by `PYTHONPATH`. The metric is retired
+user-space instructions, which host load does not move:
+
+```bash
+PYTHONHASHSEED=0 NO_COLOR=1 COLUMNS=120 PYTHONPATH=<rebrew>/src \
+  perf stat -x, -e instructions:u,task-clock -- \
+  <rebrew>/.venv/bin/python -m rebrew.app.main status --json
+```
+
+Medians in billions of instructions. Spread is (max - min) / median over the 10
+runs; every run of a workload printed the same stdout (sha256), on both sides.
+
+| Workload | Before | After | Change | Spread before / after |
+|---|---:|---:|---:|---:|
+| `--version` | 2.53 | 2.01 | -20.7% | 0.06% / 0.19% |
+| `status --json` | 483.71 | 56.37 | -88.3% | 0.29% / 1.64% |
+| `todo --json` | 484.53 | 57.25 | -88.2% | 0.27% / 0.13% |
+| `lint --json` | 262.73 | 243.98 | -7.1% | 0.02% / 0.09% |
+| `data list --json` | 143.30 | 137.07 | -4.3% | 0.01% / 0.08% |
+| `coverage catalog --json` | 628.66 | 193.62 | -69.2% | 0.04% / 0.02% |
+| `source graph --format summary` | 249.72 | 228.05 | -8.7% | 0.03% / 0.02% |
+| `orphans list --json` | 626.51 | 191.54 | -69.4% | 0.04% / 0.03% |
+| `recommend --json` | 1,462.48 | 551.91 | -62.3% | 0.04% / 0.36% |
+| total | 4,344.2 | 1,661.8 | -61.7% | |
+
+The after side's `status` spread comes from its first run, which also compiled
+the fresh worktree's bytecode (57.2 G; the other nine are 56.3-56.4 G).
+
+Retained changes, in profile order:
+
+1. `compiler.cache` lists each include directory once per (device, inode,
+   mtime) and looks names up in a casefolded index, instead of a `scandir` and
+   NFC fold per path component per lookup (the largest profiled cost in
+   `status`, `todo`, `catalog`, `orphans` and `recommend`). A directory modified within 2 s
+   of the lookup is not cached (racy-git rule).
+2. `mask_preprocessor_comments` copies runs between significant bytes instead
+   of one byte at a time.
+3. The anchored-source cache holds 32 MiB instead of 8, so guild-rebrew's 3,094
+   anchored files (9.8 MB) stay resident within one command.
+4. `find_c_function_definitions` and `find_extern_variables` keep their
+   results per parsed source, as the tree memo does.
+5. `_variable_tree` reads line numbers from `node.start_point` instead of a
+   per-byte newline index.
+6. `find_variable_roles` and `_msvc_asm_token_groups` read `node.type` once per
+   node, and the asm grouping returns before parsing a source without `_asm`.
+7. Metadata loads copy plain TOML values with `utils.clone_plain` instead of
+   `copy.deepcopy`.
+8. `cli.add_global_options` builds the version/verbose/quiet options once.
+
+Equivalence beyond the identical command output: the old and new
+`mask_preprocessor_comments` agree on 5,786 corpus files and 20,000 random
+strings; parse trees, extern scans (both modes), function definitions,
+variable roles and asm spans agree on all 5,779 corpus sources; `--help` and
+the CLI schema hash identically.
+
+Rejected: raising the parse-tree memo cap to 64 MiB left the parse count at
+9,855 against 9,859, because the extra parses are of distinct inputs.
+Replacing the function-definition walk with a tree-sitter Query
+(`(function_definition) @f`) cost 10.8 G instructions over the corpus against
+5.8 G for the Python walk, since the query still visits every node.
+
 ## Ten CPU-time microbenchmarks (2026-10-29)
 
 [Ten synthetic hotpath workloads](PERFORMANCE_TEN_HOTPATHS.md) exercise metadata,
