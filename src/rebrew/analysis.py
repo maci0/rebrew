@@ -630,6 +630,7 @@ def reachable_code(
     refs: list[Xref] = []
     md = capstone_for(info)
     starts, ends = _merged_ranges(info)
+    screen = _screens_operands(info, starts)
     _, op_imm, _ = _op_constants()
     while pending:
         pc = pending.pop()
@@ -637,7 +638,10 @@ def reachable_code(
             continue
         if pc in covered:
             raise ValueError(f"branch target 0x{pc:x} overlaps an instruction")
-        insn = next(md.disasm(raw[pc - va :], pc, count=1), None)
+        # One instruction is at most 15 bytes: slicing the rest of the body
+        # copied it once per decoded instruction.
+        offset = pc - va
+        insn = next(md.disasm(raw[offset : offset + _X86_MAX_INSN_BYTES], pc, count=1), None)
         if insn is None or insn.mnemonic == "db":
             raise ValueError(f"cannot decode reachable instruction at 0x{pc:x}")
         occupied = set(range(pc, pc + insn.size))
@@ -645,9 +649,10 @@ def reachable_code(
             raise ValueError(f"instruction at 0x{pc:x} overlaps another instruction")
         covered.update(occupied)
         decoded[pc] = Insn(pc, insn.size, insn.mnemonic, insn.op_str, bytes(insn.bytes))
-        for ref in _classify_insn(info, insn, include_indexed=include_indexed):
-            if _inside_ranges(starts, ends, ref[2]):
-                refs.append(Xref(*ref))
+        if not screen or _prints_image_address(insn.op_str, starts, ends):
+            for ref in _classify_insn(info, insn, include_indexed=include_indexed):
+                if _inside_ranges(starts, ends, ref[2]):
+                    refs.append(Xref(*ref))
         if insn.group(capstone.CS_GRP_RET) or insn.group(capstone.CS_GRP_IRET):
             continue
         if insn.mnemonic in {"int3", "ud2", "hlt"}:
