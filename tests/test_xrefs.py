@@ -292,12 +292,13 @@ class TestCallsFromInventory:
     """
 
     def test_register_cached_import_is_attributed_to_its_callee(self, tmp_path: Path) -> None:
-        """Behavioral pin for the held-register walk in ``build_calls_from_payload``.
+        """Behavioral pin for the held-register resolution in ``build_calls_from_payload``.
 
-        msvc6 emits ONE ``mov ecx,[__imp__X]`` then any number of ``call ecx``;
+        msvc6 emits ONE ``mov esi,[__imp__X]`` then any number of ``call esi``;
         counting relocations or grepping finds 1 call where there are N.
         The payload must attribute every ``call reg`` to the import the
-        register last held — and a clobbering write must drop the attribution.
+        register holds, and drop the attribution after a clobbering write or,
+        for a caller-saved register, after a call.
         """
         import struct
 
@@ -319,8 +320,8 @@ class TestCallsFromInventory:
             path.write_bytes(final)
             return path, len(code)
 
-        # mov ecx,[slot]; call ecx; call ecx; ret — one load, two calls.
-        path, size = build(b"\x8b\x0d\x00\x00\x00\x00\xff\xd1\xff\xd1\xc3", 2)
+        # mov esi,[slot]; call esi; call esi; ret — one load, two calls.
+        path, size = build(b"\x8b\x35\x00\x00\x00\x00\xff\xd6\xff\xd6\xc3", 2)
         payload = build_calls_from_payload(path, PROBE_TEXT_VA, size)
         assert payload["total_calls"] == 2
         assert payload["callees"] == [
@@ -329,6 +330,15 @@ class TestCallsFromInventory:
                 "count": 2,
                 "sites": [PROBE_TEXT_VA + 6, PROBE_TEXT_VA + 8],
             }
+        ]
+
+        # mov ecx,[slot]; call ecx; call ecx; ret — HeapCreate may change ecx,
+        # so the second call is not attributed.
+        path, size = build(b"\x8b\x0d\x00\x00\x00\x00\xff\xd1\xff\xd1\xc3", 2)
+        payload = build_calls_from_payload(path, PROBE_TEXT_VA, size)
+        assert payload["callees"] == [
+            {"name": "HeapCreate", "count": 1, "sites": [PROBE_TEXT_VA + 6]},
+            {"name": "reg:ecx", "count": 1, "sites": [PROBE_TEXT_VA + 8]},
         ]
 
         # A clobbering write drops the held callee: the call is unattributed.

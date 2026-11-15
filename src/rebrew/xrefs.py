@@ -140,9 +140,10 @@ def build_calls_from_payload(binary: Path, start: int, size: int) -> dict[str, A
     * the direct-vs-register encoding ratio is a register-allocation artefact,
       not a source property.
 
-    So this resolves each `call reg` by walking backwards to the instruction
-    that last defined that register, and attributes it to the same callee as a
-    direct call.  The result is the inventory that actually reflects the source.
+    So each `call reg` that :func:`rebrew.analysis.scan_references` reports as
+    an ``iat_call`` (the register holds that import slot's pointer on every
+    path) is attributed to the same callee as a direct call.  The result is the
+    inventory that actually reflects the source.
     """
     info = load_binary(binary)
     try:
@@ -158,10 +159,13 @@ def build_calls_from_payload(binary: Path, start: int, size: int) -> dict[str, A
         )
         imports = {}
 
-    insns = iter_instructions(info, start, size)
-    # reg -> callee name, updated as we walk; a call through a register is
-    # attributed to whatever that register last held.
-    held: dict[str, str] = {}
+    end = start + size
+    # call reg site -> the import slot its register holds on every path.
+    held = {
+        ref.from_va: ref.to_va
+        for ref in scan_references(info)
+        if ref.kind == "iat_call" and start <= ref.from_va < end
+    }
     counts: Counter[str] = Counter()
     sites: dict[str, list[int]] = {}
 
@@ -169,29 +173,19 @@ def build_calls_from_payload(binary: Path, start: int, size: int) -> dict[str, A
         counts[name] += 1
         sites.setdefault(name, []).append(va)
 
-    for ins in insns:
-        mnem, ops = ins.mnemonic, ins.op_str
-        if mnem == "mov" and "," in ops:
-            dst, src = (p.strip() for p in ops.split(",", 1))
-            if src.startswith("dword ptr [0x") and dst.isalpha():
-                slot = int(src[src.index("[") + 1 : src.index("]")], 16)
-                if slot in imports:
-                    held[dst] = imports[slot]
-                else:
-                    held.pop(dst, None)
-            elif dst.isalpha():
-                held.pop(dst, None)
-        elif mnem == "call":
-            op = ops.strip()
-            if op.startswith("dword ptr [0x"):
-                slot = int(op[op.index("[") + 1 : op.index("]")], 16)
-                record(imports.get(slot, f"[{slot:#x}]"), ins.va)
-            elif op.startswith("0x"):
-                record(op, ins.va)
-            elif op in held:
-                record(held[op], ins.va)
-            else:
-                record(f"reg:{op}", ins.va)
+    for ins in iter_instructions(info, start, size):
+        if ins.mnemonic != "call":
+            continue
+        op = ins.op_str.strip()
+        if op.startswith("dword ptr [0x"):
+            slot = int(op[op.index("[") + 1 : op.index("]")], 16)
+            record(imports.get(slot, f"[{slot:#x}]"), ins.va)
+        elif op.startswith("0x"):
+            record(op, ins.va)
+        elif ins.va in held:
+            record(imports.get(held[ins.va], f"[{held[ins.va]:#x}]"), ins.va)
+        else:
+            record(f"reg:{op}", ins.va)
 
     return {
         "start": start,
