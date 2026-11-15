@@ -2,6 +2,8 @@
 
 ### Fixed
 
+- `rebrew build residue`'s name column holds exactly 40 terminal columns when a symbol name ends in a zero-width joiner: the padding is measured on the padded text, since the joiner took the first padding space into its cluster and the column came out one short.
+
 - One refused compile no longer fails a `rebrew-jobs` job. The compile mediator turned every non-200 answer into a 503 without its `Retry-After`, kept a 429 throttle as an unresolved intent that fenced every other intent of the job with 409 until `compile-reconcile`, and retained a `capacity` answer as the intent's result, replaying it under the same `Idempotency-Key` to every retry. A refusal without a verdict (a 4xx such as a 429, or a 200 `capacity`, `timeout`, `runner_unavailable`, `publish_failed` or `provenance_unavailable`) now reaches the worker with its status and `Retry-After`, is not kept as the result, and the intent's next attempt draws a new key; an ambiguous outcome keeps its key and the worker's retry resends it; one intent's state never holds back another's. `compile-intents` lists a refused intent as `not_run`, which does not fence the job. Answers up to 16 MiB are read (recompile's log alone may be 4 MiB; the cap was 1 MiB), and a spent budget answers 403 instead of a retryable 429.
 
 - Job-socket compiles retry `recompile_retries` times and wait the service's `Retry-After` through the process's `ServiceGate`, like every other remote compile; they were never retried.

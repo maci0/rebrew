@@ -55,12 +55,16 @@ def _name_column(name: str) -> str:
     emoji, and combining marks in two or zero columns, so a Japanese symbol
     name pushed every figure to its right out of alignment.  Truncation uses
     the same unit as the padding: cutting by code points would let a long CJK
-    name overflow the column instead of fitting it.
+    name overflow the column instead of fitting it.  Widths do not add up across
+    a join (a trailing zero-width joiner takes the first padding space into its
+    cluster), so the padding is measured on the padded text.
     """
     out = name
     while cell_len(out) > _NAME_COLUMN:
         out = out[:-1]
-    return out + " " * (_NAME_COLUMN - cell_len(out))
+    while cell_len(out) < _NAME_COLUMN:
+        out += " "
+    return out
 
 
 _EPILOG = (

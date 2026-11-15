@@ -14,7 +14,7 @@ from __future__ import annotations
 import struct
 
 import pytest
-from hypothesis import assume, given, settings
+from hypothesis import assume, example, given, settings
 from hypothesis import strategies as st
 
 from rebrew.residue import (
@@ -242,6 +242,7 @@ def test_layout_map_gate_flags_a_real_shortfall_and_passes_a_full_map() -> None:
 
 @given(st.text())
 @settings(max_examples=200)
+@example("\u200d")  # a trailing zero-width joiner joins the first padding space
 def test_name_column_is_exactly_the_declared_width(text: str) -> None:
     """The name column holds ``_NAME_COLUMN`` terminal columns, whatever the text.
 
