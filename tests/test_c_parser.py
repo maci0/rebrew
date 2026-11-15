@@ -800,6 +800,25 @@ class TestReplaceFunctionPrototype:
         ) == source.replace("target(int value)", "target(void* value)")
 
 
+def test_extern_function_names_reuse_the_definition_tree(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without asm, the extern scan parses the text the definition scan already parsed."""
+    import rebrew.c_parser as parser
+
+    source = "extern int __stdcall reuse_ext(void);\nint __cdecl reuse_def(void) { return 0; }\n"
+    parser.find_c_function_definitions(source)
+    real_parser, language = parser._get_parser()
+    parses = []
+
+    class Counting:
+        def parse(self, data: bytes) -> object:
+            parses.append(data)
+            return real_parser.parse(data)
+
+    monkeypatch.setattr(parser, "_get_parser", lambda: (Counting(), language))
+    assert parser.find_extern_function_names(source) == ["reuse_ext"]
+    assert parses == []
+
+
 def test_function_trees_mask_each_source_once(monkeypatch: pytest.MonkeyPatch) -> None:
     """Scans of the same text share one MSVC masking; another text is masked again."""
     import rebrew.c_parser as parser

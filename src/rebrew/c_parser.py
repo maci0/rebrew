@@ -1725,7 +1725,14 @@ def find_extern_function_names(source: str) -> list[str]:
     if not source or not source.strip():
         return []
     try:
-        tree, src_bytes = parse_c_source(strip_cc(source))
+        # Same-length blanking: without asm this is the text _function_trees
+        # already parsed, so the tree comes from the parse memo. strip_cc's
+        # deletion joins the lines of a __declspec(...) that spans them, which
+        # can change error recovery, so such a source keeps it.
+        joins_lines = "__declspec" in source and any(
+            "\n" in match[0] for match in _DECLSPEC_PATTERN.finditer(source)
+        )
+        tree, src_bytes = parse_c_source(strip_cc(source) if joins_lines else _mask_cc(source))
     except ImportError:
         return []
 
