@@ -1015,7 +1015,7 @@ def discover_functions(binary: Path, *, min_size: int = 8) -> Discovery:
     Plugin discoverers (``rebrew.discoverers``) join every branch under
     their entry-point name.
     """
-    from rebrew.formats.binary_loader import is_mz, is_ne, load_binary
+    from rebrew.formats.binary_loader import iat_slot_vas, is_mz, is_ne, load_binary
 
     d = Discovery()
     with _DISCOVERERS_LOCK:
@@ -1077,6 +1077,14 @@ def discover_functions(binary: Path, *, min_size: int = 8) -> Discovery:
     if extents:
         inside = _extent_contains(extents)
         merged = {va: entry for va, entry in merged.items() if va in symbols or not inside(va)}
+
+    # A PE's import address table is pointer data, and MSVC can open .text with
+    # it (Win2k notepad): a sweep reads its slots as code, so no candidate may
+    # start between its first and last slot.
+    slots = iat_slot_vas(binary)
+    if slots:
+        first_slot, last_slot = min(slots), max(slots)
+        merged = {va: entry for va, entry in merged.items() if not first_slot <= va <= last_slot}
 
     # Validate: drop candidates that fall inside a larger span.
     ordered = sorted(merged.items())

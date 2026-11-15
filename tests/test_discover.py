@@ -153,6 +153,34 @@ class TestDiscoverFunctions:
         assert all(size > 0 for _va, size, _n in d.functions)
 
 
+class TestImportAddressTable:
+    def test_a_candidate_inside_the_import_address_table_is_dropped(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Win2k notepad opens .text with its IAT: the sweep named the table's start
+        (0x1001000, 708 bytes of import pointers) and rizin a slot near its end as
+        functions, which listed as three garbage instructions and decompiled to
+        "external symbol -- no code at this address"."""
+        from bin_util import make_pe
+
+        from rebrew.formats.binary_loader import iat_slot_vas
+
+        code = bytes.fromhex("55 8b ec 5d c3") + b"\xcc" * 11
+        binary = tmp_path / "app.exe"
+        binary.write_bytes(
+            make_pe(code, imports=[("kernel32.dll", ["ExitProcess", "GetTickCount", "Sleep"])])
+        )
+        slots = sorted(iat_slot_vas(binary))
+        assert len(slots) == 3
+        monkeypatch.setattr(
+            "rebrew.discover._rizin_functions",
+            lambda b, c: [(slots[0], 0x40, "fcn.iat"), (slots[-1], 0x10, "fcn.slot")],
+        )
+        monkeypatch.setattr("rebrew.discover._capstone_sweep", lambda b: [])
+        found = discover_functions(binary, min_size=1)
+        assert [va for va, _size, _name in found.functions if slots[0] <= va <= slots[-1]] == []
+
+
 class TestDiscovererPlugins:
     """Third-party discoverers join every branch via rebrew.discoverers."""
 

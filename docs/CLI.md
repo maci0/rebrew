@@ -2649,7 +2649,9 @@ Chained function enumeration: rizin `aaa` → `aa; aap` → a capstone linear
 sweep, merged with boundary validation and gap-based sizes; fixes rizin's
 garbled merges and short sizes.  16-bit NE binaries short-circuit to the
 native NE loader's linear sweep (rizin cannot analyze NE; its output is
-garbage file-offset "functions").
+garbage file-offset "functions").  In a PE, no candidate starts between the
+first and last import-address-table slot: MSVC can open `.text` with the
+table, and a sweep reads its pointers as code.
 
 Discoverers are plugins: `rebrew.discoverers` entry points
 (`fn(binary: Path) -> [(va, size, name)]`) join every format branch under

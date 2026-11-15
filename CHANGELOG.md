@@ -18,6 +18,10 @@
 
 - `rebrew.retained_source_operation` refuses a variant search whose `generations` or `population` is over 100 (`rebrew.ops.VARIANT_MAX_GENERATIONS`, `VARIANT_MAX_POPULATION`) with 400 `invalid-request` naming the cap, before the snapshot is staged; they had no upper bound, so a search of 10**6 generations was accepted and ran until its deadline. At both caps the search compiles at most 10,000 candidates, about 1,460 s at the measured 585 ms per compile and compare (`docs/PERFORMANCE.md`) over the GA's default 4 parallel jobs, inside the op's 3600 s deadline. The lower bounds are checked before staging too.
 
+### Fixed
+
+- Function discovery (`rebrew intake`, `rebrew binary functions`, `rebrew.analyse`) drops every candidate that starts inside a PE's import address table (`iat_slot_vas`, first to last slot). Win2k notepad opens `.text` with its IAT, and the inventory listed the table's start (0x1001000, 708 bytes of import pointers, which disassembled to three garbage instructions and decompiled to Kuna's "external symbol -- no code at this address") and a slot near its end (0x10012c4, 1500 bytes over the IAT tail, the debug directory and strings) as functions 1 and 2. Its first function is now 0x10018a0. A project analysed before keeps its inventory until it is analysed again.
+
 ### Performance
 
 - On a guild-rebrew snapshot, `status` and `todo` retire 88% fewer instructions, `coverage catalog` and `orphans list` 69% fewer, `recommend` 62% fewer, and `--version` 21% fewer, with identical output ([PERFORMANCE.md](docs/PERFORMANCE.md#ten-profiled-hot-path-rounds-2026-11-15)). Include lookup lists each directory once per (device, inode, mtime) instead of scanning it per path component, the anchored-source cache holds 32 MiB, repeated C scans of one source reuse their result, and metadata loads copy plain values without `copy.deepcopy`.
