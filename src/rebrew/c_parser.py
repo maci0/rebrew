@@ -2792,6 +2792,9 @@ def function_signatures(source: str) -> dict[str, str]:
     bury in an ERROR node are found, and the text keeps them.  The first
     definition of a name wins.
     """
+    cached = recall_source_value("function_signatures_memo", source)
+    if cached is not None:
+        return dict(cached)
     raw = source.encode("utf-8", errors="surrogateescape")
     found: dict[str, str] = {}
     for tree, parsed, _regions in _function_trees(source):
@@ -2809,6 +2812,7 @@ def function_signatures(source: str) -> dict[str, str]:
                     found[name] = " ".join(text.split())
                 continue
             pending.extend(reversed(node.named_children))
+    store_source_value("function_signatures_memo", source, tuple(found.items()))
     return found
 
 

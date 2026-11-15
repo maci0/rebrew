@@ -819,6 +819,24 @@ def test_extern_function_names_reuse_the_definition_tree(monkeypatch: pytest.Mon
     assert parses == []
 
 
+def test_function_signatures_walk_each_source_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A repeated signature scan reuses its walk; callers own the returned dict."""
+    import rebrew.c_parser as parser
+
+    source = "int sig_once(int a) { return a; }\n"
+    original = parser._function_trees
+    calls = []
+
+    def counted(text: str) -> Any:
+        calls.append(text)
+        return original(text)
+
+    monkeypatch.setattr(parser, "_function_trees", counted)
+    parser.function_signatures(source).clear()
+    assert parser.function_signatures(source) == {"sig_once": "int sig_once(int a)"}
+    assert calls == [source]
+
+
 def test_function_trees_mask_each_source_once(monkeypatch: pytest.MonkeyPatch) -> None:
     """Scans of the same text share one MSVC masking; another text is masked again."""
     import rebrew.c_parser as parser
