@@ -50,11 +50,13 @@ store.
 """
 
 import contextlib
+import datetime as dt
 import functools
 import logging
 lazy import bisect
 lazy import codecs
 lazy import concurrent.futures
+lazy import copy
 lazy import hashlib
 lazy import math
 lazy import os
@@ -386,6 +388,29 @@ console = _TargetSafeConsole(stderr=True, highlight=False)
 #: ``[cache] size_limit_mib`` and every size cap and MiB readout convert
 #: through this one constant.
 BYTES_PER_MIB = 1024 * 1024
+
+#: Immutable leaves of parsed TOML/JSON documents; shared rather than copied.
+_TOML_TIME_TYPES: frozenset[type] = frozenset({dt.datetime, dt.date, dt.time})
+_PLAIN_SCALARS: frozenset[type] = frozenset({str, int, float, bool, type(None), bytes})
+
+
+def clone_plain(value: Any) -> Any:
+    """Deep copy of parsed metadata: exact ``dict``/``list`` trees are rebuilt.
+
+    Immutable scalars (and ``datetime``/``date``/``time``, which TOML parses to)
+    are shared. Any other object, including a tomlkit container, goes through
+    :func:`copy.deepcopy`, so its type is kept. Equal to ``copy.deepcopy`` by
+    value; unlike it, a ``dict`` or ``list`` referenced twice is copied twice,
+    which parsed documents never contain.
+    """
+    kind = type(value)
+    if kind is dict:
+        return {key: clone_plain(item) for key, item in value.items()}
+    if kind is list:
+        return [clone_plain(item) for item in value]
+    if kind in _PLAIN_SCALARS or kind in _TOML_TIME_TYPES:
+        return value
+    return copy.deepcopy(value)
 
 
 def truncate_text(text: str, max_chars: int) -> str:

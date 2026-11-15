@@ -18,7 +18,6 @@ import logging
 import threading
 from pathlib import Path
 from typing import Any
-lazy import copy
 lazy import json
 lazy import unicodedata
 lazy from collections.abc import Sequence
@@ -29,7 +28,7 @@ lazy from tomlkit import TOMLDocument
 
 lazy from rebrew.metadata.source_schema import validate_source_metadata
 lazy from rebrew.metadata.storage import metadata_store
-lazy from rebrew.utils import atomic_write_text
+lazy from rebrew.utils import atomic_write_text, clone_plain
 
 FORMAT_KEY = "format"
 FORMAT_VERSION = 2
@@ -268,7 +267,7 @@ def load_metadata_doc(
         if cached is not None and cached[0] == current_fp:
             # Deep copy: callers mutate the entries they get (merge overlays,
             # status promotion), and an aliased dict would corrupt the cache.
-            return copy.deepcopy(cached[1]) if deepcopy else cached[1]
+            return clone_plain(cached[1]) if deepcopy else cached[1]
 
     result = _read_doc_cache(path, current_fp, known_fields)
     if result is None:
@@ -287,20 +286,20 @@ def load_metadata_doc(
             parsed[:] = [rows]
 
         store.read(description, validate=validate)
-        result = copy.deepcopy(parsed[0]) if parsed else {}
+        result = clone_plain(parsed[0]) if parsed else {}
         _write_doc_cache(path, current_fp, known_fields, result)
     with _METADATA_DOC_CACHE_LOCK:
         # Re-check: a writer may have invalidated (or another reader filled)
         # while we parsed — prefer a fresher entry if one landed.
         cached = cache.get(path)
         if cached is not None and cached[0] == current_fp:
-            return copy.deepcopy(cached[1]) if deepcopy else cached[1]
+            return clone_plain(cached[1]) if deepcopy else cached[1]
         if len(cache) >= _METADATA_DOC_CACHE_MAX and path not in cache:
             oldest = next(iter(cache))
             cache.pop(oldest, None)
         cache[path] = (current_fp, result)
     # Deep copy for the same reason as the cache-hit path above.
-    return copy.deepcopy(result) if deepcopy else result
+    return clone_plain(result) if deepcopy else result
 
 
 def qualified_key(module: str | None, va: int) -> str:
@@ -454,7 +453,7 @@ def parse_metadata_doc(
             ]
             if unknown:
                 raise ValueError(f"{source}: unknown metadata fields in {key}: {unknown}")
-        result[parsed] = copy.deepcopy(value) if deepcopy else value
+        result[parsed] = clone_plain(value) if deepcopy else value
     return result
 
 

@@ -18,6 +18,7 @@ lazy from rebrew.metadata.records import metadata_records
 lazy from rebrew.utils import (
     atomic_write_bytes,
     atomic_write_locked,
+    clone_plain,
     load_toml_for_write_strict,
     load_tomllib,
 )
@@ -188,7 +189,7 @@ def load_metadata_collection(
         # The parsed-member cache must not be handed out: callers (and the
         # deepcopy in load_metadata_doc) mutate the result. Copy once here
         # instead of deepcopying per member below.
-        return doc if roundtrip else copy.deepcopy(doc)
+        return doc if roundtrip else clone_plain(doc)
     merged: dict[str, Any] = tomlkit.document() if roundtrip else {}
     owners: dict[tuple[str, ...], Path] = {}
     for member in paths:

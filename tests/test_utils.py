@@ -2374,3 +2374,27 @@ class TestSourceBackupIdempotency:
             assert second.read_text(encoding="utf-8") == "v2\n"
         assert first.read_text(encoding="utf-8") == "v1\n"
         assert len(list(backup_dir.iterdir())) == 2
+
+
+class TestClonePlain:
+    def test_copy_equals_and_is_independent(self) -> None:
+        import datetime as dt
+
+        import tomlkit
+
+        from rebrew.utils import clone_plain
+
+        when = dt.datetime(2026, 11, 15, 12, 0, tzinfo=dt.UTC)
+        source = {"rows": [{"va": 1, "tags": ["a"], "at": when}], "n": None, "ok": True}
+        copied = clone_plain(source)
+        assert copied == source
+        copied["rows"][0]["tags"].append("b")
+        copied["rows"].append({})
+        assert source == {"rows": [{"va": 1, "tags": ["a"], "at": when}], "n": None, "ok": True}
+        assert copied["rows"][0]["at"] is when
+        table = tomlkit.table()
+        table["x"] = 1
+        kept = clone_plain({"t": table})["t"]
+        assert type(kept) is type(table)
+        assert kept == table
+        assert kept is not table
