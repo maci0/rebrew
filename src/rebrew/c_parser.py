@@ -14,7 +14,6 @@ import logging
 import re
 import threading
 from dataclasses import dataclass, field
-lazy from bisect import bisect_left
 lazy from collections import OrderedDict
 lazy from collections.abc import Callable, Iterator
 lazy from itertools import pairwise
@@ -134,9 +133,9 @@ _PARSE_MEMO_MAX_TOTAL_BYTES = 16 * BYTES_PER_MIB
 
 
 def _remember_parse_tree(
-    memo: OrderedDict[Any, tuple[Any, bytes]],
+    memo: OrderedDict[Any, Any],
     key: Any,
-    parsed: tuple[Any, bytes],
+    parsed: Any,
     byte_attr: str,
 ) -> None:
     """Store one tree, evicting the oldest until the count and byte caps hold.
@@ -157,6 +156,29 @@ def _remember_parse_tree(
         oldest, _ = memo.popitem(last=False)
         total -= len(oldest)
     setattr(_tls, byte_attr, total)
+
+
+def _recall_value(attr: str, source: str) -> Any | None:
+    """A result this thread computed earlier for exactly *source*, or None."""
+    memo: OrderedDict[str, Any] | None = getattr(_tls, attr, None)
+    if memo is None:
+        return None
+    hit = memo.get(source)
+    if hit is not None:
+        memo.move_to_end(source)
+    return hit
+
+
+def _store_value(attr: str, source: str, value: Any) -> None:
+    """Remember an immutable *value* derived only from *source*, bounded like trees."""
+    if len(source) > _PARSE_MEMO_MAX_BYTES:
+        return
+    memo: OrderedDict[str, Any] | None = getattr(_tls, attr, None)
+    if memo is None:
+        memo = OrderedDict()
+        setattr(_tls, attr, memo)
+        setattr(_tls, f"{attr}_bytes", 0)
+    _remember_parse_tree(memo, source, value, f"{attr}_bytes")
 
 
 def parse_c_source(source: str | bytes) -> tuple[Any, bytes]:
@@ -1629,6 +1651,9 @@ def find_c_function_definitions(source: str) -> list[tuple[str, int]]:
     """
     if not source or not source.strip():
         return []
+    cached = _recall_value("function_definitions_memo", source)
+    if cached is not None:
+        return list(cached)
     try:
         trees = _function_trees(source)
     except ImportError:
@@ -1662,7 +1687,9 @@ def find_c_function_definitions(source: str) -> list[tuple[str, int]]:
     for tree, _raw, _regions in trees:
         src_bytes = _raw
         walk(tree.root_node)
-    return sorted(set(results), key=lambda item: item[1])
+    found = sorted(set(results), key=lambda item: item[1])
+    _store_value("function_definitions_memo", source, tuple(found))
+    return found
 
 
 def function_definition_spans(source: str) -> list[tuple[str, int, int]]:
@@ -1802,54 +1829,9 @@ def _store_variable_tree(source: str, parsed: tuple[Any, bytes]) -> None:
     _remember_parse_tree(memo, source, parsed, "variable_tree_memo_bytes")
 
 
-def _variable_tree(source: str) -> tuple[Any, bytes]:
-    """Normalize MSVC syntax using tree-sitter tokens, preserving asm operands.
-
-    The C grammar misparses MSVC assembly labels and may absorb declarations
-    after the function into its body. Replace assembly with C expressions for
-    its symbolic operands before scanning scopes. Strings/comments/macros remain
-    opaque; calling conventions are masked only in the parser input. Returned
-    source bytes retain their spelling at the same offsets as the parsed tree.
-
-    A source with no assembly and no calling-convention token is returned from
-    the first parse. A second scan of the same text on this thread reuses that
-    result. The cache is thread-local and capped, same as :func:`parse_c_source`.
-    """
-    cached = _recall_variable_tree(source)
-    if cached is not None:
-        return cached
-    if not any(marker in source for marker in _VARIABLE_TREE_MARKERS):
-        parsed = parse_c_source(source)
-        _store_variable_tree(source, parsed)
-        return parsed
-    tree, raw = parse_c_source(source)
-    tokens: list[tuple[str, int, int, int, str]] = []
-    cursor = tree.walk()
-    newlines = [i for i, byte in enumerate(raw) if byte == 10]
-    opaque = {"comment", "string_literal", "char_literal", "preproc_arg"}
-    while True:
-        node = cursor.node
-        terminal = node.type in opaque or node.child_count == 0
-        if terminal and not node.is_missing:
-            tokens.append(
-                (
-                    node.type,
-                    node.start_byte,
-                    node.end_byte,
-                    bisect_left(newlines, node.start_byte),
-                    node_text(node, raw),
-                )
-            )
-        if not terminal and cursor.goto_first_child():
-            continue
-        while not cursor.goto_next_sibling():
-            if not cursor.goto_parent():
-                break
-        else:
-            continue
-        break
-
-    registers = {
+#: MSVC inline-assembly words that are operands, not symbol names.
+_ASM_REGISTERS = frozenset(
+    {
         "eax",
         "ebx",
         "ecx",
@@ -1883,8 +1865,10 @@ def _variable_tree(source: str) -> tuple[Any, bytes]:
         "gs",
         "ss",
         "st",
-    } | {f"{prefix}{n}" for prefix in ("mm", "xmm", "cr", "dr") for n in range(16)}
-    qualifiers = {
+    }
+) | {f"{prefix}{n}" for prefix in ("mm", "xmm", "cr", "dr") for n in range(16)}
+_ASM_QUALIFIERS = frozenset(
+    {
         "byte",
         "word",
         "dword",
@@ -1896,6 +1880,56 @@ def _variable_tree(source: str) -> tuple[Any, bytes]:
         "near",
         "far",
     }
+)
+_ASM_OPERAND_WORDS = _ASM_REGISTERS | _ASM_QUALIFIERS
+
+
+def _variable_tree(source: str) -> tuple[Any, bytes]:
+    """Normalize MSVC syntax using tree-sitter tokens, preserving asm operands.
+
+    The C grammar misparses MSVC assembly labels and may absorb declarations
+    after the function into its body. Replace assembly with C expressions for
+    its symbolic operands before scanning scopes. Strings/comments/macros remain
+    opaque; calling conventions are masked only in the parser input. Returned
+    source bytes retain their spelling at the same offsets as the parsed tree.
+
+    A source with no assembly and no calling-convention token is returned from
+    the first parse. A second scan of the same text on this thread reuses that
+    result. The cache is thread-local and capped, same as :func:`parse_c_source`.
+    """
+    cached = _recall_variable_tree(source)
+    if cached is not None:
+        return cached
+    if not any(marker in source for marker in _VARIABLE_TREE_MARKERS):
+        parsed = parse_c_source(source)
+        _store_variable_tree(source, parsed)
+        return parsed
+    tree, raw = parse_c_source(source)
+    tokens: list[tuple[str, int, int, int, str]] = []
+    cursor = tree.walk()
+    opaque = {"comment", "string_literal", "char_literal", "preproc_arg"}
+    while True:
+        node = cursor.node
+        terminal = node.type in opaque or node.child_count == 0
+        if terminal and not node.is_missing:
+            tokens.append(
+                (
+                    node.type,
+                    node.start_byte,
+                    node.end_byte,
+                    node.start_point[0],
+                    node_text(node, raw),
+                )
+            )
+        if not terminal and cursor.goto_first_child():
+            continue
+        while not cursor.goto_next_sibling():
+            if not cursor.goto_parent():
+                break
+        else:
+            continue
+        break
+
     edits: list[tuple[int, int, bytes]] = []
     convention_spans: list[tuple[int, int]] = []
     i = 0
@@ -1941,7 +1975,7 @@ def _variable_tree(source: str) -> tuple[Any, bytes]:
                 opcode_row = node_row
                 prefix = word.lower() in {"rep", "repe", "repne", "repz", "repnz", "lock"}
                 continue
-            if word.lower() not in registers | qualifiers:
+            if word.lower() not in _ASM_OPERAND_WORDS:
                 names.add(word)
         stop = tokens[j][2] if block else (tokens[j][1] if j < len(tokens) else len(raw))
         expressions = " ".join(name + ";" for name in sorted(names))
@@ -1984,11 +2018,11 @@ def find_extern_variables(
     """
     if not source or not source.strip():
         return []
-    cacheable = function_filter is None and len(source) <= _PARSE_MEMO_MAX_BYTES
-    key = (source, include_definitions)
-    cached = getattr(_tls, "extern_variable_memo", None)
-    if cacheable and cached is not None and cached[0] == key:
-        return [ExternVar(*fields) for fields in cached[1]]
+    cacheable = function_filter is None
+    memo_attr = "extern_definition_memo" if include_definitions else "extern_variable_memo"
+    cached = _recall_value(memo_attr, source) if cacheable else None
+    if cached is not None:
+        return [ExternVar(*fields) for fields in cached]
     try:
         tree, src_bytes = _variable_tree(source)
     except ImportError:
@@ -2220,8 +2254,9 @@ def find_extern_variables(
             )
         results = sorted(unique.values(), key=lambda variable: variable.line)
     if cacheable:
-        _tls.extern_variable_memo = (
-            key,
+        _store_value(
+            memo_attr,
+            source,
             tuple(
                 (
                     variable.name,
@@ -2264,10 +2299,11 @@ def find_variable_roles(
 
     def walk(node: Any, shadows: set[str], file_scope: bool = False) -> None:
         nonlocal uses, body_depth
-        if node.type.startswith("preproc_"):
+        kind = node.type
+        if kind.startswith("preproc_"):
             # Raw conditional branches can contain source facts; macro bodies
             # are not C expression references and require preprocessing.
-            if node.type in {"preproc_if", "preproc_ifdef", "preproc_else", "preproc_elif"}:
+            if kind in {"preproc_if", "preproc_ifdef", "preproc_else", "preproc_elif"}:
                 for child in node.named_children:
                     if child not in (
                         node.child_by_field_name("condition"),
@@ -2275,7 +2311,7 @@ def find_variable_roles(
                     ):
                         walk(child, shadows, file_scope)
             return
-        if node.type == "function_definition":
+        if kind == "function_definition":
             # ``start_point`` already carries the row, so the 1-based line is
             # O(1) per definition. Counting newlines from the file start here
             # would rescan the whole source once per function: O(definitions x
@@ -2308,12 +2344,12 @@ def find_variable_roles(
                     previous_uses.update(uses)
                     uses = previous_uses
             return
-        if node.type in {"compound_statement", "for_statement"}:
+        if kind in {"compound_statement", "for_statement"}:
             local = set(shadows)
             for child in node.named_children:
                 walk(child, local)
             return
-        if node.type == "declaration":
+        if kind == "declaration":
             has_extern = any(
                 c.type == "storage_class_specifier" and node_text(c, src) == "extern"
                 for c in node.named_children
@@ -2340,7 +2376,7 @@ def find_variable_roles(
                 if value is not None:
                     walk(value, shadows)
             return
-        if node.type == "identifier":
+        if kind == "identifier":
             name = node_text(node, src)
             if name not in shadows:
                 uses.add(name)
@@ -2447,18 +2483,25 @@ _ASM_KEYWORDS = frozenset({"__asm", "_asm"})
 
 
 def _msvc_asm_token_groups(masked: str) -> Iterator[list[tuple[str, int, int, int]]]:
-    """Yield token groups for MSVC statements, retaining comment tokens."""
+    """Yield token groups for MSVC statements, retaining comment tokens.
+
+    A group starts at an ``__asm``/``_asm`` token, so a source whose bytes hold
+    neither spelling yields nothing and is not parsed.
+    """
+    if "_asm" not in masked:
+        return
     tree, data = parse_c_source(masked)
     tokens: list[tuple[str, int, int, int]] = []
     row = 0
     stack = [tree.root_node]
     while stack:
         node = stack.pop()
-        opaque = node.type in ("comment", "string_literal", "char_literal", "preproc_arg")
+        kind = node.type
+        opaque = kind in ("comment", "string_literal", "char_literal", "preproc_arg")
         if opaque or node.child_count == 0:
             if not node.is_missing:
                 row = node.start_point[0]
-                tokens.append((node.type, node.start_byte, node.end_byte, row))
+                tokens.append((kind, node.start_byte, node.end_byte, row))
             continue
         stack.extend(reversed(node.children))
     i = 0

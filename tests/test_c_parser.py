@@ -77,21 +77,21 @@ class TestVariableTreeSkip:
 
         c_parser._tls.variable_tree_memo = None
         calls = 0
-        real = c_parser.bisect_left
+        real = c_parser.node_text
 
-        def counting(seq: list[int], value: int) -> int:
+        def counting(node: Any, source: bytes) -> str:
             nonlocal calls
             calls += 1
-            return real(seq, value)
+            return real(node, source)
 
-        c_parser.bisect_left = counting  # type: ignore[assignment]
+        c_parser.node_text = counting  # type: ignore[assignment]
         try:
             c_parser._variable_tree("int f(void) { return 1; }\n")
             assert calls == 0
             c_parser._variable_tree("int __cdecl g(void) { return 1; }\n")
             assert calls > 0
         finally:
-            c_parser.bisect_left = real  # type: ignore[assignment]
+            c_parser.node_text = real  # type: ignore[assignment]
             c_parser._tls.variable_tree_memo = None
 
 
@@ -786,6 +786,30 @@ class TestReplaceFunctionPrototype:
         ) == source.replace("target(int value)", "target(void* value)")
 
 
+def test_function_definitions_reuse_one_walk_per_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A repeated scan of the same text skips the parse; callers own their lists."""
+    import rebrew.c_parser as parser
+
+    source = "int memo_first(void) { return 1; }\nint memo_second(int a) { return a; }\n"
+    original = parser._function_trees
+    calls = []
+
+    def counted(text: str) -> Any:
+        calls.append(text)
+        return original(text)
+
+    monkeypatch.setattr(parser, "_function_trees", counted)
+    first = parser.find_c_function_definitions(source)
+    first.clear()
+    assert parser.find_c_function_definitions(source) == [("memo_first", 1), ("memo_second", 2)]
+    assert calls == [source]
+    changed = source.replace("memo_second", "memo_changed")
+    assert parser.find_c_function_definitions(changed)[1] == ("memo_changed", 2)
+    assert calls == [source, changed]
+
+
 def test_variable_inventory_reuses_walk_but_isolates_results(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -793,6 +817,7 @@ def test_variable_inventory_reuses_walk_but_isolates_results(
 
     source = "int cache_inventory_global = 42;\nextern int cache_inventory_external;\n"
     parser._tls.extern_variable_memo = None
+    parser._tls.extern_definition_memo = None
     original = parser._variable_tree
     calls = []
 
