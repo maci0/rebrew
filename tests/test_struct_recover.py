@@ -546,7 +546,8 @@ class TestMemberOffsetCap:
         monkeypatch.setattr(bl, "load_binary", boom)
         cfg = SimpleNamespace(target_binary=tmp_path / "a.exe")
         assert sr._member_offset_cap(cfg) == sr._MAX_MEMBER_OFFSET
-        assert "member-offset cap" in capsys.readouterr().err
+        # Rich wraps at the console width, and the message embeds a tmp path.
+        assert "member-offset cap" in " ".join(capsys.readouterr().err.split())
 
 
 class TestRecoverProjectStructs:
