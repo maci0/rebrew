@@ -7094,6 +7094,12 @@ Op details the contract leaves open:
   refused) is zeroed before SHA-256 (`sha256-relocations-v1`). At most 128
   extents of 1 byte to 1 MiB; an extent that is not file backed, or that is
   all fixup bytes, refuses the call.
+- `rebrew.identify_compiler`: `arch` is the loader's reading of the image
+  header (`x86_32` for an i386 PE, `x86_16` for NE and DOS MZ); `packed` is
+  the packer scan's answer (LZEXE, PKLITE), false when it found none, with
+  `packer` naming the packer when true; `opt_level` (`/O1`, `/O2` or a mix)
+  and `codegen` (the VC6 code generator) come from MSVC codegen
+  fingerprints. Each of the five is null when the detector cannot tell.
 - `rebrew.library_functions`, `rebrew.identify_compiler` and
   `rebrew.splat_parse` read a stored file or the request text, never a
   project. `splat_parse` opens nothing the config names and refuses a config

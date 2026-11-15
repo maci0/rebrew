@@ -1864,13 +1864,27 @@
         "additionalProperties": false,
         "properties": {
           "arch": {
-            "type": "string"
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "base_cflags": {
             "type": "string"
           },
           "codegen": {
-            "type": "string"
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "confidence": {
             "type": "string"
@@ -1915,10 +1929,34 @@
             "type": "array"
           },
           "opt_level": {
-            "type": "string"
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "packed": {
-            "type": "string"
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "packer": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "profile": {
             "oneOf": [
@@ -1957,6 +1995,7 @@
           "msvc_version",
           "suggested_profiles",
           "packed",
+          "packer",
           "codegen",
           "profile"
         ],

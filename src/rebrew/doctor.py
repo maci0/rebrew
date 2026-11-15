@@ -1833,7 +1833,8 @@ def check_opt_level(cfg: ProjectConfig) -> CheckResult:
         )
     crt_note = ""
     if (
-        info.opt_level.startswith("mixed")
+        info.opt_level is not None
+        and info.opt_level.startswith("mixed")
         and getattr(info, "crt", "") == "LIBCMT"
         and getattr(info, "crt_linkage", "") == "static"
     ):
@@ -1848,7 +1849,7 @@ def check_opt_level(cfg: ProjectConfig) -> CheckResult:
                 len(info.o2_wrapper_sites), len(info.o1_wrapper_sites), counts[0], counts[1]
             )
             if refined is not None and not refined.startswith("mixed"):
-                info.opt_level = refined
+                info.opt_level = refined or None
                 crt_note = f" (static {info.crt} carries the other wrapper style)"
     if not info.opt_level:
         message = "codegen fingerprint inconclusive (no wrapper-style evidence)"

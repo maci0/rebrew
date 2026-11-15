@@ -1033,6 +1033,21 @@ class TestStoredFileOps:
         assert {"family", "confidence", "evidence", "detected_by", "profile"} <= set(reply)
         assert isinstance(reply["evidence"], list)
 
+    def test_identify_compiler_fills_what_the_pe_tells_and_nulls_the_rest(
+        self, tmp_path: Path
+    ) -> None:
+        """An x86_32 PE answered arch, opt_level, codegen and packed as empty strings.
+
+        The arch is the PE header's, packed is the packer scan's answer (false:
+        none found), and what the detector cannot tell is null (not determined).
+        """
+        filestore, workspace = _worker_dirs(tmp_path)
+        config = WorkerConfig(filestore.resolve(), workspace.resolve())
+        reply = _call(config, "rebrew.identify_compiler", _binary_file())
+        assert reply["arch"] == "x86_32"
+        assert (reply["packed"], reply["packer"]) == (False, None)
+        assert (reply["opt_level"], reply["codegen"]) == (None, None)
+
     @pytest.mark.parametrize("diec", [True, False])
     def test_identify_compiler_text_is_plain_facts(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, diec: bool

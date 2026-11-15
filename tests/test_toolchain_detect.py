@@ -746,7 +746,7 @@ class TestOptLevelFingerprint:
 
     def test_no_wrapper_evidence_inconclusive(self, monkeypatch: object, tmp_path: Path) -> None:
         info = self._run(monkeypatch, b"\x55\x8b\xec" * 10)
-        assert info.opt_level == ""
+        assert info.opt_level is None
 
     def test_non_msvc_skips_fingerprint(self, monkeypatch: object, tmp_path: Path) -> None:
         import rebrew.toolchain_detect as td
@@ -762,7 +762,7 @@ class TestOptLevelFingerprint:
             lambda binfo, va, size: bytes.fromhex("ff 74 24 04 e8") * 6,
         )
         info = detect_toolchain(Path("/tmp/nonexistent-prog.exe"))
-        assert info.opt_level == ""
+        assert info.opt_level is None
 
 
 def _packaged_corpus() -> dict[str, Any]:
@@ -929,7 +929,7 @@ class TestTc16BuiltBinary:
 
             pytest.skip("tc16_hello_lzexe.exe fixture not present")
         info = detect_toolchain(str(packed))
-        assert info.packed == "lzexe 0.91"
+        assert (info.packed, info.packer) == (True, "lzexe 0.91")
         assert any("packed with LZEXE" in e for e in info.evidence)
 
     def test_detect_pklite_packed(self) -> None:
@@ -943,7 +943,7 @@ class TestTc16BuiltBinary:
 
             pytest.skip("tc16_hello_pklite.exe fixture not present")
         info = detect_toolchain(str(packed))
-        assert info.packed == "pklite"
+        assert (info.packed, info.packer) == (True, "pklite")
         assert any("PKLITE" in e for e in info.evidence)
 
 

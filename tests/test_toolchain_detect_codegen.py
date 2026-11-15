@@ -336,7 +336,7 @@ class TestCodeGeneratorFamilyEvidence:
 
     def test_no_fp_code_leaves_codegen_unset(self, monkeypatch: pytest.MonkeyPatch) -> None:
         info = _run(monkeypatch, bytes.fromhex("55 8b ec 5d c3"))
-        assert info.codegen == ""
+        assert info.codegen is None
 
     def test_excluded_library_band_is_ignored(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The D3DX8-style band is Microsoft's codegen, not the game's."""

@@ -358,19 +358,21 @@ class ToolchainInfo:
     evidence: list[str] = field(default_factory=list)
     flags: list[str] = field(default_factory=list)  # compiler flags (PDB-derived)
     detected_by: str = ""  # backend: die | pdb | pe-meta | heuristics | plugin-<name>
-    arch: str = ""  # "x86_16" for NE binaries, "" when unknown (PE/ELF assumed 32/64)
+    # None in arch, opt_level, codegen, packed and packer: not determined.
+    arch: str | None = None  # the loader's arch ("x86_32" from a PE header); "x86_16" for NE/MZ
     crt: str = ""  # CRT linkage name: "msvcrt.dll"/"crtdll.dll" (dynamic), "LIBCMT" (static)
     crt_linkage: str = ""  # "dynamic" | "static" | "" (unknown)
     base_cflags: str = ""  # suggested base_cflags: "/MD" or "/MT" for MSVC-family binaries
-    opt_level: str = ""  # suggested optimization: "/O1" or "/O2" (MSVC codegen fingerprint)
+    opt_level: str | None = None  # "/O1", "/O2" or "mixed ..." (MSVC codegen fingerprint)
     # Wrapper-call sites that produced opt_level, already outside exclude_ranges.
     # Doctor uses them to set aside a statically linked CRT built at the other level.
     o2_wrapper_sites: list[int] = field(default_factory=list)
     o1_wrapper_sites: list[int] = field(default_factory=list)
     msvc_version: str = ""  # exact compiler version, e.g. "12.00.8168" (PE metadata)
     suggested_profiles: list[str] = field(default_factory=list)  # version-exact rebrew profiles
-    packed: str = ""  # packer name/version when the binary is packed ("lzexe 0.91")
-    codegen: str = ""  # VC6 code generator: processor-pack | plain | mixed ("" = unknown)
+    packed: bool | None = None  # the packer scan's answer; False when it found none
+    packer: str | None = None  # packer name/version when packed ("lzexe 0.91", "pklite")
+    codegen: str | None = None  # VC6 code generator: processor-pack | plain | mixed
 
     def add(self, text: str) -> None:
         self.evidence.append(text)
@@ -1457,6 +1459,7 @@ def _detect_toolchain_core(
     # A packed MZ reveals nothing about the compiler (the visible code is
     # the decompressor stub); the detection must say so, or the family
     # gets misread from stub strings.  ``unpack-lzexe`` restores the image.
+    lz_scanned = True
     try:
         from rebrew.formats.lzexe import lzexe_version
 
@@ -1466,8 +1469,9 @@ def _detect_toolchain_core(
         # but should be visible when debugging why packed: is absent.
         logger.debug("LZEXE probe failed for %s", path, exc_info=True)
         lz_ver = None
+        lz_scanned = False
     if lz_ver is not None:
-        info.packed = f"lzexe 0.{lz_ver}"
+        info.packed, info.packer = True, f"lzexe 0.{lz_ver}"
         info.add(
             f"packed with LZEXE 0.{lz_ver} (unpack it with `rebrew binary unpack-lzexe`"
             " before analysis)"
@@ -1477,18 +1481,22 @@ def _detect_toolchain_core(
     # the header; the visible strings are the packer's (or compressed
     # remnants), so a packed flag beats trusting the family detection.
     # No built-in unpacker — point the user at finding an unpacked copy.
-    if info.packed == "":
+    # Packed stays None (not determined) when a probe could not read the file.
+    if not info.packed:
+        head: bytes | None
         try:
             with open(path, "rb") as fh:
                 head = fh.read(0x400)
         except OSError:
-            head = b""
-        if b"PKLITE" in head:
-            info.packed = "pklite"
+            head = None
+        if head is not None and b"PKLITE" in head:
+            info.packed, info.packer = True, "pklite"
             info.add(
                 "packed with PKLITE (PKWARE): rebrew has no unpacker for it, so "
                 "analysis needs an unpacked copy"
             )
+        elif head is not None and lz_scanned:
+            info.packed = False
 
     try:
         binfo = load_binary(path)
@@ -1624,6 +1632,9 @@ def _detect_toolchain_core(
             info.add(f"{mz_cg['fp_prologue']} push bp frame prologues (16-bit codegen)")
         return info
 
+    # The loader reads the arch from the image header (a PE's Machine field).
+    if info.arch is None:
+        info.arch = getattr(binfo, "arch", "") or None
     sections = {s.name for s in binfo.sections.values()}
     imports: set[str] = set()
     # binfo.imports is not populated by every loader — use the dedicated
@@ -1749,14 +1760,14 @@ def _detect_toolchain_core(
     # Only asserted for the MSVC family (the byte patterns are MSVC-specific
     # argument-passing idioms, not GCC's stack layout).
     if info.family == "msvc" and (o2_wrappers or o1_wrappers):
-        info.opt_level = opt_level_from_counts(o2_wrappers, o1_wrappers)
+        info.opt_level = opt_level_from_counts(o2_wrappers, o1_wrappers) or None
         if info.opt_level == "/O2":
             info.add(
                 f"{o2_wrappers} load-first wrapper calls (`mov eax,[esp+4]; push eax`) → /O2-style"
             )
         elif info.opt_level == "/O1":
             info.add(f"{o1_wrappers} push-[mem] wrapper calls (`push dword [esp+4]`) → /O1-style")
-        elif info.opt_level.startswith("mixed"):
+        elif info.opt_level is not None and info.opt_level.startswith("mixed"):
             info.add(
                 f"both wrapper styles present ({o1_wrappers} push-[mem], "
                 f"{o2_wrappers} load-first): optimization is mixed per file, so "
