@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Performance
+
+- Ten more hot-path rounds retire another 21% of instructions in total on a guild-rebrew snapshot, 22-25% in `recommend`, `source graph`, `coverage catalog`, `orphans list` and `data list`, 17% in `lint` and 12% in `status` and `todo`, with identical output ([PERFORMANCE.md](docs/PERFORMANCE.md#third-ten-hot-path-rounds-2026-11-15)). Each source is parsed once per masked text instead of once per scan, the comment check skips sources without a reserved `KEY:`, the extern scan skips function definitions without `extern`, and include probes are rechecked once each. Peak RSS rises about 100 MB in `lint` and `recommend` (1.13 to 1.23 GB, 1.46 to 1.56 GB).
+
 ## [6.41.0] - 2026-11-15
 
 ### Added

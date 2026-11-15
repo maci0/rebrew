@@ -2,6 +2,74 @@
 
 Measurements of Rebrew hot paths, retained optimizations, and rejected experiments.
 
+## Third ten hot-path rounds (2026-11-15)
+
+Baseline `23171f8d`, candidate `e1381b2b`, measured as above with both source
+trees byte-compiled before the first run (a fresh tree's first run otherwise
+adds about 5 G instructions to `status`). Every run of both sides printed the
+same stdout.
+
+| Workload | Before | After | Change | Spread before / after |
+|---|---:|---:|---:|---:|
+| `--version` | 2.00 | 2.00 | +0.0% | 0.14% / 0.12% |
+| `status --json` | 53.59 | 46.89 | -12.5% | 0.11% / 0.11% |
+| `todo --json` | 54.46 | 47.78 | -12.3% | 0.08% / 0.10% |
+| `lint --json` | 202.17 | 167.11 | -17.3% | 0.04% / 0.01% |
+| `data list --json` | 110.10 | 86.65 | -21.3% | 0.00% / 0.02% |
+| `coverage catalog --json` | 164.27 | 128.41 | -21.8% | 0.07% / 0.01% |
+| `source graph --format summary` | 189.74 | 141.81 | -25.3% | 0.02% / 0.05% |
+| `orphans list --json` | 162.21 | 126.40 | -22.1% | 0.03% / 0.02% |
+| `recommend --json` | 393.37 | 305.44 | -22.4% | 0.01% / 0.03% |
+| total | 1,331.9 | 1,052.5 | -21.0% | |
+
+Peak RSS rises from 1.13 to 1.23 GB in `lint` and from 1.46 to 1.56 GB in
+`recommend`, mostly from change 2 below, which keeps trees the parse memo
+would drop.
+
+Counting real tree-sitter parses by caller showed `lint` and `data list`
+parsing each source twice and `source graph` three times, as different
+masked variants of the same text. Retained changes; 1-3 were measured
+together against the baseline, 4-10 each against the previous commit:
+
+1. `metadata_comments` returns before parsing when no `KEY:` text for a
+   reserved key exists (5,762 of 5,779 guild sources): `lint` -6.0%,
+   `data list` -9.7%.
+2. `_function_trees` keeps its trees per source text in the per-thread memo.
+   With 1: `lint` -9.6%, `coverage catalog` -9.7%, `source graph` -8.3%.
+3. `find_extern_function_names` parses the same-length `_mask_cc` text, which
+   is what `_function_trees` parsed for a source without asm, instead of
+   `strip_cc`'s; a `__declspec(...)` spanning lines keeps `strip_cc`.
+   Identical names on the corpus and 20,000 generated sources. With 1 and 2:
+   `source graph` -18.2%, `recommend` -14.5%.
+4. `_is_vendored_toolchain_tree` resolves through `resolved_path`: `todo`
+   -2.6%.
+5. `unresolved_still_missing` and `shadow_unchanged` recheck each distinct
+   probe once (63% of `status`'s unresolved probes were repeats): `status`
+   -7.1%, `coverage catalog` -2.7%.
+6. `function_signatures` keeps its result per source text: `recommend`
+   -1.5%.
+7. `mask_msvc_syntax` keeps its result per source text: `lint` -3.8%.
+8. The `find_extern_variables` walk skips a function definition whose bytes
+   hold no `extern`: nothing under a definition is at file scope, so only an
+   extern declaration there is reported. Identical results in both modes and
+   with three function filters: `lint` -4.9%, `data list` -8.4%,
+   `coverage catalog` -6.2%.
+9. `toolchains_repo` finds the sibling checkout once per process;
+   `REBREW_TOOLCHAINS_DIR` is still read per call: `status` -6.0%, `todo`
+   -5.9%.
+10. `_DefinitionPrototypes._line_signature` returns at once for a name the
+    lines never spell as `name(` or `name (`: `source graph` -3.7%, `orphans
+    list` -4.1%.
+
+Rejected:
+
+- Parsing `_mask_cc` text for `_variable_tree`: it also blanks `__declspec`,
+  which `find_extern_variables` reads for `dllimport`.
+- A sidecar for the source-provenance table: `lint`'s W031 check parses the
+  function store anyway, so only `recommend` would gain (about 6%).
+- Building the library-override memo key without `metadata_store`: the memo
+  records no config identity, so a backend change would serve a stale entry.
+
 ## Ten more hot-path rounds (2026-11-15)
 
 Baseline `dc78eac4` (after the rounds below), candidate `c7550248`, measured the same
