@@ -2,6 +2,87 @@
 
 Measurements of Rebrew hot paths, retained optimizations, and rejected experiments.
 
+## Ten more hot-path rounds (2026-11-15)
+
+Baseline `dc78eac4` (after the rounds below), candidate `c7550248`, measured the same
+way: 10 runs per workload and side, `instructions:u`, one guild-rebrew
+snapshot, identical stdout on every run of both sides.
+
+| Workload | Before | After | Change | Spread before / after |
+|---|---:|---:|---:|---:|
+| `--version` | 2.01 | 2.00 | -0.4% | 202.75% / 0.12% |
+| `status --json` | 56.35 | 52.55 | -6.8% | 1.56% / 1.77% |
+| `todo --json` | 57.23 | 53.41 | -6.7% | 0.13% / 0.10% |
+| `lint --json` | 243.97 | 202.14 | -17.1% | 0.08% / 0.16% |
+| `data list --json` | 137.07 | 110.09 | -19.7% | 0.09% / 0.15% |
+| `coverage catalog --json` | 193.61 | 163.21 | -15.7% | 0.02% / 0.22% |
+| `source graph --format summary` | 228.05 | 189.74 | -16.8% | 0.03% / 0.02% |
+| `orphans list --json` | 191.51 | 161.13 | -15.9% | 0.02% / 0.04% |
+| `recommend --json` | 551.89 | 391.32 | -29.1% | 0.05% / 0.11% |
+| total | 1,661.7 | 1,325.6 | -20.2% | |
+
+One `--version` run on the before side took three times the median; the
+median is unaffected. CPU times from these runs are not reported: test suites
+ran on the same host during the measurement.
+
+cProfile charges a fixed cost per Python call, so it overstated call-heavy
+helpers (`clone_plain`, the asm token grouping) and could not show cyclic GC
+at all. `perf record` with `python -X perf` found GC at about 17% of `lint`'s
+samples. Each candidate below was re-timed without a profiler before it was
+kept.
+
+Retained changes:
+
+1. `_variable_tree` finds calling-convention tokens with a word regex checked
+   against the tree when a source has no `_asm`, instead of listing every leaf
+   token (5,779 corpus sources and 20,000 generated ones agree byte for byte).
+2. `recommend` resolves `cfg.metadata_dir` once per walk, and
+   `bind_compiled_source` no longer evaluates it as an unused `getattr`
+   default.
+3. `metadata.storage._ancestor_identities` walks `str` paths: 9 µs against
+   27 µs per call, 113k calls per `recommend`.
+4. `metadata_comments` keeps its C-branch result per source text in the
+   bounded per-thread memo (`c_parser.recall_source_value` /
+   `store_source_value`); `recommend` binds each source about five times.
+5. An include lookup stats each directory once and hands the stat to the
+   directory index.
+6. `_has_function_declarator` searches with a stack instead of a recursive
+   generator: 25% less time on 339k corpus declarators.
+7. The `resolved_path` memo holds as many entries as the source-text memo
+   (8,192); at 2,048 a 5.5k-file tree evicted every entry before its next pass.
+8. `address_comments_for_file` resolves through `resolved_path`.
+9. The `find_extern_variables` walk reads `node.type` once per node: 17% less
+   time in both modes, identical results on the corpus.
+10. The CLI entry point raises the young-generation GC threshold from 2,000 to
+    20,000 (`app.main._GC_YOUNG_THRESHOLD`). `lint` ran 2,482/225/17
+    collections and now runs 140/11/1: 12% less CPU time and 1.7% fewer
+    instructions, with the same output and peak RSS (1.13 GB). Disabling GC
+    measured 12.5% less CPU time and 2.3% fewer instructions, so the threshold
+    keeps most of the gain.
+
+Rejected:
+
+- tree-sitter Queries: a `(declaration (storage_class_specifier) @s) @d`
+  query over the corpus cost 11.1 G instructions against 9.1 G for the Python
+  walk, with the same 15,509 matches.
+- Pruning walks by grammar: `node-types.json` merges aliased node variants, so
+  84 of 125 named types may contain a `declaration` and no sound pruning set
+  exists.
+- Stack loops for `find_c_function_definitions` and
+  `find_extern_function_names`, and reading `node.type` once in the former:
+  no measurable change (2.47 s against 2.47 s).
+- A `TreeCursor` walk: 18% faster than `node.children` on a bare traversal,
+  too little for rewriting the walks.
+- A 64 MiB parse memo: 1.9% fewer `recommend` instructions for 36 MB more
+  peak RSS.
+- Inline scalar checks in `clone_plain`: 15% faster on the 22 MB function
+  store, a fraction of a second per command.
+- Faster asm token grouping: only 218 corpus sources contain `_asm`, 0.13 s in
+  total.
+- Caching include resolution or `realpath` across lookups: either changes the
+  reported header path under bind mounts or the race checks between parallel
+  workers.
+
 ## Ten profiled hot-path rounds (2026-11-15)
 
 Baseline `ec604a1f` (6.40.1), candidate `c4f90954`. Each workload ran 10 times
