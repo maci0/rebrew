@@ -3015,6 +3015,40 @@ class TestImportArchive:
         assert status == 200, reply
         assert reads.count("rebrew-functions.toml") == 1
 
+    def test_a_source_outside_the_reversed_directory_is_captured_as_a_source(
+        self, tmp_path: Path
+    ) -> None:
+        """A library row may bind a reference source outside the reversed directory (guild's
+        references/zlib/*.c): every source the report names is a captured source, or the backend
+        refuses the import (YC job 1589)."""
+        config, filestore, project = _analysed_project(tmp_path)
+        moved = "references/lib/fcn_00401000.c"
+        members = []
+        for name, data, kind in _project_members(project):
+            if name == "src/mini/fcn_00401000.c":
+                name = moved
+            elif name == "rebrew-functions.toml":
+                row = b'file = "src/mini/fcn_00401000.c"\nsymbol = "_fcn_00401000"\nname = "fcn_00401000"\nkind = "STUB"'
+                assert data is not None and row in data
+                library = row.replace(b"src/mini", moved.rsplit("/", 1)[0].encode()).replace(
+                    b'"STUB"', b'"LIBRARY"'
+                )
+                data = data.replace(row, library)
+            members.append((name, data, kind))
+        status, reply = _import(config, filestore, _tar_bytes(members))
+        assert status == 200, reply
+        [target] = reply["targets"]
+        named = {row["source_path"] for row in target["functions"] if row.get("source_path")}
+        assert moved in named
+        captured = {
+            entry["path"]
+            for entry in reply["analysis_capture"]["entries"]
+            if entry["kind"] == "file" and entry.get("role") == "source"
+        }
+        assert named <= captured, sorted(named - captured)
+        paths = [entry["path"] for entry in reply["analysis_capture"]["entries"]]
+        assert paths == sorted(paths, key=lambda path: path.encode("utf-8"))
+
     def test_a_zip_archive_imports_like_a_tar(self, tmp_path: Path) -> None:
         import io
         import zipfile

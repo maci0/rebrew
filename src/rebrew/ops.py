@@ -2433,6 +2433,44 @@ def capture_project(
     current_sources.update(p.resolve() for p in iter_headers(cfg.reversed_dir, cfg))
     if current_paths != paths or current_sources != source_paths:
         raise _capture_failed(f"{what} input changed during reporting")
+    # A row may bind a source outside the reversed directory (a library row's reference
+    # source), which the coverage readset does not read: every source the report names is
+    # captured as a source, so a reader of the capture finds each function's file.
+    by_path = {entry["path"]: entry for entry in entries}
+    for item in report["targets"]:
+        for row in item["functions"]:
+            relative = row.get("source_path", "")
+            if not relative:
+                continue
+            captured = by_path.get(relative)
+            if captured is not None and captured["kind"] == "file":
+                captured["role"] = "source"
+                continue
+            path = root / relative
+            if captured is not None or not path.is_file() or path.is_symlink():
+                raise _capture_failed(f"{what} report names a source it cannot capture")
+            size = path.stat().st_size
+            total += size
+            if size > MAX_READSET_FILE_BYTES:
+                raise _readset_limit(
+                    f"{what} input {relative}", size, MAX_READSET_FILE_BYTES, "bytes"
+                )
+            if total > MAX_READSET_BYTES:
+                raise _readset_limit(f"{what} capture", total, MAX_READSET_BYTES, "bytes")
+            if len(by_path) >= MAX_READSET_FILES:
+                raise _readset_limit(f"{what} capture", len(by_path) + 1, MAX_READSET_FILES)
+            data = path.read_bytes()
+            by_path[relative] = {
+                "path": relative,
+                "kind": "file",
+                "role": "source",
+                "size": len(data),
+                "digest": hashlib.sha256(data).hexdigest(),
+                "data": base64.b64encode(data).decode("ascii"),
+            }
+    entries = sorted(
+        by_path.values(), key=lambda entry: entry["path"].encode("utf-8", errors="surrogateescape")
+    )
     for captured in entries:
         path = root / captured["path"]
         if any(

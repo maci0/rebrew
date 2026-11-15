@@ -7003,7 +7003,9 @@ Op details the contract leaves open:
   `execution_backend` or `recompile_url`, and metadata must be TOML. The
   function and data records of other modules are dropped (`intake.dropped_records`
   counts them), the metadata moves to SQLite, and the project is captured as an
-  analysis is. Nothing from the archive runs. Each refusal of the archive is
+  analysis is, with every source file the report names (a library row's
+  reference source outside the reversed directory included) captured as a
+  source. Nothing from the archive runs. Each refusal of the archive is
   422 `project-import-refused` naming the entry or setting; a
   `rebrew-project.toml` rebrew cannot read is 400 `invalid-project-config`, as for
   `rebrew.project_targets` and retained snapshots; a capture over the

@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- A capture (fresh analysis or `rebrew.import_archive`) holds, with role `source`, every source file its report names. A library row binding a reference source outside the reversed directory (guild-rebrew's `references/zlib/*.c` and `references/minizip/unzip.c`, 65 functions in 13 files) was reported with that `source_path` but left out of the capture, and the backend refused the import ("function source is not in the captured source set", YC job 1589).
+
 ## [6.40.0] - 2026-11-15
 
 ### Added
