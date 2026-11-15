@@ -6923,13 +6923,17 @@ wrong JSON type, is refused. A refusal is
 exceeds 16 MiB; also a wrapped command's `usage` error, with its message),
 `unknown-op` (404), `engine-error` (500),
 `remote-compile-headers` (422, see below), `toolchain-rejected` (422: the toolchain
-ran and rejected the source; the detail carries its diagnostics, and there is no
-verdict), `invalid-project-config` (400, see
+ran and rejected the source; the detail is `COMPILE_ERROR: ` and its diagnostics,
+one per line, and there is no verdict), `invalid-project-config` (400, see
 `rebrew.project_targets`), `project-import-refused` (422, see
 `rebrew.import_archive` below), `deadline-exceeded` (504, see the deadlines
 below), or, from `serve` only, `worker-busy` (503) and `caller-gone` (499,
-written to a caller that has already closed). An engine failure answers a
-fixed detail and logs its cause on stderr.
+written to a caller that has already closed). An engine failure no refusal
+above explains answers `<op> failed while <step>: <cause>` (`<op> failed: <cause>`
+outside a named step, such as staging the retained snapshot or checking the
+sources for a remote compile) and logs its traceback on stderr. In every detail
+a URL reads `<url>` and an absolute path is named relative to the project, the
+retained snapshot, the workspace or the filestore, or by its file name.
 
 Binaries are referenced, never sent:
 

@@ -1572,9 +1572,10 @@ def _run_test_impl(
         # The service never compiled the source: nothing to report or record.
         error_exit(cmp.message, json_mode=json_output, code=EXIT_ERROR, kind="failure")
     if cmp.status == "COMPILE_ERROR":
-        # No error behind it: the toolchain ran and rejected the source.
+        # No error behind it: the toolchain ran and rejected the source.  The
+        # message already starts COMPILE_ERROR: and keeps one diagnostic per line.
         error_exit(
-            f"COMPILE ERROR:\n{cmp.message}",
+            cmp.message,
             json_mode=json_output,
             code=EXIT_ERROR,
             kind="failure" if cmp.error is not None else TOOLCHAIN_REJECTED_KIND,

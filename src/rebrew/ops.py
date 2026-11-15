@@ -554,9 +554,14 @@ def _refused(detail: str) -> OpsError:
     return OpsError(detail)
 
 
-def _toolchain_rejected(diagnostics: str) -> OpsError:
-    """The toolchain ran and rejected the source: 422 with its diagnostics, no verdict."""
-    return OpsError(_bounded(diagnostics), code=TOOLCHAIN_REJECTED, status=422)
+def _toolchain_rejected(diagnostics: str, roots: Iterable[Path] = ()) -> OpsError:
+    """The toolchain ran and rejected the source: 422 with its diagnostics, no verdict.
+
+    The diagnostics keep their lines; a path under one of *roots* is named
+    relative to it (:func:`_without_host_paths`).
+    """
+    detail = _bounded_lines(_without_host_paths(diagnostics, roots))
+    return OpsError(detail, code=TOOLCHAIN_REJECTED, status=422)
 
 
 class _Cancellation:
@@ -625,6 +630,87 @@ def _bounded(text: str) -> str:
     from rebrew.utils import strip_bidi_format, truncate_text
 
     return truncate_text(" ".join(strip_bidi_format(text).split()), DETAIL_MAX_CHARS)
+
+
+def _bounded_lines(text: str) -> str:
+    """*text* line by line, each line's whitespace collapsed and blank lines dropped, cut at
+    :data:`DETAIL_MAX_CHARS`: a compiler's diagnostics stay one per line."""
+    from rebrew.utils import strip_bidi_format, truncate_text
+
+    lines = (" ".join(line.split()) for line in strip_bidi_format(text).splitlines())
+    return truncate_text("\n".join(line for line in lines if line), DETAIL_MAX_CHARS)
+
+
+#: A URL in failure text; its query string can be a presigned credential.
+_URL_TEXT = re.compile(r"https?://[^\s'\"<>]+")
+#: An absolute POSIX path in failure text, not the tail of a relative one.
+_ABSOLUTE_PATH_TEXT = re.compile(r"(?<![\w.~/-])/(?:[\w.@+~-]+/)*[\w.@+~-]+")
+
+
+def _without_host_paths(text: str, roots: Iterable[Path] = ()) -> str:
+    """*text* with every URL as ``<url>`` and every absolute path cut to what a user can place.
+
+    A path under one of *roots* (a project, the workspace, the filestore) is
+    named relative to it, a scratch directory under ``.scratch`` dropped (it
+    is the private copy of a snapshot); any other absolute path is its file
+    name.
+    """
+    known = sorted({str(root) for root in roots}, key=len, reverse=True)
+
+    def placed(match: re.Match[str]) -> str:
+        path = match.group(0)
+        for root in known:
+            if path.startswith(f"{root}/"):
+                relative = path[len(root) + 1 :]
+                if relative.startswith(f"{SCRATCH_DIR}/"):
+                    relative = relative.split("/", 2)[2] if relative.count("/") >= 2 else ""
+                return relative or "."
+            if path == root:
+                return "."
+        return Path(path).name
+
+    return _ABSOLUTE_PATH_TEXT.sub(placed, _URL_TEXT.sub("<url>", text))
+
+
+#: The step an unexplained failure of the running call escaped from, as
+#: ``(step, exception)``: set by :func:`_step`, read by the dispatcher.
+_FAILED_STEP: ContextVar[list[tuple[str, BaseException]] | None] = ContextVar(
+    "rebrew_ops_failed_step", default=None
+)
+
+
+@contextlib.contextmanager
+def _step(what: str) -> Iterator[None]:
+    """Name what the running op is doing, for the refusal of a failure nothing else explains.
+
+    The innermost step an exception leaves is the one recorded; *what* reads
+    after "failed while" (``"staging the retained snapshot"``).
+    """
+    try:
+        yield
+    except Exception as exc:
+        failed = _FAILED_STEP.get()
+        if failed is not None and (not failed or failed[0][1] is not exc):
+            failed[:] = [(what, exc)]
+        raise
+
+
+def _failure_detail(config: WorkerConfig, name: str, exc: BaseException) -> str:
+    """The refusal of a failure nothing else explained: its step and its message, no host path."""
+    failed = _FAILED_STEP.get() or []
+    chain: list[BaseException] = []
+    link: BaseException | None = exc
+    while link is not None and link not in chain:
+        chain.append(link)
+        link = link.__cause__ or link.__context__
+    step = next((what for what, raised in failed if raised in chain), "")
+    if isinstance(exc, OSError) and exc.strerror:
+        message = f"{exc.strerror}: {exc.filename}" if exc.filename else exc.strerror
+    else:
+        message = str(exc) or type(exc).__name__
+    roots = [path for path in (config.workspace, config.filestore) if path is not None]
+    where = f" while {step}" if step else ""
+    return _bounded(f"{name} failed{where}: {_without_host_paths(message, roots)}")
 
 
 # ---------------------------------------------------------------------------
@@ -1419,7 +1505,9 @@ def binary_file(
         raise _invalid(f"exactly one of {key_field} and url must be set")
     _check_cancelled()
     if key:
-        yield stored_file(config, key, sha256)
+        with _step("reading a stored file"):
+            path = stored_file(config, key, sha256)
+        yield path
         return
     wanted = _sha256(sha256)
     scratch = config.require_workspace() / SCRATCH_DIR
@@ -1428,7 +1516,8 @@ def binary_file(
     os.close(handle)
     path = Path(name)
     try:
-        _download(config, url, wanted, path)
+        with _step("downloading a stored file"):
+            _download(config, url, wanted, path)
         yield path
     finally:
         path.unlink(missing_ok=True)
@@ -2222,23 +2311,24 @@ def run_rebrew(
     # -P keeps the project cwd off sys.path so a rebrew/ tree inside the
     # project cannot shadow the installed rebrew.app.main (code exec).
     command = [sys.executable, "-P", "-m", "rebrew.app.main"]
-    process = subprocess.Popen(
-        [*command, *arguments],
-        cwd=project,
-        # The child exports its own spans (the remote compile's client span) under this one.
-        env={
-            **os.environ,
-            **telemetry.child_environment(),
-            CALL_DEADLINE_ENV: repr(child_deadline),
-        },
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        start_new_session=True,
-    )
+    with _step(f"starting rebrew {name}"):
+        process = subprocess.Popen(
+            [*command, *arguments],
+            cwd=project,
+            # The child exports its own spans (the remote compile's client span) under this one.
+            env={
+                **os.environ,
+                **telemetry.child_environment(),
+                CALL_DEADLINE_ENV: repr(child_deadline),
+            },
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            start_new_session=True,
+        )
     try:
         stdout, stderr = _communicate(process, timeout, cancellation)
     except (subprocess.TimeoutExpired, OpsError) as stopped:
@@ -2273,15 +2363,17 @@ def run_rebrew(
         kind, message = _command_refusal(stderr)
         if kind == "usage":
             # The command rejected its input (clispec ``usage``): the caller's request.
-            raise _invalid(f"rebrew {name} refused: {message}")
+            raise _invalid(
+                _bounded(f"rebrew {name} refused: {_without_host_paths(message, [project])}")
+            )
         from rebrew.cli import TOOLCHAIN_REJECTED_KIND
 
         if kind == TOOLCHAIN_REJECTED_KIND:
-            raise _toolchain_rejected(message)
+            raise _toolchain_rejected(message, [project])
         logger.error(
             "rebrew %s exited %d: %s", name, process.returncode, _escape_log_text(stderr.strip())
         )
-        raise _refused(f"rebrew {name} failed: {message}")
+        raise _refused(_bounded(f"rebrew {name} failed: {_without_host_paths(message, [project])}"))
     try:
         report = json.loads(stdout)
     except json.JSONDecodeError:
@@ -2326,7 +2418,7 @@ def _command_refusal(stderr: str) -> tuple[str, str]:
             payload = json.loads(line)
             if isinstance(payload, dict) and isinstance(payload.get("error"), dict):
                 error = payload["error"]
-                return str(error.get("kind", "")), _bounded(str(error.get("message", "")))
+                return str(error.get("kind", "")), str(error.get("message", ""))
     return "", "no error report"
 
 
@@ -3734,42 +3826,47 @@ def retained_target_snapshot(
     scratch.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="retained-target-", dir=scratch) as temp:
         root = Path(temp).resolve()
-        destination = _stage_retained_snapshot(
-            config, root, files, target_name, sha256, binary_key, binary_url, exclusive=False
-        )
-        from rebrew.metadata.sqlite import DATABASE_FILENAME
+        with _step("staging the retained snapshot"):
+            destination = _stage_retained_snapshot(
+                config, root, files, target_name, sha256, binary_key, binary_url, exclusive=False
+            )
+            from rebrew.metadata.sqlite import DATABASE_FILENAME
 
-        backend = retained_metadata_backend(root)
-        rewritten = apply_project_cflags(root, target_name, project_cflags)
-        cfg = retained_config(root, target_name)
-        confined_snapshot_config(cfg, root)
-        registry, ignored = (root / DATABASE_FILENAME, cfg.metadata_dir / "rebrew-functions.toml")
-        if backend == "toml":
-            registry, ignored = ignored, registry
-        staged = {entry.path for entry in files}
-        required = (inventory_path_for(cfg.reversed_dir, cfg), registry)
-        if any(
-            not path.is_file() or path.relative_to(root).as_posix() not in staged
-            for path in required
-        ):
-            raise _invalid("retained target requires its inventory and function metadata")
-        # The other backend's registry would be staged and never read.
-        if ignored.relative_to(root).as_posix() in staged:
-            raise _invalid(
-                f"retained target carries {ignored.name}, which its {backend} metadata ignores"
+            backend = retained_metadata_backend(root)
+            rewritten = apply_project_cflags(root, target_name, project_cflags)
+            cfg = retained_config(root, target_name)
+            confined_snapshot_config(cfg, root)
+            registry, ignored = (
+                root / DATABASE_FILENAME,
+                cfg.metadata_dir / "rebrew-functions.toml",
             )
+            if backend == "toml":
+                registry, ignored = ignored, registry
+            staged = {entry.path for entry in files}
+            required = (inventory_path_for(cfg.reversed_dir, cfg), registry)
+            if any(
+                not path.is_file() or path.relative_to(root).as_posix() not in staged
+                for path in required
+            ):
+                raise _invalid("retained target requires its inventory and function metadata")
+            # The other backend's registry would be staged and never read.
+            if ignored.relative_to(root).as_posix() in staged:
+                raise _invalid(
+                    f"retained target carries {ignored.name}, which its {backend} metadata ignores"
+                )
         yield root
-        if _file_sha256(destination) != sha256:
-            raise _invalid("snapshot target binary changed during operation")
-        for entry in files:
-            path = _project_file(root, entry.path, "source file")
-            size, digest = (
-                rewritten
-                if rewritten and entry.path == "rebrew-project.toml"
-                else (entry.size, entry.digest)
-            )
-            if path.stat().st_size != size or _file_sha256(path) != digest:
-                raise _invalid("snapshot source changed during operation")
+        with _step("checking the retained snapshot after the run"):
+            if _file_sha256(destination) != sha256:
+                raise _invalid("snapshot target binary changed during operation")
+            for entry in files:
+                path = _project_file(root, entry.path, "source file")
+                size, digest = (
+                    rewritten
+                    if rewritten and entry.path == "rebrew-project.toml"
+                    else (entry.size, entry.digest)
+                )
+                if path.stat().st_size != size or _file_sha256(path) != digest:
+                    raise _invalid("snapshot source changed during operation")
 
 
 def _run_target_command(
@@ -3796,8 +3893,10 @@ def _run_target_command(
             req.binary_url,
             req.project_cflags,
         ) as snapshot:
-            cfg = load_config(snapshot, target=req.rebrew_target)
-            retained_compile_refusal(cfg, iter_sources(cfg.reversed_dir, cfg))
+            with _step("loading the project config"):
+                cfg = load_config(snapshot, target=req.rebrew_target)
+            with _step("checking the sources for a remote compile"):
+                retained_compile_refusal(cfg, iter_sources(cfg.reversed_dir, cfg))
             return run_rebrew(
                 [*arguments, f"--target={req.rebrew_target}"],
                 snapshot,
@@ -3807,8 +3906,10 @@ def _run_target_command(
     if req.project_cflags:
         raise _invalid("project_cflags needs a retained source snapshot")
     root = project_root(config, req.project_dir)
-    cfg = target_config(root, req.sha256)
-    remote_header_refusal(cfg, iter_sources(cfg.reversed_dir, cfg))
+    with _step("loading the project config"):
+        cfg = target_config(root, req.sha256)
+    with _step("checking the sources for a remote compile"):
+        remote_header_refusal(cfg, iter_sources(cfg.reversed_dir, cfg))
     return run_rebrew(
         [*arguments, *_target_options(root, req.sha256)],
         root,
@@ -4288,9 +4389,11 @@ def _answer(config: WorkerConfig, name: str, body: bytes) -> Mapping[str, Any]:
         time.monotonic() + op.timeout_seconds,
         f"{name} outlived its {op.timeout_seconds} s deadline",
     )
+    steps = _FAILED_STEP.set([])
     try:
         return _run_op(config, name, op, body)
     finally:
+        _FAILED_STEP.reset(steps)
         if token is not None:
             _CANCELLATION.reset(token)
 
@@ -4314,13 +4417,14 @@ def _run_op(config: WorkerConfig, name: str, op: Op, body: bytes) -> Mapping[str
         from rebrew.cli import TOOLCHAIN_REJECTED_KIND, CommandExit
 
         if isinstance(exc, CommandExit) and exc.kind == TOOLCHAIN_REJECTED_KIND:
-            raise _toolchain_rejected(exc.message) from None
+            roots = [path for path in (config.workspace, config.filestore) if path is not None]
+            raise _toolchain_rejected(exc.message, roots) from None
         raise _refused(f"rebrew refused {name} (exit {exc.exit_code})") from None
     except UnsupportedBinaryFormat as exc:
         raise OpsError(str(exc), code=UNSUPPORTED_BINARY_FORMAT, status=422) from None
-    except Exception:  # the engine is a trust boundary: log the cause, answer a fixed detail
+    except Exception as exc:  # the engine is a trust boundary: log it, answer it sanitized
         logger.exception("%s %s failed trace_id=%s", _request_id(), name, _trace_id())
-        raise _refused(f"{name} failed; the worker log has the cause") from None
+        raise _refused(_failure_detail(config, name, exc)) from None
 
 
 def dispatch(config: WorkerConfig, name: str, body: bytes) -> tuple[int, bytes]:

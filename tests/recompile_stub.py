@@ -18,6 +18,7 @@ def serve_recompile(
     *,
     features: list[str] | None,
     error_code: str = "toolchain_failure",
+    log: str = "error C2065",
 ) -> list[dict[str, Any]]:
     """Answer remote compiles with a recompile stand-in; return the compile bodies it got.
 
@@ -25,6 +26,7 @@ def serve_recompile(
     older than the route (404).  Every compile fails with *error_code*: by
     default a toolchain rejection, the compiler's verdict on the source; an
     infrastructure code (``runner_unavailable``) is the service's own failure.
+    *log* is the compile log every failure carries.
     """
     from rebrew.compiler import compile as compile_module
 
@@ -39,7 +41,7 @@ def serve_recompile(
             posted.append(json.loads(request.content))
             return httpx.Response(
                 200,
-                json={"status": "error", "error_code": error_code, "log": "error C2065"},
+                json={"status": "error", "error_code": error_code, "log": log},
             )
         return httpx.Response(404, json={"detail": "Not Found"})
 

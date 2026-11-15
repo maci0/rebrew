@@ -1965,6 +1965,48 @@ class TestReconstructionOps:
         assert (refusal["status"], refusal["error"]) == (422, "toolchain-rejected"), refusal
         assert "error C2065" in refusal["detail"]
 
+    def test_a_toolchain_rejection_has_one_prefix_and_keeps_its_lines(
+        self, world: tuple[WorkerConfig, Path], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """It read "COMPILE ERROR: COMPILE_ERROR: ..." with the diagnostics run into one line."""
+        config, project = _project_copy(world, "verify_function_two_errors")
+        source = min((project / "src" / "mini").glob("*.c")).relative_to(project).as_posix()
+        monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://recompile.test")
+        diagnostics = [
+            "fcn.c(3) : error C2065: 'nope' : undeclared identifier",
+            "fcn.c(4) : error C2143: syntax error : missing ';' before '}'",
+        ]
+        serve_recompile(monkeypatch, features=["include-bundles"], log="\n".join(diagnostics))
+        body = json.dumps({"project_dir": str(project), "source": source, "no_promote": True})
+        refusal = _refusal(config, "rebrew.verify_function", body.encode())
+        assert (refusal["status"], refusal["error"]) == (422, "toolchain-rejected"), refusal
+        assert refusal["detail"].splitlines() == [
+            f"COMPILE_ERROR: {diagnostics[0]}",
+            diagnostics[1],
+        ]
+
+    def test_a_child_command_rejection_keeps_its_lines_without_host_paths(
+        self, world: tuple[WorkerConfig, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A retained compile runs ``rebrew test`` as a child; its JSON error crosses intact."""
+        config, project = world
+        child = tmp_path / "rejecting-python"
+        child.write_text(
+            "#!/bin/sh\n"
+            'printf \'{"error":{"kind":"toolchain_rejected","message":"COMPILE_ERROR: '
+            '%s/src/a.c(1) : error C2065\\\\nsrc/a.c(2) : error C2143"}}\\n\' "$PWD" >&2\n'
+            "exit 2\n"
+        )
+        child.chmod(0o755)
+        monkeypatch.setattr(sys, "executable", str(child))
+        body = json.dumps({"project_dir": str(project)}).encode()
+        refusal = _refusal(config, "rebrew.data_list", body)
+        assert (refusal["status"], refusal["error"]) == (422, "toolchain-rejected"), refusal
+        assert refusal["detail"].splitlines() == [
+            "COMPILE_ERROR: src/a.c(1) : error C2065",
+            "src/a.c(2) : error C2143",
+        ]
+
     def test_a_service_that_cannot_compile_stays_an_engine_failure(
         self, world: tuple[WorkerConfig, Path], monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -2221,6 +2263,51 @@ class TestHttpCancellation:
             )
             assert (status, reply["error"]) == (400, "invalid-request")
             assert not pid_file.exists()
+
+
+class TestFailureDetails:
+    """A failure nothing else explained answers its step and its message, never a log pointer.
+
+    Users read "rebrew.build failed; the worker log has the cause" through the
+    backend, about a log they cannot see.
+    """
+
+    def test_a_build_failure_names_its_step_and_cause_without_host_paths(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.ops as ops
+
+        config, retained, _analysed, _envelope = _retained_coverage_request(tmp_path)
+        request = {
+            key: retained[key]
+            for key in ("project_dir", "sha256", "files", "rebrew_target", "binary_key")
+        }
+
+        def missing_source(cfg: Any, _sources: Any) -> None:
+            raise FileNotFoundError(2, "No such file or directory", str(cfg.root / "src/a.c"))
+
+        monkeypatch.setattr(ops, "retained_compile_refusal", missing_source)
+        refusal = _refusal(config, "rebrew.build", json.dumps(request).encode())
+        assert (refusal["status"], refusal["error"]) == (500, "engine-error")
+        assert refusal["detail"] == (
+            "rebrew.build failed while checking the sources for a remote compile: "
+            "No such file or directory: src/a.c"
+        )
+
+    def test_any_op_failure_answers_its_cause_without_paths_or_urls(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def broken(_config: Any, _req: Any) -> dict[str, Any]:
+            raise ValueError(
+                "cannot read /home/worker/.cache/rebrew/table.json from "
+                "https://bucket.example/obj?X-Amz-Signature=s3cret"
+            )
+
+        op = OPS["rebrew.vocabulary"]
+        monkeypatch.setitem(OPS, "rebrew.vocabulary", dataclasses.replace(op, run=broken))
+        refusal = _refusal(WorkerConfig(), "rebrew.vocabulary", b"{}")
+        assert (refusal["status"], refusal["error"]) == (500, "engine-error")
+        assert refusal["detail"] == "rebrew.vocabulary failed: cannot read table.json from <url>"
 
 
 class TestOpDeadlines:
