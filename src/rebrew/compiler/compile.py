@@ -122,6 +122,7 @@ lazy from rebrew.utils import (
     fold_ident,
     interruptible_pool,
     read_source_text,
+    resolved_path,
     run_process_group,
     safe_shlex_split,
 )
@@ -1147,7 +1148,9 @@ def _is_vendored_toolchain_tree(p: Path) -> bool:
 
     root = toolchains_repo()
     try:
-        p.resolve().relative_to(root.resolve())
+        # The lstat-checked memo: status asks this once per compiled entry,
+        # always about the same configured includes directory.
+        resolved_path(p).relative_to(resolved_path(root))
         return True
     except ValueError:
         return False
