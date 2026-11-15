@@ -802,6 +802,38 @@ def _entry_field_names() -> tuple[str, ...]:
     return tuple(field.name for field in fields(VerifyCacheEntry))
 
 
+#: Per entry class, the runtime types each field accepts (see _entry_field_types).
+_ENTRY_FIELD_TYPES: dict[type, dict[str, tuple[type, ...]]] = {}
+
+
+def _entry_field_types(cls: type) -> dict[str, tuple[type, ...]]:
+    """Runtime types each field of entry class *cls* accepts, from its annotation.
+
+    A ``float`` field also accepts ``int`` (JSON writes ``1.0`` as ``1``), and
+    every field accepts ``None``: the TOML writer encodes any null with one
+    sentinel, and the readers test fields for truthiness before using them.
+    Computed once per class; two threads racing compute the same table.
+    """
+    import types
+    import typing
+
+    found = _ENTRY_FIELD_TYPES.get(cls)
+    if found is not None:
+        return found
+    allowed: dict[str, tuple[type, ...]] = {}
+    for name, hint in typing.get_type_hints(cls).items():
+        members = typing.get_args(hint) if isinstance(hint, types.UnionType) else (hint,)
+        kinds: list[type] = [type(None)]
+        for member in members:
+            kind = typing.get_origin(member) or member
+            kinds.append(kind)
+            if kind is float:
+                kinds.append(int)
+        allowed[name] = tuple(kinds)
+    _ENTRY_FIELD_TYPES[cls] = allowed
+    return allowed
+
+
 @dataclass
 class VerifyCacheEntry:
     """One cached verdict: the report row + its cache-identity inputs, flat.
@@ -874,13 +906,29 @@ class VerifyCacheEntry:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> VerifyCacheEntry:
-        """Reconstruct a VerifyCacheEntry from a JSON dictionary (flat v2 form)."""
+        """Reconstruct a VerifyCacheEntry from a JSON dictionary (flat v2 form).
+
+        The cache is a hand-editable file, so a field whose value has another
+        type than its annotation raises ``TypeError``; every reader treats
+        that as a corrupt cache.
+        """
         names = (
             _entry_field_names()
             if cls is VerifyCacheEntry
             else tuple(field.name for field in fields(cls))
         )
-        return cls(**{name: d[name] for name in names if name in d})
+        kinds = _entry_field_types(cls)
+        values = {name: d[name] for name in names if name in d}
+        for name, value in values.items():
+            # bool is an int subclass; only a bool field takes one.
+            if not isinstance(value, kinds[name]) or (
+                isinstance(value, bool) and bool not in kinds[name]
+            ):
+                raise TypeError(
+                    f"verify cache field {name!r} holds {type(value).__name__}, "
+                    f"not {' | '.join(kind.__name__ for kind in kinds[name])}"
+                )
+        return cls(**values)
 
     def result_row(self) -> dict[str, Any]:
         """The report row: verdict fields only, no cache-identity inputs.
@@ -1497,6 +1545,9 @@ def load_baseline(cfg: ProjectConfig) -> tuple[dict[str, Any] | None, str | None
         return None, f"Verify baseline at {path} was earned under different compiler config"
     if loaded.get("binary_id") and loaded.get("binary_id") != binary_id(cfg):
         return None, f"Verify baseline at {path} was earned against a different binary"
+    # diff_reports iterates the rows; a hand-edited non-array is no baseline.
+    if not isinstance(loaded.get("results", []), list):
+        return None, f"Verify baseline at {path}: results must be an array; skipping diff"
     return loaded, None
 
 

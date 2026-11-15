@@ -1008,6 +1008,73 @@ def _guess_function(name: str) -> bool:
     return bool(_GUESS_FUNCTION_RE.match(name))
 
 
+#: Keys a ``--specials`` document and one ``[specials.<symbol>]`` table may hold.
+_SPECIALS_KEYS = frozenset({"specials", "bss_arrays", "bss_tail_size", "keep_stub_exceptions"})
+_SPECIAL_ENTRY_KEYS = frozenset({"decl", "impl", "kind"})
+
+
+def _is_count(value: typing.Any) -> bool:
+    """A non-negative TOML integer (``bool`` is an ``int`` subclass, not one)."""
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _load_specials(path: Path) -> dict[str, typing.Any]:
+    """The ``--specials`` document at *path*, or ``ValueError`` naming the bad field.
+
+    The schema is the one the module docstring shows: ``bss_arrays`` an array
+    of ``[name, size]`` pairs, ``bss_tail_size`` a non-negative integer,
+    ``keep_stub_exceptions`` an array of strings, and each
+    ``[specials.<symbol>]`` a table with a string ``impl`` and optional string
+    ``decl``/``kind``.  An unknown key is refused too: the selected-update
+    digest serializes the whole document as JSON.
+    """
+
+    import tomllib
+
+    def bad(field: str, expected: str) -> ValueError:
+        return ValueError(f"{path}: {field} must be {expected}")
+
+    try:
+        doc = load_tomllib(path)
+    except tomllib.TOMLDecodeError as exc:
+        raise ValueError(f"{path}: {exc}") from exc
+    unknown = sorted(set(doc) - _SPECIALS_KEYS)
+    if unknown:
+        raise ValueError(f"{path}: unknown key(s) {unknown}")
+    if "bss_tail_size" in doc and not _is_count(doc["bss_tail_size"]):
+        raise bad("bss_tail_size", "a non-negative integer")
+    arrays = doc.get("bss_arrays", [])
+    if not isinstance(arrays, list):
+        raise bad("bss_arrays", "an array of [name, size] pairs")
+    for n, row in enumerate(arrays):
+        if not (
+            isinstance(row, list)
+            and len(row) == 2
+            and isinstance(row[0], str)
+            and _is_count(row[1])
+        ):
+            raise bad(f"bss_arrays[{n}]", "a [name, size] pair")
+    exceptions = doc.get("keep_stub_exceptions", [])
+    if not isinstance(exceptions, list) or not all(isinstance(e, str) for e in exceptions):
+        raise bad("keep_stub_exceptions", "an array of strings")
+    entries = doc.get("specials", {})
+    if not isinstance(entries, dict):
+        raise bad("specials", "a table")
+    for symbol, entry in entries.items():
+        where = f"specials.{symbol}"
+        if not isinstance(entry, dict):
+            raise bad(where, "a table")
+        unknown = sorted(set(entry) - _SPECIAL_ENTRY_KEYS)
+        if unknown:
+            raise ValueError(f"{path}: {where} has unknown key(s) {unknown}")
+        if not isinstance(entry.get("impl"), str):
+            raise bad(f"{where}.impl", "a string")
+        for key in ("decl", "kind"):
+            if key in entry and not isinstance(entry[key], str):
+                raise bad(f"{where}.{key}", "a string")
+    return doc
+
+
 def generate_stubs(
     unresolved: Iterable[str],
     extern_info: dict[str, dict[str, typing.Any]],
@@ -1767,7 +1834,7 @@ def main(
                 if specials.is_symlink():
                     raise ValueError("specials must not be a symlink")
                 spec_bytes = specials.read_bytes()
-                selected_spec = load_tomllib(specials)
+                selected_spec = _load_specials(specials)
                 if specials.is_symlink() or specials.read_bytes() != spec_bytes:
                     raise ValueError("specials changed while loading")
             content, changes = _update_selected_stubs(original, selected_spec, update_symbol or [])
@@ -1883,7 +1950,12 @@ def main(
             json_mode=json_output,
         )
 
-    spec_dict: dict[str, typing.Any] = load_tomllib(specials) if specials is not None else {}
+    spec_dict: dict[str, typing.Any] = {}
+    if specials is not None:
+        try:
+            spec_dict = _load_specials(specials)
+        except (OSError, ValueError) as exc:
+            error_exit(str(exc), json_mode=json_output)
 
     # 2. Filter CRT library symbols (provided by the static lib).
     if library_csv is not None:

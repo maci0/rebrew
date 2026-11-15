@@ -148,7 +148,8 @@ def toolchain_from_toml(name: str, table: dict[str, Any], source: str) -> Toolch
     """Build a :class:`ToolchainSpec` from a declarative TOML table.
 
     Only known spec fields are accepted — a typo'd key is a declaration
-    error rather than a silent fallback to the field default."""
+    error rather than a silent fallback to the field default — and each
+    must have its type: ``bits`` an integer, every other field a string."""
     known = set(ToolchainSpec.__dataclass_fields__) - {"name"}
     unknown = set(table) - known
     if unknown:
@@ -158,6 +159,17 @@ def toolchain_from_toml(name: str, table: dict[str, Any], source: str) -> Toolch
             name=name,
             origin=source,
         )
+    for key, value in table.items():
+        kind = int if key == "bits" else str
+        # TOML booleans are Python bool, an int subclass.
+        if isinstance(value, bool) or not isinstance(value, kind):
+            raise RegistryError(
+                f"bad toolchain {name!r} in {source}: {key} must be "
+                f"{'an integer' if kind is int else 'a string'}",
+                group="rebrew.toolchains",
+                name=name,
+                origin=source,
+            )
     host_path = table.get("host_path")
     bits_raw = table.get("bits")
     try:

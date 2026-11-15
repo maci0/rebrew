@@ -377,6 +377,28 @@ class TestToolchainRegistry:
         with pytest.raises(RegistryError, match="unknown field"):
             build_toolchain_registry()
 
+    @pytest.mark.parametrize(
+        ("field", "message"),
+        [
+            ("host_path = 5", "host_path must be a string"),
+            ("bits = [32]", "bits must be an integer"),
+            ('bits = "32"', "bits must be an integer"),
+            ("image = [1]", "image must be a string"),
+            ("binary = true", "binary must be a string"),
+        ],
+    )
+    def test_overlay_wrongly_typed_field_raises(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, field: str, message: str
+    ) -> None:
+        """The registry is built when the module loads, so a wrongly typed field
+        escaped every command as TypeError instead of this declaration error."""
+        monkeypatch.setenv("REBREW_TOOLCHAIN_OVERLAY_DIR", str(tmp_path))
+        (tmp_path / "bad.toml").write_text(f"[mytc]\n{field}\n", encoding="utf-8")
+        from rebrew.compiler.toolchain import build_toolchain_registry
+
+        with pytest.raises(RegistryError, match=message):
+            build_toolchain_registry()
+
     def test_overlay_bad_flags_style_raises(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

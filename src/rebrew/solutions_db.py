@@ -73,10 +73,17 @@ def _collect_best(cfg: Any) -> list[dict[str, Any]]:
         )
         cur = best.get(key)
         score = rec.get("score")
+        # The log is hand-editable JSON: only a number ranks, anything else
+        # reads as an unscored run.
+        if isinstance(score, bool) or not isinstance(score, (int, float)):
+            score = None
         if cur is None or (
             score is not None and (cur.get("score") is None or score <= cur["score"])
         ):
-            best[key] = dict(rec)
+            entry = dict(rec)
+            if "score" in entry:
+                entry["score"] = score
+            best[key] = entry
     return [best[k] for k in sorted(best)]
 
 

@@ -783,6 +783,15 @@ def load_sync_baseline(cfg: ProjectConfig, state_dir: Path) -> dict[str, dict[st
             and not isinstance(definition.get("size"), int)
         ):
             # Old baselines shared only the member extent, without tail padding.
+            if any(
+                not isinstance(member, dict)
+                or not all(
+                    isinstance(member.get(k), int) and not isinstance(member.get(k), bool)
+                    for k in ("offset", "size")
+                )
+                for member in definition.values()
+            ):
+                raise ValueError(f"invalid sync baseline struct {key} in {path}")
             extent = max(
                 (int(member["offset"]) + int(member["size"]) for member in definition.values()),
                 default=0,

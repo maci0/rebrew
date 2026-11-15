@@ -206,6 +206,29 @@ class TestSolutionsCli:
         assert payload["count"] == 1
         assert payload["rows"][0]["symbol"] == "_f\u00e9"
 
+    @pytest.mark.parametrize("bad", ['"x"', "[1]", "true", "{}"])
+    def test_best_ranks_only_numeric_scores(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bad: str
+    ) -> None:
+        """A hand-edited score that is not a number reads as unscored, so the
+        numeric run wins and ``--best`` never compares a string to a float."""
+        (tmp_path / ".rebrew").mkdir(exist_ok=True)
+        record = (
+            '{{"ts": "{ts}", "target": "SERVER", "va": "0x1000", "symbol": "_f", "score": {s}}}\n'
+        )
+        (tmp_path / ".rebrew" / "ga_runs.jsonl").write_text(
+            record.format(ts="t1", s="1.0") + record.format(ts="t2", s=bad), encoding="utf-8"
+        )
+        monkeypatch.setattr(
+            "rebrew.solutions_db.require_config",
+            lambda target=None, json_mode=False: _cfg(tmp_path),
+        )
+        result = CliRunner().invoke(app, ["match", "solutions", "--best", "--json"])
+        assert result.exit_code == 0, result.exception
+        (row,) = cli_payload(result)["rows"]
+        assert row["ts"] == "t1"
+        assert row["score"] == 1.0
+
     def test_best_json(self, tmp_path: Path, monkeypatch) -> None:
         (tmp_path / ".rebrew").mkdir(exist_ok=True)
         (tmp_path / ".rebrew" / "ga_runs.jsonl").write_text(

@@ -4621,6 +4621,11 @@ decl = "extern int __cdecl ServerMainThread(void*);"
 impl = "int __stdcall thread_proc(void* param)\n{\n\treturn ServerMainThread(param);\n}"
 ```
 
+These are the only keys: an unknown key, a `[specials.NAME]` table without a
+string `impl` (or with a key other than `decl`, `impl`, `kind`), a
+`bss_arrays` row that is not a `[name, size]` pair, or a negative or
+non-integer `bss_tail_size` is an error exit naming the file and the field.
+
 Use `--update-symbol NAME` to preview a digest-bound change to a selected
 existing definition from `--specials`; repeat the option for multiple symbols.
 To append an absent function, supply its complete reviewed `impl` and

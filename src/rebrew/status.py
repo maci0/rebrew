@@ -625,7 +625,8 @@ def load_verify_details(
         if not isinstance(entry_data, dict):
             continue
         status = entry_data.get("status", "")
-        if not status:
+        # A hand-edited non-string would reach effective_status's .strip().
+        if not isinstance(status, str) or not status:
             continue
         va = canonical_va_key(va_str)
         if not isinstance(va, int):

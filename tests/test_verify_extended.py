@@ -1503,6 +1503,29 @@ class TestLoadBaseline:
         assert prev is None
         assert "Could not read verify baseline" in (warning or "")
 
+    @pytest.mark.parametrize("results", ["5", '"x"', "{ a = 1 }"])
+    def test_results_that_are_not_an_array_warn(self, tmp_path: Path, results: str) -> None:
+        """``diff_reports`` iterates ``results``; a hand-edited non-array would
+        raise TypeError after the whole verify run instead of this warning."""
+        from rebrew.verify_cache import (
+            baseline_path,
+            binary_id,
+            compiler_config_hash,
+            load_baseline,
+        )
+
+        cfg = _cfg(tmp_path)
+        path = baseline_path(cfg)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            f'target = "SERVER"\ncompiler_hash = "{compiler_config_hash(cfg)}"\n'
+            f'binary_id = "{binary_id(cfg)}"\nresults = {results}\n',
+            encoding="utf-8",
+        )
+        prev, warning = load_baseline(cfg)
+        assert prev is None
+        assert "results must be an array" in (warning or "")
+
 
 class TestSaveVerifyCacheBranches:
     def test_entries_without_filepath_skipped(self, tmp_path: Path) -> None:
@@ -2843,3 +2866,50 @@ class TestInventoryMergeOpeners:
 
         probe = self._after_ret(b"\x57\x8b\x7c\x24\x08")  # push edi; mov edi,[esp+8]
         assert _looks_like_inventory_merge(probe, 0, 1, len(probe))
+
+
+class TestVerifyCacheEntryTypes:
+    """A hand-edited cache entry of the wrong type is a corrupt cache.
+
+    ``VerifyCache.from_dict`` callers (verify, status, todo, prove) catch
+    ``TypeError`` and ignore the cache; an unchecked ``module = 5`` reached
+    ``unicodedata.normalize`` in verify and a ``status = 5`` reached
+    ``str.strip`` in status, both as tracebacks.
+    """
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("status", 5),
+            ("module", 5),
+            ("size", "x"),
+            ("size", True),
+            ("passed", 1),
+            ("match_percent", "50"),
+            ("relocation_bindings", "x"),
+        ],
+    )
+    def test_wrong_field_type_raises(self, field: str, value: object) -> None:
+        from rebrew.verify_cache import VerifyCache
+
+        raw = {"version": 2, "entries": {"0x1000": {"status": "EXACT", field: value}}}
+        with pytest.raises(TypeError, match=f"verify cache field '{field}'"):
+            VerifyCache.from_dict(raw)
+
+    def test_annotated_types_load(self) -> None:
+        """Every annotated type loads, an integer for a float field included."""
+        from rebrew.verify_cache import VerifyCache
+
+        entry = {
+            "status": "EXACT",
+            "va": 0x1000,
+            "size": 16,
+            "delta": None,
+            "match_percent": 100,
+            "passed": True,
+            "relocation_bindings": [{"offset": 1}],
+            "context_hash": None,
+        }
+        data = VerifyCache.from_dict({"version": 2, "entries": {"0x1000": entry}})
+        assert data.entries["0x1000"].match_percent == 100
+        assert data.entries["0x1000"].passed is True

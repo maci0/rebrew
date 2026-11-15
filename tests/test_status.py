@@ -1305,6 +1305,22 @@ class TestVerifyCacheHelpers:
         statuses = load_verify_statuses(self._cfg(tmp_path))
         assert statuses == {0x1000: "EXACT"}
 
+    @pytest.mark.parametrize("status", [5, ["EXACT"], True])
+    def test_non_string_cached_status_is_skipped(self, tmp_path: Path, status: object) -> None:
+        """``effective_status`` strips the cached status; a hand-edited
+        non-string raised AttributeError out of ``rebrew status`` and ``todo``."""
+        from rebrew.status import load_verify_details
+
+        self._write_cache(
+            tmp_path,
+            {
+                "version": 2,
+                "target": "T",
+                "entries": {"0x1": {"status": status}, "0x2": {"status": "EXACT"}},
+            },
+        )
+        assert load_verify_details(self._cfg(tmp_path)) == {0x2: ("EXACT", False)}
+
     def test_verify_readers_follow_cache_version(self, tmp_path: Path, monkeypatch) -> None:
         """Both readers validate against CACHE_VERSION, not a baked-in literal."""
         import rebrew.verify_cache as vc

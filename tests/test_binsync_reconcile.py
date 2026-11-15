@@ -89,6 +89,24 @@ class TestThreeWaySync:
         export_state(cfg, state, dry_run=False)
         assert before == (path.read_bytes(), path.stat().st_mtime_ns, baseline_path.read_bytes())
 
+    @pytest.mark.parametrize("member", [5, {"offset": [0], "size": 4}, {"size": 4}])
+    def test_damaged_member_only_baseline_is_refused(self, tmp_path: Path, member: Any) -> None:
+        """The old member-only shape is migrated by summing member extents; a
+        member that is not an ``{offset, size}`` table of integers is a damaged
+        sidecar (``ValueError``), not a ``TypeError`` out of ``binsync push``."""
+        cfg = _project(tmp_path)
+        (cfg.reversed_dir / "types.h").write_text("typedef struct { int id; char tag; } Padded;\n")
+        state = tmp_path / "state"
+        export_state(cfg, state, dry_run=False)
+        baseline_path = sync_baseline_path(cfg, state)
+        doc = tomlkit.parse(baseline_path.read_text())
+        doc["records"]["struct.Padded"]["definition"] = {"id": member}
+        baseline_path.chmod(0o644)
+        baseline_path.write_text(tomlkit.dumps(doc))
+
+        with pytest.raises(ValueError, match="invalid sync baseline struct struct.Padded"):
+            load_sync_baseline(cfg, state)
+
     def test_remote_size_only_change_is_retained_and_reported(self, tmp_path: Path) -> None:
         cfg = _project(tmp_path)
         header = cfg.reversed_dir / "types.h"

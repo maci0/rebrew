@@ -923,6 +923,43 @@ class TestCli:
         assert "int __stdcall thread_proc(void* p)" in result.output
         assert "unsigned char g_bss_tail[0x1000] = {0};" in result.output
 
+    @pytest.mark.parametrize(
+        ("toml", "problem"),
+        [
+            pytest.param("bss_tail_size = [1]\n", "bss_tail_size must be", id="tail"),
+            pytest.param("bss_tail_size = -1\n", "bss_tail_size must be", id="negative-tail"),
+            pytest.param("bss_arrays = 5\n", "bss_arrays must be", id="arrays"),
+            pytest.param("bss_arrays = [1]\n", "bss_arrays[0] must be", id="array-row"),
+            pytest.param('bss_arrays = [["g", "x"]]\n', "bss_arrays[0] must be", id="array-size"),
+            pytest.param("specials = 5\n", "specials must be a table", id="specials"),
+            pytest.param("[specials]\nfoo = 5\n", "specials.foo must be a table", id="special"),
+            pytest.param("[specials.foo]\nimpl = 5\n", "specials.foo.impl must be", id="impl"),
+            pytest.param('[specials.foo]\ndecl = "x"\n', "specials.foo.impl must be", id="no-impl"),
+            pytest.param(
+                "keep_stub_exceptions = 5\n", "keep_stub_exceptions must be", id="exceptions"
+            ),
+            pytest.param("reviewed = 2024-01-01\n", "unknown key", id="unknown-date"),
+        ],
+    )
+    def test_malformed_specials_is_an_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, toml: str, problem: str
+    ) -> None:
+        """``--specials`` is a user file: each wrongly typed field is named,
+        instead of escaping ``generate_stubs`` as TypeError or AttributeError."""
+        from rebrew.gen_stubs import app
+
+        monkeypatch.chdir(tmp_path)
+        _write_src(tmp_path, "extern int g_counter;\nextern int __cdecl write_log(char*);\n")
+        spec = tmp_path / "specials.toml"
+        spec.write_text(toml, encoding="utf-8")
+        result = CliRunner().invoke(
+            app, ["--dry-run", "--json", "--specials", str(spec)], input=LNK_OUTPUT
+        )
+        assert result.exit_code == 2, result.exception
+        error = cli_payload(result)["error"]
+        assert str(spec) in error
+        assert problem in error
+
     def test_cmake_stub_var_patched_and_restored(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1811,3 +1848,32 @@ def test_selected_publication_rolls_back_if_specials_change(
     assert out.read_bytes() == b"new\n"
     assert spec.read_bytes() == b"changed"
     assert [path.read_bytes() for path in tmp_path.glob(".rebrew-stubs-*")] == [b"original\n"]
+
+
+@pytest.mark.parametrize(
+    ("toml", "problem"),
+    [
+        pytest.param("specials = 5\n", "specials must be a table", id="specials"),
+        pytest.param("[specials]\nqueue = 5\n", "specials.queue must be a table", id="special"),
+        pytest.param(
+            '[specials.queue]\nimpl = "int queue[10] = {0};"\nreviewed = 2024-01-01\n',
+            "unknown key",
+            id="date",
+        ),
+    ],
+)
+def test_selected_update_refuses_malformed_specials(
+    tmp_path: Path, toml: str, problem: str
+) -> None:
+    """The selected-update path reads the same file: a non-table entry raised
+    AttributeError, and a TOML date raised TypeError out of the digest."""
+    out = tmp_path / "stubs.c"
+    original = "int queue[1] = {0};\n"
+    out.write_text(original, encoding="utf-8")
+    spec = tmp_path / "specials.toml"
+    spec.write_text(toml, encoding="utf-8")
+    args = ["--output", str(out), "--specials", str(spec), "--update-symbol", "queue", "--json"]
+    result = CliRunner().invoke(gen_stubs.app, [*args, "--dry-run"])
+    assert result.exit_code == 2, result.exception
+    assert problem in cli_payload(result)["error"]
+    assert out.read_text(encoding="utf-8") == original
