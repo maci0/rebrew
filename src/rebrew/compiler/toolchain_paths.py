@@ -6,6 +6,7 @@ recompile-toolchains checkout, overridable with REBREW_TOOLCHAINS_DIR.
 
 from __future__ import annotations
 
+import functools
 lazy import os
 lazy from pathlib import Path
 
@@ -35,6 +36,16 @@ def toolchains_repo() -> Path:
     env = os.environ.get(TOOLCHAINS_DIR_ENV, "").strip()
     if env:
         return Path(env).expanduser()
+    return _sibling_toolchains_repo()
+
+
+@functools.cache
+def _sibling_toolchains_repo() -> Path:
+    """The checkout next to the one this module was imported from.
+
+    Once per process: the module does not move, and status asks once per
+    compiled entry, each time resolving this file and statting its parents.
+    """
     for parent in Path(__file__).resolve().parents:
         if (parent / "pyproject.toml").is_file():
             return parent.parent / "recompile-toolchains"
