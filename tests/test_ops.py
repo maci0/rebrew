@@ -230,6 +230,47 @@ class TestContract:
             assert code == contract, name
 
 
+def _lstrlen_calls(lstrlen: int, _local_alloc: int) -> str:
+    """Win2k notepad 0x1002cf5: ``mov esi, [lstrlenW]`` once, then ``call esi`` on one arm of an
+    if and again after the arms merge."""
+    return (
+        f"55 8bec 837d1400 56 8b35{le32(lstrlen)} 57 7409"
+        "ff7514 ffd6 8bf8 eb02 33ff ff7510 ffd6 5f 5e 5d c3"
+    )
+
+
+def _lstrlen_call_once(lstrlen: int, _local_alloc: int) -> str:
+    """The same code with the second ``call esi`` replaced by two ``nop``."""
+    return (
+        f"55 8bec 837d1400 56 8b35{le32(lstrlen)} 57 7409"
+        "ff7514 ffd6 8bf8 eb02 33ff ff7510 9090 5f 5e 5d c3"
+    )
+
+
+def _import_call_project(tmp_path: Path) -> tuple[WorkerConfig, str, int, bytes]:
+    """An analysed project of the ``_lstrlen_calls`` PE: its worker, project dir, lstrlenW slot and
+    bytes."""
+    binary, slot, _ = make_import_call_pe(tmp_path, _lstrlen_calls)
+    pe = binary.read_bytes()
+    digest = hashlib.sha256(pe).hexdigest()
+    filestore, workspace = tmp_path / "files", tmp_path / "workspace"
+    (filestore / "binaries").mkdir(parents=True)
+    (filestore / "binaries" / digest).write_bytes(pe)
+    workspace.mkdir()
+    config = WorkerConfig(filestore, workspace)
+    request = {"binary_id": 1, "sha256": digest, "name": "calls.exe"}
+    project = _call(config, "rebrew.analyse", {**request, "file_key": f"binaries/{digest}"})
+    return config, project["project"], slot, pe
+
+
+def _slot_calls(reply: dict[str, Any], slot: int) -> list[tuple[str, int]]:
+    return [
+        (row["kind"], row["from_va"])
+        for row in reply["references"]
+        if row["to_va"] == slot and row["from_va"] < ENTRY_VA + 0x25
+    ]
+
+
 class TestCallReferences:
     def test_binary_call_scan(self, world: tuple[WorkerConfig, Path]) -> None:
         config, project = world
@@ -244,31 +285,42 @@ class TestCallReferences:
         assert reply["import_slots"] == sorted(reply["import_slots"], key=lambda row: row["va"])
 
     def test_calls_through_a_register_holding_an_import(self, tmp_path: Path) -> None:
-        # Win2k notepad 0x1002cf5: ``mov esi, [lstrlenW]`` once, then ``call esi``
-        # on one arm of an if and again after the arms merge.
-        def assemble(lstrlen: int, _local_alloc: int) -> str:
-            return (
-                f"55 8bec 837d1400 56 8b35{le32(lstrlen)} 57 7409"
-                "ff7514 ffd6 8bf8 eb02 33ff ff7510 ffd6 5f 5e 5d c3"
-            )
-
-        binary, slot, _ = make_import_call_pe(tmp_path, assemble)
-        pe = binary.read_bytes()
-        digest = hashlib.sha256(pe).hexdigest()
-        filestore, workspace = tmp_path / "files", tmp_path / "workspace"
-        (filestore / "binaries").mkdir(parents=True)
-        (filestore / "binaries" / digest).write_bytes(pe)
-        workspace.mkdir()
-        config = WorkerConfig(filestore, workspace)
-        request = {"binary_id": 1, "sha256": digest, "name": "calls.exe"}
-        project = _call(config, "rebrew.analyse", {**request, "file_key": f"binaries/{digest}"})
-        reply = _call(config, "rebrew.call_references", {"project_dir": project["project"]})
-        assert [
-            (row["kind"], row["from_va"])
-            for row in reply["references"]
-            if row["to_va"] == slot and row["from_va"] < ENTRY_VA + 0x25
-        ] == [("iat_call", ENTRY_VA + 0x14), ("iat_call", ENTRY_VA + 0x1F)]
+        config, project, slot, _ = _import_call_project(tmp_path)
+        reply = _call(config, "rebrew.call_references", {"project_dir": project})
+        assert _slot_calls(reply, slot) == [
+            ("iat_call", ENTRY_VA + 0x14),
+            ("iat_call", ENTRY_VA + 0x1F),
+        ]
         assert {"va": slot, "name": "lstrlenW"} in reply["import_slots"]
+
+    def test_a_binary_is_scanned_again_only_once_its_bytes_change(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.analysis
+        import rebrew.ops
+
+        config, project, slot, pe = _import_call_project(tmp_path)
+        scanned: list[Path] = []
+        scan = rebrew.analysis.scan_references
+
+        def counted(info: Any) -> Any:
+            scanned.append(info.path)
+            return scan(info)
+
+        monkeypatch.setattr(rebrew.ops, "_call_scans", {})
+        monkeypatch.setattr(rebrew.analysis, "scan_references", counted)
+        request = {"project_dir": project}
+        first = _call(config, "rebrew.call_references", request)
+        assert _call(config, "rebrew.call_references", request) == first
+        assert len(scanned) == 1
+        (target,) = [p for p in Path(project).rglob("*") if p.is_file() and p.read_bytes() == pe]
+        (tmp_path / "changed").mkdir()
+        changed, changed_slot, _ = make_import_call_pe(tmp_path / "changed", _lstrlen_call_once)
+        assert changed_slot == slot
+        target.write_bytes(changed.read_bytes())
+        reply = _call(config, "rebrew.call_references", request)
+        assert len(scanned) == 2
+        assert _slot_calls(reply, slot) == [("iat_call", ENTRY_VA + 0x14)]
 
 
 class TestListingOps:

@@ -2,6 +2,27 @@
 
 Measurements of Rebrew hot paths, retained optimizations, and rejected experiments.
 
+## Call scans kept by binary digest (2026-11-16)
+
+`rebrew.call_references` scanned the whole binary (`scan_references`, then the import
+table) on every call. The backend calls it for each function page's call graph:
+production span metrics over 24 hours put the backend route at 225 requests, p50
+476 ms and p95 2.3 s, nearly all of it this op. The op now keeps its answer by the
+sha256 of the binary's bytes, 8 binaries per worker.
+
+`.scratch/bench_call_refs.py` analyses the YC server.dll (sha256 `3cc2ce90...`, 286,720
+bytes) in a fresh workspace, then times six `rebrew.call_references` calls through
+`rebrew.ops.dispatch`. It ran on `origin/main` and on the change with the same
+interpreter:
+
+| Call | Before | After |
+|---|---:|---:|
+| first | 427 ms | 421 ms |
+| repeats (median of 5) | 392 ms | 2.2 ms |
+
+Every reply was the same 206,108 bytes (sha256 `d62b28c6...`) on both sides.
+`scan_references` alone takes a median 540 ms on this binary (5,466 references).
+
 ## Third ten hot-path rounds (2026-11-15)
 
 Baseline `23171f8d`, candidate `e1381b2b`, measured as above with both source

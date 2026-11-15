@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import threading  # module statement: the call scan lock is made at load
 from contextvars import ContextVar  # module statement: definition-time use
 from dataclasses import MISSING, dataclass, field, fields
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -66,7 +67,6 @@ lazy import socket
 lazy import subprocess
 lazy import sys
 lazy import tempfile
-lazy import threading
 lazy import time
 lazy import traceback
 lazy import typing
@@ -1788,14 +1788,34 @@ def xrefs(config: WorkerConfig, req: AddressRequest) -> dict[str, Any]:
     return build_xrefs_payload(cfg.target_binary, _address(req.va), req.kinds or None)
 
 
+#: Call scans (``call_references`` answers) by the sha256 of the scanned binary's bytes, newest
+#: use last. A function page reads its binary's scan on every view, and one worker serves a few
+#: binaries at a time; the bound guards a long-lived worker walking many images.
+_CALL_SCANS_MAX = 8
+_call_scans: dict[str, dict[str, Any]] = {}
+_call_scans_lock = threading.Lock()
+
+
 def call_references(config: WorkerConfig, req: ProjectRequest) -> dict[str, Any]:
-    """Scan one analysed binary for calls, jumps and import slots."""
+    """Scan one analysed binary for calls, jumps and import slots.
+
+    The answer is a function of the binary's bytes alone, so it is kept by their sha256, read
+    before the scan and again after it: a scan whose file changed meanwhile is answered but not
+    kept. Callers serialize the answer and never change it.
+    """
     from rebrew.analysis import scan_references
     from rebrew.formats.binary_loader import load_binary
     from rebrew.formats.import_table import parse_import_table
 
     cfg = target_config(project_root(config, req.project_dir), "")
-    references = scan_references(load_binary(cfg.target_binary))
+    binary = Path(cfg.target_binary)
+    digest = _file_sha256(binary)
+    with _call_scans_lock:
+        kept = _call_scans.pop(digest, None)
+        if kept is not None:
+            _call_scans[digest] = kept
+            return kept
+    references = scan_references(load_binary(binary))
     calls = sorted(
         (
             {"kind": ref.kind, "from_va": ref.from_va, "to_va": ref.to_va}
@@ -1804,11 +1824,17 @@ def call_references(config: WorkerConfig, req: ProjectRequest) -> dict[str, Any]
         ),
         key=lambda ref: (ref["from_va"], ref["to_va"], ref["kind"]),
     )
-    imports = parse_import_table(cfg.target_binary)
-    return {
+    imports = parse_import_table(binary)
+    answer = {
         "references": calls,
         "import_slots": [{"va": va, "name": imports[va]} for va in sorted(imports)],
     }
+    if _file_sha256(binary) == digest:
+        with _call_scans_lock:
+            _call_scans[digest] = answer
+            if len(_call_scans) > _CALL_SCANS_MAX:
+                _call_scans.pop(next(iter(_call_scans)))
+    return answer
 
 
 def describe(config: WorkerConfig, req: AddressRequest) -> dict[str, Any]:

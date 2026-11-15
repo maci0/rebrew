@@ -7059,6 +7059,9 @@ Op details the contract leaves open:
   and `iat_jmp` references of the `.text` scan, including a `call reg` /
   `jmp reg` through a register that holds an import slot's pointer on every
   path (rules and limits under [`rebrew binary xrefs`](#rebrew-binary-xrefs)).
+  A worker keeps the answers of the last 8 binaries it scanned by the sha256 of
+  their bytes, read before and after the scan; a binary whose bytes change is
+  scanned again.
 - `rebrew.report`, `rebrew.coverage_report` and `rebrew.data_list`: a
   `coverage_input` carries all eight fields or answers 400.
 - `rebrew.structs`: `limit` caps the annotated functions decompiled; `0`

@@ -4,6 +4,10 @@
 
 - **Breaking:** `rebrew.metadata.functions.is_table_field` is gone. Nothing called it since `lint --fix` stopped migrating inline keys; read `METADATA_FIELD_TYPES[key.lower()] is dict` instead.
 
+### Performance
+
+- `rebrew.call_references` keeps each answer by the sha256 of the scanned binary's bytes (8 binaries per worker), so a binary is scanned once and not on every call. The backend calls it on every function page. On the YC server.dll (286,720 bytes, 5,466 references) a repeat call took 392 ms before and takes 2.2 ms now, with the same 206,108-byte reply (`docs/PERFORMANCE.md`). The digest is read before the scan and again after it. A scan whose file changed in between is answered but not kept, and changed bytes are scanned again.
+
 ## [6.42.0] - 2026-11-15
 
 ### Added
