@@ -2784,12 +2784,31 @@ def test_export_stats_are_zero_without_an_exporter() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _analysed_project(tmp_path: Path) -> tuple[WorkerConfig, Path, Path]:
-    """A worker, its filestore, and an analysed project directory to archive."""
-    filestore, workspace = _worker_dirs(tmp_path)
+@pytest.fixture(scope="module")
+def _analysed_source(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, Path]:
+    """One worker root analysed as project ``source``, and that project relative to it."""
+    root = tmp_path_factory.mktemp("analysed")
+    filestore, workspace = _worker_dirs(root)
     config = WorkerConfig(filestore.resolve(), workspace.resolve())
     reply = _call(config, "rebrew.analyse", {**_analyse_request(), "project_id": "source"})
-    return config, filestore, Path(reply["project"])
+    return root.resolve(), Path(reply["project"]).relative_to(root.resolve())
+
+
+@pytest.fixture
+def analysed_project(
+    tmp_path: Path, _analysed_source: tuple[Path, Path]
+) -> tuple[WorkerConfig, Path, Path]:
+    """A worker, its filestore, and an analysed project directory to archive.
+
+    A copy of the module's one analysis: each test may change its own. The
+    ``.rebrew`` caches are left behind; they name the original paths and are
+    rebuilt on demand.
+    """
+    root, project = _analysed_source
+    shutil.copytree(root, tmp_path, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".rebrew"))
+    filestore, workspace = tmp_path / "files", tmp_path / "workspace"
+    config = WorkerConfig(filestore.resolve(), workspace.resolve())
+    return config, filestore, tmp_path.resolve() / project
 
 
 def _tar_bytes(
@@ -2845,12 +2864,12 @@ def _import(config: WorkerConfig, filestore: Path, archive: bytes) -> tuple[int,
 
 class TestImportArchive:
     def test_imports_the_matching_target_with_its_statuses_and_capture(
-        self, tmp_path: Path
+        self, analysed_project: tuple[WorkerConfig, Path, Path]
     ) -> None:
         from rebrew.config import load_config, target_module
         from rebrew.metadata.functions import update_field, update_source_status
 
-        config, filestore, project = _analysed_project(tmp_path)
+        config, filestore, project = analysed_project
         module = target_module(load_config(project))
         assert update_source_status(project, "EXACT", module, ENTRY_VA, force=True)
         update_field(project, 0x500000, "NOTE", "a record of another module", "OTHERMOD")
@@ -2871,9 +2890,9 @@ class TestImportArchive:
         assert "OTHERMOD." not in (installed / "rebrew-functions.toml").read_text()
 
     def test_refuses_an_archive_whose_binary_is_not_the_project_binary(
-        self, tmp_path: Path
+        self, analysed_project: tuple[WorkerConfig, Path, Path]
     ) -> None:
-        config, filestore, project = _analysed_project(tmp_path)
+        config, filestore, project = analysed_project
         members = [
             (name, b"MZ not the stored binary" if data == BINARY.read_bytes() else data, kind)
             for name, data, kind in _project_members(project)
@@ -2893,9 +2912,13 @@ class TestImportArchive:
         ],
     )
     def test_refuses_unsafe_entries_before_writing_them(
-        self, tmp_path: Path, member: tuple[str, bytes | None, str], why: str
+        self,
+        tmp_path: Path,
+        analysed_project: tuple[WorkerConfig, Path, Path],
+        member: tuple[str, bytes | None, str],
+        why: str,
     ) -> None:
-        config, filestore, project = _analysed_project(tmp_path)
+        config, filestore, project = analysed_project
         status, reply = _import(config, filestore, _tar_bytes([*_project_members(project), member]))
         assert (status, reply["error"]) == (422, "project-import-refused"), reply
         assert why in reply["detail"]
@@ -2905,11 +2928,11 @@ class TestImportArchive:
         ).exists()
 
     def test_refuses_more_entries_than_the_bound(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, analysed_project: tuple[WorkerConfig, Path, Path], monkeypatch: pytest.MonkeyPatch
     ) -> None:
         import rebrew.project_archive
 
-        config, filestore, project = _analysed_project(tmp_path)
+        config, filestore, project = analysed_project
         members = _project_members(project)
         monkeypatch.setattr(rebrew.project_archive, "ARCHIVE_MAX_ENTRIES", len(members) - 1)
         status, reply = _import(config, filestore, _tar_bytes(members))
@@ -2925,9 +2948,9 @@ class TestImportArchive:
         ],
     )
     def test_refuses_settings_that_run_or_reach_something(
-        self, tmp_path: Path, setting: str, named: str
+        self, analysed_project: tuple[WorkerConfig, Path, Path], setting: str, named: str
     ) -> None:
-        config, filestore, project = _analysed_project(tmp_path)
+        config, filestore, project = analysed_project
         members = []
         for name, data, kind in _project_members(project):
             if name == "rebrew-project.toml":
@@ -2939,9 +2962,11 @@ class TestImportArchive:
         assert (status, reply["error"]) == (422, "project-import-refused"), reply
         assert named in reply["detail"]
 
-    def test_an_unreadable_config_is_invalid_project_config(self, tmp_path: Path) -> None:
+    def test_an_unreadable_config_is_invalid_project_config(
+        self, analysed_project: tuple[WorkerConfig, Path, Path]
+    ) -> None:
         """An archive config rebrew cannot read answers the code every supplied config refusal shares."""
-        config, filestore, project = _analysed_project(tmp_path)
+        config, filestore, project = analysed_project
         members = [
             (name, b"[targets\n" if name == "rebrew-project.toml" else data, kind)
             for name, data, kind in _project_members(project)
@@ -2951,9 +2976,11 @@ class TestImportArchive:
         assert reply["detail"].startswith("invalid project config: rebrew-project.toml")
         assert str(config.workspace) not in reply["detail"]
 
-    def test_archive_modes_never_reach_the_installed_project(self, tmp_path: Path) -> None:
+    def test_archive_modes_never_reach_the_installed_project(
+        self, analysed_project: tuple[WorkerConfig, Path, Path]
+    ) -> None:
         """Read-only, setuid and sticky modes in the archive are not kept: directories stay writable."""
-        config, filestore, project = _analysed_project(tmp_path)
+        config, filestore, project = analysed_project
         members = _project_members(project)
         directories = sorted({str(Path(name).parent) for name, _data, _kind in members} - {"."})
         archive = _tar_bytes(
@@ -2972,11 +2999,14 @@ class TestImportArchive:
         assert sources and all(stat.S_IMODE(path.stat().st_mode) == 0o644 for path in sources)
 
     def test_a_replaced_project_the_worker_cannot_delete_does_not_fail_the_import(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+        self,
+        analysed_project: tuple[WorkerConfig, Path, Path],
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         """A file of the binary's earlier project the worker may not unlink (production: a foreign
         SELinux category on PRINCIPLES.md) is left behind and logged; the import itself succeeds."""
-        config, filestore, project = _analysed_project(tmp_path)
+        config, filestore, project = analysed_project
         _call(config, "rebrew.analyse", {**_analyse_request(), "project_id": "imported"})
         unlink = os.unlink
 
@@ -2996,13 +3026,13 @@ class TestImportArchive:
         assert any(str(left) in record.getMessage() for record in caplog.records)
 
     def test_an_import_parses_the_function_store_once_with_its_formatting(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, analysed_project: tuple[WorkerConfig, Path, Path], monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A format-preserving parse is the import's dearest step on a whole-game store: the
         private copy is migrated with one, not a preview and a migration."""
         import rebrew.metadata.files as files
 
-        config, filestore, project = _analysed_project(tmp_path)
+        config, filestore, project = analysed_project
         reads: list[str] = []
         load = files.load_toml_for_write_strict
 
@@ -3016,12 +3046,12 @@ class TestImportArchive:
         assert reads.count("rebrew-functions.toml") == 1
 
     def test_a_source_outside_the_reversed_directory_is_captured_as_a_source(
-        self, tmp_path: Path
+        self, analysed_project: tuple[WorkerConfig, Path, Path]
     ) -> None:
         """A library row may bind a reference source outside the reversed directory (guild's
         references/zlib/*.c): every source the report names is a captured source, or the backend
         refuses the import (YC job 1589)."""
-        config, filestore, project = _analysed_project(tmp_path)
+        config, filestore, project = analysed_project
         moved = "references/lib/fcn_00401000.c"
         members = []
         for name, data, kind in _project_members(project):
@@ -3049,11 +3079,13 @@ class TestImportArchive:
         paths = [entry["path"] for entry in reply["analysis_capture"]["entries"]]
         assert paths == sorted(paths, key=lambda path: path.encode("utf-8"))
 
-    def test_a_zip_archive_imports_like_a_tar(self, tmp_path: Path) -> None:
+    def test_a_zip_archive_imports_like_a_tar(
+        self, analysed_project: tuple[WorkerConfig, Path, Path]
+    ) -> None:
         import io
         import zipfile
 
-        config, filestore, project = _analysed_project(tmp_path)
+        config, filestore, project = analysed_project
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, "w") as archive:
             for name, data, _kind in _project_members(project):
