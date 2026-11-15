@@ -198,6 +198,11 @@ timeout = 60
 # Default: 2
 # recompile_retries = 2
 
+# Remote compiles one process runs at once (>= 1), whatever `jobs` is; the rest
+# wait for a slot, and a Retry-After one reply names holds them all back.
+# Default: 2
+# recompile_concurrency = 2
+
 # Per-module CFLAGS presets for functions without per-function metadata.
 [compiler.cflags_presets]
 GAME = "/O2 /Gd"

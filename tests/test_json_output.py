@@ -351,6 +351,7 @@ class TestRebrewTestBatchJson:
             "matching": 0,
             "size_mismatch": 0,
             "compile_error": 0,
+            "not_run": 0,
             "missing_file": 0,
             "byte_matched": 0,
             "library_passed": 0,
