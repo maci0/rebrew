@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 from cache_util import cache_text
+from cli_json import cli_payload
 from source_util import write_source
 from typer.testing import CliRunner
 
@@ -1441,6 +1442,79 @@ class TestIncrementalVerify:
         # Second run: cached, status promotion not re-applied for cached results
         second = runner.invoke(app, ["--json"])
         assert second.exit_code == 0, second.output
+
+    def test_rows_carry_the_comparison_counts(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A row carries its comparison's byte counts and source, fresh and from the cache.
+
+        A whole-target verification is judged by the counts a ``rebrew test --json``
+        row carries (the hosted coverage records): without them a RELOC row says
+        nothing about how many relocations it masked. ``source`` is the
+        project-relative path a coverage record names.
+        """
+        cfg = _make_cfg(tmp_path)
+        entries = []
+        for va, name in ((0x10001000, "func_a"), (0x10002000, "func_b")):
+            (cfg.reversed_dir / f"{name}.c").write_text(
+                f"int {name}(void) {{ return 1; }}\n", encoding="utf-8"
+            )
+            entries.append(
+                SourceBinding(
+                    va=va, name=name, filepath=f"{name}.c", size=16, symbol="", kind="FUNCTION"
+                )
+            )
+        compared = {
+            0x10001000: CompareResult(
+                matched=True,
+                status="RELOC",
+                match_percent=100.0,
+                delta=0,
+                obj_bytes=b"\x90" * 16,
+                reloc_offsets=[4, 9],
+                match_count=16,
+                message="RELOC-NORM MATCH (2 relocs)",
+            ),
+            0x10002000: CompareResult(
+                matched=False,
+                status="NEAR_MATCHING",
+                match_percent=75.0,
+                delta=4,
+                obj_bytes=b"\x90" * 16,
+                reloc_offsets=[],
+                match_count=12,
+                message="NEAR_MATCHING: 4 byte diffs",
+            ),
+        }
+        calls: list[int] = []
+        _patch_verify(monkeypatch, cfg, entries)
+        monkeypatch.setattr(
+            "rebrew.verify.verify_entry",
+            lambda entry, *_a, **_k: calls.append(int(entry.va)) or compared[int(entry.va)],
+        )
+        expected = {
+            "0x10001000": {
+                "source": "src/func_a.c",
+                "match_count": 16,
+                "total": 16,
+                "obj_size": 16,
+                "reloc_count": 2,
+            },
+            "0x10002000": {
+                "source": "src/func_b.c",
+                "match_count": 12,
+                "total": 16,
+                "obj_size": 16,
+                "reloc_count": 0,
+            },
+        }
+        for run in ("fresh", "cached"):
+            outcome = runner.invoke(app, ["--json", "--no-promote"])
+            rows = {row["va"]: row for row in cli_payload(outcome)["results"]}
+            counts = {va: {key: rows[va].get(key) for key in expected[va]} for va in rows}
+            assert counts == expected, (run, outcome.output)
+        # Both compiled once, by the fresh run: the second run's rows are the cache's.
+        assert sorted(calls) == [0x10001000, 0x10002000]
 
     def test_cache_hit_reports_the_same_row_bytes_as_a_fresh_run(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

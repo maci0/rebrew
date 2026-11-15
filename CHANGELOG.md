@@ -1,5 +1,13 @@
 ## [Unreleased]
 
+### Added
+
+- `rebrew verify --json` rows (and so `rebrew.verify_target` replies) carry their comparison's byte counts under the names a `rebrew test --json` report uses: `match_count`, `total`, `obj_size` and `reloc_count` (`rebrew.verify_cache.COUNT_FIELDS`), computed by the new `rebrew.compiler.compile.comparison_counts`, which `rebrew test` now uses too. They are null for a row whose compile produced no bytes, and for a row served from a verify cache entry written before they existed. Each row also carries `source`, its compiled file relative to the project root (the path a coverage record names; null when the file is outside the source roots or the project root), taken when the report is made and never cached. A RELOC row said how many relocations it masked only in its message, and a row named its file only relative to `reversed_dir`, so a hosted caller could not take a whole-target verification's rows as coverage records: the YC server.dll target verification passed 316 functions and its coverage still counted none.
+
+### Changed
+
+- **Breaking:** `rebrew.verify_cache.RESULT_FIELDS` lists the four count fields after `match_percent`, and `rebrew.verify_cache.VerifyCacheEntry` has them as fields (default null), so a cached row re-serves them.
+
 ### Fixed
 
 - A call or jump through a register that holds an import pointer is an `iat_call` / `iat_jmp` to its slot in `rebrew.analysis.scan_references` on an x86-32 PE, and so in `rebrew.call_references`, `rebrew binary xrefs` (`rebrew.xrefs`) and the callees and imports of `rebrew binary function` (`rebrew.describe`). MSVC loads an import once into a register (`mov esi, [__imp__lstrlenW]`) and calls it several times (`call esi`), and `call reg` recorded nothing: the backend call graph of Win2k notepad's function at 0x1002cf5 listed its other callees but not `lstrlenW`. The scan walks back from each `call reg` / `jmp reg` and reports the slot only when every path to it loads the register from that one slot; a write to the register, a call when it is `eax`, `ecx` or `edx`, two slots on two paths, or a predecessor the walk cannot follow (a function entry, a call target, an address-taken label, a pointer-table entry) gives no reference ([rules and limits](docs/CLI.md#rebrew-binary-xrefs)). Win2k notepad gains 174 references (174 of its 177 register calls; the other three call a `GetProcAddress` result), MSVC 6 `C1XX.DLL` 326 of 422 register calls. The scan takes about 16% longer on `C1XX.DLL` (1.58 to 1.83 s).

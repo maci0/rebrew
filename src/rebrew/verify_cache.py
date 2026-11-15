@@ -745,6 +745,10 @@ def load_verify_cache_raw(cfg: Any, *, isolate: bool = True) -> dict[str, Any] |
     return copy.deepcopy(raw) if isolate and raw is not None else raw
 
 
+#: A row's byte counts, as ``rebrew test --json`` names them; null when the
+#: comparison had no compiled bytes, and in an entry cached before they existed.
+COUNT_FIELDS: tuple[str, ...] = ("match_count", "total", "obj_size", "reloc_count")
+
 #: Verdict fields shared by the report row and the cache row — one shape,
 #: two envelopes.  The cache adds the identity inputs alongside (see
 #: VerifyCacheEntry); the report nests rows under ``results``.
@@ -760,6 +764,7 @@ RESULT_FIELDS: tuple[str, ...] = (
     "module",
     "delta",
     "match_percent",
+    *COUNT_FIELDS,
     "passed",
     "message",
     "similarity",
@@ -815,6 +820,10 @@ class VerifyCacheEntry:
     module: str = ""
     delta: int | None = None
     match_percent: float | None = None
+    match_count: int | None = None
+    total: int | None = None
+    obj_size: int | None = None
+    reloc_count: int | None = None
     passed: bool = False
     message: str = ""
     similarity: float | None = None

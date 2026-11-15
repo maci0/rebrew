@@ -453,6 +453,27 @@ def matched_byte_count(
     return max(0, min(compared_len, math.floor(match_percent / 100.0 * compared_len)))
 
 
+def comparison_counts(cmp: CompareResult, target_size: int) -> tuple[int, int, int]:
+    """``(obj_size, total, match_count)`` of *cmp* against *target_size* target bytes.
+
+    On SIZE_MISMATCH, ``cmp.obj_bytes`` is truncated to the common length, so
+    ``obj_size`` is the recorded full compiled size and ``total`` the longer of
+    the two; ``match_count`` counts against the compared length (see
+    :func:`matched_byte_count`).
+    """
+    obj_bytes = cmp.obj_bytes or b""
+    obj_size = cmp.full_obj_size if cmp.full_obj_size is not None else len(obj_bytes)
+    total = max(target_size, obj_size) if (obj_bytes or target_size) else 0
+    match_count = matched_byte_count(
+        cmp.match_percent,
+        matched=cmp.matched,
+        compared_len=len(obj_bytes),
+        total=total,
+        match_count=cmp.match_count,
+    )
+    return obj_size, total, match_count
+
+
 _INLINE_ASM = re.compile(r"\b(?:__asm|_asm|__emit)\b")
 
 
@@ -3841,6 +3862,7 @@ __all__ = [
     "classify_match_status",
     "cleanup_batch_obj_dirs",
     "clears_blocker",
+    "comparison_counts",
     "compile_and_compare",
     "compile_and_compare_linked",
     "compile_batch_objs",

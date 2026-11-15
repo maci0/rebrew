@@ -466,6 +466,13 @@ Per-function result rows carry `diff_lines` (structural diff count),
 `reg_delta` (register-encoding-only diff count), and
 `effective_match` (true when the entire delta is register allocation);
 all consumed by the coverage documents `rebrew coverage export --output snapshots/` writes.
+They also carry the comparison's byte counts as `rebrew test --json` names them:
+`match_count`, `total` (the longer of the annotated size and the compiled size),
+`obj_size` (compiled bytes) and `reloc_count` (masked relocation slots), null when
+the compile produced no bytes or the row comes from a cache entry written before
+rebrew recorded them, and `source`, the compiled file relative to the project root
+(`filepath` is relative to `reversed_dir`), null when the file is outside
+the source roots or the project root.
 
 A function that fails to byte-match whose source is fenced behind
 `#ifdef REBREW_ALLOW_NAKED` is reported with an explanatory note: the

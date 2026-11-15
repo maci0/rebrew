@@ -72,6 +72,7 @@ lazy from rebrew.catalog import (
 )
 lazy from rebrew.compiler.compile import (
     clears_blocker,
+    comparison_counts,
 )
 lazy from rebrew.compiler.overrides import resolve_compile_overrides_cached
 lazy from rebrew.config import ProjectConfig, inventory_path_for, target_module
@@ -88,10 +89,12 @@ lazy from rebrew.utils import (
     interruptible_pool,
     preset_module_key,
     read_json_text,
+    resolved_path,
     try_parse_int,
     untrusted_ident,
 )
 lazy from rebrew.verify_cache import (
+    COUNT_FIELDS,
     VerifyCacheEntry,
     cache_path_for,
     load_verify_cache,
@@ -121,6 +124,44 @@ def _failed_result(status: CompareStatus, message: str = "") -> CompareResult:
         reloc_offsets=None,
         message=message or status,
         match_count=0,
+    )
+
+
+def _comparison_fields(result: CompareResult, size: int) -> dict[str, int | None]:
+    """A row's byte counts, as ``rebrew test --json`` reports them; null without compiled bytes.
+
+    ``match_count``, ``total`` and ``obj_size`` come from
+    :func:`~rebrew.compiler.compile.comparison_counts` against the annotated
+    *size*; ``reloc_count`` is the number of masked relocation slots.
+    """
+    if result.obj_bytes is None:
+        return dict.fromkeys(COUNT_FIELDS)
+    obj_size, total, match_count = comparison_counts(result, size)
+    return {
+        "match_count": match_count,
+        "total": total,
+        "obj_size": obj_size,
+        "reloc_count": len(result.reloc_offsets or []),
+    }
+
+
+def _project_source(cfg: Any, source: Path | None) -> str | None:
+    """A row's compiled source relative to the project root, the path coverage binds a verdict to.
+
+    *source* is the binding's file as :func:`~rebrew.sources.contained_path`
+    resolved it, ``None`` when it escapes the source roots; the result is
+    ``None`` too for a file outside the root (a ``shared_dir`` elsewhere).
+    Taken at report time, never cached: the binding's ``filepath`` is relative
+    to ``reversed_dir``, which a config change can move under a cached entry.
+    """
+    root = getattr(cfg, "root", None)
+    if source is None or root is None:
+        return None
+    resolved_root = resolved_path(Path(root))
+    return (
+        source.relative_to(resolved_root).as_posix()
+        if source.is_relative_to(resolved_root)
+        else None
     )
 
 
@@ -2798,7 +2839,7 @@ def prepare_entries(
             "size": entry.size,
             "module": getattr(entry, "module", ""),
         }
-        results.append(cached_entry.result_row())
+        results.append({**cached_entry.result_row(), "source": _project_source(cfg, Path(fp.path))})
         if cached_entry.passed:
             passed += 1
         else:
@@ -3092,6 +3133,7 @@ def run_verification(
                                 "passed": result.matched,
                                 "match_percent": result.match_percent,
                                 "delta": result.delta,
+                                **_comparison_fields(result, getattr(entry, "size", 0)),
                                 "diff_lines": result.diff_lines,
                                 "similarity": result.similarity,
                                 "reg_delta": result.reg_delta,
@@ -3103,6 +3145,10 @@ def run_verification(
                                     else {}
                                 ),
                             }
+                        )
+                        row["source"] = _project_source(
+                            cfg,
+                            contained_path(source_roots(cfg), getattr(entry, "filepath", "")),
                         )
                         if result.error is not None:
                             # The structured backend failure; the cache writers

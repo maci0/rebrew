@@ -74,6 +74,7 @@ lazy from rebrew.compiler.compile import (
     CompareResult,
     classify_compare_result,
     clears_blocker,
+    comparison_counts,
     compile_and_compare,
     compile_to_obj,
     is_matched,
@@ -695,28 +696,6 @@ def main(
         raise typer.Exit(code=EXIT_MISMATCH)
 
 
-def _resolve_total_and_match_count(
-    cmp: CompareResult,
-    target_bytes: bytes,
-) -> tuple[int, int, int]:
-    """Return (obj_len, total, match_count) from a CompareResult and target bytes."""
-    obj_bytes = cmp.obj_bytes or b""
-    # On SIZE_MISMATCH, cmp.obj_bytes is truncated to the common length — use
-    # the recorded full compiled size so total/obj_size report the real
-    # function length instead of the common-prefix slice.  match_count still
-    # reconstructs against the compared length (see matched_byte_count).
-    obj_len = cmp.full_obj_size if cmp.full_obj_size is not None else len(obj_bytes)
-    total = max(len(target_bytes), obj_len) if (obj_bytes or target_bytes) else 0
-    match_count = matched_byte_count(
-        cmp.match_percent,
-        matched=cmp.matched,
-        compared_len=len(obj_bytes),
-        total=total,
-        match_count=cmp.match_count,
-    )
-    return obj_len, total, match_count
-
-
 def build_result_dict_from_compare(
     source: str,
     symbol: str,
@@ -735,7 +714,7 @@ def build_result_dict_from_compare(
     """
     relocs = cmp.reloc_offsets or []
     obj_bytes = cmp.obj_bytes or b""
-    obj_len, total, match_count = _resolve_total_and_match_count(cmp, target_bytes)
+    obj_len, total, match_count = comparison_counts(cmp, len(target_bytes))
     result = _result_dict_body(
         source,
         symbol,
@@ -895,7 +874,7 @@ def _print_compare_result(cmp: CompareResult, target_bytes: bytes) -> None:
     relocs = cmp.reloc_offsets or []
     inv_relocs = cmp.inv_reloc_offsets
     obj_bytes = cmp.obj_bytes or b""
-    obj_len, total, match_count = _resolve_total_and_match_count(cmp, target_bytes)
+    obj_len, total, match_count = comparison_counts(cmp, len(target_bytes))
 
     if cmp.matched:
         if cmp.status == "EXACT" and relocs:
@@ -1551,7 +1530,7 @@ def _run_test_impl(
     # Reconstruct match_count/total for cache + display from CompareResult.
     # Prefer full_obj_size for total (SIZE_MISMATCH truncates obj_bytes) but
     # take match_count from CompareResult when present (avoids float round-trip).
-    _obj_len, total, match_count = _resolve_total_and_match_count(cmp, target_bytes)
+    _obj_len, total, match_count = comparison_counts(cmp, len(target_bytes))
     if not comparison_inputs_current(cfg, Path(source), measured_inputs):
         measured_inputs = None
     if cmp.status == "RELOC" and not target_bin and not symbol_mismatch:
