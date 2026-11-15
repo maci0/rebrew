@@ -1336,9 +1336,13 @@ def find_declarator_name(declarator: Any, source_bytes: bytes) -> str | None:
 
 def _has_function_declarator(node: Any) -> bool:
     """Return True if *node* or any descendant is a function_declarator."""
-    if node.type == "function_declarator":
-        return True
-    return any(_has_function_declarator(child) for child in node.children)
+    pending = [node]
+    while pending:
+        current = pending.pop()
+        if current.type == "function_declarator":
+            return True
+        pending.extend(current.children)
+    return False
 
 
 def _count_pointer_depth(declarator: Any) -> int:
