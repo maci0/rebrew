@@ -800,6 +800,27 @@ class TestReplaceFunctionPrototype:
         ) == source.replace("target(int value)", "target(void* value)")
 
 
+def test_function_trees_mask_each_source_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Scans of the same text share one MSVC masking; another text is masked again."""
+    import rebrew.c_parser as parser
+
+    source = "int __cdecl trees_once(void) { return 1; }\n"
+    original = parser.mask_msvc_syntax
+    calls = []
+
+    def counted(text: str) -> str:
+        calls.append(text)
+        return original(text)
+
+    monkeypatch.setattr(parser, "mask_msvc_syntax", counted)
+    assert parser.function_signatures(source) == {"trees_once": "int __cdecl trees_once(void)"}
+    assert [name for name, *_ in parser.function_definition_spans(source)] == ["trees_once"]
+    assert calls == [source]
+    changed = source.replace("trees_once", "trees_twice")
+    assert list(parser.function_signatures(changed)) == ["trees_twice"]
+    assert calls == [source, changed]
+
+
 def test_function_definitions_reuse_one_walk_per_source(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

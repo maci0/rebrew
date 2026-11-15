@@ -295,8 +295,15 @@ def parse_c_structure(source: str | bytes) -> tuple[Any, bytes, list[tuple[int, 
 
 
 def _function_trees(source: str) -> Iterator[tuple[Any, bytes, list[tuple[int, int]]]]:
-    tree, parser_bytes = parse_c_source(mask_msvc_syntax(source))
-    return _structure_trees(tree, source.encode("utf-8", errors="surrogateescape"), parser_bytes)
+    # Every caller reads all trees, and lint reads them twice per source: keep
+    # them, so the MSVC masking and structural reparses run once per text.
+    cached = recall_source_value("function_trees_memo", source)
+    if cached is None:
+        tree, parser_bytes = parse_c_source(mask_msvc_syntax(source))
+        raw = source.encode("utf-8", errors="surrogateescape")
+        cached = tuple(_structure_trees(tree, raw, parser_bytes))
+        store_source_value("function_trees_memo", source, cached)
+    return iter(cached)
 
 
 def node_text(node: Any, source_bytes: bytes) -> str:
