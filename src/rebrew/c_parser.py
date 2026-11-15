@@ -2094,8 +2094,12 @@ def find_extern_variables(
         kind = node.type
         if (
             kind == "function_definition"
-            and function_filter is not None
-            and not function_filter(node.start_point[0] + 1)
+            and (
+                (function_filter is not None and not function_filter(node.start_point[0] + 1))
+                # Nothing under a definition is at file scope, so only an extern
+                # declaration there is reported, and its keyword is in this span.
+                or b"extern" not in src_bytes[node.start_byte : node.end_byte]
+            )
         ):
             return
         if kind == "declaration" and node.has_error:

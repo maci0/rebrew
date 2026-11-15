@@ -819,6 +819,18 @@ def test_extern_function_names_reuse_the_definition_tree(monkeypatch: pytest.Mon
     assert parses == []
 
 
+def test_extern_scan_reports_only_extern_declarations_inside_functions() -> None:
+    """A local definition is not a global; an extern inside a definition still is."""
+    source = (
+        "int plain(void) { int local = 1; return local; }\n"
+        "int body(void) { extern int shared; return shared; }\n"
+        "int kr(a) extern int a; { return a; }\n"
+        "int file_scope = 2;\n"
+    )
+    names = [v.name for v in find_extern_variables(source, include_definitions=True)]
+    assert sorted(names) == ["a", "file_scope", "shared"]
+
+
 def test_msvc_masking_groups_asm_once_per_source(monkeypatch: pytest.MonkeyPatch) -> None:
     """A repeated masking of the same text reuses its asm token walk."""
     import rebrew.c_parser as parser
