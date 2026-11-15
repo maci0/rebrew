@@ -11,6 +11,9 @@ Architecture notes:
   against an address-valued immediate, ``lea`` /
   ``mov`` with an absolute memory operand, and a generic fallback for any
   absolute memory operand (no base/index register), e.g. ``and [abs], 0``.
+  On an x86-32 PE it also reports ``call reg`` / ``jmp reg`` as an IAT
+  call/jump when every path to it loads that register from one import slot
+  (:class:`_RegisterImportCalls`).
 - ``iter_strings`` extracts printable ASCII / UTF-16LE runs from data
   sections.  ``.text`` is skipped by default (embedded immediates are noise);
   pass ``section_names`` explicitly to scan it.
@@ -23,10 +26,11 @@ from __future__ import annotations
 
 import re
 import threading
-from bisect import bisect_right
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Protocol
+lazy from array import array
 lazy from collections.abc import Iterator
 
 lazy import capstone
@@ -34,6 +38,7 @@ lazy import capstone
 lazy from rebrew.errors import RebrewError
 lazy from rebrew.formats.binary_loader import (
     capstone_config_for,
+    iat_slot_vas,
     section_extent,
     va_to_file_offset,
 )
@@ -75,7 +80,9 @@ class Xref:
 
     ``kind`` is one of:
     - ``call`` / ``jmp``      — direct relative call/jump
-    - ``iat_call`` / ``iat_jmp`` — ``call [slot]`` / ``jmp [slot]`` (IAT)
+    - ``iat_call`` / ``iat_jmp`` — ``call [slot]`` / ``jmp [slot]`` (IAT), or
+      ``call reg`` / ``jmp reg`` with the register loaded from import slot
+      ``to_va`` on every path (:func:`scan_references` on an x86-32 PE)
     - ``push``                — ``push imm32`` (string/address load)
     - ``push_mem``            — ``push [abs]`` (global read)
     - ``mov``                 — ``mov reg/[mem], imm32`` (address load/store)
@@ -494,10 +501,16 @@ def scan_references(
     binaries, else ``[".text"]``).
     *include_indexed* also reports x86 no-base indexed displacements as
     ``indexed_mem`` candidates; their effective address remains unknown.
+    On an x86-32 PE, a ``call reg`` / ``jmp reg`` whose register holds one
+    import slot's pointer on every path is an ``iat_call`` / ``iat_jmp`` to
+    that slot (:class:`_RegisterImportCalls` names the rule and its limits).
     """
     names = section_names if section_names is not None else _default_scan_sections(info)
     md = capstone_for(info)
     starts, ends = _merged_ranges(info)
+    slots: frozenset[int] = frozenset()
+    if info.format == "pe" and info.arch == "x86_32":
+        slots = iat_slot_vas(info.path)
     xrefs: list[Xref] = []
     for name in names:
         rng = section_range(info, name)
@@ -508,14 +521,27 @@ def scan_references(
         # NE code segments carry a 2-byte Borland index marker before the
         # instruction stream — skipping it keeps the disasm aligned.
         start = 2 if info.format == "ne" else 0
+        held = _RegisterImportCalls(md, raw, va, slots, starts, ends) if slots else None
         for insn in md.disasm(raw[start:], va + start):
-            if insn.mnemonic == "db":  # skipdata placeholder
-                continue
-            for kind, from_va, to_va in _classify_insn(info, insn, include_indexed=include_indexed):
+            mnemonic = insn.mnemonic
+            refs = (
+                ()
+                if mnemonic == "db"  # skipdata placeholder
+                else _classify_insn(info, insn, include_indexed=include_indexed)
+            )
+            if held is not None:
+                held.observe(insn, mnemonic, refs)
+            for kind, from_va, to_va in refs:
                 if target_va is not None and to_va != target_va:
                     continue
                 if _inside_ranges(starts, ends, to_va):
                     xrefs.append(Xref(kind=kind, from_va=from_va, to_va=to_va))
+        if held is not None:
+            xrefs.extend(
+                Xref(kind=kind, from_va=from_va, to_va=to_va)
+                for kind, from_va, to_va in held.references(info)
+                if target_va is None or to_va == target_va
+            )
     xrefs.sort(key=lambda x: (x.from_va, x.to_va))
     return xrefs
 
@@ -766,6 +792,259 @@ def _classify_insn(
             if addr is not None:
                 return (*immediate_refs, (f"{mnemonic}_mem", from_va, addr))
     return immediate_refs
+
+
+# ---------------------------------------------------------------------------
+# Calls through a register holding an import pointer
+# ---------------------------------------------------------------------------
+
+_EAX, _ECX, _EDX, _EBX, _ESP, _EBP, _ESI, _EDI = (1 << bit for bit in range(8))
+_ALL_GPRS = 0xFF
+
+#: One bit per x86-32 general-purpose register, under every name capstone
+#: prints for it: a write to ``si`` or ``al`` changes ``esi`` or ``eax``.
+_GPR_BITS = {
+    **dict.fromkeys(("eax", "ax", "al", "ah"), _EAX),
+    **dict.fromkeys(("ecx", "cx", "cl", "ch"), _ECX),
+    **dict.fromkeys(("edx", "dx", "dl", "dh"), _EDX),
+    **dict.fromkeys(("ebx", "bx", "bl", "bh"), _EBX),
+    **dict.fromkeys(("esp", "sp"), _ESP),
+    **dict.fromkeys(("ebp", "bp"), _EBP),
+    **dict.fromkeys(("esi", "si"), _ESI),
+    **dict.fromkeys(("edi", "di"), _EDI),
+}
+
+#: Registers a ``call reg`` / ``jmp reg`` target is followed in.
+_TRACKED_REGISTERS = {
+    name: _GPR_BITS[name] for name in ("eax", "ecx", "edx", "ebx", "ebp", "esi", "edi")
+}
+
+#: Registers a callee may change under the Win32 x86 conventions (cdecl,
+#: stdcall, fastcall, thiscall); ``ebx``, ``esi``, ``edi`` and ``ebp`` survive.
+_CALLER_SAVED = _EAX | _ECX | _EDX
+
+#: Mnemonics after which control never reaches the next swept instruction;
+#: ``db`` is the skipdata placeholder for bytes that did not decode.
+_NO_FALLTHROUGH = frozenset({"jmp", "ljmp", "ret", "retf", "iret", "iretd", "hlt", "ud2", "db"})
+
+_IAT_KINDS = frozenset({"iat_call", "iat_jmp"})
+
+#: Instructions one site's backward walk visits before it gives up (no edge).
+_REGISTER_WALK_LIMIT = 4096
+
+#: Entries read from a possible pointer table; the first entry outside the
+#: section ends the read sooner.
+_POINTER_TABLE_MAX_ENTRIES = 256
+_X86_32_POINTER_BYTES = 4
+
+#: Longest x86 instruction encoding.
+_X86_MAX_INSN_BYTES = 15
+
+
+class _RegisterImportCalls:
+    """Import slots behind ``call reg`` / ``jmp reg`` in one x86-32 code section.
+
+    MSVC loads an import pointer into a register once (``mov esi,
+    [__imp__lstrlenW]``) and calls it several times (``call esi``).  Fed the
+    section's linear sweep through :meth:`observe`, :meth:`references` walks
+    back from each such site over the swept control flow and reports an
+    ``iat_call`` / ``iat_jmp`` to the slot only when every path reaching the
+    site loads the register from that one slot and nothing after the load
+    writes it.  Each limit below gives no edge rather than a wrong one:
+
+    - A predecessor is the previous swept instruction when it falls through,
+      the source of a direct ``jmp``, ``jcc`` or ``loop``, or, for each entry
+      of its table, a ``jmp [index*4 + table]`` switch dispatch.  A table is
+      read until an entry leaves the section or after
+      ``_POINTER_TABLE_MAX_ENTRIES`` entries.  The walk stops with no edge at
+      an instruction with no predecessor (a function entry), at a direct call
+      target, at an in-section address an instruction carries as a value
+      (immediate or memory operand), and at an entry of any other possible
+      pointer table (a memory operand with a register and an in-image
+      displacement): control may arrive there from code the walk does not
+      follow.
+    - Any write to the register or a part of it (explicit or implicit, from
+      capstone's register access) stops the walk, as does a call when the
+      register is ``eax``, ``ecx`` or ``edx``, an interrupt, or an undecodable
+      byte.  Callees are taken to keep ``ebx``, ``esi``, ``edi`` and ``ebp``.
+    - Two slots on two paths, or more than ``_REGISTER_WALK_LIMIT`` visited
+      instructions, give no edge.
+    - Not followed: register copies and stack spills (no edge), and
+      predecessors the sweep cannot see, which are taken to be absent: an
+      indirect jump through a table whose address is not a displacement, an
+      exception continuation, a branch into the middle of a swept instruction.
+    """
+
+    def __init__(
+        self,
+        md: Any,
+        raw: bytes,
+        base_va: int,
+        slots: frozenset[int],
+        starts: list[int],
+        ends: list[int],
+    ) -> None:
+        self._md = md
+        self._raw = raw
+        self._base = base_va
+        self._end = base_va + len(raw)
+        self._slots = slots
+        self._starts = starts
+        self._ends = ends
+        self._vas = array("I")
+        self._falls_through = bytearray()
+        self._branch_sources: dict[int, list[int]] = {}
+        self._entries: set[int] = set()
+        self._tables: set[int] = set()
+        self._dispatch_tables: dict[int, list[int]] = {}
+        self._sites: list[tuple[int, str, int]] = []
+        self._effects: dict[int, tuple[int, int, int]] = {}
+        self._op_mem = _op_constants()[2]
+
+    def observe(self, insn: Any, mnemonic: str, refs: tuple[tuple[str, int, int], ...]) -> None:
+        """Record one swept capstone instruction, its mnemonic and its classified references."""
+        va = int(insn.address)
+        op_str = insn.op_str
+        self._vas.append(va)
+        self._falls_through.append(mnemonic not in _NO_FALLTHROUGH)
+        for kind, _from_va, to_va in refs:
+            if kind == "jmp":
+                self._branch_sources.setdefault(to_va, []).append(va)
+            elif kind not in _IAT_KINDS and self._base <= to_va < self._end:
+                self._entries.add(to_va)
+        if mnemonic in ("call", "jmp"):
+            register = _TRACKED_REGISTERS.get(op_str)
+            if register is not None:
+                self._sites.append((va, mnemonic, register))
+        elif mnemonic.startswith(("j", "loop")):
+            target = _immediate_address(op_str)
+            if target is not None:
+                self._branch_sources.setdefault(target, []).append(va)
+        if "[" in op_str:
+            for op in insn.operands:
+                mem = op.mem if op.type == self._op_mem else None
+                if mem is None or not (mem.base or mem.index):
+                    continue
+                disp = int(mem.disp)
+                if not _inside_ranges(self._starts, self._ends, disp):
+                    continue
+                if (
+                    mnemonic == "jmp"
+                    and not mem.base
+                    and mem.index
+                    and mem.scale == _X86_32_POINTER_BYTES
+                ):
+                    self._dispatch_tables.setdefault(disp, []).append(va)
+                else:
+                    self._tables.add(disp)
+
+    def references(self, info: BinaryInfo) -> list[tuple[str, int, int]]:
+        """``(kind, site VA, slot VA)`` for every site resolved to one import slot."""
+        if not self._sites:
+            return []
+        self._read_tables(info)
+        out: list[tuple[str, int, int]] = []
+        for va, mnemonic, register in self._sites:
+            slot = self._held_slot(va, register)
+            if slot is not None:
+                out.append((f"iat_{mnemonic}", va, slot))
+        return out
+
+    def _read_tables(self, info: BinaryInfo) -> None:
+        """Enter each table entry as a dispatch's branch target or as an unknown entry."""
+        for table, dispatches in self._dispatch_tables.items():
+            for entry in self._table_entries(info, table):
+                self._branch_sources.setdefault(entry, []).extend(dispatches)
+        for table in self._tables:
+            self._entries.update(self._table_entries(info, table))
+        self._dispatch_tables.clear()
+        self._tables.clear()
+
+    def _table_entries(self, info: BinaryInfo, table: int) -> Iterator[int]:
+        """The leading in-section pointers stored at *table*."""
+        width = _X86_32_POINTER_BYTES
+        raw = extract_bytes(info, table, _POINTER_TABLE_MAX_ENTRIES * width)
+        for offset in range(0, len(raw) - width + 1, width):
+            entry = int.from_bytes(raw[offset : offset + width], "little")
+            if not self._base <= entry < self._end:
+                return
+            yield entry
+
+    def _held_slot(self, site_va: int, register: int) -> int | None:
+        """The one import slot *register* holds on every path into *site_va*, or None."""
+        slot: int | None = None
+        seen: set[int] = set()
+        pending = [bisect_left(self._vas, site_va)]
+        while pending:
+            predecessors = self._predecessors(pending.pop())
+            if predecessors is None:
+                return None
+            for index in predecessors:
+                if index in seen:
+                    continue
+                seen.add(index)
+                if len(seen) > _REGISTER_WALK_LIMIT:
+                    return None
+                loaded, loaded_slot, writes = self._effect(index)
+                if loaded == register:
+                    if slot is not None and slot != loaded_slot:
+                        return None
+                    slot = loaded_slot
+                elif writes & register:
+                    return None
+                else:
+                    pending.append(index)
+        return slot
+
+    def _predecessors(self, index: int) -> list[int] | None:
+        """Swept instructions control enters instruction *index* from.
+
+        None when control may also enter it from code the sweep does not show.
+        """
+        va = self._vas[index]
+        if va in self._entries:
+            return None
+        found = [index - 1] if index > 0 and self._falls_through[index - 1] else []
+        found.extend(bisect_left(self._vas, source) for source in self._branch_sources.get(va, ()))
+        return found or None
+
+    def _effect(self, index: int) -> tuple[int, int, int]:
+        """``(register loaded from an import slot, the slot, registers written)``.
+
+        The first two are 0 unless the instruction is ``mov reg32, [slot]``.
+        """
+        cached = self._effects.get(index)
+        if cached is not None:
+            return cached
+        va = self._vas[index]
+        offset = va - self._base
+        code = self._raw[offset : offset + _X86_MAX_INSN_BYTES]
+        insn = next(self._md.disasm(code, va, count=1), None)
+        effect = (0, 0, _ALL_GPRS)
+        if insn is not None and insn.mnemonic != "db" and not insn.group(capstone.CS_GRP_INT):
+            writes = 0
+            for reg in insn.regs_access()[1]:
+                writes |= _GPR_BITS.get(insn.reg_name(reg), 0)
+            if insn.group(capstone.CS_GRP_CALL):
+                writes |= _CALLER_SAVED
+            loaded, slot = self._import_load(insn)
+            effect = (loaded, slot, writes)
+        self._effects[index] = effect
+        return effect
+
+    def _import_load(self, insn: Any) -> tuple[int, int]:
+        """``(register bit, slot)`` for ``mov reg32, [slot]``, else ``(0, 0)``."""
+        if insn.mnemonic != "mov" or len(insn.operands) != 2:
+            return 0, 0
+        op_reg, _, op_mem = _op_constants()
+        dst, src = insn.operands
+        if dst.type != op_reg or src.type != op_mem:
+            return 0, 0
+        register = _TRACKED_REGISTERS.get(insn.reg_name(dst.reg), 0)
+        slot = _mem_absolute(src.mem)
+        if register and slot is not None and slot in self._slots:
+            return register, slot
+        return 0, 0
 
 
 # ---------------------------------------------------------------------------

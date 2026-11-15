@@ -12,7 +12,7 @@ into ``sys.path``.
 from __future__ import annotations
 
 import struct
-lazy from collections.abc import Sequence
+lazy from collections.abc import Callable, Sequence
 lazy from pathlib import Path
 
 _TEXT_CHARS = 0x60000020  # CODE | EXECUTE | READ | CNT_CODE
@@ -919,6 +919,48 @@ def make_xref_probe(tmp_path: Path) -> tuple[Path, dict[str, int]]:
     path = tmp_path / "probe.exe"
     path.write_bytes(final)
     return path, {**syms, "iat_slot": slot}
+
+
+#: Imports of :func:`make_import_call_pe`, in slot order.
+IMPORT_CALL_NAMES = ("lstrlenW", "LocalAlloc")
+
+
+def _iat_slots(pe_bytes: bytes, names: Sequence[str]) -> list[int]:
+    """IAT slot VAs of *names* in a built PE, in that order."""
+    import lief
+
+    pe = lief.PE.parse(bytes(pe_bytes))
+    if pe is None:
+        raise AssertionError("PE failed to parse")
+    base = int(pe.optional_header.imagebase)
+    slots = {entry.name: base + entry.iat_address for imp in pe.imports for entry in imp.entries}
+    return [slots[name] for name in names]
+
+
+def le32(value: int) -> str:
+    """*value* as the hex text of a little-endian 32-bit operand."""
+    return value.to_bytes(4, "little").hex()
+
+
+def make_import_call_pe(
+    tmp_path: Path, assemble: Callable[[int, int], str], name: str = "calls.exe"
+) -> tuple[Path, int, int]:
+    """A PE whose ``.text`` at ``PROBE_TEXT_VA`` is ``assemble(slot_a, slot_b)`` hex.
+
+    ``slot_a`` and ``slot_b`` are the IAT slot VAs of ``IMPORT_CALL_NAMES``.
+    They are known only once the code length is, so *assemble* runs twice
+    and must give the same length for any slot values.
+    """
+    imports = [("KERNEL32.dll", list(IMPORT_CALL_NAMES))]
+    draft = bytes.fromhex(assemble(0, 0))
+    slot_a, slot_b = _iat_slots(make_pe(draft, imports=imports), IMPORT_CALL_NAMES)
+    code = bytes.fromhex(assemble(slot_a, slot_b))
+    assert len(code) == len(draft), "assemble must not change the code length"
+    final = make_pe(code, imports=imports)
+    assert _iat_slots(final, IMPORT_CALL_NAMES) == [slot_a, slot_b]
+    path = tmp_path / name
+    path.write_bytes(final)
+    return path, slot_a, slot_b
 
 
 def make_ne(

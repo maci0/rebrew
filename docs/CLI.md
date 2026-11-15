@@ -2886,6 +2886,34 @@ candidates, with their index and scale retained in the instruction text. These
 identify an encoded table base, not an exact access or an imported API callee;
 `--kind mov_mem_store` and `--kind iat_call` retain their exact-reference meanings.
 
+On an x86-32 PE, `iat_call` / `iat_jmp` also cover a call or jump through a
+register that holds an import pointer: MSVC loads it once (`mov esi,
+[__imp__lstrlenW]`) and calls it several times (`call esi`). The scan walks
+back from each `call reg` / `jmp reg` over the decoded control flow and reports
+the slot only when every path to it loads that register from that one slot. A
+predecessor is the previous instruction when it falls through, a direct `jmp`,
+`jcc` or `loop`, or the `jmp [index*4 + table]` switch dispatch of a table entry
+(a table is read for at most 256 entries, ending at the first one outside the
+section). Each of these gives no reference rather than a guess:
+
+- a write to the register or any part of it after the load, explicit or
+  implicit (`pop esi`, `lodsd`, `mov si, 1`), an interrupt, or bytes that do not
+  decode;
+- a call on the way when the register is `eax`, `ecx` or `edx`; callees are
+  taken to keep `ebx`, `esi`, `edi` and `ebp`, as the Win32 x86 conventions
+  require;
+- two slots on two paths, or more than 4096 instructions walked;
+- a path reaching an instruction that control may also enter from code the
+  walk does not follow: one with no predecessor (a function entry), a direct
+  call target, an in-section address an instruction carries as a value, or an
+  entry of any other pointer table (a memory operand with a register and an
+  in-image displacement).
+
+Register copies and stack spills are not followed. Predecessors the scan cannot
+see are taken to be absent: an indirect jump through a table whose address is
+not a displacement, an exception continuation, a branch into the middle of a
+decoded instruction. Register calls in x86-64 images are not resolved.
+
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `VA` | str | required | Target address in hex (0x prefix optional) |
@@ -7006,6 +7034,10 @@ Op details the contract leaves open:
   `jmp`, `iat_call`, `iat_jmp`, `push`, `push_mem`, `mov`, `cmp`, `lea`,
   `mov_mem`, `mov_mem_store`, `indexed_mem`, or a mnemonic plus `_mem`);
   anything else answers 400.
+- `rebrew.call_references`: `references` are the `call`, `jmp`, `iat_call`
+  and `iat_jmp` references of the `.text` scan, including a `call reg` /
+  `jmp reg` through a register that holds an import slot's pointer on every
+  path (rules and limits under [`rebrew binary xrefs`](#rebrew-binary-xrefs)).
 - `rebrew.report`, `rebrew.coverage_report` and `rebrew.data_list`: a
   `coverage_input` carries all eight fields or answers 400.
 - `rebrew.structs`: `limit` caps the annotated functions decompiled; `0`

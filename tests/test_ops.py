@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Any, override
 
 import pytest
-from bin_util import append_pe_section
+from bin_util import append_pe_section, le32, make_import_call_pe
 from recompile_stub import serve_recompile
 
 from rebrew.ops import OPS, WorkerConfig, dispatch, target_name
@@ -242,6 +242,33 @@ class TestCallReferences:
             reply["references"], key=lambda row: (row["from_va"], row["to_va"], row["kind"])
         )
         assert reply["import_slots"] == sorted(reply["import_slots"], key=lambda row: row["va"])
+
+    def test_calls_through_a_register_holding_an_import(self, tmp_path: Path) -> None:
+        # Win2k notepad 0x1002cf5: ``mov esi, [lstrlenW]`` once, then ``call esi``
+        # on one arm of an if and again after the arms merge.
+        def assemble(lstrlen: int, _local_alloc: int) -> str:
+            return (
+                f"55 8bec 837d1400 56 8b35{le32(lstrlen)} 57 7409"
+                "ff7514 ffd6 8bf8 eb02 33ff ff7510 ffd6 5f 5e 5d c3"
+            )
+
+        binary, slot, _ = make_import_call_pe(tmp_path, assemble)
+        pe = binary.read_bytes()
+        digest = hashlib.sha256(pe).hexdigest()
+        filestore, workspace = tmp_path / "files", tmp_path / "workspace"
+        (filestore / "binaries").mkdir(parents=True)
+        (filestore / "binaries" / digest).write_bytes(pe)
+        workspace.mkdir()
+        config = WorkerConfig(filestore, workspace)
+        request = {"binary_id": 1, "sha256": digest, "name": "calls.exe"}
+        project = _call(config, "rebrew.analyse", {**request, "file_key": f"binaries/{digest}"})
+        reply = _call(config, "rebrew.call_references", {"project_dir": project["project"]})
+        assert [
+            (row["kind"], row["from_va"])
+            for row in reply["references"]
+            if row["to_va"] == slot and row["from_va"] < ENTRY_VA + 0x25
+        ] == [("iat_call", ENTRY_VA + 0x14), ("iat_call", ENTRY_VA + 0x1F)]
+        assert {"va": slot, "name": "lstrlenW"} in reply["import_slots"]
 
 
 class TestListingOps:

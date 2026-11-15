@@ -8,10 +8,18 @@ plus an appended string blob (ASCII and UTF-16LE).
 from __future__ import annotations
 
 import struct
+lazy from collections.abc import Callable
 lazy from pathlib import Path
 
 import pytest
-from bin_util import PROBE_IMAGE_BASE, PROBE_TEXT_VA, make_pe, make_xref_probe
+from bin_util import (
+    PROBE_IMAGE_BASE,
+    PROBE_TEXT_VA,
+    le32,
+    make_import_call_pe,
+    make_pe,
+    make_xref_probe,
+)
 
 from rebrew.analysis import (
     Insn,
@@ -255,6 +263,189 @@ class TestIndexedReferences:
         code = bytes.fromhex(encoding) + b"\xc3"
         info = _code_image(code + b"\x90" * 256, arch="x86_32")
         assert scan_references(info, include_indexed=True) == []
+
+
+def _import_calls(
+    tmp_path: Path, assemble: Callable[[int, int], str]
+) -> list[tuple[str, int, str]]:
+    """``(kind, code offset, "a" | "b")`` of each IAT reference the scan reports from the code.
+
+    ``a`` and ``b`` name the two import slots *assemble* is given.
+    """
+    path, slot_a, slot_b = make_import_call_pe(tmp_path, assemble)
+    size = len(bytes.fromhex(assemble(0, 0)))
+    names = {slot_a: "a", slot_b: "b"}
+    return [
+        (ref.kind, ref.from_va - PROBE_TEXT_VA, names.get(ref.to_va, hex(ref.to_va)))
+        for ref in scan_references(load_binary(path))
+        if ref.kind in {"iat_call", "iat_jmp"} and ref.from_va < PROBE_TEXT_VA + size
+    ]
+
+
+class TestRegisterImportCalls:
+    """``call reg`` / ``jmp reg`` through a register loaded from an import slot."""
+
+    def test_load_dominating_a_diamond_reaches_both_calls(self, tmp_path: Path) -> None:
+        # Win2k notepad 0x1002cf5: one ``mov esi, [lstrlenW]``, a call on one
+        # arm of an if, and a second call after the arms merge.
+        def assemble(a: int, _b: int) -> str:
+            return (
+                "55 8bec 837d1400 56"  # 00 push ebp; mov ebp, esp; cmp [ebp+0x14], 0; push esi
+                f"8b35{le32(a)}"  # 08 mov esi, [a]
+                "57 7409"  # 0e push edi; je 0x1a
+                "ff7514 ffd6"  # 11 push [ebp+0x14]; call esi
+                "8bf8 eb02"  # 16 mov edi, eax; jmp 0x1c
+                "33ff"  # 1a xor edi, edi
+                "ff7510 ffd6"  # 1c push [ebp+0x10]; call esi
+                "5f 5e 5d c3"  # 21 pop edi; pop esi; pop ebp; ret
+            )
+
+        assert _import_calls(tmp_path, assemble) == [
+            ("iat_call", 0x14, "a"),
+            ("iat_call", 0x1F, "a"),
+        ]
+        path, slot, _ = make_import_call_pe(tmp_path, assemble)
+        to_slot = scan_references(load_binary(path), target_va=slot)
+        assert [(ref.kind, ref.from_va - PROBE_TEXT_VA) for ref in to_slot] == [
+            ("mov_mem", 0x08),
+            ("iat_call", 0x14),
+            ("iat_call", 0x1F),
+        ]
+
+    def test_callee_saved_register_survives_calls(self, tmp_path: Path) -> None:
+        def assemble(a: int, _b: int) -> str:
+            # mov esi, [a]; call esi; call 0x10; call esi; ret; (0x10) ret
+            return f"8b35{le32(a)} ffd6 e803000000 ffd6 c3 c3"
+
+        assert _import_calls(tmp_path, assemble) == [
+            ("iat_call", 0x06, "a"),
+            ("iat_call", 0x0D, "a"),
+        ]
+
+    def test_caller_saved_register_is_lost_at_a_call(self, tmp_path: Path) -> None:
+        def assemble(a: int, _b: int) -> str:
+            return f"a1{le32(a)} ffd0 ffd0 c3"  # mov eax, [a]; call eax; call eax; ret
+
+        assert _import_calls(tmp_path, assemble) == [("iat_call", 0x05, "a")]
+
+    @pytest.mark.parametrize(
+        "write",
+        [
+            "33f6",  # xor esi, esi
+            "66be0100",  # mov si, 1: a part of esi
+            "ad",  # lodsd: an implicit write
+            "5e",  # pop esi
+            "46",  # inc esi
+            "cd2e",  # int 0x2e
+        ],
+    )
+    def test_a_write_after_the_load_gives_no_edge(self, tmp_path: Path, write: str) -> None:
+        assert _import_calls(tmp_path, lambda a, _b: f"8b35{le32(a)} {write} ffd6 c3") == []
+
+    def test_a_reload_wins_and_other_registers_do_not_matter(self, tmp_path: Path) -> None:
+        def assemble(a: int, b: int) -> str:
+            # mov esi, [a]; mov edi, [a]; mov esi, [b]; call esi; ret
+            return f"8b35{le32(a)} 8b3d{le32(a)} 8b35{le32(b)} ffd6 c3"
+
+        assert _import_calls(tmp_path, assemble) == [("iat_call", 0x12, "b")]
+
+    def test_paths_holding_different_slots_give_no_edge(self, tmp_path: Path) -> None:
+        def assemble(a: int, b: int) -> str:
+            # mov esi, [a]; test eax, eax; je 0x10; mov esi, [b]; (0x10) call esi; ret
+            return f"8b35{le32(a)} 85c0 7406 8b35{le32(b)} ffd6 c3"
+
+        assert _import_calls(tmp_path, assemble) == []
+
+    def test_paths_loading_the_same_slot_give_the_edge(self, tmp_path: Path) -> None:
+        def assemble(a: int, _b: int) -> str:
+            # test eax, eax; je 0x0c; mov esi, [a]; jmp 0x12;
+            # (0x0c) mov esi, [a]; (0x12) call esi; ret
+            return f"85c0 7408 8b35{le32(a)} eb06 8b35{le32(a)} ffd6 c3"
+
+        assert _import_calls(tmp_path, assemble) == [("iat_call", 0x12, "a")]
+
+    def test_a_path_from_the_entry_without_the_load_gives_no_edge(self, tmp_path: Path) -> None:
+        def assemble(a: int, _b: int) -> str:
+            # test eax, eax; je 0x0a; mov esi, [a]; (0x0a) call esi; ret
+            return f"85c0 7406 8b35{le32(a)} ffd6 c3"
+
+        assert _import_calls(tmp_path, assemble) == []
+
+    def test_a_loop_keeps_the_load_across_its_back_edge(self, tmp_path: Path) -> None:
+        def assemble(a: int, _b: int) -> str:
+            # mov esi, [a]; (0x06) push 0; call esi; dec ebx; jne 0x06; ret
+            return f"8b35{le32(a)} 6a00 ffd6 4b 75f9 c3"
+
+        assert _import_calls(tmp_path, assemble) == [("iat_call", 0x08, "a")]
+
+    def test_a_write_on_the_back_edge_gives_no_edge(self, tmp_path: Path) -> None:
+        def assemble(a: int, _b: int) -> str:
+            # mov esi, [a]; (0x06) call esi; inc esi; jne 0x06; ret
+            return f"8b35{le32(a)} ffd6 46 75fb c3"
+
+        assert _import_calls(tmp_path, assemble) == []
+
+    @pytest.mark.parametrize(
+        "reference",
+        [
+            "e8f8ffffff",  # call 0x06: the site's block is also a function entry
+            f"68{le32(PROBE_TEXT_VA + 6)}",  # push 0x401006: an address-taken label
+        ],
+    )
+    def test_an_entry_between_load_and_call_gives_no_edge(
+        self, tmp_path: Path, reference: str
+    ) -> None:
+        # mov esi, [a]; (0x06) call esi; ret; (0x09) <reference>; ret
+        assert _import_calls(tmp_path, lambda a, _b: f"8b35{le32(a)} ffd6 c3 {reference} c3") == []
+
+    def test_a_switch_dispatch_is_a_known_predecessor(self, tmp_path: Path) -> None:
+        table = PROBE_TEXT_VA + 0x14
+
+        def assemble(a: int, _b: int) -> str:
+            # mov esi, [a]; test eax, eax; je 0x11; jmp [eax*4 + table];
+            # (0x11) call esi; ret; (0x14) table: dd 0x401011
+            return (
+                f"8b35{le32(a)} 85c0 7407 ff2485{le32(table)} ffd6 c3 {le32(PROBE_TEXT_VA + 0x11)}"
+            )
+
+        assert _import_calls(tmp_path, assemble) == [("iat_call", 0x11, "a")]
+
+    def test_a_pointer_table_read_into_a_register_marks_an_unknown_entry(
+        self, tmp_path: Path
+    ) -> None:
+        table = PROBE_TEXT_VA + 0x11
+
+        def assemble(a: int, _b: int) -> str:
+            # mov esi, [a]; mov eax, [eax*4 + table]; nop; (0x0e) call esi; ret;
+            # (0x11) table: dd 0x40100e.  0x0e follows the nop and is a table entry.
+            return f"8b35{le32(a)} 8b0485{le32(table)} 90 ffd6 c3 {le32(PROBE_TEXT_VA + 0x0E)}"
+
+        assert _import_calls(tmp_path, assemble) == []
+
+    def test_a_tail_jump_through_a_held_import(self, tmp_path: Path) -> None:
+        def assemble(a: int, _b: int) -> str:
+            return f"56 a1{le32(a)} 5e ffe0"  # push esi; mov eax, [a]; pop esi; jmp eax
+
+        assert _import_calls(tmp_path, assemble) == [("iat_jmp", 0x07, "a")]
+
+    def test_a_load_from_a_global_is_no_import(self, tmp_path: Path) -> None:
+        def assemble(_a: int, _b: int) -> str:
+            return f"8b35{le32(PROBE_TEXT_VA + 8)} ffd6 c3"  # mov esi, [0x401008]; call esi
+
+        assert _import_calls(tmp_path, assemble) == []
+
+    def test_the_walk_gives_up_past_its_limit(self, tmp_path: Path) -> None:
+        from rebrew.analysis import _REGISTER_WALK_LIMIT
+
+        # The load and the nops between it and the call are what the walk visits.
+        within = _import_calls(
+            tmp_path, lambda a, _b: f"8b35{le32(a)} {'90' * (_REGISTER_WALK_LIMIT - 1)} ffd6 c3"
+        )
+        assert within == [("iat_call", 6 + _REGISTER_WALK_LIMIT - 1, "a")]
+        past = _import_calls(
+            tmp_path, lambda a, _b: f"8b35{le32(a)} {'90' * _REGISTER_WALK_LIMIT} ffd6 c3"
+        )
+        assert past == []
 
 
 class TestIterStrings:

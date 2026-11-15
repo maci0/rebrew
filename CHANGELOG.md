@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- A call or jump through a register that holds an import pointer is an `iat_call` / `iat_jmp` to its slot in `rebrew.analysis.scan_references` on an x86-32 PE, and so in `rebrew.call_references`, `rebrew binary xrefs` (`rebrew.xrefs`) and the callees and imports of `rebrew binary function` (`rebrew.describe`). MSVC loads an import once into a register (`mov esi, [__imp__lstrlenW]`) and calls it several times (`call esi`), and `call reg` recorded nothing: the backend call graph of Win2k notepad's function at 0x1002cf5 listed its other callees but not `lstrlenW`. The scan walks back from each `call reg` / `jmp reg` and reports the slot only when every path to it loads the register from that one slot; a write to the register, a call when it is `eax`, `ecx` or `edx`, two slots on two paths, or a predecessor the walk cannot follow (a function entry, a call target, an address-taken label, a pointer-table entry) gives no reference ([rules and limits](docs/CLI.md#rebrew-binary-xrefs)). Win2k notepad gains 174 references (174 of its 177 register calls; the other three call a `GetProcAddress` result), MSVC 6 `C1XX.DLL` 326 of 422 register calls. The scan takes about 16% longer on `C1XX.DLL` (1.58 to 1.83 s).
+
 ### Performance
 
 - Ten more hot-path rounds retire another 21% of instructions in total on a guild-rebrew snapshot, 22-25% in `recommend`, `source graph`, `coverage catalog`, `orphans list` and `data list`, 17% in `lint` and 12% in `status` and `todo`, with identical output ([PERFORMANCE.md](docs/PERFORMANCE.md#third-ten-hot-path-rounds-2026-11-15)). Each source is parsed once per masked text instead of once per scan, the comment check skips sources without a reserved `KEY:`, the extern scan skips function definitions without `extern`, and include probes are rechecked once each. Peak RSS rises about 100 MB in `lint` and `recommend` (1.13 to 1.23 GB, 1.46 to 1.56 GB).
