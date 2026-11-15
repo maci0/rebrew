@@ -185,6 +185,35 @@ added, over a `_Reply` that also carries `headers` and `raise_for_status()`.
 (probed via `close_response`), so a stand-in holding no connection to release
 is still a valid answer; only the `decompme` protocol requires `close()`.
 
+An engine that serves retained requests beside rebrew (recoverage's coverage
+ops) stages each request's snapshot as rebrew's own retained ops do, with these
+three names from the op worker `rebrew.ops`; the rest of that module is the
+worker's own:
+
+```python
+from rebrew.config import load_config
+from rebrew.errors import OpsError
+from rebrew.ops import RetainedFile, WorkerConfig, retained_target_snapshot
+
+config = WorkerConfig(filestore=filestore, workspace=workspace)
+files = [RetainedFile(path=e.path, digest=e.digest, size=e.size, key=e.key, url=e.url) for e in manifest]
+try:
+    with retained_target_snapshot(config, files, target, sha256, binary_key, binary_url) as root:
+        cfg = load_config(root, target=target)
+except OpsError as exc:
+    ...  # exc.code, exc.status: the refusal to answer
+```
+
+Each `RetainedFile` names its bytes by exactly one of a filestore `key` and a
+presigned `url`. The snapshot is staged under `<workspace>/.scratch` and
+removed when the block ends. Staging refuses a manifest over the readset
+bounds, a repeated or non-portable path, bytes that do not match, a
+`rebrew-project.toml` rebrew cannot load, config paths that leave the snapshot
+(so a caller need not run `confined_snapshot_config` again), metadata that is
+not one local backend, and a snapshot without its inventory and function
+metadata; a block that ends without an exception is refused when it changed
+the binary or a staged file.
+
 The Python import surface is not frozen and has no deprecation window, so pin
 the minor version if you import rebrew as a library. The full compatibility
 policy is in [CONTRIBUTING.md](../CONTRIBUTING.md#versioning-and-releases).

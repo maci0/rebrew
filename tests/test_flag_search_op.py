@@ -31,7 +31,7 @@ def test_flag_search_snapshot(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
         return hashlib.sha256(path.read_bytes()).hexdigest()
 
     files = [
-        ops.FlagSearchFile(p.name, digest(p), p.stat().st_size, key="live/" + p.name)
+        ops.RetainedFile(p.name, digest(p), p.stat().st_size, key="live/" + p.name)
         for p in (source, config)
     ]
     req = ops.FlagSearchRequest(
@@ -85,7 +85,7 @@ def test_flag_search_snapshot(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
     escaped = dataclasses.replace(
         req,
         files=files
-        + [ops.FlagSearchFile("../outside", digest(source), source.stat().st_size, key="live/f.c")],
+        + [ops.RetainedFile("../outside", digest(source), source.stat().st_size, key="live/f.c")],
     )
     with pytest.raises(ops.OpsError):
         ops.flag_search(worker, escaped)

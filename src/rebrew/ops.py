@@ -32,6 +32,12 @@ Ops whose rebrew command prints its report instead of returning it run that
 command as a child process in the project (:func:`run_rebrew`).  Ops that
 compile refuse, while a remote compile backend is configured, a source whose
 project headers cannot ship to it (:func:`remote_header_refusal`).
+
+Engines that serve retained requests beside rebrew (recoverage) import three
+names from here, documented in ``docs/PYTHON_API.md``: :class:`RetainedFile`,
+:class:`WorkerConfig` and :func:`retained_target_snapshot`, whose refusals are
+:class:`OpsError` (also exported by :mod:`rebrew.errors`).  The rest of this
+module is the op worker's own.
 """
 
 from __future__ import annotations
@@ -747,7 +753,7 @@ class ReportRequest:
     project_dir: str
     output_dir: str
     sha256: str = ""
-    files: list[FlagSearchFile] = field(default_factory=list)
+    files: list[RetainedFile] = field(default_factory=list)
     rebrew_target: str = ""
     binary_key: str = ""
     binary_url: str = ""
@@ -849,7 +855,7 @@ class TargetRequest:
 class DataListRequest:
     project_dir: str
     sha256: str = ""
-    files: list[FlagSearchFile] = field(default_factory=list)
+    files: list[RetainedFile] = field(default_factory=list)
     rebrew_target: str = ""
     binary_key: str = ""
     binary_url: str = ""
@@ -860,7 +866,7 @@ class DataListRequest:
 
 @dataclass(frozen=True)
 class CoverageReportRequest(TargetRequest):
-    files: list[FlagSearchFile] = field(default_factory=list)
+    files: list[RetainedFile] = field(default_factory=list)
     rebrew_target: str = ""
     binary_key: str = ""
     binary_url: str = ""
@@ -887,7 +893,7 @@ class VerifyRequest:
     candidate: str = ""
     va: int = 0
     size: int = 0
-    files: list[FlagSearchFile] = field(default_factory=list)
+    files: list[RetainedFile] = field(default_factory=list)
     rebrew_target: str = ""
     source_sha256: str = ""
     binary_key: str = ""
@@ -906,7 +912,7 @@ class ApplyCandidateRequest:
     candidate: str = ""
     va: int = 0
     size: int = 0
-    files: list[FlagSearchFile] = field(default_factory=list)
+    files: list[RetainedFile] = field(default_factory=list)
     rebrew_target: str = ""
     source_sha256: str = ""
     binary_key: str = ""
@@ -920,7 +926,7 @@ class VerifyTargetRequest:
     project_dir: str
     sha256: str = ""
     no_promote: bool = False
-    files: list[FlagSearchFile] = field(default_factory=list)
+    files: list[RetainedFile] = field(default_factory=list)
     rebrew_target: str = ""
     binary_key: str = ""
     binary_url: str = ""
@@ -932,7 +938,7 @@ class BuildRequest:
     project_dir: str
     sha256: str = ""
     fix_headers: bool = False
-    files: list[FlagSearchFile] = field(default_factory=list)
+    files: list[RetainedFile] = field(default_factory=list)
     rebrew_target: str = ""
     binary_key: str = ""
     binary_url: str = ""
@@ -948,7 +954,13 @@ class SkeletonRequest:
 
 
 @dataclass(frozen=True)
-class FlagSearchFile:
+class RetainedFile:
+    """One file of a retained manifest: its snapshot-relative ``path``, SHA-256 and size.
+
+    Exactly one of ``key`` (a filestore key) and ``url`` (a presigned HTTPS
+    URL) names where its bytes are fetched from.
+    """
+
     path: str
     digest: str
     size: int
@@ -980,19 +992,19 @@ class RenameIdentifierRequest:
 
 @dataclass(frozen=True)
 class FileSetRequest:
-    files: list[FlagSearchFile]
+    files: list[RetainedFile]
 
 
 @dataclass(frozen=True)
 class MetadataDiffRequest:
-    before: list[FlagSearchFile]
-    after: list[FlagSearchFile]
+    before: list[RetainedFile]
+    after: list[RetainedFile]
 
 
 @dataclass(frozen=True)
 class MetadataCarryRequest:
-    capture: list[FlagSearchFile]
-    target: list[FlagSearchFile]
+    capture: list[RetainedFile]
+    target: list[RetainedFile]
 
 
 @dataclass(frozen=True)
@@ -1005,11 +1017,11 @@ class DecompileSnapshotRequest:
     source_revision: str
     source_snapshot_sha256: str
     source_manifest: str
-    files: list[FlagSearchFile]
+    files: list[RetainedFile]
     generation: str
     analysis_manifest_sha256: str
     analysis_manifest: str
-    analysis_files: list[FlagSearchFile]
+    analysis_files: list[RetainedFile]
     binary_key: str = ""
     binary_url: str = ""
     attested_registry_digest: str = ""
@@ -1023,11 +1035,11 @@ class SecuritySnapshotRequest:
     source_revision: str
     source_snapshot_sha256: str
     source_manifest: str
-    files: list[FlagSearchFile]
+    files: list[RetainedFile]
     generation: str
     analysis_manifest: str
     analysis_manifest_sha256: str
-    analysis_files: list[FlagSearchFile]
+    analysis_files: list[RetainedFile]
     min_severity: str
     binary_key: str = ""
     binary_url: str = ""
@@ -1039,7 +1051,7 @@ class FlagSearchRequest:
     source: str
     source_sha256: str
     va: int
-    files: list[FlagSearchFile]
+    files: list[RetainedFile]
     rebrew_target: str
     sha256: str = ""
     binary_key: str = ""
@@ -1071,7 +1083,7 @@ class DataSetRequest:
 
 @dataclass(frozen=True)
 class SnapshotMutationRequest:
-    files: list[FlagSearchFile]
+    files: list[RetainedFile]
     rebrew_target: str
     sha256: str
     binary_key: str
@@ -2820,7 +2832,7 @@ def import_archive(config: WorkerConfig, req: ImportArchiveRequest) -> dict[str,
 
 
 @contextlib.contextmanager
-def _staged_file_set(config: WorkerConfig, files: list[FlagSearchFile]) -> Iterator[Path]:
+def _staged_file_set(config: WorkerConfig, files: list[RetainedFile]) -> Iterator[Path]:
     """Stage a supplied project file set under the retained-snapshot rules."""
     from rebrew.utils import portable_path_parts
 
@@ -3664,16 +3676,25 @@ def retained_config(root: Path, target_name: str) -> Any:
 @contextlib.contextmanager
 def retained_target_snapshot(
     config: WorkerConfig,
-    files: list[FlagSearchFile],
+    files: list[RetainedFile],
     target_name: str,
     sha256: str,
     binary_key: str,
     binary_url: str,
     project_cflags: str = "",
 ) -> Iterator[Path]:
-    """Stage a bounded retained source manifest and binary without touching the live project.
+    """Stage a retained snapshot (manifest *files* and the target binary) and yield its root.
 
-    *project_cflags*, when set, become the project cflags of the private copy (``apply_project_cflags``).
+    The root is a fresh directory under ``<workspace>/.scratch``, removed when
+    the block ends; the live project is never read.  Staging refuses a manifest
+    over the readset bounds, a repeated or non-portable path, bytes that do not
+    match, a ``rebrew-project.toml`` rebrew cannot load, config paths that leave
+    the snapshot (``confined_snapshot_config``), metadata that is not one local
+    backend, and a snapshot without its inventory and function metadata.  A
+    block that ends without an exception is refused when it changed the binary
+    or a staged file.  Every refusal is :class:`OpsError`.  *project_cflags*,
+    when set, become the project cflags of the private copy
+    (``apply_project_cflags``).
     """
     from rebrew.config import inventory_path_for
     from rebrew.utils import portable_path_parts

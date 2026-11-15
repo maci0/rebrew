@@ -14,7 +14,7 @@ from test_ops import KEY, SHA256, _analyse_request, _op_schema, _store, _validat
 import rebrew.ops as ops
 from rebrew.config import load_config
 from rebrew.metadata.sqlite import DATABASE_FILENAME, SqliteStore, metadata_database_documents
-from rebrew.ops import FlagSearchFile, WorkerConfig, dispatch
+from rebrew.ops import RetainedFile, WorkerConfig, dispatch
 
 APPLIED = "applied_name"
 RENAMED_VA = 0x401010
@@ -167,7 +167,7 @@ def _read_names(
     capture = reanalysed["analysis_capture"]
     target = capture["target"]
     files = _refs(config, _merged(capture, tree))
-    retained = [FlagSearchFile(**row) for row in files]
+    retained = [RetainedFile(**row) for row in files]
     with ops.retained_target_snapshot(config, retained, target, SHA256, KEY, "") as staged:
         assert load_config(staged, target=target).metadata_backend == "sqlite"
         assert APPLIED.encode() in (SqliteStore(staged / REGISTRY, staged).snapshot() or b"")
@@ -329,7 +329,7 @@ def test_carry_moves_a_toml_target_with_applied_names_to_sqlite(
         reanalysed = _analyse(config)
     capture = reanalysed["analysis_capture"]
     assert capture["version"] == 3
-    unread = [FlagSearchFile(**row) for row in _refs(config, _merged(capture, tree))]
+    unread = [RetainedFile(**row) for row in _refs(config, _merged(capture, tree))]
     with (
         pytest.raises(ops.OpsError),
         ops.retained_target_snapshot(config, unread, capture["target"], SHA256, KEY, ""),

@@ -19,7 +19,7 @@ from rebrew.coverage_project import coverage_inputs
 from rebrew.metadata.functions import record_function_rows
 from rebrew.metadata.sqlite import DATABASE_FILENAME, SqliteStore
 from rebrew.metadata.storage import project_metadata_stores
-from rebrew.ops import FlagSearchFile, WorkerConfig
+from rebrew.ops import RetainedFile, WorkerConfig
 
 
 def _verify_cli(
@@ -144,7 +144,7 @@ def test_fresh_capture_has_verified_self_contained_sqlite(
             continue
         data = base64.b64decode(captured["data"], validate=True)
         digest, key = _store(files, data)
-        retained.append(FlagSearchFile(captured["path"], digest, len(data), key))
+        retained.append(RetainedFile(captured["path"], digest, len(data), key))
         if captured["path"] == "rebrew-project.toml":
             (live / captured["path"]).write_bytes(data)
 
@@ -168,7 +168,7 @@ def test_fresh_capture_has_verified_self_contained_sqlite(
     assert verified["summary"]["exact"] == 2
 
 
-def _sqlite_manifest(tmp_path: Path) -> tuple[WorkerConfig, list[FlagSearchFile], Path]:
+def _sqlite_manifest(tmp_path: Path) -> tuple[WorkerConfig, list[RetainedFile], Path]:
     files, workspace = _worker_dirs(tmp_path)
     project = tmp_path / "producer"
     project.mkdir()
@@ -188,7 +188,7 @@ def _sqlite_manifest(tmp_path: Path) -> tuple[WorkerConfig, list[FlagSearchFile]
             continue
         digest, key = _store(files, path.read_bytes())
         entries.append(
-            FlagSearchFile(path.relative_to(project).as_posix(), digest, path.stat().st_size, key)
+            RetainedFile(path.relative_to(project).as_posix(), digest, path.stat().st_size, key)
         )
     _store(files, BINARY.read_bytes())
     return WorkerConfig(files.resolve(), workspace.resolve()), entries, project
@@ -257,7 +257,7 @@ def test_retained_sqlite_refuses_invalid_artifacts(
         digest, key = _store(config.filestore, payload)
         entries = [entry for entry in entries if entry.path != path]
         entries.append(
-            FlagSearchFile(path, "0" * 64 if damage == "digest" else digest, len(payload), key)
+            RetainedFile(path, "0" * 64 if damage == "digest" else digest, len(payload), key)
         )
 
     def forbidden_driver() -> None:
@@ -287,7 +287,7 @@ def test_retained_target_refuses_the_registry_its_backend_ignores(
     entries = [entry for entry in entries if entry.path not in extra]
     for path, data in extra.items():
         digest, key = _store(config.filestore, data)
-        entries.append(FlagSearchFile(path, digest, len(data), key))
+        entries.append(RetainedFile(path, digest, len(data), key))
     if backend == "toml":
         readable = [entry for entry in entries if entry.path != DATABASE_FILENAME]
         with ops.retained_target_snapshot(config, readable, "mini", SHA256, KEY, "") as root:
@@ -368,12 +368,12 @@ def test_applied_candidate_store_is_what_later_retained_reads_see(
     capture, _ = _capture(tmp_path / "capture")
     files, workspace = _worker_dirs(tmp_path)
     config = WorkerConfig(files.resolve(), workspace.resolve())
-    retained: dict[str, FlagSearchFile] = {}
+    retained: dict[str, RetainedFile] = {}
     for captured in capture["entries"]:
         if captured["kind"] == "file":
             data = base64.b64decode(captured["data"], validate=True)
             digest, key = _store(files, data)
-            retained[captured["path"]] = FlagSearchFile(captured["path"], digest, len(data), key)
+            retained[captured["path"]] = RetainedFile(captured["path"], digest, len(data), key)
     source = "src/mini/fcn_00401000.c"
     head = [retained[path] for path in ("rebrew-project.toml", source, DATABASE_FILENAME)]
 
@@ -417,7 +417,7 @@ def test_applied_candidate_store_is_what_later_retained_reads_see(
         data = base64.b64decode(item["data"], validate=True)
         digest, key = _store(files, data)
         assert digest == item["digest"]
-        retained[item["path"]] = FlagSearchFile(item["path"], digest, len(data), key)
+        retained[item["path"]] = RetainedFile(item["path"], digest, len(data), key)
     published = list(retained.values())
     with ops.retained_target_snapshot(config, published, "mini", SHA256, KEY, "") as root:
         row = SqliteStore(root / "rebrew-functions.toml", root).read("test")["MINI.0x00401000"]

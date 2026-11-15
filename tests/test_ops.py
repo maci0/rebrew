@@ -1087,7 +1087,7 @@ def _retained_coverage_request(
     coverage envelope.
     """
     from rebrew.coverage_input_contract import coverage_input_digest, plan_coverage_readset
-    from rebrew.ops import FlagSearchFile, retained_target_snapshot
+    from rebrew.ops import RetainedFile, retained_target_snapshot
 
     filestore, workspace = _worker_dirs(tmp_path)
     config = WorkerConfig(filestore.resolve(), workspace.resolve())
@@ -1105,7 +1105,7 @@ def _retained_coverage_request(
         files.append({"path": entry["path"], "size": len(data), "digest": digest, "key": key})
     target = capture["target"]
     with retained_target_snapshot(
-        config, [FlagSearchFile(**item) for item in files], target, SHA256, KEY, ""
+        config, [RetainedFile(**item) for item in files], target, SHA256, KEY, ""
     ) as staged:
         plan = plan_coverage_readset(staged, target)
     envelope = {
@@ -2340,6 +2340,107 @@ class TestVariantSearchBounds:
         candidates = ops.VARIANT_MAX_GENERATIONS * ops.VARIANT_MAX_POPULATION
         seconds = candidates * _MEASURED_COMPILE_SECONDS / DEFAULT_PROJECT_JOBS
         assert seconds <= OPS["rebrew.retained_source_operation"].timeout_seconds
+
+
+class TestRetainedSnapshotApi:
+    """The retained-snapshot staging engines beside rebrew import (docs/PYTHON_API.md).
+
+    recoverage staged retained snapshots with ``FlagSearchFile``,
+    ``retained_target_snapshot``, ``confined_snapshot_config``, ``WorkerConfig``
+    and ``OpsError`` from ``rebrew.ops`` while no document published them (R7-005).
+    """
+
+    def test_documented_names_snapshot(self) -> None:
+        """Gating: the documented names keep their import path and shape."""
+        import inspect
+
+        import rebrew.ops as ops
+        from rebrew.errors import OpsError
+
+        assert [f.name for f in dataclasses.fields(ops.RetainedFile)] == [
+            "path",
+            "digest",
+            "size",
+            "key",
+            "url",
+        ]
+        assert [f.name for f in dataclasses.fields(ops.WorkerConfig)] == [
+            "filestore",
+            "workspace",
+            "max_download_bytes",
+        ]
+        assert list(inspect.signature(ops.retained_target_snapshot).parameters) == [
+            "config",
+            "files",
+            "target_name",
+            "sha256",
+            "binary_key",
+            "binary_url",
+            "project_cflags",
+        ]
+        assert ops.OpsError is OpsError
+
+    def test_stages_the_manifest_and_removes_it_after(self, tmp_path: Path) -> None:
+        from rebrew.config import load_config
+        from rebrew.ops import RetainedFile, retained_target_snapshot
+
+        config, request, _analysed, _envelope = _retained_coverage_request(tmp_path)
+        assert config.workspace is not None
+        target = request["rebrew_target"]
+        files = [RetainedFile(**entry) for entry in request["files"]]
+        with retained_target_snapshot(config, files, target, SHA256, KEY, "") as root:
+            assert root.is_relative_to(config.workspace / ".scratch")
+            for entry in request["files"]:
+                staged = (root / entry["path"]).read_bytes()
+                assert hashlib.sha256(staged).hexdigest() == entry["digest"]
+            binary = load_config(root, target=target).target_binary
+            assert hashlib.sha256(binary.read_bytes()).hexdigest() == SHA256
+        assert not root.exists()
+
+    def test_a_stored_file_that_does_not_match_is_an_ops_error(self, tmp_path: Path) -> None:
+        from rebrew.errors import OpsError
+        from rebrew.ops import RetainedFile, retained_target_snapshot
+
+        config, request, _analysed, _envelope = _retained_coverage_request(tmp_path)
+        assert config.filestore is not None and config.workspace is not None
+        (config.filestore / request["files"][0]["key"]).write_bytes(b"changed")
+        files = [RetainedFile(**entry) for entry in request["files"]]
+        with (
+            pytest.raises(OpsError) as refused,
+            retained_target_snapshot(config, files, request["rebrew_target"], SHA256, KEY, ""),
+        ):
+            pytest.fail("a snapshot with a changed file was staged")
+        assert (refused.value.code, refused.value.status) == ("engine-error", 500)
+        assert str(refused.value) == "the stored file does not match its sha256"
+        assert not list((config.workspace / ".scratch").glob("retained-target-*"))
+
+    def test_a_config_whose_paths_leave_the_snapshot_is_refused_while_staging(
+        self, tmp_path: Path
+    ) -> None:
+        """Staging confines the project config itself: a caller need not check it again."""
+        import tomlkit
+
+        from rebrew.errors import OpsError
+        from rebrew.ops import RetainedFile, retained_target_snapshot
+
+        config, request, _analysed, _envelope = _retained_coverage_request(tmp_path)
+        assert config.filestore is not None
+        entries = []
+        for entry in request["files"]:
+            if entry["path"] == "rebrew-project.toml":
+                document = tomlkit.parse((config.filestore / entry["key"]).read_text())
+                document.setdefault("project", tomlkit.table())["output_dir"] = "../outside"
+                data = tomlkit.dumps(document).encode()
+                digest, key = _store(config.filestore, data)
+                entry = {**entry, "digest": digest, "key": key, "size": len(data)}
+            entries.append(RetainedFile(**entry))
+        with (
+            pytest.raises(OpsError) as refused,
+            retained_target_snapshot(config, entries, request["rebrew_target"], SHA256, KEY, ""),
+        ):
+            pytest.fail("a snapshot whose config leaves it was staged")
+        assert (refused.value.code, refused.value.status) == ("invalid-request", 400)
+        assert str(refused.value) == "retained project configuration escapes the snapshot"
 
 
 class TestHttpTransport:
