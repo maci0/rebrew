@@ -220,6 +220,13 @@ as `.text` is quoted.  Each table holds five scalars and one array:
 | `columns` | integer | Grid columns; `64` on the same fallback. |
 | `cells` | array of inline tables | The section's cells, ordered by `start`; `[]` for a section with none. |
 
+`size` is the section header's claim.  The cells of a section with file bytes
+cover only the bytes the binary holds for it, so they can end before `size`
+when the header claims more.  A section with no file bytes (the `.data` tail
+split off as `.bss`, a section whose raw size is `0`, or every section when no
+binary loads) is zero-fill: its cells use 4096-byte units, and one larger than
+2 GiB (`0x80000000`) fails the export.
+
 One `cells` row:
 
 | Key | Type | Meaning |

@@ -38,6 +38,40 @@ _BSS_CELL_BYTES = 4096
 _DEFAULT_CELL_BYTES = 16
 _GRID_COLUMNS = 64
 
+#: Largest zero-fill extent one section may claim: the 2 GiB image limit LINK
+#: enforces (LNK1248) and the 32-bit user address space.  The walk over a
+#: zero-fill extent has no file bytes to bound it.
+_MAX_ZERO_FILL_BYTES = 0x80000000
+
+
+def _walk_extent(
+    sec_name: str, sec_data: dict[str, Any], info: BinaryInfo | None
+) -> tuple[int, bool]:
+    """``(bytes the cell walk covers, whether they are zero-fill)`` for one section.
+
+    A section that claims file bytes is walked only over the bytes the file
+    holds for it: a forged VirtualSize or SizeOfRawData would otherwise step a
+    cell at a time across gigabytes the file never backs.  A section that
+    claims none (the ``.data`` tail split off as ``.bss``, a raw-size-0 or
+    NOBITS section, or any section when no binary loaded) is zero-fill and is
+    walked over its full size, which may not pass :data:`_MAX_ZERO_FILL_BYTES`.
+
+    Raises ``ValueError`` for a zero-fill extent past that limit.
+    """
+    size = int(sec_data["size"])
+    source = info.sections.get(sec_name) if info is not None else None
+    if info is None or sec_name == ".bss" or (source is not None and source.raw_size == 0):
+        if size > _MAX_ZERO_FILL_BYTES:
+            raise ValueError(
+                f"section {sec_name} claims {size:#x} zero-fill bytes, past the "
+                f"{_MAX_ZERO_FILL_BYTES:#x}-byte image limit"
+            )
+        return size, True
+    claimed = min(size, source.raw_size) if source is not None else size
+    held = len(info.data) - int(sec_data["fileOffset"])
+    return max(0, min(claimed, held)), False
+
+
 # Highest-priority status group per VA (first matching group wins).
 # Only EXACT/RELOC are byte-identical; PROVEN (semantically equivalent,
 # bytes differ) has its own bucket below them.  Legacy alias spellings
@@ -258,6 +292,10 @@ def build_coverage_data(
     Builds function coverage maps, cell-level grids per section, and gap
     classification from annotations and the target binary.  Includes
     absorption of jump tables and out-of-line code into parent functions.
+
+    A section's cells cover only the bytes the binary holds for it (see
+    :func:`_walk_extent`); its ``size`` keeps the header's claim.  Raises
+    ``ValueError`` for a zero-fill section larger than the 2 GiB image limit.
     """
     by_va: dict[int, list[SourceBinding]] = {}
     for e in entries:
@@ -466,11 +504,12 @@ def build_coverage_data(
     # Generate cells for each section
     for sec_name, sec_data in sections.items():
         sec_va = sec_data["va"]
-        sec_size = sec_data["size"]
-        if sec_name == ".text":
-            unit_bytes = _TEXT_CELL_BYTES
-        elif sec_name == ".bss":
+        # The walk bound, not the claimed size: sec_data["size"] keeps the claim.
+        sec_size, zero_fill = _walk_extent(sec_name, sec_data, _bin_info)
+        if zero_fill:
             unit_bytes = _BSS_CELL_BYTES
+        elif sec_name == ".text":
+            unit_bytes = _TEXT_CELL_BYTES
         else:
             unit_bytes = _DEFAULT_CELL_BYTES
         columns = _GRID_COLUMNS

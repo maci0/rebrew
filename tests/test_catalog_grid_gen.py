@@ -5,6 +5,8 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 lazy from pathlib import Path
 
+import pytest
+
 from rebrew.catalog.grid import build_coverage_data
 from rebrew.metadata.bindings import SourceBinding
 from rebrew.utils import floor_pct
@@ -107,7 +109,9 @@ def _patch_binary(
         text_raw_offset=0,
         arch="x86_32",
         endian="little",
-        data=blob,
+        # The image holds the 0x40 .data bytes its section table claims:
+        # the grid walks only the bytes a section has in the file.
+        data=bytes(blob) + bytes(0x40),
         sections={
             ".text": SimpleNamespace(
                 va=sections_va, size=sections_size, file_offset=0, raw_size=sections_size
@@ -708,3 +712,74 @@ class TestUnannotatedBoundaries:
         # fn_a must stay 0x40 — the 0x40-0x60 unannotated function is a boundary.
         assert fn["0x00001000"]["size"] == 0x40
         assert fn["0x00001060"]["size"] == 0x20
+
+
+class TestForgedSectionSizes:
+    """A section header claiming gigabytes the file never holds.
+
+    The cell walk steps 16 bytes per gap, so a ``.reloc`` VirtualSize of
+    2 GiB built 134M segments and raised ``MemoryError`` under a 2 GiB
+    address-space cap (recoverage's map runs in a 1 GiB pod).  Each case runs
+    under :func:`memory_cap.address_space_cap`.
+    """
+
+    # make_full_pe: optional header at 0x98, section table at 0x178,
+    # .text/.rdata/.data/.reloc entries 40 bytes apart.
+    _SIZE_OF_IMAGE = 0x98 + 56
+
+    @staticmethod
+    def _field(index: int, offset: int) -> int:
+        return 0x178 + 40 * index + offset
+
+    def _pe(self, tmp_path: Path, fields: list[tuple[int, int]]) -> Path:
+        from test_postlink import forge_pe, make_full_pe
+
+        path = tmp_path / "forged.dll"
+        path.write_bytes(forge_pe(make_full_pe(), fields))
+        return path
+
+    @pytest.mark.parametrize("raw_size", [0x200, 0x80000000], ids=["raw-held", "raw-forged"])
+    def test_virtual_size_past_the_file_is_not_walked(self, tmp_path: Path, raw_size: int) -> None:
+        from memory_cap import address_space_cap
+
+        reloc_vs = self._field(3, 8)
+        reloc_raw = self._field(3, 16)
+        path = self._pe(
+            tmp_path,
+            [(reloc_vs, 0x80000000), (reloc_raw, raw_size), (self._SIZE_OF_IMAGE, 0x80005000)],
+        )
+        with address_space_cap():
+            data = build_coverage_data([], [], text_size=0x1000, bin_path=path)
+        reloc = data["sections"][".reloc"]
+        assert reloc["size"] == 0x80000000
+        assert reloc["unitBytes"] == 16
+        assert reloc["cells"][-1]["end"] == 0x200  # the bytes the file holds
+
+    def test_zero_fill_past_the_image_limit_is_refused(self, tmp_path: Path) -> None:
+        from memory_cap import address_space_cap
+
+        path = self._pe(
+            tmp_path, [(self._field(2, 8), 0xFFFFF000), (self._SIZE_OF_IMAGE, 0xFFFFF000)]
+        )
+        with address_space_cap(), pytest.raises(ValueError, match="zero-fill bytes, past the"):
+            build_coverage_data([], [], text_size=0x1000, bin_path=path)
+
+    def test_zero_fill_at_the_image_limit_fits_the_cap(self, tmp_path: Path) -> None:
+        """A ``.bss`` tail as large as the limit allows walks in 4 KiB cells."""
+        from memory_cap import address_space_cap
+
+        path = self._pe(
+            tmp_path, [(self._field(2, 8), 0x80000000), (self._SIZE_OF_IMAGE, 0x80004000)]
+        )
+        with address_space_cap():
+            data = build_coverage_data([], [], text_size=0x1000, bin_path=path)
+        bss = data["sections"][".bss"]
+        assert bss["unitBytes"] == 4096
+        assert bss["cells"][-1]["end"] == 0x80000000 - 0x200
+
+    def test_raw_size_zero_section_is_walked_as_zero_fill(self, tmp_path: Path) -> None:
+        path = self._pe(tmp_path, [(self._field(3, 8), 0x3000), (self._field(3, 16), 0)])
+        data = build_coverage_data([], [], text_size=0x1000, bin_path=path)
+        reloc = data["sections"][".reloc"]
+        assert reloc["unitBytes"] == 4096
+        assert reloc["cells"][-1]["end"] == 0x3000
