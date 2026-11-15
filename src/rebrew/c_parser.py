@@ -2623,16 +2623,22 @@ def mask_msvc_syntax(source: str) -> str:
     Every byte offset of the result is the offset of the same text in
     *source*, so a tree parsed from it addresses *source* directly.
     """
+    cached: str | None = recall_source_value("msvc_mask_memo", source)
+    if cached is not None:
+        return cached
     masked = _mask_cc(source)
-    if not any(keyword in masked for keyword in _ASM_KEYWORDS):
-        return masked
-    data = masked.encode("utf-8", errors="surrogateescape")
-    out = bytearray(data)
-    for group in _msvc_asm_token_groups(masked):
-        for node_kind, node_start, node_end, _row in group:
-            if node_kind != "comment":
-                out[node_start:node_end] = _NON_NEWLINE_RE.sub(b" ", data[node_start:node_end])
-    return bytes(out).decode("utf-8", errors="surrogateescape")
+    if any(keyword in masked for keyword in _ASM_KEYWORDS):
+        data = masked.encode("utf-8", errors="surrogateescape")
+        out = bytearray(data)
+        for group in _msvc_asm_token_groups(masked):
+            for node_kind, node_start, node_end, _row in group:
+                if node_kind != "comment":
+                    out[node_start:node_end] = _NON_NEWLINE_RE.sub(b" ", data[node_start:node_end])
+        masked = bytes(out).decode("utf-8", errors="surrogateescape")
+    # Definition hashes and the asm-dump lint mask the texts the definition
+    # scans already masked; the asm token walk is the cost.
+    store_source_value("msvc_mask_memo", source, masked)
+    return masked
 
 
 def mask_va_arg_types(source: str) -> str:

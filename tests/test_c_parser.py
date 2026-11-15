@@ -819,6 +819,25 @@ def test_extern_function_names_reuse_the_definition_tree(monkeypatch: pytest.Mon
     assert parses == []
 
 
+def test_msvc_masking_groups_asm_once_per_source(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A repeated masking of the same text reuses its asm token walk."""
+    import rebrew.c_parser as parser
+
+    source = "void mask_once(void) { __asm { mov eax, 1 } }\n"
+    original = parser._msvc_asm_token_groups
+    calls = []
+
+    def counted(text: str) -> Any:
+        calls.append(text)
+        return original(text)
+
+    monkeypatch.setattr(parser, "_msvc_asm_token_groups", counted)
+    first = parser.mask_msvc_syntax(source)
+    assert "mov" not in first and len(first) == len(source)
+    assert parser.mask_msvc_syntax(source) == first
+    assert len(calls) == 1
+
+
 def test_function_signatures_walk_each_source_once(monkeypatch: pytest.MonkeyPatch) -> None:
     """A repeated signature scan reuses its walk; callers own the returned dict."""
     import rebrew.c_parser as parser
