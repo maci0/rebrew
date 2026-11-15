@@ -1,5 +1,13 @@
 ## [Unreleased]
 
+### Fixed
+
+- **Security:** `rebrew build postlink --layout` and `rebrew build residue` validate the layout package as untrusted input. `load_package` raises `ValueError`, so the command exits through the error envelope, for a missing key, a value of the wrong type, a section field, RVA, export stamp or operand outside a PE dword (a call prefix, suffix or import ordinal outside 16 bits), a negative offset, a sparse-map row of the wrong length, a `header.hex` that is not a whole PE32 header, and a section list whose length differs from `header.hex`'s section count. Such a package escaped the fixer chain as `struct.error`, `TypeError`, `IndexError` or `OverflowError`, a traceback with exit 1. The `data` fixer skips an operand row past the end of the built image, counted in a new `data_operands_past_image` stat, and the `imports` fixer refuses a reference IAT slot whose VA does not fit the dword operand it rewrites.
+- The `pe-metadata` fixer copies the export directory's 8-byte stamp only when all 8 bytes lie inside the built image, and reports the skip. An export RVA mapping within 8 bytes of the end of the file, or past it, appended up to 8 bytes to the image.
+- `rebrew build residue` exits with `postlink fixer <name> failed: ...` when a fixer refuses the built image or the package, and prints its coverage warning when `map_coverage` refuses the package or image. Both `ValueError`s left the command, which only the process-level handler reported, without the fixer's name.
+- `rebrew build layout --layout-config` reports a reference `extract_layout` refuses (one without `.rdata`) through the error envelope with the binary's path, as the package-writing path does; the `ValueError` left the command.
+- A `layout/<target>/rebrew-layout.toml` of the wrong shape (`layout = 5`, a section row that is not a table) no longer fails config load with `AttributeError` (`rebrew status` exited 1 with a traceback): `read_layout_header` returns no header and the binary's own headers are read. `read_layout_geometry` raises `ValueError` for such a package, which `calibrate-bss` and `inline-strings` fall back on and the `data layout` commands report.
+
 ## [6.45.1] - 2026-11-16
 
 ### Fixed

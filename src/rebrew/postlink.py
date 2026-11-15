@@ -104,6 +104,9 @@ class FixerReport:
 
 Fixer = Callable[[bytearray, LayoutMetadata, BinaryInfo], FixerReport]
 
+#: Largest value of the PE dwords the fixers write (operands, header fields).
+_U32_MAX = 0xFFFFFFFF
+
 
 # ---------------------------------------------------------------------------
 # Parsing helpers
@@ -348,6 +351,11 @@ def _fix_imports(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo) -> 
         slots_r[_entry_key(imp_m.dll, imp_m.name, imp_m.ordinal)] = imp_m.iat_va
     remap = {slots_b[k]: slots_r[k] for k in slots_b if slots_b[k] != slots_r[k]}
     if remap and iat_rva:
+        if any(slot + info_b.image_base > _U32_MAX for slot in remap.values()):
+            raise ValueError(
+                f"reference IAT slot RVA plus image base {info_b.image_base:#x} does not fit "
+                "a 32-bit operand"
+            )
         text = _built_raw_section(built, info_b, ".text")
         moved = 0
         skipped = 0
@@ -447,16 +455,21 @@ def _fix_data(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo) -> Fix
 
     # ---- 1. absolute data operands (sparse map: every position where the
     # reference holds an image-relative address; only differing positions are
-    # rewritten) ----
+    # rewritten; a position past the end of the built image is skipped, as
+    # map_coverage skips it) ----
     operands = 0
+    out_of_image = 0
     for off_rel, val in meta.operands.items():
         off = text.file_offset + off_rel
-        if struct.unpack_from("<I", built, off)[0] != val and in_range(
-            struct.unpack_from("<I", built, off)[0] - info_b.image_base
-        ):
+        if off + 4 > len(built):
+            out_of_image += 1
+            continue
+        cur = struct.unpack_from("<I", built, off)[0]
+        if cur != val and in_range(cur - info_b.image_base):
             struct.pack_into("<I", built, off, val)
             operands += 1
     report.stats["data_operands"] = operands
+    report.stats["data_operands_past_image"] = out_of_image
     report.changed = report.changed or operands > 0
 
     # ---- 2. E8/E9 relative call/jump targets (context-matched via the map) ----
@@ -630,8 +643,8 @@ def _fix_pe_metadata(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo)
     report = FixerReport(name="pe-metadata", changed=False)
     b = built
     header = meta.header
-    # The reference e_lfanew is the package's recorded value, not re-validated:
-    # meta.header is a trusted header block, and the layout fixers relocate it.
+    # extract_layout and load_package both hold meta.header to a whole PE32
+    # header block (pe_header), so its e_lfanew and optional header are in it.
     e_r = struct.unpack_from("<I", header, 0x3C)[0]
 
     e_b, opt_b, _ = _section_table(info_b)
@@ -718,13 +731,19 @@ def _fix_pe_metadata(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo)
     # ---- 3. copy the export-dir stamp pair ----
     # LINK writes the link time into the export directory's TimeDateStamp
     # (and Characteristics); the original carries its own values.  Copy the
-    # 8-byte Characteristics+TimeDateStamp pair verbatim.
+    # 8-byte Characteristics+TimeDateStamp pair verbatim, only over bytes the
+    # built image has: a slice assignment past its end would append them.
     if meta.exp_rva:
         try:
             eo_b = _rva_to_offset(info_b, meta.exp_rva)
         except ValueError:
             eo_b = None
-        if eo_b is not None:
+        if eo_b is not None and eo_b + 8 > len(b):
+            report.messages.append(
+                f"export directory rva {meta.exp_rva:#x} maps to file offset {eo_b:#x}, "
+                f"past the end of the {len(b):#x}-byte built image; stamp not copied"
+            )
+        elif eo_b is not None:
             stamp = struct.pack("<II", *meta.export_stamp)
             if b[eo_b : eo_b + 8] != stamp:
                 b[eo_b : eo_b + 8] = stamp

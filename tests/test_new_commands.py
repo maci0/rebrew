@@ -486,3 +486,65 @@ class TestCommandWiring:
         error = cli_payload(r)["error"]
         assert error.startswith(f"cannot load layout package {layout}:")
         assert "rebrew-layout.toml" in error
+
+    @staticmethod
+    def _residue_project(root: Path, reference: bytes, built: bytes) -> None:
+        """A project whose layout package is extracted from *reference*."""
+        from test_postlink import write_pkg
+
+        (root / "rebrew-project.toml").write_text(
+            '[project]\ndefault_target = "game"\n[targets.game]\nbinary = "game.dll"\nreversed_dir = "src"\n',
+            encoding="utf-8",
+        )
+        (root / "game.dll").write_bytes(reference)
+        (root / "build").mkdir()
+        (root / "build" / "game").write_bytes(built)
+        (root / "layout").mkdir()
+        write_pkg(root / "layout", reference, "game")
+
+    def test_residue_reports_a_refused_fixer(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A fixer that refuses the built image ends the run with its error,
+        not a traceback, and no residue is reported for a part-fixed image."""
+        from test_postlink import make_full_pe
+        from typer.testing import CliRunner
+
+        from rebrew.residue import app
+
+        reference = make_full_pe(imports=[("KERNEL32.dll", ["GetLocalTime"])])
+        self._residue_project(
+            tmp_path, reference, make_full_pe(imports=[("USER32.dll", ["MessageBoxA"])])
+        )
+        monkeypatch.chdir(tmp_path)
+        r = CliRunner().invoke(app, ["--json"])
+        assert r.exit_code == 2, r.exception
+        assert cli_payload(r)["error"].startswith(
+            "postlink fixer imports failed: import sets differ"
+        )
+        assert r.stdout == ""
+
+    def test_residue_warns_when_coverage_cannot_be_measured(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``map_coverage`` refuses a package without ``.rdata`` with
+        ``ValueError``: residue prints the coverage warning, then exits with
+        the data fixer's error for the same package."""
+        from test_postlink import apply_package_edit, make_full_pe
+        from typer.testing import CliRunner
+
+        from rebrew.residue import app
+
+        reference = make_full_pe()
+        self._residue_project(tmp_path, reference, reference)
+        apply_package_edit(
+            tmp_path / "layout" / "game", ("layout", ("layout", "sections", 1, "name"), ".rdat2")
+        )
+        monkeypatch.chdir(tmp_path)
+        r = CliRunner().invoke(app, ["--json"])
+        assert r.exit_code == 2, r.exception
+        assert "layout-map coverage unavailable: layout package has no .rdata section" in r.stderr
+        assert (
+            cli_payload(r)["error"]
+            == "postlink fixer data failed: layout package has no .rdata section"
+        )

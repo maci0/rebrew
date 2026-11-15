@@ -15,7 +15,7 @@ wrong ``.data`` raw size + operand, stamped headers), then asserts that
 from __future__ import annotations
 
 import struct
-from typing import ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 lazy from pathlib import Path
 
 import pytest
@@ -25,6 +25,10 @@ from typer.testing import CliRunner
 
 from rebrew.cli import EXIT_ERROR
 from rebrew.postlink import FIXER_ORDER, app, run_fixers
+
+if TYPE_CHECKING:
+    from rebrew.formats.binary_model import BinaryInfo
+    from rebrew.layout_meta import LayoutMetadata
 
 runner = CliRunner()
 
@@ -498,7 +502,7 @@ class TestCallOpcodeContext:
 
         code = b"\x90\x90" + bytes([opcode]) + struct.pack("<I", 1) + b"\x90\x90\xc3"
         ref = make_full_pe(code=code)
-        pkg = _write_pkg(tmp_path, ref)
+        pkg = write_pkg(tmp_path, ref)
         meta = load_package(pkg)
         assert meta.calls[3] == (1, 0x9090, 0x9090, opcode)
         rows = [
@@ -518,7 +522,7 @@ class TestCallOpcodeContext:
     def test_invalid_call_context_is_rejected(self, tmp_path: Path, row: str) -> None:
         from rebrew.layout_meta import load_package
 
-        pkg = _write_pkg(tmp_path, make_full_pe())
+        pkg = write_pkg(tmp_path, make_full_pe())
         (pkg / "calls.txt").write_text(row + "\n")
         with pytest.raises(ValueError, match="layout call"):
             load_package(pkg)
@@ -529,7 +533,7 @@ class TestCallOpcodeContext:
         from rebrew.postlink import _fix_data, map_coverage
 
         code = b"\x90\x90\xe8\x01\x00\x00\x00\x90\x90\xc3"
-        pkg = _write_pkg(tmp_path, make_full_pe(code=code))
+        pkg = write_pkg(tmp_path, make_full_pe(code=code))
         (pkg / "calls.txt").write_text("0x3 0x1 0x9090 0x9090\n")
         meta = load_package(pkg)
         assert meta.calls[3] == (1, 0x9090, 0x9090, None)
@@ -657,9 +661,11 @@ class TestPeMetadataFixer:
         captured: dict[str, int] = {}
         real = postlink._fix_pe_metadata
 
-        def spy(built_buf: bytearray, meta: object, info: object) -> postlink.FixerReport:
+        def spy(
+            built_buf: bytearray, meta: LayoutMetadata, info: BinaryInfo
+        ) -> postlink.FixerReport:
             captured["reloc_raw"] = info.sections[".reloc"].raw_size
-            return real(built_buf, meta, info)  # type: ignore[arg-type]
+            return real(built_buf, meta, info)
 
         postlink.FIXERS["pe-metadata"] = spy
         try:
@@ -713,7 +719,7 @@ def test_fixer_order_constant() -> None:
     assert FIXER_ORDER == ("imports", "data", "pe-metadata")
 
 
-def _write_pkg(tmp_path: Path, ref: bytes, name: str = "pkg") -> Path:
+def write_pkg(tmp_path: Path, ref: bytes, name: str = "pkg") -> Path:
     """Write a text-only layout package for *ref* (the rebrew build layout emission path)."""
     import tomlkit
 
@@ -721,7 +727,7 @@ def _write_pkg(tmp_path: Path, ref: bytes, name: str = "pkg") -> Path:
 
     meta = extract_layout(ref, "ref.dll")
 
-    def fmt(m):
+    def fmt(m: LayoutMetadata) -> str:
         doc = tomlkit.document()
         doc["layout"] = tomlkit.inline_table()
         for k, v in m.as_dict().items():
@@ -739,7 +745,7 @@ class TestLayoutPackage:
     def test_package_roundtrip_preserves_all_reference_bytes(self, tmp_path: Path) -> None:
         imports = [("KERNEL32.dll", ["GetLocalTime", "WriteFile"])]
         ref = _write(tmp_path, "ref.dll", make_full_pe(imports=imports, data=b"\x07" * 0x20))
-        pkg = _write_pkg(tmp_path, ref.read_bytes())
+        pkg = write_pkg(tmp_path, ref.read_bytes())
 
         from rebrew.layout_meta import load_package
 
@@ -760,7 +766,7 @@ class TestLayoutPackage:
     def test_fixers_run_from_package(self, tmp_path: Path) -> None:
         imports = [("KERNEL32.dll", ["GetLocalTime", "WriteFile"])]
         ref = _write(tmp_path, "ref.dll", make_full_pe(imports=imports))
-        pkg = _write_pkg(tmp_path, ref.read_bytes())
+        pkg = write_pkg(tmp_path, ref.read_bytes())
         built = _write(
             tmp_path,
             "built.dll",
@@ -795,7 +801,7 @@ class TestLayoutPackage:
                 checksum=0x4D328,
             ),
         )
-        pkg = _write_pkg(tmp_path, ref.read_bytes())
+        pkg = write_pkg(tmp_path, ref.read_bytes())
         built = _write(
             tmp_path,
             "built.dll",
@@ -825,7 +831,7 @@ class TestExactLayout:
     """
 
     def test_reloc_moves_to_reference_offset_and_file_shrinks(
-        self, tmp_path: Path, monkeypatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         import rebrew.postlink as pl
         from rebrew.formats.binary_loader import load_binary
@@ -971,7 +977,7 @@ class TestForgedHeaderSizes:
         fill, so the binary size limit does."""
         import tomlkit
 
-        pkg = _write_pkg(tmp_path, _forge_seed())
+        pkg = write_pkg(tmp_path, _forge_seed())
         toml_path = pkg / "rebrew-layout.toml"
         doc = tomlkit.parse(toml_path.read_text(encoding="utf-8"))
         reloc = next(s for s in doc["layout"]["sections"] if s["name"] == ".reloc")
@@ -985,3 +991,223 @@ class TestForgedHeaderSizes:
         assert result.exit_code == EXIT_ERROR, result.exception
         assert "binary size limit" in cli_payload(result)["error"]
         assert built.read_bytes() == _forge_seed()
+
+
+# ---------------------------------------------------------------------------
+# Forged layout packages
+# ---------------------------------------------------------------------------
+
+#: RVA of the first IAT slot ``make_full_pe`` lays out for one DLL with two
+#: imports: the import directory at .rdata+0xc0, two descriptors, then the
+#: three-entry lookup table the IAT follows.
+_FIRST_IAT_SLOT_RVA = _RDATA_VA + 0xC0 + 20 * 2 + 4 * 3
+
+#: Twelve ``mov eax, [.data+0x10]`` operands, one ``call`` and one
+#: ``call [__imp_GetLocalTime]``: enough map entries that a single forged row
+#: keeps the alignment gate above its floor and reaches the fixers.
+_OPERAND_CODE = (
+    (b"\xb8" + struct.pack("<I", _IMAGE_BASE + _DATA_VA + 0x10)) * 12
+    + b"\xe8"
+    + struct.pack("<I", 0)
+    + b"\xff\x15"
+    + struct.pack("<I", _IMAGE_BASE + _FIRST_IAT_SLOT_RVA)
+    + b"\xc3"
+)
+#: .text-relative offset of the rel32 after that ``call``'s E8.
+_CALL_OFFSET = 12 * 5 + 1
+
+#: One edit to a layout package: ``("layout", key path, value)`` sets a
+#: ``rebrew-layout.toml`` field (``None`` deletes it), ``("append", file, row)``
+#: adds a sparse-map row, ``("truncate", file, size)`` cuts a hex blob.
+PackageEdit = tuple[str, Any, Any]
+
+
+def operand_seed() -> bytes:
+    """A reference whose layout package carries operand and call map rows."""
+    return make_full_pe(
+        imports=[("KERNEL32.dll", ["GetLocalTime", "WriteFile"])], code=_OPERAND_CODE
+    )
+
+
+def apply_package_edit(pkg: Path, edit: PackageEdit) -> None:
+    """Apply one :data:`PackageEdit` to the package in *pkg*."""
+    import tomlkit
+
+    kind, target, value = edit
+    if kind == "layout":
+        toml_path = pkg / "rebrew-layout.toml"
+        doc = tomlkit.parse(toml_path.read_text(encoding="utf-8"))
+        node: Any = doc
+        for key in target[:-1]:
+            node = node[key]
+        if value is None and isinstance(node, list):
+            del node[target[-1]]
+        elif value is None:
+            node.pop(target[-1], None)  # deleting an absent key leaves the package as it is
+        else:
+            node[target[-1]] = value
+        toml_path.write_text(tomlkit.dumps(doc), encoding="utf-8")
+    elif kind == "append":
+        with (pkg / target).open("a", encoding="utf-8") as fh:
+            fh.write(value + "\n")
+    elif kind == "truncate":
+        text = (pkg / target).read_text(encoding="utf-8")
+        blob = bytes.fromhex("".join(line for line in text.splitlines() if line[:1] != "#"))
+        (pkg / target).write_text(blob[:value].hex() + "\n", encoding="utf-8")
+    else:
+        raise AssertionError(f"unknown package edit {kind!r}")
+
+
+#: ``(id, edits, error the CLI reports)``: packages ``load_package`` refuses.
+#: Unrefused, most reach the fixer chain and escape it as ``struct.error``,
+#: ``IndexError``, ``TypeError`` or ``OverflowError``, a traceback.
+FORGED_PACKAGE_CASES: list[tuple[str, list[PackageEdit], str]] = [
+    (
+        "operand-value-wider-than-a-dword",
+        [("append", "operands.txt", "0x1 0x100403010")],
+        "operand value must be an integer in [0, 0xffffffff]",
+    ),
+    (
+        "operand-row-without-a-value",
+        [("append", "operands.txt", "0x10")],
+        "operand row must have offset and value",
+    ),
+    (
+        "negative-operand-offset",
+        [("append", "operands.txt", "-0x10 0x403010")],
+        "operand offset must be an integer in [0, 0xffffffff]",
+    ),
+    (
+        "call-prefix-wider-than-a-word",
+        [("append", "calls.txt", f"{_CALL_OFFSET:#x} 0x0 0x10000 0x0 0xe8")],
+        "call prefix must be an integer in [0, 0xffff]",
+    ),
+    (
+        "section-va-is-a-string",
+        [("layout", ("layout", "sections", 2, "va"), "0x3000")],
+        "layout.sections[2].va must be an integer",
+    ),
+    (
+        "section-row-is-not-a-table",
+        [("layout", ("layout", "sections", 0), 7)],
+        "layout.sections[0] must be a table",
+    ),
+    (
+        "export-stamp-holds-one-value",
+        [("layout", ("layout", "export_stamp"), [1])],
+        "layout.export_stamp must hold two integers",
+    ),
+    (
+        "export-stamp-wider-than-a-dword",
+        [("layout", ("layout", "export_stamp"), [1 << 33, 0])],
+        "layout.export_stamp[0] must be an integer",
+    ),
+    (
+        "export-rva-is-an-array",
+        [("layout", ("layout", "exp_rva"), [1])],
+        "layout.exp_rva must be an integer",
+    ),
+    (
+        # In range for the field, but the slot VA the imports fixer writes
+        # into the ``call [__imp_...]`` operand is not a dword.
+        "import-slot-va-past-a-dword",
+        [("layout", ("layout", "imports", 0, "iat"), 0xFFFFFFF0)],
+        "reference IAT slot RVA plus image base 0x400000 does not fit a 32-bit operand",
+    ),
+    (
+        "import-name-is-an-integer",
+        [("layout", ("layout", "imports", 0, "name"), 5)],
+        "layout.imports[0].name must be a string",
+    ),
+    (
+        "layout-is-not-a-table",
+        [("layout", ("layout",), 5)],
+        "layout package layout must be a table",
+    ),
+    (
+        "header-block-truncated",
+        [("truncate", "header.hex", 0x40)],
+        "header.hex is not a PE32 header block",
+    ),
+    (
+        "section-list-shorter-than-the-header",
+        [("layout", ("layout", "sections", 3), None)],
+        "header.hex declares 4 sections but rebrew-layout.toml lists 3",
+    ),
+]
+
+
+class TestForgedLayoutPackage:
+    """A hand-edited layout package is untrusted input, like the binaries.
+
+    ``rebrew build postlink --layout`` must report a malformed package through
+    its error envelope and leave the built file alone, and a well-formed but
+    hostile one must never make a fixer write outside the built image.
+    """
+
+    @pytest.mark.parametrize(
+        ("edits", "message"),
+        [pytest.param(e, m, id=case) for case, e, m in FORGED_PACKAGE_CASES],
+    )
+    def test_cli_refuses_forged_package(
+        self, tmp_path: Path, edits: list[PackageEdit], message: str
+    ) -> None:
+        pkg = write_pkg(tmp_path, operand_seed())
+        for edit in edits:
+            apply_package_edit(pkg, edit)
+        built = _write(tmp_path, "built.dll", operand_seed())
+        with address_space_cap():
+            result = runner.invoke(
+                app, ["--json", "--layout", str(pkg), str(built)], env={"COLUMNS": "200"}
+            )
+        assert result.exit_code == EXIT_ERROR, result.exception
+        assert message in cli_payload(result)["error"]
+        assert built.read_bytes() == operand_seed()
+
+    def test_operand_past_the_built_image_is_skipped(self, tmp_path: Path) -> None:
+        """An operand row past the end of the built image is counted and
+        skipped, as ``map_coverage`` skips it, instead of reading past it."""
+        pkg = write_pkg(tmp_path, operand_seed())
+        apply_package_edit(pkg, ("append", "operands.txt", "0x7ffffff0 0x403010"))
+        built = _write(tmp_path, "built.dll", operand_seed())
+        with address_space_cap():
+            result = runner.invoke(
+                app,
+                ["--json", "--dry-run", "--fix", "data", "--layout", str(pkg), str(built)],
+                env={"COLUMNS": "200"},
+            )
+        assert result.exit_code == 0, result.exception
+        (report,) = cli_payload(result)["reports"]
+        assert report["stats"]["data_operands_past_image"] == 1
+        assert report["stats"]["data_operands"] == 0
+
+    @pytest.mark.parametrize(
+        ("built_fields", "exp_rva"),
+        [
+            # The last dword of .reloc: the 8-byte stamp crosses the end of the file.
+            pytest.param([], _RELOC_VA + 0x200 - 4, id="stamp-crosses-eof"),
+            # A .reloc VirtualSize past its raw data maps the RVA beyond the file.
+            pytest.param(
+                [(_section_field(".reloc", _VIRTUAL_SIZE), 0x1000)],
+                _RELOC_VA + 0x800,
+                id="stamp-past-eof",
+            ),
+        ],
+    )
+    def test_export_stamp_never_grows_the_image(
+        self, tmp_path: Path, built_fields: list[tuple[int, int]], exp_rva: int
+    ) -> None:
+        pkg = write_pkg(tmp_path, _forge_seed())
+        apply_package_edit(pkg, ("layout", ("layout", "exp_rva"), exp_rva))
+        built_bytes = forge_pe(_forge_seed(), built_fields)
+        built = _write(tmp_path, "built.dll", built_bytes)
+        out = tmp_path / "out.dll"
+        result = runner.invoke(
+            app,
+            ["--json", "--fix", "pe-metadata", "--layout", str(pkg), "-o", str(out), str(built)],
+            env={"COLUMNS": "200"},
+        )
+        assert result.exit_code == 0, result.exception
+        assert len(out.read_bytes()) == len(built_bytes)
+        (report,) = cli_payload(result)["reports"]
+        assert any("stamp not copied" in m for m in report["messages"])

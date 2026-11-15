@@ -87,6 +87,70 @@ _MAX_IMPORT_SLOTS = 65536
 #: ``range()`` or raise ``struct.error`` past EOF.
 _MAX_EXPORT_ENTRIES = 65536
 
+#: Widths of the PE fields the post-link fixers write layout values back into:
+#: section geometry, RVAs, stamps and operands are dwords; call-context bytes
+#: and import ordinals are words.
+_U32_MAX = 0xFFFFFFFF
+_U16_MAX = 0xFFFF
+
+#: Bound for the geometry readers (``read_layout_geometry``,
+#: ``read_layout_header``): the package ``splat_config`` writes for a PE32+ or
+#: ELF image can record an image base wider than a dword.
+_U64_MAX = (1 << 64) - 1
+
+#: Integer geometry keys of one ``rebrew-layout.toml`` section row.
+_SECTION_KEYS = ("va", "vs", "raw", "ptr", "chars")
+
+
+# ---------------------------------------------------------------------------
+# Field validation for the hand-editable package text
+# ---------------------------------------------------------------------------
+
+
+def _field(table: dict[str, Any], key: str, where: str) -> Any:
+    """``table[key]``, or ``ValueError`` naming the missing key."""
+    if key not in table:
+        raise ValueError(f"layout package {where} has no {key!r}")
+    return table[key]
+
+
+def _table(value: Any, where: str) -> dict[str, Any]:
+    """*value* as a TOML table, or ``ValueError``."""
+    if not isinstance(value, dict):
+        raise ValueError(f"layout package {where} must be a table")
+    return value
+
+
+def _array(value: Any, where: str) -> list[Any]:
+    """*value* as a TOML array, or ``ValueError``."""
+    if not isinstance(value, list):
+        raise ValueError(f"layout package {where} must be an array")
+    return value
+
+
+def _string(value: Any, where: str) -> str:
+    """*value* as a string, or ``ValueError``."""
+    if not isinstance(value, str):
+        raise ValueError(f"layout package {where} must be a string")
+    return str(value)
+
+
+def _uint(value: Any, where: str, limit: int = _U32_MAX) -> int:
+    """*value* as an integer in ``[0, limit]``, or ``ValueError``.
+
+    TOML booleans are Python ``bool``, an ``int`` subclass, so they are
+    refused explicitly.
+    """
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= limit:
+        raise ValueError(f"layout package {where} must be an integer in [0, {limit:#x}]")
+    return int(value)
+
+
+def _section_rows(value: Any, where: str) -> list[dict[str, Any]]:
+    """*value* as the ``sections`` array of tables at *where*."""
+    rows = _array(value, f"{where}.sections")
+    return [_table(row, f"{where}.sections[{n}]") for n, row in enumerate(rows)]
+
 
 @dataclasses.dataclass
 class SectionMeta:
@@ -177,7 +241,8 @@ def read_layout_geometry(root: Path, target: str) -> tuple[int, int, int]:
     """``(data_base, raw_end, section_end)`` from ``layout/<target>/rebrew-layout.toml``.
 
     The single reader for layout geometry — the package is the source of
-    truth, not a TOML block in rebrew-project.toml.
+    truth, not a TOML block in rebrew-project.toml.  A malformed package is a
+    ``ValueError``, like a missing one.
     """
     import tomllib
 
@@ -188,11 +253,14 @@ def read_layout_geometry(root: Path, target: str) -> tuple[int, int, int]:
         raise ValueError(
             f"no layout package at {txt} (run rebrew build layout first): {exc}"
         ) from exc
-    lay = raw.get("layout", {})
-    base = int(lay.get("image_base", 0) or 0)
-    for s in lay.get("sections", []):
+    lay = _table(raw.get("layout", {}), f"{txt} [layout]")
+    base = _uint(lay.get("image_base", 0), f"{txt} layout.image_base", _U64_MAX)
+    for n, s in enumerate(_section_rows(lay.get("sections", []), f"{txt} layout")):
         if s.get("name") == ".data":
-            va, raw_sz, vs = int(s["va"]), int(s["raw"]), int(s["vs"])
+            where = f"{txt} layout.sections[{n}]"
+            va, raw_sz, vs = (
+                _uint(_field(s, k, where), f"{where}.{k}", _U64_MAX) for k in ("va", "raw", "vs")
+            )
             return base + va, base + va + raw_sz, base + va + vs
     raise ValueError(f"no .data section in {txt} (run rebrew build layout first)")
 
@@ -214,24 +282,29 @@ def read_layout_header(root: Path, target: str, bin_path: Path) -> dict[str, Any
     try:
         if last_change_ns(bin_path.stat()) > txt.stat().st_mtime_ns:
             return None  # binary rebuilt after rebrew build layout — parse it instead
-        lay = tomllib.loads(txt.read_text(encoding="utf-8-sig"))["layout"]
-        base = int(lay.get("image_base", 0) or 0)
+        where = f"{txt} layout"
+        lay = _table(
+            _field(tomllib.loads(txt.read_text(encoding="utf-8-sig")), "layout", str(txt)),
+            where,
+        )
+        base = _uint(lay.get("image_base", 0), f"{where}.image_base", _U64_MAX)
         sections: list[tuple[str, int, int, int, int]] = []
         text_va = text_size = text_raw = 0
-        for s in lay.get("sections", []):
+        for n, s in enumerate(_section_rows(lay.get("sections", []), where)):
+            row = f"{where}.sections[{n}]"
             name = str(s.get("name") or "")
-            va = base + int(s.get("va", 0) or 0)
+            va = base + _uint(s.get("va", 0), f"{row}.va", _U64_MAX)
             rec = (
                 name,
                 va,
-                int(s.get("vs", 0) or 0),
-                int(s.get("raw", 0) or 0),
-                int(s.get("ptr", 0) or 0),
+                _uint(s.get("vs", 0), f"{row}.vs", _U64_MAX),
+                _uint(s.get("raw", 0), f"{row}.raw", _U64_MAX),
+                _uint(s.get("ptr", 0), f"{row}.ptr", _U64_MAX),
             )
             sections.append(rec)
             if name == ".text":
                 text_va, text_size, text_raw = rec[1], rec[2], rec[4]
-    except OSError, KeyError, TypeError, ValueError, tomllib.TOMLDecodeError:
+    except OSError, ValueError:
         return None
     if not sections:
         return None
@@ -577,7 +650,15 @@ def write_package(
 
 
 def load_package(pkg_dir: Path) -> LayoutMetadata:
-    """Load a text-only layout package written by :func:`write_package`."""
+    """Load a text-only layout package written by :func:`write_package`.
+
+    The package is hand-editable text, so it is validated as untrusted input:
+    a missing key, a wrong type, a value outside the PE field the fixers write
+    it into, a sparse-map row of the wrong length, a header block that is not
+    a whole PE32 header, or a section list whose length differs from that
+    header's section count raises ``ValueError``.  A missing sparse-map file
+    is an ``OSError``.
+    """
     import tomlkit
 
     pkg = Path(pkg_dir)
@@ -593,44 +674,85 @@ def load_package(pkg_dir: Path) -> LayoutMetadata:
             raise ValueError(f"layout package missing {name} (run 'rebrew build layout')")
         return _from_hex(p.read_text(encoding="utf-8"))
 
-    structured: Any = tomlkit.parse((pkg / "rebrew-layout.toml").read_text(encoding="utf-8-sig"))
-    lay: Any = structured["layout"]
+    structured = tomlkit.parse((pkg / "rebrew-layout.toml").read_text(encoding="utf-8-sig"))
+    lay = _table(_field(structured, "layout", "rebrew-layout.toml"), "layout")
 
-    sections = [
-        SectionMeta(
-            name=s["name"], va=s["va"], vs=s["vs"], raw=s["raw"], raw_ptr=s["ptr"], chars=s["chars"]
+    sections: list[SectionMeta] = []
+    for n, s in enumerate(_section_rows(_field(lay, "sections", "layout"), "layout")):
+        where = f"layout.sections[{n}]"
+        geometry = {k: _uint(_field(s, k, where), f"{where}.{k}") for k in _SECTION_KEYS}
+        sections.append(
+            SectionMeta(
+                name=_string(_field(s, "name", where), f"{where}.name"),
+                va=geometry["va"],
+                vs=geometry["vs"],
+                raw=geometry["raw"],
+                raw_ptr=geometry["ptr"],
+                chars=geometry["chars"],
+            )
         )
-        for s in lay["sections"]
-    ]
 
-    imports = [
-        ImportMeta(dll=i["dll"], name=i.get("name"), ordinal=i.get("ordinal"), iat_va=i["iat"])
-        for i in lay["imports"]
-    ]
+    imports: list[ImportMeta] = []
+    for n, entry in enumerate(_array(_field(lay, "imports", "layout"), "layout.imports")):
+        where = f"layout.imports[{n}]"
+        imp = _table(entry, where)
+        name = imp.get("name")
+        ordinal = imp.get("ordinal")
+        imports.append(
+            ImportMeta(
+                dll=_string(_field(imp, "dll", where), f"{where}.dll"),
+                name=None if name is None else _string(name, f"{where}.name"),
+                ordinal=None if ordinal is None else _uint(ordinal, f"{where}.ordinal", _U16_MAX),
+                iat_va=_uint(_field(imp, "iat", where), f"{where}.iat"),
+            )
+        )
 
-    operand_rows = _parse_sparse((pkg / "operands.txt").read_text(encoding="utf-8"))
-    ops: dict[int, int] = {row[0]: row[1] for row in operand_rows}
+    ops: dict[int, int] = {}
+    for row in _parse_sparse((pkg / "operands.txt").read_text(encoding="utf-8")):
+        if len(row) != 2:
+            raise ValueError("layout operand row must have offset and value")
+        ops[_uint(row[0], "operand offset")] = _uint(row[1], "operand value")
     calls: dict[int, tuple[int, int, int, int | None]] = {}
     for row in _parse_sparse((pkg / "calls.txt").read_text(encoding="utf-8")):
         if len(row) not in (4, 5):
             raise ValueError(
                 "layout call row must have offset, rel32, prefix, suffix and optional opcode"
             )
-        off, rel32, pre, suf = row[:4]
         opcode = row[4] if len(row) == 5 else None
         if opcode is not None and opcode not in (0xE8, 0xE9):
             raise ValueError("layout call opcode must be E8 or E9")
-        calls[off] = (rel32, pre, suf, opcode)
+        calls[_uint(row[0], "call offset")] = (
+            _uint(row[1], "call rel32"),
+            _uint(row[2], "call prefix", _U16_MAX),
+            _uint(row[3], "call suffix", _U16_MAX),
+            opcode,
+        )
 
-    stamp = tuple(lay["export_stamp"])
+    stamp = _array(_field(lay, "export_stamp", "layout"), "layout.export_stamp")
+    if len(stamp) != 2:
+        raise ValueError("layout package layout.export_stamp must hold two integers")
+    link_options = _array(_field(lay, "link_options", "layout"), "layout.link_options")
+    header = blob("header.hex")
+    try:
+        _e, nsec, _optsz, _opt, _base = pe_header(header)
+    except ValueError as exc:
+        raise ValueError(f"layout package header.hex is not a PE32 header block: {exc}") from exc
+    if nsec != len(sections):
+        raise ValueError(
+            f"layout package header.hex declares {nsec} sections but "
+            f"rebrew-layout.toml lists {len(sections)}"
+        )
     return LayoutMetadata(
-        target=lay["target"],
-        image_base=lay["image_base"],
-        link_options=list(lay["link_options"]),
+        target=_string(_field(lay, "target", "layout"), "layout.target"),
+        image_base=_uint(_field(lay, "image_base", "layout"), "layout.image_base"),
+        link_options=[_string(o, "layout.link_options entry") for o in link_options],
         sections=sections,
-        exports=list(lay["exports"]),
+        exports=[
+            _table(e, "layout.exports entry")
+            for e in _array(_field(lay, "exports", "layout"), "layout.exports")
+        ],
         imports=imports,
-        header=blob("header.hex"),
+        header=header,
         iat=blob("iat.hex"),
         prefix=blob("prefix.hex"),
         bookkeeping=blob("bookkeeping.hex"),
@@ -638,6 +760,9 @@ def load_package(pkg_dir: Path) -> LayoutMetadata:
         reloc=blob("reloc.hex"),
         operands=ops,
         calls=calls,
-        exp_rva=int(lay.get("exp_rva", 0)),
-        export_stamp=(int(stamp[0]), int(stamp[1])),
+        exp_rva=_uint(lay.get("exp_rva", 0), "layout.exp_rva"),
+        export_stamp=(
+            _uint(stamp[0], "layout.export_stamp[0]"),
+            _uint(stamp[1], "layout.export_stamp[1]"),
+        ),
     )

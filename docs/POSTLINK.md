@@ -27,6 +27,16 @@ A failed check is an error exit and the built file is left unchanged.  A layout
 package has no reference file, so its `.reloc` zero fill stops at the 512 MiB
 binary size limit.
 
+The layout package is hand-editable text and is validated the same way when it
+loads: every field must have its type, section geometry, RVAs, the export stamp
+and operand values must fit a dword, call prefixes, suffixes and import
+ordinals a word, offsets must not be negative, `header.hex` must be a whole
+PE32 header block, and `rebrew-layout.toml` must list as many sections as that
+header declares.  At run time the `data` fixer skips an operand row whose dword
+lies past the end of the built image (`data_operands_past_image` counts them),
+and `pe-metadata` copies the export-directory stamp only when all 8 bytes lie
+inside the built image, reporting the skip otherwise.
+
 ## The reference: text-only layout metadata
 
 The fixers never need the original DLL (or any binary snapshot): they

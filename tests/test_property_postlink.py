@@ -24,6 +24,7 @@ is drawable, and assert:
 
 from __future__ import annotations
 
+import contextlib
 import struct
 import tempfile
 from pathlib import Path
@@ -33,7 +34,16 @@ import pytest
 from hypothesis import example, given, settings
 from hypothesis import strategies as st
 from memory_cap import address_space_cap
-from test_postlink import FORGED_HEADER_CASES, forge_pe, make_full_pe
+from test_postlink import (
+    FORGED_HEADER_CASES,
+    FORGED_PACKAGE_CASES,
+    PackageEdit,
+    apply_package_edit,
+    forge_pe,
+    make_full_pe,
+    operand_seed,
+    write_pkg,
+)
 
 from rebrew.formats.binary_model import BinaryInfo, SectionInfo
 from rebrew.layout_meta import LayoutMetadata, SectionMeta
@@ -335,3 +345,125 @@ def test_map_coverage_refuses_a_textless_image(blob: bytes) -> None:
     info.sections = {}  # the built image declares no section at all
     with pytest.raises(ValueError, match=r"no \.text section"):
         map_coverage(blob, meta, info)
+
+
+# ---------------------------------------------------------------------------
+# Forged layout packages through the CLIs
+# ---------------------------------------------------------------------------
+
+#: ``rebrew-layout.toml`` paths one drawn edit replaces or deletes.
+_PACKAGE_FIELDS: list[tuple[str | int, ...]] = [
+    ("layout",),
+    *[
+        ("layout", key)
+        for key in (
+            "target",
+            "image_base",
+            "link_options",
+            "sections",
+            "exports",
+            "imports",
+            "export_stamp",
+            "exp_rva",
+        )
+    ],
+    *[
+        ("layout", "sections", index, key)
+        for index in range(4)
+        for key in ("name", "va", "vs", "raw", "ptr", "chars")
+    ],
+    *[("layout", "imports", 0, key) for key in ("dll", "name", "ordinal", "iat")],
+]
+
+#: Replacement values; ``None`` deletes the field.  TOML integers are 64-bit.
+_TOML_VALUES = st.one_of(
+    st.none(),
+    st.integers(min_value=-(1 << 40), max_value=1 << 40),
+    st.booleans(),
+    st.text(alphabet="0x1.ab", max_size=4),
+    st.lists(st.integers(min_value=-1, max_value=1 << 33), max_size=3),
+)
+
+_HEX_BLOBS = ("header.hex", "iat.hex", "prefix.hex", "bookkeeping.hex", "data.hex", "reloc.hex")
+
+_PROJECT_TOML = (
+    '[project]\ndefault_target = "game"\n'
+    '[targets.game]\nbinary = "game.dll"\nreversed_dir = "src"\n'
+)
+
+
+def _literal(value: int) -> str:
+    return f"-{-value:#x}" if value < 0 else f"{value:#x}"
+
+
+@st.composite
+def _package_edits(draw: st.DrawFn) -> list[PackageEdit]:
+    """At most one ``rebrew-layout.toml`` edit (so its key path still exists),
+    sparse-map rows of any arity and width, and an optional blob truncation."""
+    edits: list[PackageEdit] = []
+    if draw(st.booleans()):
+        edits.append(("layout", draw(st.sampled_from(_PACKAGE_FIELDS)), draw(_TOML_VALUES)))
+    for name in draw(st.lists(st.sampled_from(("operands.txt", "calls.txt")), max_size=3)):
+        row = draw(
+            st.lists(st.integers(min_value=-(1 << 33), max_value=1 << 33), min_size=1, max_size=6)
+        )
+        edits.append(("append", name, " ".join(_literal(v) for v in row)))
+    if draw(st.booleans()):
+        edits.append(
+            (
+                "truncate",
+                draw(st.sampled_from(_HEX_BLOBS)),
+                draw(st.integers(min_value=0, max_value=0x300)),
+            )
+        )
+    return edits
+
+
+def _forged_package_examples(test: Callable[..., None]) -> Callable[..., None]:
+    """Pin every ``FORGED_PACKAGE_CASES`` package, an operand past the built
+    image, and an export directory whose stamp crosses the end of the file."""
+    for _case, edits, _message in FORGED_PACKAGE_CASES:
+        test = example(edits)(test)
+    test = example([("append", "operands.txt", "0x7ffffff0 0x403010")])(test)
+    return example([("layout", ("layout", "exp_rva"), 0x4000 + 0x200 - 4)])(test)
+
+
+@settings(max_examples=60, deadline=None)
+@given(_package_edits())
+@_forged_package_examples
+def test_forged_package_exits_cleanly(edits: list[PackageEdit]) -> None:
+    """``rebrew build postlink --layout`` and ``rebrew build residue`` read the
+    same hand-editable package.  On any forgery both finish with exit 0 or the
+    error envelope's exit 2, never a traceback: postlink writes its output
+    exactly when it succeeds, and neither touches the built image."""
+    from typer.testing import CliRunner
+
+    from rebrew.cli import EXIT_ERROR
+    from rebrew.postlink import app as postlink_app
+    from rebrew.residue import app as residue_app
+
+    seed = operand_seed()
+    runner = CliRunner()
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        (root / "rebrew-project.toml").write_text(_PROJECT_TOML, encoding="utf-8")
+        (root / "game.dll").write_bytes(seed)
+        built = root / "build" / "game"
+        built.parent.mkdir()
+        built.write_bytes(seed)
+        pkg = write_pkg(root / "layout", seed, "game")
+        for edit in edits:
+            apply_package_edit(pkg, edit)
+        out = root / "out.dll"
+        with address_space_cap():
+            postlink = runner.invoke(
+                postlink_app,
+                ["--json", "--layout", str(pkg), "-o", str(out), str(built)],
+                env={"COLUMNS": "200"},
+            )
+            with contextlib.chdir(root):
+                residue = runner.invoke(residue_app, ["--json"], env={"COLUMNS": "200"})
+        assert postlink.exit_code in (0, EXIT_ERROR), postlink.exception
+        assert out.exists() == (postlink.exit_code == 0)
+        assert residue.exit_code in (0, EXIT_ERROR), residue.exception
+        assert built.read_bytes() == seed

@@ -4893,7 +4893,11 @@ Apply postlink fixers to BUILT (default `build/<target>`) and report the remaini
 per-section diffs plus per-function attribution of the `.text` bytes
 `verify` still reports as not byte-matched. `--new-baseline` writes the
 report as JSON (adopt as baseline); `--baseline` adds per-function
-deltas vs a previous report after the absolute figures.
+deltas vs a previous report after the absolute figures. A layout package
+that does not load, or a fixer that refuses the image or the package, ends
+the run with exit 2 (`postlink fixer <name> failed: ...`) and no report: the
+residue of a part-fixed image measures neither the link nor its postlink
+output.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |

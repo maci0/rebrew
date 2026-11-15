@@ -563,11 +563,11 @@ def main(
             print(link_toml)
         return
     if layout_config:
-        layout_toml = fmt_layout_toml(
-            extract_layout(data, cfg.target_name),
-            imports,
-            link_options,
-        )
+        try:
+            meta = extract_layout(data, cfg.target_name)
+        except ValueError as exc:
+            error_exit(f"{cfg.target_binary}: {exc}", json_mode=json_output)
+        layout_toml = fmt_layout_toml(meta, imports, link_options)
         if json_output:
             json_print({"layout_toml": layout_toml})
         else:

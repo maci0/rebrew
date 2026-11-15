@@ -1700,6 +1700,38 @@ def test_layout_geometry_honours_the_requested_target(tmp_path: Path) -> None:
         layout_geometry(toml, "C")
 
 
+@pytest.mark.parametrize(
+    ("layout", "message"),
+    [
+        pytest.param("layout = 5\n", r"\[layout\] must be a table", id="layout-not-a-table"),
+        pytest.param("[layout]\nsections = [5]\n", r"sections\[0\] must be a table", id="row"),
+        pytest.param(
+            '[layout]\nsections = [{ name = ".data", va = [1], raw = 0, vs = 0 }]\n',
+            r"sections\[0\]\.va must be an integer",
+            id="va-array",
+        ),
+        pytest.param(
+            '[layout]\nsections = [{ name = ".data", va = 0, vs = 0 }]\n',
+            r"sections\[0\] has no 'raw'",
+            id="raw-missing",
+        ),
+    ],
+)
+def test_layout_geometry_refuses_a_malformed_package(
+    tmp_path: Path, layout: str, message: str
+) -> None:
+    """A wrongly typed package is the reader's documented ``ValueError``, which
+    ``calibrate-bss`` and ``inline-strings`` fall back on; ``TypeError`` or
+    ``AttributeError`` would escape them as a traceback."""
+    pkg = tmp_path / "layout" / "A"
+    pkg.mkdir(parents=True)
+    (pkg / "rebrew-layout.toml").write_text(layout, encoding="utf-8")
+    toml = tmp_path / "rebrew-project.toml"
+    toml.write_text('[project]\ndefault_target = "A"\n', encoding="utf-8")
+    with pytest.raises(ValueError, match=message):
+        layout_geometry(toml, "A")
+
+
 def test_data_symbols_includes_bss_when_asked(tmp_path: Path) -> None:
     """`.bss` globals carry section=".bss"; a `.data`-only read drops them, so
     `--fill-data` never emitted BSS pads."""

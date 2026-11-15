@@ -289,7 +289,7 @@ def main(
     if layout_dir.is_dir():
         try:
             meta = load_package(layout_dir)
-        except (OSError, ValueError, KeyError, TypeError) as exc:
+        except (OSError, ValueError) as exc:
             # Without the package every fixer is skipped, so the residue would
             # be measured on the unpatched image.
             error_exit(f"cannot load layout package {layout_dir}: {exc}", json_mode=json_output)
@@ -301,10 +301,8 @@ def main(
     info_b = load_binary(built_path)
     try:
         cover = map_coverage(bytes(info_b.data), meta, info_b) if meta else (1, 1, 1, 1)
-    except KeyError as exc:
-        console.print(
-            f"WARNING: layout-map coverage unavailable (missing section {untrusted_ident(exc)})"
-        )
+    except ValueError as exc:
+        console.print(f"WARNING: layout-map coverage unavailable: {untrusted_ident(exc)}")
     else:
         note = layout_map_gate_note(cover)
         if note:
@@ -315,7 +313,11 @@ def main(
             before = bytes(patched)
             with contextlib.suppress(ValueError):
                 info_b = binary_info_from_bytes(bytes(patched), built_path)
-            report = FIXERS[name](patched, meta, info_b)
+            try:
+                report = FIXERS[name](patched, meta, info_b)
+            except ValueError as exc:
+                # A part-fixed image is neither the link nor the postlink output.
+                error_exit(f"postlink fixer {name} failed: {exc}", json_mode=json_output)
             console.print(f"{name:11s} changed={before != bytes(patched)} {report.stats}")
 
     reference = Path(cfg.target_binary).read_bytes()

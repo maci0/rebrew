@@ -8,6 +8,8 @@ than the binary must fall back to a real parse, never serve stale VAs.
 
 lazy from pathlib import Path
 
+import pytest
+
 from rebrew.layout_meta import read_layout_header
 
 
@@ -83,6 +85,27 @@ class TestReadLayoutHeader:
         pkg = tmp_path / "layout" / "main"
         pkg.mkdir(parents=True)
         (pkg / "rebrew-layout.toml").write_text("not [ valid toml", encoding="utf-8")
+        assert read_layout_header(tmp_path, "main", binp) is None
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            pytest.param("layout = 5\n", id="layout-not-a-table"),
+            pytest.param("[layout]\nsections = [5]\n", id="section-not-a-table"),
+            pytest.param("[layout]\nsections = 5\n", id="sections-not-an-array"),
+            pytest.param("[layout]\nimage_base = [1]\n", id="image-base-array"),
+            pytest.param(
+                '[[layout.sections]]\nname = ".text"\nva = "0x1000"\n', id="section-va-string"
+            ),
+        ],
+    )
+    def test_wrongly_typed_layout_returns_none(self, tmp_path: Path, text: str) -> None:
+        """Every command reads the header at config load, so a hand-edited
+        package of the wrong shape falls back to the binary instead of raising."""
+        binp = tmp_path / "program.exe"
+        binp.write_bytes(b"MZ")
+        toml = _write_layout(tmp_path)
+        toml.write_text(text, encoding="utf-8")
         assert read_layout_header(tmp_path, "main", binp) is None
 
 

@@ -116,6 +116,33 @@ class TestExtractLayoutMissingSection:
         with pytest.raises(ValueError, match=r"missing section '\.rdata'"):
             extract_layout(pe)
 
+    def test_layout_config_reports_missing_section(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``rebrew build layout --layout-config`` reports an image
+        ``extract_layout`` refuses through the error envelope, like the
+        package-writing path does."""
+        from cli_json import cli_payload
+        from typer.testing import CliRunner
+
+        from rebrew.gen_layout import app
+
+        (tmp_path / "rebrew-project.toml").write_text(
+            '[project]\ndefault_target = "game"\n'
+            '[targets.game]\nbinary = "game.dll"\nreversed_dir = "src"\n',
+            encoding="utf-8",
+        )
+        (tmp_path / "game.dll").write_bytes(_make_pe([b".text\x00\x00\x00", b".data\x00\x00\x00"]))
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(app, ["--layout-config", "--json"])
+        assert result.exit_code == 2, result.exception
+        error = cli_payload(result)["error"]
+        assert (
+            error
+            == f"{tmp_path / 'game.dll'}: missing section '.rdata' (layout needs .text/.data/.rdata)"
+        )
+        assert result.stdout == ""
+
     def test_missing_section_is_not_stopiteration(self) -> None:
         pe = _make_pe([b".text\x00\x00\x00"])
         with pytest.raises(ValueError):

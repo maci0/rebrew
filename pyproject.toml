@@ -433,6 +433,7 @@ files = [
     "tests/test_order_sources.py",
     "tests/test_orphans.py",
     "tests/test_pe_symbols.py",
+    "tests/test_postlink.py",
     "tests/test_probe.py",
     "tests/test_project_toml_example.py",
     "tests/test_public_surface.py",
