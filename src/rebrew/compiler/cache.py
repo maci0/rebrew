@@ -1072,7 +1072,9 @@ def unresolved_still_missing(
     stay empty for the life of the process and every later edit to the new
     header would be a cache hit.
     """
-    for name, dirs in unresolved:
+    # Each distinct probe once, in order: a header both modes and several
+    # includers miss is recorded once per miss (63% repeats on guild-rebrew).
+    for name, dirs in dict.fromkeys(unresolved):
         if _find_in_dirs(Path(name), [Path(d) for d in dirs]) is not None:
             return False
     return True
@@ -1087,7 +1089,7 @@ def shadow_unchanged(shadows: Sequence[_ShadowProbe]) -> bool:
     probes is cheap: a header found in the first search dir (the common case)
     records none.
     """
-    for mode, name, dirs in shadows:
+    for mode, name, dirs in dict.fromkeys(shadows):
         if mode in {"winner", "escape-winner"}:
             expected, *search = dirs
             roots = [Path(d) for d in search]

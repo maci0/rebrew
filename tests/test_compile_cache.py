@@ -860,6 +860,25 @@ class TestIncludePathResolution:
         (early / "sub" / "header.h").write_text("int value;\n")
         assert not cache_module.shadow_unchanged(shadows)
 
+    def test_repeated_probes_are_looked_up_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A miss recorded by several includers is rechecked once; the answer is unchanged."""
+        lookups: list[str] = []
+        real = cache_module._find_in_dirs
+
+        def counted(name: Path, dirs: list[Path], **kwargs: Any) -> Path | None:
+            lookups.append(str(name))
+            return real(name, dirs, **kwargs)
+
+        monkeypatch.setattr(cache_module, "_find_in_dirs", counted)
+        miss = ("gone.h", (str(tmp_path),))
+        assert cache_module.unresolved_still_missing([miss, miss, miss])
+        assert cache_module.shadow_unchanged([("find", "gone.h", (str(tmp_path),))] * 3)
+        assert lookups == ["gone.h", "gone.h"]
+        (tmp_path / "gone.h").write_text("int value;\n")
+        assert not cache_module.unresolved_still_missing([miss, miss])
+
     def test_msvc_backslash_missing_probe_rechecks_normalized_path(self, tmp_path: Path) -> None:
         misses = []
         paths, _, _, _ = cache_module.scan_include_closure(
