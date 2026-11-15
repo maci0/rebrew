@@ -89,6 +89,11 @@ _RESERVED_METADATA_KEYS = frozenset(
         "PROTOTYPE",
     }
 )
+# A reported comment's body starts with a reserved key and a colon, so a
+# source without any ``KEY:`` text has none and is not parsed.
+_RESERVED_KEY_COLON_RE = re.compile(
+    "|".join(re.escape(key) + ":" for key in sorted(_RESERVED_METADATA_KEYS, key=len, reverse=True))
+)
 
 
 @dataclass(frozen=True)
@@ -290,7 +295,7 @@ def metadata_comments(
     source: str, *, syntax: AddressCommentFormat | None = None
 ) -> list[tuple[int, str]]:
     """Find forbidden metadata tags in actual comments, without reading values."""
-    if ":" not in source:
+    if _RESERVED_KEY_COLON_RE.search(source) is None:
         return []
     if syntax is not None and syntax.style == "delphi":
         src = source.encode("utf-8", errors="surrogateescape")

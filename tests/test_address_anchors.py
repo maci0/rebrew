@@ -113,6 +113,20 @@ class TestNativeCommentQueries:
         assert anchors.metadata_comments(source.replace("NAME", "SIZE")) == [(1, "SIZE")]
         assert len(calls) == 2
 
+    def test_metadata_comments_parse_only_text_with_a_reserved_key(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Without any ``KEY:`` text no comment can be reported, so nothing is parsed."""
+        import rebrew.metadata.anchors as anchors
+
+        def refuse(_source: object) -> object:
+            raise AssertionError("parsed")
+
+        monkeypatch.setattr(anchors, "parse_c_source", refuse)
+        assert anchors.metadata_comments("// ADDRESS: SERVER 0x1000\nint a; /* note: x */\n") == []
+        monkeypatch.undo()
+        assert anchors.metadata_comments("int a; /* NOTE: x */\n") == [(1, "NOTE")]
+
     def test_comments_within_function_still_bind_address_anchors(self) -> None:
         source = "void f(void) {\n// ADDRESS: TEST 0x1000\nextern int value;\n}\n"
         anchors = parse_address_anchors(source)
