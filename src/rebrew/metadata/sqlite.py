@@ -840,16 +840,6 @@ def extra_durable_sources(root: Path) -> list[Path]:
     return sources
 
 
-def _toml_store_tree(root: Path, name: str) -> list[Path]:
-    """Main TOML plus its ``.d/*.toml`` drop-ins, when present."""
-    main = root / name
-    tree = [main] if main.is_file() else []
-    dropins = main.with_suffix(".d")
-    if dropins.is_dir():
-        tree.extend(sorted(p for p in dropins.iterdir() if p.suffix == ".toml" and p.is_file()))
-    return tree
-
-
 def toml_store_trees(root: Path) -> list[tuple[Path, list[Path]]]:
     """``(directory, tree)`` pairs for every managed store under *root*.
 

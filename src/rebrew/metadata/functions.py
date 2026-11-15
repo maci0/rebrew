@@ -139,7 +139,6 @@ __all__ = [
     "import_status_history",
     "is_metadata_key",
     "is_status_parked",
-    "is_table_field",
     "library_override_fingerprint",
     "library_presets_generation",
     "load_metadata",
@@ -208,17 +207,6 @@ def resolve_metadata_dir(directory: Path | str | Any) -> Path:
 def is_metadata_key(key: str) -> bool:
     """Return True if *key* (annotation KV name, upper-case) belongs in the metadata."""
     return key.upper() in METADATA_FIELDS
-
-
-def is_table_field(key: str) -> bool:
-    """True when *key*'s metadata value is a TOML table (``dict``), not a scalar.
-
-    Inline ``// KEY: value`` comments carry scalars only, so a caller migrating
-    an inline key must not hand a string to a table field — ``update_field``
-    rejects it (``validate_metadata_field``), which surfaced as a traceback out of
-    ``rebrew lint --fix``.
-    """
-    return METADATA_FIELD_TYPES.get(key.lower()) is dict
 
 
 def metadata_path(directory: Path | str | Any) -> Path:
