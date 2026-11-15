@@ -604,6 +604,36 @@ def _own_fixture(tmp_path: Path, raw: bytes, data_base: int) -> Path:
     return binp
 
 
+def test_own_data_globals_skips_a_scalar_past_the_reference_raw_data(tmp_path: Path) -> None:
+    """The layout package can claim more raw ``.data`` than the reference file
+    holds (a stale package or a truncated binary).  A scalar whose bytes lie
+    past the file's ``.data`` is skipped instead of unpacked from a short slice."""
+    import struct
+
+    from rebrew.data_layout import own_data_globals
+
+    data_base = 0x10027000
+    binp = _own_fixture(tmp_path, struct.pack("<I", 7), data_base)
+    _write_layout(tmp_path, data_base, 0x40, 0x40)
+    (tmp_path / "src" / "mod.c").write_text(
+        "extern int g_count;\nextern int g_far;\n", encoding="utf-8"
+    )
+    meta = tmp_path / "rebrew-data.toml"
+    write_store_fixture(
+        meta,
+        f'format = 2\n["SERVER.0x{data_base:x}"]\nname = "g_count"\nsection = ".data"\ntype = "int"\n["SERVER.0x{data_base + 0x20:x}"]\nname = "g_far"\nsection = ".data"\ntype = "int"\n',
+        encoding="utf-8",
+    )
+    stub = tmp_path / "src" / "link_stubs.c"
+    stub.write_text("int g_count = 0;\nint g_far = 0;\n", encoding="utf-8")
+
+    result = own_data_globals(tmp_path, meta, binp, tmp_path / "src", stub, dry_run=False)
+    text = (tmp_path / "src" / "mod.c").read_text()
+    assert "int g_count = 7;" in text
+    assert "g_far" in result["skipped"]
+    assert "int g_far =" not in text
+
+
 def test_own_data_globals_skips_symbol_the_owner_typed_differently(
     tmp_path: Path,
 ) -> None:

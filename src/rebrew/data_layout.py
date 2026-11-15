@@ -1362,6 +1362,8 @@ def _scalar_literal(data: bytes, ctype: str, size: int, byte_order: str = "<") -
             return None
         v = struct.unpack_from(byte_order + "d", data)[0]
         return repr(v) if math.isfinite(v) else None
+    if len(data) < size:
+        return None
     if size == 1:
         return str(data[0])
     if size == 2:

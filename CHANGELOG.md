@@ -7,6 +7,7 @@
 - `rebrew build residue` exits with `postlink fixer <name> failed: ...` when a fixer refuses the built image or the package, and prints its coverage warning when `map_coverage` refuses the package or image. Both `ValueError`s left the command, which only the process-level handler reported, without the fixer's name.
 - `rebrew build layout --layout-config` reports a reference `extract_layout` refuses (one without `.rdata`) through the error envelope with the binary's path, as the package-writing path does; the `ValueError` left the command.
 - A `layout/<target>/rebrew-layout.toml` of the wrong shape (`layout = 5`, a section row that is not a table) no longer fails config load with `AttributeError` (`rebrew status` exited 1 with a traceback): `read_layout_header` returns no header and the binary's own headers are read. `read_layout_geometry` raises `ValueError` for such a package, which `calibrate-bss` and `inline-strings` fall back on and the `data layout` commands report.
+- `rebrew data layout own` skips a scalar global whose bytes lie past the reference file's `.data` raw data (a stale layout package or a truncated binary) instead of raising `struct.error`.
 
 ## [6.45.1] - 2026-11-16
 
