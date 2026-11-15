@@ -19,11 +19,24 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from test_ops import ENTRY_VA, KEY, SHA256, _analyse_request, _free_port, _store, _worker_dirs
+from test_analysis_capture_inventory import _copied_intake
+from test_ops import (
+    BINARY,
+    ENTRY_VA,
+    KEY,
+    SHA256,
+    _analyse_request,
+    _free_port,
+    _store,
+    _worker_dirs,
+)
 
+import rebrew.ops
 from rebrew.metadata.sqlite import DATABASE_FILENAME
 from rebrew.named_snapshot import unique_json_object
 from rebrew.ops import OPS, WorkerConfig, dispatch
+
+Intake = tuple[Path, dict[str, Any]]
 
 
 def test_unique_json_object_rejects_duplicate_keys() -> None:
@@ -41,30 +54,46 @@ def _digest(value: str) -> str:
 
 
 @pytest.fixture(scope="module")
-def sample(tmp_path_factory: pytest.TempPathFactory) -> tuple[WorkerConfig, dict[str, Any]]:
-    """A request over a fresh capture, whose function registry is in its SQLite artifact."""
-    return _sample(tmp_path_factory.mktemp("named-snapshot"))
+def intake(tmp_path_factory: pytest.TempPathFactory) -> Intake:
+    """One real intake of the fixture binary as target ``mini``, and its report."""
+    tree = tmp_path_factory.mktemp("intake")
+    return tree, rebrew.ops._run_intake(BINARY, tree, "mini")
 
 
 @pytest.fixture(scope="module")
-def toml_sample(tmp_path_factory: pytest.TempPathFactory) -> tuple[WorkerConfig, dict[str, Any]]:
+def sample(
+    tmp_path_factory: pytest.TempPathFactory, intake: Intake
+) -> tuple[WorkerConfig, dict[str, Any]]:
+    """A request over a fresh capture, whose function registry is in its SQLite artifact."""
+    return _sample(tmp_path_factory.mktemp("named-snapshot"), intake)
+
+
+@pytest.fixture(scope="module")
+def toml_sample(
+    tmp_path_factory: pytest.TempPathFactory, intake: Intake
+) -> tuple[WorkerConfig, dict[str, Any]]:
     """A request over a capture whose function registry is ``rebrew-functions.toml``.
 
     Skipping the SQLite import reproduces the TOML capture an earlier worker recorded.
     """
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr("rebrew.ops._fresh_sqlite_metadata", lambda *_args: {})
-        return _sample(tmp_path_factory.mktemp("named-snapshot-toml"), legacy=True)
+        return _sample(tmp_path_factory.mktemp("named-snapshot-toml"), intake, legacy=True)
 
 
-def _sample(directory: Path, *, legacy: bool = False) -> tuple[WorkerConfig, dict[str, Any]]:
+def _sample(
+    directory: Path, intake: Intake, *, legacy: bool = False
+) -> tuple[WorkerConfig, dict[str, Any]]:
     """The decompile request over a fresh capture, as the backend forwards it.
 
-    *legacy* writes the version 1 manifest of a TOML capture.
+    Every intake the analysis runs is a copy of the *intake* tree. *legacy*
+    writes the version 1 manifest of a TOML capture.
     """
     filestore, workspace = _worker_dirs(directory)
     config = WorkerConfig(filestore.resolve(), workspace.resolve())
-    status, body = dispatch(config, "rebrew.analyse", json.dumps(_analyse_request()).encode())
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(rebrew.ops, "_run_intake", _copied_intake(*intake))
+        status, body = dispatch(config, "rebrew.analyse", json.dumps(_analyse_request()).encode())
     assert status == 200, body
     result = json.loads(body)
     capture = result["analysis_capture"]
@@ -437,35 +466,29 @@ def test_stored_version_2_capture_remains_readable(
 
 
 def test_named_decompile_reads_a_store_over_one_mib(
-    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, intake: Intake
 ) -> None:
     """Capture files keep the shared readset bounds the backend retains them under."""
-    import rebrew.ops
     from rebrew.config import load_config
     from rebrew.metadata.functions import record_function_rows
 
-    intake = rebrew.ops._run_intake
-
-    def seed(binary: Path, root: Path, target: str) -> Any:
-        result = intake(binary, root, target)
-        record_function_rows(
-            load_config(root, target=target).metadata_dir,
-            [
-                {
-                    "module": "MINI",
-                    "va": 0x500000 + index * 16,
-                    "identity": {"name": f"synthetic_function_{index:05d}"},
-                    "fields": {"size": 16, "blocker": f"Synthetic function {index:05d}." * 4},
-                }
-                for index in range(6144)
-            ],
-            updated_by="intake",
-        )
-        return result
-
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(rebrew.ops, "_run_intake", seed)
-        config, request = _sample(tmp_path_factory.mktemp("named-snapshot-large"))
+    tree, report = intake
+    seeded = tmp_path / "intake"
+    shutil.copytree(tree, seeded, ignore=shutil.ignore_patterns(".rebrew"))
+    record_function_rows(
+        load_config(seeded, target="mini").metadata_dir,
+        [
+            {
+                "module": "MINI",
+                "va": 0x500000 + index * 16,
+                "identity": {"name": f"synthetic_function_{index:05d}"},
+                "fields": {"size": 16, "blocker": f"Synthetic function {index:05d}." * 4},
+            }
+            for index in range(6144)
+        ],
+        updated_by="intake",
+    )
+    config, request = _sample(tmp_path / "worker", (seeded, report))
     (database,) = [row for row in request["analysis_files"] if row["path"] == DATABASE_FILENAME]
     assert 1024 * 1024 < database["size"] <= rebrew.ops.MAX_READSET_FILE_BYTES
     monkeypatch.setattr(

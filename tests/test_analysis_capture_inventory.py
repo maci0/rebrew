@@ -3,17 +3,20 @@
 from __future__ import annotations
 
 import base64
+import copy
 import hashlib
 import http.client
 import json
 import os
 import secrets
+import shutil
 import socket
 import subprocess
 import sys
 import time
 from pathlib import Path
 from typing import Any
+lazy from collections.abc import Callable
 
 import pytest
 from test_ops import BINARY, SHA256, _analyse_request, _store, _worker_dirs
@@ -21,6 +24,36 @@ from test_ops import BINARY, SHA256, _analyse_request, _store, _worker_dirs
 import rebrew.ops as ops
 from rebrew.config import inventory_path_for, load_config
 from rebrew.ops import WorkerConfig
+
+
+def _copied_intake(
+    tree: Path, report: dict[str, Any]
+) -> Callable[[Path, Path, str], dict[str, Any]]:
+    """An ``ops._run_intake`` that copies *tree* into the project and answers a copy of *report*.
+
+    *tree* is one real intake of :data:`BINARY` as target ``mini``. The ``.rebrew``
+    caches are left behind; they name the original paths and are rebuilt on demand.
+    """
+
+    def run(binary: Path, root: Path, target: str) -> dict[str, Any]:
+        assert (hashlib.sha256(binary.read_bytes()).hexdigest(), target) == (SHA256, "mini")
+        shutil.copytree(tree, root, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".rebrew"))
+        return copy.deepcopy(report)
+
+    return run
+
+
+@pytest.fixture(scope="module")
+def _intake(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, dict[str, Any]]:
+    """One real intake of :data:`BINARY` as target ``mini``, and its report."""
+    tree = tmp_path_factory.mktemp("intake")
+    return tree, ops._run_intake(BINARY, tree, "mini")
+
+
+@pytest.fixture
+def intake_copy(_intake: tuple[Path, dict[str, Any]], monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every intake in the test is a private copy of the module's one intake."""
+    monkeypatch.setattr(ops, "_run_intake", _copied_intake(*_intake))
 
 
 def _capture(tmp_path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -67,6 +100,7 @@ def _report(capture: dict[str, Any], report: dict[str, Any]) -> dict[str, Any]:
     return artifact
 
 
+@pytest.mark.usefixtures("intake_copy")
 def test_large_producer_metadata_is_captured(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -116,6 +150,7 @@ def test_large_producer_metadata_is_captured(
     } in capture["metadata"]["documents"]
 
 
+@pytest.mark.usefixtures("intake_copy")
 def test_capture_refuses_file_over_eight_mib(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -228,6 +263,7 @@ def test_installed_http_worker_captures_inventory(tmp_path: Path) -> None:
         worker.wait(timeout=30)
 
 
+@pytest.mark.usefixtures("intake_copy")
 def test_configured_inventory_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     intake = ops._run_intake
 
@@ -257,6 +293,7 @@ def test_configured_inventory_override(tmp_path: Path, monkeypatch: pytest.Monke
     assert all(entry["path"] != "src/mini/function_structure.json" for entry in capture["entries"])
 
 
+@pytest.mark.usefixtures("intake_copy")
 def test_missing_selected_inventory_has_no_name_evidence(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -276,6 +313,7 @@ def test_missing_selected_inventory_has_no_name_evidence(
 @pytest.mark.parametrize(
     "kind", ["duplicate-function", "stub-collision", "reserved-path", "reserved-symlink"]
 )
+@pytest.mark.usefixtures("intake_copy")
 def test_ambiguous_normalized_report_refused(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str
 ) -> None:
@@ -301,6 +339,7 @@ def test_ambiguous_normalized_report_refused(
         _capture(tmp_path)
 
 
+@pytest.mark.usefixtures("intake_copy")
 def test_oversized_report_has_no_producer_evidence(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -323,6 +362,7 @@ def test_oversized_report_has_no_producer_evidence(
 @pytest.mark.parametrize(
     "changed", ["inventory", "config", "binary", "source", "metadata", "absence", "new-source"]
 )
+@pytest.mark.usefixtures("intake_copy")
 def test_changed_input_during_report_refused(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, changed: str
 ) -> None:

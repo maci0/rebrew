@@ -491,13 +491,24 @@ def test_carry_merges_the_function_registry_per_record(
     }
 
 
-def test_carry_of_a_toml_target_without_applied_proposals_moves_only_its_config(
-    tmp_path: Path,
-) -> None:
-    filestore, workspace = _worker_dirs(tmp_path)
+@pytest.fixture(scope="module")
+def v1_reanalysed(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> tuple[WorkerConfig, dict[str, bytes], dict[str, Any]]:
+    """A worker, a version 1 target tree with an applied name, and its plain re-analysis capture.
+
+    Shared by the module's tests: a test that changes the tree or capture changes a copy.
+    """
+    filestore, workspace = _worker_dirs(tmp_path_factory.mktemp("v1-reanalysed"))
     config = WorkerConfig(filestore.resolve(), workspace.resolve())
     tree = _v1_target_with_applied_name(config)
-    capture = _analyse(config)["analysis_capture"]
+    return config, tree, _analyse(config)["analysis_capture"]
+
+
+def test_carry_of_a_toml_target_without_applied_proposals_moves_only_its_config(
+    v1_reanalysed: tuple[WorkerConfig, dict[str, bytes], dict[str, Any]],
+) -> None:
+    config, tree, capture = v1_reanalysed
     status, reply = _carry(config, tree, capture, "")
     assert status == 200, reply
     carried = _applied_files(reply)
@@ -522,13 +533,17 @@ def test_carry_of_a_toml_target_without_applied_proposals_moves_only_its_config(
         ("no-functions", f"invalid metadata set: carried metadata holds no {REGISTRY}"),
     ],
 )
-def test_carry_refuses_inconsistent_inputs(tmp_path: Path, damage: str, detail: str) -> None:
+def test_carry_refuses_inconsistent_inputs(
+    tmp_path: Path,
+    v1_reanalysed: tuple[WorkerConfig, dict[str, bytes], dict[str, Any]],
+    damage: str,
+    detail: str,
+) -> None:
+    import copy
     import sqlite3
 
-    filestore, workspace = _worker_dirs(tmp_path)
-    config = WorkerConfig(filestore.resolve(), workspace.resolve())
-    tree = _v1_target_with_applied_name(config)
-    capture = _analyse(config)["analysis_capture"]
+    config, shared_tree, shared_capture = v1_reanalysed
+    tree, capture = dict(shared_tree), copy.deepcopy(shared_capture)
     registry = REGISTRY
     if damage == "registry-backend":
         # A TOML config does not read an attested SQLite store.

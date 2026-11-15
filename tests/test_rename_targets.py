@@ -8,6 +8,8 @@ change list.
 
 from __future__ import annotations
 
+import functools
+import shutil
 import tomllib
 from typing import Any
 lazy from pathlib import Path
@@ -144,9 +146,27 @@ _DATA = 'format = 2\n["SERVER.0x100a8c30"]\nfile = "src/bss.c"\nkind = "DATA"\nn
 
 
 def _project(tmp_path: Path) -> Path:
+    """A private copy of the fixture project at ``tmp_path / "proj"``.
+
+    The copy leaves out the regenerable ``.rebrew`` cache: its sidecars
+    fingerprint the template's absolute paths.
+    """
+    root = tmp_path / "proj"
+    shutil.copytree(
+        _template(tmp_path.parent),
+        root,
+        copy_function=shutil.copy,
+        ignore=shutil.ignore_patterns(".rebrew"),
+    )
+    return root
+
+
+@functools.cache
+def _template(basetemp: Path) -> Path:
+    """The fixture project, built once per pytest base temporary directory."""
     from rebrew.metadata.functions import save_metadata
 
-    root = tmp_path / "proj"
+    root = basetemp / "rename-template" / "proj"
     src = root / "src"
     for rel, text in {
         "game.h": _GAME_H,
@@ -182,13 +202,21 @@ def _project(tmp_path: Path) -> Path:
     return root
 
 
-def _run(root: Path, monkeypatch: pytest.MonkeyPatch, *args: str) -> Any:
-    from typer.testing import CliRunner
+@functools.cache
+def _umbrella() -> Any:
+    """The umbrella click command, built once: ``typer.testing`` rebuilds it per invoke."""
+    import typer
 
     from rebrew.app.main import app
 
+    return typer.main.get_command(app)
+
+
+def _run(root: Path, monkeypatch: pytest.MonkeyPatch, *args: str) -> Any:
+    from click.testing import CliRunner
+
     monkeypatch.chdir(root)
-    return CliRunner().invoke(app, ["source", "rename", *args])
+    return CliRunner().invoke(_umbrella(), ["source", "rename", *args])
 
 
 def _text(root: Path, rel: str) -> str:

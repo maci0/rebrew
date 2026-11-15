@@ -171,12 +171,39 @@ def _check_analysed(reply: dict[str, Any], workspace: Path) -> Path:
 
 
 @pytest.fixture(scope="module")
-def world(tmp_path_factory: pytest.TempPathFactory) -> tuple[WorkerConfig, Path]:
-    """A worker configuration and the project ``analyse`` generated in it."""
-    filestore, workspace = _worker_dirs(tmp_path_factory.mktemp("ops"))
-    config = WorkerConfig(filestore.resolve(), workspace.resolve())
-    reply = _call(config, "rebrew.analyse", _analyse_request())
-    return config, _check_analysed(reply, workspace.resolve())
+def fresh_analysis(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, dict[str, Any]]:
+    """A worker root with one ``analyse`` into its empty workspace, and the reply.
+
+    Tests never change it: one that writes works on :func:`_copy_analysed`.
+    """
+    root = tmp_path_factory.mktemp("analysed").resolve()
+    filestore, workspace = _worker_dirs(root)
+    reply = _call(WorkerConfig(filestore, workspace), "rebrew.analyse", _analyse_request())
+    _check_analysed(reply, workspace)
+    return root, reply
+
+
+def _copy_analysed(
+    analysed: tuple[Path, dict[str, Any]], destination: Path
+) -> tuple[WorkerConfig, Path]:
+    """A worker over a copy of the analysed root at *destination*, and the copy's project.
+
+    The ``.rebrew`` caches are left behind; they name the original paths and
+    are rebuilt on demand.
+    """
+    root, reply = analysed
+    shutil.copytree(root, destination, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".rebrew"))
+    destination = destination.resolve()
+    config = WorkerConfig(destination / "files", destination / "workspace")
+    return config, destination / Path(reply["project"]).relative_to(root)
+
+
+@pytest.fixture(scope="module")
+def world(
+    tmp_path_factory: pytest.TempPathFactory, fresh_analysis: tuple[Path, dict[str, Any]]
+) -> tuple[WorkerConfig, Path]:
+    """A worker configuration and its copy of the analysed project."""
+    return _copy_analysed(fresh_analysis, tmp_path_factory.mktemp("ops"))
 
 
 class TestTargetName:
@@ -615,7 +642,9 @@ def https_origin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     monkeypatch.setenv("SSL_CERT_FILE", str(cert))
     monkeypatch.setenv("REBREW_OPS_ALLOW_PRIVATE_DOWNLOAD", "1")
     monkeypatch.setenv("NO_PROXY", "127.0.0.1")
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+    )
     thread.start()
     try:
         yield f"https://127.0.0.1:{server.server_port}"
@@ -1122,21 +1151,20 @@ def _with_project_header(project: Path) -> str:
 
 
 def _retained_coverage_request(
-    tmp_path: Path,
+    fresh_analysis: tuple[Path, dict[str, Any]], tmp_path: Path
 ) -> tuple[WorkerConfig, dict[str, Any], dict[str, Any], dict[str, Any]]:
-    """A retained ``coverage_report`` request over a fresh analysis, no records.
+    """A retained ``coverage_report`` request over a copy of a fresh analysis, no records.
 
-    Returns the worker configuration, the request, the analyse reply and the
-    coverage envelope.
+    Returns the worker configuration over *tmp_path*, the request, the analyse
+    reply (its ``project`` names the copy) and the coverage envelope.
     """
     from rebrew.coverage_input_contract import coverage_input_digest, plan_coverage_readset
     from rebrew.ops import RetainedFile, retained_target_snapshot
 
-    filestore, workspace = _worker_dirs(tmp_path)
-    config = WorkerConfig(filestore.resolve(), workspace.resolve())
-    status, raw = dispatch(config, "rebrew.analyse", json.dumps(_analyse_request()).encode())
-    assert status == 200, raw
-    analysed = json.loads(raw)
+    config, project = _copy_analysed(fresh_analysis, tmp_path)
+    assert config.filestore is not None
+    filestore = config.filestore
+    analysed = {**fresh_analysis[1], "project": str(project)}
     capture = analysed["analysis_capture"]
     files = []
     source_paths = {entry["path"] for entry in capture["entries"] if entry.get("role") == "source"}
@@ -1183,13 +1211,15 @@ def _retained_coverage_request(
 
 
 class TestReconstructionOps:
-    def test_retained_reports_require_and_use_verified_readset(self, tmp_path: Path) -> None:
+    def test_retained_reports_require_and_use_verified_readset(
+        self, fresh_analysis: tuple[Path, dict[str, Any]], tmp_path: Path
+    ) -> None:
         from rebrew.coverage_input_contract import (
             coverage_input_digest,
             verification_records_digest,
         )
 
-        config, request, analysed, envelope = _retained_coverage_request(tmp_path)
+        config, request, analysed, envelope = _retained_coverage_request(fresh_analysis, tmp_path)
         status, body = dispatch(config, "rebrew.coverage_report", json.dumps(request).encode())
         assert status == 200, body
         assert json.loads(body)["report"]["measures"]["matched_functions"] == 0
@@ -1245,15 +1275,16 @@ class TestReconstructionOps:
         assert status == 409, body
 
     def test_retained_build_names_an_invalid_project_config(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        fresh_analysis: tuple[Path, dict[str, Any]],
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """A staged rebrew-project.toml rebrew refuses is the caller's to fix: say what, not "see the log"."""
-        filestore, workspace = _worker_dirs(tmp_path)
-        config = WorkerConfig(filestore.resolve(), workspace.resolve())
-        status, raw = dispatch(config, "rebrew.analyse", json.dumps(_analyse_request()).encode())
-        assert status == 200, raw
-        analysed = json.loads(raw)
-        capture = analysed["analysis_capture"]
+        config, project = _copy_analysed(fresh_analysis, tmp_path)
+        assert config.filestore is not None
+        filestore = config.filestore
+        capture = fresh_analysis[1]["analysis_capture"]
         files = []
         for entry in capture["entries"]:
             if entry["kind"] != "file":
@@ -1268,7 +1299,7 @@ class TestReconstructionOps:
             files.append({"path": entry["path"], "size": len(data), "digest": digest, "key": key})
         monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://127.0.0.1:9")
         request = {
-            "project_dir": analysed["project"],
+            "project_dir": str(project),
             "sha256": SHA256,
             "files": files,
             "rebrew_target": capture["target"],
@@ -1327,9 +1358,6 @@ class TestReconstructionOps:
             / SHA256
         )
         assert default not in (first, second)
-        status, body = dispatch(config, "rebrew.analyse", json.dumps(_analyse_request()).encode())
-        assert status == 200, body
-        assert Path(json.loads(body)["project"]) == workspace.resolve() / "projects" / SHA256
         status, _ = dispatch(
             config, "rebrew.analyse", json.dumps({**_analyse_request(), "project_id": ""}).encode()
         )
@@ -1365,7 +1393,10 @@ class TestReconstructionOps:
         assert status == 400
 
     def test_retained_ops_do_not_read_project_dir(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        fresh_analysis: tuple[Path, dict[str, Any]],
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """A retained request reads only its snapshot, as recoverage's do.
 
@@ -1373,7 +1404,7 @@ class TestReconstructionOps:
         the worker's workspace, so a replica without that directory (or a
         project the isolated runner recorded elsewhere) answered 400.
         """
-        config, request, _analysed, _envelope = _retained_coverage_request(tmp_path)
+        config, request, _analysed, _envelope = _retained_coverage_request(fresh_analysis, tmp_path)
         gone = str(tmp_path / "elsewhere" / "project")
         retained = {**request, "project_dir": gone}
         _call(config, "rebrew.coverage_report", retained)
@@ -1722,13 +1753,13 @@ class TestReconstructionOps:
             "status"
         ] == (400)
 
-    def test_the_analysis_report_follows_its_published_shape(self, tmp_path: Path) -> None:
+    def test_the_analysis_report_follows_its_published_shape(
+        self, fresh_analysis: tuple[Path, dict[str, Any]]
+    ) -> None:
         """The backend parses ``.relumea/analysis-report.json`` from the capture, so
         its path and shape are rebrew's contract, published beside the ops (R4-022).
         They lived only in code on both sides."""
-        filestore, workspace = _worker_dirs(tmp_path)
-        config = WorkerConfig(filestore.resolve(), workspace.resolve())
-        capture = _call(config, "rebrew.analyse", _analyse_request())["analysis_capture"]
+        capture = fresh_analysis[1]["analysis_capture"]
         documents = _CONTRACT["documents"]
         assert list(documents) == [capture["report_path"]]
         entry = next(e for e in capture["entries"] if e["path"] == capture["report_path"])
@@ -2060,14 +2091,16 @@ class TestExecTransport:
         assert (code, reply) == (0, {"text": "push ebp\n"})
         _validate(_op_schema("rebrew.disassemble", "response"), reply)
 
-    def test_sigterm_stops_the_child_command_and_removes_the_snapshot(self, tmp_path: Path) -> None:
+    def test_sigterm_stops_the_child_command_and_removes_the_snapshot(
+        self, fresh_analysis: tuple[Path, dict[str, Any]], tmp_path: Path
+    ) -> None:
         """The backend cancels an exec call with SIGTERM to the worker's process group.
 
         The child command runs in its own session, outside that group, and the
         worker died without stopping it: it kept running and the retained
         snapshot under ``.scratch`` stayed on disk.
         """
-        config, request, _analysed, _envelope = _retained_coverage_request(tmp_path)
+        config, request, _analysed, _envelope = _retained_coverage_request(fresh_analysis, tmp_path)
         assert config.filestore is not None and config.workspace is not None
         pid_file = tmp_path / "child.pid"
         launcher = tmp_path / "launch.py"
@@ -2277,11 +2310,16 @@ class TestFailureDetails:
     """
 
     def test_a_build_failure_names_its_step_and_cause_without_host_paths(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        fresh_analysis: tuple[Path, dict[str, Any]],
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         import rebrew.ops as ops
 
-        config, retained, _analysed, _envelope = _retained_coverage_request(tmp_path)
+        config, retained, _analysed, _envelope = _retained_coverage_request(
+            fresh_analysis, tmp_path
+        )
         request = {
             key: retained[key]
             for key in ("project_dir", "sha256", "files", "rebrew_target", "binary_key")
@@ -2421,10 +2459,14 @@ class TestVariantSearchBounds:
     """
 
     @staticmethod
-    def _request(tmp_path: Path) -> tuple[WorkerConfig, dict[str, Any]]:
+    def _request(
+        fresh_analysis: tuple[Path, dict[str, Any]], tmp_path: Path
+    ) -> tuple[WorkerConfig, dict[str, Any]]:
         import rebrew.ops as ops
 
-        config, retained, _analysed, _envelope = _retained_coverage_request(tmp_path)
+        config, retained, _analysed, _envelope = _retained_coverage_request(
+            fresh_analysis, tmp_path
+        )
         source = next(entry["path"] for entry in retained["files"] if entry["path"].endswith(".c"))
         candidate = "int candidate(void) { return 0; }\n"
         return config, {
@@ -2461,11 +2503,16 @@ class TestVariantSearchBounds:
         [("generations", "VARIANT_MAX_GENERATIONS"), ("population", "VARIANT_MAX_POPULATION")],
     )
     def test_a_bound_over_its_cap_is_refused_naming_the_cap(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, field: str, cap: str
+        self,
+        fresh_analysis: tuple[Path, dict[str, Any]],
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        field: str,
+        cap: str,
     ) -> None:
         import rebrew.ops as ops
 
-        config, request = self._request(tmp_path)
+        config, request = self._request(fresh_analysis, tmp_path)
         searches = self._searches(monkeypatch)
         limit = getattr(ops, cap)
         body = json.dumps({**request, field: limit + 1}).encode()
@@ -2475,11 +2522,14 @@ class TestVariantSearchBounds:
         assert searches == []
 
     def test_a_search_at_both_caps_runs(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        fresh_analysis: tuple[Path, dict[str, Any]],
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         import rebrew.ops as ops
 
-        config, request = self._request(tmp_path)
+        config, request = self._request(fresh_analysis, tmp_path)
         searches = self._searches(monkeypatch)
         assert _call(config, "rebrew.retained_source_operation", request) == {"result": {}}
         [search] = searches
@@ -2534,11 +2584,13 @@ class TestRetainedSnapshotApi:
         ]
         assert ops.OpsError is OpsError
 
-    def test_stages_the_manifest_and_removes_it_after(self, tmp_path: Path) -> None:
+    def test_stages_the_manifest_and_removes_it_after(
+        self, fresh_analysis: tuple[Path, dict[str, Any]], tmp_path: Path
+    ) -> None:
         from rebrew.config import load_config
         from rebrew.ops import RetainedFile, retained_target_snapshot
 
-        config, request, _analysed, _envelope = _retained_coverage_request(tmp_path)
+        config, request, _analysed, _envelope = _retained_coverage_request(fresh_analysis, tmp_path)
         assert config.workspace is not None
         target = request["rebrew_target"]
         files = [RetainedFile(**entry) for entry in request["files"]]
@@ -2551,11 +2603,13 @@ class TestRetainedSnapshotApi:
             assert hashlib.sha256(binary.read_bytes()).hexdigest() == SHA256
         assert not root.exists()
 
-    def test_a_stored_file_that_does_not_match_is_an_ops_error(self, tmp_path: Path) -> None:
+    def test_a_stored_file_that_does_not_match_is_an_ops_error(
+        self, fresh_analysis: tuple[Path, dict[str, Any]], tmp_path: Path
+    ) -> None:
         from rebrew.errors import OpsError
         from rebrew.ops import RetainedFile, retained_target_snapshot
 
-        config, request, _analysed, _envelope = _retained_coverage_request(tmp_path)
+        config, request, _analysed, _envelope = _retained_coverage_request(fresh_analysis, tmp_path)
         assert config.filestore is not None and config.workspace is not None
         (config.filestore / request["files"][0]["key"]).write_bytes(b"changed")
         files = [RetainedFile(**entry) for entry in request["files"]]
@@ -2569,7 +2623,7 @@ class TestRetainedSnapshotApi:
         assert not list((config.workspace / ".scratch").glob("retained-target-*"))
 
     def test_a_config_whose_paths_leave_the_snapshot_is_refused_while_staging(
-        self, tmp_path: Path
+        self, fresh_analysis: tuple[Path, dict[str, Any]], tmp_path: Path
     ) -> None:
         """Staging confines the project config itself: a caller need not check it again."""
         import tomlkit
@@ -2577,7 +2631,7 @@ class TestRetainedSnapshotApi:
         from rebrew.errors import OpsError
         from rebrew.ops import RetainedFile, retained_target_snapshot
 
-        config, request, _analysed, _envelope = _retained_coverage_request(tmp_path)
+        config, request, _analysed, _envelope = _retained_coverage_request(fresh_analysis, tmp_path)
         assert config.filestore is not None
         entries = []
         for entry in request["files"]:
@@ -2683,7 +2737,22 @@ class TestHttpTransport:
 
     @pytest.fixture
     def server(self, tmp_path: Path) -> Any:
-        filestore, workspace = _worker_dirs(tmp_path)
+        """A one-slot ``rebrew ops serve`` of its own, for a test that holds the slot or writes."""
+        with self._serve(tmp_path) as served:
+            yield served
+
+    @pytest.fixture(scope="class")
+    @classmethod
+    def slot_free_server(cls, tmp_path_factory: pytest.TempPathFactory) -> Any:
+        """One server shared by tests whose requests never take the slot or write the workspace."""
+        with cls._serve(tmp_path_factory.mktemp("serve")) as served:
+            yield served
+
+    @staticmethod
+    @contextlib.contextmanager
+    def _serve(root: Path) -> Any:
+        """Run ``rebrew ops serve`` with one slot over a worker root; yields (port, workspace)."""
+        filestore, workspace = _worker_dirs(root)
         port = _free_port()
         process = subprocess.Popen(
             _rebrew(
@@ -2795,8 +2864,8 @@ class TestHttpTransport:
             connection.close()
         assert (response.status, reply["error"], reply["status"]) == (status, code, status)
 
-    def test_get_is_refused(self, server: tuple[int, Path]) -> None:
-        port, _workspace = server
+    def test_get_is_refused(self, slot_free_server: tuple[int, Path]) -> None:
+        port, _workspace = slot_free_server
         connection = http.client.HTTPConnection("127.0.0.1", port, timeout=WAIT_SECONDS)
         try:
             connection.request("GET", "/rebrew.fingerprint")
@@ -2809,9 +2878,9 @@ class TestHttpTransport:
         finally:
             connection.close()
 
-    def test_unknown_method_is_refused_like_get(self, server: tuple[int, Path]) -> None:
+    def test_unknown_method_is_refused_like_get(self, slot_free_server: tuple[int, Path]) -> None:
         """A method with no do_* handler (TRACE/FOO) is 405/404, not 501."""
-        port, _workspace = server
+        port, _workspace = slot_free_server
         for method, path, status, allow in (
             ("TRACE", "/rebrew.fingerprint", 405, "POST"),
             ("FOO", "/rebrew.fingerprint", 405, "POST"),
@@ -2829,8 +2898,10 @@ class TestHttpTransport:
             finally:
                 connection.close()
 
-    def test_post_to_health_and_metrics_is_refused(self, server: tuple[int, Path]) -> None:
-        port, _workspace = server
+    def test_post_to_health_and_metrics_is_refused(
+        self, slot_free_server: tuple[int, Path]
+    ) -> None:
+        port, _workspace = slot_free_server
         auth = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
         for path in ("/health", "/metrics"):
             connection = http.client.HTTPConnection("127.0.0.1", port, timeout=WAIT_SECONDS)
@@ -2846,8 +2917,8 @@ class TestHttpTransport:
             finally:
                 connection.close()
 
-    def test_health_and_metrics(self, server: tuple[int, Path]) -> None:
-        port, _workspace = server
+    def test_health_and_metrics(self, slot_free_server: tuple[int, Path]) -> None:
+        port, _workspace = slot_free_server
         auth = {"Authorization": f"Bearer {TOKEN}"}
         conn = http.client.HTTPConnection("127.0.0.1", port, timeout=WAIT_SECONDS)
         try:
@@ -3017,47 +3088,7 @@ class TestHttpTransport:
             assert time.monotonic() < deadline, "the slot was not released"
             time.sleep(0.05)
 
-    def test_a_full_worker_answers_503_with_retry_after(self, server: tuple[int, Path]) -> None:
-        port, _workspace = server
-        stalled = self._hold_the_only_slot(port)
-        try:
-            connection = http.client.HTTPConnection("127.0.0.1", port, timeout=WAIT_SECONDS)
-            try:
-                connection.request(
-                    "POST",
-                    "/rebrew.nope",
-                    body=b"{}",
-                    headers={
-                        "Authorization": f"Bearer {TOKEN}",
-                        "Content-Type": "application/json",
-                    },
-                )
-                response = connection.getresponse()
-                reply = json.loads(response.read())
-            finally:
-                connection.close()
-            assert (response.status, reply["error"], response.getheader("Retry-After")) == (
-                503,
-                "worker-busy",
-                "5",
-            )
-        finally:
-            stalled.close()
-        deadline = time.monotonic() + WAIT_SECONDS
-        while True:
-            status, reply = self._post(
-                port,
-                "/rebrew.nope",
-                b"{}",
-                {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"},
-            )
-            if status != 503:
-                break
-            assert time.monotonic() < deadline, "the slot was not released"
-            time.sleep(0.05)
-        assert (status, reply["error"]) == (404, "unknown-op")
-
-    def test_a_stalled_call_refused_for_a_busy_slot_is_sent_again(
+    def test_a_full_worker_answers_503_and_a_refused_stalled_call_is_sent_again(
         self, server: tuple[int, Path]
     ) -> None:
         port, _workspace = server
@@ -3083,8 +3114,18 @@ class TestHttpTransport:
         # slot, so a probe is the one refused with 503.
         resent = self._hold_the_only_slot(port)
         try:
-            status, reply = self._post(port, "/rebrew.nope", b"{}", headers)
-            assert (status, reply["error"]) == (503, "worker-busy")
+            connection = http.client.HTTPConnection("127.0.0.1", port, timeout=WAIT_SECONDS)
+            try:
+                connection.request("POST", "/rebrew.nope", body=b"{}", headers=headers)
+                response = connection.getresponse()
+                reply = json.loads(response.read())
+            finally:
+                connection.close()
+            assert (response.status, reply["error"], response.getheader("Retry-After")) == (
+                503,
+                "worker-busy",
+                "5",
+            )
         finally:
             resent.close()
         # Once every stalled socket closes, the slot must be free again: a leaked slot
@@ -3112,22 +3153,6 @@ class TestHttpTransport:
         assert response.status == 404
         request_id = response.getheader("X-Request-Id")
         assert request_id is not None and request_id.startswith("r")
-
-    def test_unauthenticated_requests_log_a_warning(self, server: tuple[int, Path]) -> None:
-        port, _workspace = server
-        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=WAIT_SECONDS)
-        try:
-            connection.request(
-                "POST",
-                "/rebrew.fingerprint",
-                body=b"{}",
-                headers={"Authorization": "Bearer wrong", "Content-Type": "application/json"},
-            )
-            response = connection.getresponse()
-            response.read()
-        finally:
-            connection.close()
-        assert response.status == 401
 
 
 def test_dispatch_5xx_is_logged_and_4xx_is_not(caplog: Any) -> None:
@@ -3202,31 +3227,17 @@ def test_export_stats_are_zero_without_an_exporter() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(scope="module")
-def _analysed_source(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, Path]:
-    """One worker root analysed as project ``source``, and that project relative to it."""
-    root = tmp_path_factory.mktemp("analysed")
-    filestore, workspace = _worker_dirs(root)
-    config = WorkerConfig(filestore.resolve(), workspace.resolve())
-    reply = _call(config, "rebrew.analyse", {**_analyse_request(), "project_id": "source"})
-    return root.resolve(), Path(reply["project"]).relative_to(root.resolve())
-
-
 @pytest.fixture
 def analysed_project(
-    tmp_path: Path, _analysed_source: tuple[Path, Path]
+    tmp_path: Path, fresh_analysis: tuple[Path, dict[str, Any]]
 ) -> tuple[WorkerConfig, Path, Path]:
     """A worker, its filestore, and an analysed project directory to archive.
 
-    A copy of the module's one analysis: each test may change its own. The
-    ``.rebrew`` caches are left behind; they name the original paths and are
-    rebuilt on demand.
+    A copy of the module's one analysis: each test may change its own.
     """
-    root, project = _analysed_source
-    shutil.copytree(root, tmp_path, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".rebrew"))
-    filestore, workspace = tmp_path / "files", tmp_path / "workspace"
-    config = WorkerConfig(filestore.resolve(), workspace.resolve())
-    return config, filestore, tmp_path.resolve() / project
+    config, project = _copy_analysed(fresh_analysis, tmp_path)
+    assert config.filestore is not None
+    return config, config.filestore, project
 
 
 def _tar_bytes(
@@ -3425,7 +3436,9 @@ class TestImportArchive:
         """A file of the binary's earlier project the worker may not unlink (production: a foreign
         SELinux category on PRINCIPLES.md) is left behind and logged; the import itself succeeds."""
         config, filestore, project = analysed_project
-        _call(config, "rebrew.analyse", {**_analyse_request(), "project_id": "imported"})
+        assert config.workspace is not None
+        scope = hashlib.sha256(b"imported").hexdigest()
+        shutil.copytree(project, config.workspace / "projects" / "scopes" / scope / SHA256)
         unlink = os.unlink
 
         def denied(path: Any, *args: Any, **kwargs: Any) -> None:
@@ -3438,7 +3451,6 @@ class TestImportArchive:
         monkeypatch.undo()
         assert status == 200, reply
         assert Path(reply["project"]).joinpath("rebrew-project.toml").is_file()
-        assert config.workspace is not None
         [left] = (config.workspace / ".scratch").glob("replaced-*")
         assert [path.name for path in left.rglob("PRINCIPLES.md")] == ["PRINCIPLES.md"]
         assert any(str(left) in record.getMessage() for record in caplog.records)

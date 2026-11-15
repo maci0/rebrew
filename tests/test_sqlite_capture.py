@@ -168,9 +168,17 @@ def test_fresh_capture_has_verified_self_contained_sqlite(
     assert verified["summary"]["exact"] == 2
 
 
-def _sqlite_manifest(tmp_path: Path) -> tuple[WorkerConfig, list[RetainedFile], Path]:
-    files, workspace = _worker_dirs(tmp_path)
-    project = tmp_path / "producer"
+@pytest.fixture(scope="module")
+def sqlite_manifest(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> tuple[WorkerConfig, list[RetainedFile], Path]:
+    """A worker, the retained manifest of a SQLite producer project, and that project.
+
+    Shared by the module's tests, which read the project and never write it.
+    """
+    root = tmp_path_factory.mktemp("sqlite-manifest")
+    files, workspace = _worker_dirs(root)
+    project = root / "producer"
     project.mkdir()
     ops._run_intake(BINARY, project, "mini")
     cfg = load_config(project, target="mini")
@@ -194,8 +202,10 @@ def _sqlite_manifest(tmp_path: Path) -> tuple[WorkerConfig, list[RetainedFile], 
     return WorkerConfig(files.resolve(), workspace.resolve()), entries, project
 
 
-def test_retained_sqlite_snapshot_is_readable_and_unchanged(tmp_path: Path) -> None:
-    config, entries, project = _sqlite_manifest(tmp_path)
+def test_retained_sqlite_snapshot_is_readable_and_unchanged(
+    sqlite_manifest: tuple[WorkerConfig, list[RetainedFile], Path],
+) -> None:
+    config, entries, project = sqlite_manifest
     original_toml = (project / "rebrew-functions.toml").read_bytes()
     payload = (project / DATABASE_FILENAME).read_bytes()
     with ops.retained_target_snapshot(config, entries, "mini", SHA256, KEY, "") as root:
@@ -212,7 +222,10 @@ def test_retained_sqlite_snapshot_is_readable_and_unchanged(tmp_path: Path) -> N
     ["missing", "digest", "schema", "unknown-document", "journal", "wal", "routed", "pgsql"],
 )
 def test_retained_sqlite_refuses_invalid_artifacts(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, damage: str
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    sqlite_manifest: tuple[WorkerConfig, list[RetainedFile], Path],
+    damage: str,
 ) -> None:
     import sqlite3
 
@@ -220,15 +233,15 @@ def test_retained_sqlite_refuses_invalid_artifacts(
 
     import rebrew.metadata.pgsql as pgsql
 
-    config, entries, project = _sqlite_manifest(tmp_path)
+    config, entries, project = sqlite_manifest
     path = DATABASE_FILENAME
     if damage == "missing":
         entries = [entry for entry in entries if entry.path != path]
     else:
         payload = (project / path).read_bytes()
         if damage in {"schema", "unknown-document"}:
-            db = project / path
-            db.chmod(0o644)
+            db = tmp_path / path
+            db.write_bytes(payload)
             with sqlite3.connect(db) as connection:
                 if damage == "schema":
                     connection.execute("PRAGMA user_version = 1")
@@ -273,11 +286,11 @@ def test_retained_sqlite_refuses_invalid_artifacts(
 
 @pytest.mark.parametrize("backend", ["sqlite", "toml"])
 def test_retained_target_refuses_the_registry_its_backend_ignores(
-    tmp_path: Path, backend: str
+    sqlite_manifest: tuple[WorkerConfig, list[RetainedFile], Path], backend: str
 ) -> None:
     import tomlkit
 
-    config, entries, project = _sqlite_manifest(tmp_path)
+    config, entries, project = sqlite_manifest
     assert config.filestore is not None
     extra = {"rebrew-functions.toml": (project / "rebrew-functions.toml").read_bytes()}
     if backend == "toml":
@@ -300,10 +313,12 @@ def test_retained_target_refuses_the_registry_its_backend_ignores(
         pytest.fail("an unread registry was accepted")
 
 
-def test_changed_sqlite_metadata_during_retained_read_is_refused(tmp_path: Path) -> None:
+def test_changed_sqlite_metadata_during_retained_read_is_refused(
+    sqlite_manifest: tuple[WorkerConfig, list[RetainedFile], Path],
+) -> None:
     from rebrew.metadata.functions import update_field
 
-    config, entries, _ = _sqlite_manifest(tmp_path)
+    config, entries, _ = sqlite_manifest
     with (
         pytest.raises(ops.OpsError, match="snapshot source changed"),
         ops.retained_target_snapshot(config, entries, "mini", SHA256, KEY, "") as root,

@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 from test_named_snapshot import _digest, _json
+from test_named_snapshot import intake as intake
 from test_named_snapshot import sample as sample
 from test_ops import _free_port, _store
 
