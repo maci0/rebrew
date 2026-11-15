@@ -86,7 +86,8 @@ def bind_compiled_source(
     if not stored or Path(stored).suffix.casefold() not in {".c", ".cpp", ".cc", ".cxx"}:
         return entry
     validate_identity_file(stored)
-    root = Path(getattr(cfg, "root", cfg.metadata_dir)).resolve()
+    # cfg.metadata_dir walks the ancestors for a store: read it only when used.
+    root = Path(cfg.root if hasattr(cfg, "root") else cfg.metadata_dir).resolve()
     base = root if metadata.get("kind", entry.kind) == "LIBRARY" else Path(cfg.metadata_dir)
     source = (base / stored.replace("\\", "/")).resolve()
     if not source.is_relative_to(root):

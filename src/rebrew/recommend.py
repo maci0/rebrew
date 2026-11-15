@@ -864,7 +864,8 @@ def load_layout(
 
     # One store read for the whole walk: read_source_bindings otherwise
     # re-resolves and re-fingerprints it once per source.
-    function_entries = load_metadata(cfg.metadata_dir, deepcopy=False)
+    metadata_dir = cfg.metadata_dir
+    function_entries = load_metadata(metadata_dir, deepcopy=False)
     target = target_module(cfg)
     project_root = getattr(cfg, "root", None)
     for cfile in sources:
@@ -872,7 +873,7 @@ def load_layout(
         for entry in read_source_bindings(
             cfile,
             target_name=target,
-            metadata_dir=cfg.metadata_dir,
+            metadata_dir=metadata_dir,
             project_root=project_root,
             function_entries=function_entries,
         ):
@@ -969,16 +970,17 @@ def _collect_hygiene(
         # The batch form of this lane reads both stores once. Done per file it
         # deep-copies the whole data table and re-resolves every retirement
         # path for each source, which is O(files × store size).
-        preloaded_metadata = load_metadata(cfg.metadata_dir, deepcopy=False)
-        preloaded_data_metadata = load_data_metadata(cfg.metadata_dir)
+        metadata_dir = cfg.metadata_dir
+        preloaded_metadata = load_metadata(metadata_dir, deepcopy=False)
+        preloaded_data_metadata = load_data_metadata(metadata_dir)
         historical_sources = {
             path
             for row in preloaded_metadata.values()
             if row.get("binding_history", []) != []
-            for path in historical_source_files(row, cfg.metadata_dir, cfg.root)
+            for path in historical_source_files(row, metadata_dir, cfg.root)
         }
         function_index = build_function_index(cfg)
-        source_files = frozenset(record.file for record in load_source_files(cfg.metadata_dir))
+        source_files = frozenset(record.file for record in load_source_files(metadata_dir))
         warnings: list[tuple[str, str]] = []
         lint_errors: list[tuple[str, str, str]] = []
         dup_globals: list[tuple[str, str]] = []
@@ -995,7 +997,7 @@ def _collect_hygiene(
                 preloaded_data_metadata=preloaded_data_metadata,
                 preloaded_historical_sources=historical_sources,
                 preloaded_source_files=source_files,
-                metadata_directory=cfg.metadata_dir,
+                metadata_directory=metadata_dir,
                 function_index=function_index,
             )
             for _, code, msg in res.warnings:
