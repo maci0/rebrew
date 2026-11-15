@@ -1,4 +1,4 @@
-"""The CLI entry point freezes its import-time object graph exactly once."""
+"""The CLI entry point freezes its import-time graph once and raises the young GC threshold."""
 
 from __future__ import annotations
 
@@ -41,3 +41,18 @@ def test_startup_freeze_does_not_run_a_preliminary_collection(
     cli_main._freeze_startup_objects()
     cli_main._freeze_startup_objects()
     assert calls == ["freeze"]
+
+
+def test_cli_run_collects_young_objects_less_often(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The command runs under the raised young threshold; older ones are kept."""
+    from rebrew.app import main as cli_main
+
+    seen: list[tuple[int, ...]] = []
+    original = gc.get_threshold()
+    monkeypatch.setattr(cli_main, "_STARTUP_GC_FROZEN", True)
+    monkeypatch.setattr(cli_main, "run_cli", lambda _app: seen.append(gc.get_threshold()))
+    try:
+        cli_main.main()
+    finally:
+        gc.set_threshold(*original)
+    assert seen == [(cli_main._GC_YOUNG_THRESHOLD, *original[1:])]

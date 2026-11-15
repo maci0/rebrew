@@ -205,6 +205,13 @@ _COMPOSED: tuple[Context, CoeffectScope] = compose()
 
 _STARTUP_GC_FROZEN = False
 
+#: Young-generation collection threshold for a CLI run (CPython's is 2000).
+#: Older generations are collected every N young collections, so this also
+#: paces the full collections that traverse every parsed metadata row. On
+#: guild-rebrew, ``lint`` ran 2,482/225/17 collections at 2000 and 140/11/1
+#: at 20,000: 12% less CPU time, 1.7% fewer instructions, the same peak RSS.
+_GC_YOUNG_THRESHOLD = 20_000
+
 
 def _freeze_startup_objects() -> None:
     """Move the import-time CLI graph to the permanent generation, once.
@@ -258,6 +265,7 @@ def main() -> None:
     # Objects created after this point (including lazy command imports) stay
     # collectable, so watch and server modes keep collecting their own garbage.
     _freeze_startup_objects()
+    gc.set_threshold(_GC_YOUNG_THRESHOLD, *gc.get_threshold()[1:])
     with _traced_command():
         run_cli(app)
 
