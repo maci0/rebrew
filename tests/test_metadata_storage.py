@@ -674,3 +674,28 @@ class TestScopeMetadataToModule:
         assert get_entry(tmp_path, 0x1000, "GAME")["status"] == "EXACT"
         assert "OTHER." not in (tmp_path / "rebrew-data.toml").read_text()
         assert scope_metadata_to_module(load_config(tmp_path), "GAME") == 0
+
+
+class TestMigrateReadsOnce:
+    def test_a_migration_reads_each_source_store_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Every format-preserving read of a store costs a full parse, so a migration that writes
+        reads its sources once, under the locks it writes them with; a preview reads them once too."""
+        import rebrew.metadata.files as files
+
+        cfg = _project(tmp_path)
+        update_source_status(tmp_path, "EXACT", "GAME", 0x1000, force=True)
+        reads: list[str] = []
+        load = files.load_toml_for_write_strict
+
+        def counted(path: Path, description: str) -> Any:
+            reads.append(Path(path).name)
+            return load(path, description)
+
+        monkeypatch.setattr(files, "load_toml_for_write_strict", counted)
+        preview = migrate_metadata(cfg, "sqlite", dry_run=True)
+        assert reads.count("rebrew-functions.toml") == 1
+        reads.clear()
+        migrate_metadata(cfg, "sqlite", expected_digest=preview["input_digest"])
+        assert reads.count("rebrew-functions.toml") == 1

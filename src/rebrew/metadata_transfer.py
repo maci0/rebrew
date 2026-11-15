@@ -170,12 +170,13 @@ def migrate_metadata(
             },
         )
 
-    stores, documents, report = prepare()
-    if dry_run or not report["changed"]:
-        return report
+    # A preview, or a migration onto the selected backend, only reports. A transfer reads its
+    # sources once, under the locks it writes with: each format-preserving read is a full parse.
+    if dry_run or metadata_store(root / "rebrew-functions.toml").name == backend:
+        return prepare()[2]
     with project_toml_lock(root), contextlib.ExitStack() as locks:
         for store in sorted(
-            {store.location: store for store in stores}.values(),
+            {store.location: store for store in _stores(cfg)}.values(),
             key=lambda store: str(store.location),
         ):
             locks.enter_context(store.transaction())

@@ -12,6 +12,8 @@
 
 ### Fixed
 
+- `rebrew.metadata_transfer.migrate_metadata` reads its source stores once when it migrates, under the locks it writes with, instead of once more before taking them; a preview still reads them once. On the import of guild-rebrew's server project the migration takes 19.8 s instead of 31-32 s.
+
 - `rebrew.metadata_transfer.scope_metadata_to_module` reads each store with the plain TOML parser and validates only the records it keeps, instead of a format-preserving parse and validation of the whole store: on guild-rebrew's 22 MB `rebrew-functions.toml` it takes 5.6 s instead of 26.2 s. The scoped store is rewritten without the original's comments and layout.
 
 - `rebrew.import_archive` no longer fails at the end when the binary's earlier project holds a file the worker may not delete (in production a `PRINCIPLES.md` an older rebrew copied with an earlier pod's SELinux category: `PermissionError` from the temporary directory's cleanup, 500 after a finished import). The earlier project leaves the temporary directory, is deleted best effort, and what remains stays under `<workspace>/.scratch/replaced-*` with a warning.
