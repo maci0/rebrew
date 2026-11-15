@@ -126,11 +126,15 @@ def _declarations(source: str) -> dict[int, list[tuple[str, str, str]]]:
 
 
 # Reused by function/data scans and related targets; retain values, never ASTs.
+# The character cap must exceed a project's anchored sources: a command that
+# reads every source several times (recommend, catalog) evicts each entry
+# before its next pass when the working set is larger. A 3,094-file project
+# held 9.8 MB of anchored source against the former 8 MiB cap.
 _ANCHOR_CACHE: OrderedDict[tuple[str, AddressCommentFormat], tuple[AddressAnchor, ...]] = (
     OrderedDict()
 )
 _ANCHOR_CACHE_CHARS = 0
-_ANCHOR_CACHE_MAX_CHARS = 8 * 1024 * 1024
+_ANCHOR_CACHE_MAX_CHARS = 32 * 1024 * 1024
 _ANCHOR_CACHE_MAX_ENTRIES = 8192
 _ANCHOR_LOCK = threading.RLock()
 
