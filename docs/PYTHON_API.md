@@ -144,9 +144,14 @@ print(result.ok, result.obj_bytes, result.log, result.compiler_version)
 
 # No client means rebrew builds an httpx.Client(timeout=...) for the call and
 # closes it after. `retries=N` re-attempts a retryable RecompileError with
-# exponential backoff; `RecompileError.kind` is "network" / "http" /
-# "validation" / "protocol" / "service" and `status_code` is set for the
-# "http" ones. A failed compile reply is read by its `error_code`:
+# exponential backoff, waiting at least a reply's `Retry-After`
+# (`RecompileError.retry_after`); `deadline=` (a `time.monotonic()` value)
+# ends the retries before it, and `gate=ServiceGate(n)`, shared by a process's
+# compiles, runs at most n attempts at once and holds them all back for a
+# `Retry-After`. `RecompileError.kind` is "network" / "http" / "validation" /
+# "protocol" / "service" / "deadline" (not sent: no time before the deadline)
+# and `status_code` is set for the "http" ones. A failed compile reply is
+# read by its `error_code`:
 # "toolchain_failure" is `result.ok == False` with the compiler log; the
 # service's own failures raise kind "service" carrying that `error_code`
 # (retryable for capacity, timeout, runner_unavailable, publish_failed and

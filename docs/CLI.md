@@ -7138,6 +7138,14 @@ Op details the contract leaves open:
   op compiles several sources, how many of them read project headers. A
   service that cannot be asked is not refused here; the compile reports it.
   Local backends are unaffected.
+- A child command gets its op's deadline, less 30 s to print its report
+  (`rebrew.ops.CHILD_REPORT_SECONDS`), in `REBREW_CALL_DEADLINE`; its remote
+  compiles start no attempt or retry wait a whole request could not finish
+  before it. A source the service never compiled (it stayed unavailable
+  through the retries, or the deadline left no time) is `NOT_RUN` in the
+  `verify_target` results (summary `not_run`) and a `not_run` mismatch of
+  `build`, never `COMPILE_ERROR` or a verdict
+  ([TOOLCHAIN.md](TOOLCHAIN.md#compile-backends)).
 - A retained snapshot (`files`) whose staged `rebrew-project.toml` rebrew
   refuses to load is a 400 `invalid-project-config`: `invalid project config:`
   then the config error, prefixed `rebrew-project.toml:` and without the

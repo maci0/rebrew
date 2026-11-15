@@ -231,6 +231,13 @@ DEFAULT_RECOMPILE_RETRIES = 2
 #: reporting the error it could have reported in seconds.
 MAX_RECOMPILE_RETRIES = 20
 
+#: Remote compiles one process runs at once, the single source for
+#: ``ProjectConfig.recompile_concurrency``, its ``[compiler]`` fallback, and
+#: the ``getattr`` fallback in ``rebrew.compiler.compile``.  Below the default
+#: 4 jobs (:data:`DEFAULT_PROJECT_JOBS`), so a whole-target run keeps fewer
+#: compiles in flight at one service than it has workers.
+DEFAULT_RECOMPILE_CONCURRENCY = 2
+
 #: Maximum C source line length for lint W027 (0 disables the check).  Single
 #: source for ``ProjectConfig.lint_max_line_length``, the
 #: ``[project.lint] max_line_length`` fallback, and ``rebrew.lint``.
@@ -778,6 +785,13 @@ class ProjectConfig:
     sends it; ``match --collect-pairs`` writes local pairs and does not touch
     this flag. Current Recompile treats training consent separately.
     """
+    recompile_concurrency: int = DEFAULT_RECOMPILE_CONCURRENCY
+    """Remote compiles this process runs at once (``>= 1``), whatever ``jobs`` is.
+
+    One :class:`rebrew.compiler.recompile_client.ServiceGate` per service and
+    value holds every compile of the process: the excess waits for a slot, and
+    a ``Retry-After`` one reply names holds them all back.
+    """
     recompile_retries: int = DEFAULT_RECOMPILE_RETRIES
     """Re-attempts of a retryable remote-compile failure (``0`` disables).
 
@@ -1071,6 +1085,7 @@ class ProjectConfig:
             "recompile_url": self.recompile_url,
             "recompile_emit_assembly": self.recompile_emit_assembly,
             "recompile_retries": self.recompile_retries,
+            "recompile_concurrency": self.recompile_concurrency,
             "defines": list(self.defines),
             "llm_endpoint": self.llm_endpoint,
             "llm_api_key": ("***" if self.llm_api_key else "")
@@ -1137,6 +1152,10 @@ class ProjectConfig:
             raise ConfigError(f"project.jobs ({self.default_jobs}) must be >= 1")
         if self.compile_timeout is not None and self.compile_timeout < 1:
             raise ConfigError(f"compiler.timeout ({self.compile_timeout}) must be >= 1")
+        if self.recompile_concurrency < 1:
+            raise ConfigError(
+                f"compiler.recompile_concurrency ({self.recompile_concurrency}) must be >= 1"
+            )
         if not 0 <= self.recompile_retries <= MAX_RECOMPILE_RETRIES:
             raise ConfigError(
                 f"compiler.recompile_retries ({self.recompile_retries}) must be "
@@ -2776,6 +2795,7 @@ _KNOWN_COMPILER_KEYS = {
     "recompile_url",  # remote compile backend (or REBREW_RECOMPILE_URL env)
     "recompile_emit_assembly",  # assembly output for remote compiles
     "recompile_retries",  # re-attempts of a retryable remote-compile failure
+    "recompile_concurrency",  # remote compiles one process runs at once
     "cflags_presets",  # written by `rebrew cfg module set-cflags` without --target (per-origin compiler flag overrides)
 }
 
@@ -3285,6 +3305,11 @@ def load_config(
             "compiler.recompile_retries",
             maximum=MAX_RECOMPILE_RETRIES,
         ),
+        recompile_concurrency=_positive_int(
+            compiler.get("recompile_concurrency", DEFAULT_RECOMPILE_CONCURRENCY),
+            DEFAULT_RECOMPILE_CONCURRENCY,
+            "compiler.recompile_concurrency",
+        ),
         # project-specific
         iat_thunks=_parse_int_list(tgt.get("iat_thunks", []), "iat_thunks"),
         dll_exports=_parse_hex_dict(tgt.get("dll_exports", {})),
@@ -3487,6 +3512,7 @@ __all__ = [
     "DEFAULT_COMPILE_TIMEOUT",
     "DEFAULT_LINT_MAX_LINE_LENGTH",
     "DEFAULT_PROJECT_JOBS",
+    "DEFAULT_RECOMPILE_CONCURRENCY",
     "DEFAULT_RECOMPILE_RETRIES",
     "FUNCTION_STRUCTURE_JSON",
     "KNOWN_FORMATS",

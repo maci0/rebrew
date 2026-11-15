@@ -163,6 +163,7 @@ class _Resp:
         self._json_raises = json_raises
         self.content = content
         self.text = text
+        self.headers: dict[str, str] = {}
         self.closed = False
 
     def json(self) -> Any:

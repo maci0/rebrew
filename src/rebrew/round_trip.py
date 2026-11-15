@@ -53,6 +53,7 @@ lazy from rebrew.coff_reloc import (
 )
 lazy from rebrew.compiler.compile import compile_to_obj
 lazy from rebrew.config import ProjectConfig, target_module
+lazy from rebrew.errors import RebrewError
 lazy from rebrew.formats.binary_loader import load_binary, va_to_file_offset
 lazy from rebrew.formats.binary_model import BinaryInfo, SectionInfo
 lazy from rebrew.matcher.parsers import parse_obj_relocs_full, parse_obj_symbol_bytes
@@ -217,25 +218,38 @@ def _collect_splice_set(
 
 def _compile_and_extract(
     cfg: ProjectConfig, fn: _SpliceFn, work_dir: Path
-) -> tuple[bytes, list[CoffRelocRecord], dict[str, bytes], dict[str, int], bool, str]:
+) -> tuple[bytes, list[CoffRelocRecord], dict[str, bytes], dict[str, int], str, str]:
     """Compile fn.path inside ``work_dir`` and pull out the splice inputs.
 
-    Returns ``(text_bytes, reloc_records, str_symbols, local_labels, ok, detail)``
+    Returns ``(text_bytes, reloc_records, str_symbols, local_labels, failure, detail)``
     where ``str_symbols`` maps MSVC string-constant names (``$SG<N>`` /
     ``??_C@...``) to their content bytes and ``local_labels`` maps ``$L<N>``
     compiler labels (jump/dispatch tables) to target VAs via
-    :func:`_extract_local_labels`.  On compile failure ``ok`` is False and
-    ``detail`` carries the compiler error; the other fields are empty.
+    :func:`_extract_local_labels`.  On compile failure ``failure`` is the
+    mismatch reason, ``not_run`` when the remote compile service never ran the
+    compile (``service_unavailable``) and ``compile_drift`` otherwise, and
+    ``detail`` carries the error; the other fields are empty.  ``failure`` is
+    ``""`` on success.
     """
+    from rebrew.compiler.compile import service_unavailable
+
+    errors: list[RebrewError] = []
     obj_path, err = compile_to_obj(
-        cfg, fn.path, fn.cflags, work_dir, toolchain=getattr(fn, "toolchain", "") or None
+        cfg,
+        fn.path,
+        fn.cflags,
+        work_dir,
+        toolchain=getattr(fn, "toolchain", "") or None,
+        backend_errors=errors,
     )
     if obj_path is None:
-        return b"", [], {}, {}, False, err or "compile failed"
+        if errors and service_unavailable(errors[0]):
+            return b"", [], {}, {}, "not_run", f"not run (service unavailable): {errors[0]}"
+        return b"", [], {}, {}, "compile_drift", err or "compile failed"
 
     text, _reloc_offsets = parse_obj_symbol_bytes(obj_path, fn.symbol)
     if text is None:
-        return b"", [], {}, {}, False, f"symbol {fn.symbol} not found in .obj"
+        return b"", [], {}, {}, "compile_drift", f"symbol {fn.symbol} not found in .obj"
     relocs = parse_obj_relocs_full(obj_path, fn.symbol)
     str_syms = _extract_string_symbols(obj_path, {r.symbol for r in relocs})
     # Only the function's own referenced labels may be mapped — sibling
@@ -243,7 +257,7 @@ def _compile_and_extract(
     local_labels = _extract_local_labels(
         obj_path, fn.symbol, fn.va, referenced={r.symbol for r in relocs}
     )
-    return bytes(text), relocs, str_syms, local_labels, True, ""
+    return bytes(text), relocs, str_syms, local_labels, "", ""
 
 
 def _sg_key(name: str) -> str:
@@ -551,11 +565,11 @@ def _run_round_trip(
     work_dir = writable_temp_dir("rebrew-rt-")
     try:
         for fn in splice_set:
-            text, relocs, str_syms, local_labels, ok, detail = _compile_and_extract(
+            text, relocs, str_syms, local_labels, failure, detail = _compile_and_extract(
                 cfg, fn, work_dir
             )
-            if not ok:
-                mismatches.append(_mismatch(fn, "compile_drift", detail))
+            if failure:
+                mismatches.append(_mismatch(fn, failure, detail))
                 continue
             # Per-function resolver: local_labels are specific to this
             # function's compiled .obj; string symbols accumulate across

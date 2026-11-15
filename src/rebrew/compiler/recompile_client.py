@@ -19,13 +19,15 @@ import logging
 import threading
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, runtime_checkable
+lazy import contextlib
 lazy import os
 lazy import re
 lazy import secrets
 lazy import time
 lazy import unicodedata
-lazy from collections.abc import Callable, Mapping
+lazy from collections.abc import Callable, Iterator, Mapping
 lazy from contextlib import nullcontext
+lazy from email.utils import parsedate_to_datetime
 lazy from urllib.parse import urljoin, urlparse
 
 from rebrew.errors import RebrewError
@@ -88,14 +90,20 @@ _bundle_services_lock = threading.Lock()
 
 #: How a :class:`RecompileError` arose — callers branch on this instead of
 #: matching message substrings.  ``service`` is a compile the service answered
-#: but could not run; its ``error_code`` names why.
+#: but could not run; its ``error_code`` names why.  ``deadline`` is a compile
+#: the call's deadline left no time to send or to retry.
 RecompileErrorKind = Literal[
     "network",
     "http",
     "validation",
     "protocol",
     "service",
+    "deadline",
 ]
+
+#: Longest ``Retry-After`` honoured, in seconds: a longer one is waited this
+#: long, so a malformed or hostile header cannot park a compile for hours.
+MAX_RETRY_AFTER_SECONDS = 300
 
 #: The one ``error_code`` that is the compiler's verdict on the source
 #: (recompile ``models.CompileFailureKind``).
@@ -243,9 +251,11 @@ class RecompileError(RebrewError, RuntimeError):
       else ``None``
     - ``retryable`` — ``True`` for transport blips, transient HTTP codes and
       the service's infrastructure failures
+    - ``retry_after`` — the seconds the reply's ``Retry-After`` header asked
+      to wait (at most :data:`MAX_RETRY_AFTER_SECONDS`), else ``None``
     """
 
-    STRUCTURED_FIELDS = (*RebrewError.STRUCTURED_FIELDS, "error_code")
+    STRUCTURED_FIELDS = (*RebrewError.STRUCTURED_FIELDS, "error_code", "retry_after")
 
     def __init__(
         self,
@@ -255,12 +265,81 @@ class RecompileError(RebrewError, RuntimeError):
         status_code: int | None = None,
         retryable: bool = False,
         error_code: str | None = None,
+        retry_after: float | None = None,
     ) -> None:
         super().__init__(message)
         self.kind = kind
         self.status_code = status_code
         self.retryable = retryable
         self.error_code = error_code
+        self.retry_after = retry_after
+
+
+def _retry_after(value: str | None) -> float | None:
+    """Seconds a ``Retry-After`` header asks to wait: delta-seconds or an HTTP-date."""
+    if value is None:
+        return None
+    text = value.strip()
+    if text.isdigit():
+        seconds = float(text)
+    else:
+        try:
+            when = parsedate_to_datetime(text)
+        except TypeError, ValueError:
+            return None
+        if when.tzinfo is None:
+            return None
+        seconds = max(0.0, when.timestamp() - time.time())
+    return min(seconds, float(MAX_RETRY_AFTER_SECONDS))
+
+
+class ServiceGate:
+    """Paces the compiles one process sends one recompile service.
+
+    At most *concurrency* attempts run at once, and none starts while a
+    ``Retry-After`` the service named is running: one throttled compile holds
+    every compile of the process back instead of each one sending into the
+    throttle.  :func:`compile_source` takes it as *gate*.
+    """
+
+    def __init__(self, concurrency: int) -> None:
+        if concurrency < 1:
+            raise ValueError(f"concurrency must be >= 1, got {concurrency}")
+        self._slots = threading.BoundedSemaphore(concurrency)
+        self._lock = threading.Lock()
+        self._not_before = 0.0
+
+    def hold_off(self, seconds: float) -> None:
+        """Start no attempt for *seconds* from now (a later hold-off already set stands)."""
+        with self._lock:
+            self._not_before = max(self._not_before, time.monotonic() + seconds)
+
+    @contextlib.contextmanager
+    def attempt(self, deadline: float | None, sleep: Callable[[float], None]) -> Iterator[None]:
+        """Hold a slot for one attempt, after the hold-off; refuse it past *deadline*.
+
+        *deadline* is a :func:`time.monotonic` value or ``None``; *sleep* waits
+        out the hold-off.  Raises :class:`RecompileError` (``kind="deadline"``)
+        when the hold-off or a free slot comes later than *deadline*.
+        """
+        with self._lock:
+            wait = self._not_before - time.monotonic()
+        if wait > 0:
+            if deadline is not None and time.monotonic() + wait > deadline:
+                raise _deadline_refusal("the service's Retry-After runs past the call's deadline")
+            sleep(wait)
+        if deadline is None:
+            self._slots.acquire()
+        elif not self._slots.acquire(timeout=max(0.0, deadline - time.monotonic())):
+            raise _deadline_refusal("no compile slot came free before the call's deadline")
+        try:
+            yield
+        finally:
+            self._slots.release()
+
+
+def _deadline_refusal(why: str) -> RecompileError:
+    return RecompileError(f"recompile not sent: {why}", kind="deadline")
 
 
 #: Names the one in-cluster service host that may receive the API key over plain HTTP.
@@ -529,6 +608,8 @@ def compile_source(
     sleep: Callable[[float], None] | None = None,
     includes: Mapping[str, str] | None = None,
     source_dir: str = "",
+    gate: ServiceGate | None = None,
+    deadline: float | None = None,
 ) -> RecompileResult:
     """Compile *source* via ``POST <base_url>/api/v1/compile``.
 
@@ -567,7 +648,14 @@ def compile_source(
     the transient set) fail immediately.  ``retries=0`` (default) preserves
     prior single-shot behaviour.  Between attempts, sleeps with exponential
     backoff (``0.25 * 2**attempt`` seconds, capped at 8s) so a recovering
-    503 is not immediately re-hammered.
+    503 is not immediately re-hammered, or the reply's ``Retry-After`` when
+    that is longer.  *deadline*, a :func:`time.monotonic` value, ends the
+    retries early: a wait that would end past it raises the last error now.
+
+    *gate*, a :class:`ServiceGate` shared by the compiles of a process, runs
+    each attempt in one of its slots after its hold-off, and a reply's
+    ``Retry-After`` holds the whole gate back; an attempt the gate cannot
+    start before *deadline* raises ``kind="deadline"``, unsent.
 
     *sleep* is that backoff's only time source, the same seam
     :func:`rebrew.decompme.upload_scratch` and
@@ -711,6 +799,8 @@ def compile_source(
     # the service is the thing that changed.
     started_at = time.perf_counter()
     for attempt in range(attempts):
+        if deadline is not None and time.monotonic() >= deadline:
+            raise _deadline_refusal("the call's deadline has passed")
         # One client for POST + GET.  Injected clients are not closed here.
         cm: Any = (
             nullcontext(client)
@@ -718,7 +808,7 @@ def compile_source(
             else httpx.Client(timeout=timeout, trust_env=False)
         )
         try:
-            with cm as http:
+            with gate.attempt(deadline, nap) if gate is not None else nullcontext(), cm as http:
                 if not bundle_checked:
                     if not accepts_include_bundles(url, client=http):
                         raise RecompileError(
@@ -762,6 +852,7 @@ def compile_source(
                                 status_code=resp.status_code,
                                 retryable=resp.status_code
                                 in (_UNPROCESSED_HTTP if emit_assembly else RETRYABLE_HTTP_STATUS),
+                                retry_after=_retry_after(resp.headers.get("Retry-After")),
                             )
                         try:
                             body = resp.json()
@@ -804,6 +895,7 @@ def compile_source(
                                 error_code=code,
                                 retryable=code in _INFRASTRUCTURE_FAILURES
                                 and (not emit_assembly or code in _NOT_RUN_FAILURES),
+                                retry_after=_retry_after(resp.headers.get("Retry-After")),
                             )
                         artifact_url = body.get("artifact_url")
                         if not artifact_url:
@@ -868,8 +960,27 @@ def compile_source(
                 # keeps the refusal under its key: the retry is a new attempt.
                 post_headers["Idempotency-Key"] = secrets.token_hex(_IDEMPOTENCY_KEY_BYTES)
             # Immediate re-POST of a 503/timeout hammers a recovering service;
-            # exponential backoff (capped) gives it room without unbounded wait.
+            # exponential backoff (capped) gives it room without unbounded wait,
+            # and a Retry-After the service named is the least it is given.  With
+            # a gate the Retry-After holds the gate, and the next attempt waits it
+            # out there with every other compile of the process.
             delay = retry_backoff_delay(attempt)
+            if exc.retry_after and gate is not None:
+                gate.hold_off(exc.retry_after)
+            elif exc.retry_after:
+                delay = max(delay, exc.retry_after)
+            resumes = time.monotonic() + max(delay, exc.retry_after or 0.0)
+            if deadline is not None and resumes > deadline:
+                log.warning(
+                    "recompile %s gave up after %d attempt(s): its next attempt would start "
+                    "past the call's deadline (%s%s): %s",
+                    safe_url,
+                    attempt + 1,
+                    exc.kind,
+                    "" if exc.status_code is None else f" {exc.status_code}",
+                    retry_log_detail(exc),
+                )
+                raise
             # One line per retry, before the sleep: a remote backend that is
             # failing and recovering otherwise spends the backoff in silence,
             # so a `rebrew test` run against a flaky service looks hung with no
@@ -895,11 +1006,13 @@ __all__ = [
     "MAX_INCLUDE_FILE_BYTES",
     "MAX_INCLUDE_PATH_BYTES",
     "MAX_INCLUDE_TOTAL_BYTES",
+    "MAX_RETRY_AFTER_SECONDS",
     "HttpClient",
     "HttpResponse",
     "RecompileError",
     "RecompileErrorKind",
     "RecompileResult",
+    "ServiceGate",
     "accepts_include_bundles",
     "compile_source",
 ]

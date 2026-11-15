@@ -502,6 +502,8 @@ _STATUS_RANK: dict[str, int] = {
     # worker crash on a previously-EXACT function must fail CI, not pass
     # silently.  See diff_reports, which reports it as a regression.
     "INTERNAL_ERROR": 6,
+    # A remote compile the service never ran fails closed the same way.
+    "NOT_RUN": 6,
     "FAIL": 5,
 }
 
@@ -527,6 +529,7 @@ _STATUS_ORDER: dict[str, int] = {
     "MISSING_SIZE": 7,
     "INVALID_VA": 7,
     "INTERNAL_ERROR": 9,
+    "NOT_RUN": 9,
     "FAIL": 8,
 }
 
@@ -603,9 +606,9 @@ def diff_reports(
         # fail closed in --compare too (plain verify already exits 1 via the
         # failed total).  INTERNAL_ERROR now lands in fail_details, so the
         # only rows not counted here are ones that also failed before.
-        if current_status == "INTERNAL_ERROR":
+        if current_status in ("INTERNAL_ERROR", "NOT_RUN"):
             previous_status = str(previous_results.get(va, {}).get("status", "FAIL"))
-            if va not in previous_results or previous_status != "INTERNAL_ERROR":
+            if va not in previous_results or previous_status != current_status:
                 regressions.append(
                     {
                         "va": _va_display(va),
@@ -1799,6 +1802,8 @@ def build_report(
             "matching": _status_counts.get("NEAR_MATCHING", 0),
             "size_mismatch": _status_counts.get("SIZE_MISMATCH", 0),
             "compile_error": _status_counts.get("COMPILE_ERROR", 0),
+            # Remote compiles the service never ran: no verdict, not a compile error.
+            "not_run": _status_counts.get("NOT_RUN", 0),
             "missing_file": _status_counts.get("MISSING_FILE", 0),
             "byte_matched": _status_counts.get("EXACT", 0) + _status_counts.get("RELOC", 0),
             # Passes on functions `rebrew status` counts as library code, not progress.

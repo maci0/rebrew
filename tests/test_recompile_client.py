@@ -30,11 +30,13 @@ def test_recompile_client_public_all() -> None:
         "MAX_INCLUDE_FILE_BYTES",
         "MAX_INCLUDE_PATH_BYTES",
         "MAX_INCLUDE_TOTAL_BYTES",
+        "MAX_RETRY_AFTER_SECONDS",
         "HttpClient",
         "HttpResponse",
         "RecompileError",
         "RecompileErrorKind",
         "RecompileResult",
+        "ServiceGate",
         "accepts_include_bundles",
         "compile_source",
     ]
@@ -1244,7 +1246,8 @@ class TestCompileViaRecompile:
             use_cache=False,
         )
 
-        assert result.status == "COMPILE_ERROR"
+        # An unreachable service gave no verdict: not run, not a compile error.
+        assert result.status == "NOT_RUN"
         assert isinstance(result.error, RecompileError)
         assert result.error.kind == "network"
         assert result.error.retryable is True
@@ -1292,8 +1295,217 @@ class TestCompileViaRecompile:
             assert len(posts) == 2
             assert result.status != "COMPILE_ERROR" and result.error is None
         else:
+            # The service never compiled the source: not run, never a compile error.
             assert len(posts) == 1
-            assert result.status == "COMPILE_ERROR"
+            assert result.status == "NOT_RUN"
+            assert result.message.startswith("not run (service unavailable): ")
             assert isinstance(result.error, RecompileError)
             assert (result.error.kind, result.error.error_code) == ("service", "capacity")
             assert result.error.retryable is True
+
+    def test_a_service_that_stays_unavailable_leaves_the_source_not_run(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Retries spent on capacity, runner_unavailable and a 503 give no verdict.
+
+        The YC server.dll verification reported each such source as COMPILE_ERROR.
+        """
+        from rebrew.compiler.compile import compile_and_compare
+
+        monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
+        monkeypatch.setattr(compile_mod, "_recompile_clients", {})
+        monkeypatch.setattr(compile_mod, "_service_gates", {})
+        client = _sequence_client(
+            monkeypatch,
+            [
+                _Resp(200, json_body={"status": "error", "error_code": "capacity", "log": ""}),
+                _Resp(
+                    200,
+                    json_body={"status": "error", "error_code": "runner_unavailable", "log": ""},
+                ),
+                _Resp(503, text="runtime unavailable"),
+            ],
+        )
+        monkeypatch.setattr("rebrew.compiler.recompile_client.time.sleep", lambda _s: None)
+        src = tmp_path / "f.c"
+        src.write_text("int f(void) { return 0; }")
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            recompile_url="http://svc",
+            recompile_emit_assembly=False,
+            recompile_retries=2,
+            compile_timeout=30,
+            compiler_profile="msvc-6.0",
+            compiler_command="",
+            base_cflags="",
+            compiler_includes=tmp_path,
+            compiler_runner="",
+        )
+
+        result = compile_and_compare(cfg, src, "_f", b"\x55\x8b\xec", [], use_cache=False)
+
+        assert [call for call, _url in client.calls] == ["post", "post", "post"]
+        assert result.status == "NOT_RUN" and not result.matched
+        assert isinstance(result.error, RecompileError) and result.error.status_code == 503
+
+
+class TestCallDeadline:
+    def test_a_remote_compile_past_the_call_deadline_is_not_sent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A child command of ``rebrew ops`` sends nothing the op's deadline cannot wait for."""
+        import time
+
+        from rebrew.compiler.compile import CALL_DEADLINE_ENV, compile_and_compare
+
+        monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
+        monkeypatch.setattr(compile_mod, "_recompile_clients", {})
+        monkeypatch.setattr(compile_mod, "_service_gates", {})
+        monkeypatch.setenv(CALL_DEADLINE_ENV, str(time.time() + 60))
+        client = _sequence_client(
+            monkeypatch, [_Resp(200, json_body={"status": "ok", "artifact_url": "/a.obj"})]
+        )
+        src = tmp_path / "f.c"
+        src.write_text("int f(void) { return 0; }")
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            recompile_url="http://svc",
+            recompile_emit_assembly=False,
+            compile_timeout=30,
+            compiler_profile="msvc-6.0",
+            compiler_command="",
+            base_cflags="",
+            compiler_includes=tmp_path,
+            compiler_runner="",
+        )
+
+        # 60 s left, and one request may take compile_timeout + 120 s: no attempt starts.
+        result = compile_and_compare(cfg, src, "_f", b"\x55\x8b\xec", [], use_cache=False)
+
+        assert client.calls == []
+        assert result.status == "NOT_RUN"
+        assert isinstance(result.error, RecompileError) and result.error.kind == "deadline"
+
+
+#: A compile reply the service ran: its artifact is the client's to fetch.
+_COMPILED = {"status": "ok", "artifact_url": "/api/v1/artifacts/x.obj"}
+
+
+class TestServicePacing:
+    """Retries wait what the service asks, never past the call's deadline, and one
+    process's compiles share the service's limits (the YC server.dll verification
+    sent 316 compiles into capacity, runner_unavailable, 503 and then 429 replies)."""
+
+    @staticmethod
+    def _client(replies: list[_Resp]) -> _FakeClient:
+        class _Replay(_FakeClient):
+            def post(self, url: str, json: Any = None, headers: Any = None, **_: Any) -> Any:
+                self.calls.append(("post", url))
+                return replies.pop(0)
+
+        return _Replay(None, _Resp(200, content=b"OBJ"))
+
+    @pytest.mark.parametrize(
+        "refusal",
+        [
+            _Resp(429, text="throttled", headers={"Retry-After": "7"}),
+            _Resp(
+                200,
+                json_body={"status": "error", "error_code": "capacity", "log": ""},
+                headers={"Retry-After": "7"},
+            ),
+        ],
+        ids=["429", "capacity"],
+    )
+    def test_a_retry_waits_the_retry_after_the_service_names(self, refusal: _Resp) -> None:
+        sleeps: list[float] = []
+        client = self._client([refusal, _Resp(200, json_body=_COMPILED)])
+        res = compile_source(
+            "http://svc", "msvc-6.0", "x", [], client=client, retries=1, sleep=sleeps.append
+        )
+        assert res.ok and res.obj_bytes == b"OBJ"
+        assert sleeps == [7.0]
+
+    def test_no_retry_wait_runs_past_the_deadline(self) -> None:
+        import time
+
+        sleeps: list[float] = []
+        client = self._client([_Resp(503, text="down", headers={"Retry-After": "30"})] * 4)
+        with pytest.raises(RecompileError) as gave_up:
+            compile_source(
+                "http://svc",
+                "msvc-6.0",
+                "x",
+                [],
+                client=client,
+                retries=3,
+                sleep=sleeps.append,
+                deadline=time.monotonic() + 5,
+            )
+        assert gave_up.value.status_code == 503 and gave_up.value.retry_after == 30.0
+        assert sleeps == [] and len(client.calls) == 1
+
+    def test_a_throttle_holds_back_the_other_compiles_of_the_process(self) -> None:
+        from rebrew.compiler.recompile_client import ServiceGate
+
+        gate = ServiceGate(2)
+        first: list[float] = []
+        throttled = _Resp(429, text="throttled", headers={"Retry-After": "5"})
+        compile_source(
+            "http://svc",
+            "msvc-6.0",
+            "x",
+            [],
+            client=self._client([throttled, _Resp(200, json_body=_COMPILED)]),
+            retries=1,
+            sleep=first.append,
+            gate=gate,
+        )
+        second: list[float] = []
+        compile_source(
+            "http://svc",
+            "msvc-6.0",
+            "y",
+            [],
+            client=self._client([_Resp(200, json_body=_COMPILED)]),
+            sleep=second.append,
+            gate=gate,
+        )
+        # The throttled compile's backoff, then the hold-off it set, waited in the gate.
+        assert first[0] == 0.25 and 4.0 < first[1] <= 5.0
+        [held] = second
+        assert 4.0 < held <= 5.0
+
+    def test_a_compile_that_gets_no_slot_before_the_deadline_is_not_sent(self) -> None:
+        import threading
+        import time
+
+        from rebrew.compiler.recompile_client import ServiceGate
+
+        gate = ServiceGate(1)
+        holding, release = threading.Event(), threading.Event()
+
+        def hold() -> None:
+            with gate.attempt(None, time.sleep):
+                holding.set()
+                release.wait(30)
+
+        holder = threading.Thread(target=hold)
+        holder.start()
+        try:
+            assert holding.wait(30)
+            client = self._client([_Resp(200, json_body=_COMPILED)])
+            with pytest.raises(RecompileError) as refused:
+                compile_source(
+                    "http://svc",
+                    "msvc-6.0",
+                    "x",
+                    [],
+                    client=client,
+                    gate=gate,
+                    deadline=time.monotonic() + 0.2,
+                )
+            assert refused.value.kind == "deadline" and client.calls == []
+        finally:
+            release.set()
+            holder.join(30)

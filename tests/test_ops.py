@@ -2267,6 +2267,26 @@ class TestOpDeadlines:
             _kill_leftover(child)
             call.join(WAIT_SECONDS)
 
+    def test_a_child_command_gets_its_deadline_less_the_report_reserve(
+        self, world: tuple[WorkerConfig, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The child's remote compiles retry within the op's deadline, so they must know it."""
+        import rebrew.ops as ops
+
+        config, project = world
+        seen = tmp_path / "deadline"
+        child = tmp_path / "reporting-python"
+        child.write_text(f'#!/bin/sh\necho "$REBREW_CALL_DEADLINE" > "{seen}"\necho "{{}}"\n')
+        child.chmod(0o755)
+        monkeypatch.setattr(sys, "executable", str(child))
+        body = json.dumps({"project_dir": str(project)}).encode()
+        before = time.time()
+        status, reply = dispatch(config, "rebrew.data_list", body)
+        assert status == 200, reply
+        deadline = float(seen.read_text())
+        bound = OPS["rebrew.data_list"].timeout_seconds - ops.CHILD_REPORT_SECONDS
+        assert before + bound - 5 <= deadline <= time.time() + bound
+
     def test_an_import_past_its_deadline_installs_nothing(
         self, analysed_project: tuple[WorkerConfig, Path, Path], monkeypatch: pytest.MonkeyPatch
     ) -> None:

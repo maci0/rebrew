@@ -1568,6 +1568,9 @@ def _run_test_impl(
             cmp.message = LINKED_MESSAGE
             measured_inputs = kept
 
+    if cmp.status == "NOT_RUN":
+        # The service never compiled the source: nothing to report or record.
+        error_exit(cmp.message, json_mode=json_output, code=EXIT_ERROR, kind="failure")
     if cmp.status == "COMPILE_ERROR":
         # No error behind it: the toolchain ran and rejected the source.
         error_exit(
@@ -2632,7 +2635,7 @@ def emit_test_batch(
         )
     else:
         print_test_summary(batch.deferred, len({e.filepath for e in batch.entries}))
-    if any(r.get("status") in ("COMPILE_ERROR", "EXTRACT_ERROR") for r in batch.results):
+    if any(r.get("status") in ("COMPILE_ERROR", "EXTRACT_ERROR", "NOT_RUN") for r in batch.results):
         raise typer.Exit(code=EXIT_ERROR)
     if batch.failed > 0:
         raise typer.Exit(code=EXIT_MISMATCH)

@@ -33,6 +33,7 @@ STATUS_COLORS: dict[str, str] = {
     "MISSING_SIZE": TERMINAL["fail"],
     "INVALID_VA": TERMINAL["fail"],
     "INTERNAL_ERROR": TERMINAL["fail"],
+    "NOT_RUN": TERMINAL["fail"],
     "SKIP": TERMINAL["stub"],
 }
 

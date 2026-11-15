@@ -167,12 +167,16 @@ EARNED_STATUSES: tuple[str, ...] = (*MATCHED_STATUSES, "PROVEN")
 # earned is at stake.  INTERNAL_ERROR is a crash in the tooling itself:
 # verify never persists it as a function status, but it appears in cached
 # verify results, so callers that read those must treat it the same way.
+# NOT_RUN is a remote compile the service never ran (it stayed unavailable
+# through the retries, or the call's deadline left no time): verify reports it
+# in its results and persists nothing.
 INFRASTRUCTURE_STATUSES: tuple[str, ...] = (
     "COMPILE_ERROR",
     "EXTRACT_ERROR",
     "MISSING_FILE",
     "INVALID_VA",
     "INTERNAL_ERROR",
+    "NOT_RUN",
 )
 
 # Machine verdicts that only mean "this stub has no real body yet": a

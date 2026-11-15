@@ -1732,7 +1732,8 @@ class TestRemoteServiceFailureIsNoVerdict:
     ) -> None:
         """A capacity refusal used to overwrite the row with COMPILE_ERROR.
 
-        The run still reports the failure, with the structured error, and fails.
+        The run reports the source as not run, with the structured error, and fails;
+        it reported it as a compile error until the YC server.dll verification.
         """
         from rebrew.compiler.compile import classify_compare_result
         from rebrew.compiler.recompile_client import RecompileError
@@ -1777,7 +1778,10 @@ class TestRemoteServiceFailureIsNoVerdict:
 
         assert result.exit_code == 1
         (row,) = cli_payload(result)["results"]
-        assert row["status"] == "COMPILE_ERROR" and row["passed"] is False
+        assert row["status"] == "NOT_RUN" and row["passed"] is False
+        assert row["message"].startswith("not run (service unavailable): ")
+        summary = cli_payload(result)["summary"]
+        assert (summary["not_run"], summary["compile_error"]) == (1, 0)
         assert row["error"]["error_code"] == "capacity"
         assert row["error"]["retryable"] is True
         assert get_entry(tmp_path, 0x1000, "SERVER").get("status") == stored

@@ -85,10 +85,10 @@ class TestSplicePipeline:
         )
         monkeypatch.setattr("rebrew.round_trip._collect_splice_set", lambda cfg, f: ([fn], [], 0))
         monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
-        # _compile_and_extract returns (text, relocs, str_syms, local_labels, ok, detail).
+        # _compile_and_extract returns (text, relocs, str_syms, local_labels, failure, detail).
         monkeypatch.setattr(
             "rebrew.round_trip._compile_and_extract",
-            lambda cfg, fn, work_dir: (b"", [], {}, {}, False, "cl.exe failed"),
+            lambda cfg, fn, work_dir: (b"", [], {}, {}, "compile_drift", "cl.exe failed"),
         )
 
         code = _run_round_trip(
@@ -121,7 +121,7 @@ class TestSplicePipeline:
             seen["cflags"] = list(fn.cflags)
             # ok=False avoids the post-compile binary parse (fake.dll is not a
             # real PE) — the cflags capture is what this test asserts.
-            return (b"", [], {}, {}, False, "skip")
+            return (b"", [], {}, {}, "compile_drift", "skip")
 
         monkeypatch.setattr("rebrew.round_trip._compile_and_extract", _fake_compile)
 
@@ -187,7 +187,7 @@ class TestSplicePipeline:
         monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
 
         def _fake_compile(cfg, fn, work_dir):
-            return (b"", [], {}, {}, False, "skip")
+            return (b"", [], {}, {}, "compile_drift", "skip")
 
         monkeypatch.setattr("rebrew.round_trip._compile_and_extract", _fake_compile)
         captured: dict = {}
@@ -242,7 +242,7 @@ class TestSplicePipeline:
         original_slice = cfg.target_binary.read_bytes()[0x100:0x105]
         monkeypatch.setattr(
             "rebrew.round_trip._compile_and_extract",
-            lambda cfg, fn, work_dir: (original_slice, [], {}, {}, True, ""),
+            lambda cfg, fn, work_dir: (original_slice, [], {}, {}, "", ""),
         )
         monkeypatch.setattr(
             "rebrew.round_trip.load_binary",
@@ -283,7 +283,7 @@ class TestSplicePipeline:
         original_slice = cfg.target_binary.read_bytes()[0x100:0x105]
         monkeypatch.setattr(
             "rebrew.round_trip._compile_and_extract",
-            lambda cfg, fn, work_dir: (original_slice, [], {}, {}, True, ""),
+            lambda cfg, fn, work_dir: (original_slice, [], {}, {}, "", ""),
         )
         # Stub the PE loader so we don't need a real PE to compute file offset.
         from types import SimpleNamespace as SN
@@ -338,7 +338,7 @@ class TestSplicePipeline:
                 [CoffRelocRecord(offset=1, type=0x6, symbol="_missing")],
                 {},
                 {},
-                True,
+                "",
                 "",
             ),
         )
@@ -382,7 +382,7 @@ class TestSplicePipeline:
         monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
         monkeypatch.setattr(
             "rebrew.round_trip._compile_and_extract",
-            lambda cfg, fn, work_dir: (drifted, [], {}, {}, True, ""),
+            lambda cfg, fn, work_dir: (drifted, [], {}, {}, "", ""),
         )
         monkeypatch.setattr(
             "rebrew.round_trip.apply_coff_relocations",
@@ -882,7 +882,7 @@ class TestRoundTripGoldenPe:
         code = b"\x55\x8b\xec\x83\xec\x08\x8b\x45\x08\xc9\xc3"
         monkeypatch.setattr(
             "rebrew.round_trip._compile_and_extract",
-            lambda cfg, fn, work_dir: (code, [], {}, {}, True, ""),
+            lambda cfg, fn, work_dir: (code, [], {}, {}, "", ""),
         )
         out = tmp_path / "golden.reasm"
         code_ret = _run_round_trip(
@@ -902,7 +902,7 @@ class TestRoundTripGoldenPe:
         drifted = b"\xde\xad\xbe\xef" + b"\x00" * 60
         monkeypatch.setattr(
             "rebrew.round_trip._compile_and_extract",
-            lambda cfg, fn, work_dir: (drifted, [], {}, {}, True, ""),
+            lambda cfg, fn, work_dir: (drifted, [], {}, {}, "", ""),
         )
         code_ret = _run_round_trip(
             cfg, output=None, no_write=True, symbol_filter=None, json_output=False
@@ -945,7 +945,7 @@ class TestPaddingInclusiveSize:
         # The compiler emits only the real code — no trailing padding.
         monkeypatch.setattr(
             "rebrew.round_trip._compile_and_extract",
-            lambda cfg, fn, work_dir: (b"\xc3", [], {}, {}, True, ""),
+            lambda cfg, fn, work_dir: (b"\xc3", [], {}, {}, "", ""),
         )
         monkeypatch.setattr(
             "rebrew.round_trip.apply_coff_relocations",
@@ -990,7 +990,7 @@ class TestPaddingInclusiveSize:
         # Compiled is 2 bytes but the real function is 5 — genuine oversize.
         monkeypatch.setattr(
             "rebrew.round_trip._compile_and_extract",
-            lambda cfg, fn, work_dir: (b"\x55\x8b", [], {}, {}, True, ""),
+            lambda cfg, fn, work_dir: (b"\x55\x8b", [], {}, {}, "", ""),
         )
         monkeypatch.setattr(
             "rebrew.round_trip.apply_coff_relocations",
@@ -1038,7 +1038,7 @@ class TestPaddingInclusiveSize:
         # extra tail) — must be flagged, not silently truncated.
         monkeypatch.setattr(
             "rebrew.round_trip._compile_and_extract",
-            lambda cfg, fn, work_dir: (b"\x55\x8b\xec\x5d\xc3\x90", [], {}, {}, True, ""),
+            lambda cfg, fn, work_dir: (b"\x55\x8b\xec\x5d\xc3\x90", [], {}, {}, "", ""),
         )
         monkeypatch.setattr(
             "rebrew.round_trip.apply_coff_relocations",
@@ -1106,7 +1106,7 @@ class TestDriftDetail:
 
         def _fake_compile(cfg, fn, work_dir):
             # Source encodes call disp 0x10 → target 0x10000105 + 0x10 = 0x10000115
-            return (b"\xe8\x10\x00\x00\x00", [reloc], {}, {}, True, "")
+            return (b"\xe8\x10\x00\x00\x00", [reloc], {}, {}, "", "")
 
         monkeypatch.setattr("rebrew.round_trip._collect_splice_set", lambda cfg, f: ([fn], [], 0))
         monkeypatch.setattr(
@@ -1195,7 +1195,7 @@ class TestReasonCounts:
                 [CoffRelocRecord(offset=1, type=0x6, symbol="_missing")],
                 {},
                 {},
-                True,
+                "",
                 "",
             ),
         )

@@ -326,6 +326,7 @@ profile = "msvc-7.0"
 | `recompile_url` | `string` | `""` | Base URL of the recompile compile service (e.g. `http://localhost:8000`). When set (or `REBREW_RECOMPILE_URL`), every compile routes through `POST /api/v1/compile` instead of local docker images: the same pinned images, with optional assembly output |
 | `recompile_emit_assembly` | `bool` | `false` | Request assembly output on remote compiles. Off by default; when on, every remote compile sends it (`rebrew match run --collect-pairs` is unrelated). Current Recompile treats training consent separately. A non-boolean value is refused by `rebrew cfg set` and warned about by the loader |
 | `recompile_retries` | `integer` | `2` | Re-attempts of a retryable remote-compile failure (ordinary compile requests: transport blips, `408/425/429/500/502/503/504`; assembly-enabled POST limits below), with the backoff in `rebrew.utils.retry_backoff_delay`. `0` disables retries; a compile the service ran and rejected is never re-POSTed. Clamped to `20` with a warning: the count multiplies into wall-clock time (each re-attempt waits the capped backoff), so a mistyped 20000 would retry one transient error for about 44 hours |
+| `recompile_concurrency` | `integer` | `2` | Remote compiles one process runs at once (`>= 1`), whatever `jobs` is; the rest wait for a slot, and a `Retry-After` one reply names holds them all back ([TOOLCHAIN.md](TOOLCHAIN.md#compile-backends)) |
 | `timeout` | `integer` | `60` | Compile subprocess timeout in seconds |
 
 With `recompile_emit_assembly = true`, compile POST retries are restricted to
@@ -581,6 +582,10 @@ by the CLI layer and win for that invocation.
   This selects a job-scoped Unix socket capability; the owner retains the caller credential
   and the worker does not receive it. Other socket paths or URLs are rejected. This is
   not a general configuration knob for direct CLI use.
+- `REBREW_CALL_DEADLINE`: internal, set by `rebrew ops` on each child command it runs: the
+  Unix time by which the child must have printed its answer. Remote compiles start no attempt
+  or retry wait past it, less one request's timeout. A value that is not a finite number fails
+  the compile.
 - `GH_TOKEN` / `GITHUB_TOKEN`: optional GitHub API token, `GH_TOKEN` first.
   Sent as `Authorization: Bearer` on the toolchain pin-check and update
   requests only (`rebrew toolchain check-updates` / `update`); unset, those

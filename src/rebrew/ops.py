@@ -291,6 +291,12 @@ BUSY_RETRY_AFTER_SECONDS = 5
 #: cancels the call once they pass.
 TIMEOUT_HEADER = "X-Rebrew-Timeout"
 
+#: Seconds of its deadline a child command keeps to finish and print its
+#: report: the call deadline it gets in ``REBREW_CALL_DEADLINE``
+#: (``rebrew.compiler.compile.CALL_DEADLINE_ENV``) ends this long before the
+#: worker stops it, so its remote compiles stop retrying in time.
+CHILD_REPORT_SECONDS = 30
+
 #: Seconds between checks for a running call's caller having given up, and
 #: for its child command's call being cancelled or past its deadline.
 CANCEL_POLL_SECONDS = 0.5
@@ -572,6 +578,12 @@ class _Cancellation:
         with self._lock:
             if self._deadline is None or deadline < self._deadline[0]:
                 self._deadline = (deadline, detail)
+
+    def remaining(self) -> float | None:
+        """Seconds left before the call's deadline, or ``None`` without one."""
+        with self._lock:
+            deadline = self._deadline
+        return None if deadline is None else deadline[0] - time.monotonic()
 
     def check(self) -> None:
         """Raise the refusal once the call is cancelled or past its deadline."""
@@ -2193,12 +2205,20 @@ def run_rebrew(
     in its own session; a timeout kills the whole group.  With
     *outcome_exit*, exit 1 (rebrew's mismatch or failed-check outcome) also
     answers the printed report; any other non-zero exit is a refusal carrying
-    the command's JSON error message.
+    the command's JSON error message.  The child gets the call's deadline (or
+    *timeout*, when sooner) less :data:`CHILD_REPORT_SECONDS` in
+    ``REBREW_CALL_DEADLINE``, so its remote compiles stop retrying in time.
     """
+    from rebrew.compiler.compile import CALL_DEADLINE_ENV
+
     name = " ".join(word for word in arguments[:2] if not word.startswith("-"))
     cancellation = _CANCELLATION.get()
+    left = None
     if cancellation is not None:
         cancellation.check()
+        left = cancellation.remaining()
+    budget = timeout if left is None else min(timeout, left)
+    child_deadline = time.time() + max(0.0, budget - CHILD_REPORT_SECONDS)
     # -P keeps the project cwd off sys.path so a rebrew/ tree inside the
     # project cannot shadow the installed rebrew.app.main (code exec).
     command = [sys.executable, "-P", "-m", "rebrew.app.main"]
@@ -2206,7 +2226,11 @@ def run_rebrew(
         [*command, *arguments],
         cwd=project,
         # The child exports its own spans (the remote compile's client span) under this one.
-        env={**os.environ, **telemetry.child_environment()},
+        env={
+            **os.environ,
+            **telemetry.child_environment(),
+            CALL_DEADLINE_ENV: repr(child_deadline),
+        },
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

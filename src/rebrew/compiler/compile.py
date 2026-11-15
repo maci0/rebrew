@@ -104,7 +104,9 @@ lazy from rebrew.compiler.toolchain import (
 )
 lazy from rebrew.config import (
     DEFAULT_COMPILE_TIMEOUT,
+    DEFAULT_RECOMPILE_CONCURRENCY,
     DEFAULT_RECOMPILE_RETRIES,
+    ConfigError,
     ProjectConfig,
     compiler_dir,
     parse_env_bool,
@@ -146,6 +148,7 @@ CompareStatus = Literal[
     "MISSING_FILE",
     "INVALID_VA",
     "INTERNAL_ERROR",
+    "NOT_RUN",
 ]
 
 #: The same vocabulary at runtime, for validating a status that arrived as
@@ -600,6 +603,20 @@ def classify_compare_result(
             obj_bytes=None,
             reloc_offsets=None,
             message=msg,
+            match_count=0,
+            error=error,
+        )
+
+    if service_unavailable(error):
+        # The service never gave a verdict on the source: no compile error.
+        return CompareResult(
+            matched=False,
+            status="NOT_RUN",
+            match_percent=0.0,
+            delta=0,
+            obj_bytes=None,
+            reloc_offsets=None,
+            message=f"not run (service unavailable): {error}",
             match_count=0,
             error=error,
         )
@@ -1370,6 +1387,57 @@ _recompile_inflight: dict[int, int] = {}
 _recompile_retired: list[Any] = []
 
 
+def service_unavailable(error: RebrewError | None) -> bool:
+    """Whether *error* is a remote compile the service never ran or answered for.
+
+    A retryable :class:`~rebrew.compiler.recompile_client.RecompileError` is a
+    service that stayed unavailable through its retries (capacity, a runner
+    or the runtime unavailable, a 429 or 503, an unreachable host); a
+    ``deadline`` one was never sent.
+    """
+    from rebrew.compiler.recompile_client import RecompileError
+
+    return isinstance(error, RecompileError) and (error.retryable or error.kind == "deadline")
+
+
+#: Environment variable carrying the call deadline of a child command
+#: ``rebrew ops`` runs: the Unix time by which its answer must be printed.
+CALL_DEADLINE_ENV = "REBREW_CALL_DEADLINE"
+
+
+def call_deadline() -> float | None:
+    """The :data:`CALL_DEADLINE_ENV` deadline as a :func:`time.monotonic` value, or ``None``."""
+    import time
+
+    raw = os.environ.get(CALL_DEADLINE_ENV)
+    if raw is None:
+        return None
+    try:
+        at = float(raw)
+    except ValueError:
+        raise ConfigError(f"{CALL_DEADLINE_ENV} must be a Unix time, got {raw[:40]!r}") from None
+    if not math.isfinite(at):
+        raise ConfigError(f"{CALL_DEADLINE_ENV} must be a finite Unix time")
+    return time.monotonic() + (at - time.time())
+
+
+_service_gates_lock = threading.Lock()
+#: One gate per (service URL, concurrency): every compile of the process to
+#: that service shares its slots and its Retry-After hold-off.
+_service_gates: dict[tuple[str, int], Any] = {}
+
+
+def _service_gate(url: str, concurrency: int) -> Any:
+    """The process-wide :class:`~rebrew.compiler.recompile_client.ServiceGate` for *url*."""
+    from rebrew.compiler.recompile_client import ServiceGate
+
+    with _service_gates_lock:
+        gate = _service_gates.get((url, concurrency))
+        if gate is None:
+            gate = _service_gates[(url, concurrency)] = ServiceGate(concurrency)
+        return gate
+
+
 def _shared_recompile_client(timeout: float) -> Any:
     """Return the process-wide ``httpx.Client`` for the recompile backend.
 
@@ -1747,6 +1815,8 @@ def _compile_via_recompile(
         )
     else:
         client = _shared_recompile_client(timeout)
+    # An attempt may start only while a whole request still fits before the call's deadline.
+    called_by = call_deadline()
     try:
         res = compile_source(
             url,
@@ -1767,6 +1837,12 @@ def _compile_via_recompile(
             retries=0
             if job_socket
             else int(getattr(cfg, "recompile_retries", DEFAULT_RECOMPILE_RETRIES)),
+            gate=None
+            if job_socket
+            else _service_gate(
+                url, int(getattr(cfg, "recompile_concurrency", DEFAULT_RECOMPILE_CONCURRENCY))
+            ),
+            deadline=None if called_by is None else called_by - timeout,
         )
     except RecompileError as exc:
         if backend_errors is not None:
@@ -3750,12 +3826,14 @@ def compile_and_compare_linked(
 
 
 __all__ = [
+    "CALL_DEADLINE_ENV",
     "NEAR_MATCH_THRESHOLD",
     "CompareResult",
     "CompareResultError",
     "CompareStatus",
     "RemoteBundle",
     "build_linked_link_cmd",
+    "call_deadline",
     "classify_compare_result",
     "classify_match_status",
     "cleanup_batch_obj_dirs",
@@ -3784,4 +3862,5 @@ __all__ = [
     "resolve_cl_command",
     "resolve_compiler_env",
     "resolve_include_flags",
+    "service_unavailable",
 ]

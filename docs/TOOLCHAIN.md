@@ -26,6 +26,24 @@ attempt instead of compiling twice, and a later compile of the same input, after
 or an image update, is a new attempt with a new key. Neither key nor request is saved.
 Job-socket compiles use their own capability.
 
+One process paces its compiles to one service: at most `[compiler]
+recompile_concurrency` (default 2) run at once, whatever `jobs` is, and a
+`Retry-After` a reply names (a 429 or 503, or a `capacity` refusal; at most 300
+s) holds every compile of the process back for that long
+(`recompile_client.ServiceGate`). A retryable failure (a transport blip,
+408/425/429/500/502/503/504, or the service's `capacity`, `timeout`,
+`runner_unavailable`, `publish_failed` or `provenance_unavailable`) is retried
+`recompile_retries` times with backoff, waiting at least the `Retry-After`.
+Under `rebrew ops` the child command knows its op's deadline
+(`REBREW_CALL_DEADLINE`) and starts no attempt or wait that a whole request
+(`compile_timeout` + 120 s) could not finish before it. A compile the service
+never ran, because it stayed unavailable through the retries or the deadline
+left no time, is `NOT_RUN` ("not run (service unavailable)"), never a
+`COMPILE_ERROR` or a verdict: `rebrew verify` reports it in its results and
+its summary's `not_run`, keeps the stored STATUS and cache, and fails;
+`rebrew test` exits 2; `rebrew build round-trip` lists it as a `not_run`
+mismatch.
+
 A source that reads project headers ships them with the compile as an include
 bundle (`compiler.compile.remote_include_bundle`): every header its include
 closure reaches through the directories a local compile searches, by its

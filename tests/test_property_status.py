@@ -241,9 +241,10 @@ class TestVocabularyCoverage:
         from rebrew.workspace.status import KNOWN_STATUSES
 
         # CompareResult.status is persisted verbatim by test/verify, so the
-        # Literal must be exactly the persisted vocabulary plus the one
-        # never-persisted tooling verdict.
-        assert set(get_args(CompareStatus)) == KNOWN_STATUSES | {"INTERNAL_ERROR"}
+        # Literal must be exactly the persisted vocabulary plus the two
+        # never-persisted outcomes: a tooling crash and a remote compile the
+        # service never ran.
+        assert set(get_args(CompareStatus)) == KNOWN_STATUSES | {"INTERNAL_ERROR", "NOT_RUN"}
 
 
 def _relative_luminance(hex_color: str) -> float:
