@@ -123,6 +123,24 @@ _STORE_FAILURES = frozenset({"missing_artifact", "replay_rejected"})
 #: so a re-sent ``emit_assembly`` request cannot repeat a retention side effect.
 _NOT_RUN_FAILURES = frozenset({"capacity"})
 
+#: Error ``code`` values of a refusal whose key can never yield a result, so a
+#: new attempt needs a new key (recompile 11 ``docs/API.md``, "Error codes"):
+#: the admission ended before dispatch, passed its payment deadline, has no
+#: local record or ended without a retained result, or the current credential
+#: may not receive the result.
+_SPENT_KEY_CODES = frozenset(
+    {
+        "admission_abandoned",
+        "admission_expired",
+        "admission_unrecoverable",
+        "result_unavailable",
+        "delivery_denied",
+    }
+)
+
+#: Shape of a recompile error ``code``; another value is not read.
+_ERROR_CODE = re.compile(r"[a-z][a-z_]{0,63}")
+
 #: Retryable statuses that may arrive AFTER the service already ran the
 #: compile (and may have performed service-side retention).
 _MAY_HAVE_COMPILED = frozenset({500, 502, 504})
@@ -248,7 +266,9 @@ class RecompileError(RebrewError, RuntimeError):
     - ``error_code`` — the service's failure kind when ``kind == "service"``
       (``capacity``, ``timeout``, ``runner_unavailable``, ``publish_failed``,
       ``provenance_unavailable``, ``missing_artifact``, ``replay_rejected``),
-      else ``None``
+      the error body's ``code`` when ``kind == "http"`` and it sent one
+      (recompile 11: ``admission_expired``, ``settlement_pending``, ...), else
+      ``None``
     - ``retryable`` — ``True`` for transport blips, transient HTTP codes and
       the service's infrastructure failures
     - ``retry_after`` — the seconds the reply's ``Retry-After`` header asked
@@ -273,6 +293,18 @@ class RecompileError(RebrewError, RuntimeError):
         self.retryable = retryable
         self.error_code = error_code
         self.retry_after = retry_after
+
+
+def _error_code(reply: HttpResponse) -> str | None:
+    """The ``code`` of a recompile error body (``{"detail", "code"}``), or ``None``."""
+    try:
+        body = reply.json()
+    except Exception:
+        # Not a JSON body (a proxy's page, the body cap's plain-text 413): the
+        # refusal is read by its status alone.
+        return None
+    code = body.get("code") if isinstance(body, dict) else None
+    return code if isinstance(code, str) and _ERROR_CODE.fullmatch(code) else None
 
 
 def _retry_after(value: str | None) -> float | None:
@@ -638,8 +670,11 @@ def compile_source(
     Every call is one logical attempt with its own random ``Idempotency-Key``. A
     retry after a lost reply resends that key, so the service reconciles the
     attempt it may already have run instead of running another; a retry after
-    a ``kind="service"`` refusal is a new attempt with a new key, because a
-    hosted service keeps the refusal under the old one. A later call,
+    a ``kind="service"`` refusal, or a refusal whose ``code`` says the key can
+    never yield a result (``admission_abandoned``, ``admission_expired``,
+    ``admission_unrecoverable``, ``result_unavailable``, ``delivery_denied``), is a
+    new attempt with a new key, because a hosted service keeps the refusal under
+    the old one; those codes are retryable. A later call,
     including one after a failure or an image update, sends a new key and never
     replays an earlier call. Neither key nor request is persisted.
 
@@ -846,12 +881,18 @@ def compile_source(
                             detail = (
                                 resp.text.replace(api_key, "[redacted]") if api_key else resp.text
                             )
+                            code = _error_code(resp)
                             raise RecompileError(
-                                f"recompile service returned HTTP {resp.status_code}: "
-                                f"{detail[:300]}",
+                                f"recompile service returned HTTP {resp.status_code}"
+                                f"{f' ({code})' if code else ''}: {detail[:300]}",
                                 kind="http",
                                 status_code=resp.status_code,
-                                retryable=resp.status_code
+                                error_code=code,
+                                # A spent key compiles again under a new one; the
+                                # codes come from a hosted service, which keeps no
+                                # assembly output, so emit_assembly does not hold it.
+                                retryable=code in _SPENT_KEY_CODES
+                                or resp.status_code
                                 in (_UNPROCESSED_HTTP if emit_assembly else RETRYABLE_HTTP_STATUS),
                                 retry_after=_retry_after(resp.headers.get("Retry-After")),
                             )
@@ -961,9 +1002,10 @@ def compile_source(
                     retry_log_detail(exc),
                 )
                 raise
-            if exc.kind == "service":
+            if exc.kind == "service" or exc.error_code in _SPENT_KEY_CODES:
                 # The service answered this attempt, and a hosted recompile
-                # keeps the refusal under its key: the retry is a new attempt.
+                # keeps the refusal under its key, or says the key can never
+                # yield a result: the retry is a new attempt.
                 post_headers["Idempotency-Key"] = secrets.token_hex(_IDEMPOTENCY_KEY_BYTES)
             # Immediate re-POST of a 503/timeout hammers a recovering service;
             # exponential backoff (capped) gives it room without unbounded wait,

@@ -263,6 +263,11 @@ func (r *statusRecorder) SetWriteDeadline(t time.Time) error {
 // same headers as its GET but no body (RFC 9110 §9.3.2), matching the
 // dashboard and ops servers.
 func apiError(w http.ResponseWriter, detail string, status int) {
+	writeAPIError(w, status, map[string]any{"error": detail, "code": strconv.Itoa(status)})
+}
+
+// writeAPIError answers status with the JSON body under apiError's headers.
+func writeAPIError(w http.ResponseWriter, status int, body map[string]any) {
 	// A statusRecorder knows the request method; a plain writer (the compile
 	// mediator passes the recorder too) is probed for it.
 	method := ""
@@ -283,7 +288,7 @@ func apiError(w http.ResponseWriter, detail string, status int) {
 	if method == http.MethodHead {
 		return
 	}
-	_ = json.NewEncoder(w).Encode(map[string]any{"error": detail, "code": strconv.Itoa(status)})
+	_ = json.NewEncoder(w).Encode(body)
 }
 
 func hostAllowed(host string) bool {

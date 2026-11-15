@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -105,19 +106,45 @@ var notRunCodes = map[string]bool{
 const maxRetryAfterDigits = 6
 
 // compileAnswer is what the worker is told about one exchange: the upstream
-// result on 200, else detail, and the upstream's Retry-After when it sent
-// delta-seconds.
+// result on 200, else detail and the upstream's error code, and the
+// upstream's Retry-After when it sent delta-seconds.
 type compileAnswer struct {
 	status     int
 	body       []byte
 	detail     string
+	code       string
 	retryAfter string
+}
+
+// spentKeyCodes are the error codes of a refusal that says the key can never
+// yield a result, so the next attempt needs a new key (recompile 11 docs/API.md,
+// "Error codes": the admission ended before dispatch, passed its payment
+// deadline, has no local record or ended without a retained result, or the
+// current credential may not receive the result).
+var spentKeyCodes = map[string]bool{
+	"admission_abandoned": true, "admission_expired": true, "admission_unrecoverable": true,
+	"result_unavailable": true, "delivery_denied": true,
+}
+
+// errorCodePattern is the shape of recompile's error codes; another value is
+// not relayed.
+var errorCodePattern = regexp.MustCompile(`^[a-z][a-z_]{0,63}$`)
+
+// errorCode is the `code` of a recompile error body, or "" when it has none.
+func errorCode(body []byte) string {
+	var refusal struct {
+		Code string `json:"code"`
+	}
+	if json.Unmarshal(body, &refusal) != nil || !errorCodePattern.MatchString(refusal.Code) {
+		return ""
+	}
+	return refusal.Code
 }
 
 // unresolvedAnswer is an exchange whose outcome under its key is unknown: the
 // worker may retry the intent, which resends the same key.
-func unresolvedAnswer(retryAfter string) compileAnswer {
-	return compileAnswer{status: http.StatusServiceUnavailable, detail: "compile outcome unresolved", retryAfter: retryAfter}
+func unresolvedAnswer(code, retryAfter string) compileAnswer {
+	return compileAnswer{status: http.StatusServiceUnavailable, detail: "compile outcome unresolved", code: code, retryAfter: retryAfter}
 }
 
 // relayRetryAfter is the upstream Retry-After when it is delta-seconds, else "".
@@ -247,7 +274,7 @@ func (m *CompileMediator) exchange(ctx context.Context, v compileOriginal, fresh
 	start := time.Now()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, m.upstream+"/api/v1/compile", bytes.NewReader(v.Body))
 	if err != nil {
-		return v, unresolvedAnswer("")
+		return v, unresolvedAnswer("", "")
 	}
 	req.Header.Set("Authorization", "Bearer "+m.credential)
 	// Go's transport treats Idempotency-Key as retryable when GetBody is set.
@@ -264,7 +291,7 @@ func (m *CompileMediator) exchange(ctx context.Context, v compileOriginal, fresh
 	resp, err := m.client.Do(req)
 	if err != nil {
 		log.Printf("level=error msg=compile_upstream_error intent=%q duration_ms=%d trace_id=%q error=%q", v.Intent, time.Since(start).Milliseconds(), traceIDFromContext(ctx), err.Error())
-		return v, unresolvedAnswer("")
+		return v, unresolvedAnswer("", "")
 	}
 	defer resp.Body.Close()
 	retryAfter := relayRetryAfter(resp.Header.Get("Retry-After"))
@@ -273,27 +300,34 @@ func (m *CompileMediator) exchange(ctx context.Context, v compileOriginal, fresh
 	}
 	b, err := io.ReadAll(io.LimitReader(resp.Body, maxCompileReplyBytes+1))
 	if err != nil || len(b) > maxCompileReplyBytes || resp.StatusCode != http.StatusOK && resp.StatusCode/100 != 4 {
-		// A lost or oversized answer, or a 5xx (recompile's 503 asks for the
-		// same key): the key may be admitted, so it is kept.
+		// A lost or oversized answer, or a 5xx (recompile's 503s, such as
+		// settlement_pending, ask for the same key): the key may be admitted,
+		// so it is kept.
 		v.LastHTTPStatus = resp.StatusCode
 		_ = m.writeOriginal(v)
 		failed("unresolved")
-		return v, unresolvedAnswer(retryAfter)
+		code := ""
+		if err == nil && len(b) <= maxCompileReplyBytes {
+			code = errorCode(b)
+		}
+		return v, unresolvedAnswer(code, retryAfter)
 	}
 	if resp.StatusCode != http.StatusOK {
-		// Refused before admission. A key no exchange left unresolved was not
-		// admitted; a 409 says the key yields no result (recompile: "use a new
-		// key"). Either way the next attempt draws a new key. Any other refusal
-		// says nothing about an unresolved key's first attempt, which stays.
+		// A key no exchange left unresolved was not admitted, a spent-key code
+		// says the key can never yield a result, and every other 409 says it
+		// yields none under it (another request's key, retained bytes that are
+		// not rebuilt): the next attempt draws a new key. Any other refusal says
+		// nothing about an unresolved key's first attempt, which stays.
+		code := errorCode(b)
 		v.LastHTTPStatus = resp.StatusCode
-		if len(v.Result) == 0 && (fresh || resp.StatusCode == http.StatusConflict) {
+		if len(v.Result) == 0 && (fresh || spentKeyCodes[code] || resp.StatusCode == http.StatusConflict) {
 			v.NotRun = true
 		}
 		if err = m.writeOriginal(v); err != nil {
 			return v, compileAnswer{status: http.StatusServiceUnavailable, detail: "ledger unavailable"}
 		}
 		failed("refused")
-		return v, compileAnswer{status: resp.StatusCode, detail: "compile refused upstream", retryAfter: retryAfter}
+		return v, compileAnswer{status: resp.StatusCode, detail: "compile refused upstream", code: code, retryAfter: retryAfter}
 	}
 	var result struct {
 		Status    string `json:"status"`
@@ -303,11 +337,11 @@ func (m *CompileMediator) exchange(ctx context.Context, v compileOriginal, fresh
 	if json.Unmarshal(b, &result) != nil || (result.Status != "ok" && result.Status != "error") ||
 		result.Status == "ok" && !validArtifact(result.Artifact) || result.Status == "error" && result.Artifact != "" {
 		failed("unreadable result")
-		return v, unresolvedAnswer(retryAfter)
+		return v, unresolvedAnswer("", retryAfter)
 	}
 	if len(v.Result) != 0 && !bytes.Equal(v.Result, b) {
 		failed("result differs from retained original")
-		return v, unresolvedAnswer(retryAfter)
+		return v, unresolvedAnswer("", retryAfter)
 	}
 	v.LastHTTPStatus = resp.StatusCode
 	if result.Status == "error" && notRunCodes[result.ErrorCode] {
@@ -574,7 +608,12 @@ func (m *CompileMediator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		log.Printf("level=info msg=compile_answered intent=%q compiler=%q key=%q status=%d not_run=%t result_retained=%t", v.Intent, payload.Compiler, v.Key, answer.status, v.NotRun, len(v.Result) > 0)
 		if answer.status != http.StatusOK {
-			apiError(w, answer.detail, answer.status)
+			// Recompile's error envelope, so the worker branches on the upstream code.
+			body := map[string]any{"detail": answer.detail}
+			if answer.code != "" {
+				body["code"] = answer.code
+			}
+			writeAPIError(w, answer.status, body)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")

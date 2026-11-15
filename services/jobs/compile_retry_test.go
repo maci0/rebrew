@@ -285,3 +285,64 @@ func TestCompileNotRunIntentDoesNotFenceTheJob(t *testing.T) {
 		t.Fatal("unreachable upstream reconciled the intent")
 	}
 }
+
+// Recompile 11 says with a code that a key can never yield a result (the
+// admission expired, or the credential may not receive the result): such a
+// refusal settles even a key an earlier attempt left unresolved, and the next
+// attempt draws a new key. settlement_pending asks for the same key, and a
+// refusal with another code says nothing about the first attempt. The worker
+// gets recompile's code.
+func TestCompileMediatorBranchesOnTheRefusalCode(t *testing.T) {
+	refusal := func(status int, code, retryAfter string) fakeAnswer {
+		return fakeAnswer{status: status, retryAfter: retryAfter, body: `{"detail":"refused","code":"` + code + `"}`}
+	}
+	upstream := &fakeRecompile{retained: map[string]fakeAnswer{}, script: []fakeAnswer{
+		refusal(503, "settlement_pending", "5"),
+		refusal(409, "admission_expired", ""),
+		{status: 200, body: fakeCompiled},
+		refusal(503, "runtime_unavailable", "5"),
+		refusal(403, "delivery_denied", ""),
+		{status: 200, body: fakeCompiled},
+		refusal(503, "platform_unavailable", "5"),
+		refusal(403, "forbidden", ""),
+	}}
+	m, dir := retryMediator(t, upstream, 3)
+	a, b, c := strings.Repeat("1", 64), strings.Repeat("2", 64), strings.Repeat("3", 64)
+	codeOf := func(w *httptest.ResponseRecorder) string {
+		var body struct {
+			Code string `json:"code"`
+		}
+		_ = json.Unmarshal(w.Body.Bytes(), &body)
+		return body.Code
+	}
+	steps := []struct {
+		intent, source string
+		status         int
+		code           string
+	}{
+		{a, "int a;", 503, "settlement_pending"},
+		{a, "int a;", 409, "admission_expired"},
+		{a, "int a;", 200, ""},
+		{b, "int b;", 503, "runtime_unavailable"},
+		{b, "int b;", 403, "delivery_denied"},
+		{b, "int b;", 200, ""},
+		{c, "int c;", 503, "platform_unavailable"},
+		{c, "int c;", 403, "forbidden"},
+	}
+	for i, s := range steps {
+		w := compileIntent(m, s.intent, s.source)
+		if w.Code != s.status || s.code != "" && codeOf(w) != s.code {
+			t.Fatalf("step %d: %d %s", i, w.Code, w.Body.String())
+		}
+	}
+	if v := retainedIntent(t, dir, c); compileNotRun(v) {
+		t.Fatal("a forbidden refusal settled an unresolved key")
+	}
+	keys := upstream.sentKeys()
+	if keys[0] != keys[1] || keys[1] == keys[2] || keys[3] != keys[4] || keys[4] == keys[5] || keys[6] != keys[7] {
+		t.Fatalf("keys: %v", keys)
+	}
+	if w := compileIntent(m, c, "int c;"); w.Code != 200 || upstream.sentKeys()[8] != keys[6] {
+		t.Fatalf("unresolved key not resent: %d %v", w.Code, upstream.sentKeys())
+	}
+}

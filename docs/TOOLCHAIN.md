@@ -34,8 +34,12 @@ recompile_concurrency` (default 2) run at once, whatever `jobs` is, and a
 s) holds every compile of the process back for that long, also when the compile that got
 it gives up (`recompile_client.ServiceGate`). A retryable failure (a transport blip,
 408/425/429/500/502/503/504, or the service's `capacity`, `timeout`,
-`runner_unavailable`, `publish_failed` or `provenance_unavailable`) is retried
-`recompile_retries` times with backoff, waiting at least the `Retry-After`.
+`runner_unavailable`, `publish_failed` or `provenance_unavailable`, or an error `code`
+saying the key can never yield a result: `admission_abandoned`, `admission_expired`,
+`admission_unrecoverable`, `result_unavailable` or `delivery_denied`) is retried
+`recompile_retries` times with backoff, waiting at least the `Retry-After`; a
+finished refusal (`capacity` and the others) or one of those codes is retried under a new
+key, every other failure under the same key (recompile 11 `docs/API.md`, "Error codes").
 Under `rebrew ops` the child command knows its op's deadline
 (`REBREW_CALL_DEADLINE`) and starts no attempt or wait that a whole request
 (`compile_timeout` + 120 s) could not finish before it. A remote compile

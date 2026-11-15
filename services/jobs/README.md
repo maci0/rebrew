@@ -30,8 +30,11 @@ counts each intent once against the budget; a spent budget answers 403. A
 refusal without a verdict (a 4xx such as a 429 throttle, or a 200 whose
 `error_code` is `capacity`, `timeout`, `runner_unavailable`, `publish_failed`
 or `provenance_unavailable`) reaches the worker with its status and
-`Retry-After` and is not kept as the intent's result, so the intent's next
-attempt draws a new key. An ambiguous outcome (no answer, a 5xx, a reply that
+`Retry-After` (and recompile 11's error `code`, which the mediator relays) and
+is not kept as the intent's result, so the intent's next attempt draws a new
+key; a code saying the key can never yield a result (`admission_expired`,
+`delivery_denied` and the others in `docs/TOOLCHAIN.md`) settles even a key an
+earlier attempt left unresolved. An ambiguous outcome (no answer, a 5xx, a reply that
 is unreadable or over 16 MiB) keeps the key: the worker's retry resends it,
 which recompile answers without compiling or billing twice. One intent's
 state never holds back another's. After the job stops, an intent still

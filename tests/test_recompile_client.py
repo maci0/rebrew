@@ -1650,3 +1650,121 @@ class TestASpentJobBudgetIsNotRun:
             assert result.message.startswith("not run (service unavailable): ")
             assert isinstance(result.error, RecompileError)
             assert (result.error.kind, result.error.status_code) == ("http", 403)
+
+
+class TestRecompileElevenCodes:
+    """Recompile 11 sends ``{"detail", "code"}`` on every error. The client branches
+    on ``code``: a key that can never yield a result compiles again under a new key
+    within the retry budget, ``settlement_pending`` resends the same key, and any
+    other refusal is final; all of them are NOT_RUN once the budget is spent."""
+
+    @staticmethod
+    def _keys(replies: list[_Resp]) -> tuple[_FakeClient, list[str]]:
+        keys: list[str] = []
+
+        class _Keyed(_FakeClient):
+            def post(self, url: str, json: Any = None, headers: Any = None, **_: Any) -> Any:
+                self.calls.append(("post", url))
+                keys.append(headers["Idempotency-Key"])
+                return replies.pop(0)
+
+        return _Keyed(None, _Resp(200, content=b"OBJ")), keys
+
+    @staticmethod
+    def _refusal(status: int, code: str, retry_after: str | None = None) -> _Resp:
+        return _Resp(
+            status,
+            json_body={"detail": "refused", "code": code},
+            text=f'{{"detail":"refused","code":"{code}"}}',
+            headers={"Retry-After": retry_after} if retry_after else None,
+        )
+
+    @pytest.mark.parametrize(
+        ("status", "code"),
+        [
+            (409, "admission_abandoned"),
+            (409, "admission_expired"),
+            (409, "admission_unrecoverable"),
+            (409, "result_unavailable"),
+            (403, "delivery_denied"),
+        ],
+    )
+    @pytest.mark.parametrize("emit_assembly", [False, True])
+    def test_a_spent_key_compiles_again_under_a_new_key(
+        self, status: int, code: str, emit_assembly: bool
+    ) -> None:
+        client, keys = self._keys([self._refusal(status, code), _Resp(200, json_body=_COMPILED)])
+        res = compile_source(
+            "http://svc",
+            "msvc-6.0",
+            "x",
+            [],
+            client=client,
+            retries=1,
+            sleep=[].append,
+            emit_assembly=emit_assembly,
+        )
+        assert res.ok and res.obj_bytes == b"OBJ"
+        assert len(keys) == 2 and keys[0] != keys[1]
+
+    @pytest.mark.parametrize(
+        ("status", "code"),
+        [(503, "settlement_pending"), (503, "runtime_unavailable"), (429, "failure_throttle")],
+    )
+    def test_an_unfinished_answer_resends_the_same_key(self, status: int, code: str) -> None:
+        waited: list[float] = []
+        client, keys = self._keys(
+            [self._refusal(status, code, "5"), _Resp(200, json_body=_COMPILED)]
+        )
+        res = compile_source(
+            "http://svc", "msvc-6.0", "x", [], client=client, retries=1, sleep=waited.append
+        )
+        assert res.ok and keys[0] == keys[1] and waited == [5.0]
+
+    @pytest.mark.parametrize(
+        ("status", "code"),
+        [(409, "admission_conflict"), (409, "retained_output_unavailable"), (403, "forbidden")],
+    )
+    def test_another_refusal_is_final(self, status: int, code: str) -> None:
+        client, keys = self._keys([self._refusal(status, code)])
+        with pytest.raises(RecompileError) as refused:
+            compile_source("http://svc", "msvc-6.0", "x", [], client=client, retries=2)
+        assert len(keys) == 1
+        assert (refused.value.status_code, refused.value.error_code) == (status, code)
+        assert refused.value.retryable is False
+
+    def test_a_spent_key_past_the_retry_budget_is_not_run(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.compiler.compile import compile_and_compare
+
+        monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
+        monkeypatch.delenv("REBREW_JOB_COMPILE_SOCKET", raising=False)
+        monkeypatch.setattr(compile_mod, "_recompile_clients", {})
+        monkeypatch.setattr(compile_mod, "_service_gates", {})
+        monkeypatch.setattr("rebrew.compiler.recompile_client.time.sleep", lambda _s: None)
+        client = _sequence_client(
+            monkeypatch,
+            [self._refusal(409, "admission_expired"), self._refusal(403, "delivery_denied")],
+        )
+        src = tmp_path / "f.c"
+        src.write_text("int f(void) { return 0; }")
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            recompile_url="http://svc",
+            recompile_emit_assembly=False,
+            recompile_retries=1,
+            compile_timeout=30,
+            compiler_profile="msvc-6.0",
+            compiler_command="",
+            base_cflags="",
+            compiler_includes=tmp_path,
+            compiler_runner="",
+        )
+
+        result = compile_and_compare(cfg, src, "_f", b"\x55\x8b\xec", [], use_cache=False)
+
+        assert [call for call, _url in client.calls] == ["post", "post"]
+        assert result.status == "NOT_RUN" and not result.matched
+        assert isinstance(result.error, RecompileError)
+        assert (result.error.status_code, result.error.error_code) == (403, "delivery_denied")

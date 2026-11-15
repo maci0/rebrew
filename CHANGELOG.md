@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Changed
+
+- The remote compile client and the `rebrew-jobs` compile mediator read recompile 11's error `code` (`{"detail", "code"}` on every error body) and branch on it, never on `detail`. A refusal whose code says the key can never yield a result (409 `admission_abandoned`, `admission_expired`, `admission_unrecoverable`, `result_unavailable`, 403 `delivery_denied`) is retried within `recompile_retries` under a new key, and is `NOT_RUN` when the retries run out; 503 `settlement_pending` resends the same key after its `Retry-After`, like every other 503. `RecompileError.error_code` holds an HTTP refusal's code. The mediator relays the upstream code to the worker in recompile's envelope, and a spent-key code settles even a key an earlier attempt left unresolved, so the next attempt draws a new key; a 403 with another code (`forbidden`) still leaves such a key unresolved.
+
 ## [6.44.0] - 2026-11-16
 
 ### Fixed
