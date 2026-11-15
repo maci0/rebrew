@@ -1414,14 +1414,15 @@ _recompile_retired: list[Any] = []
 def service_unavailable(error: RebrewError | None) -> bool:
     """Whether *error* is a remote compile the service never ran or answered for.
 
-    A retryable :class:`~rebrew.compiler.recompile_client.RecompileError` is a
-    service that stayed unavailable through its retries (capacity, a runner
-    or the runtime unavailable, a 429 or 503, an unreachable host); a
-    ``deadline`` one was never sent.
+    A :class:`~rebrew.compiler.recompile_client.RecompileError` with
+    ``no_verdict``: a service that stayed unavailable through its retries
+    (capacity, a timeout, a runner or the runtime unavailable, a 429 or 503,
+    an unreachable host), one an ``emit_assembly`` request does not re-send,
+    or a ``deadline`` one that was never sent.
     """
     from rebrew.compiler.recompile_client import RecompileError
 
-    return isinstance(error, RecompileError) and (error.retryable or error.kind == "deadline")
+    return isinstance(error, RecompileError) and error.no_verdict
 
 
 #: Environment variable carrying the call deadline of a child command
@@ -1815,7 +1816,9 @@ def _compile_via_recompile(
         # crash-restart inside the job replays the same intent and the
         # mediator returns the retained result instead of re-executing the
         # upstream compile. The mediator sends upstream its own random
-        # Idempotency-Key per new intent (services/jobs/compile_mediator.go).
+        # Idempotency-Key per attempt: the same key again after an ambiguous
+        # outcome, a new one after a refusal without a verdict
+        # (services/jobs/compile_mediator.go).
         logical: dict[str, Any] = {
             "compiler": profile,
             "source": source_text,
@@ -1857,13 +1860,10 @@ def _compile_via_recompile(
             # load; retries with backoff beat a hard COMPILE_ERROR that would
             # demote STATUS for a healthy source.  The count is
             # `[compiler] recompile_retries` (default 2) so a deployment
-            # pointing at a slow or flaky service can raise or drop it.
-            retries=0
-            if job_socket
-            else int(getattr(cfg, "recompile_retries", DEFAULT_RECOMPILE_RETRIES)),
-            gate=None
-            if job_socket
-            else _service_gate(
+            # pointing at a slow or flaky service can raise or drop it.  The
+            # job socket's mediator keys each retry as recompile requires.
+            retries=int(getattr(cfg, "recompile_retries", DEFAULT_RECOMPILE_RETRIES)),
+            gate=_service_gate(
                 url, int(getattr(cfg, "recompile_concurrency", DEFAULT_RECOMPILE_CONCURRENCY))
             ),
             deadline=None if called_by is None else called_by - timeout,

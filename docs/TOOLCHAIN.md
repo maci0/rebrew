@@ -24,21 +24,24 @@ same-origin artifact endpoint. Every compile call is one attempt with its own ra
 `Idempotency-Key`: a retry after a lost reply resends it, so the service reconciles that
 attempt instead of compiling twice, and a later compile of the same input, after a failure
 or an image update, is a new attempt with a new key. Neither key nor request is saved.
-Job-socket compiles use their own capability.
+Job-socket compiles use their own capability, and the jobs owner keys each attempt: the
+same key again after an ambiguous outcome, a new one after a refusal without a verdict
+(`services/jobs/README.md`).
 
 One process paces its compiles to one service: at most `[compiler]
 recompile_concurrency` (default 2) run at once, whatever `jobs` is, and a
-`Retry-After` a reply names (a 429 or 503, or a `capacity` refusal; at most 300
-s) holds every compile of the process back for that long
-(`recompile_client.ServiceGate`). A retryable failure (a transport blip,
+`Retry-After` a retryable reply names (a 429 or 503, or a `capacity` refusal; at most 300
+s) holds every compile of the process back for that long, also when the compile that got
+it gives up (`recompile_client.ServiceGate`). A retryable failure (a transport blip,
 408/425/429/500/502/503/504, or the service's `capacity`, `timeout`,
 `runner_unavailable`, `publish_failed` or `provenance_unavailable`) is retried
 `recompile_retries` times with backoff, waiting at least the `Retry-After`.
 Under `rebrew ops` the child command knows its op's deadline
 (`REBREW_CALL_DEADLINE`) and starts no attempt or wait that a whole request
 (`compile_timeout` + 120 s) could not finish before it. A compile the service
-never ran, because it stayed unavailable through the retries or the deadline
-left no time, is `NOT_RUN` ("not run (service unavailable)"), never a
+gave no verdict on, because it stayed unavailable through the retries, the
+deadline left no time, or an `emit_assembly` request that may have compiled
+was not re-sent, is `NOT_RUN` ("not run (service unavailable)"), never a
 `COMPILE_ERROR` or a verdict: `rebrew verify` reports it in its results and
 its summary's `not_run`, keeps the stored STATUS and cache, and fails;
 `rebrew test` prints it as its result (`message`, `error`) and exits 2;

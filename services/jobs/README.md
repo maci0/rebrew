@@ -24,9 +24,19 @@ marking output incomplete. Once stop is proven, the complete result workspace
 is copied, sealed and hashed before capacity is released. A changed retained
 result refuses recovery. An optional owner-mediated Unix socket lets a
 no-network job request pinned, budgeted managed compiles without exposing the
-caller credential to the container. The owner retains each original request
-and idempotency key before dispatch; ambiguous outcomes require an explicit
-reconciliation with the original caller credential. The worker's capability
+caller credential to the container. The owner retains each compile intent's
+request and the Idempotency-Key of its current attempt before dispatch, and
+counts each intent once against the budget; a spent budget answers 403. A
+refusal without a verdict (a 4xx such as a 429 throttle, or a 200 whose
+`error_code` is `capacity`, `timeout`, `runner_unavailable`, `publish_failed`
+or `provenance_unavailable`) reaches the worker with its status and
+`Retry-After` and is not kept as the intent's result, so the intent's next
+attempt draws a new key. An ambiguous outcome (no answer, a 5xx, a reply that
+is unreadable or over 16 MiB) keeps the key: the worker's retry resends it,
+which recompile answers without compiling or billing twice. One intent's
+state never holds back another's. After the job stops, an intent still
+unresolved fences its capacity until an explicit reconciliation with the
+original caller credential resends that key. The worker's capability
 permits only its job's compile requests, their returned artifact paths, and
 `GET /api/v1/features`, which the owner answers from the upstream without its
 credential so the worker can check for include bundles before it sends one; a

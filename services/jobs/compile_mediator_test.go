@@ -92,11 +92,12 @@ func TestCompileMediatorUncertainOriginalAndAuthorizedArtifact(t *testing.T) {
 	if got := send("POST", "/api/v1/compile", "wrong", body).Code; got != 401 {
 		t.Fatal(got)
 	}
-	if got := send("POST", "/api/v1/compile", cap, body).Code; got != 503 {
+	if got := send("POST", "/api/v1/compile", cap, body).Code; got != 503 || posts != 1 {
 		t.Fatal(got)
 	}
-	if got := send("POST", "/api/v1/compile", cap, body).Code; got != 409 || posts != 1 {
-		t.Fatal("implicit retry")
+	// The worker's retry resends the unresolved attempt under its own key.
+	if got := send("POST", "/api/v1/compile", cap, body).Code; got != 200 || posts != 2 {
+		t.Fatal("unresolved attempt not resent", got)
 	}
 	other := httptest.NewRequest("POST", "/api/v1/compile", strings.NewReader(body))
 	other.Header.Set("X-Rebrew-Job-Capability", cap)
@@ -104,8 +105,8 @@ func TestCompileMediatorUncertainOriginalAndAuthorizedArtifact(t *testing.T) {
 	other.Header.Set("Content-Type", "application/json")
 	blocked := httptest.NewRecorder()
 	mediator.ServeHTTP(blocked, other)
-	if blocked.Code != 409 || posts != 1 {
-		t.Fatal("new compile crossed unresolved original")
+	if blocked.Code != 403 || posts != 2 {
+		t.Fatal("compile budget not enforced")
 	}
 	raw, err := os.ReadFile(filepath.Join(dir, id+".json"))
 	if err != nil {
@@ -118,17 +119,8 @@ func TestCompileMediatorUncertainOriginalAndAuthorizedArtifact(t *testing.T) {
 	if json.Unmarshal(raw, &original) != nil || original.Key != key {
 		t.Fatal("original missing")
 	}
-	if err = mediator.Reconcile(context.Background(), id); err != nil {
-		t.Fatal(err)
-	}
-	blocked = httptest.NewRecorder()
-	other = httptest.NewRequest("POST", "/api/v1/compile", strings.NewReader(body))
-	other.Header.Set("X-Rebrew-Job-Capability", cap)
-	other.Header.Set("X-Rebrew-Compile-Intent", strings.Repeat("f", 64))
-	other.Header.Set("Content-Type", "application/json")
-	mediator.ServeHTTP(blocked, other)
-	if blocked.Code != 429 || posts != 2 {
-		t.Fatal("compile budget not enforced")
+	if err = mediator.Reconcile(context.Background(), id); err != nil || posts != 2 {
+		t.Fatal("reconcile of a retained result", err)
 	}
 	if got := send("GET", "/api/v1/artifacts/abcdef123456.o", cap, ""); got.Code != 200 || got.Body.String() != "object" {
 		t.Fatal("artifact not delivered")
@@ -380,14 +372,14 @@ func TestCompileMediatorRecoversOriginalBeforeIndexCommit(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	m.ServeHTTP(w, req)
-	if w.Code != 409 {
-		t.Fatal("unindexed original did not fence dispatch")
+	if w.Code != 200 {
+		t.Fatal("an unindexed original of another intent fenced dispatch")
 	}
 	if err = m.Reconcile(context.Background(), id); err != nil {
 		t.Fatal(err)
 	}
 	ids, err := readCompileIndex(dir)
-	if err != nil || len(ids) != 1 || ids[0] != id {
+	if err != nil || len(ids) != 2 || ids[1] != id {
 		t.Fatal("original index was not recovered")
 	}
 }

@@ -274,6 +274,21 @@ class RecompileError(RebrewError, RuntimeError):
         self.error_code = error_code
         self.retry_after = retry_after
 
+    @property
+    def no_verdict(self) -> bool:
+        """Whether the service gave no verdict on the source.
+
+        It was not reached or not sent to, its answer was lost or transient,
+        or it could not run the compile.  True for every retryable error, and
+        also for one that is not re-sent because an ``emit_assembly`` request
+        may already have compiled.
+        """
+        return (
+            self.kind in ("network", "deadline")
+            or (self.kind == "http" and self.status_code in RETRYABLE_HTTP_STATUS)
+            or (self.kind == "service" and self.error_code in _INFRASTRUCTURE_FAILURES)
+        )
+
 
 def _retry_after(value: str | None) -> float | None:
     """Seconds a ``Retry-After`` header asks to wait: delta-seconds or an HTTP-date."""
@@ -653,9 +668,10 @@ def compile_source(
     retries early: a wait that would end past it raises the last error now.
 
     *gate*, a :class:`ServiceGate` shared by the compiles of a process, runs
-    each attempt in one of its slots after its hold-off, and a reply's
-    ``Retry-After`` holds the whole gate back; an attempt the gate cannot
-    start before *deadline* raises ``kind="deadline"``, unsent.
+    each attempt in one of its slots after its hold-off, and a retryable
+    reply's ``Retry-After`` holds the whole gate back, also when this call
+    gives up on it; an attempt the gate cannot start before *deadline* raises
+    ``kind="deadline"``, unsent.
 
     *sleep* is that backoff's only time source, the same seam
     :func:`rebrew.decompme.upload_scratch` and
@@ -934,6 +950,11 @@ def compile_source(
                 exc.__context__ = None
                 exc.__suppress_context__ = True
             last_exc = exc
+            # The service's Retry-After holds back every compile the gate
+            # paces, the next call's as well as this call's next attempt: a
+            # call that gives up here must not let the next one send at once.
+            if exc.retryable and exc.retry_after and gate is not None:
+                gate.hold_off(exc.retry_after)
             if not exc.retryable or attempt + 1 >= attempts:
                 # The last word on a dependency that is down: the retries
                 # above logged each attempt that would be retried, so a run
@@ -965,9 +986,7 @@ def compile_source(
             # a gate the Retry-After holds the gate, and the next attempt waits it
             # out there with every other compile of the process.
             delay = retry_backoff_delay(attempt)
-            if exc.retry_after and gate is not None:
-                gate.hold_off(exc.retry_after)
-            elif exc.retry_after:
+            if exc.retry_after and gate is None:
                 delay = max(delay, exc.retry_after)
             resumes = time.monotonic() + max(delay, exc.retry_after or 0.0)
             if deadline is not None and resumes > deadline:

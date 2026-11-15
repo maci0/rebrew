@@ -1,5 +1,15 @@
 ## [Unreleased]
 
+### Fixed
+
+- One refused compile no longer fails a `rebrew-jobs` job. The compile mediator turned every non-200 answer into a 503 without its `Retry-After`, kept a 429 throttle as an unresolved intent that fenced every other intent of the job with 409 until `compile-reconcile`, and retained a `capacity` answer as the intent's result, replaying it under the same `Idempotency-Key` to every retry. A refusal without a verdict (a 4xx such as a 429, or a 200 `capacity`, `timeout`, `runner_unavailable`, `publish_failed` or `provenance_unavailable`) now reaches the worker with its status and `Retry-After`, is not kept as the result, and the intent's next attempt draws a new key; an ambiguous outcome keeps its key and the worker's retry resends it; one intent's state never holds back another's. `compile-intents` lists a refused intent as `not_run`, which does not fence the job. Answers up to 16 MiB are read (recompile's log alone may be 4 MiB; the cap was 1 MiB), and a spent budget answers 403 instead of a retryable 429.
+
+- Job-socket compiles retry `recompile_retries` times and wait the service's `Retry-After` through the process's `ServiceGate`, like every other remote compile; they were never retried.
+
+- A remote compile that gives up on a retryable refusal still holds the `ServiceGate` for the refusal's `Retry-After`, so the next compile of the process waits instead of sending at once.
+
+- An `emit_assembly` compile that is not re-sent after a `timeout` or `runner_unavailable` answer, a 500, 502 or 504, or a lost reply is `NOT_RUN`, not `COMPILE_ERROR`: the service gave no verdict on the source (`RecompileError.no_verdict`).
+
 ## [6.43.0] - 2026-11-16
 
 ### Removed

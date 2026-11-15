@@ -19,6 +19,10 @@ type managedCompileConfig struct {
 	Allowed  []string `json:"allowed"`
 }
 
+// CompileIntentStatus is one retained intent. State is "result_retained" (a
+// verdict is kept), "not_run" (the last attempt was refused without a verdict
+// and nothing is outstanding upstream) or "unresolved" (the intent's key may
+// be admitted upstream with an unknown outcome; compile-reconcile reads it).
 type CompileIntentStatus struct {
 	Intent             string `json:"intent"`
 	State              string `json:"state"`
@@ -66,6 +70,8 @@ func (o *Owner) CompileIntents(job string) ([]CompileIntentStatus, error) {
 		}
 		if known && compileResultValid(v) {
 			state = "result_retained"
+		} else if known && compileNotRun(v) {
+			state = "not_run"
 		} else if known && len(v.Result) > 0 {
 			return nil, errors.New("invalid compile result")
 		}
@@ -97,6 +103,12 @@ func compileResultValid(v compileOriginal) bool {
 		return false
 	}
 	return (result.Status == "ok" && validArtifact(result.Artifact) && v.Artifact == result.Artifact) || (result.Status == "error" && result.Artifact == "" && v.Artifact == "")
+}
+
+// compileNotRun is an intent whose last attempt was refused without a verdict:
+// its key holds no admitted compile, so it keeps no capacity fenced.
+func compileNotRun(v compileOriginal) bool {
+	return v.NotRun && len(v.Result) == 0 && v.ResultSHA256 == "" && v.Artifact == ""
 }
 
 // ConfigureManagedCompile pins upstream, compiler actions and job budget before admission.
@@ -232,7 +244,7 @@ func (o *Owner) compilePending(id string) (bool, error) {
 			return true, err
 		}
 		var v compileOriginal
-		if json.Unmarshal(b, &v) != nil || !validHex(v.Intent, 64) || e.Name() != v.Intent+".json" || !validHex(v.Key, 12) || v.CredentialSHA256 != receipt.CredentialSHA256 || !compileBodyValid(v) || !compileResultValid(v) {
+		if json.Unmarshal(b, &v) != nil || !validHex(v.Intent, 64) || e.Name() != v.Intent+".json" || !validHex(v.Key, 12) || v.CredentialSHA256 != receipt.CredentialSHA256 || !compileBodyValid(v) || !compileResultValid(v) && !compileNotRun(v) {
 			return true, nil
 		}
 		if _, known := indexed[v.Intent]; !known {

@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -16,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -64,6 +66,15 @@ func (m *CompileMediator) ServeSocket(dir string) (*http.Server, net.Listener, e
 	return server, listener, nil
 }
 
+// compileOriginal is one retained compile intent. Key is the Idempotency-Key
+// of its current attempt. The intent is in one of three states:
+//
+//   - result retained (Result set): the upstream's verdict, replayed under Key;
+//   - not run (NotRun): Key's attempt was refused without a verdict, and the
+//     next attempt draws a new key (recompile keeps the refusal under Key);
+//   - unresolved (neither): Key may be admitted upstream with an unknown
+//     outcome, so every later attempt resends Key, which compiles and bills
+//     at most once.
 type compileOriginal struct {
 	Intent           string `json:"intent"`
 	Key              string `json:"key"`
@@ -74,6 +85,55 @@ type compileOriginal struct {
 	Artifact         string `json:"artifact,omitempty"`
 	CredentialSHA256 string `json:"credential_sha256"`
 	LastHTTPStatus   int    `json:"last_http_status,omitempty"`
+	NotRun           bool   `json:"not_run,omitempty"`
+}
+
+// maxCompileReplyBytes bounds one upstream compile answer. Recompile caps a
+// result's log at 4 MiB of UTF-8 (docs/API.md, CompileResult) and retains a
+// managed result of at most 16 MiB of JSON, so the log with its JSON escaping
+// and the envelope fits.
+const maxCompileReplyBytes = 16 << 20
+
+// notRunCodes are the error_code values of a 200 answer that is no verdict on
+// the source. Recompile retains that refusal under its Idempotency-Key, so a
+// new attempt needs a new key (docs/API.md, "Reading a failed compile").
+var notRunCodes = map[string]bool{
+	"capacity": true, "timeout": true, "runner_unavailable": true, "publish_failed": true, "provenance_unavailable": true,
+}
+
+// maxRetryAfterDigits bounds a relayed Retry-After: delta-seconds only.
+const maxRetryAfterDigits = 6
+
+// compileAnswer is what the worker is told about one exchange: the upstream
+// result on 200, else detail, and the upstream's Retry-After when it sent
+// delta-seconds.
+type compileAnswer struct {
+	status     int
+	body       []byte
+	detail     string
+	retryAfter string
+}
+
+// unresolvedAnswer is an exchange whose outcome under its key is unknown: the
+// worker may retry the intent, which resends the same key.
+func unresolvedAnswer(retryAfter string) compileAnswer {
+	return compileAnswer{status: http.StatusServiceUnavailable, detail: "compile outcome unresolved", retryAfter: retryAfter}
+}
+
+// relayRetryAfter is the upstream Retry-After when it is delta-seconds, else "".
+func relayRetryAfter(value string) string {
+	if value == "" || len(value) > maxRetryAfterDigits || strings.Trim(value, "0123456789") != "" {
+		return ""
+	}
+	return value
+}
+
+func newCompileKey() (string, error) {
+	var key [6]byte
+	if _, err := rand.Read(key[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(key[:]), nil
 }
 
 // compileBody is recompile's CompileRequest. The bundle fields travel only
@@ -178,11 +238,16 @@ func (m *CompileMediator) readOriginal(id string) (compileOriginal, error) {
 	}
 	return v, nil
 }
-func (m *CompileMediator) exchange(ctx context.Context, v compileOriginal) (compileOriginal, error) {
+
+// exchange sends v's body under v.Key and records what the answer says about
+// the key. fresh says no earlier exchange left v.Key unresolved, so a 4xx
+// refusal proves nothing was admitted under it. A result already retained is
+// never replaced: a different answer is unresolved.
+func (m *CompileMediator) exchange(ctx context.Context, v compileOriginal, fresh bool) (compileOriginal, compileAnswer) {
 	start := time.Now()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, m.upstream+"/api/v1/compile", bytes.NewReader(v.Body))
 	if err != nil {
-		return v, err
+		return v, unresolvedAnswer("")
 	}
 	req.Header.Set("Authorization", "Bearer "+m.credential)
 	// Go's transport treats Idempotency-Key as retryable when GetBody is set.
@@ -199,43 +264,65 @@ func (m *CompileMediator) exchange(ctx context.Context, v compileOriginal) (comp
 	resp, err := m.client.Do(req)
 	if err != nil {
 		log.Printf("level=error msg=compile_upstream_error intent=%q duration_ms=%d trace_id=%q error=%q", v.Intent, time.Since(start).Milliseconds(), traceIDFromContext(ctx), err.Error())
-		return v, errors.New("compile outcome unresolved")
+		return v, unresolvedAnswer("")
 	}
 	defer resp.Body.Close()
-	b, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024+1))
-	if err != nil || len(b) > 1024*1024 || resp.StatusCode != http.StatusOK {
+	retryAfter := relayRetryAfter(resp.Header.Get("Retry-After"))
+	failed := func(why string) {
+		log.Printf("level=error msg=compile_upstream_error intent=%q status=%d reason=%q duration_ms=%d trace_id=%q", v.Intent, resp.StatusCode, why, time.Since(start).Milliseconds(), traceIDFromContext(ctx))
+	}
+	b, err := io.ReadAll(io.LimitReader(resp.Body, maxCompileReplyBytes+1))
+	if err != nil || len(b) > maxCompileReplyBytes || resp.StatusCode != http.StatusOK && resp.StatusCode/100 != 4 {
+		// A lost or oversized answer, or a 5xx (recompile's 503 asks for the
+		// same key): the key may be admitted, so it is kept.
 		v.LastHTTPStatus = resp.StatusCode
 		_ = m.writeOriginal(v)
-		log.Printf("level=error msg=compile_upstream_error intent=%q status=%d duration_ms=%d trace_id=%q", v.Intent, resp.StatusCode, time.Since(start).Milliseconds(), traceIDFromContext(ctx))
-		return v, errors.New("compile outcome unresolved")
+		failed("unresolved")
+		return v, unresolvedAnswer(retryAfter)
+	}
+	if resp.StatusCode != http.StatusOK {
+		// Refused before admission. A key no exchange left unresolved was not
+		// admitted; a 409 says the key yields no result (recompile: "use a new
+		// key"). Either way the next attempt draws a new key. Any other refusal
+		// says nothing about an unresolved key's first attempt, which stays.
+		v.LastHTTPStatus = resp.StatusCode
+		if len(v.Result) == 0 && (fresh || resp.StatusCode == http.StatusConflict) {
+			v.NotRun = true
+		}
+		if err = m.writeOriginal(v); err != nil {
+			return v, compileAnswer{status: http.StatusServiceUnavailable, detail: "ledger unavailable"}
+		}
+		failed("refused")
+		return v, compileAnswer{status: resp.StatusCode, detail: "compile refused upstream", retryAfter: retryAfter}
 	}
 	var result struct {
-		Status   string `json:"status"`
-		Artifact string `json:"artifact_url"`
+		Status    string `json:"status"`
+		Artifact  string `json:"artifact_url"`
+		ErrorCode string `json:"error_code"`
 	}
-	if json.Unmarshal(b, &result) != nil || (result.Status != "ok" && result.Status != "error") {
-		log.Printf("level=error msg=compile_upstream_error intent=%q status=%d duration_ms=%d trace_id=%q", v.Intent, resp.StatusCode, time.Since(start).Milliseconds(), traceIDFromContext(ctx))
-		return v, errors.New("compile outcome unresolved")
-	}
-	if result.Status == "ok" && !validArtifact(result.Artifact) {
-		return v, errors.New("compile result artifact invalid")
-	}
-	if result.Status == "error" && result.Artifact != "" {
-		return v, errors.New("compile result artifact invalid")
+	if json.Unmarshal(b, &result) != nil || (result.Status != "ok" && result.Status != "error") ||
+		result.Status == "ok" && !validArtifact(result.Artifact) || result.Status == "error" && result.Artifact != "" {
+		failed("unreadable result")
+		return v, unresolvedAnswer(retryAfter)
 	}
 	if len(v.Result) != 0 && !bytes.Equal(v.Result, b) {
-		return v, errors.New("compile result differs from retained original")
+		failed("result differs from retained original")
+		return v, unresolvedAnswer(retryAfter)
 	}
-	v.Result = append([]byte(nil), b...)
 	v.LastHTTPStatus = resp.StatusCode
-	resultSum := sha256.Sum256(b)
-	v.ResultSHA256 = hex.EncodeToString(resultSum[:])
-	v.Artifact = result.Artifact
-	if err = m.writeOriginal(v); err != nil {
-		return v, errors.New("compile result retention unresolved")
+	if result.Status == "error" && notRunCodes[result.ErrorCode] {
+		v.NotRun = true
+	} else {
+		v.Result = append([]byte(nil), b...)
+		resultSum := sha256.Sum256(b)
+		v.ResultSHA256 = hex.EncodeToString(resultSum[:])
+		v.Artifact = result.Artifact
 	}
-	log.Printf("level=info msg=compile_upstream_ok intent=%q status=%d result=%q duration_ms=%d trace_id=%q", v.Intent, resp.StatusCode, result.Status, time.Since(start).Milliseconds(), traceIDFromContext(ctx))
-	return v, nil
+	if err = m.writeOriginal(v); err != nil {
+		return v, compileAnswer{status: http.StatusServiceUnavailable, detail: "compile result retention unresolved"}
+	}
+	log.Printf("level=info msg=compile_upstream_ok intent=%q status=%d result=%q error_code=%q duration_ms=%d trace_id=%q", v.Intent, resp.StatusCode, result.Status, result.ErrorCode, time.Since(start).Milliseconds(), traceIDFromContext(ctx))
+	return v, compileAnswer{status: http.StatusOK, body: b, retryAfter: retryAfter}
 }
 
 type traceparentContextKey struct{}
@@ -300,7 +387,24 @@ func validArtifact(p string) bool {
 	return parts[1] == "obj" || parts[1] == "o" || parts[1] == "exe" || parts[1] == "ne"
 }
 
-// Reconcile repeats only an explicitly selected original key and body.
+// index counts id against the job's budget once, before its first exchange.
+func (m *CompileMediator) index(ids []string, id string) error {
+	if slices.Contains(ids, id) {
+		return nil
+	}
+	if len(ids) >= m.max {
+		return errBudgetExhausted
+	}
+	return writeCompileIndex(m.dir, append(ids, id))
+}
+
+var errBudgetExhausted = errors.New("compile budget exhausted")
+
+// Reconcile settles one unresolved intent after its job stopped: it resends
+// the intent's key and body with the original credential, which reads the
+// original attempt's outcome without compiling or billing it again. The job
+// keeps its capacity fenced until every intent is settled (compilePending).
+// Other intents, settled or not, do not affect this one.
 func (m *CompileMediator) Reconcile(ctx context.Context, id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -308,48 +412,9 @@ func (m *CompileMediator) Reconcile(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	indexed := make(map[string]bool, len(ids))
-	for _, known := range ids {
-		indexed[known] = true
-	}
-	entries, err := os.ReadDir(m.dir)
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		if entry.Name() == "index.json" || !strings.HasSuffix(entry.Name(), ".json") {
-			continue
-		}
-		other := strings.TrimSuffix(entry.Name(), ".json")
-		if !indexed[other] && other != id {
-			return errors.New("another compile remains unresolved")
-		}
-	}
-	found := false
-	for _, known := range ids {
-		retained, err := m.readOriginal(known)
-		if err != nil {
-			return err
-		}
-		if known != id && !compileResultValid(retained) {
-			return errors.New("another compile remains unresolved")
-		}
-		if known == id {
-			found = true
-		}
-	}
 	v, err := m.readOriginal(id)
 	if err != nil {
 		return err
-	}
-	if !found {
-		if len(ids) >= m.max {
-			return errors.New("compile budget exhausted")
-		}
-		ids = append(ids, id)
-		if err = writeCompileIndex(m.dir, ids); err != nil {
-			return err
-		}
 	}
 	if len(v.Result) > 0 {
 		if !compileResultValid(v) {
@@ -357,8 +422,16 @@ func (m *CompileMediator) Reconcile(ctx context.Context, id string) error {
 		}
 		return nil
 	}
-	_, err = m.exchange(ctx, v)
-	return err
+	if compileNotRun(v) {
+		return nil
+	}
+	if err = m.index(ids, id); err != nil {
+		return err
+	}
+	if v, _ = m.exchange(ctx, v, false); len(v.Result) == 0 && !compileNotRun(v) {
+		return fmt.Errorf("compile outcome unresolved (upstream status %d)", v.LastHTTPStatus)
+	}
+	return nil
 }
 
 func (m *CompileMediator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -446,77 +519,66 @@ func (m *CompileMediator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			apiError(w, "ledger unavailable", 503)
 			return
 		}
-		indexed := make(map[string]bool, len(ids))
-		for _, known := range ids {
-			indexed[known] = true
-			v, err := m.readOriginal(known)
-			if err != nil || !json.Valid(v.Body) || !compileResultValid(v) {
-				apiError(w, "prior compile remains unresolved", 409)
+		// Each intent stands alone: another intent's unresolved or refused
+		// attempt does not hold this one back.
+		v, e := m.readOriginal(id)
+		fresh := false
+		switch {
+		case e == nil && !bytes.Equal(v.Body, b):
+			apiError(w, "intent names a different compile", 409)
+			return
+		case e == nil && compileNotRun(v):
+			// The last attempt was refused without a verdict, and recompile
+			// keeps that refusal under its key: this attempt is a new key.
+			if v.Key, e = newCompileKey(); e != nil {
+				apiError(w, "ledger unavailable", 503)
+				return
+			}
+			v.NotRun, v.LastHTTPStatus, fresh = false, 0, true
+		case e == nil:
+			// A retained result is read back under its key, which re-checks
+			// delivery; an unresolved attempt is resent under its key.
+		case errors.Is(e, os.ErrNotExist):
+			key, err := newCompileKey()
+			if err != nil {
+				apiError(w, "ledger unavailable", 503)
+				return
+			}
+			sum := sha256.Sum256([]byte(m.credential))
+			bodySum := sha256.Sum256(b)
+			v = compileOriginal{Intent: id, Key: key, Body: append([]byte(nil), b...), BodySHA256: hex.EncodeToString(bodySum[:]), CredentialSHA256: hex.EncodeToString(sum[:])}
+			fresh = true
+		default:
+			apiError(w, "ledger unavailable", 503)
+			return
+		}
+		if !slices.Contains(ids, id) && len(ids) >= m.max {
+			// Permanent for this job: a retry cannot succeed, so no Retry-After.
+			apiError(w, errBudgetExhausted.Error(), http.StatusForbidden)
+			return
+		}
+		// The key is retained before it is sent, so a crash cannot lose it.
+		if fresh {
+			if e = m.writeOriginal(v); e != nil {
+				apiError(w, "ledger unavailable", 503)
 				return
 			}
 		}
-		entries, e := os.ReadDir(m.dir)
-		if e != nil {
+		if e = m.index(ids, id); e != nil {
 			apiError(w, "ledger unavailable", 503)
 			return
 		}
-		for _, entry := range entries {
-			if entry.Name() == "index.json" || !strings.HasSuffix(entry.Name(), ".json") {
-				continue
-			}
-			if !indexed[strings.TrimSuffix(entry.Name(), ".json")] {
-				apiError(w, "prior compile remains unresolved", 409)
-				return
-			}
+		v, answer := m.exchange(r.Context(), v, fresh)
+		if answer.retryAfter != "" {
+			w.Header().Set("Retry-After", answer.retryAfter)
 		}
-		if old, e := m.readOriginal(id); e == nil {
-			if !bytes.Equal(old.Body, b) || len(old.Result) == 0 {
-				apiError(w, "original unresolved or changed", 409)
-				return
-			}
-			old, e = m.exchange(r.Context(), old)
-			if e != nil {
-				apiError(w, "compile outcome unresolved", 503)
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write(old.Result)
-			log.Printf("level=info msg=compile_replayed intent=%q", id)
-			return
-		} else if !errors.Is(e, os.ErrNotExist) {
-			apiError(w, "ledger unavailable", 503)
-			return
-		}
-		if len(ids) >= m.max {
-			w.Header().Set("Retry-After", "5")
-			apiError(w, "compile budget exhausted", 429)
-			return
-		}
-		var key [6]byte
-		if _, e = rand.Read(key[:]); e != nil {
-			apiError(w, "ledger unavailable", 503)
-			return
-		}
-		sum := sha256.Sum256([]byte(m.credential))
-		bodySum := sha256.Sum256(b)
-		v := compileOriginal{Intent: id, Key: hex.EncodeToString(key[:]), Body: append([]byte(nil), b...), BodySHA256: hex.EncodeToString(bodySum[:]), CredentialSHA256: hex.EncodeToString(sum[:])}
-		if e = m.writeOriginal(v); e != nil {
-			apiError(w, "ledger unavailable", 503)
-			return
-		}
-		ids = append(ids, id)
-		if e = writeCompileIndex(m.dir, ids); e != nil {
-			apiError(w, "ledger unavailable", 503)
-			return
-		}
-		v, e = m.exchange(r.Context(), v)
-		if e != nil {
-			apiError(w, "compile outcome unresolved", 503)
+		log.Printf("level=info msg=compile_answered intent=%q compiler=%q key=%q status=%d not_run=%t result_retained=%t", v.Intent, payload.Compiler, v.Key, answer.status, v.NotRun, len(v.Result) > 0)
+		if answer.status != http.StatusOK {
+			apiError(w, answer.detail, answer.status)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(v.Result)
-		log.Printf("level=info msg=compile_admitted intent=%q compiler=%q key=%q", v.Intent, payload.Compiler, v.Key)
+		_, _ = w.Write(answer.body)
 		return
 	}
 	if (r.Method == http.MethodGet || r.Method == http.MethodHead) && validArtifact(r.URL.Path) {

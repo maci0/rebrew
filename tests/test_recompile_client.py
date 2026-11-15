@@ -17,7 +17,7 @@ from rebrew.compiler.recompile_client import (
     _same_origin_artifact_url,
     compile_source,
 )
-from rebrew.config import DEFAULT_RECOMPILE_RETRIES
+from rebrew.config import DEFAULT_RECOMPILE_CONCURRENCY, DEFAULT_RECOMPILE_RETRIES
 
 
 def test_recompile_client_public_all() -> None:
@@ -847,9 +847,11 @@ class TestCompileViaRecompile:
     def _cfg(self, url: str = "http://svc") -> SimpleNamespace:
         return SimpleNamespace(recompile_url=url, compile_timeout=60, recompile_emit_assembly=True)
 
-    def test_job_transport_disables_retries_and_uses_job_capability(
+    def test_job_transport_retries_through_the_gate_with_the_job_capability(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """The mediator keys each attempt, so a job's compile retries and waits
+        the service's Retry-After like any other."""
         import rebrew.compiler.recompile_client as rc
 
         seen: dict[str, Any] = {}
@@ -867,8 +869,10 @@ class TestCompileViaRecompile:
         def fake(url: str, **kwargs: Any) -> Any:
             seen["url"] = url
             seen["retries"] = kwargs["retries"]
+            seen["gate"] = kwargs["gate"]
             return rc.RecompileResult(ok=True, obj_bytes=b"object")
 
+        monkeypatch.setattr(compile_mod, "_service_gates", {})
         monkeypatch.setenv("REBREW_JOB_COMPILE_SOCKET", "/run/rebrew-job/owner.sock")
         monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
         monkeypatch.setattr(Path, "read_text", read_cap)
@@ -885,7 +889,11 @@ class TestCompileViaRecompile:
             source_text="int f;",
         )
         assert not err and out is not None and Path(out).read_bytes() == b"object"
-        assert seen["retries"] == 0 and seen["trust_env"] is False
+        assert seen["retries"] == DEFAULT_RECOMPILE_RETRIES and seen["trust_env"] is False
+        assert (
+            seen["gate"]
+            is compile_mod._service_gates[("http://rebrew-job", DEFAULT_RECOMPILE_CONCURRENCY)]
+        )
         assert seen["headers"]["X-Rebrew-Job-Capability"] == "a" * 64
         assert len(seen["headers"]["X-Rebrew-Compile-Intent"]) == 64
 
@@ -1348,6 +1356,47 @@ class TestCompileViaRecompile:
         assert result.status == "NOT_RUN" and not result.matched
         assert isinstance(result.error, RecompileError) and result.error.status_code == 503
 
+    @pytest.mark.parametrize(
+        "reply",
+        [
+            _Resp(200, json_body={"status": "error", "error_code": "timeout", "log": ""}),
+            _Resp(200, json_body={"status": "error", "error_code": "runner_unavailable"}),
+            _Resp(502, text="bad gateway"),
+        ],
+        ids=["timeout", "runner_unavailable", "502"],
+    )
+    def test_an_assembly_compile_not_resent_is_still_not_run(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reply: _Resp
+    ) -> None:
+        """An ``emit_assembly`` request that may have compiled is not re-sent, and the
+        answer is still no verdict on the source: it read as COMPILE_ERROR."""
+        from rebrew.compiler.compile import compile_and_compare
+
+        monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
+        monkeypatch.setattr(compile_mod, "_recompile_clients", {})
+        monkeypatch.setattr(compile_mod, "_service_gates", {})
+        client = _sequence_client(monkeypatch, [reply])
+        src = tmp_path / "f.c"
+        src.write_text("int f(void) { return 0; }")
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            recompile_url="http://svc",
+            recompile_emit_assembly=True,
+            recompile_retries=2,
+            compile_timeout=30,
+            compiler_profile="msvc-6.0",
+            compiler_command="",
+            base_cflags="",
+            compiler_includes=tmp_path,
+            compiler_runner="",
+        )
+
+        result = compile_and_compare(cfg, src, "_f", b"\x55\x8b\xec", [], use_cache=False)
+
+        assert [call for call, _url in client.calls] == ["post"]
+        assert result.status == "NOT_RUN" and not result.matched
+        assert isinstance(result.error, RecompileError) and result.error.retryable is False
+
 
 class TestCallDeadline:
     def test_a_remote_compile_past_the_call_deadline_is_not_sent(
@@ -1474,6 +1523,42 @@ class TestServicePacing:
         # The throttled compile's backoff, then the hold-off it set, waited in the gate.
         assert first[0] == 0.25 and 4.0 < first[1] <= 5.0
         [held] = second
+        assert 4.0 < held <= 5.0
+
+    def test_a_compile_that_gives_up_still_holds_back_the_next(self) -> None:
+        """A compile's last refused attempt left the gate open, so the next compile
+        of the process sent at once."""
+        from rebrew.compiler.recompile_client import ServiceGate
+
+        gate = ServiceGate(2)
+        capacity = _Resp(
+            200,
+            json_body={"status": "error", "error_code": "capacity", "log": ""},
+            headers={"Retry-After": "5"},
+        )
+        with pytest.raises(RecompileError) as refused:
+            compile_source(
+                "http://svc",
+                "msvc-6.0",
+                "x",
+                [],
+                client=self._client([capacity]),
+                sleep=[].append,
+                gate=gate,
+            )
+        assert refused.value.error_code == "capacity"
+        waited: list[float] = []
+        res = compile_source(
+            "http://svc",
+            "msvc-6.0",
+            "y",
+            [],
+            client=self._client([_Resp(200, json_body=_COMPILED)]),
+            sleep=waited.append,
+            gate=gate,
+        )
+        assert res.ok
+        [held] = waited
         assert 4.0 < held <= 5.0
 
     def test_a_compile_that_gets_no_slot_before_the_deadline_is_not_sent(self) -> None:
