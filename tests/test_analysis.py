@@ -758,3 +758,29 @@ class TestConcurrentOpConstants:
                 assert r == first
         finally:
             analysis._OP_CONSTANTS = old
+
+
+class TestOperandScreen:
+    """x86-32 instructions are decoded only when they print an in-image value."""
+
+    def test_only_an_in_image_hex_value_passes(self) -> None:
+        from rebrew.analysis import _prints_image_address
+
+        starts, ends = [0x401000], [0x402000]
+        assert _prints_image_address("dword ptr [0x401010]", starts, ends)
+        assert _prints_image_address("0x401ffc", starts, ends)
+        assert not _prints_image_address("esp, 0xc", starts, ends)
+        assert not _prints_image_address("eax, dword ptr [ebp - 8]", starts, ends)
+        assert not _prints_image_address("0x402000", starts, ends)
+
+    def test_screening_needs_every_image_address_printed_in_hex(self) -> None:
+        from types import SimpleNamespace
+
+        from rebrew.analysis import _screens_operands
+
+        pe = SimpleNamespace(arch="x86_32", format="pe")
+        assert _screens_operands(pe, [0x401000])
+        # An image range at 0 holds addresses that print in decimal.
+        assert not _screens_operands(pe, [0x0, 0x401000])
+        assert not _screens_operands(SimpleNamespace(arch="x86_32", format="ne"), [0x10000])
+        assert not _screens_operands(SimpleNamespace(arch="x86_64", format="pe"), [0x401000])

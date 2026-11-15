@@ -443,6 +443,33 @@ def _merged_ranges(info: BinaryInfo) -> tuple[list[int], list[int]]:
     return starts, ends
 
 
+#: An x86-32 instruction references the image only through an operand value,
+#: and Intel syntax prints every value above 9 as a lowercase ``0x`` literal
+#: (every in-image value of the 823k instructions in guild-rebrew's PE).
+_HEX_LITERAL_RE = re.compile(r"0x([0-9a-f]+)")
+#: Smallest value Intel syntax prints in hex rather than decimal.
+_FIRST_HEX_PRINTED = 10
+
+
+def _screens_operands(info: BinaryInfo, starts: list[int]) -> bool:
+    """Whether :func:`_prints_image_address` decides which instructions to decode.
+
+    Only when every image address prints in hex: an ELF section at address 0
+    holds values that print in decimal.
+    """
+    return (
+        info.arch == "x86_32"
+        and info.format != "ne"
+        and bool(starts)
+        and starts[0] >= _FIRST_HEX_PRINTED
+    )
+
+
+def _prints_image_address(op_str: str, starts: list[int], ends: list[int]) -> bool:
+    """Whether *op_str* prints a value inside the merged image ranges."""
+    return any(_inside_ranges(starts, ends, int(h, 16)) for h in _HEX_LITERAL_RE.findall(op_str))
+
+
 def _inside_ranges(starts: list[int], ends: list[int], va: int) -> bool:
     """Whether *va* falls in the merged ranges (binary search)."""
     if va < 0:
@@ -508,6 +535,7 @@ def scan_references(
     names = section_names if section_names is not None else _default_scan_sections(info)
     md = capstone_for(info)
     starts, ends = _merged_ranges(info)
+    screen = _screens_operands(info, starts)
     slots: frozenset[int] = frozenset()
     if info.format == "pe" and info.arch == "x86_32":
         slots = iat_slot_vas(info.path)
@@ -524,13 +552,14 @@ def scan_references(
         held = _RegisterImportCalls(md, raw, va, slots, starts, ends) if slots else None
         for insn in md.disasm(raw[start:], va + start):
             mnemonic = insn.mnemonic
-            refs = (
-                ()
-                if mnemonic == "db"  # skipdata placeholder
-                else _classify_insn(info, insn, include_indexed=include_indexed)
+            # skipdata placeholders have no operands; screened instructions
+            # print no in-image value, so decoding their details finds none.
+            candidate = mnemonic != "db" and (
+                not screen or _prints_image_address(insn.op_str, starts, ends)
             )
+            refs = _classify_insn(info, insn, include_indexed=include_indexed) if candidate else ()
             if held is not None:
-                held.observe(insn, mnemonic, refs)
+                held.observe(insn, mnemonic, refs, candidate)
             for kind, from_va, to_va in refs:
                 if target_va is not None and to_va != target_va:
                     continue
@@ -568,9 +597,12 @@ def data_references(
     # instruction stream, the same offset scan_references skips.
     start = 2 if info.format == "ne" and len(raw) > 2 else 0
     starts, ends = _merged_ranges(info)
+    screen = _screens_operands(info, starts)
     out: list[Xref] = []
     for insn in md.disasm(raw[start:], va + start):
         if insn.mnemonic == "db":  # skipdata placeholder
+            continue
+        if screen and not _prints_image_address(insn.op_str, starts, ends):
             continue
         for kind, from_va, to_va in _classify_insn(info, insn, include_indexed=include_indexed):
             if _inside_ranges(starts, ends, to_va):
@@ -901,8 +933,18 @@ class _RegisterImportCalls:
         self._effects: dict[int, tuple[int, int, int]] = {}
         self._op_mem = _op_constants()[2]
 
-    def observe(self, insn: Any, mnemonic: str, refs: tuple[tuple[str, int, int], ...]) -> None:
-        """Record one swept capstone instruction, its mnemonic and its classified references."""
+    def observe(
+        self,
+        insn: Any,
+        mnemonic: str,
+        refs: tuple[tuple[str, int, int], ...],
+        prints_image_address: bool,
+    ) -> None:
+        """Record one swept capstone instruction, its mnemonic and its classified references.
+
+        *prints_image_address* is False when no operand value lies in the image,
+        so no memory operand can name a table.
+        """
         va = int(insn.address)
         op_str = insn.op_str
         self._vas.append(va)
@@ -920,7 +962,7 @@ class _RegisterImportCalls:
             target = _immediate_address(op_str)
             if target is not None:
                 self._branch_sources.setdefault(target, []).append(va)
-        if "[" in op_str:
+        if prints_image_address and "[" in op_str:
             for op in insn.operands:
                 mem = op.mem if op.type == self._op_mem else None
                 if mem is None or not (mem.base or mem.index):
