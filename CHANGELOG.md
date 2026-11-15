@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.46.0] - 2026-11-16
+
 ### Removed
 
 - **Breaking:** `rebrew.calibrate_bss.load_tomllib`, `rebrew.cmake_tc.load_tomllib`, `rebrew.intake.load_tomllib` and `rebrew.init.read_toml_text` are gone. They were re-imports; those modules read `rebrew-project.toml` through `rebrew.config.read_project_toml` now. Import `rebrew.utils.load_tomllib` and `rebrew.utils.read_toml_text` instead.
