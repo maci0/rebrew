@@ -91,6 +91,28 @@ class TestNativeCommentQueries:
         )
         assert metadata_comments(source) == [(2, "NAME"), (5, "SIZE")]
 
+    def test_metadata_comments_query_each_source_once(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A repeated check of the same text reuses its result; callers own their lists."""
+        import rebrew.metadata.anchors as anchors
+
+        source = "/* NAME: memo_once */\nint memo_once;\n"
+        original = anchors.comment_nodes
+        calls = []
+
+        def counted(tree: object) -> list[object]:
+            calls.append(tree)
+            return original(tree)
+
+        monkeypatch.setattr(anchors, "comment_nodes", counted)
+        first = anchors.metadata_comments(source)
+        first.clear()
+        assert anchors.metadata_comments(source) == [(1, "NAME")]
+        assert len(calls) == 1
+        assert anchors.metadata_comments(source.replace("NAME", "SIZE")) == [(1, "SIZE")]
+        assert len(calls) == 2
+
     def test_comments_within_function_still_bind_address_anchors(self) -> None:
         source = "void f(void) {\n// ADDRESS: TEST 0x1000\nextern int value;\n}\n"
         anchors = parse_address_anchors(source)

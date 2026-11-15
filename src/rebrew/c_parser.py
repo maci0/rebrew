@@ -158,7 +158,7 @@ def _remember_parse_tree(
     setattr(_tls, byte_attr, total)
 
 
-def _recall_value(attr: str, source: str) -> Any | None:
+def recall_source_value(attr: str, source: str) -> Any | None:
     """A result this thread computed earlier for exactly *source*, or None."""
     memo: OrderedDict[str, Any] | None = getattr(_tls, attr, None)
     if memo is None:
@@ -169,7 +169,7 @@ def _recall_value(attr: str, source: str) -> Any | None:
     return hit
 
 
-def _store_value(attr: str, source: str, value: Any) -> None:
+def store_source_value(attr: str, source: str, value: Any) -> None:
     """Remember an immutable *value* derived only from *source*, bounded like trees."""
     if len(source) > _PARSE_MEMO_MAX_BYTES:
         return
@@ -1651,7 +1651,7 @@ def find_c_function_definitions(source: str) -> list[tuple[str, int]]:
     """
     if not source or not source.strip():
         return []
-    cached = _recall_value("function_definitions_memo", source)
+    cached = recall_source_value("function_definitions_memo", source)
     if cached is not None:
         return list(cached)
     try:
@@ -1688,7 +1688,7 @@ def find_c_function_definitions(source: str) -> list[tuple[str, int]]:
         src_bytes = _raw
         walk(tree.root_node)
     found = sorted(set(results), key=lambda item: item[1])
-    _store_value("function_definitions_memo", source, tuple(found))
+    store_source_value("function_definitions_memo", source, tuple(found))
     return found
 
 
@@ -2061,7 +2061,7 @@ def find_extern_variables(
         return []
     cacheable = function_filter is None
     memo_attr = "extern_definition_memo" if include_definitions else "extern_variable_memo"
-    cached = _recall_value(memo_attr, source) if cacheable else None
+    cached = recall_source_value(memo_attr, source) if cacheable else None
     if cached is not None:
         return [ExternVar(*fields) for fields in cached]
     try:
@@ -2295,7 +2295,7 @@ def find_extern_variables(
             )
         results = sorted(unique.values(), key=lambda variable: variable.line)
     if cacheable:
-        _store_value(
+        store_source_value(
             memo_attr,
             source,
             tuple(

@@ -16,6 +16,8 @@ lazy from rebrew.c_parser import (
     find_extern_variables,
     function_signatures,
     parse_c_source,
+    recall_source_value,
+    store_source_value,
 )
 lazy from rebrew.config import (
     DEFAULT_ADDRESS_COMMENT_REGEX,
@@ -305,6 +307,11 @@ def metadata_comments(
             if key in _RESERVED_METADATA_KEYS:
                 found.append((line_number, key))
         return found
+    # The C branch reads only *source*: a store walk binds each file several
+    # times per command, and the comment query is the cost.
+    cached = recall_source_value("metadata_comment_memo", source)
+    if cached is not None:
+        return list(cached)
     tree, src = parse_c_source(source)
     found = []
     for node in comment_nodes(tree):
@@ -323,4 +330,5 @@ def metadata_comments(
         key, separator, _value = body.partition(":")
         if separator and key in _RESERVED_METADATA_KEYS:
             found.append((node.start_point[0] + 1, key))
+    store_source_value("metadata_comment_memo", source, tuple(found))
     return found
