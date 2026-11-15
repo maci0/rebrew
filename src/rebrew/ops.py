@@ -251,8 +251,22 @@ INTAKE_TIMEOUT_SECONDS = 600
 COMMAND_TIMEOUT_SECONDS = 600
 
 #: Wall-clock bound on the child commands that compile every function or
-#: search mutations: ``verify_target``, ``build`` and the retained variant search.
+#: search flags or mutations: ``verify_target``, ``build``, ``flag_search`` and
+#: the retained variant search.
 SEARCH_TIMEOUT_SECONDS = 3600
+
+#: Deadline of ``analyse``: its two intakes, the project's and the fresh capture's.
+ANALYSE_TIMEOUT_SECONDS = 2 * INTAKE_TIMEOUT_SECONDS
+
+#: Deadline of ``import_archive``, which runs in the worker and checks it
+#: between steps.  The import of guild-rebrew's server project took 22-23 s
+#: (CHANGELOG 6.40.0).
+IMPORT_TIMEOUT_SECONDS = 600
+
+#: Seconds a caller waits for an op the worker runs in process to its end;
+#: nothing stops it at this bound.  It covers one decompilation: rizin's 300 s
+#: analysis and its 120 s decompile command (``rebrew.decompiler``).
+IN_PROCESS_TIMEOUT_SECONDS = 600
 
 #: Default of ``--concurrency``: calls ``serve`` runs at once.
 DEFAULT_CONCURRENCY = 4
@@ -264,7 +278,8 @@ BUSY_RETRY_AFTER_SECONDS = 5
 #: cancels the call once they pass.
 TIMEOUT_HEADER = "X-Rebrew-Timeout"
 
-#: Seconds between a running call's checks for its caller having given up.
+#: Seconds between checks for a running call's caller having given up, and
+#: for its child command's call being cancelled or past its deadline.
 CANCEL_POLL_SECONDS = 0.5
 
 #: Default of ``--max-download``: the largest binary a ``url`` may name.
@@ -363,7 +378,8 @@ ENGINE_ERROR = "engine-error"
 WORKER_BUSY = "worker-busy"
 #: The caller closed the connection before the reply (499, after nginx).
 CALLER_GONE = "caller-gone"
-#: The call outlived the seconds its caller named in :data:`TIMEOUT_HEADER`.
+#: The call outlived its op's deadline (``Op.timeout_seconds``) or the seconds
+#: its caller named in :data:`TIMEOUT_HEADER`.
 DEADLINE_EXCEEDED = "deadline-exceeded"
 #: A remote compile of a source whose project headers cannot ship (relumea ADR 0010, decision 4).
 REMOTE_HEADERS = "remote-compile-headers"
@@ -525,11 +541,12 @@ def _toolchain_rejected(diagnostics: str) -> OpsError:
 
 
 class _Cancellation:
-    """The refusal a transport gives the running call once its caller has given up."""
+    """The refusal the running call gets once its caller has given up or its deadline passed."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._refusal: tuple[str, str, int] | None = None
+        self._deadline: tuple[float, str] | None = None
 
     def cancel(self, detail: str, code: str, status: int) -> None:
         """Record the first reason; later ones change nothing."""
@@ -537,19 +554,36 @@ class _Cancellation:
             if self._refusal is None:
                 self._refusal = (detail, code, status)
 
+    def limit(self, deadline: float, detail: str) -> None:
+        """End the call at ``time.monotonic()`` *deadline* unless an earlier one is set."""
+        with self._lock:
+            if self._deadline is None or deadline < self._deadline[0]:
+                self._deadline = (deadline, detail)
+
     def check(self) -> None:
-        """Raise the refusal once the call is cancelled."""
+        """Raise the refusal once the call is cancelled or past its deadline."""
         if self._refusal is not None:
             detail, code, status = self._refusal
             raise OpsError(detail, code=code, status=status)
+        if self._deadline is not None and time.monotonic() >= self._deadline[0]:
+            raise OpsError(self._deadline[1], code=DEADLINE_EXCEEDED, status=504)
 
 
-#: The running call's cancellation, set by the HTTP transport around ``dispatch``.
-#: ``run_rebrew`` checks it while its child command runs; in-process work runs
-#: to its own end.
+#: The running call's cancellation, set around every op by the dispatcher (with
+#: the op's deadline) and by the HTTP transport (with its caller's).
+#: ``run_rebrew`` checks it while its child command runs, and a download, a
+#: staged retained file and an op's own steps check it before they start;
+#: other in-process work runs to its own end.
 _CANCELLATION: ContextVar[_Cancellation | None] = ContextVar(
     "rebrew_ops_cancellation", default=None
 )
+
+
+def _check_cancelled() -> None:
+    """Raise the running call's refusal once it is cancelled or past its deadline."""
+    cancellation = _CANCELLATION.get()
+    if cancellation is not None:
+        cancellation.check()
 
 
 def error_body(code: str, detail: str, status: int) -> bytes:
@@ -1325,6 +1359,7 @@ def _download(config: WorkerConfig, url: str, wanted: str, into: Path) -> None:
             if declared.isdigit() and int(declared) > limit:
                 raise _invalid(f"url names more than {limit} bytes")
             for chunk in response.iter_bytes(DOWNLOAD_CHUNK_BYTES):
+                _check_cancelled()
                 received += len(chunk)
                 if received > limit:
                     raise _invalid(f"url names more than {limit} bytes")
@@ -1351,6 +1386,7 @@ def binary_file(
     """
     if bool(key) == bool(url):
         raise _invalid(f"exactly one of {key_field} and url must be set")
+    _check_cancelled()
     if key:
         yield stored_file(config, key, sha256)
         return
@@ -2339,12 +2375,14 @@ def capture_fresh_analysis(
         for path in root.rglob("*"):
             if path.is_symlink():
                 raise _capture_failed("fresh analysis capture contains a symlink")
+        _check_cancelled()
         try:
             metadata = _fresh_sqlite_metadata(root, target, scratch)
         except OpsError:
             raise
         except (OSError, ValueError, RebrewError) as exc:
             raise _capture_failed(f"fresh analysis metadata migration failed: {exc}") from exc
+        _check_cancelled()
         return capture_project(root, sha256, target, metadata, "fresh analysis")
 
 
@@ -2715,6 +2753,7 @@ def import_archive(config: WorkerConfig, req: ImportArchiveRequest) -> dict[str,
             root = unpack_project_archive(archive, unpacked)
         except ProjectArchiveError as exc:
             raise _import_refused(str(exc)) from None
+        _check_cancelled()
         try:
             raw = read_config(root)
         except RebrewError as exc:
@@ -2732,15 +2771,20 @@ def import_archive(config: WorkerConfig, req: ImportArchiveRequest) -> dict[str,
         if not metadata_store(root / "rebrew-functions.toml").exists():
             raise _import_refused("the archive has no rebrew-functions.toml function metadata")
         module = target_module(cfg)
+        _check_cancelled()
         try:
             dropped = scope_metadata_to_module(cfg, module)
+            _check_cancelled()
             metadata = _fresh_sqlite_metadata(root, target, scratch)
         except OpsError:
             raise
         except (OSError, ValueError, RebrewError) as exc:
             detail = str(exc).replace(f"{root}{os.sep}", "")
             raise _import_refused(f"the archive's metadata cannot be imported: {detail}") from None
+        _check_cancelled()
         capture, report = capture_project(root, req.sha256, target, metadata, "project import")
+        # The last check: past it the import replaces the binary's project.
+        _check_cancelled()
         project = workspace / relative
         project.parent.mkdir(parents=True, exist_ok=True)
         if _inside(workspace, relative, "analysis project") != project:
@@ -3972,10 +4016,23 @@ def data_set(config: WorkerConfig, req: DataSetRequest) -> dict[str, Any]:
 
 @dataclass(frozen=True)
 class Op:
-    """One wire op: its request type and the function that answers it."""
+    """One wire op: its request type, the function that answers it, and its deadline.
+
+    ``timeout_seconds`` and ``interruptible`` are published per op in the
+    dispatch schema.  Once ``timeout_seconds`` pass, the call answers 504
+    ``deadline-exceeded`` at the next point rebrew can stop it: its child
+    command is killed (checked every ``CANCEL_POLL_SECONDS``), and no further
+    download chunk, retained file or checked step starts.  An
+    ``interruptible`` op's long work is all such points, so it outlives its
+    deadline only by the in-process step already running.  Any other op works
+    in the worker process, which nothing stops: ``timeout_seconds`` is how
+    long a caller waits for it.
+    """
 
     request: type
     run: Callable[[WorkerConfig, Any], Mapping[str, Any]]
+    timeout_seconds: int
+    interruptible: bool = False
 
 
 def retained_source_operation(config: WorkerConfig, req: SnapshotMutationRequest) -> dict[str, Any]:
@@ -4089,51 +4146,80 @@ def security_scan_snapshot(config: WorkerConfig, req: SecuritySnapshotRequest) -
 
 #: Every op of the backend's rebrew contract, by wire name.
 OPS: dict[str, Op] = {
-    "rebrew.disassemble": Op(DisassembleRequest, disassemble),
-    "rebrew.disassemble_bytes": Op(DisassembleBytesRequest, disassemble_bytes),
-    "rebrew.control_flow_graph": Op(AddressRequest, control_flow_graph),
-    "rebrew.xrefs": Op(AddressRequest, xrefs),
-    "rebrew.call_references": Op(ProjectRequest, call_references),
-    "rebrew.describe": Op(AddressRequest, describe),
-    "rebrew.decompile": Op(DecompileRequest, decompile),
-    "rebrew.decompile_snapshot": Op(DecompileSnapshotRequest, decompile_snapshot),
-    "rebrew.identify_library": Op(ProjectRequest, identify_library),
-    "rebrew.structs": Op(StructsRequest, structs),
-    "rebrew.binary_operand_locations": Op(OperandLocationsRequest, binary_operand_locations),
-    "rebrew.binary_function_digests": Op(FunctionDigestsRequest, binary_function_digests),
-    "rebrew.imports": Op(BinaryFile, imports),
-    "rebrew.strings": Op(BinaryFile, strings),
-    "rebrew.fingerprint": Op(BinaryFile, fingerprint),
-    "rebrew.analyze": Op(BinaryFile, analyze),
-    "rebrew.crypto_scan": Op(BinaryFile, crypto_scan),
-    "rebrew.pe_info": Op(BinaryFile, pe_info),
-    "rebrew.identify_compiler": Op(BinaryFile, identify_compiler),
-    "rebrew.library_functions": Op(StoredFile, library_functions),
-    "rebrew.splat_parse": Op(SplatRequest, splat_parse),
-    "rebrew.report": Op(ReportRequest, report),
-    "rebrew.security_scan": Op(SecurityScanRequest, security_scan),
-    "rebrew.security_scan_snapshot": Op(SecuritySnapshotRequest, security_scan_snapshot),
-    "rebrew.analyse": Op(AnalyseRequest, analyse),
-    "rebrew.import-project": Op(ImportRequest, import_project),
-    "rebrew.import_archive": Op(ImportArchiveRequest, import_archive),
-    "rebrew.project_targets": Op(FileSetRequest, project_targets),
-    "rebrew.metadata_carry": Op(MetadataCarryRequest, metadata_carry),
-    "rebrew.metadata_describe": Op(FileSetRequest, metadata_describe),
-    "rebrew.metadata_diff": Op(MetadataDiffRequest, metadata_diff),
-    "rebrew.reference_flirt": Op(ReferenceFlirtRequest, reference_flirt),
-    "rebrew.verify_function": Op(VerifyRequest, verify_function),
-    "rebrew.apply_candidate": Op(ApplyCandidateRequest, apply_candidate),
-    "rebrew.verify_target": Op(VerifyTargetRequest, verify_target),
-    "rebrew.build": Op(BuildRequest, build),
-    "rebrew.skeleton": Op(SkeletonRequest, skeleton),
-    "rebrew.coverage_report": Op(CoverageReportRequest, coverage_report),
-    "rebrew.flag_search": Op(FlagSearchRequest, flag_search),
-    "rebrew.data_list": Op(DataListRequest, data_list),
-    "rebrew.data_set": Op(DataSetRequest, data_set),
-    "rebrew.vocabulary": Op(VocabularyRequest, vocabulary),
-    "rebrew.check_cflags": Op(CheckCflagsRequest, check_cflags),
-    "rebrew.rename_identifier": Op(RenameIdentifierRequest, rename_identifier),
-    "rebrew.retained_source_operation": Op(SnapshotMutationRequest, retained_source_operation),
+    "rebrew.disassemble": Op(DisassembleRequest, disassemble, IN_PROCESS_TIMEOUT_SECONDS),
+    "rebrew.disassemble_bytes": Op(
+        DisassembleBytesRequest, disassemble_bytes, IN_PROCESS_TIMEOUT_SECONDS
+    ),
+    "rebrew.control_flow_graph": Op(AddressRequest, control_flow_graph, IN_PROCESS_TIMEOUT_SECONDS),
+    "rebrew.xrefs": Op(AddressRequest, xrefs, IN_PROCESS_TIMEOUT_SECONDS),
+    "rebrew.call_references": Op(ProjectRequest, call_references, IN_PROCESS_TIMEOUT_SECONDS),
+    "rebrew.describe": Op(AddressRequest, describe, IN_PROCESS_TIMEOUT_SECONDS),
+    "rebrew.decompile": Op(DecompileRequest, decompile, IN_PROCESS_TIMEOUT_SECONDS),
+    "rebrew.decompile_snapshot": Op(
+        DecompileSnapshotRequest, decompile_snapshot, IN_PROCESS_TIMEOUT_SECONDS
+    ),
+    "rebrew.identify_library": Op(ProjectRequest, identify_library, IN_PROCESS_TIMEOUT_SECONDS),
+    "rebrew.structs": Op(StructsRequest, structs, IN_PROCESS_TIMEOUT_SECONDS),
+    "rebrew.binary_operand_locations": Op(
+        OperandLocationsRequest, binary_operand_locations, IN_PROCESS_TIMEOUT_SECONDS
+    ),
+    "rebrew.binary_function_digests": Op(
+        FunctionDigestsRequest, binary_function_digests, IN_PROCESS_TIMEOUT_SECONDS
+    ),
+    "rebrew.imports": Op(BinaryFile, imports, IN_PROCESS_TIMEOUT_SECONDS),
+    "rebrew.strings": Op(BinaryFile, strings, IN_PROCESS_TIMEOUT_SECONDS),
+    "rebrew.fingerprint": Op(BinaryFile, fingerprint, IN_PROCESS_TIMEOUT_SECONDS),
+    "rebrew.analyze": Op(BinaryFile, analyze, IN_PROCESS_TIMEOUT_SECONDS),
+    "rebrew.crypto_scan": Op(BinaryFile, crypto_scan, IN_PROCESS_TIMEOUT_SECONDS),
+    "rebrew.pe_info": Op(BinaryFile, pe_info, IN_PROCESS_TIMEOUT_SECONDS),
+    "rebrew.identify_compiler": Op(BinaryFile, identify_compiler, IN_PROCESS_TIMEOUT_SECONDS),
+    "rebrew.library_functions": Op(StoredFile, library_functions, IN_PROCESS_TIMEOUT_SECONDS),
+    "rebrew.splat_parse": Op(SplatRequest, splat_parse, IN_PROCESS_TIMEOUT_SECONDS),
+    "rebrew.report": Op(ReportRequest, report, IN_PROCESS_TIMEOUT_SECONDS),
+    "rebrew.security_scan": Op(SecurityScanRequest, security_scan, IN_PROCESS_TIMEOUT_SECONDS),
+    "rebrew.security_scan_snapshot": Op(
+        SecuritySnapshotRequest, security_scan_snapshot, IN_PROCESS_TIMEOUT_SECONDS
+    ),
+    "rebrew.analyse": Op(AnalyseRequest, analyse, ANALYSE_TIMEOUT_SECONDS, interruptible=True),
+    "rebrew.import-project": Op(ImportRequest, import_project, IN_PROCESS_TIMEOUT_SECONDS),
+    "rebrew.import_archive": Op(
+        ImportArchiveRequest, import_archive, IMPORT_TIMEOUT_SECONDS, interruptible=True
+    ),
+    "rebrew.project_targets": Op(FileSetRequest, project_targets, IN_PROCESS_TIMEOUT_SECONDS),
+    "rebrew.metadata_carry": Op(MetadataCarryRequest, metadata_carry, IN_PROCESS_TIMEOUT_SECONDS),
+    "rebrew.metadata_describe": Op(FileSetRequest, metadata_describe, IN_PROCESS_TIMEOUT_SECONDS),
+    "rebrew.metadata_diff": Op(MetadataDiffRequest, metadata_diff, IN_PROCESS_TIMEOUT_SECONDS),
+    "rebrew.reference_flirt": Op(
+        ReferenceFlirtRequest, reference_flirt, COMMAND_TIMEOUT_SECONDS, interruptible=True
+    ),
+    "rebrew.verify_function": Op(VerifyRequest, verify_function, IN_PROCESS_TIMEOUT_SECONDS),
+    "rebrew.apply_candidate": Op(
+        ApplyCandidateRequest, apply_candidate, COMMAND_TIMEOUT_SECONDS, interruptible=True
+    ),
+    "rebrew.verify_target": Op(
+        VerifyTargetRequest, verify_target, SEARCH_TIMEOUT_SECONDS, interruptible=True
+    ),
+    "rebrew.build": Op(BuildRequest, build, SEARCH_TIMEOUT_SECONDS, interruptible=True),
+    "rebrew.skeleton": Op(SkeletonRequest, skeleton, IN_PROCESS_TIMEOUT_SECONDS),
+    "rebrew.coverage_report": Op(
+        CoverageReportRequest, coverage_report, IN_PROCESS_TIMEOUT_SECONDS
+    ),
+    "rebrew.flag_search": Op(
+        FlagSearchRequest, flag_search, SEARCH_TIMEOUT_SECONDS, interruptible=True
+    ),
+    "rebrew.data_list": Op(DataListRequest, data_list, COMMAND_TIMEOUT_SECONDS, interruptible=True),
+    "rebrew.data_set": Op(DataSetRequest, data_set, COMMAND_TIMEOUT_SECONDS, interruptible=True),
+    "rebrew.vocabulary": Op(VocabularyRequest, vocabulary, IN_PROCESS_TIMEOUT_SECONDS),
+    "rebrew.check_cflags": Op(CheckCflagsRequest, check_cflags, IN_PROCESS_TIMEOUT_SECONDS),
+    "rebrew.rename_identifier": Op(
+        RenameIdentifierRequest, rename_identifier, IN_PROCESS_TIMEOUT_SECONDS
+    ),
+    "rebrew.retained_source_operation": Op(
+        SnapshotMutationRequest,
+        retained_source_operation,
+        SEARCH_TIMEOUT_SECONDS,
+        interruptible=True,
+    ),
 }
 
 
@@ -4141,6 +4227,23 @@ def _answer(config: WorkerConfig, name: str, body: bytes) -> Mapping[str, Any]:
     op = OPS.get(name)
     if op is None:
         raise OpsError(f"unknown op: {_bounded(name)}", code=UNKNOWN_OP, status=404)
+    cancellation = _CANCELLATION.get()
+    token = None
+    if cancellation is None:
+        cancellation = _Cancellation()
+        token = _CANCELLATION.set(cancellation)
+    cancellation.limit(
+        time.monotonic() + op.timeout_seconds,
+        f"{name} outlived its {op.timeout_seconds} s deadline",
+    )
+    try:
+        return _run_op(config, name, op, body)
+    finally:
+        if token is not None:
+            _CANCELLATION.reset(token)
+
+
+def _run_op(config: WorkerConfig, name: str, op: Op, body: bytes) -> Mapping[str, Any]:
     if len(body) > MAX_REQUEST_BYTES:
         detail = f"request exceeds {MAX_REQUEST_BYTES} bytes"
         raise OpsError(detail, code=INVALID_REQUEST, status=413)
@@ -4669,7 +4772,7 @@ class _OpsHandler(BaseHTTPRequestHandler):
         if not 0 <= length <= MAX_REQUEST_BYTES:
             self._refuse(INVALID_REQUEST, f"request exceeds {MAX_REQUEST_BYTES} bytes", 413)
             return
-        deadline: float | None = None
+        cancellation = _Cancellation()
         if (seconds := self.headers.get(TIMEOUT_HEADER)) is not None:
             try:
                 budget = float(seconds)
@@ -4678,7 +4781,7 @@ class _OpsHandler(BaseHTTPRequestHandler):
             if not 0 < budget < float("inf"):
                 self._refuse(INVALID_REQUEST, f"{TIMEOUT_HEADER} must be positive seconds", 400)
                 return
-            deadline = time.monotonic() + budget
+            cancellation.limit(time.monotonic() + budget, f"the call outlived its {TIMEOUT_HEADER}")
         # Read in chunks under the same bound so a stalled or truncated
         # stream cannot leave a half-read buffer queued behind the socket
         # timeout: each chunk is a fresh read, and the total never exceeds
@@ -4693,10 +4796,9 @@ class _OpsHandler(BaseHTTPRequestHandler):
             chunks.append(chunk)
             remaining -= len(chunk)
         body = b"".join(chunks)
-        cancellation = _Cancellation()
         answered = threading.Event()
         watcher = threading.Thread(
-            target=self._watch_caller, args=(cancellation, answered, deadline), daemon=True
+            target=self._watch_caller, args=(cancellation, answered), daemon=True
         )
         token = _CANCELLATION.set(cancellation)
         watcher.start()
@@ -4708,16 +4810,9 @@ class _OpsHandler(BaseHTTPRequestHandler):
             watcher.join()
         self._send(*reply)
 
-    def _watch_caller(
-        self, cancellation: _Cancellation, answered: threading.Event, deadline: float | None
-    ) -> None:
-        """Cancel the call once its caller closes the connection or its deadline passes."""
+    def _watch_caller(self, cancellation: _Cancellation, answered: threading.Event) -> None:
+        """Cancel the call once its caller closes the connection."""
         while not answered.wait(CANCEL_POLL_SECONDS):
-            if deadline is not None and time.monotonic() >= deadline:
-                cancellation.cancel(
-                    f"the call outlived its {TIMEOUT_HEADER}", DEADLINE_EXCEEDED, 504
-                )
-                return
             if self._caller_gone():
                 cancellation.cancel("the caller closed the connection", CALLER_GONE, 499)
                 return

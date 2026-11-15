@@ -6924,10 +6924,10 @@ exceeds 16 MiB; also a wrapped command's `usage` error, with its message),
 ran and rejected the source; the detail carries its diagnostics, and there is no
 verdict), `invalid-project-config` (400, see
 `rebrew.project_targets`), `project-import-refused` (422, see
-`rebrew.import_archive` below), or, from
-`serve` only, `worker-busy` (503), `deadline-exceeded` (504) and
-`caller-gone` (499, written to a caller that has already closed). An engine
-failure answers a fixed detail and logs its cause on stderr.
+`rebrew.import_archive` below), `deadline-exceeded` (504, see the deadlines
+below), or, from `serve` only, `worker-busy` (503) and `caller-gone` (499,
+written to a caller that has already closed). An engine failure answers a
+fixed detail and logs its cause on stderr.
 
 Binaries are referenced, never sent:
 
@@ -6968,6 +6968,24 @@ requires one, so no HTTP caller reaches a project outside it. A local
 retained request (one carrying `files`, and `rebrew.decompile_snapshot` /
 `rebrew.security_scan_snapshot`) reads only its snapshot and never its
 `project_dir`, which need not exist on this worker.
+
+Every op has a deadline, published in the dispatch schema as its
+`timeout_seconds` beside an `interruptible` flag (`rebrew.ops.OPS`). Once it
+passes, the call answers 504 `deadline-exceeded` at the next point the worker
+can stop it, on both transports: a child command is stopped with its process
+tree (checked every 0.5 s), and no further download chunk, retained-snapshot
+file or checked step starts. An interruptible op's long work is all such
+points, so it outlives its deadline only by the in-process step already
+running. The other ops work in the worker process, which nothing stops; their
+`timeout_seconds` is how long to wait for them.
+
+| Ops | `timeout_seconds` | `interruptible` |
+| --- | --- | --- |
+| `analyse` (two intakes of at most 600 s each, steps checked between) | 1200 | true |
+| `verify_target`, `build`, `flag_search`, `retained_source_operation` | 3600 | true |
+| `reference_flirt`, `apply_candidate`, `data_list`, `data_set` | 600 | true |
+| `import_archive` (steps checked between, the last before the project is replaced) | 600 | true |
+| every other op, `verify_function` included (without `candidate` it runs `rebrew test` in the worker) | 600 | false |
 
 Op details the contract leaves open:
 
@@ -7087,9 +7105,10 @@ Op details the contract leaves open:
   (`verify`, `build round-trip`, `data list`/`set`, `library
   scan-signatures`, and the `match run`, `export decompme` and `source
   rename`/`split`/`merge` that `retained_source_operation` runs on a
-  snapshot) run it as a child process and answer the JSON it prints;
-  `verify_target`, `build` and the retained variant search are bounded at
-  3600 s, the others at 600 s. For `verify_target`, `build` and the variant
+  snapshot) run it as a child process and answer the JSON it prints. The
+  child ends at its op's deadline or at its own bound, whichever comes first:
+  3600 s for `verify_target`, `build`, `flag_search` and the retained variant
+  search, 600 s for the others. For `verify_target`, `build` and the variant
   search, exit 1 (a mismatch) still answers the report.
 - While the compile backend is the remote recompile service
   (`REBREW_RECOMPILE_URL` or `[compiler] recompile_url`), `verify_function`,
@@ -7150,7 +7169,8 @@ call, or `http://127.0.0.1:PORT` reaches `rebrew ops serve` with the token in
 
 Reads the JSON request on stdin and writes the reply on stdout. A refusal
 writes the error object on stdout and exits 2. Anything rebrew prints while
-answering goes to stderr. SIGTERM cancels the call: a child command it runs
+answering goes to stderr. The op's deadline applies (see
+[`rebrew ops`](#rebrew-ops)). SIGTERM cancels the call: a child command it runs
 (in its own session, outside the caller's process group) is stopped with its
 process tree, a retained snapshot is removed, no reply is written, and the
 command exits 143.
@@ -7176,11 +7196,12 @@ reply; an authenticated call that finds every slot busy is answered 503
 
 A call is cancelled when its caller closes the connection, or once the seconds
 its optional `X-Rebrew-Timeout` header names (a positive number; anything else
-answers 400) have passed. A cancelled call stops the child command it is running
-(checked every 0.5 s) with its process tree, so its slot is free for the next
-call, and answers 504 `deadline-exceeded`, or 499 `caller-gone` to a closed
-caller. Work an op runs in the worker process itself is not interrupted and
-holds the slot until it returns.
+answers 400) have passed, or at the op's own deadline when that comes first. A
+cancelled call stops where a call past its deadline stops (see
+[`rebrew ops`](#rebrew-ops)), so its slot is free for the next call, and
+answers 504 `deadline-exceeded`, or 499 `caller-gone` to a closed caller. Work
+an op runs in the worker process itself is not interrupted and holds the slot
+until it returns.
 
 Requests with an unlisted HTTP `Host` authority get 403. `--allowed-hosts`
 (or `REBREW_OPS_ALLOWED_HOSTS`) adds exact names and ports to the automatic

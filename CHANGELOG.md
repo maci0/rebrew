@@ -1,5 +1,13 @@
 ## [Unreleased]
 
+### Added
+
+- Every op in the dispatch schema publishes its deadline, `timeout_seconds`, and whether the worker stops it there, `interruptible`: the values of `rebrew.ops.Op.timeout_seconds` and `Op.interruptible` in `rebrew.ops.OPS`, and a test fails when the two differ. Both transports hold every call to it: once it passes, the call answers 504 `deadline-exceeded` at the next point the worker can stop it (its child command is stopped with its process tree, and no further download chunk, retained-snapshot file or checked step starts). `rebrew ops call` had only each child command's own bound, and in-process work had none. Interruptible: `analyse` 1200 s (`ANALYSE_TIMEOUT_SECONDS`, its two intakes); `verify_target`, `build`, `flag_search` and `retained_source_operation` 3600 s; `reference_flirt`, `apply_candidate`, `data_list` and `data_set` 600 s; `import_archive` 600 s (`IMPORT_TIMEOUT_SECONDS`), which runs in the worker and now checks its deadline between steps, the last before the binary's project is replaced. Every other op, `verify_function` included (without `candidate` it runs `rebrew test` in the worker), works in the worker process, which nothing stops: its 600 s (`IN_PROCESS_TIMEOUT_SECONDS`) is how long to wait for it. A `serve` caller's shorter `X-Rebrew-Timeout` still applies. A child command stopped at its op's deadline answers 504 where it answered 500 `engine-error` at its own bound; one stopped at a shorter bound of its own (an `analyse` intake, a retained source operation other than `variants`) still answers 500.
+
+### Changed
+
+- **Breaking:** `rebrew.ops.Op` takes a required `timeout_seconds` after `request` and `run`, and `interruptible` (default false); every entry of `rebrew.ops.OPS` sets them.
+
 ### Performance
 
 - On a guild-rebrew snapshot, `status` and `todo` retire 88% fewer instructions, `coverage catalog` and `orphans list` 69% fewer, `recommend` 62% fewer, and `--version` 21% fewer, with identical output ([PERFORMANCE.md](docs/PERFORMANCE.md#ten-profiled-hot-path-rounds-2026-11-15)). Include lookup lists each directory once per (device, inode, mtime) instead of scanning it per path component, the anchored-source cache holds 32 MiB, repeated C scans of one source reuse their result, and metadata loads copy plain values without `copy.deepcopy`.

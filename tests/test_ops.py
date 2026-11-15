@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 import contextlib
+import dataclasses
 import hashlib
 import http.client
 import http.server
@@ -2177,6 +2178,80 @@ class TestHttpCancellation:
             )
             assert (status, reply["error"]) == (400, "invalid-request")
             assert not pid_file.exists()
+
+
+class TestOpDeadlines:
+    """Every op runs under the deadline the dispatch schema publishes for it (R4-001).
+
+    The backend bounded every call with one 5-minute dispatch timeout while
+    rebrew bounded its child commands at 10 minutes to an hour and its own
+    work not at all, so neither side knew how long an op may run.
+    """
+
+    def test_every_op_publishes_the_deadline_it_runs_under(self) -> None:
+        published = {
+            name: (entry["timeout_seconds"], entry["interruptible"])
+            for name, entry in _CONTRACT["ops"].items()
+        }
+        assert published == {
+            name: (op.timeout_seconds, op.interruptible) for name, op in OPS.items()
+        }
+
+    def test_a_child_command_past_its_op_deadline_answers_504_and_stops(
+        self, world: tuple[WorkerConfig, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """With no caller deadline (the exec transport has none) the op's own one stops the child."""
+        config, project = world
+        pid_file = tmp_path / "child.pid"
+        monkeypatch.setattr(sys, "executable", str(_sleeping_python(tmp_path)))
+        monkeypatch.setenv(_CHILD_PID_ENV, str(pid_file))
+        op = OPS["rebrew.data_list"]
+        monkeypatch.setitem(OPS, "rebrew.data_list", dataclasses.replace(op, timeout_seconds=1))
+        body = json.dumps({"project_dir": str(project)}).encode()
+        replies: list[tuple[int, bytes]] = []
+        call = threading.Thread(
+            target=lambda: replies.append(dispatch(config, "rebrew.data_list", body)), daemon=True
+        )
+        call.start()
+        child = _child_pid(pid_file)
+        try:
+            call.join(_STOP_SECONDS)
+            assert replies, "the call ran past its op deadline"
+            status, reply = replies[0]
+            assert (status, json.loads(reply)["error"]) == (504, "deadline-exceeded")
+            assert _stopped(child, _STOP_SECONDS)
+        finally:
+            _kill_leftover(child)
+            call.join(WAIT_SECONDS)
+
+    def test_an_import_past_its_deadline_installs_nothing(
+        self, analysed_project: tuple[WorkerConfig, Path, Path], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``import_archive`` runs in the worker and checks its deadline between steps."""
+        import rebrew.metadata_transfer
+
+        config, filestore, project = analysed_project
+        op = OPS["rebrew.import_archive"]
+        monkeypatch.setitem(
+            OPS, "rebrew.import_archive", dataclasses.replace(op, timeout_seconds=1)
+        )
+        scope = rebrew.metadata_transfer.scope_metadata_to_module
+
+        def outlives_the_deadline(*args: Any, **kwargs: Any) -> Any:
+            time.sleep(1.5)
+            return scope(*args, **kwargs)
+
+        monkeypatch.setattr(
+            rebrew.metadata_transfer, "scope_metadata_to_module", outlives_the_deadline
+        )
+        status, reply = _import(config, filestore, _tar_bytes(_project_members(project)))
+        assert (status, reply["error"]) == (504, "deadline-exceeded"), reply
+        assert config.workspace is not None
+        scope_dir = (
+            config.workspace / "projects" / "scopes" / hashlib.sha256(b"imported").hexdigest()
+        )
+        assert not scope_dir.exists()
+        assert not list((config.workspace / ".scratch").glob("project-import-*"))
 
 
 class TestHttpTransport:
