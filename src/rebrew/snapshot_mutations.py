@@ -39,6 +39,15 @@ def snapshot_mutation(config: Any, req: Any) -> dict[str, Any]:
         raise invalid("unknown retained source operation")
     if req.va < 0 or req.size < 0:
         raise invalid("address and size must not be negative")
+    if req.operation == "variants":
+        if req.generations < 1 or req.population < 1 or req.seed < 0:
+            raise invalid("invalid variant search bounds")
+        for name, cap, limit in (
+            ("generations", "VARIANT_MAX_GENERATIONS", ops.VARIANT_MAX_GENERATIONS),
+            ("population", "VARIANT_MAX_POPULATION", ops.VARIANT_MAX_POPULATION),
+        ):
+            if (value := getattr(req, name)) > limit:
+                raise invalid(f"{name} must be at most {cap} ({limit}), got {value}")
     with (
         ops.retained_target_snapshot(
             config, req.files, req.rebrew_target, req.sha256, req.binary_key, req.binary_url
@@ -77,8 +86,6 @@ def snapshot_mutation(config: Any, req: Any) -> dict[str, Any]:
             source.write_bytes(candidate)
             ops.remote_header_refusal(cfg, [source])
             if req.operation == "variants":
-                if req.generations < 1 or req.population < 1 or req.seed < 0:
-                    raise invalid("invalid variant search bounds")
                 arguments = [
                     "match",
                     "run",

@@ -7110,6 +7110,13 @@ Op details the contract leaves open:
   3600 s for `verify_target`, `build`, `flag_search` and the retained variant
   search, 600 s for the others. For `verify_target`, `build` and the variant
   search, exit 1 (a mismatch) still answers the report.
+- `rebrew.retained_source_operation` `variants` takes `generations` and
+  `population` from 1 to 100 each (`rebrew.ops.VARIANT_MAX_GENERATIONS`,
+  `VARIANT_MAX_POPULATION`), checked before the snapshot is staged; a value
+  over its cap answers 400 `invalid-request` naming the cap. At both caps the
+  search compiles at most 10,000 candidates, about 1,460 s at the measured
+  585 ms per compile and compare ([PERFORMANCE.md](PERFORMANCE.md)) over the
+  GA's default 4 parallel jobs, inside the op's 3600 s deadline.
 - While the compile backend is the remote recompile service
   (`REBREW_RECOMPILE_URL` or `[compiler] recompile_url`), `verify_function`,
   `verify_target`, `build` and the retained variant search ship the project

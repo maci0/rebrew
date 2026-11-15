@@ -2254,6 +2254,94 @@ class TestOpDeadlines:
         assert not list((config.workspace / ".scratch").glob("project-import-*"))
 
 
+#: One compile and byte-compare in a GA run, measured on smygb's real MSVC6
+#: toolchain (docs/PERFORMANCE.md, "GA bottleneck: compilation, not scoring").
+_MEASURED_COMPILE_SECONDS = 0.585
+
+
+class TestVariantSearchBounds:
+    """A retained variant search is capped to what fits its op's deadline (R4-001).
+
+    ``generations`` and ``population`` had only a lower bound, so a request
+    for 10**6 generations was accepted and ran until the deadline killed it.
+    """
+
+    @staticmethod
+    def _request(tmp_path: Path) -> tuple[WorkerConfig, dict[str, Any]]:
+        import rebrew.ops as ops
+
+        config, retained, _analysed, _envelope = _retained_coverage_request(tmp_path)
+        source = next(entry["path"] for entry in retained["files"] if entry["path"].endswith(".c"))
+        candidate = "int candidate(void) { return 0; }\n"
+        return config, {
+            "files": retained["files"],
+            "rebrew_target": retained["rebrew_target"],
+            "sha256": SHA256,
+            "binary_key": KEY,
+            "operation": "variants",
+            "source": source,
+            "candidate": candidate,
+            "candidate_sha256": hashlib.sha256(candidate.encode()).hexdigest(),
+            "va": ENTRY_VA,
+            "size": ENTRY_SIZE,
+            "generations": ops.VARIANT_MAX_GENERATIONS,
+            "population": ops.VARIANT_MAX_POPULATION,
+        }
+
+    @staticmethod
+    def _searches(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
+        """Record the search commands the op runs, answering each with an empty result."""
+        import rebrew.ops as ops
+
+        searches: list[list[str]] = []
+
+        def search(arguments: list[str], *_args: Any, **_kwargs: Any) -> dict[str, Any]:
+            searches.append(arguments)
+            return {}
+
+        monkeypatch.setattr(ops, "run_rebrew", search)
+        return searches
+
+    @pytest.mark.parametrize(
+        ("field", "cap"),
+        [("generations", "VARIANT_MAX_GENERATIONS"), ("population", "VARIANT_MAX_POPULATION")],
+    )
+    def test_a_bound_over_its_cap_is_refused_naming_the_cap(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, field: str, cap: str
+    ) -> None:
+        import rebrew.ops as ops
+
+        config, request = self._request(tmp_path)
+        searches = self._searches(monkeypatch)
+        limit = getattr(ops, cap)
+        body = json.dumps({**request, field: limit + 1}).encode()
+        refusal = _refusal(config, "rebrew.retained_source_operation", body)
+        assert (refusal["status"], refusal["error"]) == (400, "invalid-request")
+        assert refusal["detail"] == f"{field} must be at most {cap} ({limit}), got {limit + 1}"
+        assert searches == []
+
+    def test_a_search_at_both_caps_runs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.ops as ops
+
+        config, request = self._request(tmp_path)
+        searches = self._searches(monkeypatch)
+        assert _call(config, "rebrew.retained_source_operation", request) == {"result": {}}
+        [search] = searches
+        assert f"--generations={ops.VARIANT_MAX_GENERATIONS}" in search
+        assert f"--pop-size={ops.VARIANT_MAX_POPULATION}" in search
+
+    def test_a_search_at_both_caps_fits_the_op_deadline(self) -> None:
+        """Every candidate of every generation compiled, over the GA's default parallel jobs."""
+        import rebrew.ops as ops
+        from rebrew.config import DEFAULT_PROJECT_JOBS
+
+        candidates = ops.VARIANT_MAX_GENERATIONS * ops.VARIANT_MAX_POPULATION
+        seconds = candidates * _MEASURED_COMPILE_SECONDS / DEFAULT_PROJECT_JOBS
+        assert seconds <= OPS["rebrew.retained_source_operation"].timeout_seconds
+
+
 class TestHttpTransport:
     def test_ephemeral_port_uses_bound_port_for_host_checks(self) -> None:
         from rebrew.ops import OpsServer

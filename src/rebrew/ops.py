@@ -255,6 +255,13 @@ COMMAND_TIMEOUT_SECONDS = 600
 #: the retained variant search.
 SEARCH_TIMEOUT_SECONDS = 3600
 
+#: Caps on a retained variant search's ``generations`` and ``population``,
+#: sized to its op's SEARCH_TIMEOUT_SECONDS deadline: the search compiles at
+#: most 100 * 100 candidates, about 1,460 s at the measured 585 ms per compile
+#: and compare (docs/PERFORMANCE.md) over the GA's default 4 parallel jobs.
+VARIANT_MAX_GENERATIONS = 100
+VARIANT_MAX_POPULATION = 100
+
 #: Deadline of ``analyse``: its two intakes, the project's and the fresh capture's.
 ANALYSE_TIMEOUT_SECONDS = 2 * INTAKE_TIMEOUT_SECONDS
 

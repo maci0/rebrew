@@ -8,6 +8,8 @@
 
 - **Breaking:** `rebrew.ops.Op` takes a required `timeout_seconds` after `request` and `run`, and `interruptible` (default false); every entry of `rebrew.ops.OPS` sets them.
 
+- `rebrew.retained_source_operation` refuses a variant search whose `generations` or `population` is over 100 (`rebrew.ops.VARIANT_MAX_GENERATIONS`, `VARIANT_MAX_POPULATION`) with 400 `invalid-request` naming the cap, before the snapshot is staged; they had no upper bound, so a search of 10**6 generations was accepted and ran until its deadline. At both caps the search compiles at most 10,000 candidates, about 1,460 s at the measured 585 ms per compile and compare (`docs/PERFORMANCE.md`) over the GA's default 4 parallel jobs, inside the op's 3600 s deadline. The lower bounds are checked before staging too.
+
 ### Performance
 
 - On a guild-rebrew snapshot, `status` and `todo` retire 88% fewer instructions, `coverage catalog` and `orphans list` 69% fewer, `recommend` 62% fewer, and `--version` 21% fewer, with identical output ([PERFORMANCE.md](docs/PERFORMANCE.md#ten-profiled-hot-path-rounds-2026-11-15)). Include lookup lists each directory once per (device, inode, mtime) instead of scanning it per path component, the anchored-source cache holds 32 MiB, repeated C scans of one source reuse their result, and metadata loads copy plain values without `copy.deepcopy`.
