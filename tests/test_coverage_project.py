@@ -140,6 +140,60 @@ class TestLiveProjectCoverage:
                 cfg, TrustedCoverage((TrustedVerification("src/other.c", 0x401000, 1, "EXACT", 1),))
             )
 
+    def test_trusted_report_accounts_library_code_apart(self, tmp_path: Path) -> None:
+        """Library rows leave the original code's totals; only a trusted verdict verifies one.
+
+        The project's LIBRARY classification says which code is library, never
+        that it matched: a library row without a trusted verdict is library, not
+        verified, with its bytes, whatever STATUS the project wrote.
+        """
+        from rebrew.config import load_config
+        from rebrew.report import generate_decomp_dev_report
+        from rebrew.workspace.status import TrustedCoverage, TrustedVerification
+
+        _project(tmp_path)
+        (tmp_path / "game.exe").write_bytes(make_pe(b"\xc3" + b"\x90\xc3" + b"\x90\x90\xc3"))
+        write_source(
+            tmp_path / "src" / "lib.c",
+            "// ADDRESS: GOOD 0x401001\nint lib_a(void) { return 0; }\n"
+            "// ADDRESS: GOOD 0x401003\nint lib_b(void) { return 0; }\n",
+            metadata_dir=tmp_path,
+            metadata_fields={
+                "GOOD.0x401001": {"kind": "LIBRARY", "name": "lib_a", "size": 2, "status": "EXACT"},
+                "GOOD.0x401003": {"kind": "LIBRARY", "name": "lib_b", "size": 3, "status": "EXACT"},
+            },
+        )
+        (tmp_path / "src" / "function_structure.json").write_text(
+            json.dumps(
+                [
+                    {"va": 0x401000, "size": 1, "name": "foo"},
+                    {"va": 0x401001, "size": 2, "name": "lib_a"},
+                    {"va": 0x401003, "size": 3, "name": "lib_b"},
+                ]
+            )
+        )
+        cfg = load_config(tmp_path, target="good")
+        trusted = TrustedCoverage(
+            (
+                TrustedVerification("src/function.c", 0x401000, 1, "EXACT", 1),
+                TrustedVerification("src/lib.c", 0x401001, 2, "RELOC", 2),
+            )
+        )
+        summary = generate_decomp_dev_report(cfg, tmp_path / "report.json", trusted=trusted)
+        measures = json.loads((tmp_path / "report.json").read_text())["measures"]
+        expected = {
+            "total_functions": 1,
+            "matched_functions": 1,
+            "original_code": 1,
+            "matched_code": 1,
+            "library_functions": 2,
+            "library_code": 5,
+            "library_verified_functions": 1,
+            "library_verified_code": 2,
+        }
+        assert {key: summary.get(key) for key in expected} == expected
+        assert {key: measures.get(key) for key in expected} == expected
+
     def test_existing_epoch_timestamp_config_is_read(self, tmp_path: Path) -> None:
         _project(tmp_path)
         config = tmp_path / "rebrew-project.toml"

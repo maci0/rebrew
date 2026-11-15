@@ -145,6 +145,13 @@ class StatusReport:
     #: LIBRARY bytes attributed by derived span: an identified row without a
     #: recorded extent owns the unclaimed bytes up to the next known start.
     library_derived_bytes: int = 0
+    #: Trusted coverage only: the library rows' bytes, and the rows and bytes a
+    #: trusted verdict matched (``library_verified_bytes`` is inside
+    #: ``matched_bytes``). A library row without one is library, not verified:
+    #: neither matched nor counted against the original code.
+    library_bytes: int = 0
+    library_verified: int = 0
+    library_verified_bytes: int = 0
 
     # Verify cache summary
     verify_info: VerifyInfo | None = None
@@ -964,7 +971,6 @@ def collect_status(
                 for va, info in existing.items()
                 if va in sizes
             }
-            library_vas = set()
     except (OSError, json.JSONDecodeError, KeyError, ValueError) as exc:
         if trusted is not None:
             raise
@@ -1068,8 +1074,19 @@ def collect_status(
             span_va, size = _span(va, info)
             if size == 0:
                 derived_starts.append(span_va)
-            matched_bytes += size
-            report.status_bytes["LIBRARY"] = report.status_bytes.get("LIBRARY", 0) + size
+            if trusted is None:
+                matched_bytes += size
+                report.status_bytes["LIBRARY"] = report.status_bytes.get("LIBRARY", 0) + size
+            else:
+                # Trusted coverage reads the project's classification as which
+                # code is library, never as a match: only a trusted verdict
+                # matches a library row.
+                report.library_bytes += size
+                if info.get("status") in MATCHED_STATUSES:
+                    report.library_verified += 1
+                    report.library_verified_bytes += size
+                    matched_bytes += size
+                    report.status_bytes["LIBRARY"] = report.status_bytes.get("LIBRARY", 0) + size
             spans.append((span_va, size))
             # Bucketed as LIBRARY: a status left over from before the row was
             # identified as library code would read as reversing progress.
@@ -1187,9 +1204,12 @@ def collect_status(
                 derived += length
                 spans.append((piece_lo, length))
         report.library_derived_bytes = derived
-        matched_bytes += derived
-        report.matched_bytes = matched_bytes
-        report.status_bytes["LIBRARY"] = report.status_bytes.get("LIBRARY", 0) + derived
+        if trusted is None:
+            matched_bytes += derived
+            report.matched_bytes = matched_bytes
+            report.status_bytes["LIBRARY"] = report.status_bytes.get("LIBRARY", 0) + derived
+        else:
+            report.library_bytes += derived
 
     report.unmatched_bytes = unmatched_bytes
     gaps = _text_gap_ranges(cfg, spans)
@@ -1198,7 +1218,11 @@ def collect_status(
         report.unattributed_ranges = gaps[1]
         # Any virtual tail with no file bytes remains unaccounted for.
         report.unattributed_bytes = (
-            report.total_text_bytes - matched_bytes - unmatched_bytes - report.padding_bytes
+            report.total_text_bytes
+            - matched_bytes
+            - unmatched_bytes
+            - report.padding_bytes
+            - (report.library_bytes - report.library_verified_bytes)
         )
     report.verify_overrides = verify_overrides
     report.verify_missing_size = verify_missing_size

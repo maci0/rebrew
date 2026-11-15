@@ -2839,7 +2839,14 @@ def prepare_entries(
             "size": entry.size,
             "module": getattr(entry, "module", ""),
         }
-        results.append({**cached_entry.result_row(), "source": _project_source(cfg, Path(fp.path))})
+        # A cached row ran no compile in this run: no compile record.
+        results.append(
+            {
+                **cached_entry.result_row(),
+                "source": _project_source(cfg, Path(fp.path)),
+                "compile": None,
+            }
+        )
         if cached_entry.passed:
             passed += 1
         else:
@@ -3150,6 +3157,10 @@ def run_verification(
                             cfg,
                             contained_path(source_roots(cfg), getattr(entry, "filepath", "")),
                         )
+                        # What this run's remote compile ran with (flags, the
+                        # service's execution provenance), as rebrew test reports
+                        # it; null for a local compile.  Never cached.
+                        row["compile"] = result.remote_compile
                         if result.error is not None:
                             # The structured backend failure; the cache writers
                             # skip a row that carries one.

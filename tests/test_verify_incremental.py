@@ -1516,6 +1516,53 @@ class TestIncrementalVerify:
         # Both compiled once, by the fresh run: the second run's rows are the cache's.
         assert sorted(calls) == [0x10001000, 0x10002000]
 
+    def test_rows_carry_the_remote_compile_they_ran(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A freshly compiled row carries its remote compile's record, as ``rebrew test --json`` does.
+
+        The record (flags, the service's execution provenance) belongs to this
+        run's compile: a row served from the cache ran no compile and carries null.
+        """
+        cfg = _make_cfg(tmp_path)
+        (cfg.reversed_dir / "func_a.c").write_text("int func_a(void) { return 1; }\n")
+        entries = [
+            SourceBinding(
+                va=0x10001000,
+                name="func_a",
+                filepath="func_a.c",
+                size=16,
+                symbol="",
+                kind="FUNCTION",
+            )
+        ]
+        record = {
+            "flags": ["/O2", "/c"],
+            "execution": {
+                "status": "admitted",
+                "kind": "registry",
+                "digest": "sha256:" + "ab" * 32,
+            },
+        }
+        compared = CompareResult(
+            matched=True,
+            status="EXACT",
+            match_percent=100.0,
+            delta=0,
+            obj_bytes=b"\x90" * 16,
+            reloc_offsets=[],
+            match_count=16,
+            message="EXACT MATCH",
+            remote_compile=record,
+        )
+        _patch_verify(monkeypatch, cfg, entries)
+        monkeypatch.setattr("rebrew.verify.verify_entry", lambda *_a, **_k: compared)
+        compiles = []
+        for _run in ("fresh", "cached"):
+            outcome = runner.invoke(app, ["--json", "--no-promote"])
+            compiles.append(cli_payload(outcome)["results"][0]["compile"])
+        assert compiles == [record, None]
+
     def test_cache_hit_reports_the_same_row_bytes_as_a_fresh_run(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

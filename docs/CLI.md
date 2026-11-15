@@ -472,7 +472,10 @@ They also carry the comparison's byte counts as `rebrew test --json` names them:
 the compile produced no bytes or the row comes from a cache entry written before
 rebrew recorded them, and `source`, the compiled file relative to the project root
 (`filepath` is relative to `reversed_dir`), null when the file is outside
-the source roots or the project root.
+the source roots or the project root. `compile` is what the row's remote
+compile ran with in this run (`flags`, the service's `execution` provenance,
+and the shipped headers), the object `rebrew test --json` reports; null for a
+local compile and for a row served from the verify cache.
 
 A function that fails to byte-match whose source is fenced behind
 `#ifdef REBREW_ALLOW_NAKED` is reported with an explanatory note: the
@@ -5015,6 +5018,17 @@ NEAR_MATCHING/PROVEN → cached `match_percent`, else 0) and whole-binary measur
 padding excluded, `complete_code` and `complete_code_percent` from the status
 code account). These progress measures do not establish linked-image placement;
 check that separately with `rebrew verify --text --raw-link`.
+
+With trusted verification records (`rebrew.coverage_report` on a retained
+snapshot), library code is accounted apart. A row the project classifies as
+library (a `LIBRARY` row, or one in an `external_libs` module) leaves
+`total_functions`, `matched_functions` and `matched_code`, which then count the
+original code alone (`original_code` is its bytes), and is listed under
+`library_functions` and `library_code`. Only a trusted record matches a library
+row (`library_verified_functions`, `library_verified_code`); one without is
+library, not verified, whatever status the project wrote, and is neither
+matched nor counted against the original code. `complete_code` counts the
+original and library bytes the records matched.
 Upload the file as a GitHub Actions artifact
 named `<version>_report` containing `report.json`, then register the repo
 at decomp.dev/manage/new.

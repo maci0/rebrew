@@ -1670,8 +1670,21 @@ def generate_decomp_dev_report(
     status = collect_status(cfg, trusted=trusted) if trusted is not None else collect_status(cfg)
     registry_total = status.total_functions or 0
     matched_functions = status.matched_functions
-    matched_code = status.matched_bytes
+    # Trusted coverage keeps library code apart: matched_code is the original
+    # code's matched bytes, beside the library account (trusted_library).
+    matched_code = status.matched_bytes - status.library_verified_bytes
     text_size = status.total_text_bytes or get_text_section_size(cfg.target_binary) or 0
+    trusted_library = (
+        {
+            "original_code": matched_code + status.unmatched_bytes,
+            "library_functions": status.library_identified,
+            "library_code": status.library_bytes,
+            "library_verified_functions": status.library_verified,
+            "library_verified_code": status.library_verified_bytes,
+        }
+        if trusted is not None
+        else {}
+    )
 
     # The fuzzy numerator sums each annotation's declared SIZE; a size running
     # past .text, or two annotations over one function, adds up past the whole
@@ -1718,6 +1731,7 @@ def generate_decomp_dev_report(
             for u in units
             if u["measures"]["matched_functions"] == u["measures"]["total_functions"]
         ),
+        **trusted_library,
     }
 
     report_doc = {"version": 2, "measures": measures, "units": units}
@@ -1732,6 +1746,7 @@ def generate_decomp_dev_report(
         "matched_code": matched_code,
         "fuzzy_match_percent": measures["fuzzy_match_percent"],
         "units": len(units),
+        **trusted_library,
     }
 
 
