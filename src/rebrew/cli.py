@@ -19,9 +19,11 @@ Usage in a tool::
 
 from __future__ import annotations
 
+import functools
 import logging
 import threading
 from typing import Any, Literal, NoReturn, get_args, override
+lazy import copy
 lazy import json
 lazy import os
 lazy import stat
@@ -850,6 +852,62 @@ def _option(name: str, annotation: type, declaration: Any) -> TyperOption:
     return option
 
 
+@functools.cache
+def _global_option(name: str) -> TyperOption:
+    """One shared build of an injected ``--version``/``--verbose``/``--quiet`` option.
+
+    Building an option through Typer costs far more than a shallow copy, and
+    every command receives these three. :func:`add_global_options` appends a
+    copy, so per-command attribute edits (``metavar``, help panel) stay local.
+    """
+    if name == "version":
+        return _option(
+            "version",
+            bool,
+            typer.Option(
+                False,
+                "--version",
+                "-V",
+                is_eager=True,
+                expose_value=False,
+                callback=_print_version,
+                help=VERSION_HELP,
+            ),
+        )
+    if name == "verbose":
+        return _option(
+            "verbose",
+            int,
+            typer.Option(
+                0,
+                "--verbose",
+                "-v",
+                count=True,
+                metavar="",
+                show_default=False,
+                is_eager=True,
+                expose_value=False,
+                callback=_apply_verbose,
+                help=VERBOSE_HELP,
+            ),
+        )
+    if name == "quiet":
+        return _option(
+            "quiet",
+            bool,
+            typer.Option(
+                False,
+                "--quiet",
+                "-q",
+                is_eager=True,
+                expose_value=False,
+                callback=_apply_quiet,
+                help=QUIET_HELP,
+            ),
+        )
+    raise ValueError(f"no injected global option {name!r}")
+
+
 def add_global_options(cmd: TyperBaseCommand) -> TyperBaseCommand:
     """Give *cmd* the umbrella's ``--version``/``--verbose``/``--quiet`` flags.
 
@@ -919,56 +977,11 @@ def add_global_options(cmd: TyperBaseCommand) -> TyperBaseCommand:
         cmd.parse_args = parse_args  # type: ignore[method-assign]
         cmd._rebrew_target_listing = True  # type: ignore[attr-defined]
     if not _declares(cmd, "--version"):
-        cmd.params.append(
-            _option(
-                "version",
-                bool,
-                typer.Option(
-                    False,
-                    "--version",
-                    "-V",
-                    is_eager=True,
-                    expose_value=False,
-                    callback=_print_version,
-                    help=VERSION_HELP,
-                ),
-            )
-        )
+        cmd.params.append(copy.copy(_global_option("version")))
     if not _declares(cmd, "--verbose", "-v"):
-        cmd.params.append(
-            _option(
-                "verbose",
-                int,
-                typer.Option(
-                    0,
-                    "--verbose",
-                    "-v",
-                    count=True,
-                    metavar="",
-                    show_default=False,
-                    is_eager=True,
-                    expose_value=False,
-                    callback=_apply_verbose,
-                    help=VERBOSE_HELP,
-                ),
-            )
-        )
+        cmd.params.append(copy.copy(_global_option("verbose")))
     if not _declares(cmd, "--quiet", "-q"):
-        cmd.params.append(
-            _option(
-                "quiet",
-                bool,
-                typer.Option(
-                    False,
-                    "--quiet",
-                    "-q",
-                    is_eager=True,
-                    expose_value=False,
-                    callback=_apply_quiet,
-                    help=QUIET_HELP,
-                ),
-            )
-        )
+        cmd.params.append(copy.copy(_global_option("quiet")))
     # Typer 0.29 labels a flag <bool> and a repeatable option <list[str]> in help. A flag takes no value
     # and each use of a repeatable option takes one, and the wider labels narrow the flag column until
     # long names are cut at 60 columns, so the help labels what one use takes. --help is built per
