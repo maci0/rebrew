@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.42.0] - 2026-11-15
+
 ### Added
 
 - `rebrew verify --json` rows (and so `rebrew.verify_target` replies) carry their comparison's byte counts under the names a `rebrew test --json` report uses: `match_count`, `total`, `obj_size` and `reloc_count` (`rebrew.verify_cache.COUNT_FIELDS`), computed by the new `rebrew.compiler.compile.comparison_counts`, which `rebrew test` now uses too. They are null for a row whose compile produced no bytes, and for a row served from a verify cache entry written before they existed. Each row also carries `source`, its compiled file relative to the project root (the path a coverage record names; null when the file is outside the source roots or the project root), taken when the report is made and never cached. A RELOC row said how many relocations it masked only in its message, and a row named its file only relative to `reversed_dir`, so a hosted caller could not take a whole-target verification's rows as coverage records: the YC server.dll target verification passed 316 functions and its coverage still counted none.
