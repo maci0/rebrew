@@ -53,6 +53,7 @@ lazy from rebrew.utils import (
     load_tomllib,
     parse_int_literal,
     preset_module_key,
+    resolved_path,
     try_parse_int,
     untrusted_text,
 )
@@ -681,7 +682,8 @@ def address_comments_for_file(
         return DEFAULT_ADDRESS_COMMENTS
     layout = _cached_address_comment_layout(root)
     module_key = preset_module_key(module) if module else None
-    resolved = filepath.resolve()
+    # The memo read_source_text fills for the same file.
+    resolved = resolved_path(filepath)
     in_shared = layout.shared_root is not None and resolved.is_relative_to(layout.shared_root)
     selected = [
         target.comments
