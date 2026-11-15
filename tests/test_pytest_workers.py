@@ -34,13 +34,13 @@ class TestSuiteWorkers:
         _quiet(monkeypatch)
         args = ["tests/", "-v", "--tb=short"]
         pytest_load_initial_conftests(_early(["tests/"]), None, args)
-        assert args[:2] == ["-n", "auto"]
+        assert args == ["-n", "auto", "--dist", "worksteal", "tests/", "-v", "--tb=short"]
 
     def test_bare_pytest_injects_auto(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _quiet(monkeypatch)
         args = ["-q"]
         pytest_load_initial_conftests(_early([]), None, args)
-        assert args[:2] == ["-n", "auto"]
+        assert args == ["-n", "auto", "--dist", "worksteal", "-q"]
 
     def test_file_node_collect_and_coverage_stay_serial(
         self, monkeypatch: pytest.MonkeyPatch

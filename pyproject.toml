@@ -364,6 +364,7 @@ files = [
     "tests/test_binsync_roundtrip.py",
     "tests/test_c_conditionals.py",
     "tests/test_coverage_db.py",
+    "tests/test_coverage_shards.py",
     "tests/test_binsync_export.py",
     "tests/test_binsync_state.py",
     "tests/test_cache_cli.py",

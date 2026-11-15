@@ -5,10 +5,13 @@ bare ``uv run --frozen pytest`` (documented in AGENTS.md) cannot fail when
 ``FORCE_COLOR`` / ``GITHUB_ACTIONS`` make typer/Rich split option names and
 version digits across escape sequences.  Not a fixture conftest — env only.
 
-The same plugin turns on pytest-xdist for a full-suite invocation.  ``make
-coverage`` stays one process: ``python -m slipcover`` sets
-``SLIPCOVER_ENABLED``, and the slipcover pytest plugin is not that signal
-(it is loaded on every run).
+The same plugin turns on pytest-xdist for a full-suite invocation, with
+work stealing: the default ``load`` scheduler hands each worker a fixed
+share up front, so the subprocess-heavy tests at the end left most workers
+idle (106 s against 59 s for the same CPU time on 32 workers).  A
+``python -m slipcover`` run stays one process: it sets ``SLIPCOVER_ENABLED``
+(the slipcover pytest plugin is loaded on every run, so it is not that
+signal), and ``make coverage`` shards serial slipcover runs instead.
 """
 
 from __future__ import annotations
@@ -63,7 +66,7 @@ def _full_suite(early_config: Any) -> bool:
 
 
 def pytest_load_initial_conftests(early_config: Any, parser: Any, args: list[str]) -> None:
-    """Inject ``-n auto`` for the full suite once xdist has registered ``-n``.
+    """Inject ``-n auto --dist worksteal`` for the full suite once xdist has registered ``-n``.
 
     Subsets (a file, a node id, any path other than ``tests``), collection,
     debugging, ``SLIPCOVER_ENABLED``, and an explicit ``-n`` stay one process.
@@ -80,4 +83,5 @@ def pytest_load_initial_conftests(early_config: Any, parser: Any, args: list[str
         return
     if not early_config.pluginmanager.has_plugin("xdist"):
         return
-    args[:0] = ["-n", "auto"]
+    # Leading, so a --dist the caller passes still wins.
+    args[:0] = ["-n", "auto", "--dist", "worksteal"]

@@ -48,7 +48,7 @@ make pr-check                             # before a PR: CI gates, pre-commit, b
 make coverage                             # slipcover fail-under floor (COV_FLOOR); ratchet up, never down
 ```
 
-Bare `uv run --frozen pytest` matches `make test` (`pyproject.toml` pytest config loads `tests/pytest_ansi_env.py` via `addopts`, which also starts pytest-xdist workers for a full-suite run; `pythonpath` is `src`, `.`, `tests`; `.` exposes `tools/`). `make coverage`, `--collect-only`, `--pdb`, `--trace`, and a file or node id stay one process.
+Bare `uv run --frozen pytest` matches `make test` (`pyproject.toml` pytest config loads `tests/pytest_ansi_env.py` via `addopts`, which also starts pytest-xdist workers with work stealing for a full-suite run; `pythonpath` is `src`, `.`, `tests`; `.` exposes `tools/`). `--collect-only`, `--pdb`, `--trace`, and a file or node id stay one process. `make coverage` runs `tools/coverage_shards.py`: one serial slipcover process per CPU over a size-balanced share of the test files, merged, because slipcover's xdist mode undercounts.
 
 ## Code Style
 

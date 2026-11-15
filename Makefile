@@ -744,9 +744,11 @@ test-one: warn-nasm warn-bun warn-patch warn-unshare-build ensure-uv warn-test-e
 
 # Coverage floor (AGENTS.md: ratchet up, never down).  slipcover ignores
 # [tool.slipcover] fail_under, so the floor is passed on the command line.
+# tools/coverage_shards.py runs one serial slipcover shard per CPU and merges
+# them; slipcover's own xdist mode undercounts.
 coverage: ensure-nasm ensure-bun ensure-unshare-build ensure-patch warn-vnu ensure-uv ensure-test-extras
 	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
-		uv run --frozen python -m slipcover --fail-under $(COV_FLOOR) -m pytest tests/ -q --tb=short
+		uv run --frozen python tools/coverage_shards.py --fail-under $(COV_FLOOR)
 
 # Run linting.  The path is `.` (ruff's default, the same scope the
 # pre-commit `ruff-check` hook resolves filenames against) rather than an
