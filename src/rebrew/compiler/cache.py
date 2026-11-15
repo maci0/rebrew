@@ -68,6 +68,7 @@ lazy import atexit
 lazy import contextlib
 lazy import os
 lazy import stat
+lazy import time
 lazy import unicodedata
 lazy from collections.abc import Callable, Iterator, Sequence
 lazy from pathlib import Path
@@ -686,57 +687,95 @@ _TRIGRAPHS = {
 }
 
 
+#: Characters that can change the masking state outside comments and literals.
+_MASK_SIGNIFICANT_RE = re.compile(r"[/\"'<\n]")
+_MASK_QUOTE_END_RE = {'"': re.compile(r'[\\"]'), "'": re.compile(r"[\\']")}
+_MASK_COMMENT_CHAR_RE = re.compile(r"[^\r\n]")
+_INCLUDE_ANGLE_PREFIX_RE = re.compile(r"\s*#\s*include(?:_next)?\s*")
+
+
 def mask_preprocessor_comments(text: str) -> str:
-    """Apply trigraphs and line splicing, then mask comments while retaining literals."""
+    """Apply trigraphs and line splicing, then mask comments while retaining literals.
+
+    Comment characters become spaces except line breaks; string, character and
+    ``#include <...>`` literals are kept verbatim, including comment markers
+    inside them. The text is copied in runs between significant characters.
+    """
     text = _TRIGRAPH_RE_CACHE.sub(lambda m: _TRIGRAPHS[m.group(1)], text)
     text = text.replace("\\\r\n", "").replace("\\\n", "")
-    result: list[str] = []
+    out: list[str] = []
+    line: list[str] = []  # output of the current line, for the include-angle check
+
+    def emit(chunk: str) -> None:
+        out.append(chunk)
+        newline = chunk.rfind("\n")
+        if newline < 0:
+            line.append(chunk)
+        else:
+            line[:] = [chunk[newline + 1 :]]
+
+    size = len(text)
     block = False
     quote = ""
-    line_start = 0
     i = 0
-    while i < len(text):
-        char = text[i]
-        pair = text[i : i + 2]
+    while i < size:
         if block:
-            if pair == "*/":
-                result.extend("  ")
-                block = False
-                i += 2
-                continue
-            result.append(char if char in "\r\n" else " ")
+            close = text.find("*/", i)
+            if close < 0:
+                emit(_MASK_COMMENT_CHAR_RE.sub(" ", text[i:]))
+                break
+            emit(_MASK_COMMENT_CHAR_RE.sub(" ", text[i:close]) + "  ")
+            block = False
+            i = close + 2
+        elif quote == ">":
+            close = text.find(">", i)
+            if close < 0:
+                emit(text[i:])
+                break
+            emit(text[i : close + 1])
+            quote = ""
+            i = close + 1
         elif quote:
-            result.append(char)
-            if char == "\\" and quote != ">" and i + 1 < len(text):
-                result.append(text[i + 1])
-                i += 2
-                continue
-            if char == quote:
+            match = _MASK_QUOTE_END_RE[quote].search(text, i)
+            if match is None:
+                emit(text[i:])
+                break
+            at = match.start()
+            if text[at] == "\\":
+                emit(text[i : at + 2])
+                i = at + 2
+            else:
+                emit(text[i : at + 1])
                 quote = ""
-        elif pair == "/*":
-            result.extend("  ")
-            block = True
-            i += 2
-            continue
-        elif pair == "//":
-            end = text.find("\n", i)
-            if end < 0:
-                end = len(text)
-            result.extend(" " * (end - i))
-            i = end
-            continue
+                i = at + 1
         else:
-            if char in {'"', "'"}:
-                quote = char
-            elif char == "<" and re.fullmatch(
-                r"\s*#\s*include(?:_next)?\s*", "".join(result[line_start:])
-            ):
-                quote = ">"
-            result.append(char)
-        if char == "\n":
-            line_start = len(result)
-        i += 1
-    return "".join(result)
+            match = _MASK_SIGNIFICANT_RE.search(text, i)
+            if match is None:
+                emit(text[i:])
+                break
+            at = match.start()
+            if at > i:
+                emit(text[i:at])
+            char = text[at]
+            pair = text[at : at + 2]
+            if pair == "/*":
+                emit("  ")
+                block = True
+                i = at + 2
+            elif pair == "//":
+                end = text.find("\n", at)
+                if end < 0:
+                    end = size
+                emit(" " * (end - at))
+                i = end
+            else:
+                if char in "\"'":
+                    quote = char
+                elif char == "<" and _INCLUDE_ANGLE_PREFIX_RE.fullmatch("".join(line)):
+                    quote = ">"
+                emit(char)
+                i = at + 1
+    return "".join(out)
 
 
 @lru_cache(maxsize=128)
@@ -823,6 +862,56 @@ def _walk_include_path(
         raise ValueError("cannot inspect an include search path") from exc
 
 
+#: Folded child names per include directory: ``path -> (identity, folded -> paths)``.
+#: Each lookup used to list the directory and fold every entry name, so a
+#: header tree of a few hundred entries cost hundreds of normalizations per
+#: include.  The identity is the directory's ``(st_dev, st_ino, st_mtime_ns)``:
+#: creating, removing or renaming a child changes the mtime and retires the
+#: index.  Bounded by retained child names; shared by verify -j workers.
+_DIR_INDEX: dict[str, tuple[tuple[int, int, int], dict[str, tuple[str, ...]]]] = {}
+_DIR_INDEX_MAX_NAMES = 1_000_000
+_dir_index_names = 0
+_DIR_INDEX_LOCK = threading.Lock()
+#: A listing taken within this window of the directory's mtime is not kept:
+#: a child created in the same mtime tick would not change the identity
+#: (git's "racily clean" rule).
+_DIR_INDEX_RACY_NS = 2_000_000_000
+
+
+def _fold_name(name: str) -> str:
+    """Include-component comparison key: NFC-normalized, then case-folded."""
+    return unicodedata.normalize("NFC", name).casefold()
+
+
+def _folded_children(directory: Path) -> dict[str, tuple[str, ...]]:
+    """Child paths of *directory*, grouped by :func:`_fold_name` of their names."""
+    global _dir_index_names
+    st = directory.stat()
+    identity = (st.st_dev, st.st_ino, st.st_mtime_ns)
+    key = str(directory)
+    with _DIR_INDEX_LOCK:
+        cached = _DIR_INDEX.get(key)
+        if cached is not None and cached[0] == identity:
+            return cached[1]
+    grouped: dict[str, list[str]] = {}
+    with os.scandir(directory) as children:
+        for child in children:
+            grouped.setdefault(_fold_name(child.name), []).append(child.path)
+    index = {name: tuple(paths) for name, paths in grouped.items()}
+    if time.time_ns() - st.st_mtime_ns > _DIR_INDEX_RACY_NS:
+        size = sum(len(paths) for paths in index.values())
+        with _DIR_INDEX_LOCK:
+            stale = _DIR_INDEX.pop(key, None)
+            if stale is not None:
+                _dir_index_names -= sum(len(paths) for paths in stale[1].values())
+            _DIR_INDEX[key] = (identity, index)
+            _dir_index_names += size
+            while _dir_index_names > _DIR_INDEX_MAX_NAMES and _DIR_INDEX:
+                oldest = next(iter(_DIR_INDEX))
+                _dir_index_names -= sum(len(paths) for paths in _DIR_INDEX.pop(oldest)[1].values())
+    return index
+
+
 def _walk_include_path_checked(
     directory: Path, parts: Sequence[str], *, lexical: list[tuple[Path, Path]] | None
 ) -> Path | None:
@@ -838,22 +927,16 @@ def _walk_include_path_checked(
         if part == "..":
             candidate = candidate / part
             continue
-        folded = unicodedata.normalize("NFC", part).casefold()
-        with os.scandir(candidate) as children:
-            matches = [
-                child
-                for child in children
-                if unicodedata.normalize("NFC", child.name).casefold() == folded
-            ]
-            if len(matches) > 1:
-                raise ValueError("ambiguous case-insensitive include component")
-            if not matches:
-                return None
-            entry = matches[0]
-            mode = entry.stat().st_mode
-            if not (stat.S_ISREG(mode) if index == len(parts) - 1 else stat.S_ISDIR(mode)):
-                return None
-            candidate = Path(entry.path)
+        matches = _folded_children(candidate).get(_fold_name(part), ())
+        if len(matches) > 1:
+            raise ValueError("ambiguous case-insensitive include component")
+        if not matches:
+            return None
+        child = Path(matches[0])
+        mode = child.stat().st_mode
+        if not (stat.S_ISREG(mode) if index == len(parts) - 1 else stat.S_ISDIR(mode)):
+            return None
+        candidate = child
     found = candidate.resolve(strict=True)
     if lexical is not None:
         lexical.append((candidate.absolute(), found))

@@ -679,6 +679,42 @@ class TestIncludePathResolution:
         header.write_text("#define VALUE 1\n")
         assert _find_in_dirs(Path("caf\u00e9/deep/api.h"), [tmp_path]) == header
 
+    def test_unchanged_directory_is_listed_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Repeated lookups in a directory that has not changed reuse one listing."""
+        from rebrew.compiler.cache import _find_in_dirs
+
+        header = tmp_path / "DIR" / "API.H"
+        header.parent.mkdir()
+        header.write_text("#define VALUE 1\n")
+        old = 1_000_000_000
+        for directory in (header.parent, tmp_path):
+            os.utime(directory, ns=(old, old))
+        listed: list[Path] = []
+        scandir = os.scandir
+
+        def counting(path: Any) -> Any:
+            listed.append(Path(path))
+            return scandir(path)
+
+        monkeypatch.setattr(os, "scandir", counting)
+        for _ in range(3):
+            assert _find_in_dirs(Path("dir/api.h"), [tmp_path]) == header
+        assert sorted(listed) == [tmp_path, header.parent]
+
+    def test_header_added_after_a_cached_lookup_is_found(self, tmp_path: Path) -> None:
+        """Adding a file changes the directory's mtime, which retires its index."""
+        from rebrew.compiler.cache import _find_in_dirs
+
+        (tmp_path / "first.h").write_text("#define FIRST 1\n")
+        old = 1_000_000_000
+        os.utime(tmp_path, ns=(old, old))
+        assert _find_in_dirs(Path("first.h"), [tmp_path]) == tmp_path / "first.h"
+        assert _find_in_dirs(Path("second.h"), [tmp_path]) is None
+        (tmp_path / "SECOND.H").write_text("#define SECOND 1\n")
+        assert _find_in_dirs(Path("second.h"), [tmp_path]) == tmp_path / "SECOND.H"
+
     @pytest.mark.parametrize("name", ["missing/api.h", "file/api.h", "dir/missing/api.h"])
     def test_missing_path_is_not_a_header(self, tmp_path: Path, name: str) -> None:
         from rebrew.compiler.cache import _find_in_dirs
