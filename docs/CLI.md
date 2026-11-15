@@ -7101,8 +7101,8 @@ Op details the contract leaves open:
   read and carry metadata file sets; the client never parses or names
   rebrew's metadata files. See
   [the dispatch metadata contract](METADATA.md#dispatch-metadata-contract).
-- A compile the remote service never ran (it stayed unavailable through the
-  retries, or the deadline left no time) is no verdict: `rebrew.verify_function`
+- A remote compile without a verdict (the service, or the jobs owner past the
+  job's budget, refused or failed it, or it was never sent) is no verdict: `rebrew.verify_function`
   answers 200 with the `rebrew test` report whose `status` is `NOT_RUN`, with
   `message` (`not run (service unavailable): ...`), `error` (the structured
   `RecompileError`: `status_code`, `error_code`, `retry_after`, `retryable`) and
@@ -7210,8 +7210,8 @@ Op details the contract leaves open:
 - A child command gets its op's deadline, less 30 s to print its report
   (`rebrew.ops.CHILD_REPORT_SECONDS`), in `REBREW_CALL_DEADLINE`; its remote
   compiles start no attempt or retry wait a whole request could not finish
-  before it. A source the service never compiled (it stayed unavailable
-  through the retries, or the deadline left no time) is `NOT_RUN` in the
+  before it. A source the service gave no verdict on (it refused or failed the
+  compile, or the deadline left no time to send it) is `NOT_RUN` in the
   `verify_target` results (summary `not_run`) and a `not_run` mismatch of
   `build`, never `COMPILE_ERROR` or a verdict
   ([TOOLCHAIN.md](TOOLCHAIN.md#compile-backends)).

@@ -1726,14 +1726,32 @@ class TestVerifyWatch:
 class TestRemoteServiceFailureIsNoVerdict:
     """A remote compile the service could not run says nothing about the source."""
 
+    @pytest.mark.parametrize(
+        "refusal",
+        [
+            {"kind": "service", "error_code": "capacity", "retryable": True},
+            # The jobs owner's spent budget, and a refused credential: not retried.
+            {"kind": "http", "status_code": 403},
+            {"kind": "http", "status_code": 401},
+            {"kind": "protocol"},
+            # Headers a bundle cannot ship: the source was never sent.
+            {"kind": "validation"},
+        ],
+        ids=["capacity", "budget", "credential", "protocol", "bundle"],
+    )
     @pytest.mark.parametrize("stored", ["NEAR_MATCHING", "STUB"])
     def test_status_and_cache_keep_the_last_verdict(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stored: str
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        stored: str,
+        refusal: dict[str, Any],
     ) -> None:
-        """A capacity refusal used to overwrite the row with COMPILE_ERROR.
+        """A refusal without a verdict used to overwrite the row with COMPILE_ERROR.
 
         The run reports the source as not run, with the structured error, and fails;
-        it reported it as a compile error until the YC server.dll verification.
+        it reported a capacity refusal as a compile error until the YC server.dll
+        verification, and a refusal that is not retried until the jobs owner's 403.
         """
         from rebrew.compiler.compile import classify_compare_result
         from rebrew.compiler.recompile_client import RecompileError
@@ -1750,22 +1768,17 @@ class TestRemoteServiceFailureIsNoVerdict:
             "rebrew.verify.prepare_entries",
             lambda *a, **k: ([entry], 0, 0, [], [], 0, [], [], [], {}, 0),
         )
-        refusal = RecompileError(
-            "recompile service could not compile (capacity): server at capacity",
-            kind="service",
-            error_code="capacity",
-            retryable=True,
-        )
+        error = RecompileError("recompile service could not compile", **refusal)
 
         def _verify(e: Any, cfg: Any, cache: Any = None, **kw: Any) -> Any:
             # What compile_and_compare returns for a service refusal.
             return classify_compare_result(
                 False,
-                f"COMPILE_ERROR: recompile service error: {refusal}",
+                f"COMPILE_ERROR: recompile service error: {error}",
                 b"\x90" * 64,
                 None,
                 None,
-                error=refusal,
+                error=error,
             )
 
         monkeypatch.setattr("rebrew.verify.verify_entry", _verify)
@@ -1782,8 +1795,7 @@ class TestRemoteServiceFailureIsNoVerdict:
         assert row["message"].startswith("not run (service unavailable): ")
         summary = cli_payload(result)["summary"]
         assert (summary["not_run"], summary["compile_error"]) == (1, 0)
-        assert row["error"]["error_code"] == "capacity"
-        assert row["error"]["retryable"] is True
+        assert row["error"] == error.to_dict()
         assert get_entry(tmp_path, 0x1000, "SERVER").get("status") == stored
         cached = load_verify_cache(cfg.root / ".rebrew" / "verify_cache.toml", cfg)
         assert cached is None or "0x00001000" not in cached.entries

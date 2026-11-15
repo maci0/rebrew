@@ -274,21 +274,6 @@ class RecompileError(RebrewError, RuntimeError):
         self.error_code = error_code
         self.retry_after = retry_after
 
-    @property
-    def no_verdict(self) -> bool:
-        """Whether the service gave no verdict on the source.
-
-        It was not reached or not sent to, its answer was lost or transient,
-        or it could not run the compile.  True for every retryable error, and
-        also for one that is not re-sent because an ``emit_assembly`` request
-        may already have compiled.
-        """
-        return (
-            self.kind in ("network", "deadline")
-            or (self.kind == "http" and self.status_code in RETRYABLE_HTTP_STATUS)
-            or (self.kind == "service" and self.error_code in _INFRASTRUCTURE_FAILURES)
-        )
-
 
 def _retry_after(value: str | None) -> float | None:
     """Seconds a ``Retry-After`` header asks to wait: delta-seconds or an HTTP-date."""

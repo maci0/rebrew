@@ -8,7 +8,7 @@
 
 - A remote compile that gives up on a retryable refusal still holds the `ServiceGate` for the refusal's `Retry-After`, so the next compile of the process waits instead of sending at once.
 
-- An `emit_assembly` compile that is not re-sent after a `timeout` or `runner_unavailable` answer, a 500, 502 or 504, or a lost reply is `NOT_RUN`, not `COMPILE_ERROR`: the service gave no verdict on the source (`RecompileError.no_verdict`).
+- Every remote compile without a verdict is `NOT_RUN`, never `COMPILE_ERROR`: any `RecompileError` (`rebrew.compiler.compile.service_unavailable`), retried or not. A refusal that is not retried read as `COMPILE_ERROR`: the jobs owner's 403 for a spent budget, a 401 or another 4xx, an `emit_assembly` compile not re-sent after `timeout`, `runner_unavailable`, a 500, 502 or 504 or a lost reply, a reply the client cannot read, and a source whose headers cannot ship in a bundle (its error now names the source). `rebrew test` on a multi-function file reports each function of a refused compile as `NOT_RUN` and exits 2, where it exited with `COMPILE ERROR` for the file, and `rebrew test --linked` carries the refusal like the other compares. The toolchain rejecting the source (`toolchain_failure`) is still `COMPILE_ERROR`, and so is a local toolchain that cannot run, with its `ToolchainError`.
 
 ## [6.43.0] - 2026-11-16
 

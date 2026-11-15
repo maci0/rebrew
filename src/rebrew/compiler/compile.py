@@ -276,10 +276,11 @@ class CompareResult:
     #: compile input, so a result recorded under one digest says nothing
     #: about a build under another.
     context_hash: str | None = None
-    #: The structured failure behind a ``COMPILE_ERROR`` / ``EXTRACT_ERROR``
-    #: verdict when the compile never reached the toolchain's verdict on the
-    #: source: a :class:`rebrew.compiler.recompile_client.RecompileError` from
-    #: the remote backend (``kind`` / ``status_code`` / ``retryable``), or a
+    #: The structured failure behind a ``NOT_RUN``, ``COMPILE_ERROR`` or
+    #: ``EXTRACT_ERROR`` result when the compile never reached the toolchain's
+    #: verdict on the source: a :class:`rebrew.compiler.recompile_client.RecompileError`
+    #: from the remote backend (``kind`` / ``status_code`` / ``retryable``; always
+    #: ``NOT_RUN``), or a
     #: :class:`rebrew.compiler.toolchain.ToolchainError` for a local toolchain
     #: or setup that could not run.  ``None`` with ``COMPILE_ERROR`` means the
     #: toolchain ran and rejected the source.  Without this field a consumer
@@ -1412,17 +1413,20 @@ _recompile_retired: list[Any] = []
 
 
 def service_unavailable(error: RebrewError | None) -> bool:
-    """Whether *error* is a remote compile the service never ran or answered for.
+    """Whether *error* is a remote compile that gave no verdict on the source.
 
-    A :class:`~rebrew.compiler.recompile_client.RecompileError` with
-    ``no_verdict``: a service that stayed unavailable through its retries
-    (capacity, a timeout, a runner or the runtime unavailable, a 429 or 503,
-    an unreachable host), one an ``emit_assembly`` request does not re-send,
-    or a ``deadline`` one that was never sent.
+    Every :class:`~rebrew.compiler.recompile_client.RecompileError` is one: the
+    toolchain's verdict is a ``RecompileResult`` with ``ok`` false
+    (``toolchain_failure``), never an error.  An error is the service, the jobs
+    owner's mediator or the client refusing or failing the compile (capacity, a
+    timeout, a runner unavailable, a 4xx such as a 429 or a spent job budget, a
+    5xx, a reply it cannot read), a request that could not be sent (headers a
+    bundle cannot ship, a flag over the service's bound), an unreachable host,
+    or a ``deadline`` that left no time to send it.
     """
     from rebrew.compiler.recompile_client import RecompileError
 
-    return isinstance(error, RecompileError) and error.no_verdict
+    return isinstance(error, RecompileError)
 
 
 #: Environment variable carrying the call deadline of a child command
@@ -2275,9 +2279,14 @@ def compile_to_obj(
                 cfg, spec, compile_text, all_flags, src_parent, extra_include_dirs
             )
         except RecompileError as exc:
+            # The refusal names the source, so the NOT_RUN row it becomes says why.
+            refusal = RecompileError(
+                f"cannot ship {source_path.name} to the recompile service: it {exc}",
+                kind="validation",
+            )
             if backend_errors is not None:
-                backend_errors.append(exc)
-            return None, f"cannot ship {source_path.name} to the recompile service: it {exc}"
+                backend_errors.append(refusal)
+            return None, str(refusal)
         remote_flags = all_flags if bundle is None else bundle.flags
         if (
             spec is not None
@@ -3722,8 +3731,8 @@ def compile_and_compare_linked(
     trade-off of the linker-resolved oracle.
 
     Returns a :class:`CompareResult` whose ``status`` is EXACT on a raw byte
-    match, NEAR_MATCHING/STUB/SIZE_MISMATCH on diffs, and COMPILE_ERROR when
-    the compile or the link fails.
+    match, NEAR_MATCHING/STUB/SIZE_MISMATCH on diffs, NOT_RUN when a remote compile gave
+    no verdict, and COMPILE_ERROR when the compile or the link fails.
     """
     spec, spec_err = _linked_spec(cfg, toolchain)
     if spec is None:
@@ -3771,6 +3780,7 @@ def compile_and_compare_linked(
         workdir = writable_temp_dir("rebrew_linked_")
         shell_path = workdir / ("linked_" + Path(source_path).name)
         shell_path.write_text(shell, encoding="utf-8", errors="surrogateescape")
+        backend_errors: list[RebrewError] = []
         obj_path, err = compile_to_obj(
             cfg,
             shell_path,
@@ -3779,10 +3789,18 @@ def compile_and_compare_linked(
             use_cache=use_cache,
             toolchain=toolchain,
             extra_include_dirs=[str(Path(source_path).resolve().parent)],
+            backend_errors=backend_errors,
         )
         if obj_path is None:
+            # A remote compile without a verdict reads NOT_RUN, a local tool that
+            # could not run COMPILE_ERROR with its error, as in compile_and_compare.
             return classify_compare_result(
-                False, f"COMPILE_ERROR: {_compiler_error_excerpt(err)}", target_bytes, None, None
+                False,
+                f"COMPILE_ERROR: {_compiler_error_excerpt(err)}",
+                target_bytes,
+                None,
+                None,
+                error=backend_errors[0] if backend_errors else None,
             )
 
         dll_path = workdir / "linked_out.dll"

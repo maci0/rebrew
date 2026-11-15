@@ -1594,3 +1594,59 @@ class TestServicePacing:
         finally:
             release.set()
             holder.join(30)
+
+
+class TestASpentJobBudgetIsNotRun:
+    """The jobs owner refuses a compile past the job's budget with 403
+    (``services/jobs/compile_mediator.go``). That is no verdict on the source: the
+    functions the budget leaves read NOT_RUN, never COMPILE_ERROR."""
+
+    def test_the_functions_after_the_budget_are_not_run(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.compiler.compile import compile_and_compare
+
+        original_read = Path.read_text
+
+        def read_cap(path: Path, *args: Any, **kwargs: Any) -> str:
+            if str(path) == "/run/rebrew-job/capability":
+                return "a" * 64
+            return original_read(path, *args, **kwargs)
+
+        monkeypatch.setenv("REBREW_JOB_COMPILE_SOCKET", "/run/rebrew-job/owner.sock")
+        monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
+        monkeypatch.setattr(Path, "read_text", read_cap)
+        monkeypatch.setattr(compile_mod, "_service_gates", {})
+        spent = _Resp(403, text='{"error":"compile budget exhausted","code":"403"}')
+        client = _sequence_client(
+            monkeypatch,
+            [_Resp(200, json_body=_COMPILED), spent, spent],
+            [_Resp(200, content=b"not an object file")],
+        )
+        monkeypatch.setattr(client, "close", lambda: None, raising=False)
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            recompile_url="http://rebrew-job",
+            recompile_emit_assembly=False,
+            compile_timeout=30,
+            compiler_profile="msvc-6.0",
+            compiler_command="",
+            base_cflags="",
+            compiler_includes=tmp_path,
+            compiler_runner="",
+        )
+        results = []
+        for name in ("f", "g", "h"):
+            src = tmp_path / f"{name}.c"
+            src.write_text(f"int {name}(void) {{ return 0; }}", encoding="utf-8")
+            results.append(
+                compile_and_compare(cfg, src, f"_{name}", b"\x55\x8b\xec", [], use_cache=False)
+            )
+
+        assert [call for call, _url in client.calls] == ["post", "get", "post", "post"]
+        assert results[0].status not in ("NOT_RUN", "COMPILE_ERROR")
+        for result in results[1:]:
+            assert result.status == "NOT_RUN" and not result.matched
+            assert result.message.startswith("not run (service unavailable): ")
+            assert isinstance(result.error, RecompileError)
+            assert (result.error.kind, result.error.status_code) == ("http", 403)

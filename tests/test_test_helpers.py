@@ -1002,7 +1002,16 @@ class TestMultiFixSize:
         writes: list[tuple[str, int, int]] = []
         batches: list[int] = []
 
-        def _fake_compile(cfg_, src, cflags, workdir, obj_name=None, toolchain=None, context=None):
+        def _fake_compile(
+            cfg_,
+            src,
+            cflags,
+            workdir,
+            obj_name=None,
+            toolchain=None,
+            context=None,
+            backend_errors=None,
+        ):
             return str(tmp_path / "f.obj"), ""
 
         def _fake_parse(obj_path, sym):
@@ -1074,7 +1083,16 @@ class TestMultiFixSize:
 
         writes: list[tuple[str, int, int]] = []
 
-        def _fake_compile(cfg_, src, cflags, workdir, obj_name=None, toolchain=None, context=None):
+        def _fake_compile(
+            cfg_,
+            src,
+            cflags,
+            workdir,
+            obj_name=None,
+            toolchain=None,
+            context=None,
+            backend_errors=None,
+        ):
             return str(tmp_path / "f.obj"), ""
 
         def _fake_parse(obj_path, sym):
@@ -1398,7 +1416,16 @@ class TestMultiCachePatchDelta:
             source="void f(int a) { g = a; }",
         )
 
-        def _fake_compile(cfg_, src, cflags, workdir, obj_name=None, toolchain=None, context=None):
+        def _fake_compile(
+            cfg_,
+            src,
+            cflags,
+            workdir,
+            obj_name=None,
+            toolchain=None,
+            context=None,
+            backend_errors=None,
+        ):
             return str(tmp_path / "f.obj"), ""
 
         def _fake_parse(obj_path, sym):
@@ -1831,3 +1858,59 @@ class TestMultiBlockerSource:
         )
         testmod._test_multi(cfg, str(source), [ann], None)
         assert writes[0]["clear_blockers"] is True
+
+
+class TestMultiRemoteRefusalIsNotRun:
+    """A multi-function file whose remote compile is refused without a verdict (the
+    jobs owner's spent budget) reads NOT_RUN per function and exits 2; it exited
+    with a COMPILE ERROR for the whole file."""
+
+    def test_every_function_of_the_refused_group_is_not_run(
+        self, tmp_path: Path, monkeypatch: Any, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        import json
+        from types import SimpleNamespace as NS
+
+        import rebrew.test as testmod
+        from rebrew.compiler.recompile_client import RecompileError
+        from rebrew.metadata.bindings import SourceBinding
+
+        cfg = NS(
+            target_binary=str(tmp_path / "x.bin"),
+            metadata_dir=tmp_path,
+            reversed_dir=tmp_path,
+            module="X",
+            default_jobs=1,
+            compile_timeout=60,
+        )
+        spent = RecompileError(
+            "recompile service returned HTTP 403: compile budget exhausted",
+            kind="http",
+            status_code=403,
+        )
+
+        def refused(*_a: Any, backend_errors: list[Any], **_k: Any) -> tuple[None, str]:
+            # What compile_to_obj answers when the remote compile is refused.
+            backend_errors.append(spent)
+            return None, f"recompile service error: {spent}"
+
+        monkeypatch.setattr(testmod, "compile_to_obj", refused)
+        writes: list[Any] = []
+        monkeypatch.setattr(testmod, "update_source_status", lambda *a, **k: writes.append(a))
+        anns = [
+            SourceBinding(kind="FUNCTION", module="X", va=va, size=12, symbol=sym, status="STUB")
+            for va, sym in ((0x1000, "_f"), (0x2000, "_g"))
+        ]
+
+        with pytest.raises(typer.Exit) as exited:
+            testmod._test_multi(cfg, str(tmp_path / "f.c"), anns, None, json_output=True)
+
+        assert exited.value.exit_code == 2
+        rows = json.loads(capsys.readouterr().out)["results"]
+        assert [(r["va"], r["status"]) for r in rows] == [
+            ("0x00001000", "NOT_RUN"),
+            ("0x00002000", "NOT_RUN"),
+        ]
+        assert all(r["message"].startswith("not run (service unavailable): ") for r in rows)
+        assert all(r["error"]["status_code"] == 403 for r in rows)
+        assert writes == []

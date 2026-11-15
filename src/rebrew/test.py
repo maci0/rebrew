@@ -79,9 +79,11 @@ lazy from rebrew.compiler.compile import (
     compile_to_obj,
     is_matched,
     matched_byte_count,
+    service_unavailable,
 )
 lazy from rebrew.compiler.context import CompileContext
 lazy from rebrew.config import ProjectConfig, target_module
+lazy from rebrew.errors import RebrewError
 lazy from rebrew.formats.binary_loader import PADDING_BYTES, extract_raw_bytes
 lazy from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 lazy from rebrew.metadata.bindings import (
@@ -1974,6 +1976,9 @@ def _test_multi(
     workdir = writable_temp_dir("test_multi_")
     try:
         objs: dict[tuple[str | None, str], Any] = {}
+        # Groups whose remote compile gave no verdict, with the refusal: their
+        # functions read NOT_RUN and the run exits 2.
+        not_run: dict[tuple[str | None, str], RebrewError] = {}
         cache_patches: list[dict[str, object]] = []
         # Fixed SIZE values batch into one metadata write after this file's
         # annotations; one TOML read-modify-write per stale size used to
@@ -1986,7 +1991,7 @@ def _test_multi(
             # One compile per distinct (toolchain, cflags): every annotation
             # resolves the same override for most of a file, and a compile is a
             # container invocation, not a parse.
-            if (tc_name, cf) in objs:
+            if (tc_name, cf) in objs or (tc_name, cf) in not_run:
                 continue
             # A per-group object, so groups never read each other's bytes.
             # Only msvc (/Fo) and posix (-o) honor an explicit name; borland
@@ -2017,6 +2022,7 @@ def _test_multi(
                 va=0,
                 context_hash=context.sha256 if context is not None else "",
             )
+            group_errors: list[RebrewError] = []
             obj_path, err = compile_to_obj(
                 cfg,
                 source,
@@ -2025,7 +2031,11 @@ def _test_multi(
                 obj_name=obj_name,
                 toolchain=tc_name,
                 context=context,
+                backend_errors=group_errors,
             )
+            if obj_path is None and group_errors and service_unavailable(group_errors[0]):
+                not_run[(tc_name, cf)] = group_errors[0]
+                continue
             if obj_path is None:
                 error_exit(
                     f"COMPILE ERROR (toolchain {tc_name}, cflags {cf}):\n{err}",
@@ -2063,6 +2073,27 @@ def _test_multi(
                     )
                 else:
                     console.print(f"[yellow]SKIP[/yellow] {untrusted_ident(sym)} — no SIZE")
+                continue
+
+            refusal = not_run.get(_effective_overrides(ann))
+            if refusal is not None:
+                any_extract_error = True
+                message = f"not run (service unavailable): {refusal}"
+                if json_output:
+                    results_list.append(
+                        {
+                            "symbol": sym,
+                            "va": f"0x{ann.va:08x}",
+                            "size": ann.size,
+                            "status": "NOT_RUN",
+                            "message": message,
+                            "error": refusal.to_dict(),
+                        }
+                    )
+                else:
+                    console.print(
+                        f"[red]NOT_RUN[/red] {untrusted_ident(sym)}: {untrusted_ident(message)}"
+                    )
                 continue
 
             target_bytes = extract_raw_bytes(cfg.target_binary, ann.va, ann.size)

@@ -38,15 +38,17 @@ it gives up (`recompile_client.ServiceGate`). A retryable failure (a transport b
 `recompile_retries` times with backoff, waiting at least the `Retry-After`.
 Under `rebrew ops` the child command knows its op's deadline
 (`REBREW_CALL_DEADLINE`) and starts no attempt or wait that a whole request
-(`compile_timeout` + 120 s) could not finish before it. A compile the service
-gave no verdict on, because it stayed unavailable through the retries, the
-deadline left no time, or an `emit_assembly` request that may have compiled
-was not re-sent, is `NOT_RUN` ("not run (service unavailable)"), never a
-`COMPILE_ERROR` or a verdict: `rebrew verify` reports it in its results and
-its summary's `not_run`, keeps the stored STATUS and cache, and fails;
-`rebrew test` prints it as its result (`message`, `error`) and exits 2;
-`rebrew build round-trip` lists it as a `not_run`
-mismatch.
+(`compile_timeout` + 120 s) could not finish before it. A remote compile
+without a verdict, any `RecompileError` (the service or the jobs owner refused
+or failed it, through the retries or with a refusal not retried such as a
+spent job budget or an `emit_assembly` request that may have compiled, or it
+was never sent: the deadline, headers a bundle cannot ship), is `NOT_RUN`
+("not run (service unavailable)"), never a `COMPILE_ERROR` or a verdict:
+`rebrew verify` reports it in its results and its summary's `not_run`, keeps
+the stored STATUS and cache, and fails; `rebrew test` prints it as its result
+(`message`, `error`), for each function of a multi-function file, and exits 2;
+`rebrew build round-trip` lists it as a `not_run` mismatch. A local toolchain
+that cannot run stays `COMPILE_ERROR` with its `ToolchainError`.
 
 A source that reads project headers ships them with the compile as an include
 bundle (`compiler.compile.remote_include_bundle`): every header its include

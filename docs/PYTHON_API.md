@@ -156,8 +156,8 @@ print(result.ok, result.obj_bytes, result.log, result.compiler_version)
 # service's own failures raise kind "service" carrying that `error_code`
 # (retryable for capacity, timeout, runner_unavailable, publish_failed and
 # provenance_unavailable). A reply without a known `error_code` is "protocol".
-# `RecompileError.no_verdict` says the service gave no verdict on the source:
-# every retryable error, and one an `emit_assembly` request does not re-send.
+# Every `RecompileError` is no verdict on the source (`compile_and_compare`
+# reads it as NOT_RUN); the toolchain's verdict is `result.ok == False`.
 # `result.to_dict()` / `RecompileResult.from_dict()` store the verdict (not
 # the object bytes) the way `CompareResult` does.
 #
