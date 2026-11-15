@@ -671,9 +671,10 @@ _SOURCE_TEXT_MEMO_BY_PATH: dict[str, set[_SourceMemoKey]] = {}
 # ``(spelling, mtime_ns, size, ino)`` -> resolved path.  The stat is from
 # ``lstat``, so a content edit or a symlink retarget misses and resolves
 # again.  That changed-final-component case is what header and source
-# identity need.
+# identity need.  Sized like the source-text memo: at 2048 a 5.5k-file tree
+# evicted every entry before its next pass and re-resolved each source.
 _RESOLVED_PATHS: OrderedDict[tuple[str, int, int, int], Path] = OrderedDict()
-_RESOLVED_PATHS_MAX = 2048
+_RESOLVED_PATHS_MAX = _SOURCE_TEXT_MEMO_MAX
 _RESOLVED_PATHS_LOCK = threading.Lock()
 
 
