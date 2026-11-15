@@ -37,6 +37,7 @@ lazy import re
 lazy import struct
 lazy import subprocess
 lazy from collections import Counter
+lazy from concurrent.futures import Future, ThreadPoolExecutor
 lazy from typing import Any
 
 import typer
@@ -952,16 +953,23 @@ def _is_discovery_result(found: Any) -> bool:
     )
 
 
+#: Providers that do not read one another, started together: two rizin child
+#: processes and the in-process capstone sweep.
+_CONCURRENT_PROVIDERS = ("rizin aaa", "rizin aa;aap", "capstone sweep")
+
+
 def _run_providers(
     names: list[str],
     binary: Path,
     d: Discovery,
     *,
     providers: dict[str, Discoverer],
+    started: dict[str, Future[Any]] | None = None,
 ) -> dict[str, list[tuple[int, int, str]]]:
     """Run named providers, recording per-source counts on *d*.
 
-    A provider that raises, or returns anything but a list of
+    A name in *started* takes that future's result instead of calling the
+    provider again. A provider that raises, or returns anything but a list of
     ``(va: int >= 0, size: int >= 0, name: str)`` rows, is recorded as empty
     (one broken backend cannot abort the merge).  Returns
     ``{name: [(va, size, name)]}``.
@@ -972,7 +980,7 @@ def _run_providers(
         if fn is None:
             continue
         try:
-            found = fn(binary)
+            found = started[name].result() if started and name in started else fn(binary)
         except Exception as exc:
             logger.warning("discoverer %r failed (skipped): %s", name, exc)
             found = []
@@ -1015,7 +1023,7 @@ def discover_functions(binary: Path, *, min_size: int = 8) -> Discovery:
     Plugin discoverers (``rebrew.discoverers``) join every branch under
     their entry-point name.
     """
-    from rebrew.formats.binary_loader import iat_slot_vas, is_mz, is_ne, load_binary
+    from rebrew.formats.binary_loader import is_mz, is_ne
 
     d = Discovery()
     with _DISCOVERERS_LOCK:
@@ -1045,11 +1053,37 @@ def discover_functions(binary: Path, *, min_size: int = 8) -> Discovery:
         d.functions = [f for f in sized if f[1] >= min_size]
         return d
 
+    # The rizin analyses are child processes and the sweep needs none of their
+    # output: start all three, then merge in the order below.
+    pool = ThreadPoolExecutor(max_workers=len(_CONCURRENT_PROVIDERS))
+    started = {
+        name: pool.submit(providers[name], binary)
+        for name in _CONCURRENT_PROVIDERS
+        if name in providers
+    }
+    try:
+        return _merge_discovered(binary, d, providers, plugins, started, min_size)
+    finally:
+        pool.shutdown(wait=True)
+
+
+def _merge_discovered(
+    binary: Path,
+    d: Discovery,
+    providers: dict[str, Discoverer],
+    plugins: list[str],
+    started: dict[str, Future[Any]],
+    min_size: int,
+) -> Discovery:
+    """The rizin, unwind, symbol, plugin and sweep candidates merged and validated."""
+    from rebrew.formats.binary_loader import iat_slot_vas, load_binary
+
     found = _run_providers(
         ["rizin aaa", "rizin aa;aap", "eh_frame", "pdata", "elf symbols", *plugins],
         binary,
         d,
         providers=providers,
+        started=started,
     )
     # Merge: prefer-larger-size union over every provider (rizin strategies
     # and plugins alike); the merged-rizin count tracks the rizin pair only.
@@ -1061,7 +1095,9 @@ def discover_functions(binary: Path, *, min_size: int = 8) -> Discovery:
     )
 
     # Add capstone sweep candidates not already present.
-    sweep = _run_providers(["capstone sweep"], binary, d, providers=providers)["capstone sweep"]
+    sweep = _run_providers(["capstone sweep"], binary, d, providers=providers, started=started)[
+        "capstone sweep"
+    ]
     sweep_names = {va: name for va, _, name in sweep}
     for va, name in sweep_names.items():
         if va not in merged:
