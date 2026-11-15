@@ -13,7 +13,7 @@ import shutil
 import threading
 import tomllib
 from pathlib import Path
-from typing import Any
+from typing import Any, override
 lazy from collections.abc import Iterator
 
 import pytest
@@ -432,6 +432,7 @@ def _throttling_recompile(retry_after: str) -> Iterator[str]:
             self.end_headers()
             self.wfile.write(body)
 
+        @override
         def log_message(self, *_args: Any) -> None:
             return
 
