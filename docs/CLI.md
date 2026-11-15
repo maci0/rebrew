@@ -6926,8 +6926,10 @@ exceeds 16 MiB; also a wrapped command's `usage` error, with its message),
 ran and rejected the source; the detail is `COMPILE_ERROR: ` and its diagnostics,
 one per line, and there is no verdict), `invalid-project-config` (400, see
 `rebrew.project_targets`), `project-import-refused` (422, see
-`rebrew.import_archive` below), `deadline-exceeded` (504, see the deadlines
-below), or, from `serve` only, `worker-busy` (503) and `caller-gone` (499,
+`rebrew.import_archive` below), `compile-not-run` (503, `rebrew.apply_candidate`:
+the remote compile service never ran the compile, so nothing was applied; `serve`
+adds `Retry-After` when the service named one), `deadline-exceeded` (504, see the
+deadlines below), or, from `serve` only, `worker-busy` (503) and `caller-gone` (499,
 written to a caller that has already closed). An engine failure no refusal
 above explains answers `<op> failed while <step>: <cause>` (`<op> failed: <cause>`
 outside a named step, such as staging the retained snapshot or checking the
@@ -7043,6 +7045,13 @@ Op details the contract leaves open:
   read and carry metadata file sets; the client never parses or names
   rebrew's metadata files. See
   [the dispatch metadata contract](METADATA.md#dispatch-metadata-contract).
+- A compile the remote service never ran (it stayed unavailable through the
+  retries, or the deadline left no time) is no verdict: `rebrew.verify_function`
+  answers 200 with the `rebrew test` report whose `status` is `NOT_RUN`, with
+  `message` (`not run (service unavailable): ...`), `error` (the structured
+  `RecompileError`: `status_code`, `error_code`, `retry_after`, `retryable`) and
+  `verdict_valid` false, the same status as a `verify_target` row;
+  `rebrew.apply_candidate` refuses 503 `compile-not-run` and applies nothing.
 - `rebrew.verify_function` replies, and the `result` of `rebrew.apply_candidate`,
   add `compile_inputs` and `verdict_valid`. `compile_inputs` has the metadata
   descriptor shape: `files` are the compiled source (the candidate as compiled,

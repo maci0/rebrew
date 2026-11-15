@@ -56,6 +56,7 @@ lazy import hashlib
 lazy import hmac
 lazy import itertools
 lazy import json
+lazy import math
 lazy import os
 lazy import re
 lazy import select
@@ -405,6 +406,9 @@ REMOTE_HEADERS = "remote-compile-headers"
 #: A supplied ``rebrew-project.toml`` rebrew cannot read (400); the detail
 #: starts ``invalid project config:``.
 INVALID_PROJECT_CONFIG = "invalid-project-config"
+#: The remote compile service never ran an applied candidate's compile (503,
+#: with ``Retry-After`` when the service named one): nothing was applied.
+COMPILE_NOT_RUN = "compile-not-run"
 #: The toolchain ran and rejected the source (422): no verdict, and the detail
 #: carries the compiler's diagnostics.  A toolchain that could not run stays
 #: 500 ``engine-error``.
@@ -416,13 +420,22 @@ class OpsError(RebrewError):
 
     code: str = ENGINE_ERROR
     status: int = 500
+    retry_after: int | None = None
 
-    STRUCTURED_FIELDS = (*RebrewError.STRUCTURED_FIELDS, "code", "status")
+    STRUCTURED_FIELDS = (*RebrewError.STRUCTURED_FIELDS, "code", "status", "retry_after")
 
-    def __init__(self, detail: str, *, code: str = ENGINE_ERROR, status: int = 500) -> None:
+    def __init__(
+        self,
+        detail: str,
+        *,
+        code: str = ENGINE_ERROR,
+        status: int = 500,
+        retry_after: int | None = None,
+    ) -> None:
         super().__init__(detail)
         self.code = code
         self.status = status
+        self.retry_after = retry_after
 
 
 def _invalid(detail: str) -> OpsError:
@@ -2359,7 +2372,14 @@ def run_rebrew(
 
         stop_process_tree(process)
         raise
-    if process.returncode != 0 and not (outcome_exit and process.returncode == 1):
+    refused = process.returncode != 0 and not (outcome_exit and process.returncode == 1)
+    if refused and outcome_exit and process.returncode == EXIT_ERROR:
+        # rebrew test prints a NOT_RUN result (the compile service never ran it) and exits 2.
+        with contextlib.suppress(json.JSONDecodeError):
+            printed = json.loads(stdout)
+            if isinstance(printed, dict) and printed.get("status") == "NOT_RUN":
+                return printed
+    if refused:
         kind, message = _command_refusal(stderr)
         if kind == "usage":
             # The command rejected its input (clispec ``usage``): the caller's request.
@@ -3695,6 +3715,15 @@ def _applied(
         snapshot_metadata_database,
     )
 
+    if result.get("status") == "NOT_RUN":
+        error = result.get("error")
+        wait = error.get("retry_after") if isinstance(error, dict) else None
+        raise OpsError(
+            _bounded(str(result.get("message", "not run (service unavailable)"))),
+            code=COMPILE_NOT_RUN,
+            status=503,
+            retry_after=math.ceil(wait) if isinstance(wait, (int, float)) else None,
+        )
     if result.get("status") not in {"EXACT", "RELOC"}:
         raise _invalid(f"the candidate no longer matches: {result.get('status')}")
     changed = []
@@ -4427,11 +4456,21 @@ def _run_op(config: WorkerConfig, name: str, op: Op, body: bytes) -> Mapping[str
         raise _refused(_failure_detail(config, name, exc)) from None
 
 
+#: Headers the HTTP transport adds to the reply of the call in flight
+#: (``Retry-After`` of a refusal that names one); unset on the exec transport.
+_REPLY_HEADERS: ContextVar[dict[str, str] | None] = ContextVar(
+    "rebrew_ops_reply_headers", default=None
+)
+
+
 def dispatch(config: WorkerConfig, name: str, body: bytes) -> tuple[int, bytes]:
     """Answer one call: ``(200, reply)`` or ``(status, refusal)``."""
     try:
         reply = json.dumps(_answer(config, name, body), allow_nan=False).encode("utf-8")
     except OpsError as exc:
+        headers = _REPLY_HEADERS.get()
+        if exc.retry_after is not None and headers is not None:
+            headers["Retry-After"] = str(exc.retry_after)
         # A 5xx refusal is a server failure with no exception attached (a
         # download timing out, a child command dying): without one line the
         # operator holding the refusal has only the fixed detail to go on.
@@ -4957,14 +4996,19 @@ class _OpsHandler(BaseHTTPRequestHandler):
             target=self._watch_caller, args=(cancellation, answered), daemon=True
         )
         token = _CANCELLATION.set(cancellation)
+        headers: dict[str, str] = {}
+        replied = _REPLY_HEADERS.set(headers)
         watcher.start()
         try:
-            reply = dispatch(server.config, urlsplit(self.path).path.removeprefix("/"), body)
+            status, reply = dispatch(
+                server.config, urlsplit(self.path).path.removeprefix("/"), body
+            )
         finally:
             answered.set()
+            _REPLY_HEADERS.reset(replied)
             _CANCELLATION.reset(token)
             watcher.join()
-        self._send(*reply)
+        self._send(status, reply, headers or None)
 
     def _watch_caller(self, cancellation: _Cancellation, answered: threading.Event) -> None:
         """Cancel the call once its caller closes the connection."""

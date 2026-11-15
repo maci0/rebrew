@@ -41,7 +41,8 @@ never ran, because it stayed unavailable through the retries or the deadline
 left no time, is `NOT_RUN` ("not run (service unavailable)"), never a
 `COMPILE_ERROR` or a verdict: `rebrew verify` reports it in its results and
 its summary's `not_run`, keeps the stored STATUS and cache, and fails;
-`rebrew test` exits 2; `rebrew build round-trip` lists it as a `not_run`
+`rebrew test` prints it as its result (`message`, `error`) and exits 2;
+`rebrew build round-trip` lists it as a `not_run`
 mismatch.
 
 A source that reads project headers ships them with the compile as an include

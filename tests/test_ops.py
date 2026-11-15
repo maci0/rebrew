@@ -2007,18 +2007,22 @@ class TestReconstructionOps:
             "src/a.c(2) : error C2143",
         ]
 
-    def test_a_service_that_cannot_compile_stays_an_engine_failure(
+    def test_a_service_that_cannot_compile_answers_a_not_run_report(
         self, world: tuple[WorkerConfig, Path], monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The compile never ran: no verdict on the source, and not the caller's fault."""
+        """The compile never ran: a report with no verdict, not a 500 the backend stores as one."""
         config, project = _project_copy(world, "verify_function_unavailable")
         source = min((project / "src" / "mini").glob("*.c")).relative_to(project).as_posix()
         monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://recompile.test")
         monkeypatch.setattr("rebrew.compiler.recompile_client.time.sleep", lambda _s: None)
         serve_recompile(monkeypatch, features=["include-bundles"], error_code="runner_unavailable")
         body = json.dumps({"project_dir": str(project), "source": source, "no_promote": True})
-        refusal = _refusal(config, "rebrew.verify_function", body.encode())
-        assert (refusal["status"], refusal["error"]) == (500, "engine-error"), refusal
+        status, raw = dispatch(config, "rebrew.verify_function", body.encode())
+        reply = json.loads(raw)
+        assert status == 200, reply
+        assert reply["status"] == "NOT_RUN"
+        assert reply["message"].startswith("not run (service unavailable): ")
+        assert reply["error"]["error_code"] == "runner_unavailable"
 
 
 # ---------------------------------------------------------------------------

@@ -689,7 +689,7 @@ def main(
     # 1 = needs work (NEAR_MATCHING/STUB/SIZE_MISMATCH), 2 = tooling error
     # (COMPILE_ERROR raises inside the run; an EXTRACT_ERROR exits 2 as well
     # so single-file, multi-function, and batch modes agree).
-    if result["status"] == "EXTRACT_ERROR":
+    if result["status"] in ("EXTRACT_ERROR", "NOT_RUN"):
         raise typer.Exit(code=EXIT_ERROR)
     if not is_matched(result["status"]):
         raise typer.Exit(code=EXIT_MISMATCH)
@@ -1569,8 +1569,22 @@ def _run_test_impl(
             measured_inputs = kept
 
     if cmp.status == "NOT_RUN":
-        # The service never compiled the source: nothing to report or record.
-        error_exit(cmp.message, json_mode=json_output, code=EXIT_ERROR, kind="failure")
+        # The service never compiled the source: a result with no verdict, and
+        # nothing recorded.  The CLI prints it and exits 2.
+        not_run = build_result_dict_from_compare(
+            source,
+            symbol,
+            va_str or "",
+            size_val or 0,
+            cmp,
+            target_bytes,
+            include_mismatches=False,
+        )
+        not_run["message"] = cmp.message
+        not_run["error"] = cmp.error.to_dict() if cmp.error is not None else None
+        if not json_output:
+            console.print(f"[red]NOT_RUN[/red] {untrusted_ident(cmp.message)}")
+        return not_run
     if cmp.status == "COMPILE_ERROR":
         # No error behind it: the toolchain ran and rejected the source.  The
         # message already starts COMPILE_ERROR: and keeps one diagnostic per line.

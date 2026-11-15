@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
+import http.client
+import http.server
 import json
+import secrets
 import shutil
+import threading
 import tomllib
 from pathlib import Path
 from typing import Any
+lazy from collections.abc import Iterator
 
 import pytest
 
@@ -402,3 +408,108 @@ def test_apply_refuses_the_registry_its_config_ignores(
     assert json.loads(reply)["detail"] == (
         f"the retained project carries {ignored}, which its {backend} metadata ignores"
     )
+
+
+#: Bound on a wait for the worker or the stand-in service, so a wedged one fails the test.
+_WAIT_SECONDS = 120
+
+
+@contextlib.contextmanager
+def _throttling_recompile(retry_after: str) -> Iterator[str]:
+    """A recompile stand-in on a local port answering every compile 429 with *retry_after*.
+
+    The candidate ops compile in a ``rebrew test`` child process, which an
+    in-process transport cannot reach.
+    """
+
+    class _Throttle(http.server.BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            self.rfile.read(int(self.headers.get("Content-Length", "0")))
+            body = b"throttled"
+            self.send_response(429)
+            self.send_header("Retry-After", retry_after)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_args: Any) -> None:
+            return
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Throttle)
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+    )
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}"
+    finally:
+        server.shutdown()
+        thread.join(_WAIT_SECONDS)
+        server.server_close()
+
+
+def _unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, url: str
+) -> tuple[WorkerConfig, list[dict[str, Any]]]:
+    """A retained project compiling at *url*, once: the service answers, then it is not run."""
+    project = PROJECT + f'recompile_url = "{url}"\nrecompile_retries = 0\n'.encode()
+    monkeypatch.setitem(globals(), "PROJECT", project)
+    monkeypatch.setenv("REBREW_RECOMPILE_URL", url)
+    return _stage(tmp_path)
+
+
+def test_verify_answers_a_compile_the_service_never_ran_as_a_not_run_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """It answered 500 "rebrew test failed: not run (service unavailable): ...", which the
+    backend stored as a failed verdict."""
+    with _throttling_recompile("5") as url:
+        config, entries = _unavailable(tmp_path, monkeypatch, url)
+        candidate = "int fcn_00401000(void) { return 0; }\n"
+        status, raw = dispatch(
+            config, "rebrew.verify_function", _request(entries, candidate=candidate)
+        )
+    reply = json.loads(raw)
+    assert status == 200, reply
+    assert reply["status"] == "NOT_RUN" and reply["verdict_valid"] is False
+    assert reply["message"].startswith("not run (service unavailable): ")
+    assert (reply["error"]["status_code"], reply["error"]["retry_after"]) == (429, 5.0)
+    assert (config.filestore / entries[0]["key"]).read_bytes() == PROJECT
+
+
+def test_apply_answers_a_compile_the_service_never_ran_as_503_with_retry_after(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Nothing is applied from a candidate the service never compiled, and the caller may retry."""
+    from rebrew.ops import OpsServer
+
+    token = secrets.token_hex(16)
+    with _throttling_recompile("5") as url:
+        config, entries = _unavailable(tmp_path, monkeypatch, url)
+        with OpsServer(("127.0.0.1", 0), config, token, 1) as server:
+            thread = threading.Thread(
+                target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+            )
+            thread.start()
+            try:
+                connection = http.client.HTTPConnection(
+                    "127.0.0.1", server.server_address[1], timeout=_WAIT_SECONDS
+                )
+                connection.request(
+                    "POST",
+                    "/rebrew.apply_candidate",
+                    body=_request(entries),
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "Content-Type": "application/json",
+                    },
+                )
+                response = connection.getresponse()
+                refusal = json.loads(response.read())
+                connection.close()
+            finally:
+                server.shutdown()
+                thread.join(_WAIT_SECONDS)
+    assert (response.status, refusal["error"]) == (503, "compile-not-run"), refusal
+    assert response.getheader("Retry-After") == "5"
+    assert refusal["detail"].startswith("not run (service unavailable): ")
