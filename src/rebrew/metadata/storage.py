@@ -7,6 +7,7 @@ verdicts; backends own persistence, input discovery, snapshots and transactions.
 import contextlib
 import contextvars
 import logging
+import os
 import threading
 from collections import OrderedDict
 from collections.abc import Callable, Iterator
@@ -182,22 +183,26 @@ _PROJECT_ROOTS_LOCK = threading.Lock()
 _PROJECT_ROOTS_MAX = 256
 
 
-def _marker_identity(directory: Path) -> tuple[int, int, int, int, int] | None:
+def _marker_identity(directory: str) -> tuple[int, int, int, int, int] | None:
     """Stat identity of the project marker in *directory*, ``None`` when absent."""
     try:
-        st = (directory / "rebrew-project.toml").stat()
+        st = os.stat(os.path.join(directory, "rebrew-project.toml"))  # noqa: PTH116, PTH118 -- per-ancestor hot path, no Path per stat
     except OSError:
         return None
     return (st.st_mtime_ns, st.st_ctime_ns, st.st_ino, st.st_size, 1)
 
 
 def _ancestor_identities(directory: Path) -> tuple[tuple[str, tuple[int, ...] | None], ...]:
-    """Marker identity of *directory* and every ancestor, for cache validation."""
+    """Marker identity of absolute *directory* and every ancestor, for cache validation.
+
+    Walks str paths: ``os.path.dirname`` of an absolute ``str(Path)`` is its
+    ``Path.parent``, without building a ``Path`` per ancestor.
+    """
     identities: list[tuple[str, tuple[int, ...] | None]] = []
-    current: Path | None = directory
-    while current is not None:
-        identities.append((str(current), _marker_identity(current)))
-        parent = current.parent
+    current = str(directory)
+    while True:
+        identities.append((current, _marker_identity(current)))
+        parent = os.path.dirname(current)
         if parent == current:
             break
         current = parent
