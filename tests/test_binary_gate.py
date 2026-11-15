@@ -271,6 +271,27 @@ class TestLayoutFreshness:
         assert result["match"] is (part == "code")
         assert result["status"] == ("fresh" if part == "code" else "stale")
 
+    def test_section_va_past_64_bits_is_stale(self, tmp_path: Path) -> None:
+        """A PE32+ whose ImageBase plus RVA passes 2**64 still fingerprints, so
+        a reference swapped for one reads as stale instead of raising
+        ``OverflowError`` out of ``verify --whole-binary``."""
+        from bin_util import make_pe
+
+        from rebrew.binary_gate import check_layout_freshness, layout_fingerprint
+
+        binary = tmp_path / "ref.dll"
+        binary.write_bytes(make_pe(b"\x90\xc3"))
+        (tmp_path / "layout.fingerprint").write_text(
+            layout_fingerprint(binary) + "\n", encoding="utf-8"
+        )
+        binary.write_bytes(
+            make_pe(b"\x90\xc3", image_base=0xFFFFFFFFFFFF0000, text_va=0x10000, pe32_plus=True)
+        )
+        result = check_layout_freshness(tmp_path, binary)
+        assert result["status"] == "stale"
+        assert result["match"] is False
+        assert len(result["actual"]) == 64
+
     def test_missing_fingerprint_is_unknown(self, tmp_path: Path) -> None:
         from rebrew.binary_gate import check_layout_freshness
 

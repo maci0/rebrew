@@ -10,6 +10,22 @@ gate-relevant facts.  The ``verify --whole-binary`` wiring lives in
 lazy from pathlib import Path
 lazy from typing import Any
 
+#: Bytes each section VA, size and the image base occupy in the layout
+#: fingerprint.  Changing it changes every recorded fingerprint.
+_FINGERPRINT_FIELD_BYTES = 8
+
+
+def _fingerprint_field(value: int) -> bytes:
+    """*value* in :data:`_FINGERPRINT_FIELD_BYTES`, wrapped modulo its width.
+
+    A forged PE32+ ImageBase plus a section RVA can pass 2**64, which
+    ``int.to_bytes`` refuses with ``OverflowError``.  The PE header bytes that
+    hold both fields are hashed too, so wrapping loses no distinction between
+    images.
+    """
+    width = 8 * _FINGERPRINT_FIELD_BYTES
+    return (value % (1 << width)).to_bytes(_FINGERPRINT_FIELD_BYTES, "little")
+
 
 def pe_relocation_snapshot(data: bytes) -> tuple[list[str], dict[str, int]]:
     """Read PE fixups and separate their block bytes from reserved section space."""
@@ -200,10 +216,10 @@ def layout_fingerprint(binary_path: Path) -> str:
     for name in sorted(info.sections):
         sec = info.sections[name]
         h.update(name.encode("utf-8", "replace"))
-        h.update(sec.va.to_bytes(8, "little"))
-        h.update(sec.size.to_bytes(8, "little"))
-        h.update(sec.raw_size.to_bytes(8, "little"))
-    h.update(info.image_base.to_bytes(8, "little"))
+        h.update(_fingerprint_field(sec.va))
+        h.update(_fingerprint_field(sec.size))
+        h.update(_fingerprint_field(sec.raw_size))
+    h.update(_fingerprint_field(info.image_base))
     return h.hexdigest()
 
 

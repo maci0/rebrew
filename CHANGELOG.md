@@ -9,6 +9,7 @@
 - A `layout/<target>/rebrew-layout.toml` of the wrong shape (`layout = 5`, a section row that is not a table) no longer fails config load with `AttributeError` (`rebrew status` exited 1 with a traceback): `read_layout_header` returns no header and the binary's own headers are read. `read_layout_geometry` raises `ValueError` for such a package, which `calibrate-bss` and `inline-strings` fall back on and the `data layout` commands report.
 - `rebrew data layout own` skips a scalar global whose bytes lie past the reference file's `.data` raw data (a stale layout package or a truncated binary) instead of raising `struct.error`.
 - `rebrew library scan-signatures` treats a signature checkout's `index.json` whose top level or `files` is not an object as unreadable (no architecture filter) instead of raising `AttributeError`.
+- The layout fingerprint `rebrew verify --whole-binary` compares no longer raises `OverflowError` for a PE32+ whose ImageBase plus a section RVA passes 2^64; such a reference reads as stale. Fingerprints of every other binary are unchanged.
 
 ## [6.45.1] - 2026-11-16
 
