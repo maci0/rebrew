@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Removed
+
+- **Breaking:** `rebrew.data_scan.split_source_lines` is no longer importable; import it from `rebrew.utils`.
+
 ## [6.46.0] - 2026-11-16
 
 ### Removed

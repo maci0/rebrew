@@ -35,7 +35,6 @@ lazy from rebrew.utils import (
     merged_span_bytes,
     read_source_text,
     rel_display_path,
-    split_source_lines,
 )
 
 log = logging.getLogger(__name__)
@@ -241,18 +240,20 @@ def classify_section(va: int, sections: dict[str, dict[str, Any]]) -> str:
 
 
 def _source_visible_to_target(
-    lines: list[str], cfg: ProjectConfig | None, stored_modules: tuple[str, ...] = ()
+    text: str, cfg: ProjectConfig | None, stored_modules: tuple[str, ...] = ()
 ) -> bool:
-    """Target visibility follows stored identities and address-only source bindings."""
+    """Target visibility follows stored identities and address-only source bindings.
+
+    *text* is the source as read, so the anchors come from the cache the
+    source's bindings filled.
+    """
     from rebrew.metadata.anchors import parse_address_anchors
 
     modules = {
         *stored_modules,
         *(
             a.module
-            for a in parse_address_anchors(
-                "\n".join(lines), syntax=getattr(cfg, "address_comments", None)
-            )
+            for a in parse_address_anchors(text, syntax=getattr(cfg, "address_comments", None))
         ),
     }
     return cfg is None or not modules or any(module_visible_to_target(m, cfg) for m in modules)
@@ -775,7 +776,6 @@ def _collect_scan_file_facts(
         log.warning("skipping unreadable source %s: %s", cfile, exc)
         return None
 
-    lines = split_source_lines(text)
     fname = rel_display_path(cfile, src_dir)
     if not declarations and _store_names_the_file(text, cfile, metadata_dir, function_entries):
         if name_cover is not None:
@@ -796,7 +796,7 @@ def _collect_scan_file_facts(
     if not stored_modules and not is_header and cfile.resolve() in inactive_sources:
         return {"apply": False}
     try:
-        visible = _source_visible_to_target(lines, cfg, stored_modules)
+        visible = _source_visible_to_target(text, cfg, stored_modules)
     except ValueError as exc:
         display = rel_display_path(cfile, getattr(cfg, "root", None) or src_dir)
         raise ValueError(f"{display}: {exc}") from exc
