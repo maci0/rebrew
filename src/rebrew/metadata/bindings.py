@@ -860,6 +860,11 @@ class _DefinitionPrototypes:
 
     def _line_signature(self, name: str) -> str:
         lines = self._lines
+        # A line matches only through "name(" or "name (" (one space before
+        # the parenthesis is dropped), so without either the scan finds none.
+        text = "\n".join(lines)
+        if f"{name}(" not in text and f"{name} (" not in text:
+            return ""
         for index, line in enumerate(lines):
             stripped = line.strip()
             if f"{name}(" not in stripped.replace(" (", "(") or stripped.endswith(";"):

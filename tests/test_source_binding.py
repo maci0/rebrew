@@ -1250,3 +1250,14 @@ class TestRetargetReferences:
         assert result.exit_code == 2
         assert "generated name" in cli_payload(result)["error"]
         assert "return f();" in caller.read_text()
+
+
+def test_line_signatures_match_both_parenthesis_spellings() -> None:
+    """A definition line is found with or without a space before ``(``; an absent name is not."""
+    from rebrew.metadata.bindings import _DefinitionPrototypes
+
+    text = "int spaced (int a)\n{\n    return a;\n}\nint tight(void) {\n    return 0;\n}\n"
+    prototypes = _DefinitionPrototypes(Path("x.c"), text)
+    assert prototypes._line_signature("spaced") == "int spaced (int a)"
+    assert prototypes._line_signature("tight") == "int tight(void)"
+    assert prototypes._line_signature("absent") == ""
