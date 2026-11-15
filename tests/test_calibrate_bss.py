@@ -195,8 +195,10 @@ class TestCalibrateLoop:
         )
         assert result.exit_code != 0
         # The compile failure is the reported error, not the restore OSError.
-        assert "stub compile failed" in result.output
-        assert "read-only file system" in result.output
+        # Rich wraps at the console width, and the message embeds a tmp path.
+        output = " ".join(result.output.split())
+        assert "stub compile failed" in output
+        assert "read-only file system" in output
 
     def test_max_iters_must_be_positive(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
