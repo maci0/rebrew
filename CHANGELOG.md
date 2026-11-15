@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- **Security:** `rebrew build postlink` checks every header size and offset it writes or allocates from against the file that header describes, and refuses a forged one with an error exit. A built `.text` SizeOfRawData, a built `.data` or `.reloc` PointerToRawData, a reference `.reloc` SizeOfRawData, or a reference SizeOfHeaders (with any DOS-stub difference) set near 4 GiB made the `data` or `pe-metadata` fixer zero-fill or extend the image to that size, and the re-parse between fixers copied the grown image into a list of one Python int per byte, so a fuzzed pair exhausted host memory. A built section's raw data must now lie inside the built image and the IAT and import-directory RVAs must map inside it, the reference SizeOfHeaders must fit in the built image, and `rebrew build layout` and `postlink` refuse a reference whose `.reloc` raw data runs past the end of the file. A layout package's `.reloc` zero fill stops at the 512 MiB binary size limit. A forged built `.text` VirtualSize no longer escapes as `IndexError`, and the re-parse reads the PE signature in place.
+
 ## [6.45.0] - 2026-11-16
 
 ### Changed

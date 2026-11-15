@@ -101,6 +101,16 @@ class TestExtractLayoutMissingSection:
         )
         assert extract_layout(pe).reloc == b""
 
+    def test_reloc_raw_past_eof_is_refused(self) -> None:
+        """postlink zero-fills .reloc out to its SizeOfRawData, so a size the
+        file does not back is refused instead of sizing that fill."""
+        pe = bytearray(_make_pe(_SECTIONS))
+        _e, _nsec, optsz, opt, _base = pe_header(bytes(pe))
+        reloc_header = opt + optsz + 40 * _SECTIONS.index(b".reloc\x00\x00")
+        struct.pack_into("<I", pe, reloc_header + 16, 0xFFFFF000)  # SizeOfRawData
+        with pytest.raises(ValueError, match=r"\.reloc raw data ends at 0x"):
+            extract_layout(bytes(pe))
+
     def test_missing_rdata_raises_valueerror(self) -> None:
         pe = _make_pe([b".text\x00\x00\x00", b".data\x00\x00\x00", b".reloc\x00\x00"])
         with pytest.raises(ValueError, match=r"missing section '\.rdata'"):
@@ -226,8 +236,12 @@ class TestExportNameOffsets:
     """Export name strings and forwarder entries."""
 
     def _pe_with_one_export(self, func_rva: int, name: bytes) -> bytes:
-        """One-export PE whose name string has no terminating NUL in the file."""
-        pe = bytearray(_make_pe(_SECTIONS))
+        """One-export PE whose name string has no terminating NUL in the file.
+
+        No ``.reloc``: the file is cut inside ``.text``, and a ``.reloc`` whose
+        raw data runs past the end of the file is refused.
+        """
+        pe = bytearray(_make_pe([s for s in _SECTIONS if s != b".reloc\x00\x00"]))
         exp_file, exp_rva = 0x200, 0x3000  # export dir inside .text
         name_off = exp_file + 0x70
         e = struct.unpack_from("<I", pe, 0x3C)[0]

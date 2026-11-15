@@ -20,8 +20,10 @@ lazy from pathlib import Path
 
 import pytest
 from cli_json import cli_payload
+from memory_cap import address_space_cap
 from typer.testing import CliRunner
 
+from rebrew.cli import EXIT_ERROR
 from rebrew.postlink import FIXER_ORDER, app, run_fixers
 
 runner = CliRunner()
@@ -848,3 +850,138 @@ class TestExactLayout:
         assert bytes(blob[_RELOC_VA : _RELOC_VA + len(meta.reloc)]) == meta.reloc
         assert struct.unpack_from("<I", blob, sec_reloc + 20)[0] == _RELOC_VA
         assert len(blob) == _RELOC_VA + meta.section(".reloc").raw
+
+
+# ---------------------------------------------------------------------------
+# Forged header sizes
+# ---------------------------------------------------------------------------
+
+#: A size or offset field forged to just under 4 GiB.
+FORGED_FIELD = 0xFFFFF000
+
+# make_full_pe geometry: the section table follows the 0xE0-byte optional
+# header at e_lfanew 0x80, entries in .text/.rdata/.data/.reloc order.
+_SECTION_TABLE = 0x80 + 0x18 + 0xE0
+_SECTION_INDEX = {".text": 0, ".rdata": 1, ".data": 2, ".reloc": 3}
+_VIRTUAL_SIZE = 8
+_RAW_SIZE = 16
+_RAW_POINTER = 20
+_SIZE_OF_HEADERS = 0x80 + 0x18 + 60
+#: A DOS-stub dword: any difference there makes pe-metadata relocate the header.
+_DOS_STUB = 0x40
+
+
+def _section_field(section: str, field: int) -> int:
+    return _SECTION_TABLE + 40 * _SECTION_INDEX[section] + field
+
+
+def forge_pe(pe: bytes, fields: list[tuple[int, int]]) -> bytes:
+    """*pe* with each ``(offset, u32 value)`` of *fields* written over it."""
+    out = bytearray(pe)
+    for offset, value in fields:
+        struct.pack_into("<I", out, offset, value)
+    return bytes(out)
+
+
+#: ``(id, built fields, reference fields, error the CLI reports)``.  Each
+#: forged field used to size a zero fill or an image extension in the fixer
+#: chain (gigabytes), or, for the virtual-size case, index past the image.
+FORGED_HEADER_CASES: list[tuple[str, list[tuple[int, int]], list[tuple[int, int]], str]] = [
+    (
+        "built-text-raw-size",
+        [(_section_field(".text", _RAW_SIZE), FORGED_FIELD)],
+        [],
+        "built .text raw data ends at",
+    ),
+    (
+        "built-data-raw-pointer",
+        [(_section_field(".data", _RAW_POINTER), FORGED_FIELD)],
+        [],
+        "built .data raw data ends at",
+    ),
+    (
+        "built-reloc-raw-pointer",
+        [(_section_field(".reloc", _RAW_POINTER), FORGED_FIELD)],
+        [],
+        "built .reloc raw data ends at",
+    ),
+    (
+        "reference-reloc-raw-size",
+        [],
+        [(_section_field(".reloc", _RAW_SIZE), FORGED_FIELD)],
+        ".reloc raw data ends at",
+    ),
+    (
+        "reference-size-of-headers",
+        [(_DOS_STUB, 0x11111111)],
+        [(_SIZE_OF_HEADERS, FORGED_FIELD)],
+        "reference SizeOfHeaders",
+    ),
+    (
+        "built-text-virtual-size",
+        [
+            (_section_field(".text", _VIRTUAL_SIZE), FORGED_FIELD),
+            (_section_field(".text", _RAW_SIZE), FORGED_FIELD),
+        ],
+        [(_section_field(".text", _RAW_SIZE), FORGED_FIELD)],
+        "built .text raw data ends at",
+    ),
+]
+
+
+def _forge_seed() -> bytes:
+    return make_full_pe(
+        imports=[("KERNEL32.dll", ["GetLocalTime", "WriteFile"]), ("USER32.dll", ["MessageBoxA"])],
+        timestamp=0x60000000,
+        checksum=0x4D328,
+    )
+
+
+class TestForgedHeaderSizes:
+    """A forged size or offset is refused before anything is sized from it.
+
+    Both inputs to ``rebrew build postlink`` are user-supplied files.  Each
+    case forges header fields to just under 4 GiB; the CLI must report its
+    error envelope and leave the built file alone.  The run is capped, so a
+    regression fails here as ``MemoryError`` instead of exhausting the host.
+    """
+
+    @pytest.mark.parametrize(
+        ("built_fields", "ref_fields", "message"),
+        [pytest.param(b, r, m, id=case) for case, b, r, m in FORGED_HEADER_CASES],
+    )
+    def test_cli_refuses_forged_field(
+        self,
+        tmp_path: Path,
+        built_fields: list[tuple[int, int]],
+        ref_fields: list[tuple[int, int]],
+        message: str,
+    ) -> None:
+        built_bytes = forge_pe(_forge_seed(), built_fields)
+        built = _write(tmp_path, "built.dll", built_bytes)
+        ref = _write(tmp_path, "ref.dll", forge_pe(_forge_seed(), ref_fields))
+        with address_space_cap():
+            result = runner.invoke(app, ["--json", str(built), str(ref)], env={"COLUMNS": "200"})
+        assert result.exit_code == EXIT_ERROR, result.exception
+        assert message in cli_payload(result)["error"]
+        assert built.read_bytes() == built_bytes
+
+    def test_package_reloc_raw_size_is_capped(self, tmp_path: Path) -> None:
+        """A layout package has no reference file to bound the ``.reloc`` zero
+        fill, so the binary size limit does."""
+        import tomlkit
+
+        pkg = _write_pkg(tmp_path, _forge_seed())
+        toml_path = pkg / "rebrew-layout.toml"
+        doc = tomlkit.parse(toml_path.read_text(encoding="utf-8"))
+        reloc = next(s for s in doc["layout"]["sections"] if s["name"] == ".reloc")
+        reloc["raw"] = FORGED_FIELD
+        toml_path.write_text(tomlkit.dumps(doc), encoding="utf-8")
+        built = _write(tmp_path, "built.dll", _forge_seed())
+        with address_space_cap():
+            result = runner.invoke(
+                app, ["--json", "--layout", str(pkg), str(built)], env={"COLUMNS": "200"}
+            )
+        assert result.exit_code == EXIT_ERROR, result.exception
+        assert "binary size limit" in cli_payload(result)["error"]
+        assert built.read_bytes() == _forge_seed()

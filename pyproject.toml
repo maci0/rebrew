@@ -330,11 +330,12 @@ enable_error_code = [
 ]
 # src/ is the shipped library; tools/ are the repo's own dev scripts (CI and
 # the pre-commit hook both run plain `uv run mypy`, which checks both).  The
-# tests/ modules below are the ones that came clean first: the five non-test_
-# helper modules (the pytest plugin every run loads through `addopts`, the
+# tests/ modules below are the ones that came clean first: the non-test_
+# helper modules (the pytest plugins every run loads through `addopts`, the
 # COFF builders the fixture generator imports, the on-disk cache builders,
-# the bounded thread join, and the W3C validator both HTML surfaces go through,
-# none of which a typing regression would reach only at runtime) plus every
+# the bounded thread join, the address-space cap, and the W3C validator both
+# HTML surfaces go through, none of which a typing regression would reach only
+# at runtime) plus every
 # tests/ module that already passes --strict clean.  The rest of tests/ is
 # still unchecked; add a module here as it comes clean rather than relaxing
 # the gate for the tree.
@@ -351,6 +352,7 @@ files = [
     "tests/cache_util.py",
     "tests/html_validate.py",
     "tests/thread_util.py",
+    "tests/memory_cap.py",
     "tests/test_annotation_roundtrip.py",
     "tests/test_apply_relocations.py",
     "tests/test_address_comment_formats.py",

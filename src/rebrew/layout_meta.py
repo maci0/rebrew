@@ -339,7 +339,15 @@ def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
     if reloc_sec is None:
         reloc_bytes = b""
     else:
-        rblob = data[reloc_sec.raw_ptr : reloc_sec.raw_ptr + reloc_sec.raw]
+        # The fixer's zero fill reproduces raw bytes, so they must be in the
+        # file: a forged SizeOfRawData would size a multi-gigabyte fill.
+        reloc_end = reloc_sec.raw_ptr + reloc_sec.raw
+        if reloc_end > len(data):
+            raise ValueError(
+                f".reloc raw data ends at {reloc_end:#x}, past the end of the "
+                f"{len(data):#x}-byte file"
+            )
+        rblob = data[reloc_sec.raw_ptr : reloc_end]
         content_end = 0
         while content_end + 8 <= len(rblob):
             _page, blksz = struct.unpack_from("<II", rblob, content_end)

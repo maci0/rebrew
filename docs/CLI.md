@@ -4306,8 +4306,10 @@ The CLI preserves the built `.reloc` raw offset; a full reference header copy
 requires matching section names, RVAs, and raw offsets. Remaining layout
 differences can prevent whole-file byte identity. Regenerate old four-column
 `calls.txt` packages with `rebrew build layout --target <t>`: unknown call
-opcodes do not validate alignment or authorize target rewrites. See
-[Postlink](POSTLINK.md) for the package columns and skipped-rewrite report.
+opcodes do not validate alignment or authorize target rewrites. A header
+size or offset that runs past the file it describes is an error exit that
+leaves the built file unchanged. See [Postlink](POSTLINK.md) for the package
+columns, the size checks and the skipped-rewrite report.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
@@ -4333,7 +4335,9 @@ emits just the `.def`; `--link-config` prints the derived `[link]` toml
 block for `rebrew-project.toml`; `--layout-config` prints the
 `layout/<target>/rebrew-layout.toml`; `--data-gap HEX` also emits
 `crt_region/data_restore.c`; `--dry-run` previews the file list without
-writing; `--json` emits a machine-readable manifest.
+writing; `--json` emits a machine-readable manifest.  A target whose `.reloc`
+raw data runs past the end of the file is refused: postlink would zero-fill
+bytes the file does not have.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |

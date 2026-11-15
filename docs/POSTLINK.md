@@ -18,6 +18,15 @@ Fixers run in dependency order (`imports` → `data` → `pe-metadata`); each is
 idempotent, refuses to run when its preconditions are not met, and reports
 what it changed (`--json` for machine-readable output).
 
+Both inputs are untrusted files, so a header size or offset is checked against
+the file it describes before a fixer writes or allocates from it: a built
+section's raw data must lie inside the built image, the IAT and import
+directory RVAs must map inside it, the reference's SizeOfHeaders must fit in
+it, and the reference's `.reloc` raw data must lie inside the reference file.
+A failed check is an error exit and the built file is left unchanged.  A layout
+package has no reference file, so its `.reloc` zero fill stops at the 512 MiB
+binary size limit.
+
 ## The reference: text-only layout metadata
 
 The fixers never need the original DLL (or any binary snapshot): they

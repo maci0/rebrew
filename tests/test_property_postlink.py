@@ -27,11 +27,13 @@ from __future__ import annotations
 import struct
 import tempfile
 from pathlib import Path
+lazy from collections.abc import Callable
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import example, given, settings
 from hypothesis import strategies as st
-from test_postlink import make_full_pe
+from memory_cap import address_space_cap
+from test_postlink import FORGED_HEADER_CASES, forge_pe, make_full_pe
 
 from rebrew.formats.binary_model import BinaryInfo, SectionInfo
 from rebrew.layout_meta import LayoutMetadata, SectionMeta
@@ -266,12 +268,26 @@ def _mutated_pe(draw: st.DrawFn) -> bytes:
     return bytes(data)
 
 
+def _forged_header_examples(test: Callable[..., None]) -> Callable[..., None]:
+    """Pin every ``FORGED_HEADER_CASES`` input (all fixers) as an explicit example.
+
+    Each is a forged section or header size that once sized a multi-gigabyte
+    allocation in the chain or, for the VirtualSize case, indexed past the image.
+    """
+    for _case, built_fields, ref_fields, _message in FORGED_HEADER_CASES:
+        test = example(forge_pe(_seed_pe(), built_fields), forge_pe(_seed_pe(), ref_fields), [])(
+            test
+        )
+    return test
+
+
 @settings(max_examples=40, deadline=None)
 @given(
     _mutated_pe(),
     _mutated_pe(),
     st.lists(st.sampled_from(FIXER_NAMES), unique=True),
 )
+@_forged_header_examples
 def test_run_fixers_reports_only_valueerror(
     built: bytes, reference: bytes, fixer_names: list[str]
 ) -> None:
@@ -282,7 +298,9 @@ def test_run_fixers_reports_only_valueerror(
     inputs are forgeable — the built link and the reference binary the user
     points the command at — and a mutated section table deletes a section name
     outright, so every lookup in the chain must degrade to ``ValueError`` rather
-    than a bare ``KeyError`` / ``struct.error`` / ``IndexError``.
+    than a bare ``KeyError`` / ``struct.error`` / ``IndexError``.  A mutated
+    size field must not size an allocation either: the chain runs under an
+    address-space cap, so one that does fails as ``MemoryError``.
     """
     from rebrew.postlink import run_fixers
 
@@ -292,7 +310,8 @@ def test_run_fixers_reports_only_valueerror(
         built_path.write_bytes(built)
         ref_path.write_bytes(reference)
         try:
-            patched, reports = run_fixers(built_path, ref_path, fixer_names or None)
+            with address_space_cap():
+                patched, reports = run_fixers(built_path, ref_path, fixer_names or None)
         except ValueError:
             return
         # On success the patched image is a byte string and every requested

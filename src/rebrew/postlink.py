@@ -65,7 +65,7 @@ if TYPE_CHECKING:
 
 import typer
 
-from rebrew.formats.binary_model import BinaryInfo, SectionInfo
+from rebrew.formats.binary_model import MAX_BINARY_SIZE, BinaryInfo, SectionInfo
 from rebrew.layout_meta import (
     ImportMeta,
     LayoutMetadata,
@@ -129,9 +129,9 @@ def binary_info_from_bytes(raw: bytes, path: Path) -> BinaryInfo:
     (mirroring :func:`binary_loader._load_pe`'s mapping so section kinds
     stay identical), falling back to ``load_binary`` for non-PE input.
     """
-    import lief
-
-    if not lief.is_pe(list(raw)):
+    # Sniff in place: ``lief.is_pe`` takes a ``list[int]``, eight bytes of
+    # list per image byte.
+    if pe_lfanew(raw) is None:
         return load_binary(path)
     pe = _pe(raw)
     sections = {}
@@ -204,6 +204,39 @@ def _built_section(info_b: BinaryInfo, name: str) -> SectionInfo:
     if section is None:
         raise ValueError(f"built image has no {name} section")
     return section
+
+
+def _built_raw_section(built: bytearray, info_b: BinaryInfo, name: str) -> SectionInfo:
+    """The built *name* section with its raw data inside *built*, or ``ValueError``.
+
+    The fixers scan, zero-fill and grow the image from a section's
+    PointerToRawData and SizeOfRawData.  Both are forgeable header fields, so a
+    raw extent past the end of the image is refused before anything is sized
+    from it.
+    """
+    section = _built_section(info_b, name)
+    end = section.file_offset + section.raw_size
+    if end > len(built):
+        raise ValueError(
+            f"built {name} raw data ends at {end:#x}, past the end of the "
+            f"{len(built):#x}-byte image"
+        )
+    return section
+
+
+def _built_offset(built: bytearray, info_b: BinaryInfo, rva: int) -> int:
+    """File offset of *rva* in the built image, or ``ValueError`` past its end.
+
+    A forged section table can map the RVA gigabytes past the file, and the
+    copy that follows would zero-fill the image up to it.
+    """
+    off = _rva_to_offset(info_b, rva)
+    if off >= len(built):
+        raise ValueError(
+            f"rva 0x{rva:x} maps to file offset {off:#x}, past the end of the "
+            f"{len(built):#x}-byte built image"
+        )
+    return off
 
 
 def _meta_section(meta: LayoutMetadata, name: str) -> SectionMeta:
@@ -315,7 +348,7 @@ def _fix_imports(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo) -> 
         slots_r[_entry_key(imp_m.dll, imp_m.name, imp_m.ordinal)] = imp_m.iat_va
     remap = {slots_b[k]: slots_r[k] for k in slots_b if slots_b[k] != slots_r[k]}
     if remap and iat_rva:
-        text = _built_section(info_b, ".text")
+        text = _built_raw_section(built, info_b, ".text")
         moved = 0
         skipped = 0
         for off in range(text.file_offset + 2, text.file_offset + text.raw_size - 4):
@@ -369,10 +402,10 @@ def _fix_imports(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo) -> 
 
     # ---- 3. copy the IAT arrays + the import bookkeeping verbatim ----
     if meta.iat:
-        lo = _rva_to_offset(info_b, iat_rva)
+        lo = _built_offset(built, info_b, iat_rva)
         built[lo : lo + len(meta.iat)] = meta.iat
     if meta.bookkeeping:
-        lo = _rva_to_offset(info_b, imp_rva)
+        lo = _built_offset(built, info_b, imp_rva)
         if lo + len(meta.bookkeeping) > len(built):
             built.extend(b"\x00" * (lo + len(meta.bookkeeping) - len(built)))
         built[lo : lo + len(meta.bookkeeping)] = meta.bookkeeping
@@ -399,7 +432,7 @@ def _fix_data(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo) -> Fix
     come from the text metadata (operands/calls sparse maps + hex dumps).
     """
     report = FixerReport(name="data", changed=False)
-    text = _built_section(info_b, ".text")
+    text = _built_raw_section(built, info_b, ".text")
     rdata = _meta_section(meta, ".rdata")
     data_m = _meta_section(meta, ".data")
 
@@ -459,7 +492,7 @@ def _fix_data(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo) -> Fix
     # Both sides resolve through their own headers: the built trim point
     # from the built geometry, not the reference's file offsets.
     text_m = _meta_section(meta, ".text")
-    text_b = _built_section(info_b, ".text")
+    text_b = _built_raw_section(built, info_b, ".text")
     # The trim start is the BUILT section's own file offset plus the
     # reference's raw size.  Using the reference's ``raw_ptr`` here would index
     # the built buffer with the reference's layout: a built link whose .text
@@ -506,7 +539,7 @@ def _fix_data(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo) -> Fix
             report.changed = True
 
     # ---- 4. grow .data to the reference raw size and copy it ----
-    data_b = _built_section(info_b, ".data")
+    data_b = _built_raw_section(built, info_b, ".data")
     if len(meta.data) > len(built) - data_b.file_offset:
         built.extend(b"\x00" * (data_b.file_offset + len(meta.data) - len(built)))
     built[data_b.file_offset : data_b.file_offset + len(meta.data)] = meta.data
@@ -520,7 +553,7 @@ def _fix_data(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo) -> Fix
     # ---- 5. replace .reloc (at the built file's own .reloc offset) ----
     # The built file's .reloc raw pointer comes from its own headers —
     # the reference's raw_ptr belongs to the reference's layout.
-    reloc_b = _built_section(info_b, ".reloc")
+    reloc_b = _built_raw_section(built, info_b, ".reloc")
     reloc_m = _meta_section(meta, ".reloc")
     # Two contracts:
     #  * default — keep the BUILT link's own raw pointer.  A layout that has
@@ -543,7 +576,16 @@ def _fix_data(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo) -> Fix
         # reference's own extents are what the finished file contains.
         if reloc_m.raw_ptr >= others_end and reloc_m.raw_ptr <= reloc_b.file_offset:
             new_rptr = reloc_m.raw_ptr
-    reloc_raw = meta.reloc + b"\x00" * max(0, reloc_m.raw - len(meta.reloc))
+    # The zero fill runs to the reference's SizeOfRawData.  extract_layout
+    # holds that inside the reference file; a layout package has no file to
+    # hold it to, so the binary size limit bounds the grown image.
+    reloc_size = max(len(meta.reloc), reloc_m.raw)
+    if new_rptr + reloc_size > MAX_BINARY_SIZE:
+        raise ValueError(
+            f"reference .reloc raw size {reloc_m.raw:#x} at {new_rptr:#x} grows the image "
+            f"past the {MAX_BINARY_SIZE:#x}-byte binary size limit"
+        )
+    reloc_raw = meta.reloc + b"\x00" * (reloc_size - len(meta.reloc))
     if new_rptr + len(reloc_raw) > len(built):
         built.extend(b"\x00" * (new_rptr + len(reloc_raw) - len(built)))
     built[new_rptr : new_rptr + len(reloc_raw)] = reloc_raw
@@ -606,6 +648,14 @@ def _fix_pe_metadata(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo)
         hdr_size = 4 + 20 + opt_size + n * 40
         if e_r + hdr_size > size_of_headers:
             raise ValueError("headers would overlap the first section")
+        # The block below is zero-filled out to SizeOfHeaders, a forgeable
+        # reference field; the headers precede every section, so it fits in
+        # the built image.
+        if size_of_headers > len(b):
+            raise ValueError(
+                f"reference SizeOfHeaders {size_of_headers:#x} runs past the end of the "
+                f"{len(b):#x}-byte built image"
+            )
         new = bytearray()
         new += header[:e_r]  # reference DOS stub (carries e_lfanew = e_r)
         new += b[e_b : e_b + hdr_size]
