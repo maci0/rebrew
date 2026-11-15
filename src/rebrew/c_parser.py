@@ -1799,6 +1799,33 @@ def _file_scope(node: Any) -> bool:
 # Substrings that make :func:`_variable_tree` rewrite the parser input.
 # Anything else is already a faithful parse, so the token walk is skipped.
 _VARIABLE_TREE_MARKERS: tuple[str, ...] = ("__asm", "_asm", *sorted(_CALLING_CONVENTIONS))
+# Leaf tokens tree-sitter keeps whole: their text is never C code.
+_OPAQUE_TOKENS = frozenset({"comment", "string_literal", "char_literal", "preproc_arg"})
+# Candidate convention tokens: an identifier character on either side would
+# make the token longer than the convention.
+_CONVENTION_WORD_RE = re.compile(
+    rb"(?<![A-Za-z0-9_])(?:"
+    + b"|".join(
+        re.escape(cc.encode()) for cc in sorted(_CALLING_CONVENTIONS, key=len, reverse=True)
+    )
+    + rb")(?![A-Za-z0-9_])"
+)
+
+
+def _convention_token_spans(tree: Any, raw: bytes) -> list[tuple[int, int]]:
+    """Byte spans of calling-convention leaf tokens outside opaque tokens."""
+    root = tree.root_node
+    spans: list[tuple[int, int]] = []
+    for match in _CONVENTION_WORD_RE.finditer(raw):
+        start, end = match.span()
+        node = root.descendant_for_byte_range(start, end)
+        if node is None or node.start_byte != start or node.end_byte != end or node.child_count:
+            continue
+        while node is not None and node.type not in _OPAQUE_TOKENS:
+            node = node.parent
+        if node is None:
+            spans.append((start, end))
+    return spans
 
 
 def _recall_variable_tree(source: str) -> tuple[Any, bytes] | None:
@@ -1905,9 +1932,13 @@ def _variable_tree(source: str) -> tuple[Any, bytes]:
         _store_variable_tree(source, parsed)
         return parsed
     tree, raw = parse_c_source(source)
+    edits: list[tuple[int, int, bytes]] = []
+    if "_asm" not in source:
+        # Only calling conventions to mask: no token list needed.
+        return _mask_variable_tree(source, raw, _convention_token_spans(tree, raw), edits)
     tokens: list[tuple[str, int, int, int, str]] = []
     cursor = tree.walk()
-    opaque = {"comment", "string_literal", "char_literal", "preproc_arg"}
+    opaque = _OPAQUE_TOKENS
     while True:
         node = cursor.node
         terminal = node.type in opaque or node.child_count == 0
@@ -1930,7 +1961,6 @@ def _variable_tree(source: str) -> tuple[Any, bytes]:
             continue
         break
 
-    edits: list[tuple[int, int, bytes]] = []
     convention_spans: list[tuple[int, int]] = []
     i = 0
     while i < len(tokens):
@@ -1983,9 +2013,20 @@ def _variable_tree(source: str) -> tuple[Any, bytes]:
         replacement += b"\n" * raw[start:stop].count(b"\n")
         edits.append((start, stop, replacement))
         i = j + 1 if block else j
-    parser_bytes = raw
+    return _mask_variable_tree(source, raw, convention_spans, edits)
+
+
+def _mask_variable_tree(
+    source: str,
+    raw: bytes,
+    convention_spans: list[tuple[int, int]],
+    edits: list[tuple[int, int, bytes]],
+) -> tuple[Any, bytes]:
+    """Blank *convention_spans* in the parser input, apply asm *edits*, re-parse."""
+    blanked = bytearray(raw)
     for start, end in convention_spans:
-        parser_bytes = parser_bytes[:start] + b" " * (end - start) + parser_bytes[end:]
+        blanked[start:end] = b" " * (end - start)
+    parser_bytes = bytes(blanked)
     for start, end, replacement in reversed(edits):
         raw = raw[:start] + replacement + raw[end:]
         parser_bytes = parser_bytes[:start] + replacement + parser_bytes[end:]

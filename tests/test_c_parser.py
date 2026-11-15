@@ -87,12 +87,26 @@ class TestVariableTreeSkip:
         c_parser.node_text = counting  # type: ignore[assignment]
         try:
             c_parser._variable_tree("int f(void) { return 1; }\n")
-            assert calls == 0
             c_parser._variable_tree("int __cdecl g(void) { return 1; }\n")
+            assert calls == 0
+            c_parser._variable_tree("void h(void) { __asm { ret } }\n")
             assert calls > 0
         finally:
             c_parser.node_text = real  # type: ignore[assignment]
             c_parser._tls.variable_tree_memo = None
+
+    def test_conventions_masked_only_as_code_tokens(self) -> None:
+        """Strings, comments, macro bodies and longer names keep their text."""
+        import rebrew.c_parser as c_parser
+
+        source = (
+            "#define CC __cdecl\n"
+            'char *s = "__cdecl"; /* WINAPI */ int x__stdcall;\n'
+            "int __stdcall f(void);\n"
+        )
+        tree, raw = c_parser._variable_tree(source)
+        assert raw == source.encode()
+        assert tree.root_node.text == source.replace("int __stdcall f", "int           f").encode()
 
 
 class TestExtractFunctionNameAndProto:
