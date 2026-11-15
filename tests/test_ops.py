@@ -22,6 +22,7 @@ import shutil
 import signal
 import socket
 import ssl
+import stat
 import struct
 import subprocess
 import sys
@@ -2791,7 +2792,9 @@ def _analysed_project(tmp_path: Path) -> tuple[WorkerConfig, Path, Path]:
     return config, filestore, Path(reply["project"])
 
 
-def _tar_bytes(members: list[tuple[str, bytes | None, str]]) -> bytes:
+def _tar_bytes(
+    members: list[tuple[str, bytes | None, str]], *, file_mode: int = 0o644, dir_mode: int = 0o755
+) -> bytes:
     """A tar.gz of (name, data, kind) members; kind is file, dir, symlink, hardlink or fifo."""
     import io
     import tarfile
@@ -2801,7 +2804,7 @@ def _tar_bytes(members: list[tuple[str, bytes | None, str]]) -> bytes:
         for name, data, kind in members:
             info = tarfile.TarInfo(name)
             if kind == "file":
-                info.size = len(data or b"")
+                info.size, info.mode = len(data or b""), file_mode
                 archive.addfile(info, io.BytesIO(data or b""))
                 continue
             info.type = {
@@ -2810,6 +2813,7 @@ def _tar_bytes(members: list[tuple[str, bytes | None, str]]) -> bytes:
                 "hardlink": tarfile.LNKTYPE,
                 "fifo": tarfile.FIFOTYPE,
             }[kind]
+            info.mode = dir_mode
             info.linkname = (data or b"").decode()
             archive.addfile(info)
     return buffer.getvalue()
@@ -2946,6 +2950,50 @@ class TestImportArchive:
         assert (status, reply["error"]) == (400, "invalid-project-config"), reply
         assert reply["detail"].startswith("invalid project config: rebrew-project.toml")
         assert str(config.workspace) not in reply["detail"]
+
+    def test_archive_modes_never_reach_the_installed_project(self, tmp_path: Path) -> None:
+        """Read-only, setuid and sticky modes in the archive are not kept: directories stay writable."""
+        config, filestore, project = _analysed_project(tmp_path)
+        members = _project_members(project)
+        directories = sorted({str(Path(name).parent) for name, _data, _kind in members} - {"."})
+        archive = _tar_bytes(
+            [(name, None, "dir") for name in directories] + members,
+            file_mode=0o4444,
+            dir_mode=0o1555,
+        )
+        status, reply = _import(config, filestore, archive)
+        assert status == 200, reply
+        installed = Path(reply["project"])
+        for path in (installed, *installed.rglob("*")):
+            mode = stat.S_IMODE(path.lstat().st_mode)
+            assert not mode & (stat.S_ISUID | stat.S_ISGID | stat.S_ISVTX), path
+            assert mode & stat.S_IWUSR or path.is_file(), path
+        sources = [path for path in installed.rglob("*.c") if path.is_file()]
+        assert sources and all(stat.S_IMODE(path.stat().st_mode) == 0o644 for path in sources)
+
+    def test_a_replaced_project_the_worker_cannot_delete_does_not_fail_the_import(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A file of the binary's earlier project the worker may not unlink (production: a foreign
+        SELinux category on PRINCIPLES.md) is left behind and logged; the import itself succeeds."""
+        config, filestore, project = _analysed_project(tmp_path)
+        _call(config, "rebrew.analyse", {**_analyse_request(), "project_id": "imported"})
+        unlink = os.unlink
+
+        def denied(path: Any, *args: Any, **kwargs: Any) -> None:
+            if Path(path).name == "PRINCIPLES.md":
+                raise PermissionError(13, "Permission denied", str(path))
+            unlink(path, *args, **kwargs)
+
+        monkeypatch.setattr(os, "unlink", denied)
+        status, reply = _import(config, filestore, _tar_bytes(_project_members(project)))
+        monkeypatch.undo()
+        assert status == 200, reply
+        assert Path(reply["project"]).joinpath("rebrew-project.toml").is_file()
+        assert config.workspace is not None
+        [left] = (config.workspace / ".scratch").glob("replaced-*")
+        assert [path.name for path in left.rglob("PRINCIPLES.md")] == ["PRINCIPLES.md"]
+        assert any(str(left) in record.getMessage() for record in caplog.records)
 
     def test_a_zip_archive_imports_like_a_tar(self, tmp_path: Path) -> None:
         import io

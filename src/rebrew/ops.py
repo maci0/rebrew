@@ -2628,6 +2628,21 @@ def _import_target(root: Path, raw: dict[str, Any], sha256: str) -> str:
     return matches[0]
 
 
+def _remove_replaced_project(path: Path) -> None:
+    """Delete the project an import replaced, keeping what the worker may not remove.
+
+    A file the worker cannot unlink (in production a ``PRINCIPLES.md`` an older
+    rebrew copied with the SELinux category of an earlier pod) stays under
+    *path* and is logged with its error for the operator; the import that
+    replaced the project has already succeeded.
+    """
+
+    def keep(_function: Any, name: str, exc: BaseException) -> None:
+        logger.warning("project import left %s of the replaced project at %s: %s", name, path, exc)
+
+    shutil.rmtree(path, onexc=keep)
+
+
 def import_archive(config: WorkerConfig, req: ImportArchiveRequest) -> dict[str, Any]:
     """Install an uploaded rebrew project archive as a stored binary's project and report it.
 
@@ -2691,9 +2706,15 @@ def import_archive(config: WorkerConfig, req: ImportArchiveRequest) -> dict[str,
         project.parent.mkdir(parents=True, exist_ok=True)
         if _inside(workspace, relative, "analysis project") != project:
             raise _invalid("analysis project must not traverse symlinks")
+        # The earlier project leaves the scoped path before the new one takes it, and outside the
+        # temporary directory: a file the worker may not unlink must not fail the finished import.
+        replaced = None
         if project.exists():
-            project.rename(Path(temp) / "replaced")
+            replaced = Path(tempfile.mkdtemp(prefix="replaced-", dir=scratch))
+            project.rename(replaced / project.name)
         root.rename(project)
+    if replaced is not None:
+        _remove_replaced_project(replaced)
     for item in report["targets"]:
         for part in ("document", "path"):
             if item[part]:
