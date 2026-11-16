@@ -216,7 +216,7 @@ class TestDisassembleBytesExecution:
         assert isinstance(status, int)
         decoded = json.loads(reply)
         if status == 200:
-            assert set(decoded) == {"text"}
+            assert set(decoded) == {"text", "renderer"}
             assert isinstance(decoded["text"], str)
         else:
             assert set(decoded) == {"error", "detail", "status"}

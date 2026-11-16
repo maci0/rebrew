@@ -1722,6 +1722,14 @@ def _capstone_for(arch: str) -> tuple[int, int]:
         raise _invalid(_bounded(str(exc))) from None
 
 
+def _listing_reply(text: str) -> dict[str, Any]:
+    """A listing op's reply: the text and the renderer that wrote it
+    (:func:`rebrew.asm.listing_renderer`), under which the backend caches it."""
+    from rebrew.asm import listing_renderer
+
+    return {"text": text, "renderer": listing_renderer()}
+
+
 def _nasm_listing(code: bytes, va: int, read_image: ImageReader | None = None) -> str:
     from rebrew.asm import disassemble_to_nasm
 
@@ -1773,7 +1781,7 @@ def disassemble(config: WorkerConfig, req: DisassembleRequest) -> dict[str, Any]
     if req.format == "hex":
         from rebrew.asm import hex_disassembly
 
-        return {"text": hex_disassembly(cfg, va, req.size)}
+        return _listing_reply(hex_disassembly(cfg, va, req.size))
     if req.format == "nasm" and cfg.arch != NASM_ARCH:
         raise _invalid(f"NASM source covers {NASM_ARCH} only and this binary is {cfg.arch}")
     from rebrew.formats.binary_loader import extract_raw_bytes
@@ -1783,8 +1791,8 @@ def disassemble(config: WorkerConfig, req: DisassembleRequest) -> dict[str, Any]
         raise _invalid(f"no file bytes at 0x{va:x}")
     read_image = functools.partial(extract_raw_bytes, cfg.target_binary)
     if req.format == "nasm":
-        return {"text": _nasm_listing(code, va, read_image)}
-    return {"text": _asm_listing(code, va, cfg.capstone_arch, cfg.capstone_mode, read_image)}
+        return _listing_reply(_nasm_listing(code, va, read_image))
+    return _listing_reply(_asm_listing(code, va, cfg.capstone_arch, cfg.capstone_mode, read_image))
 
 
 def instruction_listing(config: WorkerConfig, req: AddressRequest) -> dict[str, Any]:
@@ -1822,8 +1830,8 @@ def disassemble_bytes(_config: WorkerConfig, req: DisassembleBytesRequest) -> di
             raise _invalid(f"unsupported arch: {_bounded(req.arch)}")
     va = _address(req.va)
     if req.arch in ("", NASM_ARCH):
-        return {"text": _nasm_listing(req.code, va)}
-    return {"text": _asm_listing(req.code, va, *_capstone_for(req.arch))}
+        return _listing_reply(_nasm_listing(req.code, va))
+    return _listing_reply(_asm_listing(req.code, va, *_capstone_for(req.arch)))
 
 
 # ---------------------------------------------------------------------------

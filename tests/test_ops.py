@@ -378,7 +378,7 @@ class TestListingOps:
             "size": 1,
             "format": "asm",
         }
-        assert _call(config, "rebrew.disassemble", request) == {"text": "push ebp\n"}
+        assert _call(config, "rebrew.disassemble", request)["text"] == "push ebp\n"
         request["sha256"] = "0" * 64
         refusal = _refusal(config, "rebrew.disassemble", json.dumps(request).encode())
         assert refusal["detail"] == "no target of project_dir has a binary with that sha256"
@@ -440,7 +440,7 @@ class TestListingOps:
         reply = _call(
             WorkerConfig(), "rebrew.disassemble_bytes", {"code": code, "va": 0, "arch": "x86_64"}
         )
-        assert reply == {"text": "push rbp\nmov rbp, rsp\nret\n"}
+        assert reply["text"] == "push rbp\nmov rbp, rsp\nret\n"
 
 
 #: MSVC 6's two-level switch at 0x401000 (tests/test_cfg_ged.py TWO_LEVEL,
@@ -547,6 +547,49 @@ class TestJumpTableListings:
             (0x2C, "dd", "0x401020"),
             *[(0x30 + k, "db", f"0x{slot:x}") for k, slot in enumerate([0, 1, 1, 2, 0, 2])],
         ]
+
+
+#: ``asm.LISTING_RENDERER`` and the SHA-256 of the listing text
+#: :func:`TestListingRenderer.test_the_renderer_names_the_listing_text` hashes.
+RECORDED_RENDERER = "1"
+RECORDED_DIGEST = "3901883ff9502133f09b5ce6b36ee8c24a2b4d1d8a2f2d78d9a53afd8e5a1fe9"
+#: Code past SWITCH's: a frame, an indirect call and an undecodable tail (32-bit),
+#: a 64-bit and a 16-bit function, at ENTRY_VA.
+LISTING_CODE = (
+    ("x86_32", "558bec8b450883e4f0ffd06affc9c30f"),
+    ("x86_64", "554889e5488b0548000000ffd05dc3"),
+    ("x86_16", "5589e58b46048b5e06cd215dc3"),
+)
+
+
+class TestListingRenderer:
+    """The backend keeps a listing while the renderer the op reports is unchanged."""
+
+    @pytest.mark.skipif(shutil.which("nasm") is None, reason="nasm not installed")
+    def test_the_renderer_names_the_listing_text(self, tmp_path: Path) -> None:
+        """A change to the text of these listings needs a new ``LISTING_RENDERER``,
+        recorded here with the new digest."""
+        from rebrew import asm
+
+        config, project, _ = _switch_project(tmp_path)
+        digest = hashlib.sha256()
+        replies = []
+        for arch in ("", "x86_64", "x86_16"):
+            for fmt in ("nasm", "asm", "hex"):
+                if arch and fmt == "nasm":
+                    continue
+                request = {"project_dir": project, "va": ENTRY_VA, "size": len(SWITCH)}
+                replies.append(
+                    _call(config, "rebrew.disassemble", {**request, "format": fmt, "arch": arch})
+                )
+        for arch, code in LISTING_CODE:
+            request = {"code": base64.b64encode(bytes.fromhex(code)).decode(), "va": ENTRY_VA}
+            replies.append(_call(config, "rebrew.disassemble_bytes", {**request, "arch": arch}))
+        for reply in replies:
+            digest.update(reply["text"].encode())
+        assert {reply["renderer"] for reply in replies} == {asm.listing_renderer()}
+        assert asm.listing_renderer().startswith(asm.LISTING_RENDERER + "+capstone-")
+        assert (asm.LISTING_RENDERER, digest.hexdigest()) == (RECORDED_RENDERER, RECORDED_DIGEST)
 
 
 class TestFunctionOps:
@@ -2322,7 +2365,7 @@ class TestExecTransport:
 
         request = {"project_dir": str(project), "va": ENTRY_VA, "size": 1, "format": "asm"}
         code, reply = self._exec(argv, "rebrew.disassemble", request)
-        assert (code, reply) == (0, {"text": "push ebp\n"})
+        assert (code, reply["text"]) == (0, "push ebp\n")
         _validate(_op_schema("rebrew.disassemble", "response"), reply)
 
     def test_sigterm_stops_the_child_command_and_removes_the_snapshot(

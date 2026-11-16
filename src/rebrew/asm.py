@@ -78,6 +78,14 @@ logger = logging.getLogger(__name__)
 # Pre-compiled regex for sanitizing NASM labels (used in disassemble_to_nasm).
 _NASM_LABEL_RE = re.compile(r"[^a-zA-Z0-9_]")
 
+#: Version of the listing text the ``rebrew.disassemble`` and
+#: ``rebrew.disassemble_bytes`` ops answer (``nasm``, ``asm``, ``hex``).  The
+#: backend keeps a cached listing while the renderer the op reports
+#: (:func:`listing_renderer`) is unchanged, so any change to that text changes
+#: this.  ``tests/test_ops.py`` ``TestListingRenderer`` hashes the text of its
+#: fixtures beside it.
+LISTING_RENDERER = "1"
+
 #: Compiler families that spell the naked-function attribute
 #: ``__attribute__((naked))``; MSVC-dialect compilers use ``__declspec(naked)``.
 _GCC_NAKED_FAMILIES = frozenset({"gcc", "clang", "mingw"})
@@ -1688,6 +1696,26 @@ def _nasm_on_path() -> bool:
     """Whether nasm resolves on ``PATH``; the answer is process-invariant and
     ``--all`` calls this once per function."""
     return shutil.which("nasm") is not None
+
+
+@functools.cache
+def listing_renderer() -> str:
+    """The renderer the listing ops report: :data:`LISTING_RENDERER` with the
+    capstone and nasm versions, which change the text without a code change
+    (without nasm every NASM instruction is ``db`` bytes): ``1+capstone-5.0.7+nasm-2.16.03``,
+    ``nasm-none`` when nasm is not on ``PATH`` or does not answer ``-v``."""
+    import capstone
+
+    nasm = "none"
+    if _nasm_on_path():
+        try:
+            out = run_process_group(["nasm", "-v"], capture_output=True, timeout=5)
+        except subprocess.TimeoutExpired, OSError:  # no answer: reported as none
+            out = None
+        words = out.stdout.decode(errors="replace").split() if out and out.returncode == 0 else []
+        if len(words) > 2 and words[:2] == ["NASM", "version"]:
+            nasm = words[2]
+    return f"{LISTING_RENDERER}+capstone-{capstone.__version__}+nasm-{nasm}"
 
 
 def _roundtrip_exit_code(passed: bool, message: str) -> int:

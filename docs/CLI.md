@@ -7114,6 +7114,14 @@ Op details the contract leaves open:
   and must be a rebrew arch name (`x86_16`, `x86_32`, `arm32`, ...); `nasm`
   covers `x86_32` only. `size` is 1 byte to 1 MiB, the bound of the other
   extent ops.
+- `rebrew.disassemble` and `rebrew.disassemble_bytes` answer `renderer` beside
+  `text`: `rebrew.asm.LISTING_RENDERER`, the capstone version and the nasm
+  version (`nasm-none` without nasm), such as `1+capstone-5.0.7+nasm-2.16.03`.
+  Equal renderers render the same bytes to the same text, so a caller may keep
+  a listing across engine builds while the renderer is unchanged.
+  `LISTING_RENDERER` changes with any change to the listing text;
+  `tests/test_ops.py` `TestListingRenderer` hashes the text of its fixtures
+  beside it.
 - Listings of 32-bit x86 (`rebrew.disassemble` in every format,
   `rebrew.disassemble_bytes`, `rebrew.instruction_listing`, `binary asm
   show`) render a jump table inside the bytes as data, the tables the CFG
