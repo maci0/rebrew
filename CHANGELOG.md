@@ -3,6 +3,7 @@
 ### Added
 
 - `rebrew.disassemble` and `rebrew.disassemble_bytes` answer `renderer` beside `text`: the listing renderer version (`rebrew.asm.LISTING_RENDERER`, new, `1`) with the capstone and nasm versions, such as `1+capstone-5.0.7+nasm-2.16.03` (`nasm-none` without nasm, whose NASM listings are all `db` bytes) ([CLI.md](docs/CLI.md#rebrew-ops-serve)). The backend cached every engine listing under the rebrew image reference, so each image roll discarded them all and the first match after it read them again (production job 1701: 557 s for 888 functions, almost all listing reads); it can now keep a listing while the renderer is unchanged. `tests/test_ops.py` `TestListingRenderer` hashes the `nasm`, `asm` and `hex` text of 32-, 64- and 16-bit fixtures beside the constant, so the text cannot change while it stays. The dispatch schema fixture gains `renderer` on both replies (SHA-256 f92f49eeee7a3086a85517cb3e3f1da23478a869ecfaf7ca7570e21d11de2c9f); a backend that does not know the member ignores it (it decodes replies without schema validation).
+- `tools/listing_corpus.py` (new) analyses binaries through `rebrew.analyse` and writes every function's `rebrew.disassemble` listings (`nasm` for x86_32, `asm`, `hex`) and the renderer to one JSON document. The backend's `rebrew-listings.json` comparison corpus is its output over the backend's x86 fixture binaries.
 
 ### Changed
 
