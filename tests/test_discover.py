@@ -849,6 +849,11 @@ class TestDiscoveryCliInputs:
 
         from rebrew import discover
 
+        # Before the stub: importing the umbrella imports every command
+        # module, and one that binds require_config at import (rename) would
+        # keep the stub for the rest of the process.
+        from rebrew.app.main import app
+
         monkeypatch.chdir(tmp_path)
         binary = tmp_path / "standalone.bin"
         binary.write_bytes(b"binary")
@@ -864,8 +869,6 @@ class TestDiscoveryCliInputs:
 
         monkeypatch.setattr("rebrew.cli.require_config", _unexpected)
         monkeypatch.setattr(discover, "discover_functions", _discover)
-        from rebrew.app.main import app
-
         result = CliRunner().invoke(
             app, ["binary", "functions", str(binary), "--output", str(output), "--json"]
         )
