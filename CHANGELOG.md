@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Changed
+
+- `instructions` (from `rebrew test --json --instructions`, `rebrew verify --json --instructions` and the `verify_function` and `verify_target` ops) names relocations: a rebuilt instruction holding relocation fields carries `symbols`, the object file's symbol of each field in byte order (`CompareResult.reloc_symbols`, not serialized). The dispatch schema fixture gains `symbols` and the `op` and `kind` enums of `rebrew.instruction_listing` (SHA-256 503edda2ea4614af595292c59faad4bc28db42567ecee9b1b3231a4aa20b6874), and the ops test's schema validator checks `enum`.
+
 ### Fixed
 
 - Listings decoded a function's jump tables as instructions, so a function with a `switch` ended in garbage the CFG already treated as data, and that garbage fed the instruction diff and the backend's similarity shingles. Every 32-bit x86 listing now renders a table inside the function as data, the same tables `--format cfg` resolves (`rebrew.cfg_ged.listing_items`): `rebrew.disassemble` (`asm`, `nasm`, `hex`), `rebrew.disassemble_bytes`, `rebrew.instruction_listing`, `rebrew binary asm show` and `rebrew test`/`verify --instructions`. Each entry is one `dd <case address>` (or `db <slot>` for MSVC's byte index table) under a `jump_table_<VA>:` label (`; jump table` in the hex format); the NASM source still reassembles to the same bytes, and code after a table decodes again. The rebuild side of the instruction diff reads its tables through the object's relocations to its own `$L` labels, which an unlinked object leaves zero (new `CompareResult.self_relocations`, from `CoffRelocRecord.local_offset` now set for i386 COFF relocations into the function's section), so both sides list a table as the same rows. On the 17,160 functions measured, 530 hold table bytes inside their extent.

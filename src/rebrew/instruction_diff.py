@@ -6,7 +6,8 @@ over :func:`rebrew.alignment.normalize_instruction` texts, and each aligned
 pair is classified with the relocation masking of the byte verdict: a pair
 whose bytes differ only inside the rebuilt side's relocation fields is
 ``equal`` with ``reloc``.  Operand registers and numbers are marked with
-character spans and a ``value`` id shared by both sides.
+character spans and a ``value`` id shared by both sides.  A rebuilt instruction
+holding relocation fields names their symbols.
 """
 
 from __future__ import annotations
@@ -105,6 +106,7 @@ def instruction_diff(
     invalid_reloc_offsets: Iterable[int] = (),
     read_image: ImageReader | None = None,
     self_relocations: Mapping[int, int] | None = None,
+    reloc_symbols: Mapping[int, str] | None = None,
 ) -> dict[str, Any]:
     """Both instruction lists, their alignment rows and operand spans.
 
@@ -115,7 +117,10 @@ def instruction_diff(
     both sides; *read_image* reads a table that extends past the code, and
     *self_relocations* (``CompareResult.self_relocations``) gives the
     rebuilt side's references to its own labels, which an unlinked object
-    leaves unset, so its tables resolve as the target's do.
+    leaves unset, so its tables resolve as the target's do.  *reloc_symbols*
+    names the symbol of each relocation field by its start offset in *rebuilt*
+    (``CompareResult.reloc_symbols``): a rebuilt instruction holding fields
+    lists their nonempty names in ``symbols``, in byte order.
     """
     from rebrew.alignment import AlignedMatcher, normalize_instruction
 
@@ -201,11 +206,19 @@ def instruction_diff(
             for insn, insn_spans in zip(insns, all_spans, strict=True)
         ]
 
+    rebuilt_listing = listing(right, right_spans)
+    named = sorted((offset, name) for offset, name in (reloc_symbols or {}).items() if name)
+    for insn, entry in zip(right, rebuilt_listing, strict=True):
+        start = insn.va - va
+        symbols = [name for offset, name in named if start <= offset < start + insn.size]
+        if symbols:
+            entry["symbols"] = symbols
+
     return {
         "max_bytes": MAX_BYTES,
         "truncated": truncated,
         "original": listing(left, left_spans),
-        "rebuilt": listing(right, right_spans),
+        "rebuilt": rebuilt_listing,
         "rows": rows,
     }
 
@@ -232,4 +245,5 @@ def record_instructions(cfg: Any, result: CompareResult, target: bytes, va: int)
         invalid_reloc_offsets=result.inv_reloc_offsets,
         read_image=functools.partial(extract_raw_bytes, cfg.target_binary),
         self_relocations=result.self_relocations,
+        reloc_symbols=result.reloc_symbols,
     )

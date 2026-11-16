@@ -304,6 +304,10 @@ class CompareResult:
     #: unlinked object leaves those fields unset; the instruction diff applies
     #: them to read the rebuild's jump tables.  Not serialized, like the bytes.
     self_relocations: dict[int, int] = field(default_factory=dict)
+    #: The symbol each relocation field of ``obj_bytes`` names, by the field's
+    #: start offset, as the object file spells it.  Not serialized, like the
+    #: byte payloads it describes.
+    reloc_symbols: dict[int, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         """Reject a ``matched`` flag that contradicts ``status``."""
@@ -318,7 +322,8 @@ class CompareResult:
         """Serialize comparison result to a JSON-safe dictionary.
 
         The two byte payloads (``obj_bytes``, ``full_obj_bytes``) are not
-        serialized — they are raw bytes, not JSON values — so
+        serialized — they are raw bytes, not JSON values — nor are
+        ``self_relocations`` and ``reloc_symbols``, which describe them, so
         :meth:`from_dict` cannot restore them.  Every other field round-trips,
         ``error`` included: it is written as
         :meth:`rebrew.errors.RebrewError.to_dict` produces, so a persisted
@@ -3325,6 +3330,7 @@ def _extract_and_compare(
         )
         result.relocation_bindings = bindings
         result.self_relocations = self_relocations(full_relocs)
+        result.reloc_symbols = dict(reloc_dict or {})
         return result
     msg = (
         f"RELOC-NORM MATCH ({len(relocs)} relocs)"
@@ -3336,6 +3342,7 @@ def _extract_and_compare(
     result = classify_compare_result(matched, msg, target_bytes, obj_bytes, relocs, inv_relocs)
     result.relocation_bindings = bindings
     result.self_relocations = self_relocations(full_relocs)
+    result.reloc_symbols = dict(reloc_dict or {})
     return result
 
 

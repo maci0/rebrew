@@ -306,3 +306,18 @@ class TestExtractAndCompare:
         monkeypatch.setattr("rebrew.compiler.compile.parse_obj_symbol_and_relocs", _boom)
         with pytest.raises(ValueError, match="LIEF parse failed"):
             _extract_and_compare("/x.obj", "_f", b"\x55")
+
+
+@pytest.mark.parametrize("obj", [b"\xe8\x00\x00\x00\x00\xc3", b"\xe8\x00\x00\x00\x00\x90\xc3"])
+def test_the_result_keeps_the_relocation_symbols(
+    obj: bytes, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The instruction diff names each relocated operand by the object's symbol, same size or not."""
+    monkeypatch.setattr(
+        "rebrew.compiler.compile.parse_obj_symbol_and_relocs",
+        _stub_parser(obj, {1: "_helper"}),
+    )
+    result = _extract_and_compare(
+        "f.obj", "_f", b"\xe8\x36\x02\x00\x00\xc3", check_known_bindings=False
+    )
+    assert result.reloc_symbols == {1: "_helper"}

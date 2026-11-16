@@ -66,6 +66,7 @@ _KEYWORDS = {
     "maxItems",
     "contentEncoding",
     "oneOf",
+    "enum",
 }
 _TYPES = {
     "object": lambda v: isinstance(v, dict),
@@ -85,6 +86,8 @@ def _validate(schema: Any, value: Any, where: str = "$") -> None:
     if "type" in schema:
         types = schema["type"] if isinstance(schema["type"], list) else [schema["type"]]
         assert any(_TYPES[t](value) for t in types), f"{where}: {value!r} is not {types}"
+    if "enum" in schema:
+        assert value in schema["enum"], f"{where}: {value!r} is not one of {schema['enum']}"
     if "oneOf" in schema:
         matched = 0
         for option in schema["oneOf"]:

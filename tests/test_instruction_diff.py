@@ -91,6 +91,20 @@ class TestInstructionDiff:
         }
         assert diff["rebuilt"][0] == diff["original"][0]
 
+    def test_a_relocated_instruction_names_its_symbols(self) -> None:
+        diff = instruction_diff(
+            MEMOPS_TARGET,
+            MEMOPS_REBUILT,
+            va=MEMOPS_VA,
+            reloc_offsets=MEMOPS_RELOCS,
+            reloc_symbols={6: "__chkstk", 200: "_past_the_end", 7: ""},
+            **X86,
+        )
+        assert diff["rebuilt"][1]["symbols"] == ["__chkstk"]
+        assert "symbols" not in diff["original"][1]
+        assert all("symbols" not in insn for insn in diff["rebuilt"][2:] + diff["rebuilt"][:1])
+        assert _rows(diff)[1] == ("equal", 1, 1, "reloc")
+
     def test_without_relocations_the_call_is_replaced(self) -> None:
         diff = instruction_diff(MEMOPS_TARGET, MEMOPS_REBUILT, va=MEMOPS_VA, **X86)
         assert diff["rows"][1] == {"op": "replace", "left": 1, "right": 1}
@@ -204,6 +218,7 @@ class TestTestInstructionsOption:
                 delta=0,
                 obj_bytes=MEMOPS_REBUILT,
                 reloc_offsets=MEMOPS_RELOCS,
+                reloc_symbols={6: "__chkstk"},
             ),
         )
         cli = CliRunner().invoke(
@@ -228,6 +243,7 @@ class TestTestInstructionsOption:
         diff = payload["instructions"]
         assert diff["rows"][1] == {"op": "equal", "left": 1, "right": 1, "reloc": True}
         assert diff["rebuilt"][1]["operands"] == "0x40142a"
+        assert diff["rebuilt"][1]["symbols"] == ["__chkstk"]
         assert len(diff["rows"]) == 44
 
     def test_needs_json(self, tmp_path: Path, monkeypatch: Any) -> None:

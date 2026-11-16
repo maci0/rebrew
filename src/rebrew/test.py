@@ -1639,6 +1639,7 @@ def _run_test_impl(
         size_val = new_size
         relocs = cmp.reloc_offsets or []
         binding_evidence = cmp.relocation_bindings
+        reloc_symbols = cmp.reloc_symbols
         cmp = classify_compare_result(
             True,
             f"RELOC-NORM MATCH ({len(relocs)} relocs)" if relocs else "EXACT MATCH",
@@ -1650,6 +1651,7 @@ def _run_test_impl(
             full_obj_bytes=cmp.full_obj_bytes,
         )
         cmp.relocation_bindings = binding_evidence
+        cmp.reloc_symbols = reloc_symbols
         # The rebuilt result drops the context digest the verdict was earned
         # under; every reader downstream (the JSON payload, the verify-cache
         # patch) takes it from here, so re-attach it like the multi-function

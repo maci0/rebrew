@@ -331,6 +331,8 @@ relocation fields, invalid relocations excepted, as the RELOC verdict masks
 them), and per instruction `spans`: character ranges of each register and
 number in `operands` with a `kind` and a `value` id shared by both sides;
 on a `replace` or `reloc` row a span whose counterpart differs is `changed`.
+A rebuilt instruction holding relocation fields lists in `symbols` the
+object file's symbol of each field, in byte order.
 Each side is decoded up to `max_bytes` (8192); a longer side sets `truncated`.
 `verify --json --instructions` adds the same object to every row it compiled
 in that run whose status is not `EXACT` (rows served from the verification
