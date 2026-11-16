@@ -1,14 +1,68 @@
 """Storage owners, extern declarations, and symbol users stay separate."""
 
+import sqlite3
 from io import StringIO
+from typing import Any
 lazy from pathlib import Path
 
+import pytest
 from rich.console import Console
 from source_util import write_source
 
 from rebrew.c_parser import find_variable_roles
+from rebrew.config import load_config
 from rebrew.data_render import render_globals
 from rebrew.data_scan import scan_data_annotations, scan_globals
+
+
+def _sqlite_scan_project(root: Path, count: int) -> Any:
+    """A SQLite-backed target with *count* sources binding functions and data.
+
+    Each source has a function anchor, a data anchor, a migrated data row with
+    no anchor, and an anchored extern of a global whose row names the header.
+    """
+    (root / "src").mkdir(parents=True)
+    (root / "rebrew-project.toml").write_text(
+        '[project]\ndefault_target = "game"\nshared_dir = ""\n'
+        '[targets.game]\nbinary = "game.exe"\nreversed_dir = "src"\nmodule = "GAME"\n'
+        '[metadata]\nbackend = "sqlite"\n'
+    )
+    (root / "src" / "shared.c").write_text('#include "globals.h"\nint g_shared;\n')
+    for i in range(count):
+        counter, table, function = 0x30000 + i * 0x10, 0x38000 + i * 0x10, 0x10000 + i * 0x100
+        write_source(
+            root / "src" / f"unit_{i}.c",
+            f"/* ADDRESS: GAME 0x{counter:x} */\nint g_counter_{i} = 1;\n"
+            f"int g_table_{i}[4];\n/* ADDRESS: GAME 0x40000 */\nextern int g_shared;\n"
+            f"/* ADDRESS: GAME 0x{function:x} */\n"
+            f"int f_{i}(void) {{ return g_counter_{i} + g_table_{i}[0] + g_shared; }}\n",
+            metadata_fields={
+                f"GAME.0x{counter:x}": {"kind": "GLOBAL", "size": 4, "status": "EXACT"},
+                f"GAME.0x{table:x}": {"kind": "DATA", "name": f"g_table_{i}", "size": 16},
+                f"GAME.0x{function:x}": {"size": 16},
+            },
+            metadata_dir=root,
+        )
+    # Last, so the shared row names the header rather than the final unit.
+    write_source(
+        root / "src" / "globals.h",
+        "/* ADDRESS: GAME 0x40000 */\nextern int g_shared;\n",
+        metadata_fields={"GAME.0x40000": {"kind": "GLOBAL", "size": 4}},
+        metadata_dir=root,
+    )
+    return load_config(root)
+
+
+def _count_sqlite_opens(monkeypatch: pytest.MonkeyPatch) -> list[object]:
+    opens: list[object] = []
+    real = sqlite3.connect
+
+    def counting(*args: Any, **kwargs: Any) -> sqlite3.Connection:
+        opens.append(args[0])
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(sqlite3, "connect", counting)
+    return opens
 
 
 def test_function_pointer_type_keeps_calling_convention_in_inventory(tmp_path: Path) -> None:
@@ -475,3 +529,88 @@ def test_unversioned_name_cover_is_ignored(tmp_path: Path) -> None:
     cache_path.write_text(json.dumps(payload), encoding="utf-8")
     data_scan._NAME_COVER_CACHE.clear()
     assert data_scan._begin_name_cover(tmp_path)["files"] == files
+
+
+class TestStoreSnapshot:
+    """The scan reads both stores once and joins every source against that snapshot."""
+
+    def test_result_of_the_sqlite_fixture(self, tmp_path: Path) -> None:
+        """Captured from the scan that reopened the stores per source."""
+        cfg = _sqlite_scan_project(tmp_path, 2)
+
+        def unit(name: str, va: int, size: int, type_str: str, fname: str) -> dict[str, Any]:
+            return {
+                "name": name,
+                "va": f"0x{va:08x}",
+                "type": type_str,
+                "annotated": True,
+                "size": size,
+                "declared_in": [fname],
+                "defined_in": [fname],
+                "referenced_in": [fname],
+                "library_owners": [],
+                "generated_owners": [],
+                "storage_kind": "object",
+                "backing": "",
+                "link_symbol": "",
+            }
+
+        expected = {
+            "globals": {
+                "g_counter_0": unit("g_counter_0", 0x30000, 4, "int", "unit_0.c"),
+                "g_counter_1": unit("g_counter_1", 0x30010, 4, "int", "unit_1.c"),
+                "g_shared": {
+                    **unit("g_shared", 0x40000, 4, "int", "shared.c"),
+                    "declared_in": ["shared.c", "unit_0.c", "unit_1.c", "globals.h"],
+                    "referenced_in": ["unit_0.c", "unit_1.c"],
+                },
+                "g_table_0": unit("g_table_0", 0x38000, 16, "int[4]", "unit_0.c"),
+                "g_table_1": unit("g_table_1", 0x38010, 16, "int[4]", "unit_1.c"),
+            },
+            "data_annotations": [],
+            "type_conflicts": [],
+            "summary": {
+                "total": 5,
+                "annotated": 5,
+                "unannotated": 0,
+                "conflicts": 0,
+                "multiple_definitions": 0,
+                "library_owned": 0,
+                "data_entries": 0,
+            },
+        }
+        assert scan_globals(cfg.reversed_dir, cfg).to_dict() == expected
+
+    def test_store_opens_do_not_grow_with_the_sources(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Each source used to reopen both stores: 2,935 SQLite opens for one 572-source map."""
+        opens = _count_sqlite_opens(monkeypatch)
+        per_scan: list[int] = []
+        for count in (1, 6):
+            cfg = _sqlite_scan_project(tmp_path / f"sources-{count}", count)
+            opens.clear()
+            scan = scan_globals(cfg.reversed_dir, cfg)
+            assert len(scan.globals) == 2 * count + 1
+            per_scan.append(len(opens))
+        assert per_scan[0] == per_scan[1]
+
+    def test_coverage_globals_read_the_data_store_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Each annotated global used to fingerprint the data store for its size and status."""
+        from rebrew.sections import get_globals
+
+        opens = _count_sqlite_opens(monkeypatch)
+        per_scan: list[int] = []
+        for count in (1, 6):
+            cfg = _sqlite_scan_project(tmp_path / f"sources-{count}", count)
+            opens.clear()
+            rows = get_globals(cfg.reversed_dir, cfg)
+            per_scan.append(len(opens))
+            assert {row["name"]: (row["size"], row["status"]) for row in rows.values()} == {
+                "g_shared": (4, ""),
+                **{f"g_counter_{i}": (4, "EXACT") for i in range(count)},
+                **{f"g_table_{i}": (16, "") for i in range(count)},
+            }
+        assert per_scan[0] == per_scan[1]

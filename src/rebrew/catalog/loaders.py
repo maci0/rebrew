@@ -411,6 +411,11 @@ def scan_reversed_dir(
         ):
             entries.extend(parsed)
     else:
+        from rebrew.metadata.data import data_file_index, data_rows_for_path, load_data_metadata
+
+        # A scan with no sources does not read the data store.
+        data_entries = load_data_metadata(metadata_root, deepcopy=False) if sources else {}
+        data_index = data_file_index(metadata_root) if sources else {}
         for cfile in sources:
             entries.extend(
                 read_source_bindings(
@@ -419,9 +424,11 @@ def scan_reversed_dir(
                     base_dir=reversed_dir,
                     metadata_dir=metadata_root,
                     project_root=cfg.root if cfg else None,
-                    # The batch already loaded the store: hand it to each
-                    # source instead of re-reading and re-fingerprinting it.
+                    # The batch already loaded both stores: hand them to each
+                    # source instead of re-reading and re-fingerprinting them.
                     function_entries=metadata,
+                    preloaded_data_rows=data_rows_for_path(metadata_root, cfile, index=data_index),
+                    data_entries=data_entries,
                 )
             )
 

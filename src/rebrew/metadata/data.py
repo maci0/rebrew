@@ -124,12 +124,17 @@ def data_file_index(
 
 
 def data_rows_for_path(
-    directory: Path | str | Any, filepath: Path
+    directory: Path | str | Any,
+    filepath: Path,
+    *,
+    index: dict[str, list[tuple[str, int, dict[str, Any]]]] | None = None,
 ) -> list[tuple[str, int, dict[str, Any]]]:
     """Return data rows whose ``file`` matches *filepath*.
 
     The match is the exact metadata-root-relative path. Sibling files with
-    the same basename never inherit one another's rows.
+    the same basename never inherit one another's rows.  *index* is a
+    :func:`data_file_index` a whole-tree caller took once; without it each
+    call resolves and fingerprints the store again.
     """
     dir_path = resolve_metadata_dir(directory)
     try:
@@ -138,7 +143,8 @@ def data_rows_for_path(
         rel = Path(os.path.relpath(filepath, dir_path)).as_posix()
     seen: set[tuple[str, int]] = set()
     rows: list[tuple[str, int, dict[str, Any]]] = []
-    index = data_file_index(directory)
+    if index is None:
+        index = data_file_index(directory)
     for candidate in (rel,):
         for module, va, entry in index.get(candidate, ()):
             identity = (module, va)

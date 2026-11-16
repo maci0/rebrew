@@ -44,6 +44,44 @@ Retained changes:
 
 Not changed: `types contracts` is first-time parsing (each file's text is
 parsed once), and asking rizin for less analysis would change its results.
+## Source scans read each store once (2026-11-16)
+
+`scan_globals` loaded both metadata stores once, then read them again for every
+source: `_collect_scan_file_facts` called `data_rows_for_path`, and
+`source_bindings` reloaded the function store for the file's rows and its first
+function anchor, and the data store for the file's rows and for an anchored
+declaration whose row names another file. `scan_reversed_dir` read the data
+store per source and `get_globals` per annotated global. Every read stats
+`rebrew-project.toml` in each ancestor directory and fingerprints the store,
+which opens a SQLite database. The scans now pass one read-only snapshot down
+(`function_entries`, `data_entries`, and `data_file_index` rows).
+
+Measured on the YC server.dll target (572 sources, SQLite metadata; the
+recoverage review lane's project) with baseline `c74bce11` (6.46.0) and the
+change, both trees byte-compiled, under the same interpreter. Each run stages
+a fresh copy of the project, as the coverage worker does, in one process per
+side; the first run warms imports and the median covers the next seven. The
+map is recoverage 9.0.0's `coverage_map` through `recoverage.ops.dispatch`.
+Opens are `sqlite3.connect` audit events and the `os.stat`/`os.lstat` columns
+count Python calls, both during one op; syscalls are `strace -f -c` of a
+three-map process minus a two-map one.
+
+| Per op | Before | After |
+|---|---:|---:|
+| `scan_globals` median | 331 ms | 99 ms |
+| `build_catalog_data` median | 454 ms | 156 ms |
+| `coverage_map` median | 718 ms | 404 ms |
+| SQLite opens: scan / catalog / map | 2,300 / 2,889 / 2,935 | 13 / 32 / 78 |
+| `os.stat` / `os.lstat` calls per map | 55,538 / 88,783 | 11,574 / 67,083 |
+| `lstat` / `stat` / `openat` syscalls per map | 121,068 / 93,695 / 8,252 | 67,941 / 12,590 / 4,251 |
+
+A second alternating round gave medians within 24 ms of these. The scan
+result, the catalog document and the map reply (966,783 bytes, sha256
+`24f387f7...`) were identical on both sides, and peak RSS was 147 and 148 MiB.
+The `os.lstat` calls left are `Path.resolve()` of each source, about four per
+source for the scan's fact and role cache keys and its first source read, not
+store reads.
+
 ## Call scans kept by binary digest (2026-11-16)
 
 `rebrew.call_references` scanned the whole binary (`scan_references`, then the import

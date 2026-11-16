@@ -1184,13 +1184,14 @@ def read_source_bindings(
     with_prototypes: bool = True,
     function_entries: dict[tuple[str, int], dict[str, Any]] | None = None,
     preloaded_data_rows: list[tuple[str, int, dict[str, Any]]] | None = None,
+    data_entries: dict[tuple[str, int], dict[str, Any]] | None = None,
 ) -> list[SourceBinding]:
     """Read address anchors and canonical metadata; comments carry no state.
 
     *with_prototypes* recovers calling conventions from definitions. A caller
     that only needs identity, size, and section leaves it false and skips
-    that parse.  *function_entries* is a preloaded store, so a batch reader
-    does not re-read the same table once per source file.
+    that parse.  *function_entries*, *preloaded_data_rows* and *data_entries*
+    are a batch reader's store snapshot, as for :func:`source_bindings`.
     """
     text, _ = read_source_text(filepath)
     return source_bindings(
@@ -1203,6 +1204,7 @@ def read_source_bindings(
         with_prototypes=with_prototypes,
         function_entries=function_entries,
         preloaded_data_rows=preloaded_data_rows,
+        data_entries=data_entries,
     )
 
 
@@ -1217,8 +1219,16 @@ def source_bindings(
     with_prototypes: bool = True,
     function_entries: dict[tuple[str, int], dict[str, Any]] | None = None,
     preloaded_data_rows: list[tuple[str, int, dict[str, Any]]] | None = None,
+    data_entries: dict[tuple[str, int], dict[str, Any]] | None = None,
 ) -> list[SourceBinding]:
-    """Join the pre-read source's address bindings with both metadata stores."""
+    """Join the pre-read source's address bindings with both metadata stores.
+
+    A whole-tree caller passes one read-only snapshot of the stores:
+    *function_entries* and *data_entries* from ``load_metadata`` /
+    ``load_data_metadata`` with ``deepcopy=False``, and *preloaded_data_rows*,
+    this file's rows from ``data_rows_for_path`` over that store.  Each one
+    omitted is read here, which resolves and fingerprints its store again.
+    """
     from rebrew.config import address_comments_for_file
     from rebrew.metadata.data import load_data_metadata
     from rebrew.metadata.functions import apply_metadata_entry, load_metadata, resolve_metadata_dir
@@ -1263,11 +1273,10 @@ def source_bindings(
     # root when it carries binding history, while the walk costs a stat per
     # ancestor.  Resolving it per anchor made a 1000-anchor file pay 1000 walks.
     binding_project_root: Path | None = project_root
-    # The whole data table, loaded once per source.  A data anchor used to
-    # re-resolve the store and deep-copy its row twice (the identity lookup
-    # and merge_into_data_binding), so a file with many globals paid that per
-    # declaration.
-    data_entries: dict[tuple[str, int], dict[str, Any]] | None = None
+    # The whole data table, loaded at most once per source when the caller
+    # passed none.  A data anchor used to re-resolve the store and deep-copy
+    # its row twice (the identity lookup and merge_into_data_binding), so a
+    # file with many globals paid that per declaration.
     for anchor in anchors:
         if target and preset_module_key(anchor.module) != target:
             continue

@@ -343,6 +343,59 @@ class TestScanReversedDirStoreReads:
         assert len(entries) == 3
         assert len(calls) == 1
 
+    def test_data_store_reads_do_not_grow_with_the_sources(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Each source used to re-read the data store for its rows and its data anchors."""
+        from types import SimpleNamespace
+
+        from rebrew.catalog.loaders import scan_reversed_dir
+        from rebrew.metadata import data
+
+        reads: list[Path] = []
+        original = data.load_metadata_doc
+
+        def counting(path: Path, *args: Any, **kwargs: Any) -> dict[Any, Any]:
+            reads.append(path)
+            return original(path, *args, **kwargs)
+
+        monkeypatch.setattr(data, "load_metadata_doc", counting)
+        per_scan: list[int] = []
+        for count in (1, 4):
+            root = tmp_path / f"sources-{count}"
+            src = root / "src"
+            src.mkdir(parents=True)
+            for i in range(count):
+                function, table = 0x10001000 + i * 0x100, 0x10030000 + i * 0x10
+                write_source(
+                    src / f"f{i}.c",
+                    f"int g_table_{i}[4];\n/* ADDRESS: SERVER 0x10040000 */\nextern int g_shared;\n"
+                    f"/* ADDRESS: SERVER 0x{function:x} */\nvoid f{i}(void) {{}}\n",
+                    metadata_fields={
+                        f"SERVER.0x{function:x}": {"kind": "FUNCTION", "size": 16},
+                        f"SERVER.0x{table:x}": {"kind": "DATA", "name": f"g_table_{i}", "size": 16},
+                    },
+                    metadata_dir=root,
+                )
+            write_source(
+                src / "globals.h",
+                "/* ADDRESS: SERVER 0x10040000 */\nextern int g_shared;\n",
+                metadata_fields={"SERVER.0x10040000": {"kind": "GLOBAL", "size": 4}},
+                metadata_dir=root,
+            )
+            cfg = SimpleNamespace(
+                metadata_dir=root, module="SERVER", source_ext=".c", reversed_dir=src, root=root
+            )
+            reads.clear()
+            entries = scan_reversed_dir(src, cfg=cfg)
+            assert sorted((e.name, e.kind) for e in entries if e.name != "g_shared") == sorted(
+                [(f"f{i}", "FUNCTION") for i in range(count)]
+                + [(f"g_table_{i}", "DATA") for i in range(count)]
+            )
+            assert [e.kind for e in entries if e.name == "g_shared"] == ["GLOBAL"] * count
+            per_scan.append(sum(path.name == data.DATA_METADATA_FILENAME for path in reads))
+        assert per_scan[0] == per_scan[1]
+
 
 class TestParseRizinAfl:
     """Shared rizin ``afl`` parser (discover + intake used to hand-roll

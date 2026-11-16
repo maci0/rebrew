@@ -9,6 +9,7 @@ import logging
 import re
 import threading
 from typing import TYPE_CHECKING, Any
+lazy import unicodedata
 lazy from pathlib import Path
 
 from rebrew.sources import iter_sources as iter_sources
@@ -131,9 +132,10 @@ def get_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> dict[int, di
         from rebrew.data_ownership import enrich_library_owners
 
         enrich_library_owners(scan, cfg)
-    # One ancestor probe for the whole global list; ``get_data_entry`` is
-    # called once per annotated global.
+    # One ancestor probe and one read-only data-store read for the whole
+    # global list, the read taken at the first annotated global.
     metadata_dir = cfg.metadata_dir if cfg else src_dir
+    data_entries: dict[tuple[str, int], dict[str, Any]] | None = None
     globals_dict: dict[int, dict[str, Any]] = {}
     entries = sorted(
         scan.globals.values(),
@@ -147,9 +149,13 @@ def get_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> dict[int, di
     for entry in entries:
         if not entry.annotated:
             continue
-        from rebrew.metadata.data import get_data_entry
+        meta: dict[str, Any] = {}
+        if entry.module:
+            if data_entries is None:
+                from rebrew.metadata.data import load_data_metadata
 
-        meta = get_data_entry(metadata_dir, entry.va, module=entry.module) if entry.module else {}
+                data_entries = load_data_metadata(metadata_dir, deepcopy=False)
+            meta = data_entries.get((unicodedata.normalize("NFC", entry.module), entry.va), {})
         row = globals_dict.setdefault(
             entry.va,
             {

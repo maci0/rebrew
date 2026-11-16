@@ -7,6 +7,7 @@
 ### Performance
 
 - On a guild-rebrew snapshot, `source units` retires 31% fewer instructions, `binary analyze` 16%, `coverage report` 13%, and `data bss` / `data list` 32% after a store write empties the scan cache, with identical output; `binary functions` runs its two rizin analyses and the capstone sweep together (40.7 s to 35.8 s wall) ([PERFORMANCE.md](docs/PERFORMANCE.md#commands-outside-the-earlier-sets-2026-11-16)). x86-32 reference scans decode an instruction's operands only when its text prints an in-image address.
+- The source scans read each metadata store once per scan, not once per source. `scan_globals` (behind `rebrew data list`, the coverage grid and the reloc name map) and `scan_reversed_dir` join every source against one read-only snapshot of both stores, and `get_globals` reads the data store once instead of once per annotated global. `source_bindings` and `read_source_bindings` take that snapshot's `data_entries`, and `data_rows_for_path` takes a `data_file_index` as `index`. Every store read stats `rebrew-project.toml` in each ancestor directory and fingerprints the store, which opens a SQLite database. On the YC server.dll target (572 sources, SQLite metadata) one recoverage coverage map opened the database 2,935 times and now opens it 78 times; the map's median went from 718 ms to 404 ms and `scan_globals` from 331 ms to 99 ms, with byte-identical results (`docs/PERFORMANCE.md`).
 
 ## [6.46.0] - 2026-11-16
 

@@ -361,22 +361,21 @@ _ADDRESS_VA_RE = re.compile(r"ADDRESS:\s+(\S+)\s+(0x[0-9a-fA-F]+)")
 def _store_names_the_file(
     text: str,
     cfile: Path,
-    metadata_dir: Path,
+    rows: list[tuple[str, int, dict[str, Any]]],
     function_entries: dict[tuple[str, int], dict[str, Any]],
 ) -> bool:
     """True when the stores already name every address this file can add.
 
     The reloc name map only needs those names. A file with no address comment
     and no data row contributes none. A comment whose address is already
-    stored does not need another C parse to repeat the name.
+    stored does not need another C parse to repeat the name. *rows* are the
+    file's data rows.
     """
     from rebrew.config import DEFAULT_ADDRESS_COMMENT_REGEX, address_comments_for_file
-    from rebrew.metadata.data import data_rows_for_path
 
     if address_comments_for_file(cfile).regex != DEFAULT_ADDRESS_COMMENT_REGEX:
         return False
 
-    rows = data_rows_for_path(metadata_dir, cfile)
     if any(not (entry.get("name") or entry.get("link_symbol")) for _, _, entry in rows):
         return False
     for module, hex_va in _ADDRESS_VA_RE.findall(text):
@@ -736,6 +735,8 @@ def _collect_scan_file_facts(
     *,
     metadata_dir: Path,
     function_entries: dict[tuple[str, int], dict[str, Any]],
+    data_entries: dict[tuple[str, int], dict[str, Any]],
+    data_index: dict[str, list[tuple[str, int, dict[str, Any]]]],
     inactive_sources: set[Path],
     record_roles: bool,
     file_roles: dict[str, tuple[set[str], set[str], set[str]]],
@@ -745,7 +746,8 @@ def _collect_scan_file_facts(
     """Parse *cfile* into the facts :func:`_apply_scan_file_facts` replays.
 
     ``None`` means the file could not be read. Callers retry that file next
-    time instead of remembering an empty contribution.
+    time instead of remembering an empty contribution. *function_entries*,
+    *data_entries* and *data_index* are the scan's store snapshot.
     """
     is_header = cfile.suffix.lower() == ".h"
     # The reloc name map already has this file's names. A later process
@@ -777,7 +779,8 @@ def _collect_scan_file_facts(
         return None
 
     fname = rel_display_path(cfile, src_dir)
-    if not declarations and _store_names_the_file(text, cfile, metadata_dir, function_entries):
+    data_rows = data_rows_for_path(metadata_dir, cfile, index=data_index)
+    if not declarations and _store_names_the_file(text, cfile, data_rows, function_entries):
         if name_cover is not None:
             _name_cover_remember(name_cover, cfile)
         return {"apply": False, "fname": fname, "header": is_header}
@@ -790,7 +793,7 @@ def _collect_scan_file_facts(
                 function_entries,
                 project_root=getattr(cfg, "root", None),
             )
-            + data_rows_for_path(metadata_dir, cfile)
+            + data_rows
         )
     )
     if not stored_modules and not is_header and cfile.resolve() in inactive_sources:
@@ -811,6 +814,9 @@ def _collect_scan_file_facts(
         metadata_dir,
         with_prototypes=False,
         project_root=getattr(cfg, "root", None),
+        function_entries=function_entries,
+        preloaded_data_rows=data_rows,
+        data_entries=data_entries,
     )
     function_modules: dict[str, set[str]] = defaultdict(set)
     data_modules: dict[str, set[str]] = defaultdict(set)
@@ -1053,11 +1059,14 @@ def scan_globals(
     header_files: set[str] = set()
     file_roles: dict[str, tuple[set[str], set[str], set[str]]] = {}
     metadata_dir = getattr(cfg, "metadata_dir", None) or src_dir
-    from rebrew.metadata.data import load_data_metadata
+    from rebrew.metadata.data import data_file_index, load_data_metadata
 
-    # Read-only for the whole walk: the scan merges rows into its own result,
-    # so cloning the complete store once per call is wasted work.
+    # One read-only snapshot of both stores for the whole walk.  The scan
+    # merges rows into its own result, so it needs no clone, and every source
+    # joins against it: each store read fingerprints the store, which opens a
+    # SQLite database.
     data_entries = load_data_metadata(metadata_dir, deepcopy=False)
+    data_index = data_file_index(metadata_dir)
     function_entries = load_metadata(metadata_dir, deepcopy=False) if metadata_dir else {}
     from rebrew.metadata.binding_history import historical_source_files
     from rebrew.workspace.config import walk_up_to_root
@@ -1104,6 +1113,8 @@ def scan_globals(
                 cfg,
                 metadata_dir=metadata_dir,
                 function_entries=function_entries,
+                data_entries=data_entries,
+                data_index=data_index,
                 inactive_sources=inactive_sources,
                 record_roles=record_roles,
                 file_roles=file_roles,
