@@ -235,7 +235,7 @@ def test_capture_entries_follow_the_readset_bound(
     result_status, result = _call(config, _with_entries(original, count))
     assert result_status == status, result
     if status == 400:
-        assert result["detail"] == "invalid retained analysis capture"
+        assert result["detail"] == "invalid retained analysis capture: invalid capture"
 
 
 def _with_source_files(
@@ -383,7 +383,9 @@ def test_sqlite_capture_accepts_only_the_attested_store(
     digest = hashlib.sha256(published).hexdigest()
     for attested in ("", "0" * 64):
         status, result = _call(config, {**request, "attested_registry_digest": attested})
-        assert status == 400 and result["detail"] == "invalid retained analysis capture"
+        assert status == 400 and result["detail"] == (
+            f"invalid retained analysis capture: protected capture path {DATABASE_FILENAME}"
+        )
     assert staged == []
     status, result = _call(config, {**request, "attested_registry_digest": digest})
     assert status == 200, result
@@ -395,8 +397,79 @@ def test_sqlite_capture_accepts_only_the_attested_store(
     status, result = _call(
         config, {**request, "attested_registry_digest": hashlib.sha256(empty).hexdigest()}
     )
-    assert status == 400 and result["detail"] == "invalid retained analysis capture"
+    assert status == 400 and result["detail"] == (
+        "invalid retained analysis capture: attested metadata store has no function registry"
+    )
     assert staged == [published]
+
+
+def _with_published_copy(
+    config: WorkerConfig, original: dict[str, Any], path: str, data: bytes
+) -> dict[str, Any]:
+    """The request whose published tree carries *data* at the captured *path*.
+
+    The published row names an object the filestore does not hold, so a request
+    that reads it instead of the captured entry fails to stage.
+    """
+    request = _with_source_files(config, original, {path: data})
+    (row,) = [r for r in request["files"] if r["path"] == path]
+    row["key"] = "binaries/" + "0" * 64
+    assert config.filestore is not None
+    assert not (config.filestore / row["key"]).exists()
+    return request
+
+
+@pytest.mark.parametrize("op", ["rebrew.decompile_snapshot", "rebrew.security_scan_snapshot"])
+def test_published_copy_of_captured_inventory_or_binary_is_accepted(
+    sample: tuple[WorkerConfig, dict[str, Any]], monkeypatch: pytest.MonkeyPatch, op: str
+) -> None:
+    """A published tree may carry a byte-identical copy of the inventory or the binary.
+
+    Production security scans 1673 and 1696 failed on such a reconstruction target.
+    """
+    config, original = sample
+    assert config.filestore is not None
+    capture = json.loads(original["analysis_manifest"])
+    inventory = capture["inventory_path"]
+    (binary,) = [e["path"] for e in capture["entries"] if e["kind"] == "binary"]
+    (stored,) = [r for r in original["analysis_files"] if r["path"] == inventory]
+    monkeypatch.setattr(
+        "rebrew.decompiler.fetch_decompilation", lambda *_args: ("int f(void);", "kuna")
+    )
+    request = copy.deepcopy(original)
+    if op == "rebrew.security_scan_snapshot":
+        request.pop("va")
+        request.pop("backend")
+        request["min_severity"] = "low"
+    for path, data in (
+        (inventory, (config.filestore / stored["key"]).read_bytes()),
+        (binary, BINARY.read_bytes()),
+    ):
+        request = _with_published_copy(config, request, path, data)
+    status, raw = dispatch(config, op, json.dumps(request).encode())
+    assert status == 200, raw
+
+
+@pytest.mark.parametrize("copy_of", ["changed inventory", "report"])
+def test_published_copy_at_other_captured_analysis_path_is_refused(
+    sample: tuple[WorkerConfig, dict[str, Any]], monkeypatch: pytest.MonkeyPatch, copy_of: str
+) -> None:
+    config, original = sample
+    assert config.filestore is not None
+    capture = json.loads(original["analysis_manifest"])
+    path = capture["inventory_path" if copy_of == "changed inventory" else "report_path"]
+    (stored,) = [r for r in original["analysis_files"] if r["path"] == path]
+    data = (config.filestore / stored["key"]).read_bytes()
+    if copy_of == "changed inventory":
+        data += b"\n"
+
+    def forbidden(*_args: object) -> tuple[str, str]:
+        raise AssertionError("decompiler must not run")
+
+    monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", forbidden)
+    status, result = _call(config, _with_source_files(config, original, {path: data}))
+    assert status == 400, result
+    assert result["detail"] == f"invalid retained analysis capture: protected capture path {path}"
 
 
 def _with_capture(original: dict[str, Any], capture: dict[str, Any]) -> dict[str, Any]:
@@ -426,17 +499,17 @@ def test_sqlite_capture_descriptor_must_match_its_store(
     reordered = {"metadata": capture["metadata"], **legacy}
     other_store = copy.deepcopy(capture)
     other_store["metadata"]["files"][0]["sha256"] = "0" * 64
-    for document in (
-        altered,
-        {**legacy, "version": 2},
-        {**legacy, "version": 3},
-        unversioned,
-        reordered,
-        other_store,
+    for document, reason in (
+        (altered, "capture metadata differs from its store"),
+        ({**legacy, "version": 2}, "invalid capture"),
+        ({**legacy, "version": 3}, "invalid capture"),
+        (unversioned, "invalid capture"),
+        (reordered, "noncanonical capture"),
+        (other_store, "capture metadata store is not an analysis file"),
     ):
         status, result = _call(config, _with_capture(original, document))
         assert status == 400, result
-        assert result["detail"] == "invalid retained analysis capture"
+        assert result["detail"] == f"invalid retained analysis capture: {reason}"
 
 
 def test_stored_version_2_capture_remains_readable(

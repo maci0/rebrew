@@ -17,6 +17,13 @@ if TYPE_CHECKING:
     from rebrew.ops import DecompileSnapshotRequest, SecuritySnapshotRequest, WorkerConfig
 
 
+class _CaptureRefusal(ValueError):
+    """A retained analysis capture rule refused the request.
+
+    The message names the rule and, where one applies, the path; never file content.
+    """
+
+
 _REGISTRY_FILE = "rebrew-functions.toml"
 
 
@@ -129,7 +136,7 @@ def _capture_metadata(value: Any, version: int) -> dict[str, Any]:
             or type(files[0]["sha256"]) is not str
             or not re.fullmatch(r"[0-9a-f]{64}", files[0]["sha256"])
         ):
-            raise ValueError("invalid capture metadata")
+            raise _CaptureRefusal("invalid capture metadata")
         canonical: dict[str, Any] = {"files": [dict(files[0])]}
     elif (
         type(value) is not dict
@@ -139,14 +146,14 @@ def _capture_metadata(value: Any, version: int) -> dict[str, Any]:
         or type(value["migration_input_digest"]) is not str
         or not re.fullmatch(r"[0-9a-f]{64}", value["migration_input_digest"])
     ):
-        raise ValueError("invalid capture metadata")
+        raise _CaptureRefusal("invalid capture metadata")
     else:
         canonical = {"backend": "sqlite", "path": DATABASE_FILENAME}
     if (
         type(value["documents"]) is not list
         or not 1 <= len(value["documents"]) <= ops.MAX_READSET_FILES
     ):
-        raise ValueError("invalid capture metadata")
+        raise _CaptureRefusal("invalid capture metadata")
     documents = []
     previous = b""
     for item in value["documents"]:
@@ -163,7 +170,7 @@ def _capture_metadata(value: Any, version: int) -> dict[str, Any]:
             )
             or not re.fullmatch(r"[0-9a-f]{64}", item["logical_sha256"])
         ):
-            raise ValueError("invalid capture metadata document")
+            raise _CaptureRefusal("invalid capture metadata document")
         previous = item["path"].encode("utf-8")
         documents.append({"path": item["path"], "logical_sha256": item["logical_sha256"]})
     canonical["documents"] = documents
@@ -178,11 +185,11 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
 
     try:
         if type(req.analysis_manifest) is not str:
-            raise ValueError("capture must be a string")
+            raise _CaptureRefusal("capture must be a string")
         # The request bound (``ops.MAX_REQUEST_BYTES``) bounds the manifest text.
         raw = req.analysis_manifest.encode("utf-8")
         if hashlib.sha256(raw).hexdigest() != req.analysis_manifest_sha256:
-            raise ValueError("capture digest differs")
+            raise _CaptureRefusal("capture digest differs")
         capture = json.loads(req.analysis_manifest, object_pairs_hook=unique_json_object)
         # Version 1 keeps its registry as TOML; versions 2 and 3 keep every metadata
         # document in the captured SQLite store its ``metadata`` descriptor lists.
@@ -210,7 +217,7 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
             or not 1 <= len(capture["entries"]) <= ops.MAX_READSET_FILES
             or not re.fullmatch(r"[0-9a-f]{32}", req.generation)
         ):
-            raise ValueError("invalid capture")
+            raise _CaptureRefusal("invalid capture")
         ordered: list[dict[str, Any]] = []
         refs = iter(req.analysis_files)
         selected: dict[str, Any] = {}
@@ -222,7 +229,7 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
         baseline_config = False
         for item in capture["entries"]:
             if type(item) is not dict or not {"path", "kind", "size", "digest"} <= item.keys():
-                raise ValueError("invalid capture entry")
+                raise _CaptureRefusal("invalid capture entry")
             path, kind, size, digest = (item[k] for k in ("path", "kind", "size", "digest"))
             role, key = item.get("role", ""), item.get("object_key", "")
             if (
@@ -236,7 +243,7 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
                 or path <= previous
                 or size < 0
             ):
-                raise ValueError("invalid capture path")
+                raise _CaptureRefusal("invalid capture path")
             previous = path
             row: dict[str, Any] = {"path": path, "kind": kind}
             if role:
@@ -245,15 +252,15 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
             if key:
                 row["object_key"] = key
             if row != item:
-                raise ValueError("invalid capture fields")
+                raise _CaptureRefusal("invalid capture fields")
             ordered.append(row)
             reserved[path] = item
             if kind == "absent":
                 if role or key or size or digest:
-                    raise ValueError("invalid absent capture")
+                    raise _CaptureRefusal("invalid absent capture")
             elif kind == "binary":
                 if binary_path or role or key or size <= 0 or digest != req.sha256:
-                    raise ValueError("invalid binary capture")
+                    raise _CaptureRefusal("invalid binary capture")
                 binary_path, binary_size = path, size
             elif kind == "file":
                 if (
@@ -262,39 +269,39 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
                     or size > ops.MAX_READSET_FILE_BYTES
                     or not re.fullmatch(r"[0-9a-f]{64}", digest)
                 ):
-                    raise ValueError("invalid file capture")
+                    raise _CaptureRefusal("invalid file capture")
                 entry = next(refs)
                 if (
                     (entry.path, entry.digest, entry.size) != (path, digest, size)
                     or bool(entry.key) == bool(entry.url)
                     or (entry.key and entry.key != key)
                 ):
-                    raise ValueError("capture object differs")
+                    raise _CaptureRefusal(f"capture object differs {path}")
                 total += size
                 if role == "analysis" and path != "rebrew-project.toml":
                     selected[path] = entry
                 if role == "analysis" and path == "rebrew-project.toml":
                     baseline_config = True
             else:
-                raise ValueError("invalid capture kind")
+                raise _CaptureRefusal("invalid capture kind")
         if (
             next(refs, None) is not None
             or not binary_path
             or not baseline_config
             or total > ops.MAX_READSET_BYTES
         ):
-            raise ValueError("invalid capture bounds")
+            raise _CaptureRefusal("invalid capture bounds")
         for field in ("inventory_path", "report_path"):
             if field not in capture:
                 continue
             path = capture[field]
             if type(path) is not str or not _valid_path(path):
-                raise ValueError("invalid selected capture path")
+                raise _CaptureRefusal("invalid selected capture path")
             if field == "report_path" and path != ops.ANALYSIS_REPORT_PATH:
-                raise ValueError("invalid captured report path")
+                raise _CaptureRefusal("invalid captured report path")
             item = reserved.get(path)
             if item is None or item["kind"] != "file" or item.get("role") != "analysis":
-                raise ValueError("selected capture path is not an analysis file")
+                raise _CaptureRefusal("selected capture path is not an analysis file")
         canonical = {
             "version": capture["version"],
             "binary_sha256": req.sha256,
@@ -320,15 +327,23 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
                     for item in canonical["metadata"].get("files", ())
                 )
             ):
-                raise ValueError("capture metadata store is not an analysis file")
+                raise _CaptureRefusal("capture metadata store is not an analysis file")
         canonical["entries"] = ordered
         if json.dumps(canonical, ensure_ascii=False, separators=(",", ":")).encode("utf-8") != raw:
-            raise ValueError("noncanonical capture")
+            raise _CaptureRefusal("noncanonical capture")
         for entry in req.files:
             for path in reserved:
                 if entry.path.startswith(path + "/") or path.startswith(entry.path + "/"):
-                    raise ValueError("overlapping capture paths")
+                    raise _CaptureRefusal(f"overlapping capture paths {entry.path}")
             prior = reserved.get(entry.path)
+            if (
+                prior
+                and entry.path in (binary_path, capture.get("inventory_path"))
+                and (entry.digest, entry.size) == (prior["digest"], prior["size"])
+            ):
+                # A published copy of the captured binary or inventory (the backend's
+                # identicalToCapture rule): the captured entry is the one staged.
+                continue
             if entry.path in documents:
                 # Nothing reads a TOML copy beside the SQLite store, attested or not.
                 raise ops._invalid(
@@ -342,7 +357,7 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
                 and req.attested_registry_digest
                 and entry.digest == req.attested_registry_digest
             ):
-                raise ValueError("protected capture path")
+                raise _CaptureRefusal(f"protected capture path {entry.path}")
             if prior and not (
                 prior["kind"] == "file"
                 and (
@@ -356,7 +371,7 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
                     )
                 )
             ):
-                raise ValueError("protected capture path")
+                raise _CaptureRefusal(f"protected capture path {entry.path}")
             if entry.path == DATABASE_FILENAME:
                 attested_store = entry
             selected[entry.path] = entry
@@ -365,13 +380,13 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
                 with source.open("rb") as handle:
                     data = handle.read(entry.size + 1)
                 if len(data) != entry.size or hashlib.sha256(data).hexdigest() != entry.digest:
-                    raise ValueError("capture content differs")
+                    raise _CaptureRefusal(f"capture content differs {entry.path}")
                 if (
                     documents
                     and entry.path == DATABASE_FILENAME
                     and metadata_database_documents(source) != documents
                 ):
-                    raise ValueError("capture metadata differs from its store")
+                    raise _CaptureRefusal("capture metadata differs from its store")
         if attested_store is not None:
             # The attested store replaces the captured one whole; it must still be a
             # closed, valid store holding the function registry.
@@ -379,8 +394,10 @@ def _capture_files(config: Any, req: Any) -> tuple[list[Any], str, int]:
                 config, attested_store.key, attested_store.url, attested_store.digest, "key"
             ) as source:
                 if _REGISTRY_FILE not in metadata_database_documents(source):
-                    raise ValueError("attested metadata store has no function registry")
+                    raise _CaptureRefusal("attested metadata store has no function registry")
         return [selected[p] for p in sorted(selected)], binary_path, binary_size
+    except _CaptureRefusal as exc:
+        raise ops._invalid(f"invalid retained analysis capture: {exc}") from None
     except KeyError, TypeError, ValueError, UnicodeError, RecursionError, StopIteration:
         raise ops._invalid("invalid retained analysis capture") from None
 
