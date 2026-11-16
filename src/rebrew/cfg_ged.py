@@ -38,7 +38,7 @@ lazy from typing import Any
 import capstone
 
 lazy from rebrew.analysis import capstone_handle, instruction_text
-lazy from rebrew.switch import BOUND_WINDOW, MAX_TABLE_ENTRIES, dispatch_operand, index_bound
+lazy from rebrew.jump_table import BOUND_WINDOW, MAX_TABLE_ENTRIES, dispatch_operand, index_bound
 
 #: Terminators that end a basic block.
 _BLOCK_END_MNEMONICS = frozenset(
@@ -163,7 +163,7 @@ def build_cfg_view(
     ``EDGE_SWITCH`` edge per distinct case target, in table order, and each
     target starts a block.  The table holds ``N + 1`` entries when a ``cmp
     reg, N`` on the index precedes the ``jmp`` (else up to
-    ``rebrew.switch.MAX_TABLE_ENTRIES``).  An entry outside the function
+    ``rebrew.jump_table.MAX_TABLE_ENTRIES``).  An entry outside the function
     (``va`` to ``va + len(code)``) gives no edge; without a bound it ends the
     table, with one the walk goes on, as ``rebrew binary switches`` does: MSVC's
     memcpy byte-tail tables (``and eax, 3`` bound) leave slot 0 unused, its

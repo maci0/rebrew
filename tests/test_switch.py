@@ -400,7 +400,7 @@ class TestRegisterCompareIsNotABound:
     def test_register_operand_rejected(self) -> None:
         """`cmp ecx, edx` has no immediate bound; the old pattern read "ed" as
         0xed and pulled unrelated handler addresses into the case list."""
-        from rebrew.switch import _CMP_IMM_RE
+        from rebrew.jump_table import _CMP_IMM_RE
 
         assert _CMP_IMM_RE.search("ecx, edx") is None
         assert _CMP_IMM_RE.search("ecx, dword ptr [eax]") is None
