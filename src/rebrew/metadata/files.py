@@ -354,6 +354,23 @@ class TomlStore:
         with self.transaction():
             write_metadata_collection(self.path, doc, description)
 
+    def text(self) -> str | None:
+        """Exact text of a single-file store; a fragmented one is merged and rendered."""
+        paths = metadata_paths(self.path)
+        if not paths:
+            return None
+        if paths == (self.path,):
+            return self.path.read_text(encoding="utf-8")
+        return tomlkit.dumps(self.read("metadata document", roundtrip=True))
+
+    def write_text(self, content: str, description: str) -> None:
+        """Publish rendered text; only a store with fragments routes records through them."""
+        with self.transaction():
+            if any(member != self.path for member in metadata_paths(self.path)):
+                write_metadata_collection(self.path, tomlkit.parse(content), description)
+            else:
+                atomic_write_locked(self.path, content)
+
     def exists(self) -> bool:
         """Whether any member of this store exists."""
         return bool(metadata_paths(self.path))

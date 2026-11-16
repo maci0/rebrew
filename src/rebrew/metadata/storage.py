@@ -48,6 +48,14 @@ class MetadataStore(Protocol):
         """Write a document atomically within the active transaction."""
         ...
 
+    def text(self) -> str | None:
+        """Exact TOML text of the logical document; None means absent."""
+        ...
+
+    def write_text(self, content: str, description: str) -> None:
+        """Write already-rendered TOML text atomically within the active transaction."""
+        ...
+
     def exists(self) -> bool:
         """Whether this logical document exists."""
         ...

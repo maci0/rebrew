@@ -219,7 +219,15 @@ class PgsqlStore:
 
     def write(self, doc: dict[str, Any], description: str) -> None:
         """Replace a document, preserving its revision when content is unchanged."""
-        content = tomlkit.dumps(doc) or "\n"
+        self.write_text(tomlkit.dumps(doc) or "\n", description)
+
+    def text(self) -> str | None:
+        """The stored document text; None when absent."""
+        row = self._row()
+        return row[0] if row else None
+
+    def write_text(self, content: str, description: str) -> None:
+        """Replace a document with rendered text, preserving its revision when unchanged."""
         with self.transaction(), self._connection() as connection:
             self._row()
             connection.execute(

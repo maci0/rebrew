@@ -1,5 +1,13 @@
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** the `MetadataStore` protocol adds `text()` (the exact TOML text of the logical document, `None` when absent) and `write_text(content, description)` (publish rendered text). The TOML, SQLite and PostgreSQL backends implement both; a third-party `rebrew.metadata_backends` provider must add them.
+
+### Fixed
+
+- Replicated metadata (`read_backends`/`write_backends`) no longer round-trips whole documents through tomlkit on every operation. Replicas are observed and published as text, each record's semantic digest is computed once per content, journal and replication-state documents are rendered without per-character string escaping, and parsed journal/state documents are reused while their store fingerprint is unchanged. On a 21 MB function store a no-op `rebrew metadata reconcile` took over 22 minutes without finishing and now takes about 15 seconds; a replicated read dropped from 12 to 9 seconds (TOML alone: 4).
+
 ## [6.48.0] - 2026-11-16
 
 ### Added

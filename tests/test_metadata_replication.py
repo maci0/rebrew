@@ -42,15 +42,19 @@ def _reconcile_process(root: str) -> dict[str, Any]:
 def _offline(monkeypatch: pytest.MonkeyPatch) -> None:
     from collections.abc import Iterator  # noqa: TC003 - tests keep eager imports
 
-    def read(self: SqliteStore, *args: Any, **kwargs: Any) -> Any:
+    # Every SQLite read path (read, text, exists, fingerprint) opens the
+    # database through _reader, which raises this error for a real outage.
+    @contextmanager
+    def reader(self: SqliteStore) -> Iterator[Any]:
         raise MetadataUnavailableError("offline")
+        yield
 
     @contextmanager
     def transaction(self: SqliteStore) -> Iterator[None]:
         raise MetadataUnavailableError("offline")
         yield
 
-    monkeypatch.setattr(SqliteStore, "read", read)
+    monkeypatch.setattr(SqliteStore, "_reader", reader)
     monkeypatch.setattr(SqliteStore, "transaction", transaction)
 
 
@@ -323,3 +327,70 @@ class TestMetadataReplication:
         with pytest.raises(MetadataConflictError):
             reconcile_metadata(cfg)
         assert not (tmp_path / JOURNAL_PATH).exists()
+
+
+_AWKWARD = "q\"\\ back\nslash\ttab \x01ctl \x7fdel é \U0001f600 ''' end"
+
+
+class TestReplicationHotPaths:
+    """Large stores must not pay tomlkit round-trips on every replicated operation."""
+
+    def test_state_render_round_trips_through_the_loader(self, tmp_path: Path) -> None:
+        from rebrew.metadata.files import TomlStore
+        from rebrew.metadata.replication import _load, _Record, _save
+
+        content = tomlkit.dumps({"a": {"s": _AWKWARD}})
+        records = {
+            "rebrew-functions.toml": _Record({"node:x": 3, 'odd "node"': 1}, 7, content, False),
+            "rebrew-data.toml": _Record({"n": 1}, 9, "", True),
+        }
+        store = TomlStore(tmp_path / "state.toml", tmp_path)
+        _save(store, records, 'node "id"')
+        loaded, node = _load(store)
+        assert node == 'node "id"'
+        assert loaded == records
+        assert loaded["rebrew-functions.toml"].digest == records["rebrew-functions.toml"].digest
+
+    def test_store_text_and_write_text(self, tmp_path: Path) -> None:
+        _project(tmp_path)
+        content = tomlkit.dumps({"format": 3, "x": {"s": _AWKWARD}})
+        for backend in ("toml", "sqlite"):
+            store = _raw(tmp_path, backend, "rebrew-data.toml")
+            assert store.text() is None
+            with store.transaction():
+                store.write_text(content, "test")
+            assert store.text() == content
+            assert store.read("test") == tomlkit.parse(content).unwrap()
+
+    def test_fragmented_toml_store_keeps_records_in_their_fragment(self, tmp_path: Path) -> None:
+        from rebrew.metadata.files import TomlStore
+
+        main = tmp_path / "rebrew-data.toml"
+        main.write_text('format = 2\n\n["GAME.0x1000"]\nname = "a"\n')
+        fragment = tmp_path / "rebrew-data.d" / "extra.toml"
+        fragment.parent.mkdir()
+        fragment.write_text('["GAME.0x2000"]\nname = "b"\n')
+        store = TomlStore(main, tmp_path)
+        merged = store.text()
+        assert merged is not None
+        assert tomlkit.parse(merged).unwrap()["GAME.0x2000"] == {"name": "b"}
+        store.write_text(merged.replace('name = "b"', 'name = "c"'), "test")
+        assert 'name = "c"' in fragment.read_text()
+        assert "0x2000" not in main.read_text()
+
+    def test_reconcile_publishes_without_tomlkit_round_trips(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cfg = _project(tmp_path)
+        update_field(tmp_path, 0x1000, "NOTE", "shared", "GAME")
+        edited = _raw(tmp_path, "toml").read("test", roundtrip=True)
+        edited["GAME.0x00001000"]["note"] = "edited"
+        _raw(tmp_path, "toml").write(edited, "external edit")
+
+        def refuse(*args: Any, **kwargs: Any) -> Any:
+            raise AssertionError("tomlkit round-trip on a replication hot path")
+
+        monkeypatch.setattr(tomlkit, "parse", refuse)
+        monkeypatch.setattr(tomlkit, "dumps", refuse)
+        reconcile_metadata(cfg)
+        assert "edited" in (_raw(tmp_path, "sqlite").text() or "")

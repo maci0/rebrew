@@ -1,8 +1,10 @@
 """Ordered reads, durable multi-backend writes and causal replica reconciliation."""
 
 import contextlib
+import functools
 import logging
 import threading
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 lazy import hashlib
@@ -34,6 +36,13 @@ class MetadataConflictError(MetadataStorageError):
     """Replicas contain independent changes which cannot safely overwrite one another."""
 
 
+#: Semantic digests by raw-content hash.  Parsing and normalizing a large store
+#: costs seconds, and one operation digests the same text several times.
+_DIGEST_MAX = 64
+_DIGEST_LOCK = threading.Lock()
+_DIGESTS: OrderedDict[tuple[str, bool], str] = OrderedDict()
+
+
 def _digest(content: str, deleted: bool = False) -> str:
     """Hash semantic TOML values, independent of comments and fragment placement."""
 
@@ -44,8 +53,47 @@ def _digest(content: str, deleted: bool = False) -> str:
             return ["array", [normalized(item) for item in value]]
         return [type(value).__name__, str(value)]
 
+    key = (hashlib.sha256(content.encode()).hexdigest(), deleted)
+    with _DIGEST_LOCK:
+        cached = _DIGESTS.get(key)
+        if cached is not None:
+            _DIGESTS.move_to_end(key)
+            return cached
     values = ["deleted"] if deleted else normalized(tomllib.loads(content))
-    return hashlib.sha256(json.dumps(values, ensure_ascii=True).encode()).hexdigest()
+    digest = hashlib.sha256(json.dumps(values, ensure_ascii=True).encode()).hexdigest()
+    with _DIGEST_LOCK:
+        _DIGESTS[key] = digest
+        while len(_DIGESTS) > _DIGEST_MAX:
+            _DIGESTS.popitem(last=False)
+    return digest
+
+
+def _toml_string(value: str) -> str:
+    """A TOML basic string.  JSON escaping is valid TOML except for DEL, which TOML requires escaped."""
+    return json.dumps(value, ensure_ascii=False).replace("\x7f", "\\u007f")
+
+
+def _render_state(records: dict[str, _Record], node: str) -> str:
+    """Render a journal or replication-state document without per-character TOML escaping."""
+    lines = ["format = 1"]
+    if node:
+        lines.append(f"node = {_toml_string(node)}")
+    lines.append("")
+    lines.append("[records]")
+    for key, record in records.items():
+        table = f"records.{_toml_string(key)}"
+        lines += [
+            "",
+            f"[{table}]",
+            f"updated_at_ns = {record.updated_at_ns}",
+            f"content = {_toml_string(record.content)}",
+            f"deleted = {'true' if record.deleted else 'false'}",
+            f"digest = {_toml_string(record.digest)}",
+            "",
+            f"[{table}.clock]",
+            *(f"{_toml_string(name)} = {revision}" for name, revision in record.clock.items()),
+        ]
+    return "\n".join(lines) + "\n"
 
 
 @dataclass(frozen=True)
@@ -55,21 +103,38 @@ class _Record:
     content: str
     deleted: bool
 
-    @property
+    @functools.cached_property
     def digest(self) -> str:
         return _digest(self.content, self.deleted)
 
-    def document(self) -> dict[str, Any]:
-        return {
-            "clock": self.clock,
-            "updated_at_ns": self.updated_at_ns,
-            "content": self.content,
-            "deleted": self.deleted,
-            "digest": self.digest,
-        }
+
+#: Parsed journal and state documents by store fingerprint.  Each one carries a
+#: copy of every replicated document, and one operation loads them repeatedly.
+_LOADED_MAX = 8
+_LOADED_LOCK = threading.Lock()
+_LOADED: OrderedDict[tuple[str, str, Fingerprint], tuple[dict[str, _Record], str]] = OrderedDict()
 
 
 def _load(store: MetadataStore) -> tuple[dict[str, _Record], str]:
+    fingerprint = store.fingerprint()
+    if not fingerprint:
+        return {}, ""
+    key = (str(store.location), str(store.path), fingerprint)
+    with _LOADED_LOCK:
+        cached = _LOADED.get(key)
+        if cached is not None:
+            _LOADED.move_to_end(key)
+            return dict(cached[0]), cached[1]
+    records, node = _parse_state(store)
+    if store.fingerprint() == fingerprint:
+        with _LOADED_LOCK:
+            _LOADED[key] = (records, node)
+            while len(_LOADED) > _LOADED_MAX:
+                _LOADED.popitem(last=False)
+    return dict(records), node
+
+
+def _parse_state(store: MetadataStore) -> tuple[dict[str, _Record], str]:
     doc = store.read("metadata replication state")
     if not doc:
         return {}, ""
@@ -114,17 +179,15 @@ def _load(store: MetadataStore) -> tuple[dict[str, _Record], str]:
 
 
 def _save(store: MetadataStore, records: dict[str, _Record], node: str = "") -> None:
-    doc: dict[str, Any] = {"format": 1, "records": {k: v.document() for k, v in records.items()}}
-    if node:
-        doc["node"] = node
-    store.write(doc, "metadata replication state")
+    store.write_text(_render_state(records, node), "metadata replication state")
 
 
 def _observed(store: MetadataStore, recorded: _Record | None) -> _Record | None:
-    exists = store.exists()
+    text = store.text()
+    exists = text is not None
     if not exists and recorded is None:
         return None
-    content = tomlkit.dumps(store.read("metadata replica", roundtrip=True)) if exists else ""
+    content = text or ""
     digest = _digest(content, not exists)
     if recorded is not None and digest == recorded.digest:
         return recorded
@@ -287,7 +350,7 @@ class _Session:
                         if record.deleted:
                             store.remove()
                         else:
-                            store.write(tomlkit.parse(record.content), "metadata replication")
+                            store.write_text(record.content, "metadata replication")
                 _save(self.route.state(name), self.records)
                 self.contexts.pop(name).close()
             except (OSError, MetadataStorageError) as exc:
@@ -480,8 +543,15 @@ class RoutedStore:
         return {"items": items, "total": len(items), "dry_run": dry_run}
 
     def write(self, doc: dict[str, Any], description: str) -> None:
+        self.write_text(tomlkit.dumps(doc) or "\n", description)
+
+    def text(self) -> str | None:
+        record = self._view()
+        return record.content if record is not None and not record.deleted else None
+
+    def write_text(self, content: str, description: str) -> None:
         with self.transaction():
-            _ACTIVE.sessions[self.root].stage(self.key, tomlkit.dumps(doc) or "\n")
+            _ACTIVE.sessions[self.root].stage(self.key, content)
 
     def remove(self) -> None:
         with self.transaction():
