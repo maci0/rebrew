@@ -7,7 +7,7 @@
 
 ### Changed
 
-- **Breaking:** `rebrew.gen_flirt_pat.parse_coff_obj` and `parse_elf_obj` yield `ObjectFunction` rows (`name`, `code`, `relocations`, `self_relocations`) instead of 3-tuples. `self_relocations` maps each i386 DIR32 field of a COFF function that names a symbol of its own section to that symbol's offset from the function start (empty for ELF).
+- **Breaking:** `rebrew.gen_flirt_pat.parse_coff_obj` (also imported as `rebrew.lib_match.parse_coff_obj` and `rebrew.lib_presence.parse_coff_obj`) and `parse_elf_obj` yield `ObjectFunction` rows (`name`, `code`, `relocations`, `self_relocations`) instead of 3-tuples. `self_relocations` maps each i386 DIR32 field of a COFF function that names a symbol of its own section to that symbol's offset from the function start (empty for ELF).
 
 ### Fixed
 

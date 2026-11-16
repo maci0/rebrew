@@ -170,8 +170,8 @@ def test_parse_elf_obj_takes_static_functions_on_request(tmp_path: Path) -> None
     obj = tmp_path / "statics.o"
     subprocess.run([_CC, "-c", "-O0", "-o", str(obj), str(src)], check=True, capture_output=True)
     data = obj.read_bytes()
-    assert [name for name, _c, _r in parse_elf_obj(data)] == ["shown"]
-    assert sorted(name for name, _c, _r in parse_elf_obj(data, include_local=True)) == [
+    assert [name for name, _c, _r, _s in parse_elf_obj(data)] == ["shown"]
+    assert sorted(name for name, _c, _r, _s in parse_elf_obj(data, include_local=True)) == [
         "hidden",
         "shown",
     ]
