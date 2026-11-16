@@ -330,3 +330,52 @@ class TestVerifyInstructionsOption:
         cli = CliRunner().invoke(umbrella, ["verify", "--instructions"])
         assert cli.exit_code == 2
         assert "--instructions requires --json" in cli.output
+
+
+class TestDirectCallWithoutInstructions:
+    """A direct ``main`` call that leaves --instructions out reads it as off."""
+
+    def test_test_main(self, tmp_path: Path, monkeypatch: Any, capsys: Any) -> None:
+        import json
+
+        import rebrew.test as testmod
+        from rebrew.compiler.compile import CompareResult
+
+        blob = TestTestInstructionsOption()._project(tmp_path, monkeypatch)
+        monkeypatch.setattr(
+            "rebrew.test.compile_and_compare",
+            lambda *a, **k: CompareResult(
+                matched=True,
+                status="RELOC",
+                match_percent=100.0,
+                delta=0,
+                obj_bytes=MEMOPS_REBUILT,
+                reloc_offsets=MEMOPS_RELOCS,
+            ),
+        )
+        testmod.main(
+            "f.c",
+            va="0x401420",
+            symbol="_f",
+            target_bin=str(blob),
+            size=None,
+            cflags=None,
+            toolchain=None,
+            all_sources=False,
+            batch_dir=None,
+            origin=None,
+            dry_run=False,
+            jobs=None,
+            no_promote=True,
+            force_status=False,
+            fix_sizes=False,
+            linked=False,
+            watch=False,
+            context=None,
+            json_output=True,
+            target=None,
+            all_targets=False,
+            source_targets=False,
+        )
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["status"] == "RELOC" and "instructions" not in payload

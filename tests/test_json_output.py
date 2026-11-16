@@ -1209,27 +1209,30 @@ class TestSinglePathExitCodes:
         blob.write_bytes(b"\x90" * 8)
         self._cfg(tmp_path, monkeypatch, self._cmp("EXACT"))
         monkeypatch.setattr("rebrew.test.compile_and_compare", _capture)
+        # By keyword: a positional call shifts onto whatever option is added before
+        # --json (it read --instructions as True and --json as None).  The options
+        # left out arrive as typer OptionInfo and must read as their defaults.
         testmod.main(
             str(tmp_path / "f.c"),
-            None,
-            None,
-            str(blob),
-            None,
-            None,
-            None,
-            False,
-            None,
-            None,
-            False,
-            None,
-            True,
-            False,
-            False,
-            False,
-            False,
-            None,
-            True,
-            None,
+            va=None,
+            symbol=None,
+            target_bin=str(blob),
+            size=None,
+            cflags=None,
+            toolchain=None,
+            all_sources=False,
+            batch_dir=None,
+            origin=None,
+            dry_run=False,
+            jobs=None,
+            no_promote=True,
+            force_status=False,
+            fix_sizes=False,
+            linked=False,
+            watch=False,
+            context=None,
+            json_output=True,
+            target=None,
         )
         assert captured["kwargs"].get("section_va") == 0x1000
 
