@@ -193,6 +193,32 @@ func TestCompileMediatorResendsUnresolvedKey(t *testing.T) {
 	}
 }
 
+// The worker waits out capacity until its deadline, so one intent may be sent
+// many times: each capacity refusal is relayed with its Retry-After, the next
+// attempt draws a new key, and none spends the job's budget of one intent.
+func TestCompileMediatorWaitingOutCapacitySpendsNoBudget(t *testing.T) {
+	capacity := fakeAnswer{status: 200, retryAfter: "5", body: `{"status":"error","error_code":"capacity","artifact_url":null,"log":"managed engine at physical capacity"}`}
+	upstream := &fakeRecompile{retained: map[string]fakeAnswer{}, script: []fakeAnswer{capacity, capacity, capacity, capacity, capacity}}
+	m, _ := retryMediator(t, upstream, 1)
+	a := strings.Repeat("1", 64)
+	for range 5 {
+		if w := compileIntent(m, a, "int a;"); w.Code != 200 || w.Header().Get("Retry-After") != "5" || !strings.Contains(w.Body.String(), `"capacity"`) {
+			t.Fatalf("capacity not relayed: %d %q %s", w.Code, w.Header().Get("Retry-After"), w.Body.String())
+		}
+	}
+	if w := compileIntent(m, a, "int a;"); w.Code != 200 || w.Body.String() != fakeCompiled {
+		t.Fatalf("intent after the waits: %d %s", w.Code, w.Body.String())
+	}
+	keys := upstream.sentKeys()
+	seen := map[string]bool{}
+	for _, key := range keys {
+		seen[key] = true
+	}
+	if len(keys) != 6 || len(seen) != 6 {
+		t.Fatalf("each attempt needs its own key: %v", keys)
+	}
+}
+
 // Recompile caps a result's log at 4 MiB; JSON escaping and the envelope make
 // the answer larger than the log.
 func TestCompileMediatorDeliversLargestDocumentedLog(t *testing.T) {

@@ -4,6 +4,10 @@
 
 - **Breaking:** `rebrew.data_scan.split_source_lines` is no longer importable; import it from `rebrew.utils`.
 
+### Fixed
+
+- A remote compile the service has no room for (a `capacity` or `runner_unavailable` refusal, a 429 or a 503) waits it out until the call's deadline instead of giving up after `[compiler] recompile_retries` attempts: it tries again after the reply's `Retry-After` (else the capped backoff), under a new key after a retained refusal and the same key after a 429 or 503, paced by the process's `recompile_concurrency` slots. A YC target verification lost 46 of 316 functions to NOT_RUN ("managed engine at physical capacity") while a target build compiled in the same deployment account, though capacity came free within seconds. Only a wait past the deadline (`REBREW_CALL_DEADLINE`, which `rebrew ops` sets from the op's deadline, 3600 s for `verify_target`) leaves the function NOT_RUN; without a deadline (a CLI run) the waits end 300 s after the compile started (`rebrew.compiler.recompile_client.NO_DEADLINE_WAIT_SECONDS`). `recompile_retries` still bounds every other retryable failure (a 500/502/504, a lost reply, a failed artifact download). `compile_source(retries=0)` therefore waits out such refusals too.
+
 ### Performance
 
 - On a guild-rebrew snapshot, `source units` retires 31% fewer instructions, `binary analyze` 16%, `coverage report` 13%, and `data bss` / `data list` 32% after a store write empties the scan cache, with identical output; `binary functions` runs its two rizin analyses and the capstone sweep together (40.7 s to 35.8 s wall) ([PERFORMANCE.md](docs/PERFORMANCE.md#commands-outside-the-earlier-sets-2026-11-16)). x86-32 reference scans decode an instruction's operands only when its text prints an in-image address.

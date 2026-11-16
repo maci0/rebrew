@@ -1860,10 +1860,9 @@ def _compile_via_recompile(
             client=client,
             includes=bundle.includes if bundle is not None else None,
             source_dir=bundle.source_dir if bundle is not None else "",
-            # Transient 503/timeout on the compile service is common under
-            # load; retries with backoff beat a hard COMPILE_ERROR that would
-            # demote STATUS for a healthy source.  The count is
-            # `[compiler] recompile_retries` (default 2) so a deployment
+            # A service with no room (capacity, 429, 503) is waited out until
+            # the deadline; other transient failures are retried
+            # `[compiler] recompile_retries` times (default 2), so a deployment
             # pointing at a slow or flaky service can raise or drop it.  The
             # job socket's mediator keys each retry as recompile requires.
             retries=int(getattr(cfg, "recompile_retries", DEFAULT_RECOMPILE_RETRIES)),

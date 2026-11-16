@@ -32,17 +32,22 @@ One process paces its compiles to one service: at most `[compiler]
 recompile_concurrency` (default 2) run at once, whatever `jobs` is, and a
 `Retry-After` a retryable reply names (a 429 or 503, or a `capacity` refusal; at most 300
 s) holds every compile of the process back for that long, also when the compile that got
-it gives up (`recompile_client.ServiceGate`). A retryable failure (a transport blip,
-408/425/429/500/502/503/504, or the service's `capacity`, `timeout`,
-`runner_unavailable`, `publish_failed` or `provenance_unavailable`, or an error `code`
-saying the key can never yield a result: `admission_abandoned`, `admission_expired`,
+it gives up (`recompile_client.ServiceGate`). A compile the service has no room for
+now (a `capacity` or `runner_unavailable` refusal, a 429 or a 503) is waited out:
+it is tried again after the `Retry-After`, or the capped backoff without one, until
+the call's deadline, however many attempts that takes. Without a deadline (a CLI
+run) the waits end 300 s after the compile started
+(`recompile_client.NO_DEADLINE_WAIT_SECONDS`). Any other retryable failure (a
+transport blip, 408/425/500/502/504, an artifact download that failed, the service's
+`timeout`, `publish_failed` or `provenance_unavailable`, or an error `code` saying
+the key can never yield a result: `admission_abandoned`, `admission_expired`,
 `admission_unrecoverable`, `result_unavailable` or `delivery_denied`) is retried
-`recompile_retries` times with backoff, waiting at least the `Retry-After`; a
+`recompile_retries` times with backoff, waiting at least the `Retry-After`. A
 finished refusal (`capacity` and the others) or one of those codes is retried under a new
 key, every other failure under the same key (recompile 11 `docs/API.md`, "Error codes").
 Under `rebrew ops` the child command knows its op's deadline
-(`REBREW_CALL_DEADLINE`) and starts no attempt or wait that a whole request
-(`compile_timeout` + 120 s) could not finish before it. A remote compile
+(`REBREW_CALL_DEADLINE`; 3600 s for `verify_target`) and starts no attempt or wait
+that a whole request (`compile_timeout` + 120 s) could not finish before it. A remote compile
 without a verdict, any `RecompileError` (the service or the jobs owner refused
 or failed it, through the retries or with a refusal not retried such as a
 spent job budget or an `emit_assembly` request that may have compiled, or it
