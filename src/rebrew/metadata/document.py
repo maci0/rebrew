@@ -519,17 +519,14 @@ def load_metadata_for_write(
 ) -> dict[str, Any]:
     """Open a current metadata document under the caller's write lock."""
     version = metadata_format(path)
-    store = metadata_store(path)
-    doc = store.read(
+    # Every backend's read applies the validator to the combined document (and
+    # TomlStore also to each fragment), so the document is not validated again here.
+    doc = metadata_store(path).read(
         description,
         validate=lambda member: parse_metadata_doc(
             member, known_fields=known_fields, source=str(path), version=version, deepcopy=False
         ),
         roundtrip=True,
     )
-    if store.exists():
-        parse_metadata_doc(
-            doc, known_fields=known_fields, source=str(path), version=version, deepcopy=False
-        )
     stamp_format(doc, version=version)
     return doc

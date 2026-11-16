@@ -688,12 +688,20 @@ class TestMigrateReadsOnce:
         update_source_status(tmp_path, "EXACT", "GAME", 0x1000, force=True)
         reads: list[str] = []
         load = files.load_toml_for_write_strict
+        load_single = files._load_roundtrip
 
         def counted(path: Path, description: str) -> Any:
             reads.append(Path(path).name)
             return load(path, description)
 
+        def counted_single(path: Path, description: str, validate: Any) -> Any:
+            reads.append(Path(path).name)
+            return load_single(path, description, validate)
+
+        # Fragmented stores load each member strictly; a single-file store goes
+        # through the lazy round-trip loader.
         monkeypatch.setattr(files, "load_toml_for_write_strict", counted)
+        monkeypatch.setattr(files, "_load_roundtrip", counted_single)
         preview = migrate_metadata(cfg, "sqlite", dry_run=True)
         assert reads.count("rebrew-functions.toml") == 1
         reads.clear()

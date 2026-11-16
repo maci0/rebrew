@@ -11,10 +11,10 @@ lazy from collections.abc import Callable, Iterator
 lazy from pathlib import Path
 lazy from typing import Any
 
-lazy import tomlkit
 lazy from tomlkit.exceptions import ParseError
 
 from rebrew.errors import RebrewError
+lazy from rebrew.metadata.lazydoc import parse_roundtrip, render
 lazy from rebrew.metadata.locking import file_transaction, project_transaction
 
 __all__ = [
@@ -232,7 +232,9 @@ class SqliteStore:
         if row is None:
             return {}
         try:
-            doc = tomlkit.parse(row[0]) if roundtrip else tomllib.loads(row[0])
+            if roundtrip:
+                return parse_roundtrip(row[0], validate)
+            doc = tomllib.loads(row[0])
         except (tomllib.TOMLDecodeError, ParseError) as exc:
             raise MetadataStorageError(
                 f"{self.location}: invalid {description} for {self.key}: {exc}"
@@ -243,7 +245,7 @@ class SqliteStore:
 
     def write(self, doc: dict[str, Any], description: str) -> None:
         """Replace a document atomically, advancing its revision only on change."""
-        self.write_text(tomlkit.dumps(doc) or "\n", description)
+        self.write_text(render(doc) or "\n", description)
 
     def text(self) -> str | None:
         """The stored document text; None when absent."""

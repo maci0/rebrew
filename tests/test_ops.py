@@ -3719,12 +3719,20 @@ class TestImportArchive:
         config, filestore, project = analysed_project
         reads: list[str] = []
         load = files.load_toml_for_write_strict
+        load_single = files._load_roundtrip
 
         def counted(path: Path, description: str) -> Any:
             reads.append(Path(path).name)
             return load(path, description)
 
+        def counted_single(path: Path, description: str, validate: Any) -> Any:
+            reads.append(Path(path).name)
+            return load_single(path, description, validate)
+
+        # Fragmented stores load each member strictly; a single-file store goes
+        # through the lazy round-trip loader.
         monkeypatch.setattr(files, "load_toml_for_write_strict", counted)
+        monkeypatch.setattr(files, "_load_roundtrip", counted_single)
         status, reply = _import(config, filestore, _tar_bytes(_project_members(project)))
         assert status == 200, reply
         assert reads.count("rebrew-functions.toml") == 1

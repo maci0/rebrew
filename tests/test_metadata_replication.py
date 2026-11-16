@@ -394,3 +394,23 @@ class TestReplicationHotPaths:
         monkeypatch.setattr(tomlkit, "dumps", refuse)
         reconcile_metadata(cfg)
         assert "edited" in (_raw(tmp_path, "sqlite").text() or "")
+
+
+def test_rendered_state_parser_matches_tomllib() -> None:
+    import tomllib
+
+    from rebrew.metadata.replication import _parse_rendered, _Record, _render_state
+
+    content = tomlkit.dumps({"a": {"s": _AWKWARD}})
+    records = {
+        "rebrew-functions.toml": _Record({"node:x": 3, 'odd "node"': 1}, 7, content, False),
+        "rebrew-data.toml": _Record({}, 9, "", True),
+    }
+    for node in ("", 'node "id"'):
+        text = _render_state(records, node)
+        assert _parse_rendered(text) == tomllib.loads(text)
+    assert _parse_rendered(_render_state({}, "")) == tomllib.loads(_render_state({}, ""))
+    # Any other layout is left to tomllib.
+    other = {"format": 1, "records": {"rebrew-data.toml": {"clock": {"n": 1}, "updated_at_ns": 1}}}
+    assert _parse_rendered(tomlkit.dumps(other)) is None
+    assert _parse_rendered(text.replace("deleted = false", "deleted=false")) is None

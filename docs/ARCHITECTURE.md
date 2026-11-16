@@ -89,6 +89,7 @@ flowchart LR
 | `rebrew/metadata/` | Source annotations and the locked stores: `functions.py` (`rebrew-functions.toml`), `data.py` (`rebrew-data.toml`), `document.py`, `model.py`, `anchors.py`, `bindings.py`, `source_provenance.py` |
 | `rebrew/metadata/storage.py` | Backend-neutral store access: the `MetadataStore` protocol, TOML/SQLite selection, input discovery and review snapshots ([ADR 034](adr/034-metadata-storage-backends.md)); `files.py` is the default TOML backend, `sqlite.py` the experimental one |
 | `rebrew/metadata/locking.py` | Reentrant thread and cross-process transactions (`file_transaction`, `metadata_write_lock`) that serialize every metadata read-modify-write |
+| `rebrew/metadata/lazydoc.py` | Round-trip editing of large single-file stores: `parse_roundtrip` splits at top-level table headers and tomlkit-parses only touched records; `render` writes untouched records verbatim. Falls back to a full parse for text it cannot segment exactly |
 | `rebrew/matcher/` | GA engine: `scoring.py` (numpy + capstone), `mutator.py` (`ALL_MUTATIONS`: the 128 built-in mutation operators from `mutations/*.py`, tree-sitter based with regex fallbacks, plus plugin entry points), `compiler.py` (flag sweep), `solutions.py` (cross-function seeding + run history) |
 | `rebrew/catalog/` | Function registry and the coverage grid (`grid.py`) the portable `coverage-<target>.toml` export is rendered from |
 | `rebrew/ghidra/` | BinSync-primary field sync + ReVa MCP structural ops (function creation, bookmarks and data pulls) |

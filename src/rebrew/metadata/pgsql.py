@@ -12,9 +12,9 @@ lazy from typing import Any
 if TYPE_CHECKING:
     from psycopg import Connection
 
-lazy import tomlkit
 lazy from tomlkit.exceptions import ParseError
 
+lazy from rebrew.metadata.lazydoc import parse_roundtrip, render
 lazy from rebrew.metadata.locking import project_transaction
 lazy from rebrew.metadata.sqlite import MetadataStorageError, MetadataUnavailableError
 lazy from rebrew.utils import load_tomllib
@@ -210,7 +210,9 @@ class PgsqlStore:
         if row is None:
             return {}
         try:
-            doc = tomlkit.parse(row[0]) if roundtrip else tomllib.loads(row[0])
+            if roundtrip:
+                return parse_roundtrip(row[0], validate)
+            doc = tomllib.loads(row[0])
         except tomllib.TOMLDecodeError, ParseError:
             raise MetadataStorageError(f"invalid {description} for {self.key}") from None
         if validate is not None:
@@ -219,7 +221,7 @@ class PgsqlStore:
 
     def write(self, doc: dict[str, Any], description: str) -> None:
         """Replace a document, preserving its revision when content is unchanged."""
-        self.write_text(tomlkit.dumps(doc) or "\n", description)
+        self.write_text(render(doc) or "\n", description)
 
     def text(self) -> str | None:
         """The stored document text; None when absent."""

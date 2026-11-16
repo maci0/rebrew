@@ -17,10 +17,9 @@ lazy from collections.abc import Callable, Iterator
 lazy from pathlib import Path
 lazy from typing import Any
 
-lazy import tomlkit
-
 from rebrew.metadata.sqlite import MetadataStorageError, MetadataUnavailableError
 lazy from rebrew.metadata.files import METADATA_FILENAMES, TomlStore
+lazy from rebrew.metadata.lazydoc import parse_roundtrip, render
 lazy from rebrew.metadata.locking import project_transaction
 
 if TYPE_CHECKING:
@@ -96,6 +95,98 @@ def _render_state(records: dict[str, _Record], node: str) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _parse_rendered(text: str) -> dict[str, Any] | None:
+    """Read exactly the layout :func:`_render_state` writes; None for anything else.
+
+    ``tomllib`` scans a basic string one character at a time in Python, which
+    costs seconds per journal or state document carrying a copy of a large
+    store.  These documents are written only by this module, so their strings
+    are JSON-escaped and can be decoded by ``json``; any other layout (an older
+    journal, a hand edit) is left to ``tomllib``.
+    """
+
+    def string(token: str) -> str | None:
+        if not (token.startswith('"') and token.endswith('"')):
+            return None
+        try:
+            value = json.loads(token)
+        except ValueError:
+            return None
+        return value if isinstance(value, str) else None
+
+    def integer(token: str) -> int | None:
+        digits = token[1:] if token.startswith("-") else token
+        return int(token) if digits.isdigit() and digits == str(int(digits)) else None
+
+    lines = text.split("\n")
+    if not lines or lines[-1] != "" or lines[0] != "format = 1":
+        return None
+    position = 1
+    doc: dict[str, Any] = {"format": 1}
+    if lines[position].startswith("node = "):
+        node = string(lines[position][len("node = ") :])
+        if node is None:
+            return None
+        doc["node"] = node
+        position += 1
+    if lines[position : position + 2] != ["", "[records]"]:
+        return None
+    position += 2
+    records: dict[str, Any] = {}
+    doc["records"] = records
+    end = len(lines) - 1
+    while position < end:
+        block = lines[position : position + 8]
+        if len(block) != 8 or block[0] != "" or block[6] != "":
+            return None
+        header, stamp, content, deleted, digest, clock_header = (
+            block[1],
+            block[2],
+            block[3],
+            block[4],
+            block[5],
+            block[7],
+        )
+        if not (header.startswith("[records.") and header.endswith("]")):
+            return None
+        key = string(header[len("[records.") : -1])
+        if key is None or key in records or clock_header != f"[records.{_toml_string(key)}.clock]":
+            return None
+        row: dict[str, Any] = {}
+        for line, name in (
+            (stamp, "updated_at_ns"),
+            (content, "content"),
+            (deleted, "deleted"),
+            (digest, "digest"),
+        ):
+            prefix = f"{name} = "
+            if not line.startswith(prefix):
+                return None
+            token = line[len(prefix) :]
+            if name == "updated_at_ns":
+                value: Any = integer(token)
+            elif name == "deleted":
+                value = {"true": True, "false": False}.get(token)
+            else:
+                value = string(token)
+            if value is None:
+                return None
+            row[name] = value
+        clock: dict[str, int] = {}
+        position += 8
+        while position < end and lines[position] != "":
+            node_token, separator, revision_token = lines[position].rpartition(" = ")
+            node_name = string(node_token)
+            revision = integer(revision_token)
+            if not separator or node_name is None or revision is None or node_name in clock:
+                return None
+            clock[node_name] = revision
+            position += 1
+        row["clock"] = clock
+        records[key] = row
+    return doc
+
+
 @dataclass(frozen=True)
 class _Record:
     clock: dict[str, int]
@@ -135,7 +226,12 @@ def _load(store: MetadataStore) -> tuple[dict[str, _Record], str]:
 
 
 def _parse_state(store: MetadataStore) -> tuple[dict[str, _Record], str]:
-    doc = store.read("metadata replication state")
+    text = store.text()
+    if text is None:
+        return {}, ""
+    doc = _parse_rendered(text)
+    if doc is None:
+        doc = store.read("metadata replication state")
     if not doc:
         return {}, ""
     if (
@@ -449,7 +545,9 @@ class RoutedStore:
         record = self._view()
         if record is None or record.deleted:
             return {}
-        doc = tomlkit.parse(record.content) if roundtrip else tomllib.loads(record.content)
+        if roundtrip:
+            return parse_roundtrip(record.content, validate)
+        doc = tomllib.loads(record.content)
         if validate is not None:
             validate(doc)
         return doc
@@ -543,7 +641,7 @@ class RoutedStore:
         return {"items": items, "total": len(items), "dry_run": dry_run}
 
     def write(self, doc: dict[str, Any], description: str) -> None:
-        self.write_text(tomlkit.dumps(doc) or "\n", description)
+        self.write_text(render(doc) or "\n", description)
 
     def text(self) -> str | None:
         record = self._view()

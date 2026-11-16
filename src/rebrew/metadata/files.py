@@ -12,7 +12,9 @@ lazy from typing import Any
 
 lazy import tomlkit
 lazy from tomlkit import TOMLDocument
+lazy from tomlkit.exceptions import InternalParserError, ParseError
 
+lazy from rebrew.metadata.lazydoc import parse_roundtrip, render
 lazy from rebrew.metadata.locking import file_transaction, project_transaction
 lazy from rebrew.metadata.records import metadata_records
 lazy from rebrew.utils import (
@@ -21,6 +23,7 @@ lazy from rebrew.utils import (
     clone_plain,
     load_toml_for_write_strict,
     load_tomllib,
+    read_toml_text,
 )
 
 #: The four managed metadata collections, one main TOML plus its ``.d`` drop-ins.
@@ -165,6 +168,27 @@ def _parsed_member(path: Path, fingerprint: tuple[int, int, int, int]) -> dict[s
     return document
 
 
+def _load_roundtrip(
+    member: Path, description: str, validate: Callable[[Any], Any] | None
+) -> dict[str, Any]:
+    """Open one store file for editing; see :func:`load_toml_for_write_strict` for refusal."""
+    try:
+        text = read_toml_text(member)
+    except FileNotFoundError:
+        doc = tomlkit.document()
+        if validate is not None:
+            validate(doc)
+        return doc
+    try:
+        return parse_roundtrip(text, validate)
+    except InternalParserError:
+        raise
+    except (ParseError, UnicodeDecodeError) as exc:
+        raise ValueError(
+            f"refusing to overwrite unparseable {description} {member}: {exc}"
+        ) from exc
+
+
 def load_metadata_collection(
     path: Path,
     description: str,
@@ -183,13 +207,16 @@ def load_metadata_collection(
         return _parsed_member(member, fingerprint)
 
     if len(paths) == 1:
+        if roundtrip:
+            return _load_roundtrip(paths[0], description, validate)
         doc = load(paths[0])
         if validate is not None:
             validate(doc)
         # The parsed-member cache must not be handed out: callers (and the
         # deepcopy in load_metadata_doc) mutate the result. Copy once here
         # instead of deepcopying per member below.
-        return doc if roundtrip else clone_plain(doc)
+        plain: dict[str, Any] = clone_plain(doc)
+        return plain
     merged: dict[str, Any] = tomlkit.document() if roundtrip else {}
     owners: dict[tuple[str, ...], Path] = {}
     for member in paths:
@@ -219,7 +246,7 @@ def write_metadata_collection(path: Path, doc: dict[str, Any], description: str)
     """Write under the caller's store lock, retaining each existing record's owner."""
     paths = metadata_paths(path)
     if not any(member != path for member in paths):
-        atomic_write_locked(path, tomlkit.dumps(doc))
+        atomic_write_locked(path, render(doc))
         return
     # Load and prepare every file before writing any, so malformed input never
     # causes a partially applied edit. Writers share the main store's lock.
