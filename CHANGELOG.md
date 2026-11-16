@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.49.0] - 2026-11-16
+
 ### Changed
 
 - **Breaking:** the `MetadataStore` protocol adds `text()` (the exact TOML text of the logical document, `None` when absent) and `write_text(content, description)` (publish rendered text). The TOML, SQLite and PostgreSQL backends implement both; a third-party `rebrew.metadata_backends` provider must add them.
