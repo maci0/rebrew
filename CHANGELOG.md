@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- With replicated metadata, each `fingerprint()` of a replicated document (lint asks once per source file) fetched the whole document from the preferred backend and hashed it. The resolved view is now reused while the journal and every read backend's document and replication state keep their fingerprints, and is not cached inside a write session. On guild-rebrew (21 MB function store, 5,538 sources, three targets) `rebrew lint --all-targets` with SQLite and TOML replication dropped from over 10 minutes to 48 seconds.
+
 ## [6.50.0] - 2026-11-16
 
 ### Changed

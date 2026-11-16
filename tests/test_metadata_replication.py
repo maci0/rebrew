@@ -400,6 +400,28 @@ class TestReplicationHotPaths:
         reconcile_metadata(cfg)
         assert "edited" in (_raw(tmp_path, "sqlite").text() or "")
 
+    def test_repeated_fingerprint_resolves_the_view_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _project(tmp_path)
+        update_field(tmp_path, 0x1000, "NOTE", "first", "GAME")
+        fetches: list[int] = []
+        text = SqliteStore.text
+
+        def counting(self: SqliteStore) -> str | None:
+            fetches.append(1)
+            return text(self)
+
+        monkeypatch.setattr(SqliteStore, "text", counting)
+        store = metadata_store(tmp_path / "rebrew-functions.toml", root=tmp_path)
+        first = store.fingerprint()
+        fetched = len(fetches)
+        assert fetched > 0
+        assert [store.fingerprint() for _ in range(5)] == [first] * 5
+        assert len(fetches) == fetched
+        update_field(tmp_path, 0x1000, "NOTE", "second", "GAME")
+        assert store.fingerprint() != first
+
 
 def test_rendered_state_parser_matches_tomllib() -> None:
     import tomllib

@@ -206,6 +206,13 @@ _LOADED_LOCK = threading.Lock()
 _LOADED: OrderedDict[tuple[str, str, Fingerprint], tuple[dict[str, _Record], str]] = OrderedDict()
 
 
+#: Resolved replica views by the fingerprints of every input (journal, each read
+#: backend's document and state).  Resolving one reads and hashes the document.
+_VIEWS_MAX = 32
+_VIEWS_LOCK = threading.Lock()
+_VIEWS: OrderedDict[tuple[object, ...], _Record | None] = OrderedDict()
+
+
 def _load(store: MetadataStore) -> tuple[dict[str, _Record], str]:
     fingerprint = store.fingerprint()
     if not fingerprint:
@@ -531,10 +538,36 @@ class RoutedStore:
             f"all configured metadata read backends are unavailable: {'; '.join(errors)}"
         )
 
+    def _inputs_token(self) -> tuple[object, ...] | None:
+        """Cheap change token for every input of the resolved view; None if unreadable."""
+        try:
+            return (
+                str(self.root),
+                self.key,
+                TomlStore(self.root / JOURNAL_PATH, self.root).fingerprint(),
+                tuple(
+                    (name, self.store(name, self.key).fingerprint(), self.state(name).fingerprint())
+                    for name in self.read_backends
+                ),
+            )
+        except OSError, MetadataUnavailableError:
+            return None
+
     def _view(self) -> _Record | None:
         session: _Session | None = getattr(_ACTIVE, "sessions", {}).get(self.root)
-        if session is not None and self.key in session.changed:
-            return session.records[self.key]
+        if session is not None:
+            if self.key in session.changed:
+                return session.records[self.key]
+            token = None
+        else:
+            # Resolving the view reads and hashes the whole document; callers such
+            # as lint ask for a fingerprint once per source file.
+            token = self._inputs_token()
+            if token is not None:
+                with _VIEWS_LOCK:
+                    if token in _VIEWS:
+                        _VIEWS.move_to_end(token)
+                        return _VIEWS[token]
         local, _ = _load(TomlStore(self.root / JOURNAL_PATH, self.root))
 
         def view(store: MetadataStore, records: dict[str, _Record]) -> _Record | None:
@@ -544,7 +577,13 @@ class RoutedStore:
                 candidates.append(observed)
             return _winner(self.key, candidates)
 
-        return self._read_from(view)
+        record = self._read_from(view)
+        if token is not None and self._inputs_token() == token:
+            with _VIEWS_LOCK:
+                _VIEWS[token] = record
+                while len(_VIEWS) > _VIEWS_MAX:
+                    _VIEWS.popitem(last=False)
+        return record
 
     def read(
         self, description: str, *, validate: Validator | None = None, roundtrip: bool = False
