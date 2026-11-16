@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.50.0] - 2026-11-16
+
 ### Changed
 
 - **Breaking:** the `MetadataStore` protocol adds `provisioned()`. A third-party `rebrew.metadata_backends` provider must add it.
