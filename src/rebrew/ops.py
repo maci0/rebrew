@@ -1036,6 +1036,7 @@ class VerifyRequest:
     binary_url: str = ""
     cflags: str = ""
     project_cflags: str = ""
+    instructions: bool = False
 
 
 @dataclass(frozen=True)
@@ -1067,6 +1068,7 @@ class VerifyTargetRequest:
     binary_key: str = ""
     binary_url: str = ""
     project_cflags: str = ""
+    instructions: bool = False
 
 
 @dataclass(frozen=True)
@@ -1769,6 +1771,25 @@ def disassemble(config: WorkerConfig, req: DisassembleRequest) -> dict[str, Any]
     if req.format == "nasm":
         return {"text": _nasm_listing(code, va)}
     return {"text": _asm_listing(code, va, cfg.capstone_arch, cfg.capstone_mode)}
+
+
+def instruction_listing(config: WorkerConfig, req: AddressRequest) -> dict[str, Any]:
+    """The comparison of ``[va, va+size)`` with itself, in ``rebrew test --instructions``'s shape.
+
+    It stands in for an ``EXACT`` rebuild, whose comparison no verification
+    records: every row is ``equal``.
+    """
+    from rebrew.formats.binary_loader import extract_raw_bytes
+    from rebrew.instruction_diff import MAX_BYTES, instruction_diff
+
+    if not 1 <= req.size <= MAX_BYTES:
+        raise _invalid(f"size must be 1 to {MAX_BYTES} bytes, got {req.size}")
+    va = _address(req.va)
+    cfg = target_config(project_root(config, req.project_dir), req.sha256)
+    code = extract_raw_bytes(cfg.target_binary, va, req.size)
+    if not code:
+        raise _invalid(f"no file bytes at 0x{va:x}")
+    return instruction_diff(code, code, va=va, cs_arch=cfg.capstone_arch, cs_mode=cfg.capstone_mode)
 
 
 def disassemble_bytes(_config: WorkerConfig, req: DisassembleBytesRequest) -> dict[str, Any]:
@@ -3520,11 +3541,15 @@ def verify_function(config: WorkerConfig, req: VerifyRequest) -> dict[str, Any]:
 
     A mismatch is a result.  Without ``no_promote`` the comparison writes the
     function's STATUS into the project metadata, as ``rebrew test`` does.
+    ``instructions`` (a candidate only) adds ``rebrew test --instructions``'s
+    comparison.
     """
     from rebrew.test import run_test
 
     if req.candidate:
         return verify_candidate(config, req)
+    if req.instructions:
+        raise _invalid("instructions needs a candidate")
 
     root = project_root(config, req.project_dir)
     cfg = target_config(root, req.sha256)
@@ -3661,6 +3686,7 @@ def _run_candidate(
                 "test",
                 "--json",
                 *([] if apply else ["--no-promote"]),
+                *_flag(isinstance(req, VerifyRequest) and req.instructions, "--instructions"),
                 *([f"--cflags={flags}"] if flags else []),
                 f"--target={req.rebrew_target}",
                 f"--va=0x{req.va:x}",
@@ -4041,7 +4067,12 @@ def verify_target(config: WorkerConfig, req: VerifyTargetRequest) -> dict[str, A
     """Re-verify every source of the target (``rebrew verify --json``); a mismatch is a result."""
     if req.files and not req.no_promote:
         raise _invalid("retained target verification requires no_promote")
-    arguments = ["verify", "--json", *_flag(req.no_promote, "--no-promote")]
+    arguments = [
+        "verify",
+        "--json",
+        *_flag(req.no_promote, "--no-promote"),
+        *_flag(req.instructions, "--instructions"),
+    ]
     if req.files:
         arguments.append("--no-promote")
     return _run_target_command(config, req, arguments)
@@ -4421,6 +4452,9 @@ OPS: dict[str, Op] = {
     "rebrew.disassemble": Op(DisassembleRequest, disassemble, IN_PROCESS_TIMEOUT_SECONDS),
     "rebrew.disassemble_bytes": Op(
         DisassembleBytesRequest, disassemble_bytes, IN_PROCESS_TIMEOUT_SECONDS
+    ),
+    "rebrew.instruction_listing": Op(
+        AddressRequest, instruction_listing, IN_PROCESS_TIMEOUT_SECONDS
     ),
     "rebrew.control_flow_graph": Op(AddressRequest, control_flow_graph, IN_PROCESS_TIMEOUT_SECONDS),
     "rebrew.xrefs": Op(AddressRequest, xrefs, IN_PROCESS_TIMEOUT_SECONDS),

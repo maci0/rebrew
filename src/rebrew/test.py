@@ -341,6 +341,14 @@ def main(
             "the result records the context hash it was earned under"
         ),
     ),
+    instructions: bool = typer.Option(
+        False,
+        "--instructions",
+        help=(
+            "With --json, add the instruction-level comparison of a rebuild that is not "
+            "EXACT: both listings, their alignment rows and operand spans (single function only)"
+        ),
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
     all_targets: bool = AllTargetsOption,
@@ -385,6 +393,9 @@ def main(
         watch: Re-test the source file on every change (single-file mode only).
         context: Extra declarations to compile with the source; the result
             records the context hash the match was earned under.
+        instructions: Add the ``instructions`` comparison
+            (:func:`rebrew.instruction_diff.instruction_diff`) to the JSON
+            result; needs --json and one function.
         json_output: Emit machine-readable JSON responses.
         target: Optional target profile name from ``rebrew-project.toml``.
         all_targets: Repeat the run across every configured target; refused with
@@ -395,6 +406,9 @@ def main(
     """
     if option_default(watch, False) and option_default(json_output, False):
         error_exit("--watch is terminal-only; omit --json", json_mode=True)
+    instructions = option_default(instructions, False)
+    if instructions and not option_default(json_output, False):
+        error_exit("--instructions requires --json", json_mode=False, code=EXIT_ERROR)
     all_targets = option_default(all_targets, False)
     source_targets = option_default(source_targets, False)
     if all_targets:
@@ -430,6 +444,8 @@ def main(
                 )
 
     if option_default(all_sources, False):
+        if instructions:
+            error_exit("--instructions is single-function only", json_mode=True, code=EXIT_ERROR)
         for value, flag in (
             (cflags, "--cflags"),
             (toolchain, "--toolchain"),
@@ -476,6 +492,7 @@ def main(
             linked=linked,
             watch=False,
             context=context,
+            instructions=instructions,
             json_output=json_output,
             target=n,
             all_targets=False,
@@ -618,6 +635,7 @@ def main(
                 linked=linked,
                 watch=False,
                 context=context,
+                instructions=instructions,
                 json_output=json_output,
                 target=target,
             )
@@ -647,6 +665,12 @@ def main(
                 error_exit(
                     "--force-status is single-function only: use "
                     "'rebrew test <file> --va <VA> --force-status'",
+                    json_mode=json_output,
+                    code=EXIT_ERROR,
+                )
+            if instructions:
+                error_exit(
+                    "--instructions needs a single annotated function — use --va to select one",
                     json_mode=json_output,
                     code=EXIT_ERROR,
                 )
@@ -681,6 +705,7 @@ def main(
         dry_run=dry_run,
         no_promote=no_promote,
         json_output=json_output,
+        instructions=instructions,
         status_skip_reason=_status_skip_reason,
         lint_annos=lint_annos,
         name_to_va=name_to_va,
@@ -1340,6 +1365,7 @@ def _run_test_impl(
     dry_run: bool = False,
     no_promote: bool = False,
     json_output: bool = False,
+    instructions: bool = False,
     status_skip_reason: str = "",
     lint_annos: list[SourceBinding],
     name_to_va: dict[str, int],
@@ -1661,6 +1687,12 @@ def _run_test_impl(
         # a dict and two f-strings per differing byte there is pure waste.
         include_mismatches=json_output,
     )
+    if instructions:
+        from rebrew.instruction_diff import record_instructions
+
+        record_instructions(cfg, cmp, target_bytes, int(va_str, 16) if va_str else 0)
+        if cmp.instructions is not None:
+            result_dict["instructions"] = cmp.instructions
     if no_promote and status_skip_reason:
         # Fold the skip reason into the single JSON document so --json
         # output stays a single parseable object.

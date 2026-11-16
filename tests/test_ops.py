@@ -337,6 +337,32 @@ class TestListingOps:
         request = {"project_dir": str(project), "va": ENTRY_VA, "size": ENTRY_SIZE, "format": fmt}
         assert _call(config, "rebrew.disassemble", request)["text"].startswith(first)
 
+    def test_instruction_listing_is_the_original_against_itself(
+        self, world: tuple[WorkerConfig, Path]
+    ) -> None:
+        config, project = world
+        request = {"project_dir": str(project), "sha256": SHA256, "va": ENTRY_VA, "size": 3}
+        reply = _call(config, "rebrew.instruction_listing", request)
+        assert reply["max_bytes"] == 8192 and reply["truncated"] is False
+        assert reply["original"] == reply["rebuilt"]
+        assert [(i["offset"], i["mnemonic"], i["operands"]) for i in reply["original"]] == [
+            (0, "push", "ebp"),
+            (1, "mov", "ebp, esp"),
+        ]
+        assert reply["original"][1]["spans"] == [
+            {"start": 0, "end": 3, "kind": "register", "value": 0},
+            {"start": 5, "end": 8, "kind": "register", "value": 1},
+        ]
+        assert reply["rows"] == [
+            {"op": "equal", "left": 0, "right": 0},
+            {"op": "equal", "left": 1, "right": 1},
+        ]
+        for size in (0, 8193):
+            refusal = _refusal(
+                config, "rebrew.instruction_listing", json.dumps({**request, "size": size}).encode()
+            )
+            assert refusal["error"] == "invalid-request"
+
     def test_disassemble_selects_the_target_by_sha256(
         self, world: tuple[WorkerConfig, Path]
     ) -> None:
@@ -1605,9 +1631,16 @@ class TestReconstructionOps:
         monkeypatch.setattr(ops, "run_rebrew", record)
         status, _ = dispatch(config, "rebrew.verify_function", json.dumps(request).encode())
         assert status == 200 and not any(a.startswith("--cflags") for a in argv[-1])
+        assert "--instructions" not in argv[-1]
         flagged = {**request, "cflags": "/O1   /Gd"}
         status, _ = dispatch(config, "rebrew.verify_function", json.dumps(flagged).encode())
         assert status == 200 and "--cflags=/O1 /Gd" in argv[-1]
+        # instructions asks `rebrew test` for the instruction-level comparison.
+        status, _ = dispatch(
+            config, "rebrew.verify_function", json.dumps({**request, "instructions": True}).encode()
+        )
+        assert status == 200 and "--instructions" in argv[-1]
+        assert argv[-1].index("--instructions") < argv[-1].index("--")
         # The target's flags become the snapshot's project cflags: no --cflags, and the check that the
         # retained config is unchanged accepts the rewrite it made itself.
         seen_project: list[str] = []
@@ -1753,6 +1786,19 @@ class TestReconstructionOps:
             status, reply = dispatch(config, op, json.dumps(body).encode())
             assert status == 200, reply
         assert len(seen) == 2 and all(not path.exists() for path in seen)
+        argv: list[list[str]] = []
+
+        def record(args: Any, root: Path, *unused: Any, **kwargs: Any) -> dict[str, Any]:
+            argv.append(list(args))
+            return {"status": "ok"}
+
+        monkeypatch.setattr(ops, "run_rebrew", record)
+        for extra in ({}, {"instructions": True}):
+            body = json.dumps({**request, "no_promote": True, **extra}).encode()
+            status, reply = dispatch(config, "rebrew.verify_target", body)
+            assert status == 200, reply
+        assert "--instructions" not in argv[0] and "--instructions" in argv[1]
+        monkeypatch.setattr(ops, "run_rebrew", run)
         bad = {**request, "files": [*entries, entries[0]]}
         status, _ = dispatch(config, "rebrew.build", json.dumps(bad).encode())
         assert status == 400

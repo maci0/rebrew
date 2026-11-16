@@ -294,6 +294,9 @@ class CompareResult:
     #: shipped header's ``path`` and ``sha256``) when it shipped an include
     #: bundle.  ``None`` when no remote compile produced this result.
     remote_compile: dict[str, Any] | None = None
+    #: The instruction-level comparison (``rebrew.instruction_diff.record_instructions``)
+    #: when the caller asked for it and the rebuilt code is not byte-identical.
+    instructions: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         """Reject a ``matched`` flag that contradicts ``status``."""

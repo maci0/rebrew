@@ -316,6 +316,26 @@ change STATUS, or contribute matched bytes; `match_count` remains positional.
 Promoting test/verify writes the percent as the protected function-row
 `similarity`, with counts in `verification`; `--no-promote` records neither.
 
+`test --json --instructions` (one function) adds `instructions`, the
+instruction-level comparison of the target bytes and the rebuild
+(`rebrew.instruction_diff`), unless the rebuild is `EXACT` (then it is the
+target listing against itself, which `rebrew.instruction_listing` answers):
+`original` and `rebuilt` instruction lists decoded at the function VA with the
+capstone text of `binary asm show` (`offset`, `bytes` hex, `mnemonic`,
+`operands`, an undecodable tail as one `db`), `rows` aligning them
+(`op` `equal`, `replace`, `insert` or `delete`, `left`/`right` indexes or
+null; `reloc` true on an equal row whose bytes differ only in the rebuild's
+relocation fields, invalid relocations excepted, as the RELOC verdict masks
+them), and per instruction `spans`: character ranges of each register and
+number in `operands` with a `kind` and a `value` id shared by both sides;
+on a `replace` or `reloc` row a span whose counterpart differs is `changed`.
+Each side is decoded up to `max_bytes` (8192); a longer side sets `truncated`.
+`verify --json --instructions` adds the same object to every row it compiled
+in that run whose status is not `EXACT` (rows served from the verification
+cache have none; the object is never cached). On the bench-rebrew fixture
+project (123 functions, 24,484 bytes in the 122 non-`EXACT` rows) it added
+1.83 MB of JSON, about 75 bytes per function byte, and 0.14 s.
+
 Enable target `check_known_bindings` for operand diagnostics in test/verify/import;
 see [CONFIG.md](CONFIG.md#known-operand-bindings). Size repair checks every mapped
 operand across the extended native window before writing metadata.
@@ -340,6 +360,7 @@ operand across the extended native window before writing metadata.
 | `--watch` | flag | `False` | Watch the source file and re-test on every change (terminal only; no --json) |
 | `--context` | path | none | C declarations to compile with the source (e.g. 'rebrew export context' output); the result records the context hash it was earned under |
 | `--dry-run` | flag | `False` | Preview changes without writing |
+| `--instructions` | flag | `False` | With --json, add the instruction-level comparison of a rebuild that is not EXACT: both listings, their alignment rows and operand spans (single function only) |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
 | `--all-targets` | flag | `False` | Repeat this command for every configured target. Does not change which items each target selects. Excludes --target. |
@@ -561,6 +582,7 @@ Output prefixes for unambiguous parsing:
 | `--experimental-unshare` | flag | `False` | Experimental Linux namespace runner for 32-bit MSVC/Wine; no Docker fallback |
 | `--output` / `-o` | path | none | Write the JSON report to a file (explicit export; the --compare baseline lives in .rebrew/ and needs no flag) |
 | `--dry-run` | flag | `False` | Preview changes without writing |
+| `--instructions` | flag | `False` | With --json, add to each function compiled in this run whose rebuild is not EXACT its instruction-level comparison (as rebrew test --instructions) |
 | `--json` | flag | `False` | Output results as JSON |
 | `--root` | path | none | Project root directory (default: auto-detected from rebrew-project.toml). |
 | `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
@@ -7075,6 +7097,12 @@ running. The other ops work in the worker process, which nothing stops; their
 
 Op details the contract leaves open:
 
+- `rebrew.verify_function` with `instructions` true (a candidate only, else
+  400) passes `--instructions` to `rebrew test`; `rebrew.verify_target` with
+  `instructions` true passes it to `rebrew verify`.
+- `rebrew.instruction_listing` answers the `instructions` object of
+  `[va, va+size)` compared with itself (every row `equal`), standing in for an
+  `EXACT` rebuild. `size` is 1 to 8192 bytes.
 - `rebrew.disassemble`: `arch` overrides the target's arch in every format
   and must be a rebrew arch name (`x86_16`, `x86_32`, `arm32`, ...); `nasm`
   covers `x86_32` only. `size` is 1 byte to 1 MiB, the bound of the other

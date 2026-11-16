@@ -2568,6 +2568,216 @@
       },
       "timeout_seconds": 600
     },
+    "rebrew.instruction_listing": {
+      "interruptible": false,
+      "request": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "kinds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "project_dir": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "va": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "project_dir",
+          "sha256",
+          "va"
+        ],
+        "type": "object"
+      },
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "max_bytes": {
+            "type": "integer"
+          },
+          "original": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "bytes": {
+                  "type": "string"
+                },
+                "mnemonic": {
+                  "type": "string"
+                },
+                "offset": {
+                  "type": "integer"
+                },
+                "operands": {
+                  "type": "string"
+                },
+                "spans": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "changed": {
+                        "type": "boolean"
+                      },
+                      "end": {
+                        "type": "integer"
+                      },
+                      "kind": {
+                        "type": "string"
+                      },
+                      "start": {
+                        "type": "integer"
+                      },
+                      "value": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "start",
+                      "end",
+                      "kind",
+                      "value"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "offset",
+                "bytes",
+                "mnemonic",
+                "operands",
+                "spans"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "rebuilt": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "bytes": {
+                  "type": "string"
+                },
+                "mnemonic": {
+                  "type": "string"
+                },
+                "offset": {
+                  "type": "integer"
+                },
+                "operands": {
+                  "type": "string"
+                },
+                "spans": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "changed": {
+                        "type": "boolean"
+                      },
+                      "end": {
+                        "type": "integer"
+                      },
+                      "kind": {
+                        "type": "string"
+                      },
+                      "start": {
+                        "type": "integer"
+                      },
+                      "value": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "start",
+                      "end",
+                      "kind",
+                      "value"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "offset",
+                "bytes",
+                "mnemonic",
+                "operands",
+                "spans"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "rows": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "left": {
+                  "oneOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "op": {
+                  "type": "string"
+                },
+                "reloc": {
+                  "type": "boolean"
+                },
+                "right": {
+                  "oneOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "op",
+                "left",
+                "right"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "max_bytes",
+          "truncated",
+          "original",
+          "rebuilt",
+          "rows"
+        ],
+        "type": "object"
+      },
+      "timeout_seconds": 600
+    },
     "rebrew.library_functions": {
       "interruptible": false,
       "request": {
@@ -4269,6 +4479,9 @@
             },
             "type": "array"
           },
+          "instructions": {
+            "type": "boolean"
+          },
           "no_promote": {
             "type": "boolean"
           },
@@ -4348,6 +4561,9 @@
               "type": "object"
             },
             "type": "array"
+          },
+          "instructions": {
+            "type": "boolean"
           },
           "no_promote": {
             "type": "boolean"

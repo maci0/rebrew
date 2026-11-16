@@ -250,6 +250,7 @@ def verify_entry(
     *,
     name_to_va: dict[str, int] | None = None,
     context: CompileContext | None = None,
+    instructions: bool = False,
     _precompiled_obj: str | None = None,
 ) -> CompareResult:
     """Compile a .c file and compare output bytes against DLL.
@@ -487,6 +488,10 @@ def verify_entry(
     from rebrew.alignment import record_alignment
 
     record_alignment(cfg, result, target_bytes, entry.va, entry.comparison_inputs)
+    if instructions:
+        from rebrew.instruction_diff import record_instructions
+
+        record_instructions(cfg, result, target_bytes, entry.va)
     return result
 
 
@@ -893,6 +898,14 @@ def main(
         help="Experimental Linux namespace runner for 32-bit MSVC/Wine; no Docker fallback",
         rich_help_panel="Compilation",
     ),
+    instructions: bool = typer.Option(
+        False,
+        "--instructions",
+        help=(
+            "With --json, add to each function compiled in this run whose rebuild is not EXACT "
+            "its instruction-level comparison (as rebrew test --instructions)"
+        ),
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
     all_targets: bool = AllTargetsOption,
@@ -901,6 +914,9 @@ def main(
     """Rebrew verification pipeline: compile each .c and verify bytes match."""
     if option_default(watch, False) and option_default(json_output, False):
         error_exit("--watch is terminal-only; omit --json", json_mode=True)
+    instructions = option_default(instructions, False)
+    if instructions and not option_default(json_output, False):
+        error_exit("--instructions requires --json", json_mode=False, code=EXIT_ERROR)
     if option_default(watch, False):
         ensure_watch_terminal(json_mode=option_default(json_output, False))
     all_targets = option_default(all_targets, False)
@@ -983,6 +999,7 @@ def main(
             whole_binary=whole_binary,
             context=context,
             experimental_unshare=experimental_unshare,
+            instructions=instructions,
             json_output=json_output,
             target=n,
             all_targets=False,
@@ -1141,6 +1158,7 @@ def main(
                 whole_binary=whole_binary,
                 context=context,
                 experimental_unshare=experimental_unshare,
+                instructions=instructions,
                 batch_dir=batch_dir,
                 origin=origin,
                 file=file,
@@ -1525,6 +1543,7 @@ def main(
             nolib=nolib,
             no_promote=no_promote,
             context=compile_context,
+            instructions=instructions,
         )
     else:
         batch = BatchResult(
@@ -1670,6 +1689,7 @@ def run_batch(
     nolib: bool = False,
     no_promote: bool = False,
     context: CompileContext | None = None,
+    instructions: bool = False,
 ) -> BatchResult:
     """Shared batch pipeline: scan → scope → compile → STATUS sync.
 
@@ -1735,6 +1755,7 @@ def run_batch(
             json_output,
             context,
             name_to_va=name_to_va,
+            instructions=instructions,
         )
     else:
         v_passed, v_failed, v_fail_details, v_results, deferred = 0, 0, [], [], []
@@ -2933,6 +2954,7 @@ def run_verification(
     json_output: bool,
     context: CompileContext | None = None,
     name_to_va: dict[str, int] | None = None,
+    instructions: bool = False,
 ) -> tuple[
     int,
     int,
@@ -3000,6 +3022,7 @@ def run_verification(
                 cache=compile_cache,
                 name_to_va=name_to_va,
                 context=context,
+                instructions=instructions,
                 _precompiled_obj=precompiled,
             ),
         )
@@ -3169,6 +3192,9 @@ def run_verification(
                         # service's execution provenance), as rebrew test reports
                         # it; null for a local compile.  Never cached.
                         row["compile"] = result.remote_compile
+                        if result.instructions is not None:
+                            # --instructions' comparison; never cached either.
+                            row["instructions"] = result.instructions
                         if result.error is not None:
                             # The structured backend failure; the cache writers
                             # skip a row that carries one.

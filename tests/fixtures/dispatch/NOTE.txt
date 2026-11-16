@@ -5,6 +5,8 @@ which mirrors it byte-identically at contracts/dispatch/rebrew.schema.json
 version 3 capture descriptor, the apply_candidate metadata and
 attested_registry_digest fields), rebrew.project_targets, rebrew.vocabulary
 (with placeholder_name), rebrew.check_cflags, rebrew.rename_identifier,
+the instructions field of the rebrew.verify_function and rebrew.verify_target requests and rebrew.instruction_listing (backend branch
+instruction-diff),
 the top-level documents section (the .relumea/analysis-report.json shape) and
 every op's timeout_seconds and interruptible (with the description's sentence
 on them) and the rebrew.identify_compiler reply's nullable arch, opt_level,
@@ -16,7 +18,7 @@ rebrew.retained_source_operation); rebrew.import_archive is the entry the backen
 from its rebrew.ImportArchive definition (branch fix-yc-reversed, commit "define
 rebrew.import_archive"); the rest is the copy of backend commit
 80314a46a1ae26d9ef3d56d90e1d454c561f5928.
-SHA-256: e08f21e406e705f571d3876d4760fc1c0eda3ae5b82d4561def929f61c956ffd.
+SHA-256: 4112958afb9e4d78ef9b52e4a777894d5f765e59ffc6f08eae4de23eb2615336.
 tests/test_ops.py validates every op request and reply against it, the
 analysis report rebrew.analyse captures against documents, and every op's
 timeout_seconds and interruptible against rebrew.ops.OPS.
