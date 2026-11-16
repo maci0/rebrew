@@ -513,10 +513,17 @@ class RoutedStore:
 
     def _read_from[T](self, operation: Callable[[MetadataStore, dict[str, _Record]], T]) -> T:
         errors: list[str] = []
-        for name in self.read_backends:
+        for position, name in enumerate(self.read_backends):
             try:
+                store = self.store(name, self.key)
+                if position < len(self.read_backends) - 1 and not store.provisioned():
+                    # An empty preferred backend is authoritative, but one that was never
+                    # created (a fresh clone holding only the TOML replica) is not: it
+                    # would answer every read with nothing and the next write would
+                    # publish a document holding only that write.
+                    raise MetadataUnavailableError(f"{name} storage not created yet")
                 records, _ = _load(self.state(name))
-                return operation(self.store(name, self.key), records)
+                return operation(store, records)
             except (OSError, MetadataUnavailableError) as exc:
                 errors.append(f"{name}: {exc}")
                 continue
@@ -650,6 +657,9 @@ class RoutedStore:
     def write_text(self, content: str, description: str) -> None:
         with self.transaction():
             _ACTIVE.sessions[self.root].stage(self.key, content)
+
+    def provisioned(self) -> bool:
+        return any(self.store(name, self.key).provisioned() for name in self.read_backends)
 
     def remove(self) -> None:
         with self.transaction():

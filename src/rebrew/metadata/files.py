@@ -398,6 +398,10 @@ class TomlStore:
             else:
                 atomic_write_locked(self.path, content)
 
+    def provisioned(self) -> bool:
+        """Files are the storage: a missing file is an absent document."""
+        return True
+
     def exists(self) -> bool:
         """Whether any member of this store exists."""
         return bool(metadata_paths(self.path))

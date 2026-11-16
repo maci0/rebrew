@@ -223,6 +223,10 @@ class PgsqlStore:
         """Replace a document, preserving its revision when content is unchanged."""
         self.write_text(render(doc) or "\n", description)
 
+    def provisioned(self) -> bool:
+        """The database is the storage; an unreachable server raises on access instead."""
+        return True
+
     def text(self) -> str | None:
         """The stored document text; None when absent."""
         row = self._row()

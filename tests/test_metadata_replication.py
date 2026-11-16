@@ -101,7 +101,12 @@ class TestMetadataReplication:
     ) -> None:
         _project(tmp_path)
         _raw(tmp_path, "toml").write({"format": 3, "note": "fallback"}, "test")
-        # An available but empty preferred backend is authoritative.
+        # An available preferred backend that lacks this document is authoritative.
+        # (A database that holds no document at all is unprovisioned; see the
+        # fresh-clone test.)
+        sqlite_data = _raw(tmp_path, "sqlite", "rebrew-data.toml")
+        with sqlite_data.transaction():
+            sqlite_data.write({"format": 2}, "test")
         assert metadata_store(tmp_path / "rebrew-functions.toml").read("test") == {}
         _offline(monkeypatch)
         assert metadata_store(tmp_path / "rebrew-functions.toml").read("test")["note"] == "fallback"
@@ -414,3 +419,27 @@ def test_rendered_state_parser_matches_tomllib() -> None:
     other = {"format": 1, "records": {"rebrew-data.toml": {"clock": {"n": 1}, "updated_at_ns": 1}}}
     assert _parse_rendered(tomlkit.dumps(other)) is None
     assert _parse_rendered(text.replace("deleted = false", "deleted=false")) is None
+
+
+def test_fresh_clone_without_the_database_reads_and_keeps_the_toml_replica(tmp_path: Path) -> None:
+    """A clone carries the git-tracked TOML but not the SQLite file; it must not read as empty.
+
+    An empty preferred backend is authoritative, so a never-created database
+    used to answer every read with {} and the next write published a document
+    holding only the new record to both backends, dropping the rest.
+    """
+    _project(tmp_path)
+    update_field(tmp_path, 0x1000, "NOTE", "kept", "GAME")
+    update_field(tmp_path, 0x2000, "NOTE", "also kept", "GAME")
+    (tmp_path / "rebrew-metadata.sqlite3").unlink()
+    for state in (tmp_path / ".rebrew").glob("metadata-*"):
+        state.unlink()
+    assert get_entry(tmp_path, 0x1000, "GAME")["note"] == "kept"
+    update_field(tmp_path, 0x3000, "NOTE", "new", "GAME")
+    toml = _raw(tmp_path, "toml").read("test")
+    assert {key: row["note"] for key, row in toml.items() if key != "format"} == {
+        "GAME.0x00001000": "kept",
+        "GAME.0x00002000": "also kept",
+        "GAME.0x00003000": "new",
+    }
+    assert _raw(tmp_path, "sqlite").read("test") == toml

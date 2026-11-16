@@ -1,5 +1,13 @@
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** the `MetadataStore` protocol adds `provisioned()`. A third-party `rebrew.metadata_backends` provider must add it.
+
+### Fixed
+
+- With replicated metadata (`read_backends = ["sqlite", "toml"]`), a clone that has the git-tracked TOML but no SQLite database read every document as empty, and its next write published a document holding only that write to both backends, dropping every other record. A SQLite read backend that holds no metadata document now counts as unavailable while a later read backend remains, so reads fall back to TOML and the first write populates the database ([METADATA.md](docs/METADATA.md#multiple-read-and-write-backends)).
+
 ## [6.49.0] - 2026-11-16
 
 ### Changed

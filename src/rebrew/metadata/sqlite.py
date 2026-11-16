@@ -247,6 +247,20 @@ class SqliteStore:
         """Replace a document atomically, advancing its revision only on change."""
         self.write_text(render(doc) or "\n", description)
 
+    def provisioned(self) -> bool:
+        """Whether the database holds any metadata document besides internal ``.rebrew/`` state.
+
+        A clone carries the TOML replica but not this file, and a write transaction
+        creates the file before its first document lands; neither is a populated store.
+        """
+        with self._reader() as connection:
+            if connection is None:
+                return False
+            row = connection.execute(
+                "SELECT 1 FROM metadata_documents WHERE path NOT LIKE '.rebrew/%' LIMIT 1"
+            ).fetchone()
+            return row is not None
+
     def text(self) -> str | None:
         """The stored document text; None when absent."""
         row = self._row()

@@ -56,6 +56,10 @@ class MetadataStore(Protocol):
         """Write already-rendered TOML text atomically within the active transaction."""
         ...
 
+    def provisioned(self) -> bool:
+        """Whether the backend's storage exists; an unprovisioned replica cannot answer reads."""
+        ...
+
     def exists(self) -> bool:
         """Whether this logical document exists."""
         ...

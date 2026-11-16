@@ -224,7 +224,10 @@ project = "my-game"
 ```
 
 `read_backends` is ordered. A read tries the next configured source only when
-one is unavailable. An empty document, missing record, malformed metadata or an
+one is unavailable. A SQLite database that holds no metadata document yet (a fresh clone carries
+the git-tracked TOML replica but not the database file) counts as unavailable while a
+later read backend remains, so reads fall back to TOML and the next write
+publishes the full document to both. An empty document, missing record, malformed metadata or an
 incompatible schema does not cause fallback. The sources are not merged during
 ordinary reads. `write_backends` lists every destination to update. The lists
 are independent, nonempty, and reject duplicate or unknown names. Omit
