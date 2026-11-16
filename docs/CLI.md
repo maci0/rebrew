@@ -7274,7 +7274,10 @@ call, or `http://127.0.0.1:PORT` reaches `rebrew ops serve` with the token in
 
 Reads the JSON request on stdin and writes the reply on stdout. A refusal
 writes the error object on stdout and exits 2. Anything rebrew prints while
-answering goes to stderr. The op's deadline applies (see
+answering goes to stderr. When `RELUMEA_DISPATCH_PROGRESS_FD` names an open
+file descriptor, the call writes there each new count its child command
+reports, one `{"progress": {"done": N, "total": M}}` line per count; stdout
+still carries only the reply. A value that names no open descriptor exits 2. The op's deadline applies (see
 [`rebrew ops`](#rebrew-ops)). SIGTERM cancels the call: a child command it runs
 (in its own session, outside the caller's process group) is stopped with its
 process tree, a retained snapshot is removed, no reply is written, and the
@@ -7298,6 +7301,16 @@ variable is unset or no workspace is given. A request needs a
 `--concurrency` at once, counted from reading the body to writing the
 reply; an authenticated call that finds every slot busy is answered 503
 `worker-busy` with `Retry-After: 5`.
+
+A caller whose `Accept` names `application/x-ndjson` gets the counts of a long
+call while it runs. `verify` and `build round-trip`, the child commands of
+`verify_target` and `build`, count their finished functions; once the first
+count arrives the answer is a 200 `application/x-ndjson` stream: one
+`{"progress": {"done": N, "total": M}}` line per new count, then
+`{"status": S, "reply": R}` (with `retry_after` seconds when the refusal names
+them), the status and reply a plain answer would have carried. A call that
+reports no count is answered as plain JSON. Counts arrive at most every half
+second, and each is a function whose verdict or splice is settled.
 
 A call is cancelled when its caller closes the connection, or once the seconds
 its optional `X-Rebrew-Timeout` header names (a positive number; anything else

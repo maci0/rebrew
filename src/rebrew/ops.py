@@ -80,6 +80,7 @@ lazy import httpx
 
 from rebrew.errors import RebrewError
 lazy from rebrew import __version__, telemetry
+lazy from rebrew.call_progress import PROGRESS_FD_ENV, ProgressPipe
 lazy from rebrew.cli import EXIT_ERROR, console, error_exit
 lazy from rebrew.formats.binary_loader import UnsupportedBinaryFormat
 lazy from rebrew.utils import fold_host, split_source_lines
@@ -301,6 +302,17 @@ CHILD_REPORT_SECONDS = 30
 #: Seconds between checks for a running call's caller having given up, and
 #: for its child command's call being cancelled or past its deadline.
 CANCEL_POLL_SECONDS = 0.5
+
+#: Media type of a progress stream: one JSON object per line, each
+#: ``{"progress": {"done": N, "total": M}}`` the call's child command counted,
+#: then ``{"status": S, "reply": R}`` (with ``retry_after`` when the refusal
+#: names one) last.  ``serve`` answers with it a caller whose ``Accept`` names it,
+#: once the call has a count to report.
+PROGRESS_MEDIA_TYPE = "application/x-ndjson"
+
+#: Names the file descriptor ``ops call`` writes the progress lines of its call
+#: to, ``{"progress": {"done": N, "total": M}}`` each (the backend's exec transport).
+DISPATCH_PROGRESS_FD_ENV = "RELUMEA_DISPATCH_PROGRESS_FD"
 
 #: Default of ``--max-download``: the largest binary a ``url`` may name.
 #: It matches the backend's default upload cap (``max_upload_bytes``).
@@ -620,6 +632,19 @@ class _Cancellation:
 _CANCELLATION: ContextVar[_Cancellation | None] = ContextVar(
     "rebrew_ops_cancellation", default=None
 )
+
+#: Where the running call's progress goes, ``(done, total)`` per new count:
+#: set by a transport that carries it (``serve`` to a caller accepting
+#: :data:`PROGRESS_MEDIA_TYPE`, ``ops call`` with :data:`DISPATCH_PROGRESS_FD_ENV`).
+#: ``run_rebrew`` relays its child command's counts there.
+_PROGRESS: ContextVar[Callable[[int, int], None] | None] = ContextVar(
+    "rebrew_ops_progress", default=None
+)
+
+
+def progress_frame(done: int, total: int) -> bytes:
+    """One progress line of a stream or of ``ops call``'s progress descriptor."""
+    return json.dumps({"progress": {"done": done, "total": total}}).encode("utf-8") + b"\n"
 
 
 def _check_cancelled() -> None:
@@ -2350,26 +2375,41 @@ def run_rebrew(
     # -P keeps the project cwd off sys.path so a rebrew/ tree inside the
     # project cannot shadow the installed rebrew.app.main (code exec).
     command = [sys.executable, "-P", "-m", "rebrew.app.main"]
-    with _step(f"starting rebrew {name}"):
-        process = subprocess.Popen(
-            [*command, *arguments],
-            cwd=project,
-            # The child exports its own spans (the remote compile's client span) under this one.
-            env={
-                **os.environ,
-                **telemetry.child_environment(),
-                CALL_DEADLINE_ENV: repr(child_deadline),
-            },
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            start_new_session=True,
-        )
+    # A caller that takes progress gets the counts the child writes (verify
+    # and build round-trip do) through a pipe; pass_fds is POSIX-only.
+    sink = _PROGRESS.get()
+    pipe = ProgressPipe() if sink is not None and os.name == "posix" else None
     try:
-        stdout, stderr = _communicate(process, timeout, cancellation)
+        with _step(f"starting rebrew {name}"):
+            process = subprocess.Popen(
+                [*command, *arguments],
+                cwd=project,
+                # The child exports its own spans (the remote compile's client span) under this one.
+                env={
+                    **os.environ,
+                    **telemetry.child_environment(),
+                    CALL_DEADLINE_ENV: repr(child_deadline),
+                    **({} if pipe is None else {PROGRESS_FD_ENV: str(pipe.write_fd)}),
+                },
+                pass_fds=() if pipe is None else (pipe.write_fd,),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                start_new_session=True,
+            )
+    except BaseException:
+        if pipe is not None:
+            pipe.close()
+        raise
+    relay = None
+    if pipe is not None and sink is not None:
+        pipe.close_write()
+        relay = _relay(pipe, sink)
+    try:
+        stdout, stderr = _communicate(process, timeout, cancellation, relay)
     except (subprocess.TimeoutExpired, OpsError) as stopped:
         from rebrew.utils import kill_process_group
 
@@ -2398,6 +2438,9 @@ def run_rebrew(
 
         stop_process_tree(process)
         raise
+    finally:
+        if pipe is not None:
+            pipe.close()
     refused = process.returncode != 0 and not (outcome_exit and process.returncode == 1)
     if refused and outcome_exit and process.returncode == EXIT_ERROR:
         # rebrew test prints a NOT_RUN result (the compile service never ran it) and exits 2.
@@ -2432,29 +2475,50 @@ def run_rebrew(
     return report
 
 
+def _relay(pipe: ProgressPipe, sink: Callable[[int, int], None]) -> Callable[[], None]:
+    """Hand *sink* each new count the child wrote to *pipe*."""
+
+    def forward() -> None:
+        count = pipe.poll()
+        if count is not None:
+            sink(*count)
+
+    return forward
+
+
 def _communicate(
-    process: subprocess.Popen[str], timeout: float, cancellation: _Cancellation | None
+    process: subprocess.Popen[str],
+    timeout: float,
+    cancellation: _Cancellation | None,
+    relay: Callable[[], None] | None = None,
 ) -> tuple[str, str]:
     """``process.communicate(timeout=timeout)`` that also ends when the call is cancelled.
 
     Raises ``subprocess.TimeoutExpired`` at *timeout*, and the call's
     :class:`OpsError` once *cancellation* is set; the caller stops the child
-    either way.
+    either way.  *relay* forwards the child's progress at each check and once
+    the child is done.
     """
-    if cancellation is None:
-        stdout, stderr = process.communicate(timeout=timeout)
-        return stdout, stderr
     deadline = time.monotonic() + timeout
     while True:
         try:
             stdout, stderr = process.communicate(
-                timeout=min(CANCEL_POLL_SECONDS, max(0.0, deadline - time.monotonic()))
+                timeout=timeout
+                if cancellation is None
+                else min(CANCEL_POLL_SECONDS, max(0.0, deadline - time.monotonic()))
             )
-            return stdout, stderr
         except subprocess.TimeoutExpired:
+            if cancellation is None:
+                raise
+            if relay is not None:
+                relay()
             cancellation.check()
             if time.monotonic() >= deadline:
                 raise
+            continue
+        if relay is not None:
+            relay()
+        return stdout, stderr
 
 
 def _command_refusal(stderr: str) -> tuple[str, str]:
@@ -4741,6 +4805,44 @@ class OpsServer(ThreadingHTTPServer):
             )
 
 
+def _accepts_progress(accept: str) -> bool:
+    """Whether an ``Accept`` header names :data:`PROGRESS_MEDIA_TYPE`."""
+    return any(
+        part.split(";", 1)[0].strip().lower() == PROGRESS_MEDIA_TYPE for part in accept.split(",")
+    )
+
+
+class _ProgressStream:
+    """A ``serve`` answer as :data:`PROGRESS_MEDIA_TYPE`, started by the call's first count.
+
+    A call that reports no count is answered as plain JSON, as to any other caller.
+    """
+
+    def __init__(self, handler: _OpsHandler, cancellation: _Cancellation) -> None:
+        self._handler = handler
+        self._cancellation = cancellation
+        self.started = False
+
+    def send(self, done: int, total: int) -> None:
+        """Write one count, starting the answer on the first; a caller gone cancels the call."""
+        try:
+            if not self.started:
+                self.started = True
+                self._handler._start_stream()
+            self._handler.wfile.write(progress_frame(done, total))
+        except OSError:
+            self._cancellation.cancel("the caller closed the connection", CALLER_GONE, 499)
+
+    def finish(self, status: int, reply: bytes, headers: Mapping[str, str]) -> None:
+        """Write the last line: the call's status, its ``Retry-After`` seconds when named, and its reply."""
+        head: dict[str, Any] = {"status": status}
+        if (retry := headers.get("Retry-After")) is not None:
+            head["retry_after"] = int(retry)
+        last = json.dumps(head)[:-1].encode("utf-8") + b', "reply": ' + reply + b"}\n"
+        self._handler.wfile.write(last)
+        self._handler._record_answer(status)
+
+
 class _OpsHandler(BaseHTTPRequestHandler):
     timeout: typing.ClassVar[float | None] = SOCKET_TIMEOUT_SECONDS
     #: Correlation id of the request in flight; stamped per request in
@@ -4793,8 +4895,11 @@ class _OpsHandler(BaseHTTPRequestHandler):
 
     @override
     def send_response(self, code: int, message: str | None = None) -> None:
-        # No Server banner: BaseHTTPRequestHandler would emit the Python
-        # patch level to any caller that can reach the worker.
+        self._record_answer(code)
+        self._send_status_line(code, message)
+
+    def _record_answer(self, code: int) -> None:
+        """Count, log and trace the answer's status; a progress stream does it when it ends."""
         elapsed_ms = (time.perf_counter() - self._request_started) * 1000.0
         with contextlib.suppress(AttributeError):
             raw_path = urlsplit(getattr(self, "path", "") or "").path
@@ -4807,9 +4912,25 @@ class _OpsHandler(BaseHTTPRequestHandler):
             opened.set("http.response.status_code", int(code))
             if code >= 500:
                 opened.fail(f"status {code}")
+
+    def _send_status_line(self, code: int, message: str | None = None) -> None:
+        # No Server banner: BaseHTTPRequestHandler would emit the Python
+        # patch level to any caller that can reach the worker.
         self.send_response_only(code, message)
         self.send_header("Date", self.date_time_string())
         self.send_header("X-Request-Id", self._request_id)
+
+    def _start_stream(self) -> None:
+        """Send the head of a 200 :data:`PROGRESS_MEDIA_TYPE` answer, which ends when the connection closes."""
+        self._send_status_line(200)
+        self.send_header("Content-Type", PROGRESS_MEDIA_TYPE)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "close")
+        for name, value in _SECURITY_HEADERS:
+            self.send_header(name, value)
+        self.send_header("Content-Security-Policy", _CSP)
+        self.end_headers()
+        self.close_connection = True
 
     @override
     def send_error(  # (http.server API)
@@ -5022,6 +5143,12 @@ class _OpsHandler(BaseHTTPRequestHandler):
             target=self._watch_caller, args=(cancellation, answered), daemon=True
         )
         token = _CANCELLATION.set(cancellation)
+        stream = (
+            _ProgressStream(self, cancellation)
+            if _accepts_progress(self.headers.get("Accept", ""))
+            else None
+        )
+        progress = _PROGRESS.set(None if stream is None else stream.send)
         headers: dict[str, str] = {}
         replied = _REPLY_HEADERS.set(headers)
         watcher.start()
@@ -5032,9 +5159,13 @@ class _OpsHandler(BaseHTTPRequestHandler):
         finally:
             answered.set()
             _REPLY_HEADERS.reset(replied)
+            _PROGRESS.reset(progress)
             _CANCELLATION.reset(token)
             watcher.join()
-        self._send(status, reply, headers or None)
+        if stream is not None and stream.started:
+            stream.finish(status, reply, headers)
+        else:
+            self._send(status, reply, headers or None)
 
     def _watch_caller(self, cancellation: _Cancellation, answered: threading.Event) -> None:
         """Cancel the call once its caller closes the connection."""
@@ -5265,17 +5396,43 @@ def call_command(
     # child's process tree is stopped and the retained snapshot removed.
     sigterm = getattr(signal, "SIGTERM", None)
     previous = signal.signal(sigterm, _exit_on_signal) if sigterm is not None else None
+    progress = _PROGRESS.set(_descriptor_progress())
     try:
         # stdout carries only the reply; anything rebrew prints goes to stderr.
         with contextlib.redirect_stdout(sys.stderr):
             status, reply = dispatch(config, op, body)
     finally:
+        _PROGRESS.reset(progress)
         if sigterm is not None:
             signal.signal(sigterm, previous)
     sys.stdout.buffer.write(reply + b"\n")
     sys.stdout.flush()
     if status != 200:
         raise typer.Exit(EXIT_ERROR)
+
+
+def _descriptor_progress() -> Callable[[int, int], None] | None:
+    """The progress sink :data:`DISPATCH_PROGRESS_FD_ENV` names for ``ops call``, or ``None`` when it is unset."""
+    value = os.environ.get(DISPATCH_PROGRESS_FD_ENV)
+    if value is None:
+        return None
+    try:
+        fd = int(value)
+        os.fstat(fd)
+    except ValueError, OSError:
+        error_exit(f"{DISPATCH_PROGRESS_FD_ENV} must name an open file descriptor, got {value!r}")
+    writing = [True]
+
+    def write(done: int, total: int) -> None:
+        if not writing[0]:
+            return
+        try:
+            os.write(fd, progress_frame(done, total))
+        except OSError:
+            # The caller stopped reading; its reply still goes to stdout.
+            writing[0] = False
+
+    return write
 
 
 @app.command(

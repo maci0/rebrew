@@ -2381,6 +2381,181 @@ class TestHttpCancellation:
             assert not pid_file.exists()
 
 
+#: Names the file the counting child waits for before it finishes.
+_BARRIER_ENV = "REBREW_TEST_BARRIER"
+
+
+def _counting_python(directory: Path) -> Path:
+    """A stand-in for a child command's interpreter that counts like ``rebrew verify``.
+
+    It writes 1 of 3 to the progress descriptor the worker hands it, waits for
+    the test's barrier file, writes 3 of 3 and prints its report.
+    """
+    script = directory / "counting-python"
+    script.write_text(
+        "#!/bin/sh\n"
+        'printf \'{"done": 1, "total": 3}\\n\' >&"$REBREW_PROGRESS_FD"\n'
+        f'while [ ! -e "${_BARRIER_ENV}" ]; do sleep 0.05; done\n'
+        'printf \'{"done": 3, "total": 3}\\n\' >&"$REBREW_PROGRESS_FD"\n'
+        "printf '{\"passed\": 3}\\n'\n"
+    )
+    script.chmod(0o755)
+    return script
+
+
+class TestProgress:
+    """A long call's child counts reach its caller while it runs, on both transports.
+
+    A verification of all 316 functions of a target ran 18 minutes with no
+    count anyone could read; the job showed 0% and looked hung.
+    """
+
+    @staticmethod
+    def _frames(lines: list[bytes]) -> list[Any]:
+        return [json.loads(line) for line in lines]
+
+    def test_serve_streams_counts_then_the_reply_to_a_caller_that_accepts_them(
+        self, world: tuple[WorkerConfig, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.ops import PROGRESS_MEDIA_TYPE, OpsServer
+
+        config, project = world
+        barrier = tmp_path / "go"
+        monkeypatch.setattr(sys, "executable", str(_counting_python(tmp_path)))
+        monkeypatch.setenv(_BARRIER_ENV, str(barrier))
+        body = json.dumps({"project_dir": str(project), "no_promote": True}).encode()
+        with OpsServer(("127.0.0.1", 0), config, TOKEN, 1) as server:
+            thread = threading.Thread(
+                target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+            )
+            thread.start()
+            try:
+                port = server.server_address[1]
+                connection = http.client.HTTPConnection("127.0.0.1", port, timeout=WAIT_SECONDS)
+                connection.request(
+                    "POST",
+                    "/rebrew.verify_target",
+                    body,
+                    {
+                        "Authorization": f"Bearer {TOKEN}",
+                        "Content-Type": "application/json",
+                        "Accept": f"application/json, {PROGRESS_MEDIA_TYPE}",
+                    },
+                )
+                response = connection.getresponse()
+                assert response.status == 200
+                assert response.getheader("Content-Type") == PROGRESS_MEDIA_TYPE
+                first = response.readline()
+                barrier.touch()
+                rest = response.read().splitlines()
+                connection.close()
+            finally:
+                # The child waits for it: a failed assertion must not leave it running.
+                barrier.touch()
+                server.shutdown()
+                thread.join(timeout=WAIT_SECONDS)
+        assert self._frames([first, *rest]) == [
+            {"progress": {"done": 1, "total": 3}},
+            {"progress": {"done": 3, "total": 3}},
+            {"status": 200, "reply": {"passed": 3}},
+        ]
+
+    def test_serve_answers_plain_json_to_a_caller_that_does_not_accept_counts(
+        self, world: tuple[WorkerConfig, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.ops import OpsServer
+
+        config, project = world
+        barrier = tmp_path / "go"
+        barrier.touch()
+        monkeypatch.setattr(sys, "executable", str(_counting_python(tmp_path)))
+        monkeypatch.setenv(_BARRIER_ENV, str(barrier))
+        body = json.dumps({"project_dir": str(project), "no_promote": True}).encode()
+        with OpsServer(("127.0.0.1", 0), config, TOKEN, 1) as server:
+            thread = threading.Thread(
+                target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+            )
+            thread.start()
+            try:
+                status, reply = TestHttpTransport()._post(
+                    server.server_address[1],
+                    "/rebrew.verify_target",
+                    body,
+                    {"Authorization": f"Bearer {TOKEN}"},
+                )
+            finally:
+                server.shutdown()
+                thread.join(timeout=WAIT_SECONDS)
+        assert (status, reply) == (200, {"passed": 3})
+
+    def test_ops_call_writes_counts_to_the_descriptor_the_caller_names(
+        self, world: tuple[WorkerConfig, Path], tmp_path: Path
+    ) -> None:
+        from rebrew.ops import DISPATCH_PROGRESS_FD_ENV
+
+        config, project = world
+        assert config.workspace is not None
+        barrier = tmp_path / "go"
+        launcher = tmp_path / "launch.py"
+        launcher.write_text(
+            "import runpy\nimport sys\n\n"
+            "sys.executable = sys.argv[1]\n"
+            'sys.argv = ["rebrew", *sys.argv[2:]]\n'
+            'runpy.run_module("rebrew.app.main", run_name="__main__")\n'
+        )
+        read, write = os.pipe()
+        argv = [
+            sys.executable,
+            str(launcher),
+            str(_counting_python(tmp_path)),
+            "ops",
+            "call",
+            "--workspace",
+            str(config.workspace),
+            "rebrew.verify_target",
+        ]
+        try:
+            worker = subprocess.Popen(
+                argv,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                env={
+                    **os.environ,
+                    _BARRIER_ENV: str(barrier),
+                    DISPATCH_PROGRESS_FD_ENV: str(write),
+                },
+                pass_fds=(write,),
+            )
+        finally:
+            os.close(write)
+        with os.fdopen(read, "rb") as progress:
+            try:
+                assert worker.stdin is not None
+                worker.stdin.write(
+                    json.dumps({"project_dir": str(project), "no_promote": True}).encode()
+                )
+                worker.stdin.close()
+                assert select.select([progress], [], [], WAIT_SECONDS)[0], "no count arrived"
+                first = progress.readline()
+                barrier.touch()
+                rest = progress.read().splitlines()
+                assert worker.stdout is not None
+                stdout = worker.stdout.read()
+                assert worker.wait(timeout=WAIT_SECONDS) == 0
+            finally:
+                # The child waits for it: a failed assertion must not leave it running.
+                barrier.touch()
+                if worker.poll() is None:
+                    worker.kill()
+                    worker.wait(timeout=WAIT_SECONDS)
+        assert self._frames([first, *rest]) == [
+            {"progress": {"done": 1, "total": 3}},
+            {"progress": {"done": 3, "total": 3}},
+        ]
+        assert json.loads(stdout) == {"passed": 3}
+
+
 class TestFailureDetails:
     """A failure nothing else explained answers its step and its message, never a log pointer.
 

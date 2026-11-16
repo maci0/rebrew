@@ -586,6 +586,11 @@ by the CLI layer and win for that invocation.
   Unix time by which the child must have printed its answer. Remote compiles start no attempt
   or retry wait past it, less one request's timeout. A value that is not a finite number fails
   the compile.
+- `REBREW_PROGRESS_FD`: internal, set by `rebrew ops` on each child command it runs for a
+  caller that takes progress: the file descriptor `rebrew verify` and `rebrew build round-trip`
+  write their counts to, one `{"done": N, "total": M}` line per count, the total before the first
+  compile and at most one line every half second besides the last. A value that names no open
+  descriptor fails the command.
 - `GH_TOKEN` / `GITHUB_TOKEN`: optional GitHub API token, `GH_TOKEN` first.
   Sent as `Authorization: Bearer` on the toolchain pin-check and update
   requests only (`rebrew toolchain check-updates` / `update`); unset, those
