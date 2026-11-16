@@ -64,6 +64,7 @@ from rebrew.cli import (
     source_targets_run,
 )
 from rebrew.metadata.bindings import SourceBinding, min_valid_va_for, read_source_bindings
+lazy from rebrew.call_progress import ProgressReporter
 lazy from rebrew.catalog import (
     build_function_registry,
     cached_function_list,
@@ -2955,6 +2956,11 @@ def run_verification(
     deferred_fixes: list[tuple[SourceBinding, str, int]] = []
 
     fresh_count = len(entries_to_verify)
+    # The parent's progress (the op worker's call), counted like the bar below:
+    # the total is known before the first compile, cached verdicts are done.
+    reporter = ProgressReporter.from_environment()
+    reporter.report(cached_count, total)
+    settled = 0
     # The CLI --jobs flag bypasses config's _positive_int validation — clamp
     # here so `--jobs 0` (or negative) cannot crash ThreadPoolExecutor.
     effective_jobs = max(1, min(jobs, fresh_count)) if fresh_count else 1
@@ -3107,6 +3113,8 @@ def run_verification(
 
                         name = entry.name
                         progress.update(task, advance=1, description=name)
+                        settled += 1
+                        reporter.report(cached_count + settled, total)
 
                         if result.matched:
                             passed += 1

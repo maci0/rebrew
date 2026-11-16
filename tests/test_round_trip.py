@@ -96,6 +96,47 @@ class TestSplicePipeline:
         )
         assert code == EXIT_MISMATCH
 
+    def test_counts_every_function_of_the_splice_set_as_it_goes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The op worker relays these counts as the build's progress: the total before the first compile, then each function."""
+        from rebrew.call_progress import PROGRESS_FD_ENV, ProgressPipe
+
+        cfg = _make_fake_cfg(tmp_path)
+        functions = [
+            SimpleNamespace(
+                symbol=f"_f{i}",
+                va=0x10000100,
+                size=5,
+                status="EXACT",
+                path=cfg.reversed_dir / f"f{i}.c",
+                module="FAKE",
+                cflags=["/O2"],
+            )
+            for i in range(3)
+        ]
+        monkeypatch.setattr(
+            "rebrew.round_trip._collect_splice_set", lambda cfg, f: (functions, [], 0)
+        )
+        monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
+        pipe = ProgressPipe()
+        seen: list[tuple[int, int] | None] = []
+
+        def compile_fails(_cfg: Any, _fn: Any, _work_dir: Any) -> tuple[Any, ...]:
+            seen.append(pipe.poll())
+            return b"", [], {}, {}, "compile_drift", "cl.exe failed"
+
+        monkeypatch.setattr("rebrew.round_trip._compile_and_extract", compile_fails)
+        try:
+            monkeypatch.setenv(PROGRESS_FD_ENV, str(pipe.write_fd))
+            # The writer's interval is not what this test is about: every count is written.
+            monkeypatch.setattr("rebrew.call_progress.WRITE_INTERVAL_SECONDS", 0.0)
+            _run_round_trip(cfg, output=None, no_write=True, symbol_filter=None, json_output=False)
+            assert seen == [(0, 3), (1, 3), (2, 3)]
+            assert pipe.poll() == (3, 3)
+        finally:
+            pipe.close()
+
     def test_allow_naked_appends_define(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

@@ -45,6 +45,7 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
+lazy from rebrew.call_progress import ProgressReporter
 lazy from rebrew.coff_reloc import (
     CoffRelocRecord,
     UnresolvedSymbolError,
@@ -563,8 +564,12 @@ def _run_round_trip(
     from rebrew.compiler.temp_dirs import remove_temp_dir, writable_temp_dir
 
     work_dir = writable_temp_dir("rebrew-rt-")
+    # The parent's progress (the op worker's call): the functions of the splice
+    # set this loop has finished, spliced or not.
+    reporter = ProgressReporter.from_environment()
     try:
-        for fn in splice_set:
+        for done, fn in enumerate(splice_set):
+            reporter.report(done, len(splice_set))
             text, relocs, str_syms, local_labels, failure, detail = _compile_and_extract(
                 cfg, fn, work_dir
             )
@@ -678,6 +683,7 @@ def _run_round_trip(
             reasm[offset : offset + trimmed_size] = patched[:trimmed_size]
             spliced_vas.add(f"0x{fn.va:08x}")
             spliced_ranges.append((fn.va - info.text_va, fn.va - info.text_va + trimmed_size))
+        reporter.report(len(splice_set), len(splice_set))
     finally:
         remove_temp_dir(work_dir)
 

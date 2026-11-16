@@ -1975,6 +1975,44 @@ class TestRunVerification:
         assert all(r["passed"] is True for r in results)
         assert len(deferred) == 2
 
+    def test_counts_reach_the_parent_from_the_total_to_the_last_function(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The op worker relays these counts as the verification's progress.
+
+        Without them a whole-target verification of 316 functions read 0% for
+        its 18 minutes and looked hung.  The total is known before the first
+        compile; cached verdicts count as done from the start.
+        """
+        from rebrew.call_progress import PROGRESS_FD_ENV, ProgressPipe
+        from rebrew.verify import run_verification
+
+        self._patch(monkeypatch, {})
+        pipe = ProgressPipe()
+        try:
+            monkeypatch.setenv(PROGRESS_FD_ENV, str(pipe.write_fd))
+            seen_before_compiles: list[tuple[int, int] | None] = []
+            from rebrew.verify import verify_entry as fake_verify
+
+            def _first_sees_the_total(e, *a, **k):
+                if not seen_before_compiles:
+                    seen_before_compiles.append(pipe.poll())
+                return fake_verify(e, *a, **k)
+
+            monkeypatch.setattr("rebrew.verify.verify_entry", _first_sees_the_total)
+            run_verification(
+                [_ann(0x1000 + i) for i in range(3)],
+                _cfg(tmp_path),
+                jobs=1,
+                total=5,
+                cached_count=2,
+                json_output=True,
+            )
+            assert seen_before_compiles == [(2, 5)]
+            assert pipe.poll() == (5, 5)
+        finally:
+            pipe.close()
+
     def test_batch_larger_than_jobs_processes_all(self, tmp_path, monkeypatch) -> None:
         """The bounded submit-as-you-go loop must process EVERY entry, not
         just the first pool's worth — a regression test for the refill
