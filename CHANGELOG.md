@@ -4,6 +4,10 @@
 
 - **Breaking:** `rebrew.data_scan.split_source_lines` is no longer importable; import it from `rebrew.utils`.
 
+### Performance
+
+- On a guild-rebrew snapshot, `source units` retires 31% fewer instructions, `binary analyze` 16%, `coverage report` 13%, and `data bss` / `data list` 32% after a store write empties the scan cache, with identical output; `binary functions` runs its two rizin analyses and the capstone sweep together (40.7 s to 35.8 s wall) ([PERFORMANCE.md](docs/PERFORMANCE.md#commands-outside-the-earlier-sets-2026-11-16)). x86-32 reference scans decode an instruction's operands only when its text prints an in-image address.
+
 ## [6.46.0] - 2026-11-16
 
 ### Removed

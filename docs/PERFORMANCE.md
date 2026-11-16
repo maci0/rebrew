@@ -2,6 +2,48 @@
 
 Measurements of Rebrew hot paths, retained optimizations, and rejected experiments.
 
+## Commands outside the earlier sets (2026-11-16)
+
+A one-run probe of the read-only commands the rounds above never measured
+found `binary functions` (649 G instructions), `coverage report` (366 G),
+`types contracts` (300 G), `binary analyze` (286 G), `data bss` (218 G) and
+`source units` (216 G). Base `8ae46626`, candidate `f0e12caf`, three runs per
+side from byte-compiled trees; every run printed the same stdout. "Cold" runs
+delete `.rebrew/data-scan-roles.json` first, the state after any store write.
+
+| Command | Before | After | Change |
+|---|---:|---:|---:|
+| `source units --json` | 215.57 | 148.62 | -31.1% |
+| `binary analyze --json` | 286.10 | 241.87 | -15.5% |
+| `coverage report --json` | 333.58 | 289.28 | -13.3% |
+| `data bss --json`, cold | 217.39 | 148.32 | -31.8% |
+| `data list --json`, cold | 217.57 | 148.44 | -31.8% |
+| `data bss --json`, warm | 86.53 | 86.53 | 0.0% |
+| `types contracts --json` | 299.50 | 299.51 | 0.0% |
+
+`binary functions` spends about 84% of its samples in rizin child processes,
+so instructions do not show its change; three runs per side measured 40.7 s
+against 35.8 s wall with the same CPU time and identical output.
+
+Retained changes:
+
+1. On x86-32 outside NE, `scan_references`, `data_references` and
+   `reachable_code` decode an instruction's capstone details only when its
+   operand text prints a value inside the image. Intel syntax prints every
+   value above 9 as a lowercase `0x` literal (every in-image value of the
+   823k instructions in guild-rebrew's PE), so the screen applies only when
+   the lowest image address is at least 10 (the `mini.elf` fixture maps
+   address 0). Identical references on guild-rebrew's PE and every x86
+   fixture binary.
+2. `reachable_code` decodes each instruction from a 15-byte window instead of
+   the rest of the body.
+3. `binary functions` starts `rizin aaa`, `rizin aa;aap` and the capstone
+   sweep together and merges in the same order.
+4. `scan_globals` checks target visibility on the source text as read; the
+   rejoined lines lost the final newline and missed the anchor cache.
+
+Not changed: `types contracts` is first-time parsing (each file's text is
+parsed once), and asking rizin for less analysis would change its results.
 ## Call scans kept by binary digest (2026-11-16)
 
 `rebrew.call_references` scanned the whole binary (`scan_references`, then the import
