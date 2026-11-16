@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.54.0] - 2026-11-16
+
 ### Added
 
 - `rebrew test --json --instructions` and `rebrew verify --json --instructions` add `instructions` to a function result that is not `EXACT`: the target's and the rebuild's instructions decoded at the function VA, alignment rows (`equal`, `replace`, `insert`, `delete`; `reloc` on an equal row that differs only in relocation fields) and operand spans with a value id shared by both sides, up to 8192 bytes a side ([CLI.md](docs/CLI.md#rebrew-test)). The ops `rebrew.verify_function` (candidate verifications) and `rebrew.verify_target` take `instructions` to ask for it, and the new op `rebrew.instruction_listing` answers the target listing against itself for an `EXACT` rebuild. The backend's web diff view (target and rebuilt code side by side) reads it; the client has no disassembler. The dispatch contract copy (`tests/fixtures/dispatch/rebrew.schema.json`) changes with the backend's.
