@@ -3,6 +3,7 @@
 ### Added
 
 - `rebrew ops serve` streams a long call's counts to a caller whose `Accept` names `application/x-ndjson`, and `rebrew ops call` writes them to the descriptor `RELUMEA_DISPATCH_PROGRESS_FD` names: `verify_target` and `build` report how many functions of how many their `verify` and `build round-trip` have finished, from the total before the first compile to the last ([CLI.md](docs/CLI.md#rebrew-ops-serve)). A whole-target verification of 316 functions reported nothing for its 18 minutes, so the backend showed it at 0% and it looked hung. Callers that do not ask get the plain JSON answer as before.
+- Every CFG edge (`rebrew binary asm show --format cfg`, the `rebrew.control_flow_graph` op, `rebrew.cfg_ged.build_cfg_view`) carries a `kind`: `taken` for a conditional jump's target, `not_taken` for its fall-through, `unconditional` for a `jmp` or plain flow into a block that starts at a jump target. It is read from the source block's last instruction. A conditional jump to the next instruction gives two edges, one per kind. The human `--format cfg` listing prints the kind after each edge.
 
 ### Removed
 
@@ -11,6 +12,7 @@
 ### Fixed
 
 - A remote compile the service has no room for (a `capacity` or `runner_unavailable` refusal, a 429 or a 503) waits it out until the call's deadline instead of giving up after `[compiler] recompile_retries` attempts: it tries again after the reply's `Retry-After` (else the capped backoff), under a new key after a retained refusal and the same key after a 429 or 503, paced by the process's `recompile_concurrency` slots. A YC target verification lost 46 of 316 functions to NOT_RUN ("managed engine at physical capacity") while a target build compiled in the same deployment account, though capacity came free within seconds. Only a wait past the deadline (`REBREW_CALL_DEADLINE`, which `rebrew ops` sets from the op's deadline, 3600 s for `verify_target`) leaves the function NOT_RUN; without a deadline (a CLI run) the waits end 300 s after the compile started (`rebrew.compiler.recompile_client.NO_DEADLINE_WAIT_SECONDS`). `recompile_retries` still bounds every other retryable failure (a 500/502/504, a lost reply, a failed artifact download). `compile_source(retries=0)` therefore waits out such refusals too.
+- The CFG segmenter starts a block at every direct jump target. It split only after jumps and returns and sent a jump to whichever block held its target, so on guild-rebrew's `adler32` (server.dll 0x10001000) `jbe 0x10001123` got an edge to 0x10001122 and the outer loop's `ja 0x1000102f` one to 0x1000102e, and an if/else whose `jmp` skips the else branch drew the then-branch flowing into the else code. A jump into the middle of an instruction gives no edge. Block and edge counts change for any function with such a target, and so does the `cfg_similarity` score built on them.
 
 ### Performance
 

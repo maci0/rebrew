@@ -11,8 +11,9 @@ terminators at plausible offsets, with forgeable relative displacements) plus
 arbitrary bytes, in 16- and 32-bit modes, and assert:
 
 * the block segmentation partitions the decoded instruction stream —
-  contiguous, ascending, one mnemonic entry per instruction, every block but
-  the last ending at a terminator;
+  contiguous, ascending, one mnemonic entry per instruction, every direct
+  jump target inside the code a block start, every block but
+  the last ending at a terminator or before a jump target;
 * every edge names two blocks that exist, and no edge is recorded twice
   (the dedup a self-jump chain exercises once per block);
 * the capped render view is a faithful prefix of the uncapped one, with
@@ -146,11 +147,18 @@ def _assert_partition(code: bytes, va: int, cs_mode: int, blocks: list[Block]) -
         return starts
     assert blocks[0][0] == starts[0]
     assert sum(count for _, count, _ in blocks) == len(insns)
+    targets = {
+        int(insn.op_str, 16) - va
+        for insn in insns
+        if insn.mnemonic in _TERMINATORS and insn.op_str.startswith("0x")
+    }
+    block_starts = {start for start, _, _ in blocks}
+    assert targets & set(starts) <= block_starts, "a jump target inside the code starts a block"
     for idx, (start, count, mnems) in enumerate(blocks):
         assert count == len(mnems) >= 1
         assert start == starts[sum(b[1] for b in blocks[:idx])], "block starts on an instruction"
-        if idx + 1 < len(blocks):
-            assert mnems[-1] in _TERMINATORS, "only the last block may end without a terminator"
+        if idx + 1 < len(blocks) and mnems[-1] not in _TERMINATORS:
+            assert blocks[idx + 1][0] in targets, "a block ends at a terminator or a jump target"
     return starts
 
 
@@ -218,6 +226,7 @@ def test_build_cfg_view_is_a_capped_prefix_of_build_cfg(
     for edge in view["edges"]:
         assert edge["from"] in kept_vas and edge["to"] in kept_vas
         assert edge["back_edge"] == (edge["to"] <= edge["from"])
+        assert edge["kind"] in {"taken", "not_taken", "unconditional"}
 
     # A second, independent stream still honours the cap and its own edges.
     other = build_cfg_view(right, va, cs_mode)

@@ -3049,9 +3049,16 @@ emits the structured instruction list (address, bytes, mnemonic, operands).
 `--format cfg` prints the function's basic-block control-flow graph instead of
 the instruction listing: per block its absolute start VA, byte size,
 instruction count, and the text of its first and last instruction; per edge
-the absolute VAs it connects and a `back_edge` marker.  The human form lists
+the absolute VAs it connects, a `back_edge` marker, and a `kind`.  A block
+starts at the first instruction, after each jump or return, and at each
+direct jump target, so an edge always lands on the jump's own operand; a
+jump into the middle of an instruction gives no edge.  `kind` comes from the
+source block's last instruction: `taken` (a conditional jump's target),
+`not_taken` (its fall-through), `unconditional` (a `jmp`, or plain flow into
+a block that starts at a jump target).  Indirect jumps, jump tables
+included, are not resolved and give no edge.  The human form lists
 each block as `B<index> <va> <size> B <n> insns <first> ... <last>` and then
-the edges (back edges labeled); `--json` emits the same payload with every
+the edges with their kind (back edges labeled); `--json` emits the same payload with every
 address as a `0x...` string, plus `block_count`, `block_total`, `block_cap`,
 `truncated` and `note`.  The extent is `--size`, else the function list, else
 the disassembly walk; when none resolves, or the VA's bytes are unreadable,

@@ -1206,6 +1206,7 @@ def _cfg_payload(
                 "from": f"0x{edge['from']:08x}",
                 "to": f"0x{edge['to']:08x}",
                 "back_edge": edge["back_edge"],
+                "kind": edge["kind"],
             }
             for edge in view["edges"]
         ],
@@ -1237,7 +1238,7 @@ def _emit_cfg(payload: dict[str, Any], json_output: bool) -> None:
         console.print("  edges:")
         for edge in payload["edges"]:
             suffix = "  [yellow]back edge[/]" if edge["back_edge"] else ""
-            console.print(f"    {edge['from']} -> {edge['to']}{suffix}")
+            console.print(f"    {edge['from']} -> {edge['to']}  {edge['kind']}{suffix}")
     if payload["truncated"]:
         console.print(
             f"  [yellow]capped at {payload['block_cap']} blocks ({payload['block_total']} total)[/]"

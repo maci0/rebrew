@@ -6,8 +6,10 @@ target binary and the compiled candidate), so the analogous metric compares
 the TARGET function's CFG against the COMPILED function's CFG: a bounded
 graph-edit approximation over basic blocks and edges.
 
-- Basic blocks are segmented from the disassembly (blocks end at
-  jmp/jcc/ret; edges are fallthrough + jump targets — intra-function only).
+- Basic blocks are segmented from the disassembly: a block starts at the
+  first instruction, after every jmp/jcc/ret, and at every direct jump
+  target inside the code; edges are fallthrough + jump targets,
+  intra-function only.
 - Block matching is greedy best-match by mnemonic-multiset cosine (the
   ``rebrew.similar`` signature machinery), weighted by instruction count.
 - Edge similarity is the Jaccard of the successor sets after mapping
@@ -20,7 +22,7 @@ capstone, no angr dependency.  Best-effort: garbage/undecodable input yields
 0.0, never raises.
 
 ``build_cfg_view`` exposes the same segmentation for rendering: absolute
-block VAs, byte spans, first/last instruction text and back-edge flags,
+block VAs, byte spans, first/last instruction text, edge kinds and back-edge flags,
 capped at ``MAX_CFG_BLOCKS_PER_FUNCTION`` (consumed by ``rebrew binary asm show
 --format cfg``).
 """
@@ -84,6 +86,15 @@ _COND_JUMPS = frozenset(
 # ``dword ptr [0x<addr>]`` or ``eax`` operand must not become a direct edge.
 _JMP_TARGET_RE = re.compile(r"^0x([0-9a-fA-F]+)$")
 
+#: Edge kinds, read from the source block's last instruction.  A conditional
+#: jump gives a ``taken`` edge to its target and a ``not_taken`` edge to the
+#: next instruction; a ``jmp``, or a block that ends only because the next
+#: instruction is a jump target, gives one ``unconditional`` edge.  Indirect
+#: jumps (jump tables included) are not resolved and give no edge.
+EDGE_TAKEN = "taken"
+EDGE_NOT_TAKEN = "not_taken"
+EDGE_UNCONDITIONAL = "unconditional"
+
 #: Cap on the blocks ``build_cfg_view`` returns for one function: a renderable
 #: graph, not an unbounded dump of a malformed extent.  The payload carries
 #: the true count and this cap.
@@ -94,7 +105,8 @@ def build_cfg(code: bytes, va: int, cs_mode: int = capstone.CS_MODE_32) -> dict[
     """Segment *code* into a basic-block CFG.
 
     Returns ``{"blocks": [(start_off, insn_count, mnemonics)], "edges":
-    [(from_idx, to_idx), ...]}`` — intra-function only (calls are treated as
+    [(from_idx, to_idx), ...]}`` — each pair once, whatever its kinds;
+    intra-function only (calls are treated as
     plain instructions; their callees are not in this CFG).  *start_off* is
     the byte offset into *code* (address - va).  For the absolute-VA render
     view of the same segmentation, see :func:`build_cfg_view`.
@@ -102,7 +114,7 @@ def build_cfg(code: bytes, va: int, cs_mode: int = capstone.CS_MODE_32) -> dict[
     blocks, edges = _segment_blocks(code, va, cs_mode)
     return {
         "blocks": [(b["start"], b["insn_count"], b["mnems"]) for b in blocks],
-        "edges": edges,
+        "edges": list(dict.fromkeys((a, b) for a, b, _ in edges)),
     }
 
 
@@ -110,15 +122,19 @@ def build_cfg_view(code: bytes, va: int, cs_mode: int = capstone.CS_MODE_32) -> 
     """Render-facing view of one function's CFG: absolute VAs and labels.
 
     Returns ``{"blocks": [{"va", "size", "instruction_count", "first",
-    "last"}], "edges": [{"from", "to", "back_edge"}], "block_count",
+    "last"}], "edges": [{"from", "to", "back_edge", "kind"}], "block_count",
     "block_total", "block_cap", "truncated", "note"}``.
 
     *va* is the function's start (the same VA :func:`build_cfg` takes) and
     every address here is absolute (``va + byte offset``).  ``size`` is the
     block's byte span; ``first``/``last`` are ``"mnemonic operands"`` text of
     its first and last instruction (equal for a one-instruction block).  An
-    edge is ``back_edge`` when it targets a block at or before its source
-    (blocks are in address order, so a self-loop counts).
+    edge's ``to`` is always a block start: a jump into the middle of an
+    instruction, or out of *code*, gives no edge.  ``kind`` is one of
+    ``EDGE_TAKEN``/``EDGE_NOT_TAKEN``/``EDGE_UNCONDITIONAL``; a conditional
+    jump to the next instruction gives two edges between the same blocks, one
+    per kind.  An edge is ``back_edge`` when it targets a block at or before
+    its source (blocks are in address order, so a self-loop counts).
 
     ``blocks`` is capped at ``MAX_CFG_BLOCKS_PER_FUNCTION``;
     ``block_total``/``block_cap``/``truncated`` state the true count, and
@@ -146,8 +162,9 @@ def build_cfg_view(code: bytes, va: int, cs_mode: int = capstone.CS_MODE_32) -> 
                 "from": va + blocks[a]["start"],
                 "to": va + blocks[b]["start"],
                 "back_edge": b <= a,
+                "kind": kind,
             }
-            for a, b in edges
+            for a, b, kind in edges
             if a in kept_idx and b in kept_idx
         ],
         "block_count": len(kept),
@@ -160,74 +177,53 @@ def build_cfg_view(code: bytes, va: int, cs_mode: int = capstone.CS_MODE_32) -> 
 
 def _segment_blocks(
     code: bytes, va: int, cs_mode: int
-) -> tuple[list[dict[str, Any]], list[tuple[int, int]]]:
-    """Segment *code* into basic blocks and intra-function edges.
+) -> tuple[list[dict[str, Any]], list[tuple[int, int, str]]]:
+    """Segment *code* into basic blocks and intra-function ``(from, to, kind)`` edges.
 
     The single segmenter behind :func:`build_cfg` (offset/index view) and
     :func:`build_cfg_view` (absolute-VA view).  Block records carry the byte
     offset into *code*, the byte span, the instruction count, the mnemonic
     list, first/last instruction text, and the start instruction index.
+    Edges are unique per ``(from, to, kind)``.
     """
     md = capstone_handle(capstone.CS_ARCH_X86, cs_mode)
     insns = list(md.disasm(code, va))
     if not insns:
         return [], []
+    index_of_offset = {insn.address - va: i for i, insn in enumerate(insns)}
 
-    # Split into blocks at terminators (a block ends at its last terminator).
-    # Conditional jumps terminate too — the block ends AT the jcc, whose
-    # target + fallthrough edges are added when building the edge list.
-    block_starts: list[int] = [0]
+    # Leaders: the first instruction, the one after each terminator or
+    # conditional jump, and each direct jump target that starts an
+    # instruction.  Resolving a target to the block merely containing it
+    # put a loop head's edge on its pre-header.
+    leaders = {0}
     for i, insn in enumerate(insns):
-        if (insn.mnemonic in _BLOCK_END_MNEMONICS or insn.mnemonic in _COND_JUMPS) and (
-            i + 1 < len(insns)
-        ):
-            block_starts.append(i + 1)
-    block_starts_set = set(block_starts)
+        if insn.mnemonic in _BLOCK_END_MNEMONICS or insn.mnemonic in _COND_JUMPS:
+            leaders.add(i + 1)
+            target = index_of_offset.get(_jump_target_off(insn, va))
+            if target is not None:
+                leaders.add(target)
+    starts = sorted(i for i in leaders if i < len(insns))
+    ends = [*starts[1:], len(insns)]
+    blocks = [_seal(insns[s:e], va, s) for s, e in zip(starts, ends, strict=True)]
+    block_of_index = {s: idx for idx, s in enumerate(starts)}
 
-    blocks: list[dict[str, Any]] = []
-    cur: list[Any] = []
-    cur_start_idx = 0
-    for i, insn in enumerate(insns):
-        if i in block_starts_set and cur:
-            blocks.append(_seal(cur, va, cur_start_idx))
-            cur = []
-            cur_start_idx = i
-        cur.append(insn)
-    if cur:
-        blocks.append(_seal(cur, va, cur_start_idx))
-
-    # Build edges: for each block, its last instruction's targets.  Jump
-    # targets resolve to the block CONTAINING the target byte (loop heads
-    # often land mid-block after a pre-header); self-edges (back-edges) are
-    # meaningful and kept.
-    edges: list[tuple[int, int]] = []
-    edge_set: set[tuple[int, int]] = set()
-    block_idx_of_offset: dict[int, int] = {}
-    for idx, b in enumerate(blocks):
-        first = insns[b["start_idx"]]
-        last = insns[b["start_idx"] + b["insn_count"] - 1]
-        start_off = first.address - va
-        end_off = last.address + last.size - va
-        for off in range(start_off, end_off):
-            block_idx_of_offset[off] = idx
-
-    for idx, b in enumerate(blocks):
-        count, start_idx = b["insn_count"], b["start_idx"]
-        last = insns[start_idx + count - 1]
-        if last.mnemonic in _COND_JUMPS or last.mnemonic == "jmp":
-            target_off = _jump_target_off(last, va)
-            if target_off is not None:
-                _add_edge(edges, edge_set, idx, block_idx_of_offset, target_off)
-            # Conditional jumps also fall through; unconditional jmp does not.
-            if last.mnemonic in _COND_JUMPS and start_idx + count < len(insns):
-                _add_edge(
-                    edges, edge_set, idx, block_idx_of_offset, insns[start_idx + count].address - va
-                )
-        elif last.mnemonic not in _BLOCK_END_MNEMONICS and start_idx + count < len(insns):
-            # fallthrough
-            _add_edge(
-                edges, edge_set, idx, block_idx_of_offset, insns[start_idx + count].address - va
-            )
+    edges: list[tuple[int, int, str]] = []
+    edge_set: set[tuple[int, int, str]] = set()
+    for idx, end in enumerate(ends):
+        last = insns[end - 1]
+        has_next = end < len(insns)
+        conditional = last.mnemonic in _COND_JUMPS
+        if conditional or last.mnemonic == "jmp":
+            target = index_of_offset.get(_jump_target_off(last, va))
+            if target is not None:
+                kind = EDGE_TAKEN if conditional else EDGE_UNCONDITIONAL
+                _add_edge(edges, edge_set, (idx, block_of_index[target], kind))
+            if conditional and has_next:
+                _add_edge(edges, edge_set, (idx, idx + 1, EDGE_NOT_TAKEN))
+        elif last.mnemonic not in _BLOCK_END_MNEMONICS and has_next:
+            # The next instruction is a jump target: plain flow into its block.
+            _add_edge(edges, edge_set, (idx, idx + 1, EDGE_UNCONDITIONAL))
 
     return blocks, edges
 
@@ -249,7 +245,7 @@ def _seal(cur: list[Any], base_va: int, start_idx: int) -> dict[str, Any]:
 
 
 def _jump_target_off(insn: Any, base_va: int) -> int | None:
-    """Byte offset (into the code buffer) of a jump's target."""
+    """Byte offset (into the code buffer) of a direct jump's target, else ``None``."""
     m = _JMP_TARGET_RE.search(insn.op_str)
     if not m:
         return None
@@ -257,24 +253,19 @@ def _jump_target_off(insn: Any, base_va: int) -> int | None:
 
 
 def _add_edge(
-    edges: list[tuple[int, int]],
-    edge_set: set[tuple[int, int]],
-    from_idx: int,
-    block_idx_of_offset: dict[int, int],
-    target_off: int,
+    edges: list[tuple[int, int, str]],
+    edge_set: set[tuple[int, int, str]],
+    edge: tuple[int, int, str],
 ) -> None:
-    """Append the edge to *edges* unless it is already there.
+    """Append *edge* to *edges* unless it is already there.
 
     *edge_set* mirrors *edges* for membership; scanning the list itself made a
     self-jump chain quadratic in the block count (a run of ``jmp $`` is one
     block and one edge per 2 bytes, so a 32 KiB extent spent seconds).
     """
-    to_idx = block_idx_of_offset.get(target_off)
-    if to_idx is not None:
-        edge = (from_idx, to_idx)
-        if edge not in edge_set:
-            edge_set.add(edge)
-            edges.append(edge)
+    if edge not in edge_set:
+        edge_set.add(edge)
+        edges.append(edge)
 
 
 def _cosine_scaled(a: Counter[str], b: Counter[str], va: float, vb: float) -> float:

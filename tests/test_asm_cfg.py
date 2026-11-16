@@ -27,12 +27,29 @@ runner = CliRunner()
 
 BASE_VA = 0x01001000
 
-# cmp eax,1; je +7; mov eax,1; jmp +5; mov eax,2; ret — 3 blocks, 3 edges
+# cmp eax,1; je +7; mov eax,1; jmp +5 (onto the ret); mov eax,2; ret — 4 blocks, 4 edges
 IFELSE = bytes.fromhex("83 f8 01 74 07 b8 01 00 00 00 eb 05 b8 02 00 00 00 c3")
 # mov ecx,4; dec ecx; jne -3; ret — loop with a back edge
 LOOP = bytes.fromhex("b9 04 00 00 00 49 75 fd c3")
 # mov eax,1; add eax,1; ret — straight-line flow, 1 block
 STRAIGHT = bytes.fromhex("b8 01 00 00 00 83 c0 01 c3")
+
+#: zlib's ``adler32`` as MSVC 6 compiled it into guild-rebrew's server.dll
+#: (0x10001000, 302 bytes; zlib license).  Seven conditional jumps, four of
+#: them into the middle of a run of straight-line code, two of them loops.
+ADLER32_VA = 0x10001000
+ADLER32 = bytes.fromhex(
+    "568b74240c578b7c240c8bcf81e1ffff0000c1ef1085f675085fb8010000005e"
+    "c3538b5c241885db0f86f50000005581fbb01500008bc37205b8b01500002bd8"
+    "83f8100f8ca70000008be8c1ed048bd5f7dac1e20403c233d28a1683c61003ca"
+    "33d28a56f103f903ca33d28a56f203f903ca33d28a56f303f903ca33d28a56f4"
+    "03f903ca33d28a56f503f903ca33d28a56f603f903ca33d28a56f703f903ca33"
+    "d28a56f803f903ca33d28a56f903f903ca33d28a56fa03f903ca33d28a56fb03"
+    "f903ca33d28a56fc03f903ca33d28a56fd03f903ca33d28a56fe03f903ca33d2"
+    "8a56ff03f903ca03f94d0f8567ffffff85c0740c33d28a1603ca4603f94875f4"
+    "8bc133d2b9f1ff0000f7f18bc7bff1ff00008bca33d2f7f785db8bfa0f870dff"
+    "ffff5d8bc75bc1e0105f0bc15ec3"
+)
 
 
 def _app() -> typer.Typer:
@@ -104,11 +121,16 @@ class TestCfgJsonPayload:
         payload = _payload(_run(monkeypatch, tmp_path, IFELSE, "--size", "18", "--json"))
         assert payload["va"] == "0x01001000"
         assert payload["size"] == len(IFELSE)
-        assert payload["block_total"] == 3
+        assert payload["block_total"] == 4
         assert payload["truncated"] is False
         assert payload["note"] is None
         blocks = payload["blocks"]
-        assert [b["va"] for b in blocks] == ["0x01001000", "0x01001005", "0x0100100c"]
+        assert [b["va"] for b in blocks] == [
+            "0x01001000",
+            "0x01001005",
+            "0x0100100c",
+            "0x01001011",
+        ]
         assert blocks[0] == {
             "va": "0x01001000",
             "size": 5,
@@ -116,21 +138,87 @@ class TestCfgJsonPayload:
             "first": "cmp eax, 1",
             "last": "je 0x100100c",
         }
-        assert blocks[2]["first"] == "mov eax, 2"
-        assert blocks[2]["last"] == "ret"
-        assert {(e["from"], e["to"], e["back_edge"]) for e in payload["edges"]} == {
-            ("0x01001000", "0x0100100c", False),
-            ("0x01001000", "0x01001005", False),
-            ("0x01001005", "0x0100100c", False),
-        }
+        assert blocks[2]["first"] == blocks[2]["last"] == "mov eax, 2"
+        assert blocks[3]["first"] == "ret"
+        assert [(e["from"], e["to"], e["back_edge"], e["kind"]) for e in payload["edges"]] == [
+            ("0x01001000", "0x0100100c", False, "taken"),
+            ("0x01001000", "0x01001005", False, "not_taken"),
+            ("0x01001005", "0x01001011", False, "unconditional"),
+            ("0x0100100c", "0x01001011", False, "unconditional"),
+        ]
 
     def test_loop_edge_marked_back_edge(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         payload = _payload(_run(monkeypatch, tmp_path, LOOP, "--size", "9", "--json"))
-        assert [b["va"] for b in payload["blocks"]] == ["0x01001000", "0x01001008"]
-        assert {"from": "0x01001000", "to": "0x01001000", "back_edge": True} in payload["edges"]
-        assert {"from": "0x01001000", "to": "0x01001008", "back_edge": False} in payload["edges"]
+        assert [b["va"] for b in payload["blocks"]] == ["0x01001000", "0x01001005", "0x01001008"]
+        assert payload["edges"] == [
+            {"from": "0x01001000", "to": "0x01001005", "back_edge": False, "kind": "unconditional"},
+            {"from": "0x01001005", "to": "0x01001005", "back_edge": True, "kind": "taken"},
+            {"from": "0x01001005", "to": "0x01001008", "back_edge": False, "kind": "not_taken"},
+        ]
+
+    def test_jump_targets_start_blocks_on_adler32(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Every edge lands on the jump's own operand, not on the block around it.
+
+        Production answered ``jbe 0x10001123`` with an edge to 0x10001122 (the
+        ``pop ebp`` block holding the target), and ``ja 0x1000102f`` with one
+        to 0x1000102e.
+        """
+        _patch(monkeypatch, tmp_path, ADLER32)
+        result = runner.invoke(
+            _app(), [f"0x{ADLER32_VA:x}", "--format", "cfg", "--size", "302", "--json"]
+        )
+        payload = _payload(result)
+        assert [int(b["va"], 16) - ADLER32_VA for b in payload["blocks"]] == [
+            0x00,
+            0x19,
+            0x21,
+            0x2E,
+            0x2F,
+            0x39,
+            0x3E,
+            0x49,
+            0x57,
+            0xF0,
+            0xF4,
+            0x100,
+            0x122,
+            0x123,
+        ]
+        edges = [
+            (
+                int(e["from"], 16) - ADLER32_VA,
+                int(e["to"], 16) - ADLER32_VA,
+                e["kind"],
+                e["back_edge"],
+            )
+            for e in payload["edges"]
+        ]
+        assert edges == [
+            (0x00, 0x21, "taken", False),  # jne
+            (0x00, 0x19, "not_taken", False),
+            (0x21, 0x123, "taken", False),  # jbe
+            (0x21, 0x2E, "not_taken", False),
+            (0x2E, 0x2F, "unconditional", False),  # push ebp, then the outer loop head
+            (0x2F, 0x3E, "taken", False),  # jb
+            (0x2F, 0x39, "not_taken", False),
+            (0x39, 0x3E, "unconditional", False),
+            (0x3E, 0xF0, "taken", False),  # jl
+            (0x3E, 0x49, "not_taken", False),
+            (0x49, 0x57, "unconditional", False),
+            (0x57, 0x57, "taken", True),  # jne: the 16-byte loop
+            (0x57, 0xF0, "not_taken", False),
+            (0xF0, 0x100, "taken", False),  # je
+            (0xF0, 0xF4, "not_taken", False),
+            (0xF4, 0xF4, "taken", True),  # jne: the 1-byte loop
+            (0xF4, 0x100, "not_taken", False),
+            (0x100, 0x2F, "taken", True),  # ja: the outer loop
+            (0x100, 0x122, "not_taken", False),
+            (0x122, 0x123, "unconditional", False),  # pop ebp, then the jbe target
+        ]
 
     def test_straight_line_single_block_no_edges(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -147,7 +235,7 @@ class TestCfgJsonPayload:
     ) -> None:
         payload = _payload(_run(monkeypatch, tmp_path, IFELSE, "--json", declared=len(IFELSE)))
         assert payload["size"] == len(IFELSE)
-        assert payload["block_total"] == 3
+        assert payload["block_total"] == 4
 
 
 class TestCfgEmptyAnswers:
@@ -185,7 +273,7 @@ class TestCfgCap:
         monkeypatch.setattr(cfg_ged, "MAX_CFG_BLOCKS_PER_FUNCTION", 2)
         payload = _payload(_run(monkeypatch, tmp_path, IFELSE, "--size", "18", "--json"))
         assert payload["block_cap"] == 2
-        assert payload["block_total"] == 3
+        assert payload["block_total"] == 4
         assert payload["block_count"] == 2
         assert payload["truncated"] is True
         assert len(payload["blocks"]) == 2
@@ -200,11 +288,12 @@ class TestCfgHumanRendering:
         _patch(monkeypatch, tmp_path, LOOP, declared=len(LOOP))
         result = runner.invoke(_app(), [f"0x{BASE_VA:x}", "--format", "cfg"])
         assert result.exit_code == 0, result.output
-        assert "CFG for 0x01001000 (9 bytes, 2 blocks, 2 edges)" in result.output
+        assert "CFG for 0x01001000 (9 bytes, 3 blocks, 3 edges)" in result.output
         assert "B0  0x01001000" in result.output
-        assert "mov ecx, 4 ... jne 0x1001005" in result.output
-        assert "0x01001000 -> 0x01001000  back edge" in result.output
-        assert "0x01001000 -> 0x01001008" in result.output
+        assert "dec ecx ... jne 0x1001005" in result.output
+        assert "0x01001000 -> 0x01001005  unconditional\n" in result.output
+        assert "0x01001005 -> 0x01001005  taken  back edge" in result.output
+        assert "0x01001005 -> 0x01001008  not_taken\n" in result.output
 
     def test_human_rendering_keeps_operand_brackets(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -249,7 +338,7 @@ class TestBuildCfgPayload:
         payload = asm.build_cfg_payload(cfg, BASE_VA, len(IFELSE))
         cli = _payload(_run(monkeypatch, tmp_path, IFELSE, "--size", "18", "--json"))
         assert payload == cli
-        assert payload["block_total"] == 3
+        assert payload["block_total"] == 4
 
     def test_resolves_the_size_from_the_function_list(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -257,7 +346,7 @@ class TestBuildCfgPayload:
         cfg = _patch(monkeypatch, tmp_path, IFELSE, declared=len(IFELSE))
         payload = asm.build_cfg_payload(cfg, BASE_VA)
         assert payload["size"] == len(IFELSE)
-        assert payload["block_total"] == 3
+        assert payload["block_total"] == 4
 
     def test_unresolved_extent_answers_a_note(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
