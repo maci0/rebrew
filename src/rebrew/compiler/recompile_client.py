@@ -105,6 +105,17 @@ RecompileErrorKind = Literal[
 #: long, so a malformed or hostile header cannot park a compile for hours.
 MAX_RETRY_AFTER_SECONDS = 300
 
+#: Seconds from its start a compile without a call deadline (a CLI run) waits
+#: out capacity and throttle refusals before it reports the last one.
+NO_DEADLINE_WAIT_SECONDS = 300
+
+#: ``error_code`` values and HTTP statuses of a refusal that says the service has
+#: no room for the compile now (recompile ``docs/API.md``: ``capacity`` and
+#: ``runner_unavailable`` refusals and 503s carry ``Retry-After``, a 429 is its
+#: throttle).  A compile waits them out until its deadline; they spend no retry.
+_WAIT_FAILURES = frozenset({"capacity", "runner_unavailable"})
+_WAIT_STATUSES = frozenset({429, 503})
+
 #: The one ``error_code`` that is the compiler's verdict on the source
 #: (recompile ``models.CompileFailureKind``).
 _TOOLCHAIN_FAILURE = "toolchain_failure"
@@ -372,6 +383,14 @@ class ServiceGate:
 
 def _deadline_refusal(why: str) -> RecompileError:
     return RecompileError(f"recompile not sent: {why}", kind="deadline")
+
+
+def _no_room(exc: RecompileError) -> bool:
+    """Whether *exc* is a compile refusal to wait out rather than a failure that spends a retry."""
+    return exc.retryable and (
+        (exc.kind == "service" and exc.error_code in _WAIT_FAILURES)
+        or (exc.kind == "http" and exc.status_code in _WAIT_STATUSES)
+    )
 
 
 #: Names the one in-cluster service host that may receive the API key over plain HTTP.
@@ -678,14 +697,19 @@ def compile_source(
     including one after a failure or an image update, sends a new key and never
     replays an earlier call. Neither key nor request is persisted.
 
-    *retries* re-attempts after a :class:`RecompileError` with
-    ``retryable=True``.  Non-retryable errors (validation, 4xx other than
-    the transient set) fail immediately.  ``retries=0`` (default) preserves
-    prior single-shot behaviour.  Between attempts, sleeps with exponential
-    backoff (``0.25 * 2**attempt`` seconds, capped at 8s) so a recovering
-    503 is not immediately re-hammered, or the reply's ``Retry-After`` when
-    that is longer.  *deadline*, a :func:`time.monotonic` value, ends the
-    retries early: a wait that would end past it raises the last error now.
+    A refusal that says the service has no room for the compile now (a
+    ``capacity`` or ``runner_unavailable`` refusal, a 429, a 503) is waited out
+    and tried again until *deadline*, a :func:`time.monotonic` value; without
+    one, for :data:`NO_DEADLINE_WAIT_SECONDS` from the call's start.  *retries*
+    re-attempts after any other :class:`RecompileError` with
+    ``retryable=True`` (a 5xx other than 503, a lost reply, an unreadable
+    artifact download); non-retryable errors (validation, 4xx other than the
+    transient set) fail immediately, and ``retries=0`` (default) sends those
+    once.  Before each attempt after the first, sleeps with exponential
+    backoff (``0.25 * 2**n`` seconds, capped at 8s, *n* counting the waits or
+    the retries so far) so a recovering service is not immediately
+    re-hammered, or the reply's ``Retry-After`` when that is longer.  A wait
+    that would end past *deadline* raises the last error now.
 
     *gate*, a :class:`ServiceGate` shared by the compiles of a process, runs
     each attempt in one of its slots after its hold-off, and a retryable
@@ -696,8 +720,10 @@ def compile_source(
     *sleep* is that backoff's only time source, the same seam
     :func:`rebrew.decompme.upload_scratch` and
     :func:`rebrew.compiler.headless._wait_for_socket` take: inject a stepper to replay
-    a retry sequence from virtual time instead of waiting it out.  Left unset
-    it reads :func:`time.sleep` per attempt, so a patched clock is honoured.
+    a retry sequence from virtual time instead of waiting it out.  The wait
+    bound counts what was slept when that runs ahead of the clock, so a stepper
+    that returns at once still ends the waits.  Left unset it reads
+    :func:`time.sleep` per attempt, so a patched clock is honoured.
 
     Once the compile POST returns ``status == "ok"``, retries never re-POST:
     Older services may retain assembly output as a side effect, so a lost
@@ -824,9 +850,21 @@ def compile_source(
     # the first attempt, so a lost reply rides the retry rules below).
     bundle_checked = not bundled
 
-    attempts = retries + 1
-    last_exc: RecompileError | None = None
     nap = sleep if sleep is not None else time.sleep
+    started = time.monotonic()
+    slept = 0.0
+
+    def now() -> float:
+        # The clock, or the waits slept when an injected sleep runs ahead of it.
+        return max(time.monotonic(), started + slept)
+
+    def wait(seconds: float) -> None:
+        nonlocal slept
+        slept += seconds
+        nap(seconds)
+
+    no_room_until = deadline if deadline is not None else started + NO_DEADLINE_WAIT_SECONDS
+    failures = waits = 0
     # Body + artifact_url from a successful compile POST.  Set once; retries
     # only re-GET so a successful compile is not repeated.
     pending: tuple[dict[str, Any], str] | None = None
@@ -834,8 +872,8 @@ def compile_source(
     # dependency before giving up, which is the number an operator needs when
     # the service is the thing that changed.
     started_at = time.perf_counter()
-    for attempt in range(attempts):
-        if deadline is not None and time.monotonic() >= deadline:
+    while True:
+        if deadline is not None and now() >= deadline:
             raise _deadline_refusal("the call's deadline has passed")
         # One client for POST + GET.  Injected clients are not closed here.
         cm: Any = (
@@ -844,7 +882,7 @@ def compile_source(
             else httpx.Client(timeout=timeout, trust_env=False)
         )
         try:
-            with gate.attempt(deadline, nap) if gate is not None else nullcontext(), cm as http:
+            with gate.attempt(deadline, wait) if gate is not None else nullcontext(), cm as http:
                 if not bundle_checked:
                     if not accepts_include_bundles(url, client=http):
                         raise RecompileError(
@@ -975,13 +1013,19 @@ def compile_source(
                 exc.__cause__ = None
                 exc.__context__ = None
                 exc.__suppress_context__ = True
-            last_exc = exc
             # The service's Retry-After holds back every compile the gate
             # paces, the next call's as well as this call's next attempt: a
             # call that gives up here must not let the next one send at once.
             if exc.retryable and exc.retry_after and gate is not None:
                 gate.hold_off(exc.retry_after)
-            if not exc.retryable or attempt + 1 >= attempts:
+            # A refusal of the compile itself for want of room is waited out
+            # until the deadline; a lost artifact download spends a retry.
+            no_room = pending is None and _no_room(exc)
+            if no_room:
+                waits += 1
+            else:
+                failures += 1
+            if not exc.retryable or (not no_room and failures > retries):
                 # The last word on a dependency that is down: the retries
                 # above logged each attempt that would be retried, so a run
                 # with ``retries=0`` (the default, and what a batch compile of
@@ -995,7 +1039,7 @@ def compile_source(
                 log.warning(
                     "recompile %s gave up after %d attempt(s) over %.1fs (%s%s): %s",
                     safe_url,
-                    attempt + 1,
+                    failures + waits,
                     time.perf_counter() - started_at,
                     exc.kind,
                     "" if exc.status_code is None else f" {exc.status_code}",
@@ -1012,38 +1056,55 @@ def compile_source(
             # and a Retry-After the service named is the least it is given.  With
             # a gate the Retry-After holds the gate, and the next attempt waits it
             # out there with every other compile of the process.
-            delay = retry_backoff_delay(attempt)
+            delay = retry_backoff_delay((waits if no_room else failures) - 1)
             if exc.retry_after and gate is None:
                 delay = max(delay, exc.retry_after)
-            resumes = time.monotonic() + max(delay, exc.retry_after or 0.0)
-            if deadline is not None and resumes > deadline:
+            resumes = now() + max(delay, exc.retry_after or 0.0)
+            until = no_room_until if no_room else deadline
+            if until is not None and resumes > until:
                 log.warning(
-                    "recompile %s gave up after %d attempt(s): its next attempt would start "
-                    "past the call's deadline (%s%s): %s",
+                    "recompile %s gave up after %d attempt(s) over %.1fs: its next attempt "
+                    "would start past %s (%s%s): %s",
                     safe_url,
-                    attempt + 1,
+                    failures + waits,
+                    time.perf_counter() - started_at,
+                    "the call's deadline" if deadline is not None else "the wait for room",
                     exc.kind,
                     "" if exc.status_code is None else f" {exc.status_code}",
                     retry_log_detail(exc),
                 )
                 raise
-            # One line per retry, before the sleep: a remote backend that is
-            # failing and recovering otherwise spends the backoff in silence,
-            # so a `rebrew test` run against a flaky service looks hung with no
-            # record of which dependency is faulting or how long the wait is.
-            log.warning(
-                "recompile %s attempt %d/%d failed (%s%s), retrying in %.2fs: %s",
-                safe_url,
-                attempt + 1,
-                attempts,
-                exc.kind,
-                "" if exc.status_code is None else f" {exc.status_code}",
-                delay,
-                retry_log_detail(exc),
-            )
-            nap(delay)
-    assert last_exc is not None  # attempts >= 1
-    raise last_exc
+            if no_room:
+                # One line when the wait starts; a wait of many attempts is
+                # summed up by the line that ends it.
+                (log.warning if waits == 1 else log.debug)(
+                    "recompile %s has no room for the compile (%s%s), waiting %.2fs and "
+                    "trying again until %s: %s",
+                    safe_url,
+                    exc.kind,
+                    "" if exc.status_code is None else f" {exc.status_code}",
+                    max(delay, exc.retry_after or 0.0),
+                    "the call's deadline"
+                    if deadline is not None
+                    else f"{NO_DEADLINE_WAIT_SECONDS} s have passed",
+                    retry_log_detail(exc),
+                )
+            else:
+                # One line per retry, before the sleep: a remote backend that is
+                # failing and recovering otherwise spends the backoff in silence,
+                # so a `rebrew test` run against a flaky service looks hung with no
+                # record of which dependency is faulting or how long the wait is.
+                log.warning(
+                    "recompile %s attempt %d/%d failed (%s%s), retrying in %.2fs: %s",
+                    safe_url,
+                    failures,
+                    retries + 1,
+                    exc.kind,
+                    "" if exc.status_code is None else f" {exc.status_code}",
+                    delay,
+                    retry_log_detail(exc),
+                )
+            wait(delay)
 
 
 __all__ = [
@@ -1053,6 +1114,7 @@ __all__ = [
     "MAX_INCLUDE_PATH_BYTES",
     "MAX_INCLUDE_TOTAL_BYTES",
     "MAX_RETRY_AFTER_SECONDS",
+    "NO_DEADLINE_WAIT_SECONDS",
     "HttpClient",
     "HttpResponse",
     "RecompileError",

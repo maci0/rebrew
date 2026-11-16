@@ -233,7 +233,8 @@ def test_hostile_reply_never_escapes_as_an_untyped_error(body: dict[str, Any]) -
     ``RecompileError``; nothing else propagates to the caller."""
     client = _Client(_Resp(200, json_body=body), _Resp(200, content=_ARTIFACT))
     try:
-        res = _run(client)
+        # A capacity reply is waited out first; the waits are not real.
+        res = _run(client, sleep=[].append)
     except RecompileError as exc:
         assert exc.kind in ("network", "http", "validation", "protocol", "service")
         assert (exc.kind == "service") == (exc.error_code is not None)
@@ -269,7 +270,8 @@ def test_any_non_200_status_maps_to_a_typed_http_error(status: int) -> None:
     """The status code the service sends is carried through, never dropped."""
     client = _Client(_Resp(status, text="upstream said no"), _Resp(200, content=_ARTIFACT))
     with pytest.raises(RecompileError) as ei:
-        _run(client)
+        # A 429 or 503 is waited out first; the waits are not real.
+        _run(client, sleep=[].append)
     assert ei.value.kind == "http"
     assert ei.value.status_code == status
 

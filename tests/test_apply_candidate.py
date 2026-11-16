@@ -18,7 +18,8 @@ lazy from collections.abc import Iterator
 
 import pytest
 
-from rebrew.ops import WorkerConfig, dispatch
+from rebrew.config import DEFAULT_COMPILE_TIMEOUT
+from rebrew.ops import CHILD_REPORT_SECONDS, WorkerConfig, dispatch
 
 FIXTURES = Path(__file__).parent / "fixtures"
 BINARY = FIXTURES / "mini_pe.exe"
@@ -449,13 +450,23 @@ def _throttling_recompile(retry_after: str) -> Iterator[str]:
         server.server_close()
 
 
+#: ``Retry-After`` of the throttling stand-in: longer than the child's compiles may wait.
+_THROTTLE_SECONDS = 60
+
+#: Seconds the candidate's ``rebrew test`` child gets: its report margin, one whole
+#: compile request (the default ``compile_timeout`` plus the 120 s the remote backend
+#: adds), and 20 s to start attempts in, so it waits out no throttle.
+_CHILD_SECONDS = CHILD_REPORT_SECONDS + DEFAULT_COMPILE_TIMEOUT + 120 + 20
+
+
 def _unavailable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, url: str
 ) -> tuple[WorkerConfig, list[dict[str, Any]]]:
-    """A retained project compiling at *url*, once: the service answers, then it is not run."""
-    project = PROJECT + f'recompile_url = "{url}"\nrecompile_retries = 0\n'.encode()
+    """A retained project compiling at *url*: the service throttles past the child's deadline."""
+    project = PROJECT + f'recompile_url = "{url}"\n'.encode()
     monkeypatch.setitem(globals(), "PROJECT", project)
     monkeypatch.setenv("REBREW_RECOMPILE_URL", url)
+    monkeypatch.setattr("rebrew.ops.COMMAND_TIMEOUT_SECONDS", _CHILD_SECONDS)
     return _stage(tmp_path)
 
 
@@ -464,7 +475,7 @@ def test_verify_answers_a_compile_the_service_never_ran_as_a_not_run_report(
 ) -> None:
     """It answered 500 "rebrew test failed: not run (service unavailable): ...", which the
     backend stored as a failed verdict."""
-    with _throttling_recompile("5") as url:
+    with _throttling_recompile(str(_THROTTLE_SECONDS)) as url:
         config, entries = _unavailable(tmp_path, monkeypatch, url)
         candidate = "int fcn_00401000(void) { return 0; }\n"
         status, raw = dispatch(
@@ -474,7 +485,10 @@ def test_verify_answers_a_compile_the_service_never_ran_as_a_not_run_report(
     assert status == 200, reply
     assert reply["status"] == "NOT_RUN" and reply["verdict_valid"] is False
     assert reply["message"].startswith("not run (service unavailable): ")
-    assert (reply["error"]["status_code"], reply["error"]["retry_after"]) == (429, 5.0)
+    assert (reply["error"]["status_code"], reply["error"]["retry_after"]) == (
+        429,
+        float(_THROTTLE_SECONDS),
+    )
     assert (config.filestore / entries[0]["key"]).read_bytes() == PROJECT
 
 
@@ -485,7 +499,7 @@ def test_apply_answers_a_compile_the_service_never_ran_as_503_with_retry_after(
     from rebrew.ops import OpsServer
 
     token = secrets.token_hex(16)
-    with _throttling_recompile("5") as url:
+    with _throttling_recompile(str(_THROTTLE_SECONDS)) as url:
         config, entries = _unavailable(tmp_path, monkeypatch, url)
         with OpsServer(("127.0.0.1", 0), config, token, 1) as server:
             thread = threading.Thread(
@@ -512,5 +526,5 @@ def test_apply_answers_a_compile_the_service_never_ran_as_503_with_retry_after(
                 server.shutdown()
                 thread.join(_WAIT_SECONDS)
     assert (response.status, refusal["error"]) == (503, "compile-not-run"), refusal
-    assert response.getheader("Retry-After") == "5"
+    assert response.getheader("Retry-After") == str(_THROTTLE_SECONDS)
     assert refusal["detail"].startswith("not run (service unavailable): ")
