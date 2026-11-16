@@ -397,46 +397,85 @@ class TestDirectCallWithoutInstructions:
         assert payload["status"] == "RELOC" and "instructions" not in payload
 
 
+#: SWITCH's (tests/test_ops.py) fields that name its own labels: field offset,
+#: label offset.  An unlinked object leaves them zero.
+SWITCH_LABELS = [(9, 0x30), (16, 0x24), (0x24, 0x14), (0x28, 0x1A), (0x2C, 0x20)]
+
+
+def _switch_rebuild(tmp_path: Path, labels: list[tuple[int, int]]) -> tuple[Any, dict[str, Any]]:
+    """SWITCH at ENTRY_VA compared with its unlinked object whose label
+    relocations are *labels*: the compare result and its instruction diff."""
+    from types import SimpleNamespace
+
+    from bin_util import make_coff_obj, make_pe
+    from test_ops import ENTRY_VA, SWITCH
+
+    from rebrew.compiler.compile import _extract_and_compare
+    from rebrew.instruction_diff import record_instructions
+
+    unlinked = bytearray(SWITCH)
+    for at, _ in labels:
+        unlinked[at : at + 4] = bytes(4)
+    obj = tmp_path / "f.obj"
+    obj.write_bytes(
+        make_coff_obj(
+            bytes(unlinked),
+            func_symbol="_f",
+            label_relocs=[(at, 0x6, value) for at, value in labels],
+        )
+    )
+    binary = tmp_path / "x.exe"
+    binary.write_bytes(make_pe(SWITCH))
+    target = SWITCH + bytes(2)  # the object pads its section to 4 bytes
+    result = _extract_and_compare(
+        str(obj), "_f", target, name_to_va={"_f": ENTRY_VA}, section_va=ENTRY_VA
+    )
+    cfg = SimpleNamespace(
+        capstone_arch=X86["cs_arch"], capstone_mode=X86["cs_mode"], target_binary=binary
+    )
+    record_instructions(cfg, result, target, ENTRY_VA)
+    assert result.instructions is not None
+    return result, result.instructions
+
+
 class TestJumpTables:
     def test_rebuilt_tables_resolve_through_their_label_relocations(self, tmp_path: Path) -> None:
         """An unlinked object's jump table holds zeros where its ``$L`` labels
         go; the comparison reads the labels from the relocations, so both
         sides list the table as the same data and every row is equal."""
-        from types import SimpleNamespace
-
-        from bin_util import make_coff_obj, make_pe
-        from test_ops import ENTRY_VA, SWITCH
-
-        from rebrew.compiler.compile import _extract_and_compare
-        from rebrew.instruction_diff import record_instructions
-
-        labels = [(9, 0x30), (16, 0x24), (0x24, 0x14), (0x28, 0x1A), (0x2C, 0x20)]
-        unlinked = bytearray(SWITCH)
-        for at, _ in labels:
-            unlinked[at : at + 4] = bytes(4)
-        obj = tmp_path / "f.obj"
-        obj.write_bytes(
-            make_coff_obj(
-                bytes(unlinked),
-                func_symbol="_f",
-                label_relocs=[(at, 0x6, value) for at, value in labels],
-            )
-        )
-        binary = tmp_path / "x.exe"
-        binary.write_bytes(make_pe(SWITCH))
-        target = SWITCH + bytes(2)  # the object pads its section to 4 bytes
-        result = _extract_and_compare(
-            str(obj), "_f", target, name_to_va={"_f": ENTRY_VA}, section_va=ENTRY_VA
-        )
+        result, diff = _switch_rebuild(tmp_path, SWITCH_LABELS)
         assert result.status == "RELOC", result.message
-        cfg = SimpleNamespace(
-            capstone_arch=X86["cs_arch"], capstone_mode=X86["cs_mode"], target_binary=binary
-        )
-        record_instructions(cfg, result, target, ENTRY_VA)
-        diff = result.instructions
-        assert diff is not None
         table = [(i["mnemonic"], i["operands"]) for i in diff["rebuilt"][12:15]]
         assert table == [("dd", "0x401014"), ("dd", "0x40101a"), ("dd", "0x401020")]
         assert diff["rebuilt"][12]["bytes"] == "00000000"
         assert [i["mnemonic"] for i in diff["original"]] == [i["mnemonic"] for i in diff["rebuilt"]]
         assert {r["op"] for r in diff["rows"]} == {"equal"}
+
+    def test_rebuilt_operands_show_the_addresses_of_their_own_labels(self, tmp_path: Path) -> None:
+        """An operand naming one of the function's labels showed 0, the unset
+        field; it shows the address the target shows, and a row whose resolved
+        bytes equal the target's is equal, not a relocation row.  The byte
+        verdict does not change: it already counts relocated bytes as matching."""
+        result, diff = _switch_rebuild(tmp_path, SWITCH_LABELS)
+        assert result.status == "RELOC", result.message
+        dispatch = [(i["operands"], i["bytes"]) for i in diff["rebuilt"][3:5]]
+        assert dispatch == [
+            ("cl, byte ptr [eax + 0x401030]", "8a8800000000"),
+            ("dword ptr [ecx*4 + 0x401024]", "ff248d00000000"),
+        ]
+        assert [r for r in diff["rows"] if r.get("reloc")] == []
+        assert not any(s.get("changed") for i in diff["rebuilt"] for s in i["spans"])
+
+    def test_a_label_at_another_offset_is_a_changed_relocation_row(self, tmp_path: Path) -> None:
+        """The dispatch names a label 4 bytes past the target's table: its
+        operand shows that address, marked changed, on a relocation row."""
+        labels = [(at, value + 4 if at == 16 else value) for at, value in SWITCH_LABELS]
+        result, diff = _switch_rebuild(tmp_path, labels)
+        assert result.status == "RELOC", result.message
+        jmp = diff["rebuilt"][4]
+        assert jmp["operands"] == "dword ptr [ecx*4 + 0x401028]"
+        assert [r for r in diff["rows"] if r.get("reloc")] == [
+            {"op": "equal", "left": 4, "right": 4, "reloc": True}
+        ]
+        changed = [jmp["operands"][s["start"] : s["end"]] for s in jmp["spans"] if s.get("changed")]
+        assert changed == ["0x401028"]

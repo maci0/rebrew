@@ -324,9 +324,11 @@ target listing against itself, which `rebrew.instruction_listing` answers):
 capstone text of `binary asm show` (`offset`, `bytes` hex, `mnemonic`,
 `operands`, each undecodable stretch as one `db`, a 32-bit jump table inside
 the function as one `dd` per case address and one `db` per index-table
-slot; the rebuild's tables read through its relocations to its own labels), `rows` aligning them
+slot; the rebuild's relocations to its own labels, which an unlinked object
+leaves unset, are applied: its tables resolve, and an operand naming such a
+label shows its address while `bytes` stay the object's), `rows` aligning them
 (`op` `equal`, `replace`, `insert` or `delete`, `left`/`right` indexes or
-null; `reloc` true on an equal row whose bytes differ only in the rebuild's
+null; `reloc` true on an equal row whose bytes, with those labels applied, differ only in the rebuild's
 relocation fields, invalid relocations excepted, as the RELOC verdict masks
 them), and per instruction `spans`: character ranges of each register and
 number in `operands` with a `kind` and a `value` id shared by both sides;

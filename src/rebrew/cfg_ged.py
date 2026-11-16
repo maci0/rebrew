@@ -404,8 +404,9 @@ def listing_items(
     space-separated hex).  32-bit x86 reads the tables
     :func:`jump_table_layout` resolves; any other ISA decodes linearly.
     *resolved* is *code* with its self-references applied (a compiled
-    object's relocations to its own labels): the tables are found in it, and
-    rows keep *code*'s bytes and operands.
+    object's relocations to its own labels, :func:`apply_self_relocations`):
+    the tables and the instructions' operands are read from it, and rows keep
+    *code*'s bytes.
     """
     from rebrew.analysis import disasm_insns, resolve_capstone
 
@@ -415,11 +416,6 @@ def listing_items(
     starts: frozenset[int] = frozenset()
     if arch == capstone.CS_ARCH_X86 and mode == capstone.CS_MODE_32:
         layout = jump_table_layout(code if resolved is None else resolved, va, mode, read_image)
-        insns = layout.insns
-        if resolved is not None:
-            insns = _decode_around(
-                capstone_handle(arch, mode), code, va, _entry_ranges(layout.entries, va)
-            )
         rows = [
             Insn(
                 i.address,
@@ -428,7 +424,7 @@ def listing_items(
                 i.op_str,
                 code[i.address - va : i.address - va + i.size],
             )
-            for i in insns
+            for i in layout.insns
         ]
         rows += [
             Insn(

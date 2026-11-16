@@ -107,7 +107,10 @@ def instruction_diff(
     both sides; *read_image* reads a table that extends past the code, and
     *self_relocations* (``CompareResult.self_relocations``) gives the
     rebuilt side's references to its own labels, which an unlinked object
-    leaves unset, so its tables resolve as the target's do.  *reloc_symbols*
+    leaves unset: its tables resolve as the target's do, its operands show
+    the labels' addresses while its ``bytes`` stay the object's, and a pair
+    whose resolved bytes equal the target's is ``equal`` without ``reloc``.
+    The byte verdict is not computed here.  *reloc_symbols*
     names the symbol of each relocation field by its start offset in *rebuilt*
     (``CompareResult.reloc_symbols``): a rebuilt instruction holding fields
     lists their nonempty names in ``symbols``, in byte order.
@@ -123,15 +126,18 @@ def instruction_diff(
     relocs = {o + i for o in reloc_offsets for i in range(RELOC_FIELD_BYTES)}
     invalid = {o + i for o in invalid_reloc_offsets for i in range(RELOC_FIELD_BYTES)}
 
+    linked = rebuilt if resolved is None else resolved
+
     def pair_row(i: int, j: int) -> dict[str, Any]:
         a, b = left[i], right[j]
-        if a.raw == b.raw:
-            return {"op": "equal", "left": i, "right": j}
         start = b.va - va
         span = range(start, start + b.size)
+        valid = not any(o in invalid for o in span)
+        if a.raw == b.raw or (valid and a.raw == linked[start : start + b.size]):
+            return {"op": "equal", "left": i, "right": j}
         if (
             a.size == b.size
-            and not any(o in invalid for o in span)
+            and valid
             and _masked(a.raw, start, relocs) == _masked(b.raw, start, relocs)
         ):
             return {"op": "equal", "left": i, "right": j, "reloc": True}
