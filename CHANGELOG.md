@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.52.0] - 2026-11-16
+
 ### Fixed
 
 - `rebrew.security_scan_snapshot` and `rebrew.decompile_snapshot` refused a published tree that carries a copy of the captured binary or analysis inventory with `invalid retained analysis capture`, so the follow-up security scan and named decompilation failed on a reconstruction target that publishes its inventory. A copy whose digest and size equal the captured entry is now accepted and the captured entry is staged, as the backend already does for builds; a differing copy, or a copy at any other captured analysis path, is still refused.
