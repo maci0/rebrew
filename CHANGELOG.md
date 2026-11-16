@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Added
+
+- The CFG (`rebrew binary asm show --format cfg`, the `rebrew.control_flow_graph` op, `rebrew.cfg_ged.build_cfg_view`) resolves 32-bit jump tables: a `jmp dword ptr [reg*4 + table]` gets one edge of the new kind `switch` per distinct case target, and each case target starts a block ([CLI.md](docs/CLI.md#rebrew-binary-asm-show)). The table holds `N + 1` entries after a `cmp reg, N` bound, or takes its size from the byte index table of MSVC's two-level form, else ends at the first entry outside the function; an entry outside the function gives no edge. A table past the extent is read from the target binary, and table bytes inside the extent are no longer decoded as blocks. Such a block had no outgoing edge, so its cases hung unconnected: on guild-rebrew's server.dll all 21 inventory functions with a table dispatch (zlib's `inflate`, `inflate_blocks` and `inflate_codes` among them) had none and now have 24 dispatches' worth of `switch` edges. `cfg_similarity` still decodes linearly and resolves no table. `rebrew.switch.dispatch_operand` and `rebrew.switch.index_bound` are the dispatch recognisers both `rebrew binary switches` and the CFG use.
+
 ## [6.47.0] - 2026-11-16
 
 ### Added

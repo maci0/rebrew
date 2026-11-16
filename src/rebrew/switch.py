@@ -40,7 +40,10 @@ lazy from rebrew.utils import TerminalTable, parse_int_literal, untrusted_ident
 
 #: Maximum table entries to read (the bounds-check count normally bounds it;
 #: this is a safety cap against misreading a data region as a giant table).
-_MAX_TABLE_ENTRIES = 256
+MAX_TABLE_ENTRIES = 256
+
+#: Instructions searched back from a dispatch ``jmp`` for its bounds check.
+BOUND_WINDOW = 8
 
 #: TerminalTable rows shown in the human table before collapsing the rest.
 _MAX_TABLE_ROWS = 24
@@ -138,60 +141,11 @@ def find_switches(cfg: Any, va: int, window: int = 512) -> list[dict[str, Any]]:
     for idx, insn in enumerate(insns):
         if insn.mnemonic != "jmp":
             continue
-        m = _INDIRECT_JMP_RE.search(insn.op_str)
-        index_reg: str | None
-        if m is not None:
-            if int(m.group(3)) != entry_width:
-                continue  # scale does not match the target arch
-            index_reg = m.group(2)
-            table_va = int(m.group(4), 16)
-        elif entry_width == 2:
-            b = _INDIRECT_JMP_BASE_RE.search(insn.op_str)
-            if b is None:
-                continue
-            index_reg = b.group(1)
-            table_va = int(b.group(2), 16)
-        else:
+        operand = dispatch_operand(insn.op_str, entry_width)
+        if operand is None:
             continue
-
-        # Bounds check: the nearest preceding `cmp reg, N` with a small
-        # immediate, where the compared register feeds the table index
-        # register (MSVC copies the index into the scaled register between
-        # the cmp and the jmp, so the check walks back through mov reg-reg
-        # copies).  A compare on an unrelated register (an address compare,
-        # not a switch bound) is rejected, as is a large immediate.
-        # MSVC's memcpy/memmove byte-tail dispatches bound the index with
-        # `and reg, mask` instead — recognize a power-of-two-minus-1 mask
-        # on the index register as a bound too.
-        bounds: int | None = None
-        # Nearest-first: an earlier compare on the index register (a range
-        # check before the switch) must not override the switch's own bound.
-        recent = insns[max(0, idx - 8) : idx]
-        copies = _index_source_regs(recent, index_reg)
-        for prev in reversed(recent):
-            if prev.mnemonic == "cmp":
-                cm = _CMP_IMM_RE.search(prev.op_str)
-                if cm is None or cm.group(1) not in copies:
-                    continue
-                try:
-                    value = parse_int_literal(cm.group(2))
-                except ValueError:
-                    continue
-                if 0 <= value <= 0xFFFF:
-                    bounds = value
-                    break
-            elif prev.mnemonic == "and":
-                am = _MASK_RE.match(prev.op_str)
-                if am is None or am.group(1) != index_reg:
-                    continue
-                try:
-                    value = int(am.group(2), 16)
-                except ValueError:
-                    continue
-                if _is_index_mask(value):
-                    bounds = value
-                    break
-
+        index_reg, table_va = operand
+        bounds = index_bound(insns[max(0, idx - BOUND_WINDOW) : idx], index_reg)
         cases = _read_table(cfg, table_va, bounds, entry_width)
         results.append(
             {
@@ -205,6 +159,64 @@ def find_switches(cfg: Any, va: int, window: int = 512) -> list[dict[str, Any]]:
             }
         )
     return results
+
+
+def dispatch_operand(op_str: str, entry_width: int) -> tuple[str | None, int] | None:
+    """``(index register, table VA)`` of a jump-table ``jmp`` operand, else ``None``.
+
+    *entry_width* is the target's table entry size: the scaled form must use
+    it as its scale, and the base-only 16-bit form is accepted only at 2.
+    """
+    m = _INDIRECT_JMP_RE.search(op_str)
+    if m is not None:
+        if int(m.group(3)) != entry_width:
+            return None  # scale does not match the target arch
+        return m.group(2), int(m.group(4), 16)
+    if entry_width == 2:
+        b = _INDIRECT_JMP_BASE_RE.search(op_str)
+        if b is not None:
+            return b.group(1), int(b.group(2), 16)
+    return None
+
+
+def index_bound(window: list[Any], index_reg: str | None) -> int | None:
+    """Highest switch index the instructions in *window* allow, else ``None``.
+
+    *window* is the up to ``BOUND_WINDOW`` instructions before the dispatch.
+    The bound is the nearest preceding ``cmp reg, N`` with a small immediate,
+    where the compared register feeds *index_reg* (MSVC copies the index into
+    the scaled register between the cmp and the jmp, so the check walks back
+    through mov reg-reg copies).  A compare on an unrelated register (an
+    address compare, not a switch bound) is rejected, as is a large
+    immediate.  MSVC's memcpy/memmove byte-tail dispatches bound the index
+    with ``and reg, mask`` instead, so a power-of-two-minus-1 mask on
+    *index_reg* is a bound too.  Nearest-first: an earlier compare on the
+    index register (a range check before the switch) must not override the
+    switch's own bound.
+    """
+    copies = _index_source_regs(window, index_reg)
+    for prev in reversed(window):
+        if prev.mnemonic == "cmp":
+            cm = _CMP_IMM_RE.search(prev.op_str)
+            if cm is None or cm.group(1) not in copies:
+                continue
+            try:
+                value = parse_int_literal(cm.group(2))
+            except ValueError:
+                continue
+            if 0 <= value <= 0xFFFF:
+                return value
+        elif prev.mnemonic == "and":
+            am = _MASK_RE.match(prev.op_str)
+            if am is None or am.group(1) != index_reg:
+                continue
+            try:
+                value = int(am.group(2), 16)
+            except ValueError:
+                continue
+            if _is_index_mask(value):
+                return value
+    return None
 
 
 def _dispatch_operand(index_reg: str | None, table_va: int, entry_width: int) -> str:
@@ -259,8 +271,8 @@ def _read_table(
     """
     from rebrew.formats.binary_loader import extract_raw_bytes, load_binary
 
-    count = (bounds + 1) if bounds is not None else _MAX_TABLE_ENTRIES
-    count = max(1, min(count, _MAX_TABLE_ENTRIES))
+    count = (bounds + 1) if bounds is not None else MAX_TABLE_ENTRIES
+    count = max(1, min(count, MAX_TABLE_ENTRIES))
     raw = extract_raw_bytes(cfg.target_binary, table_va, count * entry_width)
     if raw is None or len(raw) < entry_width:
         return []

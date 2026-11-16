@@ -3055,8 +3055,17 @@ direct jump target, so an edge always lands on the jump's own operand; a
 jump into the middle of an instruction gives no edge.  `kind` comes from the
 source block's last instruction: `taken` (a conditional jump's target),
 `not_taken` (its fall-through), `unconditional` (a `jmp`, or plain flow into
-a block that starts at a jump target).  Indirect jumps, jump tables
-included, are not resolved and give no edge.  The human form lists
+a block that starts at a jump target), `switch` (a jump-table case).  On
+32-bit targets a `jmp dword ptr [reg*4 + table]` gets one `switch` edge per
+distinct case target, and each case target starts a block.  The table holds
+`N + 1` entries when a `cmp reg, N` bounds the index (MSVC's two-level form,
+a `mov cl, byte ptr [eax + index_table]` before the `jmp`, takes the count
+from the index table's bytes), else it ends at the first entry outside the
+function.  An entry outside the function gives no edge (within a bound the
+walk goes on past it, for MSVC memcpy's unused slot 0).  A table past the extent
+is read from the target binary, and table bytes inside the extent are data,
+not blocks.  The default case is the guard's `taken` edge.  Other indirect
+jumps give no edge.  The human form lists
 each block as `B<index> <va> <size> B <n> insns <first> ... <last>` and then
 the edges with their kind (back edges labeled); `--json` emits the same payload with every
 address as a `0x...` string, plus `block_count`, `block_total`, `block_cap`,
@@ -3067,8 +3076,8 @@ guessing a window.  The block list is capped: `block_total`/`block_cap`/
 `truncated` state the true count and whether the cap was hit, and edges
 touching a dropped block are omitted so the returned graph stays
 self-consistent.  Segmentation is `rebrew.cfg_ged.build_cfg_view`, the same
-segmenter behind the CFG similarity metric, and `--format cfg` covers x86
-targets.
+segmenter behind the CFG similarity metric (which resolves no jump table),
+and `--format cfg` covers x86 targets.
 
 `--format nasm --inline-c` generates an **exact-bytes naked C skeleton**
 for functions without a C implementation: the target bytes are emitted

@@ -1,5 +1,7 @@
 """Tests for cfg_ged.py — CFG structural similarity (DecBench GED-inspired)."""
 
+from typing import Any
+
 import capstone
 import pytest
 
@@ -12,6 +14,85 @@ IFELSE = bytes.fromhex("83 f8 01 74 07 b8 01 00 00 00 eb 05 b8 02 00 00 00 c3")
 LOOP = bytes.fromhex("b9 04 00 00 00 49 75 fd c3")
 # mov eax,1; add eax,1; ret  — straight-line flow, 1 block
 STRAIGHT = bytes.fromhex("b8 01 00 00 00 83 c0 01 c3")
+
+#: zlib 1.1.3's ``inflate`` as MSVC 6 compiled it into guild-rebrew's
+#: server.dll (0x100058d0, 1072 bytes; zlib license).  ``switch
+#: (z->state->mode)`` is ``cmp ecx, 0xd; ja 0x10005ca0; jmp dword ptr
+#: [ecx*4 + 0x10005cc8]``, and the 14-entry table fills the last 56 bytes.
+INFLATE_VA = 0x100058D0
+INFLATE = bytes.fromhex(
+    "5355568b74241085f6570f84c00300008b461c85c00f84b5030000833e000f84"
+    "ac0300008b54241833db83fa04bffbffffff0f95c34bbd0500000083e3fb895c"
+    "24188b461c8b0883f90d0f8780030000ff248dc85c00108b4e0485c90f846502"
+    "00004933d2894e048b4e08418bfb894e088b0e8a118950048b461c8b168b4804"
+    "83e10f4280f90889167415c7000d0000008b561cc746188c750210896a04eba2"
+    "8b48048b5010c1e90483c1083bca7618c7000d0000008b561cc7461878750210"
+    "896a04e97affffffc700010000008b460485c00f84ee0100004833c98946048b"
+    "4608408bfb8b5e1c8946088b0633d2bd1f0000008a084089068b4304c1e00803"
+    "c1f7f585d27421c7030d0000008b461c8b5c2418bd05000000c7461860750210"
+    "896804e91afffffff6c1200f857d010000c703070000008b5c2418bd05000000"
+    "e9fdfeffff8b4814575651e820e4ffff8bf883c40c83fffd75188b561cc7020d"
+    "0000008b461cc7400400000000e9d0feffff85ff75028bfb83ff010f85460100"
+    "008b461c8bfb8b50148d4804515652e8bce2ffff8b461c83c40c8b480c85c974"
+    "0bc7000c000000e996feffffc700080000008b460485c00f840a010000488b56"
+    "1c8946048b46084033c98946088b068bfb8a08c1e118894a088b064089068b46"
+    "1cc700090000008b460485c00f84d50000008b56088b0e48428956088946048b"
+    "461c33d28a118bfb8b4808c1e21003ca8948088b064089068b461cc7000a0000"
+    "008b460485c00f849b0000008b56088b0e48428956088946048b461c33d28a11"
+    "8bfb8b4808c1e20803ca8948088b064089068b461cc7000b0000008b460485c0"
+    "74658b56088b0e48428946048b461c89560833d28a118b480803ca8bfb894808"
+    "8b064089068b461c8b48048b50083bca0f8444010000c7000d0000008b561cc7"
+    "461848750210896a04e994fdffff8b461c8b5c2418bd05000000c70002000000"
+    "8b460485c075078bc75f5e5d5bc38b56088b0e484289560833d28946048a118b"
+    "461c8bfbc1e2188950088b068b4e1c408906c701030000008b460485c075078b"
+    "c75f5e5d5bc38b16488946048b46084033c98946088b461c8a0a8bfb8b5008c1"
+    "e11003d18950088b068b561c408906c702040000008b460485c075078bc75f5e"
+    "5d5bc38b0e488946048b46084033d28946088b461c8a118bfb8b4808c1e20803"
+    "ca8948088b064089068b461c89288b460485c075078bc75f5e5d5bc38b56088b"
+    "0e48428946048b461c89560833d28a118b480803ca5f8948088b064089068b46"
+    "1c8b4808894e305ec700060000005db8020000005bc38b561cc7020d0000008b"
+    "461cc7461838750210c74004000000005f5e5db8feffffff5bc38b4e1cc7010c"
+    "0000005f5e5db8010000005bc35f5e5db8fdffffff5bc390275900109e590010"
+    "905b0010c85b0010055c00103e5c0010865c0010155a0010825a0010b75a0010"
+    "f15a00102b5b0010b35c0010bd5c0010"
+)
+INFLATE_JMP_VA = 0x10005920
+INFLATE_DEFAULT_VA = 0x10005CA0
+INFLATE_TABLE_VA = 0x10005CC8
+#: The table's entries in case order, read off the bytes at INFLATE_TABLE_VA.
+INFLATE_CASES = [
+    0x10005927,
+    0x1000599E,
+    0x10005B90,
+    0x10005BC8,
+    0x10005C05,
+    0x10005C3E,
+    0x10005C86,
+    0x10005A15,
+    0x10005A82,
+    0x10005AB7,
+    0x10005AF1,
+    0x10005B2B,
+    0x10005CB3,
+    0x10005CBD,
+]
+
+#: MSVC 6's two-level switch at 0x1000: ``cmp eax, 5; ja default; xor ecx,
+#: ecx; mov cl, byte ptr [eax + 0x1030]; jmp dword ptr [ecx*4 + 0x1024]``,
+#: cases at 0x1014 and 0x101a, default at 0x1020, a nop, the 3-entry address
+#: table at 0x1024 and the 6-byte index table (0 1 1 2 0 2) at 0x1030.
+TWO_LEVEL = bytes.fromhex(
+    "83f805 771b 33c9 8a8830100000 ff248d24100000"
+    "b801000000c3 b802000000c3 33c0c3 90"
+    "14100000 1a100000 20100000 000101020002"
+)
+#: The same switch loading the index with ``movzx ecx, byte ptr [eax +
+#: 0x1030]``: cases at 0x1013 and 0x1019, default at 0x101f, two nops.
+TWO_LEVEL_MOVZX = bytes.fromhex(
+    "83f805 771a 0fb68830100000 ff248d24100000"
+    "b801000000c3 b802000000c3 33c0c3 9090"
+    "13100000 19100000 1f100000 000101020002"
+)
 
 
 class TestBuildCfg:
@@ -164,6 +245,123 @@ class TestBuildCfgView:
             {"from": 0x1000, "to": 0x1005, "back_edge": False, "kind": "not_taken"}
         ]
         assert all(e["from"] in kept and e["to"] in kept for e in view["edges"])
+
+
+def _switch_targets(view: dict[str, Any], jmp_va: int) -> list[int]:
+    """Targets of the ``switch`` edges leaving the block that ends at *jmp_va*."""
+    (source,) = [b["va"] for b in view["blocks"] if b["va"] + b["size"] - 7 == jmp_va]
+    return [e["to"] for e in view["edges"] if e["from"] == source and e["kind"] == "switch"]
+
+
+def _with_table(entries: list[int]) -> bytes:
+    """INFLATE with its jump table rewritten to *entries*."""
+    off = INFLATE_TABLE_VA - INFLATE_VA
+    return INFLATE[:off] + b"".join(e.to_bytes(4, "little") for e in entries)
+
+
+class TestJumpTables:
+    def test_inflate_dispatch_has_one_switch_edge_per_case(self) -> None:
+        view = build_cfg_view(INFLATE, INFLATE_VA)
+        assert _switch_targets(view, INFLATE_JMP_VA) == INFLATE_CASES
+        block_vas = {b["va"] for b in view["blocks"]}
+        assert set(INFLATE_CASES) <= block_vas
+        # The default stays the guard's taken edge.
+        (guard,) = [b["va"] for b in view["blocks"] if b["last"] == "ja 0x10005ca0"]
+        assert [(e["to"], e["kind"]) for e in view["edges"] if e["from"] == guard] == [
+            (INFLATE_DEFAULT_VA, "taken"),
+            (INFLATE_JMP_VA, "not_taken"),
+        ]
+
+    def test_table_inside_the_extent_is_not_code(self) -> None:
+        """MSVC puts the table after the code; its bytes start no block."""
+        view = build_cfg_view(INFLATE, INFLATE_VA)
+        assert max(b["va"] + b["size"] for b in view["blocks"]) == INFLATE_TABLE_VA
+        assert view["blocks"][-1]["last"] == "nop"
+
+    def test_table_past_the_extent_is_read_from_the_image(self) -> None:
+        """An extent that stops before the table reads it through *read_image*."""
+        code = INFLATE[: INFLATE_TABLE_VA - INFLATE_VA]
+
+        def read_image(va: int, size: int) -> bytes:
+            return INFLATE[va - INFLATE_VA : va - INFLATE_VA + size]
+
+        view = build_cfg_view(code, INFLATE_VA, read_image=read_image)
+        assert _switch_targets(view, INFLATE_JMP_VA) == INFLATE_CASES
+
+    def test_unreadable_table_gives_no_edge(self) -> None:
+        code = INFLATE[: INFLATE_TABLE_VA - INFLATE_VA]
+        view = build_cfg_view(code, INFLATE_VA, read_image=lambda va, size: b"")
+        assert _switch_targets(view, INFLATE_JMP_VA) == []
+        assert _switch_targets(build_cfg_view(code, INFLATE_VA), INFLATE_JMP_VA) == []
+
+    def test_duplicate_targets_give_one_edge(self) -> None:
+        entries = [INFLATE_CASES[0]] * 7 + INFLATE_CASES[7:]
+        view = build_cfg_view(_with_table(entries), INFLATE_VA)
+        assert _switch_targets(view, INFLATE_JMP_VA) == [INFLATE_CASES[0], *INFLATE_CASES[7:]]
+
+    def test_guarded_table_skips_an_entry_outside_the_function(self) -> None:
+        entries = [*INFLATE_CASES[:5], 0x20000000, *INFLATE_CASES[6:]]
+        view = build_cfg_view(_with_table(entries), INFLATE_VA)
+        assert _switch_targets(view, INFLATE_JMP_VA) == [*INFLATE_CASES[:5], *INFLATE_CASES[6:]]
+
+    def test_unguarded_table_stops_at_the_first_entry_outside_the_function(self) -> None:
+        entries = [*INFLATE_CASES[:5], 0x20000000, *INFLATE_CASES[6:]]
+        code = bytearray(_with_table(entries))
+        guard = INFLATE_JMP_VA - 9 - INFLATE_VA  # cmp ecx, 0xd
+        assert code[guard : guard + 3] == bytes.fromhex("83f90d")
+        code[guard : guard + 3] = b"\x90\x90\x90"
+        view = build_cfg_view(bytes(code), INFLATE_VA)
+        assert _switch_targets(view, INFLATE_JMP_VA) == INFLATE_CASES[:5]
+
+    def test_masked_table_with_an_unused_first_slot(self) -> None:
+        """MSVC memcpy's byte-tail dispatch: ``and eax, 3`` bounds the index,
+        slot 0 is never used and overlaps the ``jmp``'s own bytes, so only the
+        valid slots are data and the ``jmp`` stays code."""
+        code = bytes.fromhex("83e003 ff248508100000 9090 18100000 1a100000 1c100000 c390c390c3")
+        view = build_cfg_view(code, 0x1000)
+        assert _switch_targets(view, 0x1003) == [0x1018, 0x101A, 0x101C]
+        assert [b["va"] for b in view["blocks"]] == [
+            0x1000,
+            0x100A,
+            0x1018,
+            0x1019,
+            0x101A,
+            0x101B,
+            0x101C,
+        ]
+
+    def test_case_inside_an_instruction_gives_no_edge(self) -> None:
+        entries = [INFLATE_CASES[0] + 1, *INFLATE_CASES[1:]]
+        view = build_cfg_view(_with_table(entries), INFLATE_VA)
+        assert _switch_targets(view, INFLATE_JMP_VA) == INFLATE_CASES[1:]
+
+    @pytest.mark.parametrize(
+        ("code", "jmp_va", "cases"),
+        [
+            (TWO_LEVEL, 0x100D, [0x1014, 0x101A, 0x1020]),
+            (TWO_LEVEL_MOVZX, 0x100C, [0x1013, 0x1019, 0x101F]),
+        ],
+        ids=["mov", "movzx"],
+    )
+    def test_two_level_byte_index_table(self, code: bytes, jmp_va: int, cases: list[int]) -> None:
+        view = build_cfg_view(code, 0x1000)
+        assert _switch_targets(view, jmp_va) == cases
+        # Neither the address table nor the index table is decoded as code.
+        assert max(b["va"] + b["size"] for b in view["blocks"]) <= 0x1024
+
+    def test_two_level_without_guard_reads_the_address_table(self) -> None:
+        """No ``cmp``/``ja``: the index table has no bound, the address table
+        is read while its entries stay inside the function."""
+        code = bytes.fromhex("9090909090") + TWO_LEVEL[5:]
+        view = build_cfg_view(code, 0x1000)
+        assert _switch_targets(view, 0x100D) == [0x1014, 0x101A, 0x1020]
+
+    def test_similarity_graph_is_unchanged(self) -> None:
+        """``build_cfg`` (the GED score) keeps the linear decode: a compiled
+        candidate's table holds unrelocated addresses, so resolving only the
+        target's would score switch functions lower."""
+        graph = build_cfg(INFLATE, INFLATE_VA)
+        assert "daa" in graph["blocks"][-1][2]  # the table's first byte, decoded
 
 
 class TestCfgSimilarity:

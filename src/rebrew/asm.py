@@ -1093,7 +1093,13 @@ def build_cfg_payload(cfg: ProjectConfig, va_int: int, size: int = 0) -> dict[st
 
     from rebrew.cfg_ged import build_cfg_view
 
-    view = build_cfg_view(code, va_int, cfg.capstone_mode)
+    # A jump table past the extent (the next inventory entry) is read from the image.
+    view = build_cfg_view(
+        code,
+        va_int,
+        cfg.capstone_mode,
+        read_image=lambda at, n: extract_raw_bytes(cfg.target_binary, at, n),
+    )
     return _cfg_payload(va_int, len(code), view, None)
 
 

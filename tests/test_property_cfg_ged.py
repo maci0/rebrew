@@ -16,6 +16,8 @@ arbitrary bytes, in 16- and 32-bit modes, and assert:
   the last ending at a terminator or before a jump target;
 * every edge names two blocks that exist, and no edge is recorded twice
   (the dedup a self-jump chain exercises once per block);
+* with jump tables resolved, every edge target (``switch`` included) starts
+  a block of the view and blocks never overlap;
 * the capped render view is a faithful prefix of the uncapped one, with
   self-consistent endpoints and truncation flags;
 * similarity stays a bounded score for every input pair, never an exception.
@@ -226,13 +228,54 @@ def test_build_cfg_view_is_a_capped_prefix_of_build_cfg(
     for edge in view["edges"]:
         assert edge["from"] in kept_vas and edge["to"] in kept_vas
         assert edge["back_edge"] == (edge["to"] <= edge["from"])
-        assert edge["kind"] in {"taken", "not_taken", "unconditional"}
+        assert edge["kind"] in {"taken", "not_taken", "unconditional", "switch"}
 
     # A second, independent stream still honours the cap and its own edges.
     other = build_cfg_view(right, va, cs_mode)
     other_vas = {b["va"] for b in other["blocks"]}
     assert len(other["blocks"]) <= MAX_CFG_BLOCKS_PER_FUNCTION
     assert all(e["from"] in other_vas and e["to"] in other_vas for e in other["edges"])
+
+
+@st.composite
+def _switch_code(draw: st.DrawFn) -> tuple[bytes, int]:
+    """Control-flow code around a guarded ``jmp dword ptr [eax*4 + table]``
+    whose table follows the code; its entries land on instructions, inside
+    them, inside the table, and outside the function.  Returns the code and
+    its base VA."""
+    va = 0x401000
+    head = draw(_control_flow_code())
+    tail = draw(_control_flow_code())
+    count = draw(st.integers(min_value=1, max_value=8))
+    table_off = len(head) + 3 + 2 + 7 + len(tail)
+    end = table_off + 4 * count
+    entries = draw(
+        st.lists(st.integers(min_value=-4, max_value=end + 4), min_size=count, max_size=count)
+    )
+    dispatch = bytes([0x83, 0xF8, count - 1, 0x77, 0x00, 0xFF, 0x24, 0x85]) + (
+        va + table_off
+    ).to_bytes(4, "little")
+    table = b"".join(((va + e) & 0xFFFFFFFF).to_bytes(4, "little") for e in entries)
+    return head + dispatch + tail + table, va
+
+
+@settings(max_examples=250, deadline=None)
+@given(_switch_code())
+def test_every_edge_target_starts_a_block(case: tuple[bytes, int]) -> None:
+    """Fuzz: with jump tables resolved, every edge (``switch`` included) joins
+    two blocks of the view, once per kind, and blocks never overlap."""
+    code, va = case
+    view = build_cfg_view(code, va, capstone.CS_MODE_32)
+    starts = [b["va"] for b in view["blocks"]]
+    assert starts == sorted(starts)
+    for block, nxt in zip(view["blocks"], view["blocks"][1:], strict=False):
+        assert block["va"] + block["size"] <= nxt["va"], "blocks overlap"
+    block_vas = set(starts)
+    keys = [(e["from"], e["to"], e["kind"]) for e in view["edges"]]
+    assert len(keys) == len(set(keys)), "an edge is recorded twice"
+    for edge in view["edges"]:
+        assert edge["from"] in block_vas and edge["to"] in block_vas
+        assert va <= edge["to"] < va + len(code)
 
 
 @settings(max_examples=200, deadline=None)

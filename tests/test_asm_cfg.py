@@ -355,3 +355,45 @@ class TestBuildCfgPayload:
         payload = asm.build_cfg_payload(cfg, BASE_VA)
         assert payload["blocks"] == []
         assert "extent unresolved" in payload["note"]
+
+    def test_reads_a_jump_table_past_the_extent_from_the_image(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """zlib's ``inflate`` with an extent that stops at its jump table: the
+        CLI (and the ``rebrew.control_flow_graph`` op, through this payload)
+        reads the table from the target PE and gives one ``switch`` edge per case."""
+        from bin_util import make_pe
+        from memory_cap import address_space_cap
+        from test_cfg_ged import (
+            INFLATE,
+            INFLATE_CASES,
+            INFLATE_JMP_VA,
+            INFLATE_TABLE_VA,
+            INFLATE_VA,
+        )
+
+        text_va = INFLATE_VA & ~0xFFF
+        binary = tmp_path / "server.dll"
+        binary.write_bytes(
+            make_pe(
+                b"\xcc" * (INFLATE_VA - text_va) + INFLATE,
+                image_base=0x10000000,
+                text_va=text_va - 0x10000000,
+            )
+        )
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            target_binary=binary,
+            reversed_dir=tmp_path,
+            arch="x86_32",
+            capstone_mode=capstone.CS_MODE_32,
+        )
+        monkeypatch.setattr(asm, "require_config", lambda target=None, json_mode=False: cfg)
+        size = INFLATE_TABLE_VA - INFLATE_VA
+        with address_space_cap():
+            result = runner.invoke(
+                _app(), [f"0x{INFLATE_VA:x}", "--format", "cfg", "--size", str(size), "--json"]
+            )
+        switch = [e for e in _payload(result)["edges"] if e["kind"] == "switch"]
+        assert {e["from"] for e in switch} == {f"0x{INFLATE_JMP_VA:08x}"}
+        assert [e["to"] for e in switch] == [f"0x{va:08x}" for va in INFLATE_CASES]
