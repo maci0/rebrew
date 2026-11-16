@@ -196,7 +196,7 @@ class TestFlirtPipeline:
 
     def test_parse_coff_obj_extracts_both_functions(self) -> None:
         ((_, obj_data),) = parse_archive(str(FIXTURES / "mini.lib"))
-        funcs = {name: (code, relocs) for name, code, relocs in parse_coff_obj(obj_data)}
+        funcs = {name: (code, relocs) for name, code, relocs, _ in parse_coff_obj(obj_data)}
         # gen_flirt_pat keeps the raw section slice (int3 padding included).
         assert funcs["_func1"] == (FUNC1 + b"\xcc" * 5, {5, 6, 7, 8})  # DIR32 spans 4 bytes
         assert funcs["_func2"] == (FUNC2 + b"\xcc\xcc", {4, 5, 6, 7})  # REL32 spans 4 bytes
@@ -255,6 +255,6 @@ class TestThumbSymbolStart:
 
         fixture = Path(__file__).parent / "fixtures" / "thumb_arm.o"
         functions = list(parse_elf_obj(fixture.read_bytes()))
-        assert [name for name, _code, _relocs in functions] == ["thumb_probe"]
-        _name, code, _relocs = functions[0]
+        assert [name for name, _code, _relocs, _ in functions] == ["thumb_probe"]
+        code = functions[0].code
         assert code == bytes.fromhex("0fb500200130 0fbd".replace(" ", ""))

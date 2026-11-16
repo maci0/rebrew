@@ -1305,6 +1305,48 @@ class TestStoredFileOps:
         assert (functions["_func1"]["arch"], functions["_func1"]["size"]) == ("x86_32", 16)
         assert "push ebp" in functions["_func1"]["listing"]
 
+    @pytest.mark.skipif(shutil.which("nasm") is None, reason="nasm not installed")
+    def test_library_functions_lists_jump_tables_as_data(self, tmp_path: Path) -> None:
+        """A switch in a library object lists its tables as data, as the linked
+        target's listing does: the object's table and dispatch fields are zero
+        or an addend, and its relocations to its own labels place them."""
+        from bin_util import make_coff_obj, make_lib_archive
+
+        # SWITCH at offset 0; the address table reference is $L(0x20) + 4.
+        labels = [(9, 0x30, 0), (16, 0x20, 4), (0x24, 0x14, 0), (0x28, 0x1A, 0), (0x2C, 0x20, 0)]
+        unlinked = bytearray(SWITCH)
+        for at, _label, addend in labels:
+            unlinked[at : at + 4] = addend.to_bytes(4, "little")
+        obj = make_coff_obj(
+            bytes(unlinked),
+            func_symbol="_f",
+            label_relocs=[(at, 0x6, label) for at, label, _ in labels],
+        )
+        filestore, workspace = _worker_dirs(tmp_path)
+        digest, key = _store(filestore, make_lib_archive([("f.obj", obj)]))
+        config = WorkerConfig(filestore.resolve(), workspace.resolve())
+        reply = _call(config, "rebrew.library_functions", {"sha256": digest, "file": key})
+        lines = [
+            line.split(";")[0].strip() for line in reply["functions"][0]["listing"].splitlines()
+        ]
+        assert lines[lines.index("jmp dword [ecx*4 + 0x24]") :] == [
+            "jmp dword [ecx*4 + 0x24]",
+            "mov eax, 1",
+            "ret",
+            "mov eax, 2",
+            "ret",
+            "db 0x33, 0xC0",  # nasm encodes xor eax, eax as 31 c0
+            "ret",
+            "nop",
+            "jump_table_00000024:",
+            "dd 0x14",
+            "dd 0x1a",
+            "dd 0x20",
+            "jump_table_00000030:",
+            *[f"db 0x{slot:x}" for slot in (0, 1, 1, 2, 0, 2)],
+            "add byte [eax], al",  # the section padding
+        ]
+
     def test_library_functions_refuses_a_non_archive(self, tmp_path: Path) -> None:
         filestore, workspace = _worker_dirs(tmp_path)
         config = WorkerConfig(filestore.resolve(), workspace.resolve())

@@ -34,7 +34,7 @@ from dataclasses import dataclass
 from typing import NamedTuple
 lazy import math
 lazy from collections import Counter
-lazy from collections.abc import Callable
+lazy from collections.abc import Callable, Mapping
 lazy from typing import Any
 
 import capstone
@@ -103,6 +103,8 @@ EDGE_SWITCH = "switch"
 
 #: Jump-table entry size, and the dispatch's index scale, on 32-bit x86.
 _TABLE_ENTRY_WIDTH = 4
+#: Width of an i386 DIR32 relocation field (a 32-bit absolute address).
+_DIR32_BYTES = 4
 #: Decode passes that re-find tables after skipping the ones already found
 #: (a table can hide a later dispatch behind bytes capstone cannot decode).
 _MAX_DECODE_PASSES = 4
@@ -460,6 +462,24 @@ def listing_items(
 def table_label(va: int) -> str:
     """The listing label of the jump table at *va*."""
     return f"jump_table_{va:08X}"
+
+
+def apply_self_relocations(code: bytes, va: int, self_relocations: Mapping[int, int]) -> bytes:
+    """*code* linked at *va* as far as its references to its own section go.
+
+    *self_relocations* maps the offset of a 32-bit absolute relocation field
+    (i386 DIR32) to the offset from *va* of the symbol it names
+    (``CompareResult.self_relocations``, ``gen_flirt_pat.ObjectFunction``);
+    each field, which holds the addend, becomes that symbol's address plus the
+    addend.  A field past the end of *code* is left out.
+    """
+    out = bytearray(code)
+    for at, target in self_relocations.items():
+        if 0 <= at <= len(out) - _DIR32_BYTES:
+            field = out[at : at + _DIR32_BYTES]
+            address = (va + target + int.from_bytes(field, "little")) % (1 << 8 * _DIR32_BYTES)
+            out[at : at + _DIR32_BYTES] = address.to_bytes(_DIR32_BYTES, "little")
+    return bytes(out)
 
 
 def _decode_around(md: Any, code: bytes, va: int, skip: list[tuple[int, int]]) -> list[Any]:

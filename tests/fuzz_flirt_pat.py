@@ -43,7 +43,7 @@ def _assert_obj_results(data: bytes, results: list[tuple[str, bytes, set[int]]])
     across the trust boundary: the offsets the writer masks are exactly
     the bytes it reads back)."""
     assert isinstance(results, list) and len(results) <= _MAX_RESULTS
-    for name, code, relocs in results:
+    for name, code, relocs, _ in results:
         assert isinstance(name, str) and name
         assert isinstance(code, bytes) and len(code) >= 4
         assert isinstance(relocs, set)

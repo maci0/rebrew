@@ -2190,6 +2190,7 @@ def library_functions(config: WorkerConfig, req: StoredFile) -> dict[str, Any]:
     to nothing are left out; the rest keep archive order.
     """
     from rebrew.asm import disassemble_to_nasm
+    from rebrew.cfg_ged import apply_self_relocations
     from rebrew.formats.archives import parse_archive
     from rebrew.formats.binary_loader import capstone_config_for, object_arch
     from rebrew.formats.binary_model import BinaryInfo
@@ -2214,7 +2215,10 @@ def library_functions(config: WorkerConfig, req: StoredFile) -> dict[str, Any]:
                 if obj.startswith(b"\x7fELF")
                 else parse_coff_obj(obj)
             )
-            for name, code, _relocations in symbols:
+            for name, raw, _relocations, self_relocations in symbols:
+                # Linked at 0: its jump tables and their dispatch hold their
+                # labels' offsets, so the tables list as data, as in a target.
+                code = apply_self_relocations(raw, 0, self_relocations)
                 if arch == NASM_ARCH:
                     listing, _stats = disassemble_to_nasm(code, 0, None)
                 else:

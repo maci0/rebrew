@@ -7129,6 +7129,9 @@ Op details the contract leaves open:
   `db <slot>` per byte of MSVC's index table, under a
   `jump_table_<VA>:` label (`nasm`, `asm`) or with `; jump table` on the
   first entry (`hex`). The NASM source still reassembles to the same bytes.
+  `rebrew.library_functions` lists each i386 COFF function linked at 0 as
+  far as its references to its own section go (a jump table's `$L` label,
+  plus the addend the field holds), so its tables are data too.
 - `rebrew.xrefs`: `kinds` narrows the reply to at most 64 reference kinds,
   each one a reference can have (`rebrew.analysis.is_xref_kind`: `call`,
   `jmp`, `iat_call`, `iat_jmp`, `push`, `push_mem`, `mov`, `cmp`, `lea`,

@@ -469,7 +469,7 @@ class TestGenFlirtPatCli:
         def _parse_coff(obj):
             if raise_parse:
                 raise ValueError("corrupt")
-            yield "_my_func", b"\x55\x8b\xec\x5d\xc3", {1, 2}
+            yield "_my_func", b"\x55\x8b\xec\x5d\xc3", {1, 2}, {}
 
         monkeypatch.setattr("rebrew.gen_flirt_pat.parse_coff_obj", _parse_coff)
         monkeypatch.setattr(
@@ -546,7 +546,7 @@ class TestParseCoffObjReal:
         blob = make_coff_obj(code, relocs=[(2, 0x0006, "_extern_var")])
         results = list(parse_coff_obj(blob))
         assert len(results) == 1
-        name, out_code, relocs = results[0]
+        name, out_code, relocs, _ = results[0]
         assert name == "_myfunc"
         assert out_code == code
         # DIR32 fixup at 2 covers bytes 2..6 (full 4-byte width, not just
@@ -563,7 +563,7 @@ class TestParseCoffObjReal:
         )
         results = list(parse_coff_obj(blob))
         assert len(results) == 1
-        _, _, relocs = results[0]
+        _, _, relocs, _ = results[0]
         # REL32 at 1 covers 1..5 excl. (bytes 1-4); DIR32 at 6 covers 6..10 excl.
         assert {1, 2, 3, 4} <= relocs
         assert {6, 7, 8, 9} <= relocs
@@ -591,8 +591,8 @@ class TestParseCoffObjReal:
         symbols += struct.pack("<8sIhHBB", b"_second", second_start, 2, 0x20, 2, 0)
         obj = file_header + headers + first + second + symbols + struct.pack("<I", 4)
         assert list(parse_coff_obj(obj)) == [
-            ("_first", first, set()),
-            ("_second", second[second_start:], set()),
+            ("_first", first, set(), {}),
+            ("_second", second[second_start:], set(), {}),
         ]
 
     @pytest.mark.parametrize("machine", [0x14C, 0x8664, 0x1C4])
@@ -602,7 +602,7 @@ class TestParseCoffObjReal:
         code = b"12345678"
         obj = bytearray(make_coff_obj(code, relocs=[(1, 0, "_unused")]))
         struct.pack_into("<H", obj, 0, machine)
-        assert list(parse_coff_obj(bytes(obj))) == [("_myfunc", code, set())]
+        assert list(parse_coff_obj(bytes(obj))) == [("_myfunc", code, set(), {})]
 
     @pytest.mark.parametrize(
         "kind,width",
@@ -627,7 +627,7 @@ class TestParseCoffObjReal:
         code = b"0123456789abcdef"
         obj = bytearray(make_coff_obj(code, relocs=[(2, kind, "_external")]))
         struct.pack_into("<H", obj, 0, 0x8664)
-        assert list(parse_coff_obj(bytes(obj))) == [("_myfunc", code, set(range(2, 2 + width)))]
+        assert list(parse_coff_obj(bytes(obj))) == [("_myfunc", code, set(range(2, 2 + width)), {})]
 
     @pytest.mark.parametrize("machine,kind", [(0x14C, 0x0D), (0x8664, 0x0C)])
     def test_secrel7_masks_only_one_byte(self, machine: int, kind: int) -> None:
@@ -636,7 +636,7 @@ class TestParseCoffObjReal:
         code = b"12345678"
         obj = bytearray(make_coff_obj(code, relocs=[(2, kind, "_external")]))
         struct.pack_into("<H", obj, 0, machine)
-        assert list(parse_coff_obj(bytes(obj))) == [("_myfunc", code, {2})]
+        assert list(parse_coff_obj(bytes(obj))) == [("_myfunc", code, {2}, {})]
 
     def test_static_function_symbols_yielded(self) -> None:
         """Regression: MSVC marks CRT helpers such as _initterm and
@@ -650,7 +650,7 @@ class TestParseCoffObjReal:
             b"\x90\x90\x90\xc3\x31\xc0\x90\xc3",
             section_symbols=[("_static_helper", 4)],
         )
-        names = {name for name, _, _ in parse_coff_obj(blob)}
+        names = {name for name, _, _, _ in parse_coff_obj(blob)}
         assert "_myfunc" in names
         assert "_static_helper" in names
 
@@ -660,7 +660,7 @@ class TestParseCoffObjReal:
         from rebrew.gen_flirt_pat import parse_coff_obj
 
         blob = make_coff_obj(b"\x90\x90\x90\xc3", section_symbols=[(".text", 0)])
-        names = {name for name, _, _ in parse_coff_obj(blob)}
+        names = {name for name, _, _, _ in parse_coff_obj(blob)}
         assert ".text" not in names
         assert "_myfunc" in names
 
@@ -692,7 +692,7 @@ class TestParseCoffObjReal:
         blob = make_coff_obj(code, func_value=4)
         results = list(parse_coff_obj(blob))
         assert len(results) == 1
-        _, out_code, _ = results[0]
+        _, out_code, _, _ = results[0]
         # The slice includes trailing 4-byte alignment padding.
         assert out_code.startswith(b"\x55\x8b\xec\x5d\xc3")
 
@@ -784,9 +784,9 @@ class TestWeakSignatureCli:
 
         def _parse_coff(obj):
             # Weak: 7-byte prolog-only function → crc_len 0, 7 literal bytes.
-            yield "_weak_fn", b"\x55\x8b\xec\x83\xec\x08\xc3", set()
+            yield "_weak_fn", b"\x55\x8b\xec\x83\xec\x08\xc3", set(), {}
             # Strong: 40 bytes, tail reloc → crc_len 0 but 32 literal lead bytes.
-            yield "_strong_fn", bytes(range(40)), {32}
+            yield "_strong_fn", bytes(range(40)), {32}, {}
 
         monkeypatch.setattr("rebrew.gen_flirt_pat.parse_coff_obj", _parse_coff)
         out = tmp_path / "out.pat"
@@ -911,7 +911,7 @@ class TestParseElfObjReal:
         from rebrew.gen_flirt_pat import parse_elf_obj
 
         obj_data = _compile_elf_object(tmp_path).read_bytes()
-        results = {name: (code, relocs) for name, code, relocs in parse_elf_obj(obj_data)}
+        results = {name: (code, relocs) for name, code, relocs, _ in parse_elf_obj(obj_data)}
         assert "helper_add" in results
         assert "helper_mul" in results
         assert "sum_array" in results
@@ -967,7 +967,7 @@ class TestParseElfObjReal:
         monkeypatch.setattr(lief.ELF, "parse", lambda path: fake)
         results = list(parse_elf_obj(b"\x7fELF" + b"\x00" * 40))
         assert len(results) == 1
-        _name, code, relocs = results[0]
+        _name, code, relocs, _ = results[0]
         # Fixup at byte 2 sits inside word 0 — the whole word is masked.
         assert {0, 1, 2, 3} <= relocs
 
@@ -994,7 +994,7 @@ class TestParseElfObjReal:
         monkeypatch.setattr(lief.ELF, "parse", lambda path: fake)
         results = list(parse_elf_obj(b"\x7fELF" + b"\x00" * 40))
         assert len(results) == 1
-        _name, code, relocs = results[0]
+        _name, code, relocs, _ = results[0]
         assert {4, 5, 6, 7} <= relocs
         assert 0 not in relocs
 

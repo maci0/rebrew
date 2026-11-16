@@ -12,6 +12,7 @@ target field shares the word with the opcode).
 """
 
 import logging
+from typing import NamedTuple
 lazy import bisect
 lazy import struct
 lazy from collections.abc import Iterator
@@ -40,12 +41,29 @@ app = typer.Typer(
 )
 
 
-def parse_coff_obj(obj_data: bytes) -> Iterator[tuple[str, bytes, set[int]]]:
-    """Parse a COFF .obj and yield (symbol_name, code_bytes, reloc_offsets).
+#: LIEF's name of the i386 32-bit absolute relocation type.
+_I386_DIR32 = "I386_DIR32"
+
+
+class ObjectFunction(NamedTuple):
+    """One function of an object file (:func:`parse_coff_obj`, :func:`parse_elf_obj`)."""
+
+    name: str
+    code: bytes
+    #: Byte positions in *code* covered by relocations (the full fixup width).
+    relocations: set[int]
+    #: i386 DIR32 fields that name a symbol of the function's own section (a
+    #: jump table's ``$L`` label, a label of the function): field offset in
+    #: *code* -> that symbol's offset from the function start.  The field holds
+    #: the addend; an unlinked object leaves the address unset, which
+    #: :func:`rebrew.cfg_ged.apply_self_relocations` fills in.  Empty for ELF.
+    self_relocations: dict[int, int]
+
+
+def parse_coff_obj(obj_data: bytes) -> Iterator[ObjectFunction]:
+    """Parse a COFF .obj and yield its functions (:class:`ObjectFunction`).
 
     Uses LIEF for parsing. ``obj_data`` is raw bytes of a COFF .obj file.
-    ``reloc_offsets`` is a set of individual *byte* positions that are
-    covered by relocations (expanded to cover the full fixup width).
     """
     import lief
 
@@ -101,6 +119,7 @@ def parse_coff_obj(obj_data: bytes) -> Iterator[tuple[str, bytes, set[int]]]:
 
         # Collect relocation byte offsets (expanded to cover full fixup width)
         reloc_offsets = set()
+        self_relocations: dict[int, int] = {}
         for reloc in section.relocations:
             rva = reloc.address
             if func_start <= rva < func_end:
@@ -108,9 +127,16 @@ def parse_coff_obj(obj_data: bytes) -> Iterator[tuple[str, bytes, set[int]]]:
                 fixup_bytes = _reloc_fixup_width(reloc)
                 for k in range(fixup_bytes):
                     reloc_offsets.add(func_rel + k)
+                target = reloc.symbol
+                if (
+                    str(reloc.type).rsplit(".", 1)[-1] == _I386_DIR32
+                    and target is not None
+                    and target.section_idx == sym.section_idx
+                ):
+                    self_relocations[func_rel] = target.value - func_start
 
         if len(code) >= 4:
-            yield sym_name, code, reloc_offsets
+            yield ObjectFunction(sym_name, code, reloc_offsets, self_relocations)
 
 
 def parse_coff_aliases(obj_data: bytes) -> Iterator[tuple[str, str]]:
@@ -156,10 +182,8 @@ def _reloc_span(size_bits: int) -> int:
     return min(span, _MAX_RELOC_SPAN)
 
 
-def parse_elf_obj(
-    obj_data: bytes, *, include_local: bool = False
-) -> Iterator[tuple[str, bytes, set[int]]]:
-    """Parse an ELF .o member (console .a archives) → (name, code, reloc_offsets).
+def parse_elf_obj(obj_data: bytes, *, include_local: bool = False) -> Iterator[ObjectFunction]:
+    """Parse an ELF .o member (console .a archives) into :class:`ObjectFunction` rows.
 
     Only external (GLOBAL/WEAK) functions by default, the ones a FLIRT
     signature names; *include_local* adds file-static (LOCAL) functions, which
@@ -254,7 +278,7 @@ def parse_elf_obj(
                     if func_rel + k < len(code):
                         reloc_offsets.add(func_rel + k)
 
-        yield str(sym.name), code, reloc_offsets
+        yield ObjectFunction(str(sym.name), code, reloc_offsets, {})
 
 
 # x86 COFF fixup widths by relocation type (bytes); LIEF reports size 0.
@@ -493,7 +517,7 @@ def generate_pat(lib_file: Path, out_path: Path) -> dict[str, int | bool]:
         else:
             obj_iter = parse_coff_obj(obj_data)
         try:
-            for sym_name, code, relocs in obj_iter:
+            for sym_name, code, relocs, _labels in obj_iter:
                 if not sym_name.strip():
                     # A .pat line's trailing field is the symbol name; a
                     # nameless line is malformed and poisons the whole file

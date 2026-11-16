@@ -63,16 +63,6 @@ def _decode(
     return listing_items(code, va, cs_arch, cs_mode, read_image, resolved).rows
 
 
-def _with_self_relocations(code: bytes, va: int, self_relocations: Mapping[int, int]) -> bytes:
-    """*code* placed at *va*, each 32-bit relocation field at an offset in
-    *self_relocations* set to the address of the offset it names."""
-    out = bytearray(code)
-    for at, target in self_relocations.items():
-        if 0 <= at <= len(out) - RELOC_FIELD_BYTES:
-            out[at : at + RELOC_FIELD_BYTES] = (va + target).to_bytes(RELOC_FIELD_BYTES, "little")
-    return bytes(out)
-
-
 def _tokens(insn: Insn, registers: frozenset[str]) -> list[tuple[int, int, str, Any]]:
     """``(start, end, kind, value)`` of each register and number in the operands.
 
@@ -123,10 +113,11 @@ def instruction_diff(
     lists their nonempty names in ``symbols``, in byte order.
     """
     from rebrew.alignment import AlignedMatcher, normalize_instruction
+    from rebrew.cfg_ged import apply_self_relocations
 
     truncated = len(target) > MAX_BYTES or len(rebuilt) > MAX_BYTES
     rebuilt = rebuilt[:MAX_BYTES]
-    resolved = _with_self_relocations(rebuilt, va, self_relocations) if self_relocations else None
+    resolved = apply_self_relocations(rebuilt, va, self_relocations) if self_relocations else None
     left = _decode(target[:MAX_BYTES], va, cs_arch, cs_mode, read_image, None)
     right = _decode(rebuilt, va, cs_arch, cs_mode, read_image, resolved)
     relocs = {o + i for o in reloc_offsets for i in range(RELOC_FIELD_BYTES)}
