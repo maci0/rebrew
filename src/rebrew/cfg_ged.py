@@ -30,6 +30,7 @@ capped at ``MAX_CFG_BLOCKS_PER_FUNCTION`` (consumed by ``rebrew binary asm show
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 lazy import math
 lazy from collections import Counter
 lazy from collections.abc import Callable
@@ -108,6 +109,12 @@ _MAX_DECODE_PASSES = 4
 #: table: ``mov cl, byte ptr [eax + idx]`` or ``movzx ecx, byte ptr [eax + idx]``.
 _BYTE_INDEX_RE = re.compile(r"^([a-z]+), byte ptr \[([a-z]+) \+ 0x([0-9a-f]+)\]$")
 _FULL_REG = {"al": "eax", "bl": "ebx", "cl": "ecx", "dl": "edx"}
+#: Instructions that name the index register first without writing it.
+_COMPARES = frozenset({"cmp", "test"})
+#: ``jb`` and its aliases: taken when a ``sub`` borrowed (the index went negative).
+_BORROW_JUMPS = frozenset({"jb", "jc", "jnae"})
+#: ``sub ecx, 4``: the decrement before a borrow jump to a negative-index dispatch.
+_SUB_IMM_RE = re.compile(r"^([a-z0-9]+),\s*(0x[0-9a-fA-F]+|\d+)$")
 
 #: Reads ``size`` image bytes at a VA (fewer, or none, when unmapped).
 type ImageReader = Callable[[int, int], bytes]
@@ -162,8 +169,11 @@ def build_cfg_view(
     In 32-bit mode a ``jmp dword ptr [reg*4 + table]`` gets one
     ``EDGE_SWITCH`` edge per distinct case target, in table order, and each
     target starts a block.  The table holds ``N + 1`` entries when a ``cmp
-    reg, N`` on the index precedes the ``jmp`` (else up to
-    ``rebrew.jump_table.MAX_TABLE_ENTRIES``).  An entry outside the function
+    reg, N`` on the index precedes the ``jmp``, ``N`` when ``jb``/``jae``
+    tests it (else up to ``rebrew.jump_table.MAX_TABLE_ENTRIES``).  MSVC
+    memcpy/memmove index below the table base: after ``neg reg`` the slots
+    run from ``-(N - 1)`` to 0, and a dispatch reached only by ``sub reg, K;
+    jb`` reads slots ``-K`` to -1.  An entry outside the function
     (``va`` to ``va + len(code)``) gives no edge; without a bound it ends the
     table, with one the walk goes on, as ``rebrew binary switches`` does: MSVC's
     memcpy byte-tail tables (``and eax, 3`` bound) leave slot 0 unused, its
@@ -234,20 +244,12 @@ def _segment_blocks(
     Edges are unique per ``(from, to, kind)``.  With *switches* (32-bit mode
     only) jump tables are resolved as :func:`build_cfg_view` describes.
     """
-    md = capstone_handle(capstone.CS_ARCH_X86, cs_mode)
-    insns = list(md.disasm(code, va))
-    tables: dict[int, list[int]] = {}
-    if switches and cs_mode == capstone.CS_MODE_32:
-        # Re-decode around the tables found so far until the set settles:
-        # table bytes decoded as code can fake or hide a dispatch.
-        skip: list[tuple[int, int]] = []
-        tables, data = _jump_tables(insns, code, va, read_image)
-        for _ in range(_MAX_DECODE_PASSES):
-            if data == skip:
-                break
-            skip = data
-            insns = _decode_around(md, code, va, skip)
-            tables, data = _jump_tables(insns, code, va, read_image)
+    if switches:
+        layout = jump_table_layout(code, va, cs_mode, read_image)
+        insns, tables = layout.insns, layout.tables
+    else:
+        insns = list(capstone_handle(capstone.CS_ARCH_X86, cs_mode).disasm(code, va))
+        tables = {}
     if not insns:
         return [], []
     index_of_offset = {insn.address - va: i for i, insn in enumerate(insns)}
@@ -301,6 +303,70 @@ def _flows_into(insn: Any, nxt: Any) -> bool:
     return bool(insn.address + insn.size == nxt.address)
 
 
+@dataclass(frozen=True)
+class TableEntry:
+    """One jump-table entry whose bytes lie inside the decoded code.
+
+    ``width`` is 4 for an address-table entry (``value``
+    is the case target VA) or 1 for a byte of MSVC's two-level index table
+    (``value`` is the address-table slot).  ``first`` marks an entry that
+    starts a table.
+    """
+
+    va: int
+    width: int
+    value: int
+    first: bool
+
+
+@dataclass(frozen=True)
+class TableLayout:
+    """One function's code split into instructions and jump-table data.
+
+    ``insns`` are capstone instructions in address order, decoded around the
+    table bytes; ``tables`` maps each resolved dispatch ``jmp`` VA to its
+    distinct case target VAs in table order; ``entries`` are the table
+    entries inside the code, in address order, never overlapping an
+    instruction or each other.  Bytes covered by neither (an undecodable
+    stretch) belong to no instruction and no entry.
+    """
+
+    insns: list[Any]
+    tables: dict[int, list[int]]
+    entries: list[TableEntry]
+
+
+def jump_table_layout(
+    code: bytes, va: int, cs_mode: int, read_image: ImageReader | None = None
+) -> TableLayout:
+    """Decode *code* at *va*, reading the 32-bit jump tables it holds as data.
+
+    The rules are :func:`build_cfg_view`'s; every listing of the function
+    renders ``entries`` as data and ``insns`` as code, so the CFG, the
+    listings and the instruction diff agree on which bytes are code.  Other
+    modes resolve no table: ``insns`` is the linear decode.
+    """
+    md = capstone_handle(capstone.CS_ARCH_X86, cs_mode)
+    insns = list(md.disasm(code, va))
+    if cs_mode != capstone.CS_MODE_32:
+        return TableLayout(insns, {}, [])
+    # Re-decode around the tables found so far until the set settles:
+    # table bytes decoded as code can fake or hide a dispatch.
+    skip: list[tuple[int, int]] = []
+    tables, entries = _jump_tables(insns, code, va, read_image)
+    for _ in range(_MAX_DECODE_PASSES):
+        data = _entry_ranges(entries, va)
+        if data == skip:
+            break
+        skip = data
+        insns = _decode_around(md, code, va, skip)
+        tables, entries = _jump_tables(insns, code, va, read_image)
+    # A set that has not settled keeps only the entries the decode skipped.
+    skipped = {off for start, end in skip for off in range(start, end)}
+    entries = [e for e in entries if all(e.va - va + k in skipped for k in range(e.width))]
+    return TableLayout(insns, tables, entries)
+
+
 def _decode_around(md: Any, code: bytes, va: int, skip: list[tuple[int, int]]) -> list[Any]:
     """Decode *code* except the sorted, disjoint byte-offset ranges in *skip*.
 
@@ -318,17 +384,17 @@ def _decode_around(md: Any, code: bytes, va: int, skip: list[tuple[int, int]]) -
 
 def _jump_tables(
     insns: list[Any], code: bytes, va: int, read_image: ImageReader | None
-) -> tuple[dict[int, list[int]], list[tuple[int, int]]]:
+) -> tuple[dict[int, list[int]], list[TableEntry]]:
     """Resolve the 32-bit jump-table dispatches among *insns*.
 
     Returns the distinct case target VAs per dispatch ``jmp`` VA, in table
-    order, and the sorted, merged byte-offset ranges of *code* the tables
-    (address and byte index) occupy.  The rules are :func:`build_cfg_view`'s.
+    order, and the table entries (address and byte index) inside *code*.
+    The rules are :func:`build_cfg_view`'s.
     """
 
     end_va = va + len(code)
     tables: dict[int, list[int]] = {}
-    ranges: list[tuple[int, int]] = []
+    entries: list[TableEntry] = []
     for i, insn in enumerate(insns):
         if insn.mnemonic != "jmp":
             continue
@@ -337,34 +403,124 @@ def _jump_tables(
             continue
         index_reg, table_va = operand
         window = insns[max(0, i - BOUND_WINDOW) : i]
-        bound = index_bound(window, index_reg)
-        byte_index = _byte_index_table(window, index_reg)
-        if byte_index is not None:
-            # The guard bounds the case value, and the index table's bytes
-            # bound the address-table slot.
-            base_reg, index_va = byte_index
-            case_max = index_bound(window, base_reg)
-            bound = None
-            if case_max is not None:
-                index_bytes = _table_bytes(code, va, read_image, index_va, case_max + 1)
-                if len(index_bytes) == case_max + 1:
-                    bound = max(index_bytes)
-                    ranges.append((index_va, index_va + len(index_bytes)))
-        count = MAX_TABLE_ENTRIES if bound is None else min(bound + 1, MAX_TABLE_ENTRIES)
-        raw = _table_bytes(code, va, read_image, table_va, count * _TABLE_ENTRY_WIDTH)
+        slots = _negative_slots(insns, i, window, index_reg)
+        bound: int | None
+        if slots is not None:
+            first_slot, bound = slots
+        else:
+            first_slot, bound = 0, index_bound(window, index_reg)
+            byte_index = _byte_index_table(window, index_reg)
+            if byte_index is not None:
+                # The guard bounds the case value, and the index table's bytes
+                # bound the address-table slot.
+                base_reg, index_va = byte_index
+                case_max = index_bound(window, base_reg)
+                bound = None
+                if case_max is not None:
+                    index_bytes = _table_bytes(code, va, read_image, index_va, case_max + 1)
+                    if len(index_bytes) == case_max + 1:
+                        bound = max(index_bytes)
+                        entries.extend(
+                            TableEntry(index_va + k, 1, slot, k == 0)
+                            for k, slot in enumerate(index_bytes)
+                        )
+        count = (
+            MAX_TABLE_ENTRIES if bound is None else min(bound - first_slot + 1, MAX_TABLE_ENTRIES)
+        )
+        start_va = table_va + first_slot * _TABLE_ENTRY_WIDTH
+        raw = _table_bytes(code, va, read_image, start_va, count * _TABLE_ENTRY_WIDTH)
         targets: list[int] = []
-        slots: list[int] = []
+        slot_vas: list[int] = []
+        values: dict[int, int] = {}
         for off in range(0, len(raw) - _TABLE_ENTRY_WIDTH + 1, _TABLE_ENTRY_WIDTH):
             target = int.from_bytes(raw[off : off + _TABLE_ENTRY_WIDTH], "little")
+            values[start_va + off] = target
             if va <= target < end_va:
                 targets.append(target)
-                slots.append(off)
+                slot_vas.append(start_va + off)
             elif bound is None:
                 break
         if targets:
             tables[insn.address] = list(dict.fromkeys(targets))
-            ranges.append((table_va + slots[0], table_va + slots[-1] + _TABLE_ENTRY_WIDTH))
-    return tables, _merge_offsets(ranges, va, len(code))
+            entries.extend(
+                TableEntry(at, _TABLE_ENTRY_WIDTH, values[at], at == slot_vas[0])
+                for at in range(slot_vas[0], slot_vas[-1] + 1, _TABLE_ENTRY_WIDTH)
+            )
+    return tables, _inside(entries, va, end_va)
+
+
+def _negative_slots(
+    insns: list[Any], i: int, window: list[Any], index_reg: str | None
+) -> tuple[int, int] | None:
+    """``(first, last)`` table slot of a dispatch whose index is negative, else ``None``.
+
+    MSVC's memcpy and memmove index two tables below their base.  After
+    ``cmp ecx, N`` and ``neg ecx`` the index runs from ``-top`` to 0 (``top``
+    is :func:`index_bound`'s).  A dispatch no instruction falls into, reached
+    by ``sub ecx, K`` then ``jb dispatch``, runs from ``-K`` to -1.
+    """
+    if not index_reg:
+        return None
+    for k in range(len(window) - 1, -1, -1):
+        prev = window[k]
+        if prev.mnemonic in _COMPARES or prev.op_str.split(",")[0].strip() != index_reg:
+            continue
+        if prev.mnemonic == "neg":
+            top = index_bound(window[:k], index_reg)
+            return None if top is None else (-top, 0)
+        break
+    dispatch = insns[i]
+    if (
+        i > 0
+        and _flows_into(insns[i - 1], dispatch)
+        and insns[i - 1].mnemonic not in _BLOCK_END_MNEMONICS
+    ):
+        return None
+    for j in range(1, len(insns)):
+        jcc = insns[j]
+        if jcc.mnemonic not in _BORROW_JUMPS or _jump_target_off(jcc, 0) != dispatch.address:
+            continue
+        sub = insns[j - 1]
+        m = _SUB_IMM_RE.match(sub.op_str)
+        if sub.mnemonic == "sub" and m is not None and m.group(1) == index_reg:
+            k = int(m.group(2), 0)
+            if 0 < k <= MAX_TABLE_ENTRIES:
+                return -k, -1
+    return None
+
+
+def _inside(entries: list[TableEntry], va: int, end_va: int) -> list[TableEntry]:
+    """*entries* wholly inside ``va..end_va``, in address order, one per byte.
+
+    Tables sharing entries (memcpy's negative-index dispatch reads a table
+    another dispatch indexes forward) give each entry once; an entry that
+    overlaps an earlier one is dropped.
+    """
+    first_at: dict[int, bool] = {}
+    by_va: dict[int, TableEntry] = {}
+    for e in entries:
+        if va <= e.va and e.va + e.width <= end_va:
+            by_va.setdefault(e.va, e)
+            first_at[e.va] = first_at.get(e.va, False) or e.first
+    out: list[TableEntry] = []
+    for at in sorted(by_va):
+        e = by_va[at]
+        if out and at < out[-1].va + out[-1].width:
+            continue
+        out.append(TableEntry(e.va, e.width, e.value, first_at[at]))
+    return out
+
+
+def _entry_ranges(entries: list[TableEntry], va: int) -> list[tuple[int, int]]:
+    """The byte-offset ranges *entries* occupy, sorted and merged."""
+    merged: list[tuple[int, int]] = []
+    for e in entries:
+        start, end = e.va - va, e.va - va + e.width
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged
 
 
 def _byte_index_table(window: list[Any], index_reg: str | None) -> tuple[str, int] | None:
@@ -389,19 +545,6 @@ def _table_bytes(code: bytes, va: int, read_image: ImageReader | None, at: int, 
     if len(in_code) == size or read_image is None:
         return in_code
     return read_image(at, size)[:size]
-
-
-def _merge_offsets(ranges: list[tuple[int, int]], va: int, size: int) -> list[tuple[int, int]]:
-    """VA *ranges* as sorted, merged byte offsets clipped to ``0..size``."""
-    merged: list[tuple[int, int]] = []
-    for start, end in sorted((max(0, s - va), min(size, e - va)) for s, e in ranges):
-        if start >= end:
-            continue
-        if merged and start <= merged[-1][1]:
-            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
-        else:
-            merged.append((start, end))
-    return merged
 
 
 def _seal(cur: list[Any], base_va: int, start_idx: int) -> dict[str, Any]:

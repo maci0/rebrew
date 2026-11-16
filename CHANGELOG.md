@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- The jump-table bound of the CFG and `rebrew binary switches` counted one entry too many after `cmp reg, N; jb`/`jae` (the index is below `N`), so the dword after the table became a `switch` edge when it read as an in-function address. MSVC memcpy and memmove's negative-index dispatches are resolved: `neg ecx; jmp [ecx*4 + table]` read its entries forward from the base instead of below it (wrong edges, garbage decoded as data), and `sub ecx, 4; jb tail` with `jmp [ecx*4 + table + 16]` at `tail` resolved no table. On the 17,160 functions measured (guild-rebrew's server.dll, Europa1400Gold.exe and Europa1400Gold_TL.exe, and the 32-bit targets of rebrew-test-projects) these are 11 dispatches of each negative form, all in CRT memcpy/memmove copies; the 16-bit target (ski16.exe) has no table dispatch and no 64-bit target was available.
+
 ## [6.54.0] - 2026-11-16
 
 ### Added

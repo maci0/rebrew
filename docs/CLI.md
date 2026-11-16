@@ -3080,10 +3080,13 @@ source block's last instruction: `taken` (a conditional jump's target),
 a block that starts at a jump target), `switch` (a jump-table case).  On
 32-bit targets a `jmp dword ptr [reg*4 + table]` gets one `switch` edge per
 distinct case target, and each case target starts a block.  The table holds
-`N + 1` entries when a `cmp reg, N` bounds the index (MSVC's two-level form,
+`N + 1` entries when a `cmp reg, N` bounds the index, `N` when `jb` or `jae`
+tests that compare (MSVC's two-level form,
 a `mov cl, byte ptr [eax + index_table]` before the `jmp`, takes the count
 from the index table's bytes), else it ends at the first entry outside the
-function.  An entry outside the function gives no edge (within a bound the
+function.  MSVC memcpy and memmove index two tables below their base: after
+`neg ecx` the slots run from `-(N - 1)` to 0, and a dispatch reached only
+by `sub ecx, K; jb` reads slots `-K` to -1.  An entry outside the function gives no edge (within a bound the
 walk goes on past it, for MSVC memcpy's unused slot 0).  A table past the extent
 is read from the target binary, and table bytes inside the extent are data,
 not blocks.  The default case is the guard's `taken` edge.  Other indirect

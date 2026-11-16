@@ -330,6 +330,40 @@ class TestJumpTables:
             0x101C,
         ]
 
+    def test_below_guard_bounds_the_index_below_the_compare(self) -> None:
+        """``cmp eax, 3; jae default`` leaves indices 0 to 2: the dword after
+        the three entries is code even when it reads as an in-function address."""
+        code = bytes.fromhex(
+            "83f803 730f ff248518100000 c3c3c3 9090909090 c3 909090"
+            "0c100000 0d100000 0e100000 14100000"
+        )
+        view = build_cfg_view(code, 0x1000)
+        assert _switch_targets(view, 0x1005) == [0x100C, 0x100D, 0x100E]
+        assert max(b["va"] for b in view["blocks"]) == 0x1024
+
+    def test_negated_index_reads_the_table_below_its_base(self) -> None:
+        """MSVC memmove: ``cmp ecx, 3; jb``, ``neg ecx`` and ``jmp [ecx*4 +
+        0x101c]`` take slots -2 to 0, the entries at 0x1014 to 0x101c."""
+        code = bytes.fromhex(
+            "83f903 7202 c3 90 f7d9 ff248d1c100000 c3c3c390 12100000 11100000 10100000"
+        )
+        view = build_cfg_view(code, 0x1000)
+        assert _switch_targets(view, 0x1009) == [0x1012, 0x1011, 0x1010]
+        assert max(b["va"] + b["size"] for b in view["blocks"]) == 0x1014
+
+    def test_borrowed_index_reads_the_slots_below_its_base(self) -> None:
+        """MSVC memcpy: ``sub ecx, 4; jb tail`` and, at ``tail``, ``jmp [ecx*4
+        + 0x102c]`` take slots -4 to -1: the table the masked dispatch
+        indexes from 0x101c."""
+        code = bytes.fromhex(
+            "83e203 83e904 7207 ff24951c100000 ff248d2c100000 9090 c3c3c3c3"
+            "18100000 19100000 1a100000 1b100000"
+        )
+        view = build_cfg_view(code, 0x1000)
+        cases = [0x1018, 0x1019, 0x101A, 0x101B]
+        assert _switch_targets(view, 0x1008) == cases
+        assert _switch_targets(view, 0x100F) == cases
+
     def test_case_inside_an_instruction_gives_no_edge(self) -> None:
         entries = [INFLATE_CASES[0] + 1, *INFLATE_CASES[1:]]
         view = build_cfg_view(_with_table(entries), INFLATE_VA)
