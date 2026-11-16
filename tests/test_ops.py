@@ -2392,11 +2392,12 @@ def _counting_python(directory: Path) -> Path:
     the test's barrier file, writes 3 of 3 and prints its report.
     """
     script = directory / "counting-python"
+    # /dev/fd: dash (CI's /bin/sh) refuses `>&N` for a descriptor above 9.
     script.write_text(
         "#!/bin/sh\n"
-        'printf \'{"done": 1, "total": 3}\\n\' >&"$REBREW_PROGRESS_FD"\n'
+        'printf \'{"done": 1, "total": 3}\\n\' > "/dev/fd/$REBREW_PROGRESS_FD"\n'
         f'while [ ! -e "${_BARRIER_ENV}" ]; do sleep 0.05; done\n'
-        'printf \'{"done": 3, "total": 3}\\n\' >&"$REBREW_PROGRESS_FD"\n'
+        'printf \'{"done": 3, "total": 3}\\n\' > "/dev/fd/$REBREW_PROGRESS_FD"\n'
         "printf '{\"passed\": 3}\\n'\n"
     )
     script.chmod(0o755)
