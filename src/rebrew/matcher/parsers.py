@@ -52,8 +52,13 @@ def _collect_relocs(
     relocations: Iterable[Any],
     func_start: int,
     func_end: int,
+    section_offset: int | None = None,
 ) -> tuple[dict[int, str], list[CoffRelocRecord]]:
     """Relocations inside a function's byte range, as offsets and as records.
+
+    With *section_offset* (the file offset of the function's section), a
+    record whose symbol is defined in that section carries ``local_offset``:
+    the symbol's offset from the function start.
 
     Both come from the same range filter, and both need the decoded symbol
     name, so one walk builds them.  Iterating ``section.relocations`` twice ran
@@ -68,11 +73,18 @@ def _collect_relocs(
             continue
         name = _extract_reloc_name(reloc)
         offsets[rva - func_start] = name or ""
+        local = None
+        symbol = getattr(reloc, "symbol", None)
+        if section_offset is not None and symbol is not None:
+            section = symbol.section
+            if section is not None and getattr(section, "offset", None) == section_offset:
+                local = symbol.value - func_start
         records.append(
             CoffRelocRecord(
                 offset=rva - func_start,
                 type=int(reloc.type) & 0xFFFF,
                 symbol=name,
+                local_offset=local,
             )
         )
     return offsets, records
@@ -242,7 +254,7 @@ def _parse_coff(
     code = content[func_start:func_end].rstrip(_PADDING_STRIP)
     if not code:
         return None, None, []
-    reloc_offsets, records = _collect_relocs(section.relocations, func_start, func_end)
+    reloc_offsets, records = _collect_relocs(section.relocations, func_start, func_end, target_off)
     return code, reloc_offsets, records
 
 

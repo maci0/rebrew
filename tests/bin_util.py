@@ -230,6 +230,7 @@ def make_coff_obj(
     func_value: int = 0,
     section_symbols: list[tuple[str, int]] | None = None,
     extra_funcs: list[tuple[str, int]] | None = None,
+    label_relocs: list[tuple[int, int, int]] | None = None,
 ) -> bytes:
     """Build a minimal valid COFF .obj blob in memory.
 
@@ -248,6 +249,10 @@ def make_coff_obj(
             (so reloc symbol indices stay 1:1 with the reloc list).  These
             delimit ``func_end`` for the primary function and are yielded by
             ``gen_flirt_pat.parse_coff_obj``.
+        label_relocs: ``(offset_in_section, reloc_type, label_value)`` triples:
+            each adds a STATIC ``$L<n>`` label at *label_value* in the section
+            (an MSVC jump-table label) as the relocation's target, after
+            every other symbol.
 
     The returned blob has one section; symbol 0 is *func_symbol* (EXTERNAL,
     section 1, value *func_value*); each reloc target is an additional
@@ -256,6 +261,7 @@ def make_coff_obj(
     relocs = relocs or []
     section_symbols = section_symbols or []
     extra_funcs = extra_funcs or []
+    label_relocs = label_relocs or []
 
     # Pad code to 4-byte alignment.
     pad_len = (4 - len(code) % 4) % 4
@@ -265,7 +271,7 @@ def make_coff_obj(
     off_file_hdr = 0
     off_sec_hdr = off_file_hdr + 20
     off_sec_data = off_sec_hdr + 40
-    num_relocs = len(relocs)
+    num_relocs = len(relocs) + len(label_relocs)
     off_relocs = off_sec_data + len(padded_code)
     reloc_bytes = num_relocs * 10
     off_symtab = off_relocs + reloc_bytes
@@ -285,6 +291,7 @@ def make_coff_obj(
 
     # --- File header ---
     num_syms = 1 + num_relocs + len(section_symbols) + len(extra_funcs)
+    first_label = 1 + len(relocs) + len(section_symbols) + len(extra_funcs)
     file_hdr = struct.pack(
         "<HHIIIHH",
         0x014C,  # Machine: IMAGE_FILE_MACHINE_I386
@@ -318,6 +325,8 @@ def make_coff_obj(
     for i, (offset, rtype, _name) in enumerate(relocs):
         # Symbol index: 0 is the function; reloc i targets symbol i + 1.
         reloc_bytes_out += struct.pack("<IIH", offset, i + 1, rtype)
+    for i, (offset, rtype, _value) in enumerate(label_relocs):
+        reloc_bytes_out += struct.pack("<IIH", offset, first_label + i, rtype)
     assert len(reloc_bytes_out) == reloc_bytes
 
     # --- Symbol table ---
@@ -335,6 +344,8 @@ def make_coff_obj(
         symtab += _symbol(name, value, 1, 0x20, _EXTERNAL)
     for name, value in section_symbols:
         symtab += _symbol(name, value, 1, 0x20, _STATIC)
+    for i, (_offset, _rtype, value) in enumerate(label_relocs):
+        symtab += _symbol(f"$L{i}", value, 1, 0, _STATIC)
 
     return file_hdr + sec_hdr + padded_code + reloc_bytes_out + symtab + strtab
 

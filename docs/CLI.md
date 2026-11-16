@@ -322,7 +322,9 @@ instruction-level comparison of the target bytes and the rebuild
 target listing against itself, which `rebrew.instruction_listing` answers):
 `original` and `rebuilt` instruction lists decoded at the function VA with the
 capstone text of `binary asm show` (`offset`, `bytes` hex, `mnemonic`,
-`operands`, an undecodable tail as one `db`), `rows` aligning them
+`operands`, each undecodable stretch as one `db`, a 32-bit jump table inside
+the function as one `dd` per case address and one `db` per index-table
+slot; the rebuild's tables read through its relocations to its own labels), `rows` aligning them
 (`op` `equal`, `replace`, `insert` or `delete`, `left`/`right` indexes or
 null; `reloc` true on an equal row whose bytes differ only in the rebuild's
 relocation fields, invalid relocations excepted, as the RELOC verdict masks
@@ -7110,6 +7112,13 @@ Op details the contract leaves open:
   and must be a rebrew arch name (`x86_16`, `x86_32`, `arm32`, ...); `nasm`
   covers `x86_32` only. `size` is 1 byte to 1 MiB, the bound of the other
   extent ops.
+- Listings of 32-bit x86 (`rebrew.disassemble` in every format,
+  `rebrew.disassemble_bytes`, `rebrew.instruction_listing`, `binary asm
+  show`) render a jump table inside the bytes as data, the tables the CFG
+  resolves (`--format cfg`): one `dd <case address>` per entry and one
+  `db <slot>` per byte of MSVC's index table, under a
+  `jump_table_<VA>:` label (`nasm`, `asm`) or with `; jump table` on the
+  first entry (`hex`). The NASM source still reassembles to the same bytes.
 - `rebrew.xrefs`: `kinds` narrows the reply to at most 64 reference kinds,
   each one a reference can have (`rebrew.analysis.is_xref_kind`: `call`,
   `jmp`, `iat_call`, `iat_jmp`, `push`, `push_mem`, `mov`, `cmp`, `lea`,

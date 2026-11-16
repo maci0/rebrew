@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, TypeGuard, cast
@@ -1104,3 +1104,14 @@ def smart_reloc_compare(
         and not ((strict or ambiguous_offsets) and invalid_relocs)
     )
     return masked_match, match_count, max_len, valid_relocs, invalid_relocs
+
+
+def self_relocations(records: Iterable[CoffRelocRecord]) -> dict[int, int]:
+    """The i386 DIR32 fields among *records* that name a location in the
+    function's own section: field offset -> that location's offset from the
+    function start (``CoffRelocRecord.local_offset``)."""
+    return {
+        r.offset: r.local_offset
+        for r in records
+        if r.format == "coff-i386" and r.type == _REL_DIR32 and r.local_offset is not None
+    }

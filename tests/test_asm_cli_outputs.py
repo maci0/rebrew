@@ -65,7 +65,7 @@ def _forbid_generation(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(f"rebrew.asm.{name}", refuse)
 
 
-def _fake_nasm(code: bytes, va: int, label: str) -> tuple[str, dict[str, Any]]:
+def _fake_nasm(code: bytes, va: int, label: str, _read_image: Any) -> tuple[str, dict[str, Any]]:
     return "bits 32\nret\n", {
         "base_va": va,
         "total_bytes": len(code),

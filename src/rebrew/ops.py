@@ -53,6 +53,7 @@ from typing import override  # decorator and base class: definition-time use
 lazy import base64
 lazy import binascii
 lazy import dataclasses
+lazy import functools
 lazy import hashlib
 lazy import hmac
 lazy import itertools
@@ -81,6 +82,7 @@ lazy import httpx
 from rebrew.errors import RebrewError
 lazy from rebrew import __version__, telemetry
 lazy from rebrew.call_progress import PROGRESS_FD_ENV, ProgressPipe
+lazy from rebrew.cfg_ged import ImageReader
 lazy from rebrew.cli import EXIT_ERROR, console, error_exit
 lazy from rebrew.formats.binary_loader import UnsupportedBinaryFormat
 lazy from rebrew.utils import fold_host, split_source_lines
@@ -1720,21 +1722,32 @@ def _capstone_for(arch: str) -> tuple[int, int]:
         raise _invalid(_bounded(str(exc))) from None
 
 
-def _nasm_listing(code: bytes, va: int) -> str:
+def _nasm_listing(code: bytes, va: int, read_image: ImageReader | None = None) -> str:
     from rebrew.asm import disassemble_to_nasm
 
-    source, _stats = disassemble_to_nasm(code, va, f"func_{va:08X}")
+    source, _stats = disassemble_to_nasm(code, va, f"func_{va:08X}", read_image)
     return source + "\n"
 
 
-def _asm_listing(code: bytes, va: int, cs_arch: int, cs_mode: int) -> str:
-    """One ``mnemonic operands`` line per instruction."""
-    from rebrew.analysis import disasm_insns
+def _asm_listing(
+    code: bytes, va: int, cs_arch: int, cs_mode: int, read_image: ImageReader | None = None
+) -> str:
+    """One ``mnemonic operands`` line per instruction and jump-table entry.
 
-    return "".join(
-        f"{insn.mnemonic} {insn.op_str}".rstrip() + "\n"
-        for insn in disasm_insns(code, va, cs_arch, cs_mode)
-    )
+    A table starts with its ``jump_table_<VA>:`` label; bytes that decode as
+    no instruction are left out.
+    """
+    from rebrew.cfg_ged import listing_items, table_label
+
+    listing = listing_items(code, va, cs_arch, cs_mode, read_image)
+    lines: list[str] = []
+    for row in listing.rows:
+        if row.va in listing.undecoded:
+            continue
+        if row.va in listing.table_starts:
+            lines.append(f"{table_label(row.va)}:")
+        lines.append(f"{row.mnemonic} {row.op_str}".rstrip())
+    return "".join(line + "\n" for line in lines)
 
 
 def disassemble(config: WorkerConfig, req: DisassembleRequest) -> dict[str, Any]:
@@ -1768,9 +1781,10 @@ def disassemble(config: WorkerConfig, req: DisassembleRequest) -> dict[str, Any]
     code = extract_raw_bytes(cfg.target_binary, va, req.size)
     if not code:
         raise _invalid(f"no file bytes at 0x{va:x}")
+    read_image = functools.partial(extract_raw_bytes, cfg.target_binary)
     if req.format == "nasm":
-        return {"text": _nasm_listing(code, va)}
-    return {"text": _asm_listing(code, va, cfg.capstone_arch, cfg.capstone_mode)}
+        return {"text": _nasm_listing(code, va, read_image)}
+    return {"text": _asm_listing(code, va, cfg.capstone_arch, cfg.capstone_mode, read_image)}
 
 
 def instruction_listing(config: WorkerConfig, req: AddressRequest) -> dict[str, Any]:
@@ -1789,7 +1803,14 @@ def instruction_listing(config: WorkerConfig, req: AddressRequest) -> dict[str, 
     code = extract_raw_bytes(cfg.target_binary, va, req.size)
     if not code:
         raise _invalid(f"no file bytes at 0x{va:x}")
-    return instruction_diff(code, code, va=va, cs_arch=cfg.capstone_arch, cs_mode=cfg.capstone_mode)
+    return instruction_diff(
+        code,
+        code,
+        va=va,
+        cs_arch=cfg.capstone_arch,
+        cs_mode=cfg.capstone_mode,
+        read_image=functools.partial(extract_raw_bytes, cfg.target_binary),
+    )
 
 
 def disassemble_bytes(_config: WorkerConfig, req: DisassembleBytesRequest) -> dict[str, Any]:

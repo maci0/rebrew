@@ -14,9 +14,10 @@ from __future__ import annotations
 import functools
 import re
 from typing import Any
-lazy from collections.abc import Iterable
+lazy from collections.abc import Iterable, Mapping
 
 lazy from rebrew.analysis import Insn
+lazy from rebrew.cfg_ged import ImageReader
 lazy from rebrew.compiler.compile import CompareResult
 
 #: Bytes of each side the comparison decodes; a longer side is cut there and
@@ -46,16 +47,29 @@ def _register_names(cs_arch: str | int, cs_mode: str | int) -> frozenset[str]:
     return frozenset(name.lower() for name in names if name)
 
 
-def _decode(code: bytes, va: int, cs_arch: str | int, cs_mode: str | int) -> list[Insn]:
-    """Every byte of *code* as instructions; an undecodable tail is one ``db``."""
-    from rebrew.analysis import disasm_insns
+def _decode(
+    code: bytes,
+    va: int,
+    cs_arch: str | int,
+    cs_mode: str | int,
+    read_image: ImageReader | None,
+    resolved: bytes | None,
+) -> list[Insn]:
+    """Every byte of *code* as listing rows (:func:`rebrew.cfg_ged.listing_items`):
+    instructions, jump-table entries, and one ``db`` per undecodable stretch."""
+    from rebrew.cfg_ged import listing_items
 
-    insns = disasm_insns(code, va, cs_arch, cs_mode)
-    covered = sum(insn.size for insn in insns)
-    if covered < len(code):
-        tail = code[covered:]
-        insns.append(Insn(va + covered, len(tail), DATA_MNEMONIC, tail.hex(" "), tail))
-    return insns
+    return listing_items(code, va, cs_arch, cs_mode, read_image, resolved).rows
+
+
+def _with_self_relocations(code: bytes, va: int, self_relocations: Mapping[int, int]) -> bytes:
+    """*code* placed at *va*, each 32-bit relocation field at an offset in
+    *self_relocations* set to the address of the offset it names."""
+    out = bytearray(code)
+    for at, target in self_relocations.items():
+        if 0 <= at <= len(out) - RELOC_FIELD_BYTES:
+            out[at : at + RELOC_FIELD_BYTES] = (va + target).to_bytes(RELOC_FIELD_BYTES, "little")
+    return bytes(out)
 
 
 def _tokens(insn: Insn, registers: frozenset[str]) -> list[tuple[int, int, str, Any]]:
@@ -89,19 +103,27 @@ def instruction_diff(
     cs_mode: str | int,
     reloc_offsets: Iterable[int] = (),
     invalid_reloc_offsets: Iterable[int] = (),
+    read_image: ImageReader | None = None,
+    self_relocations: Mapping[int, int] | None = None,
 ) -> dict[str, Any]:
     """Both instruction lists, their alignment rows and operand spans.
 
     *reloc_offsets* and *invalid_reloc_offsets* are start offsets in
     *rebuilt* of relocation fields (``CompareResult.reloc_offsets`` and
     ``inv_reloc_offsets``); a pair touching an invalid one is a ``replace``,
-    as the byte verdict counts it a mismatch.
+    as the byte verdict counts it a mismatch.  Jump tables are data rows on
+    both sides; *read_image* reads a table that extends past the code, and
+    *self_relocations* (``CompareResult.self_relocations``) gives the
+    rebuilt side's references to its own labels, which an unlinked object
+    leaves unset, so its tables resolve as the target's do.
     """
     from rebrew.alignment import AlignedMatcher, normalize_instruction
 
     truncated = len(target) > MAX_BYTES or len(rebuilt) > MAX_BYTES
-    left = _decode(target[:MAX_BYTES], va, cs_arch, cs_mode)
-    right = _decode(rebuilt[:MAX_BYTES], va, cs_arch, cs_mode)
+    rebuilt = rebuilt[:MAX_BYTES]
+    resolved = _with_self_relocations(rebuilt, va, self_relocations) if self_relocations else None
+    left = _decode(target[:MAX_BYTES], va, cs_arch, cs_mode, read_image, None)
+    right = _decode(rebuilt, va, cs_arch, cs_mode, read_image, resolved)
     relocs = {o + i for o in reloc_offsets for i in range(RELOC_FIELD_BYTES)}
     invalid = {o + i for o in invalid_reloc_offsets for i in range(RELOC_FIELD_BYTES)}
 
@@ -195,6 +217,8 @@ def record_instructions(cfg: Any, result: CompareResult, target: bytes, va: int)
     original listing against itself, which a reader gets from the target
     alone (the ``rebrew.instruction_listing`` op), so it is not recorded.
     """
+    from rebrew.formats.binary_loader import extract_raw_bytes
+
     rebuilt = result.full_obj_bytes if result.full_obj_bytes is not None else result.obj_bytes
     if result.status == "EXACT" or not rebuilt:
         return
@@ -206,4 +230,6 @@ def record_instructions(cfg: Any, result: CompareResult, target: bytes, va: int)
         cs_mode=cfg.capstone_mode,
         reloc_offsets=result.reloc_offsets or [],
         invalid_reloc_offsets=result.inv_reloc_offsets,
+        read_image=functools.partial(extract_raw_bytes, cfg.target_binary),
+        self_relocations=result.self_relocations,
     )

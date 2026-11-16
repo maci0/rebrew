@@ -60,6 +60,7 @@ from rebrew.cli import (
 )
 lazy from rebrew.analysis import CapstoneUnavailable, direct_call_target, direct_jump_target
 lazy from rebrew.catalog import load_function_structure
+lazy from rebrew.cfg_ged import ImageReader
 lazy from rebrew.config import ProjectConfig, inventory_path_for, load_config, target_module
 lazy from rebrew.metadata.bindings import read_source_bindings
 lazy from rebrew.rename_ops import c_name_from_symbol
@@ -654,6 +655,28 @@ def _annotation_for_operand(
     return lookup.get(addr) if addr is not None else None
 
 
+class _HexRow(NamedTuple):
+    """One hex-mode row: an instruction, or a jump-table entry (``table_start``
+    on a table's first).  ``hint_index`` is the instruction's index in
+    :attr:`_HexView.insn_list` for the pattern hints, ``None`` for an entry."""
+
+    address: int
+    bytes: bytes
+    mnemonic: str
+    op_str: str
+    size: int
+    table_start: bool
+    hint_index: int | None
+
+
+def _hex_rows(insns: list[Any], first_index: int) -> list[_HexRow]:
+    """Decoded instructions as rows; the first is *first_index* in ``insn_list``."""
+    return [
+        _HexRow(i.address, bytes(i.bytes), i.mnemonic, i.op_str, i.size, False, first_index + k)
+        for k, i in enumerate(insns)
+    ]
+
+
 class _HexView(NamedTuple):
     """Shared hex-mode computation: bytes, disassembly and annotation maps.
 
@@ -666,9 +689,8 @@ class _HexView(NamedTuple):
     data: bytes
     truncated: bool
     capstone_missing: bool
-    shown: list[Any]
+    shown: list[_HexRow]
     insn_list: list[Any]
-    shown_offset: int
     conv: str
     ne_seg: int | None
     ne_seg_name: str
@@ -751,9 +773,8 @@ def _hex_view(
             data,
             truncated,
             False,
+            _hex_rows(decoded, 0),
             decoded,
-            decoded,
-            0,
             "xtensa",
             ne_seg,
             ne_seg_name,
@@ -773,7 +794,6 @@ def _hex_view(
             capstone_missing=True,
             shown=[],
             insn_list=[],
-            shown_offset=0,
             conv="unknown",
             ne_seg=ne_seg,
             ne_seg_name=ne_seg_name,
@@ -785,6 +805,8 @@ def _hex_view(
 
     md = Cs(cfg.capstone_arch, cfg.capstone_mode)
     md.detail = False
+    from capstone import CS_ARCH_X86, CS_MODE_32
+
     # With --hints, disassemble a small lookbehind window so prologue
     # patterns (e.g. `push -1` SEH registration a few bytes before the
     # function start) are visible to the pattern detector.  Only
@@ -804,19 +826,21 @@ def _hex_view(
     pre_data = extract_raw_bytes(cfg.target_binary, pre_va, size + (va_int - pre_va))
     insn_list = list(md.disasm(pre_data, pre_va))
     shown_offset = next((i for i, insn in enumerate(insn_list) if insn.address >= va_int), 0)
-    shown_list = insn_list[shown_offset:]
+    shown = _hex_rows(insn_list[shown_offset:], shown_offset)
+    if cfg.capstone_arch == CS_ARCH_X86 and cfg.capstone_mode == CS_MODE_32:
+        shown = _x86_hex_rows(data, va_int, cfg.target_binary, insn_list)
     # Trim the bleed window at the next function's start so a `ret`
     # from the neighbor never decides this function's convention.
     bleed_next = next_function_va(cfg, va_int)
-    conv_insns = [i for i in shown_list if i.address < bleed_next] if bleed_next else shown_list
+    code_rows = [row for row in shown if row.hint_index is not None]
+    conv_insns = [i for i in code_rows if i.address < bleed_next] if bleed_next else code_rows
     return _HexView(
         bin_path=bin_path,
         data=data,
         truncated=truncated,
         capstone_missing=False,
-        shown=shown_list,
+        shown=shown,
         insn_list=insn_list,
-        shown_offset=shown_offset,
         conv=calling_convention(conv_insns),
         ne_seg=ne_seg,
         ne_seg_name=ne_seg_name,
@@ -825,6 +849,33 @@ def _hex_view(
         import_map=import_map,
         string_map=string_map,
     )
+
+
+def _x86_hex_rows(data: bytes, va: int, binary: Path, insn_list: list[Any]) -> list[_HexRow]:
+    """32-bit x86 rows of *data*: instructions and jump-table entries
+    (:func:`rebrew.cfg_ged.listing_items`), without undecodable bytes."""
+    from capstone import CS_ARCH_X86, CS_MODE_32
+
+    from rebrew.cfg_ged import listing_items
+    from rebrew.formats.binary_loader import extract_raw_bytes
+
+    listing = listing_items(
+        data, va, CS_ARCH_X86, CS_MODE_32, functools.partial(extract_raw_bytes, binary)
+    )
+    index_of = {insn.address: k for k, insn in enumerate(insn_list)}
+    return [
+        _HexRow(
+            row.va,
+            row.raw,
+            row.mnemonic,
+            row.op_str,
+            row.size,
+            row.va in listing.table_starts,
+            None if row.va in listing.table_entries else index_of.get(row.va),
+        )
+        for row in listing.rows
+        if row.va not in listing.undecoded
+    ]
 
 
 def _hex_text(
@@ -837,9 +888,11 @@ def _hex_text(
 ) -> str:
     """Render a :class:`_HexView` as the hex-mode stdout text (one ``\\n`` per line)."""
     lines: list[str] = []
-    for idx, insn in enumerate(view.shown):
+    for insn in view.shown:
         hex_bytes = insn.bytes.hex()
         line = f"  0x{insn.address:08x}:  {hex_bytes:<20s}  {insn.mnemonic:<8s} {insn.op_str}"
+        if insn.table_start:
+            line += "  ; jump table"
         if annotate:
             # ``call``/``jmp`` print ``0xNNNN``.  ARM and AArch64 print
             # ``bl``/``b #0xNNNN``.  Both are the same name annotation.
@@ -879,7 +932,7 @@ def _hex_text(
             if s:
                 line += f'  ; "{s}"'
         if pattern_hints:
-            hint = _hint_for(view.insn_list, view.shown_offset + idx)
+            hint = None if insn.hint_index is None else _hint_for(view.insn_list, insn.hint_index)
             if hint:
                 line += f"  ; {hint}"
         lines.append(line)
@@ -989,7 +1042,7 @@ def _run_hex_mode(
 
     if json_output:
         instr_json = []
-        for idx, insn in enumerate(view.shown):
+        for insn in view.shown:
             entry: dict[str, Any] = {
                 "address": f"0x{insn.address:08x}",
                 "bytes": insn.bytes.hex(),
@@ -1005,7 +1058,9 @@ def _run_hex_mode(
                     insn.op_str, view.string_map, address=insn.address, size=insn.size
                 )
             if pattern_hints:
-                entry["hint"] = _hint_for(view.insn_list, view.shown_offset + idx)
+                entry["hint"] = (
+                    None if insn.hint_index is None else _hint_for(view.insn_list, insn.hint_index)
+                )
             instr_json.append(entry)
         payload = {
             "va": f"0x{va_int:08x}",
@@ -1277,19 +1332,19 @@ def disassemble_to_nasm(
     code: bytes,
     base_va: int,
     label: str | None = None,
+    read_image: ImageReader | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    """Disassemble bytes to NASM source with round-trip verification."""
+    """Disassemble bytes to NASM source with round-trip verification.
+
+    A jump table inside *code* (:func:`rebrew.cfg_ged.listing_items`;
+    *read_image* reads one that extends past it) is listed as ``dd``/``db``
+    data under a ``jump_table_<VA>:`` label, and an undecodable stretch as
+    ``db`` bytes; neither counts as an instruction in the stats.
+    """
     cs_arch_x86, cs_mode_32 = _get_capstone_x86()
-    # Intel syntax is capstone's default, so the shared handle already speaks
-    # it; constructing a ``Cs`` per function dominated decoding a short one.
-    # The syntax is not set on the cached handle: it is a handle property, and
-    # flipping it would change every other caller reusing the entry.
-    from rebrew.analysis import capstone_handle
+    from rebrew.cfg_ged import listing_items, table_label
 
-    md = capstone_handle(cs_arch_x86, cs_mode_32)
-
-    instructions = list(md.disasm(code, base_va))
-    total_insns = len(instructions)
+    listing = listing_items(code, base_va, cs_arch_x86, cs_mode_32, read_image)
 
     safe_label = None
     if label:
@@ -1299,21 +1354,30 @@ def disassemble_to_nasm(
         if not safe_label or not (safe_label[0].isalpha() or safe_label[0] == "_"):
             safe_label = "func_" + safe_label
 
-    insn_data = []
-    for insn in instructions:
-        nasm_text = capstone_to_nasm(insn.mnemonic, insn.op_str)
+    rows = listing.rows
+    trailing = b""
+    if rows and rows[-1].va in listing.undecoded:
+        trailing = rows[-1].raw
+        rows = rows[:-1]
+    insn_data: list[dict[str, Any]] = []
+    for row in rows:
+        undecoded = row.va in listing.undecoded
         insn_data.append(
             {
-                "addr": insn.address,
-                "raw": bytes(insn.bytes),
-                "nasm": nasm_text,
-                "offset": insn.address - base_va,
-                "size": len(insn.bytes),
+                "addr": row.va,
+                "raw": row.raw,
+                "nasm": (
+                    "db " + ", ".join(f"0x{b:02X}" for b in row.raw)
+                    if undecoded
+                    else capstone_to_nasm(row.mnemonic, row.op_str)
+                ),
+                "offset": row.va - base_va,
+                "size": row.size,
+                "data": undecoded or row.va in listing.table_entries,
+                "label": table_label(row.va) if row.va in listing.table_starts else None,
             }
         )
-
-    covered = sum(i["size"] for i in insn_data)
-    trailing = code[covered:] if covered < len(code) else b""
+    total_insns = sum(1 for entry in insn_data if not entry["data"])
 
     pass1_lines = _build_nasm_lines(insn_data, base_va, safe_label, trailing, set())
     pass1_src = "\n".join(pass1_lines)
@@ -1324,7 +1388,7 @@ def disassemble_to_nasm(
         for idx, entry in enumerate(insn_data):
             off = entry["offset"]
             sz = entry["size"]
-            if pass1_bin[off : off + sz] != entry["raw"]:
+            if not entry["data"] and pass1_bin[off : off + sz] != entry["raw"]:
                 bad_indices.add(idx)
     else:
         bad_indices = _find_bad_instructions_individually(insn_data, base_va, code)
@@ -1366,6 +1430,8 @@ def _find_bad_instructions_individually(
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
         for idx, entry in enumerate(insn_data):
+            if entry["data"]:
+                continue
             src_lines = ["bits 32", f"org 0x{base_va:08X}"]
             for j, e in enumerate(insn_data):
                 if j == idx:
@@ -1404,6 +1470,8 @@ def _build_nasm_lines(
         addr = entry["addr"]
         raw = entry["raw"]
         nasm_text = entry["nasm"]
+        if entry["label"]:
+            lines.append(f"{entry['label']}:")
         if idx in db_indices:
             db_hex = ", ".join(f"0x{b:02X}" for b in raw)
             lines.append(f"    db {db_hex:40s} ; {addr:08X}  {nasm_text}")
@@ -1774,7 +1842,9 @@ def batch_extract_nasm(
             console.print(f"  \\[{i}/{total}] Would write {out_file} ({len(code)}B)")
             continue
 
-        nasm_src, stats = disassemble_to_nasm(code, va, symbol)
+        nasm_src, stats = disassemble_to_nasm(
+            code, va, symbol, functools.partial(extract_raw_bytes, cfg.target_binary)
+        )
         # Multi-function sources share a file stem — include the VA or the
         # second function's output would silently overwrite the first's.
         if inline_c:
@@ -2028,6 +2098,7 @@ def disassemble(
         return
 
     # --- nasm format ---
+    read_image: ImageReader | None = None
     if bin_file:
         code = bin_file.read_bytes()
         computed_base_va = parse_va(base_va, json_mode=json_output)
@@ -2038,6 +2109,7 @@ def disassemble(
         from rebrew.formats.binary_loader import extract_raw_bytes
 
         code = extract_raw_bytes(cfg.target_binary, computed_va, effective_size)
+        read_image = functools.partial(extract_raw_bytes, cfg.target_binary)
         if code is None:
             error_exit(
                 f"Could not extract {effective_size} bytes at VA 0x{computed_va:08X}",
@@ -2071,7 +2143,9 @@ def disassemble(
         return
 
     try:
-        nasm_src, run_stats = disassemble_to_nasm(code, computed_base_va, computed_label)
+        nasm_src, run_stats = disassemble_to_nasm(
+            code, computed_base_va, computed_label, read_image
+        )
     except RuntimeError as e:
         error_exit(str(e), json_mode=json_output)
 

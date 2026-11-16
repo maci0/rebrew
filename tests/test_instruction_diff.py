@@ -379,3 +379,48 @@ class TestDirectCallWithoutInstructions:
         )
         payload = json.loads(capsys.readouterr().out)
         assert payload["status"] == "RELOC" and "instructions" not in payload
+
+
+class TestJumpTables:
+    def test_rebuilt_tables_resolve_through_their_label_relocations(self, tmp_path: Path) -> None:
+        """An unlinked object's jump table holds zeros where its ``$L`` labels
+        go; the comparison reads the labels from the relocations, so both
+        sides list the table as the same data and every row is equal."""
+        from types import SimpleNamespace
+
+        from bin_util import make_coff_obj, make_pe
+        from test_ops import ENTRY_VA, SWITCH
+
+        from rebrew.compiler.compile import _extract_and_compare
+        from rebrew.instruction_diff import record_instructions
+
+        labels = [(9, 0x30), (16, 0x24), (0x24, 0x14), (0x28, 0x1A), (0x2C, 0x20)]
+        unlinked = bytearray(SWITCH)
+        for at, _ in labels:
+            unlinked[at : at + 4] = bytes(4)
+        obj = tmp_path / "f.obj"
+        obj.write_bytes(
+            make_coff_obj(
+                bytes(unlinked),
+                func_symbol="_f",
+                label_relocs=[(at, 0x6, value) for at, value in labels],
+            )
+        )
+        binary = tmp_path / "x.exe"
+        binary.write_bytes(make_pe(SWITCH))
+        target = SWITCH + bytes(2)  # the object pads its section to 4 bytes
+        result = _extract_and_compare(
+            str(obj), "_f", target, name_to_va={"_f": ENTRY_VA}, section_va=ENTRY_VA
+        )
+        assert result.status == "RELOC", result.message
+        cfg = SimpleNamespace(
+            capstone_arch=X86["cs_arch"], capstone_mode=X86["cs_mode"], target_binary=binary
+        )
+        record_instructions(cfg, result, target, ENTRY_VA)
+        diff = result.instructions
+        assert diff is not None
+        table = [(i["mnemonic"], i["operands"]) for i in diff["rebuilt"][12:15]]
+        assert table == [("dd", "0x401014"), ("dd", "0x40101a"), ("dd", "0x401020")]
+        assert diff["rebuilt"][12]["bytes"] == "00000000"
+        assert [i["mnemonic"] for i in diff["original"]] == [i["mnemonic"] for i in diff["rebuilt"]]
+        assert {r["op"] for r in diff["rows"]} == {"equal"}

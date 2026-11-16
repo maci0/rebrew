@@ -440,6 +440,112 @@ class TestListingOps:
         assert reply == {"text": "push rbp\nmov rbp, rsp\nret\n"}
 
 
+#: MSVC 6's two-level switch at 0x401000 (tests/test_cfg_ged.py TWO_LEVEL,
+#: rebased): cases at 0x401014 and 0x40101a, default at 0x401020, a nop, the
+#: 3-entry address table at 0x401024 and the 6-byte index table at 0x401030.
+SWITCH = bytes.fromhex(
+    "83f805 771b 33c9 8a8830104000 ff248d24104000"
+    "b801000000c3 b802000000c3 33c0c3 90"
+    "14104000 1a104000 20104000 000101020002"
+)
+SWITCH_ASM = """\
+cmp eax, 5
+ja 0x401020
+xor ecx, ecx
+mov cl, byte ptr [eax + 0x401030]
+jmp dword ptr [ecx*4 + 0x401024]
+mov eax, 1
+ret
+mov eax, 2
+ret
+xor eax, eax
+ret
+nop
+jump_table_00401024:
+dd 0x401014
+dd 0x40101a
+dd 0x401020
+jump_table_00401030:
+db 0x0
+db 0x1
+db 0x1
+db 0x2
+db 0x0
+db 0x2
+"""
+
+
+def _switch_project(tmp_path: Path) -> tuple[WorkerConfig, str, str]:
+    """An analysed project of a PE holding SWITCH at 0x401000: worker, project dir, sha256."""
+    from bin_util import make_pe
+
+    pe = make_pe(SWITCH + b"\xc3")
+    digest = hashlib.sha256(pe).hexdigest()
+    filestore, workspace = tmp_path / "files", tmp_path / "workspace"
+    (filestore / "binaries").mkdir(parents=True)
+    (filestore / "binaries" / digest).write_bytes(pe)
+    workspace.mkdir()
+    config = WorkerConfig(filestore, workspace)
+    request = {
+        "binary_id": 1,
+        "sha256": digest,
+        "name": "switch.exe",
+        "file_key": f"binaries/{digest}",
+    }
+    return config, _call(config, "rebrew.analyse", request)["project"], digest
+
+
+class TestJumpTableListings:
+    """A jump table inside the function is data in every listing, as it is in the CFG."""
+
+    def test_asm_lists_the_tables_as_labelled_data(self, tmp_path: Path) -> None:
+        config, project, _ = _switch_project(tmp_path)
+        request = {"project_dir": project, "va": ENTRY_VA, "size": len(SWITCH), "format": "asm"}
+        assert _call(config, "rebrew.disassemble", request)["text"] == SWITCH_ASM
+
+    @pytest.mark.skipif(shutil.which("nasm") is None, reason="nasm not installed")
+    def test_nasm_lists_the_tables_as_labelled_data(self, tmp_path: Path) -> None:
+        config, project, _ = _switch_project(tmp_path)
+        request = {"project_dir": project, "va": ENTRY_VA, "size": len(SWITCH), "format": "nasm"}
+        lines = _call(config, "rebrew.disassemble", request)["text"].splitlines()
+        assert lines[lines.index("jump_table_00401024:") + 1 :][:3] == [
+            f"    {'dd 0x401014':40s} ; 00401024  14104000",
+            f"    {'dd 0x40101a':40s} ; 00401028  1a104000",
+            f"    {'dd 0x401020':40s} ; 0040102C  20104000",
+        ]
+        assert (
+            lines[lines.index("jump_table_00401030:") + 1] == f"    {'db 0x0':40s} ; 00401030  00"
+        )
+        assert not any(line.startswith("    db 0x") and "trailing" in line for line in lines)
+        code = base64.b64encode(SWITCH).decode()
+        request = {"code": code, "va": ENTRY_VA, "arch": "x86_32"}
+        bytes_reply = _call(config, "rebrew.disassemble_bytes", request)
+        assert bytes_reply["text"].splitlines()[4:] == lines[4:]
+
+    def test_hex_lists_the_tables_as_data(self, tmp_path: Path) -> None:
+        config, project, _ = _switch_project(tmp_path)
+        request = {"project_dir": project, "va": ENTRY_VA, "size": len(SWITCH), "format": "hex"}
+        lines = _call(config, "rebrew.disassemble", request)["text"].splitlines()
+        assert lines[12:15] == [
+            f"  0x00401024:  {'14104000':<20s}  {'dd':<8s} 0x401014  ; jump table",
+            f"  0x00401028:  {'1a104000':<20s}  {'dd':<8s} 0x40101a",
+            f"  0x0040102c:  {'20104000':<20s}  {'dd':<8s} 0x401020",
+        ]
+        assert len(lines) == 12 + 3 + 6
+
+    def test_instruction_listing_decodes_the_tables_as_data(self, tmp_path: Path) -> None:
+        config, project, digest = _switch_project(tmp_path)
+        request = {"project_dir": project, "sha256": digest, "va": ENTRY_VA, "size": len(SWITCH)}
+        reply = _call(config, "rebrew.instruction_listing", request)
+        rows = [(i["offset"], i["mnemonic"], i["operands"]) for i in reply["original"]]
+        assert rows[12:] == [
+            (0x24, "dd", "0x401014"),
+            (0x28, "dd", "0x40101a"),
+            (0x2C, "dd", "0x401020"),
+            *[(0x30 + k, "db", f"0x{slot:x}") for k, slot in enumerate([0, 1, 1, 2, 0, 2])],
+        ]
+
+
 class TestFunctionOps:
     def _address(self, project: Path, **extra: Any) -> dict[str, Any]:
         return {"project_dir": str(project), "sha256": SHA256, "va": ENTRY_VA, **extra}

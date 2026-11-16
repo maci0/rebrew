@@ -74,6 +74,7 @@ lazy from rebrew.coff_reloc import (
     binding_summary,
     build_iat_region,
     relocation_binding_evidence,
+    self_relocations,
     smart_reloc_compare,
 )
 
@@ -297,6 +298,12 @@ class CompareResult:
     #: The instruction-level comparison (``rebrew.instruction_diff.record_instructions``)
     #: when the caller asked for it and the rebuilt code is not byte-identical.
     instructions: dict[str, Any] | None = None
+    #: The 32-bit relocation fields of the compiled bytes that name a location in
+    #: the function's own section (a jump-table label, the function itself):
+    #: field offset -> that location's offset from the function start.  An
+    #: unlinked object leaves those fields unset; the instruction diff applies
+    #: them to read the rebuild's jump tables.  Not serialized, like the bytes.
+    self_relocations: dict[int, int] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         """Reject a ``matched`` flag that contradicts ``status``."""
@@ -3317,6 +3324,7 @@ def _extract_and_compare(
             full_target_size=orig_tgt_len,
         )
         result.relocation_bindings = bindings
+        result.self_relocations = self_relocations(full_relocs)
         return result
     msg = (
         f"RELOC-NORM MATCH ({len(relocs)} relocs)"
@@ -3327,6 +3335,7 @@ def _extract_and_compare(
     )
     result = classify_compare_result(matched, msg, target_bytes, obj_bytes, relocs, inv_relocs)
     result.relocation_bindings = bindings
+    result.self_relocations = self_relocations(full_relocs)
     return result
 
 

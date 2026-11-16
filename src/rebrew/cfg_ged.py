@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import NamedTuple
 lazy import math
 lazy from collections import Counter
 lazy from collections.abc import Callable
@@ -38,7 +39,7 @@ lazy from typing import Any
 
 import capstone
 
-lazy from rebrew.analysis import capstone_handle, instruction_text
+lazy from rebrew.analysis import Insn, capstone_handle, instruction_text
 lazy from rebrew.jump_table import BOUND_WINDOW, MAX_TABLE_ENTRIES, dispatch_operand, index_bound
 
 #: Terminators that end a basic block.
@@ -109,6 +110,11 @@ _MAX_DECODE_PASSES = 4
 #: table: ``mov cl, byte ptr [eax + idx]`` or ``movzx ecx, byte ptr [eax + idx]``.
 _BYTE_INDEX_RE = re.compile(r"^([a-z]+), byte ptr \[([a-z]+) \+ 0x([0-9a-f]+)\]$")
 _FULL_REG = {"al": "eax", "bl": "ebx", "cl": "ecx", "dl": "edx"}
+#: Listing mnemonics of a jump-table address entry, a byte index-table entry,
+#: and a stretch of bytes that decodes as no instruction.
+TABLE_ADDRESS_MNEMONIC = "dd"
+TABLE_INDEX_MNEMONIC = "db"
+UNDECODED_MNEMONIC = "db"
 #: Instructions that name the index register first without writing it.
 _COMPARES = frozenset({"cmp", "test"})
 #: ``jb`` and its aliases: taken when a ``sub`` borrowed (the index went negative).
@@ -365,6 +371,95 @@ def jump_table_layout(
     skipped = {off for start, end in skip for off in range(start, end)}
     entries = [e for e in entries if all(e.va - va + k in skipped for k in range(e.width))]
     return TableLayout(insns, tables, entries)
+
+
+class Listing(NamedTuple):
+    """A function's listing rows (see :func:`listing_items`)."""
+
+    rows: list[Insn]
+    #: VAs of the rows that are jump-table entries.
+    table_entries: frozenset[int]
+    #: VAs of the rows that start a jump table.
+    table_starts: frozenset[int]
+    #: VAs of the rows holding bytes that decode as no instruction.
+    undecoded: frozenset[int]
+
+
+def listing_items(
+    code: bytes,
+    va: int,
+    cs_arch: str | int,
+    cs_mode: str | int,
+    read_image: ImageReader | None = None,
+    resolved: bytes | None = None,
+) -> Listing:
+    """*code* as listing rows in address order.
+
+    Every byte is in one row: an instruction, a jump-table entry
+    (``TABLE_ADDRESS_MNEMONIC`` with the case target, or
+    ``TABLE_INDEX_MNEMONIC`` with the address-table slot, as a ``0x`` number)
+    or an undecodable stretch (``UNDECODED_MNEMONIC``, its bytes as
+    space-separated hex).  32-bit x86 reads the tables
+    :func:`jump_table_layout` resolves; any other ISA decodes linearly.
+    *resolved* is *code* with its self-references applied (a compiled
+    object's relocations to its own labels): the tables are found in it, and
+    rows keep *code*'s bytes and operands.
+    """
+    from rebrew.analysis import disasm_insns, resolve_capstone
+
+    arch, mode = resolve_capstone(cs_arch), resolve_capstone(cs_mode)
+    rows: list[Insn]
+    entries: frozenset[int] = frozenset()
+    starts: frozenset[int] = frozenset()
+    if arch == capstone.CS_ARCH_X86 and mode == capstone.CS_MODE_32:
+        layout = jump_table_layout(code if resolved is None else resolved, va, mode, read_image)
+        insns = layout.insns
+        if resolved is not None:
+            insns = _decode_around(
+                capstone_handle(arch, mode), code, va, _entry_ranges(layout.entries, va)
+            )
+        rows = [
+            Insn(
+                i.address,
+                i.size,
+                i.mnemonic,
+                i.op_str,
+                code[i.address - va : i.address - va + i.size],
+            )
+            for i in insns
+        ]
+        rows += [
+            Insn(
+                e.va,
+                e.width,
+                TABLE_ADDRESS_MNEMONIC if e.width == _TABLE_ENTRY_WIDTH else TABLE_INDEX_MNEMONIC,
+                f"0x{e.value:x}",
+                code[e.va - va : e.va - va + e.width],
+            )
+            for e in layout.entries
+        ]
+        rows.sort(key=lambda row: row.va)
+        entries = frozenset(e.va for e in layout.entries)
+        starts = frozenset(e.va for e in layout.entries if e.first)
+    else:
+        rows = disasm_insns(code, va, arch, mode)
+    out: list[Insn] = []
+    undecoded: set[int] = set()
+    pos = va
+    for row in [*rows, Insn(va + len(code), 0, "", "", b"")]:
+        if row.va > pos:
+            gap = code[pos - va : row.va - va]
+            out.append(Insn(pos, len(gap), UNDECODED_MNEMONIC, gap.hex(" "), gap))
+            undecoded.add(pos)
+        if row.size:
+            out.append(row)
+        pos = max(pos, row.va + row.size)
+    return Listing(out, entries, starts, frozenset(undecoded))
+
+
+def table_label(va: int) -> str:
+    """The listing label of the jump table at *va*."""
+    return f"jump_table_{va:08X}"
 
 
 def _decode_around(md: Any, code: bytes, va: int, skip: list[tuple[int, int]]) -> list[Any]:
