@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.55.0] - 2026-11-16
+
 ### Changed
 
 - `instructions` (from `rebrew test --json --instructions`, `rebrew verify --json --instructions` and the `verify_function` and `verify_target` ops) names relocations: a rebuilt instruction holding relocation fields carries `symbols`, the object file's symbol of each field in byte order (`CompareResult.reloc_symbols`, not serialized). The dispatch schema fixture gains `symbols` and the `op` and `kind` enums of `rebrew.instruction_listing` (SHA-256 503edda2ea4614af595292c59faad4bc28db42567ecee9b1b3231a4aa20b6874), and the ops test's schema validator checks `enum`.
