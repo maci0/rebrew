@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.47.0] - 2026-11-16
+
 ### Added
 
 - `rebrew ops serve` streams a long call's counts to a caller whose `Accept` names `application/x-ndjson`, and `rebrew ops call` writes them to the descriptor `RELUMEA_DISPATCH_PROGRESS_FD` names: `verify_target` and `build` report how many functions of how many their `verify` and `build round-trip` have finished, from the total before the first compile to the last ([CLI.md](docs/CLI.md#rebrew-ops-serve)). A whole-target verification of 316 functions reported nothing for its 18 minutes, so the backend showed it at 0% and it looked hung. Callers that do not ask get the plain JSON answer as before.
