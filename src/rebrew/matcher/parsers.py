@@ -243,7 +243,9 @@ def _parse_coff(
     sec_offsets: list[int] = []
     for s in symbols:
         sym_section = s.section
-        if sym_section is None or str(s.name).startswith("$"):
+        # "." names are section symbols and the line-number records .bf/.lf/.ef,
+        # which sit inside a function and do not end it.
+        if sym_section is None or str(s.name).startswith(("$", ".")):
             continue
         if target_off is not None and getattr(sym_section, "offset", None) != target_off:
             continue

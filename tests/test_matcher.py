@@ -108,6 +108,19 @@ def test_parse_coff_obj_long_name(tmp_path: Path) -> None:
     assert code_result == code
 
 
+def test_parse_coff_obj_line_number_symbols_do_not_end_the_function(tmp_path: Path) -> None:
+    """``.bf``/``.lf``/``.ef`` (an object built with COFF line numbers) are no
+    boundary: ``.lf`` at offset 1 cut the function to its first byte."""
+    from bin_util import make_coff_obj
+
+    code = b"\xb8\x01\x00\x00\x00\xc3"  # mov eax, 1; ret
+    obj_path = tmp_path / "test.obj"
+    obj_path.write_bytes(make_coff_obj(code, section_symbols=[(".bf", 0), (".lf", 1), (".ef", 6)]))
+
+    code_result, _relocs = parse_obj_symbol_bytes(obj_path, "_myfunc")
+    assert code_result == code + b"\x00\x00"  # the section's alignment padding
+
+
 def test_parse_coff_obj_symbol_not_found(tmp_path: Path) -> None:
     """Test COFF parser returns None for missing symbol."""
     code = b"\xc3"
