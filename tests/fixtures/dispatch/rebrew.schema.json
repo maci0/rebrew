@@ -2835,6 +2835,9 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "boundaries": {
+            "type": "integer"
+          },
           "functions": {
             "items": {
               "additionalProperties": false,

@@ -1301,6 +1301,9 @@ class TestStoredFileOps:
         config = WorkerConfig(filestore.resolve(), workspace.resolve())
         reply = _call(config, "rebrew.library_functions", {"sha256": digest, "file": key})
         functions = {f["name"]: f for f in reply["functions"]}
+        # Rows listed under an earlier boundary rule (1: every COFF symbol a
+        # function) describe fragments; a store compares this stamp.
+        assert reply["boundaries"] == 2
         assert set(functions) == {"_func1", "_func2"}
         assert (functions["_func1"]["arch"], functions["_func1"]["size"]) == ("x86_32", 16)
         assert "push ebp" in functions["_func1"]["listing"]

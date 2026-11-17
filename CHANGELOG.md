@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Added
+
+- `rebrew.library_functions` answers `boundaries`, the version of the rule that cuts an object into functions (`rebrew.gen_flirt_pat.FUNCTION_BOUNDARIES`, new, `2`; a reply without it is from 6.56.0 or before, rule `1`, every COFF symbol a function) ([CLI.md](docs/CLI.md#rebrew-ops-serve)). A reference pack built from these rows can record it and rebuild a library listed under another rule instead of mixing old and new function boundaries. The dispatch schema fixture gains the optional field (SHA-256 37238c8dd30717e176dfcb5c443e035bebe388ee10b40d4daad2902b21033a2b).
+
 ### Changed
 
 - **Breaking:** `rebrew.gen_flirt_pat.ObjectFunction`, the rows of `rebrew.gen_flirt_pat.parse_coff_obj` (also imported as `rebrew.lib_match.parse_coff_obj` and `rebrew.lib_presence.parse_coff_obj`) and `rebrew.gen_flirt_pat.parse_elf_obj`, gains a fifth field `labels`: the named symbols inside a function that start no function of their own, offset in `code` to name (empty for ELF). Code that unpacks a row into four names fails; read the fields by name.

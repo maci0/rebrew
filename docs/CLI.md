@@ -7255,6 +7255,12 @@ Op details the contract leaves open:
   `packer` naming the packer when true; `opt_level` (`/O1`, `/O2` or a mix)
   and `codegen` (the VC6 code generator) come from MSVC codegen
   fingerprints. Each of the five is null when the detector cannot tell.
+- `rebrew.library_functions` answers `boundaries` beside `functions`: the
+  version of the rule that cuts an object into functions
+  (`rebrew.gen_flirt_pat.FUNCTION_BOUNDARIES`, `2`). Under `1` (6.56.0 and
+  before, no field) every named symbol of a COFF code section was a function,
+  so MSVC's `memcpy.obj` was 37 fragments; rows stored under another value
+  describe other functions and are rebuilt, not mixed.
 - `rebrew.library_functions`, `rebrew.identify_compiler` and
   `rebrew.splat_parse` read a stored file or the request text, never a
   project. `splat_parse` opens nothing the config names and refuses a config

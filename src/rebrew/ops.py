@@ -2187,14 +2187,16 @@ def library_functions(config: WorkerConfig, req: StoredFile) -> dict[str, Any]:
     with their code disassembled at offset 0 in the object's own ISA: NASM
     source for x86_32, ``asm`` lines otherwise, so a listing compares with a
     linked binary's.  Members of an unknown machine and functions that decode
-    to nothing are left out; the rest keep archive order.
+    to nothing are left out; the rest keep archive order.  ``boundaries`` is
+    :data:`rebrew.gen_flirt_pat.FUNCTION_BOUNDARIES`, the rule the functions
+    were cut by: rows stored under another value describe other functions.
     """
     from rebrew.asm import disassemble_to_nasm
     from rebrew.cfg_ged import apply_self_relocations
     from rebrew.formats.archives import parse_archive
     from rebrew.formats.binary_loader import capstone_config_for, object_arch
     from rebrew.formats.binary_model import BinaryInfo
-    from rebrew.gen_flirt_pat import parse_coff_obj, parse_elf_obj
+    from rebrew.gen_flirt_pat import FUNCTION_BOUNDARIES, parse_coff_obj, parse_elf_obj
 
     functions: list[dict[str, Any]] = []
     with binary_file(config, req.file, req.url, req.sha256, "file") as path:
@@ -2228,7 +2230,7 @@ def library_functions(config: WorkerConfig, req: StoredFile) -> dict[str, Any]:
                     functions.append(
                         {"name": name, "size": len(code), "arch": arch, "listing": listing}
                     )
-    return {"functions": functions}
+    return {"functions": functions, "boundaries": FUNCTION_BOUNDARIES}
 
 
 # ---------------------------------------------------------------------------

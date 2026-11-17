@@ -64,6 +64,12 @@ class ObjectFunction(NamedTuple):
     labels: dict[int, str]
 
 
+#: Version of the rule :func:`parse_coff_obj` draws function boundaries by.  1
+#: (rebrew 6.56.0 and before): every named symbol of a code section started a
+#: function, so assembly labels were functions.  2: :func:`parse_coff_obj`'s
+#: docstring.  Rows stored under another version describe other functions.
+FUNCTION_BOUNDARIES = 2
+
 #: IMAGE_FILE_MACHINE_I386, the COFF machine :func:`_i386_function_starts` reads.
 _COFF_MACHINE_I386 = 0x14C
 #: Longest x86 instruction, in bytes.
