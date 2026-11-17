@@ -436,13 +436,13 @@ def _names_at_start(hits: list[Any]) -> list[str]:
     A signature's names at other offsets (``:0064@ LeadUpVec``, a label of
     the module or a second entry point) name other addresses, not the match.
     """
-    names: list[str] = []
+    names: dict[str, None] = {}
     for m in hits:
         for n in m.names:
             label, offset = (n[0], n[2]) if isinstance(n, tuple) else (str(n), 0)
-            if label and offset == 0 and label not in names:
-                names.append(label)
-    return names
+            if label and offset == 0:
+                names.setdefault(label)
+    return list(names)
 
 
 def iter_match_offsets(code_size: int, *, stride: int = 16, min_window: int = 32) -> range:
