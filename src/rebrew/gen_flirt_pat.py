@@ -58,12 +58,119 @@ class ObjectFunction(NamedTuple):
     #: the addend; an unlinked object leaves the address unset, which
     #: :func:`rebrew.cfg_ged.apply_self_relocations` fills in.  Empty for ELF.
     self_relocations: dict[int, int]
+    #: Named symbols inside the function that start no function of their own
+    #: (offset in *code* -> name): the internal labels of a hand-written
+    #: assembly routine, its jump tables.  Empty for ELF.
+    labels: dict[int, str]
+
+
+#: IMAGE_FILE_MACHINE_I386, the COFF machine :func:`_i386_function_starts` reads.
+_COFF_MACHINE_I386 = 0x14C
+#: Longest x86 instruction, in bytes.
+_X86_MAX_INSN = 15
+#: Instructions after which execution does not continue at the next byte.
+_X86_NO_FALLTHROUGH = frozenset(
+    {"ret", "retf", "iret", "iretd", "iretq", "jmp", "ljmp", "ud2", "hlt", "int3"}
+)
+
+
+def _i386_function_starts(
+    section_idx: int,
+    content: bytes,
+    candidates: list[tuple[int, bool]],
+    relocated: set[int],
+    refs: dict[int, tuple[int, int]],
+    entries: dict[tuple[int, int], int],
+) -> set[int]:
+    """Offsets of *candidates* (``(offset, external)``) that start functions.
+
+    *content* is the code of section *section_idx*; *relocated* is every
+    byte of it a relocation fixes up; *refs*
+    maps each of its DIR32 fields that names a defined symbol to that
+    symbol's ``(section index, offset)``; *entries* maps each DIR32 field of
+    the object (``(section index, offset)``) that addresses this section to
+    the offset it resolves to (the symbol plus the signed addend).  See
+    :func:`parse_coff_obj`.
+    """
+    import capstone
+
+    md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+    md.detail = True
+    reached: set[int] = set()
+    called: set[int] = set()
+    tables_read: set[tuple[int, int]] = set()
+
+    def table(section: int, at: int) -> list[int]:
+        """The case offsets of the jump table at *at*: a run of entry fields."""
+        cases = []
+        while (section, at) in entries and (section, at) not in tables_read:
+            tables_read.add((section, at))
+            cases.append(entries[section, at])
+            at += 4
+        return cases
+
+    def descend(start: int) -> None:
+        work = [start]
+        while work:
+            at = work.pop()
+            while 0 <= at < len(content) and at not in reached:
+                reached.add(at)
+                insn = next(md.disasm(content[at : at + _X86_MAX_INSN], at, 1), None)
+                if insn is None:
+                    break
+                end = at + insn.size
+                in_place = relocated.isdisjoint(range(at, end))
+                is_call = insn.group(capstone.CS_GRP_CALL)
+                if in_place and insn.op_count(capstone.x86.X86_OP_IMM):
+                    target = insn.op_find(capstone.x86.X86_OP_IMM, 1).imm
+                    if is_call:
+                        called.add(target)
+                    elif insn.group(capstone.CS_GRP_JUMP):
+                        work.append(target)
+                if not is_call:
+                    for field in range(at, end):
+                        if field in refs and (cases := table(*refs[field])):
+                            work.extend(cases)
+                            if refs[field][0] == section_idx:
+                                reached.add(refs[field][1])
+                if insn.mnemonic in _X86_NO_FALLTHROUGH:
+                    break
+                at = end
+
+    starts: set[int] = set()
+    for offset, external in sorted(candidates):
+        if offset in starts:
+            continue
+        if external or offset in called or offset not in reached:
+            starts.add(offset)
+            descend(offset)
+    return starts
 
 
 def parse_coff_obj(obj_data: bytes) -> Iterator[ObjectFunction]:
     """Parse a COFF .obj and yield its functions (:class:`ObjectFunction`).
 
     Uses LIEF for parsing. ``obj_data`` is raw bytes of a COFF .obj file.
+
+    A function runs from its symbol to the next function's symbol in the same
+    section.  The candidates are the EXTERNAL and STATIC named symbols of a code
+    section; on i386 and AMD64 a candidate starts a function when it is
+    EXTERNAL, when code of the section calls it, or when no function before it
+    reaches it.  Reaching follows each start's code by fall-through and by
+    direct ``jmp``/``jcc`` the assembler resolved in place (a branch through a
+    relocation goes to another function), and through jump tables: a
+    non-call instruction whose DIR32 field names a run of DIR32 fields of the
+    same section dispatches through every entry of the run.  An address taken
+    by ``push``/``mov`` is not reached.  The symbol type does not count: MSVC's
+    hand-written ``memcpy.obj`` marks ``LeadUp1``, ``TrailUp0`` and the other
+    internal labels of ``_memcpy`` as functions, and each was its own
+    function, cutting ``_memcpy`` to 100 bytes.  A candidate that does not
+    start a function stays in :attr:`ObjectFunction.labels` of the function
+    holding it.  Known misses: a STATIC function that only follows a
+    no-return call (``call _exit``) with nothing between is reached by
+    fall-through and becomes a label, unless the section calls it; other
+    machines keep every candidate a function.  COMDAT sections need no rule
+    of their own: each section is read on its own.
     """
     import lief
 
@@ -71,14 +178,6 @@ def parse_coff_obj(obj_data: bytes) -> Iterator[ObjectFunction]:
     if loaded is None:
         return
     coff, symbols, names = loaded
-    # Pre-build per-section sorted symbol offsets to avoid O(n^2) scans
-    # Section names can repeat; only the section index owns its symbol offsets.
-    section_sym_offsets: dict[int, list[int]] = {}
-    for sym, sym_name in zip(symbols, names, strict=True):
-        if sym.section is not None and not sym_name.startswith("$"):
-            section_sym_offsets.setdefault(sym.section_idx, []).append(sym.value)
-    for offsets in section_sym_offsets.values():
-        offsets.sort()
 
     # EXTERNAL alone is not enough: MSVC marks CRT helpers such as _initterm
     # and _parse_cmdline STATIC, so they are absent from the archive symbol
@@ -88,55 +187,100 @@ def parse_coff_obj(obj_data: bytes) -> Iterator[ObjectFunction]:
         lief.COFF.Symbol.STORAGE_CLASS.EXTERNAL,
         lief.COFF.Symbol.STORAGE_CLASS.STATIC,
     )
-
+    # Named symbols of each code section, by section index (names can repeat).
+    # STATIC is also the class of section symbols (".text"), which alias the
+    # first function; "$" labels are the compiler's own.
+    candidates: dict[int, list[tuple[Any, str]]] = {}
     for sym, sym_name in zip(symbols, names, strict=True):
-        # Function symbols (external or file-static) in code sections
-        if sym.storage_class not in _FUNC_CLASSES or sym.section is None:
-            continue
-        # STATIC is also the class used for section symbols (".text"), which
-        # alias the first real function; skip them so names stay meaningful.
-        if sym_name.startswith("."):
-            continue
+        if (
+            sym.storage_class in _FUNC_CLASSES
+            and sym.section is not None
+            and sym.section.characteristics & 0x20  # IMAGE_SCN_CNT_CODE
+            and not sym_name.startswith((".", "$"))
+        ):
+            candidates.setdefault(sym.section_idx, []).append((sym, sym_name))
 
-        section = sym.section
-        if not (section.characteristics & 0x20):  # IMAGE_SCN_CNT_CODE
-            continue
-
+    i386 = int.from_bytes(obj_data[:2], "little") == _COFF_MACHINE_I386
+    # Every DIR32 field naming a defined symbol: (section, field offset) ->
+    # (symbol's section, symbol's offset, the offset the field resolves to).
+    dir32: dict[tuple[int, int], tuple[int, int, int]] = {}
+    for section_idx, section in enumerate(coff.sections, 1) if i386 else ():
         content = bytes(section.content)
-        func_start = sym.value
-        func_end = len(content)
-
-        # Find the next symbol in the same section via sorted offsets (O(log n))
-        offsets = section_sym_offsets.get(sym.section_idx, [])
-        idx = bisect.bisect_right(offsets, func_start)
-        if idx < len(offsets):
-            func_end = offsets[idx]
-
-        if func_start >= func_end or func_end > len(content):
-            continue
-
-        code = content[func_start:func_end]
-
-        # Collect relocation byte offsets (expanded to cover full fixup width)
-        reloc_offsets = set()
-        self_relocations: dict[int, int] = {}
         for reloc in section.relocations:
-            rva = reloc.address
-            if func_start <= rva < func_end:
-                func_rel = rva - func_start
-                fixup_bytes = _reloc_fixup_width(reloc)
-                for k in range(fixup_bytes):
-                    reloc_offsets.add(func_rel + k)
-                target = reloc.symbol
-                if (
-                    str(reloc.type).rsplit(".", 1)[-1] == _I386_DIR32
-                    and target is not None
-                    and target.section_idx == sym.section_idx
-                ):
-                    self_relocations[func_rel] = target.value - func_start
-
-        if len(code) >= 4:
-            yield ObjectFunction(sym_name, code, reloc_offsets, self_relocations)
+            target = reloc.symbol
+            if (
+                str(reloc.type).rsplit(".", 1)[-1] == _I386_DIR32
+                and target is not None
+                and target.section_idx > 0
+                and reloc.address + 4 <= len(content)
+            ):
+                field = content[reloc.address : reloc.address + 4]
+                addend = int.from_bytes(field, "little", signed=True)
+                dir32[section_idx, reloc.address] = (
+                    target.section_idx,
+                    target.value,
+                    target.value + addend,
+                )
+    for section_idx, section_syms in candidates.items():
+        section = section_syms[0][0].section
+        content = bytes(section.content)
+        if not i386:
+            starts = {sym.value for sym, _ in section_syms}
+        else:
+            relocated: set[int] = set()
+            for reloc in section.relocations:
+                relocated.update(range(reloc.address, reloc.address + _reloc_fixup_width(reloc)))
+            starts = _i386_function_starts(
+                section_idx,
+                content,
+                [
+                    (sym.value, sym.storage_class == lief.COFF.Symbol.STORAGE_CLASS.EXTERNAL)
+                    for sym, _ in section_syms
+                ],
+                relocated,
+                {
+                    at: (target_section, value)
+                    for (field_section, at), (target_section, value, _) in dir32.items()
+                    if field_section == section_idx
+                },
+                {
+                    field: resolved
+                    for field, (target_section, _, resolved) in dir32.items()
+                    if target_section == section_idx
+                },
+            )
+        ordered = sorted(starts)
+        for sym, sym_name in section_syms:
+            if sym.value not in starts:
+                continue
+            func_start = sym.value
+            idx = bisect.bisect_right(ordered, func_start)
+            func_end = ordered[idx] if idx < len(ordered) else len(content)
+            if func_end > len(content) or func_end - func_start < 4:
+                continue
+            labels = {
+                other.value - func_start: name
+                for other, name in section_syms
+                if func_start < other.value < func_end
+            }
+            # Relocation byte offsets, expanded to the full fixup width.
+            reloc_offsets: set[int] = set()
+            self_relocations: dict[int, int] = {}
+            for reloc in section.relocations:
+                rva = reloc.address
+                if func_start <= rva < func_end:
+                    func_rel = rva - func_start
+                    reloc_offsets.update(range(func_rel, func_rel + _reloc_fixup_width(reloc)))
+                    target = reloc.symbol
+                    if (
+                        str(reloc.type).rsplit(".", 1)[-1] == _I386_DIR32
+                        and target is not None
+                        and target.section_idx == section_idx
+                    ):
+                        self_relocations[func_rel] = target.value - func_start
+            yield ObjectFunction(
+                sym_name, content[func_start:func_end], reloc_offsets, self_relocations, labels
+            )
 
 
 def parse_coff_aliases(obj_data: bytes) -> Iterator[tuple[str, str]]:
@@ -278,7 +422,7 @@ def parse_elf_obj(obj_data: bytes, *, include_local: bool = False) -> Iterator[O
                     if func_rel + k < len(code):
                         reloc_offsets.add(func_rel + k)
 
-        yield ObjectFunction(str(sym.name), code, reloc_offsets, {})
+        yield ObjectFunction(str(sym.name), code, reloc_offsets, {}, {})
 
 
 # x86 COFF fixup widths by relocation type (bytes); LIEF reports size 0.
@@ -420,12 +564,18 @@ def _crc16_flirt(buf: bytes) -> int:
 
 
 def bytes_to_pat_line(
-    name: str, code_bytes: bytes, reloc_offsets: set[int], max_lead: int = 32
+    name: str,
+    code_bytes: bytes,
+    reloc_offsets: set[int],
+    max_lead: int = 32,
+    labels: dict[int, str] | None = None,
 ) -> str:
     """Convert function name + bytes into a FLIRT .pat format line.
 
     Relocation bytes are masked with '..' in the leading portion; the CRC
     window covers the tail up to the first tail relocation (sigmake rule).
+    Each of *labels* (:attr:`ObjectFunction.labels`) follows the name as a
+    local name at its offset, ``:0064@ LeadUpVec``.
     """
     lead_len = min(len(code_bytes), max_lead)
     lead_parts: list[str] = [
@@ -452,7 +602,8 @@ def bytes_to_pat_line(
 
     total_size = len(code_bytes)
 
-    return f"{lead} {crc_len:02X} {crc:04X} {total_size:04X} :0000 {name}"
+    local = "".join(f" :{at:04X}@ {label}" for at, label in sorted((labels or {}).items()))
+    return f"{lead} {crc_len:02X} {crc:04X} {total_size:04X} :0000 {name}{local}"
 
 
 # IDA's guidance: a .pat signature without CRC protection needs at least 16
@@ -517,7 +668,8 @@ def generate_pat(lib_file: Path, out_path: Path) -> dict[str, int | bool]:
         else:
             obj_iter = parse_coff_obj(obj_data)
         try:
-            for sym_name, code, relocs, _labels in obj_iter:
+            for function in obj_iter:
+                sym_name, code, relocs = function.name, function.code, function.relocations
                 if not sym_name.strip():
                     # A .pat line's trailing field is the symbol name; a
                     # nameless line is malformed and poisons the whole file
@@ -525,7 +677,7 @@ def generate_pat(lib_file: Path, out_path: Path) -> dict[str, int | bool]:
                     skipped += 1
                     continue
                 if len(code) >= 4:
-                    line = bytes_to_pat_line(sym_name, code, relocs)
+                    line = bytes_to_pat_line(sym_name, code, relocs, labels=function.labels)
                     if line in seen:
                         continue
                     seen.add(line)

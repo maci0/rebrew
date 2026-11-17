@@ -9,7 +9,28 @@ from bin_util import make_coff_obj, make_lib_archive
 from cli_json import cli_payload
 from hypothesis import strategies as st
 
-from rebrew.gen_flirt_pat import _crc16_flirt, bytes_to_pat_line, parse_archive
+from rebrew.compiler.toolchain_paths import toolchains_repo
+from rebrew.gen_flirt_pat import ObjectFunction, _crc16_flirt, bytes_to_pat_line, parse_archive
+
+#: MSVC 6.0's multithreaded static CRT, where the recompile-toolchains checkout
+#: (REBREW_TOOLCHAINS_DIR) vendors the compiler.
+_VC98_LIBCMT = toolchains_repo() / "msvc" / "6.0-win32" / "source" / "VC98" / "Lib" / "LIBCMT.LIB"
+
+#: One assembly routine ``_copy`` with a jump table ``Vec`` and labels
+#: ``Case0``-``Case2`` and ``Tail``, then ``_next``, which calls ``Helper``.
+_ASM_ROUTINE = bytes.fromhex(
+    "8b442404"  # 00 mov eax, [esp+4]
+    "83f802"  # 04 cmp eax, 2
+    "7723"  # 07 ja Tail
+    "ff248500000000"  # 09 jmp [eax*4 + Vec]   (DIR32 at 0c)
+    "000000000000000000000000"  # 10 Vec: dd Case0, Case1, Case2
+    "31c0c3"  # 1c Case0: xor eax, eax; ret
+    "b801000000c3"  # 1f Case1: mov eax, 1; ret
+    "b802000000eb00"  # 25 Case2: mov eax, 2; jmp Tail
+    "40c3"  # 2c Tail: inc eax; ret
+    "e801000000c3"  # 2e _next: call Helper; ret
+    "40c3"  # 34 Helper: inc eax; ret
+)
 
 # ---------------------------------------------------------------------------
 # parse_archive
@@ -469,12 +490,12 @@ class TestGenFlirtPatCli:
         def _parse_coff(obj):
             if raise_parse:
                 raise ValueError("corrupt")
-            yield "_my_func", b"\x55\x8b\xec\x5d\xc3", {1, 2}, {}
+            yield ObjectFunction("_my_func", b"\x55\x8b\xec\x5d\xc3", {1, 2}, {}, {})
 
         monkeypatch.setattr("rebrew.gen_flirt_pat.parse_coff_obj", _parse_coff)
         monkeypatch.setattr(
             "rebrew.gen_flirt_pat.bytes_to_pat_line",
-            lambda name, code, relocs: f"LEAD {name}",
+            lambda name, code, relocs, labels: f"LEAD {name}",
         )
 
     def test_missing_lib_errors(self, tmp_path: Path, monkeypatch) -> None:
@@ -546,7 +567,7 @@ class TestParseCoffObjReal:
         blob = make_coff_obj(code, relocs=[(2, 0x0006, "_extern_var")])
         results = list(parse_coff_obj(blob))
         assert len(results) == 1
-        name, out_code, relocs, _ = results[0]
+        name, out_code, relocs = results[0].name, results[0].code, results[0].relocations
         assert name == "_myfunc"
         assert out_code == code
         # DIR32 fixup at 2 covers bytes 2..6 (full 4-byte width, not just
@@ -563,7 +584,7 @@ class TestParseCoffObjReal:
         )
         results = list(parse_coff_obj(blob))
         assert len(results) == 1
-        _, _, relocs, _ = results[0]
+        relocs = results[0].relocations
         # REL32 at 1 covers 1..5 excl. (bytes 1-4); DIR32 at 6 covers 6..10 excl.
         assert {1, 2, 3, 4} <= relocs
         assert {6, 7, 8, 9} <= relocs
@@ -591,8 +612,8 @@ class TestParseCoffObjReal:
         symbols += struct.pack("<8sIhHBB", b"_second", second_start, 2, 0x20, 2, 0)
         obj = file_header + headers + first + second + symbols + struct.pack("<I", 4)
         assert list(parse_coff_obj(obj)) == [
-            ("_first", first, set(), {}),
-            ("_second", second[second_start:], set(), {}),
+            ("_first", first, set(), {}, {}),
+            ("_second", second[second_start:], set(), {}, {}),
         ]
 
     @pytest.mark.parametrize("machine", [0x14C, 0x8664, 0x1C4])
@@ -602,7 +623,7 @@ class TestParseCoffObjReal:
         code = b"12345678"
         obj = bytearray(make_coff_obj(code, relocs=[(1, 0, "_unused")]))
         struct.pack_into("<H", obj, 0, machine)
-        assert list(parse_coff_obj(bytes(obj))) == [("_myfunc", code, set(), {})]
+        assert list(parse_coff_obj(bytes(obj))) == [("_myfunc", code, set(), {}, {})]
 
     @pytest.mark.parametrize(
         "kind,width",
@@ -627,7 +648,9 @@ class TestParseCoffObjReal:
         code = b"0123456789abcdef"
         obj = bytearray(make_coff_obj(code, relocs=[(2, kind, "_external")]))
         struct.pack_into("<H", obj, 0, 0x8664)
-        assert list(parse_coff_obj(bytes(obj))) == [("_myfunc", code, set(range(2, 2 + width)), {})]
+        assert list(parse_coff_obj(bytes(obj))) == [
+            ("_myfunc", code, set(range(2, 2 + width)), {}, {})
+        ]
 
     @pytest.mark.parametrize("machine,kind", [(0x14C, 0x0D), (0x8664, 0x0C)])
     def test_secrel7_masks_only_one_byte(self, machine: int, kind: int) -> None:
@@ -636,7 +659,7 @@ class TestParseCoffObjReal:
         code = b"12345678"
         obj = bytearray(make_coff_obj(code, relocs=[(2, kind, "_external")]))
         struct.pack_into("<H", obj, 0, machine)
-        assert list(parse_coff_obj(bytes(obj))) == [("_myfunc", code, {2}, {})]
+        assert list(parse_coff_obj(bytes(obj))) == [("_myfunc", code, {2}, {}, {})]
 
     def test_static_function_symbols_yielded(self) -> None:
         """Regression: MSVC marks CRT helpers such as _initterm and
@@ -650,7 +673,7 @@ class TestParseCoffObjReal:
             b"\x90\x90\x90\xc3\x31\xc0\x90\xc3",
             section_symbols=[("_static_helper", 4)],
         )
-        names = {name for name, _, _, _ in parse_coff_obj(blob)}
+        names = {row.name for row in parse_coff_obj(blob)}
         assert "_myfunc" in names
         assert "_static_helper" in names
 
@@ -660,7 +683,7 @@ class TestParseCoffObjReal:
         from rebrew.gen_flirt_pat import parse_coff_obj
 
         blob = make_coff_obj(b"\x90\x90\x90\xc3", section_symbols=[(".text", 0)])
-        names = {name for name, _, _, _ in parse_coff_obj(blob)}
+        names = {row.name for row in parse_coff_obj(blob)}
         assert ".text" not in names
         assert "_myfunc" in names
 
@@ -680,6 +703,125 @@ class TestParseCoffObjReal:
         assert len(results) == 1
         assert results[0][1] == b"\xc3\xcc\x00\x00"
 
+    def test_labels_of_an_assembly_routine_stay_inside_it(self) -> None:
+        """A hand-written routine whose internal labels are marked as functions
+        (MSVC's memcpy.obj) is one function; its labels keep their names."""
+        from rebrew.gen_flirt_pat import parse_coff_obj
+
+        blob = make_coff_obj(
+            _ASM_ROUTINE,
+            func_symbol="_copy",
+            extra_funcs=[("_next", 0x2E)],
+            section_symbols=[
+                ("Vec", 0x10),
+                ("Case0", 0x1C),
+                ("Case1", 0x1F),
+                ("Case2", 0x25),
+                ("Tail", 0x2C),
+                ("Helper", 0x34),
+            ],
+            label_relocs=[(0x0C, 6, 0x10), (0x10, 6, 0x1C), (0x14, 6, 0x1F), (0x18, 6, 0x25)],
+        )
+        rows = {row.name: row for row in parse_coff_obj(blob)}
+        assert sorted(rows) == ["Helper", "_copy", "_next"]
+        copy = rows["_copy"]
+        assert copy.code == _ASM_ROUTINE[:0x2E]
+        assert copy.labels == {
+            0x10: "Vec",
+            0x1C: "Case0",
+            0x1F: "Case1",
+            0x25: "Case2",
+            0x2C: "Tail",
+        }
+        assert copy.self_relocations == {0x0C: 0x10, 0x10: 0x1C, 0x14: 0x1F, 0x18: 0x25}
+        # A routine reached only by a call is a function of its own.
+        assert rows["_next"].code == _ASM_ROUTINE[0x2E:0x34]
+        assert rows["_next"].labels == {}
+        assert rows["Helper"].code.startswith(b"\x40\xc3")
+
+    def test_address_taken_static_function_stays_a_function(self) -> None:
+        """``push offset _cb`` takes an address; it does not reach the code."""
+        from rebrew.gen_flirt_pat import parse_coff_obj
+
+        code = b"\x68\x00\x00\x00\x00\xc3" + b"\x40\x40\x40\xc3"
+        blob = make_coff_obj(code, section_symbols=[("_cb", 6)], label_relocs=[(1, 6, 6)])
+        assert [(row.name, row.labels) for row in parse_coff_obj(blob)] == [
+            ("_myfunc", {}),
+            ("_cb", {}),
+        ]
+
+    def test_fall_through_label_is_inside(self) -> None:
+        """A STATIC symbol the code before it runs into is a label of that code."""
+        from rebrew.gen_flirt_pat import parse_coff_obj
+
+        code = b"\x40\x40\x40\x40" + b"\x48\x48\x48\xc3"
+        blob = make_coff_obj(code, section_symbols=[("_loop", 4)])
+        assert [(row.name, row.code, row.labels) for row in parse_coff_obj(blob)] == [
+            ("_myfunc", code, {4: "_loop"}),
+        ]
+
+    def test_line_number_symbols_do_not_end_a_function(self) -> None:
+        """``.bf``/``.lf``/``.ef`` (COFF line numbers, MFC's NAFXCW.LIB) are no
+        boundary: ``.lf`` at offset 1 cut a 6-byte function to 1 byte, so it
+        was dropped."""
+        from rebrew.gen_flirt_pat import parse_coff_obj
+
+        code = b"\xb8\x00\x00\x00\x00\xc3"
+        blob = make_coff_obj(code, section_symbols=[(".bf", 0), (".lf", 1), (".ef", 6)])
+        assert [(row.name, row.code) for row in parse_coff_obj(blob)] == [
+            ("_myfunc", code + b"\x00\x00")
+        ]
+
+    def test_other_machines_keep_every_symbol(self) -> None:
+        from rebrew.gen_flirt_pat import parse_coff_obj
+
+        code = b"\x40\x40\x40\x40" + b"\x48\x48\x48\xc3"
+        obj = bytearray(make_coff_obj(code, section_symbols=[("_loop", 4)]))
+        struct.pack_into("<H", obj, 0, 0x8664)
+        assert [row.name for row in parse_coff_obj(bytes(obj))] == ["_myfunc", "_loop"]
+
+    @pytest.mark.skipif(not _VC98_LIBCMT.is_file(), reason=f"{_VC98_LIBCMT} not on this machine")
+    def test_msvc6_memcpy_is_one_function(self) -> None:
+        from rebrew.gen_flirt_pat import parse_coff_obj
+
+        [obj] = [o for n, o in parse_archive(str(_VC98_LIBCMT)) if n.endswith("\\memcpy.obj")]
+        [row] = parse_coff_obj(obj)
+        assert row.name == "_memcpy"
+        assert len(row.code) == 821
+        assert len(row.labels) == 36
+        assert row.labels[0x64] == "LeadUpVec"
+        assert row.labels[0x158] == "TrailUp0"
+
+    def test_truncated_and_corrupt_symbol_tables_keep_rows_inside_the_code(self) -> None:
+        """Every truncation of the routine's object, and every symbol-table
+        byte set to 0x00/0x7F/0xFF, parses or is refused (ValueError), and
+        each row's relocations and labels stay inside its code."""
+        from rebrew.gen_flirt_pat import parse_coff_obj
+
+        blob = make_coff_obj(
+            _ASM_ROUTINE,
+            func_symbol="_copy",
+            extra_funcs=[("_next", 0x2E)],
+            section_symbols=[("Vec", 0x10), ("Case0", 0x1C), ("Tail", 0x2C)],
+            label_relocs=[(0x0C, 6, 0x10), (0x10, 6, 0x1C), (0x14, 6, 0x1F), (0x18, 6, 0x25)],
+        )
+        symtab = struct.unpack_from("<I", blob, 8)[0]
+        variants = [blob[:n] for n in range(len(blob))]
+        variants += [
+            blob[:at] + bytes([value]) + blob[at + 1 :]
+            for at in range(symtab, len(blob))
+            for value in (0x00, 0x7F, 0xFF)
+        ]
+        for variant in variants:
+            try:
+                rows = list(parse_coff_obj(variant))
+            except ValueError:
+                continue
+            for row in rows:
+                assert len(row.code) >= 4
+                assert all(0 <= at < len(row.code) for at in row.relocations)
+                assert all(0 < at < len(row.code) for at in row.labels)
+
     def test_tiny_blob_returns_nothing(self) -> None:
         from rebrew.gen_flirt_pat import parse_coff_obj
 
@@ -692,13 +834,47 @@ class TestParseCoffObjReal:
         blob = make_coff_obj(code, func_value=4)
         results = list(parse_coff_obj(blob))
         assert len(results) == 1
-        _, out_code, _, _ = results[0]
+        out_code = results[0].code
         # The slice includes trailing 4-byte alignment padding.
         assert out_code.startswith(b"\x55\x8b\xec\x5d\xc3")
 
 
 class TestGenFlirtPatEndToEnd:
     """Full pipeline: real .lib archive → COFF obj → .pat line (no stubs)."""
+
+    def test_labels_are_local_names_and_do_not_make_a_match_ambiguous(self, tmp_path: Path) -> None:
+        """The routine's five labels follow its name as local names, and a
+        scan names the routine, not one of more than three candidates."""
+        import flirt
+        from typer.testing import CliRunner
+
+        from rebrew.flirt import match_text
+        from rebrew.gen_flirt_pat import app
+
+        obj = make_coff_obj(
+            _ASM_ROUTINE,
+            func_symbol="_copy",
+            extra_funcs=[("_next", 0x2E)],
+            section_symbols=[
+                ("Vec", 0x10),
+                ("Case0", 0x1C),
+                ("Case1", 0x1F),
+                ("Case2", 0x25),
+                ("Tail", 0x2C),
+            ],
+            label_relocs=[(0x0C, 6, 0x10), (0x10, 6, 0x1C), (0x14, 6, 0x1F), (0x18, 6, 0x25)],
+        )
+        lib = tmp_path / "asm.lib"
+        lib.write_bytes(make_lib_archive([("asm.obj", obj)]))
+        out = tmp_path / "asm.pat"
+        assert CliRunner().invoke(app, ["-o", str(out), str(lib)]).exit_code == 0
+        [line] = [line for line in out.read_text(encoding="utf-8").splitlines() if "_copy" in line]
+        assert line.endswith(
+            ":0000 _copy :0010@ Vec :001C@ Case0 :001F@ Case1 :0025@ Case2 :002C@ Tail"
+        )
+        matcher = flirt.compile(flirt.parse_pat(out.read_text(encoding="utf-8")))
+        image = _ASM_ROUTINE[:0x2E] + b"\xcc" * 0x42
+        assert [m["name"] for m in match_text(matcher, image, 0x401000)] == ["_copy"]
 
     def test_generates_pat_from_real_lib(self, tmp_path: Path, monkeypatch) -> None:
 
@@ -784,9 +960,9 @@ class TestWeakSignatureCli:
 
         def _parse_coff(obj):
             # Weak: 7-byte prolog-only function → crc_len 0, 7 literal bytes.
-            yield "_weak_fn", b"\x55\x8b\xec\x83\xec\x08\xc3", set(), {}
+            yield ObjectFunction("_weak_fn", b"\x55\x8b\xec\x83\xec\x08\xc3", set(), {}, {})
             # Strong: 40 bytes, tail reloc → crc_len 0 but 32 literal lead bytes.
-            yield "_strong_fn", bytes(range(40)), {32}, {}
+            yield ObjectFunction("_strong_fn", bytes(range(40)), {32}, {}, {})
 
         monkeypatch.setattr("rebrew.gen_flirt_pat.parse_coff_obj", _parse_coff)
         out = tmp_path / "out.pat"
@@ -911,7 +1087,7 @@ class TestParseElfObjReal:
         from rebrew.gen_flirt_pat import parse_elf_obj
 
         obj_data = _compile_elf_object(tmp_path).read_bytes()
-        results = {name: (code, relocs) for name, code, relocs, _ in parse_elf_obj(obj_data)}
+        results = {f.name: (f.code, f.relocations) for f in parse_elf_obj(obj_data)}
         assert "helper_add" in results
         assert "helper_mul" in results
         assert "sum_array" in results
@@ -967,7 +1143,7 @@ class TestParseElfObjReal:
         monkeypatch.setattr(lief.ELF, "parse", lambda path: fake)
         results = list(parse_elf_obj(b"\x7fELF" + b"\x00" * 40))
         assert len(results) == 1
-        _name, code, relocs, _ = results[0]
+        relocs = results[0].relocations
         # Fixup at byte 2 sits inside word 0 — the whole word is masked.
         assert {0, 1, 2, 3} <= relocs
 
@@ -994,7 +1170,7 @@ class TestParseElfObjReal:
         monkeypatch.setattr(lief.ELF, "parse", lambda path: fake)
         results = list(parse_elf_obj(b"\x7fELF" + b"\x00" * 40))
         assert len(results) == 1
-        _name, code, relocs, _ = results[0]
+        relocs = results[0].relocations
         assert {4, 5, 6, 7} <= relocs
         assert 0 not in relocs
 

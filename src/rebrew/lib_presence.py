@@ -135,7 +135,8 @@ def audit_object(
         text_size, offsets = obj_text_symbol_offsets(object_path)
     except (OSError, ValueError) as exc:
         raise ValueError(f"cannot parse {object_path}: {exc}") from exc
-    for symbol, body, relocs, _labels in symbols:
+    for function in symbols:
+        symbol, body, relocs = function.name, function.code, function.relocations
         if not body:
             continue
         fixed_total = len(body) - sum(1 for i in relocs if 0 <= i < len(body))

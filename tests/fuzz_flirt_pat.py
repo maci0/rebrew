@@ -25,6 +25,7 @@ import atheris
 from rebrew.formats.archives import parse_archive
 from rebrew.formats.coff import _coff_symbol_names, load_coff
 from rebrew.gen_flirt_pat import (
+    ObjectFunction,
     _crc16_flirt,
     _reloc_span,
     bytes_to_pat_line,
@@ -37,20 +38,29 @@ from rebrew.gen_flirt_pat import (
 _MAX_RESULTS = 65536
 
 
-def _assert_obj_results(data: bytes, results: list[tuple[str, bytes, set[int]]]) -> None:
-    """Each (name, code, relocs) triple keeps its documented shape and
+def _assert_obj_results(data: bytes, results: list[ObjectFunction]) -> None:
+    """Each ObjectFunction keeps its documented shape and
     its reloc offsets point inside the code it masks (pair assertion
     across the trust boundary: the offsets the writer masks are exactly
     the bytes it reads back)."""
     assert isinstance(results, list) and len(results) <= _MAX_RESULTS
-    for name, code, relocs, _ in results:
+    for function in results:
+        name, code, relocs, labels = (
+            function.name,
+            function.code,
+            function.relocations,
+            function.labels,
+        )
         assert isinstance(name, str) and name
         assert isinstance(code, bytes) and len(code) >= 4
         assert isinstance(relocs, set)
         assert all(isinstance(r, int) and 0 <= r < len(code) for r in relocs)
-        line = bytes_to_pat_line(name, code, relocs)
+        # A label lies inside its function, after the function's own name.
+        assert all(0 < at < len(code) and isinstance(n, str) for at, n in labels.items())
+        line = bytes_to_pat_line(name, code, relocs, labels=labels)
         parts = line.split()
-        assert parts[-1] == name and parts[-2] == ":0000"
+        assert parts[5:7] == [":0000", name]
+        assert parts[7:] == [t for at in sorted(labels) for t in (f":{at:04X}@", labels[at])]
         lead = parts[0]
         lead_len = min(len(code), 32)
         assert len(lead) == 2 * lead_len
@@ -62,7 +72,7 @@ def _assert_obj_results(data: bytes, results: list[tuple[str, bytes, set[int]]])
                 assert int(pair, 16) == code[i]
         assert int(parts[3], 16) == len(code)
         # Determinism on exactly the same bytes.
-        assert bytes_to_pat_line(name, code, relocs) == line
+        assert bytes_to_pat_line(name, code, relocs, labels=labels) == line
         assert isinstance(is_weak_signature(line), bool)
 
 

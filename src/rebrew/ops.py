@@ -2215,10 +2215,11 @@ def library_functions(config: WorkerConfig, req: StoredFile) -> dict[str, Any]:
                 if obj.startswith(b"\x7fELF")
                 else parse_coff_obj(obj)
             )
-            for name, raw, _relocations, self_relocations in symbols:
+            for function in symbols:
+                name = function.name
                 # Linked at 0: its jump tables and their dispatch hold their
                 # labels' offsets, so the tables list as data, as in a target.
-                code = apply_self_relocations(raw, 0, self_relocations)
+                code = apply_self_relocations(function.code, 0, function.self_relocations)
                 if arch == NASM_ARCH:
                     listing, _stats = disassemble_to_nasm(code, 0, None)
                 else:

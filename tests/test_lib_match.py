@@ -432,9 +432,10 @@ class TestLibMatch:
         pe = tmp_path / "target.dll"
         pe.write_bytes(make_pe(code, image_base=image_base, text_va=text_va))
         lib = tmp_path / "mylib.lib"
-        # external _myfunc occupies offset 0..3; the STATIC helper follows.
+        # external _myfunc occupies offset 0..3 and returns; the STATIC helper
+        # follows (code that ran into it would make it a label of _myfunc).
         blob = make_coff_obj(
-            b"\x90\x90\x90\x90" + code,
+            b"\x90\x90\x90\xc3" + code,
             func_symbol="_myfunc",
             section_symbols=[("_static_helper", 4)],
         )

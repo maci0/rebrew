@@ -430,6 +430,21 @@ def find_func_size(code_data: bytes, offset: int, arch: str = "x86_32", endian: 
     return max_scan
 
 
+def _names_at_start(hits: list[Any]) -> list[str]:
+    """Distinct names the matched signatures give their first byte, in order.
+
+    A signature's names at other offsets (``:0064@ LeadUpVec``, a label of
+    the module or a second entry point) name other addresses, not the match.
+    """
+    names: list[str] = []
+    for m in hits:
+        for n in m.names:
+            label, offset = (n[0], n[2]) if isinstance(n, tuple) else (str(n), 0)
+            if label and offset == 0 and label not in names:
+                names.append(label)
+    return names
+
+
 def iter_match_offsets(code_size: int, *, stride: int = 16, min_window: int = 32) -> range:
     """Return a range of byte offsets to probe for FLIRT matches."""
     if code_size < min_window:
@@ -469,21 +484,8 @@ def match_text(
         hits = matcher.match(code_data[offset : offset + 1024])
         if not hits:
             continue
-        names: list[str] = []
-        seen_names: set[str] = set()
-        ambiguous = False
-        for m in hits:
-            for n in m.names:
-                label = n[0] if isinstance(n, tuple) else str(n)
-                if label and label not in seen_names:
-                    seen_names.add(label)
-                    names.append(label)
-                    if len(names) > max_ambiguous:
-                        ambiguous = True
-                        break
-            if ambiguous:
-                break
-        if not names or ambiguous:
+        names = _names_at_start(hits)
+        if not names or len(names) > max_ambiguous:
             continue  # ambiguous — never guess
         va = base_va + offset
         if va in seen_vas:
@@ -645,15 +647,7 @@ def main(
         hits = matcher.match(code_data[offset : offset + 1024])
         if not hits:
             return
-        names: list[str] = []
-        seen_names: set[str] = set()
-        for m in hits:
-            for n in m.names:
-                # n is (name, type, offset) tuple
-                label = n[0] if isinstance(n, tuple) else str(n)
-                if label and label not in seen_names:
-                    seen_names.add(label)
-                    names.append(label)
+        names = _names_at_start(hits)
         if not names:
             return
         va = base_va + offset

@@ -111,8 +111,10 @@ def index_library(path: Path) -> Index:
         members = parse_archive(str(path))
         for member_name, obj in members:
             owner = f"{path.name}:{member_name}"
-            for sym, code, relocs, _labels in parse_coff_obj(obj):
-                index.setdefault(sym, []).append((owner, code, relocs))
+            for function in parse_coff_obj(obj):
+                index.setdefault(function.name, []).append(
+                    (owner, function.code, function.relocations)
+                )
             aliases.extend((alias, target, owner) for alias, target in parse_coff_aliases(obj))
         # Resolve after reading all bodies; aliases can precede their targets or
         # form chains. Missing targets and cycles without a body cannot match.
@@ -456,8 +458,10 @@ def index_objects(objects: list[Path]) -> Index:
         except (OSError, ValueError) as exc:
             console.print(f"[yellow]skipping unreadable object {path}: {exc}[/yellow]")
             continue
-        for sym, code, relocs, _labels in symbols:
-            index.setdefault(sym, []).append((path.name, code, relocs))
+        for function in symbols:
+            index.setdefault(function.name, []).append(
+                (path.name, function.code, function.relocations)
+            )
     return index
 
 
