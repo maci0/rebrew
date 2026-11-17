@@ -174,8 +174,13 @@ def parse_coff_obj(obj_data: bytes) -> Iterator[ObjectFunction]:
     start a function stays in :attr:`ObjectFunction.labels` of the function
     holding it.  Known misses: a STATIC function that only follows a
     no-return call (``call _exit``) with nothing between is reached by
-    fall-through and becomes a label, unless the section calls it; other
-    machines keep every candidate a function.  COMDAT sections need no rule
+    fall-through and becomes a label, unless the section calls it (no such
+    case among the 97 objects of the VC98 and MFC libraries this rule
+    changes); data in a code section (EXCHSDK.LIB's
+    ``rtfpars.obj`` keeps its ``$S`` strings in a ``.text``) is decoded as
+    code, so a string whose bytes run on into the next becomes its label,
+    where it used to be a function of its own; other machines keep every
+    candidate a function.  COMDAT sections need no rule
     of their own: each section is read on its own.
     """
     import lief
