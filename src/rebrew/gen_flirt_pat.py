@@ -649,7 +649,9 @@ def generate_pat(lib_file: Path, out_path: Path) -> dict[str, int | bool]:
     else through :func:`parse_coff_obj` (MSVC .lib).
 
     Returns ``{"signatures": n, "skipped_members": n, "skipped_weak": n,
-    "written": bool}``. A library with no signable code (an import library,
+    "written": bool, "boundaries": FUNCTION_BOUNDARIES}``; a producer that
+    stores the patterns records ``boundaries`` and rebuilds a file made under
+    another value. A library with no signable code (an import library,
     or one whose members were all skipped) does not leave a ``---``-only
     ``.pat`` behind: ``rebrew doctor`` treats that file as a problem, and
     writing it again does not create signatures. An existing file at
@@ -716,6 +718,7 @@ def generate_pat(lib_file: Path, out_path: Path) -> dict[str, int | bool]:
         "skipped_members": skipped,
         "skipped_weak": weak_skipped,
         "written": bool(pat_lines),
+        "boundaries": FUNCTION_BOUNDARIES,
     }
 
 
@@ -744,6 +747,7 @@ def main(
                 "output": str(out_path),
                 "signatures": stats["signatures"],
                 "written": stats["written"],
+                "boundaries": stats["boundaries"],
                 "source": str(lib_file),
                 "skipped_members": skipped,
                 "skipped_weak": weak_skipped,

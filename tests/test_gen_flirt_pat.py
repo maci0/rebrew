@@ -521,6 +521,8 @@ class TestGenFlirtPatCli:
         assert data["signatures"] == 1
         assert data["written"] is True
         assert data["skipped_members"] == 0
+        # The boundary rule the patterns were cut by, for a producer to record.
+        assert data["boundaries"] == 2
         assert out.exists()
         assert "---" in out.read_text(encoding="utf-8")
 

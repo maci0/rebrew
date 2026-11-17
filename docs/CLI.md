@@ -6172,7 +6172,9 @@ backends: powers `rebrew binary analyze`'s library section.
 Generate FLIRT `.pat` files from a compiler `.lib` archive (e.g. MSVC6's
 `msvcrt.lib`), the input for `rebrew library scan-signatures`. A library with no signable
 code writes no `.pat`. JSON includes `written: false`, and an existing
-output path is removed.
+output path is removed. JSON `boundaries` is the version of the rule that cut
+the objects into functions (`2`; [FLIRT_SIGNATURES.md](FLIRT_SIGNATURES.md)):
+a `.pat` made under another rule is rebuilt.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |

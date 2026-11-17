@@ -88,16 +88,25 @@ uv run --frozen rebrew library signatures toolchain/msvc/6.0-win32/source/VC98/L
 **How it works:**
 
 1. Reads the archive's parseable COFF object members
-2. Finds public function symbols in each object
+2. Finds the function symbols in each object. On i386 a symbol starts a
+   function when it is external, called, or not reached from the code before
+   it by fall-through, an in-place jump or a jump table; the others (the
+   internal labels of a hand-written routine such as MSVC's `memcpy`) are
+   labels of their function (`rebrew.gen_flirt_pat.parse_coff_obj`)
 3. Reads the function's code bytes and COFF relocations
-4. Emits retained `.pat` lines with relocation bytes masked as `..`
+4. Emits retained `.pat` lines with relocation bytes masked as `..` and each
+   label after the name as a local name, `:0064@ LeadUpVec`, as IDA's sigmake
+   writes them
 
 Not every function produces a signature. Functions shorter than four bytes are
 omitted, identical output lines are deduplicated, and weak patterns are dropped:
 fewer than 16 literal leading bytes together with a CRC window shorter than eight
 bytes. Inspect `skipped_members`, `skipped_weak` and `written` in the `--json`
 report. If no signatures survive, `written` is false and no pattern file remains;
-an existing file at the output path is removed.
+an existing file at the output path is removed. `boundaries` is the version of
+the rule that cut the objects into functions (`FUNCTION_BOUNDARIES`, `2`); a
+`.pat` made by rebrew 6.56.0 or before (rule `1`) lists the labels of assembly
+routines as functions of their own and is rebuilt, not kept beside new ones.
 `rebrew.gen_flirt_pat.is_weak_signature(line)` applies the weak-pattern test to
 one `.pat` line, for tools that filter patterns from other generators.
 
