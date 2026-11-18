@@ -10,6 +10,8 @@ instruction-diff), the rebuilt instructions' symbols and the op and kind enums o
 rebrew.instruction_listing (backend branch objdiff2), the renderer of the
 rebrew.disassemble and rebrew.disassemble_bytes replies (backend branch listing-key),
 the boundaries of the rebrew.library_functions reply (rebrew branch coff-labels),
+the discovery_rule of the rebrew.analyse and rebrew.vocabulary replies (rebrew branch
+thunk-extent-2),
 the top-level documents section (the .relumea/analysis-report.json shape) and
 every op's timeout_seconds and interruptible (with the description's sentence
 on them) and the rebrew.identify_compiler reply's nullable arch, opt_level,
@@ -21,7 +23,7 @@ rebrew.retained_source_operation); rebrew.import_archive is the entry the backen
 from its rebrew.ImportArchive definition (branch fix-yc-reversed, commit "define
 rebrew.import_archive"); the rest is the copy of backend commit
 80314a46a1ae26d9ef3d56d90e1d454c561f5928.
-SHA-256: 37238c8dd30717e176dfcb5c443e035bebe388ee10b40d4daad2902b21033a2b.
+SHA-256: 2cf7703bfc4bd26fdea76e653e2d1f51941b2fa7ec22646d4734793d5c24d643.
 tests/test_ops.py validates every op request and reply against it, the
 analysis report rebrew.analyse captures against documents, and every op's
 timeout_seconds and interruptible against rebrew.ops.OPS.

@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Added
+
+- `rebrew.analyse` answers `discovery_rule` and `rebrew.vocabulary` the current one: the version of the rule that decides function starts, extents and import stubs (`rebrew.discover.DISCOVERY_RULE`, new, `1` for the discovery of 6.58.0). It rises with every change that moves a start, an extent or a kind, so a client can tell an analysis made under an older rule ([CLI.md](docs/CLI.md#rebrew-ops-serve)). The dispatch schema gains both members.
+
 ### Changed
 
 - `rebrew status` reads the IAT and import directory from `BinaryInfo.data_directories`, the loader's one data-directory reader, instead of a second LIEF parse of its own.

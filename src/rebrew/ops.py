@@ -2607,7 +2607,9 @@ def _binary_project(config: WorkerConfig, project_id: str, sha256: str) -> str:
 def analyse(config: WorkerConfig, req: AnalyseRequest) -> dict[str, Any]:
     """Onboard a stored binary into its project-scoped workspace and report its coverage.
 
-    A second run re-discovers into the same project.  ``intake`` is the onboarding report.
+    A second run re-discovers into the same project.  ``intake`` is the onboarding report;
+    ``discovery_rule`` is :data:`rebrew.discover.DISCOVERY_RULE`, the rule the functions
+    were discovered under.
     """
     workspace = config.require_workspace()
     relative = _binary_project(config, req.project_id, req.sha256)
@@ -2622,7 +2624,15 @@ def analyse(config: WorkerConfig, req: AnalyseRequest) -> dict[str, Any]:
             for field in ("document", "path"):
                 if item[field]:
                     item[field] = str(project / item[field])
-    return {**report, "project": str(project), "intake": intake, "analysis_capture": capture}
+    from rebrew.discover import DISCOVERY_RULE
+
+    return {
+        **report,
+        "project": str(project),
+        "intake": intake,
+        "analysis_capture": capture,
+        "discovery_rule": DISCOVERY_RULE,
+    }
 
 
 def _fresh_sqlite_metadata(root: Path, target: str, scratch: Path) -> dict[str, Any]:
@@ -3151,7 +3161,10 @@ def vocabulary(_config: WorkerConfig, _req: VocabularyRequest) -> dict[str, Any]
     derived caches rebrew writes in a project, which a client never retains as input.
     ``placeholder_name`` is :data:`rebrew.workspace.names.PLACEHOLDER_NAME_PATTERN`:
     a name is a generated label when the whole name matches it.
+    ``discovery_rule`` is :data:`rebrew.discover.DISCOVERY_RULE`, the rule
+    ``rebrew.analyse`` discovers functions under now.
     """
+    from rebrew.discover import DISCOVERY_RULE
     from rebrew.verify_cache import CACHE_FILENAMES
     from rebrew.workspace.names import PLACEHOLDER_NAME_PATTERN
     from rebrew.workspace.status import (
@@ -3175,6 +3188,7 @@ def vocabulary(_config: WorkerConfig, _req: VocabularyRequest) -> dict[str, Any]
         },
         "cache_files": list(CACHE_FILENAMES),
         "placeholder_name": PLACEHOLDER_NAME_PATTERN,
+        "discovery_rule": DISCOVERY_RULE,
     }
 
 

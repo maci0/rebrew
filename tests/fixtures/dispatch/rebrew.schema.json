@@ -225,6 +225,9 @@
               }
             ]
           },
+          "discovery_rule": {
+            "type": "integer"
+          },
           "intake": true,
           "project": {
             "type": "string"
@@ -2175,6 +2178,9 @@
               }
             ]
           },
+          "discovery_rule": {
+            "type": "integer"
+          },
           "intake": true,
           "project": {
             "type": "string"
@@ -2434,6 +2440,9 @@
                 "type": "null"
               }
             ]
+          },
+          "discovery_rule": {
+            "type": "integer"
           },
           "intake": true,
           "project": {
@@ -4643,6 +4652,9 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "discovery_rule": {
+            "type": "integer"
           },
           "placeholder_name": {
             "type": "string"

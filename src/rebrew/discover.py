@@ -740,6 +740,14 @@ def _function_start(info: Any, va: int) -> int | None:
     return None
 
 
+#: The version of the discovery rule: which function starts, extents and kinds
+#: :func:`discover_functions` and the coverage grid produce.  Bump it in every
+#: change that moves a start, an extent or a kind of any binary's functions;
+#: ``rebrew.analyse`` stamps each analysis with it and ``rebrew.vocabulary``
+#: answers the current one, so a client can tell an analysis made under an
+#: older rule (docs/CLI.md, "Discovery rule").
+DISCOVERY_RULE = 1
+
 #: Bytes decoded past a function start that has no known successor.
 _UNBOUNDED_WINDOW = 0x400
 

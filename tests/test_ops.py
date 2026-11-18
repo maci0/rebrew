@@ -36,6 +36,7 @@ import pytest
 from bin_util import append_pe_section, le32, make_import_call_pe
 from recompile_stub import serve_recompile
 
+from rebrew.discover import DISCOVERY_RULE
 from rebrew.ops import OPS, WorkerConfig, dispatch, target_name
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -170,6 +171,7 @@ def _check_analysed(reply: dict[str, Any], workspace: Path) -> Path:
     ]
     assert target["sha256"] == SHA256
     assert reply["intake"]["functions"] == 2
+    assert reply["discovery_rule"] == DISCOVERY_RULE
     return project
 
 
@@ -2931,6 +2933,11 @@ class TestFailureDetails:
             "rebrew.build failed while checking the sources for a remote compile: "
             "No such file or directory: src/a.c"
         )
+
+    def test_vocabulary_names_the_discovery_rule(self) -> None:
+        """A client compares a stored analysis's rule with the engine's without analysing."""
+        reply = _call(WorkerConfig(), "rebrew.vocabulary", {})
+        assert reply["discovery_rule"] == DISCOVERY_RULE
 
     def test_any_op_failure_answers_its_cause_without_paths_or_urls(
         self, monkeypatch: pytest.MonkeyPatch
