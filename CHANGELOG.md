@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.58.0] - 2026-11-18
+
 ### Added
 
 - `rebrew.analyse` answers `discovery_rule` and `rebrew.vocabulary` the current one: the version of the rule that decides function starts, extents and import stubs (`rebrew.discover.DISCOVERY_RULE`, new, `1` for the discovery of 6.58.0). It rises with every change that moves a start, an extent or a kind, so a client can tell an analysis made under an older rule ([CLI.md](docs/CLI.md#rebrew-ops-serve)). The dispatch schema gains both members.
@@ -20,7 +22,6 @@
 - `rebrew.verify_function` passed the candidate's bare C name as `rebrew test --symbol` (`fcn_00401000`), which `rebrew test` reads as an override differing from the symbol it derives (`_fcn_00401000`), so the report named the bare name and skipped the recorded linked EXACT evidence of a RELOC result. It passes the derived symbol, as `rebrew.apply_candidate` does.
 - `rebrew.apply_candidate` published a registry with two functions of one name when the candidate took another function's name (`other` over `fcn_00401000`, beside the function `other` at 0x00401020). Both candidate ops now refuse such a candidate before compiling, 409 `candidate-name-taken`: `the candidate names the function at 0x00401000 (fcn_00401000) 'other', the name of the function at 0x00401020; give it another name` (a name or a derived symbol another function of the module holds).
 - `rebrew.retained_source_operation` `variants` and `decompme` failed the same way for a candidate whose `ADDRESS` comment names its function other than the registry does, 500 `engine-error` `rebrew match run failed: ...` / `rebrew export decompme failed: src/notepad/fcn_00401000.c:1: address anchor names 'add', but the metadata names 'fcn_00401000'`. The private copy's registry follows the candidate's anchor (`rebrew.ops.follow_candidate_name`, new, shared with the candidate ops) and is checked against the renamed bytes after the run.
-
 
 ## [6.57.0] - 2026-11-17
 
