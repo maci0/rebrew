@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.59.0] - 2026-11-18
+
 ### Changed
 
 - **Breaking:** replicated metadata (`read_backends`/`write_backends`) writes a `content_sha256` field (the raw SHA-256 of the document text) beside each journal and replication-state record. Loading checks that hash and keeps the stored semantic digest instead of parsing every replicated document to recompute it; a record without the field (state written before this release) still takes the full digest check, and the first write rewrites it. Rebrew releases before this one reject the new field, so upgrade every tool that reads a project's metadata together.
