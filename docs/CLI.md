@@ -7123,7 +7123,7 @@ running. The other ops work in the worker process, which nothing stops; their
 | `verify_target`, `build`, `flag_search`, `retained_source_operation` | 3600 | true |
 | `reference_flirt`, `apply_candidate`, `data_list`, `data_set` | 600 | true |
 | `import_archive` (steps checked between, the last before the project is replaced) | 600 | true |
-| every other op, `verify_function` included (without `candidate` it runs `rebrew test` in the worker) | 600 | false |
+| every other op, `verify_function` included (without `candidate` it runs `rebrew test` in the worker; with one, its `rebrew test` child is stopped at the deadline as `apply_candidate`'s is) | 600 | false |
 
 Op details the contract leaves open:
 

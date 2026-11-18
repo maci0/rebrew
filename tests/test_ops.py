@@ -2999,6 +2999,63 @@ class TestOpDeadlines:
             _kill_leftover(child)
             call.join(WAIT_SECONDS)
 
+    @pytest.mark.parametrize("op", ["rebrew.verify_function", "rebrew.apply_candidate"])
+    def test_a_candidate_past_its_op_deadline_answers_504_and_stops_its_child(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, op: str
+    ) -> None:
+        """Both candidate ops compile in a ``rebrew test`` child, which the op's deadline kills."""
+        from test_apply_candidate import _request, _stage
+
+        config, entries = _stage(tmp_path)
+        monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://127.0.0.1:18953")
+        pid_file = tmp_path / "child.pid"
+        monkeypatch.setattr(sys, "executable", str(_sleeping_python(tmp_path)))
+        monkeypatch.setenv(_CHILD_PID_ENV, str(pid_file))
+        monkeypatch.setitem(OPS, op, dataclasses.replace(OPS[op], timeout_seconds=1))
+        replies: list[tuple[int, bytes]] = []
+        call = threading.Thread(
+            target=lambda: replies.append(dispatch(config, op, _request(entries))), daemon=True
+        )
+        call.start()
+        child = _child_pid(pid_file)
+        try:
+            call.join(_STOP_SECONDS)
+            assert replies, "the call ran past its op deadline"
+            status, reply = replies[0]
+            assert (status, json.loads(reply)["error"]) == (504, "deadline-exceeded")
+            assert _stopped(child, _STOP_SECONDS)
+        finally:
+            _kill_leftover(child)
+            call.join(WAIT_SECONDS)
+
+    def test_verify_function_without_a_candidate_runs_in_process_past_its_deadline(
+        self, world: tuple[WorkerConfig, Path], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``rebrew test`` runs in the worker for a project source: nothing stops it at the deadline.
+
+        With a candidate the op's work is a child command the deadline kills
+        (above), so the op is interruptible in that mode only and is published
+        ``interruptible`` false.
+        """
+        config, project = world
+        op = OPS["rebrew.verify_function"]
+        monkeypatch.setitem(
+            OPS, "rebrew.verify_function", dataclasses.replace(op, timeout_seconds=1)
+        )
+        ran: list[float] = []
+
+        def outlives_the_deadline(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            time.sleep(1.5)
+            ran.append(time.monotonic())
+            return {"status": "EXACT"}
+
+        monkeypatch.setattr("rebrew.test.run_test", outlives_the_deadline)
+        source = min((project / "src" / "mini").glob("*.c")).relative_to(project).as_posix()
+        body = json.dumps({"project_dir": str(project), "source": source, "no_promote": True})
+        status, reply = dispatch(config, "rebrew.verify_function", body.encode())
+        assert (status, json.loads(reply)) == (200, {"status": "EXACT"})
+        assert len(ran) == 1
+
     def test_a_child_command_gets_its_deadline_less_the_report_reserve(
         self, world: tuple[WorkerConfig, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
