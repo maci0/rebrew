@@ -3277,7 +3277,11 @@ Use `rebrew binary imports <operation> --help` for exact arguments and examples.
 List the PE import table of the target binary (DLL → API, with IAT slot VAs)
 and detect `jmp [IAT]` import stubs.  Used to spot which functions are
 one-instruction thunks into imported APIs (unmatchable by decompilation;
-they are linker glue, not compiled C).
+they are linker glue, not compiled C).  A `jmp [IAT]` is a stub when it opens
+`.text`, follows an `int3`/`nop`/`ret` byte, is the target of a direct `call`,
+or sits next to another stub; one that only follows other code is a tail call
+inside a function (the CRT's `getSystemCP` ends in `jmp [GetOEMCP]`) and is
+not listed.
 
 An import by ordinal only (MFC DLLs import by ordinal almost exclusively)
 has no name in the hint/name table, so it is listed as `ordinal_<N>` and its

@@ -287,6 +287,32 @@ class TestImportsCli:
         assert all(s["va"].startswith("0x") for s in payload["stubs"])
         assert all(str(i["iat_va"]).startswith("0x") for i in payload["imports"])
 
+    def test_a_tail_jump_through_a_slot_is_not_a_stub(self, tmp_path: Path) -> None:
+        """MSVC's getSystemCP ends two branches with ``jmp [GetOEMCP]`` and
+        ``jmp [GetACP]``: those are tail calls inside the function, which the
+        analysis stored as 6-byte import thunks.  A stub is called, follows
+        padding or a ``ret``, opens the section, or sits beside another stub."""
+        from bin_util import IMPORT_CALL_NAMES, le32, make_import_call_pe
+
+        from rebrew.imports import app
+
+        def assemble(slot_a: int, slot_b: int) -> str:
+            return (
+                "8b442404 83f8fe 7506"  # 0x00 mov eax, [esp+4]; cmp eax, -2; jne 0x0f
+                f"ff25{le32(slot_a)}"  # 0x09 tail call
+                "e8 03000000 c20400"  # 0x0f call 0x17; ret 4
+                f"ff25{le32(slot_b)}"  # 0x17 called stub after ret's 00 byte
+                f"ff25{le32(slot_a)}"  # 0x1d stub beside it
+            )
+
+        binary, _a, _b = make_import_call_pe(tmp_path, assemble)
+        result = CliRunner().invoke(app, ["list", "--json", str(binary)])
+        assert result.exit_code == 0, result.output
+        assert cli_payload(result)["stubs"] == [
+            {"va": "0x00401017", "name": IMPORT_CALL_NAMES[1]},
+            {"va": "0x0040101d", "name": IMPORT_CALL_NAMES[0]},
+        ]
+
     def test_missing_binary_errors(self, tmp_path: Path) -> None:
         from rebrew.imports import app
 

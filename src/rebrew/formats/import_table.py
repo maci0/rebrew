@@ -20,6 +20,15 @@ lazy from rebrew.formats.pe_headers import PE32_PLUS_MAGIC, pe_layout
 
 log = logging.getLogger(__name__)
 
+#: Bytes of an import thunk, ``FF 25`` and its 32-bit operand: the whole stub.
+IMPORT_THUNK_SIZE = 6
+
+#: Bytes of a direct ``call rel32`` (``E8`` and its displacement).
+_CALL_SIZE = 5
+
+#: Bytes that may end the code before a stub: int3 and nop padding, ``ret``.
+_STUB_PRECEDERS = frozenset({0xCC, 0x90, 0xC3})
+
 #: Parsed import tables by file identity.  A run has one target, so a handful
 #: of entries is all this ever holds; the bound only guards a long-lived
 #: process walking many images.
@@ -290,8 +299,15 @@ def find_import_stubs(binary_path: Path) -> dict[int, str]:
     """Detect ``jmp [iat]`` import stubs in ``.text``.
 
     Returns ``{stub_va: api_name}`` for every ``FF 25`` sequence whose target
-    resolves to an import-table slot.  These stubs are what the linker
-    generates for each imported API, so the VA maps 1:1 to a function.
+    resolves to an import-table slot and that stands alone as a stub: it opens
+    the section, follows a padding (``CC``/``90``) or ``ret`` (``C3``) byte, is
+    the target of a direct ``call`` (``E8 rel32``) in the section, or sits
+    next to another stub.  These stubs are what the linker generates for each
+    imported API, so the VA maps 1:1 to an import.  A ``jmp [slot]`` that only
+    follows other code is a tail call inside a function (MSVC's getSystemCP
+    ends two branches with ``jmp [GetOEMCP]`` and ``jmp [GetACP]``), not a
+    stub.  The test reads bytes, not decoded instructions: a stub after an
+    instruction that happens to end in one of those bytes counts as a stub.
 
     The operand is 32 bits either way but means different things: a PE32 stub
     carries the slot's absolute VA (``jmp dword ptr [iat_va]``), a PE32+ stub a
@@ -325,11 +341,33 @@ def find_import_stubs(binary_path: Path) -> dict[int, str]:
         # to 32 bits rather than look up a negative key.
         operand = struct.unpack_from("<i", blob, i + 2)[0]
         target = (
-            (stub_va + i + 6 + operand) & 0xFFFFFFFFFFFFFFFF
+            (stub_va + i + IMPORT_THUNK_SIZE + operand) & 0xFFFFFFFFFFFFFFFF
             if rip_relative
             else operand & 0xFFFFFFFF
         )
         name = table.get(target)
         if name is not None:
             stubs[stub_va + i] = name
-    return stubs
+    if not stubs:
+        return {}
+    called: set[int] = set()
+    pos = 0
+    while (i := blob.find(b"\xe8", pos, max(0, len(blob) - 4))) != -1:
+        pos = i + 1
+        callee = stub_va + i + _CALL_SIZE + struct.unpack_from("<i", blob, i + 1)[0]
+        if callee in stubs:
+            called.add(callee)
+    alone = {
+        va
+        for va in stubs
+        if va == stub_va or va in called or blob[va - stub_va - 1] in _STUB_PRECEDERS
+    }
+    # Grow through runs: a stub beside a stub is one.
+    pending = list(alone)
+    while pending:
+        va = pending.pop()
+        for neighbour in (va - IMPORT_THUNK_SIZE, va + IMPORT_THUNK_SIZE):
+            if neighbour in stubs and neighbour not in alone:
+                alone.add(neighbour)
+                pending.append(neighbour)
+    return {va: name for va, name in stubs.items() if va in alone}
