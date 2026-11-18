@@ -2691,6 +2691,20 @@ garbage file-offset "functions").  In a PE, no candidate starts between the
 first and last import-address-table slot: MSVC can open `.text` with the
 table, and a sweep reads its pointers as code.
 
+An extent ends at the next function start or import stub (`rebrew binary
+imports list`), after the `ret` that padding follows, at the end of the
+section's file bytes, or at the start of a PE data directory the header
+declares inside the section (Win2k notepad's import directory follows its last
+stub in `.text`); no candidate starts inside a stub or a declared directory.
+An import stub is an import, never a function, whatever follows it.  A
+function with no known successor before that end stops at its first `ret`,
+and without one has size 0 (unknown), which `--min-size` drops.  What the rule
+gets wrong: a switch table after the code stays in the function only when no
+padding precedes it; an `int3` run inside a function (after a noreturn call)
+can start a candidate that splits it; a cold part placed elsewhere is a
+function of its own; a function whose first `ret` is an early return before
+an unlisted successor is cut there.
+
 Discoverers are plugins: `rebrew.discoverers` entry points
 (`fn(binary: Path) -> [(va, size, name)]`) join every format branch under
 their entry-point name; a plugin that raises or returns another shape is

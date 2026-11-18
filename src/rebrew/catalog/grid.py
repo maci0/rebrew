@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 
 lazy from rebrew.catalog.loaders import load_ghidra_data_labels
 lazy from rebrew.catalog.registry import RegistryEntry, is_jump_table
+lazy from rebrew.formats.import_table import IMPORT_THUNK_SIZE, find_import_stubs
 lazy from rebrew.metadata.bindings import SourceBinding
 lazy from rebrew.metadata.data import DATA_STATUS_UNCHECKED
 lazy from rebrew.sections import (
@@ -361,6 +362,13 @@ def build_coverage_data(
             if reg_entry.get("is_thunk"):
                 name = reg_entry.get("ghidra_name") or reg_entry.get("list_name") or ""
                 thunk_offsets[va] = name
+    # The binary's import thunks (`jmp [iat slot]`) are imports: each is a
+    # boundary no function absorbs across, and paints as a thunk gap.
+    import_thunks = (
+        find_import_stubs(bin_path) if _bin_info is not None and bin_path is not None else {}
+    )
+    for va, name in import_thunks.items():
+        thunk_offsets.setdefault(va, name)
 
     # Detect binary layout for fallback section computation (same parse above)
     image_base = 0
@@ -575,6 +583,7 @@ def build_coverage_data(
                 # detected is a real boundary regardless of its size.
                 if 0 <= reg_off < sec_size:
                     boundary_starts.append(reg_off)
+        boundary_starts.extend(va - sec_va for va in import_thunks if 0 <= va - sec_va < sec_size)
         boundary_starts = sorted(set(boundary_starts))
 
         # Iteratively absorb jump tables and out-of-line code into parent functions.
@@ -643,10 +652,17 @@ def build_coverage_data(
                             absorb_size = pad_len
 
                     # Catch-all: small non-padding gaps that follow a function
-                    # and weren't detected as separate functions by any tool.
-                    # These are typically out-of-line epilogues, IAT thunk tails,
-                    # small helper snippets, or switch index tables.
-                    if absorb_size == 0 and len(gap_bytes) <= _MAX_TAIL_ABSORB and pad_len > 0:
+                    # and weren't detected as separate functions by any tool,
+                    # typically out-of-line epilogues or switch index tables.  A
+                    # gap that opens with padding follows a function the compiler
+                    # ended: what comes after the padding is not its code (Win2k
+                    # notepad's `xor eax, eax; ret` and `ret` functions).
+                    if (
+                        absorb_size == 0
+                        and len(gap_bytes) <= _MAX_TAIL_ABSORB
+                        and pad_len > 0
+                        and trim_trailing_padding(gap_bytes[:1]) > 0
+                    ):
                         absorb_size = pad_len
 
                     if absorb_size > 0:
@@ -717,10 +733,15 @@ def build_coverage_data(
                         gap_state = "thunk"
                         gap_label = thunk_offsets[sec_va + off] or None
                         # Extend to thunk's canonical size from registry
-                        if registry and (sec_va + off) in registry:
-                            thunk_size = registry[sec_va + off].get("canonical_size", 0)
-                            if thunk_size > 0:
-                                gap_end = min(sec_size, off + thunk_size, next_off)
+                        thunk_size = (
+                            registry[sec_va + off].get("canonical_size", 0)
+                            if registry and (sec_va + off) in registry
+                            else 0
+                        )
+                        if (sec_va + off) in import_thunks:
+                            thunk_size = IMPORT_THUNK_SIZE
+                        if thunk_size > 0:
+                            gap_end = min(sec_size, off + thunk_size, next_off)
                     elif is_jump_table(gap_bytes, sec_va, sec_size, jump_arch, jump_endian):
                         gap_state = "data"
 

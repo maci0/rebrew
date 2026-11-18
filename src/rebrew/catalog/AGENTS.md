@@ -14,7 +14,7 @@ Merges function sources (discovery inventory, Ghidra JSON, binary exports) into 
 | `inventory.py` | `repair_inventory_extents` (guarded native inventory extent repairs) |
 | `cli.py` | `run_catalog` + Typer entry |
 
-Externals (the only packages this one may import): `cli`, `config`, `function_providers`, `metadata.bindings`, `metadata.document`, `metadata.data`, `metadata.functions`, `present`, `sections`, `sources`, `status`, `utils`, `verify_hash`, `workspace`, `formats.binary_loader` (lazy, inside functions), and `formats.binary_model` (`BinaryInfo`). PE section helpers live in `rebrew.sections`; `preset_module_key` / `atomic_write_text` in `rebrew.utils`.
+Externals (the only packages this one may import): `cli`, `config`, `function_providers`, `metadata.bindings`, `metadata.document`, `metadata.data`, `metadata.functions`, `present`, `sections`, `sources`, `status`, `utils`, `verify_hash`, `workspace`, `formats.binary_loader` (lazy, inside functions), `formats.binary_model` (`BinaryInfo`), and `formats.import_table` (import stubs). PE section helpers live in `rebrew.sections`; `preset_module_key` / `atomic_write_text` in `rebrew.utils`.
 
 ## Data flow
 
@@ -24,7 +24,7 @@ Reversed `.c` + `library_*.h` → `scan_reversed_dir` → annotations; discovery
 
 - **Canonical size**: when the discovery list is longer than Ghidra, `_resolve_canonical_size` keeps the list size for padding (`0x90`/`0xCC`), a jump/switch table, out-of-line code (jumps back), or a tail with no `ret` (`0xC3`/`0xC2`, probed on x86 targets only, since those are the x86 `ret` encodings). No binary bytes, extra bytes on a non-x86 target, or extra bytes that match none of those: Ghidra size.
 - **Target byte order**: jump-table probes read pointer slots through `config.arch_byte_order(arch, endian)`, where `endian` is `BinaryInfo.endian`. The image header wins over the arch default (a little-endian MIPS build is little-endian); an empty `endian` falls back to `arch_is_big_endian`. Pass the loaded image's `arch`/`endian` down rather than defaulting to `x86_32`, which also picks the wrong pointer width.
-- **Gap absorption**: predecessor absorbs gaps that are jump tables, OOL code, or tail ≤64B; repeats until stable.
+- **Gap absorption**: predecessor absorbs gaps that are jump tables, OOL code, or a tail ≤64B that does not open with padding; it never crosses a function start or an import stub (`find_import_stubs`), and a stub paints as a 6-byte `thunk` gap. Repeats until stable.
 - **Cell sizes**: `.text` 64B (64 cols/row); `.data`/`.rdata` 16B; `.bss` 4096B.
 
 ## Gotchas

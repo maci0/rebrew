@@ -78,6 +78,7 @@ class TestLoadPe:
         pe = SimpleNamespace(
             header=SimpleNamespace(machine=0),
             optional_header=SimpleNamespace(imagebase=0x400000, magic=lief.PE.PE_TYPE.PE32),
+            data_directories=[],
             sections=[
                 _mock_section(".text", 0x1000, 0x200, 0x400, 0x200),
                 _mock_section(".data", 0x2000, 0x100, 0x600, 0x100),
@@ -96,6 +97,7 @@ class TestLoadPe:
         pe = SimpleNamespace(
             header=SimpleNamespace(machine=0),
             optional_header=SimpleNamespace(imagebase=0x400000, magic=lief.PE.PE_TYPE.PE32),
+            data_directories=[],
             sections=[_mock_section(".data", 0x2000, 0x100, 0x600, 0x100)],
         )
         info = bl._load_pe(pe, Path("/tmp/x.exe"))
@@ -112,6 +114,7 @@ class TestLoadPe:
         pe = SimpleNamespace(
             header=SimpleNamespace(machine=0),
             optional_header=SimpleNamespace(imagebase=0x400000, magic=lief.PE.PE_TYPE.PE32),
+            data_directories=[],
             sections=[
                 _mock_section("CODE", 0x1000, 0x200, 0x400, 0x200, executable=True),
                 _mock_section("CODE2", 0x2000, 0x40, 0x600, 0x40, executable=True),
@@ -131,6 +134,7 @@ class TestLoadPe:
         pe = SimpleNamespace(
             header=SimpleNamespace(machine=0),
             optional_header=SimpleNamespace(imagebase=0x400000, magic=lief.PE.PE_TYPE.PE32),
+            data_directories=[],
             sections=[_mock_section("CODE", 0x1000, 0x200, 0x400, 0x200)],
         )
         info = bl._load_pe(pe, Path("/tmp/x.exe"))

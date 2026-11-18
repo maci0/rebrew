@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, overload
 
 from rebrew.errors import RebrewError
-from rebrew.formats.binary_model import MAX_BINARY_SIZE, BinaryInfo, SectionInfo
+from rebrew.formats.binary_model import MAX_BINARY_SIZE, BinaryInfo, DataDirectory, SectionInfo
 from rebrew.utils import detect_source_encoding
 
 if TYPE_CHECKING:
@@ -217,6 +217,19 @@ def _load_pe(binary: lief.PE.Binary, path: Path) -> BinaryInfo:
         sections[".text"] = _text_alias(best)
         text_va, text_size, text_raw_offset = best.va, best.size, best.file_offset
 
+    # The certificate table's "RVA" is a file offset, so it names no address.
+    # A slot past the documented ones reads back as a bare int.
+    kinds = lief.PE.DataDirectory.TYPES
+    directories = tuple(
+        DataDirectory(
+            kind=kind.name if isinstance(kind, kinds) else str(kind),
+            va=image_base + directory.rva,
+            size=directory.size,
+        )
+        for directory in binary.data_directories
+        if directory.rva and directory.size and (kind := directory.type) != kinds.CERTIFICATE_TABLE
+    )
+
     return BinaryInfo(
         path=path,
         format="pe",
@@ -230,6 +243,7 @@ def _load_pe(binary: lief.PE.Binary, path: Path) -> BinaryInfo:
         text_size=text_size,
         text_raw_offset=text_raw_offset,
         sections=sections,
+        data_directories=directories,
     )
 
 

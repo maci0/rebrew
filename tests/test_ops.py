@@ -1774,6 +1774,70 @@ class TestReconstructionOps:
         }
         assert {name: found.get(name) for name in expected} == expected
 
+    def test_analysed_import_thunks_are_stubs_whatever_follows_them(self, tmp_path: Path) -> None:
+        """Win2k notepad ends its code with ``jmp dword [iat]`` thunks: the one
+        followed by int3 padding was a 20-byte function (``_initterm``) and the
+        last one, two int3 before the import directory, a 259-byte function
+        (``OpenPrinterW``) running to a ``ret`` byte in that directory."""
+        from bin_util import IMPORT_CALL_NAMES
+
+        def assemble(slot_a: int, slot_b: int) -> str:
+            return (
+                "55 8b ec e8 08000000 5d c3"
+                + " cc" * 6  # 0x00 calls thunk a
+                + f"ff25{le32(slot_a)}"
+                + " cc" * 10  # 0x10 thunk a, int3 padding
+                + "55 8b ec e8 6b000000 5d c3"
+                + " cc" * 0x69  # 0x20 calls thunk b
+                + f"ff25{le32(slot_b)} cc cc"  # 0x93 thunk b, then the import directory
+            )
+
+        binary, _slot_a, _slot_b = make_import_call_pe(tmp_path, assemble)
+        # The import directory's first dword (its name table's RVA) opens with a ``ret`` byte.
+        assert binary.read_bytes()[0x200 + 0x9B] == 0xC3
+        filestore, workspace = _worker_dirs(tmp_path)
+        digest, key = _store(filestore, binary.read_bytes())
+        target = _call(
+            WorkerConfig(filestore.resolve(), workspace.resolve()),
+            "rebrew.analyse",
+            {"binary_id": 1, "sha256": digest, "name": "calls.exe", "file_key": key},
+        )["targets"][0]
+        assert [(f["va"], f["size"], f["name"]) for f in target["functions"]] == [
+            (0x401000, 10, "fcn_00401000"),
+            (0x401020, 10, "fcn_00401020"),
+        ]
+        assert target["stubs"] == [
+            {"va": 0x401010, "name": IMPORT_CALL_NAMES[0]},
+            {"va": 0x401093, "name": IMPORT_CALL_NAMES[1]},
+        ]
+
+    def test_analysed_function_does_not_absorb_code_after_its_padding(self, tmp_path: Path) -> None:
+        """Win2k notepad's fcn_010065f0 (19 bytes, ``ret``, nop padding) grew to
+        49 once the thunk after it bounded the gap: the coverage grid's small-gap
+        absorption took the padding and two functions too short for discovery
+        (``xor eax, eax; ret`` and ``ret``)."""
+
+        def assemble(slot_a: int, _slot_b: int) -> str:
+            return (
+                "55 8b ec b8 01000000 5d c3"  # 0x00 mov eax, 1 in a frame; ret
+                + " cc" * 6
+                + " 33 c0 c3"  # 0x10 xor eax, eax; ret
+                + " cc" * 13
+                + " c3"  # 0x20 ret
+                + " cc" * 15
+                + f" ff25{le32(slot_a)}"  # 0x30 thunk
+            )
+
+        binary, _slot_a, _slot_b = make_import_call_pe(tmp_path, assemble)
+        filestore, workspace = _worker_dirs(tmp_path)
+        digest, key = _store(filestore, binary.read_bytes())
+        target = _call(
+            WorkerConfig(filestore.resolve(), workspace.resolve()),
+            "rebrew.analyse",
+            {"binary_id": 1, "sha256": digest, "name": "calls.exe", "file_key": key},
+        )["targets"][0]
+        assert [(f["va"], f["size"]) for f in target["functions"]] == [(0x401000, 10)]
+
     def test_candidate_uses_private_retained_snapshot(
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:

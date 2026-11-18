@@ -131,6 +131,7 @@ PACKAGE_EXTERNALS: dict[str, frozenset[str]] = {
             "config",
             "formats.binary_loader",
             "formats.binary_model",
+            "formats.import_table",
             "function_providers",
             "metadata.bindings",
             "metadata.document",

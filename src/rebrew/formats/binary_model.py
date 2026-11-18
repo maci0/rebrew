@@ -68,6 +68,19 @@ class SectionInfo:
         return self.is_code
 
 
+@dataclass(frozen=True)
+class DataDirectory:
+    """One PE optional-header data directory the image declares.
+
+    ``va`` is absolute (image base + RVA); ``kind`` is LIEF's type name
+    (``IMPORT_TABLE``, ``DEBUG_DIR``, ...).
+    """
+
+    kind: str
+    va: int
+    size: int
+
+
 @dataclass
 class BinaryInfo:
     """Format-agnostic representation of a parsed binary."""
@@ -88,6 +101,9 @@ class BinaryInfo:
     text_raw_offset: int = 0
 
     sections: dict[str, SectionInfo] = field(default_factory=dict)
+
+    # PE data directories with an address and a size; empty for other formats.
+    data_directories: tuple[DataDirectory, ...] = ()
 
     # NE tables, filled by the NE loader; unset for every other format.
     ne_header: NeHeader | None = None
@@ -143,4 +159,4 @@ class BinaryInfo:
         return self._data
 
 
-__all__ = ["CODE_SECTION_NAMES", "MAX_BINARY_SIZE", "BinaryInfo", "SectionInfo"]
+__all__ = ["CODE_SECTION_NAMES", "MAX_BINARY_SIZE", "BinaryInfo", "DataDirectory", "SectionInfo"]

@@ -53,6 +53,7 @@ from rebrew.cli import (
 )
 lazy from rebrew.analysis import direct_call_target, iter_instructions
 lazy from rebrew.formats.binary_loader import load_binary
+lazy from rebrew.formats.import_table import IMPORT_THUNK_SIZE, find_import_stubs
 lazy from rebrew.utils import atomic_write_text, file_lock, read_json_text, run_process_group
 
 #: ``push bp/ebp; mov bp/ebp, sp/esp`` prologue bytes scanned for in the
@@ -739,30 +740,81 @@ def _function_start(info: Any, va: int) -> int | None:
     return None
 
 
+#: Bytes decoded past a function start that has no known successor.
+_UNBOUNDED_WINDOW = 0x400
+
+
+def _code_limit(info: Any, va: int) -> int | None:
+    """Where the code that holds a function starting at *va* ends, or None when unknown.
+
+    The end of its section's file bytes, or the start of the first PE data
+    directory the header declares after *va* in that section (Win2k notepad's
+    import directory follows its last import thunk inside ``.text``),
+    whichever comes first.  None when no section holds *va*.
+    """
+    for section in getattr(info, "sections", {}).values():
+        sizes = [size for size in (section.size, section.raw_size) if size > 0]
+        end: int = section.va + min(sizes) if sizes else section.va
+        if section.va <= va < end:
+            starts: list[int] = [
+                d.va for d in getattr(info, "data_directories", ()) if va < d.va < end
+            ]
+            return min([end, *starts])
+    return None
+
+
+def _inside_data_directory(info: Any, va: int) -> bool:
+    """True when *va* lies inside a PE data directory the header declares."""
+    return any(d.va <= va < d.va + d.size for d in getattr(info, "data_directories", ()))
+
+
 def _validate_and_refine(
-    info: Any, funcs: list[tuple[int, int, str]], *, vouched: frozenset[int] = frozenset()
+    info: Any,
+    funcs: list[tuple[int, int, str]],
+    *,
+    vouched: frozenset[int] = frozenset(),
+    thunks: frozenset[int] = frozenset(),
 ) -> list[tuple[int, int, str]]:
     """Drop candidates that are inside another function's span; size = gap, trimmed of padding.
 
     A start in *vouched* (one an unwind record names) is never dropped: code
     that ends in a call to a noreturn function runs straight into the next
-    function with no ``ret``.
+    function with no ``ret``.  A start in *thunks* (an import thunk, ``jmp
+    [iat slot]``) ends the function before it and is never returned: it is
+    an import, not a function, whatever bytes follow it.
 
     A candidate is a *real* function start when the previous function's code
     reaches a ``ret`` followed by padding before the candidate.  If the code
     runs straight into the candidate with no ret+padding boundary, the
     candidate is a false positive (a call target inside the previous
     function).  Sizes are the gap to the next validated start, minus trailing
-    padding — the size a compiler actually emits.
+    padding — the size a compiler actually emits.  No extent runs past
+    :func:`_code_limit`, and no candidate inside a declared PE data directory
+    is a function; a function with no successor before that limit ends at its
+    first ``ret``, and has size 0 (unknown) without one.
     """
-    funcs = sorted(funcs, key=lambda f: f[0])
+    funcs = sorted(
+        [
+            *(f for f in funcs if not _inside_data_directory(info, f[0])),
+            *((va, IMPORT_THUNK_SIZE, "") for va in thunks),
+        ],
+        key=lambda f: f[0],
+    )
+    vouched |= thunks
     starts = Counter(f[0] for f in funcs)
     out: list[tuple[int, int, str]] = []
     i = 0
     while i < len(funcs):
         va, _s, name = funcs[i]
+        if va in thunks:
+            i += 1
+            continue
         nxt = funcs[i + 1][0] if i + 1 < len(funcs) else None
+        limit = _code_limit(info, va)
+        if nxt is not None and limit is not None and nxt > limit:
+            nxt = None
         gap = (nxt - va) if nxt else None
+        window = gap or (_UNBOUNDED_WINDOW if limit is None else min(_UNBOUNDED_WINDOW, limit - va))
 
         # Find the function's end within the gap.  The FIRST ret is not it when
         # the function returns early and keeps going -- so the sweep records the
@@ -778,7 +830,7 @@ def _validate_and_refine(
         last_mnemonic = ""
         decoded_end = va
         try:
-            for insn in iter_instructions(info, va, gap or 0x400):
+            for insn in iter_instructions(info, va, window):
                 last_mnemonic = insn.mnemonic
                 decoded_end = insn.va + insn.size
                 if not insn.mnemonic.startswith("ret"):
@@ -1122,6 +1174,13 @@ def _merge_discovered(
         first_slot, last_slot = min(slots), max(slots)
         merged = {va: entry for va, entry in merged.items() if not first_slot <= va <= last_slot}
 
+    # An import thunk (`jmp [iat slot]`) is an import, not a function, whatever
+    # follows it: no candidate starts at or inside one, and the refine pass
+    # keeps it only as the boundary that ends the code before it.
+    thunks = frozenset(find_import_stubs(binary))
+    in_thunk = {va + offset for va in thunks for offset in range(IMPORT_THUNK_SIZE)}
+    merged = {va: entry for va, entry in merged.items() if va not in in_thunk}
+
     # Validate: drop candidates that fall inside a larger span.
     ordered = sorted(merged.items())
     kept: dict[int, tuple[int, str]] = {}
@@ -1139,7 +1198,9 @@ def _merge_discovered(
     info = None
     try:
         info = load_binary(binary)
-        funcs = _validate_and_refine(info, funcs, vouched=frozenset(unwind) | frozenset(symbols))
+        funcs = _validate_and_refine(
+            info, funcs, vouched=frozenset(unwind) | frozenset(symbols), thunks=thunks
+        )
     except Exception as exc:
         # Unvalidated gap-based sizes are still emitted, but the user must
         # know the refine pass was skipped.
