@@ -7184,8 +7184,8 @@ Op details the contract leaves open:
   so an analysis stamped with a lower number lists functions this engine would
   list differently; re-analyse to get the current list.  Rules: 1, the
   discovery of rebrew 6.58.0 (import stubs are boundaries, extents end at a
-  declared data directory), which answered no `discovery_rule`.  An analysis
-  without one is from 6.58.0 or earlier.  `rebrew.import-project` and
+  declared data directory).  An analysis without one is from 6.57.0 or
+  earlier, under the discovery before it.  `rebrew.import-project` and
   `rebrew.import_archive` answer none: a project's rows may come from any rule.
 - In every project report (`rebrew.analyse`, `rebrew.import-project`) an import
   stub (`rebrew binary imports list`) with a function row is one identity: a
