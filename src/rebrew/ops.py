@@ -427,6 +427,14 @@ COMPILE_NOT_RUN = "compile-not-run"
 #: carries the compiler's diagnostics.  A toolchain that could not run stays
 #: 500 ``engine-error``.
 TOOLCHAIN_REJECTED = "toolchain-rejected"
+#: A candidate that defines no C function or more than one (400): the detail says which.
+CANDIDATE_NOT_ONE_FUNCTION = "candidate-not-one-function"
+#: A candidate whose own ``ADDRESS`` comment is malformed, not on a line of its own, or
+#: names another address (400).
+CANDIDATE_ADDRESS_COMMENT = "candidate-address-comment"
+#: A candidate naming its function as another function of the target is named (409):
+#: the detail names both functions.
+CANDIDATE_NAME_TAKEN = "candidate-name-taken"
 
 
 class OpsError(RebrewError):
@@ -454,6 +462,10 @@ class OpsError(RebrewError):
 
 def _invalid(detail: str) -> OpsError:
     return OpsError(detail, code=INVALID_REQUEST, status=400)
+
+
+def _address_comment_refused(detail: str) -> OpsError:
+    return OpsError(detail, code=CANDIDATE_ADDRESS_COMMENT, status=400)
 
 
 #: A person-supplied compiler flag string reaches a compiler, so it is a
@@ -3618,8 +3630,17 @@ def verify_function(config: WorkerConfig, req: VerifyRequest) -> dict[str, Any]:
 
 
 def verify_candidate(config: WorkerConfig, req: VerifyRequest) -> dict[str, Any]:
-    """Compare candidate text in a private snapshot of retained inputs."""
+    """Compare candidate text in a private snapshot of retained inputs.
+
+    The candidate is judged by the bytes it compiles to, whatever it names its function: when the
+    name differs from the registry's, the snapshot's registry follows it for the run, as an apply's
+    does, and nothing leaves the op but the report.
+    """
     return _run_candidate(config, req, apply=False)
+
+
+#: The largest candidate text, in UTF-8 bytes, a verification or an apply compiles.
+CANDIDATE_MAX_BYTES = 2_000_000
 
 
 #: The function registry of a TOML project. A SQLite project's registry is its
@@ -3655,9 +3676,9 @@ def _candidate_with_anchor(candidate: str, module: str, va: int) -> str:
             continue
         match = re.fullmatch(DEFAULT_ADDRESS_COMMENT_REGEX, body)
         if match is None:
-            raise _invalid("invalid candidate ADDRESS comment")
+            raise _address_comment_refused("invalid candidate ADDRESS comment")
         if int(match["va"], 16) != va:
-            raise _invalid("candidate ADDRESS comment names a different VA")
+            raise _address_comment_refused("candidate ADDRESS comment names a different VA")
         start = raw.rfind(b"\n", 0, node.start_byte) + 1
         end = raw.find(b"\n", node.end_byte)
         end = len(raw) if end < 0 else end + 1
@@ -3666,7 +3687,7 @@ def _candidate_with_anchor(candidate: str, module: str, va: int) -> str:
             or raw[start : node.start_byte].strip()
             or raw[node.end_byte : end].strip()
         ):
-            raise _invalid("candidate ADDRESS comment must occupy one full line")
+            raise _address_comment_refused("candidate ADDRESS comment must occupy one full line")
         if module:
             removals.append((start, end))
     if not module:
@@ -3689,9 +3710,19 @@ def _run_candidate(
     from rebrew.config import load_config
     from rebrew.utils import portable_path_parts
 
+    if len(req.candidate.encode()) > CANDIDATE_MAX_BYTES:
+        raise _invalid(f"the candidate is over {CANDIDATE_MAX_BYTES} bytes")
     definitions = find_c_function_definitions(req.candidate)
-    if len(definitions) != 1 or len(req.candidate.encode()) > 2_000_000:
-        raise _invalid("candidate must contain one function and at most 2000000 bytes")
+    if len(definitions) != 1:
+        names = ", ".join(name for name, _ in definitions)
+        raise OpsError(
+            f"the candidate defines {len(definitions)} functions ({names}); it must define exactly one"
+            if definitions
+            else "the candidate defines no C function; it must define exactly one",
+            code=CANDIDATE_NOT_ONE_FUNCTION,
+            status=400,
+        )
+    name = definitions[0][0]
     if req.va < 0 or not 1 <= req.size <= 1048576:
         raise _invalid("invalid function extent")
     _check_manifest_size(req.files)
@@ -3732,13 +3763,20 @@ def _run_candidate(
         cfg = load_config(root, target=req.rebrew_target)
         confined_snapshot_config(cfg, root)
         retained_compile_refusal(cfg, [source])
-        symbol = definitions[0][0]
-        registry = ""
-        if applying is not None:
+        from rebrew.c_parser import function_signatures
+        from rebrew.metadata.bindings import derive_c_symbol
+
+        symbol = derive_c_symbol(name, function_signatures(req.candidate).get(name, ""))
+        # The registry is the snapshot's: an apply returns it, a verification compares it
+        # with the renamed copy after the run.
+        registry, renamed = "", None
+        if module and (applying is not None or _registry_name(cfg, module, req.va) != name):
+            _refuse_taken_name(cfg, module, req.va, name, symbol)
             if cfg.metadata_dir.resolve() != root:
                 raise _invalid("the retained project keeps its function registry outside its root")
             registry = _applied_registry(root, paths)
-            symbol = _move_identity(cfg, applying, module, definitions[0][0])
+            _move_identity(cfg, module, req.va, name, symbol)
+            renamed = _project_file(root, registry, "function registry").read_bytes()
         flags = checked_cflags(req.cflags)
         result = run_rebrew(
             [
@@ -3762,6 +3800,12 @@ def _run_candidate(
             not apply and source.read_bytes() != candidate.encode("utf-8")
         ):
             raise _invalid("snapshot candidate or binary changed during verification")
+        if (
+            not apply
+            and renamed is not None
+            and _project_file(root, registry, "function registry").read_bytes() != renamed
+        ):
+            raise _invalid("snapshot source changed during verification")
         for entry in req.files:
             if entry.path in {req.source, registry}:
                 continue
@@ -3832,33 +3876,48 @@ def _compile_inputs(
     }
 
 
-def _move_identity(cfg: Any, req: ApplyCandidateRequest, module: str, name: str) -> str:
-    """Point the function's registry entry at the candidate's name through rebrew's identity writer.
+def _registry_name(cfg: Any, module: str, va: int) -> str:
+    """The name the snapshot's registry holds for the function at *va*; empty for none."""
+    from rebrew.metadata.functions import get_entry
+
+    return str(get_entry(cfg.metadata_dir, va, module).get("name", ""))
+
+
+def _refuse_taken_name(cfg: Any, module: str, va: int, name: str, symbol: str) -> None:
+    """Refuse a candidate naming its function as another function of *module* is named, or by its symbol."""
+    from rebrew.metadata.functions import load_metadata
+
+    entries = load_metadata(cfg.metadata_dir, deepcopy=False)
+    for (other_module, other_va), entry in sorted(entries.items()):
+        if other_module != module or other_va == va:
+            continue
+        if name == entry.get("name") or symbol == entry.get("symbol"):
+            current = entries.get((module, va), {}).get("name", "")
+            raise OpsError(
+                f"the candidate names the function at 0x{va:08x}"
+                f"{f' ({current})' if current else ''} {name!r}, "
+                f"the name of the function at 0x{other_va:08x}; give it another name",
+                code=CANDIDATE_NAME_TAKEN,
+                status=409,
+            )
+
+
+def _move_identity(cfg: Any, module: str, va: int, name: str, symbol: str) -> None:
+    """Point the function's registry entry at the candidate's name and symbol through rebrew's identity writer.
 
     rebrew refuses to test a source whose address anchor names a function other than the registry's, so this
-    runs before the comparison. The symbol is the one rebrew derives from the candidate's prototype
-    (``_add@8`` for a stdcall ``add``): the comparison must name the same symbol to be allowed to record its
-    STATUS, and it is returned for that.
+    runs before the comparison, on the snapshot's registry only. *symbol* is the one rebrew derives from the
+    candidate's prototype (``_add@8`` for a stdcall ``add``): the comparison names the same symbol, which an
+    apply needs to record its STATUS.
     """
-    from rebrew.c_parser import function_signatures
-    from rebrew.metadata.bindings import derive_c_symbol
     from rebrew.metadata.functions import record_function_rows
 
-    symbol = derive_c_symbol(name, function_signatures(req.candidate).get(name, ""))
     record_function_rows(
         cfg.metadata_dir,
-        [
-            {
-                "module": module,
-                "va": req.va,
-                "identity": {"symbol": symbol, "name": name},
-                "fields": {},
-            }
-        ],
+        [{"module": module, "va": va, "identity": {"symbol": symbol, "name": name}, "fields": {}}],
         overwrite_name=True,
         updated_by="rename",
     )
-    return symbol
 
 
 def _applied_registry(root: Path, staged: list[str]) -> str:

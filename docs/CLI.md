@@ -7057,8 +7057,9 @@ one per line, and there is no verdict), `invalid-project-config` (400, see
 `rebrew.project_targets`), `project-import-refused` (422, see
 `rebrew.import_archive` below), `compile-not-run` (503, `rebrew.apply_candidate`:
 the remote compile service never ran the compile, so nothing was applied; `serve`
-adds `Retry-After` when the service named one), `deadline-exceeded` (504, see the
-deadlines below), or, from `serve` only, `worker-busy` (503) and `caller-gone` (499,
+adds `Retry-After` when the service named one), `candidate-not-one-function` (400),
+`candidate-address-comment` (400) and `candidate-name-taken` (409, see `apply_candidate`
+below), `deadline-exceeded` (504, see the deadlines below), or, from `serve` only, `worker-busy` (503) and `caller-gone` (499,
 written to a caller that has already closed). An engine failure no refusal
 above explains answers `<op> failed while <step>: <cause>` (`<op> failed: <cause>`
 outside a named step, such as staging the retained snapshot or checking the
@@ -7358,6 +7359,15 @@ Op details the contract leaves open:
   verbatim, plus `source_dir` and `includes` (each shipped header's `path` and
   `sha256`) when it shipped an include bundle, or null when the compile was
   local.
+- A `verify_function` candidate is judged by the bytes it compiles to, whatever it names its function. It must
+  define exactly one function (else 400 `candidate-not-one-function`, the detail counting and naming the
+  definitions); an `ADDRESS` comment of its own must be well formed, alone on its line and name the requested VA
+  (else 400 `candidate-address-comment`). The comparison names the symbol rebrew derives from the candidate's
+  prototype (`_add@8` for a stdcall `add`). When the candidate's name differs from the registry's, the snapshot's
+  registry follows it for the run (the identity writer `apply_candidate` uses) and must hold the same bytes after
+  it; nothing of it leaves the op. A name or derived symbol another function of the module already has answers
+  409 `candidate-name-taken`, naming both functions: `the candidate names the function at 0x00401000
+  (fcn_00401000) 'other', the name of the function at 0x00401020; give it another name`.
 - `apply_candidate` takes `verify_function`'s candidate fields (`cflags`, `project_cflags` included) and runs the
   comparison in promote mode in the private snapshot: the candidate takes the function's `ADDRESS` anchor, the
   registry entry moves to the candidate's name and derived symbol, `rebrew test` records STATUS, SIZE and the

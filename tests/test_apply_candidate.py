@@ -40,7 +40,7 @@ FUNCTIONS = (
 CANDIDATE = "int __stdcall add(int a, int b) { return a + b; }\n"
 
 
-def _stage(root: Path) -> tuple[WorkerConfig, list[dict[str, Any]]]:
+def _stage(root: Path, source: str = "src/stub.c") -> tuple[WorkerConfig, list[dict[str, Any]]]:
     filestore = root / "files"
     (filestore / "binaries").mkdir(parents=True)
     shutil.copyfile(BINARY, filestore / f"binaries/{SHA256}")
@@ -49,8 +49,8 @@ def _stage(root: Path) -> tuple[WorkerConfig, list[dict[str, Any]]]:
     entries = []
     for name, data in (
         ("rebrew-project.toml", PROJECT),
-        ("src/stub.c", STUB),
-        ("rebrew-functions.toml", FUNCTIONS),
+        (source, STUB),
+        ("rebrew-functions.toml", FUNCTIONS.replace(b'"src/stub.c"', f'"{source}"'.encode())),
     ):
         digest = hashlib.sha256(data).hexdigest()
         (filestore / "binaries" / digest).write_bytes(data)
@@ -528,3 +528,133 @@ def test_apply_answers_a_compile_the_service_never_ran_as_503_with_retry_after(
     assert (response.status, refusal["error"]) == (503, "compile-not-run"), refusal
     assert response.getheader("Retry-After") == str(_THROTTLE_SECONDS)
     assert refusal["detail"].startswith("not run (service unavailable): ")
+
+
+#: A source in a subdirectory, as the backend's projects lay them out.
+NESTED = "src/notepad/fcn_00401000.c"
+
+
+def test_a_renamed_candidate_gets_a_verdict_and_leaves_the_retained_registry_alone(
+    tmp_path: Path, promote_in_process: list[list[str]]
+) -> None:
+    """A candidate naming its function `add` over the registry's `fcn_00401000` failed the reloc scan.
+
+    It answered 500 "rebrew test failed: global/function scan failed, ...: address anchor names
+    'add', but the metadata names 'fcn_00401000'".
+    """
+    config, entries = _stage(tmp_path, NESTED)
+    stored = {e["key"]: (config.filestore / e["key"]).read_bytes() for e in entries}
+    status, reply = dispatch(config, "rebrew.verify_function", _request(entries, source=NESTED))
+    assert status == 200, reply
+    result = json.loads(reply)
+    assert result["status"] == "EXACT" and result["verdict_valid"] is True
+    assert result["source"] == NESTED and result["symbol"] == "_add@8"
+    assert "--no-promote" in promote_in_process[0] and "--symbol=_add@8" in promote_in_process[0]
+    assert "files" not in result
+    assert {e["key"]: (config.filestore / e["key"]).read_bytes() for e in entries} == stored
+    assert not list((tmp_path / "workspace").rglob("rebrew-functions.toml"))
+
+
+def test_an_unrenamed_candidate_compares_under_its_registry_symbol(
+    tmp_path: Path, promote_in_process: list[list[str]]
+) -> None:
+    """Verification passed the bare C name as the symbol, which rebrew test reads as an override
+    differing from the function's own symbol."""
+    config, entries = _stage(tmp_path)
+    candidate = "void fcn_00401000(void) {}\n"
+    status, reply = dispatch(
+        config, "rebrew.verify_function", _request(entries, candidate=candidate)
+    )
+    assert status == 200, reply
+    assert json.loads(reply)["symbol"] == "_fcn_00401000"
+    assert "--symbol=_fcn_00401000" in promote_in_process[0]
+
+
+@pytest.mark.parametrize("op", ["rebrew.verify_function", "rebrew.apply_candidate"])
+def test_a_candidate_taking_another_functions_name_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, op: str
+) -> None:
+    from rebrew import ops
+
+    config, entries = _stage(tmp_path)
+    monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://127.0.0.1:18953")
+
+    def forbidden(*args: Any, **kwargs: Any) -> None:
+        pytest.fail("a candidate taking another function's name reached the compiler")
+
+    monkeypatch.setattr(ops, "run_rebrew", forbidden)
+    status, reply = dispatch(
+        config, op, _request(entries, candidate="int other(void) { return 0; }\n")
+    )
+    assert status == 409, reply
+    refusal = json.loads(reply)
+    assert refusal["error"] == "candidate-name-taken"
+    assert refusal["detail"] == (
+        "the candidate names the function at 0x00401000 (fcn_00401000) 'other', "
+        "the name of the function at 0x00401020; give it another name"
+    )
+
+
+def test_a_verification_that_changes_the_renamed_registry_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from rebrew import ops
+
+    config, entries = _stage(tmp_path)
+    monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://127.0.0.1:18953")
+
+    def promoting(args: Any, root: Path, *unused: Any, **kwargs: Any) -> dict[str, Any]:
+        from rebrew.metadata.functions import update_source_status
+
+        update_source_status(root, "EXACT", "MINI", VA, force=True)
+        return {"status": "EXACT"}
+
+    monkeypatch.setattr(ops, "run_rebrew", promoting)
+    status, reply = dispatch(config, "rebrew.verify_function", _request(entries))
+    assert status == 400 and b"snapshot source changed during verification" in reply
+
+
+@pytest.mark.parametrize("op", ["rebrew.verify_function", "rebrew.apply_candidate"])
+@pytest.mark.parametrize(
+    ("candidate", "code", "detail"),
+    [
+        (
+            "int add(int a) { return a; }\nint sub(int a) { return -a; }\n",
+            "candidate-not-one-function",
+            "the candidate defines 2 functions (add, sub); it must define exactly one",
+        ),
+        (
+            "this is not C at all\n",
+            "candidate-not-one-function",
+            "the candidate defines no C function; it must define exactly one",
+        ),
+        (
+            "/* ADDRESS: MINI 0x00401020 */\n" + CANDIDATE,
+            "candidate-address-comment",
+            "candidate ADDRESS comment names a different VA",
+        ),
+        (
+            "/* ADDRESS: MINI 0x00401000 */ " + CANDIDATE,
+            "candidate-address-comment",
+            "candidate ADDRESS comment must occupy one full line",
+        ),
+    ],
+)
+def test_a_candidate_a_person_can_correct_is_refused_under_its_own_code(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, op: str, candidate: str, code: str, detail: str
+) -> None:
+    """These answered 400 invalid-request, which a caller cannot tell from its own malformed request."""
+    from rebrew import ops
+
+    config, entries = _stage(tmp_path)
+    monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://127.0.0.1:18953")
+
+    def forbidden(*args: Any, **kwargs: Any) -> None:
+        pytest.fail("a refused candidate reached the compiler")
+
+    monkeypatch.setattr(ops, "run_rebrew", forbidden)
+    status, reply = dispatch(config, op, _request(entries, candidate=candidate))
+    assert (status, json.loads(reply)) == (
+        400,
+        {"error": code, "detail": detail, "status": 400},
+    )
