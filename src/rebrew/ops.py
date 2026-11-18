@@ -3414,8 +3414,17 @@ def project_report(
             if row.markerType not in _DATA_MARKERS
         ]
         import_stubs: dict[int, str] = find_import_stubs(binary) if binary is not None else {}
-        # An import thunk that is also a function row is one identity: the function
-        # row wins, taking the import name when it only has the generated one.
+        # An import thunk that is also a function row is one identity.  A row
+        # nobody worked on (generated name, STUB) is an import: older discovery
+        # documented stubs as functions.  Any other row wins, taking the import
+        # name when it only has the generated one.
+        functions = [
+            row
+            for row in functions
+            if row["va"] not in import_stubs
+            or row["name"] != f"fcn_{row['va']:08x}"
+            or row["status"] != "STUB"
+        ]
         for row in functions:
             stub = import_stubs.pop(row["va"], None)
             if stub is not None and row["name"] == f"fcn_{row['va']:08x}":

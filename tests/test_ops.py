@@ -1811,6 +1811,40 @@ class TestReconstructionOps:
             {"va": 0x401093, "name": IMPORT_CALL_NAMES[1]},
         ]
 
+    def test_imported_project_reports_an_old_stub_row_as_its_import(self, tmp_path: Path) -> None:
+        """A project onboarded by the old rule holds a STUB row at an import stub
+        (Win2k notepad's ``OpenPrinterW``, 259 bytes): the report named the row
+        after the import and kept it a function, so the backend stored a
+        function the decompiler wrote as ``OpenPrinterW() { return OpenPrinterW(); }``."""
+        from bin_util import IMPORT_CALL_NAMES
+
+        from rebrew.intake import classify_all
+
+        def assemble(slot_a: int, slot_b: int) -> str:
+            return (
+                "55 8b ec e8 08000000 5d c3"
+                + " cc" * 6
+                + f" ff25{le32(slot_a)}"
+                + " cc" * 10
+                + " 55 8b ec e8 6b000000 5d c3"
+                + " cc" * 0x69
+                + f" ff25{le32(slot_b)} cc cc"
+            )
+
+        binary, _slot_a, _slot_b = make_import_call_pe(tmp_path, assemble)
+        filestore, workspace = _worker_dirs(tmp_path)
+        digest, key = _store(filestore, binary.read_bytes())
+        config = WorkerConfig(filestore.resolve(), workspace.resolve())
+        request = {"binary_id": 1, "sha256": digest, "name": "calls.exe", "file_key": key}
+        project = Path(_call(config, "rebrew.analyse", request)["project"])
+        classify_all(project, project / "src" / "calls", "CALLS", [(0x401093, 9, "")], "msvc", "")
+        target = _call(config, "rebrew.import-project", {"project_dir": str(project)})["targets"][0]
+        assert [f["va"] for f in target["functions"]] == [0x401000, 0x401020]
+        assert target["stubs"] == [
+            {"va": 0x401010, "name": IMPORT_CALL_NAMES[0]},
+            {"va": 0x401093, "name": IMPORT_CALL_NAMES[1]},
+        ]
+
     def test_analysed_function_does_not_absorb_code_after_its_padding(self, tmp_path: Path) -> None:
         """Win2k notepad's fcn_010065f0 (19 bytes, ``ret``, nop padding) grew to
         49 once the thunk after it bounded the gap: the coverage grid's small-gap

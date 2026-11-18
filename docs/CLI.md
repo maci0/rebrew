@@ -7175,6 +7175,11 @@ Op details the contract leaves open:
   `constant` finding also has `va` and `section`.
 - `rebrew.import-project`: live coverage is always read refreshed; `build_db`
   asks for exactly that and only excludes `snapshots`.
+- In every project report (`rebrew.analyse`, `rebrew.import-project`) an import
+  stub (`rebrew binary imports list`) with a function row is one identity: a
+  row with the generated `fcn_` name and status STUB is reported as the stub,
+  any other row as a function, named after the import when its name is the
+  generated one.
 - `rebrew.import_archive` installs an uploaded project archive (`archive_key`
   or `archive_url`, checked against `archive_sha256`) as the project of the
   binary whose hash is `sha256`, in the directory `rebrew.analyse` would use
