@@ -261,6 +261,22 @@ class SqliteStore:
             ).fetchone()
             return row is not None
 
+    def documents_named(self, name: str) -> tuple[tuple[str, int], ...] | None:
+        """``(path, revision)`` of every document whose file name is *name*; None without a database.
+
+        Every write advances a document's revision, so the result changes whenever
+        a document of that name is added, removed or rewritten.
+        """
+        with self._reader() as connection:
+            if connection is None:
+                return None
+            rows = connection.execute(
+                "SELECT path, revision FROM metadata_documents WHERE path = ? OR path LIKE ? "
+                "ORDER BY path",
+                (name, "%/" + name),
+            ).fetchall()
+        return tuple((str(path), int(revision)) for path, revision in rows)
+
     def text(self) -> str | None:
         """The stored document text; None when absent."""
         row = self._row()

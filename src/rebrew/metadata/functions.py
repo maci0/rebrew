@@ -2149,6 +2149,7 @@ def clear_library_override_cache() -> None:
     with _LIBRARY_CACHE_LOCK:
         _LIBRARY_META_CACHE.clear()
         _LIBRARY_FP_MEMO.clear()
+        _LIBRARY_DB_MEMO.clear()
 
 
 def nearest_library_metadata_path(
@@ -2261,6 +2262,44 @@ def _library_watch_unchanged(
         return False
 
 
+#: ``(start spelling, root spelling)`` -> (library-document token, fingerprint)
+#: for database-backed stores, where every walk step is a query.  The token
+#: lists each library document's path and revision (plus the replication
+#: journal's stat), so any write that adds, removes or edits one misses.
+_LIBRARY_DB_MEMO: OrderedDict[
+    tuple[str, str], tuple[tuple[object, ...], tuple[str, MetadataDocFingerprint] | None]
+] = OrderedDict()
+
+
+def _database_library_fingerprint(
+    start_dir: str | Path, root: str | Path | None
+) -> tuple[str, MetadataDocFingerprint] | None:
+    """:func:`library_override_fingerprint` for database-backed stores, memoized by token."""
+    from rebrew.metadata.storage import named_documents_token
+
+    token = named_documents_token(Path(root), LIBRARY_METADATA_FILE) if root is not None else None
+    key = (os.fspath(start_dir), "" if root is None else os.fspath(root))
+    if token is not None:
+        with _LIBRARY_CACHE_LOCK:
+            cached = _LIBRARY_DB_MEMO.get(key)
+            if cached is not None and cached[0] == token:
+                _LIBRARY_DB_MEMO.move_to_end(key)
+                return cached[1]
+    found = nearest_library_metadata_path(start_dir, root)
+    result = (str(found), metadata_store(found).fingerprint()) if found else None
+    if (
+        token is not None
+        and root is not None
+        and named_documents_token(Path(root), LIBRARY_METADATA_FILE) == token
+    ):
+        with _LIBRARY_CACHE_LOCK:
+            _LIBRARY_DB_MEMO[key] = (token, result)
+            _LIBRARY_DB_MEMO.move_to_end(key)
+            while len(_LIBRARY_DB_MEMO) > _LIBRARY_FP_MEMO_MAX:
+                _LIBRARY_DB_MEMO.popitem(last=False)
+    return result
+
+
 def library_override_fingerprint(
     start_dir: str | Path, root: str | Path | None = None
 ) -> tuple[str, MetadataDocFingerprint] | None:
@@ -2276,10 +2315,7 @@ def library_override_fingerprint(
     or an in-place edit still returns the fresh fingerprint.
     """
     if metadata_store(Path(start_dir) / LIBRARY_METADATA_FILE).name != "toml":
-        found_store = nearest_library_metadata_path(start_dir, root)
-        return (
-            (str(found_store), metadata_store(found_store).fingerprint()) if found_store else None
-        )
+        return _database_library_fingerprint(start_dir, root)
     key = (os.fspath(start_dir), "" if root is None else os.fspath(root))
     with _LIBRARY_CACHE_LOCK:
         cached = _LIBRARY_FP_MEMO.get(key)

@@ -356,6 +356,58 @@ class TestReplicationHotPaths:
         assert loaded == records
         assert loaded["rebrew-functions.toml"].digest == records["rebrew-functions.toml"].digest
 
+    def test_state_load_trusts_the_digest_once_the_content_hash_matches(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.metadata.replication as replication
+        from rebrew.metadata.files import TomlStore
+
+        content = tomlkit.dumps({"a": {"s": _AWKWARD}})
+        record = replication._Record({"node:x": 1}, 7, content, False)
+        expected = record.digest
+        store = TomlStore(tmp_path / "state.toml", tmp_path)
+        replication._save(store, {"rebrew-functions.toml": record}, "")
+        replication._LOADED.clear()
+
+        def refuse(*args: Any, **kwargs: Any) -> str:
+            raise AssertionError("semantic digest computed while loading state")
+
+        monkeypatch.setattr(replication, "_digest", refuse)
+        loaded, _ = replication._load(store)
+        assert loaded["rebrew-functions.toml"].digest == expected
+
+    def test_state_without_content_hash_still_verifies_the_digest(self, tmp_path: Path) -> None:
+        import rebrew.metadata.replication as replication
+        from rebrew.metadata.files import TomlStore
+
+        content = tomlkit.dumps({"a": {"s": "x"}})
+        record = replication._Record({"node:x": 1}, 7, content, False)
+        rendered = replication._render_state({"rebrew-functions.toml": record}, "")
+        old = "\n".join(
+            line for line in rendered.split("\n") if not line.startswith("content_sha256 = ")
+        )
+        (tmp_path / "state.toml").write_text(old)
+        store = TomlStore(tmp_path / "state.toml", tmp_path)
+        replication._LOADED.clear()
+        loaded, _ = replication._load(store)
+        assert loaded["rebrew-functions.toml"].digest == record.digest
+        (tmp_path / "state.toml").write_text(old.replace('digest = "', 'digest = "0', 1))
+        replication._LOADED.clear()
+        with pytest.raises(MetadataStorageError, match="digest mismatch"):
+            replication._load(TomlStore(tmp_path / "state.toml", tmp_path))
+
+    def test_state_with_tampered_content_is_rejected(self, tmp_path: Path) -> None:
+        import rebrew.metadata.replication as replication
+        from rebrew.metadata.files import TomlStore
+
+        content = tomlkit.dumps({"a": {"s": "x"}})
+        record = replication._Record({"node:x": 1}, 7, content, False)
+        rendered = replication._render_state({"rebrew-functions.toml": record}, "")
+        (tmp_path / "state.toml").write_text(rendered.replace('s = \\"x\\"', 's = \\"y\\"'))
+        replication._LOADED.clear()
+        with pytest.raises(MetadataStorageError, match="content hash mismatch"):
+            replication._load(TomlStore(tmp_path / "state.toml", tmp_path))
+
     def test_store_text_and_write_text(self, tmp_path: Path) -> None:
         _project(tmp_path)
         content = tomlkit.dumps({"format": 3, "x": {"s": _AWKWARD}})
@@ -421,6 +473,48 @@ class TestReplicationHotPaths:
         assert len(fetches) == fetched
         update_field(tmp_path, 0x1000, "NOTE", "second", "GAME")
         assert store.fingerprint() != first
+
+    def test_library_override_lookup_walks_once_until_a_library_document_changes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.metadata.functions as functions
+        from rebrew.metadata.functions import (
+            LIBRARY_METADATA_FILE,
+            clear_library_override_cache,
+            library_override_fingerprint,
+        )
+
+        _project(tmp_path)
+        update_field(tmp_path, 0x1000, "NOTE", "provisions the database", "GAME")
+        source_dir = tmp_path / "src" / "unit"
+        source_dir.mkdir()
+        clear_library_override_cache()
+        walks: list[int] = []
+        walk = functions.nearest_library_metadata_path
+
+        def counting(start: Path | str, root: Path | str | None = None) -> Path | None:
+            walks.append(1)
+            return walk(start, root)
+
+        monkeypatch.setattr(functions, "nearest_library_metadata_path", counting)
+        assert library_override_fingerprint(source_dir, tmp_path) is None
+        assert [library_override_fingerprint(source_dir, tmp_path) for _ in range(8)] == [None] * 8
+        assert len(walks) == 1
+
+        library = metadata_store(tmp_path / "src" / LIBRARY_METADATA_FILE, root=tmp_path)
+        with library.transaction():
+            library.write({"toolchain": "msvc-6.0-sp6"}, "test")
+        found = library_override_fingerprint(source_dir, tmp_path)
+        assert len(walks) == 2
+        assert found is not None and found[0].endswith("src/" + LIBRARY_METADATA_FILE)
+        assert library_override_fingerprint(source_dir, tmp_path) == found
+        assert len(walks) == 2
+
+        with library.transaction():
+            library.write({"toolchain": "msvc-4.2"}, "test")
+        edited = library_override_fingerprint(source_dir, tmp_path)
+        assert len(walks) == 3
+        assert edited is not None and edited != found
 
 
 def test_rendered_state_parser_matches_tomllib() -> None:

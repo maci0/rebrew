@@ -1,5 +1,13 @@
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** replicated metadata (`read_backends`/`write_backends`) writes a `content_sha256` field (the raw SHA-256 of the document text) beside each journal and replication-state record. Loading checks that hash and keeps the stored semantic digest instead of parsing every replicated document to recompute it; a record without the field (state written before this release) still takes the full digest check, and the first write rewrites it. Rebrew releases before this one reject the new field, so upgrade every tool that reads a project's metadata together.
+
+### Fixed
+
+- `rebrew status` and every other command on a replicated or SQLite-backed project resolved each function's library override by walking the directory tree with database queries, once per function. The result is now memoized per directory and checked against one query listing every library override document's path and revision (plus the replication journal's stat). A replicated read also skips recomputing a document's digest when its text equals the recorded content, and the resolved record keeps the digest it was loaded with. On guild-rebrew (21 MB function store, SQLite and TOML replication) `rebrew status` dropped from about 17.7 to 6.8 seconds, with identical output; the remaining time is mostly the per-file `#include` scan that checks stored verdicts are current.
+
 ## [6.58.0] - 2026-11-18
 
 ### Added

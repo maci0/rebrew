@@ -413,6 +413,29 @@ def input_exists(path: Path) -> bool:
     return metadata_store(path).exists() if path.name in METADATA_FILENAMES else path.is_file()
 
 
+def named_documents_token(root: Path, name: str) -> tuple[object, ...] | None:
+    """Exact change token for every document named *name*; None when not cacheable.
+
+    Covers a SQLite store and a replicated store whose first read backend is a
+    provisioned SQLite database: the ``(path, revision)`` of each such document
+    plus the replication journal's stat.  Other backends, and an unprovisioned
+    replica whose reads fall back to TOML, return None.
+    """
+    from rebrew.metadata.files import TomlStore
+    from rebrew.metadata.replication import JOURNAL_PATH, RoutedStore
+    from rebrew.metadata.sqlite import SqliteStore
+
+    store = metadata_store(root / name, root=root)
+    journal: tuple[object, ...] = ()
+    if isinstance(store, RoutedStore):
+        journal = tuple(TomlStore(root / JOURNAL_PATH, root).fingerprint())
+        store = store.store(store.read_backends[0], store.key)
+    if not isinstance(store, SqliteStore) or not store.provisioned():
+        return None
+    documents = store.documents_named(name)
+    return None if documents is None else (journal, documents)
+
+
 def metadata_store_paths(directory: Path) -> tuple[Path, ...]:
     """Logical metadata paths for backend-independent review snapshots."""
     return tuple(store.path for store in project_metadata_stores(directory))

@@ -42,6 +42,11 @@ _DIGEST_LOCK = threading.Lock()
 _DIGESTS: OrderedDict[tuple[str, bool], str] = OrderedDict()
 
 
+def _content_sha256(content: str) -> str:
+    """Raw SHA-256 of a replicated document's text (no parse)."""
+    return hashlib.sha256(content.encode()).hexdigest()
+
+
 def _digest(content: str, deleted: bool = False) -> str:
     """Hash semantic TOML values, independent of comments and fragment placement."""
 
@@ -88,6 +93,7 @@ def _render_state(records: dict[str, _Record], node: str) -> str:
             f"content = {_toml_string(record.content)}",
             f"deleted = {'true' if record.deleted else 'false'}",
             f"digest = {_toml_string(record.digest)}",
+            f"content_sha256 = {_toml_string(_content_sha256(record.content))}",
             "",
             f"[{table}.clock]",
             *(f"{_toml_string(name)} = {revision}" for name, revision in record.clock.items()),
@@ -136,16 +142,17 @@ def _parse_rendered(text: str) -> dict[str, Any] | None:
     doc["records"] = records
     end = len(lines) - 1
     while position < end:
-        block = lines[position : position + 8]
-        if len(block) != 8 or block[0] != "" or block[6] != "":
+        block = lines[position : position + 9]
+        if len(block) != 9 or block[0] != "" or block[7] != "":
             return None
-        header, stamp, content, deleted, digest, clock_header = (
+        header, stamp, content, deleted, digest, content_sha, clock_header = (
             block[1],
             block[2],
             block[3],
             block[4],
             block[5],
-            block[7],
+            block[6],
+            block[8],
         )
         if not (header.startswith("[records.") and header.endswith("]")):
             return None
@@ -158,6 +165,7 @@ def _parse_rendered(text: str) -> dict[str, Any] | None:
             (content, "content"),
             (deleted, "deleted"),
             (digest, "digest"),
+            (content_sha, "content_sha256"),
         ):
             prefix = f"{name} = "
             if not line.startswith(prefix):
@@ -173,7 +181,7 @@ def _parse_rendered(text: str) -> dict[str, Any] | None:
                 return None
             row[name] = value
         clock: dict[str, int] = {}
-        position += 8
+        position += 9
         while position < end and lines[position] != "":
             node_token, separator, revision_token = lines[position].rpartition(" = ")
             node_name = string(node_token)
@@ -262,7 +270,9 @@ def _parse_state(store: MetadataStore) -> tuple[dict[str, _Record], str]:
             raise MetadataStorageError("invalid metadata replication document path")
         if (
             not isinstance(row, dict)
-            or set(row) != {"clock", "updated_at_ns", "content", "deleted", "digest"}
+            or set(row) - {"content_sha256"}
+            != {"clock", "updated_at_ns", "content", "deleted", "digest"}
+            or not isinstance(row.get("content_sha256", ""), str)
             or not isinstance(row["clock"], dict)
             or any(
                 not isinstance(k, str) or type(v) is not int or v < 0
@@ -275,7 +285,13 @@ def _parse_state(store: MetadataStore) -> tuple[dict[str, _Record], str]:
         ):
             raise MetadataStorageError("invalid metadata replication record")
         record = _Record(row["clock"], row["updated_at_ns"], row["content"], row["deleted"])
-        if record.digest != row["digest"]:
+        if "content_sha256" in row:
+            # The raw hash proves the content is what the digest was computed
+            # from, so the stored digest stands without parsing the document.
+            if _content_sha256(row["content"]) != row["content_sha256"]:
+                raise MetadataStorageError("metadata replication content hash mismatch")
+            record.__dict__["digest"] = row["digest"]
+        elif record.digest != row["digest"]:
             raise MetadataStorageError("metadata replication digest mismatch")
         records[key] = record
     return records, node
@@ -291,6 +307,9 @@ def _observed(store: MetadataStore, recorded: _Record | None) -> _Record | None:
     if not exists and recorded is None:
         return None
     content = text or ""
+    if recorded is not None and recorded.deleted == (not exists) and recorded.content == content:
+        # Same text, same digest: skip parsing the document to hash it.
+        return recorded
     digest = _digest(content, not exists)
     if recorded is not None and digest == recorded.digest:
         return recorded
@@ -319,7 +338,7 @@ def _winner(key: str, records: list[_Record]) -> _Record | None:
             for other in records
         )
     ]
-    if len({r.digest for r in maxima}) != 1:
+    if len(maxima) > 1 and len({r.digest for r in maxima}) != 1:
         raise MetadataConflictError(
             f"conflicting metadata replicas for {key}; preserve and review both copies"
         )
@@ -328,7 +347,11 @@ def _winner(key: str, records: list[_Record]) -> _Record | None:
     for record in maxima:
         for node, revision in record.clock.items():
             clock[node] = max(clock.get(node, 0), revision)
-    return _Record(clock, chosen.updated_at_ns, chosen.content, chosen.deleted)
+    merged = _Record(clock, chosen.updated_at_ns, chosen.content, chosen.deleted)
+    if "digest" in chosen.__dict__:
+        # Same content and deletion flag: the digest carries over unparsed.
+        merged.__dict__["digest"] = chosen.__dict__["digest"]
+    return merged
 
 
 class _Session:
