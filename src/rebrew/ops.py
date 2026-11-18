@@ -3769,14 +3769,9 @@ def _run_candidate(
         symbol = derive_c_symbol(name, function_signatures(req.candidate).get(name, ""))
         # The registry is the snapshot's: an apply returns it, a verification compares it
         # with the renamed copy after the run.
-        registry, renamed = "", None
-        if module and (applying is not None or _registry_name(cfg, module, req.va) != name):
-            _refuse_taken_name(cfg, module, req.va, name, symbol)
-            if cfg.metadata_dir.resolve() != root:
-                raise _invalid("the retained project keeps its function registry outside its root")
-            registry = _applied_registry(root, paths)
-            _move_identity(cfg, module, req.va, name, symbol)
-            renamed = _project_file(root, registry, "function registry").read_bytes()
+        registry, renamed = follow_candidate_name(
+            cfg, root, paths, module, req.va, name, symbol, always=apply
+        )
         flags = checked_cflags(req.cflags)
         result = run_rebrew(
             [
@@ -3874,6 +3869,38 @@ def _compile_inputs(
         "files": sorted(files, key=lambda item: item["path"].encode("utf-8")),
         "documents": documents,
     }
+
+
+def follow_candidate_name(
+    cfg: Any,
+    root: Path,
+    staged: Iterable[str],
+    module: str,
+    va: int,
+    name: str,
+    symbol: str,
+    *,
+    always: bool = False,
+) -> tuple[str, bytes | None]:
+    """Point a staged snapshot's registry entry for *va* at a candidate's *name* and *symbol*.
+
+    rebrew refuses to scan a source whose address anchor names a function other than the
+    registry does, so a candidate compiled in a private snapshot (*root*) takes its function's
+    registry entry with it. Nothing happens without an anchor *module*, or when the registry
+    already holds *name* unless *always* (an apply, which records the derived symbol). A name or
+    symbol another function of *module* holds is refused, 409 ``candidate-name-taken``.
+
+    Answers the registry's snapshot-relative path and its bytes after the rename, which the
+    caller checks again after the run, or ``("", None)`` when nothing changed.
+    """
+    if not module or (not always and _registry_name(cfg, module, va) == name):
+        return "", None
+    _refuse_taken_name(cfg, module, va, name, symbol)
+    if cfg.metadata_dir.resolve() != root:
+        raise _invalid("the retained project keeps its function registry outside its root")
+    registry = _applied_registry(root, list(staged))
+    _move_identity(cfg, module, va, name, symbol)
+    return registry, _project_file(root, registry, "function registry").read_bytes()
 
 
 def _registry_name(cfg: Any, module: str, va: int) -> str:

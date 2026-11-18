@@ -7321,6 +7321,11 @@ Op details the contract leaves open:
   search compiles at most 10,000 candidates, about 1,460 s at the measured
   585 ms per compile and compare ([PERFORMANCE.md](PERFORMANCE.md)) over the
   GA's default 4 parallel jobs, inside the op's 3600 s deadline.
+- `rebrew.retained_source_operation` `variants` and `decompme` write the candidate over `source` verbatim. When
+  its own `ADDRESS` comment for `va` names the function other than the registry does, the private copy's
+  registry follows that name and derived symbol for the run and must hold the same bytes after it, as for a
+  `verify_function` candidate (below), and a name another function of the module has answers 409
+  `candidate-name-taken`.
 - While the compile backend is the remote recompile service
   (`REBREW_RECOMPILE_URL` or `[compiler] recompile_url`), `verify_function`,
   `verify_target`, `build` and the retained variant search ship the project

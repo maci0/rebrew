@@ -71,6 +71,7 @@ def snapshot_mutation(config: Any, req: Any) -> dict[str, Any]:
         metadata_cache = (cfg.metadata_dir / ".rebrew" / "metadata-doc").resolve()
         target = f"--target={req.rebrew_target}"
         dry = ["--dry-run"] if req.dry_run else []
+        registry, renamed = "", None
         if req.operation in {"variants", "decompme"}:
             if req.size <= 0:
                 raise invalid("a function extent is required")
@@ -85,6 +86,7 @@ def snapshot_mutation(config: Any, req: Any) -> dict[str, Any]:
                 raise invalid("candidate does not match its digest")
             source.write_bytes(candidate)
             ops.remote_header_refusal(cfg, [source])
+            registry, renamed = _follow_candidate_anchor(cfg, root, retained_paths, req)
             if req.operation == "variants":
                 arguments = [
                     "match",
@@ -208,8 +210,10 @@ def snapshot_mutation(config: Any, req: Any) -> dict[str, Any]:
         ):
             raise invalid("target binary or project configuration changed")
         if req.operation in {"variants", "decompme"}:
+            if renamed is not None and checked_path(root, registry).read_bytes() != renamed:
+                raise invalid("retained source changed during execution")
             for entry in req.files:
-                if entry.path == req.source:
+                if entry.path in {req.source, registry}:
                     continue
                 path = checked_path(root, entry.path)
                 if (
@@ -253,3 +257,31 @@ def snapshot_mutation(config: Any, req: Any) -> dict[str, Any]:
                 )
         proposal.sort(key=lambda item: str(item["path"]))
         return {"result": result, "files": proposal}
+
+
+def _follow_candidate_anchor(
+    cfg: Any, root: Path, staged: set[str], req: Any
+) -> tuple[str, bytes | None]:
+    """Let the staged registry follow the name the candidate's own anchor for ``req.va`` gives.
+
+    A variant search or a decomp.me export scans the snapshot, which refuses an anchor naming the
+    function other than the registry does; the candidate is written verbatim, so its anchor, when
+    it has one, is the identity (``rebrew.ops.follow_candidate_name``).
+    """
+    from rebrew import ops
+    from rebrew.metadata.anchors import parse_address_anchors
+    from rebrew.metadata.bindings import derive_c_symbol
+
+    anchors = [a for a in parse_address_anchors(req.candidate) if a.va == req.va and a.name]
+    if len(anchors) != 1:
+        return "", None
+    (anchor,) = anchors
+    return ops.follow_candidate_name(
+        cfg,
+        root,
+        staged,
+        anchor.module,
+        req.va,
+        anchor.name,
+        derive_c_symbol(anchor.name, anchor.prototype),
+    )

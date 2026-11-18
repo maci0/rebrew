@@ -235,3 +235,105 @@ def test_retained_proposals_and_candidate(tmp_path: Path, monkeypatch: Any) -> N
     assert (status, refusal["error"]) == (422, "remote-compile-headers"), body
     assert "does not accept include bundles" in refusal["detail"]
     assert posted == []
+
+
+def _renamed_candidate_request(
+    tmp_path: Path, operation: str
+) -> tuple[ops.WorkerConfig, dict[str, Any]]:
+    """A retained project whose registry names 0x401000 `fcn_00401000`, with a candidate anchored as `add`."""
+    filestore, workspace = tmp_path / "objects", tmp_path / "workspace"
+    (filestore / "objects").mkdir(parents=True)
+    workspace.mkdir()
+    binary = (Path(__file__).parent / "fixtures" / "mini_pe.exe").read_bytes()
+    files = []
+    for name, data in (
+        ("original/mini", binary),
+        (
+            "rebrew-project.toml",
+            b'[project]\ndefault_target="mini"\n[targets.mini]\nbinary="original/mini"\n'
+            b'format="pe"\narch="x86_32"\nreversed_dir="src"\n',
+        ),
+        (
+            "src/notepad/fcn_00401000.c",
+            b"/* ADDRESS: MINI 0x00401000 */\nvoid fcn_00401000(void) {}\n",
+        ),
+        ("src/function_structure.json", b'{"functions": []}'),
+        (
+            "rebrew-functions.toml",
+            b'format = 3\n\n["MINI.0x00401000"]\nfile = "src/notepad/fcn_00401000.c"\n'
+            b'symbol = "_fcn_00401000"\nname = "fcn_00401000"\nkind = "FUNCTION"\nsize = 11\n',
+        ),
+    ):
+        digest = hashlib.sha256(data).hexdigest()
+        (filestore / "objects" / digest).write_bytes(data)
+        files.append(
+            {"path": name, "digest": digest, "size": len(data), "key": f"objects/{digest}"}
+        )
+    candidate = (
+        "/* ADDRESS: MINI 0x00401000 */\nint __stdcall add(int a, int b) { return a + b; }\n"
+    )
+    request = {
+        "files": files[1:],
+        "rebrew_target": "mini",
+        "sha256": files[0]["digest"],
+        "binary_key": files[0]["key"],
+        "operation": operation,
+        "source": "src/notepad/fcn_00401000.c",
+        "va": 0x401000,
+        "size": 11,
+        "dry_run": True,
+        "candidate": candidate,
+        "candidate_sha256": hashlib.sha256(candidate.encode()).hexdigest(),
+    }
+    return ops.WorkerConfig(filestore.resolve(), workspace.resolve()), request
+
+
+def test_a_decompme_export_of_a_renamed_candidate_runs(tmp_path: Path, monkeypatch: Any) -> None:
+    """It answered 500 "rebrew export decompme failed: src/notepad/fcn_00401000.c:1: address anchor
+    names 'add', but the metadata names 'fcn_00401000'"."""
+    monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://127.0.0.1:18953")
+    config, request = _renamed_candidate_request(tmp_path, "decompme")
+    stored = {e["key"]: (config.filestore / e["key"]).read_bytes() for e in request["files"]}
+    status, body = ops.dispatch(
+        config, "rebrew.retained_source_operation", json.dumps(request).encode()
+    )
+    assert status == 200, body
+    assert json.loads(body)["result"]["dry_run"] is True
+    assert {
+        e["key"]: (config.filestore / e["key"]).read_bytes() for e in request["files"]
+    } == stored
+
+
+def test_a_variant_search_of_a_renamed_candidate_scans_and_keeps_the_renamed_registry(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    from rebrew.coff_reloc import build_name_to_va
+    from rebrew.config import load_config
+
+    monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://127.0.0.1:18953")
+    config, request = _renamed_candidate_request(tmp_path, "variants")
+    request.update(generations=1, population=1)
+    seen = []
+
+    def run(args: Any, root: Path, *unused: Any, **kwargs: Any) -> dict[str, Any]:
+        seen.append(build_name_to_va(load_config(root, target="mini")))
+        return {"ok": True}
+
+    monkeypatch.setattr(ops, "run_rebrew", run)
+    status, body = ops.dispatch(
+        config, "rebrew.retained_source_operation", json.dumps(request).encode()
+    )
+    assert status == 200, body
+    assert seen[0]["_add@8"] == 0x401000
+
+    def promote(args: Any, root: Path, *unused: Any, **kwargs: Any) -> dict[str, Any]:
+        from rebrew.metadata.functions import update_source_status
+
+        update_source_status(root, "EXACT", "MINI", 0x401000, force=True)
+        return {"ok": True}
+
+    monkeypatch.setattr(ops, "run_rebrew", promote)
+    status, body = ops.dispatch(
+        config, "rebrew.retained_source_operation", json.dumps(request).encode()
+    )
+    assert (status, json.loads(body)["detail"]) == (400, "retained source changed during execution")
