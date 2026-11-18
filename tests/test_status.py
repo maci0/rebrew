@@ -1956,12 +1956,12 @@ class TestDataByteCoverage:
         assert all(hi > lo for lo, hi in ranges)
 
     def test_data_directory_of_a_non_pe_is_absent(self, tmp_path: Path) -> None:
+        from rebrew.formats.binary_model import BinaryInfo
         from rebrew.status import _pe_data_directory
 
-        not_pe = tmp_path / "notes.bin"
-        not_pe.write_bytes(b"not a PE" * 8)
+        not_pe = BinaryInfo(path=tmp_path / "notes.bin", format="elf")
 
-        assert _pe_data_directory(not_pe, "IAT", 0x400000) == (0, 0)
+        assert _pe_data_directory(not_pe, "IAT") == (0, 0)
 
 
 class TestDataVerdicts:

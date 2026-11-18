@@ -10,7 +10,6 @@ Usage::
     rebrew status --target client_exe     Status for a specific target
 """
 
-import functools
 import logging
 from dataclasses import dataclass, field
 lazy import bisect
@@ -37,7 +36,6 @@ from rebrew.cli import (
 from rebrew.status_style import DISPLAY_STATUSES, STATUS_COLORS
 lazy from rebrew.config import ProjectConfig
 lazy from rebrew.formats.binary_model import BinaryInfo
-lazy from rebrew.formats.pe_symbols import as_list
 lazy from rebrew.present import BAR_WIDTH, filled_cells, ratio_bar
 lazy from rebrew.sources import iter_sources
 lazy from rebrew.utils import (
@@ -1340,55 +1338,17 @@ def data_byte_coverage(
     return merged_span_bytes(clipped), total
 
 
-@functools.lru_cache(maxsize=8)
-def _pe_directory_entries(
-    resolved: str,
-    inode: int,
-    size: int,
-    mtime_ns: int,
-    ctime_ns: int,
-) -> tuple[tuple[str, int, int], ...]:
-    """``(kind, rva, size)`` for every PE data directory, parsed once per image.
+def _pe_data_directory(info: BinaryInfo, kind: str) -> tuple[int, int]:
+    """``(va, size)`` of the PE data directory *kind* (``IAT``, ``IMPORT_TABLE``), or ``(0, 0)``.
 
-    One ``status`` run asks for the IAT and the import directory from two
-    helpers; a fresh ``lief.PE.parse`` per lookup re-reads and re-decodes the
-    same headers four times.  The identity key mirrors ``load_binary``: a
-    rebuilt image changes size, mtime, ctime, or inode and reparses.
+    Read from :attr:`BinaryInfo.data_directories`, which the loader fills for
+    either optional-header magic. A directory the image does not carry is
+    ``(0, 0)``: the caller must not treat that as an address to cut, and
+    ``(0, 0)`` is the only value that says "absent".
     """
-    entries: list[tuple[str, int, int]] = []
-    try:
-        import lief
-
-        pe = lief.PE.parse(resolved)
-        if pe is None:
-            return ()
-        for directory in as_list(pe, "data_directories"):
-            rva = int(getattr(directory, "rva", 0) or 0)
-            size = int(getattr(directory, "size", 0) or 0)
-            entries.append((str(getattr(directory, "type", "")), rva, size))
-    except OSError, ValueError, RuntimeError:
-        return ()
-    return tuple(entries)
-
-
-def _pe_data_directory(path: Path, name: str, image_base: int) -> tuple[int, int]:
-    """``(va, size)`` of the PE data directory *name*, or ``(0, 0)``.
-
-    LIEF reads the directory for either optional-header magic, so a PE32+
-    image reports its IAT the same way a PE32 one does. A directory the
-    image does not carry is ``(0, 0)``: the caller must not treat that as an
-    address to cut, and ``(0, 0)`` is the only value that says "absent".
-    """
-    try:
-        stat = path.stat()
-    except OSError:
-        return 0, 0
-    for kind, rva, size in _pe_directory_entries(
-        str(path.resolve()), stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns
-    ):
-        if not kind.endswith(name):
-            continue
-        return (image_base + rva, size) if rva and size else (0, 0)
+    for directory in info.data_directories:
+        if directory.kind == kind:
+            return directory.va, directory.size
     return 0, 0
 
 
@@ -1437,7 +1397,7 @@ def _initialized_data_ranges(cfg: ProjectConfig) -> list[tuple[int, int]]:
     loaded = _target_binary(cfg)
     if loaded is None:
         return []
-    path, info = loaded
+    _path, info = loaded
     ranges: list[tuple[int, int]] = []
     rdata_end = 0
     for name in (".data", ".rdata"):
@@ -1451,8 +1411,8 @@ def _initialized_data_ranges(cfg: ProjectConfig) -> list[tuple[int, int]]:
         ranges.append((start, start + extent))
         if name == ".rdata":
             rdata_end = start + extent
-    iat_va, iat_size = _pe_data_directory(path, "IAT", int(info.image_base))
-    imp_va, _imp_size = _pe_data_directory(path, "IMPORT_TABLE", int(info.image_base))
+    iat_va, iat_size = _pe_data_directory(info, "IAT")
+    imp_va, _imp_size = _pe_data_directory(info, "IMPORT_TABLE")
     if iat_size:
         ranges = _cut_range(ranges, iat_va, iat_va + iat_size)
     # An image with no import directory (a static link) has no import tail
@@ -1471,7 +1431,7 @@ def postlink_copied_ranges(cfg: ProjectConfig) -> list[tuple[int, int]]:
     loaded = _target_binary(cfg)
     if loaded is None:
         return []
-    path, info = loaded
+    _path, info = loaded
     rdata = info.sections.get(".rdata")
     rdata_end = 0
     if rdata is not None:
@@ -1479,8 +1439,8 @@ def postlink_copied_ranges(cfg: ProjectConfig) -> list[tuple[int, int]]:
         if extent > 0:
             rdata_end = int(rdata.va) + extent
     copied: list[tuple[int, int]] = []
-    iat_va, iat_size = _pe_data_directory(path, "IAT", int(info.image_base))
-    imp_va, _imp_size = _pe_data_directory(path, "IMPORT_TABLE", int(info.image_base))
+    iat_va, iat_size = _pe_data_directory(info, "IAT")
+    imp_va, _imp_size = _pe_data_directory(info, "IMPORT_TABLE")
     if iat_size:
         copied.append((iat_va, iat_va + iat_size))
     if imp_va and rdata_end > imp_va:

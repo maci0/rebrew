@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Changed
+
+- `rebrew status` reads the IAT and import directory from `BinaryInfo.data_directories`, the loader's one data-directory reader, instead of a second LIEF parse of its own.
+
 ### Fixed
 
 - Import-stub detection (`rebrew binary imports list`, the `stubs` of `rebrew.analyse` and every other reader of `find_import_stubs`) counted every `jmp [IAT slot]`, so a tail call inside a function was a stub: the CRT's `getSystemCP` (bench, bind, rt63, ski32, smygb, sndvol32, the YC server.dll) answered `GetOEMCP` and `GetACP` stubs 26 and 47 bytes into the function. A stub now opens `.text`, follows an `int3`/`nop`/`ret` byte, is a direct `call` target or sits next to another stub ([CLI.md](docs/CLI.md#rebrew-binary-imports-list)).
