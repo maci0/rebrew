@@ -8,6 +8,7 @@
 ### Changed
 
 - `rebrew status` reads the IAT and import directory from `BinaryInfo.data_directories`, the loader's one data-directory reader, instead of a second LIEF parse of its own.
+- **Breaking:** `rebrew.status.as_list` is no longer importable. `rebrew.status` imported it from `rebrew.formats.pe_symbols` for its own data-directory read, which is gone; import `rebrew.formats.pe_symbols.as_list`.
 
 ### Fixed
 
