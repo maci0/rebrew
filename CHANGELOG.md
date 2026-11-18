@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** the replication journal (`.rebrew/metadata-journal.toml`) and replication state (`.rebrew/metadata-replication.toml`, and its copy in each database backend) are written as `format = 2`, which requires `content_sha256` in every record. 6.59.0 added that field but kept `format = 1`, so a release before it refused each record as `invalid metadata replication record` instead of refusing the format. Format 1 is still read, with or without `content_sha256`, and the next write rewrites it as format 2; a format newer than 2 is refused as `metadata replication state format N is newer than this rebrew reads (2); upgrade rebrew`. Releases before this one refuse format 2 as `invalid metadata replication state`: upgrade every tool that reads a replicated project through rebrew (recoverage's live mode) before this release writes to it ([METADATA.md](docs/METADATA.md#multiple-read-and-write-backends)).
+
 ## [6.59.0] - 2026-11-18
 
 ### Changed

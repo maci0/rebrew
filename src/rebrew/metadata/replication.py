@@ -27,6 +27,16 @@ if TYPE_CHECKING:
 
 STATE_PATH = ".rebrew/metadata-replication.toml"
 JOURNAL_PATH = ".rebrew/metadata-journal.toml"
+#: ``format`` of the journal and replication-state documents.  2 requires
+#: ``content_sha256`` in every record; 1 is read (6.59.0 wrote the field under
+#: it, earlier releases did not) and rewritten as 2 by the next write.
+_STATE_FORMAT = 2
+_BASE_FIELDS = frozenset({"clock", "updated_at_ns", "content", "deleted", "digest"})
+#: Required and optional record fields by ``format``.
+_RECORD_FIELDS: dict[int, tuple[frozenset[str], frozenset[str]]] = {
+    1: (_BASE_FIELDS, frozenset({"content_sha256"})),
+    2: (_BASE_FIELDS | {"content_sha256"}, frozenset()),
+}
 _ACTIVE = threading.local()
 logger = logging.getLogger(__name__)
 
@@ -79,7 +89,7 @@ def _toml_string(value: str) -> str:
 
 def _render_state(records: dict[str, _Record], node: str) -> str:
     """Render a journal or replication-state document without per-character TOML escaping."""
-    lines = ["format = 1"]
+    lines = [f"format = {_STATE_FORMAT}"]
     if node:
         lines.append(f"node = {_toml_string(node)}")
     lines.append("")
@@ -108,7 +118,8 @@ def _parse_rendered(text: str) -> dict[str, Any] | None:
     costs seconds per journal or state document carrying a copy of a large
     store.  These documents are written only by this module, so their strings
     are JSON-escaped and can be decoded by ``json``; any other layout (an older
-    journal, a hand edit) is left to ``tomllib``.
+    journal, a hand edit) is left to ``tomllib``.  6.59.0 wrote this layout
+    under format 1.
     """
 
     def string(token: str) -> str | None:
@@ -125,10 +136,11 @@ def _parse_rendered(text: str) -> dict[str, Any] | None:
         return int(token) if digits.isdigit() and digits == str(int(digits)) else None
 
     lines = text.split("\n")
-    if not lines or lines[-1] != "" or lines[0] != "format = 1":
+    formats = {f"format = {number}": number for number in (1, _STATE_FORMAT)}
+    if not lines or lines[-1] != "" or lines[0] not in formats:
         return None
     position = 1
-    doc: dict[str, Any] = {"format": 1}
+    doc: dict[str, Any] = {"format": formats[lines[0]]}
     if lines[position].startswith("node = "):
         node = string(lines[position][len("node = ") :])
         if node is None:
@@ -249,12 +261,19 @@ def _parse_state(store: MetadataStore) -> tuple[dict[str, _Record], str]:
         doc = store.read("metadata replication state")
     if not doc:
         return {}, ""
+    number = doc.get("format")
+    if type(number) is int and number > _STATE_FORMAT:
+        raise MetadataStorageError(
+            f"metadata replication state format {number} is newer than this rebrew reads"
+            f" ({_STATE_FORMAT}); upgrade rebrew"
+        )
     if (
         set(doc) - {"format", "node", "records"}
-        or type(doc.get("format")) is not int
-        or doc.get("format") != 1
+        or type(number) is not int
+        or number not in _RECORD_FIELDS
     ):
         raise MetadataStorageError("invalid metadata replication state")
+    fields, optional = _RECORD_FIELDS[number]
     node = doc.get("node", "")
     if not isinstance(node, str) or not isinstance(doc.get("records"), dict):
         raise MetadataStorageError("invalid metadata replication state")
@@ -270,8 +289,7 @@ def _parse_state(store: MetadataStore) -> tuple[dict[str, _Record], str]:
             raise MetadataStorageError("invalid metadata replication document path")
         if (
             not isinstance(row, dict)
-            or set(row) - {"content_sha256"}
-            != {"clock", "updated_at_ns", "content", "deleted", "digest"}
+            or set(row) - optional != fields
             or not isinstance(row.get("content_sha256", ""), str)
             or not isinstance(row["clock"], dict)
             or any(

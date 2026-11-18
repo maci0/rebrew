@@ -383,9 +383,10 @@ class TestReplicationHotPaths:
         content = tomlkit.dumps({"a": {"s": "x"}})
         record = replication._Record({"node:x": 1}, 7, content, False)
         rendered = replication._render_state({"rebrew-functions.toml": record}, "")
+        # The layout releases before 6.59.0 wrote: format 1, no content hash.
         old = "\n".join(
             line for line in rendered.split("\n") if not line.startswith("content_sha256 = ")
-        )
+        ).replace("format = 2\n", "format = 1\n", 1)
         (tmp_path / "state.toml").write_text(old)
         store = TomlStore(tmp_path / "state.toml", tmp_path)
         replication._LOADED.clear()
@@ -517,6 +518,73 @@ class TestReplicationHotPaths:
         assert edited is not None and edited != found
 
 
+def _replicated_documents(root: Path) -> list[Path]:
+    """The TOML journal and replication-state files of a replicated project."""
+    return [root / JOURNAL_PATH, root / ".rebrew" / "metadata-replication.toml"]
+
+
+def _rewrite(path: Path, old: str, new: str) -> None:
+    path.chmod(0o644)
+    text = path.read_text()
+    assert old in text
+    path.write_text(text.replace(old, new, 1))
+
+
+class TestStateFormat:
+    """The journal and replication-state ``format`` names the record fields an older reader refuses."""
+
+    def test_records_with_a_content_hash_are_written_as_format_2(self, tmp_path: Path) -> None:
+        import tomllib
+
+        _project(tmp_path)
+        update_field(tmp_path, 0x1000, "NOTE", "shared", "GAME")
+        for path in _replicated_documents(tmp_path):
+            doc = tomllib.loads(path.read_text())
+            assert doc["format"] == 2, path
+            assert doc["records"]
+            assert all("content_sha256" in row for row in doc["records"].values()), path
+
+    def test_format_1_with_content_hash_is_read_and_rewritten_as_format_2(
+        self, tmp_path: Path
+    ) -> None:
+        import tomllib
+
+        _project(tmp_path)
+        update_field(tmp_path, 0x1000, "NOTE", "first", "GAME")
+        # rebrew 6.59.0 wrote this exact layout under format 1.
+        for path in _replicated_documents(tmp_path):
+            _rewrite(path, "format = 2\n", "format = 1\n")
+        assert get_entry(tmp_path, 0x1000, "GAME")["note"] == "first"
+        update_field(tmp_path, 0x1000, "NOTE", "second", "GAME")
+        assert get_entry(tmp_path, 0x1000, "GAME")["note"] == "second"
+        for path in _replicated_documents(tmp_path):
+            assert tomllib.loads(path.read_text())["format"] == 2, path
+
+    def test_format_2_record_without_content_hash_is_invalid(self, tmp_path: Path) -> None:
+        _project(tmp_path)
+        update_field(tmp_path, 0x1000, "NOTE", "first", "GAME")
+        journal = tmp_path / JOURNAL_PATH
+        journal.chmod(0o644)
+        journal.write_text(
+            "\n".join(
+                line
+                for line in journal.read_text().split("\n")
+                if not line.startswith("content_sha256 = ")
+            )
+        )
+        with pytest.raises(MetadataStorageError, match="invalid metadata replication record"):
+            update_field(tmp_path, 0x1000, "NOTE", "second", "GAME")
+
+    def test_newer_format_is_refused_by_name(self, tmp_path: Path) -> None:
+        _project(tmp_path)
+        update_field(tmp_path, 0x1000, "NOTE", "first", "GAME")
+        _rewrite(tmp_path / JOURNAL_PATH, "format = 2\n", "format = 3\n")
+        with pytest.raises(
+            MetadataStorageError, match=r"format 3 is newer than this rebrew reads \(2\); upgrade"
+        ):
+            get_entry(tmp_path, 0x1000, "GAME")
+
+
 def test_rendered_state_parser_matches_tomllib() -> None:
     import tomllib
 
@@ -530,6 +598,9 @@ def test_rendered_state_parser_matches_tomllib() -> None:
     for node in ("", 'node "id"'):
         text = _render_state(records, node)
         assert _parse_rendered(text) == tomllib.loads(text)
+        # 6.59.0 wrote the same layout under format 1.
+        released = text.replace("format = 2\n", "format = 1\n", 1)
+        assert _parse_rendered(released) == tomllib.loads(released)
     assert _parse_rendered(_render_state({}, "")) == tomllib.loads(_render_state({}, ""))
     # Any other layout is left to tomllib.
     other = {"format": 1, "records": {"rebrew-data.toml": {"clock": {"n": 1}, "updated_at_ns": 1}}}

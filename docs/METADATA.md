@@ -258,6 +258,15 @@ independent changes, including differing pre-existing unstamped documents, stop
 reconciliation and preserve both copies for review. Reconciliation is per logical
 document; it does not merge independently changed rows within a document.
 
+The journal and the replication state carry a top-level `format`. Format 2
+records hold `clock`, `updated_at_ns`, `content`, `deleted`, `digest` and
+`content_sha256` (the raw SHA-256 of `content`). Rebrew reads format 1 (no
+`content_sha256` before 6.59.0, with it in 6.59.0) and rewrites it as format 2
+on the next write; it refuses a newer format by number and asks for an upgrade.
+Rebrew releases before this one refuse format 2 as `invalid metadata replication
+state`, so every tool that reads a replicated project through rebrew (such as
+recoverage's live mode) must run a rebrew that reads the format the project holds.
+
 Recovered destinations catch up during the next metadata write, or explicitly:
 
 ```bash
