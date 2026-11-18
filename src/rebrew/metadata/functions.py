@@ -2265,7 +2265,8 @@ def _library_watch_unchanged(
 #: ``(start spelling, root spelling)`` -> (library-document token, fingerprint)
 #: for database-backed stores, where every walk step is a query.  The token
 #: lists each library document's path and revision (plus the replication
-#: journal's stat), so any write that adds, removes or edits one misses.
+#: journal's stat), so any write that adds, removes or edits one misses, and
+#: the caller's own lstat, so a symlink retarget misses as in the TOML memo.
 _LIBRARY_DB_MEMO: OrderedDict[
     tuple[str, str], tuple[tuple[object, ...], tuple[str, MetadataDocFingerprint] | None]
 ] = OrderedDict()
@@ -2277,7 +2278,14 @@ def _database_library_fingerprint(
     """:func:`library_override_fingerprint` for database-backed stores, memoized by token."""
     from rebrew.metadata.storage import named_documents_token
 
-    token = named_documents_token(Path(root), LIBRARY_METADATA_FILE) if root is not None else None
+    def current_token() -> tuple[object, ...] | None:
+        if root is None:
+            return None
+        documents = named_documents_token(Path(root), LIBRARY_METADATA_FILE)
+        link = _library_stat_id(os.fspath(start_dir), follow=False)
+        return None if documents is None else (documents, link)
+
+    token = current_token()
     key = (os.fspath(start_dir), "" if root is None else os.fspath(root))
     if token is not None:
         with _LIBRARY_CACHE_LOCK:
@@ -2287,11 +2295,7 @@ def _database_library_fingerprint(
                 return cached[1]
     found = nearest_library_metadata_path(start_dir, root)
     result = (str(found), metadata_store(found).fingerprint()) if found else None
-    if (
-        token is not None
-        and root is not None
-        and named_documents_token(Path(root), LIBRARY_METADATA_FILE) == token
-    ):
+    if token is not None and current_token() == token:
         with _LIBRARY_CACHE_LOCK:
             _LIBRARY_DB_MEMO[key] = (token, result)
             _LIBRARY_DB_MEMO.move_to_end(key)

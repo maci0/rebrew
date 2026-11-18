@@ -517,6 +517,34 @@ class TestReplicationHotPaths:
         assert len(walks) == 3
         assert edited is not None and edited != found
 
+    def test_library_override_lookup_follows_a_retargeted_symlinked_directory(
+        self, tmp_path: Path
+    ) -> None:
+        from rebrew.metadata.functions import (
+            LIBRARY_METADATA_FILE,
+            clear_library_override_cache,
+            library_override_fingerprint,
+        )
+
+        _project(tmp_path)
+        update_field(tmp_path, 0x1000, "NOTE", "provisions the database", "GAME")
+        for name, toolchain in (("a", "msvc-6.0-sp6"), ("b", "msvc-4.2")):
+            (tmp_path / "src" / name / "unit").mkdir(parents=True)
+            library = metadata_store(tmp_path / "src" / name / LIBRARY_METADATA_FILE, root=tmp_path)
+            with library.transaction():
+                library.write({"toolchain": toolchain}, "test")
+        link = tmp_path / "src" / "unit"
+        link.symlink_to(tmp_path / "src" / "a" / "unit", target_is_directory=True)
+        clear_library_override_cache()
+        first = library_override_fingerprint(link, tmp_path)
+        assert first is not None and first[0].endswith(f"src/a/{LIBRARY_METADATA_FILE}")
+
+        link.unlink()
+        link.symlink_to(tmp_path / "src" / "b" / "unit", target_is_directory=True)
+        retargeted = library_override_fingerprint(link, tmp_path)
+        assert retargeted is not None
+        assert retargeted[0].endswith(f"src/b/{LIBRARY_METADATA_FILE}")
+
 
 def _replicated_documents(root: Path) -> list[Path]:
     """The TOML journal and replication-state files of a replicated project."""
