@@ -25,6 +25,8 @@ def test_recompile_client_public_all() -> None:
     import rebrew.compiler.recompile_client as rc
 
     assert rc.__all__ == [
+        "ATTRIBUTION_HEADER",
+        "ATTRIBUTION_MEMBER_MAX_CHARS",
         "INCLUDE_BUNDLES_FEATURE",
         "MAX_INCLUDE_FILES",
         "MAX_INCLUDE_FILE_BYTES",
@@ -32,6 +34,7 @@ def test_recompile_client_public_all() -> None:
         "MAX_INCLUDE_TOTAL_BYTES",
         "MAX_RETRY_AFTER_SECONDS",
         "NO_DEADLINE_WAIT_SECONDS",
+        "Attribution",
         "HttpClient",
         "HttpResponse",
         "RecompileError",

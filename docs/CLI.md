@@ -2150,6 +2150,7 @@ rebrew match flags src/game/f.c --tier quick --json
 | `--jobs` / `-j` | int | none | Parallel jobs (default: project.jobs, or 4) |
 | `--tier` | quick / targeted / normal / thorough / full | `targeted` | Flag sweep tier: quick, targeted, normal, thorough, or full |
 | `--ignore-lint` | flag | `False` | Continue even if source binding lint errors exist |
+| `--count` | flag | `False` | Print how many compiles the search would make, and compile nothing |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
 
@@ -2177,6 +2178,7 @@ rebrew match toolchains src/game/f.c --toolchains msvc-6.0,msvc-7.0 --json
 | `--toolchains` | str | `""` | Comma-separated profiles or version prefixes to compare (e.g. msvc-6.0,7.0) |
 | `--exclude-toolchains` | str | `""` | Comma-separated profiles or version prefixes to exclude |
 | `--ignore-lint` | flag | `False` | Continue even if source binding lint errors exist |
+| `--count` | flag | `False` | Print how many compiles the search would make, and compile nothing |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
 
@@ -7339,6 +7341,19 @@ Op details the contract leaves open:
   op compiles several sources, how many of them read project headers. A
   service that cannot be asked is not refused here; the compile reports it.
   Local backends are unaffected.
+- The ops that compile (`verify_function`, `apply_candidate`, `verify_target`,
+  `build`, `flag_search`) take an optional `attribution`, `{org, project, user,
+  job}` (each 1 to 128 printable ASCII characters; anything else is a 400
+  `invalid-request`), which every recompile call they make sends in
+  `X-Relumea-Attribution`, and their reply carries `remote_compile: {count,
+  wait_ms}`: `count` is the compiles the service gave a verdict on (an object or
+  the compiler's rejection, the ones a hosted recompile bills), `wait_ms` the
+  wall milliseconds spent waiting on the service, refused and retried calls
+  included, child commands counted. A refusal after a recompile call carries
+  the same `remote_compile`, so a rejected candidate still says it compiled.
+  `flag_search` with `count_only` stages the same snapshot and answers
+  `{"candidates": N}`, the compiles the search would make (`rebrew match flags
+  --count` or `rebrew match toolchains --count`), and compiles nothing.
 - A child command gets its op's deadline, less 30 s to print its report
   (`rebrew.ops.CHILD_REPORT_SECONDS`), in `REBREW_CALL_DEADLINE`; its remote
   compiles start no attempt or retry wait a whole request could not finish

@@ -662,6 +662,34 @@ def _vendored_msvc_toolchains(
     return out
 
 
+def sweep_candidate_count(
+    p: BuildParams,
+    tier: str,
+    *,
+    toolchains: bool,
+    flags: bool,
+    only: str = "",
+    exclude: str = "",
+) -> int:
+    """How many compiles a flag or toolchain search of *p* makes, compiling nothing.
+
+    The same selection the searches run: a flag search compiles every
+    combination of *tier* for the function's profile and then the seed once;
+    a toolchain comparison compiles the seed with each selected profile, or,
+    with *flags*, every combination of *tier* for each.  A search a deadline
+    cuts short makes fewer, so the count is a ceiling.
+    """
+    profile = str(getattr(p.cfg, "compiler_profile", "") or "")
+    if not toolchains:
+        return len(compile_seam.generate_flag_combinations(tier=tier, profile=profile)) + 1
+    selected = [name for name, _cl, _inc in _vendored_msvc_toolchains(p.cfg, only, exclude)]
+    if not flags:
+        return len(selected)
+    return sum(
+        len(compile_seam.generate_flag_combinations(tier=tier, profile=name)) for name in selected
+    )
+
+
 def run_single_toolchain_sweep(
     p: BuildParams, json_output: bool, only: str = "", exclude: str = ""
 ) -> None:

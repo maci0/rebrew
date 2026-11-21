@@ -48,12 +48,14 @@ All functions read from ``cfg`` (a ``ProjectConfig`` instance):
 """
 
 import atexit
+import contextlib
 import re
 import threading
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any, Literal, Self, cast, get_args
-lazy import contextlib
 lazy import hashlib
+lazy import json
 lazy import logging
 lazy import math
 lazy import os
@@ -93,6 +95,7 @@ lazy from rebrew.compiler.cache import (
 lazy from rebrew.compiler.context import CONTEXT_UNIT_NAME, CompileContext
 lazy from rebrew.compiler.headless import XVFB_RUN_SERVER_ARGS, ensure_xvfb_session
 lazy from rebrew.compiler.msvc_env import msvc_env_from_config, resolve_runner_path
+lazy from rebrew.compiler.recompile_client import Attribution
 lazy from rebrew.compiler.toolchain import (
     ToolchainError,
     ToolchainErrorKind,
@@ -1465,6 +1468,94 @@ def call_deadline() -> float | None:
     return time.monotonic() + (at - time.time())
 
 
+#: Environment variables carrying a :class:`RemoteCompiles` into a child command
+#: ``rebrew ops`` runs: the ledger file it appends to and the attribution JSON.
+REMOTE_COMPILES_ENV = "REBREW_REMOTE_COMPILES"
+ATTRIBUTION_ENV = "REBREW_RECOMPILE_ATTRIBUTION"
+
+
+@dataclass(frozen=True)
+class RemoteCompiles:
+    """Where one dispatch op call counts its recompile calls, and whom they are for.
+
+    Each finished call to the service appends one line to *ledger*: ``1`` or
+    ``0`` for whether the service gave a verdict (a compiled object or the
+    compiler's rejection, the compiles recompile bills), then the wall
+    milliseconds the call waited, retries and capacity waits included.  A
+    line is one ``O_APPEND`` write, so the threads of a batch and the child
+    commands an op runs share the file.
+    """
+
+    ledger: Path
+    attribution: Attribution | None = None
+
+    def environment(self) -> dict[str, str]:
+        """The variables that hand this to a child command."""
+        return {
+            REMOTE_COMPILES_ENV: str(self.ledger),
+            **(
+                {}
+                if self.attribution is None
+                else {ATTRIBUTION_ENV: self.attribution.header_value()}
+            ),
+        }
+
+    def record(self, *, verdict: bool, wait_ms: int) -> None:
+        """Append one finished recompile call."""
+        line = f"{int(verdict)} {wait_ms}\n".encode("ascii")
+        descriptor = os.open(self.ledger, os.O_WRONLY | os.O_APPEND)
+        try:
+            os.write(descriptor, line)
+        finally:
+            os.close(descriptor)
+
+    def recorded(self) -> bool:
+        """True once a recompile call has been recorded."""
+        return self.ledger.stat().st_size > 0
+
+    def totals(self) -> dict[str, int]:
+        """``{"count": verdicts, "wait_ms": total wait}`` over every recorded call."""
+        count = wait_ms = 0
+        for line in self.ledger.read_text(encoding="ascii").splitlines():
+            verdict, waited = line.split()
+            count += int(verdict)
+            wait_ms += int(waited)
+        return {"count": count, "wait_ms": wait_ms}
+
+
+#: The op call in flight in this thread; a child command reads its own from the environment.
+_REMOTE_COMPILES: ContextVar[RemoteCompiles | None] = ContextVar(
+    "rebrew_remote_compiles", default=None
+)
+
+
+def current_remote_compiles() -> RemoteCompiles | None:
+    """The :class:`RemoteCompiles` of the op call this compile serves, or ``None`` outside one."""
+    current = _REMOTE_COMPILES.get()
+    if current is not None:
+        return current
+    ledger = os.environ.get(REMOTE_COMPILES_ENV)
+    if not ledger:
+        return None
+
+    raw = os.environ.get(ATTRIBUTION_ENV)
+    try:
+        attribution = None if raw is None else Attribution(**json.loads(raw))
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"{ATTRIBUTION_ENV} is not an attribution: {exc}") from None
+    return RemoteCompiles(Path(ledger), attribution)
+
+
+@contextlib.contextmanager
+def counting_remote_compiles(remote: RemoteCompiles) -> Iterator[RemoteCompiles]:
+    """Count the recompile calls made in this context, threads it starts excluded."""
+    token = _REMOTE_COMPILES.set(remote)
+    try:
+        yield remote
+    finally:
+        _REMOTE_COMPILES.reset(token)
+
+
 _service_gates_lock = threading.Lock()
 #: One gate per (service URL, concurrency): every compile of the process to
 #: that service shares its slots and its Retry-After hold-off.
@@ -1780,6 +1871,8 @@ def _compile_via_recompile(
     successful compile appends what it ran with (``CompareResult.remote_compile``)
     to *remote_compiles* when given.
     """
+    import time
+
     from rebrew.compiler.recompile_client import RecompileError, compile_source
 
     url = recompile_url(cfg)
@@ -1863,6 +1956,9 @@ def _compile_via_recompile(
         client = _shared_recompile_client(timeout)
     # An attempt may start only while a whole request still fits before the call's deadline.
     called_by = call_deadline()
+    remote = current_remote_compiles()
+    waited_from = time.monotonic()
+    verdict = False
     try:
         res = compile_source(
             url,
@@ -1885,12 +1981,16 @@ def _compile_via_recompile(
                 url, int(getattr(cfg, "recompile_concurrency", DEFAULT_RECOMPILE_CONCURRENCY))
             ),
             deadline=None if called_by is None else called_by - timeout,
+            attribution=None if remote is None else remote.attribution,
         )
+        verdict = True
     except RecompileError as exc:
         if backend_errors is not None:
             backend_errors.append(exc)
         return None, f"recompile service error: {exc}"
     finally:
+        if remote is not None:
+            remote.record(verdict=verdict, wait_ms=round((time.monotonic() - waited_from) * 1000))
         if job_socket:
             client.close()
         else:
@@ -3886,12 +3986,15 @@ def compile_and_compare_linked(
 
 
 __all__ = [
+    "ATTRIBUTION_ENV",
     "CALL_DEADLINE_ENV",
     "NEAR_MATCH_THRESHOLD",
+    "REMOTE_COMPILES_ENV",
     "CompareResult",
     "CompareResultError",
     "CompareStatus",
     "RemoteBundle",
+    "RemoteCompiles",
     "build_linked_link_cmd",
     "call_deadline",
     "classify_compare_result",
@@ -3904,6 +4007,8 @@ __all__ = [
     "compile_batch_objs",
     "compile_to_obj",
     "contextualized_source",
+    "counting_remote_compiles",
+    "current_remote_compiles",
     "effective_compile_flags",
     "extract_include_dirs",
     "extract_linked_slice",

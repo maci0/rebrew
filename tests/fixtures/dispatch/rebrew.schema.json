@@ -373,6 +373,37 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "attribution": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "job": {
+                    "type": "string"
+                  },
+                  "org": {
+                    "type": "string"
+                  },
+                  "project": {
+                    "type": "string"
+                  },
+                  "user": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "org",
+                  "project",
+                  "user",
+                  "job"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "binary_key": {
             "type": "string"
           },
@@ -526,6 +557,22 @@
             ],
             "type": "object"
           },
+          "remote_compile": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "wait_ms": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "count",
+              "wait_ms"
+            ],
+            "type": "object"
+          },
           "result": {
             "type": "object"
           }
@@ -534,7 +581,8 @@
           "result",
           "files",
           "metadata",
-          "attested_registry_digest"
+          "attested_registry_digest",
+          "remote_compile"
         ],
         "type": "object"
       },
@@ -705,6 +753,37 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "attribution": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "job": {
+                    "type": "string"
+                  },
+                  "org": {
+                    "type": "string"
+                  },
+                  "project": {
+                    "type": "string"
+                  },
+                  "user": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "org",
+                  "project",
+                  "user",
+                  "job"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "binary_key": {
             "type": "string"
           },
@@ -763,6 +842,27 @@
       },
       "response": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "remote_compile": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "wait_ms": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "count",
+              "wait_ms"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "remote_compile"
+        ],
         "type": "object"
       },
       "timeout_seconds": 3600
@@ -1758,6 +1858,37 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "attribution": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "job": {
+                    "type": "string"
+                  },
+                  "org": {
+                    "type": "string"
+                  },
+                  "project": {
+                    "type": "string"
+                  },
+                  "user": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "org",
+                  "project",
+                  "user",
+                  "job"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "binary_key": {
             "type": "string"
           },
@@ -1765,6 +1896,9 @@
             "type": "string"
           },
           "compare_toolchains": {
+            "type": "boolean"
+          },
+          "count_only": {
             "type": "boolean"
           },
           "exclude_toolchains": {
@@ -1835,6 +1969,30 @@
       },
       "response": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "candidates": {
+            "type": "integer"
+          },
+          "remote_compile": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "wait_ms": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "count",
+              "wait_ms"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "remote_compile"
+        ],
         "type": "object"
       },
       "timeout_seconds": 3600
@@ -4482,6 +4640,37 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "attribution": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "job": {
+                    "type": "string"
+                  },
+                  "org": {
+                    "type": "string"
+                  },
+                  "project": {
+                    "type": "string"
+                  },
+                  "user": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "org",
+                  "project",
+                  "user",
+                  "job"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "binary_key": {
             "type": "string"
           },
@@ -4561,6 +4750,27 @@
       },
       "response": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "remote_compile": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "wait_ms": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "count",
+              "wait_ms"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "remote_compile"
+        ],
         "type": "object"
       },
       "timeout_seconds": 600
@@ -4571,6 +4781,37 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "attribution": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "job": {
+                    "type": "string"
+                  },
+                  "org": {
+                    "type": "string"
+                  },
+                  "project": {
+                    "type": "string"
+                  },
+                  "user": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "org",
+                  "project",
+                  "user",
+                  "job"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "binary_key": {
             "type": "string"
           },
@@ -4632,6 +4873,27 @@
       },
       "response": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "remote_compile": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "wait_ms": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "count",
+              "wait_ms"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "remote_compile"
+        ],
         "type": "object"
       },
       "timeout_seconds": 3600

@@ -214,6 +214,57 @@ class HttpClient(Protocol):
     ) -> HttpResponse: ...
 
 
+#: The request header that names the Workbench work a compile is for (recompile
+#: ``docs/API.md``, ``POST /api/v1/compile``).
+ATTRIBUTION_HEADER = "X-Relumea-Attribution"
+
+#: Longest attribution member, in characters; recompile refuses a longer one.
+ATTRIBUTION_MEMBER_MAX_CHARS = 128
+
+
+@dataclass(frozen=True)
+class Attribution:
+    """Who a compile is for inside the Workbench: organization, project, user and job.
+
+    The caller of a dispatch op names it and every recompile call the op makes
+    carries it in :data:`ATTRIBUTION_HEADER`; recompile passes it to Platform's
+    compile accounting.  Each member is 1 to :data:`ATTRIBUTION_MEMBER_MAX_CHARS`
+    printable ASCII characters, the bound recompile enforces, so a value this
+    class accepts is one recompile accepts.
+    """
+
+    #: The Workbench organization's Platform account id.
+    org: str
+    #: The Workbench project id.
+    project: str
+    #: The subject of the person the Workbench acted for.
+    user: str
+    #: The Workbench job that sent the op.
+    job: str
+
+    def __post_init__(self) -> None:
+        for name in ("org", "project", "user", "job"):
+            value = getattr(self, name)
+            if (
+                not isinstance(value, str)
+                or not 1 <= len(value) <= ATTRIBUTION_MEMBER_MAX_CHARS
+                or any(not " " <= char <= "~" for char in value)
+            ):
+                raise ValueError(
+                    f"attribution {name} must be 1 to {ATTRIBUTION_MEMBER_MAX_CHARS} "
+                    "printable ASCII characters"
+                )
+
+    def header_value(self) -> str:
+        """The JSON object recompile reads from :data:`ATTRIBUTION_HEADER`."""
+        import json
+
+        return json.dumps(
+            {"org": self.org, "project": self.project, "user": self.user, "job": self.job},
+            separators=(",", ":"),
+        )
+
+
 @dataclass(frozen=True)
 class RecompileResult:
     """Outcome of one remote compile (transport-level, pre-extraction)."""
@@ -661,6 +712,7 @@ def compile_source(
     source_dir: str = "",
     gate: ServiceGate | None = None,
     deadline: float | None = None,
+    attribution: Attribution | None = None,
 ) -> RecompileResult:
     """Compile *source* via ``POST <base_url>/api/v1/compile``.
 
@@ -742,6 +794,10 @@ def compile_source(
     :class:`RecompileError` (``kind="validation"``) and nothing is compiled.
     Without a bundle neither field is sent, so an older service still compiles
     the source.
+
+    *attribution*, when given, goes on every compile POST in
+    :data:`ATTRIBUTION_HEADER`, so recompile can record whose Workbench work
+    the compile was.
     """
     import httpx
 
@@ -833,6 +889,7 @@ def compile_source(
     post_headers: dict[str, str] = {
         **(auth_headers or {}),
         "Idempotency-Key": secrets.token_hex(_IDEMPOTENCY_KEY_BYTES),
+        **({} if attribution is None else {ATTRIBUTION_HEADER: attribution.header_value()}),
     }
     payload: dict[str, Any] = {
         "compiler": compiler,
@@ -1108,6 +1165,8 @@ def compile_source(
 
 
 __all__ = [
+    "ATTRIBUTION_HEADER",
+    "ATTRIBUTION_MEMBER_MAX_CHARS",
     "INCLUDE_BUNDLES_FEATURE",
     "MAX_INCLUDE_FILES",
     "MAX_INCLUDE_FILE_BYTES",
@@ -1115,6 +1174,7 @@ __all__ = [
     "MAX_INCLUDE_TOTAL_BYTES",
     "MAX_RETRY_AFTER_SECONDS",
     "NO_DEADLINE_WAIT_SECONDS",
+    "Attribution",
     "HttpClient",
     "HttpResponse",
     "RecompileError",

@@ -70,6 +70,7 @@ lazy import sys
 lazy import tempfile
 lazy import time
 lazy import traceback
+lazy import types
 lazy import typing
 lazy import unicodedata
 lazy from collections.abc import Callable, Iterable, Iterator, Mapping
@@ -84,6 +85,12 @@ lazy from rebrew import __version__, telemetry
 lazy from rebrew.call_progress import PROGRESS_FD_ENV, ProgressPipe
 lazy from rebrew.cfg_ged import ImageReader
 lazy from rebrew.cli import EXIT_ERROR, console, error_exit
+lazy from rebrew.compiler.compile import (
+    RemoteCompiles,
+    counting_remote_compiles,
+    current_remote_compiles,
+)
+lazy from rebrew.compiler.recompile_client import Attribution
 lazy from rebrew.formats.binary_loader import UnsupportedBinaryFormat
 lazy from rebrew.utils import fold_host, split_source_lines
 
@@ -443,6 +450,8 @@ class OpsError(RebrewError):
     code: str = ENGINE_ERROR
     status: int = 500
     retry_after: int | None = None
+    #: ``{count, wait_ms}`` of a compiling op's recompile calls, which its refusal carries.
+    remote_compile: dict[str, int] | None = None
 
     STRUCTURED_FIELDS = (*RebrewError.STRUCTURED_FIELDS, "code", "status", "retry_after")
 
@@ -668,12 +677,19 @@ def _check_cancelled() -> None:
         cancellation.check()
 
 
-def error_body(code: str, detail: str, status: int) -> bytes:
-    """The refusal reply both transports write."""
+def error_body(
+    code: str, detail: str, status: int, remote_compile: dict[str, int] | None = None
+) -> bytes:
+    """The refusal reply both transports write; a compiling op's carries its ``remote_compile``."""
     from rebrew.utils import strip_bidi_format
 
     return json.dumps(
-        {"error": code, "detail": strip_bidi_format(detail), "status": status}
+        {
+            "error": code,
+            "detail": strip_bidi_format(detail),
+            "status": status,
+            **({} if remote_compile is None else {"remote_compile": remote_compile}),
+        }
     ).encode("utf-8")
 
 
@@ -1051,6 +1067,7 @@ class VerifyRequest:
     cflags: str = ""
     project_cflags: str = ""
     instructions: bool = False
+    attribution: Attribution | None = None
 
 
 @dataclass(frozen=True)
@@ -1070,6 +1087,7 @@ class ApplyCandidateRequest:
     binary_url: str = ""
     cflags: str = ""
     project_cflags: str = ""
+    attribution: Attribution | None = None
 
 
 @dataclass(frozen=True)
@@ -1083,6 +1101,7 @@ class VerifyTargetRequest:
     binary_url: str = ""
     project_cflags: str = ""
     instructions: bool = False
+    attribution: Attribution | None = None
 
 
 @dataclass(frozen=True)
@@ -1095,6 +1114,7 @@ class BuildRequest:
     binary_key: str = ""
     binary_url: str = ""
     project_cflags: str = ""
+    attribution: Attribution | None = None
 
 
 @dataclass(frozen=True)
@@ -1213,6 +1233,10 @@ class FlagSearchRequest:
     exclude_toolchains: str = ""
     compare_toolchains: bool = False
     with_flags: bool = False
+    #: Answer ``{"candidates": N}``, the compiles the search would make (a ceiling),
+    #: and compile nothing.
+    count_only: bool = False
+    attribution: Attribution | None = None
 
 
 @dataclass(frozen=True)
@@ -1304,6 +1328,10 @@ def _decode(value: Any, hint: Any, where: str) -> Any:
             raise _invalid(f"{where} must be an array")
         (item,) = typing.get_args(hint)
         return [_decode(entry, item, f"{where}[{index}]") for index, entry in enumerate(value)]
+    if origin is types.UnionType:
+        # ``T | None``: JSON null is None, anything else is a T.
+        (inner,) = [arg for arg in typing.get_args(hint) if arg is not type(None)]
+        return None if value is None else _decode(value, inner, where)
     if origin is tuple:
         items = typing.get_args(hint)
         if type(value) is not list or len(value) != len(items):
@@ -1348,7 +1376,10 @@ def parse_request[T](cls: type[T], raw: Any, where: str = "request") -> T:
             values[name] = _decode(raw[name], hints[name], f"{where}.{name}")
         elif spec.default is MISSING and spec.default_factory is MISSING:
             raise _invalid(f"{where} is missing {name}")
-    return cls(**values)
+    try:
+        return cls(**values)
+    except ValueError as exc:  # a type that checks its own values (Attribution)
+        raise _invalid(f"{where}: {exc}") from None
 
 
 # ---------------------------------------------------------------------------
@@ -2447,6 +2478,7 @@ def run_rebrew(
     # A caller that takes progress gets the counts the child writes (verify
     # and build round-trip do) through a pipe; pass_fds is POSIX-only.
     sink = _PROGRESS.get()
+    remote = current_remote_compiles()
     pipe = ProgressPipe() if sink is not None and os.name == "posix" else None
     try:
         with _step(f"starting rebrew {name}"):
@@ -2458,6 +2490,8 @@ def run_rebrew(
                     **os.environ,
                     **telemetry.child_environment(),
                     CALL_DEADLINE_ENV: repr(child_deadline),
+                    # The child counts its remote compiles into the op call's ledger.
+                    **({} if remote is None else remote.environment()),
                     **({} if pipe is None else {PROGRESS_FD_ENV: str(pipe.write_fd)}),
                 },
                 pass_fds=() if pipe is None else (pipe.write_fd,),
@@ -4335,7 +4369,11 @@ def coverage_report(config: WorkerConfig, req: CoverageReportRequest) -> dict[st
 
 
 def flag_search(config: WorkerConfig, req: FlagSearchRequest) -> dict[str, Any]:
-    """Run a bounded flag or compiler profile sweep for one project source."""
+    """Run a bounded flag or compiler profile sweep for one project source.
+
+    ``count_only`` stages the same snapshot and answers ``{"candidates": N}``, the
+    compiles the search would make, so a caller can price it before it runs.
+    """
     if req.va < 0 or req.tier not in {"quick", "targeted", "normal", "thorough", "full"}:
         raise _invalid("invalid address or flag search tier")
     if not req.compare_toolchains and (req.toolchains or req.exclude_toolchains or req.with_flags):
@@ -4388,6 +4426,8 @@ def flag_search(config: WorkerConfig, req: FlagSearchRequest) -> dict[str, Any]:
                 arguments.append(f"--toolchains={req.toolchains}")
             if req.exclude_toolchains:
                 arguments.append(f"--exclude-toolchains={req.exclude_toolchains}")
+        if req.count_only:
+            arguments.append("--count")
         result = run_rebrew(
             [*arguments, f"--target={req.rebrew_target}", "--", str(source)],
             root,
@@ -4592,6 +4632,19 @@ def security_scan_snapshot(config: WorkerConfig, req: SecuritySnapshotRequest) -
     }
 
 
+#: The ops that may compile through recompile: each request takes an ``attribution``
+#: and each reply carries ``remote_compile`` (``{count, wait_ms}``).
+COMPILING_OPS = frozenset(
+    {
+        "rebrew.verify_function",
+        "rebrew.apply_candidate",
+        "rebrew.verify_target",
+        "rebrew.build",
+        "rebrew.flag_search",
+    }
+)
+
+
 #: Every op of the backend's rebrew contract, by wire name.
 OPS: dict[str, Op] = {
     "rebrew.disassemble": Op(DisassembleRequest, disassemble, IN_PROCESS_TIMEOUT_SECONDS),
@@ -4696,6 +4749,37 @@ def _answer(config: WorkerConfig, name: str, body: bytes) -> Mapping[str, Any]:
             _CANCELLATION.reset(token)
 
 
+def _counting_remote_compiles(
+    config: WorkerConfig, name: str, op: Op, request: Any
+) -> dict[str, Any]:
+    """Run a compiling op and add the recompile calls it made: ``remote_compile {count, wait_ms}``.
+
+    ``count`` is the compiles recompile gave a verdict on (an object or the compiler's
+    rejection: the ones it bills), ``wait_ms`` the wall time spent waiting on recompile,
+    refused and retried calls included.  Both cover the op's child commands, which
+    append to the same ledger.  A refusal after a recompile call carries them too
+    (``OpsError.remote_compile``): a candidate the compiler rejected is refused, and
+    recompile billed it.
+    """
+    from rebrew.compiler.temp_dirs import remove_temp_dir, writable_temp_dir
+
+    directory = writable_temp_dir("rebrew-remote-compiles-")
+    try:
+        ledger = directory / "ledger"
+        ledger.touch()
+        with counting_remote_compiles(RemoteCompiles(ledger, request.attribution)) as remote:
+            try:
+                reply = dict(_run_parsed(config, name, op, request))
+            except OpsError as exc:
+                if remote.recorded():
+                    exc.remote_compile = remote.totals()
+                raise
+            reply["remote_compile"] = remote.totals()
+        return reply
+    finally:
+        remove_temp_dir(directory)
+
+
 def _run_op(config: WorkerConfig, name: str, op: Op, body: bytes) -> Mapping[str, Any]:
     if len(body) > MAX_REQUEST_BYTES:
         detail = f"request exceeds {MAX_REQUEST_BYTES} bytes"
@@ -4707,6 +4791,12 @@ def _run_op(config: WorkerConfig, name: str, op: Op, body: bytes) -> Mapping[str
     except ValueError:
         raise _invalid("request is not JSON") from None
     request: Any = parse_request(op.request, raw)
+    if name in COMPILING_OPS:
+        return _counting_remote_compiles(config, name, op, request)
+    return _run_parsed(config, name, op, request)
+
+
+def _run_parsed(config: WorkerConfig, name: str, op: Op, request: Any) -> Mapping[str, Any]:
     try:
         return op.run(config, request)
     except OpsError:
@@ -4748,7 +4838,7 @@ def dispatch(config: WorkerConfig, name: str, body: bytes) -> tuple[int, bytes]:
             logger.exception(
                 "%s %s refused (%d) trace_id=%s", _request_id(), name, exc.status, _trace_id()
             )
-        return exc.status, error_body(exc.code, str(exc), exc.status)
+        return exc.status, error_body(exc.code, str(exc), exc.status, exc.remote_compile)
     except TypeError, ValueError:
         logger.exception(
             "%s %s produced a reply that is not JSON trace_id=%s", _request_id(), name, _trace_id()

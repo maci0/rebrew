@@ -658,3 +658,162 @@ def test_a_candidate_a_person_can_correct_is_refused_under_its_own_code(
         400,
         {"error": code, "detail": detail, "status": 400},
     )
+
+
+#: The attribution a Workbench job sends with an op that compiles.
+ATTRIBUTION = {"org": "acct-org-1", "project": "prj-1", "user": "user-1", "job": "job-1"}
+
+
+@contextlib.contextmanager
+def _recompile(seen: list[dict[str, str]], *, reject: bool) -> Iterator[str]:
+    """A recompile stand-in: every compile is the compiler's rejection, or a ``ret`` object.
+
+    Both are verdicts recompile bills.  Each compile request's headers go to *seen*.
+    """
+    from bin_util import make_coff_obj
+
+    # The helper writes a long name only for an extra symbol; the registry symbol is one.
+    obj = make_coff_obj(b"\xc3", func_symbol="_x", extra_funcs=[("_fcn_00401000", 0)])
+
+    class _Service(http.server.BaseHTTPRequestHandler):
+        def _reply(self, status: int, body: bytes, content_type: str) -> None:
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_POST(self) -> None:
+            self.rfile.read(int(self.headers.get("Content-Length", "0")))
+            seen.append(dict(self.headers.items()))
+            verdict = (
+                {"status": "error", "error_code": "toolchain_failure", "log": "error C2143"}
+                if reject
+                else {"status": "ok", "artifact_url": "/api/v1/artifacts/000000000000.obj"}
+            )
+            body = {"id": "0" * 12, "compiler": "msvc-6.0", "log": "", **verdict}
+            self._reply(200, json.dumps(body).encode(), "application/json")
+
+        def do_GET(self) -> None:
+            self._reply(200, obj, "application/octet-stream")
+
+        @override
+        def log_message(self, *_args: Any) -> None:
+            return
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Service)
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+    )
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}"
+    finally:
+        server.shutdown()
+        thread.join(_WAIT_SECONDS)
+        server.server_close()
+
+
+def _compiling_at(url: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
+    monkeypatch.setitem(globals(), "PROJECT", PROJECT + f'recompile_url = "{url}"\n'.encode())
+    monkeypatch.setenv("REBREW_RECOMPILE_URL", url)
+    return _stage(tmp_path)
+
+
+def test_a_candidate_reports_its_remote_compiles_and_forwards_the_attribution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The backend charges a verification by the compiles it made and meters the time it waited."""
+    seen: list[dict[str, str]] = []
+    with _recompile(seen, reject=False) as url:
+        config, entries = _compiling_at(url, tmp_path, monkeypatch)
+        status, raw = dispatch(
+            config,
+            "rebrew.verify_function",
+            _request(entries, candidate="void fcn_00401000(void) {}\n", attribution=ATTRIBUTION),
+        )
+    reply = json.loads(raw)
+    assert status == 200, reply
+    assert reply["verdict_valid"] is True
+    assert set(reply["remote_compile"]) == {"count", "wait_ms"}
+    assert reply["remote_compile"]["count"] == 1 == len(seen)
+    assert isinstance(reply["remote_compile"]["wait_ms"], int)
+    assert reply["remote_compile"]["wait_ms"] >= 0
+    assert json.loads(seen[0]["X-Relumea-Attribution"]) == ATTRIBUTION
+
+
+def test_a_rejected_candidate_is_refused_with_its_billed_compile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """recompile bills the compiler's rejection, so the refusal still says a compile was made."""
+    seen: list[dict[str, str]] = []
+    with _recompile(seen, reject=True) as url:
+        config, entries = _compiling_at(url, tmp_path, monkeypatch)
+        status, raw = dispatch(
+            config,
+            "rebrew.verify_function",
+            _request(entries, candidate="int fcn_00401000(void) { return 0; }\n"),
+        )
+    refusal = json.loads(raw)
+    assert (status, refusal["error"]) == (422, "toolchain-rejected"), refusal
+    assert refusal["remote_compile"]["count"] == 1 == len(seen)
+    # Without an attribution in the request, none goes to recompile.
+    assert "X-Relumea-Attribution" not in seen[0]
+
+
+@pytest.mark.parametrize(
+    "attribution",
+    [
+        {**ATTRIBUTION, "org": ""},
+        {**ATTRIBUTION, "job": "x" * 129},
+        {**ATTRIBUTION, "user": "line\nbreak"},
+        {key: value for key, value in ATTRIBUTION.items() if key != "project"},
+        {**ATTRIBUTION, "extra": "x"},
+        {**ATTRIBUTION, "org": 7},
+        "acct-org-1",
+    ],
+)
+def test_a_malformed_attribution_is_refused_before_anything_compiles(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, attribution: Any
+) -> None:
+    from rebrew import ops
+
+    def forbidden(*args: Any, **kwargs: Any) -> None:
+        pytest.fail("a malformed attribution reached the compiler")
+
+    monkeypatch.setattr(ops, "run_rebrew", forbidden)
+    config, entries = _stage(tmp_path)
+    status, raw = dispatch(
+        config, "rebrew.apply_candidate", _request(entries, attribution=attribution)
+    )
+    assert status == 400, raw
+    assert json.loads(raw)["error"] == "invalid-request"
+
+
+def test_a_flag_search_states_its_compiles_before_it_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The backend prices a flag search at its ceiling before it dispatches the search."""
+    from rebrew.matcher.compiler import generate_flag_combinations
+
+    seen: list[dict[str, str]] = []
+    with _recompile(seen, reject=False) as url:
+        config, entries = _compiling_at(url, tmp_path, monkeypatch)
+        request = {
+            "source": "src/stub.c",
+            "source_sha256": hashlib.sha256(STUB).hexdigest(),
+            "va": VA,
+            "files": entries,
+            "rebrew_target": "mini",
+            "sha256": SHA256,
+            "binary_key": f"binaries/{SHA256}",
+            "tier": "quick",
+            "count_only": True,
+        }
+        status, raw = dispatch(config, "rebrew.flag_search", json.dumps(request).encode())
+    reply = json.loads(raw)
+    assert status == 200, reply
+    # Every combination of the tier, then the seed once.
+    assert reply["candidates"] == len(generate_flag_combinations("quick", "msvc-6.0")) + 1
+    assert reply["remote_compile"] == {"count": 0, "wait_ms": 0}
+    assert not seen

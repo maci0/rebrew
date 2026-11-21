@@ -37,7 +37,7 @@ from bin_util import append_pe_section, le32, make_import_call_pe
 from recompile_stub import serve_recompile
 
 from rebrew.discover import DISCOVERY_RULE
-from rebrew.ops import OPS, WorkerConfig, dispatch, target_name
+from rebrew.ops import COMPILING_OPS, OPS, WorkerConfig, dispatch, target_name
 
 FIXTURES = Path(__file__).parent / "fixtures"
 BINARY = FIXTURES / "mini_pe.exe"
@@ -48,6 +48,8 @@ ENTRY_SIZE = 11
 TOKEN = secrets.token_hex(16)
 #: Bound on any child process or HTTP wait, so a wedged worker fails the test.
 WAIT_SECONDS = 120
+#: The `remote_compile` of a compiling op that called no recompile service.
+NO_REMOTE_COMPILES = {"count": 0, "wait_ms": 0}
 
 _CONTRACT = json.loads((FIXTURES / "dispatch" / "rebrew.schema.json").read_text())
 
@@ -136,7 +138,9 @@ def _call(config: WorkerConfig, op: str, request: dict[str, Any]) -> Any:
 def _refusal(config: WorkerConfig, op: str, body: bytes) -> dict[str, Any]:
     status, reply = dispatch(config, op, body)
     refusal = json.loads(reply)
-    assert set(refusal) == {"error", "detail", "status"}
+    # A compiling op's refusal after a recompile call also says what that call cost.
+    remote = {"remote_compile"} if op in COMPILING_OPS and "remote_compile" in refusal else set()
+    assert set(refusal) == {"error", "detail", "status"} | remote
     assert refusal["status"] == status != 200
     return refusal
 
@@ -2417,6 +2421,8 @@ class TestReconstructionOps:
         refusal = _refusal(config, "rebrew.verify_function", body.encode())
         assert (refusal["status"], refusal["error"]) == (422, "toolchain-rejected"), refusal
         assert "error C2065" in refusal["detail"]
+        # The rejection is a verdict recompile bills: the in-process compile counted it.
+        assert refusal["remote_compile"]["count"] == 1
 
     def test_a_toolchain_rejection_has_one_prefix_and_keeps_its_lines(
         self, world: tuple[WorkerConfig, Path], monkeypatch: pytest.MonkeyPatch
@@ -2801,7 +2807,7 @@ class TestProgress:
         assert self._frames([first, *rest]) == [
             {"progress": {"done": 1, "total": 3}},
             {"progress": {"done": 3, "total": 3}},
-            {"status": 200, "reply": {"passed": 3}},
+            {"status": 200, "reply": {"passed": 3, "remote_compile": NO_REMOTE_COMPILES}},
         ]
 
     def test_serve_answers_plain_json_to_a_caller_that_does_not_accept_counts(
@@ -2830,7 +2836,7 @@ class TestProgress:
             finally:
                 server.shutdown()
                 thread.join(timeout=WAIT_SECONDS)
-        assert (status, reply) == (200, {"passed": 3})
+        assert (status, reply) == (200, {"passed": 3, "remote_compile": NO_REMOTE_COMPILES})
 
     def test_ops_call_writes_counts_to_the_descriptor_the_caller_names(
         self, world: tuple[WorkerConfig, Path], tmp_path: Path
@@ -2897,7 +2903,7 @@ class TestProgress:
             {"progress": {"done": 1, "total": 3}},
             {"progress": {"done": 3, "total": 3}},
         ]
-        assert json.loads(stdout) == {"passed": 3}
+        assert json.loads(stdout) == {"passed": 3, "remote_compile": NO_REMOTE_COMPILES}
 
 
 class TestFailureDetails:
@@ -2971,6 +2977,23 @@ class TestOpDeadlines:
         assert published == {
             name: (op.timeout_seconds, op.interruptible) for name, op in OPS.items()
         }
+
+    def test_exactly_the_compiling_ops_take_an_attribution_and_report_remote_compiles(
+        self,
+    ) -> None:
+        """The backend charges these ops by the reply's count; the schema must say which they are."""
+
+        attributed = {
+            name
+            for name, entry in _CONTRACT["ops"].items()
+            if "attribution" in entry["request"].get("properties", {})
+        }
+        reported = {
+            name
+            for name, entry in _CONTRACT["ops"].items()
+            if "remote_compile" in entry["response"].get("required", [])
+        }
+        assert attributed == reported == COMPILING_OPS
 
     def test_a_child_command_past_its_op_deadline_answers_504_and_stops(
         self, world: tuple[WorkerConfig, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -3053,7 +3076,10 @@ class TestOpDeadlines:
         source = min((project / "src" / "mini").glob("*.c")).relative_to(project).as_posix()
         body = json.dumps({"project_dir": str(project), "source": source, "no_promote": True})
         status, reply = dispatch(config, "rebrew.verify_function", body.encode())
-        assert (status, json.loads(reply)) == (200, {"status": "EXACT"})
+        assert (status, json.loads(reply)) == (
+            200,
+            {"status": "EXACT", "remote_compile": NO_REMOTE_COMPILES},
+        )
         assert len(ran) == 1
 
     def test_a_child_command_gets_its_deadline_less_the_report_reserve(

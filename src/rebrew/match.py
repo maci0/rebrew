@@ -61,6 +61,7 @@ lazy from rebrew.match_sweep import (
     run_single_flag_sweep,
     run_single_toolchain_flag_sweep,
     run_single_toolchain_sweep,
+    sweep_candidate_count,
 )
 lazy from rebrew.match_sweep import (
     resolve_build_params as resolve_build_params,
@@ -115,6 +116,12 @@ IgnoreLintOption = typer.Option(
     "--ignore-lint",
     help="Continue even if source binding lint errors exist",
     rich_help_panel="Build inputs",
+)
+CountOption = typer.Option(
+    False,
+    "--count",
+    help="Print how many compiles the search would make, and compile nothing",
+    rich_help_panel="Search",
 )
 JsonOption = typer.Option(False, "--json", help="Output results as JSON")
 
@@ -177,8 +184,13 @@ def execute_search(
     dry_run: bool = False,
     json_output: bool = False,
     target: str | None = None,
+    count_only: bool = False,
 ) -> None:
-    """Search source mutations, compiler flags, and toolchains for byte matches."""
+    """Search source mutations, compiler flags, and toolchains for byte matches.
+
+    *count_only* (flag and toolchain searches) prints how many compiles the search
+    would make and compiles nothing.
+    """
     if option_default(watch, False) and option_default(json_output, False):
         error_exit("--watch is terminal-only; omit --json", json_mode=True)
     if option_default(watch, False):
@@ -415,6 +427,20 @@ def execute_search(
         ignore_lint=ignore_lint,
         json_output=json_output,
     )
+    if count_only:
+        candidates = sweep_candidate_count(
+            params,
+            tier,
+            toolchains=bool(flag_sweep_toolchains or sweep_toolchains or sweep_exclude_toolchains),
+            flags=flag_sweep_only,
+            only=sweep_toolchains,
+            exclude=sweep_exclude_toolchains,
+        )
+        if json_output:
+            json_print({"candidates": candidates})
+        else:
+            console.print(f"{candidates} compiles")
+        return
 
     # --mutation-focus: bias GA mutation selection toward a near-diag category.
     # "auto" reads the function's BLOCKER metadata (written by
@@ -895,6 +921,7 @@ def flags(
     jobs: int | None = JobsOption,
     tier: Literal["quick", "targeted", "normal", "thorough", "full"] = TierOption,
     ignore_lint: bool = IgnoreLintOption,
+    count: bool = CountOption,
     json_output: bool = JsonOption,
     target: str | None = TargetOption,
 ) -> None:
@@ -913,6 +940,7 @@ def flags(
         json_output=json_output,
         target=target,
         flag_sweep_only=True,
+        count_only=count,
     )
 
 
@@ -960,6 +988,7 @@ def toolchains(
         rich_help_panel="Search",
     ),
     ignore_lint: bool = IgnoreLintOption,
+    count: bool = CountOption,
     json_output: bool = JsonOption,
     target: str | None = TargetOption,
 ) -> None:
@@ -983,6 +1012,7 @@ def toolchains(
         ignore_lint=ignore_lint,
         json_output=json_output,
         target=target,
+        count_only=count,
     )
 
 
