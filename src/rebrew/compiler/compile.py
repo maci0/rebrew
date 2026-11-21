@@ -1481,7 +1481,9 @@ class RemoteCompiles:
     Each finished call to the service appends one line to *ledger*: ``1`` or
     ``0`` for whether the service gave a verdict (a compiled object or the
     compiler's rejection, the compiles recompile bills, also when the
-    object's download then failed), then the wall
+    object's download then failed), or ``?`` for a call whose key may have
+    been admitted and that no answer settled
+    (:attr:`~rebrew.compiler.recompile_client.RecompileError.unsettled`), then the wall
     milliseconds the call waited, retries and capacity waits included.  A
     line is one ``O_APPEND`` write, so the threads of a batch and the child
     commands an op runs share the file.
@@ -1501,9 +1503,9 @@ class RemoteCompiles:
             ),
         }
 
-    def record(self, *, verdict: bool, wait_ms: int) -> None:
+    def record(self, *, verdict: bool, unsettled: bool, wait_ms: int) -> None:
         """Append one finished recompile call."""
-        line = f"{int(verdict)} {wait_ms}\n".encode("ascii")
+        line = f"{'?' if unsettled else int(verdict)} {wait_ms}\n".encode("ascii")
         descriptor = os.open(self.ledger, os.O_WRONLY | os.O_APPEND)
         try:
             os.write(descriptor, line)
@@ -1519,9 +1521,15 @@ class RemoteCompiles:
         count = wait_ms = 0
         for line in self.ledger.read_text(encoding="ascii").splitlines():
             verdict, waited = line.split()
-            count += int(verdict)
+            count += verdict == "1"
             wait_ms += int(waited)
         return {"count": count, "wait_ms": wait_ms}
+
+    def unsettled(self) -> int:
+        """Recorded calls whose billing no answer settled, which ``count`` leaves out."""
+        return sum(
+            line.startswith("?") for line in self.ledger.read_text(encoding="ascii").splitlines()
+        )
 
 
 #: The op call in flight in this thread; a child command reads its own from the environment.
@@ -1959,7 +1967,7 @@ def _compile_via_recompile(
     called_by = call_deadline()
     remote = current_remote_compiles()
     waited_from = time.monotonic()
-    verdict = False
+    verdict = unsettled = False
     try:
         res = compile_source(
             url,
@@ -1987,13 +1995,17 @@ def _compile_via_recompile(
         verdict = True
     except RecompileError as exc:
         # A failed artifact download follows a compile recompile already billed.
-        verdict = exc.after_verdict
+        verdict, unsettled = exc.after_verdict, exc.unsettled
         if backend_errors is not None:
             backend_errors.append(exc)
         return None, f"recompile service error: {exc}"
     finally:
         if remote is not None:
-            remote.record(verdict=verdict, wait_ms=round((time.monotonic() - waited_from) * 1000))
+            remote.record(
+                verdict=verdict,
+                unsettled=unsettled,
+                wait_ms=round((time.monotonic() - waited_from) * 1000),
+            )
         if job_socket:
             client.close()
         else:

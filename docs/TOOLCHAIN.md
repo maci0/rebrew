@@ -38,19 +38,34 @@ it is tried again after the `Retry-After`, or the capped backoff without one, un
 the call's deadline, however many attempts that takes. Without a deadline (a CLI
 run) the waits end 300 s after the compile started
 (`recompile_client.NO_DEADLINE_WAIT_SECONDS`). Any other retryable failure (a
-transport blip, 408/425/500/502/504, an artifact download that failed, the service's
-`timeout`, `publish_failed` or `provenance_unavailable`, or an error `code` saying
-the key can never yield a result: `admission_abandoned`, `admission_expired`,
-`admission_unrecoverable`, `result_unavailable` or `delivery_denied`) is retried
-`recompile_retries` times with backoff, waiting at least the `Retry-After`. A
-finished refusal (`capacity` and the others) or one of those codes is retried under a new
-key, every other failure under the same key (recompile 11 `docs/API.md`, "Error codes").
+lost or unreadable reply, 408/425/500/502/504, an artifact download that failed, the
+service's `publish_failed`, or an error `code` saying the key can never yield a result
+and billed nothing: `admission_abandoned`, `admission_expired`, `result_unavailable`
+or `delivery_denied`) is retried `recompile_retries` times with backoff, waiting at
+least the `Retry-After`. `capacity`, `runner_unavailable`, `publish_failed` and those
+codes are retried under a new key; a lost or unreadable reply and a 5xx under the
+same key with the same body, `emit_assembly` or not, which the service answers with
+the key's first outcome. The service's `timeout` and `provenance_unavailable` are
+final. So are `admission_unrecoverable`, `retained_output_unavailable` and a 401 or
+403 other than `delivery_denied`, which may follow a billed compile and which rebrew
+cannot resend under a renewed credential (recompile `docs/API.md`, "Error codes": a
+retry under the same key reads that compile's first outcome and is not billed again).
+
+An op's `remote_compile.count` counts a compile call once, when an answer under its key
+settles it: billed for an object (also when its download then failed) or the
+compiler's rejection, free for the service's other `error_code` values, a
+`delivery_denied` and the spent-key codes, or a refusal of a key that no earlier
+attempt may have admitted. A call that ends with its key possibly admitted and no
+settling answer (a reply lost on every attempt, a 5xx or 503 waited out to the
+deadline, a refused credential, `admission_unrecoverable`,
+`retained_output_unavailable`) is unsettled: `count` leaves it out, and the op logs a
+warning naming how many (`RemoteCompiles.unsettled`).
 Under `rebrew ops` the child command knows its op's deadline
 (`REBREW_CALL_DEADLINE`; 3600 s for `verify_target`) and starts no attempt or wait
 that a whole request (`compile_timeout` + 120 s) could not finish before it. A remote compile
 without a verdict, any `RecompileError` (the service or the jobs owner refused
 or failed it, through the retries or with a refusal not retried such as a
-spent job budget or an `emit_assembly` request that may have compiled, or it
+spent job budget or a `timeout`, or it
 was never sent: the deadline, headers a bundle cannot ship), is `NOT_RUN`
 ("not run (service unavailable)"), never a `COMPILE_ERROR` or a verdict:
 `rebrew verify` reports it in its results and its summary's `not_run`, keeps

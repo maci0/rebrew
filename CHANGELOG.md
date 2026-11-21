@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- **Breaking:** the recompile client follows the rules recompile sets so a retry never bills twice. A lost or unreadable reply and a 5xx are resent under the same key and body also for an `emit_assembly` compile (it gave up, leaving a compile that may have been billed unaccounted). The service's `timeout` and `provenance_unavailable` are final instead of compiled again under a new key, and `admission_unrecoverable`, which may follow a billed compile, is final instead of compiled again under a new key. A call that ends with its key possibly admitted and no answer that settles its billing (a reply lost on every attempt, a 5xx or 503 waited out to the deadline, a 401 or a 403 other than `delivery_denied`, `admission_unrecoverable`, `retained_output_unavailable`) is no longer recorded as a free compile: `RecompileError.unsettled` marks it, `remote_compile.count` leaves it out, and the op logs a warning with the number of such compiles (`RemoteCompiles.unsettled`), until the dispatch contract can carry it. `rebrew.compiler.compile.RemoteCompiles.record` takes a required `unsettled` keyword.
+
 ## [6.63.0] - 2026-11-21
 
 ### Changed

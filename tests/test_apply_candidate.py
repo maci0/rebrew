@@ -669,7 +669,11 @@ ATTRIBUTION = {"org": "acct-org-1", "project": "prj-1", "user": "user-1", "job":
 
 @contextlib.contextmanager
 def _recompile(
-    seen: list[dict[str, str]], *, failure: str | None = None, artifact: str = "served"
+    seen: list[dict[str, str]],
+    *,
+    failure: str | None = None,
+    artifact: str = "served",
+    answers: list[Any] | None = None,
 ) -> Iterator[str]:
     """A recompile stand-in: every compile fails with the ``error_code`` *failure*, or is a ``ret`` object.
 
@@ -677,7 +681,10 @@ def _recompile(
     recompile bills.  Each compile request's headers go to *seen*.
     *artifact* says how the object download answers: ``served``, ``refused``
     (503), ``truncated`` (the connection closes short of its Content-Length) or
-    ``lost`` (the connection closes before any reply).
+    ``lost`` (the connection closes before any reply).  *answers* script the first
+    compiles: ``"lost"`` closes the connection unanswered, ``(status, body)`` answers
+    *body* as JSON (``Retry-After: 0`` on a 503); the compiles after them answer as
+    above.  *seen* also gets each compile's body under ``body``.
     """
     from bin_util import make_coff_obj
 
@@ -693,8 +700,23 @@ def _recompile(
             self.wfile.write(body)
 
         def do_POST(self) -> None:
-            self.rfile.read(int(self.headers.get("Content-Length", "0")))
-            seen.append(dict(self.headers.items()))
+            raw = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+            seen.append({**dict(self.headers.items()), "body": raw.decode()})
+            if answers:
+                scripted = answers.pop(0)
+                if scripted == "lost":
+                    self.close_connection = True
+                    return
+                status, answer = scripted
+                self.send_response(status)
+                if status == 503:
+                    self.send_header("Retry-After", "0")
+                encoded = json.dumps(answer).encode()
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+                return
             verdict = (
                 {"status": "ok", "artifact_url": "/api/v1/artifacts/000000000000.obj"}
                 if failure is None
@@ -965,3 +987,151 @@ def test_only_a_variant_search_can_be_counted(
         400,
         "count_only applies only to the variants operation",
     ), raw
+
+
+# The client rules recompile publishes so a retry never bills twice: one key per
+# compile, resent with the same body until an answer settles it, a new key only
+# after an answer that says the old one billed nothing, and a key no answer
+# settled is reported as unsettled, never as a free compile.
+
+_COMPILE = {"id": "0" * 12, "compiler": "msvc-6.0", "log": ""}
+_OK = (200, {**_COMPILE, "status": "ok", "artifact_url": "/api/v1/artifacts/000000000000.obj"})
+
+
+def _failed(code: str) -> tuple[int, dict[str, Any]]:
+    return 200, {**_COMPILE, "status": "error", "error_code": code, "log": "x"}
+
+
+def _refused(status: int, code: str) -> tuple[int, dict[str, Any]]:
+    return status, {"detail": "refused", "code": code}
+
+
+#: The warning an op logs for compiles whose billing no answer settled.
+UNSETTLED = "remote compile(s) ended unsettled"
+
+
+def _verify(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    answers: list[Any],
+    *,
+    emit_assembly: bool = False,
+) -> tuple[dict[str, Any], list[dict[str, str]]]:
+    if emit_assembly:
+        monkeypatch.setitem(globals(), "PROJECT", PROJECT + b"recompile_emit_assembly = true\n")
+    seen: list[dict[str, str]] = []
+    with _recompile(seen, answers=answers) as url:
+        config, entries = _compiling_at(url, tmp_path, monkeypatch)
+        status, raw = dispatch(
+            config,
+            "rebrew.verify_function",
+            _request(entries, candidate="void fcn_00401000(void) {}\n"),
+        )
+    reply = json.loads(raw)
+    assert status == 200, reply
+    return reply, seen
+
+
+def _keys(seen: list[dict[str, str]]) -> list[str]:
+    return [headers["Idempotency-Key"] for headers in seen]
+
+
+@pytest.mark.parametrize("emit_assembly", [False, True])
+@pytest.mark.parametrize(
+    "lost",
+    ["lost", (502, {"detail": "bad gateway"}), (200, "unreadable")],
+    ids=["no-reply", "502", "unreadable-body"],
+)
+def test_a_lost_reply_is_sent_again_under_the_same_key_and_body(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    lost: Any,
+    emit_assembly: bool,
+) -> None:
+    reply, seen = _verify(tmp_path, monkeypatch, [lost, _OK], emit_assembly=emit_assembly)
+    assert len(seen) == 2
+    assert _keys(seen)[0] == _keys(seen)[1]
+    assert seen[0]["body"] == seen[1]["body"]
+    assert reply["remote_compile"]["count"] == 1
+    assert UNSETTLED not in caplog.text
+
+
+@pytest.mark.parametrize("code", ["timeout", "provenance_unavailable"])
+def test_an_unbilled_failure_that_asks_for_no_retry_is_final(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, code: str
+) -> None:
+    reply, seen = _verify(tmp_path, monkeypatch, [_failed(code), _OK, _OK])
+    assert (reply["status"], len(seen)) == ("NOT_RUN", 1)
+    assert reply["remote_compile"]["count"] == 0
+    assert UNSETTLED not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "refusal",
+    [
+        _refused(409, "admission_unrecoverable"),
+        _refused(409, "retained_output_unavailable"),
+        _refused(401, "unauthenticated"),
+        _refused(403, "forbidden"),
+    ],
+    ids=["unrecoverable", "retained-output", "401", "403"],
+)
+def test_a_refusal_that_may_follow_a_billed_compile_is_reported_unsettled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    refusal: tuple[int, dict[str, Any]],
+) -> None:
+    """rebrew cannot get a new credential in-process, so it never resends these."""
+    reply, seen = _verify(tmp_path, monkeypatch, [refusal, _OK, _OK])
+    assert (reply["status"], len(seen)) == ("NOT_RUN", 1)
+    assert reply["remote_compile"]["count"] == 0
+    assert UNSETTLED in caplog.text
+
+
+def test_a_reply_lost_on_every_attempt_is_reported_unsettled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    reply, seen = _verify(tmp_path, monkeypatch, ["lost", "lost", "lost", _OK])
+    # The default two retries, all under the first key.
+    assert len(seen) == 3 and len(set(_keys(seen))) == 1
+    assert reply["status"] == "NOT_RUN"
+    assert reply["remote_compile"]["count"] == 0
+    assert UNSETTLED in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("first", "new_key"),
+    [
+        (_refused(403, "delivery_denied"), True),
+        (_refused(409, "admission_expired"), True),
+        (_refused(409, "admission_abandoned"), True),
+        (_refused(409, "result_unavailable"), True),
+        (_failed("publish_failed"), True),
+        (_refused(503, "credit_ledger_unavailable"), False),
+        (_refused(503, "settlement_pending"), False),
+    ],
+)
+def test_a_settled_free_answer_or_a_503_is_followed_by_one_billed_compile(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    first: tuple[int, dict[str, Any]],
+    new_key: bool,
+) -> None:
+    reply, seen = _verify(tmp_path, monkeypatch, [first, _OK])
+    assert len(seen) == 2
+    assert (_keys(seen)[0] != _keys(seen)[1]) is new_key
+    assert seen[0]["body"] == seen[1]["body"]
+    assert reply["remote_compile"]["count"] == 1
+    assert UNSETTLED not in caplog.text
+
+
+def test_a_refusal_of_a_key_never_admitted_is_settled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    reply, seen = _verify(tmp_path, monkeypatch, [_refused(402, "quota_exhausted"), _OK])
+    assert (reply["status"], len(seen)) == ("NOT_RUN", 1)
+    assert reply["remote_compile"]["count"] == 0
+    assert UNSETTLED not in caplog.text

@@ -226,13 +226,15 @@ class TestCompileSource:
         "code",
         ["capacity", "timeout", "runner_unavailable", "publish_failed", "provenance_unavailable"],
     )
-    def test_infrastructure_failure_is_a_retryable_service_error(
+    def test_infrastructure_failure_is_a_service_error(
         self, monkeypatch: pytest.MonkeyPatch, code: str
     ) -> None:
         """recompile answers its own failures with HTTP 200 and an ``error_code``.
 
         They were read as the compiler rejecting the source, so verify recorded
-        COMPILE_ERROR over the function and nothing retried.
+        COMPILE_ERROR over the function and nothing retried.  recompile's client
+        rules (rule 5) retry capacity, runner_unavailable and publish_failed; a
+        timeout or an unadmitted pin is final.
         """
         body = {"status": "error", "error_code": code, "log": "server at capacity (max 4)"}
         _patch(monkeypatch, _Resp(200, json_body=body))
@@ -241,7 +243,8 @@ class TestCompileSource:
             compile_source("http://svc", "msvc-6.0", "int f(void){}", [], sleep=[].append)
         assert ei.value.kind == "service"
         assert ei.value.error_code == code
-        assert ei.value.retryable is True
+        assert ei.value.retryable is (code in {"capacity", "runner_unavailable", "publish_failed"})
+        assert ei.value.unsettled is False
         assert ei.value.to_dict()["error_code"] == code
 
     @pytest.mark.parametrize("code", ["missing_artifact", "replay_rejected"])
@@ -260,14 +263,16 @@ class TestCompileSource:
     def test_failure_without_a_known_code_is_a_protocol_error(
         self, monkeypatch: pytest.MonkeyPatch, code: Any
     ) -> None:
-        """Without a known code the reply cannot say whose failure it was."""
+        """Without a known code the reply cannot say whose failure it was, nor whether
+        it was billed: an unreadable reply, resent under the same key."""
         body: dict[str, Any] = {"status": "error", "log": "x"}
         if code is not None:
             body["error_code"] = code
         _patch(monkeypatch, _Resp(200, json_body=body))
         with pytest.raises(RecompileError, match="error_code") as ei:
             compile_source("http://svc", "msvc-6.0", "x", [])
-        assert (ei.value.kind, ei.value.retryable) == ("protocol", False)
+        assert (ei.value.kind, ei.value.retryable) == ("protocol", True)
+        assert ei.value.unsettled is True
 
     def test_infrastructure_failure_is_retried_as_a_new_attempt(
         self, monkeypatch: pytest.MonkeyPatch
@@ -551,11 +556,12 @@ class TestCompileSource:
         [_Resp(502, text="bad gateway"), httpx.ReadTimeout("lost reply")],
         ids=["http-502", "read-timeout"],
     )
-    def test_emit_assembly_no_repost_after_ambiguous_failure(
+    def test_emit_assembly_resends_the_same_key_after_a_lost_reply(
         self, monkeypatch: pytest.MonkeyPatch, first: Any
     ) -> None:
-        """A 5xx or lost reply may follow a compile that already appended its
-        train.jsonl row, so an ``emit_assembly`` POST is not re-sent."""
+        """A 5xx or lost reply may follow a billed compile: the same key asks the
+        service for that compile's outcome (recompile's client rules, rule 3), and
+        a key no answer settled is unsettled."""
 
         class _SeqClient(_FakeClient):
             def post(
@@ -575,8 +581,8 @@ class TestCompileSource:
         monkeypatch.setattr("rebrew.compiler.recompile_client.time.sleep", lambda s: None)
         with pytest.raises(RecompileError) as ei:
             compile_source("http://svc/", "msvc-6.0", "x", ["/c"], emit_assembly=True, retries=2)
-        assert ei.value.retryable is False
-        assert [c[0] for c in client.calls] == ["post"]
+        assert ei.value.retryable is True and ei.value.unsettled is True
+        assert [c[0] for c in client.calls] == ["post"] * 3
 
     @pytest.mark.parametrize(
         "first",
@@ -1187,7 +1193,8 @@ class TestCompileViaRecompile:
         assert err.startswith("recompile service error:")
         assert message in err
         assert not (tmp_path / "f.obj").exists()
-        assert client.calls == [("post", "http://svc/api/v1/compile")]
+        # An unreadable reply is resent under the same key, the default two times.
+        assert client.calls == [("post", "http://svc/api/v1/compile")] * 3
 
     def test_missing_url_is_a_bug(self, tmp_path: Path) -> None:
         src = tmp_path / "f.c"
@@ -1314,15 +1321,14 @@ class TestCompileViaRecompile:
         [
             _Resp(200, json_body={"status": "error", "error_code": "timeout", "log": ""}),
             _Resp(200, json_body={"status": "error", "error_code": "runner_unavailable"}),
-            _Resp(502, text="bad gateway"),
         ],
-        ids=["timeout", "runner_unavailable", "502"],
+        ids=["timeout", "runner_unavailable"],
     )
     def test_an_assembly_compile_not_resent_is_still_not_run(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reply: _Resp
     ) -> None:
-        """An ``emit_assembly`` request that may have compiled is not re-sent, and the
-        answer is still no verdict on the source: it read as COMPILE_ERROR."""
+        """An ``emit_assembly`` request is not sent again under a new key after these,
+        and the answer is still no verdict on the source: it read as COMPILE_ERROR."""
         from rebrew.compiler.compile import compile_and_compare
 
         monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
@@ -1849,7 +1855,6 @@ class TestRecompileElevenCodes:
         [
             (409, "admission_abandoned"),
             (409, "admission_expired"),
-            (409, "admission_unrecoverable"),
             (409, "result_unavailable"),
             (403, "delivery_denied"),
         ],
@@ -1886,9 +1891,34 @@ class TestRecompileElevenCodes:
         )
         assert res.ok and keys[0] == keys[1] and waited == [5.0]
 
+    def test_a_503_waited_out_to_the_deadline_leaves_its_key_unsettled(self) -> None:
+        """settlement_pending may follow a billed compile; no answer under the key said."""
+        import time
+
+        client, keys = self._keys(
+            [self._refusal(503, "settlement_pending", "5") for _ in range(10)]
+        )
+        with pytest.raises(RecompileError) as refused:
+            compile_source(
+                "http://svc",
+                "msvc-6.0",
+                "x",
+                [],
+                client=client,
+                sleep=[].append,
+                deadline=time.monotonic() + 12,
+            )
+        assert len(keys) == 3 and len(set(keys)) == 1
+        assert refused.value.unsettled is True
+
     @pytest.mark.parametrize(
         ("status", "code"),
-        [(409, "admission_conflict"), (409, "retained_output_unavailable"), (403, "forbidden")],
+        [
+            (409, "admission_conflict"),
+            (409, "retained_output_unavailable"),
+            (409, "admission_unrecoverable"),
+            (403, "forbidden"),
+        ],
     )
     def test_another_refusal_is_final(self, status: int, code: str) -> None:
         client, keys = self._keys([self._refusal(status, code)])
@@ -1897,6 +1927,9 @@ class TestRecompileElevenCodes:
         assert len(keys) == 1
         assert (refused.value.status_code, refused.value.error_code) == (status, code)
         assert refused.value.retryable is False
+        # Each may follow a billed compile, and rebrew cannot resend it under a
+        # renewed credential: the key stays unsettled.
+        assert refused.value.unsettled is (code != "admission_conflict")
 
     def test_a_spent_key_past_the_retry_budget_is_not_run(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

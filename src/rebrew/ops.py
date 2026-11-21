@@ -4779,6 +4779,16 @@ def _counting_remote_compiles(
                 if remote.recorded():
                     exc.remote_compile = remote.totals()
                 raise
+            finally:
+                if unsettled := remote.unsettled():
+                    # remote_compile has no member for them yet: say so loudly.
+                    logger.warning(
+                        "%s %s: %d remote compile(s) ended unsettled: recompile may have "
+                        "billed them, and remote_compile.count leaves them out",
+                        _request_id(),
+                        name,
+                        unsettled,
+                    )
             reply["remote_compile"] = remote.totals()
         return reply
     finally:

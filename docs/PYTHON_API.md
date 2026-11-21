@@ -154,11 +154,16 @@ print(result.ok, result.obj_bytes, result.log, result.compiler_version)
 # read by its `error_code`:
 # "toolchain_failure" is `result.ok == False` with the compiler log; the
 # service's own failures raise kind "service" carrying that `error_code`
-# (retryable for capacity, timeout, runner_unavailable, publish_failed and
-# provenance_unavailable). A reply without a known `error_code` is "protocol".
+# (retryable for capacity, runner_unavailable and publish_failed; timeout and
+# provenance_unavailable are final). A reply without a known `error_code` is
+# "protocol", resent under the same key like a lost reply.
 # An HTTP refusal carries the body's `code` in `error_code` (recompile 11
 # answers `{"detail", "code"}`); a code saying the key can never yield a result
-# (`admission_expired`, `delivery_denied`, ...) is retried under a new key.
+# and billed nothing (`admission_expired`, `delivery_denied`, ...) is retried
+# under a new key. `RecompileError.unsettled` is True when the key may have
+# been admitted and no answer said whether it was billed;
+# `RecompileError.after_verdict` when the POST answered ok and the download
+# failed (billed).
 # Every `RecompileError` is no verdict on the source (`compile_and_compare`
 # reads it as NOT_RUN); the toolchain's verdict is `result.ok == False`.
 # `result.to_dict()` / `RecompileResult.from_dict()` store the verdict (not

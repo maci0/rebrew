@@ -7362,7 +7362,9 @@ Op details the contract leaves open:
   wait_ms}`: `count` is the compiles the service gave a verdict on (an object or
   the compiler's rejection, the ones a hosted recompile bills, an object whose
   download then failed included: recompile settles the compile inside its
-  `POST /api/v1/compile`, and that source reads `NOT_RUN`), `wait_ms` the
+  `POST /api/v1/compile`, and that source reads `NOT_RUN`; a compile whose
+  billing no answer settled is left out and logged as unsettled,
+  [TOOLCHAIN.md](TOOLCHAIN.md#compile-backends)), `wait_ms` the
   wall milliseconds spent waiting on the service, refused and retried calls
   included, child commands counted. A refusal after a recompile call carries
   the same `remote_compile`, so a rejected candidate still says it compiled.

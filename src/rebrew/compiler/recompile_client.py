@@ -121,10 +121,14 @@ _WAIT_STATUSES = frozenset({429, 503})
 _TOOLCHAIN_FAILURE = "toolchain_failure"
 
 #: ``error_code`` values for the service's own infrastructure, or a pin it could
-#: not admit: no verdict on the source, and recompile says to retry them.
+#: not admit: no verdict on the source, and none billed.
 _INFRASTRUCTURE_FAILURES = frozenset(
     {"capacity", "timeout", "runner_unavailable", "publish_failed", "provenance_unavailable"}
 )
+
+#: The infrastructure failures recompile's client rules (rule 5) answer with
+#: another attempt under a new key; the others are final.
+_RETRY_FAILURES = frozenset({"capacity", "runner_unavailable", "publish_failed"})
 
 #: ``error_code`` values for the artifact store or the idempotency key: no
 #: verdict on the source, and not retryable as sent.
@@ -134,33 +138,29 @@ _STORE_FAILURES = frozenset({"missing_artifact", "replay_rejected"})
 #: so a re-sent ``emit_assembly`` request cannot repeat a retention side effect.
 _NOT_RUN_FAILURES = frozenset({"capacity"})
 
-#: Error ``code`` values of a refusal whose key can never yield a result, so a
-#: new attempt needs a new key (recompile 11 ``docs/API.md``, "Error codes"):
-#: the admission ended before dispatch, passed its payment deadline, has no
-#: local record or ended without a retained result, or the current credential
-#: may not receive the result.
+#: Error ``code`` values of a refusal whose key can never yield a result and
+#: billed nothing, so a new attempt needs a new key (recompile's client rules,
+#: rule 5): the admission ended before dispatch, passed its payment deadline or
+#: ended without a retained result, or the current credential may not receive
+#: the result.  ``admission_unrecoverable`` is final too, but its compile may
+#: have been billed, so it is never compiled again under a new key.
 _SPENT_KEY_CODES = frozenset(
     {
         "admission_abandoned",
         "admission_expired",
-        "admission_unrecoverable",
         "result_unavailable",
         "delivery_denied",
     }
 )
 
+#: Final refusal codes that may follow a billed compile: the key has no local
+#: record (recompile's client rules, rule 5), or its receipt was spent and the
+#: output is not rebuilt (recompile ``docs/API.md``, "Error codes").  Neither
+#: settles whether the key was billed.
+_UNSETTLED_CODES = frozenset({"admission_unrecoverable", "retained_output_unavailable"})
+
 #: Shape of a recompile error ``code``; another value is not read.
 _ERROR_CODE = re.compile(r"[a-z][a-z_]{0,63}")
-
-#: Retryable statuses that may arrive AFTER the service already ran the
-#: compile (and may have performed service-side retention).
-_MAY_HAVE_COMPILED = frozenset({500, 502, 504})
-
-#: Subset of :data:`RETRYABLE_HTTP_STATUS` meaning the service never ran the
-#: compile.  Derived, not re-spelled: a new transient code added to the shared
-#: set must default to "worth another attempt", not silently become a
-#: re-POSTed ``emit_assembly`` that duplicates a service-side effect.
-_UNPROCESSED_HTTP = RETRYABLE_HTTP_STATUS - _MAY_HAVE_COMPILED
 
 
 @runtime_checkable
@@ -338,10 +338,16 @@ class RecompileError(RebrewError, RuntimeError):
     ``after_verdict`` is ``True`` when the compile POST had already answered
     ``status: "ok"`` and the artifact download failed: recompile settled (and
     billed) that compile inside the POST, before serving the artifact.
+    ``unsettled`` is ``True`` when the call's last key may have been admitted
+    (a lost or unreadable reply, a 5xx, a 401 or a 403 other than
+    ``delivery_denied``, ``admission_unrecoverable``,
+    ``retained_output_unavailable``) and no answer under it
+    said whether recompile billed it.
     """
 
     #: Set by :func:`compile_source` on the error it raises.
     after_verdict: bool = False
+    unsettled: bool = False
 
     STRUCTURED_FIELDS = (*RebrewError.STRUCTURED_FIELDS, "error_code", "retry_after")
 
@@ -747,11 +753,15 @@ def compile_source(
     Every call is one logical attempt with its own random ``Idempotency-Key``. A
     retry after a lost reply resends that key, so the service reconciles the
     attempt it may already have run instead of running another; a retry after
-    a ``kind="service"`` refusal, or a refusal whose ``code`` says the key can
-    never yield a result (``admission_abandoned``, ``admission_expired``,
-    ``admission_unrecoverable``, ``result_unavailable``, ``delivery_denied``), is a
-    new attempt with a new key, because a hosted service keeps the refusal under
-    the old one; those codes are retryable. A later call,
+    ``capacity``, ``runner_unavailable`` or ``publish_failed`` refusal, or a
+    refusal whose ``code`` says the key can never yield a result and billed
+    nothing (``admission_abandoned``, ``admission_expired``,
+    ``result_unavailable``, ``delivery_denied``), is a new attempt with a new key,
+    because a hosted service keeps the refusal under the old one; those are
+    retryable (recompile's client rules, rule 5).  ``timeout``,
+    ``provenance_unavailable`` and ``admission_unrecoverable`` are final, and a
+    401 or a 403 other than ``delivery_denied`` is never resent: the key stays
+    unsettled (:attr:`RecompileError.unsettled`). A later call,
     including one after a failure or an image update, sends a new key and never
     replays an earlier call. Neither key nor request is persisted.
 
@@ -785,11 +795,11 @@ def compile_source(
 
     Once the compile POST returns ``status == "ok"``, retries never re-POST:
     Older services may retain assembly output as a side effect, so a lost
-    artifact GET only retries the same ``artifact_url``. A failed
-    ``emit_assembly`` POST is re-sent only when the service is treated as
-    unprocessed (connect failure, 408/425/429/503, ``capacity``); a read
-    timeout, 500/502/504 or another infrastructure failure may follow a
-    completed compile, so it fails instead.
+    artifact GET only retries the same ``artifact_url``.  A lost or unreadable
+    POST reply and a 5xx are resent under the same key with the same body,
+    ``emit_assembly`` or not: the service answers a known key with its first
+    outcome.  An ``emit_assembly`` compile is retried under a new key only after
+    ``capacity``, which the service refused before running it.
 
     *includes* (bundle path -> header text) and *source_dir* (the source's
     directory in that tree) are the include bundle: the service writes the
@@ -930,6 +940,9 @@ def compile_source(
     # Body + artifact_url from a successful compile POST.  Set once; retries
     # only re-GET so a successful compile is not repeated.
     pending: tuple[dict[str, Any], str] | None = None
+    # Whether an attempt under the current key may have been admitted without
+    # an answer that settles it (see RecompileError.unsettled).
+    admitted = False
     # Stopwatch for the terminal record: how long the run spent on a
     # dependency before giving up, which is the number an operator needs when
     # the service is the thing that changed.
@@ -938,6 +951,7 @@ def compile_source(
         if deadline is not None and now() >= deadline:
             refusal = _deadline_refusal("the call's deadline has passed")
             refusal.after_verdict = pending is not None
+            refusal.unsettled = pending is None and admitted
             raise refusal
         # One client for POST + GET.  Injected clients are not closed here.
         cm: Any = (
@@ -972,18 +986,30 @@ def compile_source(
                             if resp.status_code >= 500:
                                 sent.fail(f"status {resp.status_code}")
                     except Exception as exc:
-                        never_sent = isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout))
+                        if not isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout)):
+                            admitted = True
                         raise RecompileError(
                             f"recompile service at {url} unreachable: {exc}",
                             kind="network",
-                            retryable=never_sent or not emit_assembly,
+                            retryable=True,
                         ) from exc
                     try:
+                        # A reply that is not a settling answer leaves the key unsettled:
+                        # a 200 until it is read, a 5xx, a refused credential (rebrew
+                        # cannot get a new one to resend the key with), and the
+                        # final codes that may follow a billed compile.
+                        code = None if resp.status_code == 200 else _error_code(resp)
+                        if (
+                            resp.status_code == 200
+                            or resp.status_code >= 500
+                            or (resp.status_code in (401, 403) and code != "delivery_denied")
+                            or code in _UNSETTLED_CODES
+                        ):
+                            admitted = True
                         if resp.status_code != 200:
                             detail = (
                                 resp.text.replace(api_key, "[redacted]") if api_key else resp.text
                             )
-                            code = _error_code(resp)
                             raise RecompileError(
                                 f"recompile service returned HTTP {resp.status_code}"
                                 f"{f' ({code})' if code else ''}: {detail[:300]}",
@@ -994,8 +1020,7 @@ def compile_source(
                                 # codes come from a hosted service, which keeps no
                                 # assembly output, so emit_assembly does not hold it.
                                 retryable=code in _SPENT_KEY_CODES
-                                or resp.status_code
-                                in (_UNPROCESSED_HTTP if emit_assembly else RETRYABLE_HTTP_STATUS),
+                                or resp.status_code in RETRYABLE_HTTP_STATUS,
                                 retry_after=_retry_after(resp.headers.get("Retry-After")),
                             )
                         try:
@@ -1004,18 +1029,21 @@ def compile_source(
                             raise RecompileError(
                                 f"recompile service returned non-JSON: {exc}",
                                 kind="protocol",
+                                retryable=True,
                             ) from exc
                         if not isinstance(body, dict):
                             raise RecompileError(
                                 f"recompile service returned {type(body).__name__}, "
                                 "expected a JSON object",
                                 kind="protocol",
+                                retryable=True,
                             )
                         status = body.get("status")
                         if status not in ("ok", "error"):
                             raise RecompileError(
                                 f"recompile service returned unknown status {status!r}",
                                 kind="protocol",
+                                retryable=True,
                             )
                         if status != "ok":
                             failure_log = str(body.get("log", ""))
@@ -1031,13 +1059,14 @@ def compile_source(
                                     "recompile service returned a failed compile with "
                                     f"unknown error_code {code!r}"[:300],
                                     kind="protocol",
+                                    retryable=True,
                                 )
                             raise RecompileError(
                                 f"recompile service could not compile ({code}): "
                                 f"{failure_log[:300]}",
                                 kind="service",
                                 error_code=code,
-                                retryable=code in _INFRASTRUCTURE_FAILURES
+                                retryable=code in _RETRY_FAILURES
                                 and (not emit_assembly or code in _NOT_RUN_FAILURES),
                                 retry_after=_retry_after(resp.headers.get("Retry-After")),
                             )
@@ -1046,12 +1075,14 @@ def compile_source(
                             raise RecompileError(
                                 'recompile service returned status "ok" with no artifact_url',
                                 kind="protocol",
+                                retryable=True,
                             )
                         if not isinstance(artifact_url, str):
                             raise RecompileError(
                                 f"recompile service returned non-string artifact_url: "
                                 f"{artifact_url!r}",
                                 kind="protocol",
+                                retryable=True,
                             )
                         pending = (body, artifact_url)
                     finally:
@@ -1073,6 +1104,13 @@ def compile_source(
                 return result
         except RecompileError as exc:
             exc.after_verdict = pending is not None
+            # A 200 failure or a spent-key refusal settles its key: nothing billed.
+            exc.unsettled = (
+                pending is None
+                and admitted
+                and exc.kind != "service"
+                and exc.error_code not in _SPENT_KEY_CODES
+            )
             if api_key:
                 exc.args = (str(exc).replace(api_key, "[redacted]"),)
                 exc.__cause__ = None
@@ -1116,6 +1154,7 @@ def compile_source(
                 # keeps the refusal under its key, or says the key can never
                 # yield a result: the retry is a new attempt.
                 post_headers["Idempotency-Key"] = secrets.token_hex(_IDEMPOTENCY_KEY_BYTES)
+                admitted = False
             # Immediate re-POST of a 503/timeout hammers a recovering service;
             # exponential backoff (capped) gives it room without unbounded wait,
             # and a Retry-After the service named is the least it is given.  With
