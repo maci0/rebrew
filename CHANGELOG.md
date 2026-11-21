@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.61.0] - 2026-11-21
+
 ### Added
 
 - The dispatch ops that compile (`rebrew.verify_function`, `rebrew.apply_candidate`, `rebrew.verify_target`, `rebrew.build`, `rebrew.flag_search`; `rebrew.ops.COMPILING_OPS`) take an optional `attribution` object, `{org, project, user, job}` (each 1 to 128 printable ASCII characters, else 400 `invalid-request`), and every recompile call they make, their child commands' included, sends it in `X-Relumea-Attribution` (`rebrew.compiler.recompile_client.Attribution`, `compile_source(attribution=...)`). Their replies carry `remote_compile: {count, wait_ms}`: the compiles the service gave a verdict on (an object or the compiler's rejection, the ones a hosted recompile bills) and the wall milliseconds spent waiting on the service, refused and retried calls included. A refusal after a recompile call carries the same member, so a candidate the compiler rejected (422 `toolchain-rejected`) still reports its billed compile. The backend charges these ops by `count` and leaves `wait_ms` out of its CPU meter.
