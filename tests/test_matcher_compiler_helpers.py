@@ -242,11 +242,19 @@ class TestNativeGnuProfilesHaveFlagSets:
         assert {"gcc-16.2.0", "clang-23.1.4"} <= set(_native_gnu_profiles())
 
     @pytest.mark.parametrize("profile", _native_gnu_profiles())
-    def test_flag_sweep_accepts_the_profile(self, profile: str) -> None:
+    def test_flag_sweep_accepts_the_profile(
+        self, profile: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         from rebrew.matcher.compiler import flag_sweep
+        from rebrew.matcher.core import BuildResult
 
-        # An expired deadline starts no compile; a profile with no registered
-        # flag set raises before the deadline is read.
+        # A profile with no registered flag set raises before any compile.  An
+        # expired deadline still runs the first batch, so the compile is a stand-in
+        # that fails: on a host with the profile's image it compiled and scored.
+        monkeypatch.setattr(
+            "rebrew.matcher.compiler.build_candidate_obj_only",
+            lambda *a, **k: BuildResult(ok=False, error_msg="not compiled"),
+        )
         result = flag_sweep(
             "int f(void) { return 0; }",
             b"\x31\xc0\xc3",
