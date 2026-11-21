@@ -148,6 +148,7 @@ def audit_object(
                 "symbol": symbol,
                 "object_offset": offsets.get(symbol) or offsets.get(symbol.lstrip("_")) or 0,
                 "object_text_size": text_size,
+                "size": len(body),
                 "verdict": verdict,
                 "va": f"0x{text_va + best['offset']:x}" if best else None,
                 "ratio": best["ratio"] if best else None,

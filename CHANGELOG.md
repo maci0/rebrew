@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Added
+
+- `rebrew library presence --json` rows carry `size`, the symbol's own body length. `object_offset` and `object_text_size` describe the object, so for a `/Gy` object, where each function has its own COMDAT section, every row said offset 0 and the whole object's size and gave no function extent.
+
 ### Fixed
 
 - `rebrew source binding retire`, `rebrew source binding rebind` and `rebrew library adopt` refused any row whose stored verification carried instruction counts, with `verification aligned_pairs must be a non-negative int`. A row read from TOML holds those counts as tomlkit integers, an `int` subclass the count check rejected by exact type; it now accepts any non-bool `int`, as the similarity check already did.

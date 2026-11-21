@@ -56,6 +56,23 @@ class TestPresence:
         assert row["object_text_size"] > 0
         assert row["ratio"] >= 0.9
 
+    def test_each_symbol_reports_its_own_body_size(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        second = bytes(range(0x20, 0x20 + 54))  # 58 + 54: no section padding
+        project = _project(tmp_path, b"\x90" * 16 + _BODY + second + b"\x90" * 16)
+        obj = tmp_path / "pair.obj"
+        obj.write_bytes(
+            make_coff_obj(_BODY + second, func_symbol="_alpha", extra_funcs=[("_beta", len(_BODY))])
+        )
+        result = _run(project, monkeypatch, obj, "--json")
+        assert result.exit_code == 0, result.output
+        rows = {row["symbol"]: row for row in cli_payload(result)["symbols"]}
+        assert rows["_alpha"]["size"] == len(_BODY)
+        assert rows["_beta"]["size"] == len(second)
+        assert rows["_beta"]["object_offset"] == len(_BODY)
+        assert rows["_beta"]["va"] == f"0x{0x401010 + len(_BODY):x}"
+
     def test_absent_body_is_reported_absent(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
