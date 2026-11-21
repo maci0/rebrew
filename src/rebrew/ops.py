@@ -1287,6 +1287,10 @@ class SnapshotMutationRequest:
     sources: list[str] = field(default_factory=list)
     output: str = ""
     dry_run: bool = False
+    #: ``variants`` only: answer ``{"result": {"candidates": N}}``, the compiles the
+    #: search would make (a ceiling), and compile nothing.
+    count_only: bool = False
+    attribution: Attribution | None = None
 
 
 def _has_lone_surrogate(value: str) -> bool:
@@ -4641,6 +4645,7 @@ COMPILING_OPS = frozenset(
         "rebrew.verify_target",
         "rebrew.build",
         "rebrew.flag_search",
+        "rebrew.retained_source_operation",
     }
 )
 

@@ -40,7 +40,9 @@ FUNCTIONS = (
 CANDIDATE = "int __stdcall add(int a, int b) { return a + b; }\n"
 
 
-def _stage(root: Path, source: str = "src/stub.c") -> tuple[WorkerConfig, list[dict[str, Any]]]:
+def _stage(
+    root: Path, source: str = "src/stub.c", extra: tuple[tuple[str, bytes], ...] = ()
+) -> tuple[WorkerConfig, list[dict[str, Any]]]:
     filestore = root / "files"
     (filestore / "binaries").mkdir(parents=True)
     shutil.copyfile(BINARY, filestore / f"binaries/{SHA256}")
@@ -51,6 +53,7 @@ def _stage(root: Path, source: str = "src/stub.c") -> tuple[WorkerConfig, list[d
         ("rebrew-project.toml", PROJECT),
         (source, STUB),
         ("rebrew-functions.toml", FUNCTIONS.replace(b'"src/stub.c"', f'"{source}"'.encode())),
+        *extra,
     ):
         digest = hashlib.sha256(data).hexdigest()
         (filestore / "binaries" / digest).write_bytes(data)
@@ -731,10 +734,12 @@ def _recompile(
         server.server_close()
 
 
-def _compiling_at(url: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
+def _compiling_at(
+    url: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *extra: tuple[str, bytes]
+) -> Any:
     monkeypatch.setitem(globals(), "PROJECT", PROJECT + f'recompile_url = "{url}"\n'.encode())
     monkeypatch.setenv("REBREW_RECOMPILE_URL", url)
-    return _stage(tmp_path)
+    return _stage(tmp_path, extra=extra)
 
 
 def test_a_candidate_reports_its_remote_compiles_and_forwards_the_attribution(
@@ -874,3 +879,89 @@ def test_a_flag_search_states_its_compiles_before_it_runs(
     assert reply["candidates"] == len(generate_flag_combinations("quick", "msvc-6.0")) + 1
     assert reply["remote_compile"] == {"count": 0, "wait_ms": 0}
     assert not seen
+
+
+#: The function inventory a retained target snapshot must carry.
+INVENTORY = ("src/function_structure.json", b'{"functions": []}')
+
+
+def _variants(entries: list[dict[str, Any]], **extra: Any) -> bytes:
+    candidate = "void fcn_00401000(void) {}\n"
+    body = {
+        "files": entries,
+        "rebrew_target": "mini",
+        "sha256": SHA256,
+        "binary_key": f"binaries/{SHA256}",
+        "operation": "variants",
+        "source": "src/stub.c",
+        "candidate": candidate,
+        "candidate_sha256": hashlib.sha256(candidate.encode()).hexdigest(),
+        "va": VA,
+        "size": 11,
+        "generations": 2,
+        "population": 2,
+        "seed": 7,
+        **extra,
+    }
+    return json.dumps(body).encode()
+
+
+def test_a_variant_search_reports_its_remote_compiles_and_forwards_the_attribution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every candidate of the search compiles through recompile, for the job that asked."""
+    seen: list[dict[str, str]] = []
+    with _recompile(seen) as url:
+        config, entries = _compiling_at(url, tmp_path, monkeypatch, INVENTORY)
+        status, raw = dispatch(
+            config,
+            "rebrew.retained_source_operation",
+            _variants(entries, attribution=ATTRIBUTION),
+        )
+    reply = json.loads(raw)
+    assert status == 200, reply
+    # At most the ceiling a count_only call states.
+    assert 0 < len(seen) <= 2 * 2 + 1
+    assert reply["remote_compile"]["count"] == len(seen)
+    assert all(json.loads(h["X-Relumea-Attribution"]) == ATTRIBUTION for h in seen)
+
+
+def test_a_variant_search_states_its_compiles_before_it_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every member of every generation, then the champion's ceiling check."""
+    seen: list[dict[str, str]] = []
+    with _recompile(seen) as url:
+        config, entries = _compiling_at(url, tmp_path, monkeypatch, INVENTORY)
+        status, raw = dispatch(
+            config, "rebrew.retained_source_operation", _variants(entries, count_only=True)
+        )
+    reply = json.loads(raw)
+    assert status == 200, reply
+    assert reply == {
+        "result": {"candidates": 2 * 2 + 1},
+        "remote_compile": {"count": 0, "wait_ms": 0},
+    }
+    assert not seen
+
+
+@pytest.mark.parametrize("operation", ["data-set", "rename", "split", "merge", "decompme"])
+def test_only_a_variant_search_can_be_counted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: str
+) -> None:
+    from rebrew import ops
+
+    def forbidden(*args: Any, **kwargs: Any) -> None:
+        pytest.fail("a count reached a command")
+
+    monkeypatch.setattr(ops, "run_rebrew", forbidden)
+    config, entries = _stage(tmp_path)
+    status, raw = dispatch(
+        config,
+        "rebrew.retained_source_operation",
+        _variants(entries, operation=operation, count_only=True),
+    )
+    assert (status, json.loads(raw)["detail"]) == (
+        400,
+        "count_only applies only to the variants operation",
+    ), raw

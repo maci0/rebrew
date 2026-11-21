@@ -2056,6 +2056,8 @@ Run genetic matching for one source function.
 rebrew match run src/game/f.c --seed 7 --json
 ```
 
+With `--count` it prints how many compiles the search can make at most (`{"candidates": N}` with `--json`) and compiles nothing: every member of every generation (`--generations` times `--pop-size`), then one for the champion's ceiling check. Extra seeds (`--seed-file`, `--seed-llm`, `--seed-kuna`) can enlarge the first generation, so `--count` refuses them.
+
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `SEED_C` | str | required | Source file, symbol name, or VA (hex) |
@@ -2083,6 +2085,7 @@ rebrew match run src/game/f.c --seed 7 --json
 | `--output` / `-o` | path | `output/ga_runs` | Directory for search results |
 | `--collect-pairs` | path | none | Append source/binary training pairs to a JSONL file |
 | `--dry-run` | flag | `False` | Preview changes without writing |
+| `--count` | flag | `False` | Print how many compiles the search would make, and compile nothing |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
 
@@ -7329,7 +7332,7 @@ Op details the contract leaves open:
   `population` from 1 to 100 each (`rebrew.ops.VARIANT_MAX_GENERATIONS`,
   `VARIANT_MAX_POPULATION`), checked before the snapshot is staged; a value
   over its cap answers 400 `invalid-request` naming the cap. At both caps the
-  search compiles at most 10,000 candidates, about 1,460 s at the measured
+  search compiles at most 10,000 candidates and the champion once more, about 1,460 s at the measured
   585 ms per compile and compare ([PERFORMANCE.md](PERFORMANCE.md)) over the
   GA's default 4 parallel jobs, inside the op's 3600 s deadline.
 - `rebrew.retained_source_operation` `variants` and `decompme` write the candidate over `source` verbatim. When
@@ -7351,7 +7354,8 @@ Op details the contract leaves open:
   service that cannot be asked is not refused here; the compile reports it.
   Local backends are unaffected.
 - The ops that compile (`verify_function`, `apply_candidate`, `verify_target`,
-  `build`, `flag_search`) take an optional `attribution`, `{org, project, user,
+  `build`, `flag_search`, `retained_source_operation`; of its operations only
+  `variants` compiles, the others report a count of 0) take an optional `attribution`, `{org, project, user,
   job}` (each 1 to 128 printable ASCII characters; anything else is a 400
   `invalid-request`), which every recompile call they make sends in
   `X-Relumea-Attribution`, and their reply carries `remote_compile: {count,
@@ -7365,6 +7369,10 @@ Op details the contract leaves open:
   `flag_search` with `count_only` stages the same snapshot and answers
   `{"candidates": N}`, the compiles the search would make (`rebrew match flags
   --count` or `rebrew match toolchains --count`), and compiles nothing.
+  `retained_source_operation` `variants` with `count_only` does the same and
+  answers `{"result": {"candidates": N}}` (`rebrew match run --count`:
+  `generations` times `population`, plus one); `count_only` with another
+  operation is a 400 `invalid-request`.
 - A child command gets its op's deadline, less 30 s to print its report
   (`rebrew.ops.CHILD_REPORT_SECONDS`), in `REBREW_CALL_DEADLINE`; its remote
   compiles start no attempt or retry wait a whole request could not finish

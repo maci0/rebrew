@@ -3972,6 +3972,37 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "attribution": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "job": {
+                    "type": "string"
+                  },
+                  "org": {
+                    "type": "string"
+                  },
+                  "project": {
+                    "type": "string"
+                  },
+                  "user": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "org",
+                  "project",
+                  "user",
+                  "job"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "backing": {
             "type": "string"
           },
@@ -3986,6 +4017,9 @@
           },
           "candidate_sha256": {
             "type": "string"
+          },
+          "count_only": {
+            "type": "boolean"
           },
           "dry_run": {
             "type": "boolean"
@@ -4127,12 +4161,29 @@
             },
             "type": "array"
           },
+          "remote_compile": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "wait_ms": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "count",
+              "wait_ms"
+            ],
+            "type": "object"
+          },
           "result": {
             "type": "object"
           }
         },
         "required": [
-          "result"
+          "result",
+          "remote_compile"
         ],
         "type": "object"
       },

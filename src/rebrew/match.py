@@ -188,8 +188,8 @@ def execute_search(
 ) -> None:
     """Search source mutations, compiler flags, and toolchains for byte matches.
 
-    *count_only* (flag and toolchain searches) prints how many compiles the search
-    would make and compiles nothing.
+    *count_only* (a single-function GA, flag or toolchain search) prints how many
+    compiles the search would make, a ceiling, and compiles nothing.
     """
     if option_default(watch, False) and option_default(json_output, False):
         error_exit("--watch is terminal-only; omit --json", json_mode=True)
@@ -428,14 +428,24 @@ def execute_search(
         json_output=json_output,
     )
     if count_only:
-        candidates = sweep_candidate_count(
-            params,
-            tier,
-            toolchains=bool(flag_sweep_toolchains or sweep_toolchains or sweep_exclude_toolchains),
-            flags=flag_sweep_only,
-            only=sweep_toolchains,
-            exclude=sweep_exclude_toolchains,
+        toolchain_sweep = bool(
+            flag_sweep_toolchains or sweep_toolchains or sweep_exclude_toolchains
         )
+        if flag_sweep_only or toolchain_sweep:
+            candidates = sweep_candidate_count(
+                params,
+                tier,
+                toolchains=toolchain_sweep,
+                flags=flag_sweep_only,
+                only=sweep_toolchains,
+                exclude=sweep_exclude_toolchains,
+            )
+        elif (extra_seed and not no_seed) or llm_seed or kuna_seed:
+            # Extra seeds can make the first generation larger than --pop-size.
+            error_exit("--count cannot bound a search with extra seeds", json_mode=json_output)
+        else:
+            # Every member of every generation, then the champion's ceiling check.
+            candidates = generations * pop_size + 1
         if json_output:
             json_print({"candidates": candidates})
         else:
@@ -692,6 +702,7 @@ def run(
         help=WATCH_FILE_HELP,
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    count: bool = CountOption,
     json_output: bool = JsonOption,
     target: str | None = TargetOption,
 ) -> None:
@@ -724,6 +735,7 @@ def run(
         dry_run=dry_run,
         json_output=json_output,
         target=target,
+        count_only=count,
     )
 
 

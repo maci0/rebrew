@@ -3217,17 +3217,20 @@ class TestVariantSearchBounds:
 
         config, request = self._request(fresh_analysis, tmp_path)
         searches = self._searches(monkeypatch)
-        assert _call(config, "rebrew.retained_source_operation", request) == {"result": {}}
+        assert _call(config, "rebrew.retained_source_operation", request) == {
+            "result": {},
+            "remote_compile": NO_REMOTE_COMPILES,
+        }
         [search] = searches
         assert f"--generations={ops.VARIANT_MAX_GENERATIONS}" in search
         assert f"--pop-size={ops.VARIANT_MAX_POPULATION}" in search
 
     def test_a_search_at_both_caps_fits_the_op_deadline(self) -> None:
-        """Every candidate of every generation compiled, over the GA's default parallel jobs."""
+        """Every candidate of every generation and the champion compiled, over the GA's default jobs."""
         import rebrew.ops as ops
         from rebrew.config import DEFAULT_PROJECT_JOBS
 
-        candidates = ops.VARIANT_MAX_GENERATIONS * ops.VARIANT_MAX_POPULATION
+        candidates = ops.VARIANT_MAX_GENERATIONS * ops.VARIANT_MAX_POPULATION + 1
         seconds = candidates * _MEASURED_COMPILE_SECONDS / DEFAULT_PROJECT_JOBS
         assert seconds <= OPS["rebrew.retained_source_operation"].timeout_seconds
 

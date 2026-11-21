@@ -1170,3 +1170,45 @@ class TestMatchOptionContracts:
         assert "Batch Mode" not in result.output
         if operation in ("flags", "toolchains"):
             assert "GA Tuning" not in result.output
+
+
+class TestMatchRunCount:
+    """``rebrew match run --count`` states the GA's compile ceiling and compiles nothing."""
+
+    @staticmethod
+    def _staged(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        cfg = SimpleNamespace(
+            metadata_dir=tmp_path,
+            reversed_dir=tmp_path / "src",
+            module="SERVER",
+            source_ext=".c",
+            default_jobs=2,
+        )
+        monkeypatch.setattr("rebrew.match.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.match.resolve_arg_params", lambda *a, **k: _params())
+
+        def _boom(*args: object, **kwargs: object) -> None:
+            raise AssertionError("the GA ran under --count")
+
+        monkeypatch.setattr("rebrew.match.run_single_ga", _boom)
+
+    def test_count_is_every_member_of_every_generation_and_the_ceiling_check(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.match import app
+
+        self._staged(tmp_path, monkeypatch)
+        result = CliRunner().invoke(app, ["run", "-g", "3", "-p", "5", "--count", "--json", "f.c"])
+        assert result.exit_code == 0, result.output
+        assert cli_payload(result) == {"candidates": 3 * 5 + 1}
+
+    @pytest.mark.parametrize("seeding", [["--seed-file", "other.c"], ["--seed-llm"]])
+    def test_extra_seeds_have_no_count(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, seeding: list[str]
+    ) -> None:
+        from rebrew.match import app
+
+        self._staged(tmp_path, monkeypatch)
+        result = CliRunner().invoke(app, ["run", *seeding, "--count", "--json", "f.c"])
+        assert result.exit_code != 0
+        assert "--count cannot bound a search with extra seeds" in result.output

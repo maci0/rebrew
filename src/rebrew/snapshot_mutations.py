@@ -39,6 +39,8 @@ def snapshot_mutation(config: Any, req: Any) -> dict[str, Any]:
         raise invalid("unknown retained source operation")
     if req.va < 0 or req.size < 0:
         raise invalid("address and size must not be negative")
+    if req.count_only and req.operation != "variants":
+        raise invalid("count_only applies only to the variants operation")
     if req.operation == "variants":
         if req.generations < 1 or req.population < 1 or req.seed < 0:
             raise invalid("invalid variant search bounds")
@@ -97,6 +99,7 @@ def snapshot_mutation(config: Any, req: Any) -> dict[str, Any]:
                     f"--seed={req.seed}",
                     f"--va=0x{req.va:x}",
                     f"--size={req.size}",
+                    *(["--count"] if req.count_only else []),
                     target,
                     "--",
                     str(source),

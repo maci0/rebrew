@@ -1,5 +1,10 @@
 ## [Unreleased]
 
+### Changed
+
+- `rebrew.retained_source_operation` is a compiling op (`rebrew.ops.COMPILING_OPS`): its `variants` operation runs `rebrew match run`, up to 100 generations of 100 candidates, each compiled through recompile, yet its request took no `attribution` and its reply carried no `remote_compile`, so those compiles went out unattributed and uncounted. The request takes the optional `attribution`, sent on every recompile call, and `count_only` (`variants` only, else 400 `invalid-request`), which answers `{"result": {"candidates": N}}` and compiles nothing; every reply, and a refusal after a recompile call, carries `remote_compile: {count, wait_ms}` (count 0 for the operations that do not compile). The dispatch schema (`tests/fixtures/dispatch/rebrew.schema.json`) gains the three members; a client must accept `remote_compile` in every reply of this op.
+- `rebrew match run --count` prints how many compiles the GA can make, `--generations` times `--pop-size` plus one for the champion's ceiling check, and compiles nothing; it refuses extra seeds (`--seed-file`, `--seed-llm`, `--seed-kuna`), which can enlarge the first generation.
+
 ### Fixed
 
 - A remote compile whose `POST /api/v1/compile` answered `status: "ok"` and whose artifact download then failed (refused, truncated, or the connection lost) counted 0 in the op's `remote_compile.count`, though recompile settles and bills the compile inside that POST, before serving the artifact. It now counts once; the source still reads `NOT_RUN`. `RecompileError.after_verdict` says the error followed such a verdict.
