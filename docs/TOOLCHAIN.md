@@ -25,8 +25,8 @@ same-origin artifact endpoint. Every compile call is one attempt with its own ra
 attempt instead of compiling twice, and a later compile of the same input, after a failure
 or an image update, is a new attempt with a new key. Neither key nor request is saved.
 Job-socket compiles use their own capability, and the jobs owner keys each attempt: the
-same key again after an ambiguous outcome, a new one after a refusal without a verdict
-(`services/jobs/README.md`).
+same key again after an ambiguous outcome or a refusal that may follow a billed compile, a
+new one after a refusal without a verdict (`services/jobs/README.md`).
 
 One process paces its compiles to one service: at most `[compiler]
 recompile_concurrency` (default 2) run at once, whatever `jobs` is, and a

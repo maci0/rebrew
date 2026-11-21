@@ -589,3 +589,73 @@ func TestCompileMediatorRefusesAMalformedAttribution(t *testing.T) {
 		}
 	}
 }
+
+// scriptedMediator is a mediator whose upstream answers compiles from script
+// in order (status and JSON body) and records each compile's Idempotency-Key.
+func scriptedMediator(t *testing.T, script [][2]any) (*CompileMediator, func() []string) {
+	t.Helper()
+	var mu sync.Mutex
+	var keys []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		keys = append(keys, r.Header.Get("Idempotency-Key"))
+		answer := script[len(keys)-1]
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(answer[0].(int))
+		_, _ = w.Write([]byte(answer[1].(string)))
+	}))
+	t.Cleanup(upstream.Close)
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeCompileIndex(dir, []string{}); err != nil {
+		t.Fatal(err)
+	}
+	m, err := NewCompileMediator(dir, upstream.URL, "rck_test", strings.Repeat("a", 64), 1, []string{"gcc"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m, func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), keys...)
+	}
+}
+
+const compiledAnswer = `{"status":"ok","artifact_url":"/api/v1/artifacts/abcdef123456.o"}`
+
+// A refusal that may follow a billed compile keeps its key: the worker's next
+// attempt of the intent resends it, so recompile answers that compile's
+// outcome instead of compiling and billing again. A refusal that says the key
+// billed nothing (delivery_denied, a spent key) lets the next attempt draw a
+// new key.
+func TestCompileMediatorKeepsTheKeyOfARefusalThatMayFollowABilledCompile(t *testing.T) {
+	for _, c := range []struct {
+		status  int
+		code    string
+		sameKey bool
+	}{
+		{401, "unauthenticated", true},
+		{403, "forbidden", true},
+		{409, "admission_unrecoverable", true},
+		{409, "retained_output_unavailable", true},
+		{403, "delivery_denied", false},
+		{409, "admission_expired", false},
+		{402, "allowance_exhausted", false},
+	} {
+		refusal := `{"detail":"refused","code":"` + c.code + `"}`
+		m, keys := scriptedMediator(t, [][2]any{{c.status, refusal}, {200, compiledAnswer}})
+		if code := attributedCompile(m, ""); code != c.status {
+			t.Fatalf("%s: first attempt answered %d", c.code, code)
+		}
+		if code := attributedCompile(m, ""); code != http.StatusOK {
+			t.Fatalf("%s: second attempt answered %d", c.code, code)
+		}
+		got := keys()
+		if len(got) != 2 || (got[0] == got[1]) != c.sameKey {
+			t.Fatalf("%s: upstream keys %q, same key wanted %t", c.code, got, c.sameKey)
+		}
+	}
+}

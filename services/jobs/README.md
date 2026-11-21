@@ -34,7 +34,10 @@ or `provenance_unavailable`) reaches the worker with its status and
 is not kept as the intent's result, so the intent's next attempt draws a new
 key; a code saying the key can never yield a result (`admission_expired`,
 `delivery_denied` and the others in `docs/TOOLCHAIN.md`) settles even a key an
-earlier attempt left unresolved. An ambiguous outcome (no answer, a 5xx, a reply that
+earlier attempt left unresolved. A refusal that may follow a billed compile keeps
+the key for the intent's next attempt, also on its first exchange: a 401, a 403
+other than `delivery_denied`, `admission_unrecoverable` and
+`retained_output_unavailable`. An ambiguous outcome (no answer, a 5xx, a reply that
 is unreadable or over 16 MiB) keeps the key: the worker's retry resends it,
 which recompile answers without compiling or billing twice. One intent's
 state never holds back another's. After the job stops, an intent still
