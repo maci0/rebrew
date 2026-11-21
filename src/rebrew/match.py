@@ -541,6 +541,7 @@ def execute_search(
                 watch=False,
                 json_output=json_output,
                 target=target,
+                count_only=count_only,
             )
 
         watch_files([seed_path], _retest)
