@@ -481,3 +481,38 @@ def test_adopt_picks_the_same_object_for_a_comdat_in_several_members(tmp_path: P
     result = _adopt(cfg, lib, "--dry-run", "--json")
     assert result.exit_code == 0, result.output
     assert json_mod.loads(result.output)["object"].endswith("a.obj")
+
+
+def _wrong_library_row(tmp_path: Path, module: str) -> None:
+    (tmp_path / "src" / "library_mylib.h").write_text("/* identities live in metadata */\n")
+    record_function_identity(
+        tmp_path,
+        module=module,
+        va=VA,
+        file="src/library_mylib.h",
+        kind="LIBRARY",
+        name="wrong",
+        symbol="_wrong",
+    )
+
+
+def test_adopt_corrects_a_library_row_naming_another_symbol(tmp_path: Path) -> None:
+    cfg = _bare_project(tmp_path)
+    _wrong_library_row(tmp_path, "SERVER")
+    result = _adopt(cfg, tmp_path / "mylib.lib", "--json")
+    assert result.exit_code == 0, result.output
+    row = get_entry(cfg.metadata_dir, VA, "SERVER")
+    assert (row["kind"], row["symbol"]) == ("LIBRARY", "_mylibfn")
+    assert row["binding_history"][-1]["previous"]["symbol"] == "_wrong"
+
+
+def test_adopt_updates_the_archive_family_row_instead_of_adding_one(tmp_path: Path) -> None:
+    cfg = _bare_project(tmp_path)
+    _wrong_library_row(tmp_path, "MYLIB")
+    result = _adopt(cfg, tmp_path / "mylib.lib", "--json")
+    assert result.exit_code == 0, result.output
+    assert get_entry(cfg.metadata_dir, VA, "MYLIB")["symbol"] == "_mylibfn"
+    assert get_entry(cfg.metadata_dir, VA, "SERVER") == {}
+    again = _adopt(cfg, tmp_path / "mylib.lib", "--json")
+    assert again.exit_code == 2
+    assert "already" in again.output

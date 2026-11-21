@@ -557,7 +557,10 @@ def _library_family(object_label: str) -> str | None:
     ),
 )
 def adopt_cmd(
-    va: str = typer.Argument(..., help="Native VA of the FUNCTION/STUB row proved library code"),
+    va: str = typer.Argument(
+        ...,
+        help="Native VA proved library code (FUNCTION/STUB claim, wrong LIBRARY identity, or no row)",
+    ),
     reason: str = typer.Option(..., "--reason", help="Reviewed evidence naming the unique match"),
     expected_digest: str | None = typer.Option(
         None, "--expected-digest", help=EXPECTED_DIGEST_HELP
@@ -576,9 +579,12 @@ def adopt_cmd(
 
     The match must be unique against the archives the target links; the row then
     becomes kind LIBRARY with the archive family's declaration header and the
-    native symbol. A prior row (FUNCTION/STUB claim, retired binding, or an
-    address-only row with its verdict) goes to binding_history; a VA with no row
-    gets the LIBRARY row directly, sized from the discovery inventory. The preview
+    native symbol. A prior row (FUNCTION/STUB claim, a LIBRARY row naming another
+    symbol or header, retired binding, or an address-only row with its verdict)
+    goes to binding_history; a LIBRARY row already holding the match is refused.
+    Without a row under the target's module, a row keyed by the archive family is
+    corrected instead of adding a second identity; a VA with no row at all gets
+    the LIBRARY row directly, sized from the discovery inventory. The preview
     digest, which covers that extent, guards the write. Vendored-object matches
     are refused: bind their source with ``rebrew library bind-source``.
     """
@@ -593,17 +599,17 @@ def adopt_cmd(
     from rebrew.metadata.functions import get_entry, record_function_identity
     from rebrew.metadata.storage import input_digest, metadata_store
     from rebrew.rename_ops import c_name_from_symbol
-    from rebrew.utils import library_header_name
+    from rebrew.utils import library_header_name, preset_module_key
 
     cfg = require_config(target=target, json_mode=json_output)
     address = parse_va(va, json_mode=json_output)
     module = target_module(cfg)
     row = get_entry(cfg.metadata_dir, address, module)
     has_claim = bool(row.get("file")) and not retired_binding(row)
-    if has_claim and row.get("kind") not in {"FUNCTION", "STUB"}:
+    if has_claim and row.get("kind") not in {"FUNCTION", "STUB", "LIBRARY"}:
         error_exit(
             f"0x{address:x} is already {row.get('kind') or 'unclaimed'}; adopt needs a "
-            "FUNCTION or STUB claim, a retired binding, or no row at all",
+            "FUNCTION, STUB or LIBRARY claim, a retired binding, or no row at all",
             json_mode=json_output,
         )
     try:
@@ -669,6 +675,26 @@ def adopt_cmd(
     except ValueError:
         error_exit(f"library header {header} is outside the project root", json_mode=json_output)
     identity = {"file": relative_header, "symbol": symbol, "name": name, "kind": "LIBRARY"}
+    if not row:
+        # `library identify` keys a LIBRARY row by its archive family; correct
+        # that row instead of adding a second identity for the same bytes.
+        family_module = preset_module_key(family)
+        family_row = get_entry(cfg.metadata_dir, address, family_module)
+        if family_row:
+            if family_row.get("size") and family_row["size"] != size:
+                error_exit(
+                    "native inventory extent conflicts with stored size", json_mode=json_output
+                )
+            module, row = family_module, family_row
+    if (
+        row.get("kind") == "LIBRARY"
+        and not retired_binding(row)
+        and (row.get("symbol"), row.get("file")) == (symbol, relative_header)
+    ):
+        error_exit(
+            f"0x{address:x} is already LIBRARY as {symbol} in {relative_header}; nothing to adopt",
+            json_mode=json_output,
+        )
     binary_hash = hashlib.sha256(cfg.target_binary.read_bytes()).hexdigest()
     metadata_digest = metadata_store(cfg.metadata_dir / METADATA_FILENAME).digest()
     digest = hashlib.sha256(

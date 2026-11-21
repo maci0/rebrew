@@ -5937,10 +5937,13 @@ Record a stock-archive identity from a native VA. The command re-runs the
 project's archive match for that VA and requires one unique `(symbol, archive
 member)` candidate. The row becomes kind `LIBRARY` with the archive family's
 `library_<family>.h` declaration header, the native symbol and a C name derived
-from it. A prior row (`FUNCTION`, `STUB`, a retired binding, or an address-only
-row with its verdict) stays in `binding_history`; a VA with no row gets the
-LIBRARY row directly, sized from the discovery inventory, and the comparison
-verdict is cleared. A matched symbol with no C identifier (C++ mangled or static
+from it. A prior row (`FUNCTION`, `STUB`, a `LIBRARY` row naming another symbol
+or header, a retired binding, or an address-only row with its verdict) stays in
+`binding_history`; a `LIBRARY` row that already holds the match is refused.
+With no row under the target's module, a row keyed by the archive family (as
+`library identify` writes) is updated instead of adding a second identity. A VA
+with no row at all gets the LIBRARY row directly, sized from the discovery
+inventory, and the comparison verdict is cleared. A matched symbol with no C identifier (C++ mangled or static
 data) keeps its exact native symbol and gets a derived display name. Preview with
 `--dry-run` and pass the reported digest back as `--expected-digest` to apply;
 the digest covers the matched extent, and a metadata change after the scan
@@ -5949,7 +5952,7 @@ refuses the write. A vendored-object match is refused; use
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `VA` | str | required | Native VA of the FUNCTION/STUB row proved library code |
+| `VA` | str | required | Native VA proved library code (FUNCTION/STUB claim, wrong LIBRARY identity, or no row) |
 | `--reason` | str | required | Reviewed evidence naming the unique match |
 | `--expected-digest` | str | none | Require the digest from a reviewed preview |
 | `--dry-run` | flag | `False` | Preview changes without writing |

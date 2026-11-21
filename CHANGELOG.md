@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- `rebrew library adopt` refused every LIBRARY row (`is already LIBRARY`), so a signature-scan identity that a unique complete-body match contradicts could not be corrected, and it ignored a row `rebrew library identify` keyed by the archive family (`D3DX8.0x...`), adding a second identity under the target's module that status counted twice. A LIBRARY row naming another symbol or header is now rebound like a FUNCTION claim, with the old identity in `binding_history`; a family-keyed row is corrected in place; a row already holding the match is still refused.
 - `rebrew source rehome` refused to move a LIBRARY row to a `library_*.h` header (`does not define NAME`), both as `0xVA=PATH` and with `--from`/`--to`: it requires a C definition of the function in the destination, and a library header has none because the linker supplies the body. A LIBRARY row now moves to a library header without that check; FUNCTION and STUB rows still need the definition.
 - `rebrew source binding retire`, `rebrew source binding rebind` and `rebrew library adopt` refused any row whose stored verification carried instruction counts, with `verification aligned_pairs must be a non-negative int`. A row read from TOML holds those counts as tomlkit integers, an `int` subclass the count check rejected by exact type; it now accepts any non-bool `int`, as the similarity check already did.
 
