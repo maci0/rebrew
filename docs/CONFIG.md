@@ -587,8 +587,9 @@ by the CLI layer and win for that invocation.
   or retry wait past it, less one request's timeout. A value that is not a finite number fails
   the compile.
 - `REBREW_REMOTE_COMPILES`: internal, set by `rebrew ops` on each child command of an op that
-  compiles: the file the child appends one line per recompile call to (`1` or `0` for a
-  verdict, then the milliseconds it waited), which the op sums into its `remote_compile`.
+  compiles: the file the child appends one line per recompile call to (`1` billed, `0`
+  free, `?` unsettled, then the milliseconds it waited), which the op sums into its
+  `remote_compile`.
 - `REBREW_RECOMPILE_ATTRIBUTION`: internal, set beside it when the op's request named an
   `attribution`: the JSON object every recompile call of the child sends in
   `X-Relumea-Attribution`. A value that is not one fails the compile.

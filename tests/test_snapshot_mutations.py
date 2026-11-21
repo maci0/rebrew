@@ -115,7 +115,7 @@ def test_retained_proposals_and_candidate(tmp_path: Path, monkeypatch: Any) -> N
     assert status == 200, body
     assert json.loads(body) == {
         "result": {"ok": True},
-        "remote_compile": {"count": 0, "wait_ms": 0},
+        "remote_compile": {"count": 0, "unsettled": 0, "wait_ms": 0},
     }
     request.update(operation="variants", generations=1, population=1)
     status, body = ops.dispatch(

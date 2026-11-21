@@ -58,8 +58,9 @@ compiler's rejection, free for the service's other `error_code` values, a
 attempt may have admitted. A call that ends with its key possibly admitted and no
 settling answer (a reply lost on every attempt, a 5xx or 503 waited out to the
 deadline, a refused credential, `admission_unrecoverable`,
-`retained_output_unavailable`) is unsettled: `count` leaves it out, and the op logs a
-warning naming how many (`RemoteCompiles.unsettled`).
+`retained_output_unavailable`) is unsettled: `count` leaves it out, and
+`remote_compile.unsettled` counts it, in the op's reply and in a refusal after a
+recompile call.
 Under `rebrew ops` the child command knows its op's deadline
 (`REBREW_CALL_DEADLINE`; 3600 s for `verify_target`) and starts no attempt or wait
 that a whole request (`compile_timeout` + 120 s) could not finish before it. A remote compile

@@ -4757,11 +4757,13 @@ def _answer(config: WorkerConfig, name: str, body: bytes) -> Mapping[str, Any]:
 def _counting_remote_compiles(
     config: WorkerConfig, name: str, op: Op, request: Any
 ) -> dict[str, Any]:
-    """Run a compiling op and add the recompile calls it made: ``remote_compile {count, wait_ms}``.
+    """Run a compiling op and add its recompile calls: ``remote_compile {count, unsettled, wait_ms}``.
 
     ``count`` is the compiles recompile gave a verdict on (an object or the compiler's
-    rejection: the ones it bills), ``wait_ms`` the wall time spent waiting on recompile,
-    refused and retried calls included.  Both cover the op's child commands, which
+    rejection: the ones it bills), ``unsettled`` the calls that may have been billed
+    with no answer to settle it (never part of ``count``), ``wait_ms`` the wall time
+    spent waiting on recompile, refused and retried calls included.  All cover the
+    op's child commands, which
     append to the same ledger.  A refusal after a recompile call carries them too
     (``OpsError.remote_compile``): a candidate the compiler rejected is refused, and
     recompile billed it.
@@ -4779,16 +4781,6 @@ def _counting_remote_compiles(
                 if remote.recorded():
                     exc.remote_compile = remote.totals()
                 raise
-            finally:
-                if unsettled := remote.unsettled():
-                    # remote_compile has no member for them yet: say so loudly.
-                    logger.warning(
-                        "%s %s: %d remote compile(s) ended unsettled: recompile may have "
-                        "billed them, and remote_compile.count leaves them out",
-                        _request_id(),
-                        name,
-                        unsettled,
-                    )
             reply["remote_compile"] = remote.totals()
         return reply
     finally:

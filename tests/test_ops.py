@@ -49,7 +49,7 @@ TOKEN = secrets.token_hex(16)
 #: Bound on any child process or HTTP wait, so a wedged worker fails the test.
 WAIT_SECONDS = 120
 #: The `remote_compile` of a compiling op that called no recompile service.
-NO_REMOTE_COMPILES = {"count": 0, "wait_ms": 0}
+NO_REMOTE_COMPILES = {"count": 0, "unsettled": 0, "wait_ms": 0}
 
 _CONTRACT = json.loads((FIXTURES / "dispatch" / "rebrew.schema.json").read_text())
 

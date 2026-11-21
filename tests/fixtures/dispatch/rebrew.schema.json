@@ -563,12 +563,16 @@
               "count": {
                 "type": "integer"
               },
+              "unsettled": {
+                "type": "integer"
+              },
               "wait_ms": {
                 "type": "integer"
               }
             },
             "required": [
               "count",
+              "unsettled",
               "wait_ms"
             ],
             "type": "object"
@@ -849,12 +853,16 @@
               "count": {
                 "type": "integer"
               },
+              "unsettled": {
+                "type": "integer"
+              },
               "wait_ms": {
                 "type": "integer"
               }
             },
             "required": [
               "count",
+              "unsettled",
               "wait_ms"
             ],
             "type": "object"
@@ -1979,12 +1987,16 @@
               "count": {
                 "type": "integer"
               },
+              "unsettled": {
+                "type": "integer"
+              },
               "wait_ms": {
                 "type": "integer"
               }
             },
             "required": [
               "count",
+              "unsettled",
               "wait_ms"
             ],
             "type": "object"
@@ -4167,12 +4179,16 @@
               "count": {
                 "type": "integer"
               },
+              "unsettled": {
+                "type": "integer"
+              },
               "wait_ms": {
                 "type": "integer"
               }
             },
             "required": [
               "count",
+              "unsettled",
               "wait_ms"
             ],
             "type": "object"
@@ -4808,12 +4824,16 @@
               "count": {
                 "type": "integer"
               },
+              "unsettled": {
+                "type": "integer"
+              },
               "wait_ms": {
                 "type": "integer"
               }
             },
             "required": [
               "count",
+              "unsettled",
               "wait_ms"
             ],
             "type": "object"
@@ -4931,12 +4951,16 @@
               "count": {
                 "type": "integer"
               },
+              "unsettled": {
+                "type": "integer"
+              },
               "wait_ms": {
                 "type": "integer"
               }
             },
             "required": [
               "count",
+              "unsettled",
               "wait_ms"
             ],
             "type": "object"

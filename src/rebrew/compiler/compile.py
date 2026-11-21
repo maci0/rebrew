@@ -1517,19 +1517,18 @@ class RemoteCompiles:
         return self.ledger.stat().st_size > 0
 
     def totals(self) -> dict[str, int]:
-        """``{"count": verdicts, "wait_ms": total wait}`` over every recorded call."""
-        count = wait_ms = 0
+        """``{"count", "unsettled", "wait_ms"}`` over every recorded call.
+
+        ``count`` is the billed calls, ``unsettled`` the calls whose billing no
+        answer settled (never part of ``count``), ``wait_ms`` the total wait.
+        """
+        count = unsettled = wait_ms = 0
         for line in self.ledger.read_text(encoding="ascii").splitlines():
             verdict, waited = line.split()
             count += verdict == "1"
+            unsettled += verdict == "?"
             wait_ms += int(waited)
-        return {"count": count, "wait_ms": wait_ms}
-
-    def unsettled(self) -> int:
-        """Recorded calls whose billing no answer settled, which ``count`` leaves out."""
-        return sum(
-            line.startswith("?") for line in self.ledger.read_text(encoding="ascii").splitlines()
-        )
+        return {"count": count, "unsettled": unsettled, "wait_ms": wait_ms}
 
 
 #: The op call in flight in this thread; a child command reads its own from the environment.

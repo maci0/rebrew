@@ -784,7 +784,8 @@ def test_a_candidate_reports_its_remote_compiles_and_forwards_the_attribution(
     reply = json.loads(raw)
     assert status == 200, reply
     assert reply["verdict_valid"] is True
-    assert set(reply["remote_compile"]) == {"count", "wait_ms"}
+    assert set(reply["remote_compile"]) == {"count", "unsettled", "wait_ms"}
+    assert reply["remote_compile"]["unsettled"] == 0
     assert reply["remote_compile"]["count"] == 1 == len(seen)
     assert isinstance(reply["remote_compile"]["wait_ms"], int)
     assert reply["remote_compile"]["wait_ms"] >= 0
@@ -904,7 +905,7 @@ def test_a_flag_search_states_its_compiles_before_it_runs(
     assert status == 200, reply
     # Every combination of the tier, then the seed once.
     assert reply["candidates"] == len(generate_flag_combinations("quick", "msvc-6.0")) + 1
-    assert reply["remote_compile"] == {"count": 0, "wait_ms": 0}
+    assert reply["remote_compile"] == {"count": 0, "unsettled": 0, "wait_ms": 0}
     assert not seen
 
 
@@ -967,7 +968,7 @@ def test_a_variant_search_states_its_compiles_before_it_runs(
     assert status == 200, reply
     assert reply == {
         "result": {"candidates": 2 * 2 + 1},
-        "remote_compile": {"count": 0, "wait_ms": 0},
+        "remote_compile": {"count": 0, "unsettled": 0, "wait_ms": 0},
     }
     assert not seen
 
@@ -1011,10 +1012,6 @@ def _refused(status: int, code: str) -> Answer:
     return status, {"detail": "refused", "code": code}
 
 
-#: The warning an op logs for compiles whose billing no answer settled.
-UNSETTLED = "remote compile(s) ended unsettled"
-
-
 def _verify(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1050,7 +1047,6 @@ def _keys(seen: list[dict[str, str]]) -> list[str]:
 def test_a_lost_reply_is_sent_again_under_the_same_key_and_body(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
     lost: Answer,
     emit_assembly: bool,
 ) -> None:
@@ -1059,17 +1055,17 @@ def test_a_lost_reply_is_sent_again_under_the_same_key_and_body(
     assert _keys(seen)[0] == _keys(seen)[1]
     assert seen[0]["body"] == seen[1]["body"]
     assert reply["remote_compile"]["count"] == 1
-    assert UNSETTLED not in caplog.text
+    assert reply["remote_compile"]["unsettled"] == 0
 
 
 @pytest.mark.parametrize("code", ["timeout", "provenance_unavailable"])
 def test_an_unbilled_failure_that_asks_for_no_retry_is_final(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, code: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, code: str
 ) -> None:
     reply, seen = _verify(tmp_path, monkeypatch, [_failed(code), _OK, _OK])
     assert (reply["status"], len(seen)) == ("NOT_RUN", 1)
     assert reply["remote_compile"]["count"] == 0
-    assert UNSETTLED not in caplog.text
+    assert reply["remote_compile"]["unsettled"] == 0
 
 
 @pytest.mark.parametrize(
@@ -1085,25 +1081,24 @@ def test_an_unbilled_failure_that_asks_for_no_retry_is_final(
 def test_a_refusal_that_may_follow_a_billed_compile_is_reported_unsettled(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
     refusal: Answer,
 ) -> None:
     """rebrew cannot get a new credential in-process, so it never resends these."""
     reply, seen = _verify(tmp_path, monkeypatch, [refusal, _OK, _OK])
     assert (reply["status"], len(seen)) == ("NOT_RUN", 1)
     assert reply["remote_compile"]["count"] == 0
-    assert UNSETTLED in caplog.text
+    assert reply["remote_compile"]["unsettled"] == 1
 
 
 def test_a_reply_lost_on_every_attempt_is_reported_unsettled(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     reply, seen = _verify(tmp_path, monkeypatch, ["lost", "lost", "lost", _OK])
     # The default two retries, all under the first key.
     assert len(seen) == 3 and len(set(_keys(seen))) == 1
     assert reply["status"] == "NOT_RUN"
     assert reply["remote_compile"]["count"] == 0
-    assert UNSETTLED in caplog.text
+    assert reply["remote_compile"]["unsettled"] == 1
 
 
 @pytest.mark.parametrize(
@@ -1121,7 +1116,6 @@ def test_a_reply_lost_on_every_attempt_is_reported_unsettled(
 def test_a_settled_free_answer_or_a_503_is_followed_by_one_billed_compile(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
     first: Answer,
     new_key: bool,
 ) -> None:
@@ -1130,13 +1124,28 @@ def test_a_settled_free_answer_or_a_503_is_followed_by_one_billed_compile(
     assert (_keys(seen)[0] != _keys(seen)[1]) is new_key
     assert seen[0]["body"] == seen[1]["body"]
     assert reply["remote_compile"]["count"] == 1
-    assert UNSETTLED not in caplog.text
+    assert reply["remote_compile"]["unsettled"] == 0
 
 
 def test_a_refusal_of_a_key_never_admitted_is_settled(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     reply, seen = _verify(tmp_path, monkeypatch, [_refused(402, "quota_exhausted"), _OK])
     assert (reply["status"], len(seen)) == ("NOT_RUN", 1)
     assert reply["remote_compile"]["count"] == 0
-    assert UNSETTLED not in caplog.text
+    assert reply["remote_compile"]["unsettled"] == 0
+
+
+def test_a_refusal_after_an_unsettled_compile_reports_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """apply_candidate refuses a compile the service never answered, and says it may be billed."""
+    seen: list[dict[str, str]] = []
+    with _recompile(seen, answers=["lost", "lost", "lost"]) as url:
+        config, entries = _compiling_at(url, tmp_path, monkeypatch)
+        status, raw = dispatch(config, "rebrew.apply_candidate", _request(entries))
+    refusal = json.loads(raw)
+    assert (status, refusal["error"]) == (503, "compile-not-run"), refusal
+    assert len(seen) == 3
+    assert refusal["remote_compile"]["count"] == 0
+    assert refusal["remote_compile"]["unsettled"] == 1
