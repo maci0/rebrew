@@ -8,6 +8,7 @@
 ### Fixed
 
 - A remote compile whose `POST /api/v1/compile` answered `status: "ok"` and whose artifact download then failed (refused, truncated, or the connection lost) counted 0 in the op's `remote_compile.count`, though recompile settles and bills the compile inside that POST, before serving the artifact. It now counts once; the source still reads `NOT_RUN`. `RecompileError.after_verdict` says the error followed such a verdict.
+- A SQLite or replicated metadata project kept answering a source directory's `rebrew-libraries.toml` override from memory after its `rebrew-metadata.sqlite3` was replaced by a restore or a copy whose library documents carried the same revisions with other text: the lookup memo of a long-lived process (`rebrew ops serve`) keyed on each library document's path and revision only. It now keys on each document's path and content digest (`SqliteStore.documents_named`).
 - The jobs service's compile mediator (`REBREW_JOB_COMPILE_SOCKET`) built its upstream request from scratch and dropped `X-Relumea-Attribution`, so a job's compiles reached recompile unattributed. It now retains the header with the compile intent and sends it on every attempt, a reconciliation's included; a header that is not rebrew's attribution object answers 400.
 
 ## [6.62.0] - 2026-11-21

@@ -2269,8 +2269,9 @@ def _library_watch_unchanged(
 
 #: ``(start spelling, root spelling)`` -> (library-document token, fingerprint)
 #: for database-backed stores, where every walk step is a query.  The token
-#: lists each library document's path and revision (plus the replication
-#: journal's stat), so any write that adds, removes or edits one misses, and
+#: lists each library document's path and content digest (plus the replication
+#: journal's stat), so any write that adds, removes or edits one misses, as
+#: does a replaced database holding other text under the same revisions, and
 #: the caller's own lstat, so a symlink retarget misses as in the TOML memo.
 _LIBRARY_DB_MEMO: OrderedDict[
     tuple[str, str], tuple[tuple[object, ...], tuple[str, MetadataDocFingerprint] | None]

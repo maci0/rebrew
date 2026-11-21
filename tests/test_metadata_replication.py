@@ -545,6 +545,35 @@ class TestReplicationHotPaths:
         assert retargeted is not None
         assert retargeted[0].endswith(f"src/b/{LIBRARY_METADATA_FILE}")
 
+    def test_library_override_follows_a_replaced_database_with_equal_revisions(
+        self, tmp_path: Path
+    ) -> None:
+        """A restore or copy of the database can hold other text under the same revisions."""
+        from rebrew.compiler.overrides import resolve_compile_overrides_cached
+        from rebrew.metadata.functions import LIBRARY_METADATA_FILE, clear_library_override_cache
+        from rebrew.metadata.sqlite import DATABASE_FILENAME
+
+        roots = {"msvc-6.0-sp6": tmp_path / "live", "msvc-4.2": tmp_path / "restored"}
+        for toolchain, root in roots.items():
+            _project(root, reads=["sqlite"], writes=["sqlite"])
+            update_field(root, 0x1000, "NOTE", "provisions the database", "GAME")
+            (root / "src" / "unit").mkdir()
+            library = metadata_store(root / "src" / LIBRARY_METADATA_FILE, root=root)
+            with library.transaction():
+                library.write({"toolchain": toolchain}, "test")
+        live = roots["msvc-6.0-sp6"]
+        cfg = load_config(live)
+        clear_library_override_cache()
+
+        def toolchain() -> str | None:
+            return resolve_compile_overrides_cached(cfg, live / "src" / "unit", None, None, "GAME")[
+                0
+            ]
+
+        assert toolchain() == "msvc-6.0-sp6"
+        (roots["msvc-4.2"] / DATABASE_FILENAME).replace(live / DATABASE_FILENAME)
+        assert toolchain() == "msvc-4.2"
+
 
 def _replicated_documents(root: Path) -> list[Path]:
     """The TOML journal and replication-state files of a replicated project."""

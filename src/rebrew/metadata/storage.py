@@ -417,7 +417,7 @@ def named_documents_token(root: Path, name: str) -> tuple[object, ...] | None:
     """Exact change token for every document named *name*; None when not cacheable.
 
     Covers a SQLite store and a replicated store whose first read backend is a
-    provisioned SQLite database: the ``(path, revision)`` of each such document
+    provisioned SQLite database: the ``(path, content SHA-256)`` of each such document
     plus the replication journal's stat.  Other backends, and an unprovisioned
     replica whose reads fall back to TOML, return None.
     """
