@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- `rebrew source rehome` refused to move a LIBRARY row to a `library_*.h` header (`does not define NAME`), both as `0xVA=PATH` and with `--from`/`--to`: it requires a C definition of the function in the destination, and a library header has none because the linker supplies the body. A LIBRARY row now moves to a library header without that check; FUNCTION and STUB rows still need the definition.
 - `rebrew source binding retire`, `rebrew source binding rebind` and `rebrew library adopt` refused any row whose stored verification carried instruction counts, with `verification aligned_pairs must be a non-negative int`. A row read from TOML holds those counts as tomlkit integers, an `int` subclass the count check rejected by exact type; it now accepts any non-bool `int`, as the similarity check already did.
 
 ## [6.61.0] - 2026-11-21

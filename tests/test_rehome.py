@@ -164,6 +164,25 @@ class TestRetargetFile:
         assert (root / "rebrew-functions.toml").read_text(encoding="utf-8") == _FUNCTIONS_TOML
         assert (root / "rebrew-data.toml").read_text(encoding="utf-8") == _DATA_TOML
 
+    def test_moves_library_rows_between_library_headers(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        root = self._project(tmp_path, monkeypatch, "")
+        write_store_fixture(
+            root / "rebrew-functions.toml",
+            'format = 3\n["SERVER.0x1000"]\nname = "strlen"\nsymbol = "_strlen"\n'
+            'file = "src/library_msvc.h"\nkind = "LIBRARY"\n',
+            encoding="utf-8",
+        )
+        (root / "src" / "library_msvc.h").write_text("/* MSVC */\n", encoding="utf-8")
+        (root / "src" / "library_libcmt.h").write_text("/* LIBCMT */\n", encoding="utf-8")
+        result = self._rehome(
+            "--from", "src/library_msvc.h", "--to", "src/library_libcmt.h", "--json"
+        )
+        assert result.exit_code == 0, result.output
+        functions, _data = self._stores(root)
+        assert functions["SERVER.0x1000"]["file"] == "src/library_libcmt.h"
+
     def test_refuses_a_destination_missing_a_function(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -206,3 +225,22 @@ class TestRetargetFile:
         result = self._rehome(*args, "--json")
         assert result.exit_code != 0
         assert (root / "rebrew-functions.toml").read_text(encoding="utf-8") == _FUNCTIONS_TOML
+
+
+def test_library_row_moves_to_a_library_header(tmp_path: Path) -> None:
+    """A library header declares no bodies; a LIBRARY row may still move to it."""
+    cfg = _cfg(tmp_path)
+    meta = tmp_path / "rebrew-functions.toml"
+    write_store_fixture(
+        meta,
+        'format = 3\n["SERVER.0x1000"]\nname = "strlen"\nsymbol = "_strlen"\n'
+        'file = "src/library_msvc.h"\nkind = "LIBRARY"\n'
+        '\n["SERVER.0x2000"]\nname = "f"\nsymbol = "_f"\nfile = "src/a.c"\nkind = "FUNCTION"\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "src" / "library_libcmt.h").write_text("/* LIBCMT */\n", encoding="utf-8")
+    rehome_functions(cfg, ["0x1000=src/library_libcmt.h"])
+    row = tomllib.loads(meta.read_text(encoding="utf-8"))["SERVER.0x1000"]
+    assert row["file"] == "src/library_libcmt.h"
+    with pytest.raises(ValueError, match="does not define f"):
+        rehome_functions(cfg, ["0x2000=src/library_libcmt.h"])

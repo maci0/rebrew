@@ -25,7 +25,7 @@ app = typer.Typer(
         "  # Join a shared definition\n"
         "  rebrew source rehome 0x4f13a0=src/game/ahm.c:ahm_CountBusyWorkers -t TL\n\n"
         "  rebrew source rehome --from src/a/x.c --to src/b/y.c  # After git mv\n\n"
-        "[dim]The destination must define each moved function (or NAME after a colon, which also renames the row); the definition text is not moved.[/dim]"
+        "[dim]The destination must define each moved function (or NAME after a colon, which also renames the row); the definition text is not moved. A LIBRARY row may move to a library_*.h header, which declares no bodies.[/dim]"
     ),
 )
 
@@ -41,6 +41,16 @@ def _source(cfg: Any, value: str) -> Path:
 
 def _row_name(entry: dict[str, Any]) -> str:
     return str(entry.get("name") or str(entry.get("symbol") or "").lstrip("_"))
+
+
+def _defines(path: Path, defined: set[str], name: str, entry: dict[str, Any]) -> bool:
+    """Whether *path* can own the row: it defines *name*, or it is a library header.
+
+    A ``library_*.h`` header declares no bodies (the linker supplies them), so a
+    LIBRARY row moves to one without a definition check.
+    """
+    library_header = path.name.startswith("library_") and path.name.endswith(".h")
+    return name in defined or (entry.get("kind") == "LIBRARY" and library_header)
 
 
 def _defined_names(path: Path) -> set[str]:
@@ -117,7 +127,7 @@ def rehome_functions(cfg: Any, specs: list[str], *, dry_run: bool = False) -> li
         value, bind = _split_bind(value)
         name = bind or old_name
         path = _source(cfg, value)
-        if name not in _defined_names(path):
+        if not _defines(path, _defined_names(path), name, entry):
             raise ValueError(f"{value} does not define {name}")
         identity = validate_identity_file(identity_file(path, cfg.metadata_dir))
         row: dict[str, Any] = {
@@ -184,7 +194,7 @@ def retarget_file(
         name = _row_name(entry)
         if not name:
             raise ValueError(f"function row {module}.0x{va:x} has no name to check in {new}")
-        if name not in defined:
+        if not _defines(new_path, defined, name, entry):
             raise ValueError(f"{new} does not define {name} ({module}.0x{va:x})")
         function_rows.append(
             {
