@@ -43,7 +43,12 @@ original caller credential resends that key. The worker's capability
 permits only its job's compile requests, their returned artifact paths, and
 `GET /api/v1/features`, which the owner answers from the upstream without its
 credential so the worker can check for include bundles before it sends one; a
-compile request's `includes` and `source_dir` pass through unchanged.
+compile request's `includes` and `source_dir` pass through unchanged. The
+`X-Relumea-Attribution` header of the request that creates an intent is
+retained with it and sent on every attempt, a reconciliation's included; one
+that is not rebrew's attribution object (exactly `org`, `project`, `user` and
+`job`, each 1 to 128 printable ASCII characters) answers 400 before anything
+is sent.
 
 This is not ready for deployment. A file-by-file copy is not an atomic filesystem
 snapshot, and same-user code can change the sealed original. The digest pins

@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -481,5 +482,110 @@ func TestReconcileCompileReleasesOwnerLockDuringUpstreamCall(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("compile reconciliation did not finish")
+	}
+}
+
+// attributionMediator is a mediator whose upstream records the attribution
+// header of each compile it receives; drop makes the upstream close the
+// connection without answering, which leaves the attempt unresolved.
+func attributionMediator(t *testing.T, drop *atomic.Bool) (*CompileMediator, func() []string) {
+	t.Helper()
+	var mu sync.Mutex
+	var seen []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		seen = append(seen, r.Header.Get("X-Relumea-Attribution"))
+		mu.Unlock()
+		if drop.Load() {
+			conn, _, err := w.(http.Hijacker).Hijack()
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			_ = conn.Close()
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"ok","artifact_url":"/api/v1/artifacts/abcdef123456.o"}`))
+	}))
+	t.Cleanup(upstream.Close)
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeCompileIndex(dir, []string{}); err != nil {
+		t.Fatal(err)
+	}
+	m, err := NewCompileMediator(dir, upstream.URL, "rck_test", strings.Repeat("a", 64), 1, []string{"gcc"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m, func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), seen...)
+	}
+}
+
+func attributedCompile(m *CompileMediator, attribution string) int {
+	req := httptest.NewRequest("POST", "/api/v1/compile", strings.NewReader(`{"compiler":"gcc","source":"int x;","flags":[],"filename":"a.c"}`))
+	req.Header.Set("X-Rebrew-Job-Capability", strings.Repeat("a", 64))
+	req.Header.Set("X-Rebrew-Compile-Intent", strings.Repeat("b", 64))
+	req.Header.Set("Content-Type", "application/json")
+	if attribution != "" {
+		req.Header.Set("X-Relumea-Attribution", attribution)
+	}
+	w := httptest.NewRecorder()
+	m.ServeHTTP(w, req)
+	return w.Code
+}
+
+const jobAttribution = `{"org": "acct-org-1", "project": "prj-1", "user": "user-1", "job": "job-1"}`
+
+// The worker names the Workbench work a compile is for; the upstream hop must
+// carry it, also when the mediator resends a retained attempt on its own.
+func TestCompileMediatorRelaysTheAttribution(t *testing.T) {
+	var drop atomic.Bool
+	drop.Store(true)
+	m, seen := attributionMediator(t, &drop)
+	if code := attributedCompile(m, jobAttribution); code != http.StatusServiceUnavailable {
+		t.Fatalf("dropped reply answered %d", code)
+	}
+	drop.Store(false)
+	if err := m.Reconcile(context.Background(), strings.Repeat("b", 64)); err != nil {
+		t.Fatal(err)
+	}
+	if got := seen(); len(got) != 2 || got[0] != jobAttribution || got[1] != jobAttribution {
+		t.Fatalf("upstream attributions = %q, want %q twice", got, jobAttribution)
+	}
+}
+
+func TestCompileMediatorSendsNoAttributionItWasNotGiven(t *testing.T) {
+	var drop atomic.Bool
+	m, seen := attributionMediator(t, &drop)
+	if code := attributedCompile(m, ""); code != http.StatusOK {
+		t.Fatalf("compile answered %d", code)
+	}
+	if got := seen(); len(got) != 1 || got[0] != "" {
+		t.Fatalf("upstream attributions = %q, want none", got)
+	}
+}
+
+func TestCompileMediatorRefusesAMalformedAttribution(t *testing.T) {
+	for _, attribution := range []string{
+		`{"org": "", "project": "prj-1", "user": "user-1", "job": "job-1"}`,
+		`{"org": "acct-org-1", "project": "prj-1", "user": "user-1"}`,
+		`{"org": "acct-org-1", "project": "prj-1", "user": "user-1", "job": "job-1", "x": "y"}`,
+		`{"org": "` + strings.Repeat("o", 129) + `", "project": "prj-1", "user": "user-1", "job": "job-1"}`,
+		`{"org": "accté", "project": "prj-1", "user": "user-1", "job": "job-1"}`,
+		`{"org": 7, "project": "prj-1", "user": "user-1", "job": "job-1"}`,
+		`{"Org": "acct-org-1", "project": "prj-1", "user": "user-1", "job": "job-1"}`,
+		`"acct-org-1"`,
+	} {
+		var drop atomic.Bool
+		m, seen := attributionMediator(t, &drop)
+		if code := attributedCompile(m, attribution); code != http.StatusBadRequest || len(seen()) != 0 {
+			t.Fatalf("attribution %s: status %d, %d upstream calls", attribution, code, len(seen()))
+		}
 	}
 }

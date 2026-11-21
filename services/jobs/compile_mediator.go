@@ -87,6 +87,9 @@ type compileOriginal struct {
 	CredentialSHA256 string `json:"credential_sha256"`
 	LastHTTPStatus   int    `json:"last_http_status,omitempty"`
 	NotRun           bool   `json:"not_run,omitempty"`
+	// Attribution is the attribution header of the request that created the
+	// intent, sent with every attempt, a Reconcile resend included.
+	Attribution string `json:"attribution,omitempty"`
 }
 
 // maxCompileReplyBytes bounds one upstream compile answer. Recompile caps a
@@ -153,6 +156,39 @@ func relayRetryAfter(value string) string {
 		return ""
 	}
 	return value
+}
+
+// attributionHeader names the Workbench work a compile is for (rebrew
+// recompile_client.ATTRIBUTION_HEADER); the mediator relays it upstream.
+const attributionHeader = "X-Relumea-Attribution"
+
+// maxAttributionMemberChars is the longest attribution member rebrew's
+// Attribution accepts.
+const maxAttributionMemberChars = 128
+
+// validAttribution reports whether value is the JSON object rebrew's
+// Attribution writes: exactly org, project, user and job, each 1 to
+// maxAttributionMemberChars printable ASCII characters.
+func validAttribution(value string) bool {
+	// A map, not a struct: encoding/json matches struct fields without regard
+	// to case, and rebrew refuses "Org".
+	var members map[string]any
+	dec := json.NewDecoder(strings.NewReader(value))
+	if dec.Decode(&members) != nil || dec.Decode(new(any)) != io.EOF || len(members) != 4 {
+		return false
+	}
+	for _, name := range []string{"org", "project", "user", "job"} {
+		member, ok := members[name].(string)
+		if !ok || len(member) < 1 || len(member) > maxAttributionMemberChars {
+			return false
+		}
+		for _, c := range []byte(member) {
+			if c < ' ' || c > '~' {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func newCompileKey() (string, error) {
@@ -281,6 +317,9 @@ func (m *CompileMediator) exchange(ctx context.Context, v compileOriginal, fresh
 	req.GetBody = nil
 	req.Header.Set("Idempotency-Key", v.Key)
 	req.Header.Set("Content-Type", "application/json")
+	if v.Attribution != "" {
+		req.Header.Set(attributionHeader, v.Attribution)
+	}
 	// Continue the caller's trace across the paid upstream hop: without the
 	// header the upstream span starts a new trace and the billable compile
 	// cannot be found from the trace that admitted it.  Only a well-formed
@@ -530,6 +569,11 @@ func (m *CompileMediator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			apiError(w, "invalid intent", 400)
 			return
 		}
+		attribution := r.Header.Get(attributionHeader)
+		if attribution != "" && !validAttribution(attribution) {
+			apiError(w, "invalid attribution", 400)
+			return
+		}
 		b, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 16*1024*1024))
 		if err != nil {
 			apiError(w, "invalid body", 400)
@@ -580,7 +624,7 @@ func (m *CompileMediator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			sum := sha256.Sum256([]byte(m.credential))
 			bodySum := sha256.Sum256(b)
-			v = compileOriginal{Intent: id, Key: key, Body: append([]byte(nil), b...), BodySHA256: hex.EncodeToString(bodySum[:]), CredentialSHA256: hex.EncodeToString(sum[:])}
+			v = compileOriginal{Intent: id, Key: key, Body: append([]byte(nil), b...), BodySHA256: hex.EncodeToString(bodySum[:]), CredentialSHA256: hex.EncodeToString(sum[:]), Attribution: attribution}
 			fresh = true
 		default:
 			apiError(w, "ledger unavailable", 503)
