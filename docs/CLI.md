@@ -3451,7 +3451,8 @@ An `extent_history` event records the old/new sizes, reason and binary hash.
 Source metadata sizes, provenance and verdicts are left untouched.
 
 `--sync-rows` also sets the matching function row's stored `SIZE` to the reviewed
-extent, in either direction. Without it a repaired smaller extent cannot reach the
+extent, in either direction, for each `0xVA=SIZE` repair and each `--merge` head, in
+one store write. Without it a repaired smaller extent cannot reach the
 row, because the regular size writer only grows a row; the row then keeps reporting
 SIZE_MISMATCH or STUB against bytes that equal the shortened native span.
 

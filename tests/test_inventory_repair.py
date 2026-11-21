@@ -627,3 +627,56 @@ class TestChangedAtStamp:
             now=datetime(2025, 6, 1, 12, 0, tzinfo=timezone(timedelta(hours=-4))),
         )
         assert preview["repairs"][0]["changed_at"] == "2025-06-01T16:00:00+00:00"
+
+
+class TestSyncRows:
+    def _rows(self, cfg: ProjectConfig) -> None:
+        for va, name, size in [(0x401000, "first", 16), (0x401018, "tail", 8)]:
+            record_function_identity(
+                cfg.metadata_dir,
+                module="GAME",
+                va=va,
+                file="src/f.c",
+                kind="FUNCTION",
+                name=name,
+                symbol=f"_{name}",
+                size=size,
+            )
+
+    def _repair(self, cfg: ProjectConfig, *args: str) -> Any:
+        from typer.testing import CliRunner
+
+        from rebrew.app.main import app
+
+        with patch("rebrew.inventory_repair.require_config", return_value=cfg):
+            return CliRunner().invoke(
+                app, ["binary", "repair-extents", *args, "--reason", "r", "--sync-rows", "--json"]
+            )
+
+    def test_merged_head_row_takes_the_merged_size(self, tmp_path: Path) -> None:
+        from rebrew.metadata.functions import get_entry
+
+        cfg, _inventory = _contiguous_project(tmp_path)
+        self._rows(cfg)
+        result = self._repair(cfg, "--merge", "0x401000=0x401010")
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout)["rows_synced"] == 1
+        assert get_entry(cfg.metadata_dir, 0x401000, module="GAME")["size"] == 24
+
+    def test_rows_sync_in_one_store_write(self, tmp_path: Path) -> None:
+        import rebrew.metadata.functions as functions
+
+        cfg, _inventory = _contiguous_project(tmp_path)
+        self._rows(cfg)
+        calls: list[int] = []
+        original = functions.set_fields_batch
+
+        def counted(metadata_dir: Any, updates: list[dict[str, Any]], **kwargs: Any) -> int:
+            calls.append(len(updates))
+            return original(metadata_dir, updates, **kwargs)
+
+        with patch.object(functions, "set_fields_batch", counted):
+            result = self._repair(cfg, "0x401000=12", "0x401018=6")
+        assert result.exit_code == 0, result.output
+        assert calls == [2]
+        assert json.loads(result.stdout)["rows_synced"] == 2

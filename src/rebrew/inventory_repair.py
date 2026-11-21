@@ -94,14 +94,13 @@ def main(
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         error_exit(str(exc), json_mode=json_output)
     if sync_rows and not dry_run:
-        from rebrew.metadata.bindings import set_function_extent
+        from rebrew.metadata.bindings import set_function_extents
 
+        sizes = dict(updates)
+        for merged in report.get("merges", []):
+            sizes[int(merged["va"], 16)] = int(merged["new_size"])
         module = str(getattr(cfg, "module", "") or "")
-        synced = 0
-        for va, size in sorted(updates.items()):
-            if set_function_extent(cfg.metadata_dir, va, size, module=module):
-                synced += 1
-        report["rows_synced"] = synced
+        report["rows_synced"] = set_function_extents(cfg.metadata_dir, sizes, module=module)
     if json_output:
         json_print(report)
     else:

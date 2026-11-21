@@ -1476,15 +1476,22 @@ def set_function_extent(
     extent could never reach the metadata. This writer is for reviewed repairs:
     it accepts a shrink as well as a grow.
     """
-    from rebrew.metadata.functions import get_entry, update_field
+    return set_function_extents(directory, {va: new_size}, module=module) == 1
 
-    if new_size <= 0:
-        return False
-    old_size = int(get_entry(directory, va, module=module).get("size", 0))
-    if new_size == old_size:
-        return False
-    update_field(directory, va, "size", new_size, module=module, updated_by="fix-sizes")
-    return True
+
+def set_function_extents(directory: Path, sizes: dict[int, int], *, module: str) -> int:
+    """Set many stored function SIZEs to reviewed extents in one store write.
+
+    Same rule as :func:`set_function_extent` per VA; returns how many changed.
+    """
+    from rebrew.metadata.functions import get_entry, set_fields_batch
+
+    updates = [
+        {"module": module, "va": va, "fields": {"size": size}, "updated_by": "fix-sizes"}
+        for va, size in sorted(sizes.items())
+        if size > 0 and size != int(get_entry(directory, va, module=module).get("size", 0))
+    ]
+    return set_fields_batch(directory, updates) if updates else 0
 
 
 def set_binding_field(
@@ -1596,6 +1603,7 @@ __all__ = [
     "resolve_symbol",
     "set_binding_field",
     "set_function_extent",
+    "set_function_extents",
     "source_bindings",
     "span_contains_factory",
     "split_address_sections",
