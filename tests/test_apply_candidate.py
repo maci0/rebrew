@@ -667,13 +667,18 @@ def test_a_candidate_a_person_can_correct_is_refused_under_its_own_code(
 ATTRIBUTION = {"org": "acct-org-1", "project": "prj-1", "user": "user-1", "job": "job-1"}
 
 
+#: One scripted compile answer of the recompile stand-in: ``"lost"`` (no reply) or
+#: ``(status, JSON body)``.
+type Answer = str | tuple[int, object]
+
+
 @contextlib.contextmanager
 def _recompile(
     seen: list[dict[str, str]],
     *,
     failure: str | None = None,
     artifact: str = "served",
-    answers: list[Any] | None = None,
+    answers: list[Answer] | None = None,
 ) -> Iterator[str]:
     """A recompile stand-in: every compile fails with the ``error_code`` *failure*, or is a ``ret`` object.
 
@@ -704,7 +709,7 @@ def _recompile(
             seen.append({**dict(self.headers.items()), "body": raw.decode()})
             if answers:
                 scripted = answers.pop(0)
-                if scripted == "lost":
+                if isinstance(scripted, str):
                     self.close_connection = True
                     return
                 status, answer = scripted
@@ -998,11 +1003,11 @@ _COMPILE = {"id": "0" * 12, "compiler": "msvc-6.0", "log": ""}
 _OK = (200, {**_COMPILE, "status": "ok", "artifact_url": "/api/v1/artifacts/000000000000.obj"})
 
 
-def _failed(code: str) -> tuple[int, dict[str, Any]]:
+def _failed(code: str) -> Answer:
     return 200, {**_COMPILE, "status": "error", "error_code": code, "log": "x"}
 
 
-def _refused(status: int, code: str) -> tuple[int, dict[str, Any]]:
+def _refused(status: int, code: str) -> Answer:
     return status, {"detail": "refused", "code": code}
 
 
@@ -1013,7 +1018,7 @@ UNSETTLED = "remote compile(s) ended unsettled"
 def _verify(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    answers: list[Any],
+    answers: list[Answer],
     *,
     emit_assembly: bool = False,
 ) -> tuple[dict[str, Any], list[dict[str, str]]]:
@@ -1046,7 +1051,7 @@ def test_a_lost_reply_is_sent_again_under_the_same_key_and_body(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
-    lost: Any,
+    lost: Answer,
     emit_assembly: bool,
 ) -> None:
     reply, seen = _verify(tmp_path, monkeypatch, [lost, _OK], emit_assembly=emit_assembly)
@@ -1081,7 +1086,7 @@ def test_a_refusal_that_may_follow_a_billed_compile_is_reported_unsettled(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
-    refusal: tuple[int, dict[str, Any]],
+    refusal: Answer,
 ) -> None:
     """rebrew cannot get a new credential in-process, so it never resends these."""
     reply, seen = _verify(tmp_path, monkeypatch, [refusal, _OK, _OK])
@@ -1117,7 +1122,7 @@ def test_a_settled_free_answer_or_a_503_is_followed_by_one_billed_compile(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
-    first: tuple[int, dict[str, Any]],
+    first: Answer,
     new_key: bool,
 ) -> None:
     reply, seen = _verify(tmp_path, monkeypatch, [first, _OK])
