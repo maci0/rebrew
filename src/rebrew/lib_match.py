@@ -48,6 +48,7 @@ from __future__ import annotations
 from itertools import compress, count
 from operator import ne
 from pathlib import Path
+lazy import hashlib
 lazy import json
 lazy import logging
 lazy import re
@@ -74,7 +75,12 @@ lazy from rebrew.formats.archives import stock_lib_valid as stock_lib_valid
 lazy from rebrew.formats.binary_loader import extract_raw_bytes
 lazy from rebrew.formats.coff import load_coff
 lazy from rebrew.gen_flirt_pat import parse_archive, parse_coff_aliases, parse_coff_obj
-lazy from rebrew.utils import container_runtime, read_json_text, run_process_group
+lazy from rebrew.utils import (
+    atomic_write_text,
+    container_runtime,
+    read_json_text,
+    run_process_group,
+)
 lazy from rebrew.workspace.config import config_path
 
 MIN_BYTES = 8
@@ -640,6 +646,18 @@ def assert_library_is_stock(
         return
     image, lib_dir = stock_lib_dir(profile, name)
 
+    # The image's digest of its own archive is fixed for one image id, so it is
+    # cached beside the copy; the local copy is still hashed on every run.
+    image_id = _stock_image_id(runtime, image)
+    cache_path = path.parent / STOCK_DIGEST_CACHE
+    cache_key = f"{image_id}|{lib_dir}|{name}"
+    cached = _stock_digests(cache_path).get(cache_key) if image_id else None
+    if cached is not None:
+        local = hashlib.md5(path.read_bytes(), usedforsecurity=False).hexdigest()
+        if local != cached:
+            _stock_mismatch(path, name, image, json_mode)
+        return
+
     container = f"rebrew-libhash-{uuid.uuid4().hex[:12]}"
     try:
         result = run_process_group(
@@ -683,13 +701,61 @@ def assert_library_is_stock(
             code=EXIT_ERROR,
         )
     if digests[0] != digests[1]:
-        error_exit(
-            f"{path} differs from the toolchain's stock {name} in {image}. The check exists "
-            "because a hand-edited archive makes library code look like target code; delete the "
-            "cached copy to re-extract it, or drop --stock-lib for this run.",
-            json_mode=json_mode,
-            code=EXIT_ERROR,
+        _stock_mismatch(path, name, image, json_mode)
+    if image_id:
+        _store_stock_digest(cache_path, cache_key, digests[0])
+
+
+#: Image digests of stock archives, beside the cached copies; see
+#: :func:`assert_library_is_stock`.
+STOCK_DIGEST_CACHE = ".stock-digests.json"
+
+
+def _stock_image_id(runtime: str, image: str) -> str | None:
+    """Image id of *image*, or None when it cannot be read (no digest cache then)."""
+    try:
+        result = run_process_group(
+            [runtime, "image", "inspect", "--format", "{{.Id}}", image],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
         )
+    except OSError, subprocess.TimeoutExpired:
+        return None
+    value = result.stdout.strip()
+    return value if result.returncode == 0 and value.startswith("sha256:") else None
+
+
+def _stock_digests(cache_path: Path) -> dict[str, str]:
+    try:
+        data = json.loads(cache_path.read_text(encoding="utf-8"))
+    except OSError, ValueError:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {k: v for k, v in data.items() if isinstance(k, str) and isinstance(v, str)}
+
+
+def _store_stock_digest(cache_path: Path, key: str, digest: str) -> None:
+    digests = {**_stock_digests(cache_path), key: digest}
+    try:
+        atomic_write_text(cache_path, json.dumps(digests, sort_keys=True), encoding="utf-8")
+    except OSError as exc:
+        logging.getLogger(__name__).debug(
+            "cannot cache stock archive digest in %s: %s", cache_path, exc
+        )
+
+
+def _stock_mismatch(path: Path, name: str, image: str, json_mode: bool) -> None:
+    error_exit(
+        f"{path} differs from the toolchain's stock {name} in {image}. The check exists "
+        "because a hand-edited archive makes library code look like target code; delete the "
+        "cached copy to re-extract it, or drop --stock-lib for this run.",
+        json_mode=json_mode,
+        code=EXIT_ERROR,
+    )
 
 
 def external_archive_args(cfg: Any) -> tuple[list[Path], list[str]]:

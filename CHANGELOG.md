@@ -4,6 +4,10 @@
 
 - `rebrew library presence --json` rows carry `size`, the symbol's own body length. `object_offset` and `object_text_size` describe the object, so for a `/Gy` object, where each function has its own COMDAT section, every row said offset 0 and the whole object's size and gave no function extent.
 
+### Changed
+
+- Commands that index `--stock-lib` archives (`rebrew library match`, `rebrew library adopt`, ...) started one container per archive on every run to compare the cached copy with the image's. The image's digest of its archive is now cached per image id in `.stock-digests.json` beside the copy; a later run hashes the local copy in-process and starts no container, so an edited copy is still refused.
+
 ### Fixed
 
 - `rebrew library adopt` refused every LIBRARY row (`is already LIBRARY`), so a signature-scan identity that a unique complete-body match contradicts could not be corrected, and it ignored a row `rebrew library identify` keyed by the archive family (`D3DX8.0x...`), adding a second identity under the target's module that status counted twice. A LIBRARY row naming another symbol or header is now rebound like a FUNCTION claim, with the old identity in `binding_history`; a family-keyed row is corrected in place; a row already holding the match is still refused.

@@ -6076,7 +6076,9 @@ symbols too (MSVC marks helpers like `_initterm` static). Exit 0 = clean,
 
 `--stock-lib` names an archive the toolchain ships instead of a path the
 project carries; it is extracted from the profile's image and its md5 is
-checked against that image before use. Objects built from a source-vendored
+checked against that image before use. The image's digest is cached per image id
+in `.stock-digests.json` beside the copy, so later runs hash only the local copy
+and start no container. Objects built from a source-vendored
 library subtree are indexed from the build database, since such a library
 never ships a `.LIB`.
 

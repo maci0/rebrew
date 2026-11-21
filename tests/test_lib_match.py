@@ -804,8 +804,42 @@ class TestStockLib:
 
         monkeypatch.setattr(lm, "run_process_group", fake_run)
         lm.assert_library_is_stock(path, profile="msvc-6.0-sp6", name="LIBCMT.LIB")
-        assert "--network=none" in seen[0]
-        assert f"{tmp_path.resolve()}:/out:ro" in seen[0]
+        hashing = next(argv for argv in seen if "run" in argv)
+        assert "--network=none" in hashing
+        assert f"{tmp_path.resolve()}:/out:ro" in hashing
+
+    def test_stock_digest_is_cached_per_image_and_local_copy_rechecked(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import hashlib
+
+        import typer
+
+        import rebrew.lib_match as lm
+
+        self._runtime(monkeypatch)
+        path = tmp_path / "libcmt_stock.LIB"
+        path.write_bytes(b"STOCK")
+        digest = hashlib.md5(b"STOCK").hexdigest()
+        runs: list[list[str]] = []
+
+        def fake_run(argv: list[str], **kwargs: object) -> SimpleNamespace:
+            if "inspect" in argv:
+                return SimpleNamespace(returncode=0, stdout="sha256:abc\n", stderr="")
+            runs.append(list(argv))
+            return SimpleNamespace(
+                returncode=0, stdout=f"{digest}  stock\n{digest}  /out/x\n", stderr=""
+            )
+
+        monkeypatch.setattr(lm, "run_process_group", fake_run)
+        lm.assert_library_is_stock(path, profile="msvc-6.0-sp6", name="LIBCMT.LIB")
+        lm.assert_library_is_stock(path, profile="msvc-6.0-sp6", name="LIBCMT.LIB")
+        assert len(runs) == 1
+        path.write_bytes(b"EDITED")
+        with pytest.raises(typer.Exit) as exc:
+            lm.assert_library_is_stock(path, profile="msvc-6.0-sp6", name="LIBCMT.LIB")
+        assert exc.value.exit_code == 2
+        assert len(runs) == 1
 
     def test_assert_library_is_stock_rejects_divergent_copy(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
