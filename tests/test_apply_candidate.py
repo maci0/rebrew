@@ -665,10 +665,16 @@ ATTRIBUTION = {"org": "acct-org-1", "project": "prj-1", "user": "user-1", "job":
 
 
 @contextlib.contextmanager
-def _recompile(seen: list[dict[str, str]], *, reject: bool) -> Iterator[str]:
-    """A recompile stand-in: every compile is the compiler's rejection, or a ``ret`` object.
+def _recompile(
+    seen: list[dict[str, str]], *, failure: str | None = None, artifact: str = "served"
+) -> Iterator[str]:
+    """A recompile stand-in: every compile fails with the ``error_code`` *failure*, or is a ``ret`` object.
 
-    Both are verdicts recompile bills.  Each compile request's headers go to *seen*.
+    An object and a ``toolchain_failure`` (the compiler's rejection) are verdicts
+    recompile bills.  Each compile request's headers go to *seen*.
+    *artifact* says how the object download answers: ``served``, ``refused``
+    (503), ``truncated`` (the connection closes short of its Content-Length) or
+    ``lost`` (the connection closes before any reply).
     """
     from bin_util import make_coff_obj
 
@@ -687,15 +693,26 @@ def _recompile(seen: list[dict[str, str]], *, reject: bool) -> Iterator[str]:
             self.rfile.read(int(self.headers.get("Content-Length", "0")))
             seen.append(dict(self.headers.items()))
             verdict = (
-                {"status": "error", "error_code": "toolchain_failure", "log": "error C2143"}
-                if reject
-                else {"status": "ok", "artifact_url": "/api/v1/artifacts/000000000000.obj"}
+                {"status": "ok", "artifact_url": "/api/v1/artifacts/000000000000.obj"}
+                if failure is None
+                else {"status": "error", "error_code": failure, "log": "error C2143"}
             )
             body = {"id": "0" * 12, "compiler": "msvc-6.0", "log": "", **verdict}
             self._reply(200, json.dumps(body).encode(), "application/json")
 
         def do_GET(self) -> None:
-            self._reply(200, obj, "application/octet-stream")
+            if artifact == "served":
+                self._reply(200, obj, "application/octet-stream")
+                return
+            self.close_connection = True
+            if artifact == "refused":
+                self._reply(503, b"artifact store unavailable", "text/plain")
+            elif artifact == "truncated":
+                self.send_response(200)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Length", str(len(obj) + 64))
+                self.end_headers()
+                self.wfile.write(obj)
 
         @override
         def log_message(self, *_args: Any) -> None:
@@ -725,7 +742,7 @@ def test_a_candidate_reports_its_remote_compiles_and_forwards_the_attribution(
 ) -> None:
     """The backend charges a verification by the compiles it made and meters the time it waited."""
     seen: list[dict[str, str]] = []
-    with _recompile(seen, reject=False) as url:
+    with _recompile(seen) as url:
         config, entries = _compiling_at(url, tmp_path, monkeypatch)
         status, raw = dispatch(
             config,
@@ -742,12 +759,50 @@ def test_a_candidate_reports_its_remote_compiles_and_forwards_the_attribution(
     assert json.loads(seen[0]["X-Relumea-Attribution"]) == ATTRIBUTION
 
 
+@pytest.mark.parametrize("artifact", ["refused", "truncated", "lost"])
+def test_a_compile_whose_download_fails_is_still_counted_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, artifact: str
+) -> None:
+    """recompile settles the compile inside its POST, before the artifact is fetched."""
+    seen: list[dict[str, str]] = []
+    with _recompile(seen, artifact=artifact) as url:
+        config, entries = _compiling_at(url, tmp_path, monkeypatch)
+        status, raw = dispatch(
+            config,
+            "rebrew.verify_function",
+            _request(entries, candidate="void fcn_00401000(void) {}\n", attribution=ATTRIBUTION),
+        )
+    reply = json.loads(raw)
+    assert (status, reply["status"]) == (200, "NOT_RUN"), reply
+    # One POST: a failed download is fetched again, never compiled again.
+    assert len(seen) == 1
+    assert reply["remote_compile"]["count"] == 1, reply
+
+
+def test_a_compile_the_service_failed_is_not_counted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """recompile bills no unit for its own failure (here an exit 0 that wrote no object)."""
+    seen: list[dict[str, str]] = []
+    with _recompile(seen, failure="missing_artifact") as url:
+        config, entries = _compiling_at(url, tmp_path, monkeypatch)
+        status, raw = dispatch(
+            config,
+            "rebrew.verify_function",
+            _request(entries, candidate="void fcn_00401000(void) {}\n"),
+        )
+    reply = json.loads(raw)
+    assert (status, reply["status"]) == (200, "NOT_RUN"), reply
+    assert len(seen) == 1
+    assert reply["remote_compile"]["count"] == 0, reply
+
+
 def test_a_rejected_candidate_is_refused_with_its_billed_compile(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """recompile bills the compiler's rejection, so the refusal still says a compile was made."""
     seen: list[dict[str, str]] = []
-    with _recompile(seen, reject=True) as url:
+    with _recompile(seen, failure="toolchain_failure") as url:
         config, entries = _compiling_at(url, tmp_path, monkeypatch)
         status, raw = dispatch(
             config,
@@ -799,7 +854,7 @@ def test_a_flag_search_states_its_compiles_before_it_runs(
     from rebrew.matcher.compiler import generate_flag_combinations
 
     seen: list[dict[str, str]] = []
-    with _recompile(seen, reject=False) as url:
+    with _recompile(seen) as url:
         config, entries = _compiling_at(url, tmp_path, monkeypatch)
         request = {
             "source": "src/stub.c",

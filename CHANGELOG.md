@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- A remote compile whose `POST /api/v1/compile` answered `status: "ok"` and whose artifact download then failed (refused, truncated, or the connection lost) counted 0 in the op's `remote_compile.count`, though recompile settles and bills the compile inside that POST, before serving the artifact. It now counts once; the source still reads `NOT_RUN`. `RecompileError.after_verdict` says the error followed such a verdict.
+
 ## [6.62.0] - 2026-11-21
 
 ### Added

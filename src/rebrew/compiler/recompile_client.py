@@ -335,7 +335,14 @@ class RecompileError(RebrewError, RuntimeError):
       the service's infrastructure failures
     - ``retry_after`` — the seconds the reply's ``Retry-After`` header asked
       to wait (at most :data:`MAX_RETRY_AFTER_SECONDS`), else ``None``
+
+    ``after_verdict`` is ``True`` when the compile POST had already answered
+    ``status: "ok"`` and the artifact download failed: recompile settled (and
+    billed) that compile inside the POST, before serving the artifact.
     """
+
+    #: Set by :func:`compile_source` on the error it raises.
+    after_verdict: bool = False
 
     STRUCTURED_FIELDS = (*RebrewError.STRUCTURED_FIELDS, "error_code", "retry_after")
 
@@ -931,7 +938,9 @@ def compile_source(
     started_at = time.perf_counter()
     while True:
         if deadline is not None and now() >= deadline:
-            raise _deadline_refusal("the call's deadline has passed")
+            refusal = _deadline_refusal("the call's deadline has passed")
+            refusal.after_verdict = pending is not None
+            raise refusal
         # One client for POST + GET.  Injected clients are not closed here.
         cm: Any = (
             nullcontext(client)
@@ -1065,6 +1074,7 @@ def compile_source(
                     )
                 return result
         except RecompileError as exc:
+            exc.after_verdict = pending is not None
             if api_key:
                 exc.args = (str(exc).replace(api_key, "[redacted]"),)
                 exc.__cause__ = None

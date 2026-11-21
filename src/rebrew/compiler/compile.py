@@ -1480,7 +1480,8 @@ class RemoteCompiles:
 
     Each finished call to the service appends one line to *ledger*: ``1`` or
     ``0`` for whether the service gave a verdict (a compiled object or the
-    compiler's rejection, the compiles recompile bills), then the wall
+    compiler's rejection, the compiles recompile bills, also when the
+    object's download then failed), then the wall
     milliseconds the call waited, retries and capacity waits included.  A
     line is one ``O_APPEND`` write, so the threads of a batch and the child
     commands an op runs share the file.
@@ -1985,6 +1986,8 @@ def _compile_via_recompile(
         )
         verdict = True
     except RecompileError as exc:
+        # A failed artifact download follows a compile recompile already billed.
+        verdict = exc.after_verdict
         if backend_errors is not None:
             backend_errors.append(exc)
         return None, f"recompile service error: {exc}"
