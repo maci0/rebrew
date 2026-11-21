@@ -214,11 +214,12 @@ class HttpClient(Protocol):
     ) -> HttpResponse: ...
 
 
-#: The request header that names the Workbench work a compile is for (recompile
-#: ``docs/API.md``, ``POST /api/v1/compile``).
+#: The request header that names the Workbench work a compile is for.  recompile
+#: 12.0.0 neither reads nor documents it.
 ATTRIBUTION_HEADER = "X-Relumea-Attribution"
 
-#: Longest attribution member, in characters; recompile refuses a longer one.
+#: Longest attribution member, in characters.  The bound is rebrew's own: recompile
+#: 12.0.0 enforces none.
 ATTRIBUTION_MEMBER_MAX_CHARS = 128
 
 
@@ -227,10 +228,8 @@ class Attribution:
     """Who a compile is for inside the Workbench: organization, project, user and job.
 
     The caller of a dispatch op names it and every recompile call the op makes
-    carries it in :data:`ATTRIBUTION_HEADER`; recompile passes it to Platform's
-    compile accounting.  Each member is 1 to :data:`ATTRIBUTION_MEMBER_MAX_CHARS`
-    printable ASCII characters, the bound recompile enforces, so a value this
-    class accepts is one recompile accepts.
+    carries it in :data:`ATTRIBUTION_HEADER`.  Each member is 1 to
+    :data:`ATTRIBUTION_MEMBER_MAX_CHARS` printable ASCII characters.
     """
 
     #: The Workbench organization's Platform account id.
@@ -256,7 +255,7 @@ class Attribution:
                 )
 
     def header_value(self) -> str:
-        """The JSON object recompile reads from :data:`ATTRIBUTION_HEADER`."""
+        """The JSON object sent in :data:`ATTRIBUTION_HEADER`."""
         import json
 
         return json.dumps(
@@ -803,8 +802,7 @@ def compile_source(
     the source.
 
     *attribution*, when given, goes on every compile POST in
-    :data:`ATTRIBUTION_HEADER`, so recompile can record whose Workbench work
-    the compile was.
+    :data:`ATTRIBUTION_HEADER`.
     """
     import httpx
 

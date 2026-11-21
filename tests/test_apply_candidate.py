@@ -821,7 +821,7 @@ def test_a_rejected_candidate_is_refused_with_its_billed_compile(
     assert "X-Relumea-Attribution" not in seen[0]
 
 
-#: Attributions recompile would refuse: an empty, long, or multi-line member, a missing or
+#: Attributions rebrew refuses: an empty, long, or multi-line member, a missing or
 #: extra member, a member that is not a string, and a value that is not an object.
 MALFORMED_ATTRIBUTIONS: list[object] = [
     {**ATTRIBUTION, "org": ""},
