@@ -761,20 +761,22 @@ def test_a_rejected_candidate_is_refused_with_its_billed_compile(
     assert "X-Relumea-Attribution" not in seen[0]
 
 
-@pytest.mark.parametrize(
-    "attribution",
-    [
-        {**ATTRIBUTION, "org": ""},
-        {**ATTRIBUTION, "job": "x" * 129},
-        {**ATTRIBUTION, "user": "line\nbreak"},
-        {key: value for key, value in ATTRIBUTION.items() if key != "project"},
-        {**ATTRIBUTION, "extra": "x"},
-        {**ATTRIBUTION, "org": 7},
-        "acct-org-1",
-    ],
-)
+#: Attributions recompile would refuse: an empty, long, or multi-line member, a missing or
+#: extra member, a member that is not a string, and a value that is not an object.
+MALFORMED_ATTRIBUTIONS: list[object] = [
+    {**ATTRIBUTION, "org": ""},
+    {**ATTRIBUTION, "job": "x" * 129},
+    {**ATTRIBUTION, "user": "line\nbreak"},
+    {key: value for key, value in ATTRIBUTION.items() if key != "project"},
+    {**ATTRIBUTION, "extra": "x"},
+    {**ATTRIBUTION, "org": 7},
+    "acct-org-1",
+]
+
+
+@pytest.mark.parametrize("attribution", MALFORMED_ATTRIBUTIONS)
 def test_a_malformed_attribution_is_refused_before_anything_compiles(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, attribution: Any
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, attribution: object
 ) -> None:
     from rebrew import ops
 
