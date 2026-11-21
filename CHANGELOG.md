@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.62.0] - 2026-11-21
+
 ### Added
 
 - `rebrew library presence --json` rows carry `size`, the symbol's own body length. `object_offset` and `object_text_size` describe the object, so for a `/Gy` object, where each function has its own COMDAT section, every row said offset 0 and the whole object's size and gave no function extent.
