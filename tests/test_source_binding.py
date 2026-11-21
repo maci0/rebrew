@@ -63,6 +63,28 @@ class TestSourceBindingHistory:
             path: (path.read_bytes(), path.stat()) for path in tmp_path.rglob("*") if path.is_file()
         }
 
+    def test_retirement_keeps_stored_instruction_counts(self, tmp_path: Path) -> None:
+        cfg = _project(tmp_path)
+        counts = {"aligned_pairs": 31, "target_instructions": 31, "candidate_instructions": 31}
+        update_source_status(
+            cfg.metadata_dir,
+            "EXACT",
+            module="GAME",
+            va=0x401000,
+            updated_by="verify",
+            verification={
+                "status": "EXACT",
+                "writer": "verify",
+                "input_hash": "b" * 64,
+                "similarity": 100.0,
+                "hunks": 0,
+                **counts,
+            },
+        )
+        change_source_binding(cfg.metadata_dir, "GAME", 0x401000, reason="interior of a CRT body")
+        previous = get_entry(cfg.metadata_dir, 0x401000, "GAME")["binding_history"][-1]["previous"]
+        assert {k: previous["verification"][k] for k in counts} == counts
+
     def test_retirement_preserves_native_measurement_and_counterpart(self, tmp_path: Path) -> None:
         cfg = _project(tmp_path)
         other = get_entry(cfg.metadata_dir, 0x402000, "GAME")

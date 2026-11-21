@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- `rebrew source binding retire`, `rebrew source binding rebind` and `rebrew library adopt` refused any row whose stored verification carried instruction counts, with `verification aligned_pairs must be a non-negative int`. A row read from TOML holds those counts as tomlkit integers, an `int` subclass the count check rejected by exact type; it now accepts any non-bool `int`, as the similarity check already did.
+
 ## [6.61.0] - 2026-11-21
 
 ### Added

@@ -445,7 +445,12 @@ def validate_provenance_table(key: str, value: Any) -> Any:
         if "similarity" in value:
             validate_metadata_field("similarity", value["similarity"])
         for count in ("aligned_pairs", "target_instructions", "candidate_instructions", "hunks"):
-            if count in value and (type(value[count]) is not int or value[count] < 0):
+            # isinstance, not type(): rows read through tomlkit hold int subclasses.
+            if count in value and (
+                isinstance(value[count], bool)
+                or not isinstance(value[count], int)
+                or value[count] < 0
+            ):
                 raise ValueError(f"verification {count} must be a non-negative int")
         if len(value["input_hash"]) != 64 or any(
             c not in "0123456789abcdef" for c in value["input_hash"]

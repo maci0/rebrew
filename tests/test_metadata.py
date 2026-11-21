@@ -1691,3 +1691,12 @@ class TestProvenanceValidation:
             validate_provenance_table("origins", {**origins, "unknown": {}})
         with pytest.raises(ValueError, match="must contain string facts"):
             validate_provenance_table("origins", {"name": {"provider": 3}})
+
+    @pytest.mark.parametrize("bad", [True, -1, 1.0, "3"])
+    def test_verification_counts_reject_bool_negative_and_non_int(self, bad: object) -> None:
+        from rebrew.metadata.functions import validate_provenance_table
+
+        evidence = {"status": "EXACT", "writer": "verify", "input_hash": "a" * 64}
+        assert validate_provenance_table("verification", {**evidence, "hunks": 0})
+        with pytest.raises(ValueError, match="hunks must be a non-negative int"):
+            validate_provenance_table("verification", {**evidence, "hunks": bad})
