@@ -204,10 +204,11 @@ _ANSWERS: Mapping[tuple[_Route, int, str | None], _AnswerRule] = MappingProxyTyp
         ("compile", 401, "unauthenticated"): _AnswerRule(None, "final"),
         ("compile", 401, "authentication_required"): _AnswerRule(None, "final"),
         ("compile", 401, _ANY_CODE): _AnswerRule(None, "final"),
-        # Nothing was admitted; the account must pay first.
-        ("compile", 402, "model_credits_exhausted"): _AnswerRule("free", "final"),
-        ("compile", 402, "workbench_plan_required"): _AnswerRule("free", "final"),
-        ("compile", 402, "allowance_exhausted"): _AnswerRule("free", "final"),
+        # A new compile refused until the account can pay; a key already admitted
+        # may be refused the same before Platform looks it up, its outcome standing.
+        ("compile", 402, "model_credits_exhausted"): _AnswerRule(None, "final"),
+        ("compile", 402, "workbench_plan_required"): _AnswerRule(None, "final"),
+        ("compile", 402, "allowance_exhausted"): _AnswerRule(None, "final"),
         ("compile", 402, _ANY_CODE): _AnswerRule(None, "final"),
         # Billed, and this credential may not receive the result.
         ("compile", 403, "billed_not_delivered"): _AnswerRule("billed", "final"),
@@ -224,8 +225,9 @@ _ANSWERS: Mapping[tuple[_Route, int, str | None], _AnswerRule] = MappingProxyTyp
         ("compile", 409, "result_unavailable"): _AnswerRule("free", "new_key"),
         ("compile", 409, "admission_unrecoverable"): _AnswerRule("unknown", "final"),
         ("compile", 409, "retained_output_unavailable"): _AnswerRule("billed", "final"),
-        # The key names a compile of another request; this one never ran under it.
-        ("compile", 409, "admission_conflict"): _AnswerRule("free", "final"),
+        # The key names another request's compile, so this one never ran under it,
+        # or the account's status changed before admission: the same key again.
+        ("compile", 409, "admission_conflict"): _AnswerRule("free", "retry"),
         ("compile", 409, _ANY_CODE): _AnswerRule(None, "final"),
         ("compile", 410, "artifact_expired"): _AnswerRule("billed", "final"),
         ("compile", 410, _ANY_CODE): _AnswerRule(None, "final"),

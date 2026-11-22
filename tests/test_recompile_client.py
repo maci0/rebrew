@@ -1953,8 +1953,6 @@ class TestRecompileElevenCodes:
     @pytest.mark.parametrize(
         ("status", "code", "cost"),
         [
-            # The key names another request's compile: this one never ran under it.
-            (409, "admission_conflict", "free"),
             # Billed, and its published bytes are gone (rule 4).
             (409, "retained_output_unavailable", "billed"),
             # This service lost the key's record: Platform may have billed it.
@@ -2128,6 +2126,27 @@ class TestClientRulesTable:
     @pytest.mark.parametrize(("status", "code", "cost"), PUBLISHED)
     def test_the_table_bills_what_rule_4_says(self, status: int, code: str, cost: str) -> None:
         assert _ANSWERS["compile", status, code].cost == cost
+
+    #: Answers rule 4 bills nothing "for this request" while a key already admitted
+    #: keeps its outcome: they say nothing of the key.
+    SILENT = (
+        (401, "unauthenticated"),
+        (403, "forbidden"),
+        (423, "account_under_review"),
+        (402, "model_credits_exhausted"),
+        (402, "workbench_plan_required"),
+        (402, "allowance_exhausted"),
+        (429, "rate_limited"),
+        (429, "concurrency_limit"),
+        (429, "failure_throttle"),
+        (429, "request_budget"),
+    )
+
+    @pytest.mark.parametrize(("status", "code"), SILENT)
+    def test_an_answer_for_this_request_only_says_nothing_of_the_key(
+        self, status: int, code: str
+    ) -> None:
+        assert _ANSWERS["compile", status, code].cost is None
 
     @staticmethod
     def _answer(status: int, code: str | None) -> _Resp:
