@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- `rebrew source binding rebind` refused a replacement whose name another target's file also declares with other types (`fcn_005ea460 is already declared as ... in src/GOLD.fcn_005dbd70.c`), though that file is bound only to the other target and declares that target's function at the same address. The prototype check now skips files `collect_target_sources` reports as foreign to the target.
+
 ## [6.66.0] - 2026-11-22
 
 ### Fixed

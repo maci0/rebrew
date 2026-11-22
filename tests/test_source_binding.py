@@ -498,6 +498,44 @@ class TestRebindRejectingControls:
         row = get_entry(cfg.metadata_dir, 0x401000, "GAME")
         assert (row["kind"], row["file"]) == ("FUNCTION", "src/game.c")
 
+    def test_another_targets_declaration_of_the_name_does_not_block(self, tmp_path: Path) -> None:
+        """OTHER's file declares its own function under the same placeholder name."""
+        from rebrew.source_binding import app
+
+        cfg = _project(tmp_path)
+        change_source_binding(cfg.metadata_dir, "GAME", 0x401000, reason="wrong claim")
+        other = cfg.reversed_dir / "other.c"
+        other.write_text(
+            "void __cdecl fcn_00401000(int value);\n"
+            "/* ADDRESS: OTHER 0x500000 */\nvoid h(void) { fcn_00401000(1); }\n"
+        )
+        record_function_identity(
+            cfg.metadata_dir,
+            module="OTHER",
+            va=0x500000,
+            file="src/other.c",
+            name="h",
+            symbol="_h",
+            kind="FUNCTION",
+        )
+        (cfg.reversed_dir / "game.c").write_text("float fcn_00401000(float x) { return x; }\n")
+        with patch("rebrew.source_binding.require_config", return_value=cfg):
+            result = CliRunner().invoke(
+                app,
+                [
+                    "rebind",
+                    "0x401000",
+                    str(cfg.reversed_dir / "game.c"),
+                    "--name",
+                    "fcn_00401000",
+                    "--reason",
+                    "game code",
+                    "--json",
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        assert get_entry(cfg.metadata_dir, 0x401000, "GAME")["file"] == "src/game.c"
+
     def test_change_between_parse_and_hash_is_rejected(self, tmp_path: Path) -> None:
         import rebrew.source_binding as command
 

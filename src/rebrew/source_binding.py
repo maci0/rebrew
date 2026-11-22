@@ -33,6 +33,7 @@ lazy from rebrew.metadata.bindings import derive_c_symbol
 lazy from rebrew.metadata.functions import get_entry, identity_file, load_metadata
 lazy from rebrew.metadata.source_provenance import function_definition_hashes
 lazy from rebrew.rename_ops import RenameError
+lazy from rebrew.source_selection import collect_target_sources
 lazy from rebrew.sources import iter_sources
 lazy from rebrew.utils import detect_source_encoding, preset_module_key, read_source_text
 
@@ -413,9 +414,19 @@ def _change(
     old_name = str(current.get("name") or "")
     references = []
     new_key = _replacement_type_key(identity, source)
-    for path in iter_sources(cfg.reversed_dir, cfg):
+    sources = list(iter_sources(cfg.reversed_dir, cfg))
+    # A file bound only to another target declares that target's function; the
+    # same placeholder name there is not this binding's caller.
+    _own, foreign = collect_target_sources(cfg, module, sources=sources)
+    foreign_paths = {path.resolve() for path in foreign}
+    for path in sources:
         text, _ = read_source_text(path)
-        if new_key is not None and identity is not None and path.resolve() != source:
+        if (
+            new_key is not None
+            and identity is not None
+            and path.resolve() != source
+            and path.resolve() not in foreign_paths
+        ):
             _refuse_conflicting_prototype(text, identity["name"], new_key, path, cfg)
         if not old_name or old_name not in text:
             continue
