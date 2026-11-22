@@ -973,13 +973,24 @@ class TestCli:
         monkeypatch.setattr("rebrew.compiler.toolchain_paths.toolchains_repo", lambda: tmp_path)
         monkeypatch.setattr("rebrew.compiler.toolchain.require_toolchains_repo", lambda: tmp_path)
         archive = b"a newer upstream tarball"
-        monkeypatch.setattr(
-            "rebrew.toolchain_cli._download_pinned_url",
-            lambda _url, dest, **_k: dest.write_bytes(archive),
-        )
-        monkeypatch.setattr("rebrew.toolchain_cli._live_commit_sha", lambda *_a: "c" * 40)
+        fetched: list[str] = []
+        asked: list[tuple[str, ...]] = []
+
+        def download(url: str, dest: Path, **_k: object) -> None:
+            fetched.append(url)
+            dest.write_bytes(archive)
+
+        def live(*args: str) -> str:
+            asked.append(args)
+            return "c" * 40
+
+        monkeypatch.setattr("rebrew.toolchain_cli._download_pinned_url", download)
+        monkeypatch.setattr("rebrew.toolchain_cli._live_commit_sha", live)
         result = CliRunner().invoke(umbrella, ["toolchain", "update", "msvc-6.0", "--json"])
         assert result.exit_code == 0, result.output
+        # The pin names a commit, so the new one is the default branch head's archive.
+        assert asked == [("archaic-msvc", "msvc600", "HEAD")]
+        assert fetched == ["https://codeload.github.com/archaic-msvc/msvc600/tar.gz/" + "c" * 40]
         report = cli_payload(result)
         assert report["status"] == "drifted"
         assert report["new"] == {"sha256": hashlib.sha256(archive).hexdigest(), "commit": "c" * 40}
@@ -1433,13 +1444,16 @@ class TestToolchainSources:
             tag = entry["image"]["tag"].removeprefix("rebrew/")
             assert src.host_dir == tag.replace(":", "/", 1), name
         borland = sources["borland-5.5"]
+        # recompile-toolchains 1.18.0 names each codeload archive by its commit.
         assert borland.url == (
-            "https://codeload.github.com/archaic-toolchains/borlandc55/tar.gz/refs/heads/main"
+            "https://codeload.github.com/archaic-toolchains/borlandc55/tar.gz/"
+            "fcdcaf5bc41fc166ef632329c72baf6d487b50d2"
         )
-        assert borland.sha256.startswith("e9319c3904303ca4") and borland.layout == "tar-strip1"
-        assert sources["msvc-4.0"].sha256.startswith("4996b91a8e075715")
+        assert borland.commit == "fcdcaf5bc41fc166ef632329c72baf6d487b50d2"
+        assert borland.sha256.startswith("647c93fb2513255d") and borland.layout == "tar-strip1"
+        assert sources["msvc-4.0"].sha256.startswith("158af9a3303f90ab")
         assert sources["msvc-4.0"].commit.startswith("17122292d394")
-        assert sources["msvc-6.0-sp3"].sha256.startswith("f753adfa8a29d8b0")
+        assert sources["msvc-6.0-sp3"].sha256.startswith("d59b3460cc3ec125")
         assert sources["msvc-6.0-sp3"].layout == "tar-strip1"
         assert (sources["ido-5.3"].host_dir, sources["ido-7.1"].host_dir) == (
             "ido/5.3-n64",
@@ -2656,3 +2670,21 @@ class TestSmokeObjectTarget:
         assert cli_payload(result)["results"]["clang-8.0.0"] == (
             "MISMATCH (writes x86/32, declared aarch64/64)"
         )
+
+
+class TestRegistryFollowsTheCatalogue:
+    """The vendored recompile-toolchains manifest is the source of each profile's
+    image, withdrawal and word size; the registry repeats them and is held to it."""
+
+    def test_every_profile_agrees_with_its_catalogue_row(self) -> None:
+        from rebrew.compiler.toolchain import BUILTIN_TOOLCHAINS
+        from rebrew.compiler.toolchain_data import toolchains_manifest
+
+        rows = {row["id"]: row for row in toolchains_manifest()["toolchains"]}
+        assert set(rows) == set(BUILTIN_TOOLCHAINS)
+        for name, spec in BUILTIN_TOOLCHAINS.items():
+            row = rows[name]
+            assert spec.image == row["image"]["tag"], name
+            assert spec.withdrawn == row.get("withdrawn", ""), name
+            if spec.bits is not None and row.get("bits") is not None:
+                assert spec.bits == row["bits"], name

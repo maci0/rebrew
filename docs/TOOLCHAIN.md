@@ -483,10 +483,13 @@ profile with a golden object hash.
 
 **Source drift is tracked** (`rebrew toolchain check-updates`): every
 GitHub-codeload pin (archaic-msvc, archaic-toolchains, itsmattkc)
-records the branch commit it was taken from, and the checker compares
-the live commit sha via the GitHub API (no download); a changed
-upstream repo (e.g. a preservation fix) is reported as `DRIFTED`
-before any build fails.  The pins are recompile-toolchains': rebrew reads
+records the commit it was taken from, and the checker compares it with the
+live head via the GitHub API (no download): the branch's for a
+`refs/heads/<branch>` URL, the default branch's (`HEAD`) for a URL that names
+the commit, the form every codeload pin takes from recompile-toolchains 1.18.0
+on; a changed upstream repo (e.g. a preservation fix) is reported as `DRIFTED`.
+`rebrew toolchain update` downloads that head's archive
+(`tar.gz/<commit>`) to report the new pin.  The pins are recompile-toolchains': rebrew reads
 them from that repository's generated `toolchains.json`, vendored byte for
 byte as `src/rebrew/compiler/toolchains.json` from the release
 `TOOLCHAINS_RELEASE` names and checked against `TOOLCHAINS_MANIFEST_SHA256`

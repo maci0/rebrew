@@ -24,8 +24,8 @@ from rebrew.compiler.toolchain_spec import ToolchainSource, ToolchainSpec
 #: image tag and the source pin (url, sha256, commit) that image builds from.
 #: Re-vendor it from a new release, not by hand: docs/TOOLCHAIN.md.
 TOOLCHAINS_MANIFEST = Path(__file__).with_name("toolchains.json")
-TOOLCHAINS_RELEASE = "1.15.0"
-TOOLCHAINS_MANIFEST_SHA256 = "f850d0755b68d489fc501575a199e4ad94d6e6098bee1fb838cd24d85c84970a"
+TOOLCHAINS_RELEASE = "1.18.0"
+TOOLCHAINS_MANIFEST_SHA256 = "118d0bb72144e3a764dabffded7fbb2ca471e0601bf9a2ec0834a895ede4aad9"
 
 #: The profiles ``rebrew toolchain vendor`` assembles on the host, and how it
 #: unpacks each one's pinned archive: the shape the image's own install recipe
@@ -293,7 +293,7 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="native",
         flags_style="posix",
         obj_ext=".o",
-        bits=32,
+        bits=8,
         description="llvm-mos-23.3.0-c64; compile-only, matching unsupported",
     ),
     "llvm-mos-23.3.0-nes": ToolchainSpec(
@@ -304,7 +304,7 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="native",
         flags_style="posix",
         obj_ext=".o",
-        bits=32,
+        bits=8,
         description="llvm-mos-23.3.0-nes; compile-only, matching unsupported",
     ),
     "mintelf-gcc-15.2.0": ToolchainSpec(
@@ -3924,7 +3924,7 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         else None,
         host_bin="bin",
         description="MSVC 9.0 SP1 (32-bit PE, C89, 15.00.30729) — docker image (wine inside)",
-        # recompile-toolchains 1.18.0 withdraws the row with this reason.
+        # The manifest's row's `withdrawn`, which tests/test_toolchain.py holds it to.
         withdrawn=(
             "its compiler targets Itanium, not x86: `VC/bin/cl.exe` reports "
             "15.00.30729.01 for Itanium and writes IA-64 objects (COFF machine "

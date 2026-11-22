@@ -3679,7 +3679,12 @@ def _image_smoke_hash(tool: str, workdir: Path) -> str | None:
     return digest
 
 
-_CODELOAD_RE = r"https://codeload\.github\.com/([^/]+)/([^/]+)/tar\.gz/refs/heads/([A-Za-z0-9._-]+)"
+#: A GitHub codeload tarball: owner, repository, and the branch (``refs/heads/<b>``)
+#: or the commit (40 hex, recompile-toolchains 1.18.0's form) it names.
+_CODELOAD_RE = (
+    r"https://codeload\.github\.com/([^/]+)/([^/]+)/tar\.gz/"
+    r"(?:refs/heads/([A-Za-z0-9._-]+)|([0-9a-f]{40}))"
+)
 _CODELOAD_PATTERN: re.Pattern[str] | None = None
 _CODELOAD_PATTERN_LOCK = threading.Lock()
 
@@ -3694,6 +3699,12 @@ def _codeload_pattern() -> re.Pattern[str]:
 
 
 _MOVING_RELEASE = "Last-CI-build"
+
+
+def _codeload_ref(m: re.Match[str]) -> str:
+    """The ref whose head a codeload pin is compared with: its branch, or ``HEAD``
+    (the default branch) for a pin that names a commit."""
+    return m.group(3) or "HEAD"
 
 
 def _github_auth_headers() -> dict[str, str]:
@@ -3782,7 +3793,7 @@ def check_updates_cmd(
 ) -> None:
     """Detect upstream drift in pinned toolchain sources.
 
-    GitHub-codeload sources (archaic-msvc, archaic-toolchains): compares the live default-branch commit sha (GitHub API, no download) against the commit the pin was taken from.  The Open Watcom snapshot (a moving 'Last-CI-build' release tag) is re-downloaded and re-hashed.  Immutable release assets (decomp.me, archive.org) and pinned tarballs (16-bit media in the recompile-toolchains checkout) are reported as static.
+    GitHub-codeload sources (archaic-msvc, archaic-toolchains): compares the live head (the pinned branch's, or the default branch's for a pin that names a commit; GitHub API, no download) against the commit the pin was taken from.  The Open Watcom snapshot (a moving 'Last-CI-build' release tag) is re-downloaded and re-hashed.  Immutable release assets (decomp.me, archive.org) and pinned tarballs (16-bit media in the recompile-toolchains checkout) are reported as static.
     """
     import tempfile
 
@@ -3797,7 +3808,7 @@ def check_updates_cmd(
         url = src.url or ""
         m = _codeload_pattern().match(url)
         if m:
-            owner, repo, branch = m.group(1), m.group(2), m.group(3)
+            owner, repo, branch = m.group(1), m.group(2), _codeload_ref(m)
             try:
                 live = _live_commit_sha(owner, repo, branch)
             except Exception as exc:
@@ -3874,10 +3885,24 @@ def update_cmd(
     if src.in_repo:
         msg = f"toolchain {name!r} is a pinned tarball (static) — nothing to update"
         error_exit(msg, json_mode=json_output)
+    m = _codeload_pattern().match(src.url)
+    url = src.url
+    live_commit = ""
+    if m is not None and m.group(4):
+        # A pin naming a commit downloads that commit for ever: the current
+        # upstream is the default branch's head, so the new pin is that commit's.
+        try:
+            live_commit = _live_commit_sha(m.group(1), m.group(2), "HEAD")
+        except Exception as exc:
+            error_exit(
+                f"cannot resolve the default branch of {m.group(1)}/{m.group(2)}: {exc}",
+                json_mode=json_output,
+            )
+        url = f"https://codeload.github.com/{m.group(1)}/{m.group(2)}/tar.gz/{live_commit}"
     with tempfile.TemporaryDirectory(prefix="rebrew_update_") as td:
         archive = Path(td) / "src.bin"
         try:
-            _download_pinned_url(src.url, archive, timeout=1800)
+            _download_pinned_url(url, archive, timeout=1800)
         except ToolchainError as exc:
             error_exit(str(exc), json_mode=json_output)
         actual_sha = _stream_sha256(archive)
@@ -3888,11 +3913,9 @@ def update_cmd(
         else:
             console.print(f"[green]{msg}[/green]")
         return
-    m = _codeload_pattern().match(src.url)
-    live_commit = ""
-    if m:
+    if m is not None and not live_commit:
         try:
-            live_commit = _live_commit_sha(m.group(1), m.group(2), m.group(3))
+            live_commit = _live_commit_sha(m.group(1), m.group(2), _codeload_ref(m))
         except Exception as exc:
             # The sha256 still names the new pin; an empty commit string must not
             # look like "upstream has no commit" when the lookup just failed.
