@@ -630,6 +630,14 @@ docker**: no host files:
 a fixed source in each image with deterministic inputs (fixed work dir +
 fixed source mtime; OMF/COFF objects embed the source path and
 modification time) and verifies the object sha256 against golden bytes.
+Before the hash it checks what machine the object is for: an ELF or COFF object
+whose machine (ELF `e_machine` and class, COFF machine type) is not the
+profile's declared target (the catalogue row's `arch`, and `bits` from the
+registry where it sets them, else from the row) is `MISMATCH (writes <arch>/<bits>,
+declared <arch>/<bits>)` and fails the run, whatever its golden says: an image
+that compiles for another architecture produces objects no target of the profile
+can match (`msvc-9.0-sp1` wrote IA-64 objects under an x86 name). 16-bit x86
+profiles and other object formats are not checked. A withdrawn profile is skipped.
 Every COFF object's TimeDateStamp (build time) is masked, plus the Turbo C
 2.0 / 3.1 per-run COMENT ticks.  The table covers every image-backed profile
 (the MSVC line from `msvc-1.0` to `msvc-11.0`, borland-5.5, watcom-2.0-win32, watcom-2.0-win16,

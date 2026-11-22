@@ -3293,6 +3293,18 @@ def smoke_cmd(
                 results[tool] = "FAIL (no object: " + detail + ")"
                 infra_ok = False
                 continue
+            # An object for another machine than the profile declares can never
+            # match a target of it, whatever its golden says (msvc-9.0-sp1's
+            # image wrote IA-64 objects under an x86 name).
+            declared = _declared_target(spec)
+            wrote = _object_target(obj) if declared is not None else None
+            if declared is not None and wrote is not None and wrote != declared:
+                results[tool] = (
+                    f"MISMATCH (writes {wrote[0]}/{wrote[1]}, declared {declared[0]}/{declared[1]})"
+                )
+                reproducible = False
+                obj.unlink(missing_ok=True)
+                continue
             # Zero the compiler's build-timestamp fields (e.g. the COFF
             # TimeDateStamp, or Turbo C's per-run COMENT ticks + record
             # checksums) — the rest of the object is what determinism
@@ -3472,6 +3484,88 @@ def _build_failure(returncode: int, log_tail: str) -> str:
     if log_tail:
         return f"{log_tail} (exit {returncode})"
     return f"exit {returncode}"
+
+
+#: COFF machine types the smoke check reads: (architecture, bits).  The
+#: architecture names are recompile-toolchains' ``arch`` vocabulary.
+_COFF_TARGETS: dict[int, tuple[str, int]] = {
+    0x014C: ("x86", 32),
+    0x8664: ("x86_64", 64),
+    0x0200: ("ia64", 64),
+    0x01C0: ("arm", 32),
+    0x01C2: ("arm", 32),
+    0x01C4: ("arm", 32),
+    0xAA64: ("aarch64", 64),
+    0x0162: ("mips", 32),
+    0x0166: ("mips", 32),
+    0x0168: ("mips", 32),
+    0x0169: ("mips", 32),
+    0x0266: ("mips", 32),
+    0x0366: ("mips", 32),
+    0x0466: ("mips", 32),
+    0x01F0: ("powerpc", 32),
+    0x01F1: ("powerpc", 32),
+    0x01A2: ("sh", 32),
+    0x01A3: ("sh", 32),
+    0x01A6: ("sh", 32),
+    0x0268: ("m68k", 32),
+}
+
+#: ELF machines the smoke check reads, by LIEF ``ELF.ARCH`` name; the bits are
+#: the file's class.
+_ELF_ARCHES: dict[str, str] = {
+    "I386": "x86",
+    "X86_64": "x86_64",
+    "AARCH64": "aarch64",
+    "ARM": "arm",
+    "MIPS": "mips",
+    "MIPS_RS3_LE": "mips",
+    "PPC": "powerpc",
+    "PPC64": "powerpc",
+    "SH": "sh",
+    "M68K": "m68k",
+}
+
+#: recompile-toolchains ``arch`` values that name one machine family the object
+#: header cannot tell apart.
+_ARCH_FAMILY = {"sh2": "sh", "sh4": "sh"}
+
+
+def _object_target(obj: Path) -> tuple[str, int] | None:
+    """The (architecture, bits) an ELF or COFF object was compiled for; ``None`` for another format."""
+    import lief
+
+    from rebrew.formats.coff import load_coff
+
+    data = obj.read_bytes()
+    if data[:4] == b"\x7fELF":
+        elf = lief.ELF.parse(list(data))
+        if elf is None:
+            return None
+        arch = _ELF_ARCHES.get(elf.header.machine_type.name)
+        bits = 64 if elf.header.identity_class == lief.ELF.Header.CLASS.ELF64 else 32
+        return None if arch is None else (arch, bits)
+    coff = load_coff(data)
+    if coff is None:
+        return None
+    return _COFF_TARGETS.get(int(coff[0].header.machine.value))
+
+
+def _declared_target(spec: Any) -> tuple[str, int] | None:
+    """The (architecture, bits) *spec* declares: its catalogue row's ``arch`` and ``bits``.
+
+    The registry's own ``bits`` wins over the row's where it sets one.  ``None``
+    when either is unknown, or for a 16-bit x86 target (its OMF and MZ objects
+    carry no machine field).
+    """
+    from rebrew.compiler.toolchain_data import toolchains_manifest
+
+    row = next((r for r in toolchains_manifest()["toolchains"] if r["id"] == spec.name), None)
+    arch = row.get("arch") if row is not None else None
+    bits = spec.bits if spec.bits is not None else (row.get("bits") if row is not None else None)
+    if not isinstance(arch, str) or not isinstance(bits, int) or arch == "x86_16":
+        return None
+    return _ARCH_FAMILY.get(arch, arch), bits
 
 
 def _run_smoke_container(

@@ -2613,3 +2613,46 @@ class TestGeneratedBaseDependency:
         assert calls == [(f"rebrew/{item}:1.0", tmp_path / item) for item in chain] + [
             (spec.image, directory)
         ]
+
+
+class TestSmokeObjectTarget:
+    """A smoke object for another machine than the profile declares fails the smoke test."""
+
+    @staticmethod
+    def _smoke(monkeypatch: pytest.MonkeyPatch, name: str, obj: bytes, out: str) -> Any:
+        from types import SimpleNamespace
+
+        from typer.testing import CliRunner
+
+        from rebrew.app.main import app as umbrella
+
+        def compile_image(image, prefix, workdir, flags, *, kvm=False):
+            (workdir / out).write_bytes(obj)
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("rebrew.toolchain_cli._run_smoke_container", compile_image)
+        return CliRunner().invoke(umbrella, ["toolchain", "smoke", name, "--json"])
+
+    def test_an_itanium_object_under_an_x86_profile_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """msvc-9.0's golden would not save an image that writes IA-64 objects."""
+        from bin_util import make_coff_obj
+
+        ia64 = bytearray(make_coff_obj(b"\xc3", func_symbol="_add"))
+        ia64[0:2] = (0x0200).to_bytes(2, "little")
+        result = self._smoke(monkeypatch, "msvc-9.0", bytes(ia64), "t.obj")
+        assert result.exit_code == 1, result.output
+        assert cli_payload(result)["results"]["msvc-9.0"] == (
+            "MISMATCH (writes ia64/64, declared x86/32)"
+        )
+
+    def test_a_switch_clang_declares_aarch64_elf64(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The Switch clang images write AArch64 ELF64; an x86 object is another machine."""
+        from bin_util import make_elf
+
+        result = self._smoke(monkeypatch, "clang-8.0.0", make_elf(b"\xc3"), "t.o")
+        assert result.exit_code == 1, result.output
+        assert cli_payload(result)["results"]["clang-8.0.0"] == (
+            "MISMATCH (writes x86/32, declared aarch64/64)"
+        )

@@ -689,7 +689,7 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="native",
         flags_style="posix",
         obj_ext=".o",
-        bits=32,
+        bits=64,  # AArch64 ELF64 objects (Switch)
         description="Clang 3.9.1 (Switch)",
     ),
     "clang-4.0.1": ToolchainSpec(
@@ -700,7 +700,7 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="native",
         flags_style="posix",
         obj_ext=".o",
-        bits=32,
+        bits=64,  # AArch64 ELF64 objects (Switch)
         description="Clang 4.0.1 (Switch)",
     ),
     "clang-8.0.0": ToolchainSpec(
@@ -711,7 +711,7 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="native",
         flags_style="posix",
         obj_ext=".o",
-        bits=32,
+        bits=64,  # AArch64 ELF64 objects (Switch)
         description="Clang 8.0.0 (Switch)",
     ),
     "clang-9.0.0": ToolchainSpec(
@@ -722,7 +722,7 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="native",
         flags_style="posix",
         obj_ext=".o",
-        bits=32,
+        bits=64,  # AArch64 ELF64 objects (Switch)
         description="Clang 9.0.0 (Switch)",
     ),
     "djgpp-12.2.0": ToolchainSpec(
