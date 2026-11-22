@@ -330,7 +330,8 @@ def test_foreign_hosts_are_always_refused(host: str) -> None:
 
 @settings(max_examples=60, deadline=None)
 @given(
-    get_status=st.sampled_from([404, 500, 502, 503, 504]),
+    # A download 503 is waited out to the deadline, not retried (TestDownloadWaits).
+    get_status=st.sampled_from([404, 500, 502, 504]),
     retries=st.integers(min_value=1, max_value=3),
 )
 def test_failed_artifact_download_never_re_posts_the_compile(get_status: int, retries: int) -> None:

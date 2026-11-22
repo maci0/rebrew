@@ -78,7 +78,7 @@ def test_flag_search_snapshot(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
     assert status == 200
     assert json.loads(reply) == {
         "matched": False,
-        "remote_compile": {"count": 0, "unsettled": 0, "wait_ms": 0},
+        "remote_compile": {"count": 0, "billed_undelivered": 0, "unsettled": 0, "wait_ms": 0},
     }
     _validate(_op_schema("rebrew.flag_search", "response"), json.loads(reply))
     comparison = dataclasses.replace(
