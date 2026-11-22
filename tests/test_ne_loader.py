@@ -462,21 +462,33 @@ def test_enumerate_ne_functions_invariants(body: bytes) -> None:
         previous = func
 
 
-@settings(max_examples=20, deadline=None)
-@given(fill=st.sampled_from([b"\x55", b"\xc3", b"\x90", b"\x00"]))
-def test_enumerate_ne_functions_sweep_is_bounded(fill: bytes) -> None:
+#: Sweep budget for the bounded-sweep test: a 4 KiB ret-free segment fed
+#: without any budget is about 8 MiB, far past twice this.
+_SWEEP_TEST_BUDGET = 1 << 14
+
+
+@pytest.mark.parametrize(
+    "fill", [b"\x55", b"\xc3", b"\x90", b"\x00"], ids=["push-bp", "ret", "nop", "zero"]
+)
+def test_enumerate_ne_functions_sweep_is_bounded(
+    monkeypatch: pytest.MonkeyPatch, fill: bytes
+) -> None:
     """A ret-free segment must not make the sweep quadratic.
 
     Every offset is a prolog candidate and none of them reaches a ``ret``,
     so each candidate decodes the rest of the segment.  The decode budget
     caps the bytes fed to the disassembler.  That byte count does not move
     with scheduler load; without the budget a 64 KiB segment takes hours.
+    The budget is lowered to ``_SWEEP_TEST_BUDGET`` so reaching it decodes
+    16 KiB rather than 1 MiB.
     """
     import capstone
 
+    from rebrew.formats import ne_loader
     from rebrew.formats.binary_model import BinaryInfo
-    from rebrew.formats.ne_loader import SWEEP_DECODE_BUDGET, NeSegment, enumerate_ne_functions
+    from rebrew.formats.ne_loader import NeSegment, enumerate_ne_functions
 
+    monkeypatch.setattr(ne_loader, "SWEEP_DECODE_BUDGET", _SWEEP_TEST_BUDGET)
     segment = fill * 4096
     info = BinaryInfo(path=Path("fuzz.ne"), format="ne", _data=segment)
     info.ne_segments = [
@@ -492,29 +504,26 @@ def test_enumerate_ne_functions_sweep_is_bounded(fill: bytes) -> None:
         fed += len(code)
         return real_disasm(self, code, offset, count)
 
-    capstone.Cs.disasm = counting
-    try:
-        assert isinstance(enumerate_ne_functions(info), list)
-        # The sweep stops at SWEEP_DECODE_BUDGET. Dedup then disassembles a
-        # truncated outer body, which is outside that budget. Twice the budget
-        # still rejects an uncapped sweep, whose cost is candidates times length.
-        assert fed <= SWEEP_DECODE_BUDGET * 2
-    finally:
-        capstone.Cs.disasm = real_disasm
+    monkeypatch.setattr(capstone.Cs, "disasm", counting)
+    assert isinstance(enumerate_ne_functions(info), list)
+    # The sweep stops at SWEEP_DECODE_BUDGET. Dedup then disassembles a
+    # truncated outer body, which is outside that budget. Twice the budget
+    # still rejects an uncapped sweep, whose cost is candidates times length.
+    assert fed <= _SWEEP_TEST_BUDGET * 2
 
 
 def test_enumerate_ne_functions_lists_every_function_of_a_full_segment() -> None:
     """The decode budget is charged the bytes a candidate decodes, not the rest of the segment.
 
-    A 64,000-byte segment of 1,000 small functions decodes about 5 bytes per function.
-    Charging each candidate the remaining segment length spent the budget after a few
-    dozen functions, and the rest of the segment was never listed.
+    A 64,000-byte segment of 125 small functions decodes about 5 bytes per function.
+    Charging each candidate the remaining segment length spent the budget after about
+    18 functions, and the rest of the segment was never listed.
     """
     from rebrew.formats.binary_model import BinaryInfo
     from rebrew.formats.ne_loader import NeSegment, enumerate_ne_functions
 
-    stride = 64
-    count = 1000
+    stride = 512
+    count = 125
     function = b"\x55\x8b\xec\x5d\xc3"  # push bp; mov bp,sp; pop bp; ret
     segment = b"".join(function + b"\x90" * (stride - len(function)) for _ in range(count))
     info = BinaryInfo(path=Path("full.ne"), format="ne", _data=segment)

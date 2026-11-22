@@ -752,7 +752,8 @@ class TestInvalidateToolchainDigest:
             except BaseException as exc:  # collect; fail outside threads
                 errors.append(exc)
 
-        threads = [threading.Thread(target=_worker, args=(i,), daemon=True) for i in range(64)]
+        # 80 distinct tags against caps of 64, so both caches evict.
+        threads = [threading.Thread(target=_worker, args=(i,), daemon=True) for i in range(80)]
         for t in threads:
             t.start()
         join_all(threads)

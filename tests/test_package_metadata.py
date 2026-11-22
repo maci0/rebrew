@@ -30,6 +30,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 import pytest
+from stmt_walk import iter_statements
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src" / "rebrew"
@@ -121,34 +122,39 @@ def _declared_distributions() -> set[str]:
 def _imported_modules(root: Path = SRC) -> set[str]:
     """Top-level modules imported, statically or by name, under ``root``.
 
-    One parse per file. The static import walk and the dynamic-helper walk
-    used to each read and parse the tree. A repeated call for the same path
-    reuses that result. The suite does not rewrite a path it has already scanned.
+    Each file is parsed once per process, whichever file or directory scan
+    reaches it first. The suite does not rewrite a path it has already scanned.
     """
-    return _imported_modules_cached(root)
+    paths = [root] if root.is_file() else root.rglob("*.py")
+    found: set[str] = set()
+    for path in paths:
+        found |= _file_imports(path)
+    return found
 
 
 @cache
-def _imported_modules_cached(root: Path) -> set[str]:
+def _file_imports(path: Path) -> frozenset[str]:
     found: set[str] = set()
-    paths = [root] if root.is_file() else root.rglob("*.py")
-    for path in paths:
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                found.update(alias.name.split(".", 1)[0] for alias in node.names)
-            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-                found.add(node.module.split(".", 1)[0])
-            elif isinstance(node, ast.Call):
-                if _callee_name(node.func).rsplit(".", 1)[-1] not in _DYNAMIC_IMPORT_HELPERS:
+    text = path.read_text(encoding="utf-8")
+    tree = ast.parse(text, filename=str(path))
+    # A dynamic-import call spells its helper's name, so a file that names none
+    # needs only its statements, which hold every import.
+    dynamic = any(helper in text for helper in _DYNAMIC_IMPORT_HELPERS)
+    for node in ast.walk(tree) if dynamic else iter_statements(tree):
+        if isinstance(node, ast.Import):
+            found.update(alias.name.split(".", 1)[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            found.add(node.module.split(".", 1)[0])
+        elif isinstance(node, ast.Call):
+            if _callee_name(node.func).rsplit(".", 1)[-1] not in _DYNAMIC_IMPORT_HELPERS:
+                continue
+            for arg in node.args:
+                if not isinstance(arg, ast.Constant) or not isinstance(arg.value, str):
                     continue
-                for arg in node.args:
-                    if not isinstance(arg, ast.Constant) or not isinstance(arg.value, str):
-                        continue
-                    if arg.value.startswith("."):
-                        continue
-                    found.add(arg.value.split(".", 1)[0])
-    return found
+                if arg.value.startswith("."):
+                    continue
+                found.add(arg.value.split(".", 1)[0])
+    return frozenset(found)
 
 
 def _callee_name(func: ast.expr) -> str:
@@ -408,7 +414,6 @@ class TestDevTreeDependencies:
             return real_parse(source, filename, *args, **kwargs)
 
         monkeypatch.setattr(ast, "parse", _count)
-        _imported_modules_cached.cache_clear()
         found = _imported_modules(tree)
         assert {"os", "json", "sys"} <= found
         assert sorted(parsed) == sorted(str(path) for path in tree.glob("*.py"))

@@ -7,6 +7,7 @@ backends, GA mutations, CLI commands).
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import random
 import sys
@@ -16,6 +17,7 @@ import types
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+lazy from collections.abc import Iterator
 
 import pytest
 import typer
@@ -55,6 +57,22 @@ def test_registry_public_all() -> None:
     exec("from rebrew.registry import *", ns)  # noqa: S102
     exported = {k for k in ns if not k.startswith("_")}
     assert exported == set(reg.__all__)
+
+
+#: Interpreter thread switch interval (seconds) while a test races readers
+#: against a writer, so the threads alternate within one publish.
+_RACE_SWITCH_INTERVAL = 1e-6
+
+
+@contextlib.contextmanager
+def _fine_thread_switching() -> Iterator[None]:
+    """Run the body with :data:`_RACE_SWITCH_INTERVAL`, restoring the previous interval."""
+    previous = sys.getswitchinterval()
+    sys.setswitchinterval(_RACE_SWITCH_INTERVAL)
+    try:
+        yield
+    finally:
+        sys.setswitchinterval(previous)
 
 
 def _fake_entry_points(**groups: list[tuple[str, str]]) -> Any:
@@ -986,6 +1004,9 @@ class TestFlagSetRegistry:
         assert "-O1" in combos and "-O2" in combos
         assert not any("/O2" in c for c in combos)  # not the MSVC axes
 
+    #: Publishes the refresher makes while the sweeper reads.
+    _FLAG_SET_REFRESHES = 10_000
+
     def test_concurrent_refresh_publishes_one_generation(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -999,14 +1020,15 @@ class TestFlagSetRegistry:
         from rebrew.flags import FlagSet
         from rebrew.matcher import compiler
 
-        def _generation(axis_flag: str) -> tuple[dict[str, Any], dict[str, Any]]:
+        def _generation(axis_id: str, axis_flag: str) -> tuple[dict[str, Any], dict[str, Any]]:
             return (
-                {"genprofile": [FlagSet(id="axis", flags=(axis_flag,))]},
-                {"genprofile": {"quick": ["axis"]}},
+                {"genprofile": [FlagSet(id=axis_id, flags=(axis_flag,))]},
+                {"genprofile": {"quick": [axis_id]}},
             )
 
-        gen_a = _generation("-Oa")
-        gen_b = _generation("-Ob")
+        # Distinct axis ids: one generation's tiers name no axis of the other's flags.
+        gen_a = _generation("axis-a", "-Oa")
+        gen_b = _generation("axis-b", "-Ob")
         # Alternate generations so a reader straddling a publish sees both.
         published: list[Any] = [gen_a]
 
@@ -1018,14 +1040,18 @@ class TestFlagSetRegistry:
             ctx.setattr(compiler, "_FLAGS_MAP", gen_a[0])
             ctx.setattr(compiler, "_TIERS_MAP", gen_a[1])
             bad: list[tuple[str, ...]] = []
+            sweeping = threading.Event()
             stop = threading.Event()
 
             def _refresh() -> None:
-                while not stop.is_set():
+                sweeping.wait(5)
+                for _ in range(self._FLAG_SET_REFRESHES):
                     published[0] = gen_a if published[0] is gen_b else gen_b
                     compiler.refresh_flag_sets()
+                stop.set()
 
             def _sweep() -> None:
+                sweeping.set()
                 while not stop.is_set() and len(bad) < 5000:
                     bad.append(
                         tuple(
@@ -1035,12 +1061,13 @@ class TestFlagSetRegistry:
 
             refresher = threading.Thread(target=_refresh, daemon=True)
             sweeper = threading.Thread(target=_sweep, daemon=True)
-            refresher.start()
-            sweeper.start()
-            stop.wait(0.5)
-            stop.set()
-            refresher.join()
-            sweeper.join()
+            with _fine_thread_switching():
+                sweeper.start()
+                refresher.start()
+                refresher.join(10)
+                stop.set()
+                sweeper.join(10)
+            assert not refresher.is_alive() and not sweeper.is_alive(), "a race thread hung"
         assert bad, "the sweep thread never ran"
         for combos in bad:
             # A torn generation yields the empty axis product ("",); a
@@ -1768,6 +1795,12 @@ class TestToolchainOrigin:
         assert all(row["docker"] is False for row in rows)
 
 
+#: Refreshes the writer publishes while the registry reader runs.
+_REGISTRY_REFRESHES = 300
+#: Reads after which the registry reader stops even if the writer is still running.
+_REGISTRY_READS_MAX = 50_000
+
+
 class TestToolchainRegistryConcurrency:
     """A refresh must publish a new generation, never edit the live one.
 
@@ -1814,7 +1847,9 @@ class TestToolchainRegistryConcurrency:
 
         def reader() -> None:
             start.set()
-            while not done.is_set():
+            for _ in range(_REGISTRY_READS_MAX):
+                if done.is_set():
+                    return
                 registry = toolchain.TOOLCHAINS
                 names = set(registry)
                 # Every name the reader saw must still resolve in the very same
@@ -1823,16 +1858,17 @@ class TestToolchainRegistryConcurrency:
                     mixed.append("registry lost a name during a single read")
 
         t = threading.Thread(target=reader, name="registry-reader")
-        t.start()
-        start.wait(5)
-        try:
-            for _ in range(300):
-                toolchain.TOOLCHAINS = {**toolchain.TOOLCHAINS, "obsolete-tc": stale}
+        with _fine_thread_switching():
+            t.start()
+            start.wait(5)
+            try:
+                for _ in range(_REGISTRY_REFRESHES):
+                    toolchain.TOOLCHAINS = {**toolchain.TOOLCHAINS, "obsolete-tc": stale}
+                    toolchain.refresh_toolchain_registry()
+            finally:
+                done.set()
+                t.join(10)
                 toolchain.refresh_toolchain_registry()
-        finally:
-            done.set()
-            t.join(10)
-            toolchain.refresh_toolchain_registry()
 
         assert not t.is_alive(), "reader thread did not finish"
         assert mixed == []

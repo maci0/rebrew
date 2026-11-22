@@ -1,7 +1,10 @@
 """Unit tests for tools/check_layering.py."""
 
 import ast
+from functools import cache
 from pathlib import Path
+
+import pytest
 
 from tools import check_layering as cl
 
@@ -176,7 +179,10 @@ class TestPackageExternals:
         self._write(pkg, "workspace/config.py", "from rebrew import __version__\n")
         assert cl.check_layering(str(pkg)) == []
 
-    def test_real_tree_matches_the_allowlist(self) -> None:
+    def test_real_tree_matches_the_allowlist(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # check_layering re-parses a module for each rule and never mutates a
+        # tree, so one parse per file serves every rule.
+        monkeypatch.setattr(ast, "parse", cache(ast.parse))
         assert cl.check_layering("src/rebrew") == []
 
 

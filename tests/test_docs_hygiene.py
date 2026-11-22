@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import ast
 import re
+from functools import cache
 from pathlib import Path
 
 from stmt_walk import iter_statements
@@ -159,7 +160,11 @@ def test_every_nested_cli_route_is_documented() -> None:
     while pending:
         path, command = pending.pop()
         route = " ".join(path)
-        if not re.search(r"\brebrew " + re.escape(route) + r"(?![\w-])", reference):
+        # A match starts at an occurrence of the literal, so the search starts
+        # at the first one.
+        first = reference.find(f"rebrew {route}")
+        pattern = re.compile(r"\brebrew " + re.escape(route) + r"(?![\w-])")
+        if first == -1 or not pattern.search(reference, first):
             missing.append(route)
         if isinstance(command, TyperGroup):
             for name, child in command.commands.items():
@@ -501,6 +506,13 @@ def _external_allowlist(pkg: Path) -> set[str] | None:
     return set(re.findall(r"`([a-z_][a-z_0-9]*(?:\.[a-z_][a-z_0-9]*)?)`", match.group(1)))
 
 
+@cache
+def _import_statements(path: Path) -> tuple[ast.Import | ast.ImportFrom, ...]:
+    """The import statements of one module, at any nesting depth, parsed once per process."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    return tuple(n for n in iter_statements(tree) if isinstance(n, ast.Import | ast.ImportFrom))
+
+
 def _imported_modules(pkg: Path) -> set[str]:
     """Every ``rebrew.*`` module imported under ``pkg``, at any call depth.
 
@@ -511,8 +523,7 @@ def _imported_modules(pkg: Path) -> set[str]:
     for path in sorted(pkg.rglob("*.py")):
         if "__pycache__" in path.parts:
             continue
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in iter_statements(tree):
+        for node in _import_statements(path):
             if isinstance(node, ast.ImportFrom):
                 if node.module == "rebrew":
                     # `from rebrew import sources` names rebrew.sources; a dunder
@@ -585,8 +596,7 @@ def test_no_module_imports_another_modules_private_name() -> None:
         scanned += 1
         if module.startswith(_PRIVATE_IMPORT_EXEMPT):
             continue
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in iter_statements(tree):
+        for node in _import_statements(path):
             if (
                 isinstance(node, ast.ImportFrom)
                 and node.module

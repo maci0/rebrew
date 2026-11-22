@@ -25,18 +25,28 @@ def _sequences(alphabet: str, max_len: int) -> list[list[str]]:
     return [list(t) for n in range(max_len + 1) for t in itertools.product(alphabet, repeat=n)]
 
 
-class TestRunTableMatcher:
-    def test_exhaustive_binary_alphabet(self) -> None:
-        seqs = _sequences("ab", 7)
-        for a in seqs:
-            for b in seqs:
+def _assert_same_up_to_renaming(alphabet: str, max_len: int) -> None:
+    """Every pair over *alphabet* up to *max_len*, one pair per renaming of the symbols.
+
+    Both matchers compare symbols only for equality, so renaming the symbols of a
+    pair leaves its blocks and opcodes unchanged; ``_RunTableMatcher`` numbers
+    symbols by first appearance, so a renamed pair builds the same table. A pair
+    runs when its symbols first appear in *alphabet* order.
+    """
+    seqs = _sequences(alphabet, max_len)
+    for a in seqs:
+        for b in seqs:
+            used = list(dict.fromkeys(a + b))
+            if used == list(alphabet[: len(used)]):
                 _assert_same(a, b)
 
+
+class TestRunTableMatcher:
+    def test_exhaustive_binary_alphabet(self) -> None:
+        _assert_same_up_to_renaming("ab", 7)
+
     def test_exhaustive_ternary_alphabet(self) -> None:
-        seqs = _sequences("abc", 4)
-        for a in seqs:
-            for b in seqs:
-                _assert_same(a, b)
+        _assert_same_up_to_renaming("abc", 4)
 
     @pytest.mark.parametrize("alphabet", [2, 6, 25, 400])
     def test_random_edited_copies(self, alphabet: int) -> None:

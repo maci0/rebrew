@@ -151,9 +151,14 @@ def _measured_preamble(
 
 
 class TestSingleFileNameMap:
-    def test_large_tree_matches_small_project_parse_budget(
+    def test_large_tree_parse_budget_and_one_edited_file(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """A warm or disk hit on a large tree parses what a small project does,
+        and after one file is edited the rescan reparses it and reuses the rest."""
+        import rebrew.test as test_mod
+        from rebrew.coff_reloc import build_name_to_va
+
         small = tmp_path / "small"
         large = tmp_path / "large"
         small.mkdir()
@@ -176,9 +181,9 @@ class TestSingleFileNameMap:
         # A filler with no address is not a name-map input, so the cold scan
         # does not parse it.
         assert cold_parses == 0
+        assert cold_map["_helper"] == _HELPER_VA
+        assert "filler_added" not in cold_map
         warm_map, warm_parses, warm_scans = _measured_preamble(monkeypatch, large_cfg, large_source)
-        import rebrew.test as test_mod
-
         test_mod._name_map_cache.clear()
         disk_map, disk_parses, disk_scans = _measured_preamble(monkeypatch, large_cfg, large_source)
         _measured_preamble(monkeypatch, small_cfg, small_source)
@@ -209,35 +214,21 @@ class TestSingleFileNameMap:
         assert "filler_0" not in large_map
         assert "_filler_0" not in large_map
 
-    def test_one_edited_file_reuses_the_other_facts(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        import rebrew.test as test_mod
-        from rebrew.coff_reloc import build_name_to_va
-
-        root = tmp_path / "large"
-        root.mkdir()
-        _project(root, fillers=_FILLER_COUNT)
-        cfg = load_config(root)
-        source = str(root / "src" / "caller.c")
-        cold_map, cold_parses, cold_scans = _measured_preamble(monkeypatch, cfg, source)
-        assert cold_scans == 1
-        assert cold_parses == 0
-        assert cold_map["_helper"] == _HELPER_VA
-        assert "filler_added" not in cold_map
-        filler = root / "src" / "fill" / "filler_0.c"
+        filler = large / "src" / "fill" / "filler_0.c"
         filler.write_text(
             "/* ADDRESS: GAME 0x2100 */\nvoid filler_added(void) {}\nvoid filler_0(void) {}\n",
             encoding="utf-8",
         )
         test_mod._name_map_cache.clear()
-        edited_map, edited_parses, edited_scans = _measured_preamble(monkeypatch, cfg, source)
+        edited_map, edited_parses, edited_scans = _measured_preamble(
+            monkeypatch, large_cfg, large_source
+        )
         assert edited_scans == 1
         assert 1 <= edited_parses < _FILLER_COUNT
         assert edited_map["_helper"] == _HELPER_VA
         assert edited_map["filler_added"] == edited_map["_filler_added"] == _ADDED_VA
         assert "filler_0" not in edited_map
-        assert edited_map == build_name_to_va(cfg)
+        assert edited_map == build_name_to_va(large_cfg)
 
     def test_unrelated_file_does_not_rebuild(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

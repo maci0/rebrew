@@ -1,15 +1,29 @@
 """Lazy round-trip documents must render exactly what a full tomlkit parse would."""
 
+import functools
 from collections.abc import Callable  # noqa: TC003 - tests keep eager imports
 from typing import Any
 
 import pytest
 import tomlkit
 
+from rebrew.metadata import lazydoc
 from rebrew.metadata.lazydoc import LAZY_MIN_CHARS, LazyDocument, parse_roundtrip, render
 
+#: Every store record renders to at least this many characters.
+_RECORD_CHARS_MIN = 230
+#: ``LAZY_MIN_CHARS`` patched in where a test compares the lazy path with a
+#: full parse; the real threshold is exercised by test_validation_sees_every_record.
+_TEST_LAZY_MIN_CHARS = 8 * 1024
 
-def _store_text(records: int = 2500) -> str:
+
+def _records_over(min_chars: int) -> int:
+    """Records a store needs to reach *min_chars* characters."""
+    return min_chars // _RECORD_CHARS_MIN + 1
+
+
+@functools.cache
+def _store_text(records: int) -> str:
     doc = tomlkit.document()
     doc["format"] = 3
     for index in range(records):
@@ -28,8 +42,15 @@ def _store_text(records: int = 2500) -> str:
         history.append(row)
         entry["status_history"] = history
         doc[key] = entry
-    text = tomlkit.dumps(doc)
-    assert len(text) >= LAZY_MIN_CHARS
+    return tomlkit.dumps(doc)
+
+
+@pytest.fixture
+def store(monkeypatch: pytest.MonkeyPatch) -> str:
+    """A store over :data:`_TEST_LAZY_MIN_CHARS`, patched in as ``LAZY_MIN_CHARS``."""
+    monkeypatch.setattr(lazydoc, "LAZY_MIN_CHARS", _TEST_LAZY_MIN_CHARS)
+    text = _store_text(_records_over(_TEST_LAZY_MIN_CHARS))
+    assert len(text) >= _TEST_LAZY_MIN_CHARS
     return text
 
 
@@ -71,8 +92,8 @@ EDITS: list[Callable[[Any], None]] = [
 
 
 @pytest.mark.parametrize("edit", EDITS, ids=lambda edit: edit.__name__)
-def test_lazy_edit_renders_like_full_parse(edit: Callable[[Any], None]) -> None:
-    text = _store_text()
+def test_lazy_edit_renders_like_full_parse(store: str, edit: Callable[[Any], None]) -> None:
+    text = store
     lazy = parse_roundtrip(text)
     assert isinstance(lazy, LazyDocument)
     full = tomlkit.parse(text)
@@ -81,8 +102,8 @@ def test_lazy_edit_renders_like_full_parse(edit: Callable[[Any], None]) -> None:
     assert render(lazy) == tomlkit.dumps(full)
 
 
-def test_all_edits_together_render_like_full_parse() -> None:
-    text = _store_text()
+def test_all_edits_together_render_like_full_parse(store: str) -> None:
+    text = store
     lazy = parse_roundtrip(text)
     full = tomlkit.parse(text)
     for edit in EDITS:
@@ -91,8 +112,8 @@ def test_all_edits_together_render_like_full_parse() -> None:
     assert render(lazy) == tomlkit.dumps(full)
 
 
-def test_untouched_document_renders_verbatim_and_iterates_in_order() -> None:
-    text = _store_text()
+def test_untouched_document_renders_verbatim_and_iterates_in_order(store: str) -> None:
+    text = store
     lazy = parse_roundtrip(text)
     assert render(lazy) == text
     full = tomlkit.parse(text)
@@ -103,9 +124,13 @@ def test_untouched_document_renders_verbatim_and_iterates_in_order() -> None:
 
 
 def test_validation_sees_every_record() -> None:
+    records = _records_over(LAZY_MIN_CHARS)
+    text = _store_text(records)
+    assert len(text) >= LAZY_MIN_CHARS
     seen: list[int] = []
-    parse_roundtrip(_store_text(), lambda plain: seen.append(len(plain)))
-    assert seen == [2501]
+    doc = parse_roundtrip(text, lambda plain: seen.append(len(plain)))
+    assert isinstance(doc, LazyDocument)
+    assert seen == [records + 1]
 
 
 @pytest.mark.parametrize(
@@ -116,8 +141,8 @@ def test_validation_sees_every_record() -> None:
     ],
     ids=["multi-line-string", "non-contiguous-record"],
 )
-def test_unsplittable_text_falls_back_to_full_parse(extra: str) -> None:
-    doc = parse_roundtrip(_store_text() + extra)
+def test_unsplittable_text_falls_back_to_full_parse(store: str, extra: str) -> None:
+    doc = parse_roundtrip(store + extra)
     assert not isinstance(doc, LazyDocument)
     assert isinstance(doc, tomlkit.TOMLDocument)
 
