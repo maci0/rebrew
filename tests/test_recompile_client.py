@@ -13,6 +13,8 @@ import pytest
 import rebrew.compiler.compile as compile_mod
 from rebrew.compiler.compile import _compile_via_recompile, recompile_url
 from rebrew.compiler.recompile_client import (
+    _ANSWERS,
+    _ANY_CODE,
     RecompileError,
     _same_origin_artifact_url,
     compile_source,
@@ -38,6 +40,7 @@ def test_recompile_client_public_all() -> None:
         "Attribution",
         "HttpClient",
         "HttpResponse",
+        "KeyCost",
         "RecompileError",
         "RecompileErrorKind",
         "RecompileResult",
@@ -260,7 +263,7 @@ class TestCompileSource:
         assert ei.value.kind == "service"
         assert ei.value.error_code == code
         assert ei.value.retryable is (code in {"capacity", "runner_unavailable", "publish_failed"})
-        assert ei.value.unsettled is False
+        assert ei.value.cost == "free"
         assert ei.value.to_dict()["error_code"] == code
 
     @pytest.mark.parametrize("code", ["missing_artifact", "replay_rejected"])
@@ -288,7 +291,7 @@ class TestCompileSource:
         with pytest.raises(RecompileError, match="error_code") as ei:
             compile_source("http://svc", "msvc-6.0", "x", [])
         assert (ei.value.kind, ei.value.retryable) == ("protocol", True)
-        assert ei.value.unsettled is True
+        assert ei.value.cost == "unknown"
 
     def test_infrastructure_failure_is_retried_as_a_new_attempt(
         self, monkeypatch: pytest.MonkeyPatch
@@ -597,7 +600,7 @@ class TestCompileSource:
         monkeypatch.setattr("rebrew.compiler.recompile_client.time.sleep", lambda s: None)
         with pytest.raises(RecompileError) as ei:
             compile_source("http://svc/", "msvc-6.0", "x", ["/c"], emit_assembly=True, retries=2)
-        assert ei.value.retryable is True and ei.value.unsettled is True
+        assert ei.value.retryable is True and ei.value.cost == "unknown"
         assert [c[0] for c in client.calls] == ["post"] * 3
 
     @pytest.mark.parametrize(
@@ -1925,7 +1928,7 @@ class TestRecompileElevenCodes:
                 deadline=time.monotonic() + 12,
             )
         assert len(keys) == 3 and len(set(keys)) == 1
-        assert refused.value.unsettled is True
+        assert refused.value.cost == "unknown"
 
     def test_a_key_only_the_credit_ledger_refused_is_settled_free(self) -> None:
         """credit_ledger_unavailable: nothing was admitted or billed under the key."""
@@ -1945,27 +1948,29 @@ class TestRecompileElevenCodes:
                 deadline=time.monotonic() + 12,
             )
         assert len(keys) == 3 and len(set(keys)) == 1
-        assert refused.value.unsettled is False
+        assert refused.value.cost == "free"
 
     @pytest.mark.parametrize(
-        ("status", "code"),
+        ("status", "code", "cost"),
         [
-            (409, "admission_conflict"),
-            (409, "retained_output_unavailable"),
-            (409, "admission_unrecoverable"),
-            (403, "forbidden"),
+            # The key names another request's compile: this one never ran under it.
+            (409, "admission_conflict", "free"),
+            # Billed, and its published bytes are gone (rule 4).
+            (409, "retained_output_unavailable", "billed"),
+            # This service lost the key's record: Platform may have billed it.
+            (409, "admission_unrecoverable", "unknown"),
+            # A refused credential on the key's first attempt: nothing was admitted.
+            (403, "forbidden", "free"),
         ],
     )
-    def test_another_refusal_is_final(self, status: int, code: str) -> None:
+    def test_another_refusal_is_final(self, status: int, code: str, cost: str) -> None:
         client, keys = self._keys([self._refusal(status, code)])
         with pytest.raises(RecompileError) as refused:
             compile_source("http://svc", "msvc-6.0", "x", [], client=client, retries=2)
         assert len(keys) == 1
         assert (refused.value.status_code, refused.value.error_code) == (status, code)
         assert refused.value.retryable is False
-        # Each may follow a billed compile, and rebrew cannot resend it under a
-        # renewed credential: the key stays unsettled.
-        assert refused.value.unsettled is (code != "admission_conflict")
+        assert refused.value.cost == cost
 
     def test_a_spent_key_past_the_retry_budget_is_not_run(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -2084,3 +2089,90 @@ class TestJobCompilerListing:
         assert out is None and "has not installed compiler 'msvc-6.0'" in err
         # Only the listing was read, with the job's capability; nothing was compiled.
         assert seen == [("GET", "/api/v1/compilers", "a" * 64)]
+
+
+class TestClientRulesTable:
+    """One table reads every answer of recompile's compile and artifact routes
+    (recompile ``docs/API.md``, "Client rules"); the client follows each row."""
+
+    #: Rule 4's costs and rule 3's same-key waits, as recompile 14 publishes them.
+    PUBLISHED = (
+        (200, "toolchain_failure", "billed"),
+        (403, "billed_not_delivered", "billed"),
+        (410, "artifact_expired", "billed"),
+        (409, "retained_output_unavailable", "billed"),
+        (403, "delivery_denied", "free"),
+        (409, "admission_abandoned", "free"),
+        (409, "admission_expired", "free"),
+        (409, "result_unavailable", "free"),
+        (409, "admission_unrecoverable", "unknown"),
+        (400, "compiler_not_installed", "free"),
+        (400, "compiler_unavailable", "free"),
+        (400, "compiler_withdrawn", "free"),
+        (400, "bundles_unsupported", "free"),
+        (413, "source_too_large", "free"),
+        (400, "invalid_idempotency_key", "free"),
+        (400, "invalid_attribution", "free"),
+        (400, "malformed_request", "free"),
+        (413, "body_too_large", "free"),
+        (415, "unsupported_media_type", "free"),
+        (422, "validation_failed", "free"),
+        (200, "capacity", "free"),
+        (200, "timeout", "free"),
+        (200, "runner_unavailable", "free"),
+        (200, "publish_failed", "free"),
+        (200, "provenance_unavailable", "free"),
+        (200, "missing_artifact", "free"),
+    )
+
+    @pytest.mark.parametrize(("status", "code", "cost"), PUBLISHED)
+    def test_the_table_bills_what_rule_4_says(self, status: int, code: str, cost: str) -> None:
+        assert _ANSWERS["compile", status, code].cost == cost
+
+    @staticmethod
+    def _answer(status: int, code: str | None) -> _Resp:
+        if status == 200:
+            return _Resp(200, json_body={"status": "error", "error_code": code, "log": ""})
+        return _Resp(status, json_body={"detail": "refused", "code": code})
+
+    @pytest.mark.parametrize(
+        ("status", "code"),
+        [
+            (status, code)
+            for route, status, code in _ANSWERS
+            if route == "compile" and (status, code) != (200, None) and code != "toolchain_failure"
+        ],
+    )
+    def test_every_compile_answer_after_a_lost_reply_ends_as_its_row_says(
+        self, status: int, code: str
+    ) -> None:
+        """A lost reply leaves the key unknown; the answer under the same key then
+        settles it as its row says, or leaves it unknown when the row says nothing."""
+        rule = _ANSWERS["compile", status, code]
+        sent = code if code != _ANY_CODE else None
+        keys: list[str] = []
+
+        class _Lost(_FakeClient):
+            def post(self, url: str, json: Any = None, headers: Any = None, **_: Any) -> Any:
+                keys.append(headers["Idempotency-Key"])
+                if len(keys) == 1:
+                    raise httpx.ReadTimeout("lost")
+                return TestClientRulesTable._answer(status, sent)
+
+        with pytest.raises(RecompileError) as refused:
+            compile_source(
+                "http://svc", "msvc-6.0", "x", [], client=_Lost(None), retries=1, sleep=[].append
+            )
+        assert refused.value.cost == (rule.cost or "unknown")
+        assert refused.value.retryable is (rule.then != "final")
+        assert refused.value.status_code == (None if status == 200 else status)
+        # The answer under the lost reply's key came on the second POST; a waited
+        # answer is sent again until the waits end, a new-key one under a new key.
+        assert keys[0] == keys[1]
+        if rule.then in ("final", "retry", "new_key"):
+            assert len(keys) == 2
+        elif rule.then == "wait":
+            assert len(set(keys)) == 1 and len(keys) > 2
+        else:
+            assert rule.then == "new_key_wait"
+            assert len(set(keys[1:])) == len(keys) - 1 > 1

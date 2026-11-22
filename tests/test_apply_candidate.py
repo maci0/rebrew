@@ -841,7 +841,7 @@ def test_a_candidate_reports_its_remote_compiles_and_forwards_the_attribution(
     reply = json.loads(raw)
     assert status == 200, reply
     assert reply["verdict_valid"] is True
-    assert set(reply["remote_compile"]) == {"count", "unsettled", "wait_ms"}
+    assert set(reply["remote_compile"]) == {"count", "billed_undelivered", "unsettled", "wait_ms"}
     assert reply["remote_compile"]["unsettled"] == 0
     assert reply["remote_compile"]["count"] == 1 == len(seen)
     assert isinstance(reply["remote_compile"]["wait_ms"], int)
@@ -850,10 +850,11 @@ def test_a_candidate_reports_its_remote_compiles_and_forwards_the_attribution(
 
 
 @pytest.mark.parametrize("artifact", ["refused", "truncated", "lost"])
-def test_a_compile_whose_download_fails_is_still_counted_once(
+def test_a_compile_whose_download_fails_is_billed_without_a_verdict(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, artifact: str
 ) -> None:
-    """recompile settles the compile inside its POST, before the artifact is fetched."""
+    """recompile bills the compile inside its POST, before the artifact is fetched, and
+    the op never got the object: billed, not charged as a verdict."""
     seen: list[dict[str, str]] = []
     with _recompile(seen, artifact=artifact) as url:
         config, entries = _compiling_at(url, tmp_path, monkeypatch)
@@ -866,7 +867,9 @@ def test_a_compile_whose_download_fails_is_still_counted_once(
     assert (status, reply["status"]) == (200, "NOT_RUN"), reply
     # One POST: a failed download is fetched again, never compiled again.
     assert len(seen) == 1
-    assert reply["remote_compile"]["count"] == 1, reply
+    assert reply["remote_compile"]["count"] == 0, reply
+    assert reply["remote_compile"]["billed_undelivered"] == 1, reply
+    assert reply["remote_compile"]["unsettled"] == 0, reply
 
 
 def test_a_compile_the_service_failed_is_not_counted(
@@ -962,7 +965,12 @@ def test_a_flag_search_states_its_compiles_before_it_runs(
     assert status == 200, reply
     # Every combination of the tier, then the seed once.
     assert reply["candidates"] == len(generate_flag_combinations("quick", "msvc-6.0")) + 1
-    assert reply["remote_compile"] == {"count": 0, "unsettled": 0, "wait_ms": 0}
+    assert reply["remote_compile"] == {
+        "count": 0,
+        "billed_undelivered": 0,
+        "unsettled": 0,
+        "wait_ms": 0,
+    }
     assert not seen
 
 
@@ -1025,7 +1033,7 @@ def test_a_variant_search_states_its_compiles_before_it_runs(
     assert status == 200, reply
     assert reply == {
         "result": {"candidates": 2 * 2 + 1},
-        "remote_compile": {"count": 0, "unsettled": 0, "wait_ms": 0},
+        "remote_compile": {"count": 0, "billed_undelivered": 0, "unsettled": 0, "wait_ms": 0},
     }
     assert not seen
 
@@ -1127,25 +1135,53 @@ def test_an_unbilled_failure_that_asks_for_no_retry_is_final(
 
 
 @pytest.mark.parametrize(
-    "refusal",
+    ("answers", "billed_undelivered", "unsettled"),
     [
-        _refused(409, "admission_unrecoverable"),
-        _refused(409, "retained_output_unavailable"),
-        _refused(401, "unauthenticated"),
-        _refused(403, "forbidden"),
+        # Billed, final, and no verdict reaches the caller (recompile's rule 4).
+        (["lost", _refused(410, "artifact_expired")], 1, 0),
+        (["lost", _refused(403, "billed_not_delivered")], 1, 0),
+        ([_refused(403, "billed_not_delivered")], 1, 0),
+        ([_refused(409, "retained_output_unavailable")], 1, 0),
+        # This service lost the key's record: Platform may have billed it.
+        ([_refused(409, "admission_unrecoverable")], 0, 1),
+        # A refused credential says nothing of the key; rebrew gets no other one to
+        # resend it with, so a reply lost before it stays unknown (rule 3).
+        (["lost", _refused(423, "account_under_review")], 0, 1),
+        (["lost", _refused(401, "unauthenticated")], 0, 1),
+        (["lost", _refused(403, "forbidden")], 0, 1),
+        # On the key's first attempt nothing was admitted.
+        ([_refused(423, "account_under_review")], 0, 0),
+        ([_refused(401, "unauthenticated")], 0, 0),
+        ([_refused(403, "forbidden")], 0, 0),
     ],
-    ids=["unrecoverable", "retained-output", "401", "403"],
+    ids=[
+        "lost-410-expired",
+        "lost-403-billed-not-delivered",
+        "403-billed-not-delivered",
+        "409-retained-output",
+        "409-unrecoverable",
+        "lost-423",
+        "lost-401",
+        "lost-403",
+        "423",
+        "401",
+        "403",
+    ],
 )
-def test_a_refusal_that_may_follow_a_billed_compile_is_reported_unsettled(
+def test_a_final_refusal_reports_what_its_key_cost(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    refusal: Answer,
+    answers: list[Answer],
+    billed_undelivered: int,
+    unsettled: int,
 ) -> None:
-    """rebrew cannot get a new credential in-process, so it never resends these."""
-    reply, seen = _verify(tmp_path, monkeypatch, [refusal, _OK, _OK])
-    assert (reply["status"], len(seen)) == ("NOT_RUN", 1)
+    """Billed without a verdict, billing unknown and free are three counts, none a verdict."""
+    reply, seen = _verify(tmp_path, monkeypatch, [*answers, _OK, _OK])
+    assert (reply["status"], len(seen)) == ("NOT_RUN", len(answers))
+    assert len(set(_keys(seen))) == 1
     assert reply["remote_compile"]["count"] == 0
-    assert reply["remote_compile"]["unsettled"] == 1
+    assert reply["remote_compile"]["billed_undelivered"] == billed_undelivered
+    assert reply["remote_compile"]["unsettled"] == unsettled
 
 
 def test_a_reply_lost_on_every_attempt_is_reported_unsettled(

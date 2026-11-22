@@ -4684,7 +4684,7 @@ def security_scan_snapshot(config: WorkerConfig, req: SecuritySnapshotRequest) -
 
 
 #: The ops that may compile through recompile: each request takes an ``attribution``
-#: and each reply carries ``remote_compile`` (``{count, wait_ms}``).
+#: and each reply carries ``remote_compile`` (``{count, billed_undelivered, unsettled, wait_ms}``).
 COMPILING_OPS = frozenset(
     {
         "rebrew.verify_function",
@@ -4804,14 +4804,16 @@ def _answer(config: WorkerConfig, name: str, body: bytes) -> Mapping[str, Any]:
 def _counting_remote_compiles(
     config: WorkerConfig, name: str, op: Op, request: Any
 ) -> dict[str, Any]:
-    """Run a compiling op and add its recompile calls: ``remote_compile {count, unsettled, wait_ms}``.
+    """Run a compiling op and add its recompile calls: ``remote_compile {count, billed_undelivered, unsettled, wait_ms}``.
 
-    ``count`` is the compiles recompile gave a verdict on (an object or the compiler's
-    rejection: the ones it bills), ``unsettled`` the calls that may have been billed
-    with no answer to settle it (never part of ``count``), ``wait_ms`` the wall time
-    spent waiting on recompile, refused and retried calls included.  All cover the
-    op's child commands, which
-    append to the same ledger.  A refusal after a recompile call carries them too
+    ``count`` is the compiles recompile billed and gave the op a verdict on (an object
+    or the compiler's rejection), ``billed_undelivered`` the compiles it billed whose
+    verdict the op did not get (a failed object download, ``billed_not_delivered``,
+    ``retained_output_unavailable``, ``artifact_expired``), ``unsettled`` the calls
+    that may have been billed with no answer to settle it; a call is in at most one
+    of the three.  ``wait_ms`` is the wall time spent waiting on recompile, refused
+    and retried calls included.  All cover the op's child commands, which append to
+    the same ledger.  A refusal after a recompile call carries them too
     (``OpsError.remote_compile``): a candidate the compiler rejected is refused, and
     recompile billed it.
     """

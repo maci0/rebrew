@@ -1480,19 +1480,33 @@ REMOTE_COMPILES_ENV = "REBREW_REMOTE_COMPILES"
 ATTRIBUTION_ENV = "REBREW_RECOMPILE_ATTRIBUTION"
 
 
+#: What one recompile call came to: ``verdict`` (billed, and the call got the
+#: object or the compiler's rejection), ``billed`` (billed, and no verdict
+#: reached the caller), ``unknown`` (it may have been billed and no answer said),
+#: ``free`` (nothing billed).
+type RemoteOutcome = Literal["verdict", "billed", "unknown", "free"]
+
+#: The ledger line's mark for each :data:`RemoteOutcome`.
+_OUTCOME_MARKS: dict[RemoteOutcome, str] = {
+    "verdict": "1",
+    "billed": "b",
+    "unknown": "?",
+    "free": "0",
+}
+
+
 @dataclass(frozen=True)
 class RemoteCompiles:
     """Where one dispatch op call counts its recompile calls, and whom they are for.
 
-    Each finished call to the service appends one line to *ledger*: ``1`` or
-    ``0`` for whether the service gave a verdict (a compiled object or the
-    compiler's rejection, the compiles recompile bills, also when the
-    object's download then failed), or ``?`` for a call whose key may have
-    been admitted and that no answer settled
-    (:attr:`~rebrew.compiler.recompile_client.RecompileError.unsettled`), then the wall
-    milliseconds the call waited, retries and capacity waits included.  A
-    line is one ``O_APPEND`` write, so the threads of a batch and the child
-    commands an op runs share the file.
+    Each finished call to the service appends one line to *ledger*: its
+    :data:`RemoteOutcome` (``1`` billed with a verdict, a compiled object or the
+    compiler's rejection; ``b`` billed without one, the
+    :attr:`~rebrew.compiler.recompile_client.RecompileError.cost` ``billed``; ``?``
+    billing unknown, the cost ``unknown``; ``0`` free), then the wall milliseconds
+    the call waited, retries and capacity waits included.  A line is one
+    ``O_APPEND`` write, so the threads of a batch and the child commands an op
+    runs share the file.
     """
 
     ledger: Path
@@ -1509,9 +1523,9 @@ class RemoteCompiles:
             ),
         }
 
-    def record(self, *, verdict: bool, unsettled: bool, wait_ms: int) -> None:
+    def record(self, *, outcome: RemoteOutcome, wait_ms: int) -> None:
         """Append one finished recompile call."""
-        line = f"{'?' if unsettled else int(verdict)} {wait_ms}\n".encode("ascii")
+        line = f"{_OUTCOME_MARKS[outcome]} {wait_ms}\n".encode("ascii")
         descriptor = os.open(self.ledger, os.O_WRONLY | os.O_APPEND)
         try:
             os.write(descriptor, line)
@@ -1523,18 +1537,20 @@ class RemoteCompiles:
         return self.ledger.stat().st_size > 0
 
     def totals(self) -> dict[str, int]:
-        """``{"count", "unsettled", "wait_ms"}`` over every recorded call.
+        """``{"count", "billed_undelivered", "unsettled", "wait_ms"}`` over every recorded call.
 
-        ``count`` is the billed calls, ``unsettled`` the calls whose billing no
-        answer settled (never part of ``count``), ``wait_ms`` the total wait.
+        ``count`` is the calls billed with a verdict, ``billed_undelivered`` the
+        calls billed without one, ``unsettled`` the calls whose billing no answer
+        settled; each call is in at most one of them.  ``wait_ms`` is the total wait.
         """
-        count = unsettled = wait_ms = 0
+        totals = dict.fromkeys(("count", "billed_undelivered", "unsettled", "wait_ms"), 0)
+        member = {"1": "count", "b": "billed_undelivered", "?": "unsettled"}
         for line in self.ledger.read_text(encoding="ascii").splitlines():
-            verdict, waited = line.split()
-            count += verdict == "1"
-            unsettled += verdict == "?"
-            wait_ms += int(waited)
-        return {"count": count, "unsettled": unsettled, "wait_ms": wait_ms}
+            mark, waited = line.split()
+            if mark in member:
+                totals[member[mark]] += 1
+            totals["wait_ms"] += int(waited)
+        return totals
 
 
 #: The op call in flight in this thread; a child command reads its own from the environment.
@@ -2042,7 +2058,7 @@ def _compile_via_recompile(
     called_by = call_deadline()
     remote = current_remote_compiles()
     waited_from = time.monotonic()
-    verdict = unsettled = False
+    outcome: RemoteOutcome = "free"
     try:
         res = compile_source(
             url,
@@ -2067,18 +2083,16 @@ def _compile_via_recompile(
             deadline=None if called_by is None else called_by - timeout,
             attribution=None if remote is None else remote.attribution,
         )
-        verdict = True
+        outcome = "verdict"
     except RecompileError as exc:
-        # A failed artifact download follows a compile recompile already billed.
-        verdict, unsettled = exc.after_verdict, exc.unsettled
+        outcome = exc.cost
         if backend_errors is not None:
             backend_errors.append(exc)
         return None, f"recompile service error: {exc}"
     finally:
         if remote is not None:
             remote.record(
-                verdict=verdict,
-                unsettled=unsettled,
+                outcome=outcome,
                 wait_ms=round((time.monotonic() - waited_from) * 1000),
             )
         if job_socket:
@@ -4090,6 +4104,7 @@ __all__ = [
     "CompareStatus",
     "RemoteBundle",
     "RemoteCompiles",
+    "RemoteOutcome",
     "build_linked_link_cmd",
     "call_deadline",
     "classify_compare_result",

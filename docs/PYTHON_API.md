@@ -165,10 +165,10 @@ print(result.ok, result.obj_bytes, result.log, result.compiler_version)
 # An HTTP refusal carries the body's `code` in `error_code` (recompile 11
 # answers `{"detail", "code"}`); a code saying the key can never yield a result
 # and billed nothing (`admission_expired`, `delivery_denied`, ...) is retried
-# under a new key. `RecompileError.unsettled` is True when the key may have
-# been admitted and no answer said whether it was billed;
-# `RecompileError.after_verdict` when the POST answered ok and the download
-# failed (billed).
+# under a new key. `RecompileError.cost` is what the call's last key cost:
+# "billed" (billed and no verdict reached the call: the download failed after
+# ok, or billed_not_delivered, retained_output_unavailable, artifact_expired),
+# "unknown" (it may have been billed and no answer said), or "free".
 # Every `RecompileError` is no verdict on the source (`compile_and_compare`
 # reads it as NOT_RUN); the toolchain's verdict is `result.ok == False`.
 # `result.to_dict()` / `RecompileResult.from_dict()` store the verdict (not

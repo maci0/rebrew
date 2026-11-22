@@ -7387,13 +7387,14 @@ Op details the contract leaves open:
   job}` (each 1 to 128 printable ASCII characters; anything else is a 400
   `invalid-request`), which every recompile call they make sends in
   `X-Relumea-Attribution`, and their reply carries `remote_compile: {count,
-  unsettled, wait_ms}`: `count` is the compiles the service gave a verdict on (an object or
-  the compiler's rejection, the ones a hosted recompile bills, an object whose
-  download then failed included: recompile settles the compile inside its
-  `POST /api/v1/compile`, and that source reads `NOT_RUN`), `unsettled` the
-  compiles recompile may have billed with no answer that says whether it did
-  ([TOOLCHAIN.md](TOOLCHAIN.md#compile-backends)); they are never part of `count`,
-  and a consumer reads them on their own, never adding them to `count`; `wait_ms` the
+  billed_undelivered, unsettled, wait_ms}`, three counts of which each compile is in at
+  most one: `count` is the compiles the service billed and gave the op a verdict on (an
+  object or the compiler's rejection), `billed_undelivered` the compiles it billed whose
+  verdict the op did not get (an object whose download failed, and that source reads
+  `NOT_RUN`; `billed_not_delivered`, `retained_output_unavailable`, `artifact_expired`),
+  `unsettled` the compiles recompile may have billed with no answer that says whether
+  it did ([TOOLCHAIN.md](TOOLCHAIN.md#compile-backends)); a consumer reads each on its
+  own, never adding one to another; `wait_ms` the
   wall milliseconds spent waiting on the service, refused and retried calls
   included, child commands counted. A refusal after a recompile call carries
   the same `remote_compile`, so a rejected candidate still says it compiled.

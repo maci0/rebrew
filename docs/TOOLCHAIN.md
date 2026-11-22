@@ -46,24 +46,31 @@ least the `Retry-After`. `capacity`, `runner_unavailable`, `publish_failed` and 
 codes are retried under a new key; a lost or unreadable reply and a 5xx under the
 same key with the same body, `emit_assembly` or not, which the service answers with
 the key's first outcome. The service's `timeout` and `provenance_unavailable` are
-final. So are `admission_unrecoverable`, `retained_output_unavailable` and a 401 or
-403 other than `delivery_denied`, which may follow a billed compile and which rebrew
-cannot resend under a renewed credential (recompile `docs/API.md`, "Error codes": a
-retry under the same key reads that compile's first outcome and is not billed again).
+final. So are `admission_unrecoverable`, `retained_output_unavailable`,
+`artifact_expired`, and a 401, a 423 or a 403 other than `delivery_denied`, which
+rebrew cannot resend under a renewed credential (recompile `docs/API.md`, "Client
+rules": a retry under the same key reads that compile's first outcome and is not
+billed again).
 
-An op's `remote_compile.count` counts a compile call once, when an answer under its key
-settles it: billed for an object (also when its download then failed) or the
-compiler's rejection, free for the service's other `error_code` values, a
-`delivery_denied` and the spent-key codes, a 4xx other than a 429 or a refused
-credential (the service answers a known key with its first outcome, so it also
-settles a reply lost before it), or a refusal of a key that no earlier attempt
-may have admitted (a `503 credit_ledger_unavailable` admitted nothing). A call
-that ends with its key possibly admitted and no settling answer (a reply lost on
-every attempt, a 5xx or 503 waited out to the deadline, a refused credential,
-`admission_unrecoverable`,
-`retained_output_unavailable`) is unsettled: `count` leaves it out, and
-`remote_compile.unsettled` counts it, in the op's reply and in a refusal after a
-recompile call.
+Every answer of the compile and artifact routes is read by one table
+(`recompile_client._ANSWERS`, recompile `docs/API.md` "Client rules"): what the
+answer says the key cost, and whether the client downloads, stops, waits, retries
+or retries under a new key. An op's `remote_compile` puts each compile call in at
+most one of three counts by what its last key cost. `count` is a call the service
+billed and whose verdict the op got: an object, or the compiler's rejection.
+`billed_undelivered` is a call the service billed whose verdict the op did not get:
+the object's download failed after `status: "ok"`, or the key was answered
+`403 billed_not_delivered`, `409 retained_output_unavailable` or
+`410 artifact_expired`. `unsettled` is a call whose key may have been billed and no
+answer said: a reply lost on every attempt, a 5xx or 503 waited out to the
+deadline, `admission_unrecoverable`, or an answer that says nothing of the key (a
+refused credential, `423 account_under_review`, a throttle,
+`503 credit_ledger_unavailable`) after one of those. A call in none of them was free:
+the service's other `error_code` values, `delivery_denied` and the spent-key codes,
+a `402`, a new compile or a malformed request refused (`400`, `413`, `415`, `422`),
+or a refused credential on a key's first attempt. The service answers a known key
+with its first outcome, so a settling answer also settles a reply lost before it.
+The three counts are in the op's reply and in a refusal after a recompile call.
 
 A compiler the registry withdraws (`ToolchainSpec.withdrawn`, its reason; today
 `msvc-9.0-sp1`, whose image compiles for Itanium) is not offered and never run:

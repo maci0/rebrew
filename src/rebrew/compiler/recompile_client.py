@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 import threading
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any, Literal, Protocol, runtime_checkable
 lazy import contextlib
 lazy import os
@@ -135,59 +136,178 @@ MAX_RETRY_AFTER_SECONDS = 300
 #: out capacity and throttle refusals before it reports the last one.
 NO_DEADLINE_WAIT_SECONDS = 300
 
-#: ``error_code`` values and HTTP statuses of a refusal that says the service has
-#: no room for the compile now (recompile ``docs/API.md``: ``capacity`` and
-#: ``runner_unavailable`` refusals and 503s carry ``Retry-After``, a 429 is its
-#: throttle).  A compile waits them out until its deadline; they spend no retry.
-_WAIT_FAILURES = frozenset({"capacity", "runner_unavailable"})
-_WAIT_STATUSES = frozenset({429, 503})
+#: What one answer of the service says the compile's key cost: ``billed``,
+#: ``free`` (nothing billed) or ``unknown`` (it may have been billed, and no
+#: answer said).  A call ends with the cost of its last key
+#: (:attr:`RecompileError.cost`); a call that returns a result was billed and
+#: gave its verdict.
+KeyCost = Literal["billed", "free", "unknown"]
+
+#: What the client does after an answer: ``download`` the object (a compile's
+#: ``status: "ok"``); take the answer as the ``verdict``; ``final``, no other
+#: attempt; ``wait``, the same request after its ``Retry-After`` or the backoff,
+#: until the call's deadline, spending no retry; ``retry``, the same request
+#: after the backoff, spending one; ``new_key`` and ``new_key_wait``, the same as
+#: ``retry`` and ``wait`` under a new ``Idempotency-Key``.
+_NextStep = Literal["download", "verdict", "final", "wait", "retry", "new_key", "new_key_wait"]
+
+#: The two routes a compile reads: ``POST /api/v1/compile`` and the artifact
+#: download ``GET /api/v1/artifacts/{artifact_name}``.
+_Route = Literal["compile", "artifact"]
+
+
+@dataclass(frozen=True)
+class _AnswerRule:
+    """How the client reads one recompile answer (recompile ``docs/API.md``, "Client rules")."""
+
+    #: What the answer says the key cost; ``None`` says nothing of it, so the key
+    #: keeps what earlier answers left (a refused credential, a throttle).
+    cost: KeyCost | None
+    then: _NextStep
+
+
+#: The ``code`` of a table row that holds for every code of its status that no
+#: row of its own names.
+_ANY_CODE = "*"
+
+#: Every answer of recompile 14's compile and artifact routes, keyed by route,
+#: HTTP status and code: the error body's ``code``, or for a compile's 200 its
+#: ``error_code`` (``None`` for ``status: "ok"``).  The costs are rule 4 of the
+#: client rules, the next steps rules 3, 5 and 7.  An answer no row names is
+#: read by its status: a 5xx may have been billed and is final, anything else
+#: says nothing of the key and is final.
+_ANSWERS: Mapping[tuple[_Route, int, str | None], _AnswerRule] = MappingProxyType(
+    {
+        # The compile ran: an object to download, or the compiler's rejection.
+        ("compile", 200, None): _AnswerRule("billed", "download"),
+        ("compile", 200, "toolchain_failure"): _AnswerRule("billed", "verdict"),
+        # The service's own failures bill nothing; capacity and a runner that is
+        # not up are waited out, a failed publish is compiled again (rule 5).
+        ("compile", 200, "capacity"): _AnswerRule("free", "new_key_wait"),
+        ("compile", 200, "runner_unavailable"): _AnswerRule("free", "new_key_wait"),
+        ("compile", 200, "publish_failed"): _AnswerRule("free", "new_key"),
+        ("compile", 200, "timeout"): _AnswerRule("free", "final"),
+        ("compile", 200, "provenance_unavailable"): _AnswerRule("free", "final"),
+        ("compile", 200, "missing_artifact"): _AnswerRule("free", "final"),
+        ("compile", 200, "replay_rejected"): _AnswerRule("free", "final"),
+        # A new compile refused, or a request refused before it reached
+        # Platform; the same request is refused the same way.
+        ("compile", 400, "compiler_not_installed"): _AnswerRule("free", "final"),
+        ("compile", 400, "compiler_unavailable"): _AnswerRule("free", "final"),
+        ("compile", 400, "compiler_withdrawn"): _AnswerRule("free", "final"),
+        ("compile", 400, "bundles_unsupported"): _AnswerRule("free", "final"),
+        ("compile", 400, "invalid_idempotency_key"): _AnswerRule("free", "final"),
+        ("compile", 400, "invalid_attribution"): _AnswerRule("free", "final"),
+        ("compile", 400, "malformed_request"): _AnswerRule("free", "final"),
+        ("compile", 400, _ANY_CODE): _AnswerRule(None, "final"),
+        # A refused credential: rebrew gets no other one to resend the key with.
+        ("compile", 401, "unauthenticated"): _AnswerRule(None, "final"),
+        ("compile", 401, "authentication_required"): _AnswerRule(None, "final"),
+        ("compile", 401, _ANY_CODE): _AnswerRule(None, "final"),
+        # Nothing was admitted; the account must pay first.
+        ("compile", 402, "model_credits_exhausted"): _AnswerRule("free", "final"),
+        ("compile", 402, "workbench_plan_required"): _AnswerRule("free", "final"),
+        ("compile", 402, "allowance_exhausted"): _AnswerRule("free", "final"),
+        ("compile", 402, _ANY_CODE): _AnswerRule(None, "final"),
+        # Billed, and this credential may not receive the result.
+        ("compile", 403, "billed_not_delivered"): _AnswerRule("billed", "final"),
+        ("compile", 403, "delivery_denied"): _AnswerRule("free", "new_key"),
+        ("compile", 403, "forbidden"): _AnswerRule(None, "final"),
+        ("compile", 403, "cross_origin_write"): _AnswerRule(None, "final"),
+        ("compile", 403, "cross_site_write"): _AnswerRule(None, "final"),
+        ("compile", 403, "edge_required"): _AnswerRule(None, "final"),
+        ("compile", 403, _ANY_CODE): _AnswerRule(None, "final"),
+        ("compile", 405, _ANY_CODE): _AnswerRule(None, "final"),
+        ("compile", 408, _ANY_CODE): _AnswerRule(None, "retry"),
+        ("compile", 409, "admission_abandoned"): _AnswerRule("free", "new_key"),
+        ("compile", 409, "admission_expired"): _AnswerRule("free", "new_key"),
+        ("compile", 409, "result_unavailable"): _AnswerRule("free", "new_key"),
+        ("compile", 409, "admission_unrecoverable"): _AnswerRule("unknown", "final"),
+        ("compile", 409, "retained_output_unavailable"): _AnswerRule("billed", "final"),
+        # The key names a compile of another request; this one never ran under it.
+        ("compile", 409, "admission_conflict"): _AnswerRule("free", "final"),
+        ("compile", 409, _ANY_CODE): _AnswerRule(None, "final"),
+        ("compile", 410, "artifact_expired"): _AnswerRule("billed", "final"),
+        ("compile", 410, _ANY_CODE): _AnswerRule(None, "final"),
+        ("compile", 413, "source_too_large"): _AnswerRule("free", "final"),
+        ("compile", 413, "body_too_large"): _AnswerRule("free", "final"),
+        ("compile", 413, _ANY_CODE): _AnswerRule(None, "final"),
+        ("compile", 415, "unsupported_media_type"): _AnswerRule("free", "final"),
+        ("compile", 415, _ANY_CODE): _AnswerRule(None, "final"),
+        ("compile", 422, "validation_failed"): _AnswerRule("free", "final"),
+        ("compile", 422, _ANY_CODE): _AnswerRule("free", "final"),
+        ("compile", 423, "account_under_review"): _AnswerRule(None, "final"),
+        ("compile", 423, _ANY_CODE): _AnswerRule(None, "final"),
+        ("compile", 425, _ANY_CODE): _AnswerRule(None, "retry"),
+        ("compile", 429, "rate_limited"): _AnswerRule(None, "wait"),
+        ("compile", 429, "concurrency_limit"): _AnswerRule(None, "wait"),
+        ("compile", 429, "failure_throttle"): _AnswerRule(None, "wait"),
+        ("compile", 429, "request_budget"): _AnswerRule(None, "wait"),
+        ("compile", 429, _ANY_CODE): _AnswerRule(None, "wait"),
+        ("compile", 500, _ANY_CODE): _AnswerRule("unknown", "retry"),
+        ("compile", 502, _ANY_CODE): _AnswerRule("unknown", "retry"),
+        ("compile", 503, "runtime_unavailable"): _AnswerRule("unknown", "wait"),
+        ("compile", 503, "platform_unavailable"): _AnswerRule("unknown", "wait"),
+        ("compile", 503, "settlement_pending"): _AnswerRule("unknown", "wait"),
+        ("compile", 503, "store_unavailable"): _AnswerRule("unknown", "wait"),
+        # The credit ledger did not answer: this attempt admitted nothing.
+        ("compile", 503, "credit_ledger_unavailable"): _AnswerRule(None, "wait"),
+        ("compile", 503, _ANY_CODE): _AnswerRule("unknown", "wait"),
+        ("compile", 504, _ANY_CODE): _AnswerRule("unknown", "retry"),
+        # A download follows a billed compile and changes nothing of its cost.
+        ("artifact", 200, None): _AnswerRule(None, "verdict"),
+        ("artifact", 401, _ANY_CODE): _AnswerRule(None, "final"),
+        ("artifact", 403, _ANY_CODE): _AnswerRule(None, "final"),
+        ("artifact", 404, "artifact_not_found"): _AnswerRule(None, "final"),
+        ("artifact", 404, _ANY_CODE): _AnswerRule(None, "final"),
+        ("artifact", 408, _ANY_CODE): _AnswerRule(None, "retry"),
+        ("artifact", 409, "retained_output_unavailable"): _AnswerRule(None, "final"),
+        ("artifact", 409, _ANY_CODE): _AnswerRule(None, "final"),
+        ("artifact", 410, "artifact_expired"): _AnswerRule(None, "final"),
+        ("artifact", 410, _ANY_CODE): _AnswerRule(None, "final"),
+        ("artifact", 423, _ANY_CODE): _AnswerRule(None, "final"),
+        ("artifact", 425, _ANY_CODE): _AnswerRule(None, "retry"),
+        ("artifact", 429, _ANY_CODE): _AnswerRule(None, "retry"),
+        ("artifact", 500, _ANY_CODE): _AnswerRule(None, "retry"),
+        ("artifact", 502, _ANY_CODE): _AnswerRule(None, "retry"),
+        ("artifact", 503, "platform_unavailable"): _AnswerRule(None, "retry"),
+        ("artifact", 503, "store_unavailable"): _AnswerRule(None, "retry"),
+        ("artifact", 503, "artifact_evidence_unavailable"): _AnswerRule(None, "retry"),
+        ("artifact", 503, _ANY_CODE): _AnswerRule(None, "retry"),
+        ("artifact", 504, _ANY_CODE): _AnswerRule(None, "retry"),
+    }
+)
+
+#: A compile POST that got no readable answer: sent and maybe admitted.
+_LOST_REPLY = _AnswerRule("unknown", "retry")
+
+#: A compile POST that never connected: nothing reached the service.
+_NOT_SENT = _AnswerRule(None, "retry")
+
+
+def _answer_rule(route: _Route, status: int, code: str | None) -> _AnswerRule:
+    """The :data:`_ANSWERS` row of one answer, or the rule of its status when none names it."""
+    rule = _ANSWERS.get((route, status, code)) or _ANSWERS.get((route, status, _ANY_CODE))
+    if rule is not None:
+        return rule
+    if route == "compile" and status >= 500:
+        return _AnswerRule("unknown", "final")
+    return _AnswerRule(None, "final")
+
+
+#: The ``error_code`` values of a compile's 200 the client reads; another is a
+#: protocol error.
+_COMPILE_FAILURES = frozenset(
+    code for route, status, code in _ANSWERS if route == "compile" and status == 200 and code
+)
 
 #: The one ``error_code`` that is the compiler's verdict on the source
 #: (recompile ``models.CompileFailureKind``).
 _TOOLCHAIN_FAILURE = "toolchain_failure"
 
-#: ``error_code`` values for the service's own infrastructure, or a pin it could
-#: not admit: no verdict on the source, and none billed.
-_INFRASTRUCTURE_FAILURES = frozenset(
-    {"capacity", "timeout", "runner_unavailable", "publish_failed", "provenance_unavailable"}
-)
-
-#: The infrastructure failures recompile's client rules (rule 5) answer with
-#: another attempt under a new key; the others are final.
-_RETRY_FAILURES = frozenset({"capacity", "runner_unavailable", "publish_failed"})
-
-#: ``error_code`` values for the artifact store or the idempotency key: no
-#: verdict on the source, and not retryable as sent.
-_STORE_FAILURES = frozenset({"missing_artifact", "replay_rejected"})
-
 #: Infrastructure failures of a compile the service refused before running it,
 #: so a re-sent ``emit_assembly`` request cannot repeat a retention side effect.
 _NOT_RUN_FAILURES = frozenset({"capacity"})
-
-#: Error ``code`` values of a refusal whose key can never yield a result and
-#: billed nothing, so a new attempt needs a new key (recompile's client rules,
-#: rule 5): the admission ended before dispatch, passed its payment deadline or
-#: ended without a retained result, or the current credential may not receive
-#: the result.  ``admission_unrecoverable`` is final too, but its compile may
-#: have been billed, so it is never compiled again under a new key.
-_SPENT_KEY_CODES = frozenset(
-    {
-        "admission_abandoned",
-        "admission_expired",
-        "result_unavailable",
-        "delivery_denied",
-    }
-)
-
-#: Final refusal codes that may follow a billed compile: the key has no local
-#: record (recompile's client rules, rule 5), or its receipt was spent and the
-#: output is not rebuilt (recompile ``docs/API.md``, "Error codes").  Neither
-#: settles whether the key was billed.
-_UNSETTLED_CODES = frozenset({"admission_unrecoverable", "retained_output_unavailable"})
-
-#: The 503 ``code`` of a compile whose credit reservation the Workbench ledger did
-#: not answer: nothing was admitted or billed (recompile ``docs/API.md``).
-_LEDGER_UNAVAILABLE = "credit_ledger_unavailable"
 
 #: Shape of a recompile error ``code``; another value is not read.
 _ERROR_CODE = re.compile(r"[a-z][a-z_]{0,63}")
@@ -366,20 +486,22 @@ class RecompileError(RebrewError, RuntimeError):
     - ``retry_after`` — the seconds the reply's ``Retry-After`` header asked
       to wait (at most :data:`MAX_RETRY_AFTER_SECONDS`), else ``None``
 
-    ``after_verdict`` is ``True`` when the compile POST had already answered
-    ``status: "ok"`` and the artifact download failed: recompile settled (and
-    billed) that compile inside the POST, before serving the artifact.
-    ``unsettled`` is ``True`` when the call's last key may have been admitted
-    (a lost or unreadable reply, a 5xx other than ``credit_ledger_unavailable``,
-    a 401 or a 403 other than ``delivery_denied``, ``admission_unrecoverable``,
-    ``retained_output_unavailable``) and no answer under it said whether
-    recompile billed it (a later 4xx under the key but a 429, 401 or 403 says it
-    billed nothing).
+    ``cost`` is what the call's last key cost, set by :func:`compile_source` on the
+    error it raises: ``"billed"`` when the service billed it and the call got no
+    verdict (the object's download failed after ``status: "ok"``, or
+    ``403 billed_not_delivered``, ``409 retained_output_unavailable``,
+    ``410 artifact_expired``), ``"unknown"`` when it may have been billed and no
+    answer under it said (a lost or unreadable reply, a 5xx other than
+    ``credit_ledger_unavailable``, ``admission_unrecoverable``, and a refused
+    credential, throttle or other answer that says nothing of the key after one
+    of those), else ``"free"``.  Each answer is read by one table, the client
+    rules of recompile ``docs/API.md``.
     """
 
     #: Set by :func:`compile_source` on the error it raises.
-    after_verdict: bool = False
-    unsettled: bool = False
+    cost: KeyCost = "free"
+    #: What :func:`compile_source` does next, from the answer's table row.
+    _then: _NextStep | None = None
 
     STRUCTURED_FIELDS = (*RebrewError.STRUCTURED_FIELDS, "error_code", "retry_after")
 
@@ -480,12 +602,11 @@ def _deadline_refusal(why: str) -> RecompileError:
     return RecompileError(f"recompile not sent: {why}", kind="deadline")
 
 
-def _no_room(exc: RecompileError) -> bool:
-    """Whether *exc* is a compile refusal to wait out rather than a failure that spends a retry."""
-    return exc.retryable and (
-        (exc.kind == "service" and exc.error_code in _WAIT_FAILURES)
-        or (exc.kind == "http" and exc.status_code in _WAIT_STATUSES)
-    )
+def _answered(message: str, rule: _AnswerRule, **fields: Any) -> RecompileError:
+    """A :class:`RecompileError` for one answer, retryable unless its *rule* is final."""
+    error = RecompileError(message, retryable=rule.then != "final", **fields)
+    error._then = rule.then
+    return error
 
 
 #: Names the one in-cluster service host that may receive the API key over plain HTTP.
@@ -598,11 +719,13 @@ def _download_artifact(
                 detail = detail.replace(
                     auth_headers["Authorization"].removeprefix("Bearer "), "[redacted]"
                 )
-            raise RecompileError(
+            code = _error_code(art)
+            raise _answered(
                 f"recompile artifact download returned HTTP {art.status_code}: {detail[:200]}",
+                _answer_rule("artifact", art.status_code, code),
                 kind="http",
                 status_code=art.status_code,
-                retryable=art.status_code in RETRYABLE_HTTP_STATUS,
+                error_code=code,
             )
         # Bound the buffered artifact before it is handed to the caller
         # (who writes it to disk and parses it). Both the declared
@@ -1033,9 +1156,15 @@ def compile_source(
     # Body + artifact_url from a successful compile POST.  Set once; retries
     # only re-GET so a successful compile is not repeated.
     pending: tuple[dict[str, Any], str] | None = None
-    # Whether an attempt under the current key may have been admitted without
-    # an answer that settles it (see RecompileError.unsettled).
-    admitted = False
+    # What the current key cost so far (see RecompileError.cost); a new key
+    # starts free.
+    cost: KeyCost = "free"
+
+    def read(rule: _AnswerRule) -> None:
+        nonlocal cost
+        if rule.cost is not None:
+            cost = rule.cost
+
     # Stopwatch for the terminal record: how long the run spent on a
     # dependency before giving up, which is the number an operator needs when
     # the service is the thing that changed.
@@ -1043,8 +1172,7 @@ def compile_source(
     while True:
         if deadline is not None and now() >= deadline:
             refusal = _deadline_refusal("the call's deadline has passed")
-            refusal.after_verdict = pending is not None
-            refusal.unsettled = pending is None and admitted
+            refusal.cost = cost
             raise refusal
         # One client for POST + GET.  Injected clients are not closed here.
         cm: Any = (
@@ -1079,49 +1207,34 @@ def compile_source(
                             if resp.status_code >= 500:
                                 sent.fail(f"status {resp.status_code}")
                     except Exception as exc:
-                        if not isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout)):
-                            admitted = True
-                        raise RecompileError(
-                            f"recompile service at {url} unreachable: {exc}",
-                            kind="network",
-                            retryable=True,
+                        rule = (
+                            _NOT_SENT
+                            if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout))
+                            else _LOST_REPLY
+                        )
+                        read(rule)
+                        raise _answered(
+                            f"recompile service at {url} unreachable: {exc}", rule, kind="network"
                         ) from exc
                     try:
-                        # A reply that is not a settling answer leaves the key unsettled:
-                        # a 200 until it is read, a 5xx, a refused credential (rebrew
-                        # cannot get a new one to resend the key with), and the
-                        # final codes that may follow a billed compile.  Another 4xx
-                        # but a throttle is the key's first outcome, and billed
-                        # nothing: it settles a reply lost before it.  A throttle and
-                        # a credit ledger that did not answer say nothing of earlier
-                        # attempts and admitted nothing themselves.
-                        code = None if resp.status_code == 200 else _error_code(resp)
-                        if (
-                            resp.status_code == 200
-                            or (resp.status_code >= 500 and code != _LEDGER_UNAVAILABLE)
-                            or (resp.status_code in (401, 403) and code != "delivery_denied")
-                            or code in _UNSETTLED_CODES
-                        ):
-                            admitted = True
-                        elif 400 <= resp.status_code < 500 and resp.status_code != 429:
-                            admitted = False
                         if resp.status_code != 200:
+                            code = _error_code(resp)
+                            rule = _answer_rule("compile", resp.status_code, code)
+                            read(rule)
                             detail = (
                                 resp.text.replace(api_key, "[redacted]") if api_key else resp.text
                             )
-                            raise RecompileError(
+                            raise _answered(
                                 f"recompile service returned HTTP {resp.status_code}"
                                 f"{f' ({code})' if code else ''}: {detail[:300]}",
+                                rule,
                                 kind="http",
                                 status_code=resp.status_code,
                                 error_code=code,
-                                # A spent key compiles again under a new one; the
-                                # codes come from a hosted service, which keeps no
-                                # assembly output, so emit_assembly does not hold it.
-                                retryable=code in _SPENT_KEY_CODES
-                                or resp.status_code in RETRYABLE_HTTP_STATUS,
                                 retry_after=_retry_after(resp.headers.get("Retry-After")),
                             )
+                        # A 200 not yet read may be the key's billed result.
+                        read(_LOST_REPLY)
                         try:
                             body = resp.json()
                         except Exception as exc:
@@ -1149,24 +1262,26 @@ def compile_source(
                             if api_key:
                                 failure_log = failure_log.replace(api_key, "[redacted]")
                             code = body.get("error_code")
-                            if code == _TOOLCHAIN_FAILURE:
-                                return RecompileResult(ok=False, log=failure_log)
-                            if not isinstance(code, str) or (
-                                code not in _INFRASTRUCTURE_FAILURES and code not in _STORE_FAILURES
-                            ):
+                            if not isinstance(code, str) or code not in _COMPILE_FAILURES:
                                 raise RecompileError(
                                     "recompile service returned a failed compile with "
                                     f"unknown error_code {code!r}"[:300],
                                     kind="protocol",
                                     retryable=True,
                                 )
-                            raise RecompileError(
+                            rule = _answer_rule("compile", 200, code)
+                            read(rule)
+                            if rule.then == "verdict":
+                                return RecompileResult(ok=False, log=failure_log)
+                            if emit_assembly and code not in _NOT_RUN_FAILURES:
+                                # The compile may have run and kept its assembly output.
+                                rule = _AnswerRule(rule.cost, "final")
+                            raise _answered(
                                 f"recompile service could not compile ({code}): "
                                 f"{failure_log[:300]}",
+                                rule,
                                 kind="service",
                                 error_code=code,
-                                retryable=code in _RETRY_FAILURES
-                                and (not emit_assembly or code in _NOT_RUN_FAILURES),
                                 retry_after=_retry_after(resp.headers.get("Retry-After")),
                             )
                         artifact_url = body.get("artifact_url")
@@ -1183,6 +1298,7 @@ def compile_source(
                                 kind="protocol",
                                 retryable=True,
                             )
+                        read(_answer_rule("compile", 200, None))
                         pending = (body, artifact_url)
                     finally:
                         close_response(resp)
@@ -1202,14 +1318,8 @@ def compile_source(
                     )
                 return result
         except RecompileError as exc:
-            exc.after_verdict = pending is not None
-            # A 200 failure or a spent-key refusal settles its key: nothing billed.
-            exc.unsettled = (
-                pending is None
-                and admitted
-                and exc.kind != "service"
-                and exc.error_code not in _SPENT_KEY_CODES
-            )
+            exc.cost = cost
+            then = exc._then or ("retry" if exc.retryable else "final")
             if api_key:
                 exc.args = (str(exc).replace(api_key, "[redacted]"),)
                 exc.__cause__ = None
@@ -1220,9 +1330,9 @@ def compile_source(
             # call that gives up here must not let the next one send at once.
             if exc.retryable and exc.retry_after and gate is not None:
                 gate.hold_off(exc.retry_after)
-            # A refusal of the compile itself for want of room is waited out
-            # until the deadline; a lost artifact download spends a retry.
-            no_room = pending is None and _no_room(exc)
+            # An answer that asks to wait is waited out until the deadline;
+            # another retryable one spends a retry.
+            no_room = then in ("wait", "new_key_wait")
             if no_room:
                 waits += 1
             else:
@@ -1248,12 +1358,12 @@ def compile_source(
                     retry_log_detail(exc),
                 )
                 raise
-            if exc.kind == "service" or exc.error_code in _SPENT_KEY_CODES:
+            if then in ("new_key", "new_key_wait"):
                 # The service answered this attempt, and a hosted recompile
-                # keeps the refusal under its key, or says the key can never
+                # keeps the answer under its key, or says the key can never
                 # yield a result: the retry is a new attempt.
                 post_headers["Idempotency-Key"] = secrets.token_hex(_IDEMPOTENCY_KEY_BYTES)
-                admitted = False
+                cost = "free"
             # Immediate re-POST of a 503/timeout hammers a recovering service;
             # exponential backoff (capped) gives it room without unbounded wait,
             # and a Retry-After the service named is the least it is given.  With
@@ -1324,6 +1434,7 @@ __all__ = [
     "Attribution",
     "HttpClient",
     "HttpResponse",
+    "KeyCost",
     "RecompileError",
     "RecompileErrorKind",
     "RecompileResult",
