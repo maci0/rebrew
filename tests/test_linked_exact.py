@@ -77,8 +77,11 @@ def _mock(monkeypatch: pytest.MonkeyPatch, *, placed: bool = True) -> None:
     from rebrew.verify_hash import expected_text_functions
 
     _VERDICT["status"] = "RELOC"
-    monkeypatch.setattr("rebrew.compiler.compile.compile_and_compare", _compare)
+    # rebrew.test binds compile_and_compare lazily, on first access, and
+    # monkeypatch reads it to save the original: patched second, it saved and
+    # later restored this stand-in, which every later test in the process used.
     monkeypatch.setattr("rebrew.test.compile_and_compare", _compare)
+    monkeypatch.setattr("rebrew.compiler.compile.compile_and_compare", _compare)
     monkeypatch.setattr("rebrew.compiler.compile.precompile_batch", lambda *a, **k: {})
     monkeypatch.setattr(
         "rebrew.text_audit.collect_actual_vas",
