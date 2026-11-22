@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.67.0] - 2026-11-22
+
 ### Changed
 
 - The pytest suite costs 36% fewer user-space instructions (3,925 G to 2,520 G under `perf stat -e instructions:u`, `-n auto`, warm, measured on 6.66.0's tree with 16,069 tests passing before and after). Expensive module fixtures (analyses, the built wheel, the unshare rootfs) are built once per session for all xdist workers through `tests/session_cache.py` instead of once per worker, and property tests build their strategies once at module level instead of on every draw. `tests/test_check_idempotency.py` no longer runs the whole idempotency sweep, which CI runs as its own `make idempotency-check` step; a new pre-push hook runs it locally.
