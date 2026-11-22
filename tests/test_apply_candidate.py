@@ -530,7 +530,9 @@ def test_apply_answers_a_compile_the_service_never_ran_as_503_with_retry_after(
                 thread.join(_WAIT_SECONDS)
     assert (response.status, refusal["error"]) == (503, "compile-not-run"), refusal
     assert response.getheader("Retry-After") == str(_THROTTLE_SECONDS)
-    assert refusal["detail"].startswith("not run (service unavailable): ")
+    assert refusal["detail"] == (
+        "the recompile service did not run the compile (a refusal, HTTP 429): nothing was applied"
+    )
 
 
 #: A source in a subdirectory, as the backend's projects lay them out.
@@ -1278,6 +1280,47 @@ def test_a_refusal_after_an_unsettled_compile_reports_it(
     assert len(seen) == 3
     assert refusal["remote_compile"]["count"] == 0
     assert refusal["remote_compile"]["unsettled"] == 1
+
+
+@pytest.mark.parametrize(
+    ("answers", "problem", "detail"),
+    [
+        (
+            ["lost", "lost", "lost"],
+            "compile-not-run",
+            "the recompile service did not run the compile (no readable reply): "
+            "nothing was applied",
+        ),
+        (
+            [(409, {"detail": "store at http://10.0.0.9:9000", "code": "admission_unrecoverable"})],
+            "compile-not-run",
+            "the recompile service did not run the compile (a refusal, HTTP 409, "
+            "admission_unrecoverable): nothing was applied",
+        ),
+        (
+            [(400, {"detail": "withdrawn {'why': 'ia64'}", "code": "compiler_withdrawn"})],
+            "compiler-not-offered",
+            "the recompile service has withdrawn the compiler this compile names: "
+            "nothing was compiled or billed",
+        ),
+    ],
+    ids=["lost", "409", "service-withdrawn"],
+)
+def test_a_refusal_detail_is_a_fixed_sentence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    answers: list[Answer],
+    problem: str,
+    detail: str,
+) -> None:
+    """Neither the service's address nor its own text reaches the caller's detail."""
+    seen: list[dict[str, str]] = []
+    with _recompile(seen, answers=answers) as url:
+        config, entries = _compiling_at(url, tmp_path, monkeypatch)
+        status, raw = dispatch(config, "rebrew.apply_candidate", _request(entries))
+    refusal = json.loads(raw)
+    assert (refusal["error"], refusal["detail"]) == (problem, detail), refusal
+    assert url.removeprefix("http://") not in raw.decode()
 
 
 # recompile 13 lists whether its deployment has installed each compiler

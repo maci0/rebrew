@@ -7083,7 +7083,8 @@ one per line, and there is no verdict), `invalid-project-config` (400, see
 the remote compile service never ran the compile, so nothing was applied; `serve`
 adds `Retry-After` when the service named one), `compiler-not-offered` (400, every
 compiling op: the compiler the compile names is withdrawn from the registry, and the
-detail gives the reason, or the remote compile service has not installed it; nothing
+detail gives the reason of rebrew's registry, or a fixed sentence when the service's
+registry withdrew it, or the remote compile service has not installed it; nothing
 was compiled or billed, a retry is refused the same, so choose another compiler, see
 [TOOLCHAIN.md](TOOLCHAIN.md#compile-backends); `verify_target` and `build` check the
 project's compiler before anything runs, and a source whose own toolchain override
@@ -7272,7 +7273,9 @@ Op details the contract leaves open:
   `message` (`not run (service unavailable): ...`), `error` (the structured
   `RecompileError`: `status_code`, `error_code`, `retry_after`, `retryable`) and
   `verdict_valid` false, the same status as a `verify_target` row;
-  `rebrew.apply_candidate` refuses 503 `compile-not-run` and applies nothing.
+  `rebrew.apply_candidate` refuses 503 `compile-not-run` and applies nothing, with a
+  fixed detail that names the answer by its kind, HTTP status and `code` only (the
+  service's address and text go to the worker log where the client received them).
 - `rebrew.verify_function` replies, and the `result` of `rebrew.apply_candidate`,
   add `compile_inputs` and `verdict_valid`. `compile_inputs` has the metadata
   descriptor shape: `files` are the compiled source (the candidate as compiled,

@@ -615,15 +615,53 @@ _NOT_INSTALLED_DETAIL = (
     "nothing was compiled or billed"
 )
 
+#: The detail of a :data:`COMPILER_NOT_OFFERED` refusal the recompile service itself
+#: answered ``compiler_withdrawn`` (its registry withdrew a compiler rebrew's still offers).
+_SERVICE_WITHDRAWN_DETAIL = (
+    "the recompile service has withdrawn the compiler this compile names: "
+    "nothing was compiled or billed"
+)
+
 #: The refusal an op answers a compile with whose ``error_code`` is final for every
-#: retry: (problem code, detail); a ``None`` detail is the refusal's own message
-#: (a withdrawn compiler's names the registry's reason).  Nothing was compiled or billed.
+#: retry: (problem code, detail); a ``None`` detail is the refusal's own message, which
+#: only rebrew's registry writes (a withdrawn compiler's names its reason).  Nothing
+#: was compiled or billed.
 _FINAL_RECOMPILE_REFUSALS: dict[str, tuple[str, str | None]] = {
     "compiler_not_installed": (COMPILER_NOT_OFFERED, _NOT_INSTALLED_DETAIL),
     "compiler_withdrawn": (COMPILER_NOT_OFFERED, None),
     # recompile 13 checks the bound rebrew checks first (recompile_client.Attribution).
     "invalid_attribution": (INVALID_REQUEST, "the recompile service refused the attribution"),
 }
+
+#: ``RecompileError.kind`` values and how a :data:`COMPILE_NOT_RUN` detail names them.
+_NOT_RUN_KINDS = {
+    "network": "no readable reply",
+    "http": "a refusal",
+    "validation": "a request rebrew refused to send",
+    "protocol": "a reply rebrew could not read",
+    "service": "a failure of the service",
+    "deadline": "the call's deadline",
+}
+
+
+def _not_run_detail(error: Any) -> str:
+    """The fixed :data:`COMPILE_NOT_RUN` sentence for a NOT_RUN result's *error*.
+
+    It names the answer by its kind, HTTP status and ``code`` only: the error's
+    message carries the service URL and the service's own text, which the client
+    logged where it received them (``recompile_client.compile_source``).
+    """
+    fields = error if isinstance(error, dict) else {}
+    status = fields.get("status_code")
+    code = fields.get("error_code")
+    named = [
+        _NOT_RUN_KINDS.get(str(fields.get("kind")), "an error"),
+        *([f"HTTP {status}"] if isinstance(status, int) and not isinstance(status, bool) else []),
+        *([code] if isinstance(code, str) and re.fullmatch(r"[a-z][a-z_]{0,63}", code) else []),
+    ]
+    return (
+        f"the recompile service did not run the compile ({', '.join(named)}): nothing was applied"
+    )
 
 
 def _refuse_compiler_not_offered(cfg: Any) -> None:
@@ -650,6 +688,9 @@ def _final_recompile_refusal(result: dict[str, Any]) -> dict[str, Any]:
     if result.get("status") == "NOT_RUN" and code in _FINAL_RECOMPILE_REFUSALS:
         assert isinstance(error, dict)
         problem, detail = _FINAL_RECOMPILE_REFUSALS[code]
+        if detail is None and error.get("type") != "CompilerNotOffered":
+            # The service's own answer: its message holds the service's text.
+            detail = _SERVICE_WITHDRAWN_DETAIL
         raise OpsError(detail or _bounded(str(error.get("message", ""))), code=problem, status=400)
     return result
 
@@ -4082,7 +4123,7 @@ def _applied(
         error = result.get("error")
         wait = error.get("retry_after") if isinstance(error, dict) else None
         raise OpsError(
-            _bounded(str(result.get("message", "not run (service unavailable)"))),
+            _not_run_detail(error),
             code=COMPILE_NOT_RUN,
             status=503,
             retry_after=math.ceil(wait) if isinstance(wait, (int, float)) else None,
