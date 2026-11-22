@@ -1927,6 +1927,26 @@ class TestRecompileElevenCodes:
         assert len(keys) == 3 and len(set(keys)) == 1
         assert refused.value.unsettled is True
 
+    def test_a_key_only_the_credit_ledger_refused_is_settled_free(self) -> None:
+        """credit_ledger_unavailable: nothing was admitted or billed under the key."""
+        import time
+
+        client, keys = self._keys(
+            [self._refusal(503, "credit_ledger_unavailable", "5") for _ in range(10)]
+        )
+        with pytest.raises(RecompileError) as refused:
+            compile_source(
+                "http://svc",
+                "msvc-6.0",
+                "x",
+                [],
+                client=client,
+                sleep=[].append,
+                deadline=time.monotonic() + 12,
+            )
+        assert len(keys) == 3 and len(set(keys)) == 1
+        assert refused.value.unsettled is False
+
     @pytest.mark.parametrize(
         ("status", "code"),
         [

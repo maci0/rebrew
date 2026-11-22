@@ -185,6 +185,10 @@ _SPENT_KEY_CODES = frozenset(
 #: settles whether the key was billed.
 _UNSETTLED_CODES = frozenset({"admission_unrecoverable", "retained_output_unavailable"})
 
+#: The 503 ``code`` of a compile whose credit reservation the Workbench ledger did
+#: not answer: nothing was admitted or billed (recompile ``docs/API.md``).
+_LEDGER_UNAVAILABLE = "credit_ledger_unavailable"
+
 #: Shape of a recompile error ``code``; another value is not read.
 _ERROR_CODE = re.compile(r"[a-z][a-z_]{0,63}")
 
@@ -365,10 +369,11 @@ class RecompileError(RebrewError, RuntimeError):
     ``status: "ok"`` and the artifact download failed: recompile settled (and
     billed) that compile inside the POST, before serving the artifact.
     ``unsettled`` is ``True`` when the call's last key may have been admitted
-    (a lost or unreadable reply, a 5xx, a 401 or a 403 other than
-    ``delivery_denied``, ``admission_unrecoverable``,
-    ``retained_output_unavailable``) and no answer under it
-    said whether recompile billed it.
+    (a lost or unreadable reply, a 5xx other than ``credit_ledger_unavailable``,
+    a 401 or a 403 other than ``delivery_denied``, ``admission_unrecoverable``,
+    ``retained_output_unavailable``) and no answer under it said whether
+    recompile billed it (a later 4xx under the key but a 429, 401 or 403 says it
+    billed nothing).
     """
 
     #: Set by :func:`compile_source` on the error it raises.
@@ -1084,15 +1089,21 @@ def compile_source(
                         # A reply that is not a settling answer leaves the key unsettled:
                         # a 200 until it is read, a 5xx, a refused credential (rebrew
                         # cannot get a new one to resend the key with), and the
-                        # final codes that may follow a billed compile.
+                        # final codes that may follow a billed compile.  Another 4xx
+                        # but a throttle is the key's first outcome, and billed
+                        # nothing: it settles a reply lost before it.  A throttle and
+                        # a credit ledger that did not answer say nothing of earlier
+                        # attempts and admitted nothing themselves.
                         code = None if resp.status_code == 200 else _error_code(resp)
                         if (
                             resp.status_code == 200
-                            or resp.status_code >= 500
+                            or (resp.status_code >= 500 and code != _LEDGER_UNAVAILABLE)
                             or (resp.status_code in (401, 403) and code != "delivery_denied")
                             or code in _UNSETTLED_CODES
                         ):
                             admitted = True
+                        elif 400 <= resp.status_code < 500 and resp.status_code != 429:
+                            admitted = False
                         if resp.status_code != 200:
                             detail = (
                                 resp.text.replace(api_key, "[redacted]") if api_key else resp.text

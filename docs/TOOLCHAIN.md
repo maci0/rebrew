@@ -54,10 +54,13 @@ retry under the same key reads that compile's first outcome and is not billed ag
 An op's `remote_compile.count` counts a compile call once, when an answer under its key
 settles it: billed for an object (also when its download then failed) or the
 compiler's rejection, free for the service's other `error_code` values, a
-`delivery_denied` and the spent-key codes, or a refusal of a key that no earlier
-attempt may have admitted. A call that ends with its key possibly admitted and no
-settling answer (a reply lost on every attempt, a 5xx or 503 waited out to the
-deadline, a refused credential, `admission_unrecoverable`,
+`delivery_denied` and the spent-key codes, a 4xx other than a 429 or a refused
+credential (the service answers a known key with its first outcome, so it also
+settles a reply lost before it), or a refusal of a key that no earlier attempt
+may have admitted (a `503 credit_ledger_unavailable` admitted nothing). A call
+that ends with its key possibly admitted and no settling answer (a reply lost on
+every attempt, a 5xx or 503 waited out to the deadline, a refused credential,
+`admission_unrecoverable`,
 `retained_output_unavailable`) is unsettled: `count` leaves it out, and
 `remote_compile.unsettled` counts it, in the op's reply and in a refusal after a
 recompile call.

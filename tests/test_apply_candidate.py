@@ -1189,6 +1189,27 @@ def test_a_refusal_of_a_key_never_admitted_is_settled(
     assert reply["remote_compile"]["unsettled"] == 0
 
 
+@pytest.mark.parametrize(
+    "lost",
+    [(503, {"detail": "busy", "code": "runtime_unavailable"}), (502, {"detail": "bad gateway"})],
+    ids=["503", "502"],
+)
+@pytest.mark.parametrize(
+    "settled",
+    [_refused(402, "model_credits_exhausted"), _refused(402, "workbench_plan_required")],
+    ids=["credits", "plan"],
+)
+def test_a_same_key_refusal_that_billed_nothing_settles_an_earlier_lost_reply(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, lost: Answer, settled: Answer
+) -> None:
+    """The service answers a known key with its first outcome: here, nothing billed."""
+    reply, seen = _verify(tmp_path, monkeypatch, [lost, settled, _OK])
+    assert (reply["status"], len(seen)) == ("NOT_RUN", 2)
+    assert _keys(seen)[0] == _keys(seen)[1]
+    assert reply["remote_compile"]["count"] == 0
+    assert reply["remote_compile"]["unsettled"] == 0
+
+
 def test_a_refusal_after_an_unsettled_compile_reports_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
