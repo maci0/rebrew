@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Changed
+
+- The dispatch schema (`tests/fixtures/dispatch/rebrew.schema.json`) publishes as `enum`s the request sets rebrew already refuses others of with 400: `rebrew.retained_source_operation` `operation` (`data-set`, `rename`, `split`, `merge`, `variants`, `decompme`), `rebrew.flag_search` `tier` (`quick`, `targeted`, `normal`, `thorough`, `full`), `rebrew.disassemble` `format` (`asm`, `hex`, `nasm`) and `rebrew.reference_flirt` `format` (`pat`, `sig`). No accepted request changes; a caller validating against the schema now sees the sets.
+
 ### Fixed
 
 - A compile recompile 13 refuses `400 invalid_attribution` (an attribution outside the bound it and rebrew both check: exactly `org`, `project`, `user`, `job`, each 1 to 128 printable ASCII characters) read as `NOT_RUN`, and `rebrew.apply_candidate` answered it 503 `compile-not-run`, which asks for a retry that is refused the same. Every compiling op now answers it 400 `invalid-request` ("the recompile service refused the attribution"); nothing was billed. The comments that said recompile neither reads nor bounds the header described recompile 12.

@@ -1742,6 +1742,11 @@
             "type": "string"
           },
           "format": {
+            "enum": [
+              "asm",
+              "hex",
+              "nasm"
+            ],
             "type": "string"
           },
           "project_dir": {
@@ -1954,6 +1959,13 @@
             "type": "string"
           },
           "tier": {
+            "enum": [
+              "quick",
+              "targeted",
+              "normal",
+              "thorough",
+              "full"
+            ],
             "type": "string"
           },
           "toolchains": {
@@ -3661,6 +3673,10 @@
         "additionalProperties": false,
         "properties": {
           "format": {
+            "enum": [
+              "pat",
+              "sig"
+            ],
             "type": "string"
           },
           "min_size": {
@@ -4087,6 +4103,14 @@
             "type": "string"
           },
           "operation": {
+            "enum": [
+              "data-set",
+              "rename",
+              "split",
+              "merge",
+              "variants",
+              "decompme"
+            ],
             "type": "string"
           },
           "output": {

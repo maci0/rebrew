@@ -26,11 +26,13 @@ response member (compiles on credits) were extended here first; the attribution 
 count_only request members and the required remote_compile response member of
 rebrew.retained_source_operation were extended here first (backend v0.14.0,
 f19474884, has the copy before them), and the required unsettled member of every
-remote_compile was extended here first; rebrew.import_archive is the entry the backend generates
+remote_compile was extended here first; the enums of the rebrew.retained_source_operation
+operation, rebrew.flag_search tier, rebrew.disassemble format and rebrew.reference_flirt
+format request members (the sets each op refuses others of) were extended here first; rebrew.import_archive is the entry the backend generates
 from its rebrew.ImportArchive definition (branch fix-yc-reversed, commit "define
 rebrew.import_archive"); the rest is the copy of backend commit
 80314a46a1ae26d9ef3d56d90e1d454c561f5928.
-SHA-256: cb4d0d680ed2e550b266ee386796c376b6140de36d4599a09e1b4e2ed78bb79d.
+SHA-256: 85b4dbcbb707649cbc94dc15543eafc7167093209ea4d096b5fee601d23e38ff.
 tests/test_ops.py validates every op request and reply against it, the
 analysis report rebrew.analyse captures against documents, and every op's
 timeout_seconds and interruptible against rebrew.ops.OPS.
