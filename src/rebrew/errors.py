@@ -64,6 +64,7 @@ if TYPE_CHECKING:
     from rebrew.compiler.recompile_client import RecompileError as RecompileError
     from rebrew.compiler.recompile_client import RecompileErrorKind as RecompileErrorKind
     from rebrew.compiler.tc16 import Tc16Error as Tc16Error
+    from rebrew.compiler.toolchain import CompilerNotOffered as CompilerNotOffered
     from rebrew.compiler.toolchain import ToolchainError as ToolchainError
     from rebrew.compiler.toolchain import ToolchainErrorKind as ToolchainErrorKind
     from rebrew.compiler.unshare import UnshareError as UnshareError
@@ -273,6 +274,7 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "CatalogScanError": ("rebrew.coff_reloc", "CatalogScanError"),
     "ComponentError": ("rebrew.app.plugin", "ComponentError"),
     "CompareResultError": ("rebrew.compiler.compile", "CompareResultError"),
+    "CompilerNotOffered": ("rebrew.compiler.toolchain", "CompilerNotOffered"),
     "CoverageInputError": ("rebrew.coverage_input_contract", "CoverageInputError"),
     "OpsError": ("rebrew.ops", "OpsError"),
     "DecompmeError": ("rebrew.decompme", "DecompmeError"),
@@ -373,6 +375,7 @@ __all__ = [
     "CapstoneUnavailable",
     "CatalogScanError",
     "CompareResultError",
+    "CompilerNotOffered",
     "ComponentError",
     "ConfigError",
     "ConfigKeyError",

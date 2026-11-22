@@ -619,9 +619,10 @@ _install_click_error_hook()
 #: source does not build, as opposed to a toolchain that could not run.
 TOOLCHAIN_REJECTED_KIND = "toolchain_rejected"
 
-#: The ``error_exit`` kind of a remote compile refused unsent because the
-#: recompile service has not installed its compiler: nothing was compiled or billed.
-COMPILER_NOT_INSTALLED_KIND = "compiler_not_installed"
+#: The ``error_exit`` kind of a compile refused unsent because its compiler is not
+#: offered (withdrawn from the registry, or not installed on the remote compile
+#: service's deployment): nothing was compiled or billed.
+COMPILER_NOT_OFFERED_KIND = "compiler_not_offered"
 
 
 class CommandExit(typer.Exit):
@@ -1559,7 +1560,7 @@ __all__ = [
     "BUILT_IMAGE_HELP",
     "BUILT_IMAGE_REQUIRED_HELP",
     "CFLAGS_HELP",
-    "COMPILER_NOT_INSTALLED_KIND",
+    "COMPILER_NOT_OFFERED_KIND",
     "CREATE_MISSING_HELP",
     "DIR_HELP",
     "EXIT_ERROR",

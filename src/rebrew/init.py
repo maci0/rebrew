@@ -45,6 +45,7 @@ lazy from rebrew.init_profiles import (
     profile_defaults,
     profile_families,
     profile_hint,
+    refuse_withdrawn_profile,
 )
 lazy from rebrew.metadata.storage import metadata_store
 
@@ -1239,6 +1240,7 @@ def main(
             f"Unknown compiler profile '{compiler_profile}'.\n{profile_hint(compiler_profile)}",
             json_mode=json_output,
         )
+    refuse_withdrawn_profile(compiler_profile, json_mode=json_output)
     profile = defaults[compiler_profile]
     if compiler_profile in ("msvc-6.0", "msvc-7.0"):
         # The msvc-6.0 default points at the full master layout

@@ -2075,10 +2075,12 @@ class TestJobCompilerListing:
         monkeypatch.setattr(compile_mod, "_JOB_CAPABILITY_FILE", capability)
         monkeypatch.setattr("rebrew.compiler.recompile_client._compilers_cache", {})
         monkeypatch.setattr(httpx, "HTTPTransport", lambda **_kwargs: httpx.MockTransport(handle))
-        cfg = SimpleNamespace(root=tmp_path, recompile_url="", compile_timeout=30)
-        out, err = _compile_via_recompile(
-            cfg, tmp_path / "f.c", [], tmp_path, "f.obj", "msvc-6.0", False, source_text="int f;"
+        from rebrew.compiler.compile import compile_to_obj
+
+        cfg = SimpleNamespace(
+            root=tmp_path, recompile_url="", compile_timeout=30, compiler_profile="msvc-6.0"
         )
+        out, err = compile_to_obj(cfg, tmp_path / "f.c", [], tmp_path)
         assert out is None and "has not installed compiler 'msvc-6.0'" in err
         # Only the listing was read, with the job's capability; nothing was compiled.
         assert seen == [("GET", "/api/v1/compilers", "a" * 64)]

@@ -135,7 +135,9 @@ class TestRegistry:
         import rebrew.compiler.toolchain as tc
 
         assert tc.__all__ == [
+            "COMPILER_WITHDRAWN",
             "TOOLCHAINS",
+            "CompilerNotOffered",
             "RunResult",
             "ToolchainError",
             "ToolchainErrorKind",
@@ -168,6 +170,7 @@ class TestRegistry:
             "toolchain_from_toml",
             "toolchain_link_candidates",
             "vendored_binary",
+            "withdrawn_refusal",
         ]
         for name in tc.__all__:
             assert getattr(tc, name, None) is not None, name

@@ -639,7 +639,12 @@ def _vendored_msvc_toolchains(
     registry, _origins = toolchain.registry_snapshot()
     out: list[tuple[str, str, str]] = []
     for name, spec in sorted(registry.items()):
-        if spec.image is not None and spec.family == "msvc" and spec.binary == "cl":
+        if (
+            spec.image is not None
+            and spec.family == "msvc"
+            and spec.binary == "cl"
+            and not spec.withdrawn
+        ):
             verarch = spec.image.rsplit(":", 1)[-1] if spec.image else ""
             if only_f and not _sweep_filter_matches(name, verarch, only_f):
                 continue
@@ -657,7 +662,7 @@ def _vendored_msvc_toolchains(
     verarch = cfg_spec.image.rsplit(":", 1)[-1] if cfg_spec is not None and cfg_spec.image else ""
     only_ok = not only_f or _sweep_filter_matches(configured, verarch, only_f)
     excl_ok = not _sweep_filter_matches(configured, verarch, excl_f)
-    if only_ok and excl_ok:
+    if only_ok and excl_ok and not (cfg_spec is not None and cfg_spec.withdrawn):
         out.insert(0, (configured, "", ""))
     return out
 

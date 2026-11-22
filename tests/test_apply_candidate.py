@@ -1282,7 +1282,10 @@ def test_a_toolchain_sweep_compiles_only_the_compilers_the_service_installed(
     assert status == 200, reply
     assert sorted(json.loads(h["body"])["compiler"] for h in seen) == ["msvc-6.0", "msvc-7.1"]
     assert sorted(r["toolchain"] for r in reply["results"]) == ["msvc-6.0", "msvc-7.1"]
-    assert sorted(reply["not_installed"]) == sorted(set(MSVC_PROFILES) - {"msvc-6.0", "msvc-7.1"})
+    # A withdrawn compiler is no candidate at all, installed or not.
+    assert sorted(reply["not_installed"]) == sorted(
+        set(MSVC_PROFILES) - {"msvc-6.0", "msvc-7.1", "msvc-9.0-sp1"}
+    )
     assert reply["remote_compile"]["count"] == 2
 
 
@@ -1302,7 +1305,7 @@ def test_a_compile_of_a_compiler_the_service_has_not_installed_is_refused_unsent
         )
         status, raw = dispatch(config, op, body)
     refusal = json.loads(raw)
-    assert (status, refusal["error"]) == (400, "compiler-not-installed"), refusal
+    assert (status, refusal["error"]) == (400, "compiler-not-offered"), refusal
     assert not seen
     assert refusal.get("remote_compile", {"count": 0, "unsettled": 0})["count"] == 0
 
@@ -1316,7 +1319,7 @@ def test_a_compile_the_service_refuses_as_not_installed_is_final_and_free(
         config, entries = _compiling_at(url, tmp_path, monkeypatch)
         status, raw = dispatch(config, "rebrew.apply_candidate", _request(entries))
     refusal = json.loads(raw)
-    assert (status, refusal["error"]) == (400, "compiler-not-installed"), refusal
+    assert (status, refusal["error"]) == (400, "compiler-not-offered"), refusal
     assert len(seen) == 1
     assert (refusal["remote_compile"]["count"], refusal["remote_compile"]["unsettled"]) == (0, 0)
 
@@ -1415,3 +1418,21 @@ def test_two_concurrent_compiling_ops_count_only_their_own_compiles(
     for job, (status, reply) in replies.items():
         assert status == 200, reply
         assert reply["remote_compile"]["count"] == posted[job], job
+
+
+@pytest.mark.parametrize("op", ["rebrew.verify_function", "rebrew.apply_candidate"])
+def test_a_compile_of_a_withdrawn_compiler_is_refused_with_its_reason(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, op: str
+) -> None:
+    """msvc-9.0-sp1's image compiles for Itanium: nothing is sent, and the refusal says why."""
+    seen: list[dict[str, str]] = []
+    with _recompile(seen, installed=MSVC_PROFILES) as url:
+        monkeypatch.setitem(globals(), "PROJECT", PROJECT.replace(b'"msvc-6.0"', b'"msvc-9.0-sp1"'))
+        config, entries = _compiling_at(url, tmp_path, monkeypatch)
+        status, raw = dispatch(
+            config, op, _request(entries, candidate="void fcn_00401000(void) {}\n")
+        )
+    refusal = json.loads(raw)
+    assert (status, refusal["error"]) == (400, "compiler-not-offered"), refusal
+    assert "withdrawn" in refusal["detail"] and "Itanium" in refusal["detail"]
+    assert not seen

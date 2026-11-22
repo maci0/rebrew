@@ -104,6 +104,40 @@ class ToolchainError(RebrewError, RuntimeError):
         self.retryable = retryable
 
 
+#: ``error_code`` of a compile refused because its compiler is withdrawn from the registry.
+COMPILER_WITHDRAWN = "compiler_withdrawn"
+
+
+class CompilerNotOffered(RebrewError, RuntimeError):
+    """A compile names a compiler that is not offered, refused before anything is sent.
+
+    ``error_code`` says why: :data:`COMPILER_WITHDRAWN` (the registry withdrew the
+    profile; the message carries its :attr:`ToolchainSpec.withdrawn` reason) or
+    ``compiler_not_installed`` (the remote compile service's deployment has not
+    installed it).  Final either way: nothing was compiled or billed, and a
+    retry is refused the same; choose another compiler.
+    """
+
+    STRUCTURED_FIELDS = (*RebrewError.STRUCTURED_FIELDS, "error_code")
+
+    def __init__(self, message: str, *, error_code: str, name: str) -> None:
+        super().__init__(message)
+        self.error_code = error_code
+        self.name = name
+        self.kind = "validation"
+
+
+def withdrawn_refusal(spec: ToolchainSpec) -> CompilerNotOffered | None:
+    """The refusal of a compile with *spec*, when the registry withdrew it."""
+    if not spec.withdrawn:
+        return None
+    return CompilerNotOffered(
+        f"compiler {spec.name!r} is withdrawn: {spec.withdrawn}",
+        error_code=COMPILER_WITHDRAWN,
+        name=spec.name,
+    )
+
+
 @dataclass
 class RunResult:
     """Outcome of a toolchain invocation."""
@@ -207,6 +241,7 @@ def toolchain_from_toml(name: str, table: dict[str, Any], source: str) -> Toolch
         tool_root=table.get("tool_root"),
         bits=int(bits_raw) if bits_raw else None,
         description=str(table.get("description") or ""),
+        withdrawn=str(table.get("withdrawn") or ""),
     )
 
 
@@ -1369,6 +1404,9 @@ def run_toolchain(
         ToolchainError: no docker daemon/image for a docker toolchain, or no
             native binary for a native-runtime toolchain.
     """
+    refused = withdrawn_refusal(spec)
+    if refused is not None:
+        raise ToolchainError(str(refused), kind="validation", name=spec.name)
     workdir = Path(workdir) if workdir is not None else Path.cwd()
     if project_cwd is not None and execution_backend != "unshare":
         raise ToolchainError("project_cwd requires unshare", kind="validation", name=spec.name)
@@ -1607,6 +1645,7 @@ def list_toolchains() -> list[dict[str, Any]]:
             "obj_ext": s.obj_ext,
             "host_path": str(s.host_path) if s.host_path else None,
             "description": s.description,
+            "withdrawn": s.withdrawn or None,
             "origin": origins.get(s.name, "packaged"),
             "docker": docker,
         }
@@ -1702,7 +1741,9 @@ def check_experimental_unshare(spec: ToolchainSpec) -> None:
 
 
 __all__ = [
+    "COMPILER_WITHDRAWN",
     "TOOLCHAINS",
+    "CompilerNotOffered",
     "RunResult",
     "ToolchainError",
     "ToolchainErrorKind",
@@ -1733,4 +1774,5 @@ __all__ = [
     "toolchain_from_toml",
     "toolchain_link_candidates",
     "vendored_binary",
+    "withdrawn_refusal",
 ]

@@ -161,6 +161,7 @@ def list_cmd(
     columns = ["Name", "Image", "Binary", "Runtime", "Flags", "Obj"]
     if show_origin:
         columns.append("Origin")
+    columns.append("Withdrawn")
     for col in columns:
         table.add_column(col)
     for r in rows:
@@ -174,6 +175,7 @@ def list_cmd(
         ]
         if show_origin:
             row.append(r.get("origin", "packaged"))
+        row.append(r["withdrawn"] or "")
         table.add_row(*row)
     console.print(table)
     console.print(f"[dim]docker: {'available' if docker_available() else 'NOT available'}[/dim]")
@@ -410,6 +412,14 @@ def pull_cmd(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Pull a toolchain image with REBREW_CONTAINER_RUNTIME (default docker)."""
+    from rebrew.compiler.toolchain import get_toolchain
+
+    try:
+        withdrawn = get_toolchain(name).withdrawn
+    except ToolchainError as exc:
+        error_exit(str(exc), json_mode=json_output)
+    if withdrawn:
+        error_exit(f"toolchain {name!r} is withdrawn: {withdrawn}", json_mode=json_output)
     try:
         tag, was_present = pull_toolchain(name)
     except ToolchainError as exc:
@@ -641,6 +651,9 @@ def vendor_cmd(
     from rebrew.compiler.toolchain import get_toolchain, require_toolchains_repo
     from rebrew.compiler.toolchain_data import pinned_sources
 
+    withdrawn = get_toolchain(name).withdrawn
+    if withdrawn:
+        error_exit(f"toolchain {name!r} is withdrawn: {withdrawn}", json_mode=json_output)
     repo = require_toolchains_repo()
     sources = pinned_sources()
     src = sources.get(name)
@@ -3218,6 +3231,9 @@ def smoke_cmd(
     try:
         for tool in targets:
             spec = get_toolchain(tool)
+            if spec.withdrawn:
+                results[tool] = f"skip (withdrawn: {spec.withdrawn})"
+                continue
             if spec.image is None and spec.host_path is None:
                 results[tool] = "skip (no image, no vendored host tree)"
                 continue
@@ -3332,6 +3348,8 @@ def build_cmd(
     )
 
     spec = get_toolchain(name)
+    if spec.withdrawn:
+        error_exit(f"toolchain {name!r} is withdrawn: {spec.withdrawn}", json_mode=json_output)
     if spec.image is None:
         msg = f"toolchain {name!r} is host-only (no image to build)"
         error_exit(msg, json_mode=json_output)

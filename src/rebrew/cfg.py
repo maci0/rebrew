@@ -1487,7 +1487,7 @@ def set_compiler(
 
     Run 'rebrew toolchain list' to inspect available compiler profiles.
     """
-    from rebrew.init_profiles import profile_defaults, profile_hint
+    from rebrew.init_profiles import profile_defaults, profile_hint, refuse_withdrawn_profile
 
     defaults = profile_defaults()
     if profile not in defaults:
@@ -1495,6 +1495,7 @@ def set_compiler(
             f"Unknown compiler profile '{profile}'.\n{profile_hint(profile)}",
             json_mode=json_output,
         )
+    refuse_withdrawn_profile(profile, json_mode=json_output)
 
     # The lock covers the load and the write, not the profile lookup above:
     # resolving the target name reads the document, and a concurrent edit of

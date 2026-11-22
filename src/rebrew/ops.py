@@ -433,9 +433,10 @@ INVALID_PROJECT_CONFIG = "invalid-project-config"
 #: The remote compile service never ran an applied candidate's compile (503,
 #: with ``Retry-After`` when the service named one): nothing was applied.
 COMPILE_NOT_RUN = "compile-not-run"
-#: The remote compile service has not installed the compiler a compile names (400):
-#: nothing was compiled or billed, and it answers the same until an operator installs it.
-COMPILER_NOT_INSTALLED = "compiler-not-installed"
+#: The compiler a compile names is not offered (400): the registry withdrew it (the
+#: detail says why), or the remote compile service's deployment has not installed it.
+#: Nothing was compiled or billed; a retry is refused the same, so choose another compiler.
+COMPILER_NOT_OFFERED = "compiler-not-offered"
 #: The toolchain ran and rejected the source (422): no verdict, and the detail
 #: carries the compiler's diagnostics.  A toolchain that could not run stays
 #: 500 ``engine-error``.
@@ -608,26 +609,31 @@ def _refused(detail: str) -> OpsError:
     return OpsError(detail)
 
 
-#: The refusal an op answers a compile with whose recompile ``error_code`` is final
-#: for every retry: (problem code, detail).  Nothing was compiled or billed.
-_FINAL_RECOMPILE_REFUSALS: dict[str, tuple[str, str]] = {
-    "compiler_not_installed": (
-        COMPILER_NOT_INSTALLED,
-        "the recompile service has not installed the compiler this compile names: "
-        "nothing was compiled or billed",
-    ),
+#: The detail of a :data:`COMPILER_NOT_OFFERED` refusal for a compiler not installed.
+_NOT_INSTALLED_DETAIL = (
+    "the recompile service has not installed the compiler this compile names: "
+    "nothing was compiled or billed"
+)
+
+#: The refusal an op answers a compile with whose ``error_code`` is final for every
+#: retry: (problem code, detail); a ``None`` detail is the refusal's own message
+#: (a withdrawn compiler's names the registry's reason).  Nothing was compiled or billed.
+_FINAL_RECOMPILE_REFUSALS: dict[str, tuple[str, str | None]] = {
+    "compiler_not_installed": (COMPILER_NOT_OFFERED, _NOT_INSTALLED_DETAIL),
+    "compiler_withdrawn": (COMPILER_NOT_OFFERED, None),
     # recompile 13 checks the bound rebrew checks first (recompile_client.Attribution).
     "invalid_attribution": (INVALID_REQUEST, "the recompile service refused the attribution"),
 }
 
 
 def _final_recompile_refusal(result: dict[str, Any]) -> dict[str, Any]:
-    """*result*, unless it is a NOT_RUN whose recompile refusal no retry changes."""
+    """*result*, unless it is a NOT_RUN whose refusal no retry changes."""
     error = result.get("error")
     code = error.get("error_code") if isinstance(error, dict) else None
     if result.get("status") == "NOT_RUN" and code in _FINAL_RECOMPILE_REFUSALS:
+        assert isinstance(error, dict)
         problem, detail = _FINAL_RECOMPILE_REFUSALS[code]
-        raise OpsError(detail, code=problem, status=400)
+        raise OpsError(detail or _bounded(str(error.get("message", ""))), code=problem, status=400)
     return result
 
 
@@ -2591,16 +2597,13 @@ def run_rebrew(
             raise _invalid(
                 _bounded(f"rebrew {name} refused: {_without_host_paths(message, [project])}")
             )
-        from rebrew.cli import COMPILER_NOT_INSTALLED_KIND, TOOLCHAIN_REJECTED_KIND
+        from rebrew.cli import COMPILER_NOT_OFFERED_KIND, TOOLCHAIN_REJECTED_KIND
 
         if kind == TOOLCHAIN_REJECTED_KIND:
             raise _toolchain_rejected(message, [project])
-        if kind == COMPILER_NOT_INSTALLED_KIND:
-            raise OpsError(
-                _FINAL_RECOMPILE_REFUSALS["compiler_not_installed"][1],
-                code=COMPILER_NOT_INSTALLED,
-                status=400,
-            )
+        if kind == COMPILER_NOT_OFFERED_KIND:
+            # The child's message is the refusal's own: a withdrawn compiler's reason.
+            raise OpsError(_bounded(message), code=COMPILER_NOT_OFFERED, status=400)
         logger.error(
             "rebrew %s exited %d: %s", name, process.returncode, _escape_log_text(stderr.strip())
         )

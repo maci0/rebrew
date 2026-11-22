@@ -30,6 +30,11 @@ from rebrew.compiler.toolchain import TOOLCHAINS, get_toolchain
 for name, spec in sorted(TOOLCHAINS.items()):
     print(name, spec.family, spec.bits, spec.obj_ext, spec.image)
 
+# `spec.withdrawn` is why a profile is not offered ("" when it is): a consumer
+# listing the registry shows it as not offered and never runs it.  rebrew
+# refuses a compile of one with `rebrew.compiler.toolchain.CompilerNotOffered`
+# (`error_code` "compiler_withdrawn"; `rebrew.errors` exports the class).
+
 # `list_toolchains()` is the other view of the same registry snapshot, one
 # dict per profile, with `origin` (packaged vs plugin) and the docker-present
 # flag on each row. Reach for it when you want those alongside the spec.

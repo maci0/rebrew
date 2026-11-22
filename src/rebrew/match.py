@@ -26,7 +26,7 @@ import typer
 
 from rebrew.cli import (
     CFLAGS_HELP,
-    COMPILER_NOT_INSTALLED_KIND,
+    COMPILER_NOT_OFFERED_KIND,
     EXIT_ERROR,
     EXIT_MISMATCH,
     JOBS_HELP,
@@ -433,13 +433,13 @@ def execute_search(
         # Every compile of a profile the remote service has not installed is
         # refused, so neither count nor run them (a toolchain sweep leaves such
         # profiles out instead).
-        from rebrew.compiler.compile import compiler_not_installed
+        from rebrew.compiler.compile import compiler_not_offered
 
-        refusal = compiler_not_installed(
+        refusal = compiler_not_offered(
             params.cfg, str(getattr(params.cfg, "compiler_profile", "") or "")
         )
         if refusal is not None:
-            error_exit(str(refusal), json_mode=json_output, kind=COMPILER_NOT_INSTALLED_KIND)
+            error_exit(str(refusal), json_mode=json_output, kind=COMPILER_NOT_OFFERED_KIND)
     if count_only:
         if flag_sweep_only or toolchain_sweep:
             candidates = sweep_candidate_count(

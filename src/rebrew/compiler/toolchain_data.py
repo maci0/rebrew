@@ -3924,6 +3924,13 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         else None,
         host_bin="bin",
         description="MSVC 9.0 SP1 (32-bit PE, C89, 15.00.30729) — docker image (wine inside)",
+        # recompile-toolchains 1.18.0 withdraws the row with this reason.
+        withdrawn=(
+            "its compiler targets Itanium, not x86: `VC/bin/cl.exe` reports "
+            "15.00.30729.01 for Itanium and writes IA-64 objects (COFF machine "
+            "0x0200), so the image is not built or offered as msvc-9.0-sp1 until "
+            "the archive carries the x86 SP1 compiler"
+        ),
     ),
     "msvc-11.0": ToolchainSpec(
         name="msvc-11.0",

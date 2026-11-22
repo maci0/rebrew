@@ -615,6 +615,14 @@ def check_toolchain_backed(cfg: ProjectConfig) -> CheckResult:
         spec = get_toolchain(profile)
     except ToolchainError:
         return CheckResult(name="Toolchain", status=_SKIP, message="not a toolchain-backed profile")
+    if spec.withdrawn:
+        # Not offered: no build, pull or vendor would make it the compiler it claims.
+        return CheckResult(
+            name="Toolchain",
+            status=_FAIL,
+            message=f"{profile} is withdrawn: {spec.withdrawn}",
+            fix="Choose another [compiler] profile (`rebrew toolchain list`).",
+        )
     if spec.image is None:
         return CheckResult(
             name="Toolchain", status=_SKIP, message="not an image-backed profile (native binary)"

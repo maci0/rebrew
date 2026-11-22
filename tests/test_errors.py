@@ -355,6 +355,7 @@ class TestSerializationRoundTrip:
 
 #: Constructor keywords for the error classes that require more than a message.
 _REQUIRED_KEYWORDS: dict[str, dict[str, Any]] = {
+    "CompilerNotOffered": {"error_code": "compiler_withdrawn", "name": "msvc-9.0-sp1"},
     "McpApplyAborted": {"applied": 0, "errors": 0},
     "RenameError": {"files": []},
 }

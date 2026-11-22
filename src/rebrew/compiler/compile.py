@@ -650,6 +650,9 @@ def classify_compare_result(
 
     if service_unavailable(error):
         # The service never gave a verdict on the source: no compile error.
+        from rebrew.compiler.toolchain import CompilerNotOffered
+
+        why = "" if isinstance(error, CompilerNotOffered) else " (service unavailable)"
         return CompareResult(
             matched=False,
             status="NOT_RUN",
@@ -657,7 +660,7 @@ def classify_compare_result(
             delta=0,
             obj_bytes=None,
             reloc_offsets=None,
-            message=f"not run (service unavailable): {error}",
+            message=f"not run{why}: {error}",
             match_count=0,
             error=error,
         )
@@ -1440,11 +1443,14 @@ def service_unavailable(error: RebrewError | None) -> bool:
     timeout, a runner unavailable, a 4xx such as a 429 or a spent job budget, a
     5xx, a reply it cannot read), a request that could not be sent (headers a
     bundle cannot ship, a flag over the service's bound), an unreachable host,
-    or a ``deadline`` that left no time to send it.
+    or a ``deadline`` that left no time to send it.  A
+    :class:`~rebrew.compiler.toolchain.CompilerNotOffered` is one too: the compile
+    was refused before anything ran.
     """
     from rebrew.compiler.recompile_client import RecompileError
+    from rebrew.compiler.toolchain import CompilerNotOffered
 
-    return isinstance(error, RecompileError)
+    return isinstance(error, (RecompileError, CompilerNotOffered))
 
 
 #: Environment variable carrying the call deadline of a child command
@@ -1914,22 +1920,31 @@ def remote_installed_compilers(cfg: ProjectConfig) -> frozenset[str] | None:
             _recompile_release(client)
 
 
-def compiler_not_installed(cfg: ProjectConfig, profile: str) -> RebrewError | None:
-    """The refusal of a remote compile with *profile*, when the service has not installed it.
+def compiler_not_offered(cfg: ProjectConfig, profile: str) -> RebrewError | None:
+    """The refusal of a compile with *profile*, when that compiler is not offered.
 
-    A :class:`~rebrew.compiler.recompile_client.RecompileError` with
-    ``error_code`` ``compiler_not_installed``, ``None`` when the compile may be
-    sent (:func:`remote_installed_compilers`).  Nothing is sent or billed.
+    A :class:`~rebrew.compiler.toolchain.CompilerNotOffered`: ``error_code``
+    ``compiler_withdrawn`` when the registry withdrew the profile (any backend;
+    the message carries the reason), ``compiler_not_installed`` when the remote
+    compile service lists it as not installed (:func:`remote_installed_compilers`).
+    ``None`` when the compile may run.  Nothing is sent or billed.
     """
-    from rebrew.compiler.recompile_client import COMPILER_NOT_INSTALLED, RecompileError
+    from rebrew.compiler.recompile_client import COMPILER_NOT_INSTALLED
+    from rebrew.compiler.toolchain import CompilerNotOffered, withdrawn_refusal
 
+    spec = toolchain_registry.TOOLCHAINS.get(profile)
+    refused = withdrawn_refusal(spec) if spec is not None else None
+    if refused is not None:
+        return refused
+    if recompile_url(cfg) is None:
+        return None
     installed = remote_installed_compilers(cfg)
     if installed is None or profile in installed:
         return None
-    return RecompileError(
+    return CompilerNotOffered(
         f"the recompile service has not installed compiler {profile!r}: nothing was compiled",
-        kind="validation",
         error_code=COMPILER_NOT_INSTALLED,
+        name=profile,
     )
 
 
@@ -1972,11 +1987,6 @@ def _compile_via_recompile(
 
     url = recompile_url(cfg)
     assert url is not None, "recompile backend selected without a URL"
-    refusal = compiler_not_installed(cfg, profile)
-    if refusal is not None:
-        if backend_errors is not None:
-            backend_errors.append(refusal)
-        return None, f"recompile service error: {refusal}"
     if source_text is None:
         try:
             source_text = source_path.read_text(encoding="utf-8", errors="surrogateescape")
@@ -2310,6 +2320,11 @@ def compile_to_obj(
         error_msg is an empty string on success."""
     profile = getattr(cfg, "compiler_profile", "")
     active = toolchain or profile
+    refusal = compiler_not_offered(cfg, active)
+    if refusal is not None:
+        if backend_errors is not None:
+            backend_errors.append(refusal)
+        return None, str(refusal)
     if getattr(cfg, "execution_backend", "") == "unshare" and recompile_url(cfg):
         return _not_run(
             backend_errors,
@@ -4086,7 +4101,7 @@ __all__ = [
     "compile_and_compare_linked",
     "compile_batch_objs",
     "compile_to_obj",
-    "compiler_not_installed",
+    "compiler_not_offered",
     "contextualized_source",
     "counting_remote_compiles",
     "current_remote_compiles",

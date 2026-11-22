@@ -65,15 +65,24 @@ every attempt, a 5xx or 503 waited out to the deadline, a refused credential,
 `remote_compile.unsettled` counts it, in the op's reply and in a refusal after a
 recompile call.
 
+A compiler the registry withdraws (`ToolchainSpec.withdrawn`, its reason; today
+`msvc-9.0-sp1`, whose image compiles for Itanium) is not offered and never run:
+`rebrew toolchain list` shows it with the reason, `rebrew init` / `cfg
+set-compiler` refuse it, toolchain sweeps and their counts leave it out,
+`rebrew toolchain build` / `pull` / `vendor` refuse it, `rebrew doctor` names the
+reason, and a compile that names it, local or remote, is refused before anything
+runs (`CompilerNotOffered`, `error_code` `compiler_withdrawn`, `NOT_RUN`). A
+project whose config names it still loads, so stored evidence keeps its profile.
+
 rebrew sends only compilers the service's deployment has installed. Before a
 compile it reads `GET /api/v1/compilers` (kept 30 s per service, recompile's own
 admission window; `recompile_client.installed_compilers`), and a compiler whose
 row reads `execution_status` other than `"admitted"` is refused unsent:
-`RecompileError` with `error_code` `compiler_not_installed`, nothing compiled or
-billed, `NOT_RUN`. `rebrew match toolchains` leaves such profiles out of the
+`CompilerNotOffered` with `error_code` `compiler_not_installed`, nothing compiled
+or billed, `NOT_RUN`. `rebrew match toolchains` leaves such profiles out of the
 search and its `--count`, and names them in its JSON `not_installed`; `rebrew match
-run` and `match flags` refuse before they count or compile (error kind
-`compiler_not_installed`). The listing gates only when at least one row reads
+run` and `match flags` refuse a withdrawn or uninstalled profile before they count
+or compile (error kind `compiler_not_offered`). The listing gates only when at least one row reads
 `"admitted"`: recompile before 13 lists every row `"unavailable"` (it checks no
 image), and so does recompile 13 when its runtime does not answer, so such a
 listing, a 404 or a listing that cannot be read holds nothing back, and the
@@ -941,7 +950,7 @@ pull these images without rebrew itself.
 | `msvc-8.0` | 8.0 (2005) | 14.00.50727 | | archaic-msvc `msvc800` | docker |
 | `msvc-8.0-sp1` | 8.0 SP1 | 14.00.50727.762 | | archaic-msvc `msvc800_sp1` | docker |
 | `msvc-9.0` | 9.0 (2008) | 15.00.21022 | | archaic-msvc `msvc900` | docker |
-| `msvc-9.0-sp1` | 9.0 SP1 | 15.00.30729 | | archaic-toolchains `msvc900_sp1` (msvc-9.0 + SP1 compiler) | docker |
+| `msvc-9.0-sp1` | 9.0 SP1 | 15.00.30729 (Itanium) | withdrawn: the image compiles for Itanium | archaic-toolchains `msvc900_sp1` | docker |
 | `msvc-10.0` | 10.0 (2010) | 16.00.30319 | | archaic-msvc `msvc1000` | docker |
 | `msvc-10.0-sp1` | 10.0 SP1 | 16.00.40219 | | archaic-msvc `msvc1000_sp1` | docker |
 | `msvc-11.0` | 11.0 (2012) | 17.00.50522 | | archaic-msvc `msvc1100` | docker |
@@ -976,10 +985,11 @@ Notes:
   (`VSE600SP1.EXE`) is not preserved in any public archive: see the repo
   README.  `msvc-6.0-sp4` carries the SP4 headers/libs + the 8804 compiler
   (decomp.me `msvc6.4` Bin, sha-verified byte-identical to the SP4 CD).
-- **VC 2008 SP1 compiler closed**: `msvc-9.0-sp1` carries cl.exe 15.00.30729.01
-  (Professional-edition build; the SP1 patch also ships Standard/Team
-  variants) extracted from the official VS2008 SP1 DVD (`archaic-msvc` publishes
-  only base `msvc-9.0`).
+- **VC 2008 SP1 withdrawn**: the `msvc-9.0-sp1` image's `VC/bin/cl.exe` reports
+  15.00.30729.01 for Itanium and writes IA-64 objects (COFF machine 0x0200), not
+  the x86 compiler the archive's README claims, so the profile is withdrawn
+  (recompile-toolchains 1.18.0 withdraws its row too) until the archive carries
+  the x86 SP1 compiler.
 - **VC 11.0**: `msvc-11.0` (VS 2012, cl.exe 17.00.50522) is the newest
   compiler the `archaic-msvc` org carries.
 - **Retired names**: the old `msvc6.3` / `msvc6.6` aliases are gone; the

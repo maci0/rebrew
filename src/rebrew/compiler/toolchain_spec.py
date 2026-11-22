@@ -81,6 +81,11 @@ class ToolchainSpec:
     # registered with bits=16 is allowed on x86_16 DOS/NE targets instead of
     # being flagged as a 32/64-bit compiler.
     description: str = ""
+    withdrawn: str = ""  # why the profile is not offered; "" = offered.  A
+    # withdrawn compiler is listed with this reason but never offered (init,
+    # sweeps) or run: a compile that names it is refused before anything is
+    # sent (rebrew.compiler.toolchain.CompilerNotOffered).  A project that
+    # names it still loads, so stored evidence keeps its profile.
 
     @property
     def effective_arg_style(self) -> ArgStyle:

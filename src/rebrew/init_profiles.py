@@ -570,6 +570,19 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
 }
 
 
+def refuse_withdrawn_profile(profile: str, *, json_mode: bool) -> None:
+    """Refuse to set up *profile* when the toolchain registry withdrew it, naming the reason."""
+    from rebrew.cli import error_exit
+    from rebrew.compiler.toolchain import TOOLCHAINS
+
+    spec = TOOLCHAINS.get(profile)
+    if spec is not None and spec.withdrawn:
+        error_exit(
+            f"compiler profile {profile!r} is withdrawn: {spec.withdrawn}; choose another profile",
+            json_mode=json_mode,
+        )
+
+
 def profile_defaults() -> dict[str, dict[str, str]]:
     """Defaults for every known profile: :data:`COMPILER_DEFAULTS` merged
     with registry-derived entries.
