@@ -430,6 +430,9 @@ INVALID_PROJECT_CONFIG = "invalid-project-config"
 #: The remote compile service never ran an applied candidate's compile (503,
 #: with ``Retry-After`` when the service named one): nothing was applied.
 COMPILE_NOT_RUN = "compile-not-run"
+#: The remote compile service has not installed the compiler a compile names (400):
+#: nothing was compiled or billed, and it answers the same until an operator installs it.
+COMPILER_NOT_INSTALLED = "compiler-not-installed"
 #: The toolchain ran and rejected the source (422): no verdict, and the detail
 #: carries the compiler's diagnostics.  A toolchain that could not run stays
 #: 500 ``engine-error``.
@@ -600,6 +603,27 @@ def _capture_failed(detail: str) -> OpsError:
 
 def _refused(detail: str) -> OpsError:
     return OpsError(detail)
+
+
+#: The detail of a :data:`COMPILER_NOT_INSTALLED` refusal.
+_COMPILER_NOT_INSTALLED_DETAIL = (
+    "the recompile service has not installed the compiler this compile names: "
+    "nothing was compiled or billed"
+)
+
+
+def _refuse_uninstalled(result: dict[str, Any]) -> dict[str, Any]:
+    """*result*, unless it is a NOT_RUN of a compiler the remote compile service has not installed."""
+    from rebrew.compiler import recompile_client
+
+    error = result.get("error")
+    if (
+        result.get("status") == "NOT_RUN"
+        and isinstance(error, dict)
+        and error.get("error_code") == recompile_client.COMPILER_NOT_INSTALLED
+    ):
+        raise OpsError(_COMPILER_NOT_INSTALLED_DETAIL, code=COMPILER_NOT_INSTALLED, status=400)
+    return result
 
 
 def _toolchain_rejected(diagnostics: str, roots: Iterable[Path] = ()) -> OpsError:
@@ -2554,7 +2578,7 @@ def run_rebrew(
         with contextlib.suppress(json.JSONDecodeError):
             printed = json.loads(stdout)
             if isinstance(printed, dict) and printed.get("status") == "NOT_RUN":
-                return printed
+                return _refuse_uninstalled(printed)
     if refused:
         kind, message = _command_refusal(stderr)
         if kind == "usage":
@@ -2562,10 +2586,12 @@ def run_rebrew(
             raise _invalid(
                 _bounded(f"rebrew {name} refused: {_without_host_paths(message, [project])}")
             )
-        from rebrew.cli import TOOLCHAIN_REJECTED_KIND
+        from rebrew.cli import COMPILER_NOT_INSTALLED_KIND, TOOLCHAIN_REJECTED_KIND
 
         if kind == TOOLCHAIN_REJECTED_KIND:
             raise _toolchain_rejected(message, [project])
+        if kind == COMPILER_NOT_INSTALLED_KIND:
+            raise OpsError(_COMPILER_NOT_INSTALLED_DETAIL, code=COMPILER_NOT_INSTALLED, status=400)
         logger.error(
             "rebrew %s exited %d: %s", name, process.returncode, _escape_log_text(stderr.strip())
         )
@@ -3664,7 +3690,7 @@ def verify_function(config: WorkerConfig, req: VerifyRequest) -> dict[str, Any]:
     cfg = target_config(root, req.sha256)
     source = _project_file(root, req.source, "source")
     remote_header_refusal(cfg, [source])
-    return run_test(cfg, source, no_promote=req.no_promote, json_output=True)
+    return _refuse_uninstalled(run_test(cfg, source, no_promote=req.no_promote, json_output=True))
 
 
 def verify_candidate(config: WorkerConfig, req: VerifyRequest) -> dict[str, Any]:

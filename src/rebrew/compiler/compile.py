@@ -1846,6 +1846,52 @@ def remote_bundles_supported(cfg: ProjectConfig) -> bool | None:
         _recompile_release(client)
 
 
+def remote_installed_compilers(cfg: ProjectConfig) -> frozenset[str] | None:
+    """The compilers the configured recompile service lists as installed on its deployment.
+
+    ``None`` when nothing is to be held back: no remote backend is configured,
+    a job compile (the jobs owner's mediator forwards no listing), a listing
+    that names no installed compiler (recompile before 13; see
+    :func:`~rebrew.compiler.recompile_client.installed_compilers`), or a
+    listing that could not be read, in which case the compile itself reports
+    the service's failure.  Uses the client the compile would use; the answer
+    is kept for the listing's 30-second window.
+    """
+    from rebrew.compiler.recompile_client import RecompileError, installed_compilers
+
+    url = recompile_url(cfg)
+    if url is None or os.environ.get("REBREW_JOB_COMPILE_SOCKET"):
+        return None
+    timeout = float(getattr(cfg, "compile_timeout", DEFAULT_COMPILE_TIMEOUT) or 0) + 120.0
+    client = _shared_recompile_client(timeout)
+    try:
+        return installed_compilers(url, client=client)
+    except RecompileError as exc:
+        logging.getLogger(__name__).warning("recompile %s compiler listing unread: %s", url, exc)
+        return None
+    finally:
+        _recompile_release(client)
+
+
+def compiler_not_installed(cfg: ProjectConfig, profile: str) -> RebrewError | None:
+    """The refusal of a remote compile with *profile*, when the service has not installed it.
+
+    A :class:`~rebrew.compiler.recompile_client.RecompileError` with
+    ``error_code`` ``compiler_not_installed``, ``None`` when the compile may be
+    sent (:func:`remote_installed_compilers`).  Nothing is sent or billed.
+    """
+    from rebrew.compiler.recompile_client import COMPILER_NOT_INSTALLED, RecompileError
+
+    installed = remote_installed_compilers(cfg)
+    if installed is None or profile in installed:
+        return None
+    return RecompileError(
+        f"the recompile service has not installed compiler {profile!r}: nothing was compiled",
+        kind="validation",
+        error_code=COMPILER_NOT_INSTALLED,
+    )
+
+
 def _compile_via_recompile(
     cfg: ProjectConfig,
     source_path: Path,
@@ -1885,6 +1931,11 @@ def _compile_via_recompile(
 
     url = recompile_url(cfg)
     assert url is not None, "recompile backend selected without a URL"
+    refusal = compiler_not_installed(cfg, profile)
+    if refusal is not None:
+        if backend_errors is not None:
+            backend_errors.append(refusal)
+        return None, f"recompile service error: {refusal}"
     if source_text is None:
         try:
             source_text = source_path.read_text(encoding="utf-8", errors="surrogateescape")
@@ -4020,6 +4071,7 @@ __all__ = [
     "compile_and_compare_linked",
     "compile_batch_objs",
     "compile_to_obj",
+    "compiler_not_installed",
     "contextualized_source",
     "counting_remote_compiles",
     "current_remote_compiles",
@@ -4039,6 +4091,7 @@ __all__ = [
     "recompile_url",
     "remote_bundles_supported",
     "remote_include_bundle",
+    "remote_installed_compilers",
     "resolve_cl_command",
     "resolve_compiler_env",
     "resolve_include_flags",

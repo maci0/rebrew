@@ -61,6 +61,21 @@ deadline, a refused credential, `admission_unrecoverable`,
 `retained_output_unavailable`) is unsettled: `count` leaves it out, and
 `remote_compile.unsettled` counts it, in the op's reply and in a refusal after a
 recompile call.
+
+rebrew sends only compilers the service's deployment has installed. Before a
+compile it reads `GET /api/v1/compilers` (kept 30 s per service, recompile's own
+admission window; `recompile_client.installed_compilers`), and a compiler whose
+row reads `execution_status` other than `"admitted"` is refused unsent:
+`RecompileError` with `error_code` `compiler_not_installed`, nothing compiled or
+billed, `NOT_RUN`. `rebrew match toolchains` leaves such profiles out of the
+search and its `--count`, and names them in its JSON `not_installed`; `rebrew match
+run` and `match flags` refuse before they count or compile (error kind
+`compiler_not_installed`). The listing gates only when at least one row reads
+`"admitted"`: recompile before 13 lists every row `"unavailable"` (it checks no
+image), and so does recompile 13 when its runtime does not answer, so such a
+listing, a 404 (the jobs owner's mediator forwards no listing; a job compile does
+not ask) or a listing that cannot be read holds nothing back, and the service's
+own `400 compiler_not_installed` is the answer, final and unbilled.
 Under `rebrew ops` the child command knows its op's deadline
 (`REBREW_CALL_DEADLINE`; 3600 s for `verify_target`) and starts no attempt or wait
 that a whole request (`compile_timeout` + 120 s) could not finish before it. A remote compile

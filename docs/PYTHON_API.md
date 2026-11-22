@@ -176,6 +176,12 @@ print(result.ok, result.obj_bytes, result.log, result.compiler_version)
 # raises kind "validation" unless it lists "include-bundles";
 # `accepts_include_bundles(base_url, client=...)` asks the same question.
 #
+# `installed_compilers(base_url, client=...)` reads `GET /api/v1/compilers`:
+# the ids whose `execution_status` is "admitted", or None when no row is
+# (recompile before 13) or the route answers 404. `compile_source` does not
+# read it; a compiler the deployment has not installed is refused by the
+# service, HTTP 400 with `error_code` "compiler_not_installed", unbilled.
+#
 # `rebrew.decompme`'s `upload_scratch` also accepts `client=` and `retries=N`,
 # with the same backoff helper (`retry_backoff_delay` in `rebrew.utils`).
 # Its retry policy is narrower: connect-stage failures and HTTP

@@ -7079,7 +7079,10 @@ one per line, and there is no verdict), `invalid-project-config` (400, see
 `rebrew.project_targets`), `project-import-refused` (422, see
 `rebrew.import_archive` below), `compile-not-run` (503, `rebrew.apply_candidate`:
 the remote compile service never ran the compile, so nothing was applied; `serve`
-adds `Retry-After` when the service named one), `candidate-not-one-function` (400),
+adds `Retry-After` when the service named one), `compiler-not-installed` (400, every
+compiling op: the remote compile service has not installed the compiler the compile
+names, so nothing was compiled or billed; it answers the same until an operator
+installs it, see [TOOLCHAIN.md](TOOLCHAIN.md#compile-backends)), `candidate-not-one-function` (400),
 `candidate-address-comment` (400) and `candidate-name-taken` (409, see `apply_candidate`
 below), `deadline-exceeded` (504, see the deadlines below), or, from `serve` only, `worker-busy` (503) and `caller-gone` (499,
 written to a caller that has already closed). An engine failure no refusal
@@ -7379,7 +7382,10 @@ Op details the contract leaves open:
   the same `remote_compile`, so a rejected candidate still says it compiled.
   `flag_search` with `count_only` stages the same snapshot and answers
   `{"candidates": N}`, the compiles the search would make (`rebrew match flags
-  --count` or `rebrew match toolchains --count`), and compiles nothing.
+  --count` or `rebrew match toolchains --count`), and compiles nothing. A
+  toolchain comparison leaves out, of the count and of the search, a profile the
+  remote compile service has not installed, and its reply names them in
+  `not_installed`.
   `retained_source_operation` `variants` with `count_only` does the same and
   answers `{"result": {"candidates": N}}` (`rebrew match run --count`:
   `generations` times `population`, plus one); `count_only` with another

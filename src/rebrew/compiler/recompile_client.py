@@ -88,6 +88,32 @@ _MAX_FEATURES_BYTES = 64 * 1024
 _bundle_services: set[str] = set()
 _bundle_services_lock = threading.Lock()
 
+#: Where the service lists its compilers and whether this deployment can run
+#: each (recompile ``docs/API.md``, ``GET /api/v1/compilers``).
+_COMPILERS_PATH = "/api/v1/compilers"
+
+#: The ``execution_status`` of a listed compiler this deployment has installed.
+_ADMITTED = "admitted"
+
+#: The ``code`` recompile refuses a compiler it has not installed with (400).
+COMPILER_NOT_INSTALLED = "compiler_not_installed"
+
+#: Seconds a listing is kept: recompile keeps its own answer that long
+#: (``executor.ADMISSION_WINDOW_S``), and inside it a compiler listed
+#: ``admitted`` is not refused as not installed.
+_COMPILERS_WINDOW_SECONDS = 30.0
+
+#: Longest listing reply read; the catalog is a few hundred rows.
+_MAX_COMPILERS_BYTES = 4 * 1024**2
+
+#: Listings kept at once; a process talks to one service, so the bound only
+#: guards a long-lived one handed many URLs.
+_COMPILERS_CACHE_MAX = 8
+
+#: Base URL -> (monotonic time read, admitted ids or ``None``).
+_compilers_cache: dict[str, tuple[float, frozenset[str] | None]] = {}
+_compilers_cache_lock = threading.Lock()
+
 #: How a :class:`RecompileError` arose — callers branch on this instead of
 #: matching message substrings.  ``service`` is a compile the service answered
 #: but could not run; its ``error_code`` names why.  ``deadline`` is a compile
@@ -708,6 +734,67 @@ def accepts_include_bundles(base_url: str, *, client: HttpClient) -> bool:
     return True
 
 
+def installed_compilers(base_url: str, *, client: HttpClient) -> frozenset[str] | None:
+    """The compiler ids the service's ``GET /api/v1/compilers`` lists ``execution_status: "admitted"``.
+
+    ``None`` when the listing does not say what the deployment can run, and
+    nothing is then held back: no row reads ``admitted`` (recompile before 13
+    lists every row ``unavailable``, and recompile 13 does when its runtime does
+    not answer), or the route answers 404 (the jobs owner's compile mediator
+    forwards no listing).  A compiler that is not installed after all is then
+    refused by the service itself, ``400 compiler_not_installed``, unbilled.
+    The route needs no credential, so none is sent.  A transport failure or
+    another reply raises :class:`RecompileError` (``network`` and transient HTTP
+    codes are retryable).  The answer is kept per base URL for
+    :data:`_COMPILERS_WINDOW_SECONDS`.
+    """
+    url = base_url.rstrip("/")
+    with _compilers_cache_lock:
+        cached = _compilers_cache.get(url)
+        if cached is not None and time.monotonic() - cached[0] < _COMPILERS_WINDOW_SECONDS:
+            return cached[1]
+    try:
+        reply = client.get(f"{url}{_COMPILERS_PATH}", follow_redirects=False)
+    except Exception as exc:
+        raise RecompileError(
+            f"recompile service at {url} unreachable: {exc}", kind="network", retryable=True
+        ) from exc
+    try:
+        if reply.status_code == 404:
+            rows: Any = []
+        elif reply.status_code != 200:
+            raise RecompileError(
+                f"recompile service returned HTTP {reply.status_code} for {_COMPILERS_PATH}",
+                kind="http",
+                status_code=reply.status_code,
+                retryable=reply.status_code in RETRYABLE_HTTP_STATUS,
+            )
+        elif len(reply.content) > _MAX_COMPILERS_BYTES:
+            raise RecompileError(f"recompile {_COMPILERS_PATH} reply is too large", kind="protocol")
+        else:
+            try:
+                rows = reply.json()
+            except Exception as exc:
+                raise RecompileError(
+                    f"recompile service returned non-JSON for {_COMPILERS_PATH}: {exc}",
+                    kind="protocol",
+                ) from exc
+    finally:
+        close_response(reply)
+    if not isinstance(rows, list) or not all(
+        isinstance(row, dict) and isinstance(row.get("id"), str) for row in rows
+    ):
+        raise RecompileError(f"recompile {_COMPILERS_PATH} is not a compiler list", kind="protocol")
+    admitted = frozenset(row["id"] for row in rows if row.get("execution_status") == _ADMITTED)
+    answer = admitted or None
+    with _compilers_cache_lock:
+        _compilers_cache.pop(url, None)
+        while len(_compilers_cache) >= _COMPILERS_CACHE_MAX:
+            _compilers_cache.pop(next(iter(_compilers_cache)))
+        _compilers_cache[url] = (time.monotonic(), answer)
+    return answer
+
+
 def compile_source(
     base_url: str,
     compiler: str,
@@ -1214,6 +1301,7 @@ def compile_source(
 __all__ = [
     "ATTRIBUTION_HEADER",
     "ATTRIBUTION_MEMBER_MAX_CHARS",
+    "COMPILER_NOT_INSTALLED",
     "INCLUDE_BUNDLES_FEATURE",
     "MAX_INCLUDE_FILES",
     "MAX_INCLUDE_FILE_BYTES",
@@ -1230,4 +1318,5 @@ __all__ = [
     "ServiceGate",
     "accepts_include_bundles",
     "compile_source",
+    "installed_compilers",
 ]

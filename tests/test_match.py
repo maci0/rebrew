@@ -2478,7 +2478,11 @@ class TestFlagSweepDeadline:
 
         seed_c = tmp_path / "seed.c"
         seed_c.write_text("int f(void) { return 1; }\n", encoding="utf-8")
-        params = SimpleNamespace(seed_c=seed_c, seed_src="int f(void) { return 1; }")
+        # A local compile backend: no remote listing to consult.
+        monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
+        params = SimpleNamespace(
+            seed_c=seed_c, seed_src="int f(void) { return 1; }", cfg=SimpleNamespace()
+        )
 
         seen: dict[str, Any] = {}
 

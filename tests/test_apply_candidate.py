@@ -671,6 +671,42 @@ ATTRIBUTION = {"org": "acct-org-1", "project": "prj-1", "user": "user-1", "job":
 #: ``(status, JSON body)``.
 type Answer = str | tuple[int, object]
 
+#: The MSVC profiles a toolchain sweep selects for a project on msvc-6.0.
+MSVC_PROFILES = [
+    "msvc-2.0",
+    "msvc-4.0",
+    "msvc-4.1",
+    "msvc-4.2",
+    "msvc-5.0",
+    "msvc-5.0-sp1",
+    "msvc-5.0-sp2",
+    "msvc-5.0-sp3",
+    "msvc-6.0",
+    "msvc-6.0-sp1",
+    "msvc-6.0-sp2",
+    "msvc-6.0-sp3",
+    "msvc-6.0-sp4",
+    "msvc-6.0-sp5",
+    "msvc-6.0-sp5-crt",
+    "msvc-6.0-sp5-pp",
+    "msvc-6.0-sp6",
+    "msvc-6.0-win9x",
+    "msvc-7.0",
+    "msvc-7.0-rtm",
+    "msvc-7.0-sp1",
+    "msvc-7.1",
+    "msvc-7.1-sp1",
+    "msvc-8.0",
+    "msvc-8.0-portable",
+    "msvc-8.0-sp1",
+    "msvc-9.0",
+    "msvc-9.0-sp1",
+    "msvc-10.0",
+    "msvc-10.0-sp1",
+    "msvc-11.0",
+    "msvc-12.0-u4",
+]
+
 
 @contextlib.contextmanager
 def _recompile(
@@ -679,6 +715,7 @@ def _recompile(
     failure: str | None = None,
     artifact: str = "served",
     answers: list[Answer] | None = None,
+    installed: list[str] | None = None,
 ) -> Iterator[str]:
     """A recompile stand-in: every compile fails with the ``error_code`` *failure*, or is a ``ret`` object.
 
@@ -689,7 +726,9 @@ def _recompile(
     ``lost`` (the connection closes before any reply).  *answers* script the first
     compiles: ``"lost"`` closes the connection unanswered, ``(status, body)`` answers
     *body* as JSON (``Retry-After: 0`` on a 503); the compiles after them answer as
-    above.  *seen* also gets each compile's body under ``body``.
+    above.  *seen* also gets each compile's body under ``body``.  *installed* names
+    the compilers ``GET /api/v1/compilers`` lists ``admitted`` among every MSVC
+    profile; ``None`` answers that route 404.
     """
     from bin_util import make_coff_obj
 
@@ -731,6 +770,19 @@ def _recompile(
             self._reply(200, json.dumps(body).encode(), "application/json")
 
         def do_GET(self) -> None:
+            if self.path == "/api/v1/compilers":
+                if installed is None:
+                    self._reply(404, b'{"detail": "Not Found"}', "application/json")
+                    return
+                rows = [
+                    {
+                        "id": name,
+                        "execution_status": "admitted" if name in installed else "unavailable",
+                    }
+                    for name in MSVC_PROFILES
+                ]
+                self._reply(200, json.dumps(rows).encode(), "application/json")
+                return
             if artifact == "served":
                 self._reply(200, obj, "application/octet-stream")
                 return
@@ -1018,11 +1070,12 @@ def _verify(
     answers: list[Answer],
     *,
     emit_assembly: bool = False,
+    installed: list[str] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, str]]]:
     if emit_assembly:
         monkeypatch.setitem(globals(), "PROJECT", PROJECT + b"recompile_emit_assembly = true\n")
     seen: list[dict[str, str]] = []
-    with _recompile(seen, answers=answers) as url:
+    with _recompile(seen, answers=answers, installed=installed) as url:
         config, entries = _compiling_at(url, tmp_path, monkeypatch)
         status, raw = dispatch(
             config,
@@ -1149,3 +1202,103 @@ def test_a_refusal_after_an_unsettled_compile_reports_it(
     assert len(seen) == 3
     assert refusal["remote_compile"]["count"] == 0
     assert refusal["remote_compile"]["unsettled"] == 1
+
+
+# recompile 13 lists whether its deployment has installed each compiler
+# (`execution_status`); a compile of one it has not is refused 400
+# `compiler_not_installed`, unbilled.  rebrew offers and sends only installed ones.
+
+#: What recompile 13 refuses an uninstalled compiler with.
+_NOT_INSTALLED = (400, {"detail": "compiler not installed", "code": "compiler_not_installed"})
+
+
+def _flag_search(entries: list[dict[str, Any]], **extra: Any) -> bytes:
+    return json.dumps(
+        {
+            "source": "src/stub.c",
+            "source_sha256": hashlib.sha256(STUB).hexdigest(),
+            "va": VA,
+            "files": entries,
+            "rebrew_target": "mini",
+            "sha256": SHA256,
+            "binary_key": f"binaries/{SHA256}",
+            **extra,
+        }
+    ).encode()
+
+
+def test_a_toolchain_sweep_counts_only_the_compilers_the_service_installed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[dict[str, str]] = []
+    with _recompile(seen, installed=["msvc-6.0", "msvc-7.1"]) as url:
+        config, entries = _compiling_at(url, tmp_path, monkeypatch)
+        status, raw = dispatch(
+            config,
+            "rebrew.flag_search",
+            _flag_search(entries, compare_toolchains=True, count_only=True),
+        )
+    reply = json.loads(raw)
+    assert (status, reply["candidates"]) == (200, 2), reply
+    assert not seen
+
+
+def test_a_toolchain_sweep_compiles_only_the_compilers_the_service_installed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[dict[str, str]] = []
+    with _recompile(seen, installed=["msvc-6.0", "msvc-7.1"]) as url:
+        config, entries = _compiling_at(url, tmp_path, monkeypatch)
+        status, raw = dispatch(
+            config, "rebrew.flag_search", _flag_search(entries, compare_toolchains=True)
+        )
+    reply = json.loads(raw)
+    assert status == 200, reply
+    assert sorted(json.loads(h["body"])["compiler"] for h in seen) == ["msvc-6.0", "msvc-7.1"]
+    assert sorted(r["toolchain"] for r in reply["results"]) == ["msvc-6.0", "msvc-7.1"]
+    assert sorted(reply["not_installed"]) == sorted(set(MSVC_PROFILES) - {"msvc-6.0", "msvc-7.1"})
+    assert reply["remote_compile"]["count"] == 2
+
+
+@pytest.mark.parametrize(
+    "op", ["rebrew.verify_function", "rebrew.apply_candidate", "rebrew.flag_search"]
+)
+def test_a_compile_of_a_compiler_the_service_has_not_installed_is_refused_unsent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, op: str
+) -> None:
+    seen: list[dict[str, str]] = []
+    with _recompile(seen, installed=["msvc-7.1"]) as url:
+        config, entries = _compiling_at(url, tmp_path, monkeypatch)
+        body = (
+            _flag_search(entries, tier="quick", count_only=True)
+            if op == "rebrew.flag_search"
+            else _request(entries, candidate="void fcn_00401000(void) {}\n")
+        )
+        status, raw = dispatch(config, op, body)
+    refusal = json.loads(raw)
+    assert (status, refusal["error"]) == (400, "compiler-not-installed"), refusal
+    assert not seen
+    assert refusal.get("remote_compile", {"count": 0, "unsettled": 0})["count"] == 0
+
+
+def test_a_compile_the_service_refuses_as_not_installed_is_final_and_free(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The listing said installed; the service's own answer is the last word."""
+    seen: list[dict[str, str]] = []
+    with _recompile(seen, answers=[_NOT_INSTALLED, _OK], installed=["msvc-6.0"]) as url:
+        config, entries = _compiling_at(url, tmp_path, monkeypatch)
+        status, raw = dispatch(config, "rebrew.apply_candidate", _request(entries))
+    refusal = json.loads(raw)
+    assert (status, refusal["error"]) == (400, "compiler-not-installed"), refusal
+    assert len(seen) == 1
+    assert (refusal["remote_compile"]["count"], refusal["remote_compile"]["unsettled"]) == (0, 0)
+
+
+@pytest.mark.parametrize("installed", [[], None], ids=["recompile-12-listing", "no-listing"])
+def test_a_listing_that_names_no_installed_compiler_holds_nothing_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, installed: list[str] | None
+) -> None:
+    """recompile 12 lists every compiler unavailable: the compile is sent as before."""
+    reply, seen = _verify(tmp_path, monkeypatch, [_OK], installed=installed)
+    assert reply["remote_compile"]["count"] == 1 == len(seen)

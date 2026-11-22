@@ -619,6 +619,10 @@ _install_click_error_hook()
 #: source does not build, as opposed to a toolchain that could not run.
 TOOLCHAIN_REJECTED_KIND = "toolchain_rejected"
 
+#: The ``error_exit`` kind of a remote compile refused unsent because the
+#: recompile service has not installed its compiler: nothing was compiled or billed.
+COMPILER_NOT_INSTALLED_KIND = "compiler_not_installed"
+
 
 class CommandExit(typer.Exit):
     """The exit :func:`error_exit` raises: its JSON error *kind* and *message* ride along.
@@ -1555,6 +1559,7 @@ __all__ = [
     "BUILT_IMAGE_HELP",
     "BUILT_IMAGE_REQUIRED_HELP",
     "CFLAGS_HELP",
+    "COMPILER_NOT_INSTALLED_KIND",
     "CREATE_MISSING_HELP",
     "DIR_HELP",
     "EXIT_ERROR",

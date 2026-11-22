@@ -27,6 +27,7 @@ def test_recompile_client_public_all() -> None:
     assert rc.__all__ == [
         "ATTRIBUTION_HEADER",
         "ATTRIBUTION_MEMBER_MAX_CHARS",
+        "COMPILER_NOT_INSTALLED",
         "INCLUDE_BUNDLES_FEATURE",
         "MAX_INCLUDE_FILES",
         "MAX_INCLUDE_FILE_BYTES",
@@ -43,6 +44,7 @@ def test_recompile_client_public_all() -> None:
         "ServiceGate",
         "accepts_include_bundles",
         "compile_source",
+        "installed_compilers",
     ]
     for name in rc.__all__:
         assert getattr(rc, name, None) is not None, name
@@ -115,8 +117,18 @@ class TestHttpProtocols:
         assert isinstance(httpx.Client(), HttpClient)
 
 
+def _no_listing(url: str) -> _Resp | None:
+    """A service without ``GET /api/v1/compilers`` (404): nothing is held back."""
+    return (
+        _Resp(404, json_body={"detail": "Not Found"}) if url.endswith("/api/v1/compilers") else None
+    )
+
+
 class _FakeClient:
-    """Stand-in for ``httpx.Client``; records calls, replays canned replies."""
+    """Stand-in for ``httpx.Client``; records calls, replays canned replies.
+
+    It has no compiler listing, as recompile before the route; those reads are not recorded.
+    """
 
     def __init__(self, post: Any, get: Any = None) -> None:
         self._post = post
@@ -142,6 +154,8 @@ class _FakeClient:
         return self._post
 
     def get(self, url: str, headers: Any = None, follow_redirects: bool = False) -> Any:
+        if (listing := _no_listing(url)) is not None:
+            return listing
         self.calls.append(("get", url))
         if isinstance(self._get, Exception):
             raise self._get
@@ -172,6 +186,8 @@ def _sequence_client(
             return posts.pop(0)
 
         def get(self, url: str, headers: Any = None, follow_redirects: bool = False) -> Any:
+            if (listing := _no_listing(url)) is not None:
+                return listing
             self.calls.append(("get", url))
             return replies.pop(0)
 
@@ -1966,3 +1982,47 @@ class TestRecompileElevenCodes:
         assert result.status == "NOT_RUN" and not result.matched
         assert isinstance(result.error, RecompileError)
         assert (result.error.status_code, result.error.error_code) == (403, "delivery_denied")
+
+
+class TestCompilerListing:
+    """``installed_compilers`` reads recompile 13's ``execution_status`` per listed compiler."""
+
+    @staticmethod
+    def _client(monkeypatch: pytest.MonkeyPatch, rows: Any) -> tuple[httpx.Client, list[str]]:
+        monkeypatch.setattr("rebrew.compiler.recompile_client._compilers_cache", {})
+        seen: list[str] = []
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            seen.append(request.url.path)
+            return httpx.Response(200, json=rows)
+
+        return httpx.Client(transport=httpx.MockTransport(handle)), seen
+
+    def test_the_listing_is_kept_for_its_window(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.compiler import recompile_client as rc
+
+        rows = [
+            {"id": "msvc-6.0", "execution_status": "admitted"},
+            {"id": "msvc-7.1", "execution_status": "unavailable"},
+        ]
+        http, seen = self._client(monkeypatch, rows)
+        now = [1000.0]
+        monkeypatch.setattr("rebrew.compiler.recompile_client.time.monotonic", lambda: now[0])
+        assert rc.installed_compilers("http://svc", client=http) == {"msvc-6.0"}
+        now[0] += 29.0
+        assert rc.installed_compilers("http://svc/", client=http) == {"msvc-6.0"}
+        assert len(seen) == 1
+        now[0] += 2.0
+        rc.installed_compilers("http://svc", client=http)
+        assert seen == ["/api/v1/compilers"] * 2
+
+    @pytest.mark.parametrize("rows", [{"id": "msvc-6.0"}, [{"name": "msvc-6.0"}], ["msvc-6.0"]])
+    def test_a_reply_that_is_not_a_compiler_list_is_a_protocol_error(
+        self, monkeypatch: pytest.MonkeyPatch, rows: Any
+    ) -> None:
+        from rebrew.compiler import recompile_client as rc
+
+        http, _seen = self._client(monkeypatch, rows)
+        with pytest.raises(RecompileError) as raised:
+            rc.installed_compilers("http://svc", client=http)
+        assert raised.value.kind == "protocol"

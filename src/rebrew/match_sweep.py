@@ -662,6 +662,26 @@ def _vendored_msvc_toolchains(
     return out
 
 
+def _installed_toolchains(
+    cfg: Any, toolchains: list[tuple[str, str, str]]
+) -> tuple[list[tuple[str, str, str]], list[str]]:
+    """Split *toolchains* into those the remote compile service can run and the names it cannot.
+
+    A remote sweep leaves out a profile the recompile service lists as not
+    installed on its deployment: every compile of it would be refused.  Without
+    a listing that says (a local backend, recompile before 13) nothing is left out.
+    """
+    from rebrew.compiler.compile import remote_installed_compilers
+
+    installed = remote_installed_compilers(cfg)
+    if installed is None:
+        return toolchains, []
+    return (
+        [entry for entry in toolchains if entry[0] in installed],
+        [entry[0] for entry in toolchains if entry[0] not in installed],
+    )
+
+
 def sweep_candidate_count(
     p: BuildParams,
     tier: str,
@@ -675,14 +695,18 @@ def sweep_candidate_count(
 
     The same selection the searches run: a flag search compiles every
     combination of *tier* for the function's profile and then the seed once;
-    a toolchain comparison compiles the seed with each selected profile, or,
-    with *flags*, every combination of *tier* for each.  A search a deadline
-    cuts short makes fewer, so the count is a ceiling.
+    a toolchain comparison compiles the seed with each selected profile the
+    remote compile service has installed, or, with *flags*, every combination
+    of *tier* for each.  A search a deadline cuts short makes fewer, so the
+    count is a ceiling.
     """
     profile = str(getattr(p.cfg, "compiler_profile", "") or "")
     if not toolchains:
         return len(compile_seam.generate_flag_combinations(tier=tier, profile=profile)) + 1
-    selected = [name for name, _cl, _inc in _vendored_msvc_toolchains(p.cfg, only, exclude)]
+    installed, _held_back = _installed_toolchains(
+        p.cfg, _vendored_msvc_toolchains(p.cfg, only, exclude)
+    )
+    selected = [name for name, _cl, _inc in installed]
     if not flags:
         return len(selected)
     return sum(
@@ -693,8 +717,14 @@ def sweep_candidate_count(
 def run_single_toolchain_sweep(
     p: BuildParams, json_output: bool, only: str = "", exclude: str = ""
 ) -> None:
-    """Compile the seed with each vendored MSVC toolchain and report the best."""
-    toolchains = _vendored_msvc_toolchains(p.cfg, only, exclude)
+    """Compile the seed with each vendored MSVC toolchain and report the best.
+
+    A profile the remote compile service has not installed is left out and
+    named in the report's ``not_installed``.
+    """
+    toolchains, not_installed = _installed_toolchains(
+        p.cfg, _vendored_msvc_toolchains(p.cfg, only, exclude)
+    )
     # Catalog + IAT region are constant across toolchains — computed once,
     # not per iteration (the old code called build_iat_region inside the
     # loop and passed name_to_va via a getattr that never existed, so reloc
@@ -769,6 +799,7 @@ def run_single_toolchain_sweep(
                     for score, matched, count, total, profile in results
                 ],
                 "best": results[0][4] if results else None,
+                "not_installed": not_installed,
             }
         )
         return
@@ -782,6 +813,10 @@ def run_single_toolchain_sweep(
         tag = "[green]EXACT[/green]" if matched and count == total else ""
         table.add_row(profile, f"{score_val:.2f}", f"{count}/{total}", tag)
     console.print(table)
+    if not_installed:
+        console.print(
+            "Not installed on the recompile service, left out: " + ", ".join(not_installed)
+        )
     if results:
         best = results[0]
         if best[1] and best[2] == best[3]:
@@ -804,9 +839,12 @@ def run_single_toolchain_flag_sweep(
     run — the two-dimension question a decompiler faces when the configured
     profile does not byte-match (``match toolchains`` without ``--flags`` only tries the
     project's cflags; ``match flags`` alone only tries the project's
-    compiler).
+    compiler).  A profile the remote compile service has not installed is left
+    out and named in the report's ``not_installed``.
     """
-    toolchains = _vendored_msvc_toolchains(p.cfg, only, exclude)
+    toolchains, not_installed = _installed_toolchains(
+        p.cfg, _vendored_msvc_toolchains(p.cfg, only, exclude)
+    )
     rows: list[dict[str, Any]] = []
     for profile, cl_cmd, inc_dir in toolchains:
         results = flag_sweep(
@@ -847,6 +885,7 @@ def run_single_toolchain_flag_sweep(
                 "sweep": "toolchain+flags",
                 "results": rows,
                 "best": rows[0]["toolchain"] if rows else None,
+                "not_installed": not_installed,
             }
         )
         return
@@ -865,6 +904,10 @@ def run_single_toolchain_flag_sweep(
             "[green]EXACT[/green]" if r["exact"] else "",
         )
     console.print(table)
+    if not_installed:
+        console.print(
+            "Not installed on the recompile service, left out: " + ", ".join(not_installed)
+        )
     if rows and rows[0]["exact"]:
         console.print(
             f"[green]Full match with {rows[0]['toolchain']} — switch the project profile "
