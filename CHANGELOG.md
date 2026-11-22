@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.66.0] - 2026-11-22
+
 ### Fixed
 
 - `rebrew verify --text --raw-link` wrote each linked-only function's verdict twice in one run: the batch stored the unlinked RELOC, then the linked promotion stored EXACT, so every gate run after a relink added an EXACT to RELOC and a RELOC to EXACT `status_history` pair per function with no net change (about 275 functions per run on guild-rebrew's server). The batch now leaves its writes until the promotion has run and skips the functions it promoted; a failed promotion still writes the batch verdicts. The linked report gains `promoted_vas`.
