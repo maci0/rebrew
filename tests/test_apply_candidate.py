@@ -716,6 +716,7 @@ def _recompile(
     artifact: str = "served",
     answers: list[Answer] | None = None,
     installed: list[str] | None = None,
+    meet: int = 0,
 ) -> Iterator[str]:
     """A recompile stand-in: every compile fails with the ``error_code`` *failure*, or is a ``ret`` object.
 
@@ -728,12 +729,14 @@ def _recompile(
     *body* as JSON (``Retry-After: 0`` on a 503); the compiles after them answer as
     above.  *seen* also gets each compile's body under ``body``.  *installed* names
     the compilers ``GET /api/v1/compilers`` lists ``admitted`` among every MSVC
-    profile; ``None`` answers that route 404.
+    profile; ``None`` answers that route 404.  The first *meet* compiles are held
+    until all of them have arrived, so that many calls are in flight at once.
     """
     from bin_util import make_coff_obj
 
     # The helper writes a long name only for an extra symbol; the registry symbol is one.
     obj = make_coff_obj(b"\xc3", func_symbol="_x", extra_funcs=[("_fcn_00401000", 0)])
+    arrived = threading.Barrier(meet) if meet else None
 
     class _Service(http.server.BaseHTTPRequestHandler):
         def _reply(self, status: int, body: bytes, content_type: str) -> None:
@@ -746,6 +749,8 @@ def _recompile(
         def do_POST(self) -> None:
             raw = self.rfile.read(int(self.headers.get("Content-Length", "0")))
             seen.append({**dict(self.headers.items()), "body": raw.decode()})
+            if arrived is not None and len(seen) <= meet:
+                arrived.wait(_WAIT_SECONDS)
             if answers:
                 scripted = answers.pop(0)
                 if isinstance(scripted, str):
@@ -1342,3 +1347,71 @@ def test_an_attribution_recompile_refuses_is_the_callers_invalid_request(
     assert refusal["detail"] == "the recompile service refused the attribution"
     assert len(seen) == 1
     assert (refusal["remote_compile"]["count"], refusal["remote_compile"]["unsettled"]) == (0, 0)
+
+
+def test_two_concurrent_compiling_ops_count_only_their_own_compiles(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The long-running server holds one ledger per call: compiles in flight together never cross."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from rebrew.matcher.compiler import generate_flag_combinations
+    from rebrew.ops import OpsServer
+
+    token = secrets.token_hex(16)
+    seen: list[dict[str, str]] = []
+    with _recompile(seen, meet=2) as url:
+        config, entries = _compiling_at(url, tmp_path, monkeypatch)
+        requests = {
+            "job-verify": (
+                "rebrew.verify_function",
+                _request(
+                    entries,
+                    candidate="void fcn_00401000(void) {}\n",
+                    attribution={**ATTRIBUTION, "job": "job-verify"},
+                ),
+            ),
+            "job-search": (
+                "rebrew.flag_search",
+                _flag_search(
+                    entries, tier="quick", attribution={**ATTRIBUTION, "job": "job-search"}
+                ),
+            ),
+        }
+        with OpsServer(("127.0.0.1", 0), config, token, 2) as server:
+            thread = threading.Thread(
+                target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+            )
+            thread.start()
+
+            def call(op: str, body: bytes) -> tuple[int, dict[str, Any]]:
+                connection = http.client.HTTPConnection(
+                    "127.0.0.1", server.server_address[1], timeout=_WAIT_SECONDS
+                )
+                headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+                connection.request("POST", f"/{op}", body=body, headers=headers)
+                response = connection.getresponse()
+                reply = json.loads(response.read())
+                connection.close()
+                return response.status, reply
+
+            try:
+                with ThreadPoolExecutor(2) as pool:
+                    futures = {
+                        job: pool.submit(call, *request) for job, request in requests.items()
+                    }
+                    replies = {job: future.result(_WAIT_SECONDS) for job, future in futures.items()}
+            finally:
+                server.shutdown()
+                thread.join(_WAIT_SECONDS)
+    posted = {
+        job: sum(json.loads(h["X-Relumea-Attribution"])["job"] == job for h in seen)
+        for job in requests
+    }
+    assert posted == {
+        "job-verify": 1,
+        "job-search": len(generate_flag_combinations("quick", "msvc-6.0")) + 1,
+    }
+    for job, (status, reply) in replies.items():
+        assert status == 200, reply
+        assert reply["remote_compile"]["count"] == posted[job], job
