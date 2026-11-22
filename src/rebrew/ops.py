@@ -73,7 +73,7 @@ lazy import traceback
 lazy import types
 lazy import typing
 lazy import unicodedata
-lazy from collections.abc import Callable, Iterable, Iterator, Mapping
+lazy from collections.abc import Callable, Collection, Iterable, Iterator, Mapping
 lazy from typing import Any
 lazy from urllib.parse import urlsplit
 
@@ -4973,6 +4973,13 @@ class OpsServer(ThreadingHTTPServer):
     At most *concurrency* calls hold a slot at once, from reading the body
     to writing the reply; a call finding none free is answered 503.
 
+    *answer* answers every ``POST /<name>`` with ``(status, reply)`` from the
+    worker configuration, the name and the body; *ops* is the op names it
+    serves, which bound the per-op metrics and the span names (any other name
+    is ``/unknown``) and decide a non-POST answer: 405 ``Allow: POST`` for a
+    served op, 404 otherwise.  Both default to rebrew's own (:data:`OPS`,
+    :func:`dispatch`); another engine passes its op table and dispatcher.
+
     Carries request metrics (see :meth:`record_request` and
     :meth:`metrics_snapshot`) behind ``/health`` and ``/metrics`` on the
     same port: counters plus latency, so an operator can pivot from a
@@ -4988,9 +4995,14 @@ class OpsServer(ThreadingHTTPServer):
         token: str,
         concurrency: int,
         allowed_hosts: frozenset[str] = frozenset(),
+        *,
+        ops: Collection[str] = OPS.keys(),
+        answer: Callable[[WorkerConfig, str, bytes], tuple[int, bytes]] = dispatch,
     ) -> None:
         super().__init__(address, _OpsHandler)
         self.config = config
+        self.ops = frozenset(ops)
+        self.answer = answer
         self.token = token
         self.slots = threading.BoundedSemaphore(concurrency)
         self.active = 0
@@ -5217,8 +5229,9 @@ class _OpsHandler(BaseHTTPRequestHandler):
         with contextlib.suppress(AttributeError):
             raw_path = urlsplit(getattr(self, "path", "") or "").path
             op_name = raw_path.removeprefix("/")
-            route = f"/{op_name}" if op_name in OPS else "/unknown"
-            typing.cast("OpsServer", self.server).record_request(code, elapsed_ms, route)
+            server = typing.cast("OpsServer", self.server)
+            route = f"/{op_name}" if op_name in server.ops else "/unknown"
+            server.record_request(code, elapsed_ms, route)
         self.log_request(code, getattr(self, "_response_size", "-"))
         opened = telemetry.current()
         if opened is not None and opened.kind == telemetry.KIND_SERVER:
@@ -5326,7 +5339,8 @@ class _OpsHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # (http.server API)
         name = urlsplit(self.path).path.removeprefix("/")
-        route = f"/{name}" if name in OPS else "/unknown"  # the route is bounded by the op set
+        served = typing.cast("OpsServer", self.server).ops
+        route = f"/{name}" if name in served else "/unknown"  # the route is bounded by the op set
         with telemetry.span(
             f"POST {route}",
             kind=telemetry.KIND_SERVER,
@@ -5352,8 +5366,8 @@ class _OpsHandler(BaseHTTPRequestHandler):
             return
         # /health and /metrics are GET/HEAD on this server: a POST is a
         # wrong method for a served resource (405), not an unknown op (404).
-        # Other paths fall through to dispatch, which answers 404 for a name
-        # outside OPS.
+        # Other paths fall through to the server's answer, which refuses a name
+        # outside its ops (dispatch: 404).
         if urlsplit(self.path).path in ("/health", "/metrics"):
             self._send(
                 405,
@@ -5466,7 +5480,7 @@ class _OpsHandler(BaseHTTPRequestHandler):
         replied = _REPLY_HEADERS.set(headers)
         watcher.start()
         try:
-            status, reply = dispatch(
+            status, reply = server.answer(
                 server.config, urlsplit(self.path).path.removeprefix("/"), body
             )
         finally:
@@ -5629,7 +5643,7 @@ class _OpsHandler(BaseHTTPRequestHandler):
             )
             return
         name = path.removeprefix("/")
-        if name not in OPS:
+        if name not in typing.cast("OpsServer", self.server).ops:
             self._refuse(UNKNOWN_OP, f"unknown op: {_bounded(name)}", 404)
             return
         self._send(

@@ -4316,3 +4316,49 @@ class TestImportArchive:
         status, reply = _import(config, filestore, buffer.getvalue())
         assert status == 200, reply
         assert reply["targets"][0]["sha256"] == SHA256
+
+
+class TestCallerOpTable:
+    """An engine serves its own ops through ``OpsServer(..., ops=..., answer=...)``."""
+
+    @staticmethod
+    def _call(port: int, method: str, path: str, body: bytes = b"") -> tuple[int, str, bytes]:
+        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=WAIT_SECONDS)
+        headers = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
+        connection.request(method, path, body=body or None, headers=headers)
+        response = connection.getresponse()
+        answer = (response.status, response.getheader("Allow") or "", response.read())
+        connection.close()
+        return answer
+
+    def test_the_server_routes_meters_and_refuses_by_the_callers_table(self) -> None:
+        from rebrew.ops import OpsServer, WorkerConfig
+
+        called: list[str] = []
+
+        def answer(config: WorkerConfig, name: str, body: bytes) -> tuple[int, bytes]:
+            called.append(name)
+            return 200, json.dumps({"op": name, "body": json.loads(body)}).encode()
+
+        with OpsServer(
+            ("127.0.0.1", 0), WorkerConfig(), TOKEN, 1, ops={"engine.echo"}, answer=answer
+        ) as server:
+            thread = threading.Thread(
+                target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+            )
+            thread.start()
+            port = server.server_address[1]
+            try:
+                posted = self._call(port, "POST", "/engine.echo", b'{"x": 1}')
+                got = self._call(port, "GET", "/engine.echo")
+                rebrew_op = self._call(port, "GET", "/rebrew.verify_function")
+                metrics = self._call(port, "GET", "/metrics")[2].decode()
+            finally:
+                server.shutdown()
+                thread.join(timeout=WAIT_SECONDS)
+        assert posted[0] == 200 and json.loads(posted[2]) == {"op": "engine.echo", "body": {"x": 1}}
+        assert called == ["engine.echo"]
+        assert got[:2] == (405, "POST")
+        assert rebrew_op[0] == 404
+        assert 'rebrew_ops_per_op_requests_total{op="/engine.echo"}' in metrics
+        assert 'op="/rebrew.verify_function"' not in metrics

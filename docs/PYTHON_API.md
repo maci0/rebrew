@@ -208,8 +208,8 @@ is still a valid answer; only the `decompme` protocol requires `close()`.
 
 An engine that serves retained requests beside rebrew (recoverage's coverage
 ops) stages each request's snapshot as rebrew's own retained ops do, with these
-three names from the op worker `rebrew.ops`; the rest of that module is the
-worker's own:
+three names from the op worker `rebrew.ops`, and serves its ops over HTTP with a
+fourth, `OpsServer`; the rest of that module is the worker's own:
 
 ```python
 from rebrew.config import load_config
@@ -234,6 +234,27 @@ bounds, a repeated or non-portable path, bytes that do not match, a
 not one local backend, and a snapshot without its inventory and function
 metadata; a block that ends without an exception is refused when it changed
 the binary or a staged file.
+
+`OpsServer(address, config, token, concurrency, allowed_hosts, *, ops=..., answer=...)`
+is rebrew's op server (a `ThreadingHTTPServer`: bearer *token*, Host allow-list,
+*concurrency* slots, `/health` and `/metrics`, progress streams, cancellation when
+the caller leaves). *answer* answers every `POST /<name>`: called with *config*,
+the name and the body, it returns `(status, reply bytes)`. *ops* is the names it
+serves: they bound the per-op metrics (`op="/<name>"`, any other name
+`/unknown`) and the server span names, and a GET or other non-POST method on one
+answers 405 `Allow: POST`, on any other path 404 `unknown-op`. Both default to
+rebrew's own op table and dispatcher:
+
+```python
+from rebrew.ops import OpsServer, WorkerConfig
+
+def answer(config: WorkerConfig, name: str, body: bytes) -> tuple[int, bytes]:
+    ...  # the engine's dispatcher: 404 for a name it does not serve
+
+server = OpsServer(("127.0.0.1", 0), WorkerConfig(filestore, workspace), token, 4,
+                   ops=ENGINE_OPS, answer=answer)
+server.serve_forever()
+```
 
 The Python import surface is not frozen and has no deprecation window, so pin
 the minor version if you import rebrew as a library. The full compatibility

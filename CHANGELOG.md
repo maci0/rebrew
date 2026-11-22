@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Added
+
+- `rebrew.ops.OpsServer` takes the op table it serves: keyword-only `ops` (the op names) and `answer` (`(config, name, body) -> (status, reply)`), defaulting to rebrew's `OPS` and `dispatch`, and is documented for engines in `docs/PYTHON_API.md`. The per-op metrics, the server span names and the 405-or-404 answer to a non-POST method follow `ops`, and every POST goes to `answer`. recoverage served its ops by rebinding `rebrew.ops.dispatch` at run time, and its ops then all metered `/unknown`, a GET on one answered 404, and a GET on a rebrew op answered 405.
+
 ### Changed
 
 - The dispatch schema (`tests/fixtures/dispatch/rebrew.schema.json`) publishes as `enum`s the request sets rebrew already refuses others of with 400: `rebrew.retained_source_operation` `operation` (`data-set`, `rename`, `split`, `merge`, `variants`, `decompme`), `rebrew.flag_search` `tier` (`quick`, `targeted`, `normal`, `thorough`, `full`), `rebrew.disassemble` `format` (`asm`, `hex`, `nasm`) and `rebrew.reference_flirt` `format` (`pat`, `sig`). No accepted request changes; a caller validating against the schema now sees the sets.
