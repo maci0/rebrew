@@ -385,6 +385,9 @@ SPLAT_ANCHOR = Path("/splat/splat.yaml")
 #: Signature formats ``reference_flirt`` reads, by request ``format``.
 FLIRT_FORMATS = frozenset({"sig", "pat"})
 
+#: Flag-sweep tiers ``flag_search`` takes, by request ``tier``.
+FLAG_SEARCH_TIERS = frozenset({"quick", "targeted", "normal", "thorough", "full"})
+
 #: ``rebrew source rename`` selectors by request ``kind``; a function takes none.
 RENAME_KINDS = {"function": (), "data": ("--data",), "type": ("--type",), "field": ("--field",)}
 
@@ -4412,7 +4415,7 @@ def flag_search(config: WorkerConfig, req: FlagSearchRequest) -> dict[str, Any]:
     ``count_only`` stages the same snapshot and answers ``{"candidates": N}``, the
     compiles the search would make, so a caller can price it before it runs.
     """
-    if req.va < 0 or req.tier not in {"quick", "targeted", "normal", "thorough", "full"}:
+    if req.va < 0 or req.tier not in FLAG_SEARCH_TIERS:
         raise _invalid("invalid address or flag search tier")
     if not req.compare_toolchains and (req.toolchains or req.exclude_toolchains or req.with_flags):
         raise _invalid("toolchain selection requires a toolchain comparison")

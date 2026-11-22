@@ -8,6 +8,9 @@ lazy import tempfile
 lazy from pathlib import Path
 lazy from typing import Any
 
+#: Operations ``rebrew.retained_source_operation`` runs, by request ``operation``.
+OPERATIONS = frozenset({"data-set", "rename", "split", "merge", "variants", "decompme"})
+
 
 def snapshot_mutation(config: Any, req: Any) -> dict[str, Any]:
     """Execute one bounded operation without exposing the published worktree."""
@@ -35,7 +38,7 @@ def snapshot_mutation(config: Any, req: Any) -> dict[str, Any]:
         return path
 
     retained_paths = {entry.path for entry in req.files}
-    if req.operation not in {"data-set", "rename", "split", "merge", "variants", "decompme"}:
+    if req.operation not in OPERATIONS:
         raise invalid("unknown retained source operation")
     if req.va < 0 or req.size < 0:
         raise invalid("address and size must not be negative")

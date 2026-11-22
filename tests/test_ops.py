@@ -259,6 +259,25 @@ class TestContract:
             contract = set(_CONTRACT["ops"][name]["request"].get("properties", {}))
             assert code == contract, name
 
+    def test_request_enums_are_the_sets_the_ops_enforce(self) -> None:
+        """A caller validating against the schema sees exactly what the op refuses others of."""
+        from rebrew import ops
+        from rebrew.snapshot_mutations import OPERATIONS
+
+        enforced = {
+            ("rebrew.retained_source_operation", "operation"): OPERATIONS,
+            ("rebrew.flag_search", "tier"): ops.FLAG_SEARCH_TIERS,
+            ("rebrew.disassemble", "format"): ops.DISASM_FORMATS,
+            ("rebrew.reference_flirt", "format"): ops.FLIRT_FORMATS,
+        }
+        published = {
+            (name, field): set(schema["enum"])
+            for name, entry in _CONTRACT["ops"].items()
+            for field, schema in entry["request"].get("properties", {}).items()
+            if "enum" in schema
+        }
+        assert published == {key: set(values) for key, values in enforced.items()}
+
 
 def _lstrlen_calls(lstrlen: int, _local_alloc: int) -> str:
     """Win2k notepad 0x1002cf5: ``mov esi, [lstrlenW]`` once, then ``call esi`` on one arm of an
