@@ -560,6 +560,9 @@
           "remote_compile": {
             "additionalProperties": false,
             "properties": {
+              "billed_undelivered": {
+                "type": "integer"
+              },
               "count": {
                 "type": "integer"
               },
@@ -572,6 +575,7 @@
             },
             "required": [
               "count",
+              "billed_undelivered",
               "unsettled",
               "wait_ms"
             ],
@@ -850,6 +854,9 @@
           "remote_compile": {
             "additionalProperties": false,
             "properties": {
+              "billed_undelivered": {
+                "type": "integer"
+              },
               "count": {
                 "type": "integer"
               },
@@ -862,6 +869,7 @@
             },
             "required": [
               "count",
+              "billed_undelivered",
               "unsettled",
               "wait_ms"
             ],
@@ -1996,6 +2004,9 @@
           "remote_compile": {
             "additionalProperties": false,
             "properties": {
+              "billed_undelivered": {
+                "type": "integer"
+              },
               "count": {
                 "type": "integer"
               },
@@ -2008,6 +2019,7 @@
             },
             "required": [
               "count",
+              "billed_undelivered",
               "unsettled",
               "wait_ms"
             ],
@@ -4200,6 +4212,9 @@
           "remote_compile": {
             "additionalProperties": false,
             "properties": {
+              "billed_undelivered": {
+                "type": "integer"
+              },
               "count": {
                 "type": "integer"
               },
@@ -4212,6 +4227,7 @@
             },
             "required": [
               "count",
+              "billed_undelivered",
               "unsettled",
               "wait_ms"
             ],
@@ -4845,6 +4861,9 @@
           "remote_compile": {
             "additionalProperties": false,
             "properties": {
+              "billed_undelivered": {
+                "type": "integer"
+              },
               "count": {
                 "type": "integer"
               },
@@ -4857,6 +4876,7 @@
             },
             "required": [
               "count",
+              "billed_undelivered",
               "unsettled",
               "wait_ms"
             ],
@@ -4972,6 +4992,9 @@
           "remote_compile": {
             "additionalProperties": false,
             "properties": {
+              "billed_undelivered": {
+                "type": "integer"
+              },
               "count": {
                 "type": "integer"
               },
@@ -4984,6 +5007,7 @@
             },
             "required": [
               "count",
+              "billed_undelivered",
               "unsettled",
               "wait_ms"
             ],
