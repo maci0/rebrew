@@ -7,7 +7,10 @@ slipcover run over a subset of the test files, so its counts are exact, and
 ``slipcover --merge`` unions the shards and applies the floor.
 
 Files are assigned largest first to the least loaded shard by byte size, a
-proxy for run time: four shards of this suite ran 99-159 s each.
+proxy for run time: four shards of this suite ran 99-159 s each.  The split
+decides which test files share a process, so its default is fixed at the CI
+runner's count, not this host's CPUs: a test that leaks state into a later
+file then fails here exactly as it does in CI.
 
 Usage: coverage_shards.py --fail-under PERCENT [--shards N] [--out-dir DIR]
 """
@@ -15,10 +18,13 @@ Usage: coverage_shards.py --fail-under PERCENT [--shards N] [--out-dir DIR]
 from __future__ import annotations
 
 import argparse
-import os
 import subprocess
 import sys
 from pathlib import Path
+
+#: Shards when ``--shards`` is not given: the CPUs of CI's ``ubuntu-24.04``
+#: runner, which runs ``make coverage`` with this default.
+DEFAULT_SHARDS = 4
 
 
 def _project_root() -> Path:
@@ -42,7 +48,7 @@ def partition(files: list[Path], count: int) -> list[list[Path]]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--fail-under", type=float, required=True, help="line coverage floor")
-    parser.add_argument("--shards", type=int, default=os.cpu_count() or 1, help="parallel shards")
+    parser.add_argument("--shards", type=int, default=DEFAULT_SHARDS, help="parallel shards")
     parser.add_argument("--out-dir", type=Path, default=Path("build/coverage"))
     args = parser.parse_args()
     if args.shards < 1:

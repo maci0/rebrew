@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Changed
+
+- `make coverage` (`tools/coverage_shards.py`) runs four shards on every host, the CI runner's count, instead of one per CPU. The split decides which test files share a process, so a test that leaked state into a later file in CI's split passed locally on a host with another CPU count, as a leaked `compile_and_compare` stand-in in `tests/test_linked_exact.py` did. `--shards N` still overrides it.
+
 ### Fixed
 
 - `rebrew library identify` named the import stub of every import by ordinal `ordinal_N` (WS2_32's `bind` was `ordinal_2`), though the target's configured import library records the decorated symbol for each ordinal. The stub now takes that symbol (`_bind@12`) from the `external_libs` archives on disk; an ordinal no import library lists keeps `ordinal_N`.
