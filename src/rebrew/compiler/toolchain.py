@@ -421,8 +421,8 @@ def profile_family(profile: str) -> str:
 #: Candidate MSVC toolchain layouts per profile, best first: the full master
 #: (Bin+Include+Lib) then the vendored compile-only mirrors (newer codegen
 #: first — docs/TOOLCHAIN.md notes SP3 codegen differs from SP6).  The mirror
-#: dirs carry version suffixes (msvc-6.0-sp3-win32/6.6/7.0) while the master keeps the
-#: classic names (msvc-6.0-win32/VC98, msvc-7.0-win32), so a machine with only the mirrors
+#: dirs carry version suffixes (msvc-6.0-sp3-win32/6.6) while the master keeps the
+#: classic names (msvc-6.0-win32/VC98), so a machine with only the mirrors
 #: must not be handed a broken master path.
 _MSVC_LAYOUTS: dict[str, tuple[tuple[str, str, str], ...]] = {
     "msvc-6.0": (
@@ -442,16 +442,14 @@ _MSVC_LAYOUTS: dict[str, tuple[tuple[str, str, str], ...]] = {
             "",
         ),
     ),
+    # The tree `rebrew toolchain vendor msvc-7.0` assembles from msvc700 (cl
+    # 13.00.9466).  The decomp.me `msvc7.0` mirror (Bin/cl.exe) carries the 7.1
+    # compiler (13.10.3077), so it is no layout of this profile.
     "msvc-7.0": (
         (
-            "toolchain/msvc/7.0-win32/source/Bin/cl.exe",
-            "toolchain/msvc/7.0-win32/source/Include",
-            "toolchain/msvc/7.0-win32/source/Lib",
-        ),
-        (
-            "toolchain/msvc/7.0-win32/source/Bin/cl.exe",
-            "toolchain/msvc/7.0-win32/source/Include",
-            "",
+            "toolchain/msvc/7.0-win32/source/Vc7/bin/cl.exe",
+            "toolchain/msvc/7.0-win32/source/Vc7/include",
+            "toolchain/msvc/7.0-win32/source/Vc7/lib",
         ),
     ),
     "msvc-7.0-rtm": (

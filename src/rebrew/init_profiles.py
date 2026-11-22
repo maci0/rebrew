@@ -171,12 +171,12 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "lang": "C89",
     },
     # The "7.0-win32" dir/image holds the VC 7.0 RTM compiler (cl 13.00.9466),
-    # the same source as msvc-7.0-rtm; VC 7.1 is msvc-7.1.
+    # the same source and Vc7/ layout as msvc-7.0-rtm; VC 7.1 is msvc-7.1.
     "msvc-7.0": {
         "runner": "wine",
-        "command": "wine toolchain/msvc/7.0-win32/source/Bin/cl.exe",
-        "includes": "toolchain/msvc/7.0-win32/source/Include",
-        "libs": "toolchain/msvc/7.0-win32/source/Lib",
+        "command": "wine toolchain/msvc/7.0-win32/source/Vc7/bin/cl.exe",
+        "includes": "toolchain/msvc/7.0-win32/source/Vc7/include",
+        "libs": "toolchain/msvc/7.0-win32/source/Vc7/lib",
         "cflags": "/O2 /Gd",
         "base_cflags": "/nologo /c /MT",
         "format": "pe",

@@ -3076,3 +3076,60 @@ project = "game"
         else:
             assert cfg.metadata_dir == tmp_path / "src"
         assert reads
+
+
+class TestMsvc70Layout:
+    """``msvc-7.0`` is VC 7.0 (cl 13.00.9466): the tree ``rebrew toolchain vendor msvc-7.0``
+    assembles from its pinned source (``Vc7/``), never the decomp.me ``msvc7.0`` mirror
+    (``Bin/cl.exe``), which carries the 7.1 compiler (13.10.3077)."""
+
+    TOML = """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "original/main.exe"
+
+[compiler]
+profile = "msvc-7.0"
+"""
+
+    @staticmethod
+    def _tree(root: Path, *dirs: str) -> None:
+        for name in dirs:
+            (root / "toolchain/msvc/7.0-win32/source" / name).mkdir(parents=True, exist_ok=True)
+
+    def test_the_7_1_mirror_is_not_the_7_0_compiler(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.compiler import toolchain as rebrew_toolchain
+
+        monkeypatch.setattr(rebrew_toolchain, "find_install_tool", lambda _: None)
+        self._tree(tmp_path, "Bin", "Include")
+        (tmp_path / "toolchain/msvc/7.0-win32/source/Bin/cl.exe").write_bytes(b"MZ")
+        cfg = load_config(_make_project(tmp_path, self.TOML))
+        assert cfg.compiler_includes != tmp_path / "toolchain/msvc/7.0-win32/source/Include"
+        # The linked dir still names the 7.0 layout, which a compile then finds missing.
+        assert rebrew_toolchain.resolve_msvc_toolchain(tmp_path, "msvc-7.0") == (
+            "wine toolchain/msvc/7.0-win32/source/Vc7/bin/cl.exe",
+            "toolchain/msvc/7.0-win32/source/Vc7/include",
+            "toolchain/msvc/7.0-win32/source/Vc7/lib",
+        )
+
+    def test_the_vendored_7_0_tree_is_resolved(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.compiler import toolchain as rebrew_toolchain
+
+        monkeypatch.setattr(rebrew_toolchain, "find_install_tool", lambda _: None)
+        self._tree(tmp_path, "Vc7/bin", "Vc7/include", "Vc7/lib")
+        (tmp_path / "toolchain/msvc/7.0-win32/source/Vc7/bin/cl.exe").write_bytes(b"MZ")
+        cfg = load_config(_make_project(tmp_path, self.TOML))
+        root = tmp_path / "toolchain/msvc/7.0-win32/source/Vc7"
+        assert (cfg.compiler_includes, cfg.compiler_libs) == (root / "include", root / "lib")
+
+    def test_init_writes_the_7_0_compiler(self) -> None:
+        from rebrew.init_profiles import profile_defaults
+
+        command = profile_defaults()["msvc-7.0"]["command"]
+        assert command == "wine toolchain/msvc/7.0-win32/source/Vc7/bin/cl.exe"

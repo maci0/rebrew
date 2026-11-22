@@ -1185,7 +1185,7 @@ msvc6.0/6.3/6.4/6.5/6.5pp/6.6/7.0 only, no Lib dir):
 | msvc6.0 | `msvc6.0.tar.gz` (6.2 MB) | 12.00.x | same SP line as the local master |
 | msvc-6.0-sp3-win32 | `msvc6.3.tar.gz` (6.6 MB) | 12.00.8168 | **SP3: codegen differs from SP6** |
 | msvc-6.0-sp6-win32 | `msvc6.6.tar.gz` (6.6 MB) | 12.00.8804 | **SP4+ driver: distinct from `msvc-6.0`'s RTM..SP3 8168** |
-| msvc-7.0-win32 | `msvc7.0.tar.gz` (33 MB) | 13.10.3077 | compile-only mirror the config layer can resolve for `msvc-7.0`; its CL is the 7.1 build, not the `msvc-7.0` image's |
+| msvc-7.0-win32 | `msvc7.0.tar.gz` (33 MB) | 13.10.3077 | the 7.1 build, not `msvc-7.0`'s: no profile resolves it; `msvc-7.0` takes the `Vc7/` tree `rebrew toolchain vendor msvc-7.0` assembles (13.00.9466) |
 | msvc4.x/7.1/8.0 | not published | n/a | document + skip |
 
 Layout notes (differ from the local `recompile-toolchains/msvc/6.0-win32/source/VC98/...`):
@@ -1194,9 +1194,8 @@ Layout notes (differ from the local `recompile-toolchains/msvc/6.0-win32/source/
   a full toolchain's Lib, e.g. the master's).
 - msvc-7.0-win32: `Bin/cl.exe` (lowercase!), `Include/`, `MFC/`, **no `Lib/`**.
 
-When the master (`recompile-toolchains/msvc/6.0-win32`,
-`recompile-toolchains/msvc/7.0-win32`) is absent, `rebrew init
---toolchain msvc-6.0|msvc-7.0` and the config layer resolve the best present layout
+When the master (`recompile-toolchains/msvc/6.0-win32`) is absent, `rebrew init
+--toolchain msvc-6.0` and the config layer resolve the best present layout
 instead (newest mirror first) so a fresh project compiles out of the box
 rather than pointing at a master path that does not exist.
 

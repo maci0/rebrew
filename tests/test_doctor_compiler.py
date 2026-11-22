@@ -144,10 +144,9 @@ class TestCompilerAvailability:
         result = check_compiler(
             _cfg(compiler_command="wine Bin/cl.exe", root=Path("/opt/msvc-7.0-win32"))
         )
-        assert (
-            "https://github.com/archaic-toolchains/msvc600-win9x/releases/download/2026-11-10/msvc7.0.tar.gz"
-            in result.fix
-        )
+        # The msvc7.0.tar.gz mirror carries the 7.1 compiler, not msvc-7.0's.
+        assert "rebrew toolchain vendor msvc-7.0" in result.fix
+        assert "msvc7.0.tar.gz" not in result.fix
 
     def test_wine_cl_missing_msvc_6_06_hint(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(

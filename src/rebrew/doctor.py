@@ -252,7 +252,8 @@ def _toolchain_download_hint(path_str: str) -> str:
     if "6.0-sp6-win32" in path_str or "msvc6.6" in path_str:
         return " Download: " + _MIRROR.format(repo="msvc600-win9x", asset="msvc6.6.tar.gz")
     if "7.0-win32" in path_str or "msvc-7.0" in path_str:
-        return " Download: " + _MIRROR.format(repo="msvc600-win9x", asset="msvc7.0.tar.gz")
+        # The decomp.me msvc7.0.tar.gz mirror carries the 7.1 compiler (13.10.3077).
+        return " Assemble it: rebrew toolchain vendor msvc-7.0"
     if "5.0-win32" in path_str or "msvc500" in path_str or "msvc-5.0" in path_str:
         return (
             " Download: https://codeload.github.com/archaic-msvc/msvc500/tar.gz/refs/heads/master"

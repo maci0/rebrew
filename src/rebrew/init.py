@@ -1241,10 +1241,10 @@ def main(
         )
     profile = defaults[compiler_profile]
     if compiler_profile in ("msvc-6.0", "msvc-7.0"):
-        # The msvc-6.0/msvc-7.0 defaults point at the full master layouts
-        # (toolchain/msvc/6.0-win32/source/VC98, toolchain/msvc/7.0-win32).  Machines that only vendor the
-        # compile-only mirrors (toolchain/msvc/6.0-sp6-win32 / msvc-6.0-sp3-win32 / msvc-7.0-win32) must not
-        # get a broken path — resolve the best layout actually present
+        # The msvc-6.0 default points at the full master layout
+        # (toolchain/msvc/6.0-win32/source/VC98), msvc-7.0's at its vendored Vc7/ tree.
+        # Machines that only vendor the 6.0 compile-only mirrors (6.0-sp6-win32 /
+        # 6.0-sp3-win32) must not get a broken path — resolve the best layout actually present
         # (project tools/ first, then the rebrew install's own vendored
         # tree) and write those paths into the generated config.
         from rebrew.compiler.toolchain import resolve_msvc_toolchain
