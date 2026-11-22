@@ -296,9 +296,15 @@ def parse_import_table(binary_path: Path) -> dict[int, str]:
 
 
 def find_import_stubs(binary_path: Path) -> dict[int, str]:
+    """``{stub_va: api_name}`` for the import stubs :func:`find_import_stub_slots` finds."""
+    table = parse_import_table(binary_path)
+    return {va: table[slot] for va, slot in find_import_stub_slots(binary_path).items()}
+
+
+def find_import_stub_slots(binary_path: Path) -> dict[int, int]:
     """Detect ``jmp [iat]`` import stubs in ``.text``.
 
-    Returns ``{stub_va: api_name}`` for every ``FF 25`` sequence whose target
+    Returns ``{stub_va: iat_va}`` for every ``FF 25`` sequence whose target
     resolves to an import-table slot and that stands alone as a stub: it opens
     the section, follows a padding (``CC``/``90``) or ``ret`` (``C3``) byte, is
     the target of a direct ``call`` (``E8 rel32``) in the section, or sits
@@ -314,6 +320,9 @@ def find_import_stubs(binary_path: Path) -> dict[int, str]:
     RIP-relative displacement (``jmp qword ptr [rip + disp32]``, resolved from
     the address of the following instruction).  A PE32+ read as absolute finds
     nothing, which is how x64 images silently reported zero stubs.
+
+    The slot, not the name, identifies the import: every import by ordinal
+    is named ``ordinal_<N>``, so ordinal N of two DLLs shares one name.
     """
     table = parse_import_table(binary_path)
     if not table:
@@ -331,7 +340,7 @@ def find_import_stubs(binary_path: Path) -> dict[int, str]:
     rip_relative = layout is not None and layout.magic == PE32_PLUS_MAGIC
     stub_va = text.va
     blob = info.data[text.file_offset : text.file_offset + text.size]
-    stubs: dict[int, str] = {}
+    stubs: dict[int, int] = {}
     pos = 0
     while (i := blob.find(b"\xff\x25", pos, max(0, len(blob) - 4))) != -1:
         pos = i + 1
@@ -345,9 +354,8 @@ def find_import_stubs(binary_path: Path) -> dict[int, str]:
             if rip_relative
             else operand & 0xFFFFFFFF
         )
-        name = table.get(target)
-        if name is not None:
-            stubs[stub_va + i] = name
+        if target in table:
+            stubs[stub_va + i] = target
     if not stubs:
         return {}
     called: set[int] = set()
@@ -370,4 +378,4 @@ def find_import_stubs(binary_path: Path) -> dict[int, str]:
             if neighbour in stubs and neighbour not in alone:
                 alone.add(neighbour)
                 pending.append(neighbour)
-    return {va: name for va, name in stubs.items() if va in alone}
+    return {va: slot for va, slot in stubs.items() if va in alone}

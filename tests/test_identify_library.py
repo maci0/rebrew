@@ -491,8 +491,8 @@ class TestImportModuleFromDll:
         from rebrew.identify_library import _import_candidates
 
         monkeypatch.setattr(
-            "rebrew.formats.import_table.find_import_stubs",
-            lambda path: {0x40DCE0: "DirectDrawCreate", 0x40DC00: "_malloc"},
+            "rebrew.formats.import_table.find_import_stub_slots",
+            lambda path: {0x40DCE0: 1, 0x40DC00: 2},
         )
         monkeypatch.setattr(
             "rebrew.formats.import_table.parse_imports",
@@ -524,8 +524,8 @@ class TestImportModuleFromDll:
         cfg = self._cfg(tmp_path)
         cfg.external_libs = {"WS2_32": str(lib)}
         monkeypatch.setattr(
-            "rebrew.formats.import_table.find_import_stubs",
-            lambda path: {0x1000: "ordinal_2", 0x1006: "ordinal_9"},
+            "rebrew.formats.import_table.find_import_stub_slots",
+            lambda path: {0x1000: 1, 0x1006: 2},
         )
         monkeypatch.setattr(
             "rebrew.formats.import_table.parse_imports",
@@ -538,13 +538,65 @@ class TestImportModuleFromDll:
         assert out[0x1000] == ("_bind@12", "WS2_32")
         assert out[0x1006] == ("ordinal_9", "WS2_32")  # no import-library entry: stays visible
 
-    def test_unknown_import_falls_back_to_heuristic(self, tmp_path: Path, monkeypatch) -> None:
+    def test_one_ordinal_of_two_dlls_takes_each_dlls_name(self, tmp_path: Path) -> None:
+        """Ordinal 2 of WS2_32 and of OLEAUT32: each stub keeps its own DLL and symbol."""
+        import struct
+
+        import lief
+        from bin_util import make_lib_archive, make_pe
+
+        from rebrew.identify_library import _import_candidates
+
+        image_base, text_va = 0x400000, 0x1000
+        imports = [("WS2_32.dll", ["a"]), ("OLEAUT32.dll", ["b"])]
+
+        def build(code: bytes) -> bytes:
+            return make_pe(code, image_base=image_base, text_va=text_va, imports=imports)
+
+        # Two `jmp [slot]` stubs, then padding; the layout is fixed by the code length.
+        placeholder = b"\xcc" * 16
+        path = tmp_path / "x.exe"
+        path.write_bytes(build(placeholder))
+        parsed = lief.PE.parse(str(path))
+        assert parsed is not None
+        slots = [int(next(iter(imp.entries)).iat_address) for imp in parsed.imports]
+        luts = [int(imp.import_lookup_table_rva) for imp in parsed.imports]
+        code = b"".join(b"\xff\x25" + struct.pack("<I", image_base + s) for s in slots)
+        pe = bytearray(build(code + placeholder[len(code) :]))
+        for rva in (*luts, *slots):  # first INT and IAT entry of each DLL: ordinal 2
+            struct.pack_into("<I", pe, rva - text_va + 0x200, (1 << 31) | 2)
+        path.write_bytes(bytes(pe))
+
+        def import_lib(dll: str, symbol: str) -> Path:
+            names = symbol.encode() + b"\0" + dll.encode() + b"\0"
+            member = struct.pack("<HHHHIIHH", 0, 0xFFFF, 0, 0x14C, 0, len(names), 2, 0) + names
+            lib = tmp_path / f"{dll}.lib"
+            lib.write_bytes(make_lib_archive([(dll, member)]))
+            return lib
+
+        cfg = self._cfg(tmp_path)
+        cfg.target_binary = path
+        cfg.external_libs = {
+            "WS2_32": str(import_lib("WS2_32.dll", "_bind@12")),
+            "OLEAUT32": str(import_lib("OLEAUT32.dll", "_SysAllocString@4")),
+        }
+        out = {c.va: (c.name, c.module) for c in _import_candidates(cfg, "MSVCRT")}
+        stub = image_base + text_va
+        assert out == {
+            stub: ("_bind@12", "WS2_32"),
+            stub + 6: ("_SysAllocString@4", "OLEAUT32"),
+        }
+
+    def test_import_without_dll_falls_back_to_heuristic(self, tmp_path: Path, monkeypatch) -> None:
         from rebrew.identify_library import _import_candidates
 
         monkeypatch.setattr(
-            "rebrew.formats.import_table.find_import_stubs", lambda path: {0x1000: "WeirdAPI"}
+            "rebrew.formats.import_table.find_import_stub_slots", lambda path: {0x1000: 1}
         )
-        monkeypatch.setattr("rebrew.formats.import_table.parse_imports", lambda path: [])
+        monkeypatch.setattr(
+            "rebrew.formats.import_table.parse_imports",
+            lambda path: [{"dll": "", "name": "WeirdAPI", "iat_va": 1}],
+        )
         out = _import_candidates(self._cfg(tmp_path), "MSVCRT")
         assert out[0].module == "MSVCRT"  # heuristic default
 

@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- `rebrew library identify` found an import's DLL by its name, and every import by ordinal is named `ordinal_N`, so ordinal 2 of `WS2_32.dll` and ordinal 2 of `OLEAUT32.dll` both took the DLL `parse_imports` listed last and, since 6.65.0, that DLL's import-library symbol. Each stub now takes the DLL of the IAT slot it jumps through. The new `rebrew.formats.import_table.find_import_stub_slots` returns `{stub_va: iat_va}`; `find_import_stubs` is unchanged.
+
 ## [6.67.0] - 2026-11-22
 
 ### Changed

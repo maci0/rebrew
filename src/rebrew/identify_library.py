@@ -301,45 +301,38 @@ def _import_candidates(cfg: Any, default_module: str) -> list[LibCandidate]:
     """IAT import stubs — jmp [IAT] thunks identify the imported API.
 
     The module comes from the import table's DLL (KERNEL32, DDRAW, ...), not
-    a name heuristic — DirectDrawCreate is DirectX, not MSVCRT.  Names not
-    found in the import table fall back to the CRT-prefix heuristic.
+    a name heuristic — DirectDrawCreate is DirectX, not MSVCRT.  An import
+    without a DLL name falls back to the CRT-prefix heuristic.
     """
-    from rebrew.formats.import_table import find_import_stubs, parse_imports
+    from rebrew.formats.import_table import find_import_stub_slots, parse_imports
 
     try:
-        stubs = find_import_stubs(cfg.target_binary)
+        stubs = find_import_stub_slots(cfg.target_binary)
+        # IAT slot -> (API name, DLL). The slot, not the name, says which DLL:
+        # ordinal N of two DLLs is one name.
+        by_slot: dict[int, tuple[str, str]] = {
+            int(rec["iat_va"]): (str(rec.get("name", "")), str(rec.get("dll", "")))
+            for rec in parse_imports(cfg.target_binary)
+        }
     except Exception as exc:
         console.print(f"[yellow]warning:[/yellow] import-stub detection skipped: {exc}")
         return []
-    # API name -> DLL basename (uppercase, no extension).
-    dll_by_name: dict[str, str] = {}
-    try:
-        for rec in parse_imports(cfg.target_binary):
-            name = str(rec.get("name", ""))
-            dll = str(rec.get("dll", ""))
-            if name and dll:
-                dll_by_name[name] = dll.rsplit(".", 1)[0].upper()
-    except Exception as exc:  # import parse is best-effort
-        # A failed import parse silently degrades every candidate to the
-        # guessed module; visibility here costs one line and matches the
-        # warning the stub scan above already emits.
-        console.print(
-            f"[yellow]warning:[/yellow] import parse skipped for {cfg.target_binary}: {exc}"
-        )
-        dll_by_name = {}
 
     ordinal_symbols = _ordinal_symbols(cfg)
     out: list[LibCandidate] = []
-    for va, name in stubs.items():
-        module = dll_by_name.get(str(name)) or infer_module(str(name), default_module)
-        ordinal = re.fullmatch(r"ordinal_(\d+)", str(name))
+    for va, slot in stubs.items():
+        if slot not in by_slot:  # the binary changed between the two reads
+            continue
+        name, dll = by_slot[slot]
+        module = dll.rsplit(".", 1)[0].upper() if dll else infer_module(name, default_module)
+        ordinal = re.fullmatch(r"ordinal_(\d+)", name)
         if ordinal:
             # An import by ordinal carries no name; the import library has one.
             name = ordinal_symbols.get((module, int(ordinal[1])), name)
         out.append(
             LibCandidate(
                 va=va,
-                name=str(name),
+                name=name,
                 module=module,
                 kind="import",
                 confidence=0.3,
