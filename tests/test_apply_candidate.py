@@ -723,7 +723,7 @@ def _recompile(
     An object and a ``toolchain_failure`` (the compiler's rejection) are verdicts
     recompile bills.  Each compile request's headers go to *seen*.
     *artifact* says how the object download answers: ``served``, ``refused``
-    (503), ``truncated`` (the connection closes short of its Content-Length) or
+    (410 ``artifact_expired``), ``truncated`` (the connection closes short of its Content-Length) or
     ``lost`` (the connection closes before any reply).  *answers* script the first
     compiles: ``"lost"`` closes the connection unanswered, ``(status, body)`` answers
     *body* as JSON (``Retry-After: 0`` on a 503); the compiles after them answer as
@@ -793,7 +793,11 @@ def _recompile(
                 return
             self.close_connection = True
             if artifact == "refused":
-                self._reply(503, b"artifact store unavailable", "text/plain")
+                self._reply(
+                    410,
+                    b'{"detail": "artifact expired", "code": "artifact_expired"}',
+                    "application/json",
+                )
             elif artifact == "truncated":
                 self.send_response(200)
                 self.send_header("Content-Type", "application/octet-stream")

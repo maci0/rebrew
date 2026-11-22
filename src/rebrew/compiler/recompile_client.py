@@ -270,13 +270,14 @@ _ANSWERS: Mapping[tuple[_Route, int, str | None], _AnswerRule] = MappingProxyTyp
         ("artifact", 410, _ANY_CODE): _AnswerRule(None, "final"),
         ("artifact", 423, _ANY_CODE): _AnswerRule(None, "final"),
         ("artifact", 425, _ANY_CODE): _AnswerRule(None, "retry"),
-        ("artifact", 429, _ANY_CODE): _AnswerRule(None, "retry"),
+        ("artifact", 429, _ANY_CODE): _AnswerRule(None, "wait"),
         ("artifact", 500, _ANY_CODE): _AnswerRule(None, "retry"),
         ("artifact", 502, _ANY_CODE): _AnswerRule(None, "retry"),
-        ("artifact", 503, "platform_unavailable"): _AnswerRule(None, "retry"),
-        ("artifact", 503, "store_unavailable"): _AnswerRule(None, "retry"),
-        ("artifact", 503, "artifact_evidence_unavailable"): _AnswerRule(None, "retry"),
-        ("artifact", 503, _ANY_CODE): _AnswerRule(None, "retry"),
+        # A dependency of the download did not answer: waited out (rule 7).
+        ("artifact", 503, "platform_unavailable"): _AnswerRule(None, "wait"),
+        ("artifact", 503, "store_unavailable"): _AnswerRule(None, "wait"),
+        ("artifact", 503, "artifact_evidence_unavailable"): _AnswerRule(None, "wait"),
+        ("artifact", 503, _ANY_CODE): _AnswerRule(None, "wait"),
         ("artifact", 504, _ANY_CODE): _AnswerRule(None, "retry"),
     }
 )
@@ -729,6 +730,7 @@ def _download_artifact(
                 kind="http",
                 status_code=art.status_code,
                 error_code=code,
+                retry_after=_retry_after(art.headers.get("Retry-After")),
             )
         # Bound the buffered artifact before it is handed to the caller
         # (who writes it to disk and parses it). Both the declared

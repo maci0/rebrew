@@ -33,13 +33,16 @@ recompile_concurrency` (default 2) run at once, whatever `jobs` is, and a
 `Retry-After` a retryable reply names (a 429 or 503, or a `capacity` refusal; at most 300
 s) holds every compile of the process back for that long, also when the compile that got
 it gives up (`recompile_client.ServiceGate`). A compile the service has no room for
-now (a `capacity` or `runner_unavailable` refusal, a 429 or a 503), and the edge's
-`524` for a compile that ran past its 100 s, is waited out:
+now (a `capacity` or `runner_unavailable` refusal, a 429 or a 503), the edge's
+`524` for a compile that ran past its 100 s, and an artifact download answered 503
+(`platform_unavailable`, `store_unavailable`, `artifact_evidence_unavailable`) or
+429, is waited out:
 it is tried again after the `Retry-After`, or the capped backoff without one, until
 the call's deadline, however many attempts that takes. Without a deadline (a CLI
 run) the waits end 300 s after the compile started
 (`recompile_client.NO_DEADLINE_WAIT_SECONDS`). Any other retryable failure (a
-lost or unreadable reply, 408/425/500/502/504, an artifact download that failed, the
+lost or unreadable reply, 408/425/500/502/504, an artifact download lost or answered
+408/425/500/502/504, the
 service's `publish_failed`, or an error `code` saying the key can never yield a result
 and billed nothing: `admission_abandoned`, `admission_expired`, `result_unavailable`
 or `delivery_denied`) is retried `recompile_retries` times with backoff, waiting at

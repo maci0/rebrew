@@ -2227,3 +2227,60 @@ class TestEdgeTimeout:
                 deadline=time.monotonic() + 12,
             )
         assert (refused.value.status_code, refused.value.cost) == (524, "unknown")
+
+
+class TestDownloadWaits:
+    """A download 503 comes with ``Retry-After`` while a dependency does not answer
+    (recompile's client rules, rule 7): it is waited out until the call's deadline."""
+
+    @staticmethod
+    def _unavailable() -> _Resp:
+        return _Resp(
+            503,
+            json_body={"detail": "unavailable", "code": "platform_unavailable"},
+            text='{"detail":"unavailable","code":"platform_unavailable"}',
+            headers={"Retry-After": "5"},
+        )
+
+    def test_a_download_503_waits_its_retry_after_and_gets_the_object(self) -> None:
+        gets = [self._unavailable() for _ in range(3)] + [_Resp(200, content=b"OBJ")]
+
+        class _Store(_FakeClient):
+            def get(self, url: str, headers: Any = None, follow_redirects: bool = False) -> Any:
+                if (listing := _no_listing(url)) is not None:
+                    return listing
+                self.calls.append(("get", url))
+                return gets.pop(0)
+
+        client = _Store(_Resp(200, json_body=_COMPILED))
+        slept: list[float] = []
+        res = compile_source("http://svc", "msvc-6.0", "x", [], client=client, sleep=slept.append)
+        assert res.ok and res.obj_bytes == b"OBJ"
+        assert [call for call, _url in client.calls] == ["post"] + ["get"] * 4
+        assert slept == [5.0, 5.0, 5.0]
+
+    def test_a_download_503_past_the_deadline_is_billed_without_a_verdict(self) -> None:
+        import time
+
+        class _Store(_FakeClient):
+            def get(self, url: str, headers: Any = None, follow_redirects: bool = False) -> Any:
+                if (listing := _no_listing(url)) is not None:
+                    return listing
+                return TestDownloadWaits._unavailable()
+
+        with pytest.raises(RecompileError) as refused:
+            compile_source(
+                "http://svc",
+                "msvc-6.0",
+                "x",
+                [],
+                client=_Store(_Resp(200, json_body=_COMPILED)),
+                sleep=[].append,
+                deadline=time.monotonic() + 12,
+            )
+        assert (refused.value.status_code, refused.value.error_code) == (
+            503,
+            "platform_unavailable",
+        )
+        assert refused.value.retry_after == 5.0
+        assert refused.value.cost == "billed"
