@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.68.0] - 2026-11-22
+
 ### Added
 
 - `rebrew.ops.OpsServer` takes the op table it serves: keyword-only `ops` (the op names) and `answer` (`(config, name, body) -> (status, reply)`), defaulting to rebrew's `OPS` and `dispatch`, and is documented for engines in `docs/PYTHON_API.md`. The per-op metrics, the server span names and the 405-or-404 answer to a non-POST method follow `ops`, and every POST goes to `answer`. recoverage served its ops by rebinding `rebrew.ops.dispatch` at run time, and its ops then all metered `/unknown`, a GET on one answered 404, and a GET on a rebrew op answered 405.
