@@ -3367,6 +3367,15 @@ class TestRetainedSnapshotApi:
             "binary_url",
             "project_cflags",
         ]
+        assert list(inspect.signature(ops.OpsServer).parameters) == [
+            "address",
+            "config",
+            "token",
+            "concurrency",
+            "allowed_hosts",
+            "ops",
+            "answer",
+        ]
         assert ops.OpsError is OpsError
 
     def test_stages_the_manifest_and_removes_it_after(
