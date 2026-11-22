@@ -24,8 +24,8 @@ from rebrew.compiler.toolchain_spec import ToolchainSource, ToolchainSpec
 #: image tag and the source pin (url, sha256, commit) that image builds from.
 #: Re-vendor it from a new release, not by hand: docs/TOOLCHAIN.md.
 TOOLCHAINS_MANIFEST = Path(__file__).with_name("toolchains.json")
-TOOLCHAINS_RELEASE = "1.18.0"
-TOOLCHAINS_MANIFEST_SHA256 = "118d0bb72144e3a764dabffded7fbb2ca471e0601bf9a2ec0834a895ede4aad9"
+TOOLCHAINS_RELEASE = "1.19.1"
+TOOLCHAINS_MANIFEST_SHA256 = "5df24837811e3d5c0d22fb3925ca09af3fd34c162f333609b2af3f8a0678643c"
 
 #: The profiles ``rebrew toolchain vendor`` assembles on the host, and how it
 #: unpacks each one's pinned archive: the shape the image's own install recipe
@@ -2743,7 +2743,7 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         image="rebrew/psyq:4.0-ps1",
         binary="cc",
         image_entrypoint="/usr/local/bin/cc",
-        runtime="wine",
+        runtime="wibo",
         flags_style="posix",
         obj_ext=".o",
         bits=32,
@@ -2755,7 +2755,7 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         image="rebrew/psyq:4.1-ps1",
         binary="cc",
         image_entrypoint="/usr/local/bin/cc",
-        runtime="wine",
+        runtime="wibo",
         flags_style="posix",
         obj_ext=".o",
         bits=32,
@@ -2767,7 +2767,7 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         image="rebrew/psyq:4.3-ps1",
         binary="cc",
         image_entrypoint="/usr/local/bin/cc",
-        runtime="wine",
+        runtime="wibo",
         flags_style="posix",
         obj_ext=".o",
         bits=32,
@@ -2779,7 +2779,7 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         image="rebrew/psyq:4.4-ps1",
         binary="cc",
         image_entrypoint="/usr/local/bin/cc",
-        runtime="wine",
+        runtime="wibo",
         flags_style="posix",
         obj_ext=".o",
         bits=32,

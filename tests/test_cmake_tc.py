@@ -972,3 +972,17 @@ def test_load_profile_falls_back_to_project_when_target_has_no_override(tmp_path
         '[project]\nname = "p"\ndefault_target = "TL"\n\n[targets."TL"]\nbinary = "original/TL.exe"\nreversed_dir = "src"\nmodule = "TL"\n\n[compiler]\nprofile = "msvc-6.0-sp5"'
     )
     assert cmake_tc._load_profile(cmake_tc._project_document(tmp_path)) == "msvc-6.0-sp5"
+
+
+@pytest.mark.parametrize("name", ["psyq-4.0", "psyq-4.1", "psyq-4.3", "psyq-4.4"])
+def test_a_psyq_image_that_runs_wibo_is_not_bridged_as_wine(
+    name: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """These images run their tools under wibo (``REBREW_RUNNER=wibo``), so the bridge,
+    which drives tools through ``wine``, refuses them for their runtime."""
+    from rebrew.cli import CommandExit
+
+    with pytest.raises(CommandExit):
+        cmake_tc._resolve_spec(name, json_mode=True)
+    message = json.loads(capsys.readouterr().err)["error"]["message"]
+    assert message.startswith(f"toolchain {name!r} runs through a wibo image")
