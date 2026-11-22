@@ -39,7 +39,7 @@ FLIRT_SIGS_REPO_URL = "https://github.com/relumea/recondb"
 
 #: The first recondb release whose ``sigs/index.json`` keys each file by its path
 #: relative to ``sigs/``; an older checkout keys it by file name and is refused.
-RECONDB_PATH_INDEX_RELEASE = "1.17.0"
+RECONDB_PATH_INDEX_RELEASE = "2.0.0"
 
 
 def _flirt_sigs_repo() -> Path:

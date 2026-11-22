@@ -74,7 +74,7 @@ def test_flirt_sigs_repo_env_expands_tilde(monkeypatch: pytest.MonkeyPatch) -> N
         _flirt_sigs_repo()
 
 
-# recondb 1.17.0's sigs/index.json keys each file by its path relative to sigs/, and
+# recondb 2.0.0's sigs/index.json keys each file by its path relative to sigs/, and
 # a scan loads one file per stem in each directory, the .sig preferred.
 
 _BOTH = {"gcc/x86/lib.pat": "x86", "gcc/arm/lib.pat": "arm"}
@@ -123,9 +123,9 @@ def test_one_file_per_stem_per_directory_with_the_sig_preferred(tmp_path: Path) 
 def test_an_index_keyed_by_file_name_is_refused_with_the_release_it_needs(
     tmp_path: Path,
 ) -> None:
-    """recondb before 1.17.0 keyed by name, which cannot tell the two lib.pat apart."""
+    """recondb before 2.0.0 keyed by name, which cannot tell the two lib.pat apart."""
     repo = _checkout(tmp_path, {"lib.pat": "x86"})
-    with pytest.raises(ConfigError, match=r"recondb 1\.17\.0 or later"):
+    with pytest.raises(ConfigError, match=r"recondb 2\.0\.0 or later"):
         flirt.load_signatures_for([repo], "x86")
 
 
@@ -181,7 +181,7 @@ def test_init_signatures_copies_two_files_of_one_name(
 def test_a_recondb_checkout_loads_for_an_architecture_what_its_index_counts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Against a real recondb 1.17.0 tree: every indexed file is found, and the files a
+    """Against a real recondb 2.0.0 tree: every indexed file is found, and the files a
     scan selects for x86 are the ones the index lists as x86 or unknown."""
     import json
 

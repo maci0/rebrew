@@ -6167,7 +6167,7 @@ The scan loads one file per stem in each directory, the `.sig` preferred over th
 index keys each file by its path relative to `sigs/`, a file listed under another
 architecture than the target's is skipped, one listed with an unknown
 architecture loads, and a file the index does not list is not loaded (the scan
-prints how many and names the first). It needs recondb 1.17.0 or later: an older
+prints how many and names the first). It needs recondb 2.0.0 or later: an older
 checkout's index keys files by name and is refused with that release named, as
 is an index that cannot be read. A directory without an index (a project's
 `flirt_sigs/`, your own) loads every file, except a copy whose path the
@@ -6187,7 +6187,7 @@ checkout's index lists under another architecture.
 
 `rebrew library init-signatures [OPTIONS]`
 
-Copy shared signature files from the `recondb` checkout (1.17.0 or later) into the
+Copy shared signature files from the `recondb` checkout (2.0.0 or later) into the
 project's `flirt_sigs/`, each under its path relative to the checkout's `sigs/`
 (`flirt_sigs/msvc/vc6/libcmt_vc6.sig`), so two files of one name in different
 directories both arrive and the checkout's index still filters the copies.
