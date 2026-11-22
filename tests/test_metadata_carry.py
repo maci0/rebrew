@@ -5,10 +5,12 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import shutil
 from typing import Any
 lazy from pathlib import Path
 
 import pytest
+from session_cache import build_once
 from test_ops import KEY, SHA256, _analyse_request, _op_schema, _store, _validate, _worker_dirs
 
 import rebrew.ops as ops
@@ -138,6 +140,65 @@ def _v1_target_with_applied_name(config: WorkerConfig) -> dict[str, bytes]:
     }
     assert APPLIED.encode() in tree[REGISTRY] and f"src/mini/{APPLIED}.c" in tree
     return tree
+
+
+#: A worker root after a version 1 publish (:func:`_v1_target_with_applied_name`),
+#: and the published tree, base64 by path.
+Published = tuple[Path, dict[str, str]]
+#: The same after one plain re-analysis in its workspace, and that analysis capture.
+Reanalysed = tuple[Path, dict[str, str], dict[str, Any]]
+
+
+def _publish_v1(root: Path) -> dict[str, str]:
+    """Publish a version 1 target into a new worker root at *root*; answer its tree."""
+    filestore, workspace = _worker_dirs(root)
+    tree = _v1_target_with_applied_name(WorkerConfig(filestore.resolve(), workspace.resolve()))
+    return {path: base64.b64encode(data).decode("ascii") for path, data in tree.items()}
+
+
+def _published(tmp_path_factory: pytest.TempPathFactory) -> Published:
+    """The session's one version 1 publish; never written, tests work on :func:`_worker_copy`."""
+    root, tree = build_once(tmp_path_factory, "carry-v1-published", _publish_v1)
+    return root.resolve(), tree
+
+
+def _reanalysed(tmp_path_factory: pytest.TempPathFactory) -> Reanalysed:
+    """The session's one plain re-analysis after :func:`_published`; never written."""
+
+    def build(root: Path) -> dict[str, Any]:
+        published, tree = _published(tmp_path_factory)
+        config, _ = _worker_copy((published, tree), root)
+        return {"tree": tree, "capture": _analyse(config)["analysis_capture"]}
+
+    root, built = build_once(tmp_path_factory, "carry-v1-reanalysed", build)
+    return root.resolve(), built["tree"], built["capture"]
+
+
+def _worker_copy(
+    published: Published | Reanalysed, destination: Path
+) -> tuple[WorkerConfig, dict[str, bytes]]:
+    """A worker over a copy of the shared worker root at *destination*, and its own tree.
+
+    The ``.rebrew`` caches are left behind; they name the original paths and
+    are rebuilt on demand.
+    """
+    root, tree = published[0], published[1]
+    shutil.copytree(root, destination, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".rebrew"))
+    destination = destination.resolve()
+    config = WorkerConfig(destination / "files", destination / "workspace")
+    return config, {path: base64.b64decode(data) for path, data in tree.items()}
+
+
+@pytest.fixture(scope="module")
+def v1_published(tmp_path_factory: pytest.TempPathFactory) -> Published:
+    """The session's version 1 publish."""
+    return _published(tmp_path_factory)
+
+
+@pytest.fixture(scope="module")
+def v1_analysed(tmp_path_factory: pytest.TempPathFactory) -> Reanalysed:
+    """The session's version 1 publish and its plain re-analysis."""
+    return _reanalysed(tmp_path_factory)
 
 
 def _with_fresh_data(note: str) -> Any:
@@ -317,11 +378,9 @@ def _read_names(
 
 
 def test_carry_moves_a_toml_target_with_applied_names_to_sqlite(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, v1_published: Published
 ) -> None:
-    filestore, workspace = _worker_dirs(tmp_path)
-    config = WorkerConfig(filestore.resolve(), workspace.resolve())
-    tree = _v1_target_with_applied_name(config)
+    config, tree = _worker_copy(v1_published, tmp_path / "worker")
 
     # Re-analysis returns a SQLite capture, which the TOML tree cannot read.
     with monkeypatch.context() as patch:
@@ -371,13 +430,10 @@ def test_carry_moves_a_toml_target_with_applied_names_to_sqlite(
 
 
 def test_carry_keeps_an_attested_store_on_a_new_capture(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, v1_analysed: Reanalysed
 ) -> None:
-    filestore, workspace = _worker_dirs(tmp_path)
-    config = WorkerConfig(filestore.resolve(), workspace.resolve())
-    tree = _v1_target_with_applied_name(config)
-    first = _analyse(config)
-    status, reply = _carry(config, tree, first["analysis_capture"], REGISTRY)
+    config, tree = _worker_copy(v1_analysed, tmp_path / "worker")
+    status, reply = _carry(config, tree, v1_analysed[2], REGISTRY)
     assert status == 200, reply
     sqlite_tree = {path: data for path, data in tree.items() if path != REGISTRY}
     sqlite_tree |= _applied_files(reply)
@@ -436,19 +492,22 @@ def _with_fresh_rows() -> Any:
 
 @pytest.mark.parametrize("published", ["toml", "sqlite"])
 def test_carry_merges_the_function_registry_per_record(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, published: str
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    v1_published: Published,
+    v1_analysed: Reanalysed,
+    published: str,
 ) -> None:
     import tomllib
 
     from rebrew.metadata.document import qualified_key
 
-    filestore, workspace = _worker_dirs(tmp_path)
-    config = WorkerConfig(filestore.resolve(), workspace.resolve())
-    tree = _v1_target_with_applied_name(config)
+    shared = v1_analysed if published == "sqlite" else v1_published
+    config, tree = _worker_copy(shared, tmp_path / "worker")
     tree[REGISTRY] += PUBLISHED_ONLY
     registry = REGISTRY
     if published == "sqlite":
-        status, reply = _carry(config, tree, _analyse(config)["analysis_capture"], REGISTRY)
+        status, reply = _carry(config, tree, v1_analysed[2], REGISTRY)
         assert status == 200, reply
         tree = {path: data for path, data in tree.items() if path != REGISTRY}
         tree |= _applied_files(reply)
@@ -493,16 +552,14 @@ def test_carry_merges_the_function_registry_per_record(
 
 @pytest.fixture(scope="module")
 def v1_reanalysed(
-    tmp_path_factory: pytest.TempPathFactory,
+    tmp_path_factory: pytest.TempPathFactory, v1_analysed: Reanalysed
 ) -> tuple[WorkerConfig, dict[str, bytes], dict[str, Any]]:
     """A worker, a version 1 target tree with an applied name, and its plain re-analysis capture.
 
     Shared by the module's tests: a test that changes the tree or capture changes a copy.
     """
-    filestore, workspace = _worker_dirs(tmp_path_factory.mktemp("v1-reanalysed"))
-    config = WorkerConfig(filestore.resolve(), workspace.resolve())
-    tree = _v1_target_with_applied_name(config)
-    return config, tree, _analyse(config)["analysis_capture"]
+    config, tree = _worker_copy(v1_analysed, tmp_path_factory.mktemp("v1-reanalysed"))
+    return config, tree, v1_analysed[2]
 
 
 def test_carry_of_a_toml_target_without_applied_proposals_moves_only_its_config(

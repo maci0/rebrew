@@ -137,7 +137,7 @@ Multi-command groups: `is_group=True` in `app/builtins.py`. A group app's help i
 
 ## Test Patterns
 
-No `conftest.py` (the `pytest_ansi_env` / `source_util` pytest plugins load via `addopts`, not `conftest.py`): use `tmp_path` + inline helpers. Group by class; helpers `_`-prefixed; annotate tests `-> None`; mock config with `SimpleNamespace`; type config params as `Any`. A helper two test modules need goes in `tests/` beside them (`bin_util.py` builds binaries, `html_validate.py` runs W3C Nu over the dashboard shell and the generated report pages, skipping when the tool is absent) rather than in a fixture both would import.
+No `conftest.py` (the `pytest_ansi_env` / `source_util` pytest plugins load via `addopts`, not `conftest.py`): use `tmp_path` + inline helpers. Group by class; helpers `_`-prefixed; annotate tests `-> None`; mock config with `SimpleNamespace`; type config params as `Any`. A helper two test modules need goes in `tests/` beside them (`bin_util.py` builds binaries, `html_validate.py` runs W3C Nu over the dashboard shell and the generated report pages, skipping when the tool is absent) rather than in a fixture both would import. A module- or session-scoped fixture runs once per xdist worker; an expensive one (an analysis, a built wheel, a rootfs) goes through `session_cache.build_once`, which builds it once per session under a file lock, and its tests copy before they write.
 
 ## Key Architectural Rules
 

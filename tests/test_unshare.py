@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from session_cache import build_once
 from typer.testing import CliRunner
 
 from rebrew.compiler import unshare
@@ -383,14 +384,40 @@ class TestUnshareCli:
         assert list(tmp_path.iterdir()) == []
 
 
-def _native_rootfs(tmp_path: Path) -> Path:
+def _build_helper(directory: Path) -> None:
+    """Prepare the unshare helper under *directory* as an XDG cache home."""
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("XDG_CACHE_HOME", str(directory))
+        unshare.prepare_backend()
+
+
+def _native_cache(tmp_path_factory: pytest.TempPathFactory, cache: Path) -> Path:
+    """*cache*, an XDG cache home holding a copy of the session's prepared helper.
+
+    ``prepare_backend`` reuses a helper whose digest, compiler and epoch match,
+    so each test runs the reuse path on its own copy.
+    """
+    directory, _ = build_once(tmp_path_factory, "unshare-helper", _build_helper)
+    shutil.copytree(directory, cache, symlinks=True)
+    return cache
+
+
+def _native_rootfs(tmp_path_factory: pytest.TempPathFactory, tmp_path: Path) -> Path:
+    """A private copy of the session's probe image filesystem."""
     if platform.system() != "Linux" or platform.machine() != "x86_64" or os.geteuid() == 0:
         pytest.skip("requires unprivileged Linux x86_64")
+    directory, _ = build_once(tmp_path_factory, "unshare-probe-rootfs", _build_native_rootfs)
+    rootfs = tmp_path / "rootfs"
+    shutil.copytree(directory / "rootfs", rootfs, symlinks=True)
+    return rootfs
+
+
+def _build_native_rootfs(directory: Path) -> None:
     cc = shutil.which("cc")
     pkg = shutil.which("pkg-config")
     if not cc or not pkg or subprocess.run([pkg, "--exists", "json-c"]).returncode:
         pytest.skip("requires cc and json-c development files")
-    source = tmp_path / "probe.c"
+    source = directory / "probe.c"
     source.write_text(r"""
 #define _GNU_SOURCE
 #include <errno.h>
@@ -436,7 +463,7 @@ int main(int argc, char **argv) {
     puts("OK"); return 0;
 }
 """)
-    rootfs = tmp_path / "rootfs"
+    rootfs = directory / "rootfs"
     for path in (
         "bin",
         "dev",
@@ -460,17 +487,19 @@ int main(int argc, char **argv) {
     ):
         pytest.skip("static C runtime not installed")
     assert compiled.returncode == 0, compiled.stderr
-    return rootfs
 
 
 class TestUnshareNative:
     def test_overlay_includes_concurrency_and_timeout(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        tmp_path_factory: pytest.TempPathFactory,
     ) -> None:
         from concurrent.futures import ThreadPoolExecutor
 
-        rootfs = _native_rootfs(tmp_path)
-        cache = tmp_path / "cache"
+        rootfs = _native_rootfs(tmp_path_factory, tmp_path)
+        cache = _native_cache(tmp_path_factory, tmp_path / "cache")
         monkeypatch.setenv("XDG_CACHE_HOME", str(cache))
         monkeypatch.setattr(unshare, "_image", lambda *_: (rootfs, _info()))
         sdk = tmp_path / "sdk"
@@ -695,14 +724,20 @@ class TestUnshareCleanup:
 class TestUnshareParentDeath:
     @pytest.mark.parametrize("victim", ["launcher", "caller", "interrupt"])
     def test_sigkill_stops_detached_descendants(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, victim: str
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        tmp_path_factory: pytest.TempPathFactory,
+        victim: str,
     ) -> None:
         import signal
         import sys
         import time
 
-        rootfs = _native_rootfs(tmp_path)
-        monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+        rootfs = _native_rootfs(tmp_path_factory, tmp_path)
+        monkeypatch.setenv(
+            "XDG_CACHE_HOME", str(_native_cache(tmp_path_factory, tmp_path / "cache"))
+        )
         helper = unshare.prepare_backend()
         bundle = tmp_path / "bundle"
         work = tmp_path / "work"
@@ -876,9 +911,15 @@ class TestUnshareCMakePaths:
         "destination", ["/", "/proc/x", "/dev/x", "/opt/wineprefix/x", "/home/rebrew", "/home"]
     )
     def test_native_rejects_runtime_overlap(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, destination: str
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        tmp_path_factory: pytest.TempPathFactory,
+        destination: str,
     ) -> None:
-        monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+        monkeypatch.setenv(
+            "XDG_CACHE_HOME", str(_native_cache(tmp_path_factory, tmp_path / "cache"))
+        )
         helper = unshare.prepare_backend()
         profile = unshare._profile(tmp_path, _info(), tmp_path, [], None, tmp_path, [], {})
         profile["mounts"][5]["destination"] = destination
@@ -890,10 +931,15 @@ class TestUnshareCMakePaths:
         assert "project mount overlaps runtime mount" in result.stderr
 
     def test_native_same_path_project_under_tmp(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        tmp_path_factory: pytest.TempPathFactory,
     ) -> None:
-        rootfs = _native_rootfs(tmp_path)
-        monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+        rootfs = _native_rootfs(tmp_path_factory, tmp_path)
+        monkeypatch.setenv(
+            "XDG_CACHE_HOME", str(_native_cache(tmp_path_factory, tmp_path / "cache"))
+        )
         monkeypatch.setattr(unshare, "_image", lambda *_: (rootfs, _info()))
         project = tmp_path / "project space"
         build = project / "nested" / "build"

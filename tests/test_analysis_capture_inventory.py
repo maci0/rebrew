@@ -19,7 +19,9 @@ from typing import Any
 lazy from collections.abc import Callable
 
 import pytest
+from session_cache import build_once
 from test_ops import BINARY, SHA256, _analyse_request, _store, _worker_dirs
+from test_ops import fresh_analysis as fresh_analysis
 
 import rebrew.ops as ops
 from rebrew.config import inventory_path_for, load_config
@@ -43,16 +45,26 @@ def _copied_intake(
     return run
 
 
+def _session_intake(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, dict[str, Any]]:
+    """One real intake of :data:`BINARY` as target ``mini``, and its report.
+
+    Built once per session for every module and xdist worker that asks. The
+    tree is never written: callers copy it (:func:`_copied_intake`).
+    """
+    return build_once(
+        tmp_path_factory, "mini-intake", lambda tree: ops._run_intake(BINARY, tree, "mini")
+    )
+
+
 @pytest.fixture(scope="module")
 def _intake(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, dict[str, Any]]:
-    """One real intake of :data:`BINARY` as target ``mini``, and its report."""
-    tree = tmp_path_factory.mktemp("intake")
-    return tree, ops._run_intake(BINARY, tree, "mini")
+    """The session's one real intake of :data:`BINARY` as target ``mini``, and its report."""
+    return _session_intake(tmp_path_factory)
 
 
 @pytest.fixture
 def intake_copy(_intake: tuple[Path, dict[str, Any]], monkeypatch: pytest.MonkeyPatch) -> None:
-    """Every intake in the test is a private copy of the module's one intake."""
+    """Every intake in the test is a private copy of the session's one intake."""
     monkeypatch.setattr(ops, "_run_intake", _copied_intake(*_intake))
 
 
@@ -101,56 +113,6 @@ def _report(capture: dict[str, Any], report: dict[str, Any]) -> dict[str, Any]:
 
 
 @pytest.mark.usefixtures("intake_copy")
-def test_large_producer_metadata_is_captured(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from rebrew.metadata.functions import record_function_rows
-
-    intake = ops._run_intake
-    produced = b""
-
-    def run(binary: Path, root: Path, target: str) -> Any:
-        nonlocal produced
-        result = intake(binary, root, target)
-        cfg = load_config(root, target=target)
-        record_function_rows(
-            cfg.metadata_dir,
-            [
-                {
-                    "module": "MINI",
-                    "va": 0x500000 + index * 16,
-                    "identity": {"name": f"synthetic_function_{index:05d}"},
-                    "fields": {
-                        "size": 16,
-                        "blocker": f"Synthetic function {index:05d}: recover argument types, control flow and data references before compiling the implementation.",
-                    },
-                }
-                for index in range(6144)
-            ],
-        )
-        produced = (cfg.metadata_dir / "rebrew-functions.toml").read_bytes()
-        assert 1024 * 1024 < len(produced) < 8 * 1024 * 1024
-        return result
-
-    monkeypatch.setattr(ops, "_run_intake", run)
-    capture, _ = _capture(tmp_path)
-    from rebrew.metadata.sqlite import DATABASE_FILENAME, SqliteStore
-
-    (entry,) = [item for item in capture["entries"] if item["path"] == DATABASE_FILENAME]
-    payload = base64.b64decode(entry["data"], validate=True)
-    assert entry["size"] == len(payload) > 1024 * 1024
-    assert entry["digest"] == hashlib.sha256(payload).hexdigest()
-    staged = tmp_path / "captured-metadata"
-    staged.mkdir()
-    (staged / DATABASE_FILENAME).write_bytes(payload)
-    assert SqliteStore(staged / "rebrew-functions.toml", staged).snapshot() == produced
-    assert {
-        "path": "rebrew-functions.toml",
-        "logical_sha256": hashlib.sha256(produced).hexdigest(),
-    } in capture["metadata"]["documents"]
-
-
-@pytest.mark.usefixtures("intake_copy")
 def test_capture_refuses_file_over_eight_mib(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -170,15 +132,10 @@ def test_capture_refuses_file_over_eight_mib(
     assert caught.value.status == 422
 
 
-def test_default_inventory_and_real_worker_dispatch(tmp_path: Path) -> None:
-    files, workspace = _worker_dirs(tmp_path)
-    status, raw = ops.dispatch(
-        WorkerConfig(files.resolve(), workspace.resolve()),
-        "rebrew.analyse",
-        json.dumps(_analyse_request()).encode(),
-    )
-    assert status == 200, raw
-    report = json.loads(raw)
+def test_default_inventory_and_real_worker_dispatch(
+    fresh_analysis: tuple[Path, dict[str, Any]],
+) -> None:
+    _, report = fresh_analysis
     _selected(report["analysis_capture"], "src/mini/function_structure.json")
     normalized = _report(report["analysis_capture"], report)
     assert [row["name"] for row in normalized["functions"]] == ["fcn_00401000", "fcn_00401010"]

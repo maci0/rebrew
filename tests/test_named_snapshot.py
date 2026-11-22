@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from test_analysis_capture_inventory import _copied_intake
+from test_analysis_capture_inventory import _copied_intake, _session_intake
 from test_ops import (
     BINARY,
     ENTRY_VA,
@@ -55,9 +55,11 @@ def _digest(value: str) -> str:
 
 @pytest.fixture(scope="module")
 def intake(tmp_path_factory: pytest.TempPathFactory) -> Intake:
-    """One real intake of the fixture binary as target ``mini``, and its report."""
-    tree = tmp_path_factory.mktemp("intake")
-    return tree, rebrew.ops._run_intake(BINARY, tree, "mini")
+    """The session's one real intake of the fixture binary as target ``mini``, and its report.
+
+    Never written: readers copy the tree.
+    """
+    return _session_intake(tmp_path_factory)
 
 
 @pytest.fixture(scope="module")
@@ -555,9 +557,9 @@ def test_named_decompile_reads_a_store_over_one_mib(
                 "module": "MINI",
                 "va": 0x500000 + index * 16,
                 "identity": {"name": f"synthetic_function_{index:05d}"},
-                "fields": {"size": 16, "blocker": f"Synthetic function {index:05d}." * 4},
+                "fields": {"size": 16, "blocker": f"Synthetic function {index:05d}. " * 96},
             }
-            for index in range(6144)
+            for index in range(512)
         ],
         updated_by="intake",
     )

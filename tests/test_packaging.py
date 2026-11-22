@@ -20,6 +20,7 @@ lazy from collections.abc import Iterator
 
 import pytest
 from cli_json import cli_payload
+from session_cache import build_once
 
 from tools import release_check
 
@@ -80,14 +81,18 @@ def _expand_glued_heading(line: str) -> list[str]:
     return [f"### {match.group(1)}", f"- {match.group(2)}"]
 
 
-def _changelog_section(body: str, version: str) -> str | None:
-    """Body of ``## [version]`` up to the next release heading, or None."""
-    match = re.search(rf"^## \[{re.escape(version)}\](?: - |\s*$)", body, re.M)
-    if match is None:
-        return None
-    rest = body[match.end() :]
-    nxt = re.search(r"^## \[", rest, re.M)
-    return rest if nxt is None else rest[: nxt.start()]
+_RELEASE_HEADING = re.compile(r"^## \[(\d+\.\d+\.\d+)\](?: - |\s*$)", re.M)
+
+
+def _changelog_sections(body: str) -> dict[str, str]:
+    """Body of each ``## [x.y.z]`` up to the next ``## [`` heading, first heading wins."""
+    starts = [m.start() for m in re.finditer(r"^## \[", body, re.M)]
+    sections: dict[str, str] = {}
+    for start, end in zip(starts, [*starts[1:], len(body)], strict=True):
+        match = _RELEASE_HEADING.match(body, start)
+        if match is not None:
+            sections.setdefault(match.group(1), body[match.end() : end])
+    return sections
 
 
 def _project() -> dict:
@@ -155,6 +160,40 @@ def _notes_block(last_tag: str, subject: str) -> str:
         block = text.split("## [Unreleased]", 1)[1]
     next_header = block.find("\n## [")
     return block if next_header == -1 else block[:next_header]
+
+
+def _build_wheel(out: Path) -> str:
+    """Build the wheel from the source tree into *out*; return its file name."""
+    env = os.environ.copy()
+    env.update(
+        {
+            "SOURCE_DATE_EPOCH": "0",
+            "TZ": "UTC",
+            "LC_ALL": "C",
+            "PYTHONHASHSEED": "0",
+        }
+    )
+    proc = subprocess.run(
+        ["uv", "build", "--wheel", "--out-dir", str(out)],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
+    )
+    assert proc.returncode == 0, proc.stderr or proc.stdout
+    wheels = list(out.glob("*.whl"))
+    assert len(wheels) == 1, wheels
+    return wheels[0].name
+
+
+def _wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The session's wheel, built once; read it, never write to it."""
+    directory, name = build_once(tmp_path_factory, "packaging-wheel", _build_wheel)
+    wheel: Path = directory / name
+    return wheel
 
 
 def _extras() -> dict[str, list[str]]:
@@ -345,9 +384,11 @@ class TestPackagingMetadata:
             _norm_changelog_line(line) for line in unreleased.splitlines() if line.strip()
         }
         headings = re.findall(r"^## \[(\d+\.\d+\.\d+)\]", show.stdout, flags=re.M)
+        tagged_sections = _changelog_sections(show.stdout)
+        current_sections = _changelog_sections(text)
         for version in headings:
-            tagged = _changelog_section(show.stdout, version)
-            current = _changelog_section(text, version)
+            tagged = tagged_sections.get(version)
+            current = current_sections.get(version)
             assert tagged is not None and current is not None
             tag_lines = [
                 expanded
@@ -1491,37 +1532,13 @@ class TestSdistManifest:
             exec_files = [m.name for m in tf.getmembers() if m.isfile() and (m.mode & 0o111)]
         assert exec_files == [], f"normalized sdist has executable files: {exec_files}"
 
-    def test_built_wheel_ships_skill_tree_and_typing_marker(self, tmp_path: Path) -> None:
+    def test_built_wheel_ships_skill_tree_and_typing_marker(
+        self, tmp_path_factory: pytest.TempPathFactory
+    ) -> None:
         """Wheel must carry every on-disk skill asset plus Typing :: Typed."""
-        import os
-        import subprocess
         import zipfile
 
-        out = tmp_path / "dist"
-        out.mkdir()
-        env = os.environ.copy()
-        env.update(
-            {
-                "SOURCE_DATE_EPOCH": "0",
-                "TZ": "UTC",
-                "LC_ALL": "C",
-                "PYTHONHASHSEED": "0",
-            }
-        )
-        proc = subprocess.run(
-            ["uv", "build", "--wheel", "--out-dir", str(out)],
-            cwd=ROOT,
-            check=False,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            env=env,
-        )
-        assert proc.returncode == 0, proc.stderr or proc.stdout
-        wheels = list(out.glob("*.whl"))
-        assert len(wheels) == 1, wheels
-        with zipfile.ZipFile(wheels[0]) as zf:
+        with zipfile.ZipFile(_wheel(tmp_path_factory)) as zf:
             names = set(zf.namelist())
             meta = zf.read(next(n for n in names if n.endswith(".dist-info/METADATA"))).decode()
             ep_name = next(n for n in names if n.endswith(".dist-info/entry_points.txt"))
@@ -1736,35 +1753,13 @@ class TestInstalledWheelAssetRuntime:
     source checkout on sys.path or hardcoding internal module layouts.
     """
 
-    def test_wheel_runtime_skill_and_scaffold_behavior(self, tmp_path: Path) -> None:
+    def test_wheel_runtime_skill_and_scaffold_behavior(
+        self, tmp_path: Path, tmp_path_factory: pytest.TempPathFactory
+    ) -> None:
         """The built wheel executes skills listing and resolves packaged scaffold assets."""
-        import os
-        import subprocess
         import zipfile
 
-        out = tmp_path / "dist"
-        out.mkdir()
-        env = os.environ.copy()
-        env.update(
-            {
-                "SOURCE_DATE_EPOCH": "0",
-                "TZ": "UTC",
-                "LC_ALL": "C",
-                "PYTHONHASHSEED": "0",
-            }
-        )
-        proc = subprocess.run(
-            ["uv", "build", "--wheel", "--out-dir", str(out)],
-            cwd=ROOT,
-            check=False,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            env=env,
-        )
-        assert proc.returncode == 0, proc.stderr or proc.stdout
-        wheel = next(out.glob("*.whl"))
+        wheel = _wheel(tmp_path_factory)
 
         site_dir = tmp_path / "wheel_site"
         with zipfile.ZipFile(wheel) as zf:

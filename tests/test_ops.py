@@ -35,6 +35,7 @@ from typing import Any, override
 import pytest
 from bin_util import append_pe_section, le32, make_import_call_pe
 from recompile_stub import serve_recompile
+from session_cache import build_once
 
 from rebrew.discover import DISCOVERY_RULE
 from rebrew.ops import COMPILING_OPS, OPS, WorkerConfig, dispatch, target_name
@@ -179,17 +180,24 @@ def _check_analysed(reply: dict[str, Any], workspace: Path) -> Path:
     return project
 
 
+def _analyse_fresh(root: Path) -> dict[str, Any]:
+    """One ``analyse`` into the empty workspace of a worker root at *root*, and its reply."""
+    root = root.resolve()
+    filestore, workspace = _worker_dirs(root)
+    reply = _call(WorkerConfig(filestore, workspace), "rebrew.analyse", _analyse_request())
+    _check_analysed(reply, workspace)
+    return reply
+
+
 @pytest.fixture(scope="module")
 def fresh_analysis(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, dict[str, Any]]:
     """A worker root with one ``analyse`` into its empty workspace, and the reply.
 
-    Tests never change it: one that writes works on :func:`_copy_analysed`.
+    Built once per session for every xdist worker. Tests never change it: one
+    that writes works on :func:`_copy_analysed`.
     """
-    root = tmp_path_factory.mktemp("analysed").resolve()
-    filestore, workspace = _worker_dirs(root)
-    reply = _call(WorkerConfig(filestore, workspace), "rebrew.analyse", _analyse_request())
-    _check_analysed(reply, workspace)
-    return root, reply
+    root, reply = build_once(tmp_path_factory, "ops-fresh-analysis", _analyse_fresh)
+    return root.resolve(), reply
 
 
 def _copy_analysed(
@@ -205,6 +213,19 @@ def _copy_analysed(
     destination = destination.resolve()
     config = WorkerConfig(destination / "files", destination / "workspace")
     return config, destination / Path(reply["project"]).relative_to(root)
+
+
+def _analyse_binary(root: Path, pe: bytes, name: str) -> dict[str, Any]:
+    """One ``analyse`` of *pe*, stored under its content key, into a new worker root at *root*."""
+    root = root.resolve()
+    digest = hashlib.sha256(pe).hexdigest()
+    filestore, workspace = root / "files", root / "workspace"
+    (filestore / "binaries").mkdir(parents=True)
+    (filestore / "binaries" / digest).write_bytes(pe)
+    workspace.mkdir()
+    request = {"binary_id": 1, "sha256": digest, "name": name, "file_key": f"binaries/{digest}"}
+    reply: dict[str, Any] = _call(WorkerConfig(filestore, workspace), "rebrew.analyse", request)
+    return reply
 
 
 @pytest.fixture(scope="module")
@@ -256,20 +277,36 @@ def _lstrlen_call_once(lstrlen: int, _local_alloc: int) -> str:
     )
 
 
-def _import_call_project(tmp_path: Path) -> tuple[WorkerConfig, str, int, bytes]:
-    """An analysed project of the ``_lstrlen_calls`` PE: its worker, project dir, lstrlenW slot and
-    bytes."""
-    binary, slot, _ = make_import_call_pe(tmp_path, _lstrlen_calls)
-    pe = binary.read_bytes()
-    digest = hashlib.sha256(pe).hexdigest()
-    filestore, workspace = tmp_path / "files", tmp_path / "workspace"
-    (filestore / "binaries").mkdir(parents=True)
-    (filestore / "binaries" / digest).write_bytes(pe)
-    workspace.mkdir()
-    config = WorkerConfig(filestore, workspace)
-    request = {"binary_id": 1, "sha256": digest, "name": "calls.exe"}
-    project = _call(config, "rebrew.analyse", {**request, "file_key": f"binaries/{digest}"})
-    return config, project["project"], slot, pe
+def _analyse_import_calls(root: Path) -> dict[str, Any]:
+    """The ``_lstrlen_calls`` PE analysed into a new worker root at *root*: the reply and the
+    lstrlenW slot."""
+    binary, slot, _ = make_import_call_pe(root, _lstrlen_calls)
+    return {"reply": _analyse_binary(root, binary.read_bytes(), "calls.exe"), "slot": slot}
+
+
+@pytest.fixture(scope="module")
+def import_call_analysis(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> tuple[Path, dict[str, Any], int]:
+    """A worker root with the ``_lstrlen_calls`` PE analysed, the reply and the lstrlenW slot.
+
+    Built once per session for every xdist worker; tests work on
+    :func:`_import_call_project` copies.
+    """
+    root, built = build_once(tmp_path_factory, "ops-import-call-analysis", _analyse_import_calls)
+    return root.resolve(), built["reply"], built["slot"]
+
+
+def _import_call_project(
+    analysis: tuple[Path, dict[str, Any], int], tmp_path: Path
+) -> tuple[WorkerConfig, str, int, bytes]:
+    """A copy at *tmp_path* of the ``_lstrlen_calls`` analysis: its worker, project dir, lstrlenW
+    slot and bytes."""
+    root, reply, slot = analysis
+    config, project = _copy_analysed((root, reply), tmp_path)
+    assert config.filestore is not None
+    pe = (config.filestore / "binaries" / reply["targets"][0]["sha256"]).read_bytes()
+    return config, str(project), slot, pe
 
 
 def _slot_calls(reply: dict[str, Any], slot: int) -> list[tuple[str, int]]:
@@ -293,8 +330,10 @@ class TestCallReferences:
         )
         assert reply["import_slots"] == sorted(reply["import_slots"], key=lambda row: row["va"])
 
-    def test_calls_through_a_register_holding_an_import(self, tmp_path: Path) -> None:
-        config, project, slot, _ = _import_call_project(tmp_path)
+    def test_calls_through_a_register_holding_an_import(
+        self, import_call_analysis: tuple[Path, dict[str, Any], int], tmp_path: Path
+    ) -> None:
+        config, project, slot, _ = _import_call_project(import_call_analysis, tmp_path)
         reply = _call(config, "rebrew.call_references", {"project_dir": project})
         assert _slot_calls(reply, slot) == [
             ("iat_call", ENTRY_VA + 0x14),
@@ -303,12 +342,15 @@ class TestCallReferences:
         assert {"va": slot, "name": "lstrlenW"} in reply["import_slots"]
 
     def test_a_binary_is_scanned_again_only_once_its_bytes_change(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        import_call_analysis: tuple[Path, dict[str, Any], int],
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         import rebrew.analysis
         import rebrew.ops
 
-        config, project, slot, pe = _import_call_project(tmp_path)
+        config, project, slot, pe = _import_call_project(import_call_analysis, tmp_path)
         scanned: list[Path] = []
         scan = rebrew.analysis.scan_references
 
@@ -484,37 +526,48 @@ db 0x2
 """
 
 
-def _switch_project(tmp_path: Path) -> tuple[WorkerConfig, str, str]:
-    """An analysed project of a PE holding SWITCH at 0x401000: worker, project dir, sha256."""
+def _analyse_switch(root: Path) -> dict[str, Any]:
+    """A PE holding SWITCH at 0x401000 analysed into a new worker root at *root*, and the reply."""
     from bin_util import make_pe
 
-    pe = make_pe(SWITCH + b"\xc3")
-    digest = hashlib.sha256(pe).hexdigest()
-    filestore, workspace = tmp_path / "files", tmp_path / "workspace"
-    (filestore / "binaries").mkdir(parents=True)
-    (filestore / "binaries" / digest).write_bytes(pe)
-    workspace.mkdir()
-    config = WorkerConfig(filestore, workspace)
-    request = {
-        "binary_id": 1,
-        "sha256": digest,
-        "name": "switch.exe",
-        "file_key": f"binaries/{digest}",
-    }
-    return config, _call(config, "rebrew.analyse", request)["project"], digest
+    return _analyse_binary(root, make_pe(SWITCH + b"\xc3"), "switch.exe")
+
+
+@pytest.fixture(scope="module")
+def switch_analysis(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, dict[str, Any]]:
+    """A worker root with SWITCH's PE analysed, and the reply.
+
+    Built once per session for every xdist worker; tests work on
+    :func:`_switch_project` copies.
+    """
+    root, reply = build_once(tmp_path_factory, "ops-switch-analysis", _analyse_switch)
+    return root.resolve(), reply
+
+
+@pytest.fixture
+def switch_project(
+    switch_analysis: tuple[Path, dict[str, Any]], tmp_path: Path
+) -> tuple[WorkerConfig, str, str]:
+    """A copy of the SWITCH analysis of the test's own: worker, project dir, sha256."""
+    config, project = _copy_analysed(switch_analysis, tmp_path)
+    return config, str(project), switch_analysis[1]["targets"][0]["sha256"]
 
 
 class TestJumpTableListings:
     """A jump table inside the function is data in every listing, as it is in the CFG."""
 
-    def test_asm_lists_the_tables_as_labelled_data(self, tmp_path: Path) -> None:
-        config, project, _ = _switch_project(tmp_path)
+    def test_asm_lists_the_tables_as_labelled_data(
+        self, switch_project: tuple[WorkerConfig, str, str]
+    ) -> None:
+        config, project, _ = switch_project
         request = {"project_dir": project, "va": ENTRY_VA, "size": len(SWITCH), "format": "asm"}
         assert _call(config, "rebrew.disassemble", request)["text"] == SWITCH_ASM
 
     @pytest.mark.skipif(shutil.which("nasm") is None, reason="nasm not installed")
-    def test_nasm_lists_the_tables_as_labelled_data(self, tmp_path: Path) -> None:
-        config, project, _ = _switch_project(tmp_path)
+    def test_nasm_lists_the_tables_as_labelled_data(
+        self, switch_project: tuple[WorkerConfig, str, str]
+    ) -> None:
+        config, project, _ = switch_project
         request = {"project_dir": project, "va": ENTRY_VA, "size": len(SWITCH), "format": "nasm"}
         lines = _call(config, "rebrew.disassemble", request)["text"].splitlines()
         assert lines[lines.index("jump_table_00401024:") + 1 :][:3] == [
@@ -531,8 +584,10 @@ class TestJumpTableListings:
         bytes_reply = _call(config, "rebrew.disassemble_bytes", request)
         assert bytes_reply["text"].splitlines()[4:] == lines[4:]
 
-    def test_hex_lists_the_tables_as_data(self, tmp_path: Path) -> None:
-        config, project, _ = _switch_project(tmp_path)
+    def test_hex_lists_the_tables_as_data(
+        self, switch_project: tuple[WorkerConfig, str, str]
+    ) -> None:
+        config, project, _ = switch_project
         request = {"project_dir": project, "va": ENTRY_VA, "size": len(SWITCH), "format": "hex"}
         lines = _call(config, "rebrew.disassemble", request)["text"].splitlines()
         assert lines[12:15] == [
@@ -542,8 +597,10 @@ class TestJumpTableListings:
         ]
         assert len(lines) == 12 + 3 + 6
 
-    def test_instruction_listing_decodes_the_tables_as_data(self, tmp_path: Path) -> None:
-        config, project, digest = _switch_project(tmp_path)
+    def test_instruction_listing_decodes_the_tables_as_data(
+        self, switch_project: tuple[WorkerConfig, str, str]
+    ) -> None:
+        config, project, digest = switch_project
         request = {"project_dir": project, "sha256": digest, "va": ENTRY_VA, "size": len(SWITCH)}
         reply = _call(config, "rebrew.instruction_listing", request)
         rows = [(i["offset"], i["mnemonic"], i["operands"]) for i in reply["original"]]
@@ -572,12 +629,14 @@ class TestListingRenderer:
     """The backend keeps a listing while the renderer the op reports is unchanged."""
 
     @pytest.mark.skipif(shutil.which("nasm") is None, reason="nasm not installed")
-    def test_the_renderer_names_the_listing_text(self, tmp_path: Path) -> None:
+    def test_the_renderer_names_the_listing_text(
+        self, switch_project: tuple[WorkerConfig, str, str]
+    ) -> None:
         """A change to the text of these listings needs a new ``LISTING_RENDERER``,
         recorded here with the new digest."""
         from rebrew import asm
 
-        config, project, _ = _switch_project(tmp_path)
+        config, project, _ = switch_project
         digest = hashlib.sha256()
         replies = []
         for arch in ("", "x86_64", "x86_16"):
@@ -882,12 +941,9 @@ class _OriginHandler(http.server.BaseHTTPRequestHandler):
         pass
 
 
-@pytest.fixture
-def https_origin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
-    """An HTTPS server with a self-signed certificate the worker trusts."""
-    if shutil.which("openssl") is None:
-        pytest.skip("openssl is not installed")
-    cert, key = tmp_path / "cert.pem", tmp_path / "key.pem"
+def _self_signed_certificate(directory: Path) -> None:
+    """Write a self-signed certificate for 127.0.0.1 and its key to *directory*."""
+    cert, key = directory / "cert.pem", directory / "key.pem"
     subprocess.run(
         [
             "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
@@ -898,6 +954,19 @@ def https_origin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
         capture_output=True,
         timeout=WAIT_SECONDS,
     )  # fmt: skip
+
+
+@pytest.fixture
+def https_origin(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> Any:
+    """An HTTPS server with a self-signed certificate the worker trusts.
+
+    The certificate is made once per session for every xdist worker; servers
+    only read it.
+    """
+    if shutil.which("openssl") is None:
+        pytest.skip("openssl is not installed")
+    directory, _ = build_once(tmp_path_factory, "ops-https-certificate", _self_signed_certificate)
+    cert, key = directory / "cert.pem", directory / "key.pem"
     context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
     context.load_cert_chain(cert, key)
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _OriginHandler)
@@ -1300,6 +1369,15 @@ class TestFunctionDigests:
         assert (refusal["status"], refusal["detail"]) == (400, detail)
 
 
+@pytest.fixture(scope="module")
+def identified_compiler(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
+    """The ``identify_compiler`` reply for the fixture. Tests only read it."""
+    filestore, workspace = _worker_dirs(tmp_path_factory.mktemp("identify"))
+    config = WorkerConfig(filestore.resolve(), workspace.resolve())
+    reply: dict[str, Any] = _call(config, "rebrew.identify_compiler", _binary_file())
+    return reply
+
+
 class TestStoredFileOps:
     def test_library_functions(self, tmp_path: Path) -> None:
         filestore, workspace = _worker_dirs(tmp_path)
@@ -1363,24 +1441,20 @@ class TestStoredFileOps:
         refusal = _refusal(config, "rebrew.library_functions", body)
         assert refusal["detail"] == "the file is not an ar archive"
 
-    def test_identify_compiler(self, tmp_path: Path) -> None:
-        filestore, workspace = _worker_dirs(tmp_path)
-        config = WorkerConfig(filestore.resolve(), workspace.resolve())
-        reply = _call(config, "rebrew.identify_compiler", _binary_file())
+    def test_identify_compiler(self, identified_compiler: dict[str, Any]) -> None:
+        reply = identified_compiler
         assert {"family", "confidence", "evidence", "detected_by", "profile"} <= set(reply)
         assert isinstance(reply["evidence"], list)
 
     def test_identify_compiler_fills_what_the_pe_tells_and_nulls_the_rest(
-        self, tmp_path: Path
+        self, identified_compiler: dict[str, Any]
     ) -> None:
         """An x86_32 PE answered arch, opt_level, codegen and packed as empty strings.
 
         The arch is the PE header's, packed is the packer scan's answer (false:
         none found), and what the detector cannot tell is null (not determined).
         """
-        filestore, workspace = _worker_dirs(tmp_path)
-        config = WorkerConfig(filestore.resolve(), workspace.resolve())
-        reply = _call(config, "rebrew.identify_compiler", _binary_file())
+        reply = identified_compiler
         assert reply["arch"] == "x86_32"
         assert (reply["packed"], reply["packer"]) == (False, None)
         assert (reply["opt_level"], reply["codegen"]) == (None, None)
@@ -1516,6 +1590,37 @@ def _retained_coverage_request(
         "verification_records": [],
     }
     return config, request, analysed, envelope
+
+
+def _thunk_calls(slot_a: int, slot_b: int) -> str:
+    """Win2k notepad's tail: two functions calling ``jmp dword [iat]`` thunks, the first thunk
+    followed by int3 padding, the last by two int3 and then the import directory."""
+    return (
+        "55 8b ec e8 08000000 5d c3"
+        + " cc" * 6  # 0x00 calls thunk a
+        + f"ff25{le32(slot_a)}"
+        + " cc" * 10  # 0x10 thunk a, int3 padding
+        + "55 8b ec e8 6b000000 5d c3"
+        + " cc" * 0x69  # 0x20 calls thunk b
+        + f"ff25{le32(slot_b)} cc cc"  # 0x93 thunk b, then the import directory
+    )
+
+
+def _analyse_thunk_calls(root: Path) -> dict[str, Any]:
+    """The ``_thunk_calls`` PE analysed into a new worker root at *root*, and the reply."""
+    binary, _slot_a, _slot_b = make_import_call_pe(root, _thunk_calls)
+    return _analyse_binary(root, binary.read_bytes(), "calls.exe")
+
+
+@pytest.fixture(scope="module")
+def thunk_analysis(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, dict[str, Any]]:
+    """A worker root with the ``_thunk_calls`` PE analysed, and the reply.
+
+    Built once per session for every xdist worker. Tests never change it: one
+    that writes works on :func:`_copy_analysed`.
+    """
+    root, reply = build_once(tmp_path_factory, "ops-thunk-analysis", _analyse_thunk_calls)
+    return root.resolve(), reply
 
 
 class TestReconstructionOps:
@@ -1780,34 +1885,20 @@ class TestReconstructionOps:
         }
         assert {name: found.get(name) for name in expected} == expected
 
-    def test_analysed_import_thunks_are_stubs_whatever_follows_them(self, tmp_path: Path) -> None:
+    def test_analysed_import_thunks_are_stubs_whatever_follows_them(
+        self, thunk_analysis: tuple[Path, dict[str, Any]]
+    ) -> None:
         """Win2k notepad ends its code with ``jmp dword [iat]`` thunks: the one
         followed by int3 padding was a 20-byte function (``_initterm``) and the
         last one, two int3 before the import directory, a 259-byte function
         (``OpenPrinterW``) running to a ``ret`` byte in that directory."""
         from bin_util import IMPORT_CALL_NAMES
 
-        def assemble(slot_a: int, slot_b: int) -> str:
-            return (
-                "55 8b ec e8 08000000 5d c3"
-                + " cc" * 6  # 0x00 calls thunk a
-                + f"ff25{le32(slot_a)}"
-                + " cc" * 10  # 0x10 thunk a, int3 padding
-                + "55 8b ec e8 6b000000 5d c3"
-                + " cc" * 0x69  # 0x20 calls thunk b
-                + f"ff25{le32(slot_b)} cc cc"  # 0x93 thunk b, then the import directory
-            )
-
-        binary, _slot_a, _slot_b = make_import_call_pe(tmp_path, assemble)
+        root, reply = thunk_analysis
+        target = reply["targets"][0]
+        pe = (root / "files" / "binaries" / target["sha256"]).read_bytes()
         # The import directory's first dword (its name table's RVA) opens with a ``ret`` byte.
-        assert binary.read_bytes()[0x200 + 0x9B] == 0xC3
-        filestore, workspace = _worker_dirs(tmp_path)
-        digest, key = _store(filestore, binary.read_bytes())
-        target = _call(
-            WorkerConfig(filestore.resolve(), workspace.resolve()),
-            "rebrew.analyse",
-            {"binary_id": 1, "sha256": digest, "name": "calls.exe", "file_key": key},
-        )["targets"][0]
+        assert pe[0x200 + 0x9B] == 0xC3
         assert [(f["va"], f["size"], f["name"]) for f in target["functions"]] == [
             (0x401000, 10, "fcn_00401000"),
             (0x401020, 10, "fcn_00401020"),
@@ -1817,7 +1908,9 @@ class TestReconstructionOps:
             {"va": 0x401093, "name": IMPORT_CALL_NAMES[1]},
         ]
 
-    def test_imported_project_reports_an_old_stub_row_as_its_import(self, tmp_path: Path) -> None:
+    def test_imported_project_reports_an_old_stub_row_as_its_import(
+        self, thunk_analysis: tuple[Path, dict[str, Any]], tmp_path: Path
+    ) -> None:
         """A project onboarded by the old rule holds a STUB row at an import stub
         (Win2k notepad's ``OpenPrinterW``, 259 bytes): the report named the row
         after the import and kept it a function, so the backend stored a
@@ -1826,23 +1919,7 @@ class TestReconstructionOps:
 
         from rebrew.intake import classify_all
 
-        def assemble(slot_a: int, slot_b: int) -> str:
-            return (
-                "55 8b ec e8 08000000 5d c3"
-                + " cc" * 6
-                + f" ff25{le32(slot_a)}"
-                + " cc" * 10
-                + " 55 8b ec e8 6b000000 5d c3"
-                + " cc" * 0x69
-                + f" ff25{le32(slot_b)} cc cc"
-            )
-
-        binary, _slot_a, _slot_b = make_import_call_pe(tmp_path, assemble)
-        filestore, workspace = _worker_dirs(tmp_path)
-        digest, key = _store(filestore, binary.read_bytes())
-        config = WorkerConfig(filestore.resolve(), workspace.resolve())
-        request = {"binary_id": 1, "sha256": digest, "name": "calls.exe", "file_key": key}
-        project = Path(_call(config, "rebrew.analyse", request)["project"])
+        config, project = _copy_analysed(thunk_analysis, tmp_path)
         classify_all(project, project / "src" / "calls", "CALLS", [(0x401093, 9, "")], "msvc", "")
         target = _call(config, "rebrew.import-project", {"project_dir": str(project)})["targets"][0]
         assert [f["va"] for f in target["functions"]] == [0x401000, 0x401020]

@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 from bin_util import make_ne
+from session_cache import build_once
 from test_ne_relocations import CODE, CODE_FLAGS, DATA_FLAGS, FIXUPS
 
 import rebrew.decompiler as dc
@@ -108,18 +109,36 @@ def test_a_flat_binary_still_runs_kuna_on_the_file(
     assert seen[0]["cmd"][2:] == [str(binary), "0x401000", "--addr"]
 
 
-def _ne_worker(tmp_path: Path) -> tuple[WorkerConfig, str, str]:
-    """A worker that has analysed the NE fixture: ``(config, project_dir, sha256)``."""
-    data = _ne_file(tmp_path).read_bytes()
+def _analyse_ne(root: Path) -> dict[str, str]:
+    """One ``analyse`` of the NE fixture into a worker root at *root*: project and sha256."""
+    root = root.resolve()
+    data = _ne_file(root).read_bytes()
     sha256 = hashlib.sha256(data).hexdigest()
-    (tmp_path / "files" / "binaries").mkdir(parents=True)
-    (tmp_path / "files" / "binaries" / sha256).write_bytes(data)
-    (tmp_path / "workspace").mkdir()
-    config = WorkerConfig((tmp_path / "files").resolve(), (tmp_path / "workspace").resolve())
+    (root / "files" / "binaries").mkdir(parents=True)
+    (root / "files" / "binaries" / sha256).write_bytes(data)
+    (root / "workspace").mkdir()
+    config = WorkerConfig(root / "files", root / "workspace")
     request = {"binary_id": 1, "sha256": sha256, "name": "ne.exe", "file_key": f"binaries/{sha256}"}
     status, body = dispatch(config, "rebrew.analyse", json.dumps(request).encode())
     assert status == 200, body
-    return config, json.loads(body)["project"], sha256
+    return {"project": json.loads(body)["project"], "sha256": sha256}
+
+
+def _ne_worker(
+    tmp_path_factory: pytest.TempPathFactory, tmp_path: Path
+) -> tuple[WorkerConfig, str, str]:
+    """A worker over a copy of the analysed NE fixture: ``(config, project_dir, sha256)``.
+
+    The ``.rebrew`` caches are left behind; they name the original paths and
+    are rebuilt on demand.
+    """
+    root, built = build_once(tmp_path_factory, "ne-decompile-analysis", _analyse_ne)
+    root = root.resolve()
+    shutil.copytree(root, tmp_path, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".rebrew"))
+    copy = tmp_path.resolve()
+    config = WorkerConfig(copy / "files", copy / "workspace")
+    project = copy / Path(built["project"]).relative_to(root)
+    return config, str(project), built["sha256"]
 
 
 def _decompile(
@@ -138,9 +157,9 @@ def _decompile(
 
 
 def test_the_backend_decompile_request_for_an_ne_function(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    config, project, sha256 = _ne_worker(tmp_path)
+    config, project, sha256 = _ne_worker(tmp_path_factory, tmp_path)
     _fake_kuna(monkeypatch, _Run(0, "void sub_0(void)\n{\n  sub_20();\n}\n"))
     status, reply = _decompile(config, project, sha256, CALLER_VA)
     assert status == 200, reply
@@ -149,9 +168,9 @@ def test_the_backend_decompile_request_for_an_ne_function(
 
 
 def test_the_backend_gets_unsupported_binary_format_from_a_kuna_without_raw_image(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    config, project, sha256 = _ne_worker(tmp_path)
+    config, project, sha256 = _ne_worker(tmp_path_factory, tmp_path)
     _fake_kuna(monkeypatch, _Run(1, "", KUNA_160_UNKNOWN_OPTION))
     status, reply = _decompile(config, project, sha256, CALLER_VA)
     assert (status, reply["error"]) == (422, "unsupported-binary-format")

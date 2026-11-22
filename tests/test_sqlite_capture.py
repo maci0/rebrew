@@ -5,11 +5,14 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
 import pytest
-from test_analysis_capture_inventory import _capture
+from test_analysis_capture_inventory import _capture, _session_intake
+from test_analysis_capture_inventory import _intake as _intake
+from test_analysis_capture_inventory import intake_copy as intake_copy
 from test_ops import BINARY, KEY, SHA256, _store, _worker_dirs
 
 import rebrew.metadata_transfer as transfer
@@ -60,6 +63,7 @@ def _verify_cli(
     return report
 
 
+@pytest.mark.usefixtures("intake_copy")
 def test_fresh_capture_has_verified_self_contained_sqlite(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -82,10 +86,11 @@ def test_fresh_capture_has_verified_self_contained_sqlite(
                     "identity": {"name": f"synthetic_function_{index:05d}"},
                     "fields": {
                         "size": 16,
-                        "blocker": f"Synthetic function {index:05d}: recover argument types, control flow and data references before compiling the implementation.",
+                        "blocker": f"Synthetic function {index:05d}: recover argument types, control flow and data references before compiling the implementation. "
+                        * 20,
                     },
                 }
-                for index in range(6144)
+                for index in range(512)
             ],
             updated_by="intake",
         )
@@ -119,6 +124,10 @@ def test_fresh_capture_has_verified_self_contained_sqlite(
             for path in sorted(expected_documents)
         ],
     }
+    assert {
+        "path": "rebrew-functions.toml",
+        "logical_sha256": hashlib.sha256(original).hexdigest(),
+    } in capture["metadata"]["documents"]
     payload = base64.b64decode(entry["data"], validate=True)
     assert len(payload) == entry["size"] > 1024 * 1024
     assert hashlib.sha256(payload).hexdigest() == entry["digest"]
@@ -174,13 +183,14 @@ def sqlite_manifest(
 ) -> tuple[WorkerConfig, list[RetainedFile], Path]:
     """A worker, the retained manifest of a SQLite producer project, and that project.
 
-    Shared by the module's tests, which read the project and never write it.
+    The project is a copy of the session's one intake. Shared by the module's
+    tests, which read the project and never write it.
     """
     root = tmp_path_factory.mktemp("sqlite-manifest")
     files, workspace = _worker_dirs(root)
     project = root / "producer"
-    project.mkdir()
-    ops._run_intake(BINARY, project, "mini")
+    tree, _ = _session_intake(tmp_path_factory)
+    shutil.copytree(tree, project, ignore=shutil.ignore_patterns(".rebrew"))
     cfg = load_config(project, target="mini")
     original = (cfg.metadata_dir / "rebrew-functions.toml").read_bytes()
     sources = {path: path.read_bytes() for path in cfg.reversed_dir.rglob("*.c")}
@@ -326,6 +336,7 @@ def test_changed_sqlite_metadata_during_retained_read_is_refused(
         update_field(root, 0x401000, "blocker", "changed during verification", "MINI")
 
 
+@pytest.mark.usefixtures("intake_copy")
 def test_fresh_capture_stale_migration_never_selects_sqlite(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -354,6 +365,7 @@ def test_fresh_capture_stale_migration_never_selects_sqlite(
         _capture(tmp_path)
 
 
+@pytest.mark.usefixtures("intake_copy")
 def test_fresh_capture_refuses_missing_function_document(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -371,6 +383,7 @@ def test_fresh_capture_refuses_missing_function_document(
         _capture(tmp_path)
 
 
+@pytest.mark.usefixtures("intake_copy")
 def test_applied_candidate_store_is_what_later_retained_reads_see(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
