@@ -647,7 +647,8 @@ rebrew receives.
   (Dockerfiles / wrappers). Default: sibling of this install.
 - `REBREW_TOOLCHAIN_OVERLAY_DIR`: directory of extra toolchain TOML overlays
   (plugin-style profiles without editing host source).
-- `REBREW_FLIRT_SIGS_DIR`: path to the `recondb` checkout.
+- `REBREW_FLIRT_SIGS_DIR`: path to the `recondb` checkout, release 1.17.0 or later
+  (an older checkout's `sigs/index.json` keys files by name and is refused).
   Default: the sibling of the rebrew source checkout, which a wheel install
   has none of, so a packaged rebrew needs this set. When set, a path that is
   not a directory fails `rebrew library scan-signatures` instead of scanning without library

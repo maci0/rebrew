@@ -6161,6 +6161,18 @@ Every executable section is scanned, not only `.text`: a linker run with
 the JSON output is the summed size of those sections.  For formats whose
 loader does not classify sections (PE, Mach-O) the scan stays on `.text`.
 
+The scan loads one file per stem in each directory, the `.sig` preferred over the
+`.pat` it was built from (the set recondb indexes). A directory that ships a
+`sigs/index.json` or an `index.json` (a recondb checkout) is filtered by it: the
+index keys each file by its path relative to `sigs/`, a file listed under another
+architecture than the target's is skipped, one listed with an unknown
+architecture loads, and a file the index does not list is not loaded (the scan
+prints how many and names the first). It needs recondb 1.17.0 or later: an older
+checkout's index keys files by name and is refused with that release named, as
+is an index that cannot be read. A directory without an index (a project's
+`flirt_sigs/`, your own) loads every file, except a copy whose path the
+checkout's index lists under another architecture.
+
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `SIG_DIR` | path | none | Directory containing .sig/.pat files |
@@ -6175,9 +6187,12 @@ loader does not classify sections (PE, Mach-O) the scan stays on `.text`.
 
 `rebrew library init-signatures [OPTIONS]`
 
-Copy shared signature files from the `recondb` checkout into the
-project's `flirt_sigs/`. Existing project files are retained; this is a setup
-operation, separate from scanning the binary.
+Copy shared signature files from the `recondb` checkout (1.17.0 or later) into the
+project's `flirt_sigs/`, each under its path relative to the checkout's `sigs/`
+(`flirt_sigs/msvc/vc6/libcmt_vc6.sig`), so two files of one name in different
+directories both arrive and the checkout's index still filters the copies.
+Existing project files are retained; this is a setup operation, separate from
+scanning the binary.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |

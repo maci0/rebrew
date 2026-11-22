@@ -106,10 +106,11 @@ class TestLoadSignatures:
             pytest.param('{"files": []}', id="files-array"),
         ],
     )
-    def test_index_of_another_shape_does_not_filter(self, tmp_path: Path, index: str) -> None:
-        """A signature checkout's ``index.json`` is read like a malformed one
-        when its top level or its ``files`` is not an object: every signature
-        file loads, rather than the scan failing with ``AttributeError``."""
+    def test_index_of_another_shape_is_refused(self, tmp_path: Path, index: str) -> None:
+        """An ``index.json`` whose top level or ``files`` is not an object is refused,
+        not read as no index: every file unfiltered is the load that does not fit in
+        memory."""
+        from rebrew.config import ConfigError
         from rebrew.flirt import load_signatures_for
         from rebrew.gen_flirt_pat import bytes_to_pat_line
 
@@ -118,7 +119,8 @@ class TestLoadSignatures:
         line = bytes_to_pat_line("_f", bytes(range(40)), set())
         (sig_dir / "lib.pat").write_text(line + "\n---\n", encoding="utf-8")
         (sig_dir / "index.json").write_text(index, encoding="utf-8")
-        assert len(load_signatures_for([sig_dir], "x86")) == 1
+        with pytest.raises(ConfigError, match="index"):
+            load_signatures_for([sig_dir], "x86")
 
 
 class TestSmallSectionGuard:

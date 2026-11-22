@@ -239,7 +239,10 @@ def _flirt_candidates(cfg: Any, default_module: str) -> list[LibCandidate]:
     sig_dir = cfg.root / "flirt_sigs" if getattr(cfg, "root", None) else None
     if sig_dir is None or not sig_dir.is_dir():
         return []
-    sig_files = list(sig_dir.rglob("*.sig")) + list(sig_dir.rglob("*.pat"))
+    from rebrew.flirt import signature_files
+
+    # The set a scan loads: one file per stem in each directory, the .sig preferred.
+    sig_files = signature_files([sig_dir])
     if not sig_files:
         return []
 

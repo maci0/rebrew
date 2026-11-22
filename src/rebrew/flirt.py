@@ -37,6 +37,10 @@ NO_SIGS_CHECKOUT = Path("__no_rebrew_flirt_sigs_checkout__")
 
 FLIRT_SIGS_REPO_URL = "https://github.com/relumea/recondb"
 
+#: The first recondb release whose ``sigs/index.json`` keys each file by its path
+#: relative to ``sigs/``; an older checkout keys it by file name and is refused.
+RECONDB_PATH_INDEX_RELEASE = "1.17.0"
+
 
 def _flirt_sigs_repo() -> Path:
     """Root of the standalone ReconDB checkout (standard library sigs).
@@ -63,27 +67,51 @@ def _flirt_sigs_repo() -> Path:
     return SOURCE_CHECKOUT.parent / "recondb"
 
 
-def _sig_files(dirs: list[Path]) -> list[Path]:
-    """All ``.sig``/``.pat`` files under *dirs*, deduped by stem (first wins).
+def _sig_base(root: Path) -> Path:
+    """The directory *root*'s signature files are keyed against: its ``sigs/`` when it has one.
 
-    Recursive: recondb groups signatures by compiler family
-    (``sigs/<family>/<toolchain>/``) and mirrors public collections under
-    ``sigs/harvested/``.  A flat project ``flirt_sigs/`` keeps working.
-
-    Deduping by stem (not filename) means a compiled ``.sig`` shadows the
-    ``.pat`` it was built from wherever both ship: they carry the same
-    patterns, but python-flirt parses the binary form ~10,000x faster.  An
-    earlier directory still wins outright, so a project's own sigs override
-    the shared checkout.
+    A recondb checkout keeps its signatures under ``sigs/``; a project's
+    ``flirt_sigs/`` or an explicit signature directory holds them directly.
     """
-    seen: dict[str, Path] = {}
-    for d in dirs:
-        if not d.is_dir():
+    return root / "sigs" if (root / "sigs").is_dir() else root
+
+
+def _sig_key(path: Path, base: Path) -> str:
+    """A signature file's key: its path relative to its root's :func:`_sig_base`.
+
+    recondb's ``index.json`` keys a file the same way (``msvc/vc6/libcmt_vc6.sig``).
+    """
+    return path.relative_to(base).as_posix()
+
+
+def _sig_entries(dirs: list[Path]) -> list[tuple[Path, Path]]:
+    """``(file, base)`` for the signature files of *dirs* a scan loads.
+
+    One file per stem in each directory, the ``.sig`` preferred (it carries the
+    patterns of the ``.pat`` it was built from, and python-flirt parses it
+    ~10,000x faster): the set recondb's ``tools/select_sigs.py``
+    ``loaded_files`` defines and indexes.  Two directories may hold files of one
+    name with other bytes, so a file is known by its directory and stem relative
+    to its base, never by its name alone.  Recursive: recondb groups signatures
+    by compiler family (``sigs/<family>/<toolchain>/``).  An earlier root wins
+    for the same directory and stem, so a project's own copy under
+    ``flirt_sigs/<family>/<toolchain>/`` overrides the shared checkout's.
+    """
+    seen: dict[tuple[str, str], tuple[Path, Path]] = {}
+    for root in dirs:
+        if not root.is_dir():
             continue
+        base = _sig_base(root)
         for suffix in (".sig", ".pat"):
-            for p in sorted(d.rglob(f"*{suffix}")):
-                seen.setdefault(p.stem, p)
+            for path in sorted(base.rglob(f"*{suffix}")):
+                parent = path.parent.relative_to(base).as_posix()
+                seen.setdefault((parent, path.stem), (path, base))
     return list(seen.values())
+
+
+def signature_files(dirs: list[Path]) -> list[Path]:
+    """The signature files of *dirs* a scan loads (:func:`_sig_entries`)."""
+    return [path for path, _base in _sig_entries(dirs)]
 
 
 def _init_project_sigs(cfg: Any, json_output: bool, matched_only: bool = False) -> None:
@@ -125,17 +153,21 @@ def _init_project_sigs(cfg: Any, json_output: bool, matched_only: bool = False) 
     dest = Path(cfg.root) / "flirt_sigs"
     dest.mkdir(parents=True, exist_ok=True)
     copied = 0
-    for src in _sig_files([repo]):
-        if wanted is not None and src.name not in wanted:
+    for src, base in _sig_entries([repo]):
+        key = _sig_key(src, base)
+        if wanted is not None and key not in wanted:
             continue
-        target = dest / src.name
+        # The copy keeps the file's key, so the checkout's index still names it
+        # and two files of one name in different directories both arrive.
+        target = dest / key
         if target.exists():
             continue
+        target.parent.mkdir(parents=True, exist_ok=True)
         # atomic_write_bytes replaces a dangling symlink planted at *target*
         # instead of writing through it.
         atomic_write_bytes(target, src.read_bytes())
         copied += 1
-    total = len(_sig_files([dest]))
+    total = len(signature_files([dest]))
     if json_output:
         json_print({"copied": copied, "total": total, "dir": str(dest), "linkage": linkage})
         return
@@ -166,7 +198,7 @@ _CRT_DYNAMIC_STEMS = ("msvcrt", "msvcrtd", "msvcirt", "msvcirtd", "crtdll")
 
 
 def _matched_sig_names(linkage: str) -> set[str]:
-    """Sig filenames worth copying for *linkage* (best-effort heuristics).
+    """The keys (:func:`_sig_key`) of the sig files worth copying for *linkage* (best-effort heuristics).
 
     Unknown linkage keeps everything CRT-ish plus WinAPI; known linkage
     keeps its own CRT family plus WinAPI and drops the other family (a
@@ -181,7 +213,7 @@ def _matched_sig_names(linkage: str) -> set[str]:
         return names
     if not repo.is_dir():
         return names
-    for src in _sig_files([repo]):
+    for src, base in _sig_entries([repo]):
         stem = src.name.lower()
         is_crt = stem.startswith(_CRT_STATIC_STEMS + _CRT_DYNAMIC_STEMS)
         if (
@@ -190,7 +222,7 @@ def _matched_sig_names(linkage: str) -> set[str]:
             or (linkage == "static" and stem.startswith(_CRT_STATIC_STEMS))
             or (linkage == "dynamic" and stem.startswith(_CRT_DYNAMIC_STEMS))
         ):
-            names.add(src.name)  # WinAPI + misc always; CRT iff linkage matches
+            names.add(_sig_key(src, base))  # WinAPI + misc always; CRT iff linkage matches
     return names
 
 
@@ -221,7 +253,7 @@ def _parse_sig_files(files: list[Path]) -> list[Any]:
 
 
 def load_signatures(sig_dir: str) -> list[Any]:
-    """Load all ``.sig`` and ``.pat`` FLIRT signature files from *sig_dir*."""
+    """Load the FLIRT signature files of *sig_dir*, every architecture (:func:`load_signatures_for`)."""
     console.print(f"Loading signatures from {sig_dir}...")
 
     sig_path = Path(sig_dir)
@@ -229,7 +261,7 @@ def load_signatures(sig_dir: str) -> list[Any]:
         console.print(f"Signature directory {sig_dir} not found or not a directory.")
         return []
 
-    return _parse_sig_files(_sig_files([sig_path]))
+    return load_signatures_for([sig_path])
 
 
 #: BinaryInfo.arch -> the signature index's architecture vocabulary.  Public: `analyze`
@@ -247,53 +279,85 @@ ARCH_FAMILIES: dict[str, str] = {
 }
 
 
-def _arch_index(dirs: list[Path]) -> dict[str, str]:
-    """``name -> arch`` from a ``sigs/index.json`` shipped with the signatures.
+def _arch_index(dirs: list[Path]) -> tuple[dict[str, str], set[Path]]:
+    """``key -> arch`` from the ``index.json`` beside the signatures, and the bases that ship one.
 
-    recondb publishes the architecture of every file it could
-    classify (its own ``tools/index_sigs.py``, in that checkout rather than
-    this one); files missing from the index — or marked with an empty arch —
-    are unknown and always load.  A checkout without an index simply does not
-    filter.
+    recondb publishes the architecture of every file it loads (its own
+    ``tools/index_sigs.py``) in ``sigs/index.json``, keyed by the file's path
+    relative to ``sigs/`` (:func:`_sig_key`); ``""`` is an architecture it could
+    not tell, and such a file always loads.  An earlier root's entry wins.  A
+    root without an index (a project's ``flirt_sigs/``, a user's own directory)
+    has none to read.  Raises :class:`ConfigError` for an index that cannot be
+    read, or whose keys are bare file names: a recondb before
+    :data:`RECONDB_PATH_INDEX_RELEASE`, whose index cannot tell two files of
+    one name apart.
     """
     index: dict[str, str] = {}
-    for d in dirs:
-        for candidate in (d / "sigs" / "index.json", d / "index.json"):
-            if not candidate.is_file():
-                continue
-            try:
-                data = json.loads(read_json_text(candidate))
-            except OSError, ValueError:
-                continue
-            # An index of another shape is unreadable like a malformed one.
-            files = data.get("files", {}) if isinstance(data, dict) else None
-            if not isinstance(files, dict):
-                continue
-            for name, meta in files.items():
-                index.setdefault(name, str(meta.get("arch", "") if isinstance(meta, dict) else ""))
-    return index
+    indexed: set[Path] = set()
+    for root in dirs:
+        if not root.is_dir():
+            continue
+        base = _sig_base(root)
+        candidate = base / "index.json"
+        if not candidate.is_file():
+            continue
+        try:
+            data = json.loads(read_json_text(candidate))
+        except (OSError, ValueError) as exc:
+            raise ConfigError(f"signature index {candidate} cannot be read: {exc}") from None
+        files = data.get("files") if isinstance(data, dict) else None
+        if not isinstance(files, dict):
+            raise ConfigError(f"signature index {candidate} has no object of files")
+        if files and not any("/" in key for key in files):
+            raise ConfigError(
+                f"signature index {candidate} keys its files by name, as recondb before "
+                f"{RECONDB_PATH_INDEX_RELEASE} wrote it; update the checkout to recondb "
+                f"{RECONDB_PATH_INDEX_RELEASE} or later"
+            )
+        indexed.add(base)
+        for key, meta in files.items():
+            index.setdefault(key, str(meta.get("arch", "") if isinstance(meta, dict) else ""))
+    return index, indexed
 
 
 def load_signatures_for(dirs: list[Path], arch: str = "") -> list[Any]:
     """Load the signatures worth trying for *arch* from *dirs*.
 
     The whole library is ~12 M patterns and python-flirt builds one matcher
-    for everything loaded, which does not fit in memory.  When the signature
-    checkout ships an architecture index, files known to belong to another
-    architecture are skipped; unknown ones are kept so nothing relevant is
-    dropped silently.
+    for everything loaded, which does not fit in memory.  A file the index
+    lists under another architecture is skipped when *arch* is known; one it
+    lists with an unknown architecture (``""``) loads.  A file under a root
+    whose index does not list it is not loaded, and the scan says how many:
+    the index is that checkout's list of what it ships.  A file under a root
+    without an index loads unless another root's index lists its key under
+    another architecture (a project's copy of a checkout file).  Raises
+    :class:`ConfigError` for an index :func:`_arch_index` refuses.
     """
-    files = _sig_files(dirs)
-    if arch and files:
-        index = _arch_index(dirs)
-        if index:
-            before = len(files)
-            files = [f for f in files if index.get(f.name, "") in ("", arch)]
-            if len(files) != before:
-                console.print(
-                    f"Architecture {arch}: skipped {before - len(files)} "
-                    f"signature file(s) that cannot match"
-                )
+    entries = _sig_entries(dirs)
+    index, indexed = _arch_index(dirs)
+    files: list[Path] = []
+    other_arch = 0
+    unlisted: dict[Path, list[str]] = {}
+    for path, base in entries:
+        key = _sig_key(path, base)
+        if key not in index:
+            if base in indexed:
+                unlisted.setdefault(base, []).append(key)
+            else:
+                files.append(path)
+        elif not arch or index[key] in ("", arch):
+            files.append(path)
+        else:
+            other_arch += 1
+    for base, keys in unlisted.items():
+        console.print(
+            f"{len(keys)} signature file(s) under {base} are not in its index.json and were "
+            f"not loaded (first: {keys[0]})"
+        )
+    if other_arch:
+        console.print(
+            f"Architecture {arch}: skipped {other_arch} signature file(s) that cannot match"
+        )
     if not files:
         console.print(
             f"No signature files in {', '.join(str(d) for d in dirs)} — "
@@ -557,17 +621,15 @@ def main(
 
     # 2. Load FLIRT signatures: an explicit dir, else the project flirt_sigs/
     # merged with the recondb checkout (standard library sigs).
-    if sig_dir is not None:
-        sigs = load_signatures_for([Path(sig_dir)], arch)
-        sig_sources = [str(sig_dir)]
-    else:
-        project_dir = cfg.root / "flirt_sigs"
-        try:
-            repo_dir = _flirt_sigs_repo()
-        except ConfigError as exc:
-            error_exit(str(exc), json_mode=json_output)
-        sigs = load_signatures_for([project_dir, repo_dir], arch)
-        sig_sources = [str(project_dir), str(repo_dir)]
+    try:
+        if sig_dir is not None:
+            sig_roots = [Path(sig_dir)]
+        else:
+            sig_roots = [cfg.root / "flirt_sigs", _flirt_sigs_repo()]
+        sigs = load_signatures_for(sig_roots, arch)
+    except ConfigError as exc:
+        error_exit(str(exc), json_mode=json_output)
+    sig_sources = [str(root) for root in sig_roots]
     if not sigs:
         error_exit("No signatures loaded", json_mode=json_output)
 
