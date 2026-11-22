@@ -27,7 +27,8 @@ commands twice, comparing exit codes and parsed JSON without `timestamp` keys,
 and each configured mutating command twice against its own scratch project,
 requiring the first run to actually change it; derived `.rebrew` read caches
 are outside the content digest), both
-version-independent.
+version-independent. The pytest suite does not run the sweep itself; the
+pre-push hook runs it after the suite (`make idempotency-check`).
 
 Local idempotency sweeps rebuild and delete their scratch fixtures. The tool
 marks owned directories with `.rebrew-idempotency-fixture` and refuses existing

@@ -308,21 +308,3 @@ class TestFixtureProject:
 
         assert main(["--fixture-dir"]) == 2
         assert "--fixture-dir requires a directory" in capsys.readouterr().out
-
-    def test_fixture_dir_sweep_runs_against_real_rebrew(self, tmp_path: Path) -> None:
-        """End-to-end: the read-only and write sweeps pass on the fixture project.
-
-        Uses the real `rebrew` CLI (the fixture project's config is deliberately
-        minimal so every offline --json command works).  The write sweep also
-        proves the mutating commands leave the project byte-identical when run
-        a second time.
-        """
-
-        project = tmp_path / "proj"
-        from tools.check_idempotency import main
-
-        # Point the sweep at a subprocess cwd by invoking main with --fixture-dir.
-        code = main(["--fixture-dir", str(project)])
-        assert code == 0
-        # Sanity: the project actually got created.
-        assert (project / "original" / "mini_pe.exe").is_file()

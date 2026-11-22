@@ -130,6 +130,19 @@ repos:
         always_run: true
         stages: [pre-push]
 
+      # The idempotency sweep runs every --json command twice against a
+      # fixture project: too slow for the suite, so it is its own pre-push
+      # gate, as it is its own CI step (`make idempotency-check`).
+      - id: idempotency-check
+        name: idempotency sweep (make idempotency-check)
+        entry: >-
+          bash -c 'while IFS= read -r name; do unset "$name"; done
+          < <(git rev-parse --local-env-vars); exec make --no-print-directory idempotency-check'
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
       - id: validate-skill-commands
         name: Validate SKILL.md command lines
         # Pre-commit stage, not manual: a manual-stage hook runs from no
