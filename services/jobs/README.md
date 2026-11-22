@@ -45,8 +45,11 @@ unresolved fences its capacity until an explicit reconciliation with the
 original caller credential resends that key. The worker's capability
 permits only its job's compile requests, their returned artifact paths, and
 `GET /api/v1/features`, which the owner answers from the upstream without its
-credential so the worker can check for include bundles before it sends one; a
-compile request's `includes` and `source_dir` pass through unchanged. The
+credential so the worker can check for include bundles before it sends one, and
+`GET /api/v1/compilers`, answered the same way but cut to the rows of the job's
+own compilers, so the worker sends none the upstream's deployment has not
+installed (`execution_status`); a compile request's `includes` and `source_dir`
+pass through unchanged. The
 `X-Relumea-Attribution` header of the request that creates an intent is
 retained with it and sent on every attempt, a reconciliation's included; one
 that is not rebrew's attribution object (exactly `org`, `project`, `user` and

@@ -1846,31 +1846,72 @@ def remote_bundles_supported(cfg: ProjectConfig) -> bool | None:
         _recompile_release(client)
 
 
+#: The jobs owner's compile socket, the base URL a job compiles through, and the
+#: capability file the job presents on it (services/jobs).
+_JOB_COMPILE_SOCKET = "/run/rebrew-job/owner.sock"
+_JOB_COMPILE_URL = "http://rebrew-job"
+_JOB_CAPABILITY_FILE = Path("/run/rebrew-job/capability")
+
+
+def _job_compile_client(url: str, timeout: float, headers: Mapping[str, str]) -> Any:
+    """An ``httpx.Client`` on the jobs owner's compile socket, presenting the job's capability.
+
+    Returns ``(message, kind)`` instead when the transport is misconfigured
+    (``validation``) or the capability cannot be read (``invocation``).  The
+    caller closes the client.
+    """
+    import httpx
+
+    if (
+        os.environ.get("REBREW_JOB_COMPILE_SOCKET") != _JOB_COMPILE_SOCKET
+        or url != _JOB_COMPILE_URL
+    ):
+        return "Invalid job compile transport configuration", "validation"
+    try:
+        capability = _JOB_CAPABILITY_FILE.read_text(encoding="ascii").strip()
+    except OSError, UnicodeError:
+        return "Job compile capability unavailable", "invocation"
+    if len(capability) != 64 or any(c not in "0123456789abcdef" for c in capability):
+        return "Invalid job compile capability", "validation"
+    return httpx.Client(
+        timeout=timeout,
+        transport=httpx.HTTPTransport(uds=_JOB_COMPILE_SOCKET),
+        trust_env=False,
+        headers={"X-Rebrew-Job-Capability": capability, **headers},
+    )
+
+
 def remote_installed_compilers(cfg: ProjectConfig) -> frozenset[str] | None:
     """The compilers the configured recompile service lists as installed on its deployment.
 
     ``None`` when nothing is to be held back: no remote backend is configured,
-    a job compile (the jobs owner's mediator forwards no listing), a listing
-    that names no installed compiler (recompile before 13; see
+    a listing that names no installed compiler (recompile before 13; see
     :func:`~rebrew.compiler.recompile_client.installed_compilers`), or a
     listing that could not be read, in which case the compile itself reports
-    the service's failure.  Uses the client the compile would use; the answer
-    is kept for the listing's 30-second window.
+    the service's failure.  Uses the client the compile would use (a job's
+    asks the jobs owner's mediator, which lists only the job's compilers); the
+    answer is kept for the listing's 30-second window.
     """
     from rebrew.compiler.recompile_client import RecompileError, installed_compilers
 
     url = recompile_url(cfg)
-    if url is None or os.environ.get("REBREW_JOB_COMPILE_SOCKET"):
+    if url is None:
         return None
     timeout = float(getattr(cfg, "compile_timeout", DEFAULT_COMPILE_TIMEOUT) or 0) + 120.0
-    client = _shared_recompile_client(timeout)
+    job = os.environ.get("REBREW_JOB_COMPILE_SOCKET")
+    client = _job_compile_client(url, timeout, {}) if job else _shared_recompile_client(timeout)
+    if isinstance(client, tuple):
+        return None  # the compile reports the misconfigured job transport
     try:
         return installed_compilers(url, client=client)
     except RecompileError as exc:
         logging.getLogger(__name__).warning("recompile %s compiler listing unread: %s", url, exc)
         return None
     finally:
-        _recompile_release(client)
+        if job:
+            client.close()
+        else:
+            _recompile_release(client)
 
 
 def compiler_not_installed(cfg: ProjectConfig, profile: str) -> RebrewError | None:
@@ -1957,30 +1998,8 @@ def _compile_via_recompile(
     all_flags = [unicodedata.normalize("NFC", flag) for flag in all_flags]
     job_socket = os.environ.get("REBREW_JOB_COMPILE_SOCKET")
     if job_socket:
-        if job_socket != "/run/rebrew-job/owner.sock" or url != "http://rebrew-job":
-            return _not_run(
-                backend_errors,
-                "Invalid job compile transport configuration",
-                kind="validation",
-                name=profile,
-            )
         import json as _json
 
-        import httpx
-
-        try:
-            capability = Path("/run/rebrew-job/capability").read_text(encoding="ascii").strip()
-        except OSError, UnicodeError:
-            return _not_run(
-                backend_errors,
-                "Job compile capability unavailable",
-                kind="invocation",
-                name=profile,
-            )
-        if len(capability) != 64 or any(c not in "0123456789abcdef" for c in capability):
-            return _not_run(
-                backend_errors, "Invalid job compile capability", kind="validation", name=profile
-            )
         # Intent is the job's dedup token for a logical compile: deterministic
         # from (compiler, source, flags, filename, emit_assembly, and the
         # include bundle's digest when there is one), never random, so a
@@ -2002,15 +2021,11 @@ def _compile_via_recompile(
         intent = hashlib.sha256(
             _json.dumps(logical, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
-        client = httpx.Client(
-            timeout=timeout,
-            transport=httpx.HTTPTransport(uds=job_socket),
-            trust_env=False,
-            headers={
-                "X-Rebrew-Job-Capability": capability,
-                "X-Rebrew-Compile-Intent": intent,
-            },
-        )
+        job = _job_compile_client(url, timeout, {"X-Rebrew-Compile-Intent": intent})
+        if isinstance(job, tuple):
+            message, kind = job
+            return _not_run(backend_errors, message, kind=kind, name=profile)
+        client = job
     else:
         client = _shared_recompile_client(timeout)
     # An attempt may start only while a whole request still fits before the call's deadline.

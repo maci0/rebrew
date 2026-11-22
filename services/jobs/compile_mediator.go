@@ -237,6 +237,14 @@ const featuresPath = "/api/v1/features"
 // maxFeaturesBytes bounds the forwarded features document (a few dozen bytes).
 const maxFeaturesBytes = 64 * 1024
 
+// compilersPath is where recompile lists its compilers and whether its
+// deployment has installed each (execution_status); a worker sends only
+// installed ones.
+const compilersPath = "/api/v1/compilers"
+
+// maxCompilersBytes bounds the upstream listing read (a few hundred rows).
+const maxCompilersBytes = 4 * 1024 * 1024
+
 func readCompileIndex(dir string) ([]string, error) {
 	b, err := os.ReadFile(filepath.Join(dir, "index.json"))
 	if err != nil {
@@ -457,6 +465,53 @@ func (m *CompileMediator) forwardFeatures(w http.ResponseWriter, r *http.Request
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodHead {
 		_ = json.NewEncoder(w).Encode(doc)
+	}
+}
+
+// forwardCompilers answers the upstream's compiler listing, cut to the rows of
+// the compilers this job may send. The route is public upstream: the owner
+// credential is not sent. An upstream older than the route answers 404, and so
+// does this; anything else that is not a bounded JSON array of objects with a
+// string id is the upstream's fault (502).
+func (m *CompileMediator) forwardCompilers(w http.ResponseWriter, r *http.Request) {
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, m.upstream+compilersPath, nil)
+	if err != nil {
+		apiError(w, "compiler listing unavailable", http.StatusBadGateway)
+		return
+	}
+	if tp := r.Header.Get("traceparent"); validTraceparent(tp) {
+		req.Header.Set("traceparent", tp)
+	}
+	resp, err := m.client.Do(req)
+	if err != nil {
+		apiError(w, "compiler listing unavailable", http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		apiError(w, "not found", http.StatusNotFound)
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxCompilersBytes+1))
+	var rows []map[string]any
+	if err != nil || resp.StatusCode != http.StatusOK || len(body) > maxCompilersBytes || json.Unmarshal(body, &rows) != nil || rows == nil {
+		apiError(w, "compiler listing unavailable", http.StatusBadGateway)
+		return
+	}
+	kept := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		id, ok := row["id"].(string)
+		if row == nil || !ok {
+			apiError(w, "compiler listing unavailable", http.StatusBadGateway)
+			return
+		}
+		if m.compilers[id] {
+			kept = append(kept, row)
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodHead {
+		_ = json.NewEncoder(w).Encode(kept)
 	}
 }
 
@@ -726,11 +781,15 @@ func (m *CompileMediator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		m.forwardFeatures(w, r)
 		return
 	}
+	if (r.Method == http.MethodGet || r.Method == http.MethodHead) && r.URL.Path == compilersPath {
+		m.forwardCompilers(w, r)
+		return
+	}
 	// Known path with wrong method: 405 with Allow, like the jobs API /
 	// dashboard / ops on a served path, rather than 404 which would claim
 	// the resource is missing.  HEAD mirrors GET (RFC 9110 §9.3.2) exactly
 	// as the jobs API advertises Allow: GET, HEAD on its readable routes.
-	if r.URL.Path == featuresPath {
+	if r.URL.Path == featuresPath || r.URL.Path == compilersPath {
 		w.Header().Set("Allow", "GET, HEAD")
 		apiError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return

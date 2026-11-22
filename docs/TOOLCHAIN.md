@@ -76,9 +76,10 @@ run` and `match flags` refuse before they count or compile (error kind
 `compiler_not_installed`). The listing gates only when at least one row reads
 `"admitted"`: recompile before 13 lists every row `"unavailable"` (it checks no
 image), and so does recompile 13 when its runtime does not answer, so such a
-listing, a 404 (the jobs owner's mediator forwards no listing; a job compile does
-not ask) or a listing that cannot be read holds nothing back, and the service's
-own `400 compiler_not_installed` is the answer, final and unbilled.
+listing, a 404 or a listing that cannot be read holds nothing back, and the
+service's own `400 compiler_not_installed` is the answer, final and unbilled. A
+job compile reads the listing through the jobs owner's mediator, which cuts it to
+the job's own compilers, so it gates only when one of those reads `"admitted"`.
 Under `rebrew ops` the child command knows its op's deadline
 (`REBREW_CALL_DEADLINE`; 3600 s for `verify_target`) and starts no attempt or wait
 that a whole request (`compile_timeout` + 120 s) could not finish before it. A remote compile

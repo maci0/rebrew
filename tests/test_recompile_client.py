@@ -2046,3 +2046,39 @@ class TestCompilerListing:
         with pytest.raises(RecompileError) as raised:
             rc.installed_compilers("http://svc", client=http)
         assert raised.value.kind == "protocol"
+
+
+class TestJobCompilerListing:
+    """A job asks the jobs owner's mediator which of its compilers recompile has installed."""
+
+    def test_a_job_compile_of_a_compiler_not_installed_is_refused_unsent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        capability = tmp_path / "capability"
+        capability.write_text("a" * 64, encoding="ascii")
+        seen: list[tuple[str, str, str]] = []
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            seen.append(
+                (request.method, request.url.path, request.headers["X-Rebrew-Job-Capability"])
+            )
+            if request.url.path == "/api/v1/compilers":
+                rows = [
+                    {"id": "msvc-6.0", "execution_status": "unavailable"},
+                    {"id": "msvc-7.1", "execution_status": "admitted"},
+                ]
+                return httpx.Response(200, json=rows)
+            return httpx.Response(200, json={"status": "error", "error_code": "toolchain_failure"})
+
+        monkeypatch.setenv("REBREW_JOB_COMPILE_SOCKET", "/run/rebrew-job/owner.sock")
+        monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://rebrew-job")
+        monkeypatch.setattr(compile_mod, "_JOB_CAPABILITY_FILE", capability)
+        monkeypatch.setattr("rebrew.compiler.recompile_client._compilers_cache", {})
+        monkeypatch.setattr(httpx, "HTTPTransport", lambda **_kwargs: httpx.MockTransport(handle))
+        cfg = SimpleNamespace(root=tmp_path, recompile_url="", compile_timeout=30)
+        out, err = _compile_via_recompile(
+            cfg, tmp_path / "f.c", [], tmp_path, "f.obj", "msvc-6.0", False, source_text="int f;"
+        )
+        assert out is None and "has not installed compiler 'msvc-6.0'" in err
+        # Only the listing was read, with the job's capability; nothing was compiled.
+        assert seen == [("GET", "/api/v1/compilers", "a" * 64)]
