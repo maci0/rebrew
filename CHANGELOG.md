@@ -1,5 +1,10 @@
 ## [Unreleased]
 
+### Fixed
+
+- `rebrew verify --text --raw-link` wrote each linked-only function's verdict twice in one run: the batch stored the unlinked RELOC, then the linked promotion stored EXACT, so every gate run after a relink added an EXACT to RELOC and a RELOC to EXACT `status_history` pair per function with no net change (about 275 functions per run on guild-rebrew's server). The batch now leaves its writes until the promotion has run and skips the functions it promoted; a failed promotion still writes the batch verdicts. The linked report gains `promoted_vas`.
+- `rebrew source binding rebind` kept the kind of the last retired claim, so a retired LIBRARY claim (a library name a game function was wrongly given) rebound to game source in the target's tree came back as LIBRARY. Such a rebind is now a FUNCTION; a rebind to a library provider outside the source tree keeps LIBRARY.
+
 ## [6.65.0] - 2026-11-22
 
 ### Changed

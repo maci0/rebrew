@@ -463,6 +463,41 @@ class TestRebindRejectingControls:
         assert source in collect_target_sources(cfg, "GAME")[0]
         assert "status" not in row
 
+    def test_rebind_of_a_retired_library_claim_to_game_source_is_a_function(
+        self, tmp_path: Path
+    ) -> None:
+        from rebrew.source_binding import app
+
+        cfg = _project(tmp_path)
+        record_function_identity(
+            cfg.metadata_dir,
+            module="GAME",
+            va=0x401000,
+            file="src/library_x.h",
+            name="lib_f",
+            symbol="_lib_f",
+            kind="LIBRARY",
+        )
+        change_source_binding(cfg.metadata_dir, "GAME", 0x401000, reason="not that library body")
+        (cfg.reversed_dir / "game.c").write_text("int game_f(void) { return 2; }\n")
+        with patch("rebrew.source_binding.require_config", return_value=cfg):
+            result = CliRunner().invoke(
+                app,
+                [
+                    "rebind",
+                    "0x401000",
+                    str(cfg.reversed_dir / "game.c"),
+                    "--name",
+                    "game_f",
+                    "--reason",
+                    "game code",
+                    "--json",
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        row = get_entry(cfg.metadata_dir, 0x401000, "GAME")
+        assert (row["kind"], row["file"]) == ("FUNCTION", "src/game.c")
+
     def test_change_between_parse_and_hash_is_rejected(self, tmp_path: Path) -> None:
         import rebrew.source_binding as command
 

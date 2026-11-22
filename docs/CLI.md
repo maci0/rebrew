@@ -538,6 +538,8 @@ the image; without a map, the `build check-text-placement` object walk) and its 
 with no masking. A linked EXACT means the linked bytes are identical; it is a
 byte match, not an inference. Functions whose source is newer than the built
 image stay RELOC (rebuild first). `--dry-run` and `--no-promote` skip those metadata writes.
+The run writes each function's verdict once: a function the promotion makes EXACT
+does not first record the unlinked RELOC.
 
 The promotion records the usual comparison inputs plus `linked_image` (path,
 project-relative when inside the root) and `linked_image_hash` (SHA-256 of the
@@ -1475,7 +1477,9 @@ rebrew source binding retire 0x401000 --reason proof --dry-run --json
 
 Bind one unambiguous definition in the configured source universe. Names default
 to the current or last retired claim; the symbol defaults to the definition's
-calling convention. Library ancestry is retained; explicit compiled-library
+calling convention. Library ancestry is retained, except that a retired LIBRARY
+claim rebound to a definition in the target's own source tree becomes a FUNCTION
+(game code that a library name was wrongly given); explicit compiled-library
 providers may live elsewhere inside the project and enter source collection.
 Reject duplicate same-target definitions/symbols and undiscoverable destinations.
 The replacement must earn its own verdict. Other targets' valid claims survive.

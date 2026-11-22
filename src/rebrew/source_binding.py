@@ -371,9 +371,11 @@ def _change(
             or (history[-1]["previous"].get("kind") if history else None)
             or "FUNCTION"
         )
-        if kind != "LIBRARY" and source not in {
-            path.resolve() for path in iter_sources(cfg.reversed_dir, cfg)
-        }:
+        game_source = source in {path.resolve() for path in iter_sources(cfg.reversed_dir, cfg)}
+        if kind == "LIBRARY" and not current.get("kind") and game_source:
+            # A retired library claim rebound to the target's own source is game code.
+            kind = "FUNCTION"
+        if kind != "LIBRARY" and not game_source:
             raise ValueError("replacement is outside the target/shared source discovery roots")
         root = cfg.root if kind == "LIBRARY" else cfg.metadata_dir
         identity = {
