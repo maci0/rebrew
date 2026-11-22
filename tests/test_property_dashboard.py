@@ -98,71 +98,70 @@ _ROW_KEY = {
 }
 
 
+#: Real parameter names plus SQL and URL metacharacters, so ``target=``,
+#: ``limit=``, ``module=`` and junk all reach the router in the same run.
+_QUERY_KEYS = st.sampled_from(
+    (
+        "target",
+        "limit",
+        "offset",
+        "status",
+        "module",
+        "q",
+        "v",
+        "va",
+        "'",
+        '"',
+        "1=1",
+        "%",
+        "..",
+        "",
+    )
+)
+_QUERY_VALUES = st.lists(_REQUEST_TEXT, min_size=0, max_size=3)
+_METHODS = st.sampled_from(("GET", "HEAD", "POST", "PUT", "DELETE", "g", "", "GET GET"))
+_KNOWN_PATHS = st.sampled_from(
+    (
+        "/",
+        "/app.js",
+        "/boot-guard.js",
+        "/api/bootstrap",
+        "/api/health",
+        "/api/targets",
+        "/api/summary",
+        "/api/functions",
+        "/api/sections",
+        "/api/globals",
+        "/api/history",
+    )
+)
+_PATH_SUFFIX = st.one_of(st.just(""), _REQUEST_TEXT)
+_PATH_FRAGMENT = st.one_of(st.just(""), st.builds(lambda f: f"?{f}", _REQUEST_TEXT))
+
+
 @st.composite
 def _query(draw: st.DrawFn) -> dict[str, list[str]]:
-    """A ``parse_qs``-shaped query dict with attacker-chosen keys and values.
-
-    Keys are drawn from a small alphabet of real parameter names plus SQL and
-    URL metacharacters, so ``target=``, ``limit=``, ``module=`` and junk all
-    reach the router in the same run.
-    """
-    keys = st.sampled_from(
-        [
-            "target",
-            "limit",
-            "offset",
-            "status",
-            "module",
-            "q",
-            "v",
-            "va",
-            "'",
-            '"',
-            "1=1",
-            "%",
-            "..",
-            "",
-        ]
-    )
+    """A ``parse_qs``-shaped query dict with attacker-chosen keys and values."""
     size = draw(st.integers(min_value=0, max_value=4))
     out: dict[str, list[str]] = {}
     for _ in range(size):
-        key = draw(keys)
-        values = draw(st.lists(_REQUEST_TEXT, min_size=0, max_size=3))
+        key = draw(_QUERY_KEYS)
+        values = draw(_QUERY_VALUES)
         out.setdefault(key, []).extend(values)
     return out
+
+
+_QUERY = _query()
 
 
 @st.composite
 def _request(draw: st.DrawFn) -> tuple[str, str, dict[str, list[str]]]:
     """A ``(method, path, query)`` triple for :meth:`Dashboard.handle`."""
-    method = draw(st.sampled_from(["GET", "HEAD", "POST", "PUT", "DELETE", "g", "", "GET GET"]))
-    known = draw(
-        st.sampled_from(
-            [
-                "/",
-                "/app.js",
-                "/boot-guard.js",
-                "/api/bootstrap",
-                "/api/health",
-                "/api/targets",
-                "/api/summary",
-                "/api/functions",
-                "/api/sections",
-                "/api/globals",
-                "/api/history",
-            ]
-        )
-    )
-    path = draw(
-        st.builds(
-            lambda base, suffix, frag: f"{base}{suffix}{frag}",
-            st.just(known),
-            st.one_of(st.just(""), _REQUEST_TEXT),
-            st.one_of(st.just(""), st.builds(lambda f: f"?{f}", _REQUEST_TEXT)),
-        )
-    )
-    return method, path, draw(_query())
+    method = draw(_METHODS)
+    known = draw(_KNOWN_PATHS)
+    suffix = draw(_PATH_SUFFIX)
+    frag = draw(_PATH_FRAGMENT)
+    return method, f"{known}{suffix}{frag}", draw(_QUERY)
 
 
 @pytest.fixture(scope="module")
@@ -223,14 +222,14 @@ def dashboard(tmp_path_factory: pytest.TempPathFactory) -> Dashboard:
 class TestNumericQueryParams:
     """``limit`` and ``offset``: a client-chosen int that must never widen a page."""
 
-    @given(params=_query(), name=st.sampled_from(["limit", "offset"]))
+    @given(params=_QUERY, name=st.sampled_from(["limit", "offset"]))
     @settings(max_examples=200)
     def test_int_param_stays_in_its_clamp(self, params: dict[str, list[str]], name: str) -> None:
         value = _int_param(params, name, _DEFAULT_LIMIT)
         assert 0 < value <= _MAX_LIMIT
         assert isinstance(value, int)
 
-    @given(params=_query())
+    @given(params=_QUERY)
     @settings(max_examples=200)
     def test_offset_param_stays_in_range(self, params: dict[str, list[str]]) -> None:
         value = _offset_param(params, "offset", 0)
@@ -547,7 +546,7 @@ class TestRouter:
                 "/api/history",
             ]
         ),
-        query=_query(),
+        query=_QUERY,
     )
     @settings(max_examples=200, deadline=None)
     def test_target_scoped_routes_never_leak_rows_for_a_blank_target(

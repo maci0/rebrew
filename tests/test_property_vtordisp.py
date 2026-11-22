@@ -31,13 +31,14 @@ from rebrew.vtordisp import VtordispFunction, find_vtordisps
 
 #: The three shapes the scanner claims to recognize.
 _SIZES = (8, 11, 14)
+_SHAPES = st.sampled_from(("vtordisp", "add", "sub"))
 
 
 @st.composite
 def _thunk(draw: st.DrawFn) -> bytes:
     """One planted thunk: drawn shape, ``this`` adjustment, addend, target."""
     disp = draw(st.integers(min_value=-128, max_value=127))
-    shape = draw(st.sampled_from(["vtordisp", "add", "sub"]))
+    shape = draw(_SHAPES)
     # the imm8 form only encodes a signed byte
     lo, hi = (-128, 127) if shape == "sub" else (-0x10000, 0x10000)
     addend = draw(st.integers(min_value=lo, max_value=hi))
@@ -51,15 +52,21 @@ def _thunk(draw: st.DrawFn) -> bytes:
     return head + jmp
 
 
+_THUNK = _thunk()
+
+
 @st.composite
 def _code(draw: st.DrawFn) -> bytes:
     """Random code bytes, optionally with planted thunk shapes."""
     parts: list[bytes] = []
     for _ in range(draw(st.integers(min_value=0, max_value=4))):
         parts.append(draw(st.binary(max_size=64)))
-        parts.append(draw(_thunk()))
+        parts.append(draw(_THUNK))
         parts.append(draw(st.binary(max_size=8)))
     return b"".join(parts) if parts else draw(st.binary(max_size=64))
+
+
+_CODE = _code()
 
 
 def _assert_well_formed(thunks: list[VtordispFunction], code: bytes, base: int) -> None:
@@ -89,13 +96,13 @@ def _assert_well_formed(thunks: list[VtordispFunction], code: bytes, base: int) 
 
 
 @settings(max_examples=300, deadline=None)
-@given(_code(), st.integers(min_value=0, max_value=0x1000000))
+@given(_CODE, st.integers(min_value=0, max_value=0x1000000))
 def test_scan_yields_only_well_formed_thunks(code: bytes, base: int) -> None:
     _assert_well_formed(list(find_vtordisps(code, base)), code, base)
 
 
 @settings(max_examples=100, deadline=None)
-@given(_code(), st.integers(min_value=0, max_value=0x1000000))
+@given(_CODE, st.integers(min_value=0, max_value=0x1000000))
 def test_base_addr_shifts_by_base_only(code: bytes, base: int) -> None:
     """The scanner is a pure offset map: same bytes, same thunks, shifted."""
     plain = list(find_vtordisps(code, 0))
@@ -108,7 +115,7 @@ def test_base_addr_shifts_by_base_only(code: bytes, base: int) -> None:
 
 
 @settings(max_examples=100, deadline=None)
-@given(_code())
+@given(_CODE)
 def test_scan_is_deterministic(code: bytes) -> None:
     assert list(find_vtordisps(code)) == list(find_vtordisps(code))
 
@@ -125,7 +132,7 @@ def test_bytes_without_the_prefix_yield_nothing(code: bytes) -> None:
 @st.composite
 def _code_with_cut(draw: st.DrawFn) -> tuple[bytes, int]:
     """Code bytes plus a truncation point inside them."""
-    code = draw(_code())
+    code = draw(_CODE)
     return code, draw(st.integers(min_value=0, max_value=len(code)))
 
 

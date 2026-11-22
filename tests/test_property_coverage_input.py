@@ -92,12 +92,21 @@ def _valid_record() -> dict[str, Any]:
     }
 
 
+#: One to four distinct envelope fields to replace.
+_ENVELOPE_KEYS = st.lists(
+    st.sampled_from(tuple(_valid_envelope())), min_size=1, max_size=4, unique=True
+)
+#: One to three distinct record fields to replace.
+_RECORD_KEYS = st.lists(
+    st.sampled_from(tuple(_valid_record())), min_size=1, max_size=3, unique=True
+)
+
+
 @st.composite
 def _mutated_envelope(draw: st.DrawFn) -> Any:
     """A valid envelope with 1-4 fields replaced by arbitrary JSON values."""
     envelope = _valid_envelope()
-    keys = draw(st.lists(st.sampled_from(list(envelope)), min_size=1, max_size=4, unique=True))
-    for key in keys:
+    for key in draw(_ENVELOPE_KEYS):
         envelope[key] = draw(_JSON_VALUE)
     return envelope
 
@@ -110,10 +119,7 @@ def _mutated_records(draw: st.DrawFn) -> Any:
     for _ in range(count):
         record = _valid_record()
         if draw(st.booleans()):
-            keys = draw(
-                st.lists(st.sampled_from(list(record)), min_size=1, max_size=3, unique=True)
-            )
-            for key in keys:
+            for key in draw(_RECORD_KEYS):
                 record[key] = draw(_JSON_VALUE)
         records.append(record)
     return records

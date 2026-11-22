@@ -49,6 +49,11 @@ _TEXT_SIZE = 0x400
 
 _CODE_RANGES: list[tuple[int, int]] = [(_TEXT_VA, _TEXT_VA + _TEXT_SIZE)]
 
+_PTR_SIZES = st.sampled_from((2, 4, 8))
+_ENDIANS = st.sampled_from(("<", ">"))
+#: Slot kinds, ``in`` weighted three to one against each out-of-range kind.
+_SLOT_KINDS = st.sampled_from(("in", "in", "in", "below", "above", "far", "zero"))
+
 
 @st.composite
 def dispatch_image(
@@ -63,15 +68,15 @@ def dispatch_image(
     appends a trailing section, which is what decides whether ``.data`` ends at
     EOF.
     """
-    ptr_size = draw(st.sampled_from([2, 4, 8]))
+    ptr_size = draw(_PTR_SIZES)
     n_slots = draw(st.integers(min_value=0, max_value=24))
-    endian = draw(st.sampled_from(["<", ">"]))
+    endian = draw(_ENDIANS)
     fmt = endian + {2: "H", 4: "I", 8: "Q"}[ptr_size]
     top = 1 << (8 * ptr_size)
 
     data = bytearray()
     for _ in range(n_slots):
-        kind = draw(st.sampled_from(["in", "in", "in", "below", "above", "far", "zero"]))
+        kind = draw(_SLOT_KINDS)
         if kind == "in":
             value = draw(st.integers(min_value=_TEXT_VA, max_value=_TEXT_VA + _TEXT_SIZE - 1))
         elif kind == "below":
@@ -114,29 +119,50 @@ def dispatch_image(
     return header + bytes(data), sections
 
 
-_decl_tokens = [
-    "char",
-    "short",
-    "int",
-    "long",
-    "float",
-    "double",
-    "unsigned",
-    "signed",
-    "const",
-    "extern",
-    "static",
-    "void",
-    "BYTE",
-    "DWORD",
-    "WORD",
-    "struct",
-    "Foo",
-    "g_name",
-    "*",
-    " ",
-    ";",
-]
+_DECL_TOKENS = st.sampled_from(
+    (
+        "char",
+        "short",
+        "int",
+        "long",
+        "float",
+        "double",
+        "unsigned",
+        "signed",
+        "const",
+        "extern",
+        "static",
+        "void",
+        "BYTE",
+        "DWORD",
+        "WORD",
+        "struct",
+        "Foo",
+        "g_name",
+        "*",
+        " ",
+        ";",
+    )
+)
+_ARRAY_BOUNDS = st.sampled_from(
+    (
+        "0",
+        "1",
+        "010",
+        "0x10",
+        "0xFFu",
+        "12L",
+        "-1",
+        "N",
+        "",
+        "0x",
+        "0xZZ",
+        "1_0",
+        "0b11",
+        "9" * 24,
+        "'a'",
+    )
+)
 
 
 @st.composite
@@ -147,31 +173,13 @@ def declaration_text(draw: st.DrawFn) -> str:
     through two different regexes, so they are drawn as well-formed constants,
     as the near-miss forms those regexes reject, and as raw noise.
     """
-    parts = [draw(st.sampled_from(_decl_tokens)) for _ in range(draw(st.integers(0, 6)))]
+    parts = [draw(_DECL_TOKENS) for _ in range(draw(st.integers(0, 6)))]
     for _ in range(draw(st.integers(0, 3))):
-        bound = draw(
-            st.sampled_from(
-                [
-                    "0",
-                    "1",
-                    "010",
-                    "0x10",
-                    "0xFFu",
-                    "12L",
-                    "-1",
-                    "N",
-                    "",
-                    "0x",
-                    "0xZZ",
-                    "1_0",
-                    "0b11",
-                    "9" * 24,
-                    "'a'",
-                ]
-            )
-        )
-        parts.append(f"[{bound}]")
+        parts.append(f"[{draw(_ARRAY_BOUNDS)}]")
     return "".join(parts)
+
+
+_DECLARATION_TEXT = declaration_text()
 
 
 def _parse_hex_initializer(text: str) -> bytes:
@@ -275,7 +283,7 @@ def bss_scan(draw: st.DrawFn) -> tuple[ScanResult, dict[str, dict[str, Any]]]:
                         max_value=bss_va + bss_size + 0x200,
                     )
                 ),
-                type_str=draw(declaration_text()),
+                type_str=draw(_DECLARATION_TEXT),
             )
         )
     scan = ScanResult(globals={e.name: e for e in entries})
@@ -326,7 +334,7 @@ def test_bss_report_is_stable(scanned: tuple[ScanResult, dict[str, dict[str, Any
 
 
 @settings(max_examples=300, deadline=None)
-@given(declaration_text())
+@given(_DECLARATION_TEXT)
 def test_type_size_model_is_a_positive_size(ctype: str) -> None:
     size = c_type_size(ctype)
     assert size in (1, 2, 3, 4, 8)
@@ -336,7 +344,7 @@ def test_type_size_model_is_a_positive_size(ctype: str) -> None:
 
 
 @settings(max_examples=300, deadline=None)
-@given(declaration_text(), st.binary(max_size=64), st.sampled_from(["<", ">"]))
+@given(_DECLARATION_TEXT, st.binary(max_size=64), st.sampled_from(["<", ">"]))
 def test_typed_array_literal_roundtrips_bytes(ctype: str, data: bytes, byte_order: str) -> None:
     """The emitted C initializer parses back to the bytes that produced it."""
     elemsize = c_type_size(ctype)

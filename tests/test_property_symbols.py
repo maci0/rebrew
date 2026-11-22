@@ -18,6 +18,7 @@ from rebrew.pdb_info import _parse_compile3, _parse_procs
 
 _ident = st.text(alphabet=string.ascii_letters + string.digits + "_", min_size=1, max_size=24)
 _hexnum = st.integers(min_value=0, max_value=0xFFFFFFFF).map(hex)
+_proc_kind = st.sampled_from(("GPROC32", "LPROC32", "GPROC32_ID", "LPROC32_ID"))
 
 
 # ---------------------------------------------------------------------------
@@ -31,7 +32,7 @@ def _proc_dump(draw: st.DrawFn) -> tuple[str, list[str]]:
     names = draw(st.lists(_ident, max_size=12))
     lines: list[str] = []
     for i, name in enumerate(names):
-        kind = draw(st.sampled_from(["GPROC32", "LPROC32", "GPROC32_ID", "LPROC32_ID"]))
+        kind = draw(_proc_kind)
         if draw(st.booleans()):
             lines.append(f" {i * 100} | S_{kind} [size = {draw(st.integers(0, 999))}] `{name}`")
         else:

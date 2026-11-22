@@ -179,6 +179,10 @@ def test_jsonl_of_records_never_raises(
         _assert_well_typed(entry)
 
 
+_WIN_CFLAGS = st.sampled_from(("/O2", "/Od /Gd", ""))
+_WIN_MUTATIONS = st.lists(st.sampled_from(("mut_a", "mut_b")), max_size=3)
+
+
 @st.composite
 def _win_record(draw: st.DrawFn) -> dict[str, Any]:
     """A well-formed win record (the shape ``record_ga_run`` writes)."""
@@ -190,10 +194,10 @@ def _win_record(draw: st.DrawFn) -> dict[str, Any]:
         "matched": True,
         "score": draw(st.floats(min_value=0.0, max_value=100.0, allow_nan=False)),
         "generations": draw(st.integers(0, 1000)),
-        "cflags": draw(st.sampled_from(["/O2", "/Od /Gd", ""])),
+        "cflags": draw(_WIN_CFLAGS),
         "size": draw(st.integers(1, 0x100000)),
         "source_file": draw(st.text(alphabet="ab/c.", min_size=1, max_size=10)),
-        "mutations": draw(st.lists(st.sampled_from(["mut_a", "mut_b"]), max_size=3)),
+        "mutations": draw(_WIN_MUTATIONS),
     }
 
 

@@ -40,6 +40,11 @@ _STATUSES = [
 _MARKERS = ["FUNCTION", "LIBRARY", "STUB", "GLOBAL", "DATA"]
 
 
+_STATUS = st.sampled_from(_STATUSES)
+_MODULE = st.sampled_from(("GAME", "SERVER", "MSVCRT", ""))
+_MARKER = st.sampled_from(_MARKERS)
+
+
 @st.composite
 def annotation_list(draw: st.DrawFn) -> list[SourceBinding]:
     """A random list of annotations (may include duplicates per VA)."""
@@ -50,10 +55,10 @@ def annotation_list(draw: st.DrawFn) -> list[SourceBinding]:
             SourceBinding(
                 va=draw(st.integers(min_value=0x1000, max_value=0x1000 + 200)),
                 name=draw(st.text(min_size=1, max_size=12)),
-                status=draw(st.sampled_from(_STATUSES)),
+                status=draw(_STATUS),
                 size=draw(st.integers(min_value=1, max_value=256)),
-                module=draw(st.sampled_from(["GAME", "SERVER", "MSVCRT", ""])),
-                kind=draw(st.sampled_from(_MARKERS)),
+                module=draw(_MODULE),
+                kind=draw(_MARKER),
             )
         )
     return out

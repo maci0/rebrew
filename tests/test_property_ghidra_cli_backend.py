@@ -54,12 +54,14 @@ _JSON_VALUE = st.recursive(
 )
 
 
+#: A known tool name, an arbitrary string, or no tool at all.
+_TOOL = st.one_of(st.sampled_from(sorted(_HEAD)), st.text(max_size=12), st.none())
+
+
 @st.composite
 def _op(draw: st.DrawFn) -> dict[str, Any]:
     """An op dict with a drawn tool and a drawn ``args`` slot."""
-    op: dict[str, Any] = {
-        "tool": draw(st.one_of(st.sampled_from(sorted(_HEAD)), st.text(max_size=12), st.none()))
-    }
+    op: dict[str, Any] = {"tool": draw(_TOOL)}
     if draw(st.booleans()):
         op["args"] = draw(_JSON_VALUE)
     return op

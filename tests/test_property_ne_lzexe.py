@@ -30,17 +30,15 @@ from hypothesis import strategies as st
 _NE_HEADER_SIZE = 0x40
 
 
-@st.composite
-def _pascal_string(draw: st.DrawFn) -> str:
-    """A length-prefixed-string body: printable ASCII, 1..63 bytes (the NE
-    resident-name table rejects anything else, so the valid branch needs it)."""
-    return draw(
-        st.text(
-            alphabet=st.characters(min_codepoint=0x20, max_codepoint=0x7E),
-            min_size=1,
-            max_size=63,
-        )
-    )
+#: A length-prefixed-string body: printable ASCII, 1..63 bytes (the NE
+#: resident-name table rejects anything else, so the valid branch needs it).
+_PASCAL_STRING = st.text(
+    alphabet=st.characters(min_codepoint=0x20, max_codepoint=0x7E),
+    min_size=1,
+    max_size=63,
+)
+#: A forged import-block terminator or a count past EOF.
+_FORGED_IMPORT_COUNT = st.sampled_from((0xFFFF, 0x2000, 0x7FFF))
 
 
 def _put16(buf: bytearray, off: int, value: int) -> None:
@@ -73,9 +71,9 @@ def ne_blob(draw: st.DrawFn) -> tuple[bytes, int, NeSpec]:
     """
     n_segments = draw(st.integers(min_value=0, max_value=4))
     n_modules = draw(st.integers(min_value=0, max_value=4))
-    module_names = draw(st.lists(_pascal_string(), min_size=n_modules, max_size=n_modules))
-    imported = draw(st.lists(_pascal_string(), min_size=0, max_size=6))
-    exports = draw(st.lists(_pascal_string(), min_size=0, max_size=4))
+    module_names = draw(st.lists(_PASCAL_STRING, min_size=n_modules, max_size=n_modules))
+    imported = draw(st.lists(_PASCAL_STRING, min_size=0, max_size=6))
+    exports = draw(st.lists(_PASCAL_STRING, min_size=0, max_size=4))
     export_ordinals = draw(
         st.lists(
             st.integers(min_value=0, max_value=0xFFFF),
@@ -148,7 +146,7 @@ def ne_blob(draw: st.DrawFn) -> tuple[bytes, int, NeSpec]:
                 import_blocks += struct.pack("<H", draw(st.integers(min_value=0, max_value=0xFFFE)))
     if draw(st.booleans()):
         # A forged terminator or a count past EOF: the import walk must bail.
-        import_blocks += struct.pack("<H", draw(st.sampled_from([0xFFFF, 0x2000, 0x7FFF])))
+        import_blocks += struct.pack("<H", draw(_FORGED_IMPORT_COUNT))
 
     header = bytearray(_NE_HEADER_SIZE)
     header[0:2] = b"NE"

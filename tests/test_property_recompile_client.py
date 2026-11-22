@@ -109,35 +109,29 @@ _URL_FRAGMENTS = (
 )
 
 
-@st.composite
-def _url_text(draw: st.DrawFn) -> str:
-    """An arbitrary string biased toward URL boundary confusion."""
-    return draw(
-        st.one_of(
-            st.builds(
-                lambda a, b: a + b,
-                st.sampled_from(_URL_FRAGMENTS),
-                st.text(max_size=16),
-            ),
-            st.text(max_size=48),
-        )
-    )
+#: An arbitrary string biased toward URL boundary confusion.
+_URL_TEXT = st.one_of(
+    st.builds(
+        lambda a, b: a + b,
+        st.sampled_from(_URL_FRAGMENTS),
+        st.text(max_size=16),
+    ),
+    st.text(max_size=48),
+)
+_REPLY_BODY = st.dictionaries(st.sampled_from(_REPLY_KEYS), _JSON_VALUES, max_size=5)
+_ERROR_CODES = st.sampled_from(("toolchain_failure", "capacity", "replay_rejected", "Capacity", ""))
 
 
 @st.composite
 def _service_reply(draw: st.DrawFn) -> dict[str, Any]:
     """A JSON object shaped like a compile reply, with hostile field values."""
-    body: dict[str, Any] = draw(
-        st.dictionaries(st.sampled_from(_REPLY_KEYS), _JSON_VALUES, max_size=5)
-    )
+    body: dict[str, Any] = draw(_REPLY_BODY)
     if draw(st.booleans()):
         body["status"] = draw(_STATUS_VALUES)
     if draw(st.booleans()):
-        body["artifact_url"] = draw(_url_text())
+        body["artifact_url"] = draw(_URL_TEXT)
     if draw(st.booleans()):
-        body["error_code"] = draw(
-            st.sampled_from(["toolchain_failure", "capacity", "replay_rejected", "Capacity", ""])
-        )
+        body["error_code"] = draw(_ERROR_CODES)
     return body
 
 
@@ -285,7 +279,7 @@ def test_any_non_200_status_maps_to_a_typed_http_error(status: int) -> None:
 @example(artifact="//evil.example/x")
 @example(artifact="http://evil.example/x")
 @example(artifact="\\\\evil.example\\share")
-@given(artifact=_url_text())
+@given(artifact=_URL_TEXT)
 def test_accepted_artifact_urls_are_always_same_origin(artifact: str) -> None:
     """Whatever URL the service returns, an accepted one is same-origin.
 

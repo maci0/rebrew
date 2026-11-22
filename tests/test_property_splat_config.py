@@ -77,28 +77,17 @@ _HOSTILE_CHANCE = st.integers(min_value=0, max_value=6)
 
 
 @st.composite
-def _name(draw: st.DrawFn) -> str:
-    return draw(_HOSTILE_NAME) if draw(_HOSTILE_CHANCE) == 0 else draw(_GOOD_NAME)
+def _mostly_good(
+    draw: st.DrawFn, good: st.SearchStrategy[str], hostile: st.SearchStrategy[str]
+) -> str:
+    return draw(hostile) if draw(_HOSTILE_CHANCE) == 0 else draw(good)
 
 
-@st.composite
-def _kind(draw: st.DrawFn) -> str:
-    return draw(_HOSTILE_KIND) if draw(_HOSTILE_CHANCE) == 0 else draw(_GOOD_KIND)
-
-
-@st.composite
-def _platform(draw: st.DrawFn) -> str:
-    return draw(_HOSTILE_PLATFORM) if draw(_HOSTILE_CHANCE) == 0 else draw(_GOOD_PLATFORM)
-
-
-@st.composite
-def _compiler(draw: st.DrawFn) -> str:
-    return draw(_HOSTILE_COMPILER) if draw(_HOSTILE_CHANCE) == 0 else draw(_GOOD_COMPILER)
-
-
-@st.composite
-def _path(draw: st.DrawFn) -> str:
-    return draw(_HOSTILE_PATH) if draw(_HOSTILE_CHANCE) == 0 else draw(_GOOD_PATH)
+_NAME = _mostly_good(_GOOD_NAME, _HOSTILE_NAME)
+_KIND = _mostly_good(_GOOD_KIND, _HOSTILE_KIND)
+_PLATFORM = _mostly_good(_GOOD_PLATFORM, _HOSTILE_PLATFORM)
+_COMPILER = _mostly_good(_GOOD_COMPILER, _HOSTILE_COMPILER)
+_PATH = _mostly_good(_GOOD_PATH, _HOSTILE_PATH)
 
 
 #: Integers, plus the spellings that must be rejected.  Mostly good, so the
@@ -120,39 +109,51 @@ def _address(draw: st.DrawFn) -> str:
     return value if isinstance(value, str) else hex(value)
 
 
+_ADDRESS = _address()
+_SUBSEGMENT_STYLE = st.sampled_from(["flow", "flow", "mapping", "short"])
+
+
 @st.composite
 def _subsegment_lines(draw: st.DrawFn) -> list[str]:
     """One ``subsegments:`` item, in either the flow or the mapping spelling."""
-    style = draw(st.sampled_from(["flow", "flow", "mapping", "short"]))
+    style = draw(_SUBSEGMENT_STYLE)
     if style == "flow":
-        return [f'      - [{draw(_address())}, "{draw(_kind())}", {draw(_name())}]']
+        return [f'      - [{draw(_ADDRESS)}, "{draw(_KIND)}", {draw(_NAME)}]']
     if style == "mapping":
         return [
-            f"      - start: {draw(_address())}",
-            f"        type: {draw(_kind())}",
-            f"        name: {draw(_name())}",
+            f"      - start: {draw(_ADDRESS)}",
+            f"        type: {draw(_KIND)}",
+            f"        name: {draw(_NAME)}",
         ]
-    return [f"      - [{draw(_address())}]"]
+    return [f"      - [{draw(_ADDRESS)}]"]
+
+
+_SUBSEGMENT_LINES = _subsegment_lines()
 
 
 @st.composite
 def _segment_lines(draw: st.DrawFn) -> list[str]:
     """One segment entry, usually carrying a type, an address and subs."""
-    lines = [f"  - name: {draw(_name())}"]
+    lines = [f"  - name: {draw(_NAME)}"]
     if draw(st.booleans()):
-        lines.append(f"    type: {draw(_kind())}")
+        lines.append(f"    type: {draw(_KIND)}")
     if draw(st.booleans()):
-        lines.append(f"    start: {draw(_address())}")
+        lines.append(f"    start: {draw(_ADDRESS)}")
     if draw(st.booleans()):
-        lines.append(f"    vram: {draw(_address())}")
+        lines.append(f"    vram: {draw(_ADDRESS)}")
     if draw(st.booleans()):
-        lines.append(f"    bss_size: {draw(_address())}")
+        lines.append(f"    bss_size: {draw(_ADDRESS)}")
     if draw(st.booleans()):
         lines.append("    subsegments:")
         for _ in range(draw(st.integers(min_value=0, max_value=3))):
-            lines.extend(draw(_subsegment_lines()))
+            lines.extend(draw(_SUBSEGMENT_LINES))
     return lines
 
+
+_SEGMENT_LINES = _segment_lines()
+
+
+_SYMBOL_ADDRS_PATHS = st.sampled_from(["sym/a.txt", "sym/a.txt,sym/b.txt", "[sym/a.txt]", ""])
 
 _OPTION_KEYS = (
     "target_path",
@@ -173,14 +174,25 @@ _OPTION_KEYS = (
 def _option_value(draw: st.DrawFn, key: str) -> str:
     """The value an option key actually takes, hostile values included."""
     if key == "platform":
-        return draw(_platform())
+        return draw(_PLATFORM)
     if key == "compiler":
-        return draw(_compiler())
+        return draw(_COMPILER)
     if key in ("basename", "unknown_option"):
-        return draw(_name())
+        return draw(_NAME)
     if key == "symbol_addrs_paths":
-        return draw(st.sampled_from(["sym/a.txt", "sym/a.txt,sym/b.txt", "[sym/a.txt]", ""]))
-    return draw(_path())
+        return draw(_SYMBOL_ADDRS_PATHS)
+    return draw(_PATH)
+
+
+#: The value strategy of each required option.
+_REQUIRED_OPTION_VALUE = {key: _option_value(key) for key in _OPTION_KEYS[:3]}
+_TOP_LEVEL_JUNK_KEY = st.sampled_from(["unknown", "name", "files"])
+_EXTRA_OPTION_KEYS = st.lists(
+    st.sampled_from(_OPTION_KEYS[3:]), min_size=0, max_size=3, unique=True
+)
+_EXTRA_OPTION_VALUE = st.one_of(_PATH, _NAME, _ADDRESS)
+_IS_ROM_END = st.sampled_from([False, False, False, True])
+_JUNK_LINE = st.sampled_from(["...", "\tindented: 1", "  ", "- dangling", "}{"])
 
 
 @st.composite
@@ -194,32 +206,33 @@ def _config_text(draw: st.DrawFn) -> str:
     if draw(st.booleans()):
         lines.append("---")
     if draw(st.booleans()):
-        lines.append(f"# {draw(_name())}")
+        lines.append(f"# {draw(_NAME)}")
     if draw(st.booleans()):
-        lines.append(f"{draw(st.sampled_from(['unknown', 'name', 'files']))}: 1")
+        lines.append(f"{draw(_TOP_LEVEL_JUNK_KEY)}: 1")
     options = ["options:"]
     for key in ("target_path", "platform", "compiler"):
         if draw(st.integers(min_value=0, max_value=19)) == 0:
             continue  # a required option is missing: the reader must reject
-        options.append(f"  {key}: {draw(_option_value(key))}")
-    for key in draw(
-        st.lists(st.sampled_from(_OPTION_KEYS[3:]), min_size=0, max_size=3, unique=True)
-    ):
-        value = draw(st.one_of(_path(), _name(), _address()))
+        options.append(f"  {key}: {draw(_REQUIRED_OPTION_VALUE[key])}")
+    for key in draw(_EXTRA_OPTION_KEYS):
+        value = draw(_EXTRA_OPTION_VALUE)
         options.append(f"  {key}: {value}")
     lines.extend(options)
     if draw(st.integers(min_value=0, max_value=19)) != 0:
         lines.append("segments:")
         for _ in range(draw(st.integers(min_value=1, max_value=3))):
-            if draw(st.sampled_from([False, False, False, True])):
-                lines.append(f"  - [{draw(_address())}]")  # rom-end sentinel
+            if draw(_IS_ROM_END):
+                lines.append(f"  - [{draw(_ADDRESS)}]")  # rom-end sentinel
             else:
-                lines.extend(draw(_segment_lines()))
+                lines.extend(draw(_SEGMENT_LINES))
     for _ in range(draw(st.integers(min_value=0, max_value=1))):
-        lines.append(draw(st.sampled_from(["...", "\tindented: 1", "  ", "- dangling", "}{"])))
+        lines.append(draw(_JUNK_LINE))
     if draw(st.booleans()):
-        lines.append(f"{draw(_name())}: {draw(_name())}")
+        lines.append(f"{draw(_NAME)}: {draw(_NAME)}")
     return "\n".join(lines) + ("\n" if draw(st.booleans()) else "")
+
+
+_SUBSEGMENTS_PRESENT = st.sampled_from([True, True, False])
 
 
 @st.composite
@@ -245,15 +258,15 @@ def _valid_config_text(draw: st.DrawFn) -> str:
         segments.append(f"  - name: {draw(_GOOD_NAME)}")
         segments.append(f"    type: {draw(_GOOD_KIND)}")
         if draw(st.booleans()):
-            segments.append(f"    start: {draw(_address())}")
-        if draw(st.sampled_from([True, True, False])):
+            segments.append(f"    start: {draw(_ADDRESS)}")
+        if draw(_SUBSEGMENTS_PRESENT):
             segments.append("    subsegments:")
             for _ in range(draw(st.integers(min_value=0, max_value=2))):
                 segments.append(
-                    f'      - [{draw(_address())}, "{draw(_GOOD_KIND)}", {draw(_GOOD_NAME)}]'
+                    f'      - [{draw(_ADDRESS)}, "{draw(_GOOD_KIND)}", {draw(_GOOD_NAME)}]'
                 )
     if draw(st.booleans()):
-        segments.append(f"  - [{draw(_address())}]")
+        segments.append(f"  - [{draw(_ADDRESS)}]")
     return "\n".join(["options:", *options, "segments:", *segments]) + "\n"
 
 

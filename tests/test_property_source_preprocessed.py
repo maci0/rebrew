@@ -49,30 +49,32 @@ def _markers(raw: bytes) -> list[tuple[int, int]]:
     return [(m.start(), m.end()) for m in _LINE.finditer(raw)]
 
 
+#: A ``#line`` path with no double quote, so the marker stays well formed.
+_LINE_PATH = st.binary(min_size=0, max_size=16).map(lambda b: b.replace(b'"', b""))
+_BODY = st.sampled_from(
+    (
+        b"int f(void) { return 1; }\n",
+        b"_inline int __cdecl g(void) { return 2; }\n",
+        b"struct S { int :7; int x; };\n",
+        b'const char *s = "_inline __cdecl";\n',
+        b'/* #line 5 "fake.c" */\n',
+        b"// _inline __stdcall\n",
+        b"char c = 'x';\n",
+        b"__asm mov eax, 1\n",
+        b"\n",
+    )
+)
+
+
 @st.composite
 def _preprocessed(draw: st.DrawFn) -> bytes:
     """Preprocessor-shaped bytes: markers, modifiers, literals, comments, C."""
     parts: list[bytes] = []
     for _ in range(draw(st.integers(0, 3))):
         lineno = draw(st.integers(0, 99999))
-        path = draw(st.binary(min_size=0, max_size=16).map(lambda b: b.replace(b'"', b"")))
+        path = draw(_LINE_PATH)
         parts.append(b'#line %d "%s"\n' % (lineno, path))
-    body = draw(
-        st.sampled_from(
-            [
-                b"int f(void) { return 1; }\n",
-                b"_inline int __cdecl g(void) { return 2; }\n",
-                b"struct S { int :7; int x; };\n",
-                b'const char *s = "_inline __cdecl";\n',
-                b'/* #line 5 "fake.c" */\n',
-                b"// _inline __stdcall\n",
-                b"char c = 'x';\n",
-                b"__asm mov eax, 1\n",
-                b"\n",
-            ]
-        )
-    )
-    parts.append(body)
+    parts.append(draw(_BODY))
     if draw(st.booleans()):
         junk = draw(st.binary(max_size=32))
         cut = draw(st.integers(0, len(junk))) if junk else 0

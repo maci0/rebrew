@@ -62,13 +62,27 @@ _PARAMS = st.sampled_from(
 )
 
 
+_CHUNK_KIND = st.sampled_from(("definition", "declaration", "struct", "junk"))
+_STRUCT_BODY = st.lists(st.sampled_from(("int a;", "char b[4];", "void (*fn)(void);")), max_size=3)
+_JUNK = st.sampled_from(
+    (
+        "/* unterminated comment",
+        '"unterminated string',
+        "#if 0",
+        "int ((( unbalanced;",
+        "typedef int",
+        "\x00",
+    )
+)
+
+
 @st.composite
 def _c_source(draw: st.DrawFn) -> bytes:
     """A small C translation unit with fuzzed declarations, defs, and junk."""
     chunks: list[str] = []
     for _ in range(draw(st.integers(min_value=1, max_value=4))):
         name = draw(_NAME)
-        kind = draw(st.sampled_from(["definition", "declaration", "struct", "junk"]))
+        kind = draw(_CHUNK_KIND)
         ret = draw(_RETURN_TYPES)
         mod = draw(_MODIFIERS)
         params = draw(_PARAMS)
@@ -77,26 +91,11 @@ def _c_source(draw: st.DrawFn) -> bytes:
         elif kind == "declaration":
             chunks.append(f"{ret} {mod}{name}({params});")
         elif kind == "struct":
-            body = draw(
-                st.lists(st.sampled_from(["int a;", "char b[4];", "void (*fn)(void);"]), max_size=3)
-            )
+            body = draw(_STRUCT_BODY)
             chunks.append(f"struct {name} {{ " + " ".join(body) + " };")
             chunks.append(f"typedef struct {name} {name}_t;")
         else:
-            chunks.append(
-                draw(
-                    st.sampled_from(
-                        [
-                            "/* unterminated comment",
-                            '"unterminated string',
-                            "#if 0",
-                            "int ((( unbalanced;",
-                            "typedef int",
-                            "\x00",
-                        ]
-                    )
-                )
-            )
+            chunks.append(draw(_JUNK))
         if draw(st.booleans()):
             chunks.append("// trailing comment")
     return ("\n".join(chunks) + "\n").encode("utf-8", "surrogateescape")

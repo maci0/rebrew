@@ -25,6 +25,7 @@ is drawable, and assert:
 from __future__ import annotations
 
 import contextlib
+import shutil
 import struct
 import tempfile
 from pathlib import Path
@@ -51,6 +52,8 @@ from rebrew.postlink import FIXER_ORDER as FIXER_NAMES
 
 _u16 = st.integers(min_value=0, max_value=0xFFFF)
 _u32 = st.integers(min_value=0, max_value=0xFFFFFFFF)
+#: The opcode a call-map row records before its dword, or none.
+_CALL_OPCODE = st.sampled_from((None, 0xE8, 0xE9))
 
 
 def _meta_and_info(
@@ -128,7 +131,7 @@ def _layout_and_built(draw: st.DrawFn) -> tuple[bytes, LayoutMetadata, BinaryInf
             draw(_u32),
             draw(_u16),
             draw(_u16),
-            draw(st.sampled_from([None, 0xE8, 0xE9])),
+            draw(_CALL_OPCODE),
         )
         for _ in range(n_calls)
     }
@@ -244,13 +247,12 @@ def test_check_text_alignment_agrees_with_coverage(
 # ---------------------------------------------------------------------------
 
 
-def _seed_pe() -> bytes:
-    """A four-section PE with imports, exports and a relocation block."""
-    return make_full_pe(
-        imports=[("KERNEL32.dll", ["GetLocalTime", "WriteFile"]), ("USER32.dll", ["MessageBoxA"])],
-        timestamp=0x60000000,
-        checksum=0x4D328,
-    )
+#: A four-section PE with imports, exports and a relocation block.
+_SEED_PE = make_full_pe(
+    imports=[("KERNEL32.dll", ["GetLocalTime", "WriteFile"]), ("USER32.dll", ["MessageBoxA"])],
+    timestamp=0x60000000,
+    checksum=0x4D328,
+)
 
 
 #: Patch window: the DOS stub, COFF/optional headers, the section table and the
@@ -262,7 +264,7 @@ _MUTATE_SPAN = 0x800
 @st.composite
 def _mutated_pe(draw: st.DrawFn) -> bytes:
     """The seed PE with drawn byte patches and an optional truncation."""
-    data = bytearray(_seed_pe())
+    data = bytearray(_SEED_PE)
     span = min(_MUTATE_SPAN, len(data))
     for offset, chunk in draw(
         st.lists(
@@ -285,9 +287,7 @@ def _forged_header_examples(test: Callable[..., None]) -> Callable[..., None]:
     allocation in the chain or, for the VirtualSize case, indexed past the image.
     """
     for _case, built_fields, ref_fields, _message in FORGED_HEADER_CASES:
-        test = example(forge_pe(_seed_pe(), built_fields), forge_pe(_seed_pe(), ref_fields), [])(
-            test
-        )
+        test = example(forge_pe(_SEED_PE, built_fields), forge_pe(_SEED_PE, ref_fields), [])(test)
     return test
 
 
@@ -392,6 +392,16 @@ _PROJECT_TOML = (
 )
 
 
+#: The reference and built image every forged package is checked against.
+_OPERAND_SEED = operand_seed()
+
+
+@pytest.fixture(scope="module")
+def pristine_pkg(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The unedited layout package for ``_OPERAND_SEED``, which each example copies."""
+    return write_pkg(tmp_path_factory.mktemp("postlink_pkg"), _OPERAND_SEED, "game")
+
+
 def _literal(value: int) -> str:
     return f"-{-value:#x}" if value < 0 else f"{value:#x}"
 
@@ -431,7 +441,7 @@ def _forged_package_examples(test: Callable[..., None]) -> Callable[..., None]:
 @settings(max_examples=60, deadline=None)
 @given(_package_edits())
 @_forged_package_examples
-def test_forged_package_exits_cleanly(edits: list[PackageEdit]) -> None:
+def test_forged_package_exits_cleanly(pristine_pkg: Path, edits: list[PackageEdit]) -> None:
     """``rebrew build postlink --layout`` and ``rebrew build residue`` read the
     same hand-editable package.  On any forgery both finish with exit 0 or the
     error envelope's exit 2, never a traceback: postlink writes its output
@@ -442,7 +452,7 @@ def test_forged_package_exits_cleanly(edits: list[PackageEdit]) -> None:
     from rebrew.postlink import app as postlink_app
     from rebrew.residue import app as residue_app
 
-    seed = operand_seed()
+    seed = _OPERAND_SEED
     runner = CliRunner()
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
@@ -451,7 +461,8 @@ def test_forged_package_exits_cleanly(edits: list[PackageEdit]) -> None:
         built = root / "build" / "game"
         built.parent.mkdir()
         built.write_bytes(seed)
-        pkg = write_pkg(root / "layout", seed, "game")
+        pkg = root / "layout" / "game"
+        shutil.copytree(pristine_pkg, pkg)
         for edit in edits:
             apply_package_edit(pkg, edit)
         out = root / "out.dll"

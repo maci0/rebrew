@@ -34,7 +34,7 @@ from test_postlink import make_full_pe
 
 from rebrew.formats.pe_headers import pe_header
 from rebrew.gen_layout import fmt_layout_toml
-from rebrew.layout_meta import extract_layout, load_package, write_package
+from rebrew.layout_meta import LayoutMetadata, extract_layout, load_package, write_package
 
 #: Patches land in the header block, which is where the parser branches.
 _MUTATE_SPAN = 0x400
@@ -82,6 +82,7 @@ def _init_hot_spans() -> None:
 
 
 _init_hot_spans()
+_HOT_SPAN = st.sampled_from(_HOT_SPANS)
 
 
 @st.composite
@@ -96,7 +97,7 @@ def _images(draw: st.DrawFn) -> bytes:
         if draw(st.booleans()):
             off = draw(st.integers(min_value=0, max_value=min(_MUTATE_SPAN, len(data)) - 1))
         else:
-            lo, hi = draw(st.sampled_from(_HOT_SPANS))
+            lo, hi = draw(_HOT_SPAN)
             off = draw(st.integers(min_value=lo, max_value=hi - 1))
         data[off] = draw(st.integers(min_value=0, max_value=255))
     if kind == 1:
@@ -105,8 +106,9 @@ def _images(draw: st.DrawFn) -> bytes:
 
 
 @st.composite
-def _surviving_images(draw: st.DrawFn) -> bytes:
-    """Images that survive ``extract_layout``, with the branch fields patched.
+def _surviving_images(draw: st.DrawFn) -> tuple[bytes, LayoutMetadata]:
+    """Images that survive ``extract_layout``, with the branch fields patched,
+    paired with the layout ``extract_layout(image, "fuzz.dll")`` returned.
 
     Patching the data directories perturbs every RVA the walker follows
     (import, export, IAT) without disturbing the header geometry that
@@ -120,10 +122,10 @@ def _surviving_images(draw: st.DrawFn) -> bytes:
         data[off] = draw(st.integers(min_value=0, max_value=255))
     out = bytes(data)
     try:
-        extract_layout(out)
+        meta = extract_layout(out, "fuzz.dll")
     except ValueError:
         assume(False)
-    return out
+    return out, meta
 
 
 @settings(max_examples=200, deadline=None)
@@ -145,9 +147,9 @@ def test_extract_layout_fails_only_with_valueerror(data: bytes) -> None:
 
 @settings(max_examples=100, deadline=None)
 @given(_surviving_images())
-def test_extracted_layout_is_self_consistent(data: bytes) -> None:
+def test_extracted_layout_is_self_consistent(extracted: tuple[bytes, LayoutMetadata]) -> None:
     """What the extractor reports agrees with the bytes it was handed."""
-    meta = extract_layout(data, "fuzz.dll")
+    data, meta = extracted
 
     assert meta.target == "fuzz.dll"
     assert data.startswith(meta.header), "stored header is not a prefix of the file"
@@ -164,9 +166,9 @@ def test_extracted_layout_is_self_consistent(data: bytes) -> None:
 
 @settings(max_examples=50, deadline=None)
 @given(_surviving_images())
-def test_layout_package_round_trips(pkg_dir: Path, data: bytes) -> None:
+def test_layout_package_round_trips(pkg_dir: Path, extracted: tuple[bytes, LayoutMetadata]) -> None:
     """The text package is a faithful persistence of the extracted layout."""
-    meta = extract_layout(data, "fuzz.dll")
+    _data, meta = extracted
     write_package(meta, pkg_dir, fmt_toml=lambda m: fmt_layout_toml(m, [], []))
 
     loaded = load_package(pkg_dir)

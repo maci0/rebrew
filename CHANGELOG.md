@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Changed
+
+- The pytest suite costs 36% fewer user-space instructions (3,925 G to 2,520 G under `perf stat -e instructions:u`, `-n auto`, warm, measured on 6.66.0's tree with 16,069 tests passing before and after). Expensive module fixtures (analyses, the built wheel, the unshare rootfs) are built once per session for all xdist workers through `tests/session_cache.py` instead of once per worker, and property tests build their strategies once at module level instead of on every draw. `tests/test_check_idempotency.py` no longer runs the whole idempotency sweep, which CI runs as its own `make idempotency-check` step; a new pre-push hook runs it locally.
+
 ### Fixed
 
 - `rebrew source binding rebind` refused a replacement whose name another target's file also declares with other types (`fcn_005ea460 is already declared as ... in src/GOLD.fcn_005dbd70.c`), though that file is bound only to the other target and declares that target's function at the same address. The prototype check now skips files `collect_target_sources` reports as foreign to the target.

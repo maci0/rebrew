@@ -115,6 +115,8 @@ _TEMPLATES = [
 #: Templates whose trailing displacement is the single byte after the opcode.
 _SHORT_JUMPS = frozenset({b"\xeb", b"\xe2", b"\x74", b"\x75"})
 
+_TEMPLATE = st.sampled_from(_TEMPLATES)
+
 
 @st.composite
 def _control_flow_code(draw: st.DrawFn) -> bytes:
@@ -123,7 +125,7 @@ def _control_flow_code(draw: st.DrawFn) -> bytes:
     mid-instruction, and on themselves."""
     parts: list[bytes] = []
     for _ in range(draw(st.integers(min_value=0, max_value=24))):
-        tmpl = draw(st.sampled_from(_TEMPLATES))
+        tmpl = draw(_TEMPLATE)
         if tmpl in _SHORT_JUMPS:
             parts.append(tmpl + bytes([draw(st.integers(min_value=0, max_value=0xFF))]))
         elif tmpl[:1] in (b"\xe8", b"\xe9", b"\xff", b"\x0f"):
@@ -131,6 +133,9 @@ def _control_flow_code(draw: st.DrawFn) -> bytes:
         else:
             parts.append(tmpl)
     return b"".join(parts)
+
+
+_CONTROL_FLOW_CODE = _control_flow_code()
 
 
 _modes = st.sampled_from([capstone.CS_MODE_32, capstone.CS_MODE_16])
@@ -165,7 +170,7 @@ def _assert_partition(code: bytes, va: int, cs_mode: int, blocks: list[Block]) -
 
 
 @settings(max_examples=250, deadline=None)
-@given(_control_flow_code(), _modes, _bases)
+@given(_CONTROL_FLOW_CODE, _modes, _bases)
 def test_build_cfg_partitions_decoded_instructions(code: bytes, cs_mode: int, va: int) -> None:
     """Fuzz: control-flow-shaped code at any base VA.  Blocks tile the decode
     exactly, and every edge names two existing blocks, once."""
@@ -197,7 +202,7 @@ def test_build_cfg_partitions_random_bytes(code: bytes, cs_mode: int, va: int) -
 
 
 @settings(max_examples=200, deadline=None)
-@given(_control_flow_code(), _control_flow_code(), _modes)
+@given(_CONTROL_FLOW_CODE, _CONTROL_FLOW_CODE, _modes)
 def test_build_cfg_view_is_a_capped_prefix_of_build_cfg(
     left: bytes, right: bytes, cs_mode: int
 ) -> None:
@@ -244,8 +249,8 @@ def _switch_code(draw: st.DrawFn) -> tuple[bytes, int]:
     them, inside the table, and outside the function.  Returns the code and
     its base VA."""
     va = 0x401000
-    head = draw(_control_flow_code())
-    tail = draw(_control_flow_code())
+    head = draw(_CONTROL_FLOW_CODE)
+    tail = draw(_CONTROL_FLOW_CODE)
     count = draw(st.integers(min_value=1, max_value=8))
     table_off = len(head) + 3 + 2 + 7 + len(tail)
     end = table_off + 4 * count

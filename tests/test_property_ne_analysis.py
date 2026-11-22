@@ -39,6 +39,19 @@ from hypothesis import strategies as st
 _CLASS = "TExample"
 _MARKER = b"\x08TExample"
 
+_EXPORTS = st.lists(
+    st.tuples(
+        st.binary(min_size=1, max_size=8).map(lambda b: b.decode("latin1")),
+        st.integers(0, 0xFFFF),
+    ),
+    max_size=2,
+)
+_MODULES = st.lists(
+    st.binary(min_size=1, max_size=6).map(lambda b: b.decode("latin1", "replace")),
+    max_size=2,
+)
+_METHOD_NAME = st.binary(min_size=0, max_size=8).map(lambda b: b.decode("latin1"))
+
 
 @st.composite
 def _ne_image_bytes(draw: st.DrawFn) -> bytes:
@@ -56,23 +69,10 @@ def _ne_image_bytes(draw: st.DrawFn) -> bytes:
     content = draw(st.binary(min_size=0, max_size=64))
     fixup_flag = draw(st.booleans())
     flags = (0x0100 if fixup_flag else 0) | draw(st.integers(0, 0xFF))
-    exports = draw(
-        st.lists(
-            st.tuples(
-                st.binary(min_size=1, max_size=8).map(lambda b: b.decode("latin1")),
-                st.integers(0, 0xFFFF),
-            ),
-            max_size=2,
-        )
-    )
+    exports = draw(_EXPORTS)
     # make_ne encodes names as ascii; keep exports ascii-safe
     exports = [(n.encode("ascii", "replace").decode("ascii"), o) for n, o in exports]
-    modules = draw(
-        st.lists(
-            st.binary(min_size=1, max_size=6).map(lambda b: b.decode("latin1", "replace")),
-            max_size=2,
-        )
-    )
+    modules = draw(_MODULES)
     modules = [m.encode("ascii", "replace").decode("ascii") for m in modules]
     blob = bytearray(make_ne(segments=[(content, flags)], exports=exports, modules=modules))
     if fixup_flag:
@@ -203,7 +203,7 @@ def _method_table_blob(draw: st.DrawFn) -> bytes:
     count = draw(st.integers(0, 4))
     table = bytearray(struct.pack("<H", count))
     for _ in range(count):
-        name = draw(st.binary(min_size=0, max_size=8).map(lambda b: b.decode("latin1")))
+        name = draw(_METHOD_NAME)
         pointer = draw(st.integers(0, 0xFFFFFFFF))
         size = draw(st.integers(0, 0xFF))
         table += struct.pack("<IB", pointer & 0xFFFFFFFF, size)

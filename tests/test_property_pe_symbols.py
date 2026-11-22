@@ -57,7 +57,7 @@ def _pointer(section_rva: int) -> st.SearchStrategy[int]:
 
 def _section_rva() -> int:
     """RVA the first appended section lands at in ``make_pe``'s layout."""
-    _pe, rva, _raw = _append_section(_base_pe(), ".probe", b"\x00")
+    _pe, rva, _raw = _append_section(_BASE_PE, ".probe", b"\x00")
     return rva
 
 
@@ -65,6 +65,8 @@ def _base_pe() -> bytes:
     return make_pe(b"\x90" * 16, image_base=IMAGE_BASE, text_va=TEXT_VA)
 
 
+#: The image every case appends its fuzzed section to.
+_BASE_PE = _base_pe()
 _SECTION_RVA = _section_rva()
 
 #: Delay-section prefix: a hint/name entry, a DLL name, and a name table (the
@@ -75,11 +77,13 @@ _PREFIX = b"\x00\x00FuzzApi\x00FUZZ.dll\x00\x00" + struct.pack(
 )
 _PREFIX_OFFSETS = (0, 10, 20)
 
+_SECTION_POINTER = _pointer(_SECTION_RVA)
+
 
 @st.composite
 def _section_body(draw: st.DrawFn) -> bytes:
     """Section bytes mixing section-aimed pointers, hint/name text and noise."""
-    words = draw(st.lists(_pointer(_SECTION_RVA), max_size=_BODY_SIZE // 4))
+    words = draw(st.lists(_SECTION_POINTER, max_size=_BODY_SIZE // 4))
     body = bytearray(struct.pack(f"<{len(words)}I", *words))
     for _ in range(draw(st.integers(min_value=0, max_value=4))):
         at = draw(st.integers(min_value=0, max_value=_BODY_SIZE - 1))
@@ -114,6 +118,23 @@ def _assert_mapped(table: PeDirectories, section_end: int) -> None:
         assert record.ordinal is None or 0 <= record.ordinal <= 0xFFFF
 
 
+def _descriptor_fields(rva_based: bool) -> tuple[st.SearchStrategy[int], ...]:
+    """Strategies for the attributes, name, and pointer fields of one descriptor."""
+    base = _SECTION_RVA if rva_based else IMAGE_BASE + _SECTION_RVA
+    declared = st.one_of(
+        st.sampled_from(_PREFIX_OFFSETS),
+        st.integers(min_value=len(_PREFIX), max_value=_BODY_SIZE),
+    ).map(base.__add__)
+    field = st.one_of(declared, _SECTION_POINTER)
+    attributes = st.one_of(st.just(int(rva_based)), _u32)
+    name = st.one_of(st.just(base + _PREFIX_OFFSETS[1]), field)
+    return attributes, name, field
+
+
+#: Descriptor field strategies keyed by the ``Attributes`` RVA bit.
+_DESCRIPTOR_FIELDS = {rva_based: _descriptor_fields(rva_based) for rva_based in (False, True)}
+
+
 @st.composite
 def _delay_descriptors(draw: st.DrawFn) -> bytes:
     """One or two ``IMAGE_DELAYLOAD_DESCRIPTOR`` records with drawn fields.
@@ -123,15 +144,9 @@ def _delay_descriptors(draw: st.DrawFn) -> bytes:
     """
     out = b""
     for _ in range(draw(st.integers(min_value=1, max_value=2))):
-        rva_based = draw(st.booleans())
-        base = _SECTION_RVA if rva_based else IMAGE_BASE + _SECTION_RVA
-        declared = st.one_of(
-            st.sampled_from(_PREFIX_OFFSETS),
-            st.integers(min_value=len(_PREFIX), max_value=_BODY_SIZE),
-        ).map(base.__add__)
-        field = st.one_of(declared, _pointer(_SECTION_RVA))
-        attributes = draw(st.one_of(st.just(int(rva_based)), _u32))
-        name = draw(st.one_of(st.just(base + _PREFIX_OFFSETS[1]), field))
+        attributes_field, name_field, field = _DESCRIPTOR_FIELDS[draw(st.booleans())]
+        attributes = draw(attributes_field)
+        name = draw(name_field)
         iat, names = draw(field), draw(field)
         out += struct.pack("<8I", attributes, name, 0, iat, names, 0, 0, 0)
     return out
@@ -142,7 +157,7 @@ class TestDelayImportFuzz:
     @given(_delay_descriptors(), _section_body())
     def test_fuzzed_delay_directory_never_raises(self, descriptors: bytes, tail: bytes) -> None:
         body = _PREFIX + descriptors + tail
-        pe, rva, _raw = _append_section(_base_pe(), ".didata", body)
+        pe, rva, _raw = _append_section(_BASE_PE, ".didata", body)
         assert rva == _SECTION_RVA
         pe = _patch_directory(pe, _DIR_DELAY_IMPORT, rva + len(_PREFIX), len(descriptors))
         table = _write(pe)
@@ -154,9 +169,9 @@ class TestLoadConfigFuzz:
     @settings(max_examples=150, deadline=None)
     @given(
         _section_body(),
-        _pointer(_SECTION_RVA),
-        _pointer(_SECTION_RVA),
-        _pointer(_SECTION_RVA),
+        _SECTION_POINTER,
+        _SECTION_POINTER,
+        _SECTION_POINTER,
         _u32,
         _u32,
     )
@@ -177,7 +192,7 @@ class TestLoadConfigFuzz:
         struct.pack_into("<I", config, _LC_GUARD_CF_TABLE, cfg_table)
         struct.pack_into("<I", config, _LC_GUARD_CF_COUNT, cfg_count)
         data = body + bytes(config)
-        pe, rva, _raw = _append_section(_base_pe(), ".rdata", data)
+        pe, rva, _raw = _append_section(_BASE_PE, ".rdata", data)
         pe = _patch_directory(pe, _DIR_LOAD_CONFIG, rva + len(body), _LC_LENGTH)
         table = _write(pe)
         padded_size = len(data) + (-len(data) % 512)

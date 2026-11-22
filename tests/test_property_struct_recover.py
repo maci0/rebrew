@@ -50,30 +50,31 @@ _PRIMITIVES = ("int", "short", "char", "undefined4", "uint32_t", "double")
 _PARSE_DEADLINE = 1000
 
 
-@st.composite
-def _decomp_text(draw: st.DrawFn) -> str:
-    """A decompilation body: decompiler statements, delimiters, and noise."""
-    var = _IDENT
-    prim = st.sampled_from(_PRIMITIVES)
-    stmt = st.one_of(
-        st.builds(lambda v, p: f"{p} *{v};", var, prim),
-        st.builds(lambda v, p: f"(*({p} *){v});", var, prim),
-        st.builds(lambda v, o: f"{v}->field_{o};", var, _HEX),
-        st.builds(lambda v, o: f"(*({v}->field_0x{o}));", var, _HEX),
-        st.builds(lambda v, p, o: f"*({p} *)({v} + 0x{o});", var, prim, _HEX),
-        st.builds(lambda v, p, i: f"*({p} *)&{v}[{i}];", var, prim, _DIGITS),
-        st.builds(lambda v, i: f"{v}[{i}] = 0;", var, _DIGITS),
-        st.builds(lambda v, t: f"({t} *){v};", var, _IDENT),
-        # A member access with no variable: a cast immediately precedes it.
-        st.builds(lambda o: f"((PlayerInfo *)raw)->field_{o};", _HEX),
-    )
-    filler = st.one_of(
-        st.just(""),
-        st.just("\n"),
-        st.just("  "),
-        st.text(alphabet=st.characters(blacklist_categories=("Cs",)), max_size=12),
-    )
-    return "".join(f"{f}{s}" for f, s in draw(st.lists(st.tuples(filler, stmt), max_size=6)))
+_PRIM = st.sampled_from(_PRIMITIVES)
+_STMT = st.one_of(
+    st.builds(lambda v, p: f"{p} *{v};", _IDENT, _PRIM),
+    st.builds(lambda v, p: f"(*({p} *){v});", _IDENT, _PRIM),
+    st.builds(lambda v, o: f"{v}->field_{o};", _IDENT, _HEX),
+    st.builds(lambda v, o: f"(*({v}->field_0x{o}));", _IDENT, _HEX),
+    st.builds(lambda v, p, o: f"*({p} *)({v} + 0x{o});", _IDENT, _PRIM, _HEX),
+    st.builds(lambda v, p, i: f"*({p} *)&{v}[{i}];", _IDENT, _PRIM, _DIGITS),
+    st.builds(lambda v, i: f"{v}[{i}] = 0;", _IDENT, _DIGITS),
+    st.builds(lambda v, t: f"({t} *){v};", _IDENT, _IDENT),
+    # A member access with no variable: a cast immediately precedes it.
+    st.builds(lambda o: f"((PlayerInfo *)raw)->field_{o};", _HEX),
+)
+_FILLER = st.one_of(
+    st.just(""),
+    st.just("\n"),
+    st.just("  "),
+    st.text(alphabet=st.characters(blacklist_categories=("Cs",)), max_size=12),
+)
+
+
+#: A decompilation body: decompiler statements, delimiters, and noise.
+_DECOMP_TEXT = st.lists(st.tuples(_FILLER, _STMT), max_size=6).map(
+    lambda pairs: "".join(f"{f}{s}" for f, s in pairs)
+)
 
 
 def _all_evidence(result: ParseResult) -> list[tuple[str, int, int]]:
@@ -106,14 +107,14 @@ def _assert_invariants(result: ParseResult, max_offset: int) -> None:
 
 
 @settings(max_examples=200, deadline=_PARSE_DEADLINE)
-@given(text=_decomp_text())
+@given(text=_DECOMP_TEXT)
 def test_parse_decomp_keeps_only_in_range_evidence(text: str) -> None:
     max_offset = 0x1000000
     _assert_invariants(parse_decomp_for_structs(text), max_offset)
 
 
 @settings(max_examples=100, deadline=_PARSE_DEADLINE)
-@given(text=_decomp_text(), cap=st.integers(min_value=1, max_value=0x1000))
+@given(text=_DECOMP_TEXT, cap=st.integers(min_value=1, max_value=0x1000))
 def test_max_offset_filter_only_removes_evidence(text: str, cap: int) -> None:
     wide = parse_decomp_for_structs(text, 0x1000000)
     narrow = parse_decomp_for_structs(text, cap)

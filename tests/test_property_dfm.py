@@ -33,6 +33,11 @@ from rebrew.formats.dfm import (
 
 _MAX_EXAMPLES = 100
 
+#: A one-to-eight byte latin-1 short string: a property or identifier name.
+_SHORT_NAME = st.binary(min_size=1, max_size=8).map(lambda b: b.decode("latin1"))
+_SET_ITEMS = st.lists(_SHORT_NAME, max_size=3)
+_BOOL = st.sampled_from((True, False))
+
 
 @st.composite
 def _value(draw: st.DrawFn) -> object:
@@ -50,16 +55,14 @@ def _value(draw: st.DrawFn) -> object:
     if kind == 5:
         return Binary(draw(st.binary(min_size=0, max_size=32)))
     if kind == 6:
-        items = draw(
-            st.lists(
-                st.binary(min_size=1, max_size=8).map(lambda b: b.decode("latin1")), max_size=3
-            )
-        )
-        return SetOfIdentifiers(items)
+        return SetOfIdentifiers(draw(_SET_ITEMS))
     if kind == 7:
-        return draw(st.sampled_from([True, False]))
+        return draw(_BOOL)
     payload = draw(st.binary(min_size=0, max_size=8))
     return (draw(st.integers(0, 255)), payload)
+
+
+_PROPS = st.lists(st.tuples(_SHORT_NAME, _value()), max_size=3)
 
 
 def _short(text: str) -> bytes:
@@ -67,19 +70,16 @@ def _short(text: str) -> bytes:
     return bytes([len(raw)]) + raw
 
 
+#: Deepest component nesting level ``_component`` generates.
+_MAX_DEPTH = 3
+
+
 @st.composite
 def _component(draw: st.DrawFn, depth: int = 0) -> bytes:
     """A component subtree encoded exactly as ``encode`` would write it."""
     cls = draw(st.binary(min_size=1, max_size=8)).decode("latin1")
     name = draw(st.binary(min_size=1, max_size=8)).decode("latin1")
-    props = draw(
-        st.lists(
-            st.tuples(
-                st.binary(min_size=1, max_size=8).map(lambda b: b.decode("latin1")), _value()
-            ),
-            max_size=3,
-        )
-    )
+    props = draw(_PROPS)
     out = bytearray(_short(cls) + _short(name))
     for prop, value in props:
         if isinstance(value, tuple):
@@ -95,11 +95,15 @@ def _component(draw: st.DrawFn, depth: int = 0) -> bytes:
             out.append(value.type_byte)  # type: ignore[union-attr]
             out += value.encode()  # type: ignore[union-attr]
     out.append(0)
-    if depth < 3:
+    if depth < _MAX_DEPTH:
         for _ in range(draw(st.integers(0, 2))):
-            out += draw(_component(depth=depth + 1))
+            out += draw(_COMPONENT_AT_DEPTH[depth + 1])
     out.append(0)
     return bytes(out)
+
+
+#: ``_component`` at each nesting level, index by depth.
+_COMPONENT_AT_DEPTH = tuple(_component(depth=d) for d in range(_MAX_DEPTH + 1))
 
 
 @st.composite
@@ -107,7 +111,7 @@ def _form_stream(draw: st.DrawFn) -> bytes:
     """A TPF0 stream, optionally truncated, byte-flipped, or deep-nested."""
     style = draw(st.integers(0, 3))
     if style == 0:
-        stream = b"TPF0" + draw(_component())
+        stream = b"TPF0" + draw(_COMPONENT_AT_DEPTH[0])
     elif style == 1:
         # Valid-ish prolog with an unsupported/oversized payload.
         cls = draw(st.binary(min_size=1, max_size=4)).decode("latin1")
@@ -126,7 +130,7 @@ def _form_stream(draw: st.DrawFn) -> bytes:
         header = b"\x01T\x01x\x00"
         stream = b"TPF0" + header * depth + bytes(depth) + draw(st.binary(max_size=8))
     else:
-        stream = b"TPF0" + draw(_component())
+        stream = b"TPF0" + draw(_COMPONENT_AT_DEPTH[0])
         if stream and draw(st.booleans()):
             cut = draw(st.integers(0, len(stream)))
             stream = stream[:cut]

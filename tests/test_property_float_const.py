@@ -45,24 +45,21 @@ def _code_region(draw: st.DrawFn) -> tuple[int, bytes]:
     return _BASE_VA + draw(st.integers(min_value=0, max_value=0x1000)), noise
 
 
+_CODE_REGIONS = st.lists(_code_region(), max_size=2)
+_CONST_REGIONS = st.lists(
+    st.tuples(
+        st.integers(min_value=0, max_value=0x400),
+        st.integers(min_value=0, max_value=0x400),
+    ),
+    max_size=2,
+)
+
+
 @st.composite
 def _image(draw: st.DrawFn) -> tuple[list[tuple[int, bytes]], list[tuple[int, int]], bool]:
     """Drawn code regions, const regions, and a short-read toggle."""
-    regions = draw(
-        st.lists(
-            _code_region(),
-            max_size=2,
-        )
-    )
-    consts = draw(
-        st.lists(
-            st.tuples(
-                st.integers(min_value=0, max_value=0x400),
-                st.integers(min_value=0, max_value=0x400),
-            ),
-            max_size=2,
-        )
-    )
+    regions = draw(_CODE_REGIONS)
+    consts = draw(_CONST_REGIONS)
     return regions, consts, draw(st.booleans())
 
 

@@ -47,6 +47,8 @@ def _write(directory: Path, name: str, data: bytes) -> Path:
 
 
 _u16 = st.integers(min_value=0, max_value=0xFFFF)
+_cparhdr = st.one_of(st.integers(1, 8), _u16)
+_cp = st.one_of(st.integers(0, 6), _u16)
 
 
 @st.composite
@@ -61,8 +63,8 @@ def _mz_file(draw: st.DrawFn) -> bytes:
     body = draw(st.binary(min_size=0, max_size=2048))
     header = bytearray(_HEADER_SIZE)
     header[0:2] = b"MZ"
-    cparhdr = draw(st.one_of(st.integers(1, 8), _u16))
-    cp = draw(st.one_of(st.integers(0, 6), _u16))
+    cparhdr = draw(_cparhdr)
+    cp = draw(_cp)
     if draw(st.booleans()):
         # A well-formed page count: the last page holds a real byte count, or
         # zero when the file ends exactly on a page boundary.

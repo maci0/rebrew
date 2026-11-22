@@ -44,41 +44,54 @@ _RELOC_TYPES = (_REL_ABSOLUTE, 0x0006, 0x0007, 0x0014)
 # MSVC mangling shapes the symbol resolver has to tolerate: bare, one leading
 # underscore, the double-underscore __cdecl form, and the empty name.
 _SYMBOLS = ("foo", "_foo", "__foo", "foo_bar", "", "_")
+_RELOC_TYPE = st.sampled_from(_RELOC_TYPES)
+_SYMBOL = st.sampled_from(_SYMBOLS)
+
+
+#: Largest blob a byte pair holds.
+_MAX_BLOB = 64
 
 
 @st.composite
 def bytes_pair(draw: st.DrawFn) -> tuple[bytes, bytes]:
     """(obj, target) byte pair, equal or unequal length, 0..64 bytes."""
-    size = draw(st.integers(min_value=0, max_value=64))
+    size = draw(st.integers(min_value=0, max_value=_MAX_BLOB))
     return (
         draw(st.binary(min_size=size, max_size=size)),
         draw(st.binary(min_size=size, max_size=size)),
     )
 
 
+_BYTES_PAIR = bytes_pair()
+
 # Offset shapes to draw: inside the window, past the end, and negative
 # (which struct.unpack_from would otherwise read backwards from the buffer
 # end).  Unaligned in-range values come out of the unconstrained draw.
-def _out_of_range_offset(draw: st.DrawFn, max_len: int) -> int:
-    return draw(
-        st.one_of(
-            st.integers(min_value=0, max_value=max_len + 8),
-            st.integers(min_value=-8, max_value=-1),
-        )
+# Indexed by the common prefix length of a byte pair.
+_OFFSET_SHAPES = tuple(
+    st.one_of(
+        st.integers(min_value=0, max_value=max_len + 8),
+        st.integers(min_value=-8, max_value=-1),
     )
+    for max_len in range(_MAX_BLOB + 1)
+)
+
+
+def _out_of_range_offset(draw: st.DrawFn, max_len: int) -> int:
+    return draw(_OFFSET_SHAPES[max_len])
 
 
 @st.composite
 def blob_and_records(draw: st.DrawFn) -> tuple[bytes, bytes, list[CoffRelocRecord]]:
     """Byte pair plus typed records whose offsets are often out of range."""
-    obj, target = draw(bytes_pair())
+    obj, target = draw(_BYTES_PAIR)
     max_len = min(len(obj), len(target))
     count = draw(st.integers(min_value=0, max_value=8))
     records = [
         CoffRelocRecord(
             offset=_out_of_range_offset(draw, max_len),
-            type=draw(st.sampled_from(_RELOC_TYPES)),
-            symbol=draw(st.sampled_from(_SYMBOLS)),
+            type=draw(_RELOC_TYPE),
+            symbol=draw(_SYMBOL),
         )
         for _ in range(count)
     ]
@@ -88,12 +101,10 @@ def blob_and_records(draw: st.DrawFn) -> tuple[bytes, bytes, list[CoffRelocRecor
 @st.composite
 def blob_and_dict(draw: st.DrawFn) -> tuple[bytes, bytes, dict[int, str]]:
     """Byte pair plus an offset → symbol mapping, same offset shapes."""
-    obj, target = draw(bytes_pair())
+    obj, target = draw(_BYTES_PAIR)
     max_len = min(len(obj), len(target))
     count = draw(st.integers(min_value=0, max_value=8))
-    mapping = {
-        _out_of_range_offset(draw, max_len): draw(st.sampled_from(_SYMBOLS)) for _ in range(count)
-    }
+    mapping = {_out_of_range_offset(draw, max_len): draw(_SYMBOL) for _ in range(count)}
     return obj, target, mapping
 
 
@@ -126,20 +137,20 @@ class TestIdenticalBytes:
 
 
 class TestLengthContract:
-    @given(bytes_pair())
+    @given(_BYTES_PAIR)
     def test_total_is_max_length(self, pair: tuple[bytes, bytes]) -> None:
         obj, target = pair
         _, _, total, _, _ = smart_reloc_compare(obj, target, None)
         assert total == max(len(obj), len(target))
 
-    @given(bytes_pair())
+    @given(_BYTES_PAIR)
     def test_match_count_bounded_by_common_prefix(self, pair: tuple[bytes, bytes]) -> None:
         obj, target = pair
         _, count, total, _, _ = smart_reloc_compare(obj, target, None)
         assert 0 <= count <= min(len(obj), len(target))
         assert count <= total
 
-    @given(bytes_pair())
+    @given(_BYTES_PAIR)
     def test_empty_obj_or_target_never_matches(self, pair: tuple[bytes, bytes]) -> None:
         obj, target = pair
         if len(obj) == 0 and len(target) == 0:

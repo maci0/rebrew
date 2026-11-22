@@ -62,6 +62,10 @@ def _parse_archive_bytes(data: bytes) -> list[tuple[str, bytes]]:
         os.unlink(name)
 
 
+#: Member names covering a plain name, the long-name table, and its offsets.
+_AR_MEMBER_NAME = st.sampled_from((b"a.obj/", b"//", b"/0", b"/9999", b"b.o/", b""))
+
+
 class TestParseArchiveRobust:
     @settings(max_examples=50, deadline=None)
     @given(st.binary(max_size=512))
@@ -103,7 +107,7 @@ class TestParseArchiveRobust:
         """A structured ar stream: valid magic + forged headers/bodies."""
         out = b"!<arch>\n"
         for _ in range(self(st.integers(0, 3))):
-            name = self(st.sampled_from([b"a.obj/", b"//", b"/0", b"/9999", b"b.o/", b""]))
+            name = self(_AR_MEMBER_NAME)
             body = self(st.binary(max_size=16))
             size = self(st.integers(0, len(body) + 8))
             # Header layout: name[16] mtime[12] uid[6] gid[6] mode[8] size[10] "`\n"

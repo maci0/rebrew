@@ -43,6 +43,9 @@ _name = st.binary(min_size=1, max_size=12)
 _ascii_name = st.text(
     alphabet=st.characters(min_codepoint=33, max_codepoint=126), min_size=1, max_size=12
 ).map(str.encode)
+#: An LNAMES body: an optional leading empty name, then segment or arbitrary names.
+_LNAMES_PREFIX = st.sampled_from((b"\x00", b""))
+_LNAMES = st.lists(st.sampled_from((b"_TEXT", b"SRC_TEXT")) | _name, max_size=4)
 
 
 @st.composite
@@ -62,12 +65,14 @@ def _record_body(draw: st.DrawFn, rtype: int) -> bytes:
         pairs = draw(st.lists(st.tuples(_name, st.integers(0, 0xFFFF)), max_size=4))
         return b"".join(bytes([len(n)]) + n + struct.pack("<H", off) for n, off in pairs)
     if rtype == 0x96:
-        prefix = draw(st.sampled_from([b"\x00", b""]))
-        names = draw(st.lists(st.sampled_from([b"_TEXT", b"SRC_TEXT"]) | _name, max_size=4))
-        return prefix + _name_list(names)
+        return draw(_LNAMES_PREFIX) + _name_list(draw(_LNAMES))
     if rtype == 0xCA:
         return _name_list(draw(st.lists(_name, max_size=4)))
     return draw(st.binary(max_size=16))
+
+
+#: ``_record_body`` for each record type the stream draws.
+_RECORD_BODY = {rtype: _record_body(rtype) for rtype in _RECORD_TYPES}
 
 
 @st.composite
@@ -75,7 +80,7 @@ def _omf_stream(draw: st.DrawFn) -> bytes:
     """A record stream, optionally truncated or with one byte flipped."""
     out = b""
     for rtype in draw(st.lists(st.sampled_from(_RECORD_TYPES), max_size=8)):
-        out += _record(rtype, draw(_record_body(rtype)))
+        out += _record(rtype, draw(_RECORD_BODY[rtype]))
     if out and draw(st.booleans()):
         cut = draw(st.integers(0, len(out)))
         out = out[:cut]

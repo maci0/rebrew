@@ -8,6 +8,7 @@ import typer
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from rebrew.float_const import FLOAT_OPCODES
 from rebrew.gen_flirt_pat import bytes_to_pat_line
 
 if TYPE_CHECKING:
@@ -125,15 +126,17 @@ def test_pat_line_rejects_tampered_bytes(code: bytes, reloc_offsets: list[int]) 
 
 _RET_TYPES = ["int", "void", "char *", "unsigned int", "short", "unsigned short"]
 _PARAM_TYPES = ["int", "char *", "unsigned int", "short", "void *"]
+_RET_TYPE = st.sampled_from(_RET_TYPES)
+_PARAM_TYPE = st.sampled_from(_PARAM_TYPES)
 
 
 @st.composite
 def _c_function_def(draw: Any) -> tuple[str, str]:
     """Draw (name, source) for a well-formed C function definition."""
     name = draw(st.from_regex(r"fn_[a-z][a-z0-9_]*", fullmatch=True))
-    ret = draw(st.sampled_from(_RET_TYPES))
+    ret = draw(_RET_TYPE)
     n_params = draw(st.integers(min_value=0, max_value=3))
-    params = ", ".join(f"{draw(st.sampled_from(_PARAM_TYPES))} p{i}" for i in range(n_params))
+    params = ", ".join(f"{draw(_PARAM_TYPE)} p{i}" for i in range(n_params))
     body = "{}" if ret == "void" else "{ return 0; }"
     return name, f"{ret} {name}({params}) {body}"
 
@@ -274,17 +277,21 @@ _C_KEYWORDS = frozenset(
 )
 
 
+_SOURCE_RET = st.sampled_from(["int", "void", "char *", "unsigned int", "long", "float"])
+_SOURCE_NAME = st.from_regex(r"[a-z][a-z0-9_]{0,12}", fullmatch=True).filter(
+    lambda n: n not in _C_KEYWORDS
+)
+_SOURCE_PARAMS = st.sampled_from(["void", "int x", "int a, int b", "char *s", "void *ctx", ""])
+_SOURCE_BODY = st.sampled_from(["{ return 0; }", "{}", "{ return x; }", "{\n    return 0;\n}"])
+
+
 @st.composite
 def c_function_source(draw: st.DrawFn) -> tuple[str, str]:
     """A C function definition and its expected name."""
-    ret = draw(st.sampled_from(["int", "void", "char *", "unsigned int", "long", "float"]))
-    name = draw(
-        st.from_regex(r"[a-z][a-z0-9_]{0,12}", fullmatch=True).filter(
-            lambda n: n not in _C_KEYWORDS
-        )
-    )
-    params = draw(st.sampled_from(["void", "int x", "int a, int b", "char *s", "void *ctx", ""]))
-    body = draw(st.sampled_from(["{ return 0; }", "{}", "{ return x; }", "{\n    return 0;\n}"]))
+    ret = draw(_SOURCE_RET)
+    name = draw(_SOURCE_NAME)
+    params = draw(_SOURCE_PARAMS)
+    body = draw(_SOURCE_BODY)
     return f"{ret} {name}({params}) {body}", name
 
 
@@ -440,6 +447,9 @@ def test_parse_va_invalid_rejects(raw: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+_SYMBOL_KIND = st.sampled_from(["$L", "$SG", "??_C@", "plain"])
+
+
 @st.composite
 def coff_obj_spec(draw: st.DrawFn) -> tuple[bytes, str, int, list[tuple[str, int]]]:
     """A valid COFF .obj spec: code, function symbol, its section offset, and
@@ -451,7 +461,7 @@ def coff_obj_spec(draw: st.DrawFn) -> tuple[bytes, str, int, list[tuple[str, int
     section_symbols: list[tuple[str, int]] = []
     used: set[str] = set()
     for _ in range(n_syms):
-        kind = draw(st.sampled_from(["$L", "$SG", "??_C@", "plain"]))
+        kind = draw(_SYMBOL_KIND)
         if kind == "$L":
             name = f"$L{draw(st.integers(min_value=0, max_value=99999))}"
         elif kind == "$SG":
@@ -709,6 +719,8 @@ _STATUS_GROUP_PRIORITY = (
     ("STUB",),
 )
 _STATUSES = ("STUB", "EXACT", "RELOC", "NEAR_MATCHING", "NEAR_MATCH", "PROVEN", "SKIP")
+_STATUS_LIST = st.lists(st.sampled_from(_STATUSES), min_size=1, max_size=3)
+_MARKER = st.sampled_from(["FUNCTION", "GLOBAL", "DATA"])
 
 
 @st.composite
@@ -718,8 +730,8 @@ def status_map(draw: st.DrawFn) -> dict[int, list[str]]:
     out: dict[int, list[str]] = {}
     for _ in range(n):
         va = draw(st.integers(min_value=0, max_value=0xFFFF))
-        statuses = draw(st.lists(st.sampled_from(_STATUSES), min_size=1, max_size=3))
-        marker = draw(st.sampled_from(["FUNCTION", "GLOBAL", "DATA"]))
+        statuses = draw(_STATUS_LIST)
+        marker = draw(_MARKER)
         if marker != "FUNCTION":
             statuses = ["STUB"]  # GLOBAL/DATA entries never count
         out[va] = statuses
@@ -873,15 +885,16 @@ def test_code_relocs_reports_each_slot_kind_relative_to_start() -> None:
 # ---------------------------------------------------------------------------
 
 
+_OMF16_REC_TYPE = st.sampled_from([0x80, 0x88, 0x90, 0x96, 0xA0, 0xC2, 0xCA, 0x8C, 0x9C, 0xFF])
+
+
 @st.composite
 def _omf16_record_stream(draw: st.DrawFn) -> bytes:
     """Plausible MSVC 1.52 OMF: a sequence of typed records with LE lengths."""
     n = draw(st.integers(min_value=0, max_value=16))
     out = bytearray()
     for _ in range(n):
-        rec_type = draw(
-            st.sampled_from([0x80, 0x88, 0x90, 0x96, 0xA0, 0xC2, 0xCA, 0x8C, 0x9C, 0xFF])
-        )
+        rec_type = draw(_OMF16_REC_TYPE)
         body = draw(st.binary(min_size=0, max_size=48))
         # OMF length field includes the trailing checksum byte; body here is
         # the full length payload the parser slices as ``data[pos+3:pos+3+ln]``.
@@ -1120,6 +1133,10 @@ def test_parse_symbol_addrs_random_text_no_crash(text: str) -> None:
         _assert_symbol_row_shape(row)
 
 
+_SYMBOL_KIND_NAME = st.sampled_from(["func", "u32", "u8", "u16", "ptr", "ascii"])
+_SYMBOL_SIZE = st.one_of(st.none(), st.integers(min_value=0, max_value=0x10000))
+
+
 @st.composite
 def _symbol_addrs_row(draw: st.DrawFn) -> Any:
     """A SymbolRow whose format_symbol output round-trips through the parser."""
@@ -1127,8 +1144,8 @@ def _symbol_addrs_row(draw: st.DrawFn) -> Any:
 
     va = draw(st.integers(min_value=0, max_value=0xFFFFFFFF))
     name = draw(st.from_regex(r"[A-Za-z_][A-Za-z0-9_]{0,24}", fullmatch=True))
-    kind = draw(st.sampled_from(["func", "u32", "u8", "u16", "ptr", "ascii"]))
-    size = draw(st.one_of(st.none(), st.integers(min_value=0, max_value=0x10000)))
+    kind = draw(_SYMBOL_KIND_NAME)
+    size = draw(_SYMBOL_SIZE)
     # Detail must not embed the `` -- `` separator (parser truncates) and must
     # be strip-stable (``_row_from_comment`` calls ``tail.strip()``).
     detail = draw(
@@ -1208,19 +1225,18 @@ def test_find_func_size_within_scan_window(
 
 _FC_CODE_VA = 0x401000
 _FC_DATA_VA = 0x403000
+_FLOAT_OPCODE = st.sampled_from(sorted(FLOAT_OPCODES))
 
 
 @st.composite
 def _float_const_image(draw: st.DrawFn) -> tuple[bytes, bytes, int, set[int] | None]:
     """Code seeded with x87 operands pointing near/inside/past a short data blob."""
-    from rebrew.float_const import FLOAT_OPCODES
-
     data = draw(st.binary(max_size=24))
     region_end = _FC_DATA_VA + draw(st.integers(min_value=0, max_value=32))
     chunks: list[bytes] = []
     for _ in range(draw(st.integers(min_value=0, max_value=6))):
         if draw(st.booleans()):
-            op = draw(st.sampled_from(sorted(FLOAT_OPCODES)))
+            op = draw(_FLOAT_OPCODE)
             ptr = _FC_DATA_VA + draw(st.integers(min_value=-4, max_value=36))
             chunks.append(bytes(op) + (ptr & 0xFFFFFFFF).to_bytes(4, "little"))
         else:
