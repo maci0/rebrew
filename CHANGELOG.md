@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.69.0] - 2026-11-22
+
 ### Changed
 
 - **Breaking:** the vendored recompile-toolchains manifest (`src/rebrew/compiler/toolchains.json`) is release 1.18.0 (was 1.15.0): `rebrew.compiler.toolchain_data.TOOLCHAINS_RELEASE` is `1.18.0` and `TOOLCHAINS_MANIFEST_SHA256` is `118d0bb72144e3a764dabffded7fbb2ca471e0601bf9a2ec0834a895ede4aad9`, the sha256 the release publishes beside the file. Every GitHub codeload pin (39) names its commit's archive (`tar.gz/<commit>`); 36 of them named a branch before and changed URL and sha256, so `rebrew toolchain vendor` assembles from them. `rebrew toolchain check-updates` compares such a pin with the default branch's head (it reported every one as a static asset), and `rebrew toolchain update` downloads that head's archive to report the new pin (it downloaded the pinned commit and always read current). The registry follows the manifest's rows: `llvm-mos-23.3.0-c64` and `llvm-mos-23.3.0-nes` declare `bits = 8` (was 32), and a test now holds every profile's image tag, `withdrawn` reason and `bits` to its row. rebrew does not read the rows' new `same_compiler_as`.
