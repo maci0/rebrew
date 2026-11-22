@@ -137,6 +137,22 @@ class TestPromotion:
         assert counts.get("EXACT") == 1
         assert not counts.get("RELOC")
 
+    def test_repeat_raw_link_run_writes_one_verdict(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The batch's RELOC is not written before the promotion rewrites it as EXACT."""
+        built = _project(tmp_path)
+        _mock(monkeypatch)
+        _verify(tmp_path, "--text", "--raw-link")
+        history = list(_stored(tmp_path).get("status_history", []))
+        # A relink: another image hash, the same bytes at the function's VA.
+        built.write_bytes(make_pe(_CODE + b"\x90" * 10))
+        report = _verify(tmp_path, "--text", "--raw-link", "--no-cache")
+        assert report["text"]["linked"]["promoted"] == 1
+        entry = _stored(tmp_path)
+        assert entry["status"] == "EXACT"
+        assert list(entry.get("status_history", [])) == history
+
     def test_without_raw_link_ack_reports_but_writes_nothing(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

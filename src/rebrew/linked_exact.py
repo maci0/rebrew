@@ -267,10 +267,12 @@ def promote_linked_exact(
         )
         promoted_rows.append(row)
 
+    report["promoted_vas"] = []
     if write and updates:
         update_statuses_batch(cfg.metadata_dir, updates)
         for row in promoted_rows:
             row["status"] = "EXACT"
             row["message"] = LINKED_MESSAGE
         report["promoted"] = len(promoted_rows)
+        report["promoted_vas"] = [int(u["va"]) for u in updates]
     return report

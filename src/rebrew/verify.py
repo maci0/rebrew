@@ -1530,6 +1530,11 @@ def main(
                             "regenerate with rebrew build layout"
                         )
 
+    # A raw-link promotion rewrites RELOC rows as EXACT; holding the batch's own
+    # verdicts until then writes each row once instead of RELOC, then EXACT.
+    linked_write = (text_report is not None and text_built is not None and raw_link) and not (
+        dry_run or no_promote
+    )
     if check_functions:
         batch = run_batch(
             cfg,
@@ -1544,6 +1549,7 @@ def main(
             no_promote=no_promote,
             context=compile_context,
             instructions=instructions,
+            defer_status=linked_write,
         )
     else:
         batch = BatchResult(
@@ -1566,17 +1572,27 @@ def main(
             # Every verified function, bound library sources included: the map
             # row names the COFF symbol the linker put at the address.
             placed_vas = {e.va for e in batch.entries if (_entry_symbol(e), e.va) in text_mapped}
-        text_report["linked"] = _promote_linked(
-            cfg,
-            batch,
-            text_built,
-            placed_vas,
-            context_hash=compile_context.sha256 if compile_context is not None else "",
-            write=raw_link and not (dry_run or no_promote),
-            raw_link=raw_link,
-            json_output=json_output,
-        )
+        try:
+            text_report["linked"] = _promote_linked(
+                cfg,
+                batch,
+                text_built,
+                placed_vas,
+                context_hash=compile_context.sha256 if compile_context is not None else "",
+                write=raw_link and not (dry_run or no_promote),
+                raw_link=raw_link,
+                json_output=json_output,
+            )
+        except BaseException:
+            if linked_write:
+                _apply_or_preview_status(batch.deferred, cfg, False)
+            raise
         text_report["linked"]["placement"] = placement_source
+        if linked_write:
+            promoted = set(text_report["linked"].get("promoted_vas", ()))
+            _apply_or_preview_status(
+                [fix for fix in batch.deferred if int(fix[0].va) not in promoted], cfg, False
+            )
     _save_report(
         cfg,
         batch,
@@ -1690,6 +1706,7 @@ def run_batch(
     no_promote: bool = False,
     context: CompileContext | None = None,
     instructions: bool = False,
+    defer_status: bool = False,
 ) -> BatchResult:
     """Shared batch pipeline: scan → scope → compile → STATUS sync.
 
@@ -1699,7 +1716,8 @@ def run_batch(
     report + baseline + gate).  *full* ignores saved verification verdicts
     (``--no-cache``); the compile-object cache may still be reused.
     *no_promote* (test's measure-only mode) previews STATUS writes while the
-    results still compute.
+    results still compute. *defer_status* leaves the STATUS sync to the caller
+    (``BatchResult.deferred``), so a later linked promotion writes one verdict.
     """
     (
         unique_entries,
@@ -1765,7 +1783,8 @@ def run_batch(
     results.extend(v_results)
 
     # Promote/demote STATUS metadata unless --dry-run / --no-promote
-    _apply_or_preview_status(deferred, cfg, dry_run or no_promote)
+    if not defer_status:
+        _apply_or_preview_status(deferred, cfg, dry_run or no_promote)
 
     results.sort(key=lambda r: r["va"])
 
