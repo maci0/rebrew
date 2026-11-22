@@ -7125,7 +7125,21 @@ Binaries are referenced, never sent:
   its relative `output_dir` under `--workspace` and answers the summary, not
   the pages; the backend serves the pages from its own workspace's
   `reports/<binary_id>`, so they reach users only when `--workspace` is that
-  directory (one host, or a volume both mount).
+  directory (one host, or a volume both mount). A retained `rebrew.report`
+  (one with `files`) also answers `manifest`: one `{path, size, digest, kinds}`
+  per file of the site, sidecars (`.gz`, `.zst`) included. `kinds` names what
+  the file carries that a reader may be refused, from the closed set
+  `call_graph`, `cross_references`, `decompilation`, `ai_derived`,
+  `member_identities`, or `["none"]` alone (`rebrew.report.SITE_DATA_KINDS`);
+  each page declares it where it is generated, and a site file without one
+  fails the report (500). Today `graph.html`, `adjacency.txt` and
+  `callgraph.mmd` are `call_graph`, `strings.html` and `strings-pN.html` are
+  `cross_references` (each string lists its referencing addresses), and every
+  other file (`index*.html`, `imports*.html`, `import-stubs*.html`,
+  `favicon.svg`) is `none`; no page carries decompiled source, AI-derived
+  text or member identities. A consumer withholds a file by its `kinds`, never
+  by its name, and fails closed: a manifest entry without `kinds` (from an
+  older rebrew) is to be treated as carrying every kind.
 
 Project paths (`project_dir`, `snapshots`) must be absolute. With a
 `--workspace` they must also resolve, symlinks followed, inside it; `serve`

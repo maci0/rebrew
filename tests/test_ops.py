@@ -39,6 +39,7 @@ from session_cache import build_once
 
 from rebrew.discover import DISCOVERY_RULE
 from rebrew.ops import COMPILING_OPS, OPS, WorkerConfig, dispatch, target_name
+from rebrew.report import SITE_DATA_KINDS
 
 FIXTURES = Path(__file__).parent / "fixtures"
 BINARY = FIXTURES / "mini_pe.exe"
@@ -1669,7 +1670,23 @@ class TestReconstructionOps:
         site = {**request, "binary_id": 1, "output_dir": "reports/generated/" + "a" * 32}
         status, body = dispatch(config, "rebrew.report", json.dumps(site).encode())
         assert status == 200, body
-        assert json.loads(body)["manifest"]
+        manifest = json.loads(body)["manifest"]
+        assert manifest and "kinds" not in json.loads(body)
+        # Every file states what it carries, read from its generator: the
+        # backend withholds by these, not by file names.
+        kinds = {entry["path"]: entry["kinds"] for entry in manifest}
+        assert all(value and set(value) <= set(SITE_DATA_KINDS) for value in kinds.values())
+        for path, value in kinds.items():
+            base = path.removesuffix(".gz").removesuffix(".zst")
+            expected = (
+                ["call_graph"]
+                if base in {"graph.html", "adjacency.txt", "callgraph.mmd"}
+                else ["cross_references"]
+                if base.startswith("strings")
+                else ["none"]
+            )
+            assert value == expected, path
+        assert {"index.html", "strings.html", "graph.html", "favicon.svg"} <= set(kinds)
         function = analysed["targets"][0]["functions"][0]
         source = next(row for row in envelope["readset"] if row["path"] == function["source_path"])
         record = {

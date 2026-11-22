@@ -2423,6 +2423,7 @@ def report(config: WorkerConfig, req: ReportRequest) -> dict[str, Any]:
                         _bounded(str(exc)), code="coverage-input-unverified", status=409
                     ) from None
                 checked_coverage_input(snapshot, req)
+                kinds: dict[str, list[str]] = result.pop("kinds")
                 entries: list[dict[str, Any]] = []
                 size = 0
                 for path in sorted(out.rglob("*")):
@@ -2432,11 +2433,17 @@ def report(config: WorkerConfig, req: ReportRequest) -> dict[str, Any]:
                         size += path.stat().st_size
                         if len(entries) >= 4096 or size > 64 * 1024 * 1024:
                             raise _invalid("report output exceeds bounds")
+                        relative = path.relative_to(out).as_posix()
+                        if relative not in kinds:
+                            # Every file states what it carries; one that does not
+                            # would be served to a reader the data is withheld from.
+                            raise _refused(f"report file {relative} declares no kinds")
                         entries.append(
                             {
-                                "path": path.relative_to(out).as_posix(),
+                                "path": relative,
                                 "size": path.stat().st_size,
                                 "digest": _file_sha256(path),
+                                "kinds": kinds[relative],
                             }
                         )
                 if not entries:

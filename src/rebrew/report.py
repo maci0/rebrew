@@ -21,6 +21,11 @@ output directory with four pages:
   ``callgraph.mmd`` and the HTML page keeps the opening lines, so the
   document can paint before the rest of the graph is read.
 
+Each file states what it carries that a reader may be refused
+(:data:`SiteDataKind`) where it is generated; the summary's ``kinds`` maps every
+written file, sidecars included, to its kinds, and a file without one fails
+the build.
+
 Every HTML/text page also writes max-effort ``.gz`` and ``.zst`` sidecars
 (when smaller) so static servers with precompressed-asset support can skip
 per-request compression.  Gzip sidecars use ``mtime=0``.  A rebuild deletes
@@ -36,6 +41,7 @@ Usage:
 """
 
 import re
+from typing import Literal, get_args  # module statement: definition-time use
 lazy import html
 lazy import json
 lazy import logging
@@ -358,6 +364,26 @@ def _pager_nav(
     )
 
 
+#: What a report file carries that a reader may be refused, from this closed set.
+#: Each file the site writes states its kinds where it is generated
+#: (:func:`generate_report`); its sidecars carry the same.  ``none`` stands alone:
+#: the file carries none of the others.
+SiteDataKind = Literal[
+    "call_graph",
+    "cross_references",
+    "decompilation",
+    "ai_derived",
+    "member_identities",
+    "none",
+]
+
+#: Every :data:`SiteDataKind`, for a consumer that validates a manifest.
+SITE_DATA_KINDS: tuple[SiteDataKind, ...] = get_args(SiteDataKind)
+
+#: A file that carries none of the withheld kinds.
+_NO_WITHHELD: tuple[SiteDataKind, ...] = ("none",)
+
+
 def _write_sidecar(path: Path, blob: bytes | None) -> None:
     """Write *blob* or remove a sidecar that would no longer match *path*."""
     if blob is not None:
@@ -369,8 +395,18 @@ def _write_sidecar(path: Path, blob: bytes | None) -> None:
         return
 
 
-def _write_static(path: Path, content: str | bytes, *, encoding: str = "utf-8") -> None:
+def _write_static(
+    path: Path,
+    content: str | bytes,
+    kinds: tuple[SiteDataKind, ...],
+    declared: dict[str, tuple[SiteDataKind, ...]],
+    *,
+    encoding: str = "utf-8",
+) -> None:
     """Write *content* and max-effort ``.gz`` / ``.zst`` sidecars when smaller.
+
+    *kinds* is what the file carries; it is recorded in *declared* under the
+    file's name and under each sidecar written.
 
     Sidecars that do not shrink the body are removed.  A static server that
     prefers ``name.gz`` over ``name`` would otherwise keep serving the previous
@@ -384,8 +420,13 @@ def _write_static(path: Path, content: str | bytes, *, encoding: str = "utf-8") 
     else:
         atomic_write_bytes(path, content)
         raw = content
-    _write_sidecar(Path(str(path) + ".gz"), precompress(raw, "gzip"))
-    _write_sidecar(Path(str(path) + ".zst"), precompress(raw, "zstd"))
+    if not kinds or ("none" in kinds and len(kinds) > 1):
+        raise ValueError(f"{path.name}: kinds must be 'none' alone or withheld kinds")
+    declared[path.name] = kinds
+    for suffix, blob in ((".gz", precompress(raw, "gzip")), (".zst", precompress(raw, "zstd"))):
+        _write_sidecar(Path(str(path) + suffix), blob)
+        if blob is not None:
+            declared[path.name + suffix] = kinds
 
 
 def _owned_report_name(name: str) -> str | None:
@@ -1460,9 +1501,15 @@ def generate_report(cfg: ProjectConfig, out: Path, *, trusted: Any = None) -> di
     reversed_dir = getattr(cfg, "reversed_dir", None)
 
     graph_html, adjacency, spilled_mermaid = _render_graph(cfg, trusted=trusted)
-    page_files: list[tuple[str, str]] = []
+    # Each page states what it carries that a reader may be refused (SiteDataKind),
+    # read from its renderer: the function index lists names, addresses, files,
+    # statuses, flags and blocker notes; the strings pages list each string's
+    # referencing addresses; the import pages list the binary's import table; the
+    # graph page, the adjacency list and the spilled Mermaid are the call graph.
+    page_files: list[tuple[str, str, tuple[SiteDataKind, ...]]] = []
     page_files.extend(
-        _render_index(
+        (name, content, _NO_WITHHELD)
+        for name, content in _render_index(
             target,
             report,
             functions,
@@ -1470,25 +1517,35 @@ def generate_report(cfg: ProjectConfig, out: Path, *, trusted: Any = None) -> di
             reversed_dir=reversed_dir,
         )
     )
-    page_files.extend(_render_strings(cfg))
-    page_files.extend(_render_imports(cfg))
-    page_files.append(("graph.html", graph_html))
-    kept: set[str] = set()
+    page_files.extend(
+        (name, content, ("cross_references",)) for name, content in _render_strings(cfg)
+    )
+    page_files.extend((name, content, _NO_WITHHELD) for name, content in _render_imports(cfg))
+    page_files.append(("graph.html", graph_html, ("call_graph",)))
+    declared: dict[str, tuple[SiteDataKind, ...]] = {}
     # The mark every page links, written once per site rather than inlined
     # into each document.  It is text, so the sidecars apply like any other
     # owned asset.
-    _write_static(out / "favicon.svg", FAVICON_SVG)
-    kept.add("favicon.svg")
-    for name, content in page_files:
-        _write_static(out / name, content)
-        kept.add(name)
+    written: list[tuple[str, str | bytes, tuple[SiteDataKind, ...]]] = [
+        ("favicon.svg", FAVICON_SVG, _NO_WITHHELD),
+        *page_files,
+    ]
     if adjacency is not None:
-        _write_static(out / "adjacency.txt", adjacency)
-        kept.add("adjacency.txt")
+        written.append(("adjacency.txt", adjacency, ("call_graph",)))
     if spilled_mermaid is not None:
-        _write_static(out / "callgraph.mmd", spilled_mermaid)
-        kept.add("callgraph.mmd")
-    _prune_stale_report_files(out, kept)
+        written.append(("callgraph.mmd", spilled_mermaid, ("call_graph",)))
+    for name, content, kinds in written:
+        _write_static(out / name, content, kinds, declared)
+    _prune_stale_report_files(out, {name for name, _content, _kinds in written})
+    undeclared = sorted(
+        child.name
+        for child in out.iterdir()
+        if child.is_file()
+        and _owned_report_name(child.name) is not None
+        and child.name not in declared
+    )
+    if undeclared:
+        raise RuntimeError(f"report files without declared kinds: {', '.join(undeclared)}")
 
     summary = {
         "total_functions": report.total_functions,
@@ -1501,9 +1558,13 @@ def generate_report(cfg: ProjectConfig, out: Path, *, trusted: Any = None) -> di
     # Primary nav pages stay first and stable for --json consumers; extras
     # (index-p2.html, …) follow in write order.
     primary_names = ["index.html", "strings.html", "imports.html", "graph.html"]
-    written = [name for name, _ in page_files]
-    extra = [n for n in written if n not in primary_names]
-    return {"out": str(out), "pages": primary_names + extra, "summary": summary}
+    extra = [n for n, _content, _kinds in page_files if n not in primary_names]
+    return {
+        "out": str(out),
+        "pages": primary_names + extra,
+        "summary": summary,
+        "kinds": {name: list(kinds) for name, kinds in sorted(declared.items())},
+    }
 
 
 def generate_decomp_dev_report(

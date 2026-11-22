@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Added
+
+- The report site states what each of its files carries that a reader may be refused. A retained `rebrew.report`'s `manifest` entries gain `kinds`, from the closed set `call_graph`, `cross_references`, `decompilation`, `ai_derived`, `member_identities`, or `["none"]` alone (`rebrew.report.SITE_DATA_KINDS`), and `rebrew report --json` and `generate_report` answer `kinds` for every written file, sidecars included. Each page declares its kinds where it is generated, and a site file without one fails the report. From reading each generator: `graph.html`, `adjacency.txt` and `callgraph.mmd` are `call_graph`; `strings.html` and `strings-pN.html` are `cross_references` (each string lists its referencing addresses); `index*.html`, `imports*.html`, `import-stubs*.html` and `favicon.svg` are `none` (no page carries decompiled source, string literals from decompilations, caller or callee lists outside the call graph files, AI-derived text or member identities). A consumer withholds by `kinds`, not by file names, and treats a manifest entry without `kinds` (from an older rebrew) as carrying every kind.
+
 ## [6.69.0] - 2026-11-22
 
 ### Changed

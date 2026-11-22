@@ -660,13 +660,17 @@ class TestReportPayloadShape:
         from rebrew.report import _write_static
 
         path = tmp_path / "page.html"
-        _write_static(path, "function index row " * 40)
+        declared: dict[str, Any] = {}
+        _write_static(path, "function index row " * 40, ("none",), declared)
+        assert declared == dict.fromkeys(("page.html", "page.html.gz", "page.html.zst"), ("none",))
         gz_path = Path(str(path) + ".gz")
         zst_path = Path(str(path) + ".zst")
         assert gz_path.is_file()
         assert zst_path.is_file()
         assert int.from_bytes(gz_path.read_bytes()[4:8], "little") == 0
-        _write_static(path, "x")
+        declared.clear()
+        _write_static(path, "x", ("none",), declared)
+        assert declared == {"page.html": ("none",)}
         assert path.read_text(encoding="utf-8") == "x"
         assert not gz_path.exists()
         assert not zst_path.exists()
@@ -1324,3 +1328,46 @@ class TestDisplayName:
         assert _display_name(SourceBinding(name="", symbol="_foo"), src) == "foo"
         assert _display_name(SourceBinding(name="kept", symbol="hook@@12"), src) == "kept"
         assert _display_name(SourceBinding(name="", symbol=""), src) == "hook"
+
+
+class TestSiteDataKinds:
+    """Every file the site writes states what it carries; one that does not fails the build."""
+
+    def test_every_written_file_is_declared(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.config import load_config
+        from rebrew.report import generate_report
+
+        _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
+        monkeypatch.chdir(tmp_path)
+        site = tmp_path / "site"
+        kinds = generate_report(load_config(tmp_path), site)["kinds"]
+        assert set(kinds) == {path.name for path in site.iterdir()}
+        assert kinds["graph.html"] == ["call_graph"]
+        assert kinds["strings.html"] == ["cross_references"]
+        assert kinds["index.html"] == kinds["imports.html"] == ["none"]
+
+    def test_an_undeclared_page_fails_the_build(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew import report as report_mod
+        from rebrew.config import load_config
+
+        _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
+        monkeypatch.chdir(tmp_path)
+        declare = report_mod._write_static
+
+        def forgetful(path: Path, content: Any, kinds: Any, declared: Any, **kw: Any) -> None:
+            declare(path, content, kinds, {} if path.name == "imports.html" else declared, **kw)
+
+        monkeypatch.setattr(report_mod, "_write_static", forgetful)
+        with pytest.raises(RuntimeError, match=r"imports\.html"):
+            report_mod.generate_report(load_config(tmp_path), tmp_path / "site")
+
+    @pytest.mark.parametrize("kinds", [(), ("none", "call_graph")])
+    def test_none_stands_alone(self, tmp_path: Path, kinds: Any) -> None:
+        from rebrew.report import _write_static
+
+        with pytest.raises(ValueError, match="kinds"):
+            _write_static(tmp_path / "page.html", "x", kinds, {})
