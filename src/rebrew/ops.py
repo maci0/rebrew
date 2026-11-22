@@ -5075,6 +5075,10 @@ class OpsServer(ThreadingHTTPServer):
     :meth:`metrics_snapshot`) behind ``/health`` and ``/metrics`` on the
     same port: counters plus latency, so an operator can pivot from a
     metric anomaly to the access lines that name the op and its id.
+
+    A graceful stop is :meth:`request_stop` (from a signal handler: refuse new
+    calls and end :meth:`serve_forever`), then :meth:`drain` (wait for the calls
+    in flight).
     """
 
     daemon_threads = True
@@ -5096,9 +5100,9 @@ class OpsServer(ThreadingHTTPServer):
         self.answer = answer
         self.token = token
         self.slots = threading.BoundedSemaphore(concurrency)
-        self.active = 0
-        self.draining = False
-        self.idle = threading.Condition()
+        self._active = 0
+        self._draining = False
+        self._idle = threading.Condition()
         self.allowed_hosts = _allowed_hosts_for(address[0], self.server_address[1]) | allowed_hosts
         self._metrics_lock = threading.Lock()
         self._request_count = 0
@@ -5121,6 +5125,27 @@ class OpsServer(ThreadingHTTPServer):
         # cannot say which op is slow or failing; the access line names the
         # op but no counter does.
         self._per_op: dict[str, dict[str, float]] = {}
+
+    def request_stop(self) -> None:
+        """Refuse every new call 503 and end :meth:`serve_forever`; later calls change nothing.
+
+        Safe from a signal handler: the shutdown runs on its own thread.
+        """
+        with self._idle:
+            if self._draining:
+                return
+            self._draining = True
+        threading.Thread(target=self.shutdown, daemon=True).start()
+
+    def drain(self, timeout: float) -> int:
+        """Refuse every new call and wait up to *timeout* seconds for those in flight.
+
+        Returns how many are still in flight, 0 once all have answered.
+        """
+        with self._idle:
+            self._draining = True
+            self._idle.wait_for(lambda: self._active == 0, timeout=timeout)
+            return self._active
 
     def record_request(self, code: int, elapsed_ms: float, op: str = "/unknown") -> None:
         with self._metrics_lock:
@@ -5211,7 +5236,7 @@ class OpsServer(ThreadingHTTPServer):
                     "latency_ms_avg": (self._latency_ms_total / self._request_count)
                     if self._request_count
                     else 0.0,
-                    "in_flight": self.active,
+                    "in_flight": self._active,
                     "busy_refusals": self._busy_refusals,
                     "unhandled_errors": self._unhandled_errors,
                     "uptime_seconds": time.monotonic() - self._started_at,
@@ -5477,10 +5502,10 @@ class _OpsHandler(BaseHTTPRequestHandler):
             )
             self._refuse("unauthorized", "a valid bearer token is required", 401)
             return
-        with server.idle:
-            admitted = not server.draining and server.slots.acquire(blocking=False)
+        with server._idle:
+            admitted = not server._draining and server.slots.acquire(blocking=False)
             if admitted:
-                server.active += 1
+                server._active += 1
         if not admitted:
             with server._metrics_lock:
                 server._busy_refusals += 1
@@ -5493,10 +5518,10 @@ class _OpsHandler(BaseHTTPRequestHandler):
         try:
             self._answer(server)
         finally:
-            with server.idle:
-                server.active -= 1
+            with server._idle:
+                server._active -= 1
                 server.slots.release()
-                server.idle.notify_all()
+                server._idle.notify_all()
 
     def _cross_origin_browser_post(self) -> bool:
         """True when the request carries a browser Origin/Referer header.
@@ -5853,6 +5878,10 @@ def _descriptor_progress() -> Callable[[int, int], None] | None:
     return write
 
 
+#: Seconds ``serve`` waits, once stopped, for the calls in flight to answer.
+SERVE_DRAIN_SECONDS = 30.0
+
+
 @app.command(
     "serve",
     epilog="[bold]Examples:[/bold]\n\n"
@@ -5920,11 +5949,7 @@ def serve_command(
     console.print(f"serving rebrew ops on http://{host}:{server.server_port}")
 
     def stop(_signum: int, _frame: Any) -> None:
-        with server.idle:
-            if server.draining:
-                return
-            server.draining = True
-        threading.Thread(target=server.shutdown, daemon=True).start()
+        server.request_stop()
 
     # SIGTERM is never delivered on Windows; Ctrl+C raises KeyboardInterrupt
     # instead, which serve_forever propagates as the shutdown path. Mirror
@@ -5937,9 +5962,7 @@ def serve_command(
         server.serve_forever()
     finally:
         server.server_close()
-        with server.idle:
-            server.draining = True
-            server.idle.wait_for(lambda: server.active == 0, timeout=30)
+        server.drain(SERVE_DRAIN_SECONDS)
         restore_log()
         stop_telemetry()
         if sigterm is not None:

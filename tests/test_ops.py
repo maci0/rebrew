@@ -3451,6 +3451,15 @@ class TestRetainedSnapshotApi:
             "ops",
             "answer",
         ]
+        assert list(inspect.signature(ops.OpsServer.request_stop).parameters) == ["self"]
+        assert list(inspect.signature(ops.OpsServer.drain).parameters) == ["self", "timeout"]
+        from rebrew import telemetry
+
+        assert list(inspect.signature(telemetry.configure).parameters) == [
+            "endpoint",
+            "service",
+            "version",
+        ]
         assert ops.OpsError is OpsError
 
     def test_stages_the_manifest_and_removes_it_after(
@@ -4446,3 +4455,40 @@ class TestCallerOpTable:
         assert rebrew_op[0] == 404
         assert 'rebrew_ops_per_op_requests_total{op="/engine.echo"}' in metrics
         assert 'op="/rebrew.verify_function"' not in metrics
+
+    def test_a_stop_drains_the_call_in_flight_through_the_documented_names(self) -> None:
+        """``request_stop`` ends ``serve_forever`` and refuses new calls; ``drain`` waits
+        for the call in flight (docs/PYTHON_API.md), so an engine needs no server state."""
+        from rebrew.ops import OpsServer, WorkerConfig
+
+        entered = threading.Event()
+        release = threading.Event()
+
+        def answer(config: WorkerConfig, name: str, body: bytes) -> tuple[int, bytes]:
+            entered.set()
+            assert release.wait(WAIT_SECONDS)
+            return 200, b'{"done": true}'
+
+        with OpsServer(
+            ("127.0.0.1", 0), WorkerConfig(), TOKEN, 2, ops={"engine.slow"}, answer=answer
+        ) as server:
+            serving = threading.Thread(
+                target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+            )
+            serving.start()
+            port = server.server_address[1]
+            replies: list[tuple[int, str, bytes]] = []
+            caller = threading.Thread(
+                target=lambda: replies.append(self._call(port, "POST", "/engine.slow", b"{}"))
+            )
+            caller.start()
+            assert entered.wait(WAIT_SECONDS)
+            server.request_stop()
+            server.request_stop()  # a second signal changes nothing
+            serving.join(WAIT_SECONDS)
+            assert not serving.is_alive()
+            assert server.drain(0) == 1
+            release.set()
+            assert server.drain(WAIT_SECONDS) == 0
+            caller.join(WAIT_SECONDS)
+        assert replies == [(200, "", b'{"done": true}')]

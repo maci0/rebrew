@@ -258,8 +258,28 @@ def answer(config: WorkerConfig, name: str, body: bytes) -> tuple[int, bytes]:
 
 server = OpsServer(("127.0.0.1", 0), WorkerConfig(filestore, workspace), token, 4,
                    ops=ENGINE_OPS, answer=answer)
-server.serve_forever()
+signal.signal(signal.SIGTERM, lambda _signum, _frame: server.request_stop())
+try:
+    server.serve_forever()
+finally:
+    server.server_close()
+    left = server.drain(30)  # the calls still in flight after 30 s; 0 once all answered
 ```
+
+The graceful stop is these two calls and nothing else of the server's state.
+`request_stop()` refuses every new call 503 `worker-busy` and ends
+`serve_forever()` from its own thread, so it is safe in a signal handler; a second
+call changes nothing. `drain(timeout)` refuses new calls the same way, waits up to
+*timeout* seconds for the calls in flight to answer, and returns how many are
+still in flight. `rebrew ops serve` stops this way.
+
+An engine exports its server's spans with `rebrew.telemetry.configure(endpoint,
+service, version)`: it starts posting finished spans to the OTLP/HTTP collector at
+*endpoint* (`<endpoint>/v1/traces`) under the service name and version, raises
+`ValueError` for an endpoint that is not an `http(s)` URL with a host and without
+credentials, and returns the shutdown to call when the server stops. Without it
+the server's spans still continue the caller's `traceparent`, and nothing is
+exported. These are the only telemetry names an engine uses.
 
 The Python import surface is not frozen and has no deprecation window, so pin
 the minor version if you import rebrew as a library. The full compatibility
