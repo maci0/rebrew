@@ -506,6 +506,38 @@ class TestImportModuleFromDll:
         assert by_name["DirectDrawCreate"] == "DDRAW"  # not MSVCRT
         assert by_name["_malloc"] == "MSVCRT"
 
+    def test_ordinal_import_takes_its_import_library_name(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        import struct
+
+        from bin_util import make_lib_archive
+
+        from rebrew.identify_library import _import_candidates
+
+        names = b"_bind@12\0WS2_32.dll\0"
+        # IMPORT_OBJECT_HEADER: Sig1 0, Sig2 0xFFFF, version, i386, time, size, ordinal, flags
+        # (code import, name type ORDINAL).
+        member = struct.pack("<HHHHIIHH", 0, 0xFFFF, 0, 0x14C, 0, len(names), 2, 0) + names
+        lib = tmp_path / "ws2_32.lib"
+        lib.write_bytes(make_lib_archive([("WS2_32.dll", member)]))
+        cfg = self._cfg(tmp_path)
+        cfg.external_libs = {"WS2_32": str(lib)}
+        monkeypatch.setattr(
+            "rebrew.formats.import_table.find_import_stubs",
+            lambda path: {0x1000: "ordinal_2", 0x1006: "ordinal_9"},
+        )
+        monkeypatch.setattr(
+            "rebrew.formats.import_table.parse_imports",
+            lambda path: [
+                {"dll": "WS2_32.dll", "name": "ordinal_2", "iat_va": 1},
+                {"dll": "WS2_32.dll", "name": "ordinal_9", "iat_va": 2},
+            ],
+        )
+        out = {c.va: (c.name, c.module) for c in _import_candidates(cfg, "MSVCRT")}
+        assert out[0x1000] == ("_bind@12", "WS2_32")
+        assert out[0x1006] == ("ordinal_9", "WS2_32")  # no import-library entry: stays visible
+
     def test_unknown_import_falls_back_to_heuristic(self, tmp_path: Path, monkeypatch) -> None:
         from rebrew.identify_library import _import_candidates
 

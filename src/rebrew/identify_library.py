@@ -21,8 +21,9 @@ written (same rule as ``rebrew library crt-match --fix-source``).
 from __future__ import annotations
 
 from dataclasses import dataclass
+lazy import re
 lazy from collections.abc import Iterator
-lazy from pathlib import Path
+lazy from pathlib import Path, PureWindowsPath
 lazy from typing import Any
 
 import typer
@@ -327,9 +328,14 @@ def _import_candidates(cfg: Any, default_module: str) -> list[LibCandidate]:
         )
         dll_by_name = {}
 
+    ordinal_symbols = _ordinal_symbols(cfg)
     out: list[LibCandidate] = []
     for va, name in stubs.items():
         module = dll_by_name.get(str(name)) or infer_module(str(name), default_module)
+        ordinal = re.fullmatch(r"ordinal_(\d+)", str(name))
+        if ordinal:
+            # An import by ordinal carries no name; the import library has one.
+            name = ordinal_symbols.get((module, int(ordinal[1])), name)
         out.append(
             LibCandidate(
                 va=va,
@@ -340,6 +346,43 @@ def _import_candidates(cfg: Any, default_module: str) -> list[LibCandidate]:
             )
         )
     return out
+
+
+def _ordinal_symbols(cfg: Any) -> dict[tuple[str, int], str]:
+    """``(DLL stem, ordinal) -> decorated symbol`` from the target's import libraries.
+
+    Reads the configured ``external_libs`` archives that are on disk (path specs
+    and stock archives already cached); an archive that cannot be read is
+    skipped with a warning, and its ordinal imports keep ``ordinal_N``.
+    """
+    from rebrew.formats.archives import stock_lib_cache, stock_lib_valid
+    from rebrew.lib_inspect import inspect_archive
+
+    root = Path(getattr(cfg, "root", "."))
+    symbols: dict[tuple[str, int], str] = {}
+    for spec in (getattr(cfg, "external_libs", None) or {}).values():
+        spec = (spec or "").strip()
+        if not spec:
+            continue
+        if "/" in spec or "\\" in spec:
+            path = Path(spec.replace("\\", "/"))
+            path = path if path.is_absolute() else root / path
+        else:
+            path = stock_lib_cache(root, spec, getattr(cfg, "compiler_profile", ""))
+            if not stock_lib_valid(path):
+                continue
+        if not path.is_file():
+            continue
+        try:
+            rows = inspect_archive(path)
+        except (OSError, ValueError) as exc:
+            console.print(f"[yellow]warning:[/yellow] cannot read import library {path}: {exc}")
+            continue
+        for row in rows:
+            if row["kind"] == "import" and row["ordinal"] is not None:
+                dll = PureWindowsPath(row["dll"]).stem.upper()
+                symbols.setdefault((dll, int(row["ordinal"])), row["symbol"])
+    return symbols
 
 
 def _existing_vas(cfg: Any) -> set[int]:

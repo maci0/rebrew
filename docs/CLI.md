@@ -6186,7 +6186,11 @@ operation, separate from scanning the binary.
 `rebrew library identify [OPTIONS]`
 
 Mark VAs as library glue (CRT/ZLIB/etc.) using the library-identification
-backends: powers `rebrew binary analyze`'s library section.
+backends: powers `rebrew binary analyze`'s library section. An import stub of an
+import by ordinal takes the decorated symbol its configured import library
+(`external_libs`, path specs and cached stock archives) records for that DLL and
+ordinal, such as `_bind@12` for WS2_32 ordinal 2; without one it stays
+`ordinal_N`.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |

@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- `rebrew library identify` named the import stub of every import by ordinal `ordinal_N` (WS2_32's `bind` was `ordinal_2`), though the target's configured import library records the decorated symbol for each ordinal. The stub now takes that symbol (`_bind@12`) from the `external_libs` archives on disk; an ordinal no import library lists keeps `ordinal_N`.
+
 ## [6.64.0] - 2026-11-21
 
 ### Fixed
