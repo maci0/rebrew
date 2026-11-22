@@ -1865,6 +1865,40 @@ class TestReconstructionOps:
         )
         assert status == 400
 
+    @pytest.mark.parametrize("bound", ["MAX_REPORT_FILES", "MAX_REPORT_BYTES"])
+    def test_a_retained_report_over_the_bounds_is_the_engines_failure(
+        self,
+        fresh_analysis: tuple[Path, dict[str, Any]],
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        bound: str,
+    ) -> None:
+        """The site is rebrew's own output from a verified snapshot: no request of the
+        caller's is malformed, so the refusal is a 5xx of its own, not invalid-request."""
+        config, request, _analysed, _envelope = _retained_coverage_request(fresh_analysis, tmp_path)
+        monkeypatch.setattr(f"rebrew.ops.{bound}", 1)
+        site = {**request, "binary_id": 1, "output_dir": "reports/generated/" + "b" * 32}
+        status, body = dispatch(config, "rebrew.report", json.dumps(site).encode())
+        refusal = json.loads(body)
+        assert (status, refusal["error"]) == (500, "report-output-invalid"), refusal
+        assert not (config.workspace / site["output_dir"]).exists()
+
+    def test_a_retained_report_that_wrote_nothing_is_the_engines_failure(
+        self,
+        fresh_analysis: tuple[Path, dict[str, Any]],
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        config, request, _analysed, _envelope = _retained_coverage_request(fresh_analysis, tmp_path)
+        monkeypatch.setattr(
+            "rebrew.report.generate_report",
+            lambda _cfg, out, **_k: {"out": str(out), "pages": [], "summary": {}, "kinds": {}},
+        )
+        site = {**request, "binary_id": 1, "output_dir": "reports/generated/" + "c" * 32}
+        status, body = dispatch(config, "rebrew.report", json.dumps(site).encode())
+        refusal = json.loads(body)
+        assert (status, refusal["error"]) == (500, "report-output-invalid"), refusal
+
     def test_retained_ops_do_not_read_project_dir(
         self,
         fresh_analysis: tuple[Path, dict[str, Any]],

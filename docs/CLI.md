@@ -7142,7 +7142,11 @@ Binaries are referenced, never sent:
   `favicon.svg`) is `none`; no page carries decompiled source, AI-derived
   text or member identities. A consumer withholds a file by its `kinds`, never
   by its name, and fails closed: a manifest entry without `kinds` (from an
-  older rebrew) is to be treated as carrying every kind.
+  older rebrew) is to be treated as carrying every kind. The dispatch schema
+  declares the reply and the set as its `enum`. A retained site over 4096 files
+  or 64 MiB (`rebrew.ops.MAX_REPORT_FILES`, `MAX_REPORT_BYTES`), empty, or holding
+  a symlink is not retained: the engine's failure, 500 `report-output-invalid`,
+  and the output directory is removed.
 
 Project paths (`project_dir`, `snapshots`) must be absolute. With a
 `--workspace` they must also resolve, symlinks followed, inside it; `serve`

@@ -555,6 +555,15 @@ ANALYSIS_REPORT_PATH = ".relumea/analysis-report.json"
 
 READSET_TOO_LARGE = "readset-too-large"
 ANALYSIS_CAPTURE_FAILED = "analysis-capture-failed"
+#: A retained report site rebrew generated that it will not retain: over
+#: :data:`MAX_REPORT_FILES` or :data:`MAX_REPORT_BYTES`, empty, or holding a
+#: symlink.  The site is rebrew's own output from a verified snapshot, so the
+#: engine's failure (500), not the caller's.
+REPORT_OUTPUT_INVALID = "report-output-invalid"
+
+#: The most files and bytes a retained report site holds.
+MAX_REPORT_FILES = 4096
+MAX_REPORT_BYTES = 64 * 1024 * 1024
 UNSUPPORTED_BINARY_FORMAT = "unsupported-binary-format"
 #: A project archive the worker will not import: an unsafe or oversized entry, no matching
 #: target binary, or a setting that would run something.  The caller's to fix.
@@ -598,6 +607,11 @@ def _invalid_project_config(root: Path, exc: Exception) -> OpsError:
 def _import_refused(detail: str) -> OpsError:
     """A project archive refused for what it holds; *detail* names the entry or setting."""
     return OpsError(_bounded(detail), code=PROJECT_IMPORT_REFUSED, status=422)
+
+
+def _report_output_invalid(detail: str) -> OpsError:
+    """rebrew's own report site cannot be retained: the engine's failure."""
+    return OpsError(detail, code=REPORT_OUTPUT_INVALID, status=500)
 
 
 def _capture_failed(detail: str) -> OpsError:
@@ -2486,11 +2500,14 @@ def report(config: WorkerConfig, req: ReportRequest) -> dict[str, Any]:
                 size = 0
                 for path in sorted(out.rglob("*")):
                     if path.is_symlink():
-                        raise _invalid("report output must not contain symlinks")
+                        raise _report_output_invalid("the generated report holds a symlink")
                     if path.is_file():
                         size += path.stat().st_size
-                        if len(entries) >= 4096 or size > 64 * 1024 * 1024:
-                            raise _invalid("report output exceeds bounds")
+                        if len(entries) >= MAX_REPORT_FILES or size > MAX_REPORT_BYTES:
+                            raise _report_output_invalid(
+                                f"the generated report is over {MAX_REPORT_FILES} files "
+                                f"or {MAX_REPORT_BYTES} bytes"
+                            )
                         relative = path.relative_to(out).as_posix()
                         if relative not in kinds:
                             # Every file states what it carries; one that does not
@@ -2505,7 +2522,7 @@ def report(config: WorkerConfig, req: ReportRequest) -> dict[str, Any]:
                             }
                         )
                 if not entries:
-                    raise _invalid("report output is empty")
+                    raise _report_output_invalid("the generated report holds no file")
                 return {**result, "out": str(out), "manifest": entries}
         except BaseException:
             shutil.rmtree(out)
