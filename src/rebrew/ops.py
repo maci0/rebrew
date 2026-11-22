@@ -605,24 +605,26 @@ def _refused(detail: str) -> OpsError:
     return OpsError(detail)
 
 
-#: The detail of a :data:`COMPILER_NOT_INSTALLED` refusal.
-_COMPILER_NOT_INSTALLED_DETAIL = (
-    "the recompile service has not installed the compiler this compile names: "
-    "nothing was compiled or billed"
-)
+#: The refusal an op answers a compile with whose recompile ``error_code`` is final
+#: for every retry: (problem code, detail).  Nothing was compiled or billed.
+_FINAL_RECOMPILE_REFUSALS: dict[str, tuple[str, str]] = {
+    "compiler_not_installed": (
+        COMPILER_NOT_INSTALLED,
+        "the recompile service has not installed the compiler this compile names: "
+        "nothing was compiled or billed",
+    ),
+    # recompile 13 checks the bound rebrew checks first (recompile_client.Attribution).
+    "invalid_attribution": (INVALID_REQUEST, "the recompile service refused the attribution"),
+}
 
 
-def _refuse_uninstalled(result: dict[str, Any]) -> dict[str, Any]:
-    """*result*, unless it is a NOT_RUN of a compiler the remote compile service has not installed."""
-    from rebrew.compiler import recompile_client
-
+def _final_recompile_refusal(result: dict[str, Any]) -> dict[str, Any]:
+    """*result*, unless it is a NOT_RUN whose recompile refusal no retry changes."""
     error = result.get("error")
-    if (
-        result.get("status") == "NOT_RUN"
-        and isinstance(error, dict)
-        and error.get("error_code") == recompile_client.COMPILER_NOT_INSTALLED
-    ):
-        raise OpsError(_COMPILER_NOT_INSTALLED_DETAIL, code=COMPILER_NOT_INSTALLED, status=400)
+    code = error.get("error_code") if isinstance(error, dict) else None
+    if result.get("status") == "NOT_RUN" and code in _FINAL_RECOMPILE_REFUSALS:
+        problem, detail = _FINAL_RECOMPILE_REFUSALS[code]
+        raise OpsError(detail, code=problem, status=400)
     return result
 
 
@@ -2578,7 +2580,7 @@ def run_rebrew(
         with contextlib.suppress(json.JSONDecodeError):
             printed = json.loads(stdout)
             if isinstance(printed, dict) and printed.get("status") == "NOT_RUN":
-                return _refuse_uninstalled(printed)
+                return _final_recompile_refusal(printed)
     if refused:
         kind, message = _command_refusal(stderr)
         if kind == "usage":
@@ -2591,7 +2593,11 @@ def run_rebrew(
         if kind == TOOLCHAIN_REJECTED_KIND:
             raise _toolchain_rejected(message, [project])
         if kind == COMPILER_NOT_INSTALLED_KIND:
-            raise OpsError(_COMPILER_NOT_INSTALLED_DETAIL, code=COMPILER_NOT_INSTALLED, status=400)
+            raise OpsError(
+                _FINAL_RECOMPILE_REFUSALS["compiler_not_installed"][1],
+                code=COMPILER_NOT_INSTALLED,
+                status=400,
+            )
         logger.error(
             "rebrew %s exited %d: %s", name, process.returncode, _escape_log_text(stderr.strip())
         )
@@ -3690,7 +3696,9 @@ def verify_function(config: WorkerConfig, req: VerifyRequest) -> dict[str, Any]:
     cfg = target_config(root, req.sha256)
     source = _project_file(root, req.source, "source")
     remote_header_refusal(cfg, [source])
-    return _refuse_uninstalled(run_test(cfg, source, no_promote=req.no_promote, json_output=True))
+    return _final_recompile_refusal(
+        run_test(cfg, source, no_promote=req.no_promote, json_output=True)
+    )
 
 
 def verify_candidate(config: WorkerConfig, req: VerifyRequest) -> dict[str, Any]:

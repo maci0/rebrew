@@ -7071,7 +7071,9 @@ request fields and their replies are the backend's contract
 operations are served through both transports. A request with an unknown or missing field, or a field of the
 wrong JSON type, is refused. A refusal is
 `{"error","detail","status"}`: `invalid-request` (400; 413 when the request
-exceeds 16 MiB; also a wrapped command's `usage` error, with its message),
+exceeds 16 MiB; also a wrapped command's `usage` error, with its message, and a
+compile recompile refused `400 invalid_attribution`: "the recompile service refused
+the attribution", nothing billed),
 `unknown-op` (404), `engine-error` (500),
 `remote-compile-headers` (422, see below), `toolchain-rejected` (422: the toolchain
 ran and rejected the source; the detail is `COMPILE_ERROR: ` and its diagnostics,

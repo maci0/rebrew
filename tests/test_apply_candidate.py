@@ -1323,3 +1323,22 @@ def test_a_listing_that_names_no_installed_compiler_holds_nothing_back(
     """recompile 12 lists every compiler unavailable: the compile is sent as before."""
     reply, seen = _verify(tmp_path, monkeypatch, [_OK], installed=installed)
     assert reply["remote_compile"]["count"] == 1 == len(seen)
+
+
+def test_an_attribution_recompile_refuses_is_the_callers_invalid_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """recompile 13 refuses a malformed attribution 400 invalid_attribution, before admission."""
+    seen: list[dict[str, str]] = []
+    with _recompile(seen, answers=[_refused(400, "invalid_attribution"), _OK]) as url:
+        config, entries = _compiling_at(url, tmp_path, monkeypatch)
+        status, raw = dispatch(
+            config,
+            "rebrew.verify_function",
+            _request(entries, candidate="void fcn_00401000(void) {}\n", attribution=ATTRIBUTION),
+        )
+    refusal = json.loads(raw)
+    assert (status, refusal["error"]) == (400, "invalid-request"), refusal
+    assert refusal["detail"] == "the recompile service refused the attribution"
+    assert len(seen) == 1
+    assert (refusal["remote_compile"]["count"], refusal["remote_compile"]["unsettled"]) == (0, 0)

@@ -244,12 +244,13 @@ class HttpClient(Protocol):
     ) -> HttpResponse: ...
 
 
-#: The request header that names the Workbench work a compile is for.  recompile
-#: 12.0.0 neither reads nor documents it.
+#: The request header that names the Workbench work a compile is for (recompile
+#: ``docs/API.md``, "Request"; recompile before 13 ignores it).
 ATTRIBUTION_HEADER = "X-Relumea-Attribution"
 
-#: Longest attribution member, in characters.  The bound is rebrew's own: recompile
-#: 12.0.0 enforces none.
+#: Longest attribution member, in characters: recompile 13's bound, which it
+#: enforces with ``400 invalid_attribution`` before admission, unbilled.  Checked
+#: here first, so a malformed attribution is refused before anything is sent.
 ATTRIBUTION_MEMBER_MAX_CHARS = 128
 
 
