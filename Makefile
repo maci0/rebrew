@@ -1,5 +1,5 @@
 .PHONY: help doctor setup clean test test-one lint format format-check check build sbom all pr-check \
-	gen-fixtures gen-fixtures-check gen-skills gen-skills-check gen-flags gen-flags-check jobs-check jobs-build \
+	gen-fixtures gen-fixtures-check gen-dispatch-schema gen-skills gen-skills-check gen-flags gen-flags-check jobs-check jobs-build \
 	cycles-check idempotency-check mypy audit \
 	cli-contract release-check coverage ensure-uv ensure-resembl ensure-nasm warn-nasm ensure-bun warn-bun warn-shellcheck \
 	warn-yamllint warn-biome \
@@ -202,6 +202,7 @@ help:
 		'  make pr-check           # full local CI verification (all + check + build + sdist-check + smoke-wheel + build-repro + verify-dist + sbom)' \
 		'  make gen-fixtures       # regenerate tests/fixtures/ from tools/gen_fixtures.py' \
 		'  make gen-fixtures-check # tools/gen_fixtures.py --check' \
+		'  make gen-dispatch-schema # write the closed sets rebrew enforces into the dispatch schema' \
 		'  make gen-skills         # regenerate .agents/skills/ from src/rebrew/agent-skills/' \
 		'  make gen-skills-check   # verify .agents/skills/ matches src/rebrew/agent-skills/' \
 		'  make gen-flags          # re-sync MSVC flag axes from decomp.me (maintainer; needs network)' \
@@ -1282,6 +1283,11 @@ gen-fixtures: ensure-uv
 # Fixture freshness: checked-in fixtures match the generator (CI test job).
 gen-fixtures-check: ensure-uv
 	uv run --frozen python tools/gen_fixtures.py --check
+
+# Write the closed sets the code enforces as enums into the dispatch schema
+# (tests/test_ops.py fails when the checked-in schema differs).
+gen-dispatch-schema: ensure-uv
+	uv run --frozen python tools/gen_dispatch_schema.py
 
 # Regenerate rendered agent skills from src/rebrew/agent-skills/ (target bench).
 # tools/render_skills.py owns the render so the substitution is deterministic

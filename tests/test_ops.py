@@ -263,13 +263,22 @@ class TestContract:
     def test_request_enums_are_the_sets_the_ops_enforce(self) -> None:
         """A caller validating against the schema sees exactly what the op refuses others of."""
         from rebrew import ops
+        from rebrew.metadata.bindings import DATA_KINDS
+        from rebrew.security_scan import SEVERITY_ORDER
         from rebrew.snapshot_mutations import OPERATIONS
 
         enforced = {
             ("rebrew.retained_source_operation", "operation"): OPERATIONS,
+            # A rename's kinds and a data-set's: each operation refuses the other's.
+            ("rebrew.retained_source_operation", "kind"): {*ops.RENAME_KINDS, *DATA_KINDS},
             ("rebrew.flag_search", "tier"): ops.FLAG_SEARCH_TIERS,
             ("rebrew.disassemble", "format"): ops.DISASM_FORMATS,
             ("rebrew.reference_flirt", "format"): ops.FLIRT_FORMATS,
+            ("rebrew.decompile", "backend"): ops.DECOMPILER_BACKENDS,
+            ("rebrew.decompile_snapshot", "backend"): ops.DECOMPILER_BACKENDS,
+            ("rebrew.structs", "decompiler"): ops.DECOMPILER_BACKENDS,
+            ("rebrew.security_scan", "min_severity"): SEVERITY_ORDER,
+            ("rebrew.security_scan_snapshot", "min_severity"): SEVERITY_ORDER,
         }
         published = {
             (name, field): set(schema["enum"])
@@ -278,6 +287,21 @@ class TestContract:
             if "enum" in schema
         }
         assert published == {key: set(values) for key, values in enforced.items()}
+
+    def test_the_report_manifest_publishes_its_kinds(self) -> None:
+        """A consumer withholds a site file by its kinds; the schema names the set."""
+        from rebrew.report import SITE_DATA_KINDS
+
+        entry = _CONTRACT["ops"]["rebrew.report"]["response"]["properties"]["manifest"]["items"]
+        assert entry["required"] == ["path", "size", "digest", "kinds"]
+        assert entry["properties"]["kinds"]["items"]["enum"] == list(SITE_DATA_KINDS)
+
+    def test_the_schema_is_what_the_generator_writes(self) -> None:
+        """Each enum is written from the set the code enforces (tools/gen_dispatch_schema.py)."""
+        from tools.gen_dispatch_schema import SCHEMA, render
+
+        current = SCHEMA.read_text(encoding="utf-8")
+        assert render(current) == current
 
 
 def _lstrlen_calls(lstrlen: int, _local_alloc: int) -> str:
