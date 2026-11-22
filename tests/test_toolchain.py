@@ -345,10 +345,12 @@ class TestImageMsvcEnv:
         """``tool_root`` must be the dir the image's ``CL.EXE`` lives in.
 
         A stale root points INCLUDE/LIB at a tree that does not exist and the
-        compile fails with C1083.  Every msvc-6.0 image unpacks to
-        ``<install>/VC98/Bin``: the flat ``<install>/Bin`` layout an older
-        6.0-sp3 build had is gone now that the image is rebuilt from its
-        Dockerfile.
+        compile fails with C1083.  Every msvc-6.0 image but the win9x repack
+        unpacks to ``<install>/VC98/Bin``: the flat ``<install>/Bin`` layout an
+        older 6.0-sp3 build had is gone now that the image is rebuilt from its
+        Dockerfile.  The win9x repack is flat (its Dockerfile checks
+        ``/opt/msvc6.0-win9x/Bin/CL.EXE`` and its wrapper sets ``INCLUDE`` to
+        ``Z:\\opt\\msvc6.0-win9x\\Include``).
         """
         checked: list[str] = []
         for name, spec in TOOLCHAINS.items():
@@ -366,7 +368,9 @@ class TestImageMsvcEnv:
                 f"{name}: tool_root {spec.tool_root!r} is outside the image's "
                 f"install tree {install_root!r}"
             )
-            if install_root.startswith("/opt/msvc6.0"):
+            if install_root == "/opt/msvc6.0-win9x":
+                assert spec.tool_root == f"{install_root}/Bin", name
+            elif install_root.startswith("/opt/msvc6.0"):
                 assert spec.tool_root.lower() == f"{install_root.lower()}/vc98/bin", (
                     f"{name}: tool_root {spec.tool_root!r} is not the image's VC98/Bin dir"
                 )
@@ -2674,7 +2678,8 @@ class TestSmokeObjectTarget:
 
 class TestRegistryFollowsTheCatalogue:
     """The vendored recompile-toolchains manifest is the source of each profile's
-    image, withdrawal and word size; the registry repeats them and is held to it."""
+    image, withdrawal, runtime, invocation and word size; the registry repeats every
+    member both state and is held to each."""
 
     def test_every_profile_agrees_with_its_catalogue_row(self) -> None:
         from rebrew.compiler.toolchain import BUILTIN_TOOLCHAINS
@@ -2682,9 +2687,28 @@ class TestRegistryFollowsTheCatalogue:
 
         rows = {row["id"]: row for row in toolchains_manifest()["toolchains"]}
         assert set(rows) == set(BUILTIN_TOOLCHAINS)
+        disagree = []
         for name, spec in BUILTIN_TOOLCHAINS.items():
             row = rows[name]
-            assert spec.image == row["image"]["tag"], name
-            assert spec.withdrawn == row.get("withdrawn", ""), name
+            consumer = row["consumer"]
+            # The manifest names a native compiler's runtime `exec`.
+            runtime = "native" if row["runtime"] == "exec" else row["runtime"]
+            shared = {
+                "image": (spec.image, row["image"]["tag"]),
+                "withdrawn": (spec.withdrawn, row.get("withdrawn", "")),
+                "runtime": (spec.runtime, runtime),
+                "flags_style": (spec.flags_style, consumer["flags_style"]),
+                "arg_style": (spec.effective_arg_style, consumer["arg_style"]),
+                "obj_ext": (spec.obj_ext, consumer["obj_ext"]),
+                "tool_root": (spec.tool_root, consumer["tool_root"]),
+            }
+            if spec.image_entrypoint is not None:
+                shared["image_entrypoint"] = (spec.image_entrypoint, row["image_entrypoint"])
             if spec.bits is not None and row.get("bits") is not None:
-                assert spec.bits == row["bits"], name
+                shared["bits"] = (spec.bits, row["bits"])
+            disagree += [
+                (name, member, ours, theirs)
+                for member, (ours, theirs) in shared.items()
+                if ours != theirs
+            ]
+        assert disagree == []

@@ -3753,7 +3753,7 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         name="msvc-6.0-win9x",
         image="rebrew/msvc:6.0-win9x-win32",
         binary="cl",
-        runtime="wibo",
+        runtime="wine",
         flags_style="msvc",
         obj_ext=".obj",
         tool_root="/opt/msvc6.0-win9x/Bin",
@@ -3762,7 +3762,7 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         else None,
         host_bin="Bin",
         description=(
-            "MSVC 6.0 win9x-hosted tree (32-bit PE, C89) -- docker image (wibo inside). "
+            "MSVC 6.0 win9x-hosted tree (32-bit PE, C89) -- docker image (wine inside). "
             "A NINTH distinct 6.0 code generator: C2.DLL md5 3c21de2c matches none of "
             "the other eight, CL 12.00.8168.  Registered so service-pack sweeps can "
             "reach it from the CLI instead of docker-by-hand."
