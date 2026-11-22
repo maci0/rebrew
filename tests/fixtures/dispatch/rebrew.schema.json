@@ -1500,6 +1500,13 @@
         "additionalProperties": false,
         "properties": {
           "backend": {
+            "enum": [
+              "auto",
+              "ghidra",
+              "kuna",
+              "r2dec",
+              "r2ghidra"
+            ],
             "type": "string"
           },
           "named": {
@@ -1588,6 +1595,13 @@
             "type": "string"
           },
           "backend": {
+            "enum": [
+              "auto",
+              "ghidra",
+              "kuna",
+              "r2dec",
+              "r2ghidra"
+            ],
             "type": "string"
           },
           "binary_key": {
@@ -1968,11 +1982,11 @@
           },
           "tier": {
             "enum": [
+              "full",
+              "normal",
               "quick",
               "targeted",
-              "normal",
-              "thorough",
-              "full"
+              "thorough"
             ],
             "type": "string"
           },
@@ -4002,6 +4016,68 @@
       },
       "response": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "kinds": {
+            "type": "object"
+          },
+          "manifest": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "digest": {
+                  "type": "string"
+                },
+                "kinds": {
+                  "items": {
+                    "enum": [
+                      "call_graph",
+                      "cross_references",
+                      "decompilation",
+                      "ai_derived",
+                      "member_identities",
+                      "none"
+                    ],
+                    "type": "string"
+                  },
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "path",
+                "size",
+                "digest",
+                "kinds"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "out": {
+            "type": "string"
+          },
+          "pages": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "summary": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "out",
+          "pages",
+          "summary"
+        ],
         "type": "object"
       },
       "timeout_seconds": 600
@@ -4097,6 +4173,16 @@
             "type": "integer"
           },
           "kind": {
+            "enum": [
+              "DATA",
+              "GLOBAL",
+              "STRING",
+              "VTABLE",
+              "data",
+              "field",
+              "function",
+              "type"
+            ],
             "type": "string"
           },
           "link_symbol": {
@@ -4117,11 +4203,11 @@
           "operation": {
             "enum": [
               "data-set",
+              "decompme",
+              "merge",
               "rename",
               "split",
-              "merge",
-              "variants",
-              "decompme"
+              "variants"
             ],
             "type": "string"
           },
@@ -4255,6 +4341,11 @@
             "type": "integer"
           },
           "min_severity": {
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ],
             "type": "string"
           },
           "project_dir": {
@@ -4357,6 +4448,11 @@
             "type": "string"
           },
           "min_severity": {
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ],
             "type": "string"
           },
           "project_dir": {
@@ -4718,6 +4814,13 @@
             "type": "integer"
           },
           "decompiler": {
+            "enum": [
+              "auto",
+              "ghidra",
+              "kuna",
+              "r2dec",
+              "r2ghidra"
+            ],
             "type": "string"
           },
           "limit": {
