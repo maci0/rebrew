@@ -33,7 +33,8 @@ recompile_concurrency` (default 2) run at once, whatever `jobs` is, and a
 `Retry-After` a retryable reply names (a 429 or 503, or a `capacity` refusal; at most 300
 s) holds every compile of the process back for that long, also when the compile that got
 it gives up (`recompile_client.ServiceGate`). A compile the service has no room for
-now (a `capacity` or `runner_unavailable` refusal, a 429 or a 503) is waited out:
+now (a `capacity` or `runner_unavailable` refusal, a 429 or a 503), and the edge's
+`524` for a compile that ran past its 100 s, is waited out:
 it is tried again after the `Retry-After`, or the capped backoff without one, until
 the call's deadline, however many attempts that takes. Without a deadline (a CLI
 run) the waits end 300 s after the compile started

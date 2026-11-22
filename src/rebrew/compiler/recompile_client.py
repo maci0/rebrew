@@ -254,6 +254,9 @@ _ANSWERS: Mapping[tuple[_Route, int, str | None], _AnswerRule] = MappingProxyTyp
         ("compile", 503, "credit_ledger_unavailable"): _AnswerRule(None, "wait"),
         ("compile", 503, _ANY_CODE): _AnswerRule("unknown", "wait"),
         ("compile", 504, _ANY_CODE): _AnswerRule("unknown", "retry"),
+        # The edge gave up on a compile running past its 100 s: a lost reply,
+        # whose key the service answers with the compile's outcome once it has one.
+        ("compile", 524, _ANY_CODE): _AnswerRule("unknown", "wait"),
         # A download follows a billed compile and changes nothing of its cost.
         ("artifact", 200, None): _AnswerRule(None, "verdict"),
         ("artifact", 401, _ANY_CODE): _AnswerRule(None, "final"),

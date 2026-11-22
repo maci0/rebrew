@@ -7,6 +7,7 @@
 ### Fixed
 
 - **Breaking:** `msvc-6.0-win9x` runs under Wine (its `BUILTIN_TOOLCHAINS` entry's `runtime` is `wine`, was `wibo`), as its image's wrapper and the vendored `toolchains.json` row say. As a `wibo` profile it got no `INCLUDE`/`LIB` from `image_msvc_env`, and preprocessed capture and `--experimental-unshare` refused it. The registry test now compares every member the registry and the manifest both state (image, withdrawal, runtime with the manifest's `exec` read as `native`, flag and argument style, object extension, tool root, the image entrypoint and the word size where rebrew states them), so a row that disagrees fails.
+- The edge's `524` (a compile that ran past its 100 s) ended the call after one POST, unsettled, and a CLI run read the source `NOT_RUN`, though recompile 14's client rule 3 names it a lost reply. It is now waited out under the same key, with backoff, until the call's deadline (300 s without one), so the same key reads the compile the edge gave up on.
 
 ## [6.70.0] - 2026-11-22
 

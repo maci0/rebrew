@@ -2176,3 +2176,54 @@ class TestClientRulesTable:
         else:
             assert rule.then == "new_key_wait"
             assert len(set(keys[1:])) == len(keys) - 1 > 1
+
+
+class TestEdgeTimeout:
+    """The edge answers 524 when a compile runs past its 100 s: a lost reply, waited
+    out under the same key until the call's deadline (recompile's client rules, rule 3)."""
+
+    def test_a_524_is_sent_again_under_the_same_key(self) -> None:
+        keys: list[str] = []
+        replies = [
+            _Resp(524, text="timeout"),
+            _Resp(524, text="timeout"),
+            _Resp(200, json_body=_COMPILED),
+        ]
+
+        class _Edge(_FakeClient):
+            def post(self, url: str, json: Any = None, headers: Any = None, **_: Any) -> Any:
+                keys.append(headers["Idempotency-Key"])
+                return replies.pop(0)
+
+        slept: list[float] = []
+        res = compile_source(
+            "http://svc",
+            "msvc-6.0",
+            "x",
+            [],
+            client=_Edge(None, _Resp(200, content=b"OBJ")),
+            sleep=slept.append,
+        )
+        # retries=0: the waits spend no retry.
+        assert res.ok and res.obj_bytes == b"OBJ"
+        assert len(keys) == 3 and len(set(keys)) == 1
+        assert len(slept) == 2
+
+    def test_a_524_until_the_deadline_leaves_its_key_unsettled(self) -> None:
+        import time
+
+        class _Edge(_FakeClient):
+            def post(self, url: str, json: Any = None, headers: Any = None, **_: Any) -> Any:
+                return _Resp(524, text="timeout")
+
+        with pytest.raises(RecompileError) as refused:
+            compile_source(
+                "http://svc",
+                "msvc-6.0",
+                "x",
+                [],
+                client=_Edge(None),
+                sleep=[].append,
+                deadline=time.monotonic() + 12,
+            )
+        assert (refused.value.status_code, refused.value.cost) == (524, "unknown")

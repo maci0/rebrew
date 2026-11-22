@@ -1184,6 +1184,16 @@ def test_a_final_refusal_reports_what_its_key_cost(
     assert reply["remote_compile"]["unsettled"] == unsettled
 
 
+def test_an_edge_timeout_reads_the_compile_under_the_same_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The edge's 524 is a lost reply: the same key reads the compile it gave up on."""
+    reply, seen = _verify(tmp_path, monkeypatch, [(524, None), _OK])
+    assert len(seen) == 2 and len(set(_keys(seen))) == 1
+    assert reply["remote_compile"]["count"] == 1
+    assert reply["remote_compile"]["unsettled"] == 0
+
+
 def test_a_reply_lost_on_every_attempt_is_reported_unsettled(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
