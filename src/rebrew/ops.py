@@ -626,6 +626,23 @@ _FINAL_RECOMPILE_REFUSALS: dict[str, tuple[str, str | None]] = {
 }
 
 
+def _refuse_compiler_not_offered(cfg: Any) -> None:
+    """Refuse a compile of the project's compiler when it is not offered, before any work.
+
+    The registry withdrew it, or the remote compile service has not installed it
+    (``compiler.compile.compiler_not_offered``).  A source whose own toolchain
+    override names such a compiler reads ``NOT_RUN`` with the reason instead.
+    """
+    from rebrew.compiler.compile import compiler_not_offered
+    from rebrew.compiler.toolchain import CompilerNotOffered
+
+    refusal = compiler_not_offered(cfg, str(getattr(cfg, "compiler_profile", "") or ""))
+    if refusal is not None:
+        assert isinstance(refusal, CompilerNotOffered)
+        problem, detail = _FINAL_RECOMPILE_REFUSALS[refusal.error_code]
+        raise OpsError(detail or _bounded(str(refusal)), code=problem, status=400)
+
+
 def _final_recompile_refusal(result: dict[str, Any]) -> dict[str, Any]:
     """*result*, unless it is a NOT_RUN whose refusal no retry changes."""
     error = result.get("error")
@@ -4270,6 +4287,8 @@ def _run_target_command(
         ) as snapshot:
             with _step("loading the project config"):
                 cfg = load_config(snapshot, target=req.rebrew_target)
+            with _step("checking the compiler is offered"):
+                _refuse_compiler_not_offered(cfg)
             with _step("checking the sources for a remote compile"):
                 retained_compile_refusal(cfg, iter_sources(cfg.reversed_dir, cfg))
             return run_rebrew(
@@ -4283,6 +4302,8 @@ def _run_target_command(
     root = project_root(config, req.project_dir)
     with _step("loading the project config"):
         cfg = target_config(root, req.sha256)
+    with _step("checking the compiler is offered"):
+        _refuse_compiler_not_offered(cfg)
     with _step("checking the sources for a remote compile"):
         remote_header_refusal(cfg, iter_sources(cfg.reversed_dir, cfg))
     return run_rebrew(

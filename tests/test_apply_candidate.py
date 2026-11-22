@@ -1486,3 +1486,47 @@ def test_a_compile_of_a_withdrawn_compiler_is_refused_with_its_reason(
     assert (status, refusal["error"]) == (400, "compiler-not-offered"), refusal
     assert "withdrawn" in refusal["detail"] and "Itanium" in refusal["detail"]
     assert not seen
+
+
+def _target_request(entries: list[dict[str, Any]], op: str) -> bytes:
+    body: dict[str, Any] = {
+        "project_dir": "/unused",
+        "files": entries,
+        "rebrew_target": "mini",
+        "sha256": SHA256,
+        "binary_key": f"binaries/{SHA256}",
+    }
+    if op == "rebrew.verify_target":
+        body["no_promote"] = True
+    return json.dumps(body).encode()
+
+
+@pytest.mark.parametrize("op", ["rebrew.verify_target", "rebrew.build"])
+@pytest.mark.parametrize(
+    ("profile", "installed", "reason"),
+    [("msvc-9.0-sp1", MSVC_PROFILES, "Itanium"), ("msvc-7.1", ["msvc-6.0"], "not installed")],
+    ids=["withdrawn", "not-installed"],
+)
+def test_a_target_op_refuses_a_compiler_not_offered_before_any_work(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    op: str,
+    profile: str,
+    installed: list[str],
+    reason: str,
+) -> None:
+    """A whole-target compile of the project's compiler is refused as every compiling op's is,
+    not answered with every function NOT_RUN."""
+    seen: list[dict[str, str]] = []
+    with _recompile(seen, installed=installed) as url:
+        monkeypatch.setitem(
+            globals(), "PROJECT", PROJECT.replace(b'"msvc-6.0"', f'"{profile}"'.encode())
+        )
+        config, entries = _compiling_at(
+            url, tmp_path, monkeypatch, ("src/function_structure.json", b"[]")
+        )
+        status, raw = dispatch(config, op, _target_request(entries, op))
+    refusal = json.loads(raw)
+    assert (status, refusal["error"]) == (400, "compiler-not-offered"), refusal
+    assert reason in refusal["detail"]
+    assert not seen

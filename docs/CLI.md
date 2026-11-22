@@ -7085,7 +7085,9 @@ adds `Retry-After` when the service named one), `compiler-not-offered` (400, eve
 compiling op: the compiler the compile names is withdrawn from the registry, and the
 detail gives the reason, or the remote compile service has not installed it; nothing
 was compiled or billed, a retry is refused the same, so choose another compiler, see
-[TOOLCHAIN.md](TOOLCHAIN.md#compile-backends)), `candidate-not-one-function` (400),
+[TOOLCHAIN.md](TOOLCHAIN.md#compile-backends); `verify_target` and `build` check the
+project's compiler before anything runs, and a source whose own toolchain override
+names such a compiler reads `NOT_RUN` with the reason in its row), `candidate-not-one-function` (400),
 `candidate-address-comment` (400) and `candidate-name-taken` (409, see `apply_candidate`
 below), `deadline-exceeded` (504, see the deadlines below), or, from `serve` only, `worker-busy` (503) and `caller-gone` (499,
 written to a caller that has already closed). An engine failure no refusal
