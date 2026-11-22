@@ -880,13 +880,34 @@ def installed_compilers(base_url: str, *, client: HttpClient) -> frozenset[str] 
     The route needs no credential, so none is sent.  A transport failure or
     another reply raises :class:`RecompileError` (``network`` and transient HTTP
     codes are retryable).  The answer is kept per base URL for
-    :data:`_COMPILERS_WINDOW_SECONDS`.
+    :data:`_COMPILERS_WINDOW_SECONDS`, and so is a read that failed: for that
+    window the listing reads ``None`` without being asked again, so a failing
+    route costs one request per window, not one per compile.
     """
     url = base_url.rstrip("/")
     with _compilers_cache_lock:
         cached = _compilers_cache.get(url)
         if cached is not None and time.monotonic() - cached[0] < _COMPILERS_WINDOW_SECONDS:
             return cached[1]
+    try:
+        answer = _read_installed_compilers(url, client)
+    except RecompileError:
+        _remember_compilers(url, None)
+        raise
+    _remember_compilers(url, answer)
+    return answer
+
+
+def _remember_compilers(url: str, answer: frozenset[str] | None) -> None:
+    with _compilers_cache_lock:
+        _compilers_cache.pop(url, None)
+        while len(_compilers_cache) >= _COMPILERS_CACHE_MAX:
+            _compilers_cache.pop(next(iter(_compilers_cache)))
+        _compilers_cache[url] = (time.monotonic(), answer)
+
+
+def _read_installed_compilers(url: str, client: HttpClient) -> frozenset[str] | None:
+    """One read of :data:`_COMPILERS_PATH`, for :func:`installed_compilers`."""
     try:
         reply = client.get(f"{url}{_COMPILERS_PATH}", follow_redirects=False)
     except Exception as exc:
@@ -920,13 +941,7 @@ def installed_compilers(base_url: str, *, client: HttpClient) -> frozenset[str] 
     ):
         raise RecompileError(f"recompile {_COMPILERS_PATH} is not a compiler list", kind="protocol")
     admitted = frozenset(row["id"] for row in rows if row.get("execution_status") == _ADMITTED)
-    answer = admitted or None
-    with _compilers_cache_lock:
-        _compilers_cache.pop(url, None)
-        while len(_compilers_cache) >= _COMPILERS_CACHE_MAX:
-            _compilers_cache.pop(next(iter(_compilers_cache)))
-        _compilers_cache[url] = (time.monotonic(), answer)
-    return answer
+    return admitted or None
 
 
 def compile_source(

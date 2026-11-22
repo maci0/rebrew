@@ -2284,3 +2284,80 @@ class TestDownloadWaits:
         )
         assert refused.value.retry_after == 5.0
         assert refused.value.cost == "billed"
+
+
+class TestCompilerListingFailures:
+    """A listing that cannot be read is asked once per window, within the call's
+    deadline and through the service gate, not once more per compile."""
+
+    @staticmethod
+    def _service(monkeypatch: pytest.MonkeyPatch, answer: _Resp) -> list[str]:
+        monkeypatch.setattr("rebrew.compiler.recompile_client._compilers_cache", {})
+        monkeypatch.setattr(compile_mod, "_recompile_clients", {})
+        monkeypatch.setattr(compile_mod, "_service_gates", {})
+        monkeypatch.delenv("REBREW_JOB_COMPILE_SOCKET", raising=False)
+        monkeypatch.delenv(compile_mod.CALL_DEADLINE_ENV, raising=False)
+        asked: list[str] = []
+
+        class _Listing(_FakeClient):
+            def get(self, url: str, headers: Any = None, follow_redirects: bool = False) -> Any:
+                asked.append(url)
+                return answer
+
+            def close(self) -> None:
+                return None
+
+        monkeypatch.setattr(httpx, "Client", lambda **kwargs: _Listing(None))
+        return asked
+
+    @staticmethod
+    def _cfg(tmp_path: Path) -> SimpleNamespace:
+        return SimpleNamespace(
+            root=tmp_path,
+            recompile_url="http://svc",
+            compile_timeout=60,
+            recompile_concurrency=2,
+        )
+
+    def test_a_failed_listing_is_asked_once_per_window(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        asked = self._service(monkeypatch, _Resp(503, text="unavailable"))
+        monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://svc")
+        now = [1000.0]
+        monkeypatch.setattr("rebrew.compiler.recompile_client.time.monotonic", lambda: now[0])
+        cfg = self._cfg(tmp_path)
+        for _ in range(10):
+            assert compile_mod.remote_installed_compilers(cfg) is None
+        assert len(asked) == 1
+        now[0] += 31.0
+        compile_mod.remote_installed_compilers(cfg)
+        assert len(asked) == 2
+
+    def test_a_listing_that_cannot_finish_before_the_deadline_is_not_sent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import time
+
+        asked = self._service(monkeypatch, _Resp(200, json_body=[]))
+        monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://svc")
+        monkeypatch.setenv(
+            compile_mod.CALL_DEADLINE_ENV,
+            str(time.time() + compile_mod.LISTING_TIMEOUT_SECONDS / 2),
+        )
+        assert compile_mod.remote_installed_compilers(self._cfg(tmp_path)) is None
+        assert asked == []
+
+    def test_a_listing_waits_for_the_gate_the_compiles_share(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A Retry-After that holds the compiles back holds the listing back too."""
+        import time
+
+        asked = self._service(monkeypatch, _Resp(200, json_body=[]))
+        monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://svc")
+        monkeypatch.setenv(compile_mod.CALL_DEADLINE_ENV, str(time.time() + 60))
+        cfg = self._cfg(tmp_path)
+        compile_mod._service_gate("http://svc", 2).hold_off(120)
+        assert compile_mod.remote_installed_compilers(cfg) is None
+        assert asked == []

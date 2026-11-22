@@ -1903,6 +1903,12 @@ def _job_compile_client(url: str, timeout: float, headers: Mapping[str, str]) ->
     )
 
 
+#: Seconds the read of a recompile service's compiler listing may take: a small
+#: document, so a service that does not answer it within this is not waited on
+#: for a compile's whole timeout.
+LISTING_TIMEOUT_SECONDS = 10.0
+
+
 def remote_installed_compilers(cfg: ProjectConfig) -> frozenset[str] | None:
     """The compilers the configured recompile service lists as installed on its deployment.
 
@@ -1912,20 +1918,36 @@ def remote_installed_compilers(cfg: ProjectConfig) -> frozenset[str] | None:
     listing that could not be read, in which case the compile itself reports
     the service's failure.  Uses the client the compile would use (a job's
     asks the jobs owner's mediator, which lists only the job's compilers); the
-    answer is kept for the listing's 30-second window.
+    answer, or a failed read, is kept for the listing's 30-second window.  The
+    read waits for the service gate the compiles share, and is not sent when
+    it could not finish within :data:`LISTING_TIMEOUT_SECONDS` before the call's
+    deadline.
     """
+    import time
+
     from rebrew.compiler.recompile_client import RecompileError, installed_compilers
 
     url = recompile_url(cfg)
     if url is None:
         return None
-    timeout = float(getattr(cfg, "compile_timeout", DEFAULT_COMPILE_TIMEOUT) or 0) + 120.0
+    called_by = call_deadline()
+    deadline = None if called_by is None else called_by - LISTING_TIMEOUT_SECONDS
+    if deadline is not None and time.monotonic() >= deadline:
+        return None  # the compile refuses itself at the deadline
     job = os.environ.get("REBREW_JOB_COMPILE_SOCKET")
-    client = _job_compile_client(url, timeout, {}) if job else _shared_recompile_client(timeout)
+    client = (
+        _job_compile_client(url, LISTING_TIMEOUT_SECONDS, {})
+        if job
+        else _shared_recompile_client(LISTING_TIMEOUT_SECONDS)
+    )
     if isinstance(client, tuple):
         return None  # the compile reports the misconfigured job transport
+    gate = _service_gate(
+        url, int(getattr(cfg, "recompile_concurrency", DEFAULT_RECOMPILE_CONCURRENCY))
+    )
     try:
-        return installed_compilers(url, client=client)
+        with gate.attempt(deadline, time.sleep):
+            return installed_compilers(url, client=client)
     except RecompileError as exc:
         logging.getLogger(__name__).warning("recompile %s compiler listing unread: %s", url, exc)
         return None
@@ -4097,6 +4119,7 @@ def compile_and_compare_linked(
 __all__ = [
     "ATTRIBUTION_ENV",
     "CALL_DEADLINE_ENV",
+    "LISTING_TIMEOUT_SECONDS",
     "NEAR_MATCH_THRESHOLD",
     "REMOTE_COMPILES_ENV",
     "CompareResult",

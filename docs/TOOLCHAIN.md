@@ -98,6 +98,11 @@ or compile (error kind `compiler_not_offered`). The listing gates only when at l
 image), and so does recompile 13 when its runtime does not answer, so such a
 listing, a 404 or a listing that cannot be read holds nothing back, and the
 service's own `400 compiler_not_installed` is the answer, final and unbilled. A
+listing that could not be read is remembered for the same 30 s, so a failing
+route costs one request per window rather than one per compile; the read takes a
+slot of the service gate the compiles share (and waits out its `Retry-After`),
+times out after 10 s (`compile.LISTING_TIMEOUT_SECONDS`), and is not sent when it
+could not finish before the call's deadline. A
 job compile reads the listing through the jobs owner's mediator, which cuts it to
 the job's own compilers, so it gates only when one of those reads `"admitted"`.
 Under `rebrew ops` the child command knows its op's deadline
