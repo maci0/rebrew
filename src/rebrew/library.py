@@ -366,7 +366,7 @@ def list_cmd(
             }
         )
     if json_output:
-        json_print({"libraries": found})
+        json_print(found)
         return
     if not found:
         console.print(f"[yellow]no {LIBRARY_METADATA_FILE} found under {base}[/yellow]")

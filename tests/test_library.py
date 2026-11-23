@@ -205,8 +205,9 @@ class TestLibraryCli:
         assert res.exit_code == 0, res.output
 
         payload = cli_payload(res)
-        assert len(payload["libraries"]) == 1
-        assert payload["libraries"][0]["toolchain"] == "msvc-6.0"
+        assert len(payload["items"]) == 1
+        assert payload["total"] == 1
+        assert payload["items"][0]["toolchain"] == "msvc-6.0"
 
     def test_set_show_rm_roundtrip(self, tmp_path: Path) -> None:
         lib = tmp_path / "lib"
