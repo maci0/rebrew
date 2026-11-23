@@ -361,6 +361,9 @@ NASM_ARCH = "x86_32"
 #: ``DecompileRequest`` list).
 DECOMPILER_BACKENDS = frozenset({"auto", "ghidra", "kuna", "r2dec", "r2ghidra"})
 
+#: The :data:`DECOMPILER_BACKENDS` entry that picks among the available backends.
+AUTO_DECOMPILER = "auto"
+
 #: ``binary_operand_locations`` bounds: functions per call, bytes per function,
 #: locations per function and the highest capstone operand index.
 OPERAND_MAX_FUNCTIONS = 128
@@ -437,6 +440,14 @@ COMPILE_NOT_RUN = "compile-not-run"
 #: detail says why), or the remote compile service's deployment has not installed it.
 #: Nothing was compiled or billed; a retry is refused the same, so choose another compiler.
 COMPILER_NOT_OFFERED = "compiler-not-offered"
+#: The decompiler a request names is not offered here (400): this engine has not
+#: installed it, or no Ghidra endpoint is configured; ``auto`` when none of the backends
+#: it probes is.  The detail is a fixed sentence naming what is missing; a retry is
+#: refused the same, so choose another decompiler (``rebrew.vocabulary``'s ``decompilers``).
+DECOMPILER_NOT_OFFERED = "decompiler-not-offered"
+#: The configured Ghidra endpoint the ``ghidra`` decompiler uses did not answer (503,
+#: ``Retry-After``): an outage, retried later.
+DECOMPILER_UNREACHABLE = "decompiler-unreachable"
 #: The toolchain ran and rejected the source (422): no verdict, and the detail
 #: carries the compiler's diagnostics.  A toolchain that could not run stays
 #: 500 ``engine-error``.
@@ -478,6 +489,87 @@ class OpsError(RebrewError):
 
 def _invalid(detail: str) -> OpsError:
     return OpsError(detail, code=INVALID_REQUEST, status=400)
+
+
+#: What a not-available decompiler lacks, by :data:`rebrew.decompiler.DecompilerReason`.
+_DECOMPILER_MISSING = {
+    "no-rizin": "neither rizin nor radare2 is installed",
+    "no-plugin": "rizin loads no plugin for it",
+    "no-kuna": "kuna is not installed",
+    "no-m2c": "m2c is not installed",
+    "no-endpoint": "no Ghidra endpoint is configured",
+    "endpoint-unreachable": "the configured Ghidra endpoint did not answer",
+}
+
+
+def engine_decompilers() -> list[Any]:
+    """The :class:`~rebrew.decompiler.BackendState` of every decompiler the ops name.
+
+    ``ghidra`` uses the endpoint :data:`rebrew.config.GHIDRA_MCP_ENDPOINT_ENV` names;
+    without one it is not offered.
+    """
+    from rebrew.decompiler import backend_state, configured_ghidra_endpoint
+
+    endpoint = configured_ghidra_endpoint()
+    return [
+        backend_state(name, endpoint=endpoint)
+        for name in sorted(DECOMPILER_BACKENDS - {AUTO_DECOMPILER})
+    ]
+
+
+def _refuse_unoffered_decompiler(name: str) -> None:
+    """Refuse *name* when it cannot run here, before any work.
+
+    ``auto`` is refused when none of the backends it probes can run.  A backend
+    not installed is :data:`DECOMPILER_NOT_OFFERED` (400); a configured Ghidra
+    endpoint that does not answer is :data:`DECOMPILER_UNREACHABLE` (503).
+    """
+    from rebrew.decompiler import (
+        BACKENDS,
+        STATE_WINDOW_SECONDS,
+        backend_state,
+        configured_ghidra_endpoint,
+    )
+
+    endpoint = configured_ghidra_endpoint()
+    if name == AUTO_DECOMPILER:
+        probed = [backend for backend in BACKENDS if backend in DECOMPILER_BACKENDS]
+        if not any(backend_state(b, endpoint=endpoint).state == "available" for b in probed):
+            raise OpsError(
+                "no decompiler 'auto' probes is offered here",
+                code=DECOMPILER_NOT_OFFERED,
+                status=400,
+            )
+        return
+    state = backend_state(name, endpoint=endpoint)
+    if state.reason is None:
+        return
+    missing = _DECOMPILER_MISSING[state.reason]
+    if state.state == "unreachable":
+        raise OpsError(
+            f"decompiler '{name}' is unavailable: {missing}",
+            code=DECOMPILER_UNREACHABLE,
+            status=503,
+            retry_after=math.ceil(STATE_WINDOW_SECONDS),
+        )
+    raise OpsError(
+        f"decompiler '{name}' is not offered here: {missing}",
+        code=DECOMPILER_NOT_OFFERED,
+        status=400,
+    )
+
+
+def _ghidra_outage(exc: Exception) -> OpsError:
+    """A Ghidra endpoint that stopped answering mid-call; its text goes to the log, bounded."""
+    from rebrew.decompiler import STATE_WINDOW_SECONDS
+
+    logger.warning("Ghidra MCP endpoint failed: %s", _escape_log_text(str(exc))[:200])
+    return OpsError(
+        "decompiler 'ghidra' is unavailable: the configured Ghidra endpoint did not answer",
+        code=DECOMPILER_UNREACHABLE,
+        status=503,
+        retry_after=math.ceil(STATE_WINDOW_SECONDS),
+    )
 
 
 def _address_comment_refused(detail: str) -> OpsError:
@@ -2086,14 +2178,19 @@ def decompile(config: WorkerConfig, req: DecompileRequest) -> dict[str, Any]:
     from rebrew.analysis import is_inside
     from rebrew.decompiler import fetch_decompilation
     from rebrew.formats.binary_loader import load_binary
+    from rebrew.ghidra import McpError
 
     if req.backend not in DECOMPILER_BACKENDS:
         raise _invalid(f"unsupported decompiler backend: {req.backend}")
+    _refuse_unoffered_decompiler(req.backend)
     cfg = target_config(project_root(config, req.project_dir), req.sha256)
     va = _address(req.va)
     if not is_inside(load_binary(cfg.target_binary), va):
         raise _invalid(f"VA 0x{va:x} is outside the binary image")
-    code, backend = fetch_decompilation(req.backend, cfg.target_binary, va, cfg.root)
+    try:
+        code, backend = fetch_decompilation(req.backend, cfg.target_binary, va, cfg.root)
+    except McpError as exc:
+        raise _ghidra_outage(exc) from None
     if not code:
         raise _refused(
             f"no decompilation via '{req.backend}' for 0x{va:x}"
@@ -2149,12 +2246,14 @@ def structs(config: WorkerConfig, req: StructsRequest) -> dict[str, Any]:
     project with no annotated functions answers ``{"functions": 0, "structs": []}``.
     """
     from rebrew.config import load_config
+    from rebrew.ghidra import McpError
     from rebrew.struct_recover import NoDecompilationError, recover_project_structs
 
     if req.decompiler not in DECOMPILER_BACKENDS:
         raise _invalid(f"unsupported decompiler backend: {req.decompiler}")
     if req.limit < 0:
         raise _invalid(f"limit must not be negative, got {req.limit}")
+    _refuse_unoffered_decompiler(req.decompiler)
     cfg = load_config(project_root(config, req.project_dir))
     try:
         return recover_project_structs(
@@ -2166,6 +2265,8 @@ def structs(config: WorkerConfig, req: StructsRequest) -> dict[str, Any]:
         )
     except NoDecompilationError as exc:
         raise _refused(_bounded(str(exc))) from None
+    except McpError as exc:
+        raise _ghidra_outage(exc) from None
 
 
 def binary_operand_locations(config: WorkerConfig, req: OperandLocationsRequest) -> dict[str, Any]:
@@ -3332,7 +3433,10 @@ def vocabulary(_config: WorkerConfig, _req: VocabularyRequest) -> dict[str, Any]
     ``placeholder_name`` is :data:`rebrew.workspace.names.PLACEHOLDER_NAME_PATTERN`:
     a name is a generated label when the whole name matches it.
     ``discovery_rule`` is :data:`rebrew.discover.DISCOVERY_RULE`, the rule
-    ``rebrew.analyse`` discovers functions under now.
+    ``rebrew.analyse`` discovers functions under now.  ``decompilers`` is, for
+    every decompiler the ops name but ``auto``, whether it can run on this engine
+    (:func:`engine_decompilers`; checked again at most every 30 s): ``available``,
+    ``not-installed`` or ``unreachable``, with a ``reason`` when it is not available.
     """
     from rebrew.discover import DISCOVERY_RULE
     from rebrew.verify_cache import CACHE_FILENAMES
@@ -3359,6 +3463,7 @@ def vocabulary(_config: WorkerConfig, _req: VocabularyRequest) -> dict[str, Any]
         "cache_files": list(CACHE_FILENAMES),
         "placeholder_name": PLACEHOLDER_NAME_PATTERN,
         "discovery_rule": DISCOVERY_RULE,
+        "decompilers": [state.to_dict() for state in engine_decompilers()],
     }
 
 
@@ -4665,6 +4770,7 @@ def decompile_snapshot(config: WorkerConfig, req: DecompileSnapshotRequest) -> d
     from rebrew.analysis import is_inside
     from rebrew.decompiler import fetch_decompilation
     from rebrew.formats.binary_loader import load_binary
+    from rebrew.ghidra import McpError
     from rebrew.name_decomp import apply_known_names
     from rebrew.named_snapshot import retained_snapshot
     from rebrew.sources import iter_library_headers, iter_sources
@@ -4672,6 +4778,7 @@ def decompile_snapshot(config: WorkerConfig, req: DecompileSnapshotRequest) -> d
 
     if req.backend not in DECOMPILER_BACKENDS:
         raise _invalid("invalid retained decompilation request")
+    _refuse_unoffered_decompiler(req.backend)
     va = _address(req.va)
     with retained_snapshot(config, req) as (root, cfg, retained, verify_files):
         if not is_inside(load_binary(cfg.target_binary), va):
@@ -4684,7 +4791,10 @@ def decompile_snapshot(config: WorkerConfig, req: DecompileSnapshotRequest) -> d
             raise _invalid("source is not in the retained snapshot")
         definitions = existing_structs(sources)
         verify_files()
-        code, backend = fetch_decompilation(req.backend, cfg.target_binary, va, root)
+        try:
+            code, backend = fetch_decompilation(req.backend, cfg.target_binary, va, root)
+        except McpError as exc:
+            raise _ghidra_outage(exc) from None
         if not code:
             raise _refused(f"no decompilation via '{req.backend}' for 0x{va:x}")
         verify_files()

@@ -741,11 +741,12 @@ class TestFunctionOps:
         )
 
     def test_decompile_refuses_an_address_outside_the_image(
-        self, world: tuple[WorkerConfig, Path]
+        self, world: tuple[WorkerConfig, Path], monkeypatch: pytest.MonkeyPatch
     ) -> None:
         # Same 400 the describe op gives for the same client mistake; the
         # engine error (500) is reserved for a valid address the backend
         # cannot decompile, not for an address outside the image.
+        TestDecompilersOffered._engine(monkeypatch, kuna=True)
         config, project = world
         request = {**self._address(project), "va": 0x10, "backend": "auto", "named": False}
         refusal = _refusal(config, "rebrew.decompile", json.dumps(request).encode())
@@ -760,7 +761,7 @@ class TestFunctionOps:
         request = {**self._address(project), "backend": "auto", "named": True}
         status, body = dispatch(config, "rebrew.decompile", json.dumps(request).encode())
         reply = json.loads(body)
-        if status != 200 and reply["detail"].startswith("no decompilation via"):
+        if status != 200 and reply["error"] == "decompiler-not-offered":
             pytest.skip("no decompiler backend is installed")
         assert status == 200, reply
         _validate(_op_schema("rebrew.decompile", "response"), reply)
@@ -787,6 +788,7 @@ class TestFunctionOps:
             return "int f(int *p) { return p[1]; }", "kuna"
 
         monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", fake_decompiler)
+        TestDecompilersOffered._engine(monkeypatch, kuna=True)
         config, project = world
         request = {
             "binary_id": 1,
@@ -801,6 +803,7 @@ class TestFunctionOps:
         self, world: tuple[WorkerConfig, Path], monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", lambda *_args: ("", "kuna"))
+        TestDecompilersOffered._engine(monkeypatch, kuna=True)
         config, project = world
         request = {"binary_id": 1, "project_dir": str(project), "decompiler": "kuna", "limit": 0}
         detail = _refusal(config, "rebrew.structs", json.dumps(request).encode())["detail"]
@@ -4492,3 +4495,232 @@ class TestCallerOpTable:
             assert server.drain(WAIT_SECONDS) == 0
             caller.join(WAIT_SECONDS)
         assert replies == [(200, "", b'{"done": true}')]
+
+
+class TestDecompilersOffered:
+    """The engine offers only the decompilers that can run here, says so in
+    ``rebrew.vocabulary``, and refuses another before any work."""
+
+    @staticmethod
+    def _engine(
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        rizin: bool = False,
+        plugins: tuple[str, ...] = (),
+        kuna: bool = False,
+        ghidra: str | None = None,
+        answers: bool = False,
+    ) -> None:
+        """An engine whose tools are the ones named, and nothing else."""
+        import shutil
+
+        from rebrew import decompiler
+
+        monkeypatch.setattr(decompiler, "_states", {})
+        monkeypatch.setattr(decompiler, "_find_re_tool", lambda: "rizin" if rizin else None)
+        monkeypatch.setattr(decompiler, "_plugin_loaded", lambda _tool, command: command in plugins)
+        real_which = shutil.which
+        monkeypatch.setattr(
+            decompiler.shutil,
+            "which",
+            lambda name, *a, **k: (
+                ("/usr/bin/kuna" if kuna else None) if name == "kuna" else real_which(name, *a, **k)
+            ),
+        )
+        if ghidra is None:
+            monkeypatch.delenv("REBREW_GHIDRA_MCP_ENDPOINT", raising=False)
+        else:
+            monkeypatch.setenv("REBREW_GHIDRA_MCP_ENDPOINT", ghidra)
+        monkeypatch.setattr(decompiler, "_ghidra_answers", lambda _endpoint: answers)
+
+    @staticmethod
+    def _no_work(monkeypatch: pytest.MonkeyPatch) -> None:
+        def worked(*_args: Any, **_kwargs: Any) -> Any:
+            raise AssertionError("a decompiler ran")
+
+        monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", worked)
+        monkeypatch.setattr("rebrew.struct_recover.fetch_decompilation", worked, raising=False)
+
+    def test_the_production_request_is_refused_before_any_work(
+        self, world: tuple[WorkerConfig, Path], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No Ghidra endpoint is configured: nothing opens an MCP session, and the
+        refusal is the caller's choice (400), not a transport error (500)."""
+        import httpx
+
+        def no_ghidra(*_args: Any, **_kwargs: Any) -> Any:
+            raise AssertionError("an MCP session was opened")
+
+        monkeypatch.delenv("REBREW_GHIDRA_MCP_ENDPOINT", raising=False)
+        monkeypatch.setattr("rebrew.decompiler._states", {})
+        monkeypatch.setattr(httpx.Client, "post", no_ghidra)
+        config, project = world
+        request = {"project_dir": str(project), "sha256": SHA256, "va": ENTRY_VA}
+        body = json.dumps({**request, "backend": "ghidra", "named": False}).encode()
+        refusal = _refusal(config, "rebrew.decompile", body)
+        assert (refusal["error"], refusal["status"], refusal["detail"]) == (
+            "decompiler-not-offered",
+            400,
+            "decompiler 'ghidra' is not offered here: no Ghidra endpoint is configured",
+        )
+
+    @pytest.mark.parametrize(
+        ("backend", "engine", "detail"),
+        [
+            ("kuna", {}, "decompiler 'kuna' is not offered here: kuna is not installed"),
+            (
+                "r2ghidra",
+                {},
+                "decompiler 'r2ghidra' is not offered here: neither rizin nor radare2 is installed",
+            ),
+            (
+                "r2dec",
+                {"rizin": True, "plugins": ("pdg",)},
+                "decompiler 'r2dec' is not offered here: rizin loads no plugin for it",
+            ),
+            ("auto", {"rizin": True}, "no decompiler 'auto' probes is offered here"),
+        ],
+    )
+    @pytest.mark.parametrize("op", ["rebrew.decompile", "rebrew.structs"])
+    def test_a_decompiler_not_installed_is_refused_before_any_work(
+        self,
+        world: tuple[WorkerConfig, Path],
+        monkeypatch: pytest.MonkeyPatch,
+        op: str,
+        backend: str,
+        engine: dict[str, Any],
+        detail: str,
+    ) -> None:
+        self._engine(monkeypatch, **engine)
+        self._no_work(monkeypatch)
+        config, project = world
+        if op == "rebrew.decompile":
+            request = {"project_dir": str(project), "sha256": SHA256, "va": ENTRY_VA}
+            body = {**request, "backend": backend, "named": False}
+        else:
+            body = {"binary_id": 1, "project_dir": str(project), "decompiler": backend, "limit": 0}
+        refusal = _refusal(config, op, json.dumps(body).encode())
+        assert (refusal["error"], refusal["status"], refusal["detail"]) == (
+            "decompiler-not-offered",
+            400,
+            detail,
+        )
+
+    def test_a_configured_ghidra_that_does_not_answer_is_an_outage(
+        self, world: tuple[WorkerConfig, Path], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._engine(monkeypatch, ghidra="http://ghidra.internal:8080/mcp/message")
+        self._no_work(monkeypatch)
+        config, project = world
+        request = {"project_dir": str(project), "sha256": SHA256, "va": ENTRY_VA}
+        status, raw = dispatch(
+            config,
+            "rebrew.decompile",
+            json.dumps({**request, "backend": "ghidra", "named": False}).encode(),
+        )
+        refusal = json.loads(raw)
+        assert (status, refusal["error"], refusal["detail"]) == (
+            503,
+            "decompiler-unreachable",
+            "decompiler 'ghidra' is unavailable: the configured Ghidra endpoint did not answer",
+        )
+
+    def test_a_ghidra_that_stops_answering_mid_call_is_an_outage_without_its_text(
+        self, world: tuple[WorkerConfig, Path], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.ghidra import McpError
+
+        self._engine(monkeypatch, ghidra="http://ghidra.internal:8080/mcp/message", answers=True)
+
+        def refused(*_args: Any, **_kwargs: Any) -> Any:
+            raise McpError(
+                "Failed to initialize MCP session: [Errno 111] Connection refused", kind="network"
+            )
+
+        monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", refused)
+        config, project = world
+        request = {"project_dir": str(project), "sha256": SHA256, "va": ENTRY_VA}
+        status, raw = dispatch(
+            config,
+            "rebrew.decompile",
+            json.dumps({**request, "backend": "ghidra", "named": False}).encode(),
+        )
+        refusal = json.loads(raw)
+        assert (status, refusal["error"]) == (503, "decompiler-unreachable")
+        assert "Errno" not in refusal["detail"] and "ghidra.internal" not in refusal["detail"]
+
+    def test_an_available_decompiler_runs_and_auto_picks_among_the_available(
+        self, world: tuple[WorkerConfig, Path], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._engine(monkeypatch, kuna=True)
+        asked: list[str] = []
+
+        def decompiled(backend: str, *_args: Any, **_kwargs: Any) -> tuple[str, str]:
+            asked.append(backend)
+            return "int f(void) { return 0; }", "kuna"
+
+        monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", decompiled)
+        config, project = world
+        request = {"project_dir": str(project), "sha256": SHA256, "va": ENTRY_VA}
+        for backend in ("kuna", "auto"):
+            reply = _call(
+                config, "rebrew.decompile", {**request, "backend": backend, "named": False}
+            )
+            assert reply == {"code": "int f(void) { return 0; }", "backend": "kuna"}
+        assert asked == ["kuna", "auto"]
+
+    @pytest.mark.parametrize(
+        ("engine", "expected"),
+        [
+            (
+                {},
+                [
+                    {"name": "ghidra", "state": "not-installed", "reason": "no-endpoint"},
+                    {"name": "kuna", "state": "not-installed", "reason": "no-kuna"},
+                    {"name": "r2dec", "state": "not-installed", "reason": "no-rizin"},
+                    {"name": "r2ghidra", "state": "not-installed", "reason": "no-rizin"},
+                ],
+            ),
+            (
+                {
+                    "rizin": True,
+                    "plugins": ("pdg",),
+                    "kuna": True,
+                    "ghidra": "http://ghidra.internal:8080/mcp/message",
+                },
+                [
+                    {"name": "ghidra", "state": "unreachable", "reason": "endpoint-unreachable"},
+                    {"name": "kuna", "state": "available"},
+                    {"name": "r2dec", "state": "not-installed", "reason": "no-plugin"},
+                    {"name": "r2ghidra", "state": "available"},
+                ],
+            ),
+            (
+                {"ghidra": "http://ghidra.internal:8080/mcp/message", "answers": True},
+                [
+                    {"name": "ghidra", "state": "available"},
+                    {"name": "kuna", "state": "not-installed", "reason": "no-kuna"},
+                    {"name": "r2dec", "state": "not-installed", "reason": "no-rizin"},
+                    {"name": "r2ghidra", "state": "not-installed", "reason": "no-rizin"},
+                ],
+            ),
+        ],
+        ids=["bare", "production-like", "ghidra"],
+    )
+    def test_vocabulary_lists_each_decompiler_and_whether_it_runs_here(
+        self, monkeypatch: pytest.MonkeyPatch, engine: dict[str, Any], expected: list[Any]
+    ) -> None:
+        self._engine(monkeypatch, **engine)
+        assert _call(WorkerConfig(), "rebrew.vocabulary", {})["decompilers"] == expected
+
+    def test_the_vocabulary_sets_are_the_ones_the_code_names(self) -> None:
+        from typing import get_args
+
+        from rebrew import ops
+        from rebrew.decompiler import DecompilerReason, DecompilerState
+
+        entry = _CONTRACT["ops"]["rebrew.vocabulary"]["response"]["properties"]["decompilers"]
+        fields = entry["items"]["properties"]
+        assert set(fields["name"]["enum"]) == ops.DECOMPILER_BACKENDS - {"auto"}
+        assert fields["state"]["enum"] == list(get_args(DecompilerState))
+        assert fields["reason"]["enum"] == list(get_args(DecompilerReason))

@@ -23,6 +23,8 @@ Usage (internal)::
 import logging
 import re
 import threading
+from dataclasses import dataclass
+from typing import Any, Literal
 lazy import atexit
 lazy import contextlib
 lazy import hashlib
@@ -35,7 +37,6 @@ lazy import tempfile
 lazy import warnings
 lazy from collections.abc import Callable
 lazy from pathlib import Path
-lazy from typing import Any
 
 from rebrew.c_parser import CALLING_CONVENTION
 from rebrew.errors import RebrewError
@@ -537,7 +538,7 @@ def fetch_r2ghidra(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | N
     Works with both r2ghidra (radare2) and rz-ghidra (rizin).
     Requires ``r2`` or ``rz`` on PATH with the ghidra plugin installed.
     """
-    if not binary.exists():
+    if not binary.exists() or backend_state("r2ghidra", endpoint=None).state != "available":
         return None
     return _run_re(binary, va, "pdg", root)
 
@@ -548,7 +549,7 @@ def fetch_r2dec(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None
     Works with both r2dec (radare2) and rz-dec (rizin).
     Requires ``r2`` or ``rz`` on PATH with the jsdec/dec plugin installed.
     """
-    if not binary.exists():
+    if not binary.exists() or backend_state("r2dec", endpoint=None).state != "available":
         return None
     return _run_re(binary, va, "pdd", root)
 
@@ -737,7 +738,9 @@ def fetch_ghidra(
     _fetch_raw = _sync_mod.fetch_mcp_tool_raw
     _init_session = _sync_mod.init_mcp_session
 
-    endpoint: str = kwargs.get("endpoint") or _sync_mod.DEFAULT_MCP_ENDPOINT
+    endpoint: str = (
+        kwargs.get("endpoint") or configured_ghidra_endpoint() or _sync_mod.DEFAULT_MCP_ENDPOINT
+    )
     program_path: str | None = kwargs.get("program_path")
 
     if program_path is None:
@@ -1213,6 +1216,157 @@ def complete_backends(incomplete: str) -> list[str]:
     """Complete selectable backend names from the current registry snapshot."""
     with _BACKEND_REFRESH_LOCK:
         return [name for name in ("auto", *_BACKEND_MAP) if name.startswith(incomplete)]
+
+
+# ---------------------------------------------------------------------------
+# Which backends can run here
+# ---------------------------------------------------------------------------
+
+#: A packaged backend's state in this process: it can run, it is not installed
+#: (a fixed :data:`DecompilerReason` says what is missing), or the Ghidra
+#: endpoint it is configured with did not answer (an outage, retried later).
+DecompilerState = Literal["available", "not-installed", "unreachable"]
+
+#: Why a backend is not available: no rizin or radare2 on PATH (``no-rizin``),
+#: rizin loads no plugin for the backend's command (``no-plugin``), no ``kuna`` on
+#: PATH (``no-kuna``), no ``m2c`` module (``no-m2c``), no Ghidra MCP endpoint
+#: configured (``no-endpoint``), or the configured one did not answer
+#: (``endpoint-unreachable``).
+DecompilerReason = Literal[
+    "no-rizin", "no-plugin", "no-kuna", "no-m2c", "no-endpoint", "endpoint-unreachable"
+]
+
+
+@dataclass(frozen=True)
+class BackendState:
+    """Whether one packaged backend can run here, and if not, why."""
+
+    name: str
+    state: DecompilerState
+    #: ``None`` exactly when :attr:`state` is ``available``.
+    reason: DecompilerReason | None = None
+
+    def __post_init__(self) -> None:
+        if (self.reason is None) != (self.state == "available"):
+            raise ValueError(f"backend state {self.state!r} with reason {self.reason!r}")
+
+    def to_dict(self) -> dict[str, str]:
+        """``{"name", "state"}`` plus ``reason`` when it is not available."""
+        return {
+            "name": self.name,
+            "state": self.state,
+            **({} if self.reason is None else {"reason": self.reason}),
+        }
+
+
+#: Seconds a backend's state is kept before it is checked again: a plugin
+#: installed or a Ghidra brought up is seen within this window.
+STATE_WINDOW_SECONDS = 30.0
+
+#: Seconds a rizin plugin probe or a Ghidra endpoint probe may take.
+_PROBE_TIMEOUT_S = 10
+
+#: The rizin/radare2 command each plugin backend runs.
+_PLUGIN_COMMANDS = {"r2ghidra": "pdg", "r2dec": "pdd"}
+
+#: (name, endpoint) -> (monotonic time checked, state).
+_states: dict[tuple[str, str | None], tuple[float, BackendState]] = {}
+_states_lock = threading.Lock()
+
+
+def configured_ghidra_endpoint() -> str | None:
+    """The Ghidra MCP endpoint :data:`~rebrew.config.GHIDRA_MCP_ENDPOINT_ENV` names, or ``None``.
+
+    Raises :class:`~rebrew.config.ConfigError` for a value that is not an
+    ``http(s)`` URL with a host and without credentials.
+    """
+    from rebrew.config import GHIDRA_MCP_ENDPOINT_ENV, validate_http_url
+
+    return (
+        validate_http_url(os.environ.get(GHIDRA_MCP_ENDPOINT_ENV, ""), GHIDRA_MCP_ENDPOINT_ENV)
+        or None
+    )
+
+
+def _plugin_loaded(tool: str, command: str) -> bool:
+    """Whether *tool* answers ``<command>?`` with its help, so a plugin serves *command*."""
+    try:
+        result = run_process_group(
+            [tool, "-qc", f"{command}?", "--"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=_PROBE_TIMEOUT_S,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.warning(
+            "%s plugin probe for %s failed: %s", tool, command, untrusted_literal(str(exc))[:200]
+        )
+        return False
+    return command in _ANSI_RE.sub("", result.stdout or "")
+
+
+def _ghidra_answers(endpoint: str) -> bool:
+    """Whether the ReVa MCP server at *endpoint* opens a session; the failure is logged, bounded."""
+    import httpx
+
+    ghidra = importlib.import_module("rebrew.ghidra")
+    try:
+        with httpx.Client(timeout=_PROBE_TIMEOUT_S, trust_env=False) as client:
+            session = ghidra.init_mcp_session(client, endpoint)
+            ghidra.end_mcp_session(client, endpoint, session)
+    except (ghidra.McpError, httpx.HTTPError, OSError) as exc:
+        logger.warning("Ghidra MCP endpoint did not answer: %s", untrusted_literal(str(exc))[:200])
+        return False
+    return True
+
+
+def _check(name: str, endpoint: str | None) -> BackendState:
+    if name in _PLUGIN_COMMANDS:
+        tool = _find_re_tool()
+        if tool is None:
+            return BackendState(name, "not-installed", "no-rizin")
+        if not _plugin_loaded(tool, _PLUGIN_COMMANDS[name]):
+            return BackendState(name, "not-installed", "no-plugin")
+        return BackendState(name, "available")
+    if name == "kuna":
+        if shutil.which("kuna") is None:
+            return BackendState(name, "not-installed", "no-kuna")
+        return BackendState(name, "available")
+    if name == "m2c":
+        if importlib.util.find_spec("m2c") is None:
+            return BackendState(name, "not-installed", "no-m2c")
+        return BackendState(name, "available")
+    if name == "ghidra":
+        if endpoint is None:
+            return BackendState(name, "not-installed", "no-endpoint")
+        if not _ghidra_answers(endpoint):
+            return BackendState(name, "unreachable", "endpoint-unreachable")
+        return BackendState(name, "available")
+    raise ValueError(f"no availability check for decompiler backend {name!r}")
+
+
+def backend_state(name: str, *, endpoint: str | None) -> BackendState:
+    """Whether the packaged backend *name* can run here, checked at most every :data:`STATE_WINDOW_SECONDS`.
+
+    A plugin backend (``r2ghidra``, ``r2dec``) needs rizin or radare2 on PATH
+    and a plugin serving its command; ``kuna`` needs ``kuna`` on PATH; ``m2c``
+    its module; ``ghidra`` an *endpoint* (``None``: not configured) whose
+    ReVa MCP server opens a session.  Raises :class:`ValueError` for a name
+    that is not a packaged backend.
+    """
+    import time
+
+    key = (name, endpoint)
+    with _states_lock:
+        cached = _states.get(key)
+    if cached is not None and time.monotonic() - cached[0] < STATE_WINDOW_SECONDS:
+        return cached[1]
+    state = _check(name, endpoint)
+    with _states_lock:
+        _states[key] = (time.monotonic(), state)
+    return state
 
 
 def fetch_decompilation(

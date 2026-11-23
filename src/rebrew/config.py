@@ -180,6 +180,13 @@ Unset/empty keeps the SSRF refusal; a truthy value disables it.  Parsed
 strictly by :func:`parse_env_bool`, so ``0``/``false``/``no``/``off`` keep the
 refusal and a typo raises instead of silently granting the bypass."""
 
+GHIDRA_MCP_ENDPOINT_ENV = "REBREW_GHIDRA_MCP_ENDPOINT"
+"""Env var naming the ReVa MCP endpoint of a Ghidra the ``ghidra`` decompiler uses.
+
+Unset/empty: ``rebrew ops`` offers no ``ghidra`` decompiler, and ``rebrew
+decompile`` and ``rebrew doctor`` use :data:`rebrew.ghidra.DEFAULT_MCP_ENDPOINT`.
+A set value must be an ``http(s)`` URL with a host and without credentials."""
+
 OTLP_ENDPOINT_ENV = "REBREW_OTLP_ENDPOINT"
 """Env var holding the OTLP/HTTP collector base URL for trace export.
 

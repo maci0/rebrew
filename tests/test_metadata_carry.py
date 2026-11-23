@@ -10,6 +10,7 @@ from typing import Any
 lazy from pathlib import Path
 
 import pytest
+from decompiler_engine import offer_decompilers
 from session_cache import build_once
 from test_ops import KEY, SHA256, _analyse_request, _op_schema, _store, _validate, _worker_dirs
 
@@ -304,6 +305,7 @@ def _read_names(
 
     with monkeypatch.context() as patch:
         patch.setattr("rebrew.decompiler.fetch_decompilation", decompile)
+        offer_decompilers(patch, "kuna")
         status, named = _call(
             config,
             "rebrew.decompile_snapshot",

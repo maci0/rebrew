@@ -132,11 +132,13 @@ class TestBackendDispatch:
         captured = capsys.readouterr()
         assert "unknown backend" in captured.err
 
+    @patch.dict("rebrew.decompiler._states", clear=True)
+    @patch("rebrew.decompiler._plugin_loaded", return_value=True)
     @patch(
         "rebrew.decompiler.shutil.which", side_effect=lambda x: "/usr/bin/r2" if x == "r2" else None
     )
     @patch("rebrew.decompiler.run_process_group")
-    def test_r2ghidra_uses_r2(self, mock_run, _mock_which, tmp_path: Path) -> None:
+    def test_r2ghidra_uses_r2(self, mock_run, _mock_which, _loaded, tmp_path: Path) -> None:
         binary = tmp_path / "target.bin"
         binary.write_bytes(b"MZ")
         mock_run.return_value = subprocess.CompletedProcess(
@@ -166,11 +168,13 @@ class TestBackendDispatch:
         assert query_kwargs["cwd"] == tmp_path
         assert query_kwargs["timeout"] == 120
 
+    @patch.dict("rebrew.decompiler._states", clear=True)
+    @patch("rebrew.decompiler._plugin_loaded", return_value=True)
     @patch(
         "rebrew.decompiler.shutil.which", side_effect=lambda x: "/usr/bin/rz" if x == "rz" else None
     )
     @patch("rebrew.decompiler.run_process_group")
-    def test_r2ghidra_uses_rz(self, mock_run, _mock_which, tmp_path: Path) -> None:
+    def test_r2ghidra_uses_rz(self, mock_run, _mock_which, _loaded, tmp_path: Path) -> None:
         binary = tmp_path / "target.bin"
         binary.write_bytes(b"MZ")
         mock_run.return_value = subprocess.CompletedProcess(
@@ -1919,3 +1923,87 @@ class TestReProjectDatabasePath:
         with pytest.warns(UserWarning, match="failed to read database file"):
             assert dc._run_re(tmp_path / "target", 0x1000, "pdg", tmp_path) is None
         assert dropped == [(tmp_path / "target", "rizin", str(project))]
+
+
+class TestBackendState:
+    """Which packaged backends can run here, as the engine and the CLI read it."""
+
+    @pytest.mark.parametrize(
+        ("stdout", "state"),
+        [
+            ("\x1b[36mUsage: \x1b[0mpdg[?]   # Native Ghidra decompiler\n", "available"),
+            ("", "not-installed"),
+        ],
+    )
+    def test_a_plugin_backend_needs_a_plugin_serving_its_command(
+        self, monkeypatch: pytest.MonkeyPatch, stdout: str, state: str
+    ) -> None:
+        from rebrew import decompiler
+
+        asked: list[list[str]] = []
+
+        def run(cmd: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+            asked.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
+
+        monkeypatch.setattr(decompiler, "_states", {})
+        monkeypatch.setattr(decompiler, "_find_re_tool", lambda: "rizin")
+        monkeypatch.setattr(decompiler, "run_process_group", run)
+        result = decompiler.backend_state("r2ghidra", endpoint=None)
+        assert result.state == state
+        assert asked == [["rizin", "-qc", "pdg?", "--"]]
+        # Kept for the window: a second read probes nothing.
+        decompiler.backend_state("r2ghidra", endpoint=None)
+        assert len(asked) == 1
+
+    def test_a_plugin_backend_that_is_missing_never_analyses_the_binary(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """r2ghidra without its plugin ran a full ``aaa`` analysis before ``pdg`` failed."""
+        from rebrew import decompiler
+
+        monkeypatch.setattr(decompiler, "_states", {})
+        monkeypatch.setattr(decompiler, "_find_re_tool", lambda: "rizin")
+        monkeypatch.setattr(decompiler, "_plugin_loaded", lambda _tool, _command: False)
+
+        def analysed(*_args: Any, **_kwargs: Any) -> Any:
+            raise AssertionError("the binary was analysed")
+
+        monkeypatch.setattr(decompiler, "_re_cached_project", analysed)
+        binary = tmp_path / "t.bin"
+        binary.write_bytes(b"MZ")
+        assert decompiler.fetch_r2ghidra(binary, 0x1000, tmp_path) is None
+
+    def test_a_ghidra_endpoint_that_refuses_is_unreachable_and_logged_bounded(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import socket
+
+        from rebrew import decompiler
+
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", 0))
+            port = sock.getsockname()[1]
+        monkeypatch.setattr(decompiler, "_states", {})
+        endpoint = f"http://127.0.0.1:{port}/mcp/message"
+        with caplog.at_level("WARNING", logger="rebrew.decompiler"):
+            result = decompiler.backend_state("ghidra", endpoint=endpoint)
+        assert (result.state, result.reason) == ("unreachable", "endpoint-unreachable")
+        assert all(len(record.getMessage()) < 300 for record in caplog.records)
+        assert any("did not answer" in record.getMessage() for record in caplog.records)
+
+    def test_ghidra_without_an_endpoint_is_not_installed(self) -> None:
+        from rebrew import decompiler
+
+        result = decompiler.backend_state("ghidra", endpoint=None)
+        assert (result.state, result.reason) == ("not-installed", "no-endpoint")
+
+    def test_an_endpoint_that_is_not_a_url_fails_loud(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew import decompiler
+        from rebrew.config import ConfigError
+
+        monkeypatch.setenv("REBREW_GHIDRA_MCP_ENDPOINT", "ghidra:8080")
+        with pytest.raises(ConfigError):
+            decompiler.configured_ghidra_endpoint()

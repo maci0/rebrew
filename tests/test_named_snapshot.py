@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from decompiler_engine import offer_decompilers
 from test_analysis_capture_inventory import _copied_intake, _session_intake
 from test_ops import (
     BINARY,
@@ -51,6 +52,12 @@ def _json(value: object) -> str:
 
 def _digest(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
+
+
+@pytest.fixture(autouse=True)
+def _kuna_offered(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests name kuna and fake or require it; the engine offers it."""
+    offer_decompilers(monkeypatch, "kuna")
 
 
 @pytest.fixture(scope="module")

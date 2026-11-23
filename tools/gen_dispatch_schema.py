@@ -24,7 +24,7 @@ lazy import argparse
 lazy import json
 lazy import sys
 lazy from collections.abc import Collection, Iterator
-lazy from typing import Any
+lazy from typing import Any, get_args
 
 
 def _project_root() -> Path:
@@ -41,6 +41,7 @@ SCHEMA = _project_root() / "tests" / "fixtures" / "dispatch" / "rebrew.schema.js
 def enforced_sets() -> Iterator[tuple[str, tuple[str, ...], Collection[str]]]:
     """``(op, path inside the op's entry, values)`` for every closed set the schema publishes."""
     from rebrew import ops
+    from rebrew.decompiler import DecompilerReason, DecompilerState
     from rebrew.metadata.bindings import DATA_KINDS
     from rebrew.report import SITE_DATA_KINDS
     from rebrew.security_scan import SEVERITY_ORDER
@@ -63,6 +64,14 @@ def enforced_sets() -> Iterator[tuple[str, tuple[str, ...], Collection[str]]]:
     yield "rebrew.security_scan_snapshot", request("min_severity"), SEVERITY_ORDER
     manifest_kind = ("response", "properties", "manifest", "items", "properties", "kinds", "items")
     yield "rebrew.report", manifest_kind, SITE_DATA_KINDS
+    decompiler = ("response", "properties", "decompilers", "items", "properties")
+    yield (
+        "rebrew.vocabulary",
+        (*decompiler, "name"),
+        ops.DECOMPILER_BACKENDS - {ops.AUTO_DECOMPILER},
+    )
+    yield "rebrew.vocabulary", (*decompiler, "state"), get_args(DecompilerState)
+    yield "rebrew.vocabulary", (*decompiler, "reason"), get_args(DecompilerReason)
 
 
 def render(text: str) -> str:
