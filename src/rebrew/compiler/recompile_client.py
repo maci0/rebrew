@@ -170,12 +170,16 @@ class _AnswerRule:
 #: row of its own names.
 _ANY_CODE = "*"
 
-#: Every answer of recompile 14's compile and artifact routes, keyed by route,
-#: HTTP status and code: the error body's ``code``, or for a compile's 200 its
+#: Every answer of recompile's compile and artifact routes, keyed by route, HTTP
+#: status and code: the error body's ``code``, or for a compile's 200 its
 #: ``error_code`` (``None`` for ``status: "ok"``).  The costs are rule 4 of the
-#: client rules, the next steps rules 3, 5 and 7.  An answer no row names is
-#: read by its status: a 5xx may have been billed and is final, anything else
-#: says nothing of the key and is final.
+#: client rules (recompile 14.0.1 ``docs/API.md``), the next steps rules 3, 5 and 7,
+#: read so that they hold against every release a deployment may run, 12.0.0 to
+#: 14.x: an answer settles a key as free only where every one of them says the key
+#: was not billed.  A row read more cautiously than 14.0.1's table names the
+#: release that needs it.  An answer no row names is read by its status: a 5xx
+#: may have been billed and is final, anything else says nothing of the key and is
+#: final.
 _ANSWERS: Mapping[tuple[_Route, int, str | None], _AnswerRule] = MappingProxyType(
     {
         # The compile ran: an object to download, or the compiler's rejection.
@@ -190,31 +194,37 @@ _ANSWERS: Mapping[tuple[_Route, int, str | None], _AnswerRule] = MappingProxyTyp
         ("compile", 200, "provenance_unavailable"): _AnswerRule("free", "final"),
         ("compile", 200, "missing_artifact"): _AnswerRule("free", "final"),
         ("compile", 200, "replay_rejected"): _AnswerRule("free", "final"),
-        # A new compile refused, or a request refused before it reached
-        # Platform; the same request is refused the same way.
-        ("compile", 400, "compiler_not_installed"): _AnswerRule("free", "final"),
-        ("compile", 400, "compiler_unavailable"): _AnswerRule("free", "final"),
-        ("compile", 400, "compiler_withdrawn"): _AnswerRule("free", "final"),
-        ("compile", 400, "bundles_unsupported"): _AnswerRule("free", "final"),
+        # A new compile refused; a known key may get it before Platform looks the key
+        # up (12.0.0, and 14.0.0 against Platform 0.28.1), so it settles nothing.
+        ("compile", 400, "compiler_not_installed"): _AnswerRule(None, "final"),
+        ("compile", 400, "compiler_unavailable"): _AnswerRule(None, "final"),
+        ("compile", 400, "compiler_withdrawn"): _AnswerRule(None, "final"),
+        ("compile", 400, "bundles_unsupported"): _AnswerRule(None, "final"),
+        # Refused by this service before it reached Platform; the same request is
+        # refused the same way.
         ("compile", 400, "invalid_idempotency_key"): _AnswerRule("free", "final"),
         ("compile", 400, "invalid_attribution"): _AnswerRule("free", "final"),
         ("compile", 400, "malformed_request"): _AnswerRule("free", "final"),
         ("compile", 400, _ANY_CODE): _AnswerRule(None, "final"),
         # A refused credential: rebrew gets no other one to resend the key with.
-        ("compile", 401, "unauthenticated"): _AnswerRule(None, "final"),
+        # 12.0.0 relays Platform's 401 after the compile, and its maintenance pass
+        # then bills the retained outcome: unknown even on a first attempt.
+        ("compile", 401, "unauthenticated"): _AnswerRule("unknown", "final"),
         ("compile", 401, "authentication_required"): _AnswerRule(None, "final"),
         ("compile", 401, _ANY_CODE): _AnswerRule(None, "final"),
-        # A new compile refused until the account can pay: a key already admitted is
-        # answered its outcome, except that one without a retained result answers
-        # workbench_plan_required while the org has no plan.
-        ("compile", 402, "model_credits_exhausted"): _AnswerRule("free", "final"),
-        ("compile", 402, "workbench_plan_required"): _AnswerRule(None, "final"),
-        ("compile", 402, "allowance_exhausted"): _AnswerRule("free", "final"),
+        # A new compile refused until the account can pay.  Before 14.0.1 a known key
+        # may get it before Platform looks the key up, so it settles nothing.
+        ("compile", 402, "model_credits_exhausted"): _AnswerRule(None, "final"),
+        ("compile", 402, "allowance_exhausted"): _AnswerRule(None, "final"),
+        # 14.0.0 relays it for a compile Platform 0.29.0 billed while the plan was removed.
+        ("compile", 402, "workbench_plan_required"): _AnswerRule("unknown", "final"),
         ("compile", 402, _ANY_CODE): _AnswerRule(None, "final"),
         # Billed, and this credential may not receive the result.
         ("compile", 403, "billed_not_delivered"): _AnswerRule("billed", "final"),
-        ("compile", 403, "delivery_denied"): _AnswerRule("free", "new_key"),
-        ("compile", 403, "forbidden"): _AnswerRule(None, "final"),
+        # 12.0.0 answers it after Platform settled (billed) the compile: no new key.
+        ("compile", 403, "delivery_denied"): _AnswerRule("unknown", "final"),
+        # 12.0.0 relays Platform's 403 after the compile, which its maintenance pass bills.
+        ("compile", 403, "forbidden"): _AnswerRule("unknown", "final"),
         ("compile", 403, "cross_origin_write"): _AnswerRule(None, "final"),
         ("compile", 403, "cross_site_write"): _AnswerRule(None, "final"),
         ("compile", 403, "edge_required"): _AnswerRule(None, "final"),
@@ -223,23 +233,26 @@ _ANSWERS: Mapping[tuple[_Route, int, str | None], _AnswerRule] = MappingProxyTyp
         ("compile", 408, _ANY_CODE): _AnswerRule(None, "retry"),
         ("compile", 409, "admission_abandoned"): _AnswerRule("free", "new_key"),
         ("compile", 409, "admission_expired"): _AnswerRule("free", "new_key"),
-        ("compile", 409, "result_unavailable"): _AnswerRule("free", "new_key"),
+        # 12.0.0 answers it for an admission Platform settled billed with no result.
+        ("compile", 409, "result_unavailable"): _AnswerRule("unknown", "final"),
         ("compile", 409, "admission_unrecoverable"): _AnswerRule("unknown", "final"),
         ("compile", 409, "retained_output_unavailable"): _AnswerRule("billed", "final"),
-        # The key names another request's compile, so this one never ran under it,
-        # or the account's status changed before admission: the same key again.
-        ("compile", 409, "admission_conflict"): _AnswerRule("free", "retry"),
+        # "No for this request" (14.0.1), and 12.0.0 relays every Platform 409 under it,
+        # a settlement's among them: it settles nothing, and the same key goes again.
+        ("compile", 409, "admission_conflict"): _AnswerRule(None, "retry"),
         ("compile", 409, _ANY_CODE): _AnswerRule(None, "final"),
         ("compile", 410, "artifact_expired"): _AnswerRule("billed", "final"),
         ("compile", 410, _ANY_CODE): _AnswerRule(None, "final"),
-        ("compile", 413, "source_too_large"): _AnswerRule("free", "final"),
+        # Platform's cap, relayed by 12.0.0 before Platform looks the key up.
+        ("compile", 413, "source_too_large"): _AnswerRule(None, "final"),
         ("compile", 413, "body_too_large"): _AnswerRule("free", "final"),
         ("compile", 413, _ANY_CODE): _AnswerRule(None, "final"),
         ("compile", 415, "unsupported_media_type"): _AnswerRule("free", "final"),
         ("compile", 415, _ANY_CODE): _AnswerRule(None, "final"),
         ("compile", 422, "validation_failed"): _AnswerRule("free", "final"),
         ("compile", 422, _ANY_CODE): _AnswerRule("free", "final"),
-        ("compile", 423, "account_under_review"): _AnswerRule(None, "final"),
+        # 12.0.0 relays Platform's refusal of the caller after the compile, as for 401.
+        ("compile", 423, "account_under_review"): _AnswerRule("unknown", "final"),
         ("compile", 423, _ANY_CODE): _AnswerRule(None, "final"),
         ("compile", 425, _ANY_CODE): _AnswerRule(None, "retry"),
         ("compile", 429, "rate_limited"): _AnswerRule(None, "wait"),
@@ -258,9 +271,17 @@ _ANSWERS: Mapping[tuple[_Route, int, str | None], _AnswerRule] = MappingProxyTyp
         ("compile", 503, "credit_ledger_unavailable"): _AnswerRule("free", "wait"),
         ("compile", 503, _ANY_CODE): _AnswerRule("unknown", "wait"),
         ("compile", 504, _ANY_CODE): _AnswerRule("unknown", "retry"),
-        # The edge gave up on a compile running past its 100 s: a lost reply,
-        # whose key the service answers with the compile's outcome once it has one.
+        # The edge's own answers (Cloudflare, "Troubleshooting Cloudflare 5XX errors"):
+        # a lost reply, retried under the same key (rule 3).  520: the origin reset
+        # the connection or sent an empty or unreadable reply; 524: the origin took
+        # longer than 100 s to answer.  Both may follow an admitted compile.
+        ("compile", 520, _ANY_CODE): _AnswerRule("unknown", "wait"),
         ("compile", 524, _ANY_CODE): _AnswerRule("unknown", "wait"),
+        # 521: the origin refused the connection; 522: the connection to it timed
+        # out; 523: the origin is unreachable.  The request never reached it.
+        ("compile", 521, _ANY_CODE): _AnswerRule(None, "wait"),
+        ("compile", 522, _ANY_CODE): _AnswerRule(None, "wait"),
+        ("compile", 523, _ANY_CODE): _AnswerRule(None, "wait"),
         # A download follows a billed compile and changes nothing of its cost.
         ("artifact", 200, None): _AnswerRule(None, "verdict"),
         ("artifact", 401, _ANY_CODE): _AnswerRule(None, "final"),

@@ -16,6 +16,7 @@ from rebrew.compiler.recompile_client import (
     _ANSWERS,
     _ANY_CODE,
     RecompileError,
+    _AnswerRule,
     _same_origin_artifact_url,
     compile_source,
 )
@@ -1874,8 +1875,6 @@ class TestRecompileElevenCodes:
         [
             (409, "admission_abandoned"),
             (409, "admission_expired"),
-            (409, "result_unavailable"),
-            (403, "delivery_denied"),
         ],
     )
     @pytest.mark.parametrize("emit_assembly", [False, True])
@@ -1957,8 +1956,11 @@ class TestRecompileElevenCodes:
             (409, "retained_output_unavailable", "billed"),
             # This service lost the key's record: Platform may have billed it.
             (409, "admission_unrecoverable", "unknown"),
-            # A refused credential on the key's first attempt: nothing was admitted.
-            (403, "forbidden", "free"),
+            # recompile 12.0.0 relays a refused credential after the compile, which its
+            # maintenance pass then bills: unknown even on the key's first attempt.
+            (403, "forbidden", "unknown"),
+            (403, "delivery_denied", "unknown"),
+            (409, "result_unavailable", "unknown"),
         ],
     )
     def test_another_refusal_is_final(self, status: int, code: str, cost: str) -> None:
@@ -1982,7 +1984,7 @@ class TestRecompileElevenCodes:
         monkeypatch.setattr("rebrew.compiler.recompile_client.time.sleep", lambda _s: None)
         client = _sequence_client(
             monkeypatch,
-            [self._refusal(409, "admission_expired"), self._refusal(403, "delivery_denied")],
+            [self._refusal(409, "admission_expired"), self._refusal(409, "admission_abandoned")],
         )
         src = tmp_path / "f.c"
         src.write_text("int f(void) { return 0; }")
@@ -2004,7 +2006,7 @@ class TestRecompileElevenCodes:
         assert [call for call, _url in client.calls] == ["post", "post"]
         assert result.status == "NOT_RUN" and not result.matched
         assert isinstance(result.error, RecompileError)
-        assert (result.error.status_code, result.error.error_code) == (403, "delivery_denied")
+        assert (result.error.status_code, result.error.error_code) == (409, "admission_abandoned")
 
 
 class TestCompilerListing:
@@ -2093,22 +2095,16 @@ class TestClientRulesTable:
     """One table reads every answer of recompile's compile and artifact routes
     (recompile ``docs/API.md``, "Client rules"); the client follows each row."""
 
-    #: Rule 4's costs and rule 3's same-key waits, as recompile 14 publishes them.
+    #: Rule 4's costs as recompile 14.0.1 publishes them, where every release from
+    #: 12.0.0 on agrees.
     PUBLISHED = (
         (200, "toolchain_failure", "billed"),
         (403, "billed_not_delivered", "billed"),
         (410, "artifact_expired", "billed"),
         (409, "retained_output_unavailable", "billed"),
-        (403, "delivery_denied", "free"),
         (409, "admission_abandoned", "free"),
         (409, "admission_expired", "free"),
-        (409, "result_unavailable", "free"),
         (409, "admission_unrecoverable", "unknown"),
-        (400, "compiler_not_installed", "free"),
-        (400, "compiler_unavailable", "free"),
-        (400, "compiler_withdrawn", "free"),
-        (400, "bundles_unsupported", "free"),
-        (413, "source_too_large", "free"),
         (400, "invalid_idempotency_key", "free"),
         (400, "invalid_attribution", "free"),
         (400, "malformed_request", "free"),
@@ -2121,8 +2117,6 @@ class TestClientRulesTable:
         (200, "publish_failed", "free"),
         (200, "provenance_unavailable", "free"),
         (200, "missing_artifact", "free"),
-        (402, "model_credits_exhausted", "free"),
-        (402, "allowance_exhausted", "free"),
         (503, "credit_ledger_unavailable", "free"),
     )
 
@@ -2130,17 +2124,38 @@ class TestClientRulesTable:
     def test_the_table_bills_what_rule_4_says(self, status: int, code: str, cost: str) -> None:
         assert _ANSWERS["compile", status, code].cost == cost
 
-    #: Answers rule 4 bills nothing "for this request" while a key already admitted
-    #: keeps its outcome: they say nothing of the key.
+    #: Answers 14.0.1 calls unbilled that an earlier release a deployment may run
+    #: answers after a billed compile (recompile 12.0.0 in production; 14.0.0).
+    MAY_FOLLOW_A_BILLED_COMPILE = (
+        (403, "delivery_denied"),  # 12.0.0: raised after Platform settled the compile
+        (401, "unauthenticated"),  # 12.0.0: relayed after the compile, billed later
+        (403, "forbidden"),  # 12.0.0: the same
+        (423, "account_under_review"),  # 12.0.0: the same
+        (409, "result_unavailable"),  # 12.0.0: for an admission settled billed
+        (402, "workbench_plan_required"),  # 14.0.0 with Platform 0.29.0: plan removed
+    )
+
+    @pytest.mark.parametrize(("status", "code"), MAY_FOLLOW_A_BILLED_COMPILE)
+    def test_an_answer_an_earlier_release_sends_after_billing_is_unknown_and_final(
+        self, status: int, code: str
+    ) -> None:
+        assert _ANSWERS["compile", status, code] == _AnswerRule("unknown", "final")
+
+    #: Answers that say nothing of the key: rule 4's "for this request", or a refusal a
+    #: known key may get before Platform looks it up in a release before 14.0.1.
     SILENT = (
-        (401, "unauthenticated"),
-        (403, "forbidden"),
-        (423, "account_under_review"),
-        (402, "workbench_plan_required"),
         (429, "rate_limited"),
         (429, "concurrency_limit"),
         (429, "failure_throttle"),
         (429, "request_budget"),
+        (409, "admission_conflict"),
+        (402, "model_credits_exhausted"),
+        (402, "allowance_exhausted"),
+        (400, "compiler_not_installed"),
+        (400, "compiler_unavailable"),
+        (400, "compiler_withdrawn"),
+        (400, "bundles_unsupported"),
+        (413, "source_too_large"),
     )
 
     @pytest.mark.parametrize(("status", "code"), SILENT)

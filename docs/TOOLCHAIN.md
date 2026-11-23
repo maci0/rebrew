@@ -33,51 +33,56 @@ recompile_concurrency` (default 2) run at once, whatever `jobs` is, and a
 `Retry-After` a retryable reply names (a 429 or 503, or a `capacity` refusal; at most 300
 s) holds every compile of the process back for that long, also when the compile that got
 it gives up (`recompile_client.ServiceGate`). A compile the service has no room for
-now (a `capacity` or `runner_unavailable` refusal, a 429 or a 503), the edge's
-`524` for a compile that ran past its 100 s, and an artifact download answered 503
-(`platform_unavailable`, `store_unavailable`, `artifact_evidence_unavailable`) or
-429, is waited out:
-it is tried again after the `Retry-After`, or the capped backoff without one, until
-the call's deadline, however many attempts that takes. Without a deadline (a CLI
-run) the waits end 300 s after the compile started
-(`recompile_client.NO_DEADLINE_WAIT_SECONDS`). Any other retryable failure (a
+now (a `capacity` or `runner_unavailable` refusal, a 429 or a 503), the edge's own
+`520` to `524` (Cloudflare's: the origin reset the connection or sent an unreadable
+reply, refused it, timed out, was unreachable, or took longer than 100 s), and an
+artifact download answered 503 (`platform_unavailable`, `store_unavailable`,
+`artifact_evidence_unavailable`) or 429, is waited out: it is tried again after the
+`Retry-After`, or the capped backoff without one, until the call's deadline, however
+many attempts that takes. Without a deadline (a CLI run) the waits end 300 s after
+the compile started (`recompile_client.NO_DEADLINE_WAIT_SECONDS`). Any other
+retryable failure is retried `recompile_retries` times with backoff, waiting at least
+the `Retry-After`: under the same key with the same body, `emit_assembly` or not, a
 lost or unreadable reply, 408/425/500/502/504, an artifact download lost or answered
-408/425/500/502/504, the
-service's `publish_failed`, or an error `code` saying the key can never yield a result
-and billed nothing: `admission_abandoned`, `admission_expired`, `result_unavailable`
-or `delivery_denied`) is retried `recompile_retries` times with backoff, waiting at
-least the `Retry-After`. `capacity`, `runner_unavailable`, `publish_failed` and those
-codes are retried under a new key; a lost or unreadable reply and a 5xx under the
-same key with the same body, `emit_assembly` or not, which the service answers with
-the key's first outcome. The service's `timeout` and `provenance_unavailable` are
-final. So are `admission_unrecoverable`, `retained_output_unavailable`,
-`artifact_expired`, and a 401, a 423 or a 403 other than `delivery_denied`, which
-rebrew cannot resend under a renewed credential (recompile `docs/API.md`, "Client
-rules": a retry under the same key reads that compile's first outcome and is not
-billed again).
+408/425/500/502/504, and `409 admission_conflict` (the account's status changed
+before admission); under a new key, the service's `publish_failed` and the codes
+saying the key can never yield a result and billed nothing, `admission_abandoned`
+and `admission_expired` (`capacity` and `runner_unavailable` are waited out under a
+new key). The service's `timeout`, `provenance_unavailable` and `missing_artifact`
+are final, and so is every other refusal (recompile `docs/API.md`, "Client rules": a
+retry under the same key reads that compile's first outcome and is not billed again).
 
 Every answer of the compile and artifact routes is read by one table
 (`recompile_client._ANSWERS`, recompile `docs/API.md` "Client rules"): what the
 answer says the key cost, and whether the client downloads, stops, waits, retries
-or retries under a new key. An op's `remote_compile` puts each compile call in at
-most one of three counts by what its last key cost. `count` is a call the service
-billed and whose verdict the op got: an object, or the compiler's rejection.
-`billed_undelivered` is a call the service billed whose verdict the op did not get:
-the object's download failed after `status: "ok"`, or the key was answered
-`403 billed_not_delivered`, `409 retained_output_unavailable` or
-`410 artifact_expired`. `unsettled` is a call whose key may have been billed and no
-answer said: a reply lost on every attempt, a 5xx or 503 other than
-`credit_ledger_unavailable` waited out to the deadline, `admission_unrecoverable`,
-or an answer that says nothing of the key (a refused credential,
-`423 account_under_review`, `402 workbench_plan_required`, which an admitted key
-without a retained result answers while the org has no plan, a throttle) after one
-of those. A call in none of them was free: the service's other `error_code` values,
-`delivery_denied` and the spent-key codes, a new compile or a malformed request
-refused (`400`, `402 model_credits_exhausted` or `allowance_exhausted`,
-`409 admission_conflict`, `413`, `415`, `422`, `503 credit_ledger_unavailable`,
-which recompile answers only to a new compile), or an answer that says nothing of
-the key on its first attempt. The service answers a known key
-with its first outcome, so a settling answer also settles a reply lost before it.
+or retries under a new key. The table holds against every recompile release a
+deployment may run, 12.0.0 (production) to 14.x: an answer counts a key free only
+where every one of them says the key was not billed, so an answer 14.0.1 calls
+unbilled that 12.0.0 or 14.0.0 sends after billing the compile is unknown and final,
+and a refusal 14.0.1 makes only of a new compile says nothing of the key. An op's
+`remote_compile` puts each compile call in at most one of three counts by what its
+last key cost. `count` is a call the service billed and whose verdict the op got:
+an object, or the compiler's rejection. `billed_undelivered` is a call the
+service billed whose verdict the op did not get: the object's download failed after
+`status: "ok"`, or the key was answered `403 billed_not_delivered`,
+`409 retained_output_unavailable` or `410 artifact_expired`. `unsettled` is a call
+whose key may have been billed and no answer said: a reply lost on every attempt, a
+5xx or 503 other than `credit_ledger_unavailable` waited out to the deadline,
+`409 admission_unrecoverable`; `403 delivery_denied` (12.0.0 answers it after
+Platform settled the compile), a `401`, `403 forbidden` or `423
+account_under_review` (12.0.0 relays them after the compile, and its maintenance
+pass bills it), `409 result_unavailable` (12.0.0, for an admission settled billed)
+and `402 workbench_plan_required` (14.0.0, for a compile billed while the plan was
+removed); or an answer that says nothing of the key (a throttle, `409
+admission_conflict`, `402 model_credits_exhausted` or `allowance_exhausted`, a `400`
+compiler refusal or `413 source_too_large`, which a known key may get before
+Platform looks it up before 14.0.1) after one of those. A call in none of them was
+free: the service's other `error_code` values, `admission_abandoned` and
+`admission_expired`, a malformed request (`400 invalid_*` or `malformed_request`,
+`413 body_too_large`, `415`, `422`), `503 credit_ledger_unavailable`, which recompile
+answers only to a new compile, or an answer that says nothing of the key on its
+first attempt. The service answers a known key with its first outcome, so a settling
+answer also settles a reply lost before it.
 The three counts are in the op's reply and in a refusal after a recompile call.
 
 A compiler the registry withdraws (`ToolchainSpec.withdrawn`, its reason; today

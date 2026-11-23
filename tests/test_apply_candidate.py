@@ -1155,10 +1155,13 @@ def test_an_unbilled_failure_that_asks_for_no_retry_is_final(
         (["lost", _refused(423, "account_under_review")], 0, 1),
         (["lost", _refused(401, "unauthenticated")], 0, 1),
         (["lost", _refused(403, "forbidden")], 0, 1),
-        # On the key's first attempt nothing was admitted.
-        ([_refused(423, "account_under_review")], 0, 0),
-        ([_refused(401, "unauthenticated")], 0, 0),
-        ([_refused(403, "forbidden")], 0, 0),
+        # recompile 12.0.0 (production) relays these after the compile and bills it
+        # later, and answers delivery_denied after Platform settled it: unknown even on
+        # the key's first attempt, and no new key follows.
+        ([_refused(423, "account_under_review")], 0, 1),
+        ([_refused(401, "unauthenticated")], 0, 1),
+        ([_refused(403, "forbidden")], 0, 1),
+        ([_refused(403, "delivery_denied")], 0, 1),
     ],
     ids=[
         "lost-410-expired",
@@ -1169,9 +1172,10 @@ def test_an_unbilled_failure_that_asks_for_no_retry_is_final(
         "lost-423",
         "lost-401",
         "lost-403",
-        "423",
-        "401",
-        "403",
+        "r12-423-after-compile",
+        "r12-401-after-compile",
+        "r12-403-after-compile",
+        "r12-billed-403-delivery_denied-then-ok",
     ],
 )
 def test_a_final_refusal_reports_what_its_key_cost(
@@ -1190,11 +1194,24 @@ def test_a_final_refusal_reports_what_its_key_cost(
     assert reply["remote_compile"]["unsettled"] == unsettled
 
 
-def test_an_edge_timeout_reads_the_compile_under_the_same_key(
+def test_a_billed_delivery_denied_is_never_compiled_again_under_a_new_key(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The edge's 524 is a lost reply: the same key reads the compile it gave up on."""
-    reply, seen = _verify(tmp_path, monkeypatch, [(524, None), _OK])
+    """recompile 12.0.0 answers every attempt delivery_denied after billing the first:
+    one POST, reported unsettled (r12-billed-403-delivery_denied-x3)."""
+    denied = _refused(403, "delivery_denied")
+    reply, seen = _verify(tmp_path, monkeypatch, [denied, denied, denied])
+    assert (reply["status"], len(seen)) == ("NOT_RUN", 1)
+    assert reply["remote_compile"]["count"] == 0
+    assert reply["remote_compile"]["unsettled"] == 1
+
+
+@pytest.mark.parametrize("edge", [520, 521, 522, 523, 524])
+def test_an_edge_timeout_reads_the_compile_under_the_same_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, edge: int
+) -> None:
+    """The edge's own 52x answers are lost replies: the same key reads the compile."""
+    reply, seen = _verify(tmp_path, monkeypatch, [(edge, None), _OK])
     assert len(seen) == 2 and len(set(_keys(seen))) == 1
     assert reply["remote_compile"]["count"] == 1
     assert reply["remote_compile"]["unsettled"] == 0
@@ -1214,10 +1231,8 @@ def test_a_reply_lost_on_every_attempt_is_reported_unsettled(
 @pytest.mark.parametrize(
     ("first", "new_key"),
     [
-        (_refused(403, "delivery_denied"), True),
         (_refused(409, "admission_expired"), True),
         (_refused(409, "admission_abandoned"), True),
-        (_refused(409, "result_unavailable"), True),
         (_failed("publish_failed"), True),
         (_refused(503, "credit_ledger_unavailable"), False),
         (_refused(503, "settlement_pending"), False),
@@ -1254,11 +1269,10 @@ def test_a_refusal_of_a_key_never_admitted_is_settled(
 @pytest.mark.parametrize(
     ("settled", "unsettled"),
     [
-        # Only a new compile is refused for credits: the key was never admitted.
-        (_refused(402, "model_credits_exhausted"), 0),
-        (_refused(402, "allowance_exhausted"), 0),
-        # An admitted key without a retained result answers this while the org has no
-        # plan (recompile's client rules, rule 4): the earlier attempt stays unknown.
+        # Before recompile 14.0.1 a known key may be refused for credits before Platform
+        # looks it up, so a 402 says nothing of the attempt lost before it.
+        (_refused(402, "model_credits_exhausted"), 1),
+        (_refused(402, "allowance_exhausted"), 1),
         (_refused(402, "workbench_plan_required"), 1),
     ],
     ids=["credits", "allowance", "plan"],
