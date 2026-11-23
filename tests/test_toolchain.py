@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import re
 from pathlib import Path
 from typing import Any, ClassVar
 lazy from collections.abc import Callable, Iterator
@@ -1589,10 +1590,10 @@ class TestDockerfileSanity:
         text = self._read("base/Dockerfile")
         # The apt block must be a single RUN continuation — a lone
         # `&& apt-get` (missing RUN) is a parse error.
-        idx = text.index("&& apt-get update")
-        prefix = text[:idx]
-        assert "RUN dpkg --add-architecture i386" in prefix, (
-            "base Dockerfile apt block lost its RUN prefix"
+        block = re.search(r"^RUN dpkg --add-architecture i386 \\\n(?:.*\\\n)*.*$", text, re.M)
+        assert block, "base Dockerfile lost its `RUN dpkg --add-architecture i386` block"
+        assert re.search(r"&& apt-get (?:-o \S+ )*update\b", block[0]), (
+            "base Dockerfile i386 apt update is not in the RUN block"
         )
 
     def test_no_lone_continuation_after_label_blocks(self) -> None:
